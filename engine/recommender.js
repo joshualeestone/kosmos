@@ -222,7 +222,7 @@ function playbookText(item, setting) {
  * the playbook naming the peers who were reached. On a retry: the playbook only.
  * @returns {{next: object, acted: Array<object>}}
  */
-function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIVERY, heldUntil }) {
+function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIVERY, heldUntil, reserve, release }) {
   const out = step({ prev, roster, setting, members, now });
   const acted = [];
   const send = (session, text) => {
@@ -243,6 +243,11 @@ function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIV
       acted.push({ session: item.session, name: item.name, project: item.project, retry: item.retry, noteLanded: null, asked: [], verdict: 'held' });
       continue;
     }
+    /* #4588 ask 3 review 9: the stuck agent's Gemini cap slot is reserved BEFORE the peer asks, so a peer's ask cannot
+       take the only slot and leave the agent that needs help held, with an attempt spent. Given back if its playbook
+       reaches nothing. Optional, so a caller without the cap behaves exactly as before. */
+    let slot = null;
+    if (typeof reserve === 'function') { try { slot = reserve(item.session); } catch { slot = null; } }
     let asked = item.asked || [];
     let noteLanded = null;
     if (!item.retry) {
@@ -254,6 +259,7 @@ function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIV
       try { noteLanded = roomNote(item.project, roomNoteText({ ...item, asked }), { recommender: rec }) !== false; } catch { noteLanded = false; }
     }
     const verdict = send(item.session, playbookText({ ...item, asked }, setting));
+    if (verdict !== DELIVERY.PLACED && verdict !== DELIVERY.UNCONFIRMED && typeof release === 'function') { try { release(slot); } catch { /* the slot lapses on its own */ } }
     markAttempt(out.next, item.key, verdict, DELIVERY, item.retry ? undefined : asked, now);
     acted.push({ session: item.session, name: item.name, project: item.project, retry: item.retry,
       noteLanded, asked: asked.map((p) => p.session), verdict });

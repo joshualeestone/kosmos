@@ -1710,27 +1710,54 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
  * COULD_NOT (nothing reached the pane) with `held: true` and `heldUntil` (ISO), so a sender that budgets its tries can
  * keep the try for after the reset. A person's own message goes through deliver() and is never held.
  */
-function quotaHeldVerdict(sessionName, roster) {
+function quotaHeldVerdict(sessionName, roster, opts = {}) {
   // Review round 6: only a pane we could type into is HELD. A stopped or untypeable member (no agent process, no
   // target, not ours) is refused by deliver/deliverAsync with its real reason, exactly as without the quota gate, so
   // the room never logs a post as held for a pane nothing can reach, and the sender is not told PLACED.
   if (addressable(sessionName, roster).ok !== true) return null;
+  const now = Date.now();
   let until = null;
-  try { until = require('./agyquota').heldForQuota(sessionName, roster, Date.now()); } catch { until = null; }
-  if (until === null) return null;
+  try { until = require('./agyquota').heldForQuota(sessionName, roster, now); } catch { until = null; }
+  let because = null;
+  let heldBy = 'quota';   // #4588 ask 3 review 1: which hold, so no surface says "the quota is out" for the cap
+  if (until !== null) because = "held: this machine's Google account's shared Antigravity quota is out until " + new Date(until).toISOString();
+  else {
+    heldBy = 'cap';
+    // #4588 ask 3: the person's cap on how many Antigravity agents work at once (Settings > Automation). Not for a
+    // send that follows the person's own click (opts.cap false: the restart wake and the handoff pickup).
+    if (opts.cap === false) return null;
+    try { until = require('./agyquota').heldForCap(sessionName, roster, now); } catch { until = null; }
+    if (until === null) return null;
+    because = 'held: the Gemini subscription agents on this computer are at the limit you set for working at once; looking again at ' + new Date(until).toISOString();
+  }
   return {
-    state: DELIVERY.COULD_NOT, held: true, heldUntil: new Date(until).toISOString(),
-    because: "held: this machine's Google account's shared Antigravity quota is out until " + new Date(until).toISOString(),
+    state: DELIVERY.COULD_NOT, held: true, heldBy, heldUntil: new Date(until).toISOString(), because,
     at: new Date().toISOString(), paneState: null, paneNote: null,
   };
 }
-function deliverAutomatic(sessionName, raw, roster, envelope, trailer) {
-  return quotaHeldVerdict(sessionName, roster) || deliver(sessionName, raw, roster, envelope, trailer);
+function deliverAutomatic(sessionName, raw, roster, envelope, trailer, opts = {}) {
+  const held = quotaHeldVerdict(sessionName, roster, opts);
+  if (held) return held;
+  // #4588 ask 3 review 1: reserve the cap slot before the keystroke; a line that reached nothing gives it back.
+  const slot = require('./agyquota').noteCapStart(sessionName, roster, Date.now());
+  let v;
+  try { v = deliver(sessionName, raw, roster, envelope, trailer); }
+  catch (err) { require('./agyquota').releaseCapStart(slot); throw err; }   // review 4: a throw reached nothing either
+  if (v && v.state === DELIVERY.COULD_NOT) require('./agyquota').releaseCapStart(slot);
+  return v;
 }
 /* The same gate in front of deliverAsync, for the automatic senders on the async path (a colleague's room post
    delivered by sendPostAsync, the #4624 idle flush). */
-async function deliverAutomaticAsync(sessionName, raw, roster, envelope, trailer) {
-  return quotaHeldVerdict(sessionName, roster) || deliverAsync(sessionName, raw, roster, envelope, trailer);
+async function deliverAutomaticAsync(sessionName, raw, roster, envelope, trailer, opts = {}) {
+  const held = quotaHeldVerdict(sessionName, roster, opts);
+  if (held) return held;
+  // Reserved synchronously, before the first await, so a parallel fan-out's next call already counts it.
+  const slot = require('./agyquota').noteCapStart(sessionName, roster, Date.now());
+  let v;
+  try { v = await deliverAsync(sessionName, raw, roster, envelope, trailer); }
+  catch (err) { require('./agyquota').releaseCapStart(slot); throw err; }
+  if (v && v.state === DELIVERY.COULD_NOT) require('./agyquota').releaseCapStart(slot);
+  return v;
 }
 
 async function deliverAsync(sessionName, raw, roster, envelope, trailer) {

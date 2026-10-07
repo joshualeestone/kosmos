@@ -47,6 +47,14 @@ function fixture() {
   const refused = refusedDoors(root);
   fs.writeFileSync(path.join(root, 'node-options-attack.js'), `require('node:fs').writeFileSync(${JSON.stringify(path.join(root, 'node-options-ran'))}, 'ran');\n`);
   fs.writeFileSync(path.join(root, 'engine', 'tokendoors.js'), "module.exports.SPECS = [{ envVar: 'DISCORD_BOT_TOKEN' }];\n");
+  // #4592: a real installed engine provides both contracts a Codex launch now
+  // requires. This argv-focused fixture stubs the contracts without importing
+  // the whole engine graph, just like test-supervisor-env's installed layout.
+  fs.writeFileSync(path.join(root, 'engine', 'codexruntime.js'), [
+    "const path = require('node:path');",
+    "module.exports = { forSession: (name) => path.join(process.env.AGENT_WORKFORCE_DATA, 'Kosmos', 'codex-homes', name) };",
+  ].join('\n') + '\n');
+  fs.writeFileSync(path.join(root, 'engine', 'create.js'), "module.exports = { trustCodexFolder: () => {} };\n");
   for (const [name, value] of Object.entries(refused)) {
     fs.writeFileSync(path.join(root, 'secrets', 'env', name), value, { mode: 0o600 });
   }
@@ -75,7 +83,7 @@ function fixture() {
     '    before=""',
     '    for arg in "$@"; do',
     '      if [ "$before" = --pane-entry ]; then',
-    '        (stat -f %Lp "$arg" 2>/dev/null || stat -c %a "$arg" 2>/dev/null) > "$MODE_RECORD"',
+    '        (stat -c %a "$arg" 2>/dev/null || stat -f %Lp "$arg" 2>/dev/null) > "$MODE_RECORD"',
     '        break',
     '      fi',
     '      before="$arg"',

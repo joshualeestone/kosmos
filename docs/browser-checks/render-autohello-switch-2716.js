@@ -56,7 +56,8 @@ function initStub() {
     }
     if (/\/api\/agent\/[^/]+\/provider$/.test(u) && method === 'POST') {
       window.__statusSinceRestart = 0;
-      return enc({ outcome: 'changed', provider: 'openai', because: 'OpenAI it is. It is starting again now.' });
+      // #5145: the route names the account it landed on; arm 11b2 sets it, arm 11b leaves it unset (the control).
+      return enc({ outcome: 'changed', provider: 'openai', accountDir: window.__provAccountDir || null, because: 'OpenAI it is. It is starting again now.' });
     }
     if (/\/api\/status(\?|$)/.test(u)) {
       window.__statusSinceRestart += 1;
@@ -380,6 +381,86 @@ function initStub() {
      0.7.21 cut. With no OpenAI account picked (no picker in this fixture), the line names the provider and no account. */
   check('#4008 real provider switch: Runs on names the provider it moved to, and not the old Claude model or the Claude account',
     s11b.runsOn === 'Right now: OpenAI Codex' && !/hello@example\.com|Sonnet/.test(s11b.runsOn), JSON.stringify(s11b.runsOn));
+
+  // ---- Arm 11b2 (#5145): the route names the account it landed on, and Right now names it ----
+  const s11b2 = await page.evaluate(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const back = document.getElementById('chg-modal');
+    const msg = document.getElementById('chg-msg');
+    back.hidden = true; msg.textContent = '';
+    window.__posted = [];
+    window.__threadResp = { recorded: true, delivery: { state: 'placed' } };
+    window.__statusSinceRestart = 0;
+    window.__readyAfterCalls = 2;
+    window.__provAccountDir = '/accts/openai-work';
+    ACCOUNTS = [{ dir: '/accts/openai-work', provider: 'openai', email: 'work@example.com', isDefault: true }];
+    CURRENT = { sessionName: 'april', name: 'April', displayName: 'April', runner: 'claude', isNamedOurs: true };
+    const psel = document.getElementById('d-provider');
+    psel.innerHTML = '<option value="openai">OpenAI</option>';
+    psel.value = 'openai';
+    document.getElementById('d-runson').innerHTML = 'Right now: <b>Claude Sonnet 5</b> (hello@example.com)';
+    const pgo = document.getElementById('d-provider-go');
+    pgo.disabled = false;
+    pgo.click();
+    document.getElementById('chg-go').click();
+    const t0 = Date.now();
+    let runsOn = '';
+    // Wait out the whole switch as arm 11b does (its wake hello included), or the hello lands in the next arm.
+    while (Date.now() - t0 < 3500) {
+      if (/OpenAI Codex/.test(document.getElementById('d-runson').textContent) && window.__posted.some((x) => /\/thread$/.test(x.url))) break;
+      await sleep(20);
+    }
+    await sleep(300);
+    runsOn = document.getElementById('d-runson').textContent;
+    const out = { runsOn, account: CURRENT && CURRENT.account ? CURRENT.account.dir : null };
+    window.__provAccountDir = undefined;
+    const keep = document.getElementById('chg-keep'); if (keep) keep.click();
+    return out;
+  });
+  check('#5145 real provider switch with no account sent: Right now names the account the route landed on',
+    s11b2.runsOn === 'Right now: OpenAI Codex (work@example.com)', JSON.stringify(s11b2));
+  check('#5145 the agent is recorded on the landed account (not left with none)',
+    s11b2.account === '/accts/openai-work', JSON.stringify(s11b2));
+
+  // ---- Arm 11b3 (#5145 review 1): the route names an account that is NOT a listed row (an unlisted landed dir, standing in for the Gemini/Grok computed default); the page must not record it (it would read as an account that is gone) ----
+  const s11b3 = await page.evaluate(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const back = document.getElementById('chg-modal');
+    const msg = document.getElementById('chg-msg');
+    back.hidden = true; msg.textContent = '';
+    window.__posted = [];
+    window.__threadResp = { recorded: true, delivery: { state: 'placed' } };
+    window.__statusSinceRestart = 0;
+    window.__readyAfterCalls = 2;
+    window.__provAccountDir = '/accts/openai-work';
+    ACCOUNTS = [];
+    CURRENT = { sessionName: 'april', name: 'April', displayName: 'April', runner: 'claude', isNamedOurs: true };
+    const psel = document.getElementById('d-provider');
+    psel.innerHTML = '<option value="openai">OpenAI</option>';
+    psel.value = 'openai';
+    document.getElementById('d-runson').innerHTML = 'Right now: <b>Claude Sonnet 5</b> (hello@example.com)';
+    const pgo = document.getElementById('d-provider-go');
+    pgo.disabled = false;
+    pgo.click();
+    document.getElementById('chg-go').click();
+    const t0 = Date.now();
+    let runsOn = '';
+    // Wait out the whole switch as arm 11b does (its wake hello included), or the hello lands in the next arm.
+    while (Date.now() - t0 < 3500) {
+      if (/OpenAI Codex/.test(document.getElementById('d-runson').textContent) && window.__posted.some((x) => /\/thread$/.test(x.url))) break;
+      await sleep(20);
+    }
+    await sleep(300);
+    runsOn = document.getElementById('d-runson').textContent;
+    const out = { runsOn, account: CURRENT && CURRENT.account ? CURRENT.account.dir : null };
+    window.__provAccountDir = undefined;
+    const keep = document.getElementById('chg-keep'); if (keep) keep.click();
+    return out;
+  });
+  check('#5145 review 1: a landed account that is not a listed row leaves no bracket (no false "gone" account)',
+    s11b3.runsOn === 'Right now: OpenAI Codex', JSON.stringify(s11b3));
+  check('#5145 review 1: and the agent is NOT recorded on that unlisted dir',
+    s11b3.account === null, JSON.stringify(s11b3));
 
   // ---- Arm 11c: a real switch that does NOT restart sends no hello ----
   const s11c = await page.evaluate(async () => {

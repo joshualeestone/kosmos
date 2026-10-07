@@ -249,6 +249,32 @@ const SCREENS = [
     await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
     await page.evaluate(() => { const r = document.querySelector('#pj-room'); if (r) r.scrollIntoView({ block: 'start' }); });
   } },
+  /* kosmos#5391 (Mona Lisa): the project page header with Pause / Resume, and a paused project (header, Paused line,
+     and the list card's badge). Paused through the page's own call, as the header button makes it, then reloaded. */
+  { name: 'project-head', owner: 'Mona Lisa', go: async (page, data) => {
+    // Not paused, whatever an earlier pass of project-paused left (the board lives across themes and sizes).
+    await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: false }) }), data.projectId);
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForFunction(() => { const b = document.querySelector('#pj-head-pause'); return b && !b.hidden && /Pause/.test(b.textContent); }, null, { timeout: 8000 });
+  } },
+  { name: 'project-paused', owner: 'Mona Lisa', go: async (page, data) => {
+    await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: true }) }), data.projectId);
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-paused', { state: 'visible', timeout: 8000 });
+  }, after: async (page, data) => {   // review 1: put the project back, so no later screen shoots it paused
+    const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: false }) }).then((r) => r.status), data.projectId);
+    if (st !== 200) throw new Error('could not unpause the project after the shot (' + st + ')');
+  } },
+  { name: 'projects-paused', owner: 'Mona Lisa', go: async (page, data) => {
+    await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: true }) }), data.projectId);
+    await openTab(page, 'projects');
+    await page.waitForSelector(`#pj-list .pj-row[data-project="${data.projectId}"] .pjpill.paused`, { timeout: 8000 });
+  }, after: async (page, data) => {   // review 1: put the project back, so no later screen shoots it paused
+    const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: false }) }).then((r) => r.status), data.projectId);
+    if (st !== 200) throw new Error('could not unpause the project after the shot (' + st + ')');
+  } },
   { name: 'ask-waiting', owner: 'Kano', go: async (page, data) => {
     // The board re-renders cards on its tick, so scroll inside the page.
     await page.waitForSelector(`.acard[data-agent="${data.askAgent}"]`, { timeout: 5000 });
@@ -556,6 +582,20 @@ const SCREENS = [
     await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
     await page.evaluate(async () => { await pjReload(); openTaskPage(1); });
     await page.waitForSelector('#pj-task-view:not([hidden]) #tk-say', { state: 'visible', timeout: 8000 });
+  } },
+  /* kosmos#4787 slice 1b: the task page's Repeats control with a rule set (every Tuesday at 10:30am), scrolled to it. */
+  { name: 'task-repeat', owner: 'Mona Lisa', go: async (page, data) => {
+    const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id) + '/task/1/repeat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ every: 'week', on: 'tue', at: '10:30' }) }).then((r) => r.status), data.projectId);
+    if (st !== 200) throw new Error('could not set the repeat rule (' + st + ')');
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+    await page.evaluate(async () => { await pjReload(); openTaskPage(1); });
+    await page.waitForSelector('#tk-repeat-line:not([hidden])', { timeout: 8000 });
+    await page.evaluate(() => document.getElementById('tk-repeat-row').scrollIntoView({ block: 'center' }));
+  }, after: async (page, data) => {   // put the task back to a one-off, so no later screen shows the rule
+    const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id) + '/task/1/repeat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clear: true }) }).then((r) => r.status), data.projectId);
+    if (st !== 200) throw new Error('could not clear the repeat rule after the shot (' + st + ')');
   } },
   /* #4470: the Tasks view in the new look, for the side by side with 'tasks'. */
   { name: 'nl-tasks', owner: 'Mona Lisa', go: async (page) => {

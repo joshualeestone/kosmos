@@ -3378,7 +3378,7 @@ test('a program that cannot be run at all is still "we could not ask"', () => {
   assert.equal(require('./status').tmuxSaidNoServer(got), false);
 });
 
-test('a tmux failure we do not recognise still refuses, rather than reading as empty', () => {
+test('a tmux failure we do not recognise still refuses, rather than reading as empty', { skip: process.platform === 'linux' && 'measured on ubuntu-latest (#4919): Linux tmux answers a plain file at the socket path with "no server running", so this probe cannot produce the connect error it needs' }, () => {
   // ⚠️ FAILS CLOSED, against a REAL tmux error that is not "no server".
   //
   // MEASURED on this machine: a plain file sitting where the socket should be

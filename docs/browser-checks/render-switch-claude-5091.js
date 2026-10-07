@@ -77,7 +77,7 @@ const CODEX_OUT_OF_CREDITS = [
   let served = ACCOUNTS;   // round 3: swapped for a no-target world below
   await page.route('**/api/accounts', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ accounts: served }) }));
   let posted = null;
-  await page.route('**/api/agent/*/provider', (r) => { posted = JSON.parse(r.request().postData() || '{}'); return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ outcome: 'changed', provider: 'anthropic', because: 'Claude it is.' }) }); });
+  await page.route('**/api/agent/*/provider', (r) => { posted = JSON.parse(r.request().postData() || '{}'); return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ outcome: 'changed', provider: 'anthropic', accountDir: ACCOUNTS[0].dir, because: 'Claude it is.' }) }); });   // #5145: the route names an account; the PICK (account-b) must still win
   try {
     await page.goto(URL + '/?tab=detail&agent=liu', { waitUntil: 'load' }); await page.waitForTimeout(1500);
     if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(300); }
@@ -113,6 +113,14 @@ const CODEX_OUT_OF_CREDITS = [
     chk(curBox === null, '#5091: and they take no space on screen', JSON.stringify(curBox));
 
     await page.selectOption('#d-provider-account', ACCOUNTS[1].dir);
+    /* kosmos#5429 (Josh, 2026-10-06): the switch picks the model in the same step. The Claude list shows beside the
+       account, on Claude's default (the create form's); a model picked here is named in the dialog and sent with the
+       switch, so it is one restart. */
+    await page.waitForFunction(() => { const m = document.getElementById('d-provider-model'); return m && !m.hidden && m.options.length > 1; }, null, { timeout: 8000 }).catch(() => {});
+    const mdl = await page.evaluate(() => { const m = document.getElementById('d-provider-model'); return { hidden: m.hidden, sel: m.value, keys: [...m.options].map((o) => o.value), def: (CREATE_MODELS.find((x) => x.default) || {}).key }; });
+    chk(!mdl.hidden && mdl.keys.includes('opus55') && mdl.sel === mdl.def && !!mdl.def,
+      '#5429: switching to Claude shows its models beside the account, on the default', JSON.stringify(mdl));
+    await page.selectOption('#d-provider-model', 'opus55');
     // Round 4: the open agent carries its OLD model's name, as a real Codex agent does; the switch must not keep it.
     await page.evaluate(() => { CURRENT.modelName = 'GPT 5.6 Sol'; CURRENT.plannedModelName = 'GPT 5.6 Sol'; });
     await page.click('#d-provider-go');
@@ -120,10 +128,12 @@ const CODEX_OUT_OF_CREDITS = [
     const said = await page.$eval('#chg-small', (e) => e.textContent);
     chk(/b@example\.com/.test(said) && !/your main Claude account/.test(said),
       '#5091: the confirm dialog names the picked Claude account, not "your main Claude account"', said.slice(-160));
+    chk(/on Claude Opus 5\.5\./.test(said) && !/default model/.test(said), '#5429: and the model picked with it, never "the default model"', said.slice(-160));
     await page.click('#chg-go');
     for (let i = 0; i < 40 && !posted; i++) await page.waitForTimeout(150);
     chk(!!posted && posted.provider === 'anthropic' && posted.account === ACCOUNTS[1].dir && posted.picked === true,
       '#5091: Switch & Restart sends the Claude account the person picked, as a pick', JSON.stringify(posted));
+    chk(!!posted && posted.model === 'opus55', '#5429: and the model, in the same request (one restart)', JSON.stringify(posted));
     // Round 1: after the switch, the menu is reset ('') and the rows must come back, not stay hidden.
     await page.waitForTimeout(1500);
     const after = await page.evaluate(() => { const c = document.getElementById('d-current-rows'); return { current: !!c && !c.hidden, menu: document.getElementById('d-provider').value }; });
@@ -131,7 +141,7 @@ const CODEX_OUT_OF_CREDITS = [
     const modelRow = await page.evaluate(() => { const m = document.getElementById('d-model'); return m ? [...m.options].map((o) => o.textContent).join(' | ') : 'no #d-model'; });
     chk(!/GPT|Sol/.test(modelRow) && /^Claude \(its default model\)/.test(modelRow), "#5091: after the switch the model row says Claude's default model, not the old provider's model or Unknown Model", modelRow.slice(0, 200));
     const runsOn = await page.$eval('#d-runson', (e) => e.textContent);
-    chk(/Claude/.test(runsOn) && /b@example\.com/.test(runsOn), '#5091: Right now names Claude and the picked account', runsOn);
+    chk(/Claude/.test(runsOn) && /b@example\.com/.test(runsOn), '#5091 + #5145: Right now names Claude and the picked account (the pick wins over the account the route names)', runsOn);
     // Round 3: and they speak for the NEW provider: the Move row lists the Claude accounts, on the one picked.
     // The Move menu's first option ("") names the account it is ON; the rest are the Claude accounts it could move to.
     const rows = await page.evaluate(() => { const s = document.getElementById('d-account'); return { here: (s.options[0] || {}).textContent || '', opts: [...s.options].slice(1).map((o) => o.value), msg: document.getElementById('d-account-msg').textContent }; });

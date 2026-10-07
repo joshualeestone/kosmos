@@ -1996,7 +1996,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   const outcomes = {};
   /* #4588 PR B review 2 (W2): when each quota-held member's post will be told (ISO), beside its HELD outcome, so a
      reader can say "held until <time>" rather than read HELD as delivered. Present only when something was held. */
-  const heldUntil = {};
+  const heldUntil = {};   // #4588 ask 3: for a Gemini cap hold this is the next look (a minute ahead), not a release time
   let reached = 0;
   const typingStarted = new Set();   // #4926 review 2: members whose typing path was entered (a throw there may have pasted)
   const takenHeld = {};   // #4926 review 6: each member's held ids taken for this arrival's line
@@ -2129,7 +2129,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
         /* #4926 review 1 (Opus): an answer to this member's OWN post (--in-reply-to, no @) asks for its attention too, so it
            is kept marked like an @: a stale-post drop at the flush never removes it (and its line says it is asked). */
         const asksIt = mentioned.has(name) || Boolean(answered && answered.operator !== true && answered.from === name);
-        if (roomhold.hold(name, projectId, asksIt ? roomhold.addressedId(id) : id)) {
+        /* #4588 ask 3 (review 13): a post the Gemini cap held is marked too, so roomhold.flushReleased retries it once the
+           cap lets the member through (a cap hold has no wake coming); an unmarked one waits for the next wake. */
+        if (roomhold.hold(name, projectId, asksIt ? roomhold.addressedId(id) : sent.heldBy === 'cap' ? roomhold.cappedId(id) : id)) {
           outcomes[name] = roomhold.HELD;
           if (typeof sent.heldUntil === 'string') heldUntil[name] = sent.heldUntil;
           reached += 1;

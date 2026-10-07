@@ -17,6 +17,11 @@
  * x in both views. The consolidated header used flex space-between, so the tabs sat after the switcher and moved 90.5px
  * when the view flipped (1440px, a 220px switcher); it now shares the tab view's 1fr auto 1fr grid.
  *
+ * Since #5379 it also pins the scrollbar width: the header (and the Kosmos+ bar above it) sits on the same pixels in
+ * both views on a platform whose scrollbars take width, through a width set by hand (0px, then 15px) so an
+ * overlay-scrollbar Mac can see it, on Agents and Projects in consolidated and on a whole-page tab with consolidated
+ * chosen.
+ *
  * Measured on the served 0.6.95 build before the fix: the controls sat 33px lower in
  * the tab view at 1440px and 92px lower at 1100px, and a notice moved them in EITHER
  * view. This reds on that CSS (origin/main before kosmos#2624).
@@ -221,6 +226,82 @@ async function measure(page, view, notice, name) {
     const want = talk ? '16px' : '0px';   // the talk view's own --space-6 gap; elsewhere none
     if (off.mt !== want) problems.push(`${where} with no notice: the line's margin-top is ${off.mt}, it must stay ${want}`);
     else console.log(`  PASS  ${where} with no notice: the line keeps margin-top ${off.mt}`);
+    await page.close();
+  }
+
+  // #5379: the header (and the Kosmos+ bar) sits on the same pixels in both views on a platform whose scrollbars take width.
+  {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await page.goto('file://' + PAGE);
+    await measure(page, 'consolidated', false);
+    // A width set by hand, 0px and then 15px, so a Mac with overlay scrollbars (real width 0) can see the padding at all,
+    // and a classic-scrollbar runner (real width 15, already padded) still sees it move. At each width the tab view's
+    // rule pads by it less what the page really gives up, and consolidated likewise (without the body-padding term), so the right cluster and the
+    // centred tabs land on the same pixels in both views. The 0 -> 15 step must move consolidated's right controls 15px
+    // left, so equal numbers are not two views ignoring the width alike.
+    const at = {};
+    for (const w of ['0px', '15px']) {
+      await page.evaluate((w) => document.documentElement.style.setProperty('--scrollbar-width', w), w);
+      at[w] = { cons: await measure(page, 'consolidated', false), tabs: await measure(page, 'tabs', false) };
+      // CONTROL: no measurement (a focus, a resize) replaced the hand-set width while reading.
+      const held = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--scrollbar-width').trim());
+      if (held !== w) problems.push(`CONTROL failed: 1440px: the hand-set ${w} scrollbar width read back as ${held}; a measurement ran mid-arm`);
+      for (const k of ['youX', 'tabsX']) {
+        if (at[w].cons[k] !== at[w].tabs[k]) problems.push(`1440px with a ${w} scrollbar width: ${k} is ${at[w].cons[k]} in consolidated and ${at[w].tabs[k]} in the tab view`);
+      }
+    }
+    // With consolidated chosen, a whole-page tab (Settings: data-layout stays consolidated, body is not .consolidated)
+    // has no reserved gutter either; its header must end where the tab view's does at the same width (still 15px).
+    // Simulated on the Agents page by the attribute and class alone (no Settings content is moved in), so it pins the
+    // selector, not a real Settings page.
+    // The root is held unscrollable while reading: on a classic-scrollbar runner a page that scrolls there takes a real
+    // 15px scrollbar, and the tab view's rule would then land the header right without this selector.
+    const settings = await page.evaluate(() => {
+      const root = document.documentElement, prev = root.style.overflow;
+      root.setAttribute('data-layout', 'consolidated');
+      document.body.classList.remove('consolidated');
+      root.style.overflow = 'hidden';
+      const el = document.querySelector('.apphead header .headright'); const r = el && el.getBoundingClientRect();
+      root.style.overflow = prev;
+      return r && r.width > 0 ? Math.round(r.left * 10) / 10 : null;
+    });
+    if (settings !== at['15px'].tabs.youX) problems.push(`1440px with a 15px scrollbar width: on a whole-page tab with consolidated chosen the right controls sit at ${settings}, the tab view's at ${at['15px'].tabs.youX}`);
+    else console.log(`  PASS  1440px with a 15px scrollbar width: a whole-page tab with consolidated chosen keeps the right controls at ${settings}`);
+    const c0 = at['0px'].cons.youX, c15 = at['15px'].cons.youX;
+    if (!(c0 !== null && c15 !== null && Math.abs((c0 - c15) - 15) < 0.6)) problems.push(`1440px consolidated: a 0px to 15px scrollbar width moved the right controls from ${c0} to ${c15}, not 15px left; consolidated does not pad its header by the scrollbar width`);
+    else console.log(`  PASS  1440px with a 15px scrollbar width: both views pad their header by it (controls at ${c15}, tabs at ${at['15px'].cons.tabsX})`);
+    // The Kosmos+ bar above the header (a remote session) pads by the width too, so its Log out ends where the header's
+    // right controls end. Read with consolidated chosen only (Agents, then a whole-page tab): in the tab view the bar's
+    // end comes from the REAL reserved gutter (kplusBarFit cancels the header padding), which a hand-set width cannot
+    // simulate on this Mac. There the two line up on a classic-scrollbar machine, and consolidated is pinned to the tab
+    // view by the header arms above. Built the way kplusBar builds it (first child of .apphead, sized by kplusBarFit),
+    // since over file:// there is no remote session.
+    const bars = {};
+    for (const state of ['consolidated', 'whole-page tab']) {
+      await measure(page, 'consolidated', false);
+      bars[state] = await page.evaluate((state) => {
+        // A whole-page tab is read with the root held unscrollable, as in the header arm above, so a real scrollbar on a
+        // classic-scrollbar runner cannot line the bar up without the fix.
+        const root = document.documentElement, prev = root.style.overflow;
+        if (state !== 'consolidated') { document.body.classList.remove('consolidated'); root.style.overflow = 'hidden'; }
+        let b = document.getElementById('kplus-bar');
+        if (!b) {
+          b = document.createElement('div'); b.id = 'kplus-bar'; b.className = 'kplus-bar';
+          b.innerHTML = '<canvas class="kplus-bar-mark" width="40" height="14"></canvas>'
+            + '<span class="kplus-bar-end"><button type="button" class="kplus-bar-out">Log out</button></span>';
+          const head = document.querySelector('.apphead'); head.insertBefore(b, head.firstChild);
+        }
+        kplusBarFit();
+        const right = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return r.width > 0 ? Math.round(r.right * 10) / 10 : null; };
+        const got = { out: right(b.querySelector('.kplus-bar-out')), head: right(document.querySelector('.apphead header .headright')) };
+        root.style.overflow = prev;
+        return got;
+      }, state);
+      const bar = bars[state];
+      if (bar.out === null || bar.head === null) problems.push(`CONTROL failed: 1440px ${state}: ${bar.out === null ? "the Kosmos+ bar's Log out" : 'the header right controls'} did not render`);
+      else if (bar.out !== bar.head) problems.push(`1440px ${state} with a 15px scrollbar width: the Kosmos+ bar's Log out ends at x ${bar.out}, the header's right controls at ${bar.head}; the bar does not pad by the scrollbar width`);
+      else console.log(`  PASS  1440px ${state} with a 15px scrollbar width: the Kosmos+ bar's Log out ends with the header's right controls (x ${bar.out})`);
+    }
     await page.close();
   }
 

@@ -49,6 +49,13 @@ test('#4959: a held answer with no usable time still says the quota is out; an u
   await liftWithHeld(answer({ state: 'could_not', because: 'busy' }), { bob: 4 })('bob', 4, (t) => { said = t; }, 'SAID', 'MANUAL');
   assert.equal(said, 'MANUAL', 'CONTROL: a refusal that is not a quota hold must not mention the quota');
 });
+test('#4588 ask 3: a hello held by the Gemini cap says the limit, never that the quota is out', async () => {
+  let said = null;
+  const until = new Date(Date.now() + 60e3).toISOString();
+  await liftWithHeld(answer({ state: 'could_not', held: true, heldBy: 'cap', heldUntil: until }), { bob: 5 })('bob', 5, (t) => { said = t; }, 'SAID', 'MANUAL');
+  assert.equal(said, 'MANUAL The Gemini subscription agents on this computer are at the limit you set for working at once, so Kosmos sent nothing.');
+  assert.doesNotMatch(said, /quota/i);
+});
 test('#4959: deliverPickup passes a held 409 verdict through, and still returns null for any other refusal', async () => {
   const lift = (res) => new Function('fetch', page.lift(SCRIPT, 'deliverPickup') + '\nreturn deliverPickup;')(async () => res); // eslint-disable-line no-new-func
   const held = { state: 'could_not', held: true, heldUntil: '2026-10-02T06:00:00.000Z' };

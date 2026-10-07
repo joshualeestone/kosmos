@@ -716,6 +716,7 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
      AS READ, its sentence, the direct-children "2 of 5"), from the one tree derivation, so the
      project column and the task page never count children themselves. Built once per call. */
   const tree = tasksModEarly.treeOf({ tasks });
+  const taskrepeatMod = require('./taskrepeat');   // review 1: once per call, not per task
   const withParts = (t) => (t ? {
     ...t,
     parts: tasksModEarly.partsOf(t),
@@ -723,6 +724,8 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
     parent: tree.up(t),
     parentSentence: tree.up(t) === null ? null : (tree.byNum.get(tree.up(t)).sentence || null),
     subtasks: tree.progress(t.number),
+    // kosmos#4787 slice 1b: the task page's repeat line, in the board's words; a task its parts closed has no next run (review 1).
+    ...taskrepeatMod.fieldsOf(tasksModEarly.progressOf(t).closed ? Object.assign({}, t, { isClosed: true }) : t),
   } : t);
   const withWho = tasks.filter((t) => t && tasksModEarly.whoOf(t).length > 0 && !tasksModEarly.progressOf(t).closed);
   /* 🛑 THE EARLY RETURN USED TO HAND BACK THE RAW TASKS, and that was the whole
@@ -2714,6 +2717,43 @@ function edit(id, fields = {}) {
   });
 }
 
+/**
+ * kosmos#5340: point a project at its folder's new place (the folder was moved on this computer). The same checks a new
+ * project's folder passes (create): a full path, a folder that is there and readable, not a temporary folder, not
+ * another project's folder. A project whose folder is still there is not re-pointed (its brief and work are there). The members'
+ * instructions name the folder, so the caller re-tells them. The board can check only that IT can read the folder:
+ * an agent's own access (a sandbox or a privacy grant) is not something it can see from here.
+ */
+function moveFolder(id, folder) {
+  if (typeof folder !== 'string') throw new Error('that needs the path to the folder, as text');   // review 1: not an array
+  const given = folder.trim();
+  if (!given) throw new Error('that needs the full path to the folder');
+  if (!path.isAbsolute(given)) throw new Error('that needs to be the full path to a folder');
+  const state = folderState(given);
+  if (state.state === FOLDER.MISSING) throw new Error('there is no folder at that path');
+  if (state.state === FOLDER.NOT_A_FOLDER) throw new Error('that is a file, not a folder');
+  if (state.state === FOLDER.UNREADABLE) throw new Error('we cannot read that folder');
+  if (tmpFolderRefused(state.real || given, store.ROOT)) {
+    throw new Error('that folder is inside a temporary folder, which the system clears; point Kosmos at a folder you keep your work in');
+  }
+  const all = readAll();
+  const self = all.find((p) => p.id === id);
+  if (!self) throw new Error('there is no project by that name');
+  const now = folderState(self.folder);
+  /* Review 1: only a project whose folder is NOT there (moved, removed, a drive not connected, or a file in its place)
+     is re-pointed. Swapping a working project onto another folder would leave its brief and its work behind. */
+  if (now.state === FOLDER.READABLE || now.state === FOLDER.UNREADABLE) {
+    throw new Error('this project\'s folder is still there, so Kosmos keeps using it');
+  }
+  const already = all.find((p) => p.id !== id && folderState(p.folder).real === state.real);
+  if (already) {
+    const taken = new Error(`that folder is already the project "${already.name}"`);
+    taken.code = 'FOLDER_TAKEN';
+    throw taken;
+  }
+  return mutate(id, (p) => { p.folder = given; return p; });
+}
+
 function rename(id, name) {
   // ⚠️ The id does NOT change with the name. It is what the agents' recorded
   // membership and any open URL point at, and renaming is a display change
@@ -3216,21 +3256,34 @@ function blockBody(projects, sessionName) {
     };
     return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}${held(t)}`)].join('\n');
   });
+  const rules = blockRules(sessionName, cliShown);
   return [
     '## Your projects',
     '',
-    'Kosmos records which projects you are on, and the folder it has recorded for each, on this computer.',
-    /* #4927: an agent in a sandbox sees this computer's folders under its own mounts, whose names can change; Kosmos
-       cannot see those, so it says how to find the folder there. Review 1: the heading names the RECORDED folder, so it
-       does not certify a path that may have moved since (the section is not re-checked against the disk on purpose:
-       a drive coming and going would rewrite every agent's file). */
-    'If you work in a sandbox that shows this computer\'s folders under other paths (mount names can change between',
-    'sessions), find a project\'s folder there by the folder\'s own name, the last part of its path (it can differ',
-    'from the project\'s name).',
+    ...rules.intro,
     '',
     ...lines,
-    ...(any ? [
-      '',
+    ...(any ? ['', ...rules.tasks] : []),
+    ...(sessionName ? ['', ...rules.member] : []),
+  ].join('\n');
+}
+
+/* The block's standing rules, the part kosmos#5320 compares (rulesChangedIn). NOT included: the commands taught on each
+   project's own lines (post, its tasks, --parent, --who me), which carry the project's id, so a change to those owes
+   no re-read. */
+function blockRules(sessionName, cliShown) {
+  return {
+    intro: [
+      'Kosmos records which projects you are on, and the folder it has recorded for each, on this computer.',
+      /* #4927: an agent in a sandbox sees this computer's folders under its own mounts, whose names can change; Kosmos
+         cannot see those, so it says how to find the folder there. Review 1: the heading names the RECORDED folder, so it
+         does not certify a path that may have moved since (the section is not re-checked against the disk on purpose:
+         a drive coming and going would rewrite every agent's file). */
+      'If you work in a sandbox that shows this computer\'s folders under other paths (mount names can change between',
+      'sessions), find a project\'s folder there by the folder\'s own name, the last part of its path (it can differ',
+      'from the project\'s name).',
+    ],
+    tasks: [
       'The indented lines are tasks written down for you. When you take one up,',
       'report it as "task <number> of <project>": the number alone is ambiguous',
       'when you are on two projects.',
@@ -3238,12 +3291,11 @@ function blockBody(projects, sessionName) {
          it applies to, and re-spliced on every membership change so existing agents learn it too. */
       `When you have built one and it is waiting to be released or checked, mark it:`,
       `\`${cliShown} task built <project-id> <task-number> "what is left"\`. Closing the task clears the mark.`,
-    ] : []),
+    ],
     /* #4771 (Josh's 0.7.15 report): a pause the person asked for in the room never reached the Prompter, so an agent
        held every task by hand. Taught to every member, not only those holding tasks (review 1: a coordinator with no
        tasks is the likeliest to be asked). Resuming is the person's, on the screen, so no verb for it exists. */
-    ...(sessionName ? [
-      '',
+    member: [
       `When your person asks to pause a whole project, pause it: \`${cliShown} project pause <project-id>\`.`,
       'Nobody is then nudged about its tasks or handed them, and the room is told you paused it. It is resumed on the',
       'screen, by your person: do not resume it yourself; if they ask you to, tell them it is on the project\'s page.',
@@ -3251,8 +3303,50 @@ function blockBody(projects, sessionName) {
       '',
       `Say in a few words what you do on each project, so \`${cliShown} project show <project-id>\` lists it beside you:`,
       `\`${cliShown} project role <project-id> "what you do here"\` (an empty "" clears it).`,
-    ] : []),
-  ].join('\n');
+    ],
+  };
+}
+
+/* kosmos#5320: does the new block carry a standing rule the old block did not, or a changed hold on a task it already
+   listed? `oldText` and `newText` are the file before and after the write. Only added rules count: a rule taken out
+   needs no re-read. False when there was no block (joining is announced by its own line, membershipLine) or none is
+   left (nothing to read). A task arriving or closing is not a change here (the agent's own task close changes those
+   lines). A pause or hold set or lifted on the screen is: the room is not told of a screen pause, so the re-read is how
+   a running agent learns it. The tasks rules count only when the old block listed a task in today's spelling
+   (`task <n> of`, #779): a first task is announced where it is assigned. */
+function rulesChangedIn(oldText, newText, sessionName) {
+  if (!sessionName) return false;
+  const oldAt = findBlock(oldText || '');
+  const newAt = findBlock(newText || '');
+  if (!oldAt || oldAt.ambiguous || !newAt || newAt.ambiguous) return false;
+  const old = String(oldText).slice(oldAt.start, oldAt.end);
+  const now = String(newText).slice(newAt.start, newAt.end);
+  const TASK_LINE = /^ {2}- task \d+ of /m;
+  const rules = blockRules(sessionName, kosmosCliShown());
+  const pieces = [rules.intro, rules.member];
+  if (TASK_LINE.test(old)) pieces.push(rules.tasks);
+  if (pieces.some((p) => now.includes(p.join('\n')) && !old.includes(p.join('\n')))) return true;
+  const holds = holdsOf(old);
+  for (const [task, marks] of holdsOf(now)) {
+    const had = holds.get(task);
+    if (had && had.length === marks.length && had.join('\n') !== marks.join('\n')) return true;
+  }
+  return false;
+}
+
+/* A block's task lines as "task <n> of <project>" -> the sorted hold markers on lines with that key ('' for none), so a
+   task reworded in the same write is still the same task. A key can be shared (two projects with one name, or a name
+   containing ": "), so the markers are a list, compared only when both blocks have as many (a task arriving or closing
+   under a shared key is not a hold change). blockBody appends the marker last. */
+function holdsOf(block) {
+  const out = new Map();
+  for (const line of String(block).split('\n')) {
+    const task = /^ {2}- (task \d+ of .*?): /.exec(line);
+    if (!task) continue;
+    const m = / \[on hold: [^\]]*\]$/.exec(line);
+    out.set(task[1], [...(out.get(task[1]) || []), m ? m[0] : ''].sort());
+  }
+  return out;
 }
 
 /* Exact to permit (#3932 shares it with tellAgent): our card for this exact name, or null. A roster
@@ -3386,7 +3480,8 @@ function tellAgent(sessionName, projects, roster) {
     // An older-format block whose projects cannot be read: nothing is claimed as new (announcing a
     // project the agent has been on for weeks is worse than saying nothing).
     const added = blockUnreadable(current.text, ids) ? [] : projectsInBlock(next, ids).filter((id) => !had.includes(id));
-    return { state: TOLD.TOLD, because: null, changed: withProjects !== (current.text || ''), added };
+    return { state: TOLD.TOLD, because: null, changed: withProjects !== (current.text || ''), added,
+      rulesChanged: rulesChangedIn(current.text, withProjects, sessionName) };
   } catch (err) {
     // ⚠️ A length refusal is OUR doing here, not the person's. Taking our block
     // back out can push a file under the editor's minimum, and forwarding that
@@ -3493,6 +3588,10 @@ function membershipLine(project, kind) {
       : '';
     return 'Your instructions now list the project "' + name + '".' + lfolder + lroom;
   }
+  /* #5340: the person pointed the project at its folder's new place. */
+  if (kind === 'moved') {
+    return 'The project "' + name + '" now uses its folder at `' + oneLine(String((project && project.folder) || '')) + '`. Work there from now on.';   // review 3: no claim about its file, which may not have been updated
+  }
   if (kind === 'removed') {
     return 'The project "' + name + '" was removed from Kosmos. Your instructions no longer list it; do not post to its room.';
   }
@@ -3528,11 +3627,18 @@ function syncAgent(sessionName, roster) {
   const key = String(sessionName || '');
   const mine = readAll().filter((p) => (p.agents || []).includes(key));
   const verdict = tellAgent(key, mine, roster);
+  /* kosmos#5320: an agent reads this file only when its session starts. A write that changed the block's standing rules
+     (rulesChanged) owes it a re-read line; a task or membership change owes none. Never fails the write. */
+  if (verdict && verdict.rulesChanged === true && verdict.state === TOLD.TOLD) {
+    let ok = false;
+    try { ok = require('./instructionreread').oweNow(key, 'projects'); } catch { ok = false; }
+    if (!ok) process.stderr.write(`Kosmos updated ${key}'s projects section but could not record that it is owed a re-read; it reads the section at its next start\n`);
+  }
   const all = readAll();
   for (const p of all) {
     if (!(p.agents || []).includes(key)) continue;
     // `changed` and `added` describe this one write (#3923), not a standing fact: not stored.
-    const { changed: _c, added: _a, ...stored } = verdict;
+    const { changed: _c, added: _a, rulesChanged: _r, ...stored } = verdict;
     p.told = { ...(p.told || {}), [key]: { ...stored, at: new Date().toISOString() } };
   }
   writeAll(all);
@@ -3581,7 +3687,7 @@ module.exports = {
   joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, teamBlockState, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, andList, setRoleHere, ROLE_HERE_MAX,
-  list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
+  list, get, projectsFor, namesFor, create, edit, moveFolder, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
   BRIEF_STUB_FILENAME, BRIEF_GOAL_PLACEHOLDER, briefStubContent, seedBriefStub, briefIsPending, BRIEF_PENDING_NOTE, BRIEF_PENDING_NOTES_BEFORE_AUDIENCE,
   BRIEF_DONE_PLACEHOLDER, BRIEF_DONE_PLACEHOLDERS, doneIsPending, doneWrittenIn, doneHeadingIsOwn, doneNotWrittenNote, doneMarkdown, DONE_PENDING_NOTE, BRIEF_AND_DONE_PENDING_NOTE, cleanDone, coordinatorWarning, fillDone, PROJECT_COORDINATOR, WELCOME_DONE,

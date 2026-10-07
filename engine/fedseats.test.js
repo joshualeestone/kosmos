@@ -467,6 +467,101 @@ test('#5193: a member that posts after a revoke is told on that post\'s check, i
   assert.strictEqual(fedseats.post('proj-5193-post', { from: 'B', kind: 'person', text: 'and now?' }), false);
 });
 
+// #5404: a post sent between the revoke and this member learning of it is named once the member learns.
+const GAP_ONE_5404 = 'A message this computer sent around the time it was removed may not have been shown to the others in the shared project.';
+const gapNotes5404 = (h, id) => h.notes.filter((n) => n.projectId === id && /around the time it was removed/.test(n.text)).map((n) => n.text);
+const nowSec5404 = () => Math.floor(Date.now() / 1000);
+
+test('#5404: a post sent seconds after the revoke is named after the removal sentence, once', async () => {
+  const id = 'proj-5404-one';
+  const h = await memberRoom(id);
+  h.memberEdges = [{ id: 'edge-' + id, status: 'revoked', revoked_at: nowSec5404() - 3 }];
+  assert.strictEqual(fedseats.post(id, { from: 'B', kind: 'person', text: 'sent 3 s after' }), true);
+  await settle();
+  const mine = h.notes.filter((n) => n.projectId === id).map((n) => n.text);
+  assert.deepStrictEqual(mine, [REVOKED_5193, GAP_ONE_5404], JSON.stringify(mine));
+  // The connector's later refusal says nothing more about it.
+  say(h.spawned[0], { event: 'ended', because: 'Kosmos+ refused this Mac: that connection has been revoked. Ask to be re-invited. (HTTP 409 on /v1/mac/federation/room-ticket)' });
+  await tick();
+  h.spawned[0].emit('exit', 3);
+  await tick();
+  assert.deepStrictEqual(gapNotes5404(h, id), [GAP_ONE_5404], JSON.stringify(h.notes));
+});
+
+test('#5404: several posts in the gap are counted in one sentence', async () => {
+  const id = 'proj-5404-two';
+  const h = await memberRoom(id);
+  h.memberEdges = [{ id: 'edge-' + id, status: 'revoked', revoked_at: nowSec5404() - 60 }];
+  assert.strictEqual(fedseats.post(id, { from: 'B', kind: 'person', text: 'one' }), true);
+  assert.strictEqual(fedseats.post(id, { from: 'B', kind: 'person', text: 'two' }), true);
+  await settle();
+  assert.deepStrictEqual(gapNotes5404(h, id), ['2 messages this computer sent around the time it was removed may not have been shown to the others in the shared project.'], JSON.stringify(h.notes));
+});
+
+test('#5404: at the log\'s cap the count is exact, and past it is said as more than the cap', async () => {
+  const gapOf = (n) => n + ' messages this computer sent around the time it was removed may not have been shown to the others in the shared project.';
+  for (const [tag, sent, want] of [['at', fedseats.SENT_LOG_MAX, gapOf(fedseats.SENT_LOG_MAX)], ['past', fedseats.SENT_LOG_MAX + 1, gapOf('More than ' + fedseats.SENT_LOG_MAX).replace(/^\d+ /, '')]]) {
+    const id = 'proj-5404-cap-' + tag;
+    const h = await memberRoom(id);
+    h.memberEdges = [{ id: 'edge-' + id, status: 'revoked', revoked_at: nowSec5404() - 60 }];
+    for (let i = 0; i < sent; i++) assert.strictEqual(fedseats.post(id, { from: 'B', kind: 'person', text: 'p' + i }), true);
+    await settle();
+    assert.deepStrictEqual(gapNotes5404(h, id), [want], tag + ': ' + JSON.stringify(gapNotes5404(h, id)));
+  }
+});
+
+test('#5404 control: posts sent before the revoke (beyond the clock margin) are not named', async () => {
+  const id = 'proj-5404-before';
+  const h = await memberRoom(id);
+  // The revoke is stamped later than these posts by more than REVOKE_SENT_SKEW_MS.
+  h.memberEdges = [{ id: 'edge-' + id, status: 'revoked', revoked_at: Math.ceil((Date.now() + fedseats.REVOKE_SENT_SKEW_MS + 30000) / 1000) }];
+  assert.strictEqual(fedseats.post(id, { from: 'B', kind: 'person', text: 'before' }), true);
+  await settle();
+  assert.deepStrictEqual(h.notes.filter((n) => n.projectId === id).map((n) => n.text), [REVOKED_5193], JSON.stringify(h.notes));
+});
+
+test('#5404: when the connector\'s refusal comes first (the check answered from before the revoke), the post is still named', async () => {
+  const id = 'proj-5404-connfirst';
+  const h = await memberRoom(id);
+  h.memberEdges = [{ id: 'edge-' + id, status: 'active' }];
+  assert.strictEqual(fedseats.post(id, { from: 'B', kind: 'person', text: 'went out' }), true);
+  await settle();
+  assert.strictEqual(fedseats.statusOf(id), 'connected', 'the active answer ended the seat');
+  // The revoke lands now; the shared answer from just before it still says active, so only the connector can tell.
+  h.memberEdges = [{ id: 'edge-' + id, status: 'revoked', revoked_at: nowSec5404() - 3 }];
+  const asked = h.asked;
+  say(h.spawned[0], { event: 'ended', because: 'Kosmos+ refused this Mac: that connection has been revoked. Ask to be re-invited. (HTTP 409 on /v1/mac/federation/room-ticket)' });
+  await settle();
+  assert.ok(h.asked > asked, 'no fresh edges answer was asked for');
+  assert.deepStrictEqual(h.notes.filter((n) => n.projectId === id).map((n) => n.text), [REVOKED_5193, GAP_ONE_5404], JSON.stringify(h.notes));
+});
+
+test('#5404: refusal first, then a fresh answer that failed or does not say revoked: nothing is claimed', async () => {
+  for (const [tag, edges] of [['failed', null], ['active', 'active']]) {
+    const id = 'proj-5404-connfirst-' + tag;
+    const h = await memberRoom(id);
+    h.memberEdges = [{ id: 'edge-' + id, status: 'active' }];
+    assert.strictEqual(fedseats.post(id, { from: 'B', kind: 'person', text: 'went out' }), true);
+    await settle();
+    // The fresh answer: a failed ask (no edges at all) or one that still lists the edge as active.
+    h.memberEdges = edges ? [{ id: 'edge-' + id, status: edges, revoked_at: nowSec5404() - 3 }] : null;
+    const asked = h.asked;
+    say(h.spawned[0], { event: 'ended', because: 'Kosmos+ refused this Mac: that connection has been revoked. Ask to be re-invited. (HTTP 409 on /v1/mac/federation/room-ticket)' });
+    await settle();
+    assert.ok(h.asked > asked, tag + ': no fresh edges answer was asked for');
+    assert.deepStrictEqual(h.notes.filter((n) => n.projectId === id).map((n) => n.text), [REVOKED_5193], tag + ': ' + JSON.stringify(h.notes));
+  }
+});
+
+test('#5404: with no revoked_at in the answer, nothing is claimed about the posts', async () => {
+  const id = 'proj-5404-nostamp';
+  const h = await memberRoom(id);
+  h.memberEdges = [{ id: 'edge-' + id, status: 'revoked' }];
+  assert.strictEqual(fedseats.post(id, { from: 'B', kind: 'person', text: 'x' }), true);
+  await settle();
+  assert.deepStrictEqual(h.notes.filter((n) => n.projectId === id).map((n) => n.text), [REVOKED_5193], JSON.stringify(h.notes));
+});
+
 test('#5193: lines still in a revoked seat\'s pipe change nothing after the check ended it', async () => {
   const h = await memberRoom('proj-5193-pipe');
   h.memberEdges = [{ id: 'edge-proj-5193-pipe', status: 'revoked' }];

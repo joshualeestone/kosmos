@@ -384,3 +384,12 @@ test('#2790 route (OK branch, UNPICKED default): a sign-in still warns', async (
   assert.match(r.body.because, /cannot live-check an OpenAI sign-in/,
     'the note did not fire on an unpicked default sign-in, which is exactly the reported case: ' + r.body.because);
 });
+
+/* #5145: the route answers the OpenAI sign-in it landed on (openaiAccount's dir), resolved. */
+test('#5145 route: an OpenAI switch answers accountDir = the sign-in it landed on', async () => {
+  const name = born('route-5145-openai');
+  const r = await switchTo(name, { provider: 'openai', account: BETA, picked: true });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.outcome, 'changed', JSON.stringify(r.body));
+  assert.equal(r.body.accountDir, require('node:path').resolve(BETA), JSON.stringify(r.body));
+});

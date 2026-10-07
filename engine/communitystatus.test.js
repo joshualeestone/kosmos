@@ -254,3 +254,126 @@ test('--replies with only a queued post says it is waiting to go out, not "no po
   assert.equal(r.ok, true);
   assert.match(r.text, /none of your posts is in the community yet: 1 waiting to go out\. See where each stands with: kosmos community status/);
 });
+
+/* #5415: an item in the community prints where it can be seen; nothing else does. */
+const RID = '5f0e8c1a-1111-4222-8333-444455556666';
+/* The test runner points the community address at an unreachable local one (tools/run-tests.sh), where no link is
+   printed by design; these tests name the real site. Set it before writing send records: those are kept per address. */
+function onSite(t) {
+  const was = process.env.AGENT_WORKFORCE_COMMUNITY_URL;
+  t.after(() => { if (was === undefined) delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; else process.env.AGENT_WORKFORCE_COMMUNITY_URL = was; });
+  process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'https://community.kosmosplus.com';
+}
+test('#5415: a sent post prints its public link on its own line; a queued one prints none', (tc) => {
+  onSite(tc);
+  post('ava', 'Queued one');
+  const b = post('ava', 'Sent one');
+  writeJson(cs._paths.sentFile(), { [b.id]: { state: 'sent', agent: 'ava', remoteId: RID, sentAt: '2026-10-01T20:00:00Z' } });
+  const items = status.itemsFor('ava');
+  assert.equal(items.find((x) => x.title === 'Sent one').link, 'https://community.kosmosplus.com/post/' + RID);
+  assert.equal(items.find((x) => x.title === 'Queued one').state, 'queued', 'fixture');
+  assert.equal(items.find((x) => x.title === 'Queued one').link, undefined, 'a queued post was given a link');
+  const t = status.statusText('ava').text;
+  assert.match(t, /"Sent one".*: in the community\n  see it at https:\/\/community\.kosmosplus\.com\/post\/5f0e8c1a-1111-4222-8333-444455556666$/m);
+  assert.equal((t.match(/see it at /g) || []).length, 1, 'more than the one sent post was linked:\n' + t);
+});
+
+test('#5415: a sent comment links to the post it is on; an unsent comment does not', (tc) => {
+  onSite(tc);
+  const c = comment('ava', 'A sent comment.');
+  const q = comment('ava', 'A queued comment.');
+  writeJson(cs._paths.commentsSentFile(), { [c.id]: { state: 'sent', agent: 'ava', remoteId: 'c-remote-1', post: '7a1b2c3d-0000-4000-8000-000000000001' } });
+  const t = status.statusText('ava').text;
+  assert.match(t, /"A sent comment\.".*: in the community\n  on the post at https:\/\/community\.kosmosplus\.com\/post\/7a1b2c3d-0000-4000-8000-000000000001$/m);
+  assert.equal(status.itemsFor('ava').find((x) => x.id === q.id).state, 'queued', 'fixture');
+  assert.doesNotMatch(t, /"A queued comment\.".*\n  on the post at/, 'a queued comment was given a link');
+  assert.equal((t.match(/on the post at /g) || []).length, 1);
+});
+
+test('#5415: a held post (stopped for the person) gets no link', (tc) => {
+  onSite(tc);
+  post('ava', 'Linked control');
+  const ctl = status.itemsFor('ava')[0];
+  writeJson(cs._paths.sentFile(), { [ctl.id]: { state: 'sent', agent: 'ava', remoteId: RID } });
+  const r = post('newbie', 'Held one', { body: 'Write to me at someone@example.com about it.' });
+  assert.notEqual(r.status, 'published', 'fixture: the safety check did not stop it');
+  assert.equal(status.itemsFor('ava')[0].link, 'https://community.kosmosplus.com/post/' + RID, 'CONTROL: a sent post here links');
+  const held = status.itemsFor('newbie');
+  assert.deepEqual(held.map((x) => x.state), ['held'], 'fixture');
+  assert.equal(held[0].link, undefined, 'a held post was given a link');
+});
+
+test('#5415: a comment that is not in the community (unconfirmed) gets no link, though its post id is valid', (tc) => {
+  onSite(tc);
+  // Every comment carries a valid post id (publish requires one), so for comments the state alone keeps a link off.
+  const c = comment('ava', 'Unconfirmed comment.');
+  writeJson(cs._paths.commentsSentFile(), { [c.id]: { state: 'pending', attempted: true, agent: 'ava', post: '7a1b2c3d-0000-4000-8000-000000000001' } });
+  const it = status.itemsFor('ava').find((x) => x.title === 'Unconfirmed comment.');
+  assert.equal(it.state, 'unconfirmed', 'fixture');
+  assert.equal(it.link, undefined, 'an unconfirmed comment was given a link');
+});
+
+test('#5415: a refused agent\'s sent post still links; taken down, unconfirmed and refused do not', (tc) => {
+  onSite(tc);
+  const a = post('ava', 'Sent then refused');
+  const b = post('ava', 'Taken down');
+  const c = post('ava', 'Unconfirmed');
+  const d = post('ava', 'Refused');
+  writeJson(cs._paths.keysFile(), { ava: { refused: true } });
+  writeJson(cs._paths.sentFile(), {
+    [a.id]: { state: 'sent', agent: 'ava', remoteId: RID },
+    [b.id]: { state: 'sent', agent: 'ava', remoteId: RID.replace('5f', '6f'), takenDown: true },
+    [c.id]: { state: 'pending', agent: 'ava', attempted: true },
+    [d.id]: { state: 'refused', agent: 'ava', remoteId: RID.replace('5f', '7f') },
+  });
+  const by = Object.fromEntries(status.itemsFor('ava').map((x) => [x.title, x]));
+  assert.equal(by['Sent then refused'].state, 'sent_refused', 'fixture');
+  assert.ok(by['Sent then refused'].link, 'CONTROL: a post that is in the community lost its link');
+  assert.deepEqual(['Taken down', 'Unconfirmed', 'Refused'].map((t) => by[t].state), ['taken_down', 'unconfirmed', 'refused'], 'fixture');
+  for (const t of ['Taken down', 'Unconfirmed', 'Refused']) assert.equal(by[t].link, undefined, t + ' was given a link (state ' + by[t].state + ')');
+});
+
+test('#5415: an id that is not a plain id is never printed', (tc) => {
+  onSite(tc);
+  const b = post('ava', 'Odd id');
+  writeJson(cs._paths.sentFile(), { [b.id]: { state: 'sent', agent: 'ava', remoteId: 'x\u001b[2J/../evil' } });
+  assert.equal(status.itemsFor('ava')[0].state, 'sent', 'fixture');
+  assert.equal(status.itemsFor('ava')[0].link, undefined);
+  assert.doesNotMatch(status.statusText('ava').text, /see it at|evil/);
+});
+
+test('#5415: the link uses the address this board sends to, not a fixed production one', (t) => {
+  const was = process.env.AGENT_WORKFORCE_COMMUNITY_URL;
+  t.after(() => { if (was === undefined) delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; else process.env.AGENT_WORKFORCE_COMMUNITY_URL = was; });
+  process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'https://staging-community.example.test/';
+  const b = post('ava', 'Staging');
+  writeJson(cs._paths.sentFile(), { [b.id]: { state: 'sent', agent: 'ava', remoteId: RID } });
+  assert.equal(status.itemsFor('ava')[0].link, 'https://staging-community.example.test/post/' + RID);
+});
+
+test('#5415 review 1: no link when the address Kosmos sends to is not a plain https site (a local API, or one with a path)', (t) => {
+  const was = process.env.AGENT_WORKFORCE_COMMUNITY_URL;
+  t.after(() => { if (was === undefined) delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; else process.env.AGENT_WORKFORCE_COMMUNITY_URL = was; });
+  const b = post('ava', 'Somewhere');
+  // The send records live in a folder per address, so each address gets its own records, as a board on it would have.
+  const linkAt = (addr) => {
+    process.env.AGENT_WORKFORCE_COMMUNITY_URL = addr;
+    writeJson(cs._paths.stateFile(), { since: '2000-01-01T00:00:00Z' });
+    writeJson(cs._paths.sentFile(), { [b.id]: { state: 'sent', agent: 'ava', remoteId: RID } });
+    const it = status.itemsFor('ava').find((x) => x.title === 'Somewhere');
+    assert.equal(it.state, 'sent', 'fixture at ' + addr + ': ' + it.state);
+    return it;
+  };
+  assert.equal(linkAt('https://community.kosmosplus.com').link, 'https://community.kosmosplus.com/post/' + RID, 'CONTROL: the real site links');
+  for (const addr of ['http://127.0.0.1:8000', 'http://localhost:8000', 'https://example.test/api', 'not a url']) {
+    const it = linkAt(addr);
+    assert.equal(it.link, undefined, addr + ' gave a link: ' + it.link);
+  }
+});
+
+test('#5415 review 1: a comment on a post id that is not a plain id is refused at publish, so it never reaches a link', () => {
+  communitystore.grantTrust('ava');
+  const r = feedpublish.publishServiceComment({ kind: 'community_post', agent: 'ava', at: new Date().toISOString(), body: 'Odd parent.', servicePostId: 'not/a plain id' }, { agentId: 'ava' });
+  assert.equal(r.ok, false, 'an odd parent id was stored: ' + JSON.stringify(r));
+  assert.equal(status.itemsFor('ava').length, 0);
+});

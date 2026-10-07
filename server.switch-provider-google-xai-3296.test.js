@@ -191,3 +191,37 @@ test('#3296 route: switching BACK to Claude keeps the anthropic-branch sentence'
   assert.match(r.body.because, /starts on your main Claude account/,
     'the anthropic-branch dropped sentence was lost: ' + r.body.because);
 });
+
+/* #5145: the route answers with the account dir it landed on, so the page can name it in "Right now" when the person
+   sent none. The dir is the engine's own choice (the provider's default), never one the request invented. */
+test('#5145 route: a switch with NO account sent answers accountDir = the account it landed on (Gemini default)', async () => {
+  const name = born('srv-gx-5145-default');
+  const r = await switchTo(name, { provider: 'google' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.outcome, 'changed', JSON.stringify(r.body));
+  assert.match(r.body.because, /It runs on your Gemini account\./, 'fixture: the route did not land on a Gemini account: ' + r.body.because);
+  assert.equal(r.body.accountDir, require('node:path').resolve(require('./engine/geminiaccounts').defaultDir()), JSON.stringify(r.body));
+});
+
+test('#5145 route: a named account sent answers that same dir (CONTROL: not the default)', async () => {
+  const name = born('srv-gx-5145-named');
+  const r = await switchTo(name, { provider: 'google', account: GEMINI_ALPHA, picked: true });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.accountDir, GEMINI_ALPHA, JSON.stringify(r.body));
+  assert.notEqual(GEMINI_ALPHA, require('./engine/geminiaccounts').defaultDir(), 'fixture: the named account IS the default, so this proves nothing');
+});
+
+test('#5145 route: a switch back to Claude with no pick names no account (accountDir null, never invented)', async () => {
+  const name = born('srv-gx-5145-claude');
+  assert.equal((await switchTo(name, { provider: 'google' })).status, 200);
+  const r = await switchTo(name, { provider: 'anthropic' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.accountDir, null, JSON.stringify(r.body));
+});
+
+test('#5145 route: a Grok switch with no account sent answers the Grok default dir', async () => {
+  const name = born('srv-gx-5145-grok');
+  const r = await switchTo(name, { provider: 'xai' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.accountDir, require('node:path').resolve(require('./engine/grokaccounts').defaultDir()), JSON.stringify(r.body));
+});

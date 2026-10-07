@@ -205,7 +205,7 @@ async function sweepOnce(o) {
          would hold it (no try counted), so it would fill a slot every pass until the reset and starve later agents. */
       if (typeof o.quotaHeld === 'function') {
         let q = false; try { q = o.quotaHeld(session, o.roster) === true; } catch { q = false; }   // review 6: the pass's roster, no new snapshot
-        if (q) { results.push({ session, name: plainWords(card.name || session, 80), act: 'quota-held', because: 'its machine\'s shared Google quota is out' }); continue; }
+        if (q) { results.push({ session, name: plainWords(card.name || session, 80), act: 'quota-held', because: 'its machine\'s shared Google quota is out, or its Gemini agents are at the limit set for working at once' }); continue; }
       }
       prune();   // review 8: the hour's log ages out during a long pass too
       if (sent.length + counted.filter((c) => !c.noSlot).length >= cap) break;   // review 1: the hour's cap is met: read no further this pass
@@ -327,9 +327,10 @@ async function sweepOnce(o) {
         };
         let state = null;
         let held = false;
+        let heldBy = null;   // #4588 ask 3: which hold, for the log
         let paneBusy = false;
         typedOne = true;
-        try { const r = o.deliver(session, nudgeText(p.posts), roster); state = r && r.state; held = Boolean(r && r.held === true); paneBusy = Boolean(r && r.busy === true); }
+        try { const r = o.deliver(session, nudgeText(p.posts), roster); state = r && r.state; held = Boolean(r && r.held === true); heldBy = r && r.heldBy; paneBusy = Boolean(r && r.busy === true); }
         /* Review 13 (Sonnet): a throw from the typing path may come after the paste (chat.js's own rule: a throw is
            unconfirmed, "nothing was typed" is not ours to claim), so it keeps the written-ahead record, never repeats. */
         catch (err) { state = (o.DELIVERY && o.DELIVERY.UNCONFIRMED) || 'unconfirmed'; }
@@ -338,7 +339,7 @@ async function sweepOnce(o) {
         if (held || paneBusy) {
           rollBack();
           const act = held ? 'quota-held' : 'pane-busy';
-          results.push({ session, name: display, act, delivered: false, delivery: state, because: p.because });
+          results.push({ session, name: display, act, delivered: false, delivery: state, because: held ? p.because + (heldBy === 'cap' ? '; held by the Gemini limit' : '; held on the shared Google quota') : p.because });
           const m = book.get(session) || {};
           if (m.waitSaid !== act) { say({ name: display, session, act, delivered: false, delivery: state, because: p.because }); book.set(session, { ...m, waitSaid: act }); }
           continue;

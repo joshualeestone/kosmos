@@ -104,6 +104,77 @@ test('#4588 B givePart CONTROL: the same give with the pool open (or a person\'s
   } finally { s.board.restore(); }
 });
 
+/* #4588 ask 3 review 2 (a blocker): the Assigner tells through chat.deliver, not deliverAutomatic, so givePart reserves
+   the cap slot itself. Two gives in one tick at cap 1: the first is told, the second waits. chat.deliver is stubbed to
+   PLACED for the length of the test (givePart reads it at call time), so the first give keeps its reservation. */
+test('#4588 ask 3: two assigner gives back to back at cap 1: the first is given and told, the second is held 409 before assignPart', () => {
+  const capSetting = require('./engine/agycap-setting');
+  const q = require('./engine/agyquota');
+  q.CAP_STARTS.clear();
+  const board = fleet.install([fleet.agent('capone', { state: 'idle' }), fleet.agent('captwo', { state: 'idle' })]);
+  const p = projects.create({ name: 'Agy Cap Give ' + (++seq) });
+  projects.addAgent(p.id, 'capone', board.agents);
+  projects.addAgent(p.id, 'captwo', board.agents);
+  const t1 = tasks.create(p.id, { sentence: 'write the release notes', made: { via: 'screen' } });
+  const t2 = tasks.create(p.id, { sentence: 'check the figures', made: { via: 'screen' } });
+  const n1 = t1.task ? t1.task.number : t1.number;
+  const n2 = t2.task ? t2.task.number : t2.number;
+  const realDeliver = chat.deliver;
+  assert.deepEqual(capSetting.set({ maxWorking: 1 }), { ok: true });
+  try {
+    chat.deliver = () => ({ state: chat.DELIVERY.PLACED, because: null });
+    const roster = [idleAgy('capone'), idleAgy('captwo')];
+    const first = givePart(p.id, n1, 1, 'capone', { assigner: true, roster });
+    assert.equal(first.ok, true, 'the first give goes through: ' + JSON.stringify(first.because));
+    spyAssign((calls) => {
+      const second = givePart(p.id, n2, 1, 'captwo', { assigner: true, roster });
+      assert.equal(second.ok, false);
+      assert.equal(second.status, 409);
+      assert.equal(second.held, true);
+      assert.match(second.because, /limit set for working at once/);
+      assert.equal(calls.length, 0, 'tasks.assignPart was called for an agent the cap holds');
+    });
+    // CONTROL: when the first give's tell reaches nothing, its slot is given back and the next give is not held.
+    q.CAP_STARTS.clear();
+    chat.deliver = () => ({ state: chat.DELIVERY.COULD_NOT, because: 'unreachable' });
+    const lost = givePart(p.id, n2, 1, 'captwo', { assigner: true, roster });
+    assert.equal(lost.ok, false, 'fixture: the tell failed as arranged');
+    assert.equal(q.CAP_STARTS.has('captwo'), false, 'a give whose tell reached nothing keeps no reservation');
+  } finally {
+    chat.deliver = realDeliver;
+    fs.rmSync(capSetting.FILE, { force: true });
+    q.CAP_STARTS.clear();
+    board.restore();
+  }
+});
+
+test('#4588 ask 3 review 6: an async assigner give whose tell REJECTS fails, is taken back, and keeps no cap slot', async () => {
+  const capSetting = require('./engine/agycap-setting');
+  const q = require('./engine/agyquota');
+  q.CAP_STARTS.clear();
+  const board = fleet.install([fleet.agent('caprej', { state: 'idle' })]);
+  const p = projects.create({ name: 'Agy Cap Reject ' + (++seq) });
+  projects.addAgent(p.id, 'caprej', board.agents);
+  const t = tasks.create(p.id, { sentence: 'tidy the notes', made: { via: 'screen' } });
+  const n = t.task ? t.task.number : t.number;
+  const realAsync = chat.deliverAsync;
+  assert.deepEqual(capSetting.set({ maxWorking: 1 }), { ok: true });
+  try {
+    let reached = false;
+    chat.deliverAsync = async () => { reached = true; throw new Error('the pane went away'); };
+    // heardBy turns the rejection into a failed verdict, so the give is refused and taken back (the #3595 rule).
+    const g = await givePart(p.id, n, 1, 'caprej', { assigner: true, roster: [idleAgy('caprej')], asyncDelivery: true });
+    assert.equal(reached, true, 'fixture: the async tell was not the one that rejected');
+    assert.equal(g.ok, false, 'a give whose tell rejected counted as given');
+    assert.equal(q.CAP_STARTS.has('caprej'), false, 'a rejected tell kept its cap reservation');
+  } finally {
+    chat.deliverAsync = realAsync;
+    fs.rmSync(capSetting.FILE, { force: true });
+    q.CAP_STARTS.clear();
+    board.restore();
+  }
+});
+
 /* ---- source pins on server.js ---- */
 
 const SRC = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
@@ -219,9 +290,12 @@ test('#4588 B pin: the agy-quota-resume sweep stays on chat.deliver (it is the l
   assert.match(CODE.slice(Math.max(0, at - 200), at), /agyQuota\.makeTick\(\{\s*[\s\S]*$/);
 });
 
-test('#4588 B pin: the recommender passes heldUntil built on agyQuota.heldForQuota over its roster', () => {
+test('#4588 B pin: the recommender passes heldUntil built on agyQuota.heldForAgy (the quota hold, then #4588 ask 3\'s cap) over its roster', () => {
   const w = windowAfter('recommender.runOnce({');
-  assert.match(w, /heldUntil:\s*\(session\)\s*=>\s*agyQuota\.heldForQuota\(session, roster, Date\.now\(\)\)/);
+  assert.match(w, /heldUntil:\s*\(session\)\s*=>\s*agyQuota\.heldForAgy\(session, roster, Date\.now\(\)\)/);
+  // #4588 ask 3 review 9: the stuck agent's slot is reserved before its peers are asked, and given back if unreached.
+  assert.match(w, /reserve:\s*\(session\)\s*=>\s*agyQuota\.noteCapStart\(session, roster, Date\.now\(\)\)/);
+  assert.match(w, /release:\s*\(slot\)\s*=>\s*agyQuota\.releaseCapStart\(slot\)/);
   // agyQuota is declared in code before the recommender runner that closes over it.
   const decl = CODE.indexOf("const agyQuota = require('./engine/agyquota');");
   assert.notEqual(decl, -1);
@@ -241,15 +315,18 @@ test('#4588 B pin: only the auto-retell timer passes { automatic: true }, and re
   assert.ok(calls.some((c) => /^retellMember\(name, id, roster\)/.test(c)), 'CONTROL: the person\'s Try again route still retells without automatic');
 });
 
-test('#4588 B pin: givePart checks heldForQuota inside its assigner branch BEFORE tasks.assignPart', () => {
+test('#4588 B pin: givePart checks heldForQuota, then #4588 ask 3\'s heldForCap, inside its assigner branch BEFORE tasks.assignPart', () => {
   const fnAt = CODE.indexOf('function givePart(');
   assert.notEqual(fnAt, -1);
   const body = CODE.slice(fnAt, CODE.indexOf('\nfunction ', fnAt + 1));
-  const held = body.search(/heldForQuota\(who, roster \|\| safeRoster\(\), Date\.now\(\)\)/);
+  assert.match(body, /const r = roster \|\| safeRoster\(\);/, 'the hold checks no longer read the roster the assigner passed');
+  const held = body.search(/heldForQuota\(who, r, now\)/);
+  const cap = body.search(/heldForCap\(who, r, now\)/);
   const assign = body.indexOf('tasks.assignPart(');
   assert.notEqual(held, -1, 'givePart no longer checks heldForQuota');
+  assert.notEqual(cap, -1, 'givePart no longer checks the Gemini cap');
   assert.notEqual(assign, -1);
-  assert.ok(held < assign, 'the hold is checked after the part is assigned');
+  assert.ok(held < assign && cap < assign, 'a hold is checked after the part is assigned');
   const branch = body.lastIndexOf('if (assigner) {', held);
   assert.notEqual(branch, -1, 'the hold check is not inside an assigner branch');
   assert.match(body.slice(held, assign), /status:\s*409,\s*held:\s*true/);
@@ -260,10 +337,10 @@ test('#4588 B pin: the auto-retell\'s ready() holds a running agent on the pool 
   assert.notEqual(at, -1, 'the auto-retell ready() was not found');
   assert.equal(CODE.indexOf('ready: (name) => {', at + 1), -1, 'ready() anchor is not unique');
   const body = CODE.slice(at, CODE.indexOf('},', at));
-  const held = body.search(/heldForQuota\(card\.sessionName, board\(\), now\)/);
+  const held = body.search(/heldForAgy\(card\.sessionName, board\(\), now\)/);   // #4588 ask 3: the quota hold, then the cap
   const stopped = body.indexOf('STATE.STOPPED');
   const told = body.indexOf('projects.toldOverride(');
-  assert.ok(held > -1, 'ready() does not ask heldForQuota');
+  assert.ok(held > -1, 'ready() does not ask heldForAgy');
   assert.match(body, /if \(held !== null\) return false;/, 'a held agent is not reported not-ready');
   assert.ok(stopped > -1 && stopped < held, 'a stopped agent must still be ready first (it reads its file at its next start)');
   assert.ok(told > held, 'the hold must come before the staleness read decides readiness');
@@ -285,4 +362,13 @@ test('#4588 B pin: the quota-held room retry runs in the minute sweep beside swe
   const sweep = CODE.lastIndexOf('messages.sweepUnanswered(safeRoster())', at);
   assert.ok(sweep > -1 && at - sweep < 400, 'the retry is not in the nudge sweep\'s minute timer');
   assert.match(windowAfter('roomhold.flushReleased(r, {'), /isAgy:\s*\(c\)\s*=>\s*c\.runner === 'antigravity'/);
+});
+
+test('#4588 ask 3 review 3 pin: the restart pickup and the wake hello (sends after the person\'s own click) pass { cap: false }; no timer does', () => {
+  assert.match(CODE, /chat\.deliverAutomaticAsync\(name, handoffRestart\.pickupPrompt\(snap\.path\), safeRoster\(\), undefined, undefined, \{ cap: false \}\)/,
+    'the handoff pickup is held by the Gemini cap');
+  assert.match(CODE, /\(automatic \? chat\.deliverAutomaticAsync : chat\.deliverAsync\)\(name, body\.text, roster,\s*envelope, [^;]*\.\.\.\(automatic \? \[\{ cap: false \}\] : \[\]\)\)/,
+    'the wake hello is held by the Gemini cap');
+  const exempt = CODE.match(/\{ cap: false \}/g) || [];
+  assert.equal(exempt.length, 2, 'only those two sends may skip the cap, got ' + exempt.length);
 });

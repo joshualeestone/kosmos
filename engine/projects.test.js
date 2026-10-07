@@ -52,6 +52,14 @@ const fleet = require('../test-support/fleet');
 const WORK = path.join(SANDBOX, 'work');
 fs.mkdirSync(WORK, { recursive: true });
 
+function caseInsensitiveFS() {
+  const probe = path.join(SANDBOX, 'CaseProbe');
+  try { fs.mkdirSync(probe, { recursive: true }); } catch { /* exists */ }
+  const ci = fs.existsSync(path.join(SANDBOX, 'caseprobe'));
+  try { fs.rmSync(probe, { recursive: true, force: true }); } catch { /* best effort */ }
+  return ci;
+}
+
 function reset() {
   try { fs.rmSync(projects.file()); } catch { /* nothing written yet */ }
 }
@@ -832,6 +840,152 @@ test('telling an agent writes the block into its real instruction file', () => {
   assert.equal(projects.get(p.id, []).agents[0].told.state, projects.TOLD.TOLD, 'and the verdict is recorded');
 });
 
+test('#5320: only a change to the block\'s standing rules owes the running agent a re-read', () => {
+  reset();
+  const ir = require('./instructionreread');
+  const clear = () => { try { fs.rmSync(ir.file()); } catch { /* absent is fine */ } };
+  const owed = () => (ir.readOwed().mara || {}).sections;
+  const file = path.join(agent('mara', '# Mara\n\nYou are the executive assistant.\n'), 'CLAUDE.md');
+  const p = projects.create({ name: 'Henderson lease', folder: folder('henderson-5320'), agents: ['mara'] });
+  const setTasks = (tasks) => { const all = projects.readAll(); all.find((x) => x.id === p.id).tasks = tasks; projects.writeAll(all); };
+  // Joining: there was no block, and joining is announced by its own line (membershipLine), so nothing is owed.
+  clear();
+  const joined = projects.syncAgent('mara', ROSTER);
+  assert.equal(joined.state, projects.TOLD.TOLD);
+  assert.equal(joined.changed, true, 'fixture: the first write must add the block');
+  assert.equal(joined.rulesChanged, false);
+  assert.equal(owed(), undefined, 'joining owed a second line');
+  // A block written by an older Kosmos, without the pause rule: the rewrite brings the rule, and that is owed.
+  const PAUSE = 'When your person asks to pause a whole project, pause it';
+  const before = fs.readFileSync(file, 'utf8');
+  assert.ok(before.includes(PAUSE), 'fixture: the block carries the pause rule');
+  fs.writeFileSync(file, before.split('\n').filter((l) => !l.startsWith(PAUSE)).join('\n'));
+  clear();
+  const upgraded = projects.syncAgent('mara', ROSTER);
+  assert.equal(upgraded.state, projects.TOLD.TOLD);
+  assert.equal(upgraded.rulesChanged, true);
+  assert.deepEqual(owed(), ['projects'], 'a new standing rule was not owed as a re-read');
+  // CONTROL: the same write again changes nothing, and owes nothing.
+  clear();
+  const again = projects.syncAgent('mara', ROSTER);
+  assert.notEqual(again.changed, true, 'fixture: the second write must be unchanged');
+  assert.notEqual(again.rulesChanged, true);
+  assert.equal(owed(), undefined, 'an unchanged write owed a re-read');
+  // Its own task arriving and then closing changes the block's task lines, not its rules: nothing owed.
+  setTasks([{ number: 1, sentence: 'draft the renewal letter', who: 'mara' }]);
+  clear();
+  const assigned = projects.syncAgent('mara', ROSTER);
+  assert.equal(assigned.changed, true, 'fixture: a task must change the block');
+  assert.equal(owed(), undefined, 'a task arriving owed a re-read');
+  setTasks([{ number: 1, sentence: 'draft the renewal letter', who: 'mara', closedAt: Date.now() }]);
+  clear();
+  const closed = projects.syncAgent('mara', ROSTER);
+  assert.equal(closed.changed, true, 'fixture: closing the task must change the block');
+  assert.equal(owed(), undefined, 'the agent closing its own task owed a re-read');
+  // Leaving its last project removes the block: there is no section left to read, so nothing is owed.
+  projects.removeAgent(p.id, 'mara');
+  clear();
+  const left = projects.syncAgent('mara', ROSTER);
+  assert.equal(left.changed, true, 'fixture: leaving must remove the block');
+  assert.ok(!fs.readFileSync(file, 'utf8').includes('## Your projects'), 'fixture: the block is gone');
+  assert.equal(owed(), undefined, 'a removed block owed a re-read of a section that is gone');
+});
+
+test('#5320: the tasks rules are owed only when both the old and the new block list a task', () => {
+  reset();
+  const ir = require('./instructionreread');
+  const clear = () => { try { fs.rmSync(ir.file()); } catch { /* absent is fine */ } };
+  const owed = () => (ir.readOwed().mara || {}).sections;
+  const file = path.join(agent('mara', '# Mara\n\nYou are the executive assistant.\n'), 'CLAUDE.md');
+  const p = projects.create({ name: 'Ledger', folder: folder('ledger-5320'), agents: ['mara'] });
+  const setTasks = (tasks) => { const all = projects.readAll(); all.find((x) => x.id === p.id).tasks = tasks; projects.writeAll(all); };
+  const OPEN = [{ number: 1, sentence: 'reconcile March', who: 'mara' }, { number: 2, sentence: 'reconcile April', who: 'mara' }];
+  setTasks(OPEN);
+  projects.syncAgent('mara', ROSTER);
+  const MARK = 'When you have built one and it is waiting to be released or checked, mark it:';
+  // An older Kosmos's block: the tasks rules without the "mark it built" rule (#3951).
+  const older = () => fs.writeFileSync(file, fs.readFileSync(file, 'utf8').split('\n').filter((l) => l !== MARK).join('\n'));
+  older();
+  assert.ok(!fs.readFileSync(file, 'utf8').includes(MARK), 'fixture: the older block lacks the rule');
+  // One task closes, one stays open: the new block still lists a task and now carries the new rule, so it is owed.
+  setTasks([{ ...OPEN[0], closedAt: Date.now() }, OPEN[1]]);
+  clear();
+  const still = projects.syncAgent('mara', ROSTER);
+  assert.equal(still.rulesChanged, true, 'a new tasks rule was not seen');
+  assert.deepEqual(owed(), ['projects'], 'a new tasks rule beside an open task was not owed');
+  // The same older block, but the LAST task closes: the new block lists no task and carries no tasks rules. Nothing owed.
+  older();
+  setTasks([{ ...OPEN[0], closedAt: Date.now() }, { ...OPEN[1], closedAt: Date.now() }]);
+  clear();
+  const done = projects.syncAgent('mara', ROSTER);
+  assert.equal(done.changed, true, 'fixture: closing the last task must change the block');
+  assert.ok(!fs.readFileSync(file, 'utf8').includes(MARK), 'fixture: the new block carries no tasks rules');
+  assert.equal(done.rulesChanged, false);
+  assert.equal(owed(), undefined, 'rules the new block does not carry were owed');
+});
+
+test('#5320: a pause set or lifted on the screen marks the agent\'s open task, and that is owed as a re-read', () => {
+  reset();
+  const ir = require('./instructionreread');
+  const clear = () => { try { fs.rmSync(ir.file()); } catch { /* absent is fine */ } };
+  const owed = () => (ir.readOwed().mara || {}).sections;
+  agent('mara', '# Mara\n\nYou are the executive assistant.\n');
+  const p = projects.create({ name: 'Henderson lease', folder: folder('pause-5320'), agents: ['mara'] });
+  const edit = (fn) => { const all = projects.readAll(); fn(all.find((x) => x.id === p.id)); projects.writeAll(all); };
+  edit((x) => { x.tasks = [{ number: 1, sentence: 'draft the renewal letter', who: 'mara' }]; });
+  projects.syncAgent('mara', ROSTER);
+  edit((x) => { x.paused = true; x.pausedByPerson = true; });
+  clear();
+  const paused = projects.syncAgent('mara', ROSTER);
+  assert.equal(paused.changed, true, 'fixture: the pause must mark the task line');
+  assert.equal(paused.rulesChanged, true);
+  assert.deepEqual(owed(), ['projects'], 'a screen pause on an open task was not owed');
+  edit((x) => { delete x.paused; delete x.pausedByPerson; });
+  clear();
+  const resumed = projects.syncAgent('mara', ROSTER);
+  assert.equal(resumed.changed, true, 'fixture: resuming must unmark the task line');
+  assert.deepEqual(owed(), ['projects'], 'a resume on an open task was not owed');
+  // Paused and reworded in one write: still the same task, so still owed.
+  edit((x) => { x.paused = true; x.pausedByPerson = true; x.tasks[0].sentence = 'draft the renewal letter today'; });
+  clear();
+  projects.syncAgent('mara', ROSTER);
+  assert.deepEqual(owed(), ['projects'], 'a pause beside a reword was missed');
+  edit((x) => { delete x.paused; delete x.pausedByPerson; x.tasks[0].sentence = 'draft the renewal letter'; });
+  projects.syncAgent('mara', ROSTER);
+  // CONTROL: the task's own words changing, with no hold, is not a hold change.
+  edit((x) => { x.tasks[0].sentence = 'draft and send the renewal letter'; });
+  clear();
+  const reworded = projects.syncAgent('mara', ROSTER);
+  assert.equal(reworded.changed, true, 'fixture: rewording must change the task line');
+  assert.equal(owed(), undefined, 'a reworded task was owed as a hold change');
+});
+
+test('#5320: two projects with one name: a pause on one of them is still owed', () => {
+  reset();
+  const ir = require('./instructionreread');
+  const clear = () => { try { fs.rmSync(ir.file()); } catch { /* absent is fine */ } };
+  const owed = () => (ir.readOwed().mara || {}).sections;
+  agent('mara', '# Mara\n\nYou are the executive assistant.\n');
+  const one = projects.create({ name: 'Q1: budget', folder: folder('q1a-5320'), agents: ['mara'] });
+  const two = projects.create({ name: 'Q1: tax', folder: folder('q1b-5320'), agents: ['mara'] });
+  const edit = (id, fn) => { const all = projects.readAll(); fn(all.find((x) => x.id === id)); projects.writeAll(all); };
+  edit(one.id, (x) => { x.tasks = [{ number: 1, sentence: 'set the budget', who: 'mara' }]; });
+  edit(two.id, (x) => { x.tasks = [{ number: 1, sentence: 'file the return', who: 'mara' }]; });
+  projects.syncAgent('mara', ROSTER);
+  // The FIRST project listed is paused: an overwriting key would keep only the second line's marker.
+  edit(one.id, (x) => { x.paused = true; x.pausedByPerson = true; });
+  clear();
+  const paused = projects.syncAgent('mara', ROSTER);
+  assert.equal(paused.changed, true, 'fixture: the pause must mark a task line');
+  assert.deepEqual(owed(), ['projects'], 'a pause behind a shared key was missed');
+  // CONTROL: the other project's task closing under the shared key is not a hold change.
+  edit(two.id, (x) => { x.tasks[0].closedAt = Date.now(); });
+  clear();
+  const closed = projects.syncAgent('mara', ROSTER);
+  assert.equal(closed.changed, true, 'fixture: closing must change the block');
+  assert.equal(owed(), undefined, 'a task closing under a shared key was read as a hold change');
+});
+
 test('an agent with no worker folder is recorded as a member we COULD NOT tell', () => {
   reset();
   // ⚠️ Not hypothetical: measured on this machine 2026-08-11, `claudebot` — the
@@ -1602,7 +1756,9 @@ test('the previewed path IS the path the act produces, case correction included'
   // The act distinction travels with the path: this folder existed, so the
   // screen must say ADOPT, and a fresh name must say MAKE (round 17: the
   // preview claimed "make" over a folder adoption).
-  assert.equal(previewed.exists, true, 'an existing folder previews as existing');
+  // #4919: on a case-insensitive disk `lease` IS the existing `Lease` (adopt); on a case-sensitive one it is a new
+  // folder (make). Either way the preview must say what the act did.
+  assert.equal(previewed.exists, caseInsensitiveFS(), 'the preview said ' + previewed.exists + ' about an act that ' + (caseInsensitiveFS() ? 'adopted' : 'made') + ' the folder');
   const fresh = projects.folderPathPreview('Never previewed into being');
   assert.strictEqual(fresh.exists, false, 'a fresh name previews as not existing');
   assert.ok(!fs.existsSync(fresh.path),
@@ -1666,7 +1822,7 @@ test('pointing at a folder you already have still works, and is untouched by any
     'and no folder was made for it under the Kosmos root');
 });
 
-test('"Lease" and "lease" are ONE project on a case-insensitive volume, not two over one folder', () => {
+test('"Lease" and "lease" are ONE project on a case-insensitive volume, not two over one folder', { skip: !caseInsensitiveFS() && 'requires case-insensitive filesystem' }, () => {
   /**
    * ⚠️ REPRODUCED BEFORE IT WAS FIXED, and the failure was data corruption
    * rather than cosmetics: `fs.realpathSync` does not canonicalise case, so the
@@ -1700,7 +1856,7 @@ test('"Lease" and "lease" are ONE project on a case-insensitive volume, not two 
   assert.equal(path.basename(first.folder), 'Lease');
 });
 
-test('an adopted folder is stored under the spelling the filesystem uses, not the one we derived', () => {
+test('an adopted folder is stored under the spelling the filesystem uses, not the one we derived', { skip: !caseInsensitiveFS() && 'requires case-insensitive filesystem' }, () => {
   reset();
   fs.mkdirSync(path.join(projects.projectsRoot(), 'Henderson Lease'), { recursive: true });
   const made = projects.create({ name: 'henderson lease' });
@@ -1709,9 +1865,9 @@ test('an adopted folder is stored under the spelling the filesystem uses, not th
   assert.equal(made.name, 'henderson lease', 'and what the person called it is untouched');
 });
 
-test('the same folder reached by two spellings of a MIDDLE segment is still one project', () => {
+test('the same folder reached by two spellings of a MIDDLE segment is still one project', { skip: !caseInsensitiveFS() && 'requires case-insensitive filesystem' }, () => {
   // The advanced "use a folder you already have" route takes a typed path, so
-  // the case difference can be anywhere in it — not only in the project name.
+  // the case difference can be anywhere in it, not only in the project name.
   reset();
   const parent = path.join(WORK, 'Mixed-Case-Parent');
   fs.mkdirSync(path.join(parent, 'work'), { recursive: true });
@@ -2571,9 +2727,11 @@ test('os.tmpdir itself and a sibling that merely shares its prefix', () => {
   // The temp root itself is under it.
   assert.equal(projects.isUnderTmpDir(os.tmpdir()), true);
   // A path boundary, not a string prefix: a sibling named like the root but
-  // longer is NOT inside it.
-  assert.equal(projects.isUnderTmpDir(os.tmpdir() + 'x-not-inside'), false);
-  assert.equal(projects.tmpFolderRefused(os.tmpdir() + 'x-not-inside', realStore), false);
+  // longer is NOT inside it. When os.tmpdir() is under /tmp (like Linux /tmp/kt...),
+  // test a sibling of /tmp itself so it is genuinely outside any temp root.
+  const sibling = os.tmpdir().startsWith('/tmp') ? '/tmpx-not-inside' : os.tmpdir().replace(/\/+$/, '') + 'x-not-inside';
+  assert.equal(projects.isUnderTmpDir(sibling), false);
+  assert.equal(projects.tmpFolderRefused(sibling, realStore), false);
   // Home is not temp.
   assert.equal(projects.isUnderTmpDir(os.homedir()), false);
 });
@@ -2846,4 +3004,13 @@ test('#4927: "Your projects" says the paths are this computer\'s and how a sandb
   assert.match(flat, /Kosmos records which projects you are on, and the folder it has recorded for each, on this computer\./);
   assert.match(flat, /If you work in a sandbox that shows this computer's folders under other paths \(mount names can change between sessions\), find a project's folder there by the folder's own name, the last part of its path \(it can differ from the project's name\)\./);
   assert.doesNotMatch(flat, /this is where their folders are/, 'the heading still certifies a path that may have moved');
+});
+
+/* kosmos#5325: the sandbox is removed when the file ends. Every run used to leave it in the temp folder (about 20 MB
+   each here; 128 of them filled 2.6 GB on one Mac). Only a folder this file made under the temp folder is removed. */
+test.after(() => {
+  const tmp = fs.realpathSync(os.tmpdir());
+  const mine = fs.realpathSync(SANDBOX);
+  if (!mine.startsWith(tmp + path.sep) || !path.basename(mine).startsWith('kosmos-projects-')) return;
+  fs.rmSync(mine, { recursive: true, force: true });
 });

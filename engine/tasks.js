@@ -873,10 +873,11 @@ function setRepeat(projectId, n, rule, opts = {}) {
     if (next) {
       changed.repeat = next; if (person) changed.repeatByPerson = true; else if (didChange) delete changed.repeatByPerson;
       if (didChange) changed.repeatSetAt = new Date().toISOString();   // review 4: a first run is due from when the rule was set
+      if (didChange) delete changed.lastRunLate;   // slice 2 review 1: "late" was measured against the old rule
       if (changed.builtAt) { changed = withoutBuilt(changed); droppedBuilt = true; }   // review 3: a recurring job is never built
     } else {
       // review 3: the runs belonged to the rule; a rule set again later starts with no stale "last run".
-      delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; delete changed.lastRunAt; delete changed.lastRunBy; delete changed.lastRunByPerson; delete changed.lastRunNote;
+      delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; delete changed.lastRunAt; delete changed.lastRunBy; delete changed.lastRunByPerson; delete changed.lastRunNote; delete changed.lastRunLate;
     }
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
@@ -921,10 +922,17 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
     changed = { ...t, lastRunAt: new Date(at).toISOString() };   // ISO, as createdAt and builtAt are
     if (isPerson) { changed.lastRunByPerson = true; delete changed.lastRunBy; } else { changed.lastRunBy = runner; delete changed.lastRunByPerson; }
     if (said) changed.lastRunNote = said; else delete changed.lastRunNote;
+    /* slice 2: a run is LATE (the row says so) when it is off the schedule: more than the miss grace after the latest
+       slot since the rule was set, and not within the grace BEFORE the next slot (an early run is on time). It depends only
+       on the rule and the run's time, never on earlier runs.
+       Review 1: the latest slot, never the oldest unanswered one, so after a missed day the next day's 09:05 run is on time.
+       Review 2: a job reporting a few minutes early (08:50 for 09:00) is not late; a second runner in the same minute gets
+       the same answer as the first. */
+    if (taskrepeat.runIsLate(t, at)) changed.lastRunLate = true; else delete changed.lastRunLate;
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
   if (duplicate) return Object.assign({}, changed, { duplicate: true });
-  taskchat.record(projectId, changed.number, { kind: 'run', ...(isPerson ? { person: true } : { by: runner }), ...(said ? { note: said } : {}) });
+  taskchat.record(projectId, changed.number, { kind: 'run', ...(isPerson ? { person: true } : { by: runner }), ...(said ? { note: said } : {}), ...(changed.lastRunLate ? { late: true } : {}) });
   return changed;
 }
 

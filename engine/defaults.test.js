@@ -36,7 +36,7 @@ test('the doctrine version and the block text move together', () => {
   const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8', 23: '91ad3a6c31f4b409', 24: 'a660bad12cb659d6' };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8', 23: '91ad3a6c31f4b409', 24: 'a660bad12cb659d6', 25: 'f0ceb95a6b07007f' };
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
@@ -599,4 +599,17 @@ test('#5152: work goes on a task first, with Done when checks, and the built not
   // A new heading, so an agent already holding every other section is offered this one (as #4873).
   assert.deepEqual(defaults.missingFrom(defaults.block().replace(sec.text, '')).map((x) => x.heading), ['### Put the work on a task first'],
     'an agent holding every other section would not be offered this one');
+});
+
+/* kosmos#4787 slice 1b (doctrine v25): the repeating-work paragraph says what the CLIs accept and what Kosmos does not
+   do. Asserted on the text, so removing the paragraph and re-pinning the fingerprint above cannot pass unseen. */
+test('#4787: the block teaches a repeating task: the exact repeat and ran commands, that Kosmos does not start a run, and never built', () => {
+  const b = defaults.block();
+  assert.match(b, /`kosmos task repeat <project-id> <task-number> daily --at 09:00`/);
+  assert.match(b, /`weekly --on mon --at 09:00`/);
+  assert.match(b, /`kosmos task ran <project-id> <task-number> "what this run found"`/);
+  assert.match(b, /it does not start the run for you/);
+  assert.match(b, /A repeating task is never marked built/);
+  const sec = b.slice(b.indexOf('### Put the work on a task first'));
+  assert.ok(sec.indexOf('task repeat') > 0 && sec.indexOf('task repeat') < sec.indexOf('###', 5), 'under its own heading, not another');
 });

@@ -21,6 +21,21 @@ const communitysend = require('./communitysend');
 
 const SHOWN = 20;   // the newest items listed; the rest are counted
 
+/* #5415: a link to where an item that is in the community can be seen: <site>/post/<id> (kosmos-community
+   web/app/post/[id]/page.tsx). A comment has no page of its own, so it links to the post it is on. */
+const LINKED = new Set(['sent', 'sent_refused']);
+const PLAIN_ID = /^[0-9a-f-]{8,64}$/i;
+function siteOrigin() {
+  let u;
+  try { u = new URL(communitysend.sendAddress()); } catch { return null; }
+  return u.protocol === 'https:' && (u.pathname === '/' || u.pathname === '') && !u.search && !u.hash ? u.origin : null;
+}
+function linkFor(state, id) {
+  if (!LINKED.has(state) || typeof id !== 'string' || !PLAIN_ID.test(id)) return null;
+  const site = siteOrigin();
+  return site ? site + '/post/' + encodeURIComponent(id) : null;
+}
+
 /* What each state means to the agent, in its words. A state without words reads "unknown (<state>)"; a test reads
    every state this file and the send layer can produce and asserts each has words. */
 const POST_WORDS = Object.freeze({
@@ -68,7 +83,8 @@ function readRecords() {
   const state = r(p.stateFile);
   const keys = r(p.keysFile);
   const shared = state !== null && keys !== null;
-  return { state: state || {}, keys: keys || {},
+  const sent = r(p.sentFile);
+  return { state: state || {}, keys: keys || {}, sent: sent || {},
     postsOk: shared && r(p.sentFile) !== null && r(p.deletesFile) !== null,
     // Review 3: the sweep stops before the comment pass when a POST record is unreadable, so comments need both halves.
     commentsOk: shared && r(p.sentFile) !== null && r(p.deletesFile) !== null
@@ -109,7 +125,7 @@ function stateOf(kind, rec, item, ctx) {
 }
 
 /**
- * The agent's items, newest first: [{ kind: 'post' | 'comment', id, post (a comment's community post id), title, at, state }]. Held and quarantined rows (the
+ * The agent's items, newest first: [{ kind: 'post' | 'comment', id, post (a comment's community post id), title, at, state, link? }]. Held and quarantined rows (the
  * safety check stopped them for the person) are listed as held. An item whose send records cannot be read is
  * 'unreadable'. Null only if reading throws.
  */
@@ -127,13 +143,16 @@ function itemsFor(sessionName, now = Date.now()) {
   const out = [];
   for (const p of communitystore.publishedPosts()) {
     if (!byAgent(p, sessionName)) continue;
-    out.push({ kind: 'post', id: p.id, title: communitysend.titleFor(p), at: madeAt(p),
-      state: postStatus ? stateOf('post', postStatus[p.id], p, ctx) : 'unreadable' });
+    const state = postStatus ? stateOf('post', postStatus[p.id], p, ctx) : 'unreadable';
+    const link = linkFor(state, recs.sent[p.id] && recs.sent[p.id].remoteId);
+    out.push({ kind: 'post', id: p.id, title: communitysend.titleFor(p), at: madeAt(p), state, ...(link ? { link } : {}) });
   }
   for (const c of communitystore.serviceComments()) {
     if (!byAgent(c, sessionName) || c.status !== 'published') continue;
+    const state = commentStatus ? stateOf('comment', commentStatus[c.id], c, ctx) : 'unreadable';
+    const link = linkFor(state, c.remotePostId);
     out.push({ kind: 'comment', id: c.id, post: c.remotePostId, title: communitysend.titleFor({ body: c.body }), at: madeAt(c),
-      state: commentStatus ? stateOf('comment', commentStatus[c.id], c, ctx) : 'unreadable' });
+      state, ...(link ? { link } : {}) });
   }
   // Held or quarantined: the safety check stopped it for the person (feedpublish). Every row, not a capped page. Both
   // read "held", as the post route tells the submitter (which one is never said: not a scrubber oracle). Review 2: a
@@ -167,6 +186,7 @@ function statusText(sessionName) {
   for (const x of items.slice(0, SHOWN)) {
     const words = (x.kind === 'post' ? POST_WORDS : COMMENT_WORDS)[x.state] || ('unknown (' + x.state + ')');
     lines.push('- ' + x.kind + ' ' + JSON.stringify(x.title || '(no title)') + (x.at ? ' (' + x.at.slice(0, 16).replace('T', ' ') + ' UTC)' : '') + ': ' + words);
+    if (x.link) lines.push('  ' + (x.kind === 'comment' ? 'on the post at ' : 'see it at ') + x.link);   // #5415
   }
   if (items.length > SHOWN) lines.push('', '(and ' + (items.length - SHOWN) + ' older)');
   return { ok: true, count: items.length, text: lines.join('\n') };

@@ -543,9 +543,10 @@ kosmos_refuse_if_suite_live() {
 # Before #4574 every waiter gave up at 20 minutes. Accepted: a hung suite is rare, and the jam this card measured was
 # not one (the live-count side is #4609: see _kosmos_drop_suite_waiters).
 # #4609: the overrides and wait controls a caller sets for run-tests.sh's own wait (not the test probes, which tests
-# pass explicitly). run-tests.sh unsets them once its wait has read them, and test-cut-guard.sh starts without them, so
+# pass explicitly), plus #5332's KOSMOS_WAIT_KEEP_MARK, which is queued-heavy's alone and listed so no child
+# inherits it. run-tests.sh unsets them once its wait has read them, and test-cut-guard.sh starts without them, so
 # no test inherits a caller's (one list, used by both).
-KOSMOS_WAIT_CONTROL_VARS="KOSMOS_TESTS_IGNORE_SUITE KOSMOS_TESTS_IGNORE_HARNESS KOSMOS_IGNORE_MACHINE_CLAIM KOSMOS_NO_WAIT KOSMOS_WAIT_MAX_S KOSMOS_WAIT_EVERY_S KOSMOS_WAIT_QUEUE_CEIL_S KOSMOS_WAIT_NOW KOSMOS_WAIT_SLEEP KOSMOS_QUEUE_CLASS"
+KOSMOS_WAIT_CONTROL_VARS="KOSMOS_TESTS_IGNORE_SUITE KOSMOS_TESTS_IGNORE_HARNESS KOSMOS_IGNORE_MACHINE_CLAIM KOSMOS_NO_WAIT KOSMOS_WAIT_MAX_S KOSMOS_WAIT_EVERY_S KOSMOS_WAIT_QUEUE_CEIL_S KOSMOS_WAIT_NOW KOSMOS_WAIT_SLEEP KOSMOS_QUEUE_CLASS KOSMOS_WAIT_KEEP_MARK"
 _kosmos_suite_waiter_file() { printf '%s/suitewait.%s' "$(_kosmos_marker_dir)" "$1"; }
 
 # _kosmos_suite_waiter_live <pid>: 0 when <pid> holds a verified waiting marker (alive, same command, and a matching
@@ -809,6 +810,9 @@ _kosmos_wait_now() {
 # place: the caller asks the check again under its take lock (the check reads this run's queue place) and unmarks
 # after the take, so a take that loses keeps its place. Only queued-heavy.sh passes it, for a light run
 # (kosmos_light_side_clear); run-tests.sh does not.
+# #5332: KOSMOS_WAIT_KEEP_MARK=1 does the same for a MAIN turn: a clear pass returns 0 with the queue marker kept, and
+# the caller then OWNS the unmark (after its take is won; a lost take keeps the place). Only queued-heavy.sh sets it,
+# and it unsets it for its command; run-tests.sh unsets it before its own wait, since nothing there would unmark.
 kosmos_wait_until_clear() {
   local what="$1"; shift
   local queue=0; [ "${1:-}" = --suite-queue ] && { queue=1; shift; }
@@ -853,6 +857,13 @@ kosmos_wait_until_clear() {
       return 0
     fi
     if err="$("$@" 2>&1)" && { [ "$queue" = 0 ] || kosmos_refuse_if_earlier_suite_waiter "$what" 2>/dev/null; }; then
+      # #5332: a caller that takes the box under its own lock (tools/queued-heavy.sh) keeps its place until the take
+      # is won: dropping it here let a later waiter see nobody ahead and race this run to the lock. The caller asks
+      # again under that lock and unmarks after its claim. Only queued-heavy sets this; run-tests.sh does not.
+      if [ "$queue" = 1 ] && [ -n "$ts" ] && [ "${KOSMOS_WAIT_KEEP_MARK:-0}" = 1 ]; then
+        [ "$waited" -gt 0 ] && echo "the box is clear after waiting ${waited}s; $what takes it now." >&2
+        return 0
+      fi
       if [ "$queue" = 1 ] && [ -n "$ts" ]; then
         kosmos_unmark_suite_waiting
         # The second ask (see the queue note above): anything that started while this run was still

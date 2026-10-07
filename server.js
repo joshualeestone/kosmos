@@ -471,10 +471,20 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
   }
   /* #4588 PR B: the assigner does not give a part to an agent held on its machine's shared Google quota. Refused here,
      before the part is assigned, so a held agent is not given work and taken off it again every tick. */
+  let capSlot = null;   // #4588 ask 3 review 2: the Assigner's own reservation (its tell is not deliverAutomatic)
+  // Only the Assigner is gated: a part a person or an agent gives is not held by the quota or the cap, by decision (plan).
   if (assigner) {
     let heldUntil = null;
-    try { heldUntil = require('./engine/agyquota').heldForQuota(who, roster || safeRoster(), Date.now()); } catch { heldUntil = null; }
+    const agyq = require('./engine/agyquota');
+    const r = roster || safeRoster();
+    const now = Date.now();
+    try { heldUntil = agyq.heldForQuota(who, r, now); } catch { heldUntil = null; }
     if (heldUntil !== null) return { ok: false, status: 409, held: true, because: who + " is held until " + new Date(heldUntil).toISOString() + ": its Google account's shared quota is out" };
+    // #4588 ask 3: the person's cap on how many Gemini agents work at once.
+    try { heldUntil = agyq.heldForCap(who, r, now); } catch { heldUntil = null; }
+    if (heldUntil !== null) return { ok: false, status: 409, held: true, because: who + " waits: the Gemini subscription agents on this computer are at the limit set for working at once" };
+    // Reserve now, before the part is assigned and told, so the next givePart in this same tick counts it.
+    try { capSlot = agyq.noteCapStart(who, r, now); } catch { capSlot = null; }
   }
   /* #5382: a failover move (`from`: the rate-limited agent the Assigner takes the part from) is refused unless the part is
      still on that agent and still open, not held and not built, at the moment of the write (tasks.assignPart). */
@@ -482,7 +492,8 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
   const made = failoverFrom ? { via: 'assigner', onlyIfWho: failoverFrom, failover: true }
     : assigner ? { via: 'assigner', onlyIfFree: true } : { via: screen ? 'screen' : 'process' };
   const out = tasks.assignPart(projectId, n, partId, who, made);
-  if (!out.ok) return { ok: false, status: 400, because: out.because };
+  if (!out.ok) { require('./engine/agyquota').releaseCapStart(capSlot); return { ok: false, status: 400, because: out.because }; }
+  if (!out.changed) require('./engine/agyquota').releaseCapStart(capSlot);   // nothing new was given, so no slot is held
   const r = roster || safeRoster();
   let heard;
   if (noPage) {
@@ -495,7 +506,8 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     const fromName = (fromCard && fromCard.name) || failoverFrom;   // a card's `name` is the one the page shows
     const note = failoverFrom ? 'It was moved to you from ' + fromName + ', which hit its provider\'s usage limit and may'
       + ' already have started it: read the task\'s room and ' + fromName + '\'s work on it before you begin.' : '';
-    heard = heardBy(projectId, out.task, who, sentence, r, asyncDelivery ? chat.deliverAsync : chat.deliver, note);
+    try { heard = heardBy(projectId, out.task, who, sentence, r, asyncDelivery ? chat.deliverAsync : chat.deliver, note); }
+    catch (err) { require('./engine/agyquota').releaseCapStart(capSlot); throw err; }   // #4588 ask 3: a throw reached nothing
   } else if (out.changed) {
     heard = heardBudgetSkipped(who); // only a process reaches here: screen and assigner always pass
   }
@@ -509,11 +521,16 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
       try { back = tasks.assignPart(projectId, n, partId, failoverFrom, { via: 'assigner', onlyIfWho: who }); }
       catch (err) { back = { ok: false, because: String((err && err.message) || err) }; }
       if (failoverFrom && !back.ok) back = tasks.assignPart(projectId, n, partId, null, { via: 'assigner', onlyIfWho: who });
+      require('./engine/agyquota').releaseCapStart(capSlot);   // nothing reached the pane: the slot is free again
       return { ok: false, status: 409, because: 'we could not reach ' + who + ', so the task was not given' + (back.ok ? '' : ' (and taking it back failed: ' + back.because + ')'), heard: heardResult };
     }
     return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r), heard: heardResult };
   };
-  return heard && typeof heard.then === 'function' ? heard.then(finish) : finish(heard);
+  /* #4588 ask 3 review 6: DEFENSIVE. heardBy turns a rejected tell into a failed verdict today, so finish runs and gives
+     the slot back; this handler only matters if heardBy ever lets a rejection through. */
+  return heard && typeof heard.then === 'function'
+    ? heard.then(finish, (err) => { require('./engine/agyquota').releaseCapStart(capSlot); throw err; })
+    : finish(heard);
 }
 function engineFreshness() {
   const now = Date.now();
@@ -1091,6 +1108,7 @@ function connlostHealEnabled() {
   return connlostHeal.healEnabled(liveExecution.liveExecutionAllowed(), process.env); // the sweep's own rule
 }
 const heartbeatSetting = require('./engine/heartbeat-setting');
+const agycapSetting = require('./engine/agycap-setting');   // #4588 ask 3
 const recommenderSetting = require('./engine/recommender-setting'); // #2619
 const recommender = require('./engine/recommender'); // #3595: the Recommender's behaviour (pure step; the runner is below)
 const assignerSetting = require('./engine/assigner-setting'); // #2619
@@ -1324,7 +1342,7 @@ function autoretellTick(now = Date.now(), acted = AUTORETELL_ACTED) {
         /* #4588 PR B: a running agent held on its machine's shared Google quota is not ready: not spent, looked at again
            next sweep, so neither its instructions write nor the one retell per change is used up during the pause. */
         let held = null;
-        try { held = require('./engine/agyquota').heldForQuota(card.sessionName, board(), now); } catch { held = null; }
+        try { held = require('./engine/agyquota').heldForAgy(card.sessionName, board(), now); } catch { held = null; }   // #4588 ask 3: the cap too
         if (held !== null) return false;
         const st = projects.toldOverride(instructions.staleness(name, undefined, card.session), name, all);
         return !!(st && st.state === instructions.STALENESS.CURRENT);
@@ -1347,12 +1365,7 @@ const tasks = require('./engine/tasks');
 const taskrepeat = require('./engine/taskrepeat');   // kosmos#4787
 /* kosmos#4787: a repeating task's rule in words and its next run (this board's local time), added to a task row so neither
    the page nor an agent's CLI computes the rule again. A task that does not repeat is returned as it is. */
-function repeatFields(t) {
-  if (!t || !t.repeat || t.isClosed === true || t.closedAt) return {};   // review 1: a closed task has no next run
-  const now = Date.now();
-  const nextAt = taskrepeat.nextAfter(t.repeat, now);
-  return { repeatWords: taskrepeat.describe(t.repeat), repeatNextAt: nextAt, repeatNextWords: taskrepeat.whenWords(nextAt, now) };
-}
+function repeatFields(t) { return taskrepeat.fieldsOf(t); }   // slice 1b: one derivation, shared with the projects list
 function withRepeatWords(t) {
   if (!t || !t.repeat) return t;
   return Object.assign({}, t, repeatFields(t));
@@ -6525,7 +6538,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, { ...listed, folder });
       return;
     }
-    if ((verb === 'preview' || verb === 'download' || verb === 'reveal-file') && listedFileVerb(req, res, verb, folder, 'this agent\u2019s Files folder', { maxDepth: 0 })) return;   // flat, as the list
+    if ((verb === 'preview' || verb === 'download' || verb === 'reveal-file') && listedFileVerb(req, res, verb, folder, 'this agent\u2019s Files folder', { maxDepth: 0, owner: { kind: 'agent', id: name } })) return;   // flat, as the list
     if (verb === 'open' && req.method === 'POST') {
       readBody(req)
         .then((buf) => {
@@ -8119,7 +8132,8 @@ const server = http.createServer(async (req, res) => {
     /* #4959: the pickup is the board's own line after a restart (the handoff twin of the wake hello), so it goes
        through the shared-quota gate like every automatic sender (#4588). A held verdict is COULD_NOT, answered 409
        below, and the page shows its manual line. */
-    try { delivery = await chat.deliverAutomaticAsync(name, handoffRestart.pickupPrompt(snap.path), safeRoster(), undefined, undefined); }
+    // #4588 ask 3: the person's own restart click started this, so the Gemini cap does not hold it (the quota does).
+    try { delivery = await chat.deliverAutomaticAsync(name, handoffRestart.pickupPrompt(snap.path), safeRoster(), undefined, undefined, { cap: false }); }
     catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
     sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, { delivery, handoffPath: snap.path });
     return;
@@ -8248,9 +8262,31 @@ const server = http.createServer(async (req, res) => {
     const name = decodeSegment(prov[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     readBody(req)
-      .then((raw) => {
+      .then(async (raw) => {
         let body = null;
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        /* kosmos#5429 (Josh, 2026-10-06): a switch can carry the MODEL too, so provider, account and model change in ONE
+           restart (it used to start on the default model, and picking the model was a second restart). Checked BEFORE
+           anything is written, so a refused model leaves the agent as it was: Claude against create.js's MODELS; OpenAI
+           against the chosen account's runnable list, as the model route does (fail open when it cannot be read, #1916).
+           Empty or absent: no model is set, exactly as before (the target's own default). */
+        const wantModel = body && typeof body.model === 'string' ? body.model.trim() : '';
+        if (wantModel) {
+          const target = body && body.provider;
+          if (target === 'anthropic') {
+            const m = create.MODELS.find((x) => x.key === wantModel && x.provider === 'anthropic');
+            if (!m) { sendJson(res, 400, { outcome: 'refused', because: `${wantModel} is not a Claude model we can start, so nothing was changed` }); return; }
+          } else if (target === 'openai') {
+            const dir = (body && typeof body.account === 'string' && body.account) || openaiAccounts.defaultDir();
+            try {
+              const allowed = openaiAccounts.runnableAllowlist(await openaiAccounts.accountModels(dir));
+              if (allowed && !allowed.includes(wantModel)) { sendJson(res, 400, { outcome: 'refused', because: `${wantModel} is not a model that account can run, so nothing was changed; pick one from the list` }); return; }
+            } catch { /* not checkable: fail open, setModel bounds the id (#1916) */ }
+          } else {
+            sendJson(res, 400, { outcome: 'refused', because: 'that provider picks its own model, so one cannot be chosen with the switch; nothing was changed' });
+            return;
+          }
+        }
         /* #1373: the account the person picked rides through. Absent, the
            engine states a default and names it, exactly as before. */
         const wrote = create.setProvider(name, body && body.provider, {
@@ -8265,6 +8301,14 @@ const server = http.createServer(async (req, res) => {
         if (wrote.outcome === create.OUTCOME.REFUSED) {
           sendJson(res, 400, { outcome: 'refused', because: wrote.because });
           return;
+        }
+        /* #5429: the model, written to the job the switch just wrote, BEFORE the one restart. */
+        let pickedModel = null;
+        let modelMiss = '';
+        if (wantModel) {
+          const m = create.setModel(name, wantModel);
+          if (m.outcome === create.OUTCOME.REFUSED) modelMiss = m.because || 'the model could not be set';
+          else pickedModel = m.model || null;
         }
         let back;
         try { back = removal.restart(name, 'provider'); }
@@ -8287,11 +8331,17 @@ const server = http.createServer(async (req, res) => {
            "previous" rather than "Claude" because the old provider need not be claude. */
         /* #5091: a switch to Claude can now carry a picked Claude account; then only the model default is said here
            (the account is named by landedOn), and "your main Claude account" stays for a switch nobody picked for. */
+        /* #5429: a model picked with the switch is named; only an unpicked one is the default. */
+        const claudeModelWords = pickedModel && pickedModel.label ? 'it starts on ' + pickedModel.label : 'it starts on Claude’s own default model until you change it';
         const dropped = wrote.provider === 'anthropic'
-          ? [wrote.account ? 'it starts on Claude’s own default model until you change it'
-            : 'it starts on your main Claude account and Claude’s own default model until you change them']
-          : [wrote.dropped.model ? `its previous model choice does not cross (${label} picks its own)` : '',
+          ? [wrote.account ? claudeModelWords
+            : (pickedModel && pickedModel.label ? 'it starts on your main Claude account and ' + pickedModel.label : 'it starts on your main Claude account and Claude’s own default model until you change them')]
+          : [pickedModel && pickedModel.label ? 'it starts on ' + pickedModel.label   // #5429: picked with the switch
+            : wrote.dropped.model ? `its previous model choice does not cross (${label} picks its own)` : '',
             wrote.dropped.account ? 'and it leaves its previous account behind' : ''];
+        /* #5429: a model that could not be set after the switch was written (checked first, so this is rare): said, and
+           the agent starts on the default. */
+        const modelMissWords = modelMiss ? ` The model you picked could not be set (${modelMiss}), so it starts on the default; change it on this card.` : '';
         const droppedWords = dropped.filter(Boolean).join(' ');
         /* WHICH OpenAI sign-in it landed on (#1211). Josh switched an agent,
            read "API key ending WWUA" elsewhere on the screen, and could not
@@ -8380,7 +8430,8 @@ const server = http.createServer(async (req, res) => {
             outcome: 'partial',
             provider: wrote.provider,
             restarted: ok,   // #5091: the page repaints Runs on from this, not from a sentence
-            because: wrote.because + ' ' + (ok ? 'It is starting again now.' : `It could not start again yet: ${back.because} It is still running as before until it restarts.`),
+            ...(pickedModel ? { model: pickedModel } : {}),   // #5429 review 2: the model was still written; say so
+            because: wrote.because + (pickedModel && pickedModel.label ? ' It runs on ' + pickedModel.label + '.' : '') + modelMissWords + ' ' + (ok ? 'It is starting again now.' : `It could not start again yet: ${back.because} It is still running as before until it restarts.`),
             steps: back.steps || [],
           });
           return;
@@ -8388,12 +8439,20 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, {
           outcome: ok ? 'changed' : 'partial',
           provider: wrote.provider,
+          ...(pickedModel ? { model: pickedModel } : {}),   // #5429: what Runs on can say it moved to
+          /* #5145: the dir of the account the switch landed on (the same `acct` the sentence names), resolved so it
+             compares with the listed rows. Null when the engine named none (a Claude switch with no account sent,
+             Antigravity, a dry-run). The engine-partial answer above sends none; the restart-failed partial here
+             does. For Gemini/Grok with no listed account it is the computed default ("this computer's own key"), so
+             the page uses it only when it matches a listed row. */
+          accountDir: acct && typeof acct.dir === 'string' && acct.dir ? path.resolve(acct.dir) : null,
           because: ok
             ? `${label} it is. Everything it knows and everything it has done stays. `
               + (droppedWords ? `${droppedWords.charAt(0).toUpperCase()}${droppedWords.slice(1)}. ` : '')
               + 'It is starting again now, and it will look idle until you say something to it.'
               + landedOn
               + signInNote
+              + modelMissWords
             : `We saved the switch to ${label}, but could not start it again: ${back.because} `
               + 'It is still running as before until it restarts.'
               /* ⚠️ FUTURE TENSE HERE, NOT `landedOn`'S PRESENT. The plist already
@@ -9629,6 +9688,33 @@ const server = http.createServer(async (req, res) => {
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         const r = heartbeatSetting.read();
         sendJson(res, 200, { on: r.on, intervalMinutes: r.intervalMinutes, intervals: heartbeatSetting.INTERVAL_CHOICES, ok: r.ok });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
+  /* #4588 ask 3: how many Gemini (Antigravity) agents on this computer may work at once before automatic messages to
+     the others wait (Settings > Automation). maxWorking 0 is no limit, the default. A STATUS control like the
+     heartbeat's: a read error is a 500. The PUT refuses an agent's token and a caller with no browser header
+     (isViaScreen). That is ADVISORY, as on the Recommender: a local process that sends a browser header, or edits the
+     file, can still change it. */
+  if (pathname === '/api/agycap-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const r = agycapSetting.read();
+      sendJson(res, 200, { maxWorking: r.maxWorking, choices: agycapSetting.CHOICES, ok: r.ok });
+    } catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
+    return;
+  }
+  if (pathname === '/api/agycap-setting' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
+        const saved = agycapSetting.set(body);
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        const r = agycapSetting.read();
+        sendJson(res, 200, { maxWorking: r.maxWorking, choices: agycapSetting.CHOICES, ok: r.ok });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
@@ -15747,8 +15833,10 @@ const server = http.createServer(async (req, res) => {
            person's words reach deliver unchanged, so their length budget and the paused-agent command check see
            exactly what they typed. The pane gets the same bytes: '[bracket] (answering: "...") words'. */
         const envelope = replied.quote ? opPrefix + ' ' + replied.quote.trim() : opPrefix;
+        /* #4588 ask 3: the automatic hello is the page's wake after the person's own restart or team-create click, so the
+           Gemini cap does not hold it (cap: false); the shared-quota hold still does. */
         const delivery = await (automatic ? chat.deliverAutomaticAsync : chat.deliverAsync)(name, body.text, roster,
-          envelope, (attachments.wireNote(files.recs) || '') + reactionNote);
+          envelope, (attachments.wireNote(files.recs) || '') + reactionNote, ...(automatic ? [{ cap: false }] : []));
         /* #4959: answered 200 with the held verdict, like every delivery this route answers (the verdict, not the status,
            says what happened). The handoff pickup route answers its held verdict 409, as it answers every COULD_NOT;
            a client reads delivery.held on either. */
@@ -15757,7 +15845,9 @@ const server = http.createServer(async (req, res) => {
            heldUntil included, and the caller treats anything but placed as not said. */
         if (automatic && delivery && delivery.held === true) {
           sendJson(res, 200, { delivery, recorded: false,
-            recordedBecause: 'held: nothing was typed while the shared quota is out, so nothing was kept' });
+            recordedBecause: delivery.heldBy === 'cap'   // defensive: this route's automatic hello sends with { cap: false }
+              ? 'held: nothing was typed while the Gemini agents are at the limit set for working at once, so nothing was kept'
+              : 'held: nothing was typed while the shared quota is out, so nothing was kept' });
           return;
         }
         /* Only PLACED counts as told. The note is the tail of the wire, so an UNCONFIRMED
@@ -16578,6 +16668,20 @@ const server = http.createServer(async (req, res) => {
    * display-name defect was fixed — the sentence outlived the code it was
    * written about, which is this file's own recurring failure.)
    */
+  /* kosmos#5287: a project JOINED from another account carries what its owner shared: their handle (often none yet,
+     #5286) and their description, as stored in the federation link at join. The owner's description is deliberately
+     never copied into the project's own description (the brief this computer's agents are given, see the join route),
+     so without this it was shown on the join screen and then nowhere. Members only: a `self` link is this account's
+     own project. A link that cannot be read adds nothing. */
+  const withShared = (list) => (list || []).map((p) => {
+    let link = null;
+    try { link = p && p.id ? federation.linkFor(p.id) : null; } catch { link = null; }
+    if (!link || link.role !== 'member') return p;
+    return { ...p, shared: {
+      owner: typeof link.owner_handle === 'string' && link.owner_handle ? link.owner_handle : null,
+      description: typeof link.project_desc === 'string' && link.project_desc.trim() ? link.project_desc : null,
+    } };
+  });
   if (pathname === '/api/projects' && (req.method === 'GET' || req.method === 'HEAD')) {
     // ⚠️ An unreadable projects FILE is answered as an error, never as an empty
     // list. Serving `{projects: []}` there put "No projects yet. Point Kosmos at
@@ -16595,7 +16699,7 @@ const server = http.createServer(async (req, res) => {
     }
     const roster = safeRoster();
     try {
-      sendJson(res, 200, { projects: withUnread(projects.list(roster)), agentsUnreadable: roster === null });
+      sendJson(res, 200, { projects: withShared(withUnread(projects.list(roster))), agentsUnreadable: roster === null });
     } catch {
       // The record is still readable when the roster is not, so the projects
       // themselves are served with every member marked unseen rather than the
@@ -16615,7 +16719,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       sendJson(res, 200, {
-        projects: withUnread(listed),
+        projects: withShared(withUnread(listed)),
         agentsUnreadable: true,
         because: 'we cannot read the agents on this computer right now, so we are not saying anything about how they are doing',
       });
@@ -17168,7 +17272,7 @@ const server = http.createServer(async (req, res) => {
     const id = decodeSegment(proj[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {   // #5340: the folder move tells each member and waits for it
         let body;
         try {
           body = JSON.parse(buf.toString('utf8') || '{}') || {};
@@ -17183,6 +17287,45 @@ const server = http.createServer(async (req, res) => {
           const missing = new Error('there is no project by that name');
           missing.status = 404;
           throw missing;
+        }
+        /* kosmos#5340: the project's folder moved on this computer, and the person points the project at its new place.
+           The person's own act, from the page (isViaScreen, as community release: an agent token is refused), and on
+           its own, so it is one write that happened or did not. The engine checks the new folder as create does. The
+           members' instructions name the folder, so they are re-told, and the room is told where it went. */
+        if (body.folder !== undefined) {
+          const others = Object.keys(body).filter((k) => k !== 'folder' && k !== 'token' && k !== 'from_pane');
+          if (others.length) {
+            const mixed = new Error('move the folder on its own, then save the other changes');
+            mixed.status = 400;
+            throw mixed;
+          }
+          if (!isViaScreen(req, body)) {
+            const notYours = new Error('the project\'s folder is the person\'s to move, on the project\'s page in Kosmos');
+            notYours.status = 403;
+            throw notYours;
+          }
+          const moved = projects.moveFolder(id, body.folder);
+          const rosterM = safeRoster();
+          /* Review 1: each member separately (one failure skips nobody else): its instructions rewritten, then told on its
+             screen, as joining and leaving are. The page says how many were reached, never more. */
+          const members = moved.agents || [];
+          /* Review 3: a member whose instructions could not be updated is counted, so the page never promises it will see
+             the new place at its next start. */
+          let notUpdated = 0;
+          for (const a of members) {
+            let v = null;
+            try { v = projects.syncAgent(a, rosterM); } catch { v = null; }
+            if (!v || v.state === projects.TOLD.COULD_NOT) notUpdated += 1;
+          }
+          // Review 2: told in parallel, as project create tells its members, so the answer waits for the slowest pane, not
+          // the sum of them (each tmux call has its own 5 s bound).
+          const said = await Promise.all(members.map((a) => projects.speakOfMembershipAsync(a, moved, 'moved', rosterM).catch(() => null)));
+          const reached = said.filter((r) => r && r.state === chat.DELIVERY.PLACED).length;
+          try { messages.roomNote(id, 'This project\'s folder is now at ' + moved.folder + '. Work there from now on.'); } catch { /* best effort */ }
+          let projectM = null;
+          try { projectM = projects.get(id, rosterM); } catch { projectM = null; }
+          sendJson(res, 200, { project: projectM, agentsUnreadable: rosterM === null, members: members.length, reached, notUpdated });
+          return;
         }
         /* ⚠️ Each field moves only when the request CARRIES it, and every
            carried field is applied in ONE engine write. Two separate
@@ -17279,6 +17422,7 @@ const server = http.createServer(async (req, res) => {
     try { everyMember = [...new Set(projects.readAll().filter((p) => p && p.id === id).flatMap((p) => p.agents || []))]; } catch { everyMember = []; }
     try {
       gone = projects.remove(id);
+      try { filepreview.sweep(); } catch { /* #5254: best effort; the hourly sweep follows */ }
       /* #3311: its seat and its link go with it NOW. Project ids are name slugs
          and a freed one is reused, so a later local project of the same name
          would otherwise inherit a room outside this Mac. */
@@ -17847,7 +17991,7 @@ const server = http.createServer(async (req, res) => {
     try { record = projects.readAll().find((x) => x.id === id) || null; }
     catch (err) { refuse(500, String((err && err.message) || 'we cannot read your projects right now')); return; }
     if (!record) { refuse(404, 'there is no project by that name'); return; }
-    if (listedFileVerb(req, res, verb, record.folder, 'this project')) return;
+    if (listedFileVerb(req, res, verb, record.folder, 'this project', { owner: { kind: 'project', id } })) return;
     sendJson(res, 405, { ok: false, because: verb === 'reveal-file' ? 'use POST for that' : 'use GET for that' });   // as the agent route says
     return;
   }
@@ -19142,6 +19286,7 @@ const server = http.createServer(async (req, res) => {
         }
         for (const one of recipients) {
           let outcome;
+          // #4588 ask 3: an agent's own task message is not held by the Gemini cap, by decision (plan: "Not covered by the cap").
           try { outcome = await chat.deliverAsync(one, line, roster); }
           catch (e) { outcome = { state: (chat.DELIVERY && chat.DELIVERY.COULD_NOT) || 'could_not', because: String((e && e.message) || 'we could not reach that agent') }; }
           delivered.push({ agent: one, state: outcome && outcome.state, because: outcome && outcome.because });
@@ -20214,6 +20359,9 @@ function federateOut(projectId, delivery, operator) {
 
 function start(port = PORT) {
   snapshotWorlds();   // #5247: the worlds the gate may accept, as of now
+  /* #5254: cached first pages whose PDF, project or agent is gone are removed now and hourly (engine/filepreview.js). */
+  try { filepreview.sweep(); } catch { /* best effort */ }
+  setInterval(() => { try { filepreview.sweep(); } catch { /* best effort */ } }, 60 * 60 * 1000).unref();
   /* #4408: what this board is running, taken now, before anything can edit the app folder under it. The
      restart module is loaded first: it is otherwise required lazily, and the button depends on it. */
   try { require('./engine/boardrestart'); } catch { /* the restart route reports its own failure */ }
@@ -20355,7 +20503,7 @@ function start(port = PORT) {
             shownOf: (id) => { const p = projects.get(id, r); return p ? p.name : null; },
             stale: (p, ids, who2) => messages.staleHeld(p, ids, undefined, undefined, who2),   // #4926: what staleHeld drops wakes nobody
           }).then((done) => {
-            for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, 'after the quota hold'));   // #4797
+            for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, 'after the quota hold or the Gemini limit'));   // #4797; #4588 ask 3
           }).catch(() => { /* the posts stay held for the next minute */ });
         } catch { /* the posts stay held for the next minute */ }
       }, 60 * 1000);
@@ -20457,7 +20605,8 @@ function start(port = PORT) {
         book: CONNLOST_BOOK,
         probe: () => connlostHeal.probeApi(),
         /* Plain deliver, not deliverAutomatic: it counts a try before delivering (connlost-heal.js), so a quota hold
-           would spend its budget (#4588 PR B review 2). */
+           would spend its budget (#4588 PR B review 2). For the same reason the Gemini cap (#4588 ask 3) does not hold
+           it: a reconnect line to a lost agent is let through. */
         deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
         DELIVERY: chat.DELIVERY,
         log: (r) => process.stdout.write(`connlost-heal: ${r.name} (${r.session}) ${r.act}${r.act === 'nudge' ? ' delivery=' + (r.delivery || '?') : ''} - ${r.because}\n`),
@@ -20572,7 +20721,9 @@ function start(port = PORT) {
             roomNote: (projectId, text, opts) => messages.roomNote(projectId, text, opts),   // #4423: the note's facts too
             deliver: (session, text) => chat.deliverAutomatic(session, text, roster, undefined, undefined),
             DELIVERY: chat.DELIVERY,
-            heldUntil: (session) => agyQuota.heldForQuota(session, roster, Date.now()),
+            heldUntil: (session) => agyQuota.heldForAgy(session, roster, Date.now()),   // #4588 ask 3: the cap too
+            reserve: (session) => agyQuota.noteCapStart(session, roster, Date.now()),   // #4588 ask 3 review 9: the stuck agent first
+            release: (slot) => agyQuota.releaseCapStart(slot),
           });
           recommenderPrev = out.next;
           // #4588 PR B: a held item is logged when it becomes held, not every minute it stays held; the set is this tick's.
@@ -20581,7 +20732,7 @@ function start(port = PORT) {
             if (a.verdict === 'held') {
               const heldKey = a.session + ' ' + a.project;
               heldNow.add(heldKey);
-              if (!recommenderHeldLogged.has(heldKey)) process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: held on the shared Google quota, not convened yet\n`);
+              if (!recommenderHeldLogged.has(heldKey)) process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: held on the shared Google quota or the Gemini limit, not convened yet\n`);
               continue;
             }
             process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: ${a.retry ? 'retry' : 'note ' + (a.noteLanded ? 'written' : 'NOT written') + ', asked [' + a.asked.join(', ') + ']'}, playbook ${a.verdict || 'threw'}\n`);
@@ -20888,7 +21039,7 @@ function start(port = PORT) {
           readNudged: (session) => replynudge.readNudged(store.ROOT, session),
           writeNudged: (session, set) => replynudge.writeNudged(store.ROOT, session, set),
           book: REPLY_NUDGE_BOOK, sent: AGENT_NUDGE_SENT, rotation: REPLY_NUDGE_ROTATION, idleSeen: REPLY_NUDGE_IDLE_SEEN,
-          quotaHeld: (session, roster) => require('./engine/agyquota').heldForQuota(session, roster, Date.now()) !== null,
+          quotaHeld: (session, roster) => require('./engine/agyquota').heldForAgy(session, roster, Date.now()) !== null,   // #4588 ask 3: the cap too
           deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
           DELIVERY: chat.DELIVERY,
           log: (r) => process.stdout.write(`reply-nudge: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''} - ${r.because}\n`),
@@ -20899,7 +21050,7 @@ function start(port = PORT) {
          the daily maximum, gets one line asking it to post if it has something real (engine/communityturn.js holds the
          gates and is tested there). Same gates as the reply nudge above: live execution, the community switch, the
          Prompter's agent-nudge switch; operator brake AGENT_WORKFORCE_COMMUNITY_TURN_OFF=1. Counted in the shared hour log
-         under Agent Communication's limit, and sent through deliverAutomatic (held on the shared-quota pause). unref'd;
+         under Agent Communication's limit, and sent through deliverAutomatic (held on the shared-quota pause and by the Gemini cap). unref'd;
          first run one interval after boot. */
       const COMMUNITY_TURN_BOOK = communityturn.readBook();   // review 6: kept on disk, so a restart cannot reset the gaps
       const COMMUNITY_TURN_IDLE_SEEN = new Set();   // review 4: idle at the previous pass too
@@ -20922,7 +21073,7 @@ function start(port = PORT) {
           readLimit: () => limits.read(), limitDefaults: limits.DEFAULTS,
           sent: AGENT_NUDGE_SENT,   // the board-wide hour log the other agent nudges share
           idleSince: (session) => { const r = selfreport.read(session); const t = r && r.found && r.state === 'idle' ? Date.parse(r.at) : NaN; return Number.isFinite(t) ? t : null; },
-          quotaHeld: (session, roster) => require('./engine/agyquota').heldForQuota(session, roster, Date.now()) !== null,
+          quotaHeld: (session, roster) => require('./engine/agyquota').heldForAgy(session, roster, Date.now()) !== null,   // #4588 ask 3 (review 15): the cap too, or capped agents fill every slot each pass
           inCommunity,
           history: (session) => selfreport.history(session),   // #5296: has it worked since its last post
           kosmosLines: (session) => require('./engine/instructionreread').sentTimes(session),   // #5297: turns a re-read line woke

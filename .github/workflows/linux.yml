@@ -1,0 +1,54 @@
+# #4919: the node half of the test suite (KOSMOS_TEST_PART=node), run on ubuntu-latest. The shell half
+# does not run on Linux yet.
+#
+# Runs on demand (workflow_dispatch), and on pushes to a linux-ci-* branch so the lane can be run before
+# it is on main. Not on every pull request: until the rest of the port lands (#4916 pieces B and D) the
+# Linux suite is expected to fail, and a required-looking red on every PR would cost every PR a slot on
+# the shared runners. Part of the Linux port (#4916, umbrella #4903).
+#
+# ⚠️ RED BY DESIGN for now, and it has no list of which reds are expected (unlike tools/windows-tests.js's
+# KNOWN_RED), so read the failing FILES, not the colour. The files measured red on 2026-10-06 (runs 37523489451
+# and 37531000100) that this branch leaves red, each carried by a card:
+#   #4920 (setup on Linux): install.reachable-1662, install.claude-gate, install.uninstall-litter-1547,
+#     install.uninstall-watchdog-2955
+#   #5419 (downloads on Linux): engine/runners, engine/connect, engine/connect.install-997,
+#     engine/connect.nobinary-1580, engine/connect.hookwiring-1569, server.runners, engine/muserun
+#   #5420 (kill guard timing): report-hook-killguard-4671
+#   #5424 (folder preview vs act on a case-sensitive disk): engine/projects (one test)
+# A red in any other file is new. A known-red list is a follow-up once those land (#4919).
+
+name: linux
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['linux-ci-*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  suite:
+    name: suite (linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: which node is this
+        run: node --version
+      - name: install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tmux lsof zsh >/dev/null
+      - name: the node suite on Linux (#4919)
+        run: |
+          KOSMOS_TEST_PART=node KOSMOS_NO_WAIT=1 tools/run-tests.sh

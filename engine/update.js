@@ -597,10 +597,10 @@ function setupUrl() {
  * connect.js's refusals (see engine/platform.js). What is load-bearing here is
  * that a refusal EXISTS and names an action, not this exact phrasing.
  *
- * 📌 `platform` is a parameter defaulting to process.platform -- the seam this
- * whole gate family uses -- so both arms are testable from either OS.
+ * 📌 `platform` is a parameter defaulting to updatePlatform() (process.platform
+ * unless a test overrides it), so both arms are testable from either OS.
  */
-function selfInstallRefusal(platform = process.platform) {
+function selfInstallRefusal(platform = updatePlatform()) {
   if (platformGate.canSelfInstall(platform)) return null;
   return 'Kosmos cannot update itself on this platform (' + String(platform) + '): its installer is a POSIX shell script';
 }

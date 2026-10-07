@@ -434,3 +434,29 @@ test('runOnce: note and asks once per item, the playbook names who was reached, 
     assert.equal(b3.acted.length, 1, 'a thrown delivery was not retried');
   } finally { b.restore(); }
 });
+
+/* #4588 ask 3 review 9: under a cap of one, the peer's ask must not take the only slot from the agent that needs help.
+   A cap-1 ledger stands in for agyquota behind deliver / reserve / release (the contract runOnce relies on). */
+test('#4588 ask 3: at cap 1 the stuck agent is reserved before its peer is asked, so its playbook lands; CONTROL without reserve, the peer takes the slot', () => {
+  const b = stuckBoard([{ name: 'capstuck', report: STUCK('which of two layouts to ship') }, { name: 'cappeer', displayName: 'Pete' }]);
+  try {
+    const k = b.key;
+    const members = new Map([['proj-a', [k.capstuck, k.cappeer]]]);
+    const run = (withReserve) => {
+      const busy = new Set();
+      const deliver = (s) => {
+        if (!busy.has(s) && busy.size >= 1) return { state: DELIVERY.COULD_NOT, held: true };
+        busy.add(s); return { state: DELIVERY.PLACED };
+      };
+      const deps = { roomNote: () => true, deliver, DELIVERY, heldUntil: () => null,
+        ...(withReserve ? { reserve: (s) => { busy.add(s); return s; }, release: (slot) => { busy.delete(slot); } } : {}) };
+      const seen = r.runOnce({ prev: undefined, roster: b.cards, setting: ON, members, now: T0, ...deps });
+      return r.runOnce({ prev: seen.next, roster: b.cards, setting: ON, members, now: T0 + r.GRACE_MS, ...deps });
+    };
+    const fixed = run(true).acted.find((a) => a.session === k.capstuck);
+    assert.equal(fixed.verdict, DELIVERY.PLACED, 'the stuck agent\'s playbook was held at the cap');
+    assert.deepEqual(fixed.asked, [], 'the peer was asked although the cap was taken by the stuck agent');
+    const control = run(false).acted.find((a) => a.session === k.capstuck);
+    assert.equal(control.verdict, DELIVERY.COULD_NOT, 'CONTROL: without reserve the peer\'s ask takes the only slot (the bug this fixes)');
+  } finally { b.restore(); }
+});

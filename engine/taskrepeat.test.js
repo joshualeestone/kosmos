@@ -108,3 +108,173 @@ test('#4787 review 5: a changed rule is measured from when it changed: a slot be
   assert.equal(r.waitingForNextRun(t, at(2026, 10, 6, 8, 30)), true, 'changed to 07:00 at 08:00 today: next is tomorrow 07:00');
   assert.equal(r.waitingForNextRun(t, at(2026, 10, 7, 7, 30)), false, 'CONTROL: tomorrow\'s 07:00 passes with no run: due');
 });
+
+test('#4787 slice 1b: fieldsOf says the rule and the next run for an open repeating task; nothing for a closed or one-off one', () => {
+  const now = new Date(2026, 9, 6, 8, 0, 0).getTime();
+  const f = r.fieldsOf({ repeat: { every: 'day', at: '09:00' } }, now);
+  assert.equal(f.repeatWords, 'every day at 9am');
+  assert.equal(f.repeatNextAt, new Date(2026, 9, 6, 9, 0, 0).getTime());
+  assert.deepEqual(r.fieldsOf({ repeat: { every: 'day', at: '09:00' }, isClosed: true }, now), {});
+  assert.deepEqual(r.fieldsOf({ repeat: { every: 'day', at: '09:00' }, closedAt: '2026-10-06T12:00:00Z' }, now), {});
+  assert.deepEqual(r.fieldsOf({}, now), {}, 'CONTROL: a one-off task');
+});
+
+test('#4787 slice 2: missedRuns: a slot is missed once its time plus the grace passes with no run; not a moment before', () => {
+  const t = { repeat: { every: 'day', at: '09:00' }, repeatSetAt: new Date(at(2026, 10, 5, 12, 0)).toISOString(),
+    lastRunAt: new Date(at(2026, 10, 5, 9, 3)).toISOString() };
+  // The 10-06 09:00 slot: the grace is 15 minutes.
+  assert.equal(r.missedRuns(t, at(2026, 10, 6, 9, 0)), null, 'at the slot itself: not missed');
+  assert.equal(r.missedRuns(t, at(2026, 10, 6, 9, 14)), null, 'inside the grace: a job a few minutes late is not missed');
+  assert.deepEqual(r.missedRuns(t, at(2026, 10, 6, 9, 15)), { count: 1, more: false, lastAt: at(2026, 10, 6, 9, 0) }, 'at the grace: missed');
+  // A run since the slot clears it.
+  const ran = { ...t, lastRunAt: new Date(at(2026, 10, 6, 9, 40)).toISOString() };
+  assert.equal(r.missedRuns(ran, at(2026, 10, 6, 12, 0)), null, 'a late run answers the slot');
+  // Three days dead: three slots, the latest named.
+  assert.deepEqual(r.missedRuns(t, at(2026, 10, 8, 10, 0)), { count: 3, more: false, lastAt: at(2026, 10, 8, 9, 0) });
+});
+
+test('#4787 slice 2: the miss grace is the smaller of 15 minutes and a quarter of the period, and hourly counts are capped', () => {
+  assert.equal(r.missGraceFor({ every: 'hour' }), 15 * 60 * 1000);
+  assert.equal(r.missGraceFor({ every: 'day', at: '09:00' }), 15 * 60 * 1000);
+  assert.equal(r.missGraceFor({ every: 'week', day: 1, at: '09:00' }), 15 * 60 * 1000);
+  // An hourly job dead for a week: the count stops at the cap and says there were more.
+  const t = { repeat: { every: 'hour', minute: 0 }, repeatSetAt: new Date(at(2026, 10, 1, 0, 30)).toISOString() };
+  const m = r.missedRuns(t, at(2026, 10, 8, 0, 30));
+  assert.equal(m.count, r.MISSED_CAP);
+  assert.equal(m.more, true);
+  assert.equal(m.lastAt, at(2026, 10, 8, 0, 0), 'review 1: the latest missed slot is the real latest, not the 99th from the start');
+  // CONTROL: one day of it is under the cap, so `more` can be false (the flag is not always true).
+  const d = r.missedRuns(t, at(2026, 10, 1, 12, 20));
+  assert.deepEqual([d.count, d.more], [12, false], "01:00 to 12:00, the noon slot past its grace at 12:15");
+});
+
+test('#4787 slice 2: no miss is claimed where there is nothing to measure from, nor on a closed, one-off or future-stamped task', () => {
+  const now = at(2026, 10, 9, 12, 0);
+  assert.equal(r.missedRuns({ repeat: { every: 'day', at: '09:00' } }, now), null, 'no stamp at all');
+  assert.equal(r.missedRuns({ sentence: 'one-off', createdAt: new Date(at(2026, 10, 1, 0, 0)).toISOString() }, now), null);
+  const old = { repeat: { every: 'day', at: '09:00' }, repeatSetAt: new Date(at(2026, 10, 1, 0, 0)).toISOString() };
+  assert.ok(r.missedRuns(old, now), 'CONTROL: the same task open is missed');
+  assert.equal(r.missedRuns({ ...old, isClosed: true }, now), null, 'closed');
+  assert.equal(r.missedRuns({ ...old, lastRunAt: new Date(now + 3600000).toISOString() }, now), null, 'a run stamped in the future');
+  // A rule set after the slot passed: that slot is not missed (review 5's rule, kept by the shared dueSlot).
+  assert.equal(r.missedRuns({ repeat: { every: 'day', at: '09:00' }, repeatSetAt: new Date(at(2026, 10, 9, 10, 0)).toISOString() }, now), null);
+});
+
+test('#4787 slice 2: fieldsOf adds the missed count and the latest missed slot in words; nothing when no run is missed', () => {
+  const t = { repeat: { every: 'day', at: '09:00' }, repeatSetAt: new Date(at(2026, 10, 5, 12, 0)).toISOString() };
+  const f = r.fieldsOf(t, at(2026, 10, 6, 10, 0));
+  assert.equal(f.repeatMissed, 1);
+  assert.equal(f.repeatMissedMore, false);
+  assert.equal(f.repeatMissedAt, at(2026, 10, 6, 9, 0));
+  assert.equal(f.repeatMissedWords, 'today at 9am');
+  assert.equal(f.repeatNextWords, 'tomorrow at 9am', 'the next run is still said');
+  assert.equal(f.repeatMissAfter, at(2026, 10, 7, 9, 15), 'review 5: when the next slot would be missed, for an open screen');
+  // Review 6: read inside a slot's grace, the reread is that slot's own miss time, today, not tomorrow's.
+  const ran = { ...t, lastRunAt: new Date(at(2026, 10, 5, 9, 0)).toISOString() };
+  assert.equal(r.fieldsOf(ran, at(2026, 10, 6, 9, 5)).repeatMissAfter, at(2026, 10, 6, 9, 15));
+  assert.equal(r.fieldsOf(ran, at(2026, 10, 6, 9, 15)).repeatMissAfter, at(2026, 10, 7, 9, 15), 'CONTROL: at the grace it moves on');
+  const ok = r.fieldsOf(t, at(2026, 10, 6, 8, 0));
+  assert.equal('repeatMissed' in ok, false, 'before the slot: no missed fields at all');
+});
+
+test('#4787 slice 2: waitingForNextRun keeps slice 1\'s answers, except that a run from before the rule was set answers nothing', () => {
+  const t = { repeat: { every: 'day', at: '09:00' }, repeatSetAt: new Date(at(2026, 10, 5, 12, 0)).toISOString() };
+  assert.equal(r.waitingForNextRun(t, at(2026, 10, 6, 8, 59)), true);
+  assert.equal(r.waitingForNextRun(t, at(2026, 10, 6, 9, 0)), false, 'due at the slot itself, before any miss grace');
+  assert.equal(r.waitingForNextRun({ repeat: { every: 'day', at: '09:00' } }, at(2026, 10, 6, 9, 0)), false, 'no stamp: shown as work');
+  // The one change (review 2): ran 08:55 under an old rule, rule set 08:58: 9:00 is due under the new rule.
+  const changed = { repeat: { every: 'day', at: '09:00' }, repeatSetAt: new Date(at(2026, 10, 6, 8, 58)).toISOString(), lastRunAt: new Date(at(2026, 10, 6, 8, 55)).toISOString() };
+  assert.equal(r.waitingForNextRun(changed, at(2026, 10, 6, 9, 1)), false, 'due at 9:00, not swallowed by the old run');
+  assert.equal(r.waitingForNextRun({ ...changed, lastRunAt: new Date(at(2026, 10, 6, 8, 59)).toISOString() }, at(2026, 10, 6, 9, 1)), true,
+    'CONTROL: the same early run made after the rule was set answers 9:00');
+});
+
+test('#4787 slice 2: whenWords says a past slot as yesterday or its weekday, and a date beyond a week (control: the future is unchanged)', () => {
+  const now = at(2026, 10, 6, 12, 0);   // a Tuesday
+  assert.equal(r.whenWords(at(2026, 10, 6, 9, 0), now), 'today at 9am');
+  assert.equal(r.whenWords(at(2026, 10, 5, 9, 0), now), 'yesterday at 9am');
+  assert.equal(r.whenWords(at(2026, 10, 3, 9, 30), now), 'last Saturday at 9:30am');
+  assert.equal(r.whenWords(at(2026, 9, 29, 9, 0), now), 'Sep 29 at 9am', 'a week back is a date, never an ambiguous weekday');
+  assert.equal(r.whenWords(at(2026, 10, 7, 9, 0), now), 'tomorrow at 9am');
+  assert.equal(r.whenWords(at(2026, 10, 9, 9, 0), now), 'Friday at 9am');
+});
+
+test('#4787 slice 2 review 1: a run up to the miss grace early answers its slot, so it is never called missed (control: 20 minutes early is not)', () => {
+  const base = { repeat: { every: 'day', at: '09:00' }, repeatSetAt: new Date(at(2026, 10, 1, 12, 0)).toISOString() };
+  const early = { ...base, lastRunAt: new Date(at(2026, 10, 6, 8, 50)).toISOString() };
+  assert.equal(r.missedRuns(early, at(2026, 10, 6, 9, 30)), null, 'ran at 08:50 for 09:00');
+  assert.equal(r.missedRuns(early, at(2026, 10, 7, 9, 20)).lastAt, at(2026, 10, 7, 9, 0), 'the next day is still counted when missed');
+  const tooEarly = { ...base, lastRunAt: new Date(at(2026, 10, 6, 8, 40)).toISOString() };
+  assert.deepEqual(r.missedRuns(tooEarly, at(2026, 10, 6, 9, 30)), { count: 1, more: false, lastAt: at(2026, 10, 6, 9, 0) });
+});
+
+test('#4787 slice 2 review 1: latestAtOrBefore is the latest slot at or before a moment, never before `from`', () => {
+  const rule = { every: 'day', at: '09:00' };
+  assert.equal(r.latestAtOrBefore(rule, at(2026, 10, 3, 9, 0), at(2026, 10, 6, 9, 5)), at(2026, 10, 6, 9, 0));
+  assert.equal(r.latestAtOrBefore(rule, at(2026, 10, 3, 9, 0), at(2026, 10, 6, 9, 0)), at(2026, 10, 6, 9, 0), 'a slot exactly at the moment counts');
+  assert.equal(r.latestAtOrBefore(rule, at(2026, 10, 6, 9, 0), at(2026, 10, 6, 8, 0)), null, 'before `from`: none');
+  assert.equal(r.latestAtOrBefore(rule, null, at(2026, 10, 6, 8, 0)), null);
+  assert.equal(r.latestAtOrBefore({ every: 'week', day: 1, at: '09:00' }, at(2026, 9, 7, 9, 0), at(2026, 10, 6, 12, 0)), at(2026, 10, 5, 9, 0), 'weekly, weeks later');
+});
+
+test('#4787 slice 2 review 2: runIsLate depends only on the rule and the run\'s time: early is on time, past the grace is late', () => {
+  const day = { repeat: { every: 'day', at: '09:00' }, repeatSetAt: new Date(at(2026, 10, 1, 12, 0)).toISOString() };
+  assert.equal(r.runIsLate(day, at(2026, 10, 6, 8, 48)), false, 'a daily job reporting at 08:48 for 09:00 is early, not late');
+  assert.equal(r.runIsLate(day, at(2026, 10, 6, 9, 14)), false, 'inside the grace after its slot');
+  assert.equal(r.runIsLate(day, at(2026, 10, 6, 9, 15)), true, 'at the grace: late');
+  assert.equal(r.runIsLate(day, at(2026, 10, 6, 16, 0)), true, 'in the afternoon: late');
+  /* review 4: one rule with missedRuns: a run answers the next slot only within the miss grace before it; earlier, it
+     answers the slot before, so it is late for that one (and the next slot is missed if nobody runs it). */
+  assert.equal(r.runIsLate(day, at(2026, 10, 6, 8, 45)), false, '15 minutes early answers today\'s 9am');
+  assert.equal(r.runIsLate(day, at(2026, 10, 6, 8, 44)), true, '16 minutes early answers yesterday\'s 9am, late');
+  assert.equal(r.runIsLate(day, at(2026, 10, 6, 20, 0)), true);
+  const week = { repeat: { every: 'week', day: 1, at: '09:00' }, repeatSetAt: new Date(at(2026, 9, 1, 12, 0)).toISOString() };
+  assert.equal(r.runIsLate(week, at(2026, 10, 4, 9, 0)), true, 'a weekly Monday job run on Sunday is late for last Monday');
+  assert.equal(r.runIsLate(day, at(2026, 10, 1, 13, 0)), false, 'before the rule\'s first slot: never late');
+  const hour = { repeat: { every: 'hour', minute: 0 }, repeatSetAt: new Date(at(2026, 10, 1, 0, 30)).toISOString() };
+  for (const m of [45, 50, 57]) assert.equal(r.runIsLate(hour, at(2026, 10, 6, 8, m)), false, 'an hourly job reporting at 8:' + m + ' for 9:00 is early');
+  assert.equal(r.runIsLate(hour, at(2026, 10, 6, 8, 30)), true, 'CONTROL: half past is late for an hourly job');
+  assert.equal(r.runIsLate(hour, at(2026, 10, 6, 9, 44)), true, '9:44 is more than the grace before 10:00, so it answers 9:00, late');
+  assert.equal(r.runIsLate({ sentence: 'one-off' }, at(2026, 10, 6, 8, 30)), false);
+});
+
+test('#4787 slice 2 review 2: a run made under the OLD rule does not answer the new rule\'s first slot', () => {
+  // Hourly, ran at 08:50; changed to daily 9am at 08:55. The 9am slot is the new rule's, so missing it is a miss.
+  const t = { repeat: { every: 'day', at: '09:00' }, repeatSetAt: new Date(at(2026, 10, 6, 8, 55)).toISOString(),
+    lastRunAt: new Date(at(2026, 10, 6, 8, 50)).toISOString() };
+  assert.deepEqual(r.missedRuns(t, at(2026, 10, 6, 9, 30)), { count: 1, more: false, lastAt: at(2026, 10, 6, 9, 0) });
+  // CONTROL: the same run made after the rule changed answers it.
+  assert.equal(r.missedRuns({ ...t, lastRunAt: new Date(at(2026, 10, 6, 8, 56)).toISOString() }, at(2026, 10, 6, 9, 30)), null);
+});
+
+test('#4787 slice 2 review 4: the late mark and the missed line agree for every run time: the slot a run answers is never then shown missed', () => {
+  for (const rule of [{ every: 'day', at: '09:00' }, { every: 'hour', minute: 0 }, { every: 'week', day: 1, at: '09:00' }]) {
+    const set = at(2026, 10, 1, 0, 30);
+    const step = rule.every === 'hour' ? 3 * 60000 : rule.every === 'day' ? 7 * 60000 : 97 * 60000;
+    let checked = 0;
+    for (let run = at(2026, 10, 2, 0, 0); run < at(2026, 10, 16, 0, 0); run += step) {
+      const t = { repeat: rule, repeatSetAt: new Date(set).toISOString(), lastRunAt: new Date(run).toISOString() };
+      const ans = r.answeredSlot(rule, r.nextAfter(rule, set), run);
+      const next = r.nextAfter(rule, ans);
+      // Just before the slot after the answered one is missed, nothing may be missed: the answered slot is covered.
+      const now = next + r.missGraceFor(rule) - 1;
+      if (now <= run) continue;
+      assert.equal(r.missedRuns(t, now), null, JSON.stringify({ rule, run: new Date(run).toString() }));
+      // And the run is late exactly when it came more than the grace after the slot it answers.
+      assert.equal(r.runIsLate(t, run), run - ans >= r.missGraceFor(rule));
+      checked += 1;
+    }
+    assert.ok(checked > 100, 'the grid ran for ' + rule.every);
+  }
+});
+
+test('#4787 slice 2 review 5: a weekly task\'s missed run and its next run never read the same', () => {
+  const t = { repeat: { every: 'week', day: 1, at: '09:00' }, repeatSetAt: new Date(at(2026, 9, 1, 12, 0)).toISOString(),
+    lastRunAt: new Date(at(2026, 9, 28, 9, 0)).toISOString() };   // ran Monday 9-28; Monday 10-05 missed
+  for (let d = 5; d <= 11; d += 1) {
+    const f = r.fieldsOf(t, at(2026, 10, d, 12, 0));
+    assert.ok(f.repeatMissedWords && f.repeatNextWords, 'precondition: missed and next both said on Oct ' + d);
+    assert.notEqual(f.repeatMissedWords, f.repeatNextWords, 'Oct ' + d + ': ' + f.repeatMissedWords);
+  }
+  assert.equal(r.fieldsOf(t, at(2026, 10, 8, 12, 0)).repeatMissedWords, 'last Monday at 9am');
+});

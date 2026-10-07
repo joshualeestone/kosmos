@@ -381,7 +381,8 @@ async function measure(page) {
     // A1n (the header does not move, measured with real scrollbars) runs in its own browser below.
     // A1o, the mechanism in any scrollbar mode: with a 15px scrollbar width, the header's right
     // padding on Model and on Talk is 24px + 15px less the width the page gives up on that view
-    // (the window width less the header's box). Under the consolidated layout it is the plain 24px.
+    // (the window width less the header's box). Under the consolidated layout the same (#5379: an agent's
+    // page there reserves no gutter, so its header pads by the full width, as Agents and Projects' does).
     const pad = await page.evaluate(async () => {
       const bootWidth = document.documentElement.style.getPropertyValue('--scrollbar-width');
       document.documentElement.style.setProperty('--scrollbar-width', '15px');
@@ -394,10 +395,10 @@ async function measure(page) {
       await new Promise((r) => setTimeout(r, 150));
       const talk = read();
       // The consolidated layout preference keeps data-layout on html even on an agent's page, and
-      // reserves no gutter anywhere, so the Talk header must NOT gain the padding there.
+      // reserves no gutter anywhere, so (#5379) the Talk header pads by the full width there.
       const prevLayout = document.documentElement.getAttribute('data-layout');
       document.documentElement.setAttribute('data-layout', 'consolidated');
-      const consTalk = read().pad;
+      const consTalk = read();
       if (prevLayout === null) document.documentElement.removeAttribute('data-layout');
       else document.documentElement.setAttribute('data-layout', prevLayout);
       // The unpadded base (the --space-8 token), read rather than written down, in the normal
@@ -411,8 +412,8 @@ async function measure(page) {
     });
     chk(pad.base > 0 && Math.abs(pad.model.pad - (pad.base + 15 - pad.model.given)) <= 0.5 && Math.abs(pad.talk.pad - (pad.base + 15 - pad.talk.given)) <= 0.5,
       'A1o the header padding is the base + the scrollbar width (15px here) less the width given up, on Model and Talk (the page is left on Talk)', JSON.stringify(pad));
-    chk(pad.consTalk === pad.base,
-      'A1o scope: with the consolidated layout chosen (no gutter anywhere), the Talk header keeps the plain base padding', JSON.stringify(pad));
+    chk(Math.abs(pad.consTalk.pad - (pad.base + 15 - pad.consTalk.given)) <= 0.5 && pad.consTalk.pad > pad.base,
+      'A1o scope: with the consolidated layout chosen (no gutter anywhere), the Talk header pads by the width too (#5379), as Agents and Projects do', JSON.stringify(pad));
     // A1q: a measurement that failed leaves no data-scrollbar-measured, and then Talk keeps the #1309
     // gutter and the header is not padded, so the header cannot move. Control: the same reads with
     // the attribute present drop the gutter and pad the header.
@@ -538,6 +539,38 @@ async function measure(page) {
     });
     chk(/^\d+px$/.test(relayout.after) && relayout.after !== '99px',
       'A1u leaving the consolidated layout re-measures the scrollbar width', JSON.stringify(relayout));
+
+    // A1v (#5399): IN the consolidated layout, a resize that changed devicePixelRatio (a zoom) re-measures, so the
+    // width consolidated pads by stays current; a resize with the same ratio does not (it would force a whole-page
+    // reflow for nothing). devicePixelRatio is stubbed: a headless page cannot be zoomed. A planted 99px must be
+    // replaced by the zoom and kept by the plain resize (the control).
+    const zoomed = await page.evaluate(async () => {
+      const root = document.documentElement;
+      const prev = root.getAttribute('data-layout');
+      const desc = Object.getOwnPropertyDescriptor(window, 'devicePixelRatio');
+      const real = window.devicePixelRatio;
+      const frames = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const resizeOnce = async () => { window.dispatchEvent(new Event('resize')); await frames(); return root.style.getPropertyValue('--scrollbar-width'); };
+      let plain, zoom, zoomAgain;
+      try {
+        root.setAttribute('data-layout', 'consolidated');
+        root.style.setProperty('--scrollbar-width', '99px');
+        plain = await resizeOnce();
+        Object.defineProperty(window, 'devicePixelRatio', { configurable: true, get: () => real * 1.25 });
+        zoom = await resizeOnce();
+        root.style.setProperty('--scrollbar-width', '99px');
+        zoomAgain = await resizeOnce();   // same (zoomed) ratio as the last measure: no second reflow
+      } finally {
+        if (desc) Object.defineProperty(window, 'devicePixelRatio', desc); else delete window.devicePixelRatio;
+        if (prev === null) root.removeAttribute('data-layout'); else root.setAttribute('data-layout', prev);
+        window.kosmosMeasureScrollbarWidth({ inConsolidated: true });   // back to the real ratio, whatever prev was
+      }
+      return { plain, zoom, zoomAgain, restored: window.devicePixelRatio === real };
+    });
+    chk(zoomed.plain === '99px' && zoomed.zoomAgain === '99px',
+      'A1v in the consolidated layout a resize with an unchanged devicePixelRatio does not re-measure', JSON.stringify(zoomed));
+    chk(/^\d+px$/.test(zoomed.zoom) && zoomed.zoom !== '99px' && zoomed.restored,
+      'A1v in the consolidated layout a zoom (devicePixelRatio changed) re-measures the scrollbar width', JSON.stringify(zoomed));
 
     chk(errs.length === 0, 'A7 no page errors', errs.join(' | '));
 

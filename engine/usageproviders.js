@@ -80,9 +80,17 @@ async function walk(dir, re, out = [], acc = null) {
 /* A file last written before the first wanted day cannot hold a row on or after it (every row is stamped when it is
    written), so it is not read. This is what keeps the common call (only today missing) to the files touched today;
    NOT the Codex YYYY/MM/DD folders, which record the day a session started, and sessions run across days. */
+/* kosmos#5367: the cut is usage.js's windowCutMs (#5363), the same one Claude's transcripts take: an hour before the
+   window for clock drift, and no cut at all for a day that is not a real date (here that used to compare with NaN and
+   skip every file). Required here, not at the top: usage.js requires this file. */
+function cutFor(sinceDay) {
+  if (!sinceDay) return null;
+  return require('./usage').windowCutMs(sinceDay);
+}
 async function touchedSince(file, sinceDay, acc = null) {
-  if (!sinceDay) return true;
-  try { return (await fsp.stat(file)).mtimeMs >= Date.parse(sinceDay + 'T00:00:00Z'); }
+  const cut = cutFor(sinceDay);
+  if (cut === null) return true;
+  try { return (await fsp.stat(file)).mtimeMs >= cut; }
   catch (err) { if (acc && err && err.code !== 'ENOENT') acc.incomplete = true; return false; }
 }
 
@@ -308,7 +316,8 @@ function unlessAbsent(read, absentValue) {
 
 async function scanAntigravity(acc, agyHomes) {
   const agy = require('./agysession');
-  const since = acc.sinceDay ? Date.parse(acc.sinceDay + 'T00:00:00Z') : -Infinity;
+  const cut = cutFor(acc.sinceDay);   // kosmos#5367: the same cut as every other scan
+  const since = cut === null ? -Infinity : cut;
   const seenFiles = new Set();
   const listedHomes = [];
   for (const home of agyHomes) {

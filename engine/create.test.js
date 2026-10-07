@@ -204,6 +204,25 @@ const onWin = (why) => (process.platform === 'win32' ? { skip: 'POSIX harness on
 const WIN_LAUNCHD = onWin('reads or drives the launchd job (plist, launchctl, the launchd runner seam, or the '
   + '"already set to start" launchd arm). Windows runs a Scheduled Task; covered by create.win32-job-read.test.js '
   + 'and create.win32-launch-570.test.js');
+/* #4919: a few #4279 leftover-job tests build their temp-plist fixtures from macOS's temp folder and its /private
+   spelling, so on Linux they cannot reach the case they test: tempRoots() lists only /private/tmp and
+   /private/var/folders. Linux agent jobs are #4918's work, not yet on main. Skipped only on a Linux host; macOS and
+   Windows are unchanged. */
+const LINUX_LAUNCHD_TEMP = process.platform === 'linux'
+  ? { skip: 'macOS launchd leftover-job fixture: tempRoots() lists only macOS /private temp folders; Linux agent jobs are #4918, not yet on main' } : {};
+/* #4919: two #4279 tests need our plist folder to have a second spelling (a symlink on its path, as macOS's /var ->
+   /private/var gives the sandbox). Keyed on that premise, not on the platform: where the folder has one spelling
+   (Linux, or a Mac sandbox off /var) they cannot reach the case they test. */
+function plistFolderHasSecondSpelling() {
+  try {
+    // Read only: resolve the nearest folder on the path that already exists, so loading this file creates nothing.
+    let dir = nodePath.dirname(create.plistPath('spelling-probe-4919'));
+    while (!fs.existsSync(dir) && nodePath.dirname(dir) !== dir) dir = nodePath.dirname(dir);
+    return fs.realpathSync.native(dir) !== dir;
+  } catch { return true; }   // cannot tell: run the test, whose own premise assert then says why
+}
+const NO_SECOND_SPELLING = plistFolderHasSecondSpelling() ? {}
+  : { skip: 'needs our plist folder reached through a symlink (a second spelling), as on macOS; here it has one spelling (#4919)' };
 const WIN_LAUNCHD_FAIL = onWin('simulates a failed start or write through the launchd runner seam (create.setRunner), '
   + 'which the win32 create path never calls. Windows failed starts: create.win32-launch-570.test.js (7c-2)');
 const WIN_TASK_STUB = onWin('switches an agent by rewriting its launch job, and this file\'s win32 stub answers every '
@@ -860,7 +879,7 @@ function leftoverRunner(printedPath, { bootoutWorks = true, verifyThrows = null,
 }
 const bootedOut = (calls) => calls.some(([, a]) => a && a[0] === 'bootout');
 
-test('#4279: a leftover job loaded from a TEMP plist is booted out and the agent is created', WIN_LAUNCHD, () => {
+test('#4279: a leftover job loaded from a TEMP plist is booted out and the agent is created', { ...WIN_LAUNCHD, ...LINUX_LAUNCHD_TEMP }, () => {
   // The measured case: a 09-24 test left com.kosmos.agent.josh loaded from T/rx-launch-*.
   const dir = tempFixture('rx-launch-');
   const leaked = nodePath.join(dir, 'com.kosmos.agent.leftover-temp.plist');
@@ -898,7 +917,7 @@ test('#4279: a job loaded from THIS board\'s own plist path is still refused, ne
   assert.ok(!bootedOut(calls), 'it unloaded a job loaded from our own plist path');
 });
 
-test('#4279: isOurs and leftoverJob treat our own EXISTING plist under its real path as ours', WIN_LAUNCHD, () => {
+test('#4279: isOurs and leftoverJob treat our own EXISTING plist under its real path as ours', { ...WIN_LAUNCHD, ...NO_SECOND_SPELLING }, () => {
   /* Unit level on purpose: through createAgent an existing own plist is refused earlier ("no folder
      for it") and launchctl is never asked, so a create-level test of this arm tests nothing. */
   const own = create.plistPath('leftover-ownreal');
@@ -916,7 +935,7 @@ test('#4279: isOurs and leftoverJob treat our own EXISTING plist under its real 
   } finally { fs.rmSync(own, { force: true }); }
 });
 
-test('#4279: our own ABSENT plist printed by its real folder path is never booted out as gone', WIN_LAUNCHD, () => {
+test('#4279: our own ABSENT plist printed by its real folder path is never booted out as gone', { ...WIN_LAUNCHD, ...NO_SECOND_SPELLING }, () => {
   const own = create.plistPath('leftover-ownabsent');
   fs.mkdirSync(nodePath.dirname(own), { recursive: true });
   const printed = nodePath.join(fs.realpathSync.native(nodePath.dirname(own)), nodePath.basename(own));
@@ -935,7 +954,7 @@ test('#4279: a job whose plist EXISTS outside a temp folder is still refused, ne
   assert.ok(!bootedOut(calls), 'it unloaded a job it cannot prove is dead');
 });
 
-test('#4279: a verify print that ANSWERS ok:false (not a not-found throw) is not proof the job left', WIN_LAUNCHD, () => {
+test('#4279: a verify print that ANSWERS ok:false (not a not-found throw) is not proof the job left', { ...WIN_LAUNCHD, ...LINUX_LAUNCHD_TEMP }, () => {
   const dir = tempFixture('rx-launch-');
   const leaked = nodePath.join(dir, 'com.kosmos.agent.leftover-okfalse.plist');
   fs.writeFileSync(leaked, '<plist/>');
@@ -945,7 +964,7 @@ test('#4279: a verify print that ANSWERS ok:false (not a not-found throw) is not
   assert.match(r.because, /removing it did not work/);
 });
 
-test('#4279: a bootout that does not take is still a refusal, not a creation', WIN_LAUNCHD, () => {
+test('#4279: a bootout that does not take is still a refusal, not a creation', { ...WIN_LAUNCHD, ...LINUX_LAUNCHD_TEMP }, () => {
   const dir = tempFixture('rx-launch-');
   const leaked = nodePath.join(dir, 'com.kosmos.agent.leftover-stuck.plist');
   fs.writeFileSync(leaked, '<plist/>');
@@ -1005,7 +1024,7 @@ test('#4279: a RELATIVE printed path is refused with the generic message and nev
   assert.match(r.because, /nothing else left of it/, 'a relative path was named as a file Kosmos did not make');
 });
 
-test('#4279: a verify that throws for any OTHER reason is not proof the job left', WIN_LAUNCHD, () => {
+test('#4279: a verify that throws for any OTHER reason is not proof the job left', { ...WIN_LAUNCHD, ...LINUX_LAUNCHD_TEMP }, () => {
   const dir = tempFixture('rx-launch-');
   const leaked = nodePath.join(dir, 'com.kosmos.agent.leftover-timeout.plist');
   fs.writeFileSync(leaked, '<plist/>');
@@ -1023,6 +1042,32 @@ test('#4279: a job loaded from a PRESENT plist outside temp is refused, and the 
   assert.match(r.because, /\/etc\/hosts/, 'the refusal does not name the file it found');
 });
 
+test('#4279: a temp symlink to OUR OWN plist is ours, not a leftover', { ...WIN_LAUNCHD, ...LINUX_LAUNCHD_TEMP }, () => {
+  // Split out of "leftoverJob reads only the first-level path" (#4919): off macOS the link is not under a temp root,
+  // so null would hold whatever the own-path check did; here it reports as skipped instead.
+  // A symlink in temp whose target is OUR plist is ours, not a leftover. Our plist is itself in
+  // temp here (a launch root pointed there), so only the realpath own-path check can refuse it.
+  const oursDir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'k4279-ours-'));
+  const tmpLink = nodePath.join(os.tmpdir(), `k4279-link-${process.pid}.plist`);
+  try {
+    const realOurs = nodePath.join(oursDir, 'com.kosmos.agent.a.plist'); fs.writeFileSync(realOurs, '');
+    fs.symlinkSync(realOurs, tmpLink);
+    assert.equal(create.leftoverJob(`\tpath = ${tmpLink}\n`, realOurs), null, 'a temp symlink to our own plist was treated as a leftover');
+  } finally { fs.rmSync(tmpLink, { force: true }); fs.rmSync(oursDir, { recursive: true, force: true }); }
+});
+
+test('#4279: leftoverJob calls a plist in the system temp folder a temporary-folder leftover', { ...WIN_LAUNCHD, ...LINUX_LAUNCHD_TEMP }, () => {
+  // Split out of the test below (#4919) so that on Linux, where os.tmpdir() is not one of tempRoots()'s macOS
+  // /private folders, this one arm reports as skipped instead of vanishing inside a passing test.
+  const ours = '/Users/x/Library/LaunchAgents/com.kosmos.agent.a.plist';
+  const t = nodePath.join(os.tmpdir(), 'x-4279.plist'); fs.writeFileSync(t, '');
+  try {
+    const temp = create.leftoverJob(`\tpath = ${t}\n`, ours);
+    assert.equal(temp.why, 'its startup file is in a temporary folder');
+    assert.equal(temp.path, t);
+  } finally { fs.rmSync(t, { force: true }); }
+});
+
 test('#4279: leftoverJob reads only the first-level path, and only temp or gone counts', WIN_LAUNCHD, () => {
   const ours = '/Users/x/Library/LaunchAgents/com.kosmos.agent.a.plist';
   assert.equal(create.leftoverJob('x = { ... }', ours), null, 'no path reported: not provable');
@@ -1032,12 +1077,6 @@ test('#4279: leftoverJob reads only the first-level path, and only temp or gone 
   const gone = create.leftoverJob('\tpath = /nowhere-4279/x.plist\n', ours);
   assert.equal(gone.why, 'its startup file is gone');
   assert.equal(gone.path, '/nowhere-4279/x.plist', 'it reports a different file from the one launchd loaded');
-  const t = nodePath.join(os.tmpdir(), 'x-4279.plist'); fs.writeFileSync(t, '');
-  try {
-    const temp = create.leftoverJob(`\tpath = ${t}\n`, ours);
-    assert.equal(temp.why, 'its startup file is in a temporary folder');
-    assert.equal(temp.path, t);
-  } finally { fs.rmSync(t, { force: true }); }
   assert.equal(create.leftoverJob('\tpath = /etc/hosts\n', ours), null, 'present and not temp');
   // A `..` spelling that starts with a temp root but names a live plist elsewhere is NOT temp.
   const live = homeFixture('.kosmos-4279-live-');
@@ -1051,15 +1090,6 @@ test('#4279: leftoverJob reads only the first-level path, and only temp or gone 
   assert.equal(create.underRoot('/var/foldersx/x.plist', '/var/folders'), false);
   assert.equal(create.underRoot('/tmp/x.plist', '/tmp'), true);
   assert.equal(create.underRoot('/tmp', '/tmp'), true);
-  // A symlink in temp whose target is OUR plist is ours, not a leftover. Our plist is itself in
-  // temp here (a launch root pointed there), so only the realpath own-path check can refuse it.
-  const oursDir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'k4279-ours-'));
-  const tmpLink = nodePath.join(os.tmpdir(), `k4279-link-${process.pid}.plist`);
-  try {
-    const realOurs = nodePath.join(oursDir, 'com.kosmos.agent.a.plist'); fs.writeFileSync(realOurs, '');
-    fs.symlinkSync(realOurs, tmpLink);
-    assert.equal(create.leftoverJob(`\tpath = ${tmpLink}\n`, realOurs), null, 'a temp symlink to our own plist was treated as a leftover');
-  } finally { fs.rmSync(tmpLink, { force: true }); fs.rmSync(oursDir, { recursive: true, force: true }); }
   // A plist we cannot STAT (a permission error, not a deletion) is not "gone".
   const locked = homeFixture('.kosmos-4279-locked-');
   try {
@@ -1665,7 +1695,14 @@ test('the startup script, actually run, hands the pane its account and its board
        branch -- written into the expected SET, not filtered, for the same reason the
        token and renderer riders are: this assertion's value is that nothing
        UNEXPECTED reaches a pane. */
-    const expected = [`CLAUDE_CONFIG_DIR=${claudeDir}`, `CODEX_HOME=${codexDir}`, 'KOSMOS_PORT=16245',
+    // #4592: CODEX_HOME from the launch job remains the selected account SOURCE,
+    // but a codex pane receives its per-agent Kosmos runtime home. Claude still
+    // forwards the ambient CODEX_HOME unchanged, as this runner-neutral test has
+    // always asserted.
+    const paneCodexHome = (b.runner || 'claude') === 'codex'
+      ? nodePath.join(process.env.AGENT_WORKFORCE_DATA || nodePath.join(process.env.HOME, 'Library', 'Application Support'), 'Kosmos', 'codex-homes', 'probe')
+      : codexDir;
+    const expected = [`CLAUDE_CONFIG_DIR=${claudeDir}`, `CODEX_HOME=${paneCodexHome}`, 'KOSMOS_PORT=16245',
       `HOME=${process.env.HOME || ''}`,
       'KOSMOS_WORLD=',
       `AGENT_WORKFORCE_DATA=${process.env.AGENT_WORKFORCE_DATA || ''}`,
@@ -5912,6 +5949,10 @@ test('#1139: installSupervisor leaves an engine-path beside the supervisor, poin
     fs.existsSync(nodePath.join(dir, 'sendertoken.js')),
     `engine-path points at ${dir}, which has no sendertoken.js`,
   );
+  assert.ok(
+    fs.existsSync(nodePath.join(dir, 'codexruntime.js')),
+    `engine-path points at ${dir}, which has no codexruntime.js`,
+  );
 
   /* And it must not be the SUPPORT_DIR copy's own parent, which is the layout
      that had no engine at all. */
@@ -6027,7 +6068,10 @@ test('#1315: the SUPERVISOR dismisses the update notice, in the codex branch onl
 
   /* It must be inside the codex branch. The claude launch is below the `else`,
      and running a codex helper there would be wrong even if harmless. */
-  const codexBranch = sup.indexOf('if [ "$RUNNER" = codex ]');
+  // #4592 adds an earlier codex-only home-isolation branch. Anchor to the
+  // enclosing codex launch branch nearest the helper, not the first codex
+  // condition in the file.
+  const codexBranch = sup.lastIndexOf('if [ "$RUNNER" = codex ]', at);
   const elseBranch = sup.indexOf('else', codexBranch);
   assert.ok(codexBranch > 0 && elseBranch > codexBranch, 'the codex branch moved: this guard needs re-aiming');
   assert.ok(at > codexBranch && at < elseBranch,

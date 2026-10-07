@@ -1025,8 +1025,9 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    comment above justifies membership by matching the field ABOVE; this one
    sits beside `#d-provider` in the same .frow, and that sibling is NOT in this
    rule and sizes intrinsically. It is here so an account name does not render
-   as a stub next to it, and the known cost is that the row wraps. */
-#create-model, #create-account, #create-reports, #d-reports, #d-provider-account, #pj-one-add, #pj-thread-who { flex: 1; min-width: 220px; }
+   as a stub next to it, and the known cost is that the row wraps. #5429: `#d-provider-model`, the switch's model,
+   sits beside it on the same terms. */
+#create-model, #create-account, #create-reports, #d-reports, #d-provider-account, #d-provider-model, #pj-one-add, #pj-thread-who { flex: 1; min-width: 220px; }
 /* #2697 (Josh, design channel 2026-09-10, on the agent Profile tab): the three
    Profile fields each ran the full container width. Josh asked for Name ~25%,
    What they do ~50%, Reports to ~25%, each left-aligned on its own row. Scoped to
@@ -1421,7 +1422,8 @@ html:has(> body > #firstrun:not([hidden])), html:has(> body > .upd-back) { overf
 /* #3837 F (Josh 2026-09-25 17:21-17:22): viewed remotely through a Kosmos+ address, a thin Kosmos+ bar sits above the
    board, visually its own: "a tiny KOSMOS+ logo on the left, and a Log Out on the far right with a blue background".
    The first row of the sticky header (so it stays with it), pulled to the page edges as the header is (its side
-   margins are set from the header's own padding by kplusBarFit, which follows the scrollbar gutter). The bar's fills
+   margins are set from the header's own padding by kplusBarFit, which follows the scrollbar gutter; #5379 pads it
+   by the width where none is reserved). The bar's fills
    are Kosmos+ navy and blue (the gate's own values), never gold (the 09-16 ruling); the mark keeps its own colours. */
 .kplus-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px;
   margin: calc(-1 * var(--space-8)) calc(-1 * var(--space-8)) var(--space-6); padding: 4px var(--space-8);
@@ -2568,6 +2570,21 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 @media (prefers-reduced-motion: reduce) { .act i { animation: work-fade 1.6s ease-in-out infinite; } }
 .rest { width: 10px; height: 2.5px; border-radius: 2px; background: #b8bcc2; flex: 0 0 10px; }
 .pause { display: inline-flex; gap: 2.5px; }
+.linkish.pj-head-pause { text-decoration: none; display: inline-flex; align-items: center; gap: 5px; flex: none; position: relative;   /* kosmos#5391 */
+                 /* Josh 09:00: smaller, the same height as the + buttons for members and tasks (22px, 7px corners, their fill). */
+                 height: 22px; padding: 0 8px; border-radius: 7px; font: 600 .75rem/1 var(--font-ui); color: var(--k-ink-2);
+                 border: 1px solid var(--k-rule); background: var(--k-surface); }
+.linkish.pj-head-pause:not(:disabled):hover { color: var(--k-ink); background: var(--k-sunk); }
+.linkish.pj-head-pause:disabled { opacity: .5; cursor: default; }   /* review 5: off looks off, as .btn:disabled does */
+.pj-head-pause .pause { gap: 2px; }
+.pj-head-pause .pause i { background: currentColor; width: 2px; height: 8px; }
+.pj-head-pause.on .pause { display: none; }
+/* The play mark, drawn with a clip-path, never a border: the #3692 guard reads any border-left as a left bar. */
+.pj-head-pause.on::before { content: ""; width: 6px; height: 8px; background: currentColor; clip-path: polygon(0 0, 100% 50%, 0 100%); }
+.pj-paused-line { margin: 4px 0 0; color: var(--k-ink-2); }
+#pj-head-pause-msg:empty { display: none; }   /* review 1: an empty .fmsg still takes ~23px under every title */
+/* On touch it still LOOKS 22px, as Josh asked, but takes a 36px-tall tap, as the cog beside it does (an invisible ring). */
+@media (hover: none) { .pj-head-pause::after { content: ""; position: absolute; inset: -7px -2px; } }
 .pause i { width: 2.5px; height: 10px; border-radius: 1px; background: var(--k-ink-2); }
 .stop { width: 9px; height: 9px; border-radius: 2px; background: var(--k-ink-2); flex: 0 0 9px; }
 .qmark { width: 18px; height: 18px; flex: 0 0 18px; border-radius: 5px;
@@ -3352,15 +3369,25 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
      scrollbars. It is dropped here, and the header padding below keeps the header from moving when an
      agent opens or closes, which is the shift #1309 exists to prevent. Scoped like #1309 itself: with the consolidated layout chosen
      (data-layout stays on html even on an agent's page) no gutter is ever reserved, so there is
-     nothing to drop or pad for. Both rules wait for data-scrollbar-measured, so if the width
-     cannot be measured the gutter stays (A1q). */
+     nothing to drop here (#5379 pads its header below). Both rules wait for data-scrollbar-measured,
+     so if the width cannot be measured the gutter stays (A1q). */
   html[data-scrollbar-measured]:not([data-layout="consolidated"]):has(> body > #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) { scrollbar-gutter: auto; }
   /* On every wide view the header's right padding is --space-8 plus the scrollbar width less the width the page is
      actually giving up to a gutter or scrollbar there (100vw - 100% - the body's two --space-8
      sides, which .apphead's negative margins cancel). The controls then sit at one x whether or not
      an engine reserves the gutter on a page that does not scroll: Playwright's WebKit does not (A1n).
      The cost there: a page that really scrolls sits its header 15px right of the content edge. */
-  html[data-scrollbar-measured]:not([data-layout="consolidated"]) > body > .apphead {
+  /* #5379: the tab view reserves the scrollbar gutter and consolidated does not, so where scrollbars take width the
+     header jumped on every flip. Consolidated pads its inner header (it carries the background and bottom rule), and
+     the Kosmos+ bar, by the same width less what the page gives up. */
+  html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead header,
+  html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar {
+    padding-right: max(var(--space-8), calc(var(--space-8) + var(--scrollbar-width, 0px) - 100vw + 100%)); }
+  /* #5379: with consolidated chosen, the whole-page tabs (Settings and the rest: body is not .consolidated there) reserve
+     no gutter either, so they take this rule too and their header ends where Agents and Projects' does. kplusBarFit
+     tests the same state in script (consolidated chosen, body not .consolidated, wide); the 2624 bar arm pins both. */
+  html[data-scrollbar-measured]:not([data-layout="consolidated"]) > body > .apphead,
+  html[data-scrollbar-measured][data-layout="consolidated"] > body:not(.consolidated) > .apphead {
     padding-right: max(0px, calc(3 * var(--space-8) + var(--scrollbar-width, 0px) - 100vw + 100%)); }
   #panel-detail:has(#d-sec-talk:not([hidden])) > .back {
     position: absolute; top: var(--space-6); left: 0; margin: 0; z-index: 1; }
@@ -4238,6 +4265,8 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tsk-row .tsk-unbuild { border: 0; background: none; padding: 0 0 0 4px; font: inherit; font-weight: 600; color: var(--k-ink); cursor: pointer; }
 .tsk-row .tsk-unbuild:hover { text-decoration: underline; text-decoration-color: var(--gold); }
 .tsk-row .why { font-size: .8125rem; color: var(--k-ink-2); margin-top: 4px; }
+/* kosmos#4787 slice 2: a repeating task's line turns the error red while a run is missed (row and task page alike). */
+.tsk-row .why.tsk-repeat.missed, #tk-repeat-line.missed { color: var(--danger); }
 .tsk-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 120px; }
 .tsk-who { display: inline-flex; align-items: center; gap: 6px; font: 600 .8125rem var(--font-ui); color: var(--k-ink); padding: 2px 9px;
   border-radius: 999px; border: 1px solid var(--k-rule); background: var(--k-surface); cursor: pointer; }
@@ -6308,6 +6337,14 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 /* #768: the due-date input sits in a tmeta row like the read-only values, but is
    editable. Inherit the font, keep it right-aligned and unobtrusive; the native
    date control carries its own picker + a clear affordance. */
+/* kosmos#4787 slice 1b: the Repeats controls wear the Due date field's look (.tk-due-input), so the column reads as one set. */
+.tk-repeat-in { font: inherit; color: inherit; background: transparent; border: 1px solid var(--k-rule); border-radius: 6px; padding: 2px 6px; min-height: 30px; }
+.tk-repeat-in:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
+.tk-repeat-when { display: inline-flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.tk-repeat-actions { display: flex; justify-content: flex-end; margin: 4px 0 0; }
+.tk-repeat-actions .btn[disabled] { opacity: .5; cursor: default; }
+#tk-repeat-every, #tk-repeat-day { background-color: var(--field-fill); }   /* render-fields: a field never wears its column's own white */
+@media (hover: none) { .tk-repeat-in, #tk-repeat-every, #tk-repeat-day, #tk-repeat-save { min-height: 44px; } }   /* review 1: one touch size */
 .tk-due-input { font: inherit; text-align: right; color: inherit; background: transparent;
                 border: 1px solid var(--k-rule); border-radius: 6px; padding: 2px 6px; }
 .tk-due-input:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
@@ -6509,6 +6546,11 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
    proportional line-height that clears descenders, unitless so it tracks the size. */
 .pjtitle #pj-one-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
 .pjmidhead .pjhead #pj-one-made { font-size: .75rem; margin: 1px 0 0; max-width: none; line-height: 1.35; }
+/* kosmos#5287: the joined project's "Shared by" block takes its own row under the made line in every header layout, and
+   the owner's description (up to DESC_MAX, newlines kept) wraps even a long unbroken word and scrolls past ~8 lines
+   rather than growing the header without bound. */
+.pjmidhead .pjhead #pj-one-shared { flex: 1 0 100%; min-width: 0; max-width: 100%; font-size: .8125rem; }
+#pj-one-shared-desc { overflow-wrap: anywhere; max-height: 10.5em; overflow-y: auto; }
 .pjmidhead #pj-settings-link { font-size: .75rem; flex: none; }
 /* #4663 (Mona Lisa's phone audit): on a touchscreen the project page's small controls (Back, the settings cog,
    + Add member, + New task and the two View All links, drawn 22 to 28px) take a thumb-sized tap: an invisible
@@ -10576,6 +10618,9 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
      and at the row's end it would reach 4px past the page. */
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead .pjtitle-row { flex: none; margin-right: 4px; }
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-made,
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-shared,
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-paused,   /* kosmos#5391 review 1 */
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-head-pause-msg,
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead > .tsearch { flex: 1 0 100%; }
 }
 /* #4470, Create an agent in the new look. The option cards on every create step (the kind picker's and the role
@@ -11669,6 +11714,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
     if (localStorage.getItem('kosmos-look') === 'new') document.documentElement.setAttribute('data-look', 'new');
   } catch (e) { /* no storage: today's look */ }
 })();
+/* #5399: the devicePixelRatio at the last measurement. A zoom (or a move to a display with another scale) changes it,
+   and with it the scrollbar's width in CSS px. Declared before the first call below. */
+var kosmosMeasuredRatio = null;
 /* #3497: the width of the gutter this page's root reserves when it does not scroll (0 with overlay
    scrollbars or in an engine that reserves none, ~15px when a Mac shows them, 10px under the Windows
    scrollbar style), as --scrollbar-width. The wide Talk view drops the #1309 gutter so the box reaches
@@ -11679,10 +11727,12 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    the width), on resize (a zoom, a move to another display), on a pointer press (at most once a
    second), focus and return to the tab: a Mac set to "Automatic" switches scrollbars when a mouse is
    plugged in, which fires no resize, and the press that opens an agent then measures first. */
-window.kosmosMeasureScrollbarWidth = function () {
+window.kosmosMeasureScrollbarWidth = function (opts) {
   var root = document.documentElement;
-  /* The consolidated layout reserves no gutter and neither #3497 rule applies there. */
-  if (root.getAttribute('data-layout') === 'consolidated') return;
+  /* The consolidated layout reserves no gutter, so measuring there forces a whole-page reflow: skipped, unless a zoom
+     asks for it (#5399, below). */
+  if (root.getAttribute('data-layout') === 'consolidated' && !(opts && opts.inConsolidated === true)) return;
+  kosmosMeasuredRatio = window.devicePixelRatio;
   var prevGutter = root.style.scrollbarGutter, prevOverflow = root.style.overflow;
   var x = window.scrollX, y = window.scrollY;
   var thread = document.getElementById('d-dmthread'), threadTop = thread ? thread.scrollTop : 0;
@@ -11725,7 +11775,12 @@ window.kosmosMeasureScrollbarWidth();
   window.addEventListener('resize', function () {
     if (queued) return;
     queued = true;
-    requestAnimationFrame(function () { queued = false; window.kosmosMeasureScrollbarWidth(); });
+    requestAnimationFrame(function () {
+      queued = false;
+      /* #5399: in the consolidated view only a changed devicePixelRatio (a zoom, or a display with another scale)
+         re-measures, one reflow, so the width it pads by stays current; a plain resize there is left alone. */
+      window.kosmosMeasureScrollbarWidth({ inConsolidated: window.devicePixelRatio !== kosmosMeasuredRatio });
+    });
   });
   /* The fewest ms between two pointer-press re-measures. Each probe forces a layout, and a Mac's
      scrollbar mode changes when a mouse is plugged in, not between two clicks. */
@@ -12500,6 +12555,10 @@ window.kosmosMeasureScrollbarWidth();
              was the whole card. Shown when a switch to a provider with accounts is armed: OpenAI, Gemini, Grok and, since
              #5091, Claude. Its label is set for the chosen provider when it shows. -->
         <select id="d-provider-account" aria-label="Account to run on" hidden></select>
+        <!-- kosmos#5429 (Josh, 2026-10-06): the TARGET provider's model, chosen in the same step, so provider, account and
+             model change in one restart. Shown for a switch to Claude (its models, the default preselected) or OpenAI
+             (the chosen account's list, "Let OpenAI choose" first); hidden for a provider that picks its own model. -->
+        <select id="d-provider-model" aria-label="Model to run on" hidden></select>
         <button class="btn" type="button" id="d-provider-go" disabled>Switch &amp; Restart</button>
       </div>
       <p class="dhint" id="d-provider-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
@@ -16011,12 +16070,24 @@ window.kosmosMeasureScrollbarWidth();
                idiom as every other inline icon here. -->
           <button class="linkish pj-settings-cog" id="pj-settings-link" type="button" aria-label="Project settings" title="Project settings"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
           <h2 class="dname" id="pj-one-name"></h2>
+          <!-- kosmos#5391 (Josh, 2026-10-06 08:11: "a pause project button on the actual project"): one click beside the
+               title, the same pause as Settings' #pj-one-pause (#4771, PUT /api/project/<id> {paused}). -->
+          <button class="linkish pj-head-pause" id="pj-head-pause" type="button" hidden><span class="pause" aria-hidden="true"><i></i><i></i></span><span class="pj-head-pause-t">Pause</span></button>
         </div>
         <!-- Who asked for this project (#327): shown only when it was NOT the
              person, because "made by you" under everything you made is
              furniture, and an agent-made project is the one a person needs to
              be able to tell apart at a glance. -->
         <p class="dhint" id="pj-one-made" style="margin:2px 0 0;" hidden></p>
+        <!-- kosmos#5391: a paused project says so where its name is, not only in Settings. -->
+        <p class="dhint pj-paused-line" id="pj-one-paused" role="status" hidden></p>
+        <p class="fmsg" id="pj-head-pause-msg" aria-live="polite"></p>
+        <!-- kosmos#5287: a project joined from another account says who shared it and what THEY wrote about it, as
+             theirs. Their words are never this project's own description (the brief its agents get), so they live here. -->
+        <div id="pj-one-shared" style="margin:6px 0 0;" hidden>
+          <p class="dhint" id="pj-one-shared-by" style="margin:0;"></p>
+          <p class="dhint" id="pj-one-shared-desc" style="margin:2px 0 0; white-space:pre-line;"></p>
+        </div>
       </div>
     </div>
 
@@ -16551,6 +16622,25 @@ window.kosmosMeasureScrollbarWidth();
         </div>
         <p class="fmsg" id="tk-hold-msg" aria-live="polite" style="margin:2px 0 0;"></p>
         <p class="dhint" id="tk-hold-hint" style="margin:4px 0 0;">Kosmos does not nudge anyone about a task on hold, or hand it out.</p>
+        <!-- kosmos#4787 slice 1b: a task that repeats (a morning report, an hourly check). The person sets the rule here; the
+             line under it is the board's own sentence (rule, last run, next run). Hourly runs on the hour from this screen;
+             an agent can set another minute with kosmos task repeat. -->
+        <div class="tmeta" id="tk-repeat-row"><span>Repeats</span>
+          <select id="tk-repeat-every" class="tsk-sel" aria-label="How often this task repeats">
+            <option value="">Never</option><option value="hour">Every hour</option><option value="day">Every day</option><option value="week">Every week</option>
+          </select>
+        </div>
+        <div class="tmeta" id="tk-repeat-when" hidden><span>When</span>
+          <span class="tk-repeat-when">
+            <select id="tk-repeat-day" class="tsk-sel" aria-label="When: day of the week" hidden>
+              <option value="mon">Monday</option><option value="tue">Tuesday</option><option value="wed">Wednesday</option><option value="thu">Thursday</option><option value="fri">Friday</option><option value="sat">Saturday</option><option value="sun">Sunday</option>
+            </select>
+            <input type="time" id="tk-repeat-at" class="tk-repeat-in" aria-label="When: time of day" value="09:00">
+          </span>
+        </div>
+        <div class="tk-repeat-actions"><button class="btn" id="tk-repeat-save" type="button" aria-label="Save how this task repeats" disabled>Save</button></div>
+        <p class="fmsg" id="tk-repeat-msg" aria-live="polite" style="margin:2px 0 0;"></p>
+        <p class="dhint" id="tk-repeat-line" style="margin:4px 0 0;" hidden></p>
         <p class="dhint" style="margin:12px 0 0;">Anything written here is part of the task, so an agent picking it up later reads the whole thing rather than just the title.</p>
       </aside>
     </div>
@@ -16718,6 +16808,15 @@ window.kosmosMeasureScrollbarWidth();
       <p class="shint" style="margin-top:8px;"><code class="t" id="pjs-folder-name"></code></p>
       <p class="fhint" id="pjs-folder-where"></p>
       <p class="pj-folder-state" id="pj-one-folder-state"></p>
+      <!-- kosmos#5340: the folder was moved on this computer. Shown only when the recorded folder is not there; the
+           person gives its new place, the board checks it as it checks a new project's folder, and the members are told. -->
+      <div id="pjs-move" hidden>
+        <label class="fhint" for="pjs-move-path">If you moved this folder, paste where it is now and Kosmos will use it from there.</label>
+        <input class="t" id="pjs-move-path" type="text" spellcheck="false" autocomplete="off" autocapitalize="off">
+        <button class="btn" id="pjs-move-btn" type="button">Use this location</button>
+      </div>
+      <!-- Outside the form: the form hides once the folder is there again, and the sentence saying so must stay seen. -->
+      <p class="fmsg" id="pjs-move-msg" aria-live="polite"></p>
       <button class="btn" id="pjs-reveal" type="button">Show me where it is</button>
       <p class="fmsg" id="pjs-reveal-msg" aria-live="polite"></p>
       <!-- 🛑 THE COMPANION SAYS "EVERY PROJECT" AND THE BUTTON ABOVE SAYS "IT"
@@ -17918,6 +18017,18 @@ window.kosmosMeasureScrollbarWidth();
            so a more prominent placement later is a pure move (Mona's polish). Hidden
            while empty so it costs nothing when nothing is stalled. -->
       <div id="hb-nudges" class="hb-nudges" role="region" aria-label="Agent check-ins" hidden></div>
+    </section>
+    <!-- #4588 ask 3: a cap on how many Gemini (Antigravity) agents work at once. They share one Google account's
+         quota, and a team of six kept locking each other out. Status-control contract, as the Prompter's: the select
+         stays hidden until the server read lands, and a failed read hides it and says so, never a false "No limit". -->
+    <section class="dbox">
+      <h3 class="dlab">Gemini subscription agents at once</h3>
+      <div class="frow" id="agycap-row" hidden style="margin-top:14px; align-items:center; gap:8px;">
+        <label class="dhint" for="agycap-max" style="margin:0;">Working at the same time</label>
+        <select id="agycap-max" aria-describedby="agycap-hint"></select>
+      </div>
+      <p class="dhint" id="agycap-hint" style="margin:8px 0 0;">Gemini agents signed in with a Google subscription on this computer share one Google account's quota, so several working at once can use it up together. Gemini agents on an API key are not counted. With a limit, Kosmos holds its own automatic messages, room posts and the tasks it hands out to the others while that many are working, counting each one it just started for a few minutes, so those can arrive late. Your own messages, and a restart or new team you start, are not held by this limit, though a restart or new team counts toward it. No limit by default.</p>
+      <p class="dhint" id="agycap-msg" role="status" style="margin:8px 0 0;"></p>
     </section>
     <!-- #2054 (Mona Lisa's design, 2026-09-03): the Agent Communication block (Josh's
          retitle #2619, formerly "Agents talking to each other") moved here from its own
@@ -19131,8 +19242,10 @@ function windowsCopyTable() {
       + '<li>Double-click <b>Kosmos.exe</b>. Your agents keep running.</li>',
     /* Documents (W-19) and the agent page (W-18). */
     docsOpenFolder: 'Open in File Explorer',
-    terminalTab: 'Live output',
-    terminalBoxTitle: 'Live output',
+    /* #5239: was "Live output", but a Windows agent runs without a window, so the section never showed output.
+       What it holds on Windows is Trust & Restart (Open Terminal is hidden), so it is named for that (Baron's review: a noun, not "Starting", which read as in progress). */
+    terminalTab: 'Start-up and restart',
+    terminalBoxTitle: 'Start-up and restart',
     trustRestartHint: 'Approves this agent&rsquo;s folder so it can start without asking each time.',
     /* Not signed in (W-24) and the recovery toasts (W-26). Windows says "sign in" (W-23). */
     signinSentence: 'This board is not signed in, so it cannot read your agents or projects. To fix it, open Kosmos by double-clicking Kosmos.exe in your Kosmos folder.',
@@ -19192,7 +19305,7 @@ function applyPlatformCopy(root) {
   root.querySelectorAll('[data-win-copy]').forEach((el) => { el.innerHTML = windowsCopy(el.getAttribute('data-win-copy')); });
   root.querySelectorAll('[data-win-only]').forEach((el) => { el.hidden = false; });
   /* An accessible name has to say what the visible label says (the Terminal tab reads
-     "Live output" on Windows, and its section is named from the same key). */
+     "Start-up and restart" on Windows (#5239), and its section is named from the same key). */
   root.querySelectorAll('[data-win-aria-label]').forEach((el) => { el.setAttribute('aria-label', windowsCopy(el.getAttribute('data-win-aria-label'))); });
 }
 applyPlatformCopy(typeof document === 'undefined' ? null : document);
@@ -19299,6 +19412,15 @@ function kplusBarFit() {
   const l = '-' + (parseFloat(cs.paddingLeft) || 0) + 'px', r = '-' + (parseFloat(cs.paddingRight) || 0) + 'px';
   if (bar.style.marginLeft !== l) bar.style.marginLeft = l;
   if (bar.style.marginRight !== r) bar.style.marginRight = r;
+  /* #5379: with consolidated chosen, a whole-page tab (body not .consolidated) reserves no gutter, so the header's right
+     padding there also holds the scrollbar width, and the bar ends Log out on the same x by padding as much. Wide only:
+     the phone bar keeps its own padding. Elsewhere the stylesheet's padding stands (consolidated pads by CSS). */
+  const doc = document.documentElement;
+  const whole = doc.getAttribute('data-layout') === 'consolidated' && !document.body.classList.contains('consolidated')
+    && window.matchMedia('(min-width: 56.01rem)').matches;
+  /* At least the bar's own side padding (its left one), so a header padded by less never pulls Log out to the edge. */
+  const pr = whole ? Math.max(parseFloat(getComputedStyle(bar).paddingLeft) || 0, parseFloat(cs.paddingRight) || 0) + 'px' : '';
+  if (bar.style.paddingRight !== pr) bar.style.paddingRight = pr;
 }
 function kplusBar() {
   if (!kplusRemote() || document.getElementById('kplus-bar')) return;
@@ -20443,6 +20565,35 @@ function menuRunsOn(a) {
 function acctParenthetical(a) {
   const acct = a && a.account;
   return (acct && (acct.name || acct.email || (acct.keyTail ? 'API key ending ' + acct.keyTail : '') || acct.label)) || '';
+}
+/* #5145: which account an agent is on after a provider switch, as the page records it (CURRENT.account.dir), or
+   null. ONE function so its precedence can be tested (review 2). `landed` is the route's accountDir.
+   - Claude: the person's pick wins (it is what the engine resolved); else the landed account if listed; else, when the
+     route named an account the page's list does not have (a stale list), nothing; else the main Claude account.
+   - Others: the landed account wins (codex can fall back from an unpicked unknown row); if it is not listed (the
+     Gemini/Grok default with no key, or a stale list), nothing, even when it is what was sent; with no landed
+     account (a dry-run, Antigravity), the sent row.
+   A landed dir is matched to a row after normalising (see bare below), and the row's own stored dir is recorded; a
+   dir that matches no row records nothing rather than a guess. */
+function chooseSwitchedAccount(want, sentDir, out, accounts, mainClaudeDir) {
+  /* The landed dir is the server's path.resolve; a row's dir is stored as its engine wrote it: a trailing separator
+     (an env-override default), and on Windows either separator and either case of the drive letter. So a row matches
+     with separators unified, the trailing one dropped and a drive letter lower-cased, and the row's OWN stored dir is
+     what gets recorded, so a landed record names a real row (the "Right now" rebuild finds it by exact match). A
+     Claude pick is recorded as sent: it is what the engine resolved, listed or not, as before this card. */
+  const bare = (d) => String(d).replace(/\\/g, '/').replace(/\/+$/, '').replace(/^([A-Za-z]):/, (m, l) => l.toLowerCase() + ':');
+  const rowFor = (d) => (typeof d === 'string' && d !== ''
+    ? (accounts || []).find((x) => x && typeof x.dir === 'string' && x.dir !== '' && bare(x.dir) === bare(d)) || null : null);
+  const partial = !out || out.outcome === 'partial';
+  // A partial (the restart failed) records no landed account: the agent did not move, whatever the caller checks.
+  const landed = !partial && out && typeof out.accountDir === 'string' && out.accountDir ? out.accountDir : null;
+  if (want === 'anthropic') {
+    if (sentDir && !partial) { const picked = rowFor(sentDir); return picked ? picked.dir : sentDir; }   // its row's own spelling when listed
+    if (landed) { const row = rowFor(landed); return row ? row.dir : null; }
+    return mainClaudeDir || null;
+  }
+  if (landed) { const row = rowFor(landed); return row ? row.dir : null; }   // unlisted: nothing, never the sent dir
+  return (sentDir && !partial) ? sentDir : null;
 }
 /* #4008: the model a switch just restarted each agent on, by session name, set by changeModelNow on the
    engine's "changed". The live reading (`modelName`) comes from the newest transcript, and until the
@@ -24940,6 +25091,65 @@ function hbIntervalChange() {
 }
 document.getElementById('hb-toggle') && document.getElementById('hb-toggle').addEventListener('click', hbToggleClick);
 document.getElementById('hb-interval') && document.getElementById('hb-interval').addEventListener('change', hbIntervalChange);
+/* #4588 ask 3: the Gemini cap (GET/PUT /api/agycap-setting). Choices come from the server, so the select and the engine
+   cannot disagree; 0 reads "No limit". A non-ok or failed read hides the select and says so. Paint after a save comes
+   from the server's answer. AGYCAP_EPOCH: a slow GET cannot repaint over a newer save. */
+let AGYCAP_EPOCH = 0;
+function agycapLabel(n) { return n === 0 ? 'No limit' : (n === 1 ? '1 agent' : n + ' agents'); }
+function agycapShow(r, force) {
+  const sel = document.getElementById('agycap-max');
+  const row = document.getElementById('agycap-row');
+  if (Array.isArray(r.choices)) {
+    const html = r.choices.map((n) => '<option value="' + Number(n) + '">' + agycapLabel(Number(n)) + '</option>').join('');
+    if (sel.innerHTML !== html) sel.innerHTML = html;
+  }
+  // force: after a failed save the select must show the stored value even while it has focus (it just changed).
+  if (force || document.activeElement !== sel) sel.value = String(Number(r.maxWorking) || 0);
+  if (row) row.hidden = false;
+}
+async function paintAgycap(force) {
+  const mine = ++AGYCAP_EPOCH;
+  const sel = document.getElementById('agycap-max');
+  const row = document.getElementById('agycap-row');
+  const msg = document.getElementById('agycap-msg');
+  if (!sel) return;
+  try {
+    const res = await fetch('/api/agycap-setting', { cache: 'no-store' });
+    if (mine !== AGYCAP_EPOCH) return;
+    if (!res.ok) throw new Error('not ok');
+    const r = await res.json();
+    if (mine !== AGYCAP_EPOCH) return;
+    agycapShow(r, force);
+    // A saved file that could not be read is served as no limit (ok false): say so rather than show a quiet "No limit".
+    if (msg) msg.textContent = r.ok === false ? 'We could not read the saved limit, so no limit applies.' : '';
+  } catch {
+    if (mine !== AGYCAP_EPOCH) return;
+    if (row) row.hidden = true;
+    if (msg) msg.textContent = 'We could not read this setting just now.';
+  }
+}
+async function agycapChange() {
+  const sel = document.getElementById('agycap-max');
+  const msg = document.getElementById('agycap-msg');
+  if (!sel || !sel.options || !sel.options.length) return; // not loaded: never write a default over a stored value
+  const mine = ++AGYCAP_EPOCH;
+  try {
+    const res = await fetch('/api/agycap-setting', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ maxWorking: Number(sel.value) }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (mine !== AGYCAP_EPOCH) return;
+    if (!res.ok) { await paintAgycap(true); if (msg && AGYCAP_EPOCH === mine + 1) msg.textContent = out.error || 'We could not save that setting.'; return; }   // a newer change wins its own message
+    agycapShow(out, true);
+    if (msg) msg.textContent = '';
+  } catch {
+    if (mine !== AGYCAP_EPOCH) return;
+    await paintAgycap(true);   // never leave a choice on screen that was not saved
+    if (msg && AGYCAP_EPOCH === mine + 1) msg.textContent = 'We could not reach Kosmos to save that.';
+  }
+}
+document.getElementById('agycap-max') && document.getElementById('agycap-max').addEventListener('change', agycapChange);
 /* #3508: keep the check-ins live while Settings is on screen. The store updates on the
    Prompter's own (minutes-granularity) tick, so a 15s poll is ample; it is gated on the
    panel being visible (offsetParent is null when Settings is not the shown view) so it
@@ -25113,6 +25323,7 @@ async function paintSettings() {
   paintYouTz();
   paintAutomation();
   paintHeartbeat();
+  paintAgycap(); // #4588 ask 3
   paintRecommender(); // #3595: live.
   paintAssigner(); // #3595 phase 2: live.
   paintPrompterNudges();
@@ -46094,8 +46305,12 @@ function plusSiRegisterMode(address, nameOnly) {
  * meantime so they cannot drift silently.
  */
 const KOSMOS_SITE = 'https://installkosmos.com';
-/* #3829 / #3479: the web account (billing, history, cancel) lives where people sign in to Kosmos+. */
+/* #3829 / #3479: where people sign in to Kosmos+. The Copy chip copies it (the address other devices use), and the
+   buy fallback builds on it. */
 const PLUS_ACCOUNT_URL = 'https://login.kosmosplus.com/';
+/* #5403: View account opens the account view (Sign out everywhere, Delete account), not the sign-in home. It is
+   its own constant because the home above is still the address to copy and the base the buy link builds on. */
+const PLUS_ACCOUNT_VIEW_URL = PLUS_ACCOUNT_URL + 'account';
 /* #4744: Copy puts the address other devices use on the clipboard, as a full https URL so it pastes as a link.
    The app's copy -> "Copied" pattern: the button says it for 2s and the live region says it for a screen reader.
    If the clipboard is refused, the address is selected on screen so the person can copy it themselves. */
@@ -46338,7 +46553,7 @@ async function paintPlus() {
     pill.textContent = ps === 'up' ? 'Connected' : (ps === 'off' ? 'Off' : (ps === 'down' ? 'Not connected'
       : (ps === 'waiting' ? 'Waiting to be allowed' : 'Connecting')));
   }
-  const acct = document.getElementById('plus-account'); if (acct && typeof PLUS_ACCOUNT_URL !== 'undefined') acct.href = PLUS_ACCOUNT_URL;
+  const acct = document.getElementById('plus-account'); if (acct && typeof PLUS_ACCOUNT_VIEW_URL !== 'undefined') acct.href = PLUS_ACCOUNT_VIEW_URL;
   const chip = document.getElementById('plus-chip');
   if (chip) { chip.hidden = !up; if (up) plusChipFit(); }
   /* Connected: one plain line under the chip. Otherwise the engine's own sentence says why not. */
@@ -46582,10 +46797,21 @@ function plusSetBusy(el, on) {
   if ('disabled' in el) { el.disabled = on; return; }
   if (on) el.setAttribute('aria-disabled', 'true'); else el.removeAttribute('aria-disabled');
 }
+/* kosmos#5354: a wait of two minutes or more is said in minutes, rounded up ("about 22 minutes", "about an hour" at
+   sixty), as the relay's own sign-in page says it (kosmos-relay coordinator/src/signin.html waitWords, the same words).
+   "in 1290 seconds" reached a person live on 2026-10-05. Under two minutes the seconds still count down. The app reads
+   the wait from the coordinator's sentence, whose "in N seconds" the relay keeps on purpose (its test
+   the_sentence_always_carries_the_seconds_the_app_matches): retry_after_secs does not reach this page, because the
+   sign-in goes through the setup tool, which hands back only the sentence. */
+function plusWaitWords(secs) {
+  if (secs < 120) return secs + (secs === 1 ? ' second' : ' seconds');
+  const m = Math.ceil(secs / 60);
+  return m === 60 ? 'about an hour' : 'about ' + m + ' minutes';
+}
 function plusCountdown(line, btn, why, secs) {
   if (PLUS_COUNTDOWN) clearInterval(PLUS_COUNTDOWN);
   let left = secs;
-  const paint = () => { line.textContent = 'No code was sent: ' + why.replace(/in \d+ seconds?/, 'in ' + left + (left === 1 ? ' second' : ' seconds')) + '.'; };
+  const paint = () => { line.textContent = 'No code was sent: ' + why.replace(/in \d+ seconds?/, 'in ' + plusWaitWords(left)) + '.'; };
   paint();
   plusSetBusy(btn, true);
   PLUS_COUNTDOWN = setInterval(() => {
@@ -48825,6 +49051,10 @@ function paintProviderPicker(a) {
      control. */
   const acctSel0 = document.getElementById('d-provider-account');
   if (acctSel0) acctSel0.hidden = true;
+  /* #5429 review 1: the switch's model menu goes with it, so another agent's menu never stays on screen. */
+  const modelSel0 = document.getElementById('d-provider-model');
+  if (modelSel0) { modelSel0.hidden = true; modelSel0.innerHTML = ''; delete modelSel0.dataset.for; }
+  SWITCH_MODEL_GEN += 1;   // review 2: an OpenAI list still loading for the agent before never lands on this one
   /* #5091: the menu is about to show this agent's own provider, so its own rows show: synchronously, for every runner
      (an Antigravity or Muse agent's account picker returns early, before the refill that would also do this). */
   { const cur0 = document.getElementById('d-current-rows'); if (cur0) cur0.hidden = false; for (const h of document.querySelectorAll('.d-current-hint')) h.hidden = false; }
@@ -48971,6 +49201,67 @@ function switchAccountsEnsure(forAgent) {
       if (CURRENT && CURRENT.sessionName === forAgent) fillSwitchAccountsSafely();   // a newer agent's panel is left alone
     });
 }
+/* kosmos#5429: the switch's model menu, for the provider being switched TO. Filled wherever the switch's account menu
+   is (fillSwitchAccountsSafely), so the two can never describe different switches. A generation guard drops an OpenAI
+   list that arrives after the provider or account moved on. */
+var SWITCH_MODEL_GEN = 0;   // var: paintProviderPicker bumps it and is defined earlier in the script
+async function fillSwitchModel() {
+  const sel = document.getElementById('d-provider-model');
+  const prov = document.getElementById('d-provider');
+  if (!sel || !prov) return;
+  const gen = ++SWITCH_MODEL_GEN;
+  const want = prov.value;
+  /* Review 1: every path sets `disabled` (a Claude menu shown after an OpenAI load in flight stayed greyed out), from
+     the provider menu, which is the in-flight state. */
+  const held = !!prov.disabled;
+  const hide = () => { sel.hidden = true; sel.disabled = held; if (sel.innerHTML) sel.innerHTML = ''; delete sel.dataset.for; };
+  /* Review 1: a refill for the SAME target (the account list arriving, a Claude account change) keeps the person's pick;
+     a different target starts from its default. */
+  const keep = (forKey) => { const was = sel.dataset.for === forKey ? sel.value : null; return (html) => {
+    sel.innerHTML = html;
+    if (was !== null && [...sel.options].some((o) => o.value === was)) sel.value = was;
+    sel.dataset.for = forKey;
+  }; };
+  if (!want || !CURRENT || want === providerOf(CURRENT)) { hide(); return; }
+  if (want === 'anthropic') {
+    if (!CREATE_MODELS.length) {
+      hide();   // review 3: never another provider's choices on screen while Claude's list loads
+      try { const res = await fetch('/api/roles', { cache: 'no-store' }); if (res.ok) CREATE_MODELS = ((await res.json()) || {}).models || []; } catch { /* no list: hidden, as before */ }
+      if (gen !== SWITCH_MODEL_GEN) return;
+    }
+    if (!CREATE_MODELS.length) { hide(); return; }
+    // The create form's default (create.js marks one), so an untouched switch lands where a new agent would.
+    keep('anthropic')(CREATE_MODELS.map((m) => '<option value="' + esc(m.key) + '"' + (m.default ? ' selected' : '') + '>' + esc(m.label) + '</option>').join(''));
+    sel.disabled = held;
+    sel.hidden = false;
+    return;
+  }
+  if (want === 'openai') {
+    const acct = document.getElementById('d-provider-account');
+    const dir = acct && !acct.hidden ? acct.value : '';
+    if (!dir) { hide(); return; }
+    const put = keep('openai|' + dir);
+    sel.innerHTML = '<option value="">Loading this account’s models…</option>';
+    sel.disabled = true;
+    sel.hidden = false;
+    let out = null;
+    try { const res = await fetch('/api/accounts/openai/models?dir=' + encodeURIComponent(dir), { cache: 'no-store' }); out = res.ok ? await res.json() : null; } catch { out = null; }
+    if (gen !== SWITCH_MODEL_GEN) return;
+    sel.disabled = !!(prov && prov.disabled);
+    if (!(out && out.ok && Array.isArray(out.models) && out.models.length)) { hide(); return; }   // not listable: OpenAI picks
+    put('<option value="" selected>Let OpenAI choose (recommended)</option>'
+      + out.models.map((m) => '<option value="' + esc(m.key) + '">' + esc(m.label) + '</option>').join(''));
+    return;
+  }
+  hide();   // Gemini, Grok, Antigravity: each picks (or Kosmos pins) its own model, so there is nothing to choose
+}
+/* What the switch will send as its model, with its label, or null (shown and chosen only). */
+function switchModelPicked() {
+  const sel = document.getElementById('d-provider-model');
+  if (!sel || sel.hidden || sel.disabled || !sel.value) return null;
+  const o = sel.options[sel.selectedIndex];
+  return { key: sel.value, label: o ? o.textContent : sel.value };
+}
 function fillSwitchAccountsSafely() {
   try {
     fillSwitchAccounts();
@@ -48984,6 +49275,8 @@ function fillSwitchAccountsSafely() {
       SWITCH_ACCT_SAID = brokenLine;
     }
   }
+  // kosmos#5429: after the accounts, since an OpenAI model list is the chosen account's.
+  try { fillSwitchModel(); } catch { /* the model menu is extra; the switch still works without it */ }
 }
 /* 🛑 NAMED FOR THE SAME REASON ITS SIBLING IS, AND CLEARED ON THE SAME CONDITION. This
    was added as an inline literal beside the hint-clearing code whose ENTIRE purpose is
@@ -49671,6 +49964,7 @@ if (switchAcctSel) {
     if (go && prov) {
       go.disabled = prov.disabled || !prov.value || !CURRENT || prov.value === providerOf(CURRENT);
     }
+    try { fillSwitchModel(); } catch { /* #5429: an OpenAI list is per account */ }
   });
 }
 
@@ -49756,6 +50050,7 @@ async function changeProviderNow(say) {
   const go = document.getElementById('d-provider-go');
   const msg = document.getElementById('d-provider-msg');
   const acctSel = document.getElementById('d-provider-account');
+  const modelSel = document.getElementById('d-provider-model');   // #5429
   const want = sel.value;
   if (!want) return;
   /* #1561: refuse to switch onto OpenAI when every OpenAI sign-in is dead, rather
@@ -49802,6 +50097,8 @@ async function changeProviderNow(say) {
      one confusing second. Disabled here and re-enabled in the same guarded `finally` as its
      two siblings, so the in-flight state is one fact rather than three. */
   if (acctSel) acctSel.disabled = true;
+  const pickedModel = switchModelPicked();   // #5429: read before the menu is held for the request
+  if (modelSel) modelSel.disabled = true;
   msg.textContent = 'Switching…';
   try {
     let sentAccount = null;   // #5091: what `account` below sent, kept for the repaint after
@@ -49822,6 +50119,7 @@ async function changeProviderNow(say) {
         provider: want,
         account: (sentAccount = (acctSel && !acctSel.hidden) ? acctSel.value : null),
         picked: !!(acctSel && !acctSel.hidden && SWITCH_ACCT_TOUCHED),
+        ...(pickedModel ? { model: pickedModel.key } : {}),   // #5429: one restart, not two
       }),
     });
     const out = await res.json().catch(() => null);
@@ -49905,13 +50203,15 @@ async function changeProviderNow(say) {
       /* Round 4: the row carries modelName / plannedModelName (there is no `model`), and both name the OLD runner's model. */
       CURRENT.modelName = null;
       // Round 5: Claude starts on its own default model, said in the server's own words (markGuide), never "Unknown Model".
-      CURRENT.plannedModelName = want === 'anthropic' ? 'Claude (its default model)' : null;
-      /* On Claude it is on the picked account, or (a partial, or nothing sent) on the main one: never "no account", which
-         would disable Move for an agent that is on main. */
+      // #5429: a model picked with the switch is the one Runs on names until the live reading catches up.
+      CURRENT.plannedModelName = out && out.model && out.model.label ? out.model.label : want === 'anthropic' ? 'Claude (its default model)' : null;
+      /* On Claude it is on the picked account, or (a partial, or nothing sent) on the main one. The one exception
+         (#5145): the route named an account the page's list does not have (a stale list). Then nothing is recorded,
+         since the agent is on THAT account, not main, and naming main would be wrong; Move waits for the next list. */
       const mainClaude = (ACCOUNTS || []).find((x) => x && acctProvider(x) === 'anthropic' && x.isDefault);
-      CURRENT.account = want === 'anthropic'
-        ? ((sentAccount && out.outcome !== 'partial') ? { dir: sentAccount } : (mainClaude ? { dir: mainClaude.dir } : null))
-        : ((sentAccount && out.outcome !== 'partial') ? { dir: sentAccount } : null);   // round 5: OpenAI/Gemini/Grok keep the sent account too
+      /* #5145: the account the switch landed on, by chooseSwitchedAccount's precedence (tested there). */
+      const chosenDir = chooseSwitchedAccount(want, sentAccount, out, ACCOUNTS, mainClaude ? mainClaude.dir : null);
+      CURRENT.account = chosenDir ? { dir: chosenDir } : null;
       /* Round 5: "Right now: <name> (<account>)" kept the OLD account in its bracket; rebuild it from the new one. */
       {
         const drun = document.getElementById('d-runson');
@@ -50002,6 +50302,7 @@ async function changeProviderNow(say) {
     if (CURRENT && CURRENT.sessionName === forAgent) {
       sel.disabled = false;
       if (acctSel) acctSel.disabled = false;
+      if (modelSel) modelSel.disabled = false;   // #5429
       /* 🛑 THE SAME DEAD END, A THIRD LAYER DOWN. Hard-coding `true` here undid both
          earlier fixes in the common case: re-selecting the option a <select> already
          has selected fires NO `change`, so after a refusal drops the ghost row a
@@ -50085,7 +50386,8 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
            sign-in", which reads as OPENAI choosing the account and is false in every
            reachable state: when the menu shows, the page sends the visible row; when
            it is hidden, the COMPUTER's default applies, not the provider's. */
-         ? 'Its ' + fromWord + ' model and account choices do not cross: OpenAI picks its own model, '
+         ? 'Its ' + fromWord + ' model and account choices do not cross: '
+           + (switchModelPicked() ? 'it starts on ' + switchModelPicked().label + ', ' : 'OpenAI picks its own model, ')   // #5429: the model picked with the switch, named
            + ((() => {
              const on = switchAcctShown();
              if (on) return 'and it will run on ' + on + '.';
@@ -50164,9 +50466,11 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
            the picker is not sending one. */
         : ((() => {
           const on = switchAcctShown();
-          if (on) return 'It will run on ' + on + ', on Claude’s default model until you change it.';
-          if (switchAcctSending()) return 'It runs on the Claude account shown above, on Claude’s default model until you change it.';
-          return 'It runs on your main Claude account and Claude’s default model until you change them.';
+          const pm = switchModelPicked();   // #5429: the model picked with the switch, named
+          const onModel = pm ? 'on ' + pm.label + '.' : 'on Claude’s default model until you change it.';
+          if (on) return 'It will run on ' + on + ', ' + onModel;
+          if (switchAcctSending()) return 'It runs on the Claude account shown above, ' + onModel;
+          return pm ? 'It runs on your main Claude account, on ' + pm.label + '.' : 'It runs on your main Claude account and Claude’s default model until you change them.';
         })())),
     go: 'Switch and restart',
     /* #2463 follow-up (Mona): the provider switch shows the SAME interstitial as the model
@@ -55881,6 +56185,13 @@ async function restartReadyWait(name, mine) {
    (quotaResetWords); a missing or past time just says the quota is out. Guarded with typeof, so the lifted unit
    tests (no page globals) still read. */
 function wakeHeldLine(manualText, delivery) {
+  /* #4588 ask 3: held by the person's own cap on Gemini subscription agents at once, not by the quota. DEFENSIVE today: both callers
+     (the wake hello and the handoff pickup) send with { cap: false }, so a cap verdict does not reach here; kept so a
+     future automatic caller cannot show "the quota is out" for a cap hold. No time: the cap lifts as the others stop
+     working, not at a clock time Kosmos can name. */
+  if (delivery && delivery.heldBy === 'cap') {
+    return manualText + ' The Gemini subscription agents on this computer are at the limit you set for working at once, so Kosmos sent nothing.';
+  }
   const at = delivery && typeof delivery.heldUntil === 'string' ? Date.parse(delivery.heldUntil) : NaN;
   const when = at > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(at, Date.now()) : '';
   return manualText + ' ' + (when
@@ -57584,6 +57895,10 @@ function pjTilesUnknown() {
 function pjPillOf(p, unreadable) {
   const s = p.summary || {};
   if (!unreadable && s.needsYou) return { cls: 'attn', glyph: '<span class="haz" aria-hidden="true">!</span>', label: 'Issue' };
+  /* kosmos#5391 option B (for Josh to choose; it bends #4730's "only a badge if something is running"): a project the
+     person paused says so on its card, above Working (its agents may still be busy, but nothing is nudged or handed
+     out) and below Issue (an agent needs the person). */
+  if (p.paused === true && !p.archived) return { cls: 'paused', glyph: GLYPH.paused || '', label: 'Paused' };
   if (!unreadable && s.working) return { cls: '', glyph: '<span class="act" aria-hidden="true"><i></i><i></i><i></i></span>', label: 'Working' };
   /* #2019: a project whose only active agent is mid-restart keeps a Restarting badge (it is running);
      it ranks below Working. It reads summary.restarting; the K matches the card's mark. */
@@ -57592,7 +57907,7 @@ function pjPillOf(p, unreadable) {
      display a badge here. Let's only display a badge if something is actually running." So
      "Can't tell" and "Nothing running" are gone from the Projects views, like "No agents yet"
      before them (#1303 E): an empty label and no pill. Issue (an agent needs you), Working and
-     Restarting stay, each a running agent. With the whole roster unreadable no card shows a badge
+     Restarting stay, each a running agent (kosmos#5391 adds Paused, above Working: a state the person set, not a running one). With the whole roster unreadable no card shows a badge
      either, and the Projects views say nothing about it (his rule, applied literally): the Agents
      page reports a failed read, and the project's own page still says who is unseen. */
   return { cls: '', glyph: '', label: '' };
@@ -57995,6 +58310,8 @@ async function loadProjects() {
     BOARD_DEVICE_OFFLINE = !reached && deviceOffline();   // #718 state 1
     PJ_READ_FAILED = true;
     paintPjNone();
+    // kosmos#5391 review 2: the header Pause / Resume goes inert while the projects cannot be read (it repaints on recovery).
+    try { if (PJ_CURRENT) paintHeadPause(pjById(PJ_CURRENT)); } catch { /* a paint never breaks the failure path */ }
     // ⚠️ Reported where the person is LOOKING, not only into the list. Both the
     // add-member and remove-member paths call this from the one-project view,
     // where `#pj-list` is hidden -- so a failed refresh left the member list
@@ -58415,17 +58732,27 @@ const tskKey = (t) => String(t.projectId) + '#' + Number(t.number);
    Ada: found 3 new listings. Next tomorrow at 9am." With no run yet it says so, rather than leaving the reader to wonder. */
 function tskRepeatSentence(t, now) {
   const words = t.repeatWords || 'on a schedule';
-  let s = 'Repeats ' + words + '.';
+  /* kosmos#4787 slice 2: a missed run leads the line, in the board's own words (taskrepeat.missedRuns), so the person
+     sees it before the rhythm. The latest missed slot is the one named; more than one is counted. */
+  let s = tskRepeatMissed(t);
+  s += (s ? ' ' : '') + 'Repeats ' + words + '.';
   if (t.lastRunAt) {
     const ago = agoWords(now - Date.parse(t.lastRunAt));
     const who = t.lastRunByPerson === true ? 'you' : t.lastRunBy ? tskAgentName(t.lastRunBy) : '';   // review 5: a flag, never the name 'operator'
-    s += ' Last run ' + (ago || 'just now') + (who ? ' by ' + who : '') + (t.lastRunNote ? ': ' + t.lastRunNote : '') + '.';
+    s += ' Last run ' + (ago || 'just now') + (who ? ' by ' + who : '') + (t.lastRunLate === true ? ', late' : '') + (t.lastRunNote ? ': ' + t.lastRunNote : '') + '.';
   } else {
     s += ' No run reported yet.';
   }
   // The board's own words for the next run (review 1: never this browser's time zone beside the board's rule).
   if (t.repeatNextWords) s += ' Next ' + t.repeatNextWords + '.';
   return s;
+}
+/* slice 2: "Missed the run due today at 9am." or "Missed 3 runs, the latest due today at 9am.", or '' when none is. */
+function tskRepeatMissed(t) {
+  const n = Number(t && t.repeatMissed);
+  if (!(n >= 1) || !t.repeatMissedWords) return '';
+  if (n === 1 && t.repeatMissedMore !== true) return 'Missed the run due ' + t.repeatMissedWords + '.';
+  return 'Missed ' + (t.repeatMissedMore === true ? 'more than ' + n : n) + ' runs, the latest due ' + t.repeatMissedWords + '.';
 }
 function tskAgentName(sessionName) {
   const a = Array.isArray(LAST) ? LAST.find((x) => x && x.sessionName === sessionName) : null;
@@ -58447,7 +58774,20 @@ function tskRosterChanged() {
      closing tasks or not yet read is still a change on the next tick (review round 5). */
   if (TSK.needs === null) TSK.needs = needs;
   else if (needs !== TSK.needs && shown && TSK.data && !TSK.busy) { tskLoad(); return; }
+  /* kosmos#4787 slice 2 (review 5): a repeat line is time state too, so it is read again while the view is open once a
+     slot it shows passes its miss grace (the board's repeatMissAfter), and every few minutes while a row is red, so a
+     reported run clears it. */
+  if (shown && TSK.data && !TSK.busy && tskRepeatStale(TSK.data, TSK.readAt, Date.now())) { tskLoad(); return; }
   if (TSK.data && shown && tskNamesSig() !== TSK.names) tskPaintKeepingCurrentFocus();
+}
+function tskRepeatStale(rows, readAt, now) {
+  const MISSED_REREAD_MS = 5 * 60 * 1000;   // kept inside, so the function lifts whole into the page tests
+  /* At most one read per 30 seconds: repeatMissAfter is the board's time, and a browser clock ahead of it would
+     otherwise read on every poll until the board caught up. */
+  if (now - readAt < 30 * 1000) return false;
+  return (rows || []).some((t) => t && t.repeat && t.state !== 'closed'
+    && ((Number.isFinite(t.repeatMissAfter) && now >= t.repeatMissAfter)
+      || (Number(t.repeatMissed) >= 1 && !(now - readAt < MISSED_REREAD_MS))));
 }
 /* The agents needing the person by the board's own rule, with the project a question names: the part of the
    roster Needs Your Decision is derived from. The rule is engine/status.js needsPerson, which the server
@@ -58510,6 +58850,9 @@ async function tskLoad(arrival) {
   /* #3949: who needs the person as of THIS read, so a question asked after the read and before the next poll
      still counts as a change (tskRosterChanged). */
   TSK.needs = tskNeedsSig();
+  /* kosmos#4787 slice 2 review 6: stamped when the read STARTS, as TSK.needs is, so a read slower than one poll is
+     not restarted by tskRepeatStale on every tick. */
+  TSK.readAt = Date.now();
   const msg = document.getElementById('tsk-msg');
   if (arrival) {
     TSK.sel.clear();
@@ -58606,7 +58949,7 @@ function tskRow(t, at) {
   /* kosmos#4787: a recurring job's row says how often it runs, when it last ran and who ran it, and when it runs next,
      so automated work shows its owner and its rhythm instead of looking idle or ownerless. The rule's words and the next
      run come from the board (taskrepeat.describe / nextAfter), never worked out again here. */
-  const repeatLine = !t.repeat || t.state === 'closed' ? '' : '<div class="why tsk-repeat">' + esc(tskRepeatSentence(t, Date.now())) + '</div>';
+  const repeatLine = !t.repeat || t.state === 'closed' ? '' : '<div class="why tsk-repeat' + (tskRepeatMissed(t) ? ' missed' : '') + '">' + esc(tskRepeatSentence(t, Date.now())) + '</div>';
   return '<div class="tsk-row' + (on ? ' sel' : '') + (place.depth ? ' d' + place.depth : '') + '" data-key="' + esc(tskKey(t)) + '">'
     /* #4226: the checkbox sits in a label, so on a touchscreen the label can widen the tap area to 44px (below). */
     + '<label class="tsk-hit"><input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
@@ -59234,6 +59577,7 @@ function paintTaskPage() {
   if (hold) hold.textContent = t.onHold === true ? 'Take off hold' : 'Put on hold';
   // A finished task has nothing to hold: no control, no hint.
   for (const hid of ['tk-hold-row', 'tk-hold-hint']) { const el = document.getElementById(hid); if (el) el.hidden = TK_ACT === 'reopen'; }
+  tkPaintRepeat(p, t);
   const holdHint = document.getElementById('tk-hold-hint');
   if (holdHint) holdHint.textContent = p.paused === true
     ? 'This project is paused, so Kosmos does not nudge anyone about its tasks or hand them out.'
@@ -59393,7 +59737,7 @@ function tkActPhrase(ev, p) {
     // kosmos#4787: a recurring task's rule, and each run its owner reported (kosmos task ran).
     case 'repeat-set': return ev.words ? 'Set to repeat ' + ev.words : 'Set to repeat';
     case 'repeat-cleared': return 'No longer repeats';
-    case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.note ? ': ' + ev.note : ''); }
+    case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.late ? ', late' : '') + (ev.note ? ': ' + ev.note : ''); }
     // #768: a free-text message recorded via the composer. `who` is optional (a
     // message typed on the board carries none today; the field is honoured now so
     // an authored message reads correctly when two-way delivery lands later). The
@@ -59882,6 +60226,130 @@ async function saveTaskDue(value) {
 document.getElementById('tk-due').addEventListener('change', (e) => { saveTaskDue(e.target.value); });
 
 /* #4771: put the open task on hold, or take it off. The button acts on the state as last read from the server. */
+/* kosmos#4787 slice 1b: the task page's Repeats control. The stored rule fills the controls only when it changes (or
+   another task opens), so the five-second poll never undoes what a person is choosing; Save lights up only when the
+   choice differs from what is stored. A finished task has nothing to repeat: no control. */
+const TK_REPEAT_DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+function tkRepeatChoice() {
+  const every = document.getElementById('tk-repeat-every').value;
+  if (!every) return { clear: true };
+  if (every === 'hour') return { every: 'hour' };
+  const at = document.getElementById('tk-repeat-at').value;
+  if (!at) return { needsTime: true };   // review 1: an empty time is no choice yet, never a silent 9am
+  return every === 'day' ? { every: 'day', at } : { every: 'week', on: document.getElementById('tk-repeat-day').value, at };
+}
+function tkRepeatStoredChoice(t) {
+  const r = t && t.repeat;
+  if (!r) return { clear: true };
+  if (r.every === 'hour') return { every: 'hour' };
+  return r.every === 'day' ? { every: 'day', at: r.at } : { every: 'week', on: TK_REPEAT_DAYS[r.day], at: r.at };
+}
+function tkRepeatShowWhen() {
+  const every = document.getElementById('tk-repeat-every').value;
+  document.getElementById('tk-repeat-when').hidden = every !== 'day' && every !== 'week';
+  document.getElementById('tk-repeat-day').hidden = every !== 'week';
+}
+function tkRepeatDirty(t) {
+  const save = document.getElementById('tk-repeat-save');
+  // Hourly from this screen runs on the hour; a rule an agent set at another minute still reads as unchanged.
+  const choice = tkRepeatChoice();
+  if (save) save.disabled = choice.needsTime === true || JSON.stringify(choice) === JSON.stringify(tkRepeatStoredChoice(t));
+  const msg = document.getElementById('tk-repeat-msg');
+  if (msg && choice.needsTime === true) { msg.textContent = 'Choose a time'; msg.dataset.needsTime = '1'; }
+  else if (msg && msg.dataset.needsTime === '1') { msg.textContent = ''; delete msg.dataset.needsTime; }
+}
+function tkPaintRepeat(p, t) {
+  const done = TK_ACT === 'reopen';
+  for (const id of ['tk-repeat-row', 'tk-repeat-when', 'tk-repeat-line']) { const el = document.getElementById(id); if (el && done) el.hidden = true; }
+  const act = document.querySelector('.tk-repeat-actions');
+  if (act) act.hidden = done;
+  const msg = document.getElementById('tk-repeat-msg');
+  const key = p.id + '#' + t.number;
+  if (msg && msg.dataset.task !== key) msg.textContent = '';
+  if (done) { if (msg) { msg.textContent = ''; delete msg.dataset.needsTime; } return; }   // review 2: nothing sticks on a finished task
+  document.getElementById('tk-repeat-row').hidden = false;
+  const every = document.getElementById('tk-repeat-every');
+  const stored = JSON.stringify(tkRepeatStoredChoice(t));
+  const newTask = every.dataset.task !== key;
+  /* Review 2: the controls follow the stored rule unless the person has an unsaved choice (what they show differs from
+     what was last painted as stored); another task always repaints. Judged by the choice, not by focus, which can sit on
+     a control long after the person has finished. */
+  const choiceNow = JSON.stringify(tkRepeatChoice());
+  if (choiceNow === stored) every.dataset.stored = stored;   // review 3: choosing what is stored now is nothing unsaved
+  const edited = choiceNow !== every.dataset.stored;
+  if (newTask || (every.dataset.stored !== stored && !edited)) {
+    if (!newTask && msg && msg.dataset.task === key) msg.textContent = '';   // review 2: a rule changed elsewhere retires the Saved line
+    const c = tkRepeatStoredChoice(t);
+    every.value = c.clear ? '' : c.every;
+    // Review 1: a task with no time or day of its own starts from Monday 9am, never the last task's unsaved choice.
+    document.getElementById('tk-repeat-at').value = c.at || '09:00';
+    document.getElementById('tk-repeat-day').value = c.on || 'mon';
+    every.dataset.task = key;
+    every.dataset.stored = stored;
+  }
+  tkRepeatShowWhen();
+  tkRepeatDirty(t);
+  const line = document.getElementById('tk-repeat-line');
+  const said = t.repeat ? tskRepeatSentence(t, Date.now()) : '';
+  if (line.textContent !== said) line.textContent = said;
+  line.classList.toggle('missed', !!(t.repeat && tskRepeatMissed(t)));   // slice 2: red while a run is missed
+  line.hidden = !said;
+}
+function tkOpenTask() {
+  const p = pjById(PJ_CURRENT);
+  if (!p || TK_OPEN === null) return [null, null];
+  return [p, (p.tasks || []).find((x) => String(x.number) === String(TK_OPEN)) || null];
+}
+for (const id of ['tk-repeat-every', 'tk-repeat-at', 'tk-repeat-day']) {
+  const el = document.getElementById(id);
+  if (!el) continue;
+  const on = () => {
+    const m = document.getElementById('tk-repeat-msg');
+    if (m && m.dataset.needsTime !== '1') m.textContent = '';   // review 1: a new choice retires the last answer
+    tkRepeatShowWhen(); const [, t] = tkOpenTask();
+    if (t) {
+      // CI round: choosing what is stored NOW is nothing unsaved, said at once (not at the next paint), so a rule changed
+      // elsewhere before that paint is still followed.
+      const nowStored = JSON.stringify(tkRepeatStoredChoice(t));
+      if (JSON.stringify(tkRepeatChoice()) === nowStored) document.getElementById('tk-repeat-every').dataset.stored = nowStored;
+      tkRepeatDirty(t);
+    }
+  };
+  el.addEventListener('change', on);
+  el.addEventListener('input', on);
+}
+document.getElementById('tk-repeat-save').addEventListener('click', async () => {
+  const [p, t] = tkOpenTask();
+  if (!p || !t) return;
+  const btn = document.getElementById('tk-repeat-save');
+  const msg = document.getElementById('tk-repeat-msg');
+  btn.disabled = true;
+  if (msg) { msg.textContent = ''; msg.dataset.task = p.id + '#' + t.number; }
+  const sent = tkRepeatChoice();
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + encodeURIComponent(t.number) + '/repeat', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(sent),
+    });
+    const out = await res.json().catch(() => null);
+    // Review 1: an answer belongs to its own task; a person who moved on sees nothing of it.
+    const still = () => PJ_CURRENT === p.id && String(TK_OPEN) === String(t.number);
+    if (!res.ok) { if (still()) { if (msg) msg.textContent = (out && out.error) || 'we could not change how that task repeats'; tkRepeatDirty(t); } return; }
+    // Review 2: what was saved is now what is stored, so the repaint below follows it rather than reading it as unsaved.
+    if (still()) document.getElementById('tk-repeat-every').dataset.stored = JSON.stringify(sent);
+    await pjReload();
+    paintTaskActivity(TK_OPEN);
+    if (still()) {
+      if (msg) msg.textContent = 'Saved.';   // review 1: said aloud (the line is aria-live), and focus goes back to the choice
+      document.getElementById('tk-repeat-every').focus();
+    }
+  } catch {
+    if (PJ_CURRENT === p.id && String(TK_OPEN) === String(t.number)) {
+      if (msg) msg.textContent = 'we could not reach Kosmos to change how that task repeats';
+      tkRepeatDirty(t);
+    }
+  }
+});
+
 document.getElementById('tk-hold').addEventListener('click', async () => {
   const p = pjById(PJ_CURRENT);
   if (!p || TK_OPEN === null) return;
@@ -60764,6 +61232,19 @@ function paintSettingsFacts(p) {
   const state = document.getElementById('pj-one-folder-state');
   state.textContent = fl.bad ? fl.text : '';
   state.className = 'pj-folder-state' + (fl.bad ? ' bad' : '');
+  /* kosmos#5340: offered only when the folder is not there (moved, removed, or on a drive that is not connected). */
+  const mv = document.getElementById('pjs-move');
+  if (mv) {
+    /* Review 1: also when a file sits where the folder was (just as stuck). And a path typed, or a sentence said, for
+       another project never carries over: cleared when the open project changes (as the pause message is). */
+    const st = p.folderState && p.folderState.state;
+    mv.hidden = !(st === 'missing' || st === 'not_a_folder');
+    if (mv.dataset.project !== p.id) {
+      mv.dataset.project = p.id;
+      document.getElementById('pjs-move-path').value = '';
+      document.getElementById('pjs-move-msg').textContent = '';
+    }
+  }
 }
 
 /* #2928: the top-left back chevron. Nesting-based rather than a history stack
@@ -61107,6 +61588,22 @@ document.getElementById('pjs-reveal').addEventListener('click', async () => {
   }
 });
 
+/* kosmos#5287: who shared a joined project and what they wrote about it, from p.shared (GET /api/projects; members
+   only). The owner names come from Kosmos+ (the join screen's wording when there is none yet); the description is
+   the owner's text, so it is shown as theirs, in quotes, never as this project's own. textContent only. */
+function pjPaintShared(p) {
+  const box = document.getElementById('pj-one-shared');
+  if (!box) return;
+  const sh = p && p.shared && typeof p.shared === 'object' ? p.shared : null;
+  if (!sh) { box.hidden = true; return; }
+  document.getElementById('pj-one-shared-by').textContent = 'Shared by '
+    + (typeof sh.owner === 'string' && sh.owner ? sh.owner + '.kosmosplus.com' : 'a Kosmos+ account with no name yet') + '.';
+  const d = document.getElementById('pj-one-shared-desc');
+  const words = typeof sh.description === 'string' && sh.description.trim() ? sh.description.trim() : '';
+  d.textContent = words ? 'They describe it as: \u201c' + words + '\u201d' : 'They did not add a description.';
+  box.hidden = false;
+}
+
 function paintOneProject() {
   const p = pjById(PJ_CURRENT);
   if (!p) { pjView('list'); PJ_CURRENT = null; pjMarkOpen(null); return; }
@@ -61188,6 +61685,7 @@ function paintOneProject() {
   /* Agent-made projects say so (#327). `by` is the pane's agent when one was
      offered and resolved; otherwise the honest generic. Screen-made shows
      nothing: "made by you" under everything is furniture. */
+  paintHeadPause(p);   // kosmos#5391
   const madeLine = document.getElementById('pj-one-made');
   if (p.made && p.made.via === 'process') {
     madeLine.textContent = 'Made by ' + (p.made.by ? (pjNameOf(p, p.made.by) || p.made.by) : 'an agent or another program on this computer')
@@ -61197,6 +61695,7 @@ function paintOneProject() {
     madeLine.textContent = '';
     madeLine.hidden = true;
   }
+  pjPaintShared(p);
   /* The raw-path element retired with the pack cut ("~/" is a squiggle to
      this reader): the folder facts live on #pjs-folder-name and
      #pjs-folder-where in Project settings. */
@@ -69288,34 +69787,125 @@ document.getElementById('pj-one-remove-go').addEventListener('click', async () =
   }
 });
 
-/* #4771: pause or resume the open project, from its state as last read. */
-document.getElementById('pj-one-pause').addEventListener('click', async () => {
+/* kosmos#5391: the project page's own Pause / Resume, beside the title, and the line under it that says it is paused.
+   Painted with the page from the same state Settings reads (p.paused, p.pausedByPerson). */
+/* kosmos#5391 review 3: one press at a time across BOTH pause buttons (header and Settings). */
+let PJ_PAUSE_BUSY = false;
+function paintHeadPause(p) {
+  const btn = document.getElementById('pj-head-pause');
+  const line = document.getElementById('pj-one-paused');
+  const msg = document.getElementById('pj-head-pause-msg');
+  if (!btn || !line) return;
+  const paused = !!(p && p.paused === true);
+  const live = !!(p && !p.archived);
+  btn.hidden = !live;
+  // review 1: never act on a state the board could not just read (a press could undo an agent's pause it cannot see).
+  // Review 2: nor re-enable it under a press still waiting for its answer.
+  btn.disabled = PJ_READ_FAILED === true || PJ_PAUSE_BUSY === true;
+  const word = paused ? 'Resume' : 'Pause';
+  const t = btn.querySelector('.pj-head-pause-t');
+  if (t.textContent !== word) {
+    t.textContent = word;
+    if (msg && msg.dataset.project === (p && p.id)) msg.textContent = '';   // review 1: the state moved; an old failure no longer applies
+  }
+  btn.classList.toggle('on', paused);
+  btn.setAttribute('aria-label', word + ' ' + (p && p.name ? p.name : 'this project'));
+  btn.title = paused ? 'Resume: Kosmos nudges agents about its tasks and hands them out again'
+    : 'Pause: Kosmos stops nudging agents about its tasks and stops handing them out';
+  // review 1: written only when it changes, so a status region is not re-announced on every poll.
+  const said = paused && live
+    ? (p.pausedByPerson === true ? 'Paused: ' : 'An agent paused it: ') + 'Kosmos is not nudging anyone about its tasks or handing them out.'
+    : '';
+  if (line.textContent !== said) line.textContent = said;
+  if (line.hidden !== !said) line.hidden = !said;
+  if (msg && msg.dataset.project !== (p && p.id)) msg.textContent = '';
+}
+/* #4771 / kosmos#5391: pause or resume the open project, from its state as last read. One function for the header
+   button and Settings' button, so the two cannot drift; each says a failure on its own line. */
+async function pjTogglePause(btn, msg) {
   const p = pjById(PJ_CURRENT);
-  if (!p) return;
-  const btn = document.getElementById('pj-one-pause');
-  const msg = document.getElementById('pj-one-pause-msg');
+  if (!p || PJ_READ_FAILED === true || PJ_PAUSE_BUSY === true) return;   // review 2/3: a state just read, one press at a time
+  // review 1: one press, one answer: both lines start clear, so neither keeps a failure the other press has moved past.
+  for (const id of ['pj-one-pause-msg', 'pj-head-pause-msg']) { const m = document.getElementById(id); if (m) m.textContent = ''; }
   msg.textContent = '';
   msg.dataset.project = p.id;   // whose message it is (the settings repaint clears another project's)
-  btn.disabled = true;
+  // review 4: both buttons go busy together, so neither looks live while the other's press is answered.
+  const both = ['pj-head-pause', 'pj-one-pause'].map((id) => document.getElementById(id)).filter(Boolean);
+  for (const b of both) b.disabled = true;
+  PJ_PAUSE_BUSY = true;
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(p.id), {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ paused: p.paused !== true }),
     });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) { msg.textContent = body.error || 'we could not change that project'; return; }
+    if (!res.ok) { if (PJ_CURRENT === p.id) msg.textContent = body.error || 'we could not change that project'; return; }   // review 4: never under another project
     if (!(await loadProjects())) await loadProjects();
   } catch {
-    msg.textContent = 'we could not reach Kosmos to change that project';
+    if (PJ_CURRENT === p.id) msg.textContent = 'we could not reach Kosmos to change that project';
   } finally {
-    btn.disabled = false;
+    PJ_PAUSE_BUSY = false;
+    /* review 3: only the header button stays off after a failed re-read (paintHeadPause turns it back on when reads
+       recover); Settings' button is re-enabled as it always was, since nothing in Settings would ever turn it back on. */
+    for (const b of both) b.disabled = b.id === 'pj-head-pause' && PJ_READ_FAILED === true;
   }
-});
+}
+document.getElementById('pj-one-pause').addEventListener('click', () => pjTogglePause(document.getElementById('pj-one-pause'), document.getElementById('pj-one-pause-msg')));
+document.getElementById('pj-head-pause').addEventListener('click', () => pjTogglePause(document.getElementById('pj-head-pause'), document.getElementById('pj-head-pause-msg')));
 
 // Archiving from the detail view. No confirmation on purpose: unlike removal
 // (which drops the membership list and cannot be undone by re-adding the
 // folder), archiving keeps everything and Restore is one click away in the
 // disclosure this returns you to.
+/* kosmos#5340: point a project whose folder moved at its new place. The board checks the path as it checks a new
+   project's folder (there, a folder, readable, not a temporary folder, not another project's) and tells the members. */
+document.getElementById('pjs-move-btn').addEventListener('click', async () => {
+  const p = pjById(PJ_CURRENT);
+  if (!p) return;
+  const box = document.getElementById('pjs-move-path');
+  const said = document.getElementById('pjs-move-msg');
+  const btn = document.getElementById('pjs-move-btn');
+  const want = box.value.trim();
+  said.textContent = '';
+  if (!want) { said.textContent = 'Paste where the folder is now first.'; box.focus(); return; }
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folder: want }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || 'we could not move it');
+    /* Review 4: a late answer for a project the person has since left touches nothing on the one now open. */
+    if (PJ_CURRENT !== p.id) { if (!(await loadProjects())) await loadProjects(); return; }
+    box.value = '';
+    if (!(await loadProjects())) await loadProjects();
+    /* Review 1: only what happened. Each member's instructions name the new place; a running one is also told on its
+       screen, and the board says how many it reached. */
+    const total = Number(body.members) || 0, reached = Number(body.reached) || 0, notUpdated = Number(body.notUpdated) || 0;
+    if (PJ_CURRENT !== p.id) return;   // left during the reload too
+    const head = PJ_READ_FAILED ? 'Done, but we could not re-read your projects just then.' : 'Done.';
+    const agents = (n) => n + (n === 1 ? ' agent' : ' agents');   // review 5: "1 of 1 agents" read wrong
+    let line;
+    if (total === 0) line = head + ' Kosmos now uses the new location.';
+    /* Review 4: when an agent's instructions could not be updated, nothing is promised about the others: the counts only. */
+    else if (notUpdated > 0) line = head + ' Kosmos now uses the new location. Told ' + reached + ' of ' + agents(total) + ' on this project.'
+      + ' Kosmos could not update the instructions for ' + notUpdated + ' of them; each one\'s page says why.';   // Mona Lisa's wording
+    else if (reached >= total) line = PJ_READ_FAILED ? head + ' Kosmos and this project\'s agents now use the new location.' : 'Done. Kosmos and this project\'s agents now use the new location.';
+    else line = head + ' Kosmos now uses the new location. Told ' + reached + ' of ' + agents(total) + ' on this project; the others will see it when they next start.';   // Mona Lisa's wording
+    said.textContent = line;
+    // The form hides now that the folder is there: the keyboard goes to the next control, not the page.
+    if (document.activeElement === document.body || document.activeElement === btn) document.getElementById('pjs-reveal').focus();
+  } catch (e) {
+    if (PJ_CURRENT !== p.id) return;   // review 5: a late refusal stays with its project too
+    const t = String((e && e.message) || 'we could not move it');
+    said.textContent = 'Not changed: ' + t + '.';
+    box.focus();   // review 3: the disabled button dropped the keyboard; it goes back to the path to correct it
+  } finally {
+    btn.disabled = false;
+  }
+});
 document.getElementById('pj-one-archive').addEventListener('click', async () => {
   const p = pjById(PJ_CURRENT);
   if (!p) return;

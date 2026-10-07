@@ -292,6 +292,30 @@ test('review 19: at most MAX_PER_PASS lines a pass; the rest stay owed for the n
   assert.equal(Object.keys(p.file()).length, names.length - ir.MAX_PER_PASS, 'the unsent debts were lost');
 });
 
+test('#4588 ask 3 (rebase review): a line the cap held spends no try, so agents below held ones are still told', async () => {
+  const fleet2 = require('../test-support/fleet');
+  const names = ['h1', 'h2', 'h3', 'c1'];
+  const board = fleet2.install(names.map((n) => fleet2.agent(n, { state: 'idle' })));
+  let cards;
+  try { cards = status.snapshot().agents.map((c) => ({ ...c })); } finally { board.restore(); }
+  const owed = {};
+  for (const n of names) owed[n] = debt();
+  const typed = [];
+  // The first MAX_PER_PASS debts belong to agents the Gemini cap holds; the last does not.
+  const deliver = async (s) => (s.startsWith('h') ? { state: D.COULD_NOT, held: true } : (typed.push(s), { state: D.PLACED }));
+  assert.equal(names.filter((n) => n.startsWith('h')).length, ir.MAX_PER_PASS, 'fixture: the held agents fill the pass');
+  const p = passArgs({ owed, o: { roster: () => cards, seenIdle: new Set(names), deliver } });
+  const r = await ir.passOnce(p.o);
+  assert.deepEqual(typed, ['c1'], 'the held agents spent every try and c1 was never told');
+  assert.deepEqual(Object.keys(p.file()).sort(), ['h1', 'h2', 'h3'], 'a held debt was ended, or c1\'s was kept');
+  assert.deepEqual(r.filter((x) => x.act === 'kept').map((x) => x.session).sort(), ['h1', 'h2', 'h3']);
+  // CONTROL: the same pass where every line lands spends its tries on the first three.
+  const q = passArgs({ owed: Object.fromEntries(names.map((n) => [n, debt()])), o: { roster: () => cards, seenIdle: new Set(names) } });
+  await ir.passOnce(q.o);
+  assert.equal(q.sent.length, ir.MAX_PER_PASS);
+  assert.deepEqual(Object.keys(q.file()), ['c1']);
+});
+
 test('review 20: the missing-once mark is not kept for a debt that ended, nor across an empty roster', async () => {
   const seenMissing = new Set(['zed']);
   // An empty roster clears it.
