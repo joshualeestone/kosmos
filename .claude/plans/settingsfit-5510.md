@@ -20,3 +20,9 @@ reason-grep 7/7, wired 11/11, indexed 1/1.
 
 Weakest premise: one long option measured; a longer label added to the board's list later is still capped by the same
 rule, so this is a rule, not a number.
+
+## Review 1 (opus): no BLOCKER, no WARNING; converged
+Measured by the reviewer: width sweep 320 to 1600, classic and new look, Chromium and WebKit: the select changes only at 320 and 360; label and hint placement identical old vs new; no specificity conflict; the desktop control goes red for width:100% and flex:1 min-width:220px.
+- [NIT] fixed: the intrinsic-width clone was appended to body, missing rules scoped to where the select sits (a harmless padding rule would false-red the control); it now sits beside the select, without the id. Measured: phone arms read the true 290 now; control still red for a stretched select.
+- [NIT] fixed: kept max-width: 100% alone (min-width: 0 also fixed it on its own, so the pair hid a removal). Measured: removing the cap reds F.
+- [NIT] noted, out of scope: at 320px in WebKit the Settings panel scrolls 10px sideways from the section nav strip, before and after this change.
