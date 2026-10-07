@@ -17,8 +17,10 @@
  * Always exits 0: a failed hook must never block the agent harder than no hook.
  */
 const SILENT_FOR = new Set(['AskUserQuestion']);
-// A path or command that names a protected place: a .claude folder or file, .claude.json, or a .git folder.
-const PROTECTED = /(^|[\/\s"'=:])\.claude([\/\s"'.]|\.json|$)|(^|[\/\s"'=:])\.git([\/\s"']|$)/;
+// A path or command that names a protected place: .claude (folder or file), .claude.json, or .git. Bounded by any
+// non-name character on both sides, so Windows backslashes and shell spellings (>.git/, .claude;) count, and
+// case-insensitive (macOS and Windows disks are) (review 2); a name that only contains it (.github, x.git) does not.
+const PROTECTED = /(?<![A-Za-z0-9_.-])\.(claude(\.json)?|git)(?![A-Za-z0-9_-])/i;
 
 function touchesProtected(input) {
   if (!input || typeof input !== 'object') return false;
