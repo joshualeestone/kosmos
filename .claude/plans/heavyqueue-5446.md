@@ -10,8 +10,12 @@
   or a set QUEUED_HEAVY_LIB can still bring another lib generation, which the stderr line makes visible. If that main
   checkout's lib is too old (a needed function missing), it exits 3 and names `git -C <it> pull --ff-only`. A
   QUEUED_HEAVY_LIB that is set and wrong still exits 3 (unchanged).
-- The BUSY hint names the MAIN checkout's queued-heavy.sh (one wrapper generation per Mac, review 1), else the one
+- The BUSY hint names the MAIN checkout's queued-heavy.sh when that copy already has this fallback (one wrapper
+  generation per clone, review 1; an older copy would fail where the default lib is missing, review 2), else the one
   beside heavy-gate.sh (measured here: the main checkout was at 10-01, before the script existed).
+- Scope: the fallback reaches REPO copies only. The installed copy under ~/.cache sits outside any repo and still exits
+  3 without QUEUED_HEAVY_LIB (pinned by a test); the BUSY hint names a repo copy, which is how an agent on any machine
+  now reaches a working queue.
 
 ## Rejected
 - Falling back to the worktree the script runs from: several branches' libs would share one queue (#4977 item 1).
