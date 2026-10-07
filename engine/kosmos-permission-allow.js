@@ -23,11 +23,12 @@ const SILENT_FOR = new Set(['AskUserQuestion']);
 // It over-catches on purpose (.git.bak, --git-dir=.git): a wrong "protected" only shows the prompt as before.
 const PROTECTED = /(?<![A-Za-z0-9_.-])\.(claude(-[A-Za-z0-9_-]+)?(\.json)?|git)(?![A-Za-z0-9_-])/i;
 
-function touchesProtected(input) {
-  if (!input || typeof input !== 'object') return false;
-  for (const k of ['file_path', 'notebook_path', 'path', 'command']) {
-    if (typeof input[k] === 'string' && PROTECTED.test(input[k])) return true;
-  }
+/* Every string in the request, at any depth (review 4: a key list missed nested edits and other tools). A TEXT
+   HEURISTIC, not a boundary: a name built at run time ($X/.claude, .cl*) is not seen. */
+function touchesProtected(input, depth = 0) {
+  if (typeof input === 'string') return PROTECTED.test(input);
+  if (!input || typeof input !== 'object' || depth > 8) return false;
+  for (const v of Object.values(input)) if (touchesProtected(v, depth + 1)) return true;
   return false;
 }
 

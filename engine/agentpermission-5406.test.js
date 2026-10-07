@@ -43,7 +43,8 @@ test('#5406 the hook stays silent for a protected place (.claude, .claude.json, 
     ['Write', { file_path: 'C:\\proj\\.claude\\settings.json' }], ['Edit', { file_path: 'C:\\proj\\.git\\config' }],
     ['Write', { file_path: '/p/.CLAUDE/settings.json' }], ['Bash', { command: 'cat>.git/hooks/x' }],
     ['Bash', { command: 'ls .claude;echo' }], ['Bash', { command: 'cd .git&&ls' }],
-    ['Bash', { command: 'cat ~/.claude-acct/settings.json > x' }], ['Write', { file_path: '/Users/x/.claude-work/settings.json' }]]) {
+    ['Bash', { command: 'cat ~/.claude-acct/settings.json > x' }], ['Write', { file_path: '/Users/x/.claude-work/settings.json' }],
+    ['MultiEdit', { edits: [{ file_path: '/p/.claude/settings.json' }] }]]) {
     assert.equal(r(tool, input), null, tool + ' ' + JSON.stringify(input));
   }
   // CONTROL: names that only contain the words are not protected places.
