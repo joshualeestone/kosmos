@@ -3129,3 +3129,21 @@ test('#5419: a held tmux pick that has since gone away is not handed back', () =
     if (saved === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = saved;
   }
 });
+
+driverTest('#5419: with Claude installed and no tmux at the start, the flow stops at once with the tmux sentence', async () => {
+  // Decided: every Kosmos agent runs in tmux, so a signed-in person reinstalling Claude without tmux is told now, plainly.
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  connect.setSigninPlatformForTests('linux');
+  connect.setTmuxCheckForTests(() => true);
+  try {
+    await connect.start();
+    await until(() => connect.state().phase === connect.PHASE.STUCK, 5000);
+    assert.match(connect.state().because, /needs tmux on this computer to sign Claude in/);
+    assert.equal(term.made, 0, 'a sign-in session was launched with no tmux');
+  } finally {
+    connect.setSigninPlatformForTests('darwin');
+    connect.setTmuxCheckForTests(TMUX_PRESENT);
+  }
+});
