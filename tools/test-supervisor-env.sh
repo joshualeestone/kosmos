@@ -180,6 +180,16 @@ cp "$SB/tmux" "$SB4/tmux"
 cat > "$SB4/root/app/engine/sendertoken.js" <<'STUBJS'
 module.exports = { mint: () => ({ ok: true, token: 'deadbeef' }) };
 STUBJS
+# #4592: the installed engine contains the shared runtime-home resolver and the
+# canonical trust writer too. This arm isolates bundled-node resolution, so its
+# stubs provide those two contracts without importing the whole engine tree.
+cat > "$SB4/root/app/engine/codexruntime.js" <<'STUBJS'
+const path = require('node:path');
+module.exports = { forSession: (name) => path.join(process.env.AGENT_WORKFORCE_DATA, 'Kosmos', 'codex-homes', name) };
+STUBJS
+cat > "$SB4/root/app/engine/create.js" <<'STUBJS'
+module.exports = { trustCodexFolder: () => {} };
+STUBJS
 ln -s "$(command -v node)" "$SB4/root/runtime/bin/node"
 printf '%s\n' "$SB4/root/app/engine" > "$SB4/bin/engine-path"
 # The shim writes a marker when it runs, so its running is observable. Its own

@@ -8234,9 +8234,31 @@ const server = http.createServer(async (req, res) => {
     const name = decodeSegment(prov[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     readBody(req)
-      .then((raw) => {
+      .then(async (raw) => {
         let body = null;
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        /* kosmos#5429 (Josh, 2026-10-06): a switch can carry the MODEL too, so provider, account and model change in ONE
+           restart (it used to start on the default model, and picking the model was a second restart). Checked BEFORE
+           anything is written, so a refused model leaves the agent as it was: Claude against create.js's MODELS; OpenAI
+           against the chosen account's runnable list, as the model route does (fail open when it cannot be read, #1916).
+           Empty or absent: no model is set, exactly as before (the target's own default). */
+        const wantModel = body && typeof body.model === 'string' ? body.model.trim() : '';
+        if (wantModel) {
+          const target = body && body.provider;
+          if (target === 'anthropic') {
+            const m = create.MODELS.find((x) => x.key === wantModel && x.provider === 'anthropic');
+            if (!m) { sendJson(res, 400, { outcome: 'refused', because: `${wantModel} is not a Claude model we can start, so nothing was changed` }); return; }
+          } else if (target === 'openai') {
+            const dir = (body && typeof body.account === 'string' && body.account) || openaiAccounts.defaultDir();
+            try {
+              const allowed = openaiAccounts.runnableAllowlist(await openaiAccounts.accountModels(dir));
+              if (allowed && !allowed.includes(wantModel)) { sendJson(res, 400, { outcome: 'refused', because: `${wantModel} is not a model that account can run, so nothing was changed; pick one from the list` }); return; }
+            } catch { /* not checkable: fail open, setModel bounds the id (#1916) */ }
+          } else {
+            sendJson(res, 400, { outcome: 'refused', because: 'that provider picks its own model, so one cannot be chosen with the switch; nothing was changed' });
+            return;
+          }
+        }
         /* #1373: the account the person picked rides through. Absent, the
            engine states a default and names it, exactly as before. */
         const wrote = create.setProvider(name, body && body.provider, {
@@ -8251,6 +8273,14 @@ const server = http.createServer(async (req, res) => {
         if (wrote.outcome === create.OUTCOME.REFUSED) {
           sendJson(res, 400, { outcome: 'refused', because: wrote.because });
           return;
+        }
+        /* #5429: the model, written to the job the switch just wrote, BEFORE the one restart. */
+        let pickedModel = null;
+        let modelMiss = '';
+        if (wantModel) {
+          const m = create.setModel(name, wantModel);
+          if (m.outcome === create.OUTCOME.REFUSED) modelMiss = m.because || 'the model could not be set';
+          else pickedModel = m.model || null;
         }
         let back;
         try { back = removal.restart(name, 'provider'); }
@@ -8273,11 +8303,17 @@ const server = http.createServer(async (req, res) => {
            "previous" rather than "Claude" because the old provider need not be claude. */
         /* #5091: a switch to Claude can now carry a picked Claude account; then only the model default is said here
            (the account is named by landedOn), and "your main Claude account" stays for a switch nobody picked for. */
+        /* #5429: a model picked with the switch is named; only an unpicked one is the default. */
+        const claudeModelWords = pickedModel && pickedModel.label ? 'it starts on ' + pickedModel.label : 'it starts on Claude’s own default model until you change it';
         const dropped = wrote.provider === 'anthropic'
-          ? [wrote.account ? 'it starts on Claude’s own default model until you change it'
-            : 'it starts on your main Claude account and Claude’s own default model until you change them']
-          : [wrote.dropped.model ? `its previous model choice does not cross (${label} picks its own)` : '',
+          ? [wrote.account ? claudeModelWords
+            : (pickedModel && pickedModel.label ? 'it starts on your main Claude account and ' + pickedModel.label : 'it starts on your main Claude account and Claude’s own default model until you change them')]
+          : [pickedModel && pickedModel.label ? 'it starts on ' + pickedModel.label   // #5429: picked with the switch
+            : wrote.dropped.model ? `its previous model choice does not cross (${label} picks its own)` : '',
             wrote.dropped.account ? 'and it leaves its previous account behind' : ''];
+        /* #5429: a model that could not be set after the switch was written (checked first, so this is rare): said, and
+           the agent starts on the default. */
+        const modelMissWords = modelMiss ? ` The model you picked could not be set (${modelMiss}), so it starts on the default; change it on this card.` : '';
         const droppedWords = dropped.filter(Boolean).join(' ');
         /* WHICH OpenAI sign-in it landed on (#1211). Josh switched an agent,
            read "API key ending WWUA" elsewhere on the screen, and could not
@@ -8366,7 +8402,8 @@ const server = http.createServer(async (req, res) => {
             outcome: 'partial',
             provider: wrote.provider,
             restarted: ok,   // #5091: the page repaints Runs on from this, not from a sentence
-            because: wrote.because + ' ' + (ok ? 'It is starting again now.' : `It could not start again yet: ${back.because} It is still running as before until it restarts.`),
+            ...(pickedModel ? { model: pickedModel } : {}),   // #5429 review 2: the model was still written; say so
+            because: wrote.because + (pickedModel && pickedModel.label ? ' It runs on ' + pickedModel.label + '.' : '') + modelMissWords + ' ' + (ok ? 'It is starting again now.' : `It could not start again yet: ${back.because} It is still running as before until it restarts.`),
             steps: back.steps || [],
           });
           return;
@@ -8374,6 +8411,7 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, {
           outcome: ok ? 'changed' : 'partial',
           provider: wrote.provider,
+          ...(pickedModel ? { model: pickedModel } : {}),   // #5429: what Runs on can say it moved to
           /* #5145: the dir of the account the switch landed on (the same `acct` the sentence names), resolved so it
              compares with the listed rows. Null when the engine named none (a Claude switch with no account sent,
              Antigravity, a dry-run). The engine-partial answer above sends none; the restart-failed partial here
@@ -8386,6 +8424,7 @@ const server = http.createServer(async (req, res) => {
               + 'It is starting again now, and it will look idle until you say something to it.'
               + landedOn
               + signInNote
+              + modelMissWords
             : `We saved the switch to ${label}, but could not start it again: ${back.because} `
               + 'It is still running as before until it restarts.'
               /* ⚠️ FUTURE TENSE HERE, NOT `landedOn`'S PRESENT. The plist already
