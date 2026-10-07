@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: usageprices-5158
-diff_hash: 4a270199252a1ce899e49f150baa3a4c9fe4ab0ed72e5d9cc8d8b687660e3e15
+diff_hash: 2e8fc54c62e78cf6c7b26a9b693ecd8c2d7eaff857520c641062b5042a7ee8df
 validation: passed (Mortals full suite at c5588405e, 2026-10-03 12:37 CDT, hash ce3265e5cb94; rebased on main after #5163 merged (c11ea424c); focused usage tests + guards green on the new base)
 subdir_audit: passed
 timestamp: 2026-10-04T21:06:20Z
