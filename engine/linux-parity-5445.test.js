@@ -288,7 +288,8 @@ test('#5445 the board says where a switched-off agent was switched off, per plat
   // Linux: systemd, never System Settings.
   const lin = create.switchedOffSentence('offrow', off, 'linux');
   assert.match(lin, /switched off \(or masked\) in systemd/);
-  assert.match(lin, /systemctl --user enable --now 'kosmos-agent-offrow\.service'/, 'names how to switch it back on, as the Mac names its screen');
+  assert.match(lin, /If it was switched off, systemctl --user enable --now 'kosmos-agent-offrow\.service' switches it back on and starts it/, 'names how to switch it back on, as the Mac names its screen');
+  assert.match(lin, /if systemd says it is masked, it has to be unmasked first$/, 'and names no unmeasured command for a mask');
   assert.doesNotMatch(lin, /System Settings/);
   assert.equal(create.switchedOffSentence('onrow', off, 'linux'), null);
   // A masked unit is read from the disk, so it is said even when systemctl gave no switched-off set.
@@ -310,4 +311,15 @@ test('#5445 the folder-trust step says a masked agent is masked, not that it has
   fs.rmSync(linuxjob.unitPath('trustmask'));
   // CONTROL: with no unit at all it is still "no launch job".
   assert.match(create.trustAgentFolder('trustmask', { platform: 'linux' }).because, /no Kosmos launch job/);
+});
+
+test('#5445 writing a unit over a masked link refuses instead of writing to /dev/null', () => {
+  clearUnits();
+  const f = linuxjob.unitPath('maskwrite');
+  fs.symlinkSync('/dev/null', f);
+  assert.throws(() => linuxjob.writeUnitFile(f, '[Unit]\n'), /masked/);
+  assert.equal(fs.readlinkSync(f), '/dev/null', 'the mask is left as the person made it');
+  fs.rmSync(f);
+  linuxjob.writeUnitFile(f, '[Unit]\n');   // CONTROL: an ordinary path is written
+  assert.equal(fs.readFileSync(f, 'utf8'), '[Unit]\n');
 });
