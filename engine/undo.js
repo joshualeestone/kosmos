@@ -16,7 +16,10 @@
  *   - overwrite without saving the current version first;
  *   - touch a file changed or deleted after the task closed, or one with no copy;
  *   - keep copies of anything but a Kosmos agent's own sessions (never the person's own Claude sessions);
- *   - act on its own: plan() lists, the person chooses, apply() redoes the plan and does only what is chosen and safe.
+ *   - act on its own: plan() lists, the person chooses, apply() redoes the plan and does only what is chosen and safe;
+ *   - copy, restore or move a file the token-only guard protects (#4491: board.token, sender tokens, the token-only list,
+ *     the worlds registry, account settings, a token-only agent's .claude, undo's own stores): 'credential' at keep,
+ *     'protected' at plan and apply, and 'cannot-check' when that set cannot be worked out.
  * A file whose history the copies cannot vouch for is marked, not offered as "before this task": the switch turned on
  * after the agent began, the same agent's other task overlapping, another agent's edit meanwhile.
  *
@@ -156,10 +159,12 @@ function credentialVerdict(abs, st, cred) {
     if (/^settings(\.local)?\.json$/i.test(base) && /^\.claude(-.*)?$/i.test(path.basename(path.dirname(real)))
       && (same(realOf(path.dirname(path.dirname(real))), realOf(c.home)) || same(path.dirname(path.dirname(abs)), c.home))) return 'protected';
     const files = c.files.slice();
+    const inside = (d) => { const dr = realOf(d) || d; return [[real, dr], [abs, d]].some(([x, y]) => lc(x) === lc(y) || lc(x).startsWith(lc(y) + path.sep)); };
+    for (const d of (c.placeOnly || [])) if (inside(d)) return 'protected';
     for (const d of c.dirs) {
-      const dr = realOf(d) || d;
-      for (const [x, y] of [[real, dr], [abs, d]]) if (lc(x) === lc(y) || lc(x).startsWith(lc(y) + path.sep)) return 'protected';
-      try { for (const n of fs.readdirSync(d)) files.push(path.join(d, n)); } catch { /* no such folder */ }
+      if (inside(d)) return 'protected';
+      /* Its FILES join the identity list (a hard link under another name); folders cannot be hard links (review 8). */
+      try { for (const e of fs.readdirSync(d, { withFileTypes: true })) if (!e.isDirectory()) files.push(path.join(d, e.name)); } catch { /* no such folder */ }
     }
     for (const f of files) {
       if (lc(abs) === lc(f) || lc(real) === lc(f) || lc(real) === lc(realOf(f) || f)) return 'protected';
@@ -193,7 +198,8 @@ function credentialSet() { try { return require('./setup-assistant').boardCreden
  * Keep a copy of `file` as it is now, just before an edit. Never throws. { kept, because? }. A missing file is
  * recorded as not existing (an undo then moves the created file aside). Not kept: switch off, a path that is not
  * absolute or carries control characters, a session or folder that is not a Kosmos agent's, a link, a folder, a file
- * over MAX_BYTES.
+ * over MAX_BYTES, a file the token-only guard protects ('credential'), and anything while that set cannot be worked
+ * out ('cannot-check').
  */
 function keep(file, { cwd = '', session = '', now = Date.now(), onlyFor = null } = {}) {
   try {
