@@ -169,3 +169,8 @@ hook point after the temp is written) and move-aside is tested; undo's own store
 record cannot move or replace undo's own files; a temp is removed by its real path. Residuals, named: a folder RENAMED
 while the temp is in it takes the temp along (it stays in the agent's own folder, holding the agent's own earlier
 content); move-aside across disks (copy, then unlink by path) has a wider window than a rename.
+Eighth post-rebase review (sonnet): no way around the guard found. Fixed: undo's own stores are protected by place
+only (never listed, so the cost does not grow with undo-saved) and a test pins them as protected; folders are skipped
+when building the identity list. Residual wording corrected: the window between apply's last check and its copy
+allows any link swap (hard or symbolic), not only a hard link; either way the bytes land in undo-saved, which the agent
+cannot read or write.

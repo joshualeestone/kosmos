@@ -667,8 +667,10 @@ function boardCredentialPaths(deps = {}) {
     }
   } catch { /* the files above */ }
   for (const h of accountConfigHomes(home)) files.push(path.join(h, 'settings.json'), path.join(h, 'settings.local.json'));
-  // The undo stores too (the guard read- and write-denies them): a record must never move or replace undo's own files.
-  const dirs = [sendertoken.DIR, ...roots.flatMap((r) => [path.join(r, 'sendertokens'), path.join(r, 'undo'), path.join(r, 'undo-saved')])];
+  const dirs = [sendertoken.DIR, ...roots.map((r) => path.join(r, 'sendertokens'))];
+  // The undo stores (the guard read- and write-denies them): a record must never move or replace undo's own files. By
+  // place only: they hold no credential to match by identity, and undo-saved grows with every undo (review 8).
+  const placeOnly = roots.flatMap((r) => [path.join(r, 'undo'), path.join(r, 'undo-saved')]);
   let raw = null;
   try { raw = fs.readFileSync(listFile, 'utf8'); } catch (err) { if (!err || err.code !== 'ENOENT') throw new Error('the token-only list could not be read'); }
   if (raw !== null) {
@@ -677,7 +679,7 @@ function boardCredentialPaths(deps = {}) {
     const create = require('./create');
     for (const name of j.agents) { if (typeof name === 'string' && name) { try { dirs.push(path.join(create.workerDir(name), '.claude')); } catch { /* no folder */ } } }
   }
-  return { files: [...new Set(files)], dirs: [...new Set(dirs)], home, regDir, regBase };
+  return { files: [...new Set(files)], dirs: [...new Set(dirs)], placeOnly: [...new Set(placeOnly)], home, regDir, regBase };
 }
 
 /* #4491: ~/.claude plus every EXISTING ~/.claude-<label> (a CLAUDE_CONFIG_DIR account home). Enumerated

@@ -284,3 +284,15 @@ test('#4491 review 7: the check right before the rename is pinned on its own, an
   assert.equal(fs.readFileSync(path.join(guard, 'made.txt'), 'utf8'), 'the guard folder file', 'a file in the guarded folder was moved');
   fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: [] }));
 });
+
+test('#4491 review 8: a record naming a file in undo\'s own stores is protected, so a restore can never move or replace them', () => {
+  fs.mkdirSync(path.dirname(sendertoken.tokenOnlyFile()), { recursive: true });
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: [] }));
+  const set = require('./setup-assistant').boardCredentialPaths();
+  const index = path.join(store.ROOT, 'undo', 'index.jsonl');
+  const saved = path.join(store.ROOT, 'undo-saved', '2026-x', 'abc-notes.md');
+  assert.equal(undo.credentialVerdict(index, null, set), 'protected', 'the undo index is not protected');
+  assert.equal(undo.credentialVerdict(path.join(store.ROOT, 'undo', 'blobs', 'deadbeef'), null, set), 'protected', 'a blob is not protected');
+  assert.equal(undo.credentialVerdict(saved, null, set), 'protected', 'a saved-aside file is not protected');
+  assert.equal(undo.credentialVerdict(path.join(store.ROOT, 'undo-elsewhere.txt'), null, set), null, 'CONTROL: a file merely named like the store');
+});
