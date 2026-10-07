@@ -243,4 +243,9 @@ if [ "$TWICE" = 1 ] && [ "$first" = 0 ]; then
   if one_read; then first=0; else first=1; fi
 fi
 if [ "$first" = 0 ]; then say "heavy-gate: CLEAR"; exit 0; fi
-say "heavy-gate: BUSY"; exit 1
+say "heavy-gate: BUSY"
+# #5446: polling holds no place in line. On a night of back-to-back suites a poller loses to every one that queued
+# (90 reads, all BUSY, 2026-10-06), so the BUSY answer names the queue that does give a turn. stderr, and not with
+# --quiet, so a caller reading the verdict on stdout sees the same single line as before.
+[ "$QUIET" = 1 ] || printf '%s\n' "heavy-gate: polling this holds no place in line. To wait your turn, run it through the queue: bash $(cd "$(dirname "$0")" && pwd)/queued-heavy.sh \"<what>\" <command>   (add --light first for ONE browser check or ONE test file)" >&2
+exit 1
