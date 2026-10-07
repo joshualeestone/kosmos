@@ -2112,6 +2112,21 @@ test('kosmos#5422: when remote.json cannot be saved, the self-grant still goes t
   }
 });
 
+test('kosmos#5422: ids a failed save kept only in memory reach the file with the next write, and survive a Forget', async () => {
+  const dataDir = nodePath.dirname(remote.FILE);
+  fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: 'old-opaque-id' }));
+  fs.mkdirSync(process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote'), { recursive: true });
+  process.env.FAKE_TUNNEL_MODE = 'devkey';
+  fs.chmodSync(dataDir, 0o500);   // the save fails, the file stays readable
+  try { assert.equal((await remote.signinStart('her@example.com')).ok, true); } finally { fs.chmodSync(dataDir, 0o700); delete process.env.FAKE_TUNNEL_MODE; }
+  assert.equal(remote.read().device_id, 'old-opaque-id', 'precondition: the key id was not saved');
+  remote.setRelay('relay.example:443');   // an ordinary write, once the disk works again
+  assert.equal(remote.read().device_id, FAKE_KEYED, 'the next write did not carry the id held in memory');
+  assert.deepEqual(remote.read().past_device_ids, ['old-opaque-id']);
+  await remote.forget();
+  assert.ok(remote.ownDeviceIds().includes(FAKE_KEYED), 'a Forget dropped an own id the file never had');
+});
+
 test('kosmos#5422: a cancel while start asks the tunnel sends no start', async () => {
   process.env.FAKE_TUNNEL_MODE = 'devkey';
   try {

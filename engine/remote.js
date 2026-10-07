@@ -556,6 +556,14 @@ function write(patch, opts) {
     // The ids before come back whether or not one is in use yet: a key id the tunnel answered is hidden as this
     // computer's own from that moment, even if no sign-in with it was taken.
     if (!(next.past_device_ids || []).length && heldIdentity.past_device_ids.length) next.past_device_ids = heldIdentity.past_device_ids;
+  } else if (heldIdentity && (!('device_id' in patch) || patch.device_id === current.device_id)) {
+    /* kosmos#5422: an earlier save of this process's ids failed while the file stayed readable (a full disk, a locked
+       file). Any later write that does not set the id itself carries them, so they reach the file once it can be
+       written, and are not lost to a restart or a Forget. */
+    const held = DEVICE_ID.test(heldIdentity.device_id) ? heldIdentity.device_id : '';
+    if (held && next.device_id !== held) next.device_id = held;
+    const all = [...heldIdentity.past_device_ids, ...(next.past_device_ids || []), current.device_id];
+    next.past_device_ids = all.filter((x, i) => typeof x === 'string' && x && x !== next.device_id && DEVICE_ID.test(x) && all.indexOf(x) === i);
   }
   /* Atomic (#4308): the new content goes to a temporary file of its own in the same folder, is fsynced, and only
      then renamed over the old one. An interrupted write leaves the previous file whole, and the bytes are handed to
@@ -1731,7 +1739,8 @@ function tunnelWords(asked) {
     .replace(/\s*\bsignin-device\.key[^\s;:,)]*/g, '').replace(/\s+/g, ' ').trim();
   const head = lines.find((l) => /^Error: /.test(l));
   const causes = lines.slice(lines.findIndex((l) => /^Caused by:/.test(l)) + 1).map((l) => l.replace(/^\s*(\d+:\s*)?/, '')).filter(Boolean);
-  if (!head) return scrub(parseSaid(asked).because || 'no id came back');
+  // No "Error:" line: clap's usage text, whose last line ("For more information, try '--help'.") says nothing.
+  if (!head) return 'the tunnel program refused the request';
   const cause = lines.some((l) => /^Caused by:/.test(l)) && causes.length ? causes[causes.length - 1] : '';
   return scrub(head.slice(7)) + (cause ? ' (' + scrub(cause) + ')' : '');
 }
@@ -2280,7 +2289,7 @@ async function clearHalfIdentity() {
   /* kosmos#5422: the sign-in's device key lives in this folder too and is not part of the half identity: it is the
      device the person just signed in as. The folder is emptied entry by entry around it, so finishing a sign-in does
      not make this computer another device next time; the key file itself is never rewritten (a rewrite would lose
-     the tunnel's Windows ACL, and a verify opening it meanwhile would make a new one). */
+     the tunnel's Windows ACL). */
   const keyName = path.basename(DEVICE_KEY_FILE());
   let entries = [];
   try { entries = fs.readdirSync(STATE_DIR()); } catch { /* no folder: nothing to clear */ }
