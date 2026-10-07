@@ -20,3 +20,10 @@ branch's own commits) once #5384 merges; review loop and proof run on a diff of 
 
 ## Weakest premise
 How often a real Windows environment carries a non-canonical spelling of these names.
+
+## Added after #5384 merged (2026-10-07)
+- Moved onto main: replayed only this card's commit (b71ada0ab) with rebase --onto, since #5384 was squash-merged.
+- win32codex.runCodexTurn's fallback (no opts.env: process.env plus the account CODEX_HOME) now sets CODEX_HOME through
+  envSet, so an inherited Codex_Home cannot sit beside it (#5384 review 20 named it). Test in win32codex.test.js with an
+  oddly spelled inherited name; planting the old fallback turns it red. win32codex.js joins the no-plain-delete scan.
+  Production callers pass env through win32codexsup, so this is the fallback path only.

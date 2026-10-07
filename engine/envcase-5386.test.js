@@ -12,7 +12,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const FILES = ['subscription.js', 'orgchartfile.js', 'codexsigninlive.js', 'grokaccounts.js', 'create.js', 'boardrestart.js',
-  'win32launch.js', 'win32agy.js', 'win32keyed.js'];
+  'win32launch.js', 'win32agy.js', 'win32keyed.js', 'win32codex.js'];
 
 test('#5386: no plain delete on an env copy in the modules that build a child\'s environment', () => {
   for (const f of FILES) {
