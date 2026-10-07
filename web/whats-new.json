@@ -9,12 +9,12 @@
     {
       "icon": "spark",
       "title": "A steadier top bar",
-      "line": "On a computer that always shows scrollbars, the top bar no longer jumps when you switch views."
+      "line": "On a computer that always shows scrollbars, the top bar no longer jumps when you switch board layouts."
     },
     {
       "icon": "shield",
       "title": "Codex agents in their own space",
-      "line": "Codex agents now run with their own settings, so plugins and settings in your own Codex app no longer affect them.",
+      "line": "From their next start, Codex agents run with their own settings, so your own Codex app's plugins no longer affect them.",
       "platforms": [
         "mac"
       ]
