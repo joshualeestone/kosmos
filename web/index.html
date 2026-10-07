@@ -7748,7 +7748,8 @@ html.has-voice .micbtn.has-pill { display: none; }
 .micwrap > :disabled ~ .voice-pill { display: none; }   /* like its mic: no pill over a box that takes no words */
 /* 124px = the short pill's width plus its 8px offset and a margin; render-voice-4409.js V6e measures that the text ends
    before the pill begins, so a font change that outgrows it reds there. */
-html.has-voice .micwrap:has(> .voice-pill) > textarea, html.has-voice .micwrap:has(> .voice-pill) > input { padding-right: calc(124px + var(--scrollbar-width, 0px)) !important; }
+html.has-voice .micwrap:has(> .voice-pill) > textarea:not(:disabled), html.has-voice .micwrap:has(> .voice-pill) > input:not(:disabled) { padding-right: 124px !important; }
+html.has-voice .micwrap:not(.line):has(> .voice-pill) > textarea:not(:disabled) { padding-right: calc(124px + var(--scrollbar-width, 0px)) !important; }   /* split as the mic's own rules are */
 @media (max-width: 479px) { .voice-pill .vp-pre { display: none; } }   /* Splinter 08:33: [X  Settings] when narrow, same pane */
 /* #4409: read aloud, in a message's hover bar beside Reply (html.has-speak: the page has speechSynthesis). */
 .rxn-speak { display: none; align-items: center; justify-content: center; font: inherit; font-size: .75rem; border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); border-radius: 999px; padding: 1px 8px; margin-left: 4px; cursor: pointer; min-height: 24px; }
@@ -65171,6 +65172,7 @@ const VOICE_SAYS = {
   'mic-restricted': 'The microphone is blocked on this Mac by Screen Time or by a profile your organization installed.',
   'speech-restricted': 'Speech recognition is blocked on this Mac by Screen Time or by a profile your organization installed.',
   'speech-unanswered': 'Speech recognition was not allowed, so nothing was heard.',
+  'mic-unanswered': 'The microphone was not allowed, so nothing was heard.',
   'no-on-device': 'This computer has no on-device speech model for your language, and Kosmos never sends your voice off this computer.',
   'no-mic': 'No microphone was found.',
   'not-set-up': 'This copy of Kosmos is not set up for the microphone yet. Updating Kosmos fixes it.',
@@ -65567,7 +65569,11 @@ function voiceSettingsOffer(btn, pane, said) {
   const home = document.getElementById(btn.getAttribute('data-voice-for') || '');
   const offeredAt = home ? voiceWhere(home, true) : '';
   VOICE_SETTINGS.watch = setInterval(() => {
-    if (!home || !document.body.contains(btn) || voiceWhere(home, true) !== offeredAt) voiceSettingsClear();
+    if (!home || !document.body.contains(btn) || voiceWhere(home, true) !== offeredAt) {
+      const hadFocus = VOICE_SETTINGS.keys.includes(document.activeElement);
+      voiceSettingsClear();
+      if (hadFocus && document.body.contains(btn)) btn.focus();   // back to the mic, never the page
+    }
   }, 500);
   btn.classList.add('has-pill');
   btn.insertAdjacentElement('afterend', pill);
@@ -65602,7 +65608,6 @@ function voiceOnEvent(ev) {
     document.addEventListener('visibilitychange', once);
     return;
   }
-  // speech is now on but the mic is still refused (both were off); the same pill now opens the Microphone pane.
   // back from Settings with the mic restricted (Screen Time or a profile): no pane can undo it, so say so.
   if (ev && ev.kind === 'refused') {
     const btn = VOICE_SETTINGS.btn;
@@ -65613,6 +65618,7 @@ function voiceOnEvent(ev) {
     if (hadFocus) btn.focus();
     return;
   }
+  // Speech is now on but the mic is still refused (both were off): the same pill now opens the Microphone pane.
   if (ev && ev.kind === 'settings-next') {
     if (!VOICE_SETTINGS.btn || ev.id !== VOICE_SETTINGS.id || !['speech', 'mic'].includes(ev.pane)) return;
     VOICE_SETTINGS.pane = ev.pane;

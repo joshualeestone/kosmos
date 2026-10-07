@@ -361,6 +361,11 @@ test('#4409: the native recognizer is on-device only, and only the board\'s own 
     assert.ok(PAGE.includes("ev.kind === '" + kind + "'"), 'the page no longer reads ' + kind);
   }
   assert.ok(bridge.includes('"canOpenSettings": true') && PAGE.includes('ev.canOpenSettings === true'), 'the app and the page no longer agree on canOpenSettings');
+  // The app's guards are pure and selftested; these pin that they are wired in where they act.
+  assert.match(bridge, /case "settings":[\s\S]{0,400}Self\.settingsAccepted\(lastRefusal: lastRefusal\) else \{ return \}/, 'Settings opens without a denial to answer');
+  assert.match(bridge, /private func refuse\(_ reason: String\) \{\n        pending = false\n        lastRefusal = reason/, 'refuse no longer records the denial Settings answers');
+  assert.match(bridge, /if Self\.pageGone\(why\) \{ awaitingAllow = false; lastRefusal = "" \}/, 'a gone page no longer drops its Settings visit');
+  assert.match(bridge, /self\.refuse\(Self\.micRefusal\(micAfter\)\)/, 'a refused mic is no longer told apart (restricted, never asked)');
   assert.match(bridge, /guard pending \|\| engine != nil/, 'a window hidden during the permission prompt leaves the next start listening');
 });
 
@@ -590,7 +595,7 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   assert.equal(msg.textContent, '(mic refused)', 'an older app\'s refusal lost its directions');
   msg.textContent = '';
   // CONTROL: not a denial, or restricted (Settings cannot undo it), offers no pill and says a sentence instead.
-  for (const reason of ['speech-unanswered', 'speech-restricted', 'mic-restricted']) {
+  for (const reason of ['speech-unanswered', 'mic-unanswered', 'speech-restricted', 'mic-restricted']) {
     h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
     h.voiceToggle(btn);
     assert.equal(pills.length, 0, 'a new start left the pill up');

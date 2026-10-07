@@ -1483,7 +1483,15 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         default: return "speech-denied"
         }
     }
-    static func micRefusal(_ s: AVAuthorizationStatus) -> String { s == .restricted ? "mic-restricted" : "mic-denied" }
+    /// A mic refused while still never asked (the no-prompt case) is not "denied": the Microphone pane lists no app that
+    /// never asked, so a pill there would open a pane with no switch for Kosmos.
+    static func micRefusal(_ s: AVAuthorizationStatus) -> String {
+        switch s {
+        case .restricted: return "mic-restricted"
+        case .notDetermined: return "mic-unanswered"
+        default: return "mic-denied"
+        }
+    }
     static func statusName(_ s: SFSpeechRecognizerAuthorizationStatus) -> String {
         switch s {
         case .authorized: return "authorized"
@@ -6617,7 +6625,8 @@ if CommandLine.arguments.contains("--kosmos-app-voice-selftest") {
     row(!VoiceBridge.settingsAccepted(lastRefusal: "") && !VoiceBridge.settingsAccepted(lastRefusal: "no-mic") && !VoiceBridge.settingsAccepted(lastRefusal: "mic-restricted"), "#5481 CONTROL: and after nothing else")
     row(VoiceBridge.pageGone("page process ended") && VoiceBridge.pageGone("new page loaded"), "#5481: a reloaded or crashed page drops its Settings visit")
     row(!VoiceBridge.pageGone("window hidden") && !VoiceBridge.pageGone("window minimised"), "#5481 CONTROL: a hidden or minimised window keeps it (its page keeps the pill)")
-    let expected = 42   // #5311: + Dictation off, + its control; #5481: + 26
+    row(VoiceBridge.micRefusal(.notDetermined) == "mic-unanswered", "#5481: a mic refused with no prompt is not offered the Microphone pane")
+    let expected = 43   // #5311: + Dictation off, + its control; #5481: + 27
     if ran != expected { print("\nvoice-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
     if bad > 0 { print("\nvoice-check: \(bad) row(s) wrong"); exit(1) }
     print("\nvoice-check: all good (\(ran) rows)")
