@@ -62,12 +62,13 @@ fs.mkdirSync(path.join(SB, 'bin'), { recursive: true });
 fs.writeFileSync(path.join(SB, 'bin', 'claude'), '#!/bin/sh\n', { mode: 0o755 });
 fs.writeFileSync(path.join(SB, 'bin', 'tmux'), '#!/bin/sh\n', { mode: 0o755 });
 
+const jobfix = require('../test-support/jobfixture');   // #5432: the agent's job where this platform keeps it (plist / unit)
 const create = require('./create');
 const liveExec = require('./live-execution');
 
 function freshWorker(name) {
   fs.mkdirSync(create.workerDir(name), { recursive: true });
-  try { fs.rmSync(create.plistPath(name), { force: true }); } catch { /* none yet */ }
+  try { fs.rmSync(jobfix.jobPath(name), { force: true }); } catch { /* none yet */ }
 }
 
 test('#1598 create.js run() gate polarity: unauthorized -> started:false, and a seam -> started:true', () => {
