@@ -1480,7 +1480,7 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         switch s {
         case .notDetermined: return "speech-unanswered"
         case .restricted: return "speech-restricted"
-        default: return "speech-denied"
+        default: return "speech-denied"   // .denied; .authorized never reaches here (it is not a refusal)
         }
     }
     /// A mic refused while still never asked (the no-prompt case) is not "denied": the Microphone pane lists no app that
@@ -1587,12 +1587,12 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
             guard !visit.isEmpty else { return }   // an "allowed" with no id could never be matched by the page
             settingsId = visit
             settingsAt = Date()
+            settingsPane = pane   // the pane the page last asked for, which is what it believes this visit is about
             awaitingAllow = true
             guard Self.settingsOpenAllowed(sinceLast: settingsOpenedAt.map { Date().timeIntervalSince($0) }) else {
                 logLine("voice: Settings press within a second of the last, not opened again (" + pane + ")"); return
             }
             settingsOpenedAt = Date()
-            settingsPane = pane   // the pane actually opened (a press within the second opens none)
             NSWorkspace.shared.open(url)
         default: return
         }

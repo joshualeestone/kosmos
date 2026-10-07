@@ -366,6 +366,7 @@ test('#4409: the native recognizer is on-device only, and only the board\'s own 
   assert.match(bridge, /private func refuse\(_ reason: String\) \{\n        pending = false\n        lastRefusal = reason/, 'refuse no longer records the denial Settings answers');
   assert.match(bridge, /if Self\.pageGone\(why\) \{ awaitingAllow = false; lastRefusal = "" \}/, 'a gone page no longer drops its Settings visit');
   assert.match(bridge, /self\.refuse\(Self\.micRefusal\(micAfter\)\)/, 'a refused mic is no longer told apart (restricted, never asked)');
+  assert.match(bridge, /forName: NSApplication\.didBecomeActiveNotification[^\n]*\{ \[weak self\] _ in\s+self\?\.recheckAfterSettings\(\)/, 'nothing looks again when the person comes back from Settings');
   assert.match(bridge, /guard pending \|\| engine != nil/, 'a window hidden during the permission prompt leaves the next start listening');
 });
 
