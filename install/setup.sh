@@ -1937,7 +1937,7 @@ KOSMOS_SWEEP_LIST
   fi
   # 🔑 THE APP'S OWN REMEMBERED ANSWERS ARE PLUMBING TOO, THE SAME ARGUMENT AS
   # THE SUPERVISOR ABOVE (#891). Six tiny files live at the data folder's
-  # root, each holding one "have we asked this yet" fact the app checked once
+  # root. Four each hold one "have we asked this yet" fact the app checked once
   # so it would not ask again: whether first run has been seen
   # (first-run.json), the last app version the person was shown a what's-new
   # for (seen-version.json), whether the "we found your existing agents"

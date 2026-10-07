@@ -15870,11 +15870,6 @@ const server = http.createServer(async (req, res) => {
     } catch { sendJson(res, 500, { error: 'we could not set your agents to start on their own' }); }
     return;
   }
-  /* --- engineering mode (whether the raw session is shown) ---------------- */
-  /* The automatic-updates switch. Same shape as /api/engmode deliberately:
-     one preference, GET to learn it, PUT to set it, and the READ is echoed
-     back after a write rather than the request body -- so the screen paints
-     what is stored, never what was asked for. */
   /* #5359: the note that this computer restarted while Kosmos was running and Kosmos came back by itself
      (engine/restartnote.js says when one is made). Read once by the page; dismissed by the person. */
   if (pathname === '/api/board/restart-note' && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -15890,6 +15885,11 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 200, { dismissed: true });
     return;
   }
+  /* --- engineering mode (whether the raw session is shown) ---------------- */
+  /* The automatic-updates switch. Same shape as /api/engmode deliberately:
+     one preference, GET to learn it, PUT to set it, and the READ is echoed
+     back after a write rather than the request body -- so the screen paints
+     what is stored, never what was asked for. */
   // --- what changed under a running board (#541) ---------------------------
   /* The seen-version record: one tiny file, so dismissed stays dismissed
      across restarts and browsers. First sight of a machine records the

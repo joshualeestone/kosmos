@@ -87,3 +87,16 @@
   seeds only the first three files, and the node guard reads the rm line itself.
 - FIXED: the "board is told" arm no longer counts the refused click's POST; every case first waits for the page's
   own request for the note, so the empty control means "asked, none", not "not yet".
+
+## Review 6
+- FIXED (test gap): focus after a dismiss is pinned with a keyboard dismiss; deleting the focus call reddens it
+  ("BODY"). The reviewer's probe saw focus on `.tip-go` because it did not close the first-run screen, whose button
+  holds focus while it shows; with it closed, focus lands on the K mark as after the login notice.
+- Named, not fixed here: switching to another Kosmos stops this one's board without clearing its record, the same
+  class as quitting the app. In the header comment and on #5450 (the supervisor marker fixes all of them).
+- FIXED: a second refused dismiss says its line again (removed and re-added, so it is announced); Kosmos+ is tested in
+  dark (it ran in light before); the check's header and README row list every arm; the routes sit above the
+  pre-existing engineering-mode comment, not under it; setup.sh says four of the six are "asked yet" facts.
+- For Mona, with the failure line: the close button is labelled "Dismiss" alone, where the login notice says
+  "Close: <its headline>". Left as her design says; raised to her.
+- Left: a temp file from a kill mid-write is not swept by uninstall (exact names; accepted in review 3).

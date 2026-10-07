@@ -12,6 +12,11 @@
  *   older      -> "This computer restarted on <Mon D> at <time>"
  *   none       -> the slot is EMPTY (the control: the note shows only when there is one)
  *   dismiss    -> the X empties the slot and POSTs /api/board/restart-note/dismiss
+ *   repaint    -> a re-check of the same note keeps Dismiss and its focus; a different note is painted again (control)
+ *   tones      -> neutral in light, dark by media query, forced dark, and Kosmos+ in dark
+ *   refused    -> a dismiss the board refuses keeps the note and says so; a keyboard dismiss moves focus to the K mark
+ *   restart    -> a new board start time under an open page brings the note (control: the same start time does not)
+ *   midnight   -> with the page clock pinned at 23:30 then 00:10, the same note says "yesterday at"
  *
  *   AGENT_WORKFORCE_DATA=/tmp/rn PORT=17372 node server.js &
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" \
@@ -113,7 +118,9 @@ const CASES = [
           const read = () => ({ tone: getComputedStyle(t()).getPropertyValue('--utone').trim(), label2: getComputedStyle(t()).getPropertyValue('--label-2').trim() });
           const out = {};
           document.documentElement.setAttribute('data-theme', 'dark'); out.forced = read(); document.documentElement.removeAttribute('data-theme');
-          document.body.classList.add('plus-active'); out.plus = read(); document.body.classList.remove('plus-active');
+          document.documentElement.setAttribute('data-theme', 'dark'); document.body.classList.add('plus-active');
+          out.plus = read();
+          document.body.classList.remove('plus-active'); document.documentElement.removeAttribute('data-theme');
           return out;
         });
         await pg.emulateMedia({ colorScheme: 'dark' });
@@ -126,10 +133,19 @@ const CASES = [
         await pg.waitForTimeout(300);
         const refused = await pg.evaluate(() => { const t = document.querySelector('#reboot-slot .utoast.reboot'); return { kept: Boolean(t), said: t ? ((t.querySelector('.utxt .rerr') || {}).textContent || '') : '' }; });
         say(refused.kept && /could not record that just now/.test(refused.said), 'dismiss refused: the note stays and says it could not record it', JSON.stringify(refused));
-        dismissStatus = 200;
-        dismissed.length = 0;   // the refused click above posted too; this arm must see its own
+        const firstErr = await pg.$('#reboot-slot .rerr');
         await pg.click('#reboot-slot .ux');
         await pg.waitForTimeout(300);
+        const again = await pg.evaluate((prev) => { const all = document.querySelectorAll('#reboot-slot .rerr'); return { count: all.length, renewed: all.length === 1 && all[0] !== prev }; }, firstErr);
+        say(again.count === 1 && again.renewed, 'dismiss refused twice: one line, said again (a new node, so it is announced)', JSON.stringify(again));
+        dismissStatus = 200;
+        dismissed.length = 0;   // the refused click above posted too; this arm must see its own
+        /* Review 6: dismissed from the keyboard, focus goes to the K mark (as after the login notice), never lost. */
+        await pg.focus('#reboot-slot .ux');
+        await pg.keyboard.press('Enter');
+        await pg.waitForTimeout(300);
+        const focusAfter = await pg.evaluate(() => { const a = document.activeElement; return a ? (a.id || a.className || a.tagName) : null; });
+        say(focusAfter === 'klink', 'dismiss: focus moves to the K mark', JSON.stringify(focusAfter));
         const after = await pg.evaluate(() => document.getElementById('reboot-slot').innerHTML.trim());
         say(after === '', 'dismiss: the X empties the slot');
         say(dismissed.includes('POST'), 'dismiss: the board is told (POST /api/board/restart-note/dismiss)');

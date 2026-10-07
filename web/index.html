@@ -21967,7 +21967,11 @@ function paintRebootNote(note) {
     if (!ok) {
       /* Said in the status words, so a refused or failed dismiss is never a button that silently does nothing. */
       const words = slot.querySelector('.utxt');
-      if (words && !words.querySelector('.rerr')) words.insertAdjacentHTML('beforeend', '<small class="rerr">Kosmos could not record that just now. Try again in a moment.</small>');
+      if (words) {
+        const old = words.querySelector('.rerr');
+        if (old) old.remove();   // removed and added again, so a second failure is announced too
+        words.insertAdjacentHTML('beforeend', '<small class="rerr">Kosmos could not record that just now. Try again in a moment.</small>');
+      }
       return;
     }
     slot.innerHTML = '';

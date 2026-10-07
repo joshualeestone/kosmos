@@ -12,8 +12,9 @@
  * The words say "restarted", true of a crash and of a person's restart alike; nothing here can tell them apart.
  *
  * A deliberate stop: on a Mac, `kosmos stop` removes the last-alive record once the board is gone (install/kosmos).
- * Every other stop (quitting the app, Windows, which has no stop verb) leaves it, so stopping Kosmos, restarting the
- * computer and starting Kosmos again within the window still makes a note. Clearing on SIGTERM in the board was
+ * Every other stop (quitting the app, Windows, which has no stop verb, and switching to another Kosmos, which stops
+ * this one's board) leaves it, so stopping Kosmos, restarting the computer and starting it again within the window
+ * still makes a note. #5450 is the fix for that: the supervisor saying it started the board. Clearing on SIGTERM in the board was
  * rejected: an ordinary shutdown sends SIGTERM to every process too, so a Mac would lose the note for every restart.
  *
  * Kept for SHOW_MS or until dismissed. Every read and write is best effort: this is a courtesy, never a gate.
