@@ -79,8 +79,9 @@ if (args[0] === 'signin') {
     if (!mode.includes('devkey')) { process.stderr.write("error: unrecognized subcommand 'device-id'\\n\\nUsage: kosmos-tunnel signin <COMMAND>\\n"); process.exit(2); }
     if (mode.includes('devkey-broken')) { process.stderr.write('the device key file is not a key this program made\\n'); process.exit(1); }
     if (mode.includes('devkey-usage')) { process.stderr.write("error: unexpected argument '--device-key' found\\n"); process.exit(2); }
+    if (mode.includes('devkey-slow')) { const until = Date.now() + 800; while (Date.now() < until) { /* making the key */ } }
     fs.mkdirSync(path.dirname(flag('--device-key')), { recursive: true });
-    fs.writeFileSync(flag('--device-key'), 'fake key');
+    if (!fs.existsSync(flag('--device-key'))) fs.writeFileSync(flag('--device-key'), 'fake key ' + Date.now());
     console.log(JSON.stringify({ device_id: mode.includes('devkey-rotated') ? 'k1.' + 'R'.repeat(32) : 'k1.' + 'A'.repeat(31) + 'Q' }));
     process.exit(0);
   }
@@ -1843,6 +1844,51 @@ test('kosmos#5422: a verify the coordinator takes records the key id even when i
   } finally { delete process.env.FAKE_TUNNEL_MODE; }
   assert.match(remote.read().device_id, /^k1\./, 'the session\'s own id is not this computer\'s (#4610 again)');
   assert.deepEqual(remote.read().past_device_ids, ['old-opaque-id']);
+});
+
+test('kosmos#5422: an older tunnel after a key moves the id in use only once the coordinator takes the start', async () => {
+  const KEYED = 'k1.' + 'F'.repeat(32);
+  fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: KEYED, past_device_ids: ['old-opaque-id'] }));
+  assert.equal((await remote.signinStart('down@example.com')).ok, false, 'precondition: the coordinator was unreachable');
+  assert.equal(remote.read().device_id, KEYED, 'the self-grant moved to an id the coordinator never saw');
+  // CONTROL: a start it takes moves it.
+  assert.equal((await remote.signinStart('her@example.com')).ok, true);
+  assert.equal(remote.read().device_id, 'old-opaque-id');
+});
+
+test('kosmos#5422: finishing an unfinished earlier sign-in keeps the device key (no new device next time)', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  process.env.FAKE_TUNNEL_MODE = 'partial-register devkey';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  const keyFile = nodePath.join(process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote'), 'signin-device.key');
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    const before = fs.readFileSync(keyFile, 'utf8');
+    assert.equal((await remote.signinRegister('hers')).ok, false, 'fixture: the register was killed by its bound');
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '1500';
+    process.env.FAKE_TUNNEL_MODE = 'devkey';
+    fs.rmSync(RECORD, { force: true });
+    assert.equal((await remote.signinRegister('hers')).ok, true);
+    assert.ok(recorded().some((c) => c[0] === 'retire'), 'precondition: the half identity was retired and wiped');
+    assert.equal(fs.existsSync(keyFile) && fs.readFileSync(keyFile, 'utf8'), before, 'the wipe took the device key with it');
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
+    remote.setOn(false);
+  }
+});
+
+test('kosmos#5422: Forget waits for a device key being made, so no key outlives the Forget', async () => {
+  const keyFile = nodePath.join(process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote'), 'signin-device.key');
+  process.env.FAKE_TUNNEL_MODE = 'devkey-slow';
+  try {
+    const starting = remote.signinStart('her@example.com');
+    await until(() => recorded().some((c) => c[1] === 'device-id'), 'the device-id ask to start');
+    const forgot = remote.forget();
+    await Promise.allSettled([starting, forgot]);
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  assert.equal(fs.existsSync(keyFile), false, 'a key made during the Forget survived it');
 });
 
 test('kosmos#5422: a cancel while start asks the tunnel sends no start', async () => {

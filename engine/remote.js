@@ -1113,6 +1113,8 @@ async function forget() {
       // Bounded: each tracked call carries its own kill timeout (at most one retire
       // bound), so this wait ends with the calls ended.
       if (signedInFlight.size) await Promise.allSettled([...signedInFlight]);
+      // kosmos#5422: a device-key ask may be making the key in the folder Forget empties (bounded at 15 s).
+      if (deviceIdInFlight.size) await Promise.allSettled([...deviceIdInFlight]);
       return await forgetNow();
     } finally {
       forgetting = false;
@@ -1664,13 +1666,18 @@ function useDeviceId(id) {
   if (cur.device_id !== id) write({ device_id: id, past_device_ids: past });
 }
 function signinDeviceId() {
-  if (mintedDeviceId && LEGACY_ID.test(mintedDeviceId)) { useDeviceId(mintedDeviceId); return mintedDeviceId; }
+  if (mintedDeviceId && LEGACY_ID.test(mintedDeviceId)) return mintedDeviceId;
   const r = read();
   // kosmos#5422: after a key, the opaque id is among the past ones (an older tunnel signs in with it again).
   const kept = [r.device_id, ...r.past_device_ids].find((x) => typeof x === 'string' && LEGACY_ID.test(x));
-  const id = kept || crypto.randomUUID();
+  if (kept) { mintedDeviceId = kept; return kept; }
+  const id = crypto.randomUUID();
   mintedDeviceId = id;      // hold it even if the persist below fails
-  useDeviceId(id);
+  /* Kept at once, so a restart signs in with it again. With no id in use it is the id; with one in use (a key's id,
+     under an older tunnel) it waits among the ids before, and becomes the id in use only when a sign-in with it is
+     taken (the callers record it), so the self-grant never moves to an id the coordinator has not seen. */
+  if (!r.device_id) useDeviceId(id);
+  else write({ past_device_ids: [id, ...r.past_device_ids.filter((x) => x !== id)] });
   return id;
 }
 
@@ -1684,29 +1691,36 @@ function signinDeviceId() {
    key. The key file is deterministic, so a start and its verify name one device. */
 const DEVICE_KEY_FILE = () => path.join(STATE_DIR(), 'signin-device.key');
 const DEVICE_ID_ASK_MS = 15000;
+const deviceIdInFlight = new Set();
 async function signinDeviceArgs(forVerify) {
   /* A verify never makes a key (the tunnel's own rule): one made now could not answer a code sent for the key that is
      gone (a Forget between the start and the verify). If this computer signs in with a key and the file is gone, say
      so; with no key file and no key id, this is an older tunnel's sign-in and the opaque id carries on. */
   if (forVerify && !fs.existsSync(DEVICE_KEY_FILE())) {
     if (KEYED_ID.test(read().device_id) || (heldIdentity && KEYED_ID.test(heldIdentity.device_id))) return { failed: { ok: false, because: "this computer's sign-in key is gone; start the sign-in again" } };
-    return { args: ['--device-id', signinDeviceId()] };
+    const opaque = signinDeviceId();
+    return { args: ['--device-id', opaque], id: opaque };
   }
   // Bounded: a hung tunnel must not hold the sign-in forever (a cancel cannot free a call that never returns).
-  const asked = await setupRun(['signin', 'device-id', '--device-key', DEVICE_KEY_FILE()], null, DEVICE_ID_ASK_MS);
+  const asking = setupRun(['signin', 'device-id', '--device-key', DEVICE_KEY_FILE()], null, DEVICE_ID_ASK_MS);
+  // A Forget waits for this (it may be making the key in the folder the Forget empties).
+  deviceIdInFlight.add(asking);
+  let asked;
+  try { asked = await asking; } finally { deviceIdInFlight.delete(asking); }
   // clap prints "error: unrecognized subcommand 'device-id'" first and the usage after it (exit 2); match it as the
   // other verbs here do, so no other failure is read as an older tunnel.
   if (!asked.ok && asked.code === 2 && /unrecognized subcommand|invalid subcommand/i.test(String(asked.stderr || '') + '\n' + String(asked.because || ''))) {
-    return { args: ['--device-id', signinDeviceId()] };
+    const opaque = signinDeviceId();
+    return { args: ['--device-id', opaque], id: opaque };
   }
   // The program itself did not run or answer (missing, not startable, timed out): its own words, not the key's.
   if (!asked.ok && typeof asked.code !== 'number') return { failed: { ok: false, because: asked.because || 'the tunnel program did not answer' } };
   const r = parseSaid(asked);
   const id = r.ok && r.data && typeof r.data.device_id === 'string' && KEYED_ID.test(r.data.device_id) ? r.data.device_id : '';
   if (!id) return { failed: { ok: false, because: "this computer's sign-in key could not be opened (" + (r.because || 'no id came back') + ')' } };
-  // Recorded by the caller once the coordinator has taken a start with it, not here: a cancelled or refused start
+  // Recorded by the caller once the coordinator has taken a start or verify with it, not here: a cancelled or refused start
   // never reached the coordinator, so its id must not displace the one this computer signed in with.
-  return { args: ['--device-key', DEVICE_KEY_FILE()], keyedId: id };
+  return { args: ['--device-key', DEVICE_KEY_FILE()], id };
 }
 
 /** Take the tunnel's `stage` answer, stash any bearer material HERE, and return
@@ -1906,8 +1920,8 @@ async function signinStart(email, deviceName) {
     '--email', email, ...dev.args];
   pushDeviceName(args, deviceName);
   const r = parseSaid(await setupRun(args));
-  // kosmos#5422: the key's id becomes this computer's once the coordinator has taken a start with it.
-  if (r.ok && dev.keyedId) useDeviceId(dev.keyedId);
+  // kosmos#5422: the id (a key's or the opaque one) becomes this computer's once the coordinator has taken a start with it.
+  if (r.ok && dev.id) useDeviceId(dev.id);
   // Deliberately does NOT persist the email. The setup flow writes it because
   // setupComplete reads it back; sign-in carries the email explicitly through
   // verify, so nothing here needs it. Writing it would also make status()'s
@@ -1949,7 +1963,7 @@ async function signinVerify(email, code, deviceName) {
   if (!r.ok) return r;
   // kosmos#5422: a verify the coordinator took is a sign-in as the key's id, even when its start was never recorded
   // (the start's answer was lost, or the board restarted while the person fetched the code).
-  if (dev.keyedId) useDeviceId(dev.keyedId);
+  if (dev.id) useDeviceId(dev.id);
   return absorbSession(r.data);
 }
 
@@ -2166,8 +2180,15 @@ async function clearHalfIdentity() {
     return { kept: retireReason(r) };
   }
   if (!r.ok) process.stderr.write('remote: an unfinished earlier sign-in could not be retired at Kosmos+ (' + r.because + '); its address may show on the account page until it is removed there\n');
+  /* kosmos#5422: the sign-in's device key lives in this folder too and is not part of the half identity: it is the
+     device the person just signed in as. Moved aside across the wipe and put back, so finishing a sign-in does not
+     make this computer another device next time. */
+  const keyAside = path.join(path.dirname(STATE_DIR()), '.signin-device.key.' + process.pid + '.' + crypto.randomBytes(4).toString('hex'));
+  let keyMoved = false;
+  try { fs.renameSync(DEVICE_KEY_FILE(), keyAside); keyMoved = true; } catch { /* no key (an older tunnel), or not ours to move */ }
   try { fs.rmSync(STATE_DIR(), { recursive: true, force: true }); } catch { /* the register writes it again */ }
   secureStateDir();
+  if (keyMoved) { try { fs.renameSync(keyAside, DEVICE_KEY_FILE()); } catch { /* a new key is made next time: a new device, once */ } }
   return r.ok ? null : { stranded: retireReason(r) };
 }
 /* The register's answer when a half identity was kept for a retry. */
