@@ -145,6 +145,8 @@ function make(opts) {
       // plist under the prefix returns null and is not one of ours.
       let job = null;
       try { job = create.readJob(name); } catch { job = null; }
+      // #5445: a masked Linux unit reads as no job, but it is still the person's agent: listed (switched off).
+      if (!job && platform === 'linux') { try { job = linuxjob.masked(name, parsed.worldId) ? { masked: true } : null; } catch { job = null; } }
       if (!job) continue;
       if (removedSet.has(create.cleanName(name))) continue;   // explicitly removed
       // The worker dir must exist: a job whose folder is gone is a stale leftover.

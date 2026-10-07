@@ -68,8 +68,21 @@ test('#5445 the created roster lists a stopped Linux agent from its unit, and on
     create: Object.assign(Object.create(create), { readJob: (n) => create.readJob(n, undefined, platform) }),
   });
   assert.deepEqual(harness('linux')(), ['linus']);
-  // CONTROL: the Mac arm reads the LaunchAgents folder, which holds no plist, so the same agent is not listed there.
-  assert.deepEqual(harness('darwin')(), []);
+  // CONTROL: the Mac arm reads the LaunchAgents folder, not the units: a plist for another agent is listed there, the
+  // unit's agent is not (and the plist's agent is not listed on Linux, above).
+  fs.mkdirSync(create.workerDir('macbot'), { recursive: true });
+  const plist = create.plistPath('macbot');
+  fs.writeFileSync(plist, '<plist/>');
+  try {
+    const mac = createdroster.make({
+      platform: 'darwin',
+      remove: { removedNames: () => ({ ok: true, names: [] }) },
+      status: { sandboxIsInconsistent: () => false },
+      store: { safeKey: (n) => String(n).toLowerCase() },
+      create: Object.assign(Object.create(create), { readJob: (n) => (n === 'macbot' ? { runner: 'claude' } : null) }),
+    });
+    assert.deepEqual(mac(), ['macbot']);
+  } finally { fs.rmSync(plist, { force: true }); }
 });
 
 test('#5445 the created roster fails closed when the unit folder cannot be read', () => {
@@ -124,6 +137,21 @@ test('#5445 runningJobs on Linux reads the active agent units', () => {
   assert.deepEqual([...create.runningJobs('linux')], ['runbot']);
   systemd = () => ({ ok: false, code: 1, stderr: 'bus' });
   assert.deepEqual([...create.runningJobs('linux')], [], 'fail-soft to empty, as the Mac arm');
+});
+
+test('#5445 a masked agent stays on the created roster (switched off, not gone)', () => {
+  clearUnits();
+  fs.mkdirSync(create.workerDir('maskrow'), { recursive: true });
+  fs.symlinkSync('/dev/null', linuxjob.unitPath('maskrow', myWorld()));
+  const src = createdroster.make({
+    platform: 'linux',
+    remove: { removedNames: () => ({ ok: true, names: [] }) },
+    status: { sandboxIsInconsistent: () => false },
+    store: { safeKey: (n) => String(n).toLowerCase() },
+    create: Object.assign(Object.create(create), { readJob: (n) => create.readJob(n, undefined, 'linux') }),
+  });
+  assert.deepEqual(src(), ['maskrow']);
+  assert.equal(create.readJob('maskrow', undefined, 'linux'), null, 'CONTROL: the masked unit itself reads as no job');
 });
 
 test('#5445 a masked unit reads as masked, not as a broken unit', () => {
@@ -196,4 +224,21 @@ test('#5445 the Linux Trash is the desktop one, and a trashed folder gets its pu
     delete process.env.XDG_DATA_HOME;
     if (savedTrash !== undefined) process.env.AGENT_WORKFORCE_TRASH = savedTrash;
   }
+});
+
+/* A missing Trash (a fresh Linux desktop makes it on first use) must not turn a delete into delete-for-good. The other
+   half of the fix, judging an XDG_DATA_HOME on another volume by its nearest existing folder, needs a second volume
+   and a real XDG_DATA_HOME, which this sandbox cannot give; it is read, not tested. */
+test('#5445 a missing Linux Trash still takes the folder (the move makes it)', () => {
+  const dl = require('./delete-leftover');
+  const savedTrash = process.env.AGENT_WORKFORCE_TRASH;
+  delete process.env.AGENT_WORKFORCE_TRASH;
+  fs.rmSync(path.join(SANDBOX, '.local'), { recursive: true, force: true });
+  const folder = path.join(SANDBOX, 'workers', 'trashme');
+  fs.mkdirSync(folder, { recursive: true });
+  try {
+    // No Trash yet: the folder and the home share a volume, so the Trash can take it (the move makes the Trash).
+    const p = dl.plan('trashme', { platform: 'linux' });
+    assert.equal(p.toTrash, true, JSON.stringify(p));
+  } finally { if (savedTrash !== undefined) process.env.AGENT_WORKFORCE_TRASH = savedTrash; }
 });

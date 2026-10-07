@@ -13,15 +13,16 @@ reached through the platform and runner seams), and the Linux lane (linux.yml) s
 
 ## Built here
 1. Display parity (card: "three listings read only .plist files"; disabledJobsResult/runningJobs launchctl-only).
-   - `linuxjob.listUnits()`: the unit folder's `kosmos-agent-*.service` files as `{ key, file }` (the launch key read
-     back from the escaped unit name, the inverse of unitName), a symlink counted only when it is ours.
-   - `create.jobFiles()` one listing of this platform's job files as `{ name, worldId }`; createdroster.js and
-     register.js's stray sweep use it instead of reading `.plist` names themselves.
+   - `linuxjob.listUnits()`: the unit folder's `kosmos-agent-*.service` files as `{ name, worldId, file }` (the launch
+     key read back from the escaped unit name, kept only when unitName gives the same file back). createdroster.js and
+     register.js's stray sweep each read it on Linux (their Mac arms are unchanged).
    - `disabledJobsResult` / `runningJobs`: a Linux arm through linuxRun: `systemctl --user list-unit-files` (disabled
      or masked = switched off) and `systemctl --user list-units --state=active` (running). Same shapes as the Mac.
-2. Masked units: `readJobVerdict` and `linuxjob.masked()` see a unit file that is a link to /dev/null (systemctl
-   mask) and say "the person masked it (systemctl --user unmask <unit> lets Kosmos start it)", not "its ExecStart
-   line is incomplete". The name stays held (masked is still the person's agent).
+2. Masked units: `readJobVerdict` and `linuxjob.masked()` see a unit file that is a link to /dev/null and say it is
+   masked, with the unmask command, not "its ExecStart line is incomplete". The agent stays on the created roster.
+   NOT measured on a real systemd: a mask over Kosmos's own file is expected to be refused or to land as a runtime
+   mask under /run, which leaves the file ordinary; that case reads as switched off through disabledJobsResult
+   (masked-runtime). The link case is a hand-made mask or one made after the file was deleted.
 3. `linuxRun` passes the live-execution gate's refusal through as a throw (live-execution now tags it with a code),
    so a test that forgot its seam fails loudly instead of reading as an ordinary { ok:false }.
 4. Wording:
@@ -48,13 +49,18 @@ reached through the platform and runner seams), and the Linux lane (linux.yml) s
 - start()/startOnly() make the agent folder on a dry-run board: the folder is the agent's own (a dry-run board keeps
   its data in its sandbox), so nothing outside the sandbox is touched.
 
+## Linux lane
+The disabled/running probes now pick their platform; tests written for launchd that pass none would take the systemd
+arm on the Linux runner. The ones found (create.test.js, world-guard-lift-1704, machine.agentAutostartCheck) now pass
+'darwin'; the lane run of this branch is compared, file by file, with the lane run of B's head (6a819cbde).
+
 ## Weakest premise
 That the escaped unit name round-trips for every launch key Kosmos makes (named worlds carry "+", written as \x2b).
 listUnits reads names back with the same decoder worldFromUnitName uses, and the test covers a named-world unit.
 
 ## Tests
-- engine/linuxjob.test.js (or the B test file that covers unitName): listUnits (default and named world, foreign
-  file, symlink), masked().
+- engine/linuxjob.test.js: listUnits (default and named world, the board's unit, a foreign unit, a name that does not
+  round-trip, could-not-look), masked().
 - createdroster / register on platform linux with a unit folder fixture; control: the same with a .plist on darwin.
 - create disabledJobsResult/runningJobs Linux arm through setRunner (fake systemctl), with a could-not-look case.
 - linuxRun rethrows the tagged refusal; an ordinary failure still returns ok:false (control).

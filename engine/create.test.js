@@ -3871,7 +3871,7 @@ test('runningJobs reads which of our jobs launchd holds a live process for, and 
   });
   create.setDryRun(false);
   try {
-    const up = create.runningJobs();
+    const up = create.runningJobs('darwin');
     assert.deepEqual([...up].sort(), ['alive'],
       'the parse claimed a parked, zero-pid or foreign job as running, or missed the live one');
     assert.ok(asked.some((c) => /launchctl list$/.test(c)), 'the probe is not the non-mutating fleet read');
@@ -3883,7 +3883,7 @@ test('runningJobs reads which of our jobs launchd holds a live process for, and 
   create.setRunner(() => { throw new Error('no launchctl here'); });
   create.setDryRun(false);
   try {
-    assert.equal(create.runningJobs().size, 0, 'a failed look dressed a stopped agent in running-unseen');
+    assert.equal(create.runningJobs('darwin').size, 0, 'a failed look dressed a stopped agent in running-unseen');
   } finally {
     create.setRunner(null);
   }
@@ -5632,7 +5632,7 @@ test('disabledJobs reads the launchd overrides and fails soft to an empty set (#
   });
   create.setDryRun(false);
   try {
-    const off = create.disabledJobs();
+    const off = create.disabledJobs('darwin');
     assert.deepEqual([...off].sort(), ['anna', 'rick'], 'the parse missed a form launchctl uses, or claimed a label that is not ours');
     assert.ok(orig.some((c) => /launchctl print-disabled gui\//.test(c)), 'the probe is not the non-mutating read');
     assert.ok(!orig.some((c) => /enable|disable |bootout|bootstrap/.test(c)), 'the probe mutates launchd state');
@@ -5643,7 +5643,7 @@ test('disabledJobs reads the launchd overrides and fails soft to an empty set (#
   create.setRunner(() => { throw new Error('no launchctl here'); });
   create.setDryRun(false);
   try {
-    assert.equal(create.disabledJobs().size, 0, 'a failed look dressed agents in switched-off');
+    assert.equal(create.disabledJobs('darwin').size, 0, 'a failed look dressed agents in switched-off');
   } finally {
     create.setRunner(null);
   }
@@ -5654,10 +5654,10 @@ test('#2977: disabledJobsResult says whether it could LOOK, distinguishing "we l
   create.setRunner(() => ({ ok: true, stdout: 'disabled services = {\n\t"com.kosmos.agent.rick" => disabled\n}\n' }));
   create.setDryRun(false);
   try {
-    const r = create.disabledJobsResult();
+    const r = create.disabledJobsResult(undefined, 'darwin');
     assert.equal(r.ok, true);
     assert.deepEqual([...r.jobs].sort(), ['rick']);
-    assert.equal(create.disabledJobs().size, 1, 'disabledJobs must still unwrap the result to a plain Set');
+    assert.equal(create.disabledJobs('darwin').size, 1, 'disabledJobs must still unwrap the result to a plain Set');
   } finally {
     create.setRunner(null);
   }
@@ -5665,8 +5665,8 @@ test('#2977: disabledJobsResult says whether it could LOOK, distinguishing "we l
   create.setRunner(() => { throw new Error('no launchctl here'); });
   create.setDryRun(false);
   try {
-    assert.deepEqual(create.disabledJobsResult(), { ok: false }, 'a thrown probe must report it could not look');
-    assert.equal(create.disabledJobs().size, 0, 'and disabledJobs still fails soft to an empty set for its other callers');
+    assert.deepEqual(create.disabledJobsResult(undefined, 'darwin'), { ok: false }, 'a thrown probe must report it could not look');
+    assert.equal(create.disabledJobs('darwin').size, 0, 'and disabledJobs still fails soft to an empty set for its other callers');
   } finally {
     create.setRunner(null);
   }
@@ -5675,7 +5675,7 @@ test('#2977: disabledJobsResult says whether it could LOOK, distinguishing "we l
   create.setRunner(() => ({ ok: false }));
   create.setDryRun(false);
   try {
-    assert.deepEqual(create.disabledJobsResult(), { ok: false }, 'an ok:false runner result must report it could not look, not an empty set');
+    assert.deepEqual(create.disabledJobsResult(undefined, 'darwin'), { ok: false }, 'an ok:false runner result must report it could not look, not an empty set');
   } finally {
     create.setRunner(null);
   }
