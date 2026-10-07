@@ -5557,14 +5557,9 @@ const server = http.createServer(async (req, res) => {
                      words (Mona Lisa's ruling: a person who installed Kosmos
                      has no reason to have heard "tmux"). */
                   ? 'something is off about this agent: this computer says its background job is running, but no session for it is visible from here, so Kosmos cannot show or reach whatever that job started'
-                  : (!create.jobMissing(k.name) && switchedOff.has(k.name))
-                    ? (create.probePlatform() === 'linux'   // the platform the switched-off set was read for
-                      /* #5445: Linux had no switched-off set before (launchctl failed there), so this Mac sentence never
-                         reached it; System Settings is not where a systemd unit is switched off. */
-                      ? (require('./engine/linuxjob').masked(k.name)
-                        ? 'this agent is not running because ' + require('./engine/linuxjob').maskedSentence(k.name)
-                        : 'this agent is not running because its background job was switched off (or masked) in systemd, this computer\'s service manager. Switch it back on there and it can start again')
-                      : 'this agent is not running because its background job was switched off, probably in System Settings under Login Items. Switch it back on there and it can start again')
+                  : (!create.jobMissing(k.name) && create.switchedOffSentence(k.name, switchedOff))
+                    // #5445: one function words the switched-off cause per platform (Linux: systemd, a masked unit), tested
+                    ? create.switchedOffSentence(k.name, switchedOff)
                     : !create.jobMissing(k.name)
                     /* #671: the one offline cause whose sentence ended at the
                        diagnosis. The agent has a job, is not removed (filtered
@@ -5582,7 +5577,7 @@ const server = http.createServer(async (req, res) => {
                        promising: "where to look" holds whether or not the pane has
                        content, and naming what the tab SHOWS would over-promise for an
                        agent that genuinely has no session. Sentence shared with
-                       remove.js's restart refusal via create.SELF_STARTS. */
+                       remove.js's restart refusal via create.selfStartsSentence (create.SELF_STARTS, linger-aware on Linux; #5445). */
                     ? 'this agent is not running: nothing on this computer has a session for it. '
                       + create.selfStartsSentence().slice(0, -1)   // #5445: true on Linux with linger off too
                       // #5127: there is no Terminal tab. The place is named (AI Settings on its page), never what
