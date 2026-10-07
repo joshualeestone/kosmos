@@ -13,7 +13,8 @@ did not run, and the operator had to verify by hand while resisting a revert or 
   (tools/lib/site-deploy.sh) whether `site_deploy_serves_this_build` passes: the served
   kosmos-$V-arm64.tar.gz.sha256 equals the one this cut wrote. Only this cut's upload can serve it (an
   earlier attempt at the same version passes a pointer check, never this; the bundle embeds build
-  timestamps, tools/build-kosmos-bundle.sh). One small fetch, -m 30, per check. Default 24 checks, 15 s
+  timestamps, tools/build-kosmos-bundle.sh). One small fetch, -m 30, per check, on the same HOST step 9 reads: one host serves every channel, and a
+  staging cut differs only in its pointer file. Default 24 checks, 15 s
   apart (about 6 min), overridable via KOSMOS_DEPLOY_LANDED_TRIES / _WAIT_S.
 - **Landed = the same position as a CLI success:** say so, set DEPLOYED=1, and let step 9 verify everything a
   user receives with its own retries. Review iteration 3 showed why the full verifier must NOT
