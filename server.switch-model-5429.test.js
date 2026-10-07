@@ -25,6 +25,10 @@ require('./test-support/tmpscope'); // this file's temp dirs, removed when it ex
  */
 
 const test = require('node:test');
+/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that asserts the launchd plist itself
+   measures nothing there. Skipped on Linux only, naming where Linux covers it; macOS and Windows unchanged. */
+const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS plist test on a Linux host (#5432): its runner answers launchctl only, so on Linux the restart after the switch cannot confirm a running unit and the answer is partial; Linux switch and restart: linuxjob.test.js (rewriteAgentJob on Linux) and linuxwiring-4918.test.js (review 8, a Linux restart)" } : {};
+const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -41,6 +45,9 @@ process.env.AGENT_WORKFORCE_HOME = HOME;
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'launch');
+// #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too (a sandboxed board without it refuses
+// every systemd call, so a create ends partial on a Linux runner). macOS and Windows never read it.
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = require('node:path').join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 process.env.AGENT_WORKFORCE_PROJECTS = nodePath.join(SANDBOX, 'projects');
 delete process.env.AGENT_WORKFORCE_CODEX_HOME;
 delete process.env.CODEX_HOME;
@@ -86,8 +93,8 @@ const GEMINI_ALPHA = seedGemini('alpha', 'gm-key-alpha-WXYZ');
 function born(name, model) {
   fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
   fs.mkdirSync(create.workerDir(name), { recursive: true });
-  fs.writeFileSync(create.plistPath(name),
-    create.plistFor(name, CLAUDE_BIN, TMUX_BIN, model || null, null, 'claude'), 'utf8');
+  fs.writeFileSync(jobfix.jobPath(name),
+    jobfix.jobFor(name, CLAUDE_BIN, TMUX_BIN, model || null, null, 'claude'), 'utf8');
   store.writeProfile(name, { provider: 'anthropic' });
   fs.writeFileSync(PANES, fleet.line({ session: name + '-discord', title: 'working' }) + '\n');
   assert.equal(store.readProfile(name).provider, 'anthropic',
@@ -130,9 +137,9 @@ const realRestart = removal.restart;
 let restarts = 0;
 removal.restart = (...a) => { restarts += 1; return realRestart(...a); };
 test.after(() => { removal.restart = realRestart; });
-const plist = (name) => fs.readFileSync(create.plistPath(name), 'utf8');
+const plist = (name) => fs.readFileSync(jobfix.jobPath(name), 'utf8');
 
-test('#5429 route: Gemini to Claude WITH a model is one restart, lands on that model, and says so', async () => {
+test('#5429 route: Gemini to Claude WITH a model is one restart, lands on that model, and says so', LINUX_PLIST_5432, async () => {
   const name = born('srv-sm-g2c');
   let r = await switchTo(name, { provider: 'google' });
   assert.equal(r.status, 200, 'setup: on Gemini first ' + JSON.stringify(r.body));
@@ -147,7 +154,7 @@ test('#5429 route: Gemini to Claude WITH a model is one restart, lands on that m
   assert.doesNotMatch(r.body.because, /default model/, 'a picked model is never called the default');
 });
 
-test('#5429 route: CONTROL: with no model it starts on Claude\'s default, as before', async () => {
+test('#5429 route: CONTROL: with no model it starts on Claude\'s default, as before', LINUX_PLIST_5432, async () => {
   const name = born('srv-sm-g2c-none');
   await switchTo(name, { provider: 'google' });
   const r = await switchTo(name, { provider: 'anthropic' });
