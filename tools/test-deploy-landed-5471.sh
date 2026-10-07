@@ -57,9 +57,14 @@ site_deploy_serves_this_build https://h "$T/missing.sha256" kosmos-9.9.9-arm64.t
 grep -q -- '-f' "$T/curl.args" && grep -q -- '-m 30' "$T/curl.args" && grep -q '?landed=' "$T/curl.args" && ok "it fails on an HTTP error (-f), times out (-m 30) and busts the edge cache (?landed=)" || bad "curl args: $(sort -u "$T/curl.args")"
 [ "$(sort -u "$T/curl.urls")" = "https://h/dist/kosmos-9.9.9-arm64.tar.gz.sha256" ] && ok "it fetches <host>/dist/<name>.sha256 and nothing else" || bad "fetched: $(sort -u "$T/curl.urls" | tr '\n' ' ')"
 
+# ---- step 1 checks the overrides before anything is built -----------------------------
+s1="$(awk '/^step "== 1\. /{f=1} f && /^git -C "\$REPO" fetch origin -q$/ {exit} f {print}' tools/release.sh)"
+case "$s1" in *'site_deploy_landed_args_ok "${KOSMOS_DEPLOY_LANDED_TRIES:-24}" "${KOSMOS_DEPLOY_LANDED_WAIT_S:-15}" || { echo "nothing was built"; exit 1; }'*) ok "step 1 refuses a bad landed-check override before anything is built or pushed" ;; *) bad "step 1 does not check the overrides" ;; esac
+
 # ---- release.sh's real step-8 block ---------------------------------------------------
 # From the override check to DEPLOYED=1, cut out of the file (not a copy).
-BLOCK="$(awk '/^site_deploy_landed_args_ok / { f=1 } f { print } f && /^DEPLOYED=1/ { exit }' tools/release.sh)"
+# Anchored on step 8's own override check ("nothing was deployed"); step 1 has one too ("nothing was built").
+BLOCK="$(awk '/^site_deploy_landed_args_ok .*nothing was deployed/ { f=1 } f { print } f && /^DEPLOYED=1/ { exit }' tools/release.sh)"
 case "$BLOCK" in
   site_deploy_landed_args_ok*'vercel deploy --prod --yes'*site_deploy_landed*site_deploy_serves_this_build*'DEPLOYED=1'*) ok "CONTROL: the step-8 block was cut out of release.sh whole (override check, deploy, landed check, DEPLOYED)" ;;
   *) bad "could not cut the step-8 block out of release.sh (anchor drift?)"; echo "test-deploy-landed-5471: $FAILS failure(s)"; exit 1 ;;
@@ -107,7 +112,7 @@ case "$out" in *"DEPLOYED="*) bad "earlier attempt: DEPLOYED was reached" ;; *) 
 out="$(run_step8 1 none)"; rc=$?
 [ "$rc" = 1 ] && ok "CLI failed and nothing served: exits with the CLI's code (1)" || bad "never served: rc=$rc"
 case "$out" in *"DEPLOYED="*) bad "never served: DEPLOYED was reached, so the trap would not restore the site" ;; *) ok "never served: DEPLOYED is never set, so the trap still restores and removes the tarball" ;; esac
-case "$out" in *"THIS cut's build is sha256 aaa111; once deployed it is served as https://stub.example/dist/kosmos-9.9.9-arm64.tar.gz.sha256"*"vercel deploy exited"*"(#5471: not served yet, check 1"*) ok "this cut's sha and the URL to compare are printed BEFORE vercel deploy runs (a Ctrl-C or an interrupted wait still leaves the record)" ;; *) bad "sha record missing or after the poll (out=$out)" ;; esac
+case "$out" in *"(#5471 record) THIS cut's build is sha256 aaa111; once deployed it is served as https://stub.example/dist/kosmos-9.9.9-arm64.tar.gz.sha256"*"vercel deploy exited"*"(#5471: not served yet, check 1"*) ok "this cut's sha and the URL to compare are printed BEFORE vercel deploy runs (a Ctrl-C or an interrupted wait still leaves the record)" ;; *) bad "sha record missing or after the poll (out=$out)" ;; esac
 case "$out" in *"may still land"*"compare the served .sha256 with this cut's sha"*"aaa111"*"not seen served"*) ok "never served: the message says it may still land, points at the recorded sha, and how to read the trap's 'never served'" ;; *) bad "never served: message incomplete (out=$out)" ;; esac
 [ "$(fetches)" = 3 ] && ok "never served: asked exactly KOSMOS_DEPLOY_LANDED_TRIES (3) times" || bad "never served: asked $(fetches) times"
 
@@ -117,6 +122,11 @@ out="$(run_step8 7 none)"; rc=$?
 out="$(run_step8 143 aaa111)"; rc=$?
 [ "$rc" = 143 ] && [ "$(fetches)" = 0 ] && ok "a deploy stopped by a signal (143) fails at once, without polling" || bad "signal: rc=$rc fetches=$(fetches)"
 case "$out" in *"THIS cut's build is sha256 aaa111"*"vercel deploy exited 143"*"stopped by a signal"*) ok "a signal still leaves this cut's sha and the URL to compare" ;; *) bad "signal: no sha record (out=$out)" ;; esac
+
+out="$(run_step8 130 aaa111)"; rc=$?
+[ "$rc" = 130 ] && [ "$(fetches)" = 0 ] && ok "an interrupt (130) that reached vercel alone also fails at once" || bad "130: rc=$rc fetches=$(fetches)"
+out="$(run_step8 137 aaa111)"; rc=$?
+case "$out" in *"THE DEPLOY LANDED"*"DEPLOYED=1") ok "a KILL (137, often out of memory) after the upload is polled, and a landed build continues" ;; *) bad "137: rc=$rc out=$out" ;; esac
 
 mv "$T/site/dist/kosmos-9.9.9-arm64.tar.gz.sha256" "$T/sha.aside"
 out="$(run_step8 1 aaa111)"; rc=$?

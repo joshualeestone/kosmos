@@ -25,7 +25,7 @@ did not run, and the operator had to verify by hand while resisting a revert or 
   The message says it may still land, prints THIS cut's sha (the trap is about to delete the local copy),
   names the served .sha256 URL to compare it with, says the checkout was restored, and that the trap's
   "never served" line means "not seen served".
-- **Overrides are checked before deploying** (`site_deploy_landed_args_ok`, numerically, so "00" is refused),
+- **Overrides are checked at step 1** (before anything is built or pushed) and again before deploying (`site_deploy_landed_args_ok`, numerically, so "00" is refused),
   so a typo stops the cut while nothing has been deployed.
 - **CLI success:** unchanged; step 9 verifies as it always did.
 
@@ -44,8 +44,8 @@ did not run, and the operator had to verify by hand while resisting a revert or 
    so the harm is bounded, but the "landed" line would be wrong.
 - Before deploying, the cut prints this cut's sha and the .sha256 URL it will be served at, so the record
   is in the log however the cut ends (a Ctrl-C reaches release.sh's own INT trap too, and the trap deletes
-  the local copy). On a non-zero exit, a deploy stopped by a signal (130, 137, 143, which may be
-  an operator or an out-of-memory kill) fails at once, and so does a cut whose own .sha256 cannot be read.
+  the local copy). On a non-zero exit, a deploy stopped by an interrupt or terminate that reached vercel alone (130, 143)
+  fails at once; a KILL (137, often out of memory) after the upload is the card's own case and is polled. A cut whose own .sha256 cannot be read fails at once.
 - docs/releasing.md says what to do when it landed late: no revert, no re-cut, run step 9's checks by
   hand (step 7b had pushed the site commit), refresh the local site checkout.
 - docs/staging-channel.md's manual promote recipe has its own `vercel deploy` under `set -e`; it is a
