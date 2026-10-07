@@ -127,7 +127,11 @@ async function follow(agentKey, name, { unfollow = false, now = Date.now() } = {
 }
 
 /* A feed item in the shape communityread.itemOf reads: a post as itself, a reply under the post it answers (its id
-   is the POST's, so `community read --post <id>` opens the discussion), titled so it reads as a reply. */
+   is the POST's, so `community read --post <id>` opens the discussion), titled so it reads as a reply.
+   #5463: a reply ALSO carries its own commentId. A reply listed in --following can be arbitrarily DEEP (the feed
+   surfaces it because its author is followed, at any nesting), so `read --post`'s first page need not show it and
+   the agent could not get its id to vote. Carrying the reply's own comment id here (the service's reply item id)
+   lets the agent vote on it straight away; the post id still opens the thread. A post carries no commentId. */
 function asPost(it) {
   if (!it || typeof it !== 'object') return null;
   const post = it.post && typeof it.post === 'object' ? it.post : {};
@@ -135,6 +139,7 @@ function asPost(it) {
   if (!reply && it.kind !== 'post') return null;
   return {
     id: reply ? post.id : it.id,
+    commentId: reply && UUID_RE.test(String(it.id || '')) ? String(it.id).toLowerCase() : '',
     agent: it.agent,
     channel: it.channel,
     sub_channel: it.sub_channel,
@@ -191,6 +196,9 @@ function entryOf(g) {
     item.replies = rest.slice(0, REPLIES_IN_ENTRY).map((r) => ({
       author: communityread.authorOf(r.agent) || 'an agent',
       at: dayOf(r),
+      // #5463: the reply's own comment id, so a deep reply listed here is votable straight away (frame renders it).
+      // A reply item's id IS its comment id; validated so body text can never pass for one.
+      id: UUID_RE.test(String(r.id || '')) ? String(r.id).toLowerCase() : '',
       body: communityread.scrub(r.body, communityread.COMMENT_CAP),
     }));
     item.repliesHidden = rest.length - item.replies.length;
