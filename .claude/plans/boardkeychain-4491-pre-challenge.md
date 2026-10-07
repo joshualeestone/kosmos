@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: boardkeychain-4491
-diff_hash: 4ec71d3f1b1578025979bcfd065e066bec4d4c3a39864f47614e02ceec294a89
+diff_hash: d8325d9313e237af54bf0246a769140da28439eb35acd99f2a8d94e74291dd42
 validation: passed (Mortals full suite at a3d4699db, 08:35 CDT 2026-10-04: 15036 tests, 14812 pass, 0 fail, 224 skipped; hash 28628ddc726d; full suite passed on Mortals)
 subdir_audit: passed
 timestamp: 2026-10-04T13:50:43Z
@@ -122,3 +122,4 @@ Fourth post-rebase review (sonnet): 4 WARNINGs (scope too broad, misreported fai
 Fifth post-rebase review (opus): 4 WARNINGs (restore-rename folder race narrowed and named, cannot-check logged, two tests made real), all addressed; 304 + 46 + 16 tests pass.
 Sixth post-rebase review (sonnet): 5 WARNINGs (re-check untested, reasons conflated, temp written before the check, cannot-check log once, log cause), all fixed; 305 + 47 + 16 tests pass.
 Seventh post-rebase review (opus): 2 WARNINGs (pre-rename check and move-aside untested; plan overclaimed the page) fixed, plus NITs; 306 + 48 + 16 tests pass.
+Eighth post-rebase review (sonnet): no way around the guard found; 2 WARNINGs (undo-store protection untested, a growing stat cost) fixed; 307 + 49 + 16 tests pass.
