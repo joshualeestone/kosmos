@@ -75,9 +75,17 @@ test('#4920 the remove snippet passes KOSMOS_HOME and exits non-zero with the re
   let r = run(removeSnippet, [standIn(`exports.removeBoard = (home) => (home === '/h' ? { ok: true } : { ok: false, because: 'wrong home ' + home });`), '/h']);
   assert.equal(r.status, 0);
   assert.equal(r.stdout, '');
-  r = run(removeSnippet, [standIn(`exports.removeBoard = () => ({ ok: false, because: 'systemd could not stop the board: x' });`), '/h']);
+  const left = fs.mkdtempSync(path.join(WORK, 'left-'));
+  fs.mkdirSync(path.join(left, 'default.target.wants'));
+  fs.writeFileSync(path.join(left, 'kosmos-board.service'), '[Unit]');
+  fs.symlinkSync(path.join(left, 'kosmos-board.service'), path.join(left, 'default.target.wants', 'kosmos-board.service'));
+  r = run(removeSnippet, [standIn(`exports.boardUnitPath = () => ${JSON.stringify(path.join(left, 'kosmos-board.service'))}; exports.removeBoard = () => ({ ok: false, because: 'systemd could not stop the board: Failed to connect to bus\\nmore' });`), '/h']);
   assert.equal(r.status, 3);
-  assert.equal(r.stdout, 'systemd could not stop the board: x');
+  assert.equal(r.stdout, 'systemd could not stop the board: Failed to connect to bus; its unit file was deleted, so it will not start again');
+  assert.ok(!fs.existsSync(path.join(left, 'kosmos-board.service')), 'a unit left enabled would retry a deleted folder at every login');
+  assert.ok(!fs.existsSync(path.join(left, 'default.target.wants', 'kosmos-board.service')) && !fs.lstatSync(path.join(left, 'default.target.wants')).isFile(), 'the enable link is gone too');
+  let gone = false; try { fs.lstatSync(path.join(left, 'default.target.wants', 'kosmos-board.service')); } catch { gone = true; }
+  assert.ok(gone, 'the enable link (a symlink) is gone');
 });
 
 test('#4920 CONTROL: the real linuxboard exports what the snippets call', () => {
@@ -138,10 +146,11 @@ test('#4920 install: linger on hands the board to systemd and says it starts wit
   assert.match(w.restarts(), /^restart --force$/m, 'the running board was not handed to systemd');
 });
 
-test('#4920 install: linger off says it stops at logout and names the loginctl line', () => {
+test('#4920 install: linger off says it stops at logout and names the loginctl line, and does not hand over', () => {
   const w = world({ nodeOut: 'loose not lingering' });
   const r = runBlock(INSTALL_BLOCK, w);
   assert.equal(r.status, 0, r.stderr);
+  assert.equal(w.restarts(), '', 'without linger the hand-off would make the board die at logout');
   assert.match(r.stdout, /stops when you log out: linger is off/);
   assert.match(r.stdout, /loginctl enable-linger /);
   assert.doesNotMatch(r.stdout, /starts when this computer starts/);
@@ -205,4 +214,24 @@ test('#4920 install: a board systemd already runs (an update) is not bounced a s
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /INFO Kosmos will start itself when this computer starts/, 'the linger sentence reads the second word');
   assert.equal(w.restarts(), '', 'an update restarted a board the start step had already restarted through systemd');
+});
+
+test('#4920 install: a launcher tmux pick is not written into the unit', () => {
+  const lb = standIn(`exports.loadedBoardJob = () => ({ ok: true, active: true }); exports.installBoard = () => { process.stdout.write('[' + (process.env.AGENT_WORKFORCE_TMUX_BIN || '') + ']'); return { ok: true, lingering: true }; };`);
+  let r = spawnSync(process.execPath, ['-', lb, '/h', '16180'], { input: installSnippet, encoding: 'utf8', env: { ...process.env, AGENT_WORKFORCE_TMUX_BIN: '/bundle/tmux', KOSMOS_TMUX_BIN_PICKED: '1' } });
+  assert.equal(r.stdout, '[]held lingering', 'a launcher pick reached installBoard');
+  r = spawnSync(process.execPath, ['-', lb, '/h', '16180'], { input: installSnippet, encoding: 'utf8', env: { ...process.env, AGENT_WORKFORCE_TMUX_BIN: '/usr/bin/tmux', KOSMOS_TMUX_BIN_PICKED: '' } });
+  assert.equal(r.stdout, '[/usr/bin/tmux]held lingering', 'CONTROL: a person choice (no marker) is kept');
+});
+
+test('#4920 the board snippets survive bash 3.2 (the Mac sh): no shell comment, balanced parens, paired quotes', () => {
+  /* bash 3.2 parses a heredoc body nested in $( ) as shell text: a space then # starts a comment that eats the rest of
+     the line, an apostrophe opens a string, and an unbalanced paren ends the substitution early. Two of these broke
+     setup.sh during review (bash -n on the whole file did not catch one; running the block under /bin/sh did). */
+  assert.equal(snippets.length, 2);
+  for (const body of snippets) {
+    assert.equal((body.match(/(^|\s)#/g) || []).length, 0, 'a space-# in a snippet: ' + body.slice(0, 80));
+    assert.equal((body.match(/\(/g) || []).length, (body.match(/\)/g) || []).length, 'unbalanced parens in a snippet');
+    assert.equal((body.match(/'/g) || []).length % 2, 0, 'an odd number of apostrophes in a snippet');
+  }
 });

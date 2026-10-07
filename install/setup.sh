@@ -1415,8 +1415,24 @@ uninstall() {
       _lb_rc=0
       _lb_out="$("$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME/app/engine/linuxboard.js" "$KOSMOS_HOME" <<'BOARDEOF' 2>/dev/null
 let r;
-try { r = require(process.argv[2]).removeBoard(process.argv[3]); } catch (e) { r = { ok: false, because: String((e && e.message) || e).split('\n')[0] }; }
-if (!r || !r.ok) { process.stdout.write((r && r.because) || 'no reason given'); process.exit(3); }
+let lb = null;
+try { lb = require(process.argv[2]); r = lb.removeBoard(process.argv[3]); } catch (e) { r = { ok: false, because: String((e && e.message) || e) }; }
+if (!r || !r.ok) {
+  const why = String((r && r.because) || 'no reason given').split('\n')[0];
+  // The app folder is deleted next, so a unit left enabled would retry a missing folder at every login: delete the
+  // file and its enable link here, as the shell code before this change did, and say what to run if even that fails.
+  const fs = require('fs'); const path = require('path');
+  let file = '';
+  try {
+    file = lb.boardUnitPath(process.argv[3]);
+    fs.rmSync(file, { force: true });
+    fs.rmSync(path.join(path.dirname(file), 'default.target.wants', path.basename(file)), { force: true });
+    process.stdout.write(why + '; its unit file was deleted, so it will not start again');
+  } catch (e2) {
+    process.stdout.write(why + (file ? '; remove it with: systemctl --user disable --now ' + path.basename(file) + ' and delete ' + file : ''));
+  }
+  process.exit(3);
+}
 BOARDEOF
 )" || _lb_rc=$?
       [ "$_lb_rc" -eq 0 ] || info "the board's systemd service was not fully removed: ${_lb_out:-its removal step did not run ($KOSMOS_HOME/runtime/bin/node)}"
@@ -4060,10 +4076,13 @@ let r;
 let held = false;
 try {
   const lb = require(process.argv[2]);
+  // A tmux the launcher picked, marked by KOSMOS_TMUX_BIN_PICKED, is a choice for this run, not one to write into the
+  // unit, where it would read as a person choice forever. The unit PATH already holds the Kosmos tmux folder.
+  if (process.env.KOSMOS_TMUX_BIN_PICKED === '1') delete process.env.AGENT_WORKFORCE_TMUX_BIN;
   r = lb.installBoard(process.argv[3], Number(process.argv[4]));
   if (r && r.ok) { const j = lb.loadedBoardJob(process.argv[3]); held = Boolean(j && j.ok && j.active); }   // is systemd running it now
 } catch (e) { r = { ok: false, because: String((e && e.message) || e).split('\n')[0] }; }
-if (!r || !r.ok) { process.stdout.write('refused: ' + ((r && r.because) || 'no reason given')); process.exit(3); }
+if (!r || !r.ok) { process.stdout.write('refused: ' + String((r && r.because) || 'no reason given').split('\n')[0]); process.exit(3); }
 process.stdout.write((held ? 'held ' : 'loose ') + (r.lingering ? 'lingering' : 'not lingering'));
 BOARDEOF
 )" || _lb_rc=$?
@@ -4072,15 +4091,17 @@ BOARDEOF
     elif [ "$_lb_rc" -ne 0 ]; then
       info "Kosmos could not set itself to start with systemd: ${_lb_out#refused: }"
     else
-      # As on the Mac, hand the board to systemd ONLY when systemd is not already running it (the snippet asks systemd,
+      # As on the Mac, hand the board to systemd ONLY when systemd is not already running it and linger is on (the snippet asks systemd,
       # through linuxboard.loadedBoardJob): on a first install the board running now was started before the unit
       # existed, so kosmos restart retires it and starts the unit's. On an update the start step above already
       # restarted it through systemd, and a second bounce would only risk a healthy board; and a unit left by an earlier
       # run whose own hand-off failed is still handed over now. Not on a computer set not to run a board (a restart
       # would clear board.stopped). Best-effort: the unit is enabled either way and starts at the next login or boot.
       _kosmos_board_decide
+      # Only with linger on: without it the unit dies at logout, while the board setup.sh started survives it (logind
+      # keeps user processes by default), so handing over would make a no-linger server less available, not more.
       case "$_lb_out" in
-        loose\ *) [ "$_kosmos_board_off" = yes ] || "$KOSMOS_HOME/bin/kosmos" restart --force >/dev/null 2>&1 || true ;;
+        "loose lingering") [ "$_kosmos_board_off" = yes ] || "$KOSMOS_HOME/bin/kosmos" restart --force >/dev/null 2>&1 || true ;;
       esac
       _lb_out="${_lb_out#* }"
     fi
