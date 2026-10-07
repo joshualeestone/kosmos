@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: schedowner-5456
-diff_hash: d3381b7c27402a78d5311b1d10c567a52f982684d3dbd0e0f6823c8d425fd9e9
+diff_hash: 5987a49c79f31c710884ebe62c005cbbd59fdd3f061d786a29fb8ba00b0c0a36
 validation: with tools/run-tests.sh's env: every web.* test + assigner/tasks/taskrepeat tests + file-scanning guards 2669/0 (before round 2/3 fixes), and the three changed test files 63/0 after them; both browser-check gates rc 0; the two edited browser checks queued on the shared machine (not yet run at this proof); full suite on CI
 subdir_audit: not run (no subdirectory CLAUDE.md changed)
-timestamp: 2026-10-07T04:48:10Z
+timestamp: 2026-10-07T05:28:56Z
 iterations: 4
 converged: true
 ---
@@ -61,3 +61,6 @@ converged: true
 ### Strengths
 - One-line engine change in the right order (held, built, decision still win)
 - Every unit test and browser-check arm has a control; both engine tests fail with the change removed (measured)
+
+### After convergence (a3e6572f4, browser-check file only)
+The local run of render-tasks-view-3559.js found two more pins of the old seven tiles (its count map and its badge list); both now expect the eighth tile. No product code changed. render-onhold-4771.js passed locally (78/0).
