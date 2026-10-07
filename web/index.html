@@ -4072,12 +4072,13 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    browser check asserts no element here carries a coloured left border.
    The status colours: red (--danger) for Needs Your Decision (#3949), grey for unassigned, gold for
    assigned but not started, the working green for in progress, the mention blue for built but waiting (#3951), a
-   quiet grey for completed -- the app's existing meanings, no new palette. */
+   grey-green for on a schedule (#5456), grey for on hold (#4771), a quiet grey for completed -- the app's existing
+   meanings, no new palette. */
 #panel-tasks { --tsk-c: var(--k-ink-2); --tsk-nobody: var(--k-ink-2); --tsk-assigned: var(--gold-deep); --tsk-working: var(--ok);
   --tsk-decision: var(--danger);
   --tsk-built: var(--pj-mention);
   --tsk-held: var(--k-ink-2);   /* #4771: on hold, set aside by the person */
-  --tsk-scheduled: color-mix(in srgb, var(--ok) 70%, var(--k-ink-2));   /* #5456: runs on a schedule, a quieter in-progress green */
+  --tsk-scheduled: color-mix(in srgb, var(--ok) 40%, var(--k-ink-2));   /* #5456: on a schedule, a grey-green clearly apart from In progress */
   --tsk-closed: color-mix(in srgb, var(--k-ink-2) 55%, var(--k-rule));
   --tsk-wash: color-mix(in srgb, var(--gold) 14%, var(--k-surface)); color: var(--k-ink);
   --tsk-hover: color-mix(in srgb, var(--k-ink) 5%, transparent); }   /* #4880: a tint OVER the row's own ground, so a cream list stays warm */
@@ -58991,7 +58992,8 @@ function paintProjectTasks(p) {
     const sayHtml = taskClaimHtml(t.claim);
     let who;
     if (!assigned.length) {
-      who = '<span class="tkcard-who"><span class="tkcard-who-b">Nobody yet</span></span>';
+      /* #5456: a repeating task with nobody on it reads as the Tasks view says it, not as ownerless work. */
+      who = '<span class="tkcard-who"><span class="tkcard-who-b">' + (t.repeat ? 'On a schedule' : 'Nobody yet') + '</span></span>';
     } else if (parts.length > 1) {
       /* #761 item 8: "Multiple assignees, as the pack drew." One face+name
          row per part -- including an unassigned one, "Nobody yet" per part
@@ -59107,7 +59109,7 @@ const TSK_GROUPS = [
   /* #5456: a repeating task with nobody on it (the engine's `scheduled` state): a schedule runs it, so it is not waiting
      for anyone and is not counted as unassigned. After Josh's five open groups and before On hold (decided, overridable). */
   { k: 'scheduled', l: 'On a schedule', c: 'var(--tsk-scheduled)',
-    why: 'Repeating tasks with no agent on them. A schedule runs these, so they are not waiting for anyone. Give one to an agent if an agent should run it.' },
+    why: 'Repeating tasks with nobody named on them. If a scheduler of yours runs them, nothing is needed; if an agent should, give one to an agent.' },
   /* #4771: on hold, the task or its whole project (the engine's `held` state): Kosmos neither nudges nor hands these out.
      Placed after Josh's own five open groups and before Completed, so his order is unchanged (decided, overridable). */
   { k: 'held', l: 'On hold', c: 'var(--tsk-held)',

@@ -90,6 +90,7 @@ test('#3949/#3951/#4771 Josh\'s six groups in his order, then On hold before Com
   assert.match(m[1], /k: 'scheduled', l: 'On a schedule', c: 'var\(--tsk-scheduled\)'/);
   assert.match(PAGE, /--tsk-scheduled: /, 'the scheduled colour token is missing');
   assert.match(SCRIPT, /t\.state === 'scheduled' \? '<span class="tsk-who nobody">On a schedule<\/span>'/, 'a scheduled row does not say what runs it');
+  assert.match(SCRIPT, /\(t\.repeat \? 'On a schedule' : 'Nobody yet'\)/, 'the project room card still calls a scheduled task Nobody yet');
   /* #4771: On hold is drawn because the engine records it (tasks.setOnHold, projects.edit's paused, taskState 'held'). */
   assert.match(m[1], /k: 'held', l: 'On hold', c: 'var\(--tsk-held\)'/);
   assert.doesNotMatch(m[1], /\bs: '/, 'a group carries a byline again');
