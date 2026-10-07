@@ -138,7 +138,14 @@ async function run(opts = {}) {
 
   const o = parseArgs(argv);
   const aabBytes = fs.readFileSync(o.aab);
-  const key = JSON.parse(fs.readFileSync(resolveKeyPath(o.keyTarget), 'utf8'));
+  // Read then parse separately: a file-system error (missing/unreadable) is safe to
+  // surface because it names a PATH, but a JSON.parse error can carry a snippet of the
+  // file's CONTENT -- which here is the service-account key -- so its message is never
+  // echoed; a generic line is enough.
+  const keyText = fs.readFileSync(resolveKeyPath(o.keyTarget), 'utf8');
+  let key;
+  try { key = JSON.parse(keyText); }
+  catch { throw new Error(`service-account key for target ${o.keyTarget} is not valid JSON`); }
   if (!key.client_email || !key.private_key || !key.token_uri) {
     throw new Error('service-account key is missing client_email, private_key or token_uri');
   }
@@ -181,7 +188,7 @@ module.exports = { run, parseArgs, b64url };
 
 if (require.main === module) {
   run().then(
-    (r) => { process.exit(r && r.committed === false && !r.validated ? 1 : 0); },
+    () => { process.exit(0); },        // both commit and dry-run success exit 0; only a thrown error exits 1
     (e) => { process.stderr.write(`play-upload: ${e.message}\n`); process.exit(1); },
   );
 }

@@ -157,6 +157,23 @@ test('security: the token and key are never logged, and a 403 does not leak the 
   } finally { await s.close(); }
 });
 
+test('a malformed service-account key fails generically, never echoing its content', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'play-upload-badkey-'));
+  const keyPath = path.join(dir, 'bad.json');
+  const aabPath = path.join(dir, 'app.aab');
+  // Invalid JSON that embeds secret-looking material, so a leaked parse snippet would show.
+  fs.writeFileSync(keyPath, '{"private_key":"SUPERSECRETKEYMATERIAL-should-never-surface" oops not json');
+  fs.writeFileSync(aabPath, AAB_BYTES);
+  await assert.rejects(
+    run({ argv: ['--aab', aabPath], resolveKeyPath: () => keyPath, apiBase: 'http://127.0.0.1:1', log: () => {} }),
+    (e) => {
+      assert.match(e.message, /is not valid JSON/);
+      assert.ok(!e.message.includes('SUPERSECRETKEYMATERIAL'), 'the parse error leaked key file content');
+      return true;
+    },
+  );
+});
+
 test('argument errors are loud', async () => {
   await assert.rejects(run({ argv: [], resolveKeyPath: () => '/nope', apiBase: 'http://127.0.0.1:1', log: () => {} }), /--aab/);
   await assert.rejects(run({ argv: ['--aab', 'x', '--status', 'live'], resolveKeyPath: () => '/nope', apiBase: 'http://127.0.0.1:1', log: () => {} }), /--status must be/);
