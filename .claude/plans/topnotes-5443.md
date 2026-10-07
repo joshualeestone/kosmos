@@ -4,7 +4,7 @@ Card: #5443 (found in the design review of #5359). Two notices showing at once i
 
 Built:
 - `.apphead .topnotes` stretches its slots (`align-items: stretch`) instead of centring them. The stack was already `width: max-content` capped at `min(460px, 100%)`, so it is as wide as its widest notice and every slot now takes that width.
-- `.utoast .utxt` takes a notice's spare width (`flex: 1 1 auto; min-width: 0`), so a narrower notice's close X and buttons stay at its right edge instead of where its words end. A notice sized to its own content is unchanged by this.
+- `.utoast .utxt` takes a notice's spare width (`flex: 1 1 auto`), so a narrower notice's close X and buttons stay at its right edge instead of where its words end. A notice sized to its own content is unchanged by this.
 - The update chip (`.uchip`, #3955) is a small pill by design and stays one: `#utoast-slot > .uchip` is centred in its stretched slot rather than widened (review 1 found the stretch had moved it to the column's left edge). Call: keep Josh's pill; rejected: stretching it into a wide bar. Would change my mind: Josh asking for the chip to match the cards.
 - `.utxt` does NOT get `min-width: 0` (review 1): it keeps its old minimum width, so a long unbroken string (an email) still widens the card instead of running under the X.
 - Phone rules (#5018, #5301) untouched; the arm measures the same line-up at 375.

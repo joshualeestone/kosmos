@@ -351,10 +351,12 @@ const CASES = [
     await pg.evaluate(() => { document.getElementById('topnotes').style.alignItems = ''; });
     // CONTROL for the right edge: stretched, but the words not taking the spare width, the X moves in by the card's
     // spare width (since #5407 the login card carries Refresh login, so it is only about 20px narrower than the column).
-    await pg.addStyleTag({ content: '#login-adv-slot .utoast .utxt { flex: 0 1 auto !important; }' });
+    const unGrow = await pg.addStyleTag({ content: '#login-adv-slot .utoast .utxt { flex: 0 1 auto !important; }' });
     const packed = await edges();
     chk(!!packed && !!now && packed.xGap >= now.xGap + 15, '5443: CONTROL: stretched with the words not growing, the X moves in from the right edge', JSON.stringify(packed));
-    await pg.evaluate(() => { const st = [...document.querySelectorAll('style')].pop(); if (st && /flex: 0 1 auto !important/.test(st.textContent)) st.remove(); });
+    await unGrow.evaluate((el) => el.remove());
+    const restored = await edges();
+    chk(lined(restored) && restored.xGap <= 12, '5443: the control style is gone, so the X is back at the right edge before the next arm', JSON.stringify(restored));
 
     // On a phone the stack is capped at the header's width; the same two cards still share both edges.
     await pg.setViewportSize({ width: 375, height: 812 });
