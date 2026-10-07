@@ -5,7 +5,8 @@
  * Keeps the board running after machine restart / crash, mirroring macOS
  * com.kosmos.board.plist and Windows Scheduled Tasks.
  *
- * Driven by:
+ * Production caller: piece D's installer (#4920) calls installBoard; install/kosmos names the unit itself
+ * (_kosmos_board_systemd_unit) and never loads this file.
  *   - install/kosmos: cmd_board_run, cmd_start, cmd_stop
  *   - engine/boardrestart.js: self-restart on world switch / user restart
  */
