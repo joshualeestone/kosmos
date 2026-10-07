@@ -29,6 +29,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
+const securewrite = require('./securewrite');
 
 const HOOK_EVENTS = Object.freeze([
   'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PermissionRequest',
@@ -291,14 +292,12 @@ function readSettings(settingsPath) {
 function writeSettings(target, data, prevMode) {
   try {
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    /* Pid-suffixed: a concurrent prepare and installer writing the same
-       settings file must not share a temp name (Angel's review). The rename
-       stays atomic either way; this only keeps the two writers from
-       clobbering each other's staging file mid-write. */
-    const tmp = target + '.kosmos.' + process.pid + '.new';
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', prevMode !== null ? { mode: prevMode } : {});
-    if (prevMode !== null) fs.chmodSync(tmp, prevMode);
-    fs.renameSync(tmp, target);
+    /* #5434: through securewrite.writeSecret. Its temp name is unique per process, thread, start and
+       write, so two concurrent writers of this file never share a staging file (the reason this was
+       pid-suffixed). The temp is flushed before the rename; an existing file keeps its mode, a new one
+       takes the umask default (null); never rewritten in place (atomicOnly), so a failed save leaves
+       the file as it was. */
+    securewrite.writeSecret(target, JSON.stringify(data, null, 2) + '\n', prevMode, { atomicOnly: true });
   } catch {
     return false;
   }
