@@ -17,6 +17,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-attach-5448-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
@@ -117,6 +118,21 @@ test('#5448 controls: zero dimensions, image data before any frame header, and a
   assert.equal(attachments.signatureType(fake), null);
   const rec = attachments.save('agent', 'april', { name: 'fake.jpg', type: 'image/jpeg', bytes: fake });
   assert.match(attachments.wireNote(attachments.read(rec.id)), /\/fake\.jpg \(unknown type, \d+ bytes\)\]$/);
+});
+
+test('#5448: an image too short to carry a signature says unknown type, not the claim', () => {
+  const rec = attachments.save('agent', 'april', { name: 'tiny.png', type: 'image/png', bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d]) });
+  assert.match(attachments.wireNote(attachments.read(rec.id)), /\/tiny\.png \(unknown type, 5 bytes\)\]$/);
+});
+
+/* The regular-file check is what keeps a FIFO from blocking the send: opening one
+   for reading waits for a writer, so without the check this test never returns. */
+test('#5448: a record whose path is a FIFO is told from the record, never opened', { skip: process.platform === 'win32' }, () => {
+  const dir = fs.mkdtempSync(path.join(SANDBOX, 'fifo-'));
+  const fifo = path.join(dir, 'pipe.png');
+  execFileSync('mkfifo', [fifo]);
+  const note = attachments.wireNote({ kind: 'image', type: 'image/gif', size: 42, file: fifo });
+  assert.equal(note, ' [attached file: ' + fifo + ' (unknown type, 42 bytes)]');
 });
 
 test('#5448: a JPEG with stray padding between segments is still read', () => {

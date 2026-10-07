@@ -15,8 +15,8 @@
  * or `open` works on the spot, followed inside the same bracket by the
  * file's facts in parentheses (type, an image's pixel size, size on disk;
  * #5448) so the agent can tell a screenshot from a contract before
- * deciding to open it. Nothing else tells the agent where the folder is (Mona Lisa, 2026-08-23: the who-you-work-for block is about the
- * person; finding attachments it was not sent is a later card).
+ * deciding to open it. Nothing else tells the agent where the folder is
+ * (Mona Lisa, 2026-08-23: the who-you-work-for block is about the person; finding attachments it was not sent is a later card).
  *
  * ⚠️ A FILE FROM A PERSON IS BYTES, NOT A PROGRAM. The stored name is
  * sanitised to one path segment, the file is written with the bytes it
@@ -307,7 +307,7 @@ function factsOf(r) {
   const PROVABLE = ['image/png', 'image/gif', 'image/jpeg', 'image/jpg', 'image/webp'];
   const plain = /^[a-z0-9][a-z0-9._+-]*\/[a-z0-9][a-z0-9._+-]*$/.test(stored) && !PROVABLE.includes(stored);
   const type = proven || (plain ? stored : null);
-  const bytes = st ? st.size : r.size;
+  const bytes = st && st.isFile() ? st.size : r.size;
   const parts = [type || 'unknown type'];
   if (img) parts.push(img.width + 'x' + img.height);
   const size = sizeWords(bytes);
