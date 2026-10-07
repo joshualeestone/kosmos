@@ -92,7 +92,7 @@ test('#5434: the in-place fallback flushes what it wrote too', () => {
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('#5434: a real flush error (EIO) fails the write and keeps the old file, as a failed close did before', () => {
+test('#5434: a real flush error (EIO) fails the write at once and keeps the old file', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw5434-eio-'));
   try {
     const file = path.join(dir, 'tokens.json');
@@ -130,6 +130,19 @@ test('#5434 control: on POSIX an EPERM from the flush is not skipped (only Windo
     recording(() => { try { securewrite.writeSecret(file, 'new', 0o600); } catch (e) { threw = e; } }, { fsyncThrows: 'EPERM' });
     assert.ok(threw, 'a POSIX EPERM from the flush was treated as "cannot flush"');
     assert.equal(fs.readFileSync(file, 'utf8'), 'old');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#5434: a real flush error on the in-place fallback restores the old contents and is reported', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw5434-fbeio-'));
+  try {
+    const file = path.join(dir, 'tokens.json');
+    fs.writeFileSync(file, 'old');
+    let threw = null;
+    recording(() => { try { securewrite.writeSecret(file, 'new', 0o600); } catch (e) { threw = e; } }, { wxFails: true, fsyncThrows: 'EIO' });
+    assert.ok(threw && threw.flushFailed, 'the refused flush was not reported: ' + (threw && threw.message));
+    assert.ok(threw.cause, 'why the atomic path was abandoned is not attached');
+    assert.equal(fs.readFileSync(file, 'utf8'), 'old', 'the old contents were not restored');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 

@@ -266,9 +266,12 @@ function secureDir(dir, mode) {
    takes its usual path: EINVAL, ENOTSUP, EOPNOTSUPP, ENOSYS everywhere, and EPERM on Windows only
    (some Windows handles and mounts refuse the flush that way, and those writes worked before
    #5434). Any other error (EIO, ENOSPC, EDQUOT: on a mount that reports a failed write late, this
-   is where it shows) is thrown and marked `flushFailed`, so the atomic path below stops at once
-   and the old file stays as it was: no retry (a space or quota error would only recur) and no
-   in-place fallback (the one path that truncates the live file). */
+   is where it shows) is thrown (marked `flushFailed`, for callers and tests); the atomic path below
+   records it in its local `flushError` and stops at once, so the old file stays as it was: no
+   retry (a space or quota error would only recur) and no in-place fallback (the one path that
+   truncates the live file). This covers errors the FLUSH reports. The same errors reported by a
+   write or a close keep main's behaviour (retries, then the fallback); that is a later slice of
+   #5434, not this one. */
 const FLUSH_UNSUPPORTED = new Set(['EINVAL', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS']);
 function flushOrThrow(fd) {
   try { fs.fsyncSync(fd); } catch (e) {
@@ -355,7 +358,7 @@ function writeSecret(file, data, mode) {
         try { flushOrThrow(tfd); } catch (e) { flushError = e; throw e; }
       } finally {
         /* With a flush error pending, a close that fails too (NFS often repeats the EIO there) must
-           not replace it: the marked flush error is what stops the loop below. */
+           not replace it: `flushError` is what stops the loop below. */
         if (flushError) { try { fs.closeSync(tfd); } catch { /* the flush error stands */ } }
         else fs.closeSync(tfd);
       }
@@ -385,7 +388,7 @@ function writeSecret(file, data, mode) {
       if (created) { try { fs.unlinkSync(tmp); } catch { /* nothing to clean */ } }
       // #5434: the disk refused the flush; keep the old file (see flushOrThrow).
       if (flushError) {   // the same condition the close above used, so the two cannot disagree
-        if (earlierAtomicError && flushError && typeof flushError === 'object' && !flushError.cause) { try { flushError.cause = earlierAtomicError; } catch { /* frozen */ } }
+        if (earlierAtomicError && typeof flushError === 'object' && !flushError.cause) { try { flushError.cause = earlierAtomicError; } catch { /* frozen */ } }
         throw flushError;
       }
     }
