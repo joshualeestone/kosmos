@@ -13,7 +13,9 @@
 #   PreToolUse        -> working  "running <tool>"  (throttled heartbeat)
 #   PermissionRequest -> needs_you, with the command in the sentence
 #                        (fires BEFORE the box renders; the Notification
-#                        hook is ~6 seconds late by design and is unused)
+#                        hook is ~6 seconds late by design and is unused);
+#                        working "running <tool>" instead when Kosmos's own
+#                        allow hook answers the request (#5495, no box shows)
 #   Stop              -> idle     (never erases a DELIBERATE blocked/needs_you or
 #                        an auto blocked; DOES clear a standing auto needs_you, a
 #                        permission prompt, once the turn moves on; #900/#1949/#2456)

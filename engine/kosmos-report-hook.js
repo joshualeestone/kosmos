@@ -26,7 +26,9 @@
  *                        a compaction or resume must not clear a waiting state.
  *   UserPromptSubmit  -> working  "answering a prompt"
  *   PreToolUse        -> working  "running <tool>"  (throttled heartbeat, 60s)
- *   PermissionRequest -> needs_you "asking permission to use <tool>[: <cmd>]"
+ *   PermissionRequest -> needs_you "asking permission to use <tool>[: <cmd>]",
+ *                        or working "running <tool>" when Kosmos's own allow
+ *                        hook answers the request (#5495, no prompt shows)
  *   Stop              -> idle     "finished responding"
  *   StopFailure       -> blocked  --on "provider api (<kind>)" --owner provider
  *   SessionEnd        -> stopped
@@ -143,7 +145,7 @@ function reportFor(evt, ctx) {
 function kosmosAllows(input, env) {
   try {
     const ap = require('./agentpermission');
-    if (!env || !env[ap.ENV_NODE] || !env[ap.ENV_SCRIPT]) return false;   // both names, as the shell hook requires
+    if (!env || !env[ap.ENV_NODE] || !env[ap.ENV_SCRIPT]) return false;   // presence only: the values are not used here
     return Boolean(require('./kosmos-permission-allow').decide(input));
   } catch { return false; }
 }
