@@ -3061,3 +3061,20 @@ driverTest('#5419: sign-in on Linux with no tmux goes stuck with the tmux senten
     connect.setTmuxCheckForTests(TMUX_PRESENT);
   }
 });
+
+test('#5419: a "no tmux found" answer is not held, so a tmux installed after a refusal is found at once', () => {
+  const create = require('./create');
+  const orig = create.linuxTmuxBin;
+  const saved = process.env.AGENT_WORKFORCE_TMUX_BIN;
+  let found = null;
+  create.linuxTmuxBin = () => found;
+  try {
+    process.env.AGENT_WORKFORCE_TMUX_BIN = '/nowhere/tmux-c';
+    assert.equal(connect.tmuxBinPath('linux'), 'tmux', 'CONTROL: nothing found is the bare name');
+    found = '/usr/bin/tmux';   // the person installs tmux and tries again within 30 s
+    assert.equal(connect.tmuxBinPath('linux'), '/usr/bin/tmux', 'the cached "not found" hid a tmux installed since');
+  } finally {
+    create.linuxTmuxBin = orig;
+    if (saved === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = saved;
+  }
+});

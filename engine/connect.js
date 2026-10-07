@@ -206,7 +206,8 @@ function tmuxBinPath(platform = process.platform, env = process.env, runnable) {
   const real = env === process.env && !runnable;
   if (real && linuxTmuxMemo && linuxTmuxMemo.key === (env.AGENT_WORKFORCE_TMUX_BIN || '') && Date.now() - linuxTmuxMemo.at < 30000) return linuxTmuxMemo.val;
   const val = require('./create').linuxTmuxBin('linux', env, runnable) || 'tmux';
-  if (real) linuxTmuxMemo = { key: env.AGENT_WORKFORCE_TMUX_BIN || '', val, at: Date.now() };
+  // A found tmux only: the bare fallback is not held, so a tmux installed after a refusal is found on the next try.
+  if (real && val !== 'tmux') linuxTmuxMemo = { key: env.AGENT_WORKFORCE_TMUX_BIN || '', val, at: Date.now() };
   return val;
 }
 
