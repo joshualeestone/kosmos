@@ -33,7 +33,8 @@ fs.mkdirSync(store.ROOT, { recursive: true });
 // runner/runnerOf: the guard is a Claude Code settings file, so it now refuses an unnamed or non-Claude runner
 // (#4491 review WARNING 1); these tests name Claude unless they test that refusal.
 const DEPS = { platform: 'darwin', dataRoot: store.ROOT, home: process.env.AGENT_WORKFORCE_HOME, runner: 'claude', runnerOf: () => 'claude' };
-function agentDir(name) { return path.join(SANDBOX, 'workers', name); }
+/* An agent's folder, made as creation makes it: the board-start refresh guards only agents that have one (review 11). */
+function agentDir(name) { const d = path.join(SANDBOX, 'workers', name); fs.mkdirSync(d, { recursive: true }); return d; }
 function readSettings(dir) { return JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8')); }
 function tokenAbs() { return path.join(store.ROOT, TOKEN_FILE); }
 function ruleAbs(p) { return '//' + String(p).replace(/^\/+/, ''); }
@@ -371,4 +372,35 @@ test('#4491 whole-branch review: keys that undo the guard are dropped at every w
   assert.equal(sb.filesystem.allowWrite, undefined, 'a planted allowWrite survived the guard');
   assert.ok(sb.filesystem.denyRead.includes('/kept/secret'), 'CONTROL: an ordinary denyRead entry was dropped too');
   assert.deepEqual(sb.network.allowUnixSockets, ['/tmp/y.sock'], 'CONTROL: allowUnixSockets is kept');
+});
+
+test('#4491 review 11: the board-start refresh never creates a folder for a listed name that has none (it would block creating it)', () => {
+  const listFile = sendertoken.tokenOnlyFile();
+  fs.writeFileSync(listFile, JSON.stringify({ agents: ['made', 'notyet'] }) + '\n');
+  const made = agentDir('r11-made');
+  const notyet = path.join(path.dirname(made), 'r11-notyet-never-made');
+  const realWrite = process.stderr.write;
+  process.stderr.write = () => true;
+  let out;
+  try { out = setup.refreshTokenOnlyGuards({ ...DEPS, workerDir: (n) => (n === 'made' ? made : notyet) }); } finally { process.stderr.write = realWrite; }
+  assert.deepEqual(out.guarded, ['made'], 'CONTROL: the agent with a folder is guarded');
+  assert.deepEqual(out.unguarded, [{ name: 'notyet', because: 'no agent folder yet' }]);
+  assert.equal(fs.existsSync(notyet), false, 'the refresh made a folder for a name with no agent, so that name can no longer be created');
+});
+
+test('#4491 review 11: keys that undo the guard are removed from settings.local.json too; other keys stay', () => {
+  const dir = agentDir('pilot-local');
+  const local = path.join(dir, '.claude', 'settings.local.json');
+  fs.mkdirSync(path.dirname(local), { recursive: true });
+  fs.writeFileSync(local, JSON.stringify({ model: 'x', sandbox: { enabled: false, allowUnsandboxedCommands: true, excludedCommands: ['cat'], filesystem: { allowRead: ['/'], denyRead: ['/kept'] } } }) + '\n');
+  const realErr = console.error;
+  console.error = () => {};
+  try { setup.guardTokenOnlyFolder(dir, 'pilot-local', DEPS); } finally { console.error = realErr; }
+  const j = JSON.parse(fs.readFileSync(local, 'utf8'));
+  assert.equal(j.sandbox.enabled, undefined, 'a local sandbox switch-off survived');
+  assert.equal(j.sandbox.allowUnsandboxedCommands, undefined);
+  assert.equal(j.sandbox.excludedCommands, undefined);
+  assert.equal(j.sandbox.filesystem.allowRead, undefined);
+  assert.deepEqual(j.sandbox.filesystem.denyRead, ['/kept'], 'CONTROL: an ordinary local key was removed too');
+  assert.equal(j.model, 'x', 'CONTROL: a non-sandbox key was removed');
 });

@@ -187,3 +187,10 @@ writes to); the stale "one parse site" and #5247 lines. Residual, added to #5516
 key already in the token-only agent's own settings file (hooks, env, apiKeyHelper, statusLine, enabledPlugins,
 mcpServers, allowAllUnixSockets, enableWeakerNestedSandbox), some of which run processes outside the sandbox. Not
 dropped here: what else legitimately writes that file is not yet measured, and dropping blind could break agents.
+Eleventh review (opus), fixed:
+- BLOCKER: the board-start refresh guarded every listed name, creating <name>/.claude for a name with no agent yet (or
+  one removed but still listed); an existing folder refuses creating that name. It now guards only agents whose folder
+  exists, and reports the rest as unguarded ("no agent folder yet"). Creation still guards at create time.
+- settings.local.json (higher precedence than settings.json) gets the same guard-undoing keys removed (sandbox switched
+  off, unsandboxed commands, excludedCommands, allowRead/allowWrite), logged; a file that does not parse is left alone.
+- create.js: a throw from tokenOnlyFor now fails closed (it tries to guard) instead of creating unguarded.

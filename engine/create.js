@@ -5615,7 +5615,7 @@ function createAgentInner(opts) {
   // throw cannot escape createAgent uncaught, outside the rollback gate (the guide's gate is a pure
   // roleKey comparison, which cannot throw; this one calls into another module).
   let isTokenOnly = false;
-  try { isTokenOnly = require('./sendertoken').tokenOnlyFor(name); } catch { isTokenOnly = false; }
+  try { isTokenOnly = require('./sendertoken').tokenOnlyFor(name); } catch { isTokenOnly = true; }   // review 11: fail closed (try to guard)
   const guardedTokenOnly = DRY_RUN || !isTokenOnly || step('kept the board token out of its reach', () => {
     // #4491 review WARNING 1: the runner is named, so a non-Claude agent is refused with the reason rather than
     // reported guarded by a settings file it never reads.

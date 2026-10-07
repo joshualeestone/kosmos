@@ -858,6 +858,7 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     const tmp = `${file}.${process.pid}.new`;
     fs.writeFileSync(tmp, JSON.stringify(next, null, 2) + '\n', 'utf8');
     fs.renameSync(tmp, file);
+    cleanLocalSettings(path.join(settingsDir, 'settings.local.json'));
     return { ok: true };
   } catch (err) {
     return { ok: false, because: String((err && err.message) || err) };
@@ -877,7 +878,30 @@ function managedSettingsPresent(platform = process.platform) {
 /* #4491: at board start, guard every agent currently listed in agent-token-only.json, so a pilot listed
    before this shipped (echo) is guarded from its next session without a re-create. Warns (once per board
    start, no cross-start dedup) when the root-owned managed belt is absent (the durable close is the
-   parked admin step). workerDir is overridable for tests. { guarded: [names], managed: boolean }. Never throws. */
+   parked admin step). workerDir is overridable for tests. { guarded: [names], unguarded: [{ name, because }], managed: boolean }. Never throws. */
+/* #4491 review 11: settings.local.json in the agent's .claude takes precedence over settings.json, and a token-only
+   agent may have written one before the guard existed. The keys that would undo the guard are removed from it too (a
+   sandbox switched off, unsandboxed commands allowed, commands run outside it, paths reopened), logged, and the file
+   rewritten only when something changed. A file that does not parse is left as it is. */
+function cleanLocalSettings(file) {
+  let cur;
+  try { cur = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return; }
+  if (!cur || typeof cur !== 'object' || !cur.sandbox || typeof cur.sandbox !== 'object') return;
+  const sb = cur.sandbox;
+  const dropped = [];
+  if (sb.enabled === false) { delete sb.enabled; dropped.push('sandbox.enabled false'); }
+  if (sb.allowUnsandboxedCommands === true) { delete sb.allowUnsandboxedCommands; dropped.push('sandbox.allowUnsandboxedCommands'); }
+  if (sb.excludedCommands !== undefined) { delete sb.excludedCommands; dropped.push('sandbox.excludedCommands'); }
+  if (sb.filesystem && typeof sb.filesystem === 'object') {
+    for (const k of ['allowRead', 'allowWrite']) if (sb.filesystem[k] !== undefined) { delete sb.filesystem[k]; dropped.push('sandbox.filesystem.' + k); }
+  }
+  if (!dropped.length) return;
+  const tmp = `${file}.${process.pid}.new`;
+  fs.writeFileSync(tmp, JSON.stringify(cur, null, 2) + '\n', 'utf8');
+  fs.renameSync(tmp, file);
+  console.error(`token-only guard: removed ${dropped.join(', ')} from ${file}; they would undo the guard`);
+}
+
 function refreshTokenOnlyGuards(deps = {}) {
   const platform = deps.platform || process.platform;
   const out = { guarded: [], unguarded: [], managed: managedSettingsPresent(platform) };
@@ -889,7 +913,10 @@ function refreshTokenOnlyGuards(deps = {}) {
     try { dir = toDir(name); } catch { dir = null; }
     let runner = null;
     try { runner = deps.runnerOf ? deps.runnerOf(name) : create.recordedRunner(name); } catch { runner = null; }
-    const g = dir ? guardTokenOnlyFolder(dir, name, { ...deps, runner }) : { ok: false, because: 'no folder' };
+    /* Review 11: never CREATE a folder for a listed name. A name can be listed before its agent is made, or stay
+       listed after removal; guarding would make <name>/.claude, and an existing folder refuses creating that name. */
+    const exists = dir ? (() => { try { return fs.statSync(dir).isDirectory(); } catch { return false; } })() : false;
+    const g = exists ? guardTokenOnlyFolder(dir, name, { ...deps, runner }) : { ok: false, because: 'no agent folder yet' };
     if (g.ok) out.guarded.push(name); else out.unguarded.push({ name, because: g.because });
   }
   if (out.unguarded.length) {
