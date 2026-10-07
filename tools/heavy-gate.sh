@@ -253,9 +253,10 @@ if [ "$QUIET" != 1 ]; then
   _hg_qh="$REPO/tools/queued-heavy.sh"
   _hg_common="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR git -C "$(dirname "$0")" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || _hg_common=""
   # Only a main-checkout copy that already has #5446's fallback: an older one fails on a Mac without the default lib.
-  case "$_hg_common" in */.git) grep -q '#5446-lib-fallback' "${_hg_common%/.git}/tools/queued-heavy.sh" 2>/dev/null && _hg_qh="${_hg_common%/.git}/tools/queued-heavy.sh" ;; esac
+  case "$_hg_common" in */.git) grep -q '#5446-lib-fallback' "${_hg_common%/.git}/tools/queued-heavy.sh" 2>/dev/null \
+    && [ -f "${_hg_common%/.git}/tools/lib/cut-guard.sh" ] && _hg_qh="${_hg_common%/.git}/tools/queued-heavy.sh" ;; esac
   # Name a path only if it is there; otherwise say where the script lives, rather than a command that cannot run.
-  [ -f "$_hg_qh" ] && _hg_cmd="bash '$_hg_qh'" || _hg_cmd="tools/queued-heavy.sh from a Kosmos checkout:"
+  [ -f "$_hg_qh" ] && _hg_cmd="bash '$_hg_qh'" || _hg_cmd="bash <a Kosmos checkout>/tools/queued-heavy.sh"
   printf '%s\n' "heavy-gate: polling this holds no place in line. To wait your turn, run it through the queue: $_hg_cmd \"<what>\" <command>   (add --light first for ONE browser check or ONE test file)" >&2
 fi
 exit 1
