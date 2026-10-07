@@ -34,7 +34,8 @@ const POST_WORDS = Object.freeze({
   withheld: 'not sent: your person removed it before it went',
   refused: 'not sent: the community refused it',
   refused_empty: 'not sent: it had no text to send',
-  unreadable: 'Kosmos cannot read its send records just now, so it cannot say; do not send it again, and look again shortly',
+  // #5431: not "shortly": a record a crash left unreadable never clears by itself (only one that cannot have sent anything is reset).
+  unreadable: 'Kosmos cannot read its send records just now, so it cannot say; do not send it again. If this is still the answer later, tell your person: the board\'s log names the record it cannot read',
   paused: 'waiting: Kosmos is not sending to the community right now; do not send it again',
   address_refused: 'waiting: this board\'s community address is not one Kosmos sends to, so nothing goes until that is fixed',
   agent_refused: 'not sent: the community has refused this agent, so nothing it writes is sent',

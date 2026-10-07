@@ -631,6 +631,70 @@ test('an unreadable sent, keys or deletes file pauses sending and is left for re
   assert.equal(fs.readFileSync(cs._paths.deletesFile(), 'utf8'), '{ not json');
 });
 
+test('#5431: a torn sent.json or comments-sent.json (empty or NUL bytes) is reset when no agent has a key, and the post goes', async () => {
+  // Measured on a Windows box: sent.json was 3 NUL bytes after a crash, and every sweep refused to run from then on.
+  for (const [which, bytes] of [['sentFile', Buffer.alloc(3)], ['sentFile', Buffer.alloc(0)], ['commentsSentFile', Buffer.alloc(3)]]) {
+    fresh();
+    await on();
+    assert.equal(fs.existsSync(cs._paths.keysFile()), false, 'control: no agent has registered yet');
+    const file = cs._paths[which]();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, bytes);
+    const r = agentPost('tor', { topic: 'torn', body: 'after a crash' });
+    const res = await cs.sweep();
+    assert.notDeepEqual(res, { skipped: 'unreadable' }, `${which} (${bytes.length} bytes): still paused`);
+    assert.equal(cs.statuses()[r.id].state, 'sent', `${which}: the post did not go`);
+    assert.equal(typeof JSON.parse(fs.readFileSync(file, 'utf8')), 'object', `${which}: left torn`);
+  }
+});
+
+test('#5431: once an agent has a key, a torn sent.json is NOT reset (it may hide what was sent), and nothing goes', async () => {
+  fresh();
+  await on();
+  const r = agentPost('kee', { topic: 'first', body: 'sent before the crash' });
+  await cs.sweep();
+  assert.equal(cs.statuses()[r.id].state, 'sent', 'control: the agent registered and sent');
+  const file = cs._paths.sentFile();
+  fs.writeFileSync(file, Buffer.alloc(3));
+  agentPost('kee', { topic: 'second', body: 'after the crash' });
+  const before = posts().length;
+  assert.deepEqual(await cs.sweep(), { skipped: 'unreadable' });
+  assert.equal(posts().length, before, 'sent while sent.json was torn and a key existed');
+  assert.deepEqual([...fs.readFileSync(file)], [0, 0, 0], 'the torn file was overwritten although a key existed');
+});
+
+test('#5431: a torn keys.json is never reset, whatever else holds', async () => {
+  fresh();
+  await on();
+  const file = cs._paths.keysFile();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, Buffer.alloc(3));
+  fs.writeFileSync(cs._paths.sentFile(), Buffer.alloc(3));
+  agentPost('kez', { topic: 'x', body: 'y' });
+  const before = posts().length;
+  assert.deepEqual(await cs.sweep(), { skipped: 'unreadable' });
+  assert.equal(posts().length, before);
+  assert.deepEqual([...fs.readFileSync(file)], [0, 0, 0], 'keys.json was reset: every agent would get a second public name');
+  assert.deepEqual([...fs.readFileSync(cs._paths.sentFile())], [0, 0, 0], 'sent.json was reset while keys.json could not be read');
+});
+
+test('#5431: every record is flushed to disk before it is renamed into place', async () => {
+  fresh();
+  await on();
+  const synced = new Set(); const opened = new Map(); const order = [];
+  const realOpen = fs.openSync, realSync = fs.fsyncSync, realRename = fs.renameSync;
+  fs.openSync = (p, ...rest) => { const fd = realOpen(p, ...rest); opened.set(fd, String(p)); return fd; };
+  fs.fsyncSync = (fd) => { synced.add(opened.get(fd)); return realSync(fd); };
+  fs.renameSync = (from, to) => { order.push([String(from), synced.has(String(from))]); return realRename(from, to); };
+  try {
+    agentPost('fsy', { topic: 'f', body: 'g' });
+    await cs.sweep();
+  } finally { fs.openSync = realOpen; fs.fsyncSync = realSync; fs.renameSync = realRename; }
+  const mine = order.filter(([from]) => from.startsWith(path.dirname(cs._paths.stateFile())));
+  assert.ok(mine.length >= 2, `control: the sweep saved records (${mine.length} renames)`);
+  for (const [from, wasSynced] of mine) assert.equal(wasSynced, true, `${path.basename(from)} was renamed before it was flushed`);
+});
+
 test('a post whose send answer was lost, then deleted by the owner, is found on the server and deleted there', async () => {
   await on();
   const r = agentPost('xia', { topic: 'lost', body: 'answer lost' });

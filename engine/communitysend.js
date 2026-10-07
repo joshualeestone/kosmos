@@ -102,11 +102,46 @@ function commentDeletesFile() { return path.join(dir(), 'comment-deletes.json');
 // #4922: this install's community group id, one per endpoint like the keys (another server never sees it).
 function installGroupFile() { return path.join(endpointDir(), 'install-group.json'); }
 
+/* #5431: the temp file is flushed to disk before the rename, and the folder after it where the system allows. Without
+   that, a crash or power loss can leave the renamed file at its full length with zeroed contents (measured on a Windows
+   box: sent.json was 3 NUL bytes), which loadJson rightly cannot read, so sending paused with no end. */
 function saveJson(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const tmp = `${file}.${crypto.randomBytes(6).toString('hex')}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', { mode: FILE_MODE });
+  const fd = fs.openSync(tmp, 'w', FILE_MODE);
+  try {
+    fs.writeFileSync(fd, JSON.stringify(data, null, 2) + '\n');
+    fs.fsyncSync(fd);
+  } finally { fs.closeSync(fd); }
   fs.renameSync(tmp, file);
+  // A folder cannot be opened for this on Windows; there the rename is what NTFS journals.
+  try { const d = fs.openSync(path.dirname(file), 'r'); try { fs.fsyncSync(d); } finally { fs.closeSync(d); } } catch { /* best effort */ }
+}
+
+/* #5431: a record that is empty or only NUL bytes is a write torn by a crash, not a record someone damaged. sent.json
+   and comments-sent.json in that state are reset to {} when this service's keys.json holds no agent at all: with no
+   key nothing can have been posted or commented, so an empty record is the truth and nothing is sent twice. Any other
+   torn file (keys.json above all: resetting it would give every agent a second public name) stays unreadable, and
+   sending stays paused until a person repairs it. Runs only inside an exclusive section, so no writer races it. */
+function torn(file) {
+  let raw;
+  try { raw = fs.readFileSync(file); } catch { return false; }
+  return raw.length === 0 || raw.every((b) => b === 0);
+}
+function repairTornRecords() {
+  const records = [sentFile(), commentsSentFile()].filter(torn);
+  if (!records.length) return;
+  let keys;
+  try { keys = JSON.parse(fs.readFileSync(keysFile(), 'utf8')); }
+  catch (err) { if (err && err.code === 'ENOENT') keys = {}; else return; }
+  if (!keys || typeof keys !== 'object' || Array.isArray(keys) || Object.keys(keys).length) return;
+  for (const f of records) {
+    try {
+      saveJson(f, {});
+      reportedCorrupt.delete(f);
+      log(`${path.basename(f)} was empty or zero-filled (a write cut off by a crash or power loss) and no agent has a key on this service, so nothing was sent: reset it`);
+    } catch (e) { log(`${path.basename(f)} is torn and could not be reset (${e && e.code ? e.code : 'unknown'})`); }
+  }
 }
 
 function log(msg) {
@@ -1459,7 +1494,8 @@ function sendSoon() {
    agent the next time it is needed. */
 let keysChain = Promise.resolve();
 function exclusive(fn) {
-  const run = () => { applyRetirements(); return fn(); };   // #4994: a pending retirement lands before anything acts
+  // #4994: a pending retirement lands before anything acts. #5431: a torn record that is safe to reset goes first.
+  const run = () => { repairTornRecords(); applyRetirements(); return fn(); };
   const p = keysChain.then(run, run);
   keysChain = p.catch(() => {});
   return p;

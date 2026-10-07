@@ -121,6 +121,9 @@ test('review 1/2: a corrupt send record is "cannot say", never every sent post r
   }
   fs.writeFileSync(cs._paths.sentFile(), '{corrupt');
   assert.match(status.statusText('ava').text, /"Sent one".*cannot read its send records just now.*do not send it again/);
+  // #5431: it never says "shortly", which a record a crash left unreadable never meets, and it says who can fix it.
+  assert.doesNotMatch(status.statusText('ava').text, /shortly/);
+  assert.match(status.statusText('ava').text, /tell your person/);
   fs.writeFileSync(cs._paths.sentFile(), JSON.stringify({ [a.id]: { state: 'sent', agent: 'ava', remoteId: 'r1' } }));
   assert.equal(stateOfTitle('ava', 'Sent one'), 'sent', 'CONTROL: restored, it answers again');
 });
