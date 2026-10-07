@@ -35,7 +35,8 @@ function jobPath(name, worldId) {
 
 /** Where a board whose sandbox is `launchDir` (its AGENT_WORKFORCE_LAUNCH, with no AGENT_WORKFORCE_SYSTEMD_DIR) keeps the
     agent's job: the plist in launchDir on macOS, the unit in launchDir/systemd/user on Linux (linuxjob.defaultSystemdDir).
-    For tests that hand the sandbox only to a child board. The folder is made. */
+    For tests that hand the sandbox only to a child board. The folder is made. The name comes from THIS process's
+    world (KOSMOS_WORLD, unless worldId is given), so the child board must inherit that variable to look for the same file. */
 function jobPathIn(launchDir, name, worldId) {
   if (linux()) {
     const dir = path.join(launchDir, 'systemd', 'user');
