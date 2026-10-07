@@ -40,14 +40,19 @@ everyone else's code from running at all, before any step. It does not defend th
 a machine where jobs run as the runner's own user nothing can: the runner's config, its binaries and the hooks are
 all that user's. An earlier draft proposed a root-owned guard as the fix; review showed the runner's `.env` and
 binaries would stay writable, so that step bought no real boundary and was dropped. Same-repo writers are trusted
-already (they can edit workflows), and `test.yml` installs no packages, so there is no dependency supply chain for
-a trusted job to pull hostile code through. Separating jobs from the runner for real would need a VM per job
+already (they can edit workflows). `test.yml` installs no npm packages; what it does fetch at job time is Node, by
+`actions/setup-node` from its official source into the runner's tool cache (which persists on this machine), and
+tmux by `brew` only if it is missing. Those are the job's only downloads, from their publishers. Separating jobs from the runner for real would need a VM per job
 (ephemeral macOS VMs), which an M4 with 256 GB cannot hold beside the suite; noted for the Nov 4 Mac.
 
 The guard derives the runner's event path from where it is installed, not from any variable, runs `/bin/bash` with
 `PATH=/usr/bin:/bin`, and refuses a payload that is a link.
 
 **Must be checked live on the Mac before the switch goes on** (no test here can reach them):
+- FIRST: the job-started hook receives GITHUB_EVENT_NAME, GITHUB_REPOSITORY and GITHUB_EVENT_PATH, and the event
+  file exists when it runs. If not, every job is refused (safe, but nothing runs).
+- The runner, registered from a terminal in the Screen Sharing session (a LaunchAgent may not load over ssh), shows
+  online and survives a logout and login.
 - A same-repo PR whose workflow sets `env: GITHUB_EVENT_NAME / GITHUB_REPOSITORY / GITHUB_EVENT_PATH` to false
   values: the guard must still see the runner's real values. GitHub documents GITHUB_* as not overridable. (The
   path pin and the payload's repo name already refuse a forged path or a repo variable alone.)

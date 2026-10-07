@@ -55,6 +55,20 @@ deny "a missing payload file" push owner/kosmos "$T/home/actions-runner/_work/_t
 ln -s "$T/elsewhere/event.json" "$T/home/actions-runner/_work/_temp/_github_workflow/link.json"
 deny "a symlink in the runner's folder pointing at another file" push owner/kosmos "$T/home/actions-runner/_work/_temp/_github_workflow/link.json"
 deny "no payload path" push owner/kosmos ""
+# The guard finds the runner's file from where it is RUN FROM: a copy elsewhere, or a symlink to it from elsewhere
+# (it resolves the folder, not the link), finds no runner and refuses. Fail-closed; the hooks call it by its real path.
+put "{$REPOJ}"
+mkdir -p "$T/stray"; cp "$GUARD" "$T/stray/job-guard.sh"
+if GITHUB_EVENT_NAME=push GITHUB_REPOSITORY=owner/kosmos GITHUB_EVENT_PATH="$EV" "$T/stray/job-guard.sh" >/dev/null 2>&1; then
+  fail "must REFUSE: a copy of the guard installed outside the runner's home"
+else pass "refused: a copy of the guard installed outside the runner's home"; fi
+ln -s "$GUARD" "$T/stray/linked-guard.sh"
+if GITHUB_EVENT_NAME=push GITHUB_REPOSITORY=owner/kosmos GITHUB_EVENT_PATH="$EV" "$T/stray/linked-guard.sh" >/dev/null 2>&1; then
+  fail "must REFUSE: the guard reached through a symlink from another folder"
+else pass "refused: the guard reached through a symlink from another folder (fail-closed)"; fi
+if GITHUB_EVENT_NAME=push GITHUB_REPOSITORY=owner/kosmos GITHUB_EVENT_PATH="$EV" "$GUARD" >/dev/null 2>&1; then
+  pass "allowed: the same payload through the guard at its real path (CONTROL for the two refusals above)"
+else fail "must allow: the guard at its real path"; fi
 
 if [ "$fails" -eq 0 ]; then echo "test-ci-runner-job-guard-5488: 0 failures"; exit 0; fi
 echo "test-ci-runner-job-guard-5488: $fails failure(s)"; exit 1
