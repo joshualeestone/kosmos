@@ -1097,7 +1097,7 @@ async function forget() {
   // register first waiting on signed calls already out (a minute) and retiring a
   // half identity (retireTimeoutMs, a minute), the register itself (five), signed
   // calls already out again (a minute, below), then this retire (a minute). Only
-  // when something is already broken.
+  // when something is already broken. kosmos#5422 adds a sixth, the wait on key-making calls (a minute, below).
   //
   // One forget at a time: a second (a double click, two tabs, a retried request)
   // gets the first one's answer instead of retiring the same Mac beside it.
@@ -1113,7 +1113,8 @@ async function forget() {
       // Bounded: each tracked call carries its own kill timeout (at most one retire
       // bound), so this wait ends with the calls ended.
       if (signedInFlight.size) await Promise.allSettled([...signedInFlight]);
-      // kosmos#5422: a device-key ask may be making the key in the folder Forget empties (bounded at 15 s).
+      // kosmos#5422: a device-key ask or a keyed start may be making the key in the folder Forget empties. This wait
+      // is bounded (KEY_CALL_WAIT_MS, a minute), a sixth bound in the worst case above.
       if (deviceIdInFlight.size) {
         let timer;
         await Promise.race([Promise.allSettled([...deviceIdInFlight]), new Promise((ok) => { timer = setTimeout(ok, keyCallWaitMs()); })]);
@@ -1680,7 +1681,11 @@ function signinDeviceId() {
   /* Kept at once, so a restart signs in with it again. With no id in use it is the id; with one in use (a key's id,
      under an older tunnel) it waits among the ids before, and becomes the id in use only when a sign-in with it is
      taken (the callers record it), so the self-grant never moves to an id the coordinator has not seen. */
-  if (!r.device_id) useDeviceId(id);
+  // In use: the file's id, or, when the file cannot be read, the one this process holds. An id that could never have
+  // been valid (a hand edit) is replaced at once, as before kosmos#5422.
+  const inUse = r.ok === false && heldIdentity ? heldIdentity.device_id : r.device_id;
+  if (!inUse || !DEVICE_ID.test(inUse)) useDeviceId(id);
+  else if (r.ok === false) heldIdentity = { device_id: heldIdentity.device_id, past_device_ids: [id, ...heldIdentity.past_device_ids.filter((x) => x !== id)] };
   else write({ past_device_ids: [id, ...r.past_device_ids.filter((x) => x !== id)] });
   return id;
 }
@@ -1727,7 +1732,13 @@ async function signinDeviceArgs(forVerify) {
   if (!asked.ok && typeof asked.code !== 'number') return { failed: { ok: false, because: asked.because || 'the tunnel program did not answer' } };
   const r = parseSaid(asked);
   const id = r.ok && r.data && typeof r.data.device_id === 'string' && KEYED_ID.test(r.data.device_id) ? r.data.device_id : '';
-  if (!id) return { failed: { ok: false, because: "this computer's sign-in key could not be opened (" + (r.because || 'no id came back') + ')' } };
+  if (!id) {
+    /* The tunnel says what is wrong and what to do on its "Error: " line (anyhow's shape; the last line is only the
+       innermost cause). Its path is dropped; the way out the person can press is named. */
+    const said = String(asked.stderr || '').split('\n').find((l) => /^Error: /.test(l));
+    const why = said ? said.slice(7).replace(/the device key \S+ /, 'the device key ').trim() : (r.because || 'no id came back');
+    return { failed: { ok: false, because: "this computer's sign-in key could not be opened: " + why + '. Remove this computer, in Kosmos+, to start over with a new one.' } };
+  }
   // Recorded by the caller once the coordinator has taken a start or verify with it, not here: a cancelled or refused start
   // never reached the coordinator, so its id must not displace the one this computer signed in with.
   return { args: ['--device-key', DEVICE_KEY_FILE()], id };
@@ -2193,14 +2204,17 @@ async function clearHalfIdentity() {
   }
   if (!r.ok) process.stderr.write('remote: an unfinished earlier sign-in could not be retired at Kosmos+ (' + r.because + '); its address may show on the account page until it is removed there\n');
   /* kosmos#5422: the sign-in's device key lives in this folder too and is not part of the half identity: it is the
-     device the person just signed in as. Held in memory across the wipe and written back owner-only, so finishing a
-     sign-in does not make this computer another device next time. In memory, not moved aside on disk: a crash in
-     between loses the key (a new device, once) rather than leaving a private key outside the folder Forget empties. */
-  let keyBytes = null;
-  try { keyBytes = fs.readFileSync(DEVICE_KEY_FILE()); } catch { /* no key (an older tunnel) */ }
-  try { fs.rmSync(STATE_DIR(), { recursive: true, force: true }); } catch { /* the register writes it again */ }
+     device the person just signed in as. The folder is emptied entry by entry around it, so finishing a sign-in does
+     not make this computer another device next time; the key file itself is never rewritten (a rewrite would lose
+     the tunnel's Windows ACL, and a verify opening it meanwhile would make a new one). */
+  const keyName = path.basename(DEVICE_KEY_FILE());
+  let entries = [];
+  try { entries = fs.readdirSync(STATE_DIR()); } catch { /* no folder: nothing to clear */ }
+  for (const name of entries) {
+    if (name === keyName) continue;   // never touched: its contents and its owner-only protection (on Windows an ACL) stay
+    try { fs.rmSync(path.join(STATE_DIR(), name), { recursive: true, force: true }); } catch { /* the register writes it again */ }
+  }
   secureStateDir();
-  if (keyBytes) { try { fs.writeFileSync(DEVICE_KEY_FILE(), keyBytes, { mode: 0o600, flag: 'wx' }); } catch { /* a new key is made next time: a new device, once */ } }
   return r.ok ? null : { stranded: retireReason(r) };
 }
 /* The register's answer when a half identity was kept for a retry. */

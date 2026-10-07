@@ -77,7 +77,8 @@ if (args[0] === 'signin') {
   if (verb === 'device-id') {
     // An older tunnel: clap's usage error, exit 2 (measured on two 0.7.25-era builds).
     if (!mode.includes('devkey')) { process.stderr.write("error: unrecognized subcommand 'device-id'\\n\\nUsage: kosmos-tunnel signin <COMMAND>\\n"); process.exit(2); }
-    if (mode.includes('devkey-broken')) { process.stderr.write('the device key file is not a key this program made\\n'); process.exit(1); }
+    // anyhow's shape, as the real tunnel prints it: the message on the Error line, the innermost cause last.
+    if (mode.includes('devkey-broken')) { process.stderr.write('Error: the device key ' + flag('--device-key') + ' is not a P-256 key; remove it to make a new one (this device must then be allowed again)\\n\\nCaused by:\\n    ASN.1 error: unexpected end\\n'); process.exit(1); }
     if (mode.includes('devkey-usage')) { process.stderr.write("error: unexpected argument '--device-key' found\\n"); process.exit(2); }
     if (mode.includes('devkey-slow')) { const until = Date.now() + 800; while (Date.now() < until) { /* making the key */ } }
     fs.mkdirSync(path.dirname(flag('--device-key')), { recursive: true });
@@ -1754,7 +1755,9 @@ test('kosmos#5422: a key that cannot be opened refuses the sign-in in words; it 
   let r;
   try { r = await remote.signinStart('her@example.com'); } finally { delete process.env.FAKE_TUNNEL_MODE; }
   assert.equal(r.ok, false);
-  assert.match(r.because, /sign-in key could not be opened.*not a key this program made/);
+  assert.match(r.because, /sign-in key could not be opened: the device key is not a P-256 key; remove it to make a new one/);
+  assert.match(r.because, /Remove this computer/, 'no way out was named');
+  assert.ok(!r.because.includes('/'), 'the key path reached the person: ' + r.because);
   assert.ok(!recorded().some((c) => c[0] === 'signin' && c[1] === 'start'), 'a start went out without the key');
   // CONTROL: the same computer on an older tunnel (exit 2) signs in on its opaque id.
   assert.equal((await remote.signinStart('her@example.com')).ok, true);
@@ -1871,6 +1874,7 @@ test('kosmos#5422: finishing an unfinished earlier sign-in keeps the device key 
     await remote.signinStart('her@example.com');
     await remote.signinVerify('her@example.com', '111111');
     const before = fs.readFileSync(keyFile, 'utf8');
+    const beforeIno = fs.statSync(keyFile).ino;
     assert.equal((await remote.signinRegister('hers')).ok, false, 'fixture: the register was killed by its bound');
     process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '1500';
     process.env.FAKE_TUNNEL_MODE = 'devkey';
@@ -1878,7 +1882,7 @@ test('kosmos#5422: finishing an unfinished earlier sign-in keeps the device key 
     assert.equal((await remote.signinRegister('hers')).ok, true);
     assert.ok(recorded().some((c) => c[0] === 'retire'), 'precondition: the half identity was retired and wiped');
     assert.equal(fs.existsSync(keyFile) && fs.readFileSync(keyFile, 'utf8'), before, 'the wipe took the device key with it');
-    assert.equal(fs.statSync(keyFile).mode & 0o777, 0o600, 'the key came back readable by others');
+    assert.equal(fs.statSync(keyFile).ino, beforeIno, 'the key file was rewritten (its protection would be lost on Windows)');
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
     delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
@@ -1929,6 +1933,20 @@ test('kosmos#5422: a keyed start that never returns cannot hold a Forget', async
     assert.ok(Date.now() - t0 < 700, 'Forget waited out the whole start (' + (Date.now() - t0) + ' ms)');
     await starting;
   } finally { delete process.env.FAKE_TUNNEL_MODE; delete process.env.AGENT_WORKFORCE_KEY_CALL_WAIT_MS; }
+});
+
+test('kosmos#5422: on a damaged file, an older tunnel\'s untaken start does not make its new id the one in use', async () => {
+  const KEYED = 'k1.' + 'A'.repeat(31) + 'Q';
+  process.env.FAKE_TUNNEL_MODE = 'devkey';
+  try { assert.equal((await remote.signinStart('her@example.com')).ok, true); } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  fs.writeFileSync(remote.FILE, '{"on": true, "relay": "rel');
+  // The tunnel is swapped for an older one under the running board, and the start is not taken.
+  assert.equal((await remote.signinStart('down@example.com')).ok, false);
+  assert.equal(remote.ownDeviceIds()[0], KEYED, 'an id the coordinator never saw became the one in use');
+  assert.equal(remote.setOn(true).ok, true);   // the repair
+  assert.equal(remote.read().device_id, KEYED);
+  assert.equal(remote.read().past_device_ids.length, 1, 'the minted id was not kept for the next start');
+  remote.setOn(false);
 });
 
 test('kosmos#5422: a cancel while start asks the tunnel sends no start', async () => {
