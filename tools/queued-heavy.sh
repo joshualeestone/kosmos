@@ -20,6 +20,51 @@
 # TO CHANGE THE INSTALLED COPY: write the new version beside it and mv it over. Never edit it in place: waiters are
 # running it, and bash reads a script by byte offset, so an in-place edit kills them.
 set -u
+# #5467: while it waits, this process must not carry the wrapped command in its own command line. A hand-written
+# "is X running?" check (pgrep -f X) read a waiter for X as a running X, and on 2026-10-07 a release that waited for
+# running browser checks waited on a waiter that was waiting for the release (0.7.27, a deadlock a person had to break).
+# So the first thing it does is write its arguments (NUL-separated, private to this user) to a file and exec itself
+# with only that file's name; it reads them back and deletes the file at once. The command, once its turn comes,
+# starts as its own process with its own command line, so the real run IS matched. Same pid throughout (exec), so a
+# waiter marker or a pid someone holds stays right. Not covered: the CALLER's own command line (a `bash -c "...
+# queued-heavy.sh ... browser-checks.sh"` shell) still carries it; anchor such checks to the start of the line. #5470 tracks
+# one anchored helper for those checks.
+# The cost: `ps` no longer says what a waiter waits for (its label went into the file too); its own log lines do.
+# The re-exec is always /bin/bash with no options, on purpose (the fleet's one bash, the 3.2 this file is written for):
+# a `bash -x queued-heavy.sh`, or one started under another bash, runs as plain /bin/bash from here.
+if [ "${1:-}" = --queued-args ]; then
+  [ "$#" -eq 2 ] || { echo "QUEUED-HEAVY: --queued-args is internal" >&2; exit 2; }   # review 4: nothing after the file
+  _qh_af="${2:-}"
+  # Its own file only: under TMPDIR or /tmp (the stale-TMPDIR fallback below), with no further path after the name.
+  case "$_qh_af" in
+    "${TMPDIR:-/tmp}"/queued-heavy-args.*/*|/tmp/queued-heavy-args.*/*) echo "QUEUED-HEAVY: --queued-args is internal" >&2; exit 2 ;;
+    "${TMPDIR:-/tmp}"/queued-heavy-args.*|/tmp/queued-heavy-args.*) ;;
+    *) echo "QUEUED-HEAVY: --queued-args is internal" >&2; exit 2 ;;
+  esac
+  # Review 4: not a symlink (-f and -O follow one, so a planted link could name any file of ours).
+  [ ! -L "$_qh_af" ] && [ -f "$_qh_af" ] && [ -O "$_qh_af" ] || { echo "QUEUED-HEAVY: --queued-args file is missing or not ours" >&2; exit 2; }
+  _qh_args=()
+  while IFS= read -r -d '' _qh_a; do _qh_args+=("$_qh_a"); done < "$_qh_af"
+  rm -f "$_qh_af"
+  # printf writes at least one NUL, so there is always one argument; the guard is for a file emptied by hand (bash 3.2:
+  # an empty array is unbound under set -u).
+  if [ "${#_qh_args[@]}" -gt 0 ]; then set -- "${_qh_args[@]}"; else set --; fi
+  unset _qh_af _qh_a _qh_args
+else
+  # Review 4: a TERM, INT or HUP before the re-exec removes the file it wrote (an exec drops these traps).
+  _qh_af=""; trap '[ -n "$_qh_af" ] && rm -f "$_qh_af"' EXIT; trap 'exit 130' INT; trap 'exit 143' TERM; trap 'exit 129' HUP   # review 5: each signal's own code
+  # Review 1: a stale TMPDIR (a folder since removed) falls back to /tmp, as the capper's files do below (review 3 there).
+  _qh_af="$(umask 077 && { mktemp "${TMPDIR:-/tmp}/queued-heavy-args.XXXXXX" 2>/dev/null || mktemp /tmp/queued-heavy-args.XXXXXX; })" \
+    || { echo "QUEUED-HEAVY: could not write its arguments aside (mktemp)" >&2; exit 3; }
+  printf '%s\0' "$@" > "$_qh_af" || { rm -f "$_qh_af"; echo "QUEUED-HEAVY: could not write its arguments aside" >&2; exit 3; }
+  trap - INT TERM HUP
+  shopt -s execfail   # review 5: without it a failed exec ends this shell at once (126) and the line below never runs
+  # Review 7: a script fed on stdin has no file to restart from; the exec below would then run nothing.
+  [ -f "${BASH_SOURCE[0]:-}" ] || { rm -f "$_qh_af"; echo "QUEUED-HEAVY: run it as a file (bash tools/queued-heavy.sh), not on stdin" >&2; exit 3; }
+  exec /bin/bash "${BASH_SOURCE[0]}" --queued-args "$_qh_af"
+  _qh_rc=$?; rm -f "$_qh_af"   # by hand: bash clears the traps while it tries the exec (measured)
+  echo "QUEUED-HEAVY: could not restart itself ($_qh_rc)" >&2; exit 3
+fi
 # #4609 light lane (Renet, 2026-09-30): `queued-heavy.sh --light "<what>" <cmd...>` for ONE browser check or ONE focused
 # test file (a run that holds the box for seconds to a couple of minutes). It goes ahead of full suites and heavy runs,
 # still one run at a time; a heavy waiter past 45 min goes first. Honest use only: a long job marked light jumps the
