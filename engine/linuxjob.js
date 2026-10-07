@@ -28,8 +28,10 @@ const DEFAULT_BOARD_PORT = 16180;
 function defaultSystemdDir() {
   if (process.env.AGENT_WORKFORCE_SYSTEMD_DIR) return process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
   if (process.env.AGENT_WORKFORCE_LAUNCH) return path.join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
-  const configHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
-  return path.join(configHome, 'systemd', 'user');
+  /* ~/.config, never the board's own XDG_CONFIG_HOME (review 19): the user manager is started by PAM without the
+     person's shell profile, so an XDG_CONFIG_HOME exported in .bashrc names a folder systemd never reads, and every
+     enable would fail with "Unit file ... does not exist". */
+  return path.join(os.homedir(), '.config', 'systemd', 'user');
 }
 
 let systemdDirFn = defaultSystemdDir;

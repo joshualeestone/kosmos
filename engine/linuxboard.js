@@ -64,7 +64,9 @@ function boardUnitPath(kosmosHome) {
 function boardUnitFor(kosmosHome, port) {
   const home = path.resolve(kosmosHome || process.env.KOSMOS_HOME || defaultKosmosHome());
   const kosmosBin = path.join(home, 'bin', 'kosmos');
-  const p = port || Number(process.env.PORT) || DEFAULT_BOARD_PORT;
+  const p = Number(port) || Number(process.env.PORT) || DEFAULT_BOARD_PORT;
+  // An integer only: a string with a newline would add a directive to the unit (review 19).
+  if (!Number.isInteger(p) || p < 1 || p > 65535) throw new Error('the board port is not a port number');
   const userHome = os.homedir();
   const stopMarker = path.join(home, 'board.stopped');
   const tmuxBinDir = path.join(home, 'tmux', 'bin');

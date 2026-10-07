@@ -27,6 +27,7 @@ before(() => {
 });
 after(() => {
   fs.rmSync(process.env.AGENT_WORKFORCE_WORKERS, { recursive: true, force: true });
+  fs.rmSync(process.env.AGENT_WORKFORCE_DATA, { recursive: true, force: true });
   linuxjob.setRunnerForTests(null);
   linuxjob.setSystemdDirForTests(null);
   fs.rmSync(unitDir, { recursive: true, force: true });
@@ -296,5 +297,20 @@ test('#4918 review 12: installBoard ensures linger and says whether it is on, re
     assert.equal(r.ok, true);
     assert.equal(r.lingering, on, out.trim());
     assert.ok(seen.some((c) => c[0] === 'loginctl' && c[1] === 'enable-linger'), 'linger was never asked for');
+  }
+});
+
+test('#4918 review 19: the unit folder ignores the board\'s own XDG_CONFIG_HOME (systemd never reads it)', () => {
+  linuxjob.setSystemdDirForTests(null);
+  const saved = { x: process.env.XDG_CONFIG_HOME, d: process.env.AGENT_WORKFORCE_SYSTEMD_DIR, l: process.env.AGENT_WORKFORCE_LAUNCH };
+  process.env.XDG_CONFIG_HOME = '/tmp/some-shell-only-config';
+  delete process.env.AGENT_WORKFORCE_SYSTEMD_DIR; delete process.env.AGENT_WORKFORCE_LAUNCH;
+  try {
+    assert.equal(linuxjob.systemdDir(), path.join(os.homedir(), '.config', 'systemd', 'user'));
+  } finally {
+    for (const [k, v] of [['XDG_CONFIG_HOME', saved.x], ['AGENT_WORKFORCE_SYSTEMD_DIR', saved.d], ['AGENT_WORKFORCE_LAUNCH', saved.l]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+    linuxjob.setSystemdDirForTests(() => unitDir);
   }
 });
