@@ -254,6 +254,10 @@ const notARead = ([, a]) => a && a[0] !== 'print' && !a.includes('is-active');
    whose assertion is platform-neutral. Skipped on Linux until #5500 ports it; the reason says it is not tested there. */
 const LINUX_UNPORTED_WHY = 'launchd is only this test\'s fixture (a plist, launchctl answers); what it asserts is platform-neutral and is '
   + 'tested on macOS and Windows, but NOT yet on Linux: #5500 ports it';
+/* #5432 review 3: these assert the launchd job itself, and the Linux unit's equivalent is NOT tested yet (no Linux
+   test checks it); #5500 lists them beside the fixture-only ones. */
+const LINUX_UNIT_UNTESTED_WHY = 'it asserts the launchd job itself; the systemd unit\'s equivalent (the same value carried, or '
+  + 'the same refusal) is NOT tested on Linux yet: #5500';
 const LINUX_LAUNCHD_WHY = 'it reads or drives the launchd job (plist, launchctl, the launchd runner seam); Linux runs a systemd user unit: '
   + 'create.linux-4918.test.js (create, already-loaded, orphan unit), linuxjob.test.js (unit text, lifecycle) and linuxwiring-4918.test.js';
 const LINUX_LAUNCHD_FAIL_WHY = 'it simulates a failed start or write through launchctl answers; Linux failed starts and roll backs: '
@@ -3719,7 +3723,7 @@ test('a successful undo adds no step, so the failure step means something', LX(W
 });
 
 
-test('setModel rewrites the startup file and keeps everything else about the job', LX(WIN_LAUNCHD, LINUX_LAUNCHD_WHY), () => {
+test('setModel rewrites the startup file and keeps everything else about the job', LX(WIN_LAUNCHD, LINUX_UNIT_UNTESTED_WHY), () => {
   /**
    * 🔑 THE MODEL WAS ALWAYS WRITTEN INTO THE JOB and always parsed back out;
    * what was missing was the ability to change it. Josh, 2026-08-21, with an
@@ -3799,7 +3803,7 @@ const cfgOf = (text) => {
   return m ? m[1] : null;
 };
 
-test('a job made by a server on another port carries KOSMOS_PORT, so the agent answers the board that made it (#577)', LX(WIN_LAUNCHD, LINUX_LAUNCHD_WHY), () => {
+test('a job made by a server on another port carries KOSMOS_PORT, so the agent answers the board that made it (#577)', LX(WIN_LAUNCHD, LINUX_UNIT_UNTESTED_WHY), () => {
   recorder();
   create.setDryRun(false);
   const before = process.env.PORT;
@@ -3845,7 +3849,7 @@ test('a job made by a server on another port carries KOSMOS_PORT, so the agent a
   // build that contained the line, whatever the loop did (#587).
 });
 
-test('a job made by the default board carries no KOSMOS_PORT: absent means the default, so old plists do not change (#577)', LX(WIN_LAUNCHD, LINUX_LAUNCHD_WHY), () => {
+test('a job made by the default board carries no KOSMOS_PORT: absent means the default, so old plists do not change (#577)', LX(WIN_LAUNCHD, LINUX_UNIT_UNTESTED_WHY), () => {
   recorder();
   create.setDryRun(false);
   const before = process.env.PORT;
@@ -3860,7 +3864,7 @@ test('a job made by the default board carries no KOSMOS_PORT: absent means the d
   assert.doesNotMatch(plist, /KOSMOS_PORT/);
 });
 
-test('a job made by a server with TMUX_TMPDIR set carries it, so its sessions land where the board looks (#668)', LX(WIN_LAUNCHD, LINUX_LAUNCHD_WHY), () => {
+test('a job made by a server with TMUX_TMPDIR set carries it, so its sessions land where the board looks (#668)', LX(WIN_LAUNCHD, LINUX_UNIT_UNTESTED_WHY), () => {
   recorder();
   create.setDryRun(false);
   const before = process.env.TMUX_TMPDIR;
@@ -3878,7 +3882,7 @@ test('a job made by a server with TMUX_TMPDIR set carries it, so its sessions la
     + 'creation says "started it" and the board says "Not running" forever (#668)');
 });
 
-test('a job made with no TMUX_TMPDIR carries none: absent means the default socket, so old plists do not change (#668)', LX(WIN_LAUNCHD, LINUX_LAUNCHD_WHY), () => {
+test('a job made with no TMUX_TMPDIR carries none: absent means the default socket, so old plists do not change (#668)', LX(WIN_LAUNCHD, LINUX_UNIT_UNTESTED_WHY), () => {
   recorder();
   create.setDryRun(false);
   const before = process.env.TMUX_TMPDIR;
@@ -4792,7 +4796,7 @@ test('#3296 accounts slice: a Gemini create on a KNOWN account routes to that pe
   assert.match(bad.because, /do not know that Gemini account/);
 });
 
-test('#3296: installJob backfills a gemini agent as a GEMINI job on Mac (not claude), the runner read from its profile', LX(WIN_LAUNCHD, LINUX_LAUNCHD_WHY), () => {
+test('#3296: installJob backfills a gemini agent as a GEMINI job on Mac (not claude), the runner read from its profile', LX(WIN_LAUNCHD, LINUX_UNIT_UNTESTED_WHY), () => {
   recorder();
   create.setDryRun(false);
   const made = create.createAgent({ ...BINS, geminiBin: GEMINI_BIN, name: 'g-backfill', role: 'pm', provider: 'google' });
@@ -5157,7 +5161,7 @@ test('#3391 accounts slice: a Grok create on a KNOWN account routes to that per-
   assert.match(bad.because, /do not know that Grok account/);
 });
 
-test('#3391: installJob backfills a grok agent as a GROK job on Mac (not claude), the runner read from its profile', LX(WIN_LAUNCHD, LINUX_LAUNCHD_WHY), () => {
+test('#3391: installJob backfills a grok agent as a GROK job on Mac (not claude), the runner read from its profile', LX(WIN_LAUNCHD, LINUX_UNIT_UNTESTED_WHY), () => {
   recorder();
   create.setDryRun(false);
   const made = create.createAgent({ ...BINS, grokBin: GROK_BIN, name: 'gk-backfill', role: 'pm', provider: 'xai' });
@@ -5602,7 +5606,7 @@ test('#245: a claude agent\'s launch vector is untouched by the runner feature',
   assert.equal(store.readProfile(name).provider, 'anthropic');
 });
 
-test('jobMissing counts only a proven absence: EACCES answers false, never "never recorded" (#149/#150)', LX(WIN_LAUNCHD, LINUX_LAUNCHD_WHY), () => {
+test('jobMissing counts only a proven absence: EACCES answers false, never "never recorded" (#149/#150)', LX(WIN_LAUNCHD, LINUX_UNIT_UNTESTED_WHY), () => {
   /* The function's whole reason to exist over !hasJob(): existsSync swallows
      EACCES into false, so the negation would stamp a provenance claim on
      every agent the moment LaunchAgents cannot be read. Forced here with a

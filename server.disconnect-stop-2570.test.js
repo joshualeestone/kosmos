@@ -34,7 +34,7 @@
 const os = require('node:os');
 /* #5432: on a Linux host an agent's job is a systemd user unit, so a test that asserts the launchd plist itself
    measures nothing there. Skipped on Linux only, naming where Linux covers it; macOS and Windows unchanged. */
-const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS plist test on a Linux host (#5432): it checks that launchctl disabled the job; a Linux stop disables the unit: linuxwiring-4918.test.js (review 4, disable)" } : {};
+const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS plist test on a Linux host (#5432): it checks that launchctl disabled the job; a Linux stop disables the unit: linuxwiring-4918.test.js (the jobOps test: a Linux stop disables and stops the unit)" } : {};
 const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const fs = require('node:fs');
 const nodePath = require('node:path');
