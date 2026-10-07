@@ -2981,13 +2981,10 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
     done
     # Not recorded in #2055's update-abort streak: the board shows that streak as "Kosmos was busy, quit and
     # reopen it", which is not the remedy for the stops below (#4675).
-    # #4651 x #4818/#5033: the put-back is armed before the two stops below, which are for a shell that cannot see or
-    # reach the board. From there it cannot tell whether the stop stopped anything (an installed kosmos older than
-    # #4636 writes board.stopped in a sandbox without stopping the board), and its start would fail the same way and
-    # report a pause that may not have happened. So the put-back stands down and the marker this run wrote is taken
-    # back instead (#5033): a board that did stop is run again by what supervises it, one that did not is untouched.
-    # The stop then says what to do if it is not running, only when this run meant it to be running (not for a board
-    # the person stopped, nor a computer set to connect elsewhere).
+    # #4651 x #4818/#5033: the put-back is armed before the two stops below, which come after a port check that
+    # failed (a sandboxed shell, or a holder this shell's curl cannot reach). From here the run cannot tell whether
+    # its stop stopped anything, so the put-back stands down and the marker this run wrote is taken back (#5033).
+    # Only when this run meant the board to be running does the stop add what to do if it is not.
     _kosmos_handback_note=""
     _kosmos_blocked_shell_handback() {
       [ "$_kosmos_paused_board" = yes ] && _kosmos_handback_note=" If you leave the update here and Kosmos is not running, open the Kosmos app."
