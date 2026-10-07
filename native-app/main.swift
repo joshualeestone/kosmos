@@ -1470,6 +1470,34 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         }
     }
     /// #5481: both permissions the mic needs are now granted. PURE, so the selftest drives it.
+    /// #5481: restricted (Screen Time or a device profile) is told apart from denied, because the
+    /// Privacy pane cannot undo it and the page must not offer that pane for it. PURE, selftested.
+    static func speechRefusal(_ s: SFSpeechRecognizerAuthorizationStatus) -> String {
+        switch s {
+        case .notDetermined: return "speech-unanswered"
+        case .restricted: return "speech-restricted"
+        default: return "speech-denied"
+        }
+    }
+    static func micRefusal(_ s: AVAuthorizationStatus) -> String { s == .restricted ? "mic-restricted" : "mic-denied" }
+    static func statusName(_ s: SFSpeechRecognizerAuthorizationStatus) -> String {
+        switch s {
+        case .authorized: return "authorized"
+        case .denied: return "denied"
+        case .restricted: return "restricted"
+        case .notDetermined: return "not-asked"
+        @unknown default: return "unknown"
+        }
+    }
+    static func statusName(_ s: AVAuthorizationStatus) -> String {
+        switch s {
+        case .authorized: return "authorized"
+        case .denied: return "denied"
+        case .restricted: return "restricted"
+        case .notDetermined: return "not-asked"
+        @unknown default: return "unknown"
+        }
+    }
     static func bothAllowed(speech: SFSpeechRecognizerAuthorizationStatus, mic: AVAuthorizationStatus) -> Bool {
         return speech == .authorized && mic == .authorized
     }
@@ -1553,14 +1581,23 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         let mine = session
         pending = true
         guard Self.usageStringsPresent(Bundle.main.infoDictionary) else { refuse("not-set-up"); return }
+        // #5481: the raw answers and how long they took go to the log, so the next refusal says whether a
+        // prompt was ever shown (an answer in a few milliseconds is macOS refusing without asking).
+        let speechBefore = SFSpeechRecognizer.authorizationStatus()
+        let asked = Date()
         SFSpeechRecognizer.requestAuthorization { status in
             DispatchQueue.main.async {
+                logLine("voice: speech permission " + Self.statusName(speechBefore) + " -> " + Self.statusName(status) + " in \(Int(Date().timeIntervalSince(asked) * 1000)) ms")
                 guard mine == self.session else { return }
-                guard status == .authorized else { self.refuse(status == .notDetermined ? "speech-unanswered" : "speech-denied"); return }
+                guard status == .authorized else { self.refuse(Self.speechRefusal(status)); return }
+                let micBefore = AVCaptureDevice.authorizationStatus(for: .audio)
+                let micAsked = Date()
                 AVCaptureDevice.requestAccess(for: .audio) { granted in
                     DispatchQueue.main.async {
+                        let micAfter = AVCaptureDevice.authorizationStatus(for: .audio)
+                        logLine("voice: microphone permission " + Self.statusName(micBefore) + " -> " + Self.statusName(micAfter) + " in \(Int(Date().timeIntervalSince(micAsked) * 1000)) ms")
                         guard mine == self.session else { return }
-                        guard granted else { self.refuse("mic-denied"); return }
+                        guard granted else { self.refuse(Self.micRefusal(micAfter)); return }
                         self.begin(mine)
                     }
                 }
@@ -6488,7 +6525,10 @@ if CommandLine.arguments.contains("--kosmos-app-voice-selftest") {
     row(VoiceBridge.settingsURL(pane: "https://example.com") == nil && VoiceBridge.settingsURL(pane: "") == nil, "#5481: anything else opens nothing")
     row(VoiceBridge.bothAllowed(speech: .authorized, mic: .authorized), "#5481: both allowed starts again")
     row(!VoiceBridge.bothAllowed(speech: .authorized, mic: .denied) && !VoiceBridge.bothAllowed(speech: .denied, mic: .authorized), "#5481: either still off does not")
-    let expected = 21   // #5311: + Dictation off, + its control; #5481: + 5
+    row(VoiceBridge.speechRefusal(.restricted) == "speech-restricted" && VoiceBridge.micRefusal(.restricted) == "mic-restricted", "#5481: restricted is said as restricted")
+    row(VoiceBridge.speechRefusal(.denied) == "speech-denied" && VoiceBridge.micRefusal(.denied) == "mic-denied", "#5481 CONTROL: denied stays denied")
+    row(VoiceBridge.speechRefusal(.notDetermined) == "speech-unanswered", "#5481: no answer stays unanswered")
+    let expected = 24   // #5311: + Dictation off, + its control; #5481: + 8
     if ran != expected { print("\nvoice-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
     if bad > 0 { print("\nvoice-check: \(bad) row(s) wrong"); exit(1) }
     print("\nvoice-check: all good (\(ran) rows)")

@@ -409,37 +409,65 @@ test('#4409 slice 3 review 25: on the Mac, a press while Finishing is one more s
   assert.equal(h.VOICE.btn, btn, 'the Mac session ended at once instead of waiting for its final words');
 });
 
-test('#5481: on the Mac app a denied mic offers ONE Settings button; the click asks for that pane; "allowed" starts the same mic', () => {
+test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [X   Turn on in Settings], with no sentence; the label asks for that pane, X puts the mic back, "allowed" starts the same mic', () => {
   const { h, posted, mkBtn, mkBox, doc } = voiceHarness();
-  const made = [];
-  doc.createElement = () => ({ className: '', textContent: '', type: '', handlers: {}, addEventListener(e, f) { this.handlers[e] = f; }, remove() { const i = made.indexOf(this); if (i >= 0) made.splice(i, 1); } });
-  doc.querySelectorAll = (sel) => (sel === '.voice-settings' ? made.slice() : []);
+  const pills = [];
+  const cls = () => { const set = new Set(); return { add: (c) => set.add(c), remove: (c) => set.delete(c), contains: (c) => set.has(c), toggle() {} }; };
+  const el = () => ({ className: '', textContent: '', type: '', title: '', attrs: {}, kids: [], handlers: {},
+    setAttribute(k, v) { this.attrs[k] = v; }, addEventListener(e, f) { this.handlers[e] = f; }, append(...k) { this.kids.push(...k); },
+    focus() { doc.activeElement = this; }, remove() { const i = pills.indexOf(this); if (i >= 0) pills.splice(i, 1); } });
+  doc.createElement = el;
+  const btn = Object.assign(mkBtn(), { classList: cls(), parentNode: {}, focus() { doc.activeElement = this; }, insertAdjacentElement(where, e) { assert.equal(where, 'afterend', 'the pill is not where the mic is'); pills.push(e); } });
+  doc.querySelectorAll = (sel) => (sel === '.voice-pill' ? pills.slice() : sel === '.micbtn.has-pill' ? (btn.classList.contains('has-pill') ? [btn] : []) : []);
   doc.body = { contains: () => true };
-  doc.boxes['d-say-msg'] = { id: 'd-say-msg', textContent: '', insertAdjacentElement(_where, el) { made.push(el); } };
+  doc.boxes['d-say-msg'] = { id: 'd-say-msg', textContent: '' };
   doc.boxes['d-say'] = mkBox('d-say');
-  const btn = mkBtn(); btn.attrs['data-voice-for'] = 'd-say'; btn.attrs['data-voice-msg'] = 'd-say-msg';
+  btn.attrs['data-voice-for'] = 'd-say'; btn.attrs['data-voice-msg'] = 'd-say-msg';
+  const go = () => pills[0].kids.find((k) => k.className === 'vp-go');
+  const x = () => pills[0].kids.find((k) => k.className === 'vp-x');
   h.set(CARD('april'), null);
+  btn.focus();
   h.voiceToggle(btn);
   const first = posted.at(-1);
   assert.equal(first.op, 'start', 'fixture: the mic did not start');
   h.voiceOnEvent({ kind: 'error', reason: 'speech-denied', id: first.id });
   h.voiceOnEvent({ kind: 'stopped', id: first.id });
-  assert.equal(made.length, 1, 'not exactly one Settings button');
-  assert.equal(made[0].textContent, 'Turn on in Settings');
-  made[0].handlers.click();
+  assert.equal(pills.length, 1, 'not exactly one pill');
+  assert.ok(btn.classList.contains('has-pill'), 'the mic still shows beside the pill instead of being replaced by it');
+  assert.deepEqual(pills[0].kids.map((k) => k.className), ['vp-x', 'vp-go'], 'the pill is not [X   Turn on in Settings]');
+  assert.equal(go().textContent, 'Turn on in Settings');
+  assert.equal(doc.boxes['d-say-msg'].textContent, '', 'a sentence was said below the input');
+  assert.equal(doc.activeElement, go(), 'the keyboard focus was lost with the mic it replaced');
+  go().handlers.click();
   const ask = posted.at(-1);
-  assert.deepEqual([ask.op, ask.pane], ['settings', 'speech'], 'the click did not ask for the Speech Recognition pane');
+  assert.deepEqual([ask.op, ask.pane], ['settings', 'speech'], 'the label did not ask for the Speech Recognition pane');
   h.voiceOnEvent({ kind: 'allowed', id: 'not-this-visit' });
-  assert.equal(made.length, 1, 'an "allowed" for another visit took the button away');
+  assert.equal(pills.length, 1, 'an "allowed" for another visit took the pill away');
   h.voiceOnEvent({ kind: 'allowed', id: ask.id });
-  assert.equal(made.length, 0, 'the button stayed after both were allowed');
+  assert.equal(pills.length, 0, 'the pill stayed after both were allowed');
+  assert.ok(!btn.classList.contains('has-pill'), 'the mic did not come back');
   assert.equal(posted.at(-1).op, 'start', 'the mic did not start again by itself');
-  // CONTROL: a mic refusal asks for the Microphone pane, and an error that is not a denial offers no button.
+  // X: dismissed, the plain mic is back and nothing is asked of the app.
   h.voiceOnEvent({ kind: 'error', reason: 'mic-denied', id: posted.at(-1).id });
-  made[0].handlers.click();
-  assert.equal(posted.at(-1).pane, 'mic');
   h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
+  const n = posted.length;
+  x().handlers.click();
+  assert.equal(pills.length, 0, 'X did not dismiss the pill');
+  assert.ok(!btn.classList.contains('has-pill'), 'X did not put the mic back');
+  assert.equal(doc.activeElement, btn, 'X left the focus nowhere');
+  assert.equal(posted.length, n, 'X asked the app for something');
+  // the Microphone pane for a mic refusal
   h.voiceToggle(btn);
-  h.voiceOnEvent({ kind: 'error', reason: 'speech-unanswered', id: posted.at(-1).id });
-  assert.equal(made.length, 0, 'speech-unanswered (the prompt is still open) offered a Settings button');
+  h.voiceOnEvent({ kind: 'error', reason: 'mic-denied', id: posted.at(-1).id });
+  go().handlers.click();
+  assert.equal(posted.at(-1).pane, 'mic');
+  // CONTROL: not a denial, or restricted (Settings cannot undo it), offers no pill and says a sentence instead.
+  for (const reason of ['speech-unanswered', 'speech-restricted', 'mic-restricted']) {
+    h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
+    h.voiceToggle(btn);
+    assert.equal(pills.length, 0, 'a new start left the pill up');
+    h.voiceOnEvent({ kind: 'error', reason, id: posted.at(-1).id });
+    assert.equal(pills.length, 0, reason + ' offered a Settings pill');
+    assert.ok(!btn.classList.contains('has-pill'), reason + ' hid the mic');
+  }
 });
