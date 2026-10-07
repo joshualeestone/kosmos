@@ -388,18 +388,30 @@ const CASES = [
       const c = document.querySelector('#utoast-slot .uchip'); const l = document.querySelector('#login-adv-slot .utoast');
       if (!c || !l) return null;
       const rc = c.getBoundingClientRect(); const rl = l.getBoundingClientRect();
-      return { chipMid: (rc.left + rc.right) / 2, cardMid: (rl.left + rl.right) / 2, chipW: rc.width, cardW: rl.width, chipH: rc.height };
+      const rs = document.getElementById('utoast-slot').getBoundingClientRect();
+      return { chipMid: (rc.left + rc.right) / 2, cardMid: (rl.left + rl.right) / 2, chipW: rc.width, cardW: rl.width, chipH: rc.height,
+        slotH: rs.height, chipL: rc.left, chipR: rc.right, vw: document.documentElement.clientWidth };
     }).then((e) => e && Object.fromEntries(Object.entries(e).map(([k, v]) => [k, r1(v)])));
     const ch = await chip();
     chk(!!ch, '5443: precondition: the update chip and the login card both render', JSON.stringify(ch));
     chk(!!ch && Math.abs(ch.chipMid - ch.cardMid) < 1 && ch.chipW < ch.cardW - 40 && ch.chipH <= 34,
       '5443: the update chip stays a one-line pill, centred under the login card', JSON.stringify(ch));
+    // Its slot is exactly as tall as the chip, so the stack height the header and nav clear by (--topnotes-h,
+    // topnotesTrack) is the chip's own. An invariant, not this change's claim: measured, the old inline chip gave the
+    // same 30px slot, so the box change moved nothing here.
+    chk(!!ch && Math.abs(ch.slotH - ch.chipH) < 1, '5443: the chip\'s slot is exactly the chip\'s height', JSON.stringify(ch));
     if (box) await box.screenshot({ path: path.join(OUT, 'login-expiry-chip-and-card-5443.png') });
     // CONTROL: without the centring the stretched slot leaves the chip at the column's left edge.
     const unCentre = await pg.addStyleTag({ content: '#utoast-slot > .uchip { display: inline-flex !important; margin-inline: 0 !important; }' });
     const left = await chip();
     chk(!!left && Math.abs(left.chipMid - left.cardMid) >= 20, '5443: CONTROL: not centred, the chip sits off the column centre', JSON.stringify(left));
     await unCentre.evaluate((el) => el.remove());
+    // At 375 the chip may wrap (its phone rule); it stays on screen, centred under the card, its slot its own height.
+    await pg.setViewportSize({ width: 375, height: 812 });
+    await pg.waitForTimeout(300);
+    const chPhone = await chip();
+    chk(!!chPhone && chPhone.chipL >= 0 && chPhone.chipR <= chPhone.vw && Math.abs(chPhone.chipMid - chPhone.cardMid) < 1
+      && Math.abs(chPhone.slotH - chPhone.chipH) < 1, '5443: at 375 the chip stays on screen, centred under the card, its slot its own height', JSON.stringify(chPhone));
     chk(errs.length === 0, '5443: no console errors', errs.join(' | '));
     await pg.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
     await pg.close();
