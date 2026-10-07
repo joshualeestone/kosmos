@@ -2920,7 +2920,25 @@ test('#5419 the linux key follows the C library: linux-<arch> on glibc, linux-<a
     assert.match(connect.platformKey('linux'), /^linux-(x64|arm64)-musl$/);
     assert.match(connect.platformKey('darwin'), /^darwin-(x64|arm64)$/, 'CONTROL: the Mac key ignores the musl seam');
   } finally { connect.setMuslDetectForTests(null); }
-  assert.match(connect.platformKey('linux'), /^linux-(x64|arm64)$/, 'the default on a non-Linux host is never musl');
+});
+
+test('#5419 review 1: an arch Anthropic does not build keeps its own name on linux, a key no manifest carries', () => {
+  try {
+    connect.setMuslDetectForTests(() => false);
+    assert.equal(connect.platformKey('linux', 'riscv64'), 'linux-riscv64');
+    assert.equal(connect.platformKey('linux', 'arm'), 'linux-arm');
+    assert.equal(connect.platformKey('linux', 'x64'), 'linux-x64', 'CONTROL: x64 is x64');
+    assert.equal(connect.platformKey('linux', 'arm64'), 'linux-arm64', 'CONTROL: arm64 is arm64');
+  } finally { connect.setMuslDetectForTests(null); }
+});
+
+test('#5419 review 1: musl detection, every branch (report with glibc, report without, no report)', () => {
+  const none = () => false;
+  assert.equal(connect.detectMusl({ platform: 'darwin', report: { header: {} }, exists: () => true }), false, 'off Linux, never musl');
+  assert.equal(connect.detectMusl({ platform: 'linux', report: { header: { glibcVersionRuntime: '2.35' } }, exists: () => true }), false, 'glibc named: glibc');
+  assert.equal(connect.detectMusl({ platform: 'linux', report: { header: {} }, exists: none }), true, 'a readable report with no glibc: musl');
+  assert.equal(connect.detectMusl({ platform: 'linux', report: () => { throw new Error('no report'); }, exists: (f) => f === '/lib/ld-musl-x86_64.so.1' }), true, 'no report: musl\'s loader decides');
+  assert.equal(connect.detectMusl({ platform: 'linux', report: null, exists: none }), false, 'no report, no musl loader: glibc');
 });
 
 test('#5419 a manifest with no build for this linux key refuses before anything is placed', async (t) => {
@@ -2933,5 +2951,6 @@ test('#5419 a manifest with no build for this linux key refuses before anything 
   connect.setMuslDetectForTests(() => true);
   process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = base;
   t.after(() => { delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; });
-  await assert.rejects(() => connect.download(() => {}, undefined, 'linux'), 'a build with no checksum for its key was placed');
+  // review 1: the matcher, so only the no-build refusal passes (a bare message argument accepted any throw).
+  await assert.rejects(() => connect.download(() => {}, undefined, 'linux'), /no build for this kind of computer \(linux-(x64|arm64)-musl\)/);
 });

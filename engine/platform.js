@@ -69,9 +69,9 @@ const SUPPORTED = Object.freeze(['darwin', 'win32', 'linux']);
  * build happened -- the same discipline SUPPORTED and SELF_INSTALL state.
  *
  * ⇒ One list per runner. `RUNNER_DOWNLOADS` is the codex/vendored-runner gate
- * (darwin only, unchanged); `CLAUDE_DOWNLOADS` is Claude Code's, which win32 joins
- * because a checksum-verifiable Windows build is published. A platform on neither
- * list fetches nothing and says so honestly. */
+ * (darwin only, unchanged); `CLAUDE_DOWNLOADS` is Claude Code's, which win32 and (#5419)
+ * linux join because checksum-verifiable builds are published for them. A platform on
+ * neither list fetches nothing and says so honestly. */
 const RUNNER_DOWNLOADS = Object.freeze(['darwin']);
 /* #5419: linux joins too. Anthropic's release manifest publishes linux-x64, linux-arm64 and their -musl builds
    (read from downloads.claude.ai/claude-code-releases/2.1.292/manifest.json, 2026-10-06), each with the sha256

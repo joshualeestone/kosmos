@@ -1051,26 +1051,38 @@ function cleanupSegments(part) {
   } catch { /* nothing to clean */ }
 }
 
-/* The manifest/URL key for the Claude Code build to fetch: `<os>-<arch>`, matching
-   downloads.claude.ai's manifest.platforms keys (darwin-x64/darwin-arm64/win32-x64/
-   win32-arm64). Takes the platform as a parameter (default process.platform), like
-   its callers and platformGate, so a win32 download is testable on a Mac. Only
-   reached for a platform canDownloadClaude() allows (darwin or win32); anything else
-   maps to darwin, but the gate never lets it through. ONE derivation of this key. */
+/* The manifest/URL key for the Claude Code build to fetch, matching downloads.claude.ai's manifest.platforms keys:
+   darwin-x64/arm64, win32-x64/arm64, and (#5419) linux-x64/arm64 plus their -musl builds. Takes the platform (and,
+   for tests, the arch) as parameters so another OS's download is testable on a Mac. Only reached for a platform
+   canDownloadClaude() allows (darwin, win32, linux); anything else maps to darwin, but the gate never lets it through.
+   ONE derivation of this key.
+   On Linux an arch Anthropic does not build (armv7l, riscv64, ppc64, s390x, ia32) keeps its own name, a key no
+   manifest carries, so download refuses with "no build for this kind of computer" rather than placing an x64 binary
+   that fails with "exec format error" (#5419 review 1). */
 /* #5419: on Linux the build also depends on the C library: Anthropic publishes linux-<arch> (glibc) and
-   linux-<arch>-musl (Alpine and the like). Node's own report names the glibc it runs on; no glibc means musl.
-   A seam, so the musl arm is testable on any machine. */
+   linux-<arch>-musl (Alpine and the like). Pure, so every branch is testable: Node's report names the glibc it runs
+   on (present: glibc; report readable with no glibc: musl); with no readable report (Node built without it), musl's
+   own loader file decides (review 1: it used to default to glibc, the wrong build on exactly the host it guards). */
+function detectMusl({ platform, report, exists }) {
+  if (platform !== 'linux') return false;
+  let r = null;
+  try { r = typeof report === 'function' ? report() : report; } catch { r = null; }
+  if (r && r.header) return !r.header.glibcVersionRuntime;
+  return ['/lib/ld-musl-x86_64.so.1', '/lib/ld-musl-aarch64.so.1'].some((f) => { try { return exists(f); } catch { return false; } });
+}
+let muslCache = null;   // review 1: a report is tens of milliseconds and the C library never changes under a process
 const DEFAULT_IS_MUSL = () => {
-  // Only meaningful on Linux: elsewhere the report has no glibc field at all, which is not musl.
-  if (process.platform !== 'linux') return false;
-  try { return !(process.report && process.report.getReport().header.glibcVersionRuntime); } catch { return false; }
+  if (muslCache === null) {
+    muslCache = detectMusl({ platform: process.platform, report: () => (process.report ? process.report.getReport() : null), exists: fs.existsSync });
+  }
+  return muslCache;
 };
 let isMuslFn = DEFAULT_IS_MUSL;
 function setMuslDetectForTests(fn) { isMuslFn = typeof fn === 'function' ? fn : DEFAULT_IS_MUSL; }
 
-function platformKey(platform = process.platform) {
-  const arch = os.arch() === 'arm64' ? 'arm64' : 'x64';
-  if (platform === 'linux') return `linux-${arch}${isMuslFn() ? '-musl' : ''}`;
+function platformKey(platform = process.platform, rawArch = os.arch()) {
+  if (platform === 'linux') return `linux-${rawArch}${isMuslFn() ? '-musl' : ''}`;
+  const arch = rawArch === 'arm64' ? 'arm64' : 'x64';
   return `${platform === 'win32' ? 'win32' : 'darwin'}-${arch}`;
 }
 
@@ -1128,9 +1140,9 @@ async function download(onProgress, track, platform = process.platform) {
   /* #3159: `canDownloadClaude`, NOT `canDownloadRunner`. This function fetches
      CLAUDE Code specifically, which now publishes a `win32-${arch}` build with its
      own manifest sha256 (see platformKey + engine/platform.js CLAUDE_DOWNLOADS), so
-     win32 is a real, checksum-verifiable download here -- unlike codex, which stays
+     win32 (and, #5419, linux) is a real, checksum-verifiable download here -- unlike codex, which stays
      darwin-only under the coarser canDownloadRunner. The artifact fetched IS the
-     platform's own build (darwin-* on a Mac, win32-* on Windows), so this is no
+     platform's own build (darwin-* on a Mac, win32-* on Windows, linux-* on Linux), so this is no
      longer the "download a macOS binary onto the wrong OS" hazard the darwin-only
      gate guarded; the checksum is verified BEFORE the binary is ever executed
      (below). `platform` is a parameter (default process.platform) so a win32
@@ -1251,7 +1263,7 @@ async function download(onProgress, track, platform = process.platform) {
     throw new Error('the downloaded file did not match its checksum, so it was not kept');
   }
   // chmod is a POSIX no-op on Windows (an .exe is runnable by extension); guard it
-  // off there so the code says what it means. On darwin the launcher must be +x.
+  // off there so the code says what it means. On darwin and Linux the launcher must be +x.
   if (!isWin) fs.chmodSync(part, 0o755);
   fs.renameSync(part, dest);
   cleanupSegments(part);   // #3229: the assembled binary is placed; drop segments
@@ -3548,6 +3560,7 @@ function resetForTests() {
 
 module.exports = {
   setMuslDetectForTests,
+  detectMusl,   // #5419 review 1: pure, so each branch is tested
   setRefreshExpiryReader, // #3326 test seam
   PHASE, SESSION, ACTIVE_PHASES,
   state, publicView, start, submitCode, cancel,
