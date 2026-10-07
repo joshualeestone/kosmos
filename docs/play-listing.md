@@ -6,7 +6,7 @@ Preparation only. Nothing in this packet has been uploaded to Google Play, and n
 
 - [ ] Confirm the app name, short description, and full description below.
 - [ ] Upload the 512 by 512 app icon and 1024 by 500 feature graphic listed below.
-- [ ] (Pending Mona's corrected phone-layout screenshots) Upload the phone screenshots in filename order and paste their matching alt text once the corrected set is listed in the Graphic assets section.
+- [ ] Upload the three 1080 by 1920 phone screenshots in filename order and paste their matching alt text. A fourth, the project room, is pending #5510; add and upload it when it ships.
 - [ ] Complete Data safety with the answers below, then make the two owner attestations called out in that section.
 - [ ] Complete the content rating questionnaire and target audience section with the answers below.
 - [ ] Enter `https://installkosmos.com/privacy` as the privacy policy URL.
@@ -65,10 +65,19 @@ All paths are relative to this repository.
 | --- | --- | ---: | --- |
 | App icon | `docs/play-listing/app-icon-512.png` | 512 by 512 | `4e139a7461dfe43fc5fa19c9f7d6121c49aef7f9611a039fa1de0dfc428e71df` |
 | Feature graphic | `docs/play-listing/feature-graphic-1024x500.png` | 1024 by 500 | `0e22abd4cb0a2f3edf9b92dffc8e7bd1c07fdb471e95886c89c54521535dfcc3` |
+| Phone screenshot 1 | `docs/play-listing/phone/01-home.png` | 1080 by 1920 | `7ce07d517e0edcf43a9e6095c23ab0c95e1040f3a68f789d5cf396b8aa2d37ba` |
+| Phone screenshot 2 | `docs/play-listing/phone/02-agent-chat.png` | 1080 by 1920 | `b4acff37cac08db4eb4448dae22a2fb3eb1964f81492a295a48b71572fb66b62` |
+| Phone screenshot 3 | `docs/play-listing/phone/03-push-landing.png` | 1080 by 1920 | `5bb6d922ef7432f75600464e434071ed275ee9c0637efec8cdf0d2d60f34269f` |
 
 The app icon and feature graphic are Mona Lisa's store graphics (2026-10-07). The app icon is the Android launcher icon, a white dot-matrix K on Kosmos gold. The feature graphic follows the installkosmos.com look on a cream background and carries the words from Josh's own social card verbatim, "Kosmos Agent Manager" and "Create and manage a team of AI agents", with the gold dot-matrix Kosmos mark on the right and no install button or URL (Play adds its own).
 
-**Phone screenshots: waiting on the corrected set.** The earlier phone screenshots showed the board's computer layout, not the Kosmos+ phone layout the Android app actually opens, so they are not used here and none are committed under `docs/play-listing/phone/`. Mona Lisa is retaking them. When the corrected 1080 by 1920 phone-layout set arrives, add each file under `docs/play-listing/phone/`, add a row per screenshot to the table above (file, dimensions, sha256) in upload order, and write alt text for each read from the image. Do not commit or upload the earlier computer-layout renders.
+The three phone screenshots are Mona Lisa's corrected store graphics (2026-10-07), showing the Kosmos+ phone layout the Android app actually opens: the navy Kosmos+ top bar with agents as a list, on demo data only. Each is a full 1080 by 1920 (9:16) render with no cropping, and no account data appears. (An earlier set that showed the board's computer layout was discarded; do not use the `*-WRONG-LAYOUT` folders.) A fourth screenshot, the project room, is pending and follows after #5510 ships: add it as "Phone screenshot 4" in upload order, with alt text read from the image, once it lands.
+
+Paste the alt text that matches each image:
+
+1. `The Kosmos+ app on a phone, titled "Every agent, at a glance": a navy Kosmos+ top bar above a list of agents, with Dana the Writer working, Cleo the Project manager showing a Question with an Answer link, and Eli the Researcher working, each on Claude Sonnet.`
+2. `A direct message with Dana the Writer in the Kosmos+ app, titled "Message any agent": the navy Kosmos+ bar above Dana's note that pages 9 to 12 need Thursday's photos with the full draft to follow Friday, the person's reply "Perfect, thank you," and a "Dana is working" line over the message box.`
+3. `A direct message with Cleo the Project manager in the Kosmos+ app, titled "Answer when an agent asks": the navy Kosmos+ bar above Cleo, marked with a Question badge, asking whether to accept the cheaper of two printer quotes for the catalogue, over the message box.`
 
 ## Data safety
 

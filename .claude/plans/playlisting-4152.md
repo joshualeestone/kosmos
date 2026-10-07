@@ -1,37 +1,34 @@
-# Plan: Play listing graphics update (#4152) — icon + feature now, screenshots pending
+# Plan: Play listing graphics update (#4152)
 
-## Scope note (changed mid-work)
-Liu Kang put a HOLD on the screenshot part: Mona Lisa's five phone screenshots showed the
-board's COMPUTER layout, not the Kosmos+ PHONE layout the Android app actually opens, so she
-is retaking them. This PR therefore updates the icon and feature graphic (which are fine) and
-marks the phone-screenshot section as waiting on the corrected set. It commits NO phone
-screenshots.
+## Scope (settled after a mid-work correction)
+Update `docs/play-listing.md` and the in-repo graphics under `docs/play-listing/` to Mona
+Lisa's delivered store assets: a 512x512 icon, a 1024x500 feature graphic, and THREE
+1080x1920 phone screenshots showing the Kosmos+ phone layout the Android app opens (navy
+Kosmos+ bar, agents as a list, demo data only). An earlier five-shot set showed the board's
+computer layout and was discarded (Liu Kang; the wrong copies live in `*-WRONG-LAYOUT`
+folders and must never be used). A fourth screenshot (project room) is pending #5510 and is
+noted as a follow-up, not committed here.
 
-## Goal / Done when
-`docs/play-listing.md` lists Mona's new 512x512 icon and 1024x500 feature graphic (with
-sha256 matching the committed bytes), and the phone-screenshot section is a clear "waiting on
-the corrected phone-layout set" placeholder with no screenshot rows, no alt text, and no
-committed images under `docs/play-listing/phone/`.
+## Done when
+The doc's Graphic-assets table lists the icon, feature graphic, and three screenshots with
+sha256 matching the committed bytes and dimensions verified; each screenshot has alt text
+written from reading the image; the checklist and provenance agree; the fourth screenshot is
+noted pending #5510; no em dashes; the committed `docs/play-listing/phone/` holds exactly the
+three corrected screenshots.
 
-## What changed
-- Checklist: the screenshot upload line made pending ("Pending Mona's corrected phone-layout
-  screenshots ...").
-- Graphic-assets table: keeps the App icon and Feature graphic rows (Mona's new files, sha256
-  recomputed from the committed bytes); the phone rows are removed.
-- Provenance: icon + feature graphic only (installkosmos.com look, Josh's social-card words);
-  a bold "Phone screenshots: waiting on the corrected set" paragraph explaining the earlier
-  renders were the board's computer layout and must not be committed/uploaded.
-- Alt text: the five screenshot alt lines removed (none until the corrected set).
-- `docs/play-listing/`: icon + feature replaced with Mona's; ALL phone screenshots removed
-  (the old origin/main six, and the five wrong-layout renders that were briefly committed) —
-  `docs/play-listing/phone/` is empty.
-- "Sources checked" AVD-evidence line de-ambiguated so it is not read as screenshot provenance.
+## What changed vs origin/main
+- Icon + feature graphic replaced with Mona's (sha256 recomputed from the committed bytes).
+- `docs/play-listing/phone/`: the old origin/main six screenshots removed; the three
+  corrected ones added (01-home, 02-agent-chat, 03-push-landing), all 1080x1920.
+- Doc: table rows for the three; provenance recast (navy Kosmos+ phone layout, demo data, no
+  account data) with the pending-fourth note; three alt-text lines read from the images;
+  checklist line updated; "Sources checked" AVD line de-ambiguated.
 
 ## Verification
-- `sips`: icon 512x512, feature 1024x500. Each doc sha256 recomputed from the committed file.
-- No em dashes anywhere in the doc. No stale references to the removed screenshots/dimensions.
+- `sips`: icon 512x512, feature 1024x500, each screenshot 1080x1920. Each doc sha256
+  recomputed from the committed file. No em dashes. No references to the wrong/old set.
 
-## Scope / non-goals
-- Docs + committed-asset update only; no code.
-- The 4096x2304 developer-page header is a developer-page asset, out of this store-listing doc.
-- The corrected phone-layout screenshots are a FOLLOW-UP once Mona delivers (not this PR).
+## Follow-up (not this PR)
+- When #5510 ships and Mona delivers the project-room screenshot, add it under
+  `docs/play-listing/phone/` as Phone screenshot 4, add its table row (file/dims/sha256) in
+  upload order, and write alt text read from the image.
