@@ -21,7 +21,9 @@ printf '#!/bin/bash\nsleep 30\n' > "$T/tools/queued-heavy-standin.sh"
 chmod +x "$T/$SCRIPT" "$T/tools/queued-heavy-standin.sh"
 start() { "$@" >/dev/null 2>&1 & PIDS="$PIDS $!"; disown "$!" 2>/dev/null || true; }
 pids_of() { printf '%s\n' "$1" | awk 'NF {print $1}' | sort -n | tr '\n' ' '; }
-settle() { sleep 1; }
+# Wait (up to ~5 s) until each pid shows its own command line to pgrep: a fresh fork can briefly show its
+# parent's, which would read as a missing run on a loaded Mac.
+settle() { local p i; for p in "$@"; do for i in 1 2 3 4 5 6 7 8 9 10; do pgrep -fl "${NAME//./\\.}" | awk '{print $1}' | grep -qx "$p" && break; sleep 0.5; done; done; }
 
 # Nothing running yet.
 out="$(kosmos_running_lines "$SCRIPT")"; rc=$?
@@ -32,7 +34,7 @@ out="$(kosmos_running_lines "$SCRIPT")"; rc=$?
 start sh -c "sleep 30; : bash $SCRIPT"; PARENT=$!
 start bash -c 'sleep 30; :' "mentions-$SCRIPT"; MENTION=$!   # compound, so bash stays and keeps the mention
 start bash -c "sleep 30; : $SCRIPT"; CSTRING=$!                  # a -c command string that names the script
-settle
+settle $WAITER $PARENT $MENTION $CSTRING
 # CONTROL: the unanchored pattern a hand-written wait used really does match them (else this proves nothing).
 loose="$(pgrep -f "${NAME//./\\.}" | tr '\n' ' ')"
 for p in $WAITER $PARENT $MENTION $CSTRING; do case " $loose " in *" $p "*) : ;; *) bad "control: unanchored pgrep did not match pid $p, so the test cannot show the bug" ;; esac; done
@@ -45,13 +47,15 @@ out="$(kosmos_running_lines "$SCRIPT")"; rc=$?
 ( cd "$T" && start bash "$SCRIPT"; echo "$PIDS" > "$T/rel.pid" ); REL=$(cat "$T/rel.pid" | awk '{print $NF}'); PIDS="$PIDS $REL"
 start /bin/bash "$T/$SCRIPT"; ABS=$!
 ( cd "$T" && start bash -x "$SCRIPT"; echo "$PIDS" > "$T/opt.pid" ); OPT=$(awk '{print $NF}' "$T/opt.pid"); PIDS="$PIDS $OPT"
-settle
+( cd "$T" && start bash -o pipefail "$SCRIPT"; echo "$PIDS" > "$T/optv.pid" ); OPTV=$(awk '{print $NF}' "$T/optv.pid"); PIDS="$PIDS $OPTV"
+settle $REL $ABS $OPT $OPTV
 out="$(kosmos_running_lines "$SCRIPT")"; rc=$?
 got="$(pids_of "$out")"
 [ "$rc" = 0 ] && ok "a real run is found (rc 0)" || bad "real runs not found: rc=$rc"
 case " $got " in *" $REL "*) ok "bash tools/<script> (relative, as release.sh starts it) is a run" ;; *) bad "relative run $REL missing from: $got" ;; esac
 case " $got " in *" $ABS "*) ok "/bin/bash /abs/path/tools/<script> is a run" ;; *) bad "absolute run $ABS missing from: $got" ;; esac
 case " $got " in *" $OPT "*) ok "bash -x tools/<script> (a shell option before the script) is a run" ;; *) bad "option run $OPT missing from: $got" ;; esac
+case " $got " in *" $OPTV "*) ok "bash -o pipefail tools/<script> (an option that takes a value) is a run" ;; *) bad "value-option run $OPTV missing from: $got" ;; esac
 leaked=""; for p in $WAITER $PARENT $MENTION $CSTRING; do case " $got " in *" $p "*) leaked="$leaked $p" ;; esac; done
 [ -z "$leaked" ] && ok "with real runs present, the waiter, its parent, the mention and the -c string are still not listed" || bad "non-runs listed beside the real runs:$leaked"
 

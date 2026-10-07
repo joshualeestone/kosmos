@@ -21,7 +21,8 @@ unanchored `pgrep -f` stays exposed.
   helper takes the wider `([^ ]*/)?`, which only ever adds candidates (a Homebrew bash), failing toward busy.
 - tools/heavy-gate.sh (what cutters run for a quiet box) classifies a command whose lead script is
   tools/queued-heavy.sh as a waiter, not a run. It keeps its deliberate rule that a script taking a heavy
-  path as an argument counts (fail toward busy); only the queue's own waiter is carved out, because the
+  path as an argument counts (fail toward busy); only the queue's own waiter is carved out (any word ending
+  in tools/queued-heavy.sh, so a spaced checkout path that ps splits is covered too), because the
   waiter starts the real run as its own process when its turn comes, and that run counts.
 - The per-cut wrapper (outside the repo, mortals:~/.cut-07NN.sh) sources this cut-guard.sh, so 0.7.28's
   wrapper calls `kosmos_running_lines tools/browser-checks.sh` and treats rc 2 as "still running".
@@ -34,17 +35,19 @@ unanchored `pgrep -f` stays exposed.
 ## Weakest premise
 That every real run starts its command line with the interpreter. A run started as `./tools/browser-checks.sh`
 (exec by shebang) shows `/bin/bash ./tools/browser-checks.sh`, which matches, as do shell options before the
-script. A `zsh tools/...` run, or an option that takes a value (`bash -o pipefail tools/...`), would not,
-and nothing in the repo starts one that way. macOS only: Linux's `pgrep -fl` prints process names.
+script, including the value-taking -o/-O NAME and --rcfile/--init-file FILE (the forms heavy-gate.sh
+already reads). A `zsh tools/...` run would not match, and nothing in the repo starts one that way. macOS only: Linux's `pgrep -fl` prints process names.
 
 ## Tests
 - `tools/test-running-anchor-5470.sh`, in test:shell, real processes and a unique script name per run:
   nothing running gives 1; a queued-heavy-shaped waiter, its `sh -c` parent, a mention kept on a command
   line and a `-c` string naming the script are NOT runs (with a control that the unanchored pgrep DOES
   match all four); `bash tools/<script>`, `/bin/bash /abs/tools/<script>` and `bash -x tools/<script>`
-  ARE runs; a failing pgrep or no script gives 2. Measured red: anchor removed gives 3 failures.
-- tools.heavy-gate-3805.test.js gains a #5470 case: a waiter line and its sh -c parent do not count; the
-  run the waiter starts (with the waiter as its ancestor) does.
+  `bash -o pipefail tools/<script>` ARE runs; a failing pgrep or no script gives 2. Each spawned pid is
+  awaited in pgrep (up to ~5 s), not a fixed sleep. Measured red: anchor removed gives 3 failures.
+- tools.heavy-gate-3805.test.js gains a #5470 case: a waiter line (also under a spaced checkout path) does
+  not count; the run the waiter starts (with the waiter as its ancestor) does. Its sh -c parent is a
+  command string, which heavy-gate already never counted.
 - Existing guards pass: test-cut-guard, test-browser-run-guard (and its real-path control,
   KOSMOS_BC_REALPATH=1), test-browser-gate-cut-claim-1398, test-machine-claim-1962, test-light-side-4911,
   tools.heavy-gate-3805.test.js.

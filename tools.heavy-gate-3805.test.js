@@ -197,10 +197,13 @@ test('a script that takes the path as an argument counts, as the header says (co
   assert.match(mention.out, /ignore 101: mentions/);
 });
 
-test('#5470: a tools/queued-heavy.sh waiter is not a run, nor the sh -c that started it (control: the run it starts counts)', () => {
+test('#5470: a tools/queued-heavy.sh waiter is not a run, also under a spaced checkout path (control: the run it starts counts; its sh -c parent is a command string)', () => {
   const waiter = run([['111', WORK, 'bash tools/queued-heavy.sh #5244 browser-checks (someone) bash tools/browser-checks.sh', 'zsh']]);
   assert.equal(waiter.code, 0, waiter.out);
   assert.doesNotMatch(waiter.out, /COUNTS 111/);
+  const spaced = run([['114', '/Users/someone/My Work/kosmos', 'bash /Users/someone/My Work/kosmos/tools/queued-heavy.sh #5244 browser-checks bash tools/browser-checks.sh', 'zsh']]);
+  assert.equal(spaced.code, 0, spaced.out);
+  assert.doesNotMatch(spaced.out, /COUNTS 114/);
   const parent = run([['112', WORK, 'sh -c bash tools/queued-heavy.sh "#5244" bash tools/browser-checks.sh', 'zsh']]);
   assert.equal(parent.code, 0, parent.out);
   assert.doesNotMatch(parent.out, /COUNTS 112/);
