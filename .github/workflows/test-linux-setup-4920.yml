@@ -54,6 +54,29 @@ jobs:
           echo "KOSMOS_PORT=16180" >> "$GITHUB_ENV"
           echo "KOSMOS_NO_OPEN=1" >> "$GITHUB_ENV"
 
+      - name: Stage this checkout as the bundle setup.sh installs
+        # The published bundle is the LAST release, so it does not carry this branch's engine (setup.sh's Linux step
+        # requires app/engine/linuxboard.js, measured: run 37592812752 said "Cannot find module"). Stage the same file
+        # list tools/build-kosmos-bundle.sh packs (that script is Mac-only: codesign, lipo, the native app), and
+        # install it through setup.sh's local-copy path (KOSMOS_SRC). runtime/ is left out: on Linux setup.sh links
+        # the system node when the bundled one cannot run, as it does for the published bundle.
+        run: |
+          SRC="$RUNNER_TEMP/kosmos-src"
+          mkdir -p "$SRC/bin" "$SRC/app/engine" "$SRC/app/bin"
+          cp server.js package.json "$SRC/app/"
+          for f in engine/*.js; do case "$f" in *.test.js) ;; *) cp "$f" "$SRC/app/engine/" ;; esac; done
+          cp -R web "$SRC/app/web"
+          cp bin/agent-supervisor.sh bin/board-watchdog.sh bin/codex-report-bridge.js bin/gemini-report-bridge.js \
+             bin/grok-report-bridge.js bin/agy-report-bridge.js "$SRC/app/bin/"
+          chmod +x "$SRC/app/bin/"*
+          V="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' package.json | head -1)"
+          sed -i "s/__KOSMOS_VERSION__/$V/" "$SRC/app/web/index.html"
+          cp install/kosmos-report-hook.sh "$SRC/app/bin/kosmos-report-hook.sh"
+          cp install/kosmos "$SRC/bin/kosmos"
+          chmod +x "$SRC/bin/kosmos"
+          test -f "$SRC/app/engine/linuxboard.js"
+          echo "KOSMOS_SRC=$SRC" >> "$GITHUB_ENV"
+
       - name: Execute install/setup.sh
         # sh, not bash: people run curl ... | sh, and on Ubuntu sh is dash, so the installer is tested in the shell it
         # really meets (the bash 3.2 parse is covered on the Mac by install.linux-board-4920.test.js).
