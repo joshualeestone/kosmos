@@ -34,6 +34,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const subscription = require('./subscription'); // the shared STATE enum the badge speaks
+const securewrite = require('./securewrite');
 
 const STATE = subscription.STATE; // CONNECTED | NONE | UNKNOWN -- one vocabulary, never a second
 
@@ -139,12 +140,11 @@ async function checkLive(dir) {
 function storeKey(dir, key) {
   const file = keyFile(dir);
   const tmp = file + '.tmp';
-  // Unlink any stale temp from a prior crash first, so the write below CREATES
-  // the file and its 0600 create-mode applies from the first byte (a reused temp
-  // would keep its old, possibly looser mode for the pre-rename window).
+  // Unlink a stale <keyfile>.tmp left by a crash in an older version (which wrote through that fixed
+  // name): it can hold a raw key. writeSecret writes through its own unique temp, created at 0600.
   try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
-  fs.writeFileSync(tmp, String(key || '').trim(), { mode: 0o600 });
-  fs.renameSync(tmp, file);
+  // #5434: through the shared writer, so the key is flushed to disk before the rename makes it the file.
+  securewrite.writeSecret(file, String(key || '').trim(), 0o600);
   try { fs.chmodSync(file, 0o600); } catch { /* best effort; create mode already set */ }
 }
 
@@ -178,6 +178,17 @@ function apiKeyHelperCommand(dir) {
   return 'cat ' + shSingleQuote(keyFile(dir));
 }
 
+/* #5434: write settings.json through the shared writer, so it is flushed to disk before the rename
+   makes it the file, and keep the mode the file already had. It was written at whatever the umask gave
+   a fresh temp, so a 0600 file became 0644 on the next save. A new one is 0600: only this user (the
+   agent's Claude Code) reads it, and writeSecret sets the mode exactly, so a looser default would
+   override a tighter umask. */
+function writeSettings(settingsPath, obj) {
+  let mode = 0o600;
+  try { mode = fs.statSync(settingsPath).mode & 0o777; } catch { /* absent: a new file */ }
+  securewrite.writeSecret(settingsPath, JSON.stringify(obj, null, 2) + '\n', mode);
+}
+
 /**
  * Merge `apiKeyHelper` into the account's settings.json, never clobbering the
  * other settings (the same read-merge-write, atomic, mode-preserving discipline
@@ -192,10 +203,8 @@ function wireApiKeyHelper(settingsPath, dir) {
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) obj = parsed;
   } catch { /* absent or unusable: start from {} */ }
   obj.apiKeyHelper = apiKeyHelperCommand(dir);
-  const tmp = settingsPath + '.tmp';
   fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-  fs.writeFileSync(tmp, JSON.stringify(obj, null, 2) + '\n');
-  fs.renameSync(tmp, settingsPath);
+  writeSettings(settingsPath, obj);
   return { wired: true };
 }
 
@@ -209,9 +218,7 @@ function unwireApiKeyHelper(settingsPath) {
   catch { return { unwired: false }; }
   if (!obj || typeof obj !== 'object' || Array.isArray(obj) || !('apiKeyHelper' in obj)) return { unwired: false };
   delete obj.apiKeyHelper;
-  const tmp = settingsPath + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(obj, null, 2) + '\n');
-  fs.renameSync(tmp, settingsPath);
+  writeSettings(settingsPath, obj);
   return { unwired: true };
 }
 
