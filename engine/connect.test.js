@@ -34,6 +34,11 @@ const connect = require('./connect');
    one back. */
 const TMUX_PRESENT = () => false;
 connect.setTmuxCheckForTests(TMUX_PRESENT);
+/* #5419 review 24's musl library check likewise reads the host's /usr/lib on a real Linux box (a glibc runner keeps
+   libstdc++ in a multiarch folder, so a test that forces musl on would hit the library refusal there). Pinned to
+   "present" for this file; the tests about that check set their own answer and put this one back. */
+const MUSL_LIBS_PRESENT = () => false;
+connect.setMuslLibsCheckForTests(MUSL_LIBS_PRESENT);
 const subscription = require('./subscription');
 const store = require('./store');
 
@@ -3034,7 +3039,7 @@ test('#5419: download refuses a musl host missing libstdc++/libgcc before any re
   connect.setTmuxCheckForTests(() => false);
   connect.setMuslLibsCheckForTests(() => true);
   t.after(() => {
-    connect.setMuslLibsCheckForTests(null);
+    connect.setMuslLibsCheckForTests(MUSL_LIBS_PRESENT);
     connect.setTmuxCheckForTests(TMUX_PRESENT);
     if (prev === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; else process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = prev;
     server.close();
@@ -3134,7 +3139,7 @@ driverTest('#5419: with no Claude on a musl host missing its libraries, the head
   t.after(() => {
     connect.setSigninPlatformForTests('darwin');
     connect.setTmuxCheckForTests(TMUX_PRESENT);
-    connect.setMuslLibsCheckForTests(null);
+    connect.setMuslLibsCheckForTests(MUSL_LIBS_PRESENT);
     if (prevBase === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; else process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = prevBase;
     server.close();
   });
@@ -3247,7 +3252,7 @@ driverTest('#5419: with Claude installed, a musl host missing its libraries stil
   } finally {
     connect.setSigninPlatformForTests('darwin');
     connect.setTmuxCheckForTests(TMUX_PRESENT);
-    connect.setMuslLibsCheckForTests(null);
+    connect.setMuslLibsCheckForTests(MUSL_LIBS_PRESENT);
   }
 });
 
