@@ -23,6 +23,10 @@ const { mkTemp } = require('../test-support/tmpdir.js');
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'create-test-'));
 process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'LaunchAgents');
+/* #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too. Without it a sandboxed board refuses
+   every systemd call (linuxjob: it never acts on a real unit by name from a sandbox), so every create here ended partial on
+   a Linux runner. With it, create's systemctl calls go through this file's own runner seam, as its launchctl calls do. */
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = nodePath.join(SANDBOX, 'systemd-user');
 /* ⚠️ AND A SANDBOXED HOME, because `setAccount` asks `accounts.js` which
    accounts exist, and `accounts.js` resolves its home at REQUIRE time. Without
    this the account tests would read the operator's real `~/.claude*` -- so they

@@ -12,6 +12,7 @@
  */
 
 const test = require('node:test');
+const jobfix = require('../test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -29,6 +30,9 @@ process.env.AGENT_WORKFORCE_CONFIG_ROOT = CONFIG_ROOT;
 process.env.AGENT_WORKFORCE_HOME = SB;
 process.env.AGENT_WORKFORCE_DATA = STORE;
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SB, 'LaunchAgents');
+// #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too (a sandboxed board without it refuses
+// every systemd call, so a create ends partial on a Linux runner). macOS and Windows never read it.
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = require('node:path').join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 fs.mkdirSync(process.env.AGENT_WORKFORCE_LAUNCH, { recursive: true });
 process.on('exit', () => { try { fs.rmSync(SB, { recursive: true, force: true }); } catch { /* best effort */ } });
 
@@ -43,8 +47,8 @@ fs.mkdirSync(WORKDIR, { recursive: true });
 
 function writePlist(runner) {
   fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
-  fs.writeFileSync(create.plistPath(NAME),
-    create.plistFor(NAME, path.join(SB, 'claude'), path.join(SB, 'tmux'), null, null, runner), 'utf8');
+  fs.writeFileSync(jobfix.jobPath(NAME),
+    jobfix.jobFor(NAME, path.join(SB, 'claude'), path.join(SB, 'tmux'), null, null, runner), 'utf8');
 }
 
 test('#4039: a conversation that DID record a window (a future agy) is measured against it, not assumed', () => {

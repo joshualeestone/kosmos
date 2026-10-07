@@ -26,6 +26,9 @@ process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 process.env.AGENT_WORKFORCE_WORKERS = mkTemp('aw-cpa-workers-');
 process.env.AGENT_WORKFORCE_PROJECTS = mkTemp('aw-cpa-projects-');
 process.env.AGENT_WORKFORCE_LAUNCH = mkTemp('aw-cpa-launch-');
+// #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too (a sandboxed board without it refuses
+// every systemd call, so a create ends partial on a Linux runner). macOS and Windows never read it.
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = require('node:path').join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 process.env.AGENT_WORKFORCE_GEMINI_HOME = nodePath.join(SANDBOX, '.gemini');
 process.env.AGENT_WORKFORCE_GROK_HOME = nodePath.join(SANDBOX, '.grok');
 // This suite calls createAgent(), so sandbox Claude Code's own config file too, or a

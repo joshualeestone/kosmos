@@ -8,6 +8,7 @@
  */
 require('../test-support/tmpscope');   // the #4273 leak gate: its temp dirs stay in this process's own
 const test = require('node:test');
+const jobfix = require('../test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -17,6 +18,9 @@ const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-model-4416-'));
 process.env.AGENT_WORKFORCE_CODEX_HOME = path.join(SANDBOX, '.codex');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'LaunchAgents');   // #3605: never the real LaunchAgents
 fs.mkdirSync(process.env.AGENT_WORKFORCE_LAUNCH, { recursive: true });
+// #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too (a sandboxed board without it refuses
+// every systemd call, so a create ends partial on a Linux runner). macOS and Windows never read it.
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = require('node:path').join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 const codex = require('./codexsession');
 const status = require('./status');
 const keyed = require('./win32keyed');
@@ -84,7 +88,7 @@ test('#4416: a Gemini or Grok job with no model names the one the launcher pins,
   assert.ok(sh.includes('GROK_MODEL="${MODEL:-' + keyed.DEFAULT_MODEL.grok + '}"'), 'the supervisor pins a different Grok default than the board names');
   /* Behaviour, from REAL launch files (plistFor, the writer create uses) in a sandbox: what each job starts on. */
   const create = require('./create');
-  const job = (name, model, runner) => fs.writeFileSync(create.plistPath(name), create.plistFor(name, '/bin/claude', '/usr/bin/tmux', model, null, runner));
+  const job = (name, model, runner) => fs.writeFileSync(jobfix.jobPath(name), jobfix.jobFor(name, '/bin/claude', '/usr/bin/tmux', model, null, runner));
   job('plan-gem', null, 'gemini');
   job('plan-grok', null, 'grok');
   job('plan-grok-pick', 'grok-4.5', 'grok');

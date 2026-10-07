@@ -43,6 +43,9 @@ const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-livegate-'));
 process.env.AGENT_WORKFORCE_DATA = path.join(SB, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SB, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SB, 'launch');
+// #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too (a sandboxed board without it refuses
+// every systemd call, so a create ends partial on a Linux runner). macOS and Windows never read it.
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = require('node:path').join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 process.env.AGENT_WORKFORCE_CLAUDE_BIN = path.join(SB, 'bin', 'claude');
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(SB, 'bin', 'tmux');
 process.env.AGENT_WORKFORCE_HOME = path.join(SB, 'home');
