@@ -101,3 +101,9 @@ though the login item did bring Kosmos back by itself.
 - FIXED: the direct start's default (person) was unpinned (flipping it left every test green); now pinned.
 - FIXED: a temp mark left by a failed write is removed; the direct start passes the mark path, so the board consumes
   the mark on both paths; stale comments here and in install/kosmos.
+
+## Review 6
+- FIXED (test gap, dangerous direction): nothing passed the string 'unknown' to noteFor, so a rule treating only a
+  missing value as unknown would have let board-run's 'unknown' switch the timer off. Pinned (a late unknown start
+  makes no note; control: a quick one does).
+- ADDED: the 120 s bound on both sides (110 s fresh, 125 s stale); `kosmos stop` also removes a killed start's temp mark.

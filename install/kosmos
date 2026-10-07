@@ -1411,7 +1411,8 @@ _kosmos_clear_board_alive() {
 }
 cmd_stop() {
   local pid
-  rm -f "$PERSON_START_FILE" 2>/dev/null || true   # #5450: a start's mark does not outlive a stop, on any branch below
+  # #5450: a start's mark does not outlive a stop, on any branch below; nor does the temp of a start killed mid-write.
+  rm -f "$KOSMOS_HOME/board.person-start" "$KOSMOS_HOME"/board.person-start.[0-9]* 2>/dev/null || true
   if pid="$(running_pid)"; then
     # #2955: write the deliberate-stop marker BEFORE the kill, so the board's own
     # port-going-dead moment does not trip the watchdog into treating this stop as

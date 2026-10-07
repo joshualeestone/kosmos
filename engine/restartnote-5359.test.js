@@ -116,6 +116,9 @@ test('#5450: who started the board decides it when the launcher says so; the tim
   const quick = { now: NOW, uptimeSec: up(5), lastAliveAt: at(6 * MIN) };
   assert.ok(rn.noteFor(quick), 'CONTROL: unknown and quick, the timer says by itself');
   assert.equal(rn.noteFor({ ...quick, startedBy: 'person' }), null, 'a person started it, so it did not come back by itself');
+  // Review 6: board-run sends the STRING 'unknown' for a mark it cannot judge: the timer decides, exactly as undefined.
+  assert.equal(rn.noteFor({ ...late, startedBy: 'unknown' }), null, 'an unjudgeable mark switched the timer off: a false note');
+  assert.ok(rn.noteFor({ ...quick, startedBy: 'unknown' }), 'CONTROL: unknown and quick, the timer still says by itself');
   // The other rules still hold for the supervisor: alive since this boot, or last alive long before it, is no note.
   assert.equal(rn.noteFor({ now: NOW, uptimeSec: up(40), lastAliveAt: at(10 * MIN), startedBy: 'supervisor' }), null, 'alive since this boot');
   assert.equal(rn.noteFor({ now: NOW, uptimeSec: up(40), lastAliveAt: at(40 * MIN + rn.WINDOW_MS + MIN), startedBy: 'supervisor' }), null, 'not running when it went down');

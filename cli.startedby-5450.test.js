@@ -82,6 +82,12 @@ test('#5450: a stale mark is the supervisor\'s; one that cannot be judged is unk
   assert.deepEqual(await boardRun('9'.repeat(23)), { by: 'unknown', markLeft: true, code: 0 }, 'a number too big for bash');
 });
 
+test('#5450 review 6: the 120 s bound, on both sides (with a margin for the clock ticking between write and read)', async () => {
+  const now = Math.floor(Date.now() / 1000);
+  assert.equal((await boardRun(String(now - 110))).by, 'person', '110 s old is fresh');
+  assert.equal((await boardRun(String(now - 125))).by, 'supervisor', '125 s old is stale');
+});
+
 test('#5450 review 4: with no clock to judge it by, a mark that is there reads as a person (no note), and board-run still starts', async () => {
   const r = await boardRun(String(Math.floor(Date.now() / 1000) - 3600), { pre: 'date() { return 1; };' });
   assert.equal(r.code, 0);
@@ -141,8 +147,9 @@ test('#5450 review 4: `kosmos start` writes a person\'s mark, even when the boar
   assert.equal(watchdog.markThere, false, 'the watchdog\'s start was marked as a person\'s');
 });
 
-test('#5450 review 4: `kosmos stop` removes a start\'s mark even when no board is running', async () => {
-  const script = 'date +%s > "$PERSON_START_FILE"; running_pid() { return 1; }; healthy() { HEALTH_STATE=down; return 1; }; ( cmd_stop ) || true';
+test('#5450 review 4: `kosmos stop` removes a start\'s mark, and a killed start\'s temp mark, even when no board is running', async () => {
+  const script = 'date +%s > "$PERSON_START_FILE"; date +%s > "$PERSON_START_FILE.4242"; running_pid() { return 1; }; healthy() { HEALTH_STATE=down; return 1; }; ( cmd_stop ) || true; ls -a "$KOSMOS_HOME"';
   const r = await startStop(script);
   assert.equal(r.markThere, false, 'a stop left the mark: ' + r.out.stdout + r.out.stderr);
+  assert.doesNotMatch(r.out.stdout, /board\.person-start\.4242/, 'a stop left a killed start\'s temp mark (review 6)');
 });
