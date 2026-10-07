@@ -55,8 +55,8 @@ function jobFor(name, runnerBin, tmuxBin, model, configDir, runnerName) {
 /** #5500: a stand-in for `systemctl --user` and `loginctl`, for a test's runner stub that answered launchctl only.
     It keeps the units it has started and enabled, so it answers as systemd does: is-active "active" for a started unit
     and "inactive" (exit 3) otherwise; is-enabled "enabled" or "disabled" (exit 1); list-units and list-unit-files from
-    the same two sets; linger on. Any other command answers null, so the stub falls through to its own answers (on a Mac
-    every call does). `.active` and `.enabled` are the two sets, for a test that seeds a unit as running or switched on. */
+    the same two sets; linger on. Any other systemctl verb (daemon-reload, restart, ...) succeeds with no output. Any
+    other PROGRAM answers null, so the test's own fake answers it (on a Mac every call does). `.active` and `.enabled` are the two sets, for a test that seeds a unit as running or switched on. */
 function systemdStub() {
   const active = new Set();
   const enabled = new Set();
