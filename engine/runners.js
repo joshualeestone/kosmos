@@ -330,7 +330,7 @@ const GROK_LINUX = Object.freeze(Object.assign(Object.create(null), {
 /**
  * The manifest entry for `provider` ON A GIVEN PLATFORM AND CPU. Everything that
  * installs or resolves a runner asks this rather than reading MANIFEST directly,
- * so the Mac and Windows answers can never drift into two resolvers again.
+ * so the Mac, Windows and (#5419) Linux answers can never drift into separate resolvers.
  *
  * On win32 the openai entry is the darwin one with the Windows build's url,
  * integrity, binary path and size laid over it (version and name are shared: it is

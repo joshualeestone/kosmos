@@ -24,6 +24,7 @@ process.env.AGENT_WORKFORCE_RUNNERS_DIR = nodePath.join(SANDBOX, 'runners');
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 delete process.env.AGENT_WORKFORCE_GEMINI_BIN;
 delete process.env.AGENT_WORKFORCE_GROK_BIN;
+delete process.env.AGENT_WORKFORCE_CODEX_BIN;   // #5419: this file installs Codex on Linux too
 const runners = require('./runners');
 test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
