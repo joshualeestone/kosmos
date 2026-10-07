@@ -326,12 +326,16 @@ const CASES = [
       const a = document.querySelector('#uabort-slot .utoast'); const l = document.querySelector('#login-adv-slot .utoast');
       if (!a || !l) return null;
       const ra = a.getBoundingClientRect(); const rl = l.getBoundingClientRect();
-      return { abort: [ra.left, ra.right].map((x) => Math.round(x * 10) / 10), login: [rl.left, rl.right].map((x) => Math.round(x * 10) / 10) };
+      const x = l.querySelector('.ux').getBoundingClientRect();
+      return { abort: [ra.left, ra.right].map((v) => Math.round(v * 10) / 10), login: [rl.left, rl.right].map((v) => Math.round(v * 10) / 10),
+        xGap: Math.round(rl.right - x.right) };
     });
     const now = await edges();
     chk(!!now, '5443: CONTROL: the update-abort and login notices both render', JSON.stringify(now));
     chk(!!now && Math.abs(now.abort[0] - now.login[0]) < 1 && Math.abs(now.abort[1] - now.login[1]) < 1,
       '5443: on desktop the two notices share both edges (one column)', JSON.stringify(now));
+    // The narrower notice's close X stays at its right edge (its own 8px padding), not where its words end.
+    chk(!!now && now.xGap <= 12, '5443: the stretched login notice keeps its close X at its right edge', JSON.stringify(now));
     const box = await pg.$('#topnotes');
     if (box) await box.screenshot({ path: path.join(OUT, 'login-expiry-two-notices-5443.png') });
     await pg.evaluate(() => { document.getElementById('topnotes').style.alignItems = 'center'; });
