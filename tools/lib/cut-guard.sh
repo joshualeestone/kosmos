@@ -19,18 +19,21 @@ unset _kosmos_cut_guard_lib_dir
 # tools/queued-heavy.sh waiter that carries it as an argument, the `sh -c "... bash <script>"` shell that
 # started that waiter, and any command that only names it. On the 0.7.27 cut a wait written that way
 # held the machine for a waiter that was waiting for the same machine (#5467). A run's command line
-# STARTS with the interpreter and the script: `[path/](ba)sh [path/]<script>[ args]`. This prints the
+# STARTS with the interpreter and the script: `[path/](ba)sh [options] [path/]<script>[ args]`, where the
+# options are flags like -x, -e or --norc but never a cluster holding c (a command string, which only
+# mentions the script) or n (a syntax check, which never runs it). This prints the
 # "<pid> <command>" lines of exactly those, from `pgrep -fl`, and returns 0 when there is one, 1 when
 # there is none, 2 when pgrep itself failed (so a caller can tell "nothing" from "could not tell").
 # <script> is a path like tools/browser-checks.sh (letters, digits, . _ / - only; anything else returns 2);
-# its dots are matched literally.
+# its dots are matched literally. macOS only: there `pgrep -fl` prints the whole command line, where Linux
+# prints only the process name, so on Linux this finds nothing (as the guards it replaced did).
 kosmos_running_lines() {   # <script path>
-  local script="$1" raw rc re lines
+  local script="${1:-}" raw rc re lines
   case "$script" in ''|*[!A-Za-z0-9._/-]*) return 2 ;; esac   # a path, nothing a regex would read as syntax
   re="${script//./\\.}"
   raw="$(pgrep -fl "$re" 2>/dev/null)"; rc=$?
   [ "$rc" -ge 2 ] && return 2
-  lines="$(printf '%s\n' "$raw" | grep -E "^[0-9]+ +([^ ]*/)?(ba)?sh +([^ ]*/)?${re}( |$)" || true)"
+  lines="$(printf '%s\n' "$raw" | grep -E "^[0-9]+ +([^ ]*/)?(ba)?sh( +(-[A-Za-bd-mo-z]+|--[a-z][a-z-]*))* +([^ ]*/)?${re}( |$)" || true)"
   [ -n "$lines" ] || return 1
   printf '%s\n' "$lines"
 }
@@ -290,11 +293,7 @@ kosmos_refuse_if_cut_live() {
     # draft and would have refused every run on a busy Mac. Only a bash/sh
     # whose own command line starts with the script counts. pgrep's status
     # is read from its own line, never after a pipe (#632).
-    raw="$(pgrep -fl 'release\.sh' 2>/dev/null)"; rc=$?
-    out="$(printf '%s\n' "$raw" | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/release\.sh( |$)' || true)"
-    # pgrep: 0 matched, 1 nothing matched, 2+ could not run. After the
-    # filter, an empty list is a clean "no cut" whichever of 0/1 pgrep said.
-    if [ "$rc" -le 1 ]; then rc=0; [ -n "$out" ] || rc=1; fi
+    out="$(kosmos_running_lines tools/release.sh)"; rc=$?   # #5470: the shared anchored match; 0 run, 1 none, 2 could not tell
   fi
   # Drop the caller's own line, in BOTH paths, so the probe seam exercises the
   # same exclusion the real pgrep gets. An `out` emptied by this is a clean
@@ -433,9 +432,7 @@ kosmos_refuse_if_harness_live() {
   if [ -n "$probe" ]; then
     out="$("$probe" 2>/dev/null)"; rc=$?
   else
-    raw="$(pgrep -fl 'test-install\.sh' 2>/dev/null)"; rc=$?
-    out="$(printf '%s\n' "$raw" | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/test-install\.sh( |$)' || true)"
-    if [ "$rc" -le 1 ]; then rc=0; [ -n "$out" ] || rc=1; fi
+    out="$(kosmos_running_lines tools/test-install.sh)"; rc=$?   # #5470: the shared anchored match
   fi
   if [ -n "$out" ] && [ -n "$self" ]; then
     out="$(printf '%s\n' "$out" | _kosmos_drop_self_subtree "$self" || true)"
@@ -475,13 +472,10 @@ kosmos_refuse_if_harness_live() {
 # The name arm on its own, so tools/test-cut-guard.sh can prove the real pgrep and filter see a
 # stand-in suite even while other agents' real suites are live (a refusal alone could not tell whose
 # suite it saw). Prints the matching `pid command` lines; exits 1 for none, 2+ when pgrep failed.
-# Its interpreter pattern, ([^ ]*/)?(ba)?sh, is deliberately wider than the older guards' (/bin/)?(ba)?sh:
-# a suite started by a Homebrew bash is still a suite (review 11). Only more candidates, never fewer.
+# A suite started by a Homebrew bash is still a suite, so the interpreter may sit at any path
+# (kosmos_running_lines, shared by every "is X running" guard here since #5470).
 _kosmos_suite_candidates() {
-  local raw rc
-  raw="$(pgrep -fl 'run-tests\.sh' 2>/dev/null)"; rc=$?
-  [ "$rc" -ge 2 ] && return "$rc"
-  printf '%s\n' "$raw" | grep -E '^[0-9]+ +([^ ]*/)?(ba)?sh +([^ ]*/)?tools/run-tests\.sh( |$)' || return 1
+  kosmos_running_lines tools/run-tests.sh   # #5470: the shared anchored match (0 lines, 1 none, 2 could not tell)
 }
 
 kosmos_refuse_if_suite_live() {

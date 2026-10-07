@@ -197,6 +197,18 @@ test('a script that takes the path as an argument counts, as the header says (co
   assert.match(mention.out, /ignore 101: mentions/);
 });
 
+test('#5470: a tools/queued-heavy.sh waiter is not a run, nor the sh -c that started it (control: the run it starts counts)', () => {
+  const waiter = run([['111', WORK, 'bash tools/queued-heavy.sh #5244 browser-checks (someone) bash tools/browser-checks.sh', 'zsh']]);
+  assert.equal(waiter.code, 0, waiter.out);
+  assert.doesNotMatch(waiter.out, /COUNTS 111/);
+  const parent = run([['112', WORK, 'sh -c bash tools/queued-heavy.sh "#5244" bash tools/browser-checks.sh', 'zsh']]);
+  assert.equal(parent.code, 0, parent.out);
+  assert.doesNotMatch(parent.out, /COUNTS 112/);
+  const started = run([['113', WORK, 'bash tools/browser-checks.sh', ancs('bash tools/queued-heavy.sh #5244 browser-checks (someone) bash tools/browser-checks.sh', 'zsh')]]);
+  assert.equal(started.code, 1, started.out);
+  assert.match(started.out, /COUNTS 113/);
+});
+
 test('a script path with a space still counts (control: the same path in a -c string only mentions it)', () => {
   const dir = '/Users/someone/My Work/kosmos';
   const r = run([['105', dir, `bash ${dir}/tools/release.sh 0.6.99`, 'zsh']]);
