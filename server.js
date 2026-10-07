@@ -16997,7 +16997,7 @@ const server = http.createServer(async (req, res) => {
                         roster read and one commitments reading per agent for
                         the whole request
          waitingOnPerson tasks.waitingOnPerson: its agent needs the person about it (#3949)
-         state          tasks.taskState: closed / decision / held / built / nobody / working / assigned
+         state          tasks.taskState: closed / decision / held / built / scheduled / nobody / working / assigned
          projectPaused  its project is paused (#4771; with the task's own onHold, the held state)
          lastActivityAt the newest transcript event, else created/closed
        A task's own builtAt / builtBy / builtNote (#3951, set by POST .../built) ride every row as stored.

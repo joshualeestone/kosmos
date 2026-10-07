@@ -83,9 +83,13 @@ test('#3949/#3951/#4771 Josh\'s six groups in his order, then On hold before Com
   const m = SCRIPT.match(/const TSK_GROUPS = \[([\s\S]*?)\n\];/);
   assert.ok(m, 'TSK_GROUPS moved; update this test');
   const keys = [...m[1].matchAll(/\bk: '([a-z]+)'/g)].map((x) => x[1]);
-  assert.deepEqual(keys, ['decision', 'working', 'assigned', 'nobody', 'built', 'held', 'closed']);
+  assert.deepEqual(keys, ['decision', 'working', 'assigned', 'nobody', 'built', 'scheduled', 'held', 'closed']);
   const labels = [...m[1].matchAll(/\bl: '([^']+)'/g)].map((x) => x[1]);
-  assert.deepEqual(labels, ['Needs Your Decision', 'In progress', 'Assigned but not started', 'Unassigned', 'Built but waiting', 'On hold', 'Completed']);
+  assert.deepEqual(labels, ['Needs Your Decision', 'In progress', 'Assigned but not started', 'Unassigned', 'Built but waiting', 'On a schedule', 'On hold', 'Completed']);
+  /* #5456: On a schedule is drawn because the engine records it (taskState 'scheduled': a repeat rule, nobody on it). */
+  assert.match(m[1], /k: 'scheduled', l: 'On a schedule', c: 'var\(--tsk-scheduled\)'/);
+  assert.match(PAGE, /--tsk-scheduled: /, 'the scheduled colour token is missing');
+  assert.match(SCRIPT, /t\.state === 'scheduled' \? '<span class="tsk-who nobody">On a schedule<\/span>'/, 'a scheduled row does not say what runs it');
   /* #4771: On hold is drawn because the engine records it (tasks.setOnHold, projects.edit's paused, taskState 'held'). */
   assert.match(m[1], /k: 'held', l: 'On hold', c: 'var\(--tsk-held\)'/);
   assert.doesNotMatch(m[1], /\bs: '/, 'a group carries a byline again');

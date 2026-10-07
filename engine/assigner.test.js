@@ -679,3 +679,14 @@ test('after MAX_ASK_FAILS undelivered asks a project is left for the day, and th
     assert.equal(calls[calls.length - 1], ids[1], 'the undeliverable project kept starving the agent\'s other goal project');
   } finally { w.restore(); }
 });
+
+/* #5456: a repeating task with nobody on it is run by a schedule (the board's "On a schedule"), so it is not handed out. */
+test('#5456 pick: a repeating task with nobody on it is not handed out; an ordinary one beside it is (control)', () => {
+  const rule = { every: 'day', at: '09:00' };
+  const proj = (list) => [{ id: 'p5456', agents: ['s5456'], tasks: list }];
+  const both = a.pick('s5456', proj([{ number: 1, sentence: 'Repeats', repeat: rule }, { number: 2, sentence: 'Ordinary' }]), new Set());
+  assert.ok(both, 'CONTROL: the ordinary task was not handed out either');
+  assert.equal(both.n, 2, 'the repeating task was handed out');
+  assert.equal(a.pick('s5456', proj([{ number: 1, sentence: 'Repeats', repeat: rule }]), new Set()), null, 'a lone repeating task was handed out');
+  assert.ok(a.pick('s5456', proj([{ number: 1, sentence: 'Repeats, cleared' }]), new Set()), 'CONTROL: the same task without its rule is handed out');
+});

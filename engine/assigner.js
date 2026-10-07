@@ -192,6 +192,9 @@ function pick(session, projects, taken) {
       const prog = tasks.progressOf(t);
       /* #3951: a built task is not handed out again: the work is done and waits on a release or a check. */
       if (prog.closed || tasks.whoOf(t).length || t.builtAt) continue;
+      /* #5456: a repeating task with nobody on it is run by a schedule (the board shows it "On a schedule"), not
+         waiting for an agent, so it is not handed out. A person can still give it to an agent by hand. */
+      if (t.repeat) continue;
       const part = prog.parts.find((x) => !x.closedAt);
       if (!part) continue;
       candidates.push({ projectId: p.id, n: t.number, partId: part.id, due: dueKey(t), age: ageKey(t) });
