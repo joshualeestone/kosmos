@@ -50,6 +50,8 @@ const MANUAL = {
     'does a real install from staged dist/ trees; has its own npm script (test:install). Its header says to build the trees first.',
   'tools/test-install-gate-control.sh':
     'needs the staged dist/ trees and takes minutes across three gate runs; its own header says "run by hand before changing the gate".',
+  'tools/test-linux-systemd-live-4918.sh':
+    'requires a running Linux systemd user session (loginctl linger and systemd user bus); run in linux-systemd CI workflow (.github/workflows/linux-systemd.yml).',
 };
 
 function toolsTests() {

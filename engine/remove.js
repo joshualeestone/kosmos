@@ -509,6 +509,7 @@ function jobOps(platform) {
        Mac branch already gets this right because it acts on the world-keyed `job.label`. */
     return {
       win32: true,
+      linux: false,
       disable: (name, job) => Boolean(win32job.disable(name, job && job.worldId).ok),
       stopNow: (name, job) => Boolean(win32job.end(name, job && job.worldId).ok),
       enable: (name, job) => Boolean(win32job.enable(name, job && job.worldId).ok),
@@ -532,8 +533,41 @@ function jobOps(platform) {
       startableGone: (name, job) => win32job.status(name, job && job.worldId).registered !== true,
     };
   }
+  if ((platform || process.platform) === 'linux') {
+    const lj = require('./linuxjob');
+    /* #4918 review 6: every systemctl here goes through THIS module's run(), as the Mac arm's launchctl does, so
+       setRunner, setDryRun / AGENT_WORKFORCE_DRY_RUN and the live-execution gate all hold on Linux too. */
+    lj.ensureRuntimeDir();
+    const via = (body) => lj.runWith((file, args) => run(file, args, { timeout: 30000 }), body);
+    // The job's world: its own worldId, else read back from the unit name a removal record kept (review 8).
+    const wid = (job) => (job && job.worldId !== undefined) ? job.worldId
+      : (job && job.label && lj.worldFromUnitName(job.label) !== null) ? lj.worldFromUnitName(job.label) : undefined;
+    return {
+      win32: false,
+      linux: true,
+      disable: (name, job) => via(() => Boolean(lj.disable(name, wid(job)).ok)),
+      // A unit systemd never had is stopped, not a refused stop (review 14).
+      stopNow: (name, job) => via(() => lj.stoppedOrNotLoaded(lj.stop(name, wid(job)))),
+      enable: (name, job) => via(() => Boolean(lj.enable(name, wid(job)).ok)),
+      startNow: (name, job) => via(() => Boolean(lj.startOnly(name, wid(job)).ok)),   // never re-enables (review 9)
+      // A dry run answers as loaded, as the Mac's ok-means-loaded does (review 21). Here only: create's name check
+      // must read a dry run as NOT loaded, or every dry-run creation is refused (review 23).
+      loaded: (name, job) => DRY_RUN || via(() => Boolean(lj.loaded(name, wid(job)))),
+      startableGone: (name, job) => !fs.existsSync(lj.unitPath(name, wid(job))),
+      diagnose: (name, job) => {
+        const u = lj.unitPath(name, wid(job));
+        const st = via(() => lj.status(name, wid(job)));
+        return {
+          label: lj.unitName(name, wid(job)),
+          unitExists: fs.existsSync(u),
+          status: st,
+        };
+      },
+    };
+  }
   return {
     win32: false,
+    linux: false,
     disable: (name, job) => {
       const off = run('/bin/launchctl', ['disable', `gui/${process.getuid()}/${job.label}`]);
       return Boolean(off && off.ok !== false);
@@ -663,6 +697,16 @@ function jobFor(name, platform, worldId) {
     const wid = worldId === undefined ? launchidentity.currentWorldId() : worldId;
     const st = win32job.status(clean, wid);
     return st.registered ? { label: win32job.taskName(clean, wid), plist: null, ours: true, worldId: wid } : null;
+  }
+  if ((platform || process.platform) === 'linux') {
+    const wid = worldId === undefined ? launchidentity.currentWorldId() : worldId;
+    const lj = require('./linuxjob');
+    const unit = lj.unitPath(clean, wid);
+    if (fs.existsSync(unit)) {
+      // review 32: plist stays null; a .service path in the field Mac readers take as a launchd plist is a trap.
+      return { label: lj.unitName(clean, wid), unit, plist: null, ours: true, worldId: wid };
+    }
+    return null;
   }
   const candidates = [
     { label: create.serviceLabel(clean, worldId), plist: create.plistPath(clean, worldId), ours: true },
@@ -1853,7 +1897,11 @@ function restoreInner(name, platform) {
   if (!started) {
     return {
       outcome: OUTCOME.PARTIAL,
-      because: `${shown} is back on the board, but we could not start it again. It may need starting by hand.`,
+      /* #4918 review 33: on Linux a missing unit file fails the enable first, so the Mac's plistGone sentence below
+         was never reached and the person was told to start by hand something that no longer exists. */
+      because: ops.linux && plistGone
+        ? `${shown} is back on the board, but the file that starts it is no longer on this computer, so it will not start on its own. Whatever set this agent up originally is what can put that back.`
+        : `${shown} is back on the board, but we could not start it again. It may need starting by hand.`,
       steps,
     };
   }
@@ -2109,13 +2157,16 @@ function restartInner(name, cause, platform, startIfDead) {
   const relaunched = step('asked it to start again now', () => {
     stopped = ops.stopNow(clean, job);
     if (ops.waitUnloaded) held = stopped ? !ops.waitUnloaded(clean, job) : true;
+    /* #4918 review 8: on Linux a refused stop leaves the old service running, and the start that follows is a no-op
+       on an active unit, so is-active would answer for the OLD one. Held, as the Mac's refused bootout is. */
+    if (ops.linux) held = !stopped;
     const started = ops.startNow(clean, job);
     firstLoadedNew = bootstrapLoadedNew();
     return started;
   });
   /* Held: only a bootstrap that really answered 0 is a new job. "Already loaded" is the dying job, and no bootstrap at
      all (a launch file that is gone: startNow returns true without one) leaves print answering for the dying job. */
-  const heldAnswer = () => !ops.win32 && held && !bootstrapLoadedNew();
+  const heldAnswer = () => !ops.win32 && held && (ops.linux || !bootstrapLoadedNew());
   /* #3418: bootstrap can return 0 without the job actually loading, so CONFIRM it is loaded
      rather than trusting the OS call -- this is the exact check that would have caught Nora
      (job registered on disk, not loaded). Routed through step() and short-circuited on a dead
@@ -2128,7 +2179,7 @@ function restartInner(name, cause, platform, startIfDead) {
      Josh's Grok agent (2026-09-26) was the second #3418-class case: a restart whose job did not
      reload, while a bootstrap by hand minutes later worked at once. Only when the file is still
      there (a missing one cannot be bootstrapped at all). */
-  if (!loaded && !ops.win32 && !ops.startableGone(clean, job)) {   // the Mac's bootout/bootstrap race only
+  if (!loaded && !ops.win32 && !ops.startableGone(clean, job)) {   // the Mac's bootout/bootstrap race; on Linux a second start is harmless
     retryWait();
     const again = step('asked it to start once more', () => {
       /* #4964: and again before the second bootstrap, unless the first one loaded a new job: then launchd holds OURS
@@ -2182,6 +2233,16 @@ function restartInner(name, cause, platform, startIfDead) {
                   + 'running. It needs another try.'
                 : `we closed ${shown}'s window and started its task, but its supervisor never came `
                   + 'up, so it is not running right now. It needs another restart.')
+            /* #4918 review 3: on Linux the job is a systemd user service; say so, never macOS's launch job. */
+            : ops.linux
+              ? (!stopped && !fromDead
+                ? `we closed ${shown}'s window but systemd would not stop its service, so the restart did not take `
+                  + 'effect. If it is running, it is still running as before; if not, it needs another restart.'
+                : fromDead
+                  ? `we could not start ${shown}. systemd did not start its service, so it is not running. `
+                    + 'It needs another try.'
+                  : `we closed ${shown}'s window but could not start it again. systemd did not start its service, `
+                    + 'so it is not running right now. It needs another restart.')
             /* #4964: launchd refused the bootout, so the old job was never asked to stop: it may still be running
                as before, and whatever this restart was for (a switched provider) did not take effect. */
             : !stopped && !fromDead
