@@ -1158,9 +1158,10 @@ class KosmosLauncher
     }
 
     // A connect computer's main-frame navigations, as the Mac's connectLinkDecision decides them: Kosmos
-    // Plus and the person's computers in the window; any other https site in the person's browser; plain
-    // http, mail, phone and text links only from a click, and then in the browser; about:blank for the
-    // page's own use; every other scheme refused. So another site can never REPLACE the window's page
+    // Plus and the person's computers in the window; any other https site in the person's browser, but
+    // only from a click (#5483, the Mac's #5169: an UNCLICKED foreign nav, a redirect or a script, is
+    // refused, not opened); plain http, mail, phone and text links only from a click, and then in the
+    // browser; about:blank for the page's own use; every other scheme refused. So another site can never REPLACE the window's page
     // with a fake Kosmos screen, and this computer's stopped board is never loaded by a script.
     internal static ConnectLink ConnectLinkDecision(string address, bool clicked)
     {
@@ -1172,7 +1173,8 @@ class KosmosLauncher
         if (scheme == "https")
         {
             if (IsKosmosPlusAddress(address)) return ConnectLink.InApp;
-            return uri.Host.Length > 0 ? ConnectLink.Browser : ConnectLink.Block;
+            if (uri.Host.Length == 0) return ConnectLink.Block;
+            return clicked ? ConnectLink.Browser : ConnectLink.Block;
         }
         if (scheme == "http")
         {
