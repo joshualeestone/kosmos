@@ -226,10 +226,17 @@ function corrupt(file, why) {
  */
 let switchRead = null;          // tests inject
 function switchOn() {
+  return switchState() === 'on';
+}
+/* #5435 review 1: 'on', 'off', or 'unreadable' (the person's switch file cannot be read: not the person switching it off,
+   so willSend does not say so). Every reader other than willSend keeps treating 'unreadable' as off. */
+function switchState() {
   try {
     const r = switchRead ? switchRead() : require('./communityswitch').read();
-    return !!r && r.on === true && r.ok === true;
-  } catch { return false; }
+    if (!r) return 'off';
+    if (r.ok !== true) return 'unreadable';
+    return r.on === true ? 'on' : 'off';
+  } catch { return 'unreadable'; }
 }
 
 // `since` for this ON period: recorded by the first sweep, or post, comment or release request, that finds the switch ON.
@@ -2067,7 +2074,9 @@ function statuses() {
 function willSend(agentKey, now = Date.now(), kind = 'comment') {
   // #5435: a "no" says why (NOT_SENDING's keys), so the agent is not told the switch is off when a record is unreadable.
   const no = (why) => ({ sends: false, later: false, why });
-  if (!switchOn()) return no('off');
+  const sw = switchState();
+  if (sw === 'unreadable') return no('records');   // review 1: a torn switch file is a record, not the person's choice
+  if (sw !== 'on') return no('off');
   if (!endpointAllowed()) return no('address');
   const st = loadJson(stateFile());
   const keys = loadJson(keysFile());
@@ -2080,7 +2089,7 @@ function willSend(agentKey, now = Date.now(), kind = 'comment') {
   // and its caps say nothing about the new agent.
   const k = agentKey && !retiringListed(agentKey) ? keys[agentKey] : null;   // an unreadable list holds, it does not erase
   if (k && k.refused) return no('refused');
-  if (!sinceForOnPeriod(st)) return no('records');   // the period's start could not be written: a record, not the switch
+  if (!sinceForOnPeriod(st)) return no('records');   // the period's start could not be WRITTEN: a record, not the switch (review 1: "read or write")
   // #4994: a retirement that already failed on this service holds the name until it is fixed. A "no" is permanent (the
   // route marks the item never to send) while this is a fault that can be repaired: it goes, but not on the next pass.
   // One not yet tried is answered as usual; if its first try then fails, the item waits until it is fixed.
@@ -2097,20 +2106,21 @@ function willSend(agentKey, now = Date.now(), kind = 'comment') {
 /**
  * #5435: what the agent is told when what it published will not go, by willSend's reason, in the one place both CLIs
  * read it from (the routes return it as `notSending`). A comment that will not go is marked never to send (the route's
- * markNotSent), so its words say it will not go; a post can still go once the cause is fixed, so its words say to look.
- * 'off' keeps the sentence the CLIs said before #5435, which is right only for the switch.
+ * markNotSent), so its words say it will not go. A post is not marked: whether it goes later depends on whether the ON
+ * period's start was already recorded (review 1), which only `kosmos community status` can say, so its words promise
+ * nothing and send the agent there. 'off' and 'refused' keep the sentences the CLIs said before #5435.
  */
 const NOT_SENDING = Object.freeze({
   post: Object.freeze({
     off: 'Posted on this board, but Kosmos is not sending to the community right now. Do not post it again: see where it stands with: kosmos community status',
-    address: 'Posted on this board, but this board\'s community address is not one Kosmos sends to, so nothing goes until that is fixed. Do not post it again: see where it stands with: kosmos community status',
-    records: 'Posted on this board, but Kosmos cannot read its community send records just now, so it is not sending. Do not post it again: see where it stands with: kosmos community status. If it still says so later, tell your person: the board\'s log names the record it cannot read',
+    address: 'Posted on this board, but this board\'s community address is not one Kosmos sends to, so it is not sending. Tell your person, and do not post it again before you see where it stands with: kosmos community status',
+    records: 'Posted on this board, but Kosmos cannot read or write its community send records just now, so it is not sending. Do not post it again before you see where it stands with: kosmos community status. If it still says so later, tell your person: the board\'s log says which record',
     refused: 'Posted on this board, but the community has refused this agent, so nothing it writes is sent. Do not post it again',
   }),
   comment: Object.freeze({
     off: 'Commented, but Kosmos is not sending to the community right now, so it will not go.',
-    address: 'Commented, but this board\'s community address is not one Kosmos sends to, so it will not go.',
-    records: 'Commented, but Kosmos cannot read its community send records just now, so it will not go. Do not send it again. If this keeps happening, tell your person: the board\'s log names the record it cannot read.',
+    address: 'Commented, but this board\'s community address is not one Kosmos sends to, so it will not go. Tell your person.',
+    records: 'Commented, but Kosmos cannot read or write its community send records just now, so it will not go. Do not send it again. If this keeps happening, tell your person: the board\'s log says which record.',
     refused: 'Commented, but the community has refused this agent, so it will not go.',
   }),
 });

@@ -34,3 +34,15 @@ tell the switch from a record, an address it does not send to, or an agent the c
   sentence, with a line break, printed on one line; the old arms keep the fallback). engine/communityretire-4994's
   exact shape now includes `why: 'refused'`. Every community test plus the repo guards: 934/934.
 - Mutations: `records` reported as `off` reddens 2; each CLI ignoring the field reddens 2.
+
+## Review 1
+- FIXED: an unreadable switch file said the switch's words (the same mistake the card is about). willSend now reads the
+  switch once (switchState: on, off, unreadable) and says `records`; every other reader still treats unreadable as off.
+- FIXED: the period start that could not be WRITTEN was named an unreadable record; the words now say "read or write",
+  and a read-only-folder test pins it (it skips on Windows; listed in tools/windows-tests.js).
+- FIXED: the post words for `address` and `records` promised the post goes once fixed. Whether it does depends on
+  whether the period's start was already recorded, which only `kosmos community status` can say, so the words promise
+  nothing and send the agent there; `address` also tells it to tell its person (it cannot fix an address).
+- FIXED: the Mac CLI trims the board's sentence, as the Windows one does.
+- Left, and named: the kept `off` post sentence says "Do not post it again" while status's `before_on` says it can be
+  posted again once Community is on. It predates this card; the agent is sent to status, which is right.
