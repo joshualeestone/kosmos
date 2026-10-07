@@ -205,14 +205,20 @@ function readWorldMarker(env) {
   } catch { return null; }
 }
 
+/* #5386: on a COPY of the environment every spelling of a name is the same variable on Windows, so sets and deletes
+   go through win32env. process.env itself is left to plain access: on Windows Node already matches its names in any
+   case, and on a Mac a differently spelled name is a different variable this process must not lose. */
+const delVar = (env, k) => { if (env === process.env) delete env[k]; else envDelete(env, k); };
+const setVar = (env, k, v) => { if (env === process.env) env[k] = v; else envSet(env, k, v); };
+
 /* Put the recorded original roots back in place and drop the world variables. */
 function restorePreWorldRoots(env, marker) {
   for (const k of WORLD_ROOT_ENV_VARS) {
     const v = marker && Object.prototype.hasOwnProperty.call(marker.roots, k) ? marker.roots[k] : null;
-    if (typeof v === 'string') envSet(env, k, v); else envDelete(env, k);
+    if (typeof v === 'string') setVar(env, k, v); else delVar(env, k);
   }
-  envDelete(env, PRE_WORLD_ROOTS_ENV_VAR);
-  envDelete(env, launchidentity.WORLD_ENV_VAR);
+  delVar(env, PRE_WORLD_ROOTS_ENV_VAR);
+  delVar(env, launchidentity.WORLD_ENV_VAR);
 }
 
 /* Apply one world's roots to `env` in place, recording the originals and the
@@ -250,6 +256,9 @@ function applyWorldEnv(env, base, world) {
  */
 function applyAgentWorldEnv(env) {
   const e = env || process.env;
+  /* #5386: a copy carrying the world or its marker in another spelling is read by the usual one (process.env needs no
+     help on Windows, and on a Mac must not have its variables renamed). */
+  if (e !== process.env) { envCanon(e, launchidentity.WORLD_ENV_VAR); envCanon(e, PRE_WORLD_ROOTS_ENV_VAR); }
   const id = launchidentity.currentWorldId(e);
   const recorded = readWorldMarker(e);
   if (recorded && recorded.world === id) return {};   // inherited, already applied for this world
@@ -277,7 +286,7 @@ function preWorldEnv(env) {
        legacy-root answer, never another world's. */
     restorePreWorldRoots(out, readWorldMarker(out) || { roots: {} });
   }
-  envDelete(out, launchidentity.WORLD_ENV_VAR);
+  delVar(out, launchidentity.WORLD_ENV_VAR);
   return out;
 }
 

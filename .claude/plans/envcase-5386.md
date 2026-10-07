@@ -45,3 +45,14 @@ How often a real Windows environment carries a non-canonical spelling of these n
   another case; stated so nobody reads "no change on a Mac".
 - Not changed (reasons): sandbox.js deletes TMUX/TMUX_PANE (no tmux on Windows); win32channel, runners and update add
   Kosmos-only names Windows never supplies; win32signin already deletes BROWSER in every spelling.
+
+## Review 2 (sonnet), 2026-10-07
+- worlds: applyAgentWorldEnv now canonicalises the world and marker names on a COPY before reading them (test, red
+  without it). restorePreWorldRoots and preWorldEnv use win32env only on copies: on process.env Node already matches
+  any case on Windows, and on a Mac a differently spelled name is a different variable the live process must keep.
+- Guard: a bracket-assignment form (env['NAME'] = x) with a read control; the header states its regex limits (code
+  after a comment opener inside a string; runtime-built names; it over-flags non-env properties of these names). The
+  main-reading control is replaced by pinned lines from before this card, so it stays armed after merge.
+- subscription.test.js's oddly spelled process.env name only discriminates on a case-sensitive host; the source scan is
+  the host-neutral guard for that site.
+- Inline require('./win32env') calls hoisted to one top-level require per module.

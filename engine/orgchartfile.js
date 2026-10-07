@@ -23,6 +23,7 @@
  * Node's own zlib plus the three XML parts a sheet's cells live in.
  */
 const zlib = require('node:zlib');
+const { envDelete, envSet } = require('./win32env');   // #5386: env copies keep names as spelled; on Windows any spelling counts
 
 /* A bound on what one upload may be, so a huge file cannot pin the board. A real org chart export
    is kilobytes; a 5,000-row HR export is well under a megabyte. */
@@ -567,7 +568,7 @@ function defaultModelRunner(line, signal) {
        the default account with it unset. */
     const own = process.env.CLAUDE_CONFIG_DIR;
     // #5386: every spelling (a copy of process.env keeps names as spelled).
-    if (own) require('./win32env').envSet(env, 'CLAUDE_CONFIG_DIR', own); else require('./win32env').envDelete(env, 'CLAUDE_CONFIG_DIR');
+    if (own) envSet(env, 'CLAUDE_CONFIG_DIR', own); else envDelete(env, 'CLAUDE_CONFIG_DIR');
     // `signal`: the person stopped the read or left the page, so the child is killed and stops using their plan.
     /* maxBuffer: well past the largest request (a 10 MB PDF is about 13.3 MB as base64), in case this output format
        ever echoes the request back; not measured against a real multi-MB PDF (a fake binary cannot say what claude

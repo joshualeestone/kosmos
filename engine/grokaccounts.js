@@ -46,6 +46,7 @@
  *    a provable lapse: no refresh token and an expiry in the past (#3391).
  */
 const fs = require('node:fs');
+const { envDelete, envSet } = require('./win32env');   // #5386: env copies keep names as spelled; on Windows any spelling counts
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -829,8 +830,8 @@ function startGrokLogin({ label, grokBin, reauthDir } = {}) {
   /* XAI_API_KEY REMOVED, not blanked: an empty value still reads as set to grok. */
   const env = { ...process.env };
   // #5386: one GROK_HOME and no XAI_API_KEY, whatever spelling the board's environment carries them in.
-  require('./win32env').envSet(env, 'GROK_HOME', spot.dir);
-  require('./win32env').envDelete(env, 'XAI_API_KEY');
+  envSet(env, 'GROK_HOME', spot.dir);
+  envDelete(env, 'XAI_API_KEY');
   /* The leader socket: grok's default is ~/.grok/leader.sock, the machine's own. A
      path inside the account dir can pass macOS's 104-byte socket-path limit for a long
      name, so it goes in the temp dir under a short per-sign-in name instead. */

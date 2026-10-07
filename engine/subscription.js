@@ -32,6 +32,7 @@
  */
 
 const fs = require('node:fs');
+const { envDelete, envSet } = require('./win32env');   // #5386: env copies keep names as spelled; on Windows any spelling counts
 const os = require('node:os');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
@@ -335,8 +336,8 @@ async function checkLive(opts) {
   // deleting the key rather than trusting it to be unset.
   const env = { ...process.env };
   // #5386: every spelling (a copy of process.env keeps names as spelled; on Windows any one of them is the variable).
-  if (configDir) require('./win32env').envSet(env, 'CLAUDE_CONFIG_DIR', configDir);
-  else require('./win32env').envDelete(env, 'CLAUDE_CONFIG_DIR');
+  if (configDir) envSet(env, 'CLAUDE_CONFIG_DIR', configDir);
+  else envDelete(env, 'CLAUDE_CONFIG_DIR');
   let result;
   try {
     result = await runAuthStatus(env);
