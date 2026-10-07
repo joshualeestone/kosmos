@@ -61,7 +61,9 @@ done <<EOF
 $runs
 EOF
 if [ -z "$prev_id" ]; then say "no green run at another sha whose suite ran: run the suite"; exit 0; fi
-case "$prev_id$prev_age" in *[!0-9]*) say "unexpected run listing ($prev_id, age $prev_age): run the suite"; exit 0 ;; esac
+# Each field on its own: checked together, an EMPTY age passed and then `-gt` errored to false.
+case "$prev_id" in ''|*[!0-9]*) say "unexpected run id '$prev_id': run the suite"; exit 0 ;; esac
+case "$prev_age" in ''|*[!0-9]*) say "unexpected age '$prev_age' for run $prev_id: run the suite"; exit 0 ;; esac
 if [ "$prev_age" -gt "$MAX_AGE" ]; then
   say "the newest green run $prev_id is ${prev_age}s old (over ${MAX_AGE}s; main may have moved far): run the suite"; exit 0
 fi
