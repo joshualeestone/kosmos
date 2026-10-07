@@ -4661,9 +4661,14 @@ function createAgentInner(opts) {
     };
   }
   if (hasJob) {
+    /* #4918 review 31: on Linux no page lists a leftover unit (the roster reads .plist files), so the advice is the
+       command that frees the name, as the loaded-unit-with-no-file refusal gives. Quoted: a named world's \x2b. */
+    const lj = jobPlatform === 'linux' ? require('./linuxjob') : null;
     return {
       outcome: OUTCOME.REFUSED,
-      because: `something called ${shown} is still set to start on this computer, though there is no folder for it. Pick another name, or open it under Agents and delete what was left of it, which frees the name.`,
+      because: lj
+        ? `something called ${shown} is still set to start on this computer, though there is no folder for it. Pick another name, or free it with: systemctl --user disable --now '${lj.unitName(name)}' and then delete '${lj.unitPath(name)}'.`
+        : `something called ${shown} is still set to start on this computer, though there is no folder for it. Pick another name, or open it under Agents and delete what was left of it, which frees the name.`,
       field: 'name', // #2606
       steps,
     };

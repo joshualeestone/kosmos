@@ -300,7 +300,9 @@ function plan(name, opts) {
 
   /* One mode for the whole act, so the sentence is one sentence: to the
      Trash only if EVERYTHING can go there. */
-  const toTrash = (!folder || folder.trash) && (!job || job.trash);
+  /* #4918 review 31: a systemd unit is removed by systemd whatever happens to the folder, so it does not decide whether
+     the folder can go to the Trash (a folder-only Linux leftover already does). A Scheduled Task is unchanged. */
+  const toTrash = (!folder || folder.trash) && (!job || job.trash || Boolean(job.unit));
   const loses = [];
   if (folder) {
     const what = filesWords(folder) + (folder.files ? ', ' + sizeWords(folder.bytes) : '');
@@ -334,16 +336,16 @@ function plan(name, opts) {
   /* A Scheduled Task holds nothing a person can lose, so a job-only leftover is
      not the "gone for good" case the Trash sentence is written for. */
   const jobOnlyTask = jobIsService && !folder;
-  const reassurance = toTrash
+  const reassurance = toTrash && job && job.unit && folder
+    // #4918 review 31: the folder goes to the Trash; the unit is removed, not moved, so "everything" would be false.
+    ? `Its files go to the Trash, where you can get them back until you empty it, and its startup job is removed${community ? '. Its community account does not come back' : waiting ? '. Anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`
+    : toTrash
     ? (community || waiting
       ? `Its files go to the Trash, where you can get them back until you empty it. ${community ? 'Its community account does not come back' : 'Anything it wrote for the community that has not gone out stays unsent'}. After this, the name ${shown} is free for a new agent.`
       : `Everything goes to the Trash, where you can get it back until you empty it. After this, the name ${shown} is free for a new agent.`)
     : jobOnlyTask
       ? `Nothing you can lose is stored in it${community ? ', but its community account does not come back' : waiting ? ', but anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`
-      : job && job.unit
-        // #4918 review 30: on Linux the reason is the startup job (a systemd unit is removed, never moved), not the Trash.
-        ? `This cannot be undone: its files are deleted for good, not moved to a Trash, because its startup job is removed with them${community ? ', and its community account does not come back' : waiting ? ', and anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`
-        : `This cannot be undone: the Trash cannot take these files, so they will be deleted for good${community ? ', and its community account does not come back' : waiting ? ', and anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`;
+      : `This cannot be undone: the Trash cannot take these files, so they will be deleted for good${community ? ', and its community account does not come back' : waiting ? ', and anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`;
   const verb = folder
     ? (toTrash ? `Move ${filesWords(folder)} to the Trash` : `Delete ${filesWords(folder)} for good`)
     : jobIsService ? 'Remove its startup job'
@@ -462,7 +464,12 @@ function del(name, opts) {
     run('launchctl', ['bootout', `gui/${process.getuid ? process.getuid() : 501}/${p.job.label}`]);
     move(p.job.path, 'its auto-start file');
   }
-  if (p.folder) move(p.folder.path, 'its folder');
+  /* #4918 review 31: a startup job systemd would not remove (the user bus unreachable) keeps the folder when the folder
+     would be deleted for good: losing the files while the unit stays is the worst of both. Into the Trash it can go. */
+  if (p.folder && !p.toTrash && stuck.includes('its startup job')) {
+    stuck.push('its folder');
+    steps.push({ step: 'its folder', ok: false, because: 'kept, because its startup job could not be removed' });
+  } else if (p.folder) move(p.folder.path, 'its folder');
   /* The removed-list record, if any, is what keeps a name hidden on the
      board; with the files gone it has nothing to point at. */
   try { remove.forget(p.name); } catch { /* the record is inert without files */ }

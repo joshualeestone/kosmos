@@ -127,6 +127,7 @@ test('#4918 review 27: an orphan unit with no folder holds its name on Linux, as
   try {
     const r = create.createAgent({ ...BINS, name: 'orphanbot', role: 'pm', platform: 'linux' });
     assert.equal(r.outcome, create.OUTCOME.REFUSED, 'an orphan unit did not hold its name: ' + JSON.stringify(r));
+    assert.match(r.because, /systemctl --user disable --now 'kosmos-agent-orphanbot\.service'/, 'the Linux refusal does not give the command that frees the name (review 31)');
   } finally { fs.rmSync(u, { force: true }); }
 });
 
