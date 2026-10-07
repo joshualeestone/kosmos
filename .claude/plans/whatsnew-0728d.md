@@ -17,3 +17,4 @@ node tools/whats-new-check.js 0.7.28: 5 highlights, mac 5, windows 4.
 - WARNING fixed: "is off" overclaimed. The pill shows only for a refused mic or speech permission (mic-denied, speech-denied); a mic restricted by Screen Time or a profile, or never asked, gets a sentence and no pill. Now "is turned off for Kosmos" (Renet's own phrase), 134/140. Mona told after the fact.
 - NIT deferred: under 480px or in a text field the visible label shrinks to "Settings" (the aria-label stays "Turn on in Settings"); the Mac app's normal window shows it whole.
 - NIT fixed: the platforms line now says web/index.html draws the pill and main.swift opens the pane.
+- Round 2 (opus, blind): no BLOCKER/WARNING/CONVENTION. NIT deferred: the pill appears after the person presses the mic and it is refused, not before; "when you press the mic button" does not fit in 140 with the rest, and a person who never presses it never needs the pill.
