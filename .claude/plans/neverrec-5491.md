@@ -8,7 +8,7 @@ Built: paintModelPicker hides the model block's `.mstep` for `a.neverRecorded ==
 
 Rejected: keeping the block with only the menu (a disabled menu reading "Made before Kosmos recorded this" is the third telling); rewording the refusal shorter (still a second telling of the explainer).
 
-Left, written on the card: the static hint "Changing the model restarts the agent..." still shows under a never-recorded agent's card. The provider switch already owns showing and hiding those hint lines (fillSwitchAccounts), so changing it here would fight that code.
+Also (review 1): the line under the card about changing the model ("Changing the model restarts the agent...") now has an id, #d-model-restart-hint, and is hidden for a never-recorded agent by the two painters that already own those lines (paintProviderPicker shows them, fillSwitchAccounts hides them while a switch is armed); the line about moving stays, since Move is still there. Adding the hide to paintModelPicker instead would have been undone by paintProviderPicker, which runs after it.
 
 Weakest premise: the explainer is always shown for a never-recorded agent (it is set from the same flag, a.neverRecorded), so hiding the block never leaves the person with no reason at all.
 
