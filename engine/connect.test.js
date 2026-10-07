@@ -2980,3 +2980,11 @@ test('#5419 review 2: the C-library report is read with network handles excluded
     assert.equal(process.report.excludeNetwork, prevEx, 'excludeNetwork was not put back');
   } finally { process.report.getReport = prevGet; }
 });
+
+test('#5419 review 5: on Linux a missing tmux is caught before a download, not at sign-in', () => {
+  const none = () => false;
+  assert.equal(connect.tmuxMissingOnLinux({ PATH: '/nowhere' }, none), true, 'no tmux anywhere: missing');
+  assert.equal(connect.tmuxMissingOnLinux({ AGENT_WORKFORCE_TMUX_BIN: '/k/tmux/bin/tmux', PATH: '/nowhere' }, none), true, 'the launcher named a tmux that is not there (a bundle with no Linux tmux): missing');
+  assert.equal(connect.tmuxMissingOnLinux({ PATH: '/nowhere' }, (f) => f === '/usr/bin/tmux'), false, 'CONTROL: /usr/bin/tmux is found');
+  assert.equal(connect.tmuxMissingOnLinux({ AGENT_WORKFORCE_TMUX_BIN: '/k/tmux', PATH: '/nowhere' }, (f) => f === '/k/tmux'), false, 'CONTROL: the launcher\'s runnable pick');
+});

@@ -169,6 +169,12 @@ function claudeBinPath() {
   return require('./runners').resolveBin('claude').bin;
 }
 
+/* #5419 review 5: Kosmos runs Claude's sign-in, and every agent, in tmux. On Linux with no tmux to be found, a
+   download would fetch 200MB and then fail at sign-in with a bare ENOENT; download() asks this first instead. */
+function tmuxMissingOnLinux(env = process.env, runnable = (f) => require('./runners').isRunnable(f)) {
+  const t = tmuxBinPath('linux', env, runnable);
+  return t === 'tmux' || !runnable(t);
+}
 function tmuxBinPath(platform = process.platform, env = process.env, runnable) {
   /* #5419 review 2: the launcher (install/kosmos) exports its tmux pick, so this default is for a board started some
      other way. Homebrew's path is the Mac's; elsewhere the tmux on PATH (run() resolves a bare name). */
@@ -1058,14 +1064,6 @@ function cleanupSegments(part) {
   } catch { /* nothing to clean */ }
 }
 
-/* The manifest/URL key for the Claude Code build to fetch, matching downloads.claude.ai's manifest.platforms keys:
-   darwin-x64/arm64, win32-x64/arm64, and (#5419) linux-x64/arm64 plus their -musl builds. Takes the platform (and,
-   for tests, the arch) as parameters so another OS's download is testable on a Mac. Only reached for a platform
-   canDownloadClaude() allows (darwin, win32, linux); anything else maps to darwin, but the gate never lets it through.
-   ONE derivation of this key.
-   On Linux an arch Anthropic does not build (armv7l, riscv64, ppc64, s390x, ia32) keeps its own name, a key no
-   manifest carries, so download refuses with "no build for this kind of computer" rather than placing an x64 binary
-   that fails with "exec format error" (#5419 review 1). */
 /* #5419: on Linux the build also depends on the C library: Anthropic publishes linux-<arch> (glibc) and
    linux-<arch>-musl (Alpine and the like). Pure, so every branch is testable: Node's report names the glibc it runs
    on (present: glibc; report readable with no glibc: musl); with no readable report (Node built without it), musl's
@@ -1091,6 +1089,7 @@ function readReportQuietly() {
 }
 let muslCache = null;   // review 1: a report is tens of milliseconds and the C library never changes under a process
 const DEFAULT_IS_MUSL = () => {
+  if (process.platform !== 'linux') return false;   // review 5: never caches a non-Linux host's answer
   if (muslCache === null) {
     muslCache = detectMusl({ platform: process.platform, report: readReportQuietly, exists: fs.existsSync });
   }
@@ -1099,6 +1098,15 @@ const DEFAULT_IS_MUSL = () => {
 let isMuslFn = DEFAULT_IS_MUSL;
 function setMuslDetectForTests(fn) { isMuslFn = typeof fn === 'function' ? fn : DEFAULT_IS_MUSL; muslCache = null; }
 
+/* The manifest/URL key for the Claude Code build to fetch, matching downloads.claude.ai's manifest.platforms keys:
+   darwin-x64/arm64, win32-x64/arm64, and (#5419) linux-x64/arm64 plus their -musl builds. Takes the platform (and,
+   for tests, the arch) as parameters so another OS's download is testable on a Mac. Only reached for a platform
+   canDownloadClaude() allows (darwin, win32, linux); any other platform falls through to darwin, but the gate never lets
+   it through.
+   ONE derivation of this key.
+   On Linux an arch Anthropic does not build (armv7l, riscv64, ppc64, s390x, ia32) keeps its own name, a key no
+   manifest carries, so download refuses with "no build for this kind of computer" rather than placing an x64 binary
+   that fails with "exec format error" (#5419 review 1). */
 function platformKey(platform = process.platform, rawArch = os.arch()) {
   if (platform === 'linux') return `linux-${rawArch}${isMuslFn() ? '-musl' : ''}`;
   const arch = rawArch === 'arm64' ? 'arm64' : 'x64';
@@ -1169,6 +1177,10 @@ async function download(onProgress, track, platform = process.platform) {
      before any bytes move. */
   if (!platformGate.canDownloadClaude(platform)) {
     throw new Error('this platform (' + platform + ') has no published Claude Code build, so it was not downloaded');
+  }
+  // review 5: only on a real Linux host (a test drives platform 'linux' from a Mac); asked before any bytes move.
+  if (platform === 'linux' && process.platform === 'linux' && tmuxMissingOnLinux()) {
+    throw new Error('Kosmos needs tmux on this computer to sign Claude in and run agents, and none was found, so Claude was not downloaded. Install tmux (for example: sudo apt install tmux) and try again');
   }
   const base = downloadBase();
   const version = (await fetchText(`${base}/latest`, undefined, track)).trim();
@@ -3580,7 +3592,7 @@ function resetForTests() {
 module.exports = {
   setMuslDetectForTests,
   detectMusl,   // #5419 review 1: pure, so each branch is tested
-  readReportQuietly, tmuxBinPath,   // #5419 review 2: tested directly
+  readReportQuietly, tmuxBinPath, tmuxMissingOnLinux,   // #5419 reviews 2 and 5: tested directly
   setRefreshExpiryReader, // #3326 test seam
   PHASE, SESSION, ACTIVE_PHASES,
   state, publicView, start, submitCode, cancel,
