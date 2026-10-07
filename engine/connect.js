@@ -2416,6 +2416,12 @@ async function installClaudeCode(hooks) {
 }
 
 async function runFlow(owner, haveBinary) {
+  /* #5419: no tmux on Linux is said in the headline, before any download, whether or not Claude is installed (inside
+     the download it would surface only as the log tail under "we could not download Claude"). */
+  if (tmuxMissingForSignin(signinPlatform())) {
+    becomeStuck(owner, `${LINUX_NO_TMUX}. ${LINUX_TMUX_HINT}`, null);
+    return;
+  }
   if (!haveBinary) {
     let lastProgressWrite = 0;
     const res = await installClaudeCode({
@@ -3607,6 +3613,7 @@ async function cancel() {
 
 /** Tests only: forget everything without touching disk records. */
 function resetForTests() {
+  linuxTmuxMemo = null;   // #5419: the Linux tmux pick is held 30 s; a reset clears it like every other piece of state
   refreshExpiryReader = null; // #3326: a test's fake keychain reader never leaks into the next
   if (driver && driver.timer) clearInterval(driver.timer);
   driver = null;

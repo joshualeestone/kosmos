@@ -3078,3 +3078,28 @@ test('#5419: a "no tmux found" answer is not held, so a tmux installed after a r
     if (saved === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = saved;
   }
 });
+
+driverTest('#5419: with no Claude and no tmux on Linux, the headline is the tmux sentence and nothing is downloaded', async (t) => {
+  let requests = 0;
+  const http = require('node:http');
+  const server = http.createServer((req, res) => { requests += 1; res.writeHead(404); res.end(); });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const prevBase = process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = `http://127.0.0.1:${server.address().port}`;
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = nodePath.join(SANDBOX, 'no-such-claude');   // nothing installed
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  connect.setSigninPlatformForTests('linux');
+  connect.setTmuxCheckForTests(() => true);
+  t.after(() => {
+    connect.setSigninPlatformForTests('darwin');
+    connect.setTmuxCheckForTests(TMUX_PRESENT);
+    if (prevBase === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; else process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = prevBase;
+    server.close();
+  });
+  await connect.start();
+  await until(() => connect.state().phase === connect.PHASE.STUCK, 5000);
+  assert.match(connect.state().because, /needs tmux on this computer to sign Claude in/, 'the cause is not in the headline: ' + connect.state().because);
+  assert.equal(requests, 0, 'the download service was asked before the tmux check');
+});
