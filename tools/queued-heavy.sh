@@ -46,16 +46,17 @@ fi
 LIB_CHECKOUT="${QUEUED_HEAVY_LIB:-$HOME/work/kosmos-bc-main-4610}"
 # #5446: that default folder exists on one Mac only, so elsewhere a REPO copy of this script died here (exit 3) before
 # joining the queue. With QUEUED_HEAVY_LIB unset and no cut-guard.sh in the default, a repo copy uses the MAIN checkout
-# of the repo it is in (common dir ending in /.git). A copy outside any repo (the installed one under ~/.cache), a
-# bare-repo worktree or a submodule has no such checkout and still exits 3 as before:
-# every worktree of one clone resolves that same folder. A second clone, or a run with QUEUED_HEAVY_LIB set, can still
-# bring another lib generation; the line below names the folder and its commit so that is visible. A QUEUED_HEAVY_LIB
-# that is set and wrong still exits 3 below.
+# of the repo it is in (common dir ending in /.git); every worktree of one clone resolves that same folder. A second
+# clone, or a run with QUEUED_HEAVY_LIB set, can still bring another lib generation; the line below names the folder
+# and its commit so that is visible. A copy outside any repo (the installed one under ~/.cache), a bare-repo worktree
+# or a submodule has no such checkout and still exits 3 as before, as does a QUEUED_HEAVY_LIB that is set and wrong.
+# heavy-gate.sh's BUSY hint looks for this marker before it names a main checkout's copy: #5446-lib-fallback
+QH_LIB_FALLBACK=""
 if [ -z "${QUEUED_HEAVY_LIB:-}" ] && [ ! -f "$LIB_CHECKOUT/tools/lib/cut-guard.sh" ]; then
   _qh_common="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR git -C "$(dirname "$0")" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || _qh_common=""
   case "$_qh_common" in
     */.git) if [ -f "${_qh_common%/.git}/tools/lib/cut-guard.sh" ]; then
-              echo "QUEUED-HEAVY: $LIB_CHECKOUT has no tools/lib/cut-guard.sh; using this repo's main checkout ${_qh_common%/.git} at $(env -u GIT_DIR -u GIT_WORK_TREE git -C "${_qh_common%/.git}" rev-parse --short HEAD 2>/dev/null || echo '?') for the queue's guards (set QUEUED_HEAVY_LIB to choose)" >&2
+              echo "QUEUED-HEAVY: $LIB_CHECKOUT has no tools/lib/cut-guard.sh; using this repo's main checkout ${_qh_common%/.git} at $(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR git -C "${_qh_common%/.git}" rev-parse --short HEAD 2>/dev/null || echo '?') for the queue's guards (set QUEUED_HEAVY_LIB to choose)" >&2
               LIB_CHECKOUT="${_qh_common%/.git}"; QH_LIB_FALLBACK=1
             fi ;;
   esac
@@ -69,7 +70,7 @@ for _qh_fn in $_qh_need; do
   declare -F "$_qh_fn" >/dev/null || {
     echo "QUEUED-HEAVY: cut-guard.sh in $LIB_CHECKOUT has no $_qh_fn (an old checkout? set QUEUED_HEAVY_LIB to a checkout of origin/main)" >&2
     # #5446: the main checkout nothing updates; say the one command that brings it current.
-    [ -n "${QH_LIB_FALLBACK:-}" ] && echo "QUEUED-HEAVY: that is this repo's main checkout, behind origin/main; bring it up to date with: git -C '$LIB_CHECKOUT' pull --ff-only" >&2
+    [ -n "$QH_LIB_FALLBACK" ] && echo "QUEUED-HEAVY: that is this repo's main checkout, older than this script; if it is on main, bring it up to date with: git -C '$LIB_CHECKOUT' pull --ff-only (or set QUEUED_HEAVY_LIB)" >&2
     exit 3; }
 done
 # Review 12: started inside an ordinary turn that already holds the box (it inherited that turn's claim cookie). It
