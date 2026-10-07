@@ -3043,3 +3043,21 @@ test('#5419: the real Linux tmux pick is held between sign-in ticks, and a new l
     if (saved === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = saved;
   }
 });
+
+driverTest('#5419: sign-in on Linux with no tmux goes stuck with the tmux sentence, and launches no session', async () => {
+  // Claude is already installed here (the harness points at node), so download() never asks: launchSignin must.
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  connect.setSigninPlatformForTests('linux');
+  connect.setTmuxCheckForTests(() => true);
+  try {
+    await connect.start();
+    await until(() => connect.state().phase === connect.PHASE.STUCK, 5000);
+    assert.match(connect.state().because, /needs tmux on this computer to sign Claude in/);
+    assert.equal(term.made, 0, 'a sign-in session was launched with no tmux: ' + JSON.stringify(term.all));
+  } finally {
+    connect.setSigninPlatformForTests('darwin');
+    connect.setTmuxCheckForTests(TMUX_PRESENT);
+  }
+});

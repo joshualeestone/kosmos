@@ -55,6 +55,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { start, server } = require('./server');
 const connect = require('./engine/connect');
+// #5419: download() and sign-in refuse on a real Linux host with no tmux; pinned to "present" so a Linux box without
+// tmux still runs these tests for what they name.
+connect.setTmuxCheckForTests(() => false);
 const accounts = require('./engine/accounts');
 
 let base;

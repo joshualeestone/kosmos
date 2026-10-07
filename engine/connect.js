@@ -177,6 +177,15 @@ function tmuxMissingOnLinux(env = process.env, runnable = (f) => require('./runn
 }
 /* a seam, so the guard as wired into download() is tested on any platform (not only on a real Linux host). */
 let tmuxCheckOverride = null;
+/* #5419: one answer for "is there no tmux to sign Claude in with", asked by download() before any bytes move and by
+   launchSignin before the tmux host runs (Claude may already be installed, so the download never asks). Only on a real
+   Linux host, or through the seam. */
+const LINUX_NO_TMUX = 'Kosmos needs tmux on this computer to sign Claude in, and none was found';
+const LINUX_TMUX_HINT = 'Install tmux with your system\'s package manager (for example sudo apt install tmux, sudo dnf install tmux, or apk add tmux) and try again';
+function tmuxMissingForSignin(platform) {
+  if (platform !== 'linux') return false;
+  return tmuxCheckOverride ? Boolean(tmuxCheckOverride()) : (process.platform === 'linux' && tmuxMissingOnLinux());
+}
 let linuxTmuxMemo = null;
 function setTmuxCheckForTests(fn) { tmuxCheckOverride = typeof fn === 'function' ? fn : null; }
 function tmuxBinPath(platform = process.platform, env = process.env, runnable) {
@@ -1198,9 +1207,9 @@ async function download(onProgress, track, platform = process.platform) {
     throw new Error('this platform (' + platform + ') has no published Claude Code build, so it was not downloaded');
   }
   // only on a real Linux host (a test drives platform 'linux' from a Mac); asked before any bytes move.
-  if (platform === 'linux' && (tmuxCheckOverride ? tmuxCheckOverride() : (process.platform === 'linux' && tmuxMissingOnLinux()))) {
-    // sign-in only (the agent path's tmux pick on Linux is piece D's); the install hint names no single package manager.
-    throw new Error('Kosmos needs tmux on this computer to sign Claude in, and none was found, so Claude was not downloaded. Install tmux with your system\'s package manager (for example sudo apt install tmux, sudo dnf install tmux, or apk add tmux) and try again');
+  if (tmuxMissingForSignin(platform)) {
+    // sign-in only (the agent path's tmux pick on Linux is piece D's); the hint names no single package manager.
+    throw new Error(`${LINUX_NO_TMUX}, so Claude was not downloaded. ${LINUX_TMUX_HINT}`);
   }
   const base = downloadBase();
   const version = (await fetchText(`${base}/latest`, undefined, track)).trim();
@@ -2735,6 +2744,12 @@ async function launchSignin(owner) {
   }
   /* The flow keeps the host it launched with, so every tick and the teardown reach
      the same program. */
+  /* #5419: Claude may already be installed (download() never asked), so the tmux host is checked here too, before any
+     program runs: the same sentence, not a bare ENOENT from tmux. */
+  if (host === tmuxSigninHost && tmuxMissingForSignin(signinPlatform())) {
+    becomeStuck(owner, `${LINUX_NO_TMUX}. ${LINUX_TMUX_HINT}`, null);
+    return;
+  }
   owner.signinHost = host;
   writeState({ phase: PHASE.SIGNIN_LAUNCHING, startedOnce: true });
 

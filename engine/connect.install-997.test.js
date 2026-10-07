@@ -39,6 +39,9 @@ const SANDBOX = mkTemp('install997-');
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 
 const connect = require('./connect');
+// #5419: download() and sign-in refuse on a real Linux host with no tmux; pinned to "present" so a Linux box without
+// tmux still runs these tests for what they name.
+connect.setTmuxCheckForTests(() => false);
 const store = require('./store');
 
 function serveRelease(t, { version, binary, checksum }, opts = {}) {
