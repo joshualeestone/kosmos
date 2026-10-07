@@ -1896,7 +1896,11 @@ function restoreInner(name, platform) {
   if (!started) {
     return {
       outcome: OUTCOME.PARTIAL,
-      because: `${shown} is back on the board, but we could not start it again. It may need starting by hand.`,
+      /* #4918 review 33: on Linux a missing unit file fails the enable first, so the Mac's plistGone sentence below
+         was never reached and the person was told to start by hand something that no longer exists. */
+      because: ops.linux && plistGone
+        ? `${shown} is back on the board, but the file that starts it is no longer on this computer, so it will not start on its own. Whatever set this agent up originally is what can put that back.`
+        : `${shown} is back on the board, but we could not start it again. It may need starting by hand.`,
       steps,
     };
   }

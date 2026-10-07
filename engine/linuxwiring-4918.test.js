@@ -455,3 +455,28 @@ test('#4918 review 32: with a Trash, a startup job systemd will not remove still
     fs.rmSync(create.workerDir(name), { recursive: true, force: true });
   }
 });
+
+test('#4918 review 33: a Linux restore whose unit file is gone says so, not "start it by hand"', (t) => {
+  const create = require('./create');
+  const name = 'restorelin';
+  fs.mkdirSync(create.workerDir(name), { recursive: true });
+  const unit = linuxjob.unitPath(name);
+  fs.writeFileSync(unit, '[Service]\nExecStart="/bin/bash" "/x/agent-supervisor.sh" "restorelin" "/w" "/usr/bin/claude" "/usr/bin/tmux" "/w/start.log"\n');
+  remove.setRunner((cmd, args) => {
+    // enable of a missing unit file fails, as systemctl does; everything else succeeds
+    if (cmd === 'systemctl' && args[1] === 'enable' && !fs.existsSync(unit)) return { ok: false, code: 1, stderr: 'Failed to enable unit: Unit file restorelin.service does not exist.' };
+    if (cmd === 'systemctl' && args[1] === 'is-active') return { ok: true, stdout: 'inactive\n' };
+    return { ok: true, stdout: '' };
+  });
+  t.after(() => {
+    remove.setRunner(null);
+    fs.rmSync(unit, { force: true });
+    fs.rmSync(create.workerDir(name), { recursive: true, force: true });
+  });
+  const off = remove.remove(name, { platform: 'linux', keepJobFile: true });
+  assert.ok(off && off.outcome, 'CONTROL: the agent was removed: ' + JSON.stringify(off));
+  fs.rmSync(unit, { force: true });   // the unit file is then deleted by hand
+  const r = remove.restore(name, { platform: 'linux' });
+  assert.equal(r.outcome, remove.OUTCOME.PARTIAL, JSON.stringify(r));
+  assert.match(r.because, /no longer on this computer/, 'the person was told to start by hand something that is gone');
+});
