@@ -262,18 +262,17 @@ function secureDir(dir, mode) {
   try { fs.chmodSync(dir, mode); } catch { /* see above */ }
 }
 
-/* #5434: flush `fd` to disk. A file system that cannot flush at all (EINVAL, ENOTSUP, EOPNOTSUPP,
-   ENOSYS) is skipped, so the write still takes its usual path. Any other error (EIO, ENOSPC, EDQUOT:
-   on a mount that reports a failed write late, this is where it shows) fails the write, and the
-   old file is kept rather than replaced by bytes that never reached the disk. */
-/* EPERM too: on Windows some handles and mounts refuse the flush that way, and those writes
-   succeeded before #5434. A thrown flush error is marked, so the atomic path below stops at once:
-   no retry (a retried fsync after EIO can falsely succeed on Linux) and no in-place fallback (the
-   one path that truncates the live file); the old file stays as it was. */
-const FLUSH_UNSUPPORTED = new Set(['EINVAL', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EPERM']);
+/* #5434: flush `fd` to disk. A file system that cannot flush at all is skipped, so the write still
+   takes its usual path: EINVAL, ENOTSUP, EOPNOTSUPP, ENOSYS everywhere, and EPERM on Windows only
+   (some Windows handles and mounts refuse the flush that way, and those writes worked before
+   #5434). Any other error (EIO, ENOSPC, EDQUOT: on a mount that reports a failed write late, this
+   is where it shows) is thrown and marked `flushFailed`, so the atomic path below stops at once
+   and the old file stays as it was: no retry (a space or quota error would only recur) and no
+   in-place fallback (the one path that truncates the live file). */
+const FLUSH_UNSUPPORTED = new Set(['EINVAL', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS']);
 function flushOrThrow(fd) {
   try { fs.fsyncSync(fd); } catch (e) {
-    if (e && FLUSH_UNSUPPORTED.has(e.code)) return;
+    if (e && (FLUSH_UNSUPPORTED.has(e.code) || (e.code === 'EPERM' && process.platform === 'win32'))) return;
     if (e && typeof e === 'object') { try { e.flushFailed = true; } catch { /* frozen */ } }
     throw e;
   }
@@ -295,7 +294,9 @@ function syncDir(dir) {
  *
  * Throws on failure. On the fallback path a failure leaves the previous contents
  * in place where it can, because the alternative is destroying what it failed to
- * replace.
+ * replace. #5434: the new contents are flushed to disk before they replace the old;
+ * if the disk refuses the flush (EIO, ENOSPC, EDQUOT) it throws at once and the old
+ * file is left exactly as it was (no retry, no fallback).
  */
 function writeSecret(file, data, mode) {
   /* #1793: sweep this target's directory of orphan temps a prior death left behind,
@@ -312,6 +313,7 @@ function writeSecret(file, data, mode) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const tmp = tempPath(file);
     let created = false;
+    let flushError = null;   // #5434: set when the disk refused the flush (see flushOrThrow)
     try {
       /* `wx` refuses rather than following or reusing anything already at the
          temp path, which also refuses a symlink planted there. */
@@ -348,9 +350,12 @@ function writeSecret(file, data, mode) {
         /* #5434: the bytes reach the disk BEFORE the rename makes them the file. Without this a
            crash can leave the renamed file at full length with zeroed contents (found on a
            Windows box after repeated crashes, #5431). See flushOrThrow for which errors count. */
-        flushOrThrow(tfd);
+        try { flushOrThrow(tfd); } catch (e) { flushError = e; throw e; }
       } finally {
-        fs.closeSync(tfd);
+        /* With a flush error pending, a close that fails too (NFS often repeats the EIO there) must
+           not replace it: the marked flush error is what stops the loop below. */
+        if (flushError) { try { fs.closeSync(tfd); } catch { /* the flush error stands */ } }
+        else fs.closeSync(tfd);
       }
       /* rename is atomic, and it REPLACES a symlink at the target rather than
          following it. */
@@ -367,6 +372,7 @@ function writeSecret(file, data, mode) {
          is worse. Surfacing it needs a channel this function does not have (a warning
          on the result, or a log line), and that is a caller-shaped change rather than
          a writer-shaped one. Not done here. */
+      const earlierAtomicError = lastAtomicError;   // #5434: an earlier attempt's, for the early exit below
       lastAtomicError = err;
       /* ⚠️ ONLY REMOVE A TEMP WE CREATED. `wx` means a pre-existing file makes
          the write throw, and unlinking then would delete somebody else's file.
@@ -376,7 +382,10 @@ function writeSecret(file, data, mode) {
          the chmod or the rename. */
       if (created) { try { fs.unlinkSync(tmp); } catch { /* nothing to clean */ } }
       // #5434: the disk refused the flush; keep the old file (see flushOrThrow).
-      if (err && err.flushFailed) throw err;
+      if (err && err.flushFailed) {
+        if (earlierAtomicError && !err.cause) { try { err.cause = earlierAtomicError; } catch { /* frozen */ } }
+        throw err;
+      }
     }
   }
 
