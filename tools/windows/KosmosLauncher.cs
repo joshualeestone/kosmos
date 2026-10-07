@@ -1159,11 +1159,29 @@ class KosmosLauncher
 
     // A connect computer's main-frame navigations, as the Mac's connectLinkDecision decides them: Kosmos
     // Plus and the person's computers in the window; any other https site in the person's browser, but
-    // only from a click (#5483, the Mac's #5169: an UNCLICKED foreign nav, a redirect or a script, is
-    // refused, not opened); plain http, mail, phone and text links only from a click, and then in the
-    // browser; about:blank for the page's own use; every other scheme refused. So another site can never REPLACE the window's page
+    // only from a click or from the Kosmos Plus SITE (#5483, the Mac's #5169: any other UNCLICKED
+    // foreign nav, a redirect or a script, is refused, not opened); plain http, mail, phone and text
+    // links only from a click, and then in the browser; about:blank for the page's own use; every
+    // other scheme refused. So another site can never REPLACE the window's page
     // with a fake Kosmos screen, and this computer's stopped board is never loaded by a script.
-    internal static ConnectLink ConnectLinkDecision(string address, bool clicked)
+    // #5483 (the Mac's isKosmosPlusSiteURL, #5169): the Kosmos Plus SITE, meaning the sign-in coordinator
+    // or its apex, and NOT a computer's board (josh.kosmosplus.com). Only the site may hand off to a
+    // foreign page by script (signin.html -> checkout.stripe.com); a board page that could would be #5169.
+    internal static bool IsKosmosPlusSiteAddress(string address)
+    {
+        if (address == null) return false;
+        foreach (char c in address) if (c > 127) return false;
+        Uri uri;
+        if (!Uri.TryCreate(address, UriKind.Absolute, out uri)) return false;
+        if (uri.Scheme != Uri.UriSchemeHttps || uri.UserInfo.Length > 0 || uri.Port != 443 || uri.Host.Length == 0) return false;
+        string host = uri.Host.ToLowerInvariant();
+        string coordinator = new Uri(KosmosPlusSignIn).Host;
+        if (host == coordinator) return true;
+        int dot = coordinator.IndexOf('.');
+        return dot > 0 && host == coordinator.Substring(dot + 1);   // "login.kosmosplus.com" -> "kosmosplus.com"
+    }
+
+    internal static ConnectLink ConnectLinkDecision(string address, bool clicked, bool fromKosmosPlusPage = false)
     {
         Uri uri;
         if (address == null || !Uri.TryCreate(address, UriKind.Absolute, out uri)) return ConnectLink.Block;
@@ -1174,7 +1192,9 @@ class KosmosLauncher
         {
             if (IsKosmosPlusAddress(address)) return ConnectLink.InApp;
             if (uri.Host.Length == 0) return ConnectLink.Block;
-            return clicked ? ConnectLink.Browser : ConnectLink.Block;
+            // #5483 (#5169): an UNCLICKED foreign nav is refused, EXCEPT from the Kosmos Plus SITE, which
+            // hands off to checkout by script; without that, Buy and Billing silently do nothing.
+            return (clicked || fromKosmosPlusPage) ? ConnectLink.Browser : ConnectLink.Block;
         }
         if (scheme == "http")
         {
@@ -3051,7 +3071,11 @@ class BoardWindowForm : System.Windows.Forms.Form
         {
             int userInitiated;
             args.get_IsUserInitiated(out userInitiated);
-            KosmosLauncher.ConnectLink decided = KosmosLauncher.ConnectLinkDecision(uri, userInitiated != 0);
+            // #5483: the page the nav leaves, as the Mac's committedPageURL: only the Kosmos Plus SITE may
+            // send the window to another site by script. Unreadable means not the site (refused).
+            string page = null;
+            try { webView.get_Source(out page); } catch (Exception) { page = null; }
+            KosmosLauncher.ConnectLink decided = KosmosLauncher.ConnectLinkDecision(uri, userInitiated != 0, KosmosLauncher.IsKosmosPlusSiteAddress(page));
             if (decided == KosmosLauncher.ConnectLink.InApp) return;
             args.put_Cancel(1);
             if (decided == KosmosLauncher.ConnectLink.Browser) BeginInvoke(new Action(() => KosmosLauncher.OpenInPersonsBrowser(uri, true)));
@@ -3087,7 +3111,9 @@ class BoardWindowForm : System.Windows.Forms.Form
     // #4381: a connect computer's sign-in that did not load says so, in a box titled Kosmos (WebView2's own
     // error page stays behind it, so the window is never blank). Only the load this window started
     // (LoadConnect): a page the person moved on to is that page's business. A load cancelled on purpose
-    // (the connect rules sent a redirect to the browser) is not Kosmos Plus failing to answer.
+    // (the connect rules refused a redirect, or sent a click to the browser) is not Kosmos Plus failing
+    // to answer. #5483, as the Mac: an unclicked redirect of the FIRST load to another site is refused, and
+    // the window then shows nothing (no box: it was cancelled, not failed); F5 retries.
     internal void OnNavigationCompleted(ICoreWebView2NavigationCompletedEventArgs args)
     {
         if (mode != KosmosLauncher.ComputerMode.Connect || !connectLoadPending) return;
@@ -3896,7 +3922,8 @@ public interface ICoreWebView2Controller
 public interface ICoreWebView2
 {
     void get_Settings(out ICoreWebView2Settings settings);
-    void _unused_get_Source();
+    // #5483: the page showing now (during NavigationStarting, still the page the nav leaves).
+    void get_Source([MarshalAs(UnmanagedType.LPWStr)] out string uri);
     void Navigate([MarshalAs(UnmanagedType.LPWStr)] string uri);
     void NavigateToString([MarshalAs(UnmanagedType.LPWStr)] string htmlContent);
     void add_NavigationStarting(ICoreWebView2NavigationStartingEventHandler eventHandler, out long token);

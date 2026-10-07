@@ -204,7 +204,8 @@ test('#4381: "Run agents on this computer" is in the system menu only on a conne
 
 test('#4381: a connect window follows the connect link rules; Kosmos Plus not answering is said', () => {
   const nav = method('internal void OnNavigationStarting(ICoreWebView2NavigationStartingEventArgs args)');
-  inOrder(nav, ['if (mode == KosmosLauncher.ComputerMode.Connect)', 'args.get_IsUserInitiated(out userInitiated);', 'KosmosLauncher.ConnectLinkDecision(uri, userInitiated != 0)',
+  inOrder(nav, ['if (mode == KosmosLauncher.ComputerMode.Connect)', 'args.get_IsUserInitiated(out userInitiated);', 'webView.get_Source(out page);',
+    'KosmosLauncher.ConnectLinkDecision(uri, userInitiated != 0, KosmosLauncher.IsKosmosPlusSiteAddress(page))',
     'if (decided == KosmosLauncher.ConnectLink.InApp) return;', 'args.put_Cancel(1);', 'OpenInPersonsBrowser(uri, true)', 'return;', 'KosmosLauncher.IsBoardAddress(uri, port)'], 'the connect rules');
   const popup = method('internal void OnNewWindowRequested(ICoreWebView2NewWindowRequestedEventArgs args)');
   assert.match(popup, /KosmosLauncher\.ConnectLinkDecision\(uri, true\)/);
@@ -248,6 +249,10 @@ static class ModeProbe
     static byte[] B(string s) { return s == null ? null : Encoding.UTF8.GetBytes(s); }
     static void Mode(byte[] bytes, KosmosLauncher.ComputerMode want, string why) { var got = KosmosLauncher.ComputerModeFromBytes(bytes); Row(got == want, got.ToString().ToLowerInvariant(), why); }
     static void Link(string s, bool clicked, KosmosLauncher.ConnectLink want, string why) { var got = KosmosLauncher.ConnectLinkDecision(s, clicked); Row(got == want, got.ToString(), why); }
+    // #5483: the Mac's navCase and siteIs: fromKosmosPlusPage computed from the PAGE, so these pin the whole
+    // chain (which page counts as the site), as the launcher's OnNavigationStarting computes it.
+    static void Nav(string s, bool clicked, string page, KosmosLauncher.ConnectLink want, string why) { var got = KosmosLauncher.ConnectLinkDecision(s, clicked, KosmosLauncher.IsKosmosPlusSiteAddress(page)); Row(got == want, got.ToString(), why); }
+    static void Site(string s, bool want, string why) { bool got = KosmosLauncher.IsKosmosPlusSiteAddress(s); Row(got == want, got ? "site" : "not-site", why); }
 
     static int Main(string[] a)
     {
@@ -307,6 +312,15 @@ static class ModeProbe
         Link("javascript:alert(1)", true, KosmosLauncher.ConnectLink.Block, "javascript: is refused");
         Link("file:///etc/passwd", true, KosmosLauncher.ConnectLink.Block, "file: is refused");
         Link("about:blank", false, KosmosLauncher.ConnectLink.InApp, "about:blank for the page's own use");
+        Nav("https://checkout.stripe.com/pay", false, "https://login.kosmosplus.com/signin", KosmosLauncher.ConnectLink.Browser, "#5169 MERGE GATE: an UNCLICKED checkout hand-off from the Kosmos+ sign-in page opens in the browser, so Buy works (fails on the pre-fix WIP, which blocked it)");
+        Nav("https://checkout.stripe.com/pay", false, "https://kosmosplus.com/", KosmosLauncher.ConnectLink.Browser, "#5169: the apex is the site too; its scripted checkout hand-off opens in the browser");
+        Nav("https://evil.example/", false, "https://josh.kosmosplus.com/", KosmosLauncher.ConnectLink.Block, "#5169: an unclicked foreign nav from a COMPUTER board (josh.kosmosplus.com, not the site) is still refused");
+        Nav("https://evil.example/", false, "http://127.0.0.1:27500/", KosmosLauncher.ConnectLink.Block, "#5169: an unclicked foreign nav from the local board page is refused");
+        Nav("https://evil.example/", false, null, KosmosLauncher.ConnectLink.Block, "#5169: an unclicked foreign nav with no current page is refused");
+        Nav("https://checkout.stripe.com/", true, "http://127.0.0.1:27500/", KosmosLauncher.ConnectLink.Browser, "#5169: a CLICKED foreign link opens in the browser even from the board (the person chose it)");
+        Site("https://login.kosmosplus.com/signin", true, "#5169: the sign-in coordinator IS the Kosmos+ site");
+        Site("https://josh.kosmosplus.com/", false, "#5169: a computer's board address is NOT the site (so a board page stays blocked)");
+        Site("https://checkout.stripe.com/", false, "#5169: a foreign host is not the site");
         // Windows' own.
         Link("https://j\u00f6sh.kosmosplus.com/", false, KosmosLauncher.ConnectLink.Block, "WINDOWS: a non-ASCII host is not ours; refused unclicked");
         Link("http://127.0.0.1:16180/", true, KosmosLauncher.ConnectLink.Browser, "WINDOWS: even a click on this board goes to the browser, never this window");
@@ -331,7 +345,7 @@ static class ModeProbe
         KosmosLauncher.computerModeFile = () => file;
         Row(KosmosLauncher.LaunchComputerMode() == KosmosLauncher.ComputerMode.Run, "switch", "WITH THE SWITCH OFF every computer runs agents, whatever the file holds");
 
-        const int expected = 53;
+        const int expected = 63;
         if (ran != expected) { Console.WriteLine("\nmode-check: only " + ran + " of " + expected + " rows ran, so this proved nothing"); return 1; }
         if (bad > 0) { Console.WriteLine("\nmode-check: " + bad + " row(s) wrong"); return 1; }
         Console.WriteLine("\nmode-check: all good (" + ran + " rows)");
@@ -366,20 +380,24 @@ test('#4381: the Mac selftest\'s rows, and Windows\' own, all run and all pass (
   if (!needsProbe(t)) return;
   const r = probe(['rows', fs.mkdtempSync(path.join(probeDir, 'disk-'))]);
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.match(r.stdout, /\nmode-check: all good \(54 rows\)\s*$/, 'the probe exited 0 without its verdict: ' + r.stdout);
-  assert.equal((r.stdout.match(/^PASS /gm) || []).length, 54, r.stdout);
+  assert.match(r.stdout, /\nmode-check: all good \(63 rows\)\s*$/, 'the probe exited 0 without its verdict: ' + r.stdout);
+  assert.equal((r.stdout.match(/^PASS /gm) || []).length, 63, r.stdout);
   assert.doesNotMatch(r.stdout, /^FAIL /m, r.stdout);
   /* The Mac's rows are all here, by their words: a row dropped on one side is a rule the two no longer share. */
   const mac = fs.readFileSync(path.join(REPO, 'native-app', 'main.swift'), 'utf8');
   const selftest = mac.slice(mac.indexOf('if CommandLine.arguments.contains("--kosmos-app-mode-selftest")'), mac.indexOf('/* #3996: the Dock badge\'s number'));
-  const macWhys = [...selftest.matchAll(/^\s+(?:mode|link)\([^\n]*, "([^"]+)"\)$/gm)].map((m) => m[1]);
+  // #5483: navCase and siteIs too, not only mode and link: the #5169 checkout exception lives in navCase.
+  const macWhys = [...selftest.matchAll(/^\s+(?:mode|link|navCase|siteIs)\([^\n]*, "([^"]+)"\)$/gm)].map((m) => m[1]);
   // Mac selftest rows that Windows deliberately does NOT share, each with the one condition that would
-  // make its exception wrong. EMPTY since #5483 ported #5169 (an unclicked foreign nav is refused on
-  // both). Keep it that way where possible: a green run below reads as full parity only while this is
-  // empty, and the test says so, naming every excused rule, whenever it is not.
+  // make its exception wrong. #5483 ported #5169's connect rules, so only the two run/both board rows
+  // remain (#5492: Windows applies these rules on connect computers only). A green run reads as full
+  // parity only while this is empty, and the test says so, naming every excused rule, whenever it is not.
   //   ['<the Mac why, verbatim>', { card: '#NNNN', wrongIf: '<the one condition that makes this wrong>' }],
-  const MAC_ONLY_WHYS = new Map([]);
-  assert.equal(macWhys.length, 35, 'the Mac selftest\'s rows could not be read');   // 34 before #5169; +1 for the clicked-foreign link row
+  const MAC_ONLY_WHYS = new Map([
+    ["#5169: a run/both computer's OWN local board stays in-app, even unclicked", { card: '#5492', wrongIf: 'the Windows launcher applies ConnectLinkDecision on run/both computers with the board host:port' }],
+    ["#5169: a DIFFERENT local port is not this computer's board; refused unclicked", { card: '#5492', wrongIf: 'the Windows launcher applies ConnectLinkDecision on run/both computers with the board host:port' }],
+  ]);
+  assert.equal(macWhys.length, 46, 'the Mac selftest\'s rows could not be read');   // 35 mode and link rows, 8 navCase, 3 siteIs (#5483)
   for (const [why, x] of MAC_ONLY_WHYS) {
     assert.ok(macWhys.includes(why), 'a MAC_ONLY_WHYS entry is no longer a Mac selftest row; remove it: ' + why);
     assert.ok(x && /^#\d+$/.test(x.card) && x.wrongIf, 'a MAC_ONLY_WHYS entry needs its card and the condition that makes it wrong: ' + why);
