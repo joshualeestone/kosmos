@@ -34,7 +34,7 @@ set -euo pipefail
 # One EXIT trap, registered before anything can create a temp resource: six
 # exit-1 paths once sat between the download's mktemp and a trap that was
 # "folded in" later, each leaking ~150MB of Node tarball per failed build.
-TMP=""; SMOKE_LOG=""; SMOKE_ROOTS=""; _reload_table_stderr=""; _menu_table_stderr=""; _connector_probe_dir=""
+TMP=""; SMOKE_LOG=""; SMOKE_ROOTS=""; _reload_table_stderr=""; _wake_table_stderr=""; _menu_table_stderr=""; _connector_probe_dir=""
 trap 'rm -rf "${TMP:-}" "${SMOKE_LOG:-}" "${SMOKE_ROOTS:-}" "${_reload_table_stderr:-}" "${_wake_table_stderr:-}" "${_menu_table_stderr:-}" "${_connector_probe_dir:-}"' EXIT
 
 NODE_VERSION="${KOSMOS_NODE_VERSION:-24.19.0}"

@@ -150,7 +150,7 @@ test('#4342: the wake handler reclaims ONLY a sustained wedge, re-checking the g
   assert.equal((body.match(/probeBoardHealth\(port: port, timeout:/g) || []).length, 2, 'the handler does not probe twice (first + confirm)');
   assert.equal((body.match(/reclaimStuckBoard\(home: home, port: port\)/g) || []).length, 1, 'the reclaim is reachable from more than the confirmed-wedge path');
   // The gate is consulted three times: at entry, before the confirm probe, and before the kill
-  // (TOCTOU: the ~14s probe+confirm window is long enough for a deliberate stop or an update to begin).
+  // (TOCTOU: the ~34s probe+settle+confirm window is long enough for a deliberate stop or an update to begin).
   assert.equal((body.match(/wakeRecoveryGateOpen\(home: home\)/g) || []).length, 3,
     'the gate is not re-checked before the confirm probe AND before the kill (not just once up front)');
   // Overlapping wake chains are serialized by a generation token captured at entry and re-checked at
