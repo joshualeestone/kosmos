@@ -68,7 +68,7 @@ test('#5406 the hook script itself answers on stdout and always exits 0', () => 
   assert.equal(junk.stdout, '');
 });
 
-test('#5406 the settings file holds one PermissionRequest hook and nothing else, per platform', () => {
+test('#5406 the settings file holds one PermissionRequest hook and #5495\'s env names, nothing else, per platform', () => {
   const mac = JSON.parse(ap.settingsText({ platform: 'darwin', node: '/opt/kosmos/node', script: '/opt/kosmos/engine/kosmos-permission-allow.js' }));
   assert.deepEqual(Object.keys(mac), ['env', 'hooks'], 'the hook and the #5495 env names, nothing else');
   assert.deepEqual(mac.env, { [ap.ENV_NODE]: '/opt/kosmos/node', [ap.ENV_SCRIPT]: '/opt/kosmos/engine/kosmos-permission-allow.js' },

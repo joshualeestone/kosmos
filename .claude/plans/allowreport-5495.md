@@ -47,3 +47,9 @@ An allowed request also starts a heartbeat window, so the next PreToolUse does n
 - node --test on report-hook-allowed-5495, agentpermission-5406, the report-hook tests, reporthook, the
   file-scanning guards, windows-tests-1777, tools.build-windows-570 (from repo root): all pass.
 - tools/test-report-hook-{resolver,loud,source}.sh: rc 0.
+
+## Review 3
+- The shell bound counts $SECONDS (5 whole seconds elapsed, so 5 to 6 s real), not loop turns: under load 50 turns of
+  sleep 0.1 took about 10 s.
+- Accepted residual: on Windows the report hook asks its own install's decide(), not the file the settings name. During
+  an update while an agent runs, the two could differ for one request. Same failure shape as the weakest premise above.
