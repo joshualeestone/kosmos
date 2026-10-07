@@ -207,7 +207,8 @@ _kosmos_linux_unit_killmode() {
   _lk_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
   _lk_file="$_lk_dir/$(_kosmos_linux_unit_name)"
   [ -f "$_lk_file" ] || return 0
-  grep -qx 'KillMode=process' "$_lk_file" && return 0
+  # Already right only when KillMode=process is the one KillMode line (systemd takes the last of several).
+  [ "$(grep -c '^KillMode=' "$_lk_file")" = 1 ] && grep -qx 'KillMode=process' "$_lk_file" && return 0
   _lk_tmp="$_lk_dir/.kosmos-killmode.$$"
   # Any other KillMode= line is dropped: systemd takes the last one, so a second line would make this do nothing.
   if awk '/^KillMode=/ { next } { print } /^\[Service\]$/ { print "KillMode=process" }' "$_lk_file" > "$_lk_tmp" && mv "$_lk_tmp" "$_lk_file"; then

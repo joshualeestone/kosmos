@@ -252,7 +252,25 @@ jobs:
           git fetch --depth=1 origin 28c352bc0cba518f4343952911746d10b9490263
           git show FETCH_HEAD:install/setup.sh > "$RUNNER_TEMP/old-setup.sh"
           grep -qx 'Restart=always' "$RUNNER_TEMP/old-setup.sh"   # a unit heredoc line, not a comment
-          sh "$RUNNER_TEMP/old-setup.sh"
+          # The OLD app and kosmos too, staged from the same commit with the bundle's file list: the KOSMOS_SRC this job
+          # exports holds THIS branch's systemd-aware kosmos, which a real 0.7.27 install does not have.
+          OLDREPO="$RUNNER_TEMP/old-repo"; OLDSRC="$RUNNER_TEMP/old-src"
+          mkdir -p "$OLDREPO" "$OLDSRC/bin" "$OLDSRC/app/engine" "$OLDSRC/app/bin"
+          git archive FETCH_HEAD server.js package.json engine web bin install | tar -x -C "$OLDREPO"
+          cp "$OLDREPO/server.js" "$OLDREPO/package.json" "$OLDSRC/app/"
+          for f in "$OLDREPO"/engine/*.js; do case "$f" in *.test.js) ;; *) cp "$f" "$OLDSRC/app/engine/" ;; esac; done
+          cp -R "$OLDREPO/web" "$OLDSRC/app/web"
+          for b in agent-supervisor.sh board-watchdog.sh codex-report-bridge.js gemini-report-bridge.js grok-report-bridge.js agy-report-bridge.js; do
+            [ -f "$OLDREPO/bin/$b" ] && cp "$OLDREPO/bin/$b" "$OLDSRC/app/bin/"
+          done
+          chmod +x "$OLDSRC/app/bin/"* || true
+          V="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$OLDREPO/package.json" | head -1)"
+          sed -i "s/__KOSMOS_VERSION__/$V/" "$OLDSRC/app/web/index.html"
+          cp "$OLDREPO/install/kosmos-report-hook.sh" "$OLDSRC/app/bin/kosmos-report-hook.sh"
+          cp "$OLDREPO/install/kosmos" "$OLDSRC/bin/kosmos"; chmod +x "$OLDSRC/bin/kosmos"
+          if grep -q systemctl "$OLDSRC/bin/kosmos"; then echo "SETUP WRONG: the old kosmos knows systemd" >&2; exit 1; fi
+          KOSMOS_SRC="$OLDSRC" sh "$RUNNER_TEMP/old-setup.sh"
+          if grep -q systemctl "$KOSMOS_HOME/bin/kosmos"; then echo "SETUP WRONG: the installed kosmos is not the old one" >&2; exit 1; fi
           grep -qx 'Restart=always' "$UNIT"
           if grep -qx 'KillMode=process' "$UNIT"; then echo "SETUP WRONG: the old unit already has KillMode" >&2; exit 1; fi
           # As after a reboot: systemd runs the board from the old unit (main's kosmos knows no systemd, so stop it
@@ -262,8 +280,12 @@ jobs:
           systemctl --user start kosmos-board.service
           sleep 3
           test "$(systemctl --user is-active kosmos-board.service)" = active
-          # The update.
-          sh install/setup.sh
+          # The update, run from INSIDE the board unit's cgroup, as an in-app update is (engine/update.js spawns setup.sh
+          # from the board). The user's systemd delegates its own cgroup subtree, so this shell can move itself in. If the
+          # KillMode fix did not hold, the pause's stop would kill this shell with the cgroup and the step would fail.
+          CG="$(systemctl --user show -p ControlGroup --value kosmos-board.service)"
+          test -n "$CG" && test -w "/sys/fs/cgroup$CG/cgroup.procs"
+          sh -c 'echo $$ > "/sys/fs/cgroup$1/cgroup.procs" && exec sh install/setup.sh' _ "$CG"
           cat "$UNIT"
           grep -qxF "KillMode=process" "$UNIT"
           grep -qxF "Restart=on-failure" "$UNIT"
