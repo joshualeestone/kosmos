@@ -743,6 +743,9 @@ const SCREENS = [
   { name: 'project-shared', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
     await editProjects(page, data.projectId, (proj) => {
       proj.shared = { owner: 'harbourstudio', description: 'Our spring range, from first sketches to the shop pages.' };
+      // As the join route makes it (server.js /api/federation/join: made via 'screen'), so the header shows no
+      // "Made by an agent ... on this computer" line, which a project joined from another computer never has.
+      proj.made = { via: 'screen', by: null };
     });
     await openTab(page, 'projects');
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
@@ -750,6 +753,7 @@ const SCREENS = [
   }, verify: async (page) => {
     const t = await page.evaluate(() => document.getElementById('pj-one-shared').innerText);
     if (!t.includes('Shared by harbourstudio.kosmosplus.com.')) throw new Error('the project header does not say who shared it: ' + JSON.stringify(t));
+    if (await page.isVisible('#pj-one-made')) throw new Error('a joined project shows a Made by line it would not have');
   } },
   /* #4470: the Tasks view in the new look, for the side by side with 'tasks'. */
   { name: 'nl-tasks', owner: 'Mona Lisa', go: async (page) => {
