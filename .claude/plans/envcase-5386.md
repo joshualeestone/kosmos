@@ -70,3 +70,12 @@ How often a real Windows environment carries a non-canonical spelling of these n
   AGENT_WORKFORCE_HOME): a named world on a copy with Agent_Workforce_Data now derives from, records and restores that
   root (test; red with only the world and marker canonicalised). Production callers pass process.env today.
 - The guard covers the world names too (#1704's bleed), with a control. boardrestart's require hoisted.
+
+## Review 4 (sonnet), 2026-10-07
+- worlds: one helper, canonWorldNames (copies only), now runs in preWorldEnv, applyAgentWorldEnv AND applyWorldEnv, so
+  an exported entry point given a copy, and worldWorkersDir's override laid over preWorldEnv's result, keep one
+  spelling (test: preWorldEnv with no marker; red without it).
+- The guard also covers ANTHROPIC_API_KEY, OPENAI_API_KEY, AGENT_WORKFORCE_HOME, KOSMOS_AGENT_SESSION and
+  KOSMOS_BOARD_TOKEN (no exact-spelling site exists today); its header says a new name must be added to be guarded.
+- Left: subscription.test.js's title (the plan already says it discriminates only on a case-sensitive host);
+  orgchartcodex CODEX_HOME via envSet is a no-op in effect, kept for uniformity.

@@ -739,7 +739,7 @@ function startChild() {
       process.stderr.write('remote: could not find the board token file: ' + (err && err.message) + '\n');
     }
     const env = { ...process.env };
-    envDelete(env, 'KOSMOS_BOARD_TOKEN_FILE');   // never a stale one inherited from the launcher, in any spelling
+    envDelete(env, 'KOSMOS_BOARD_TOKEN_FILE');   // never a stale one inherited from the launcher, in any spelling (with no token file, nothing replaces it)
     if (tokenFile) envSet(env, 'KOSMOS_BOARD_TOKEN_FILE', tokenFile);
     spawned = spawn(BIN(), args, connectorSpawnOptions({ stdio: ['ignore', 'ignore', 'inherit'], env }));
   } catch (err) {

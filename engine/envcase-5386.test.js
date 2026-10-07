@@ -10,6 +10,7 @@
  * inside a string (comment stripping blanks it); a nested receiver (opts.env.CODEX_HOME = x); a spread or
  * Object.assign of anything but process.env, or one split across lines. What it over-flags: any object's property of these names
  * (opts.CODEX_HOME = x), which here is always an env; rename the property if that ever stops being true.
+ * It covers only the names in NAMES below: a NEW account-scoped or world name must be added there to be guarded.
  *
  *   node --test engine/envcase-5386.test.js
  */
@@ -22,7 +23,9 @@ const { execFileSync } = require('node:child_process');
 const NAMES = ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'GROK_HOME', 'XAI_API_KEY', 'KOSMOS_AGENT_TOKEN', 'KOSMOS_BOARD_TOKEN_FILE',
   'GEMINI_API_KEY', 'GEMINI_CLI_HOME',
   // #1704's world bleed: the world, its marker and the three roots (engine/worlds.js WORLD_ROOT_ENV_VARS)
-  'KOSMOS_WORLD', 'KOSMOS_PRE_WORLD_ROOTS', 'AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_PROJECTS', 'AGENT_WORKFORCE_WORKERS'];
+  'KOSMOS_WORLD', 'KOSMOS_PRE_WORLD_ROOTS', 'AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_PROJECTS', 'AGENT_WORKFORCE_WORKERS',
+  // other credentials and identities a child must get from exactly one place (no exact-spelling site exists today)
+  'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'AGENT_WORKFORCE_HOME', 'KOSMOS_AGENT_SESSION', 'KOSMOS_BOARD_TOKEN'];
 const N = NAMES.join('|');
 const PATTERNS = [
   ['a plain delete', new RegExp(`\\bdelete\\s+(?!process\\.env\\b)[\\w$.]+(\\.(${N})\\b|\\[\\s*['"](${N})['"]\\s*\\])`)],
@@ -117,4 +120,12 @@ test('#5386: a named world applied to a copy derives from, records and restores 
   assert.ok(env.AGENT_WORKFORCE_DATA.startsWith('/sandbox/data'), 'the world hangs off the sandbox root: ' + env.AGENT_WORKFORCE_DATA);
   assert.equal(JSON.parse(env.KOSMOS_PRE_WORLD_ROOTS).roots.AGENT_WORKFORCE_DATA, '/sandbox/data', 'the marker recorded the root');
   assert.equal(worlds.preWorldEnv(env).AGENT_WORKFORCE_DATA, '/sandbox/data', 'leaving the world gives the root back');
+});
+
+test('#5386: preWorldEnv with no marker leaves one spelling of each root', () => {
+  const worlds = require('./worlds');
+  const out = worlds.preWorldEnv({ Agent_Workforce_Data: 'C:\\a', PATH: '/bin' });
+  assert.deepEqual(Object.keys(out).filter((k) => k.toUpperCase() === 'AGENT_WORKFORCE_DATA'), ['AGENT_WORKFORCE_DATA']);
+  const over = Object.assign(out, { AGENT_WORKFORCE_DATA: 'C:\\w' });   // how worldWorkersDir lays a world's override over it
+  assert.deepEqual(Object.keys(over).filter((k) => k.toUpperCase() === 'AGENT_WORKFORCE_DATA'), ['AGENT_WORKFORCE_DATA'], 'two spellings after an override');
 });

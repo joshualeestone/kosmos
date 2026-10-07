@@ -209,6 +209,13 @@ function readWorldMarker(env) {
    go through win32env. process.env itself is left to plain access: on Windows Node already matches its names in any
    case, and on a Mac a differently spelled name is a different variable this process must not lose. */
 const delVar = (env, k) => { if (env === process.env) delete env[k]; else envDelete(env, k); };
+/* On a copy, move every world name (the world, its marker, the three roots, and AGENT_WORKFORCE_HOME, which baseRoot
+   reads) to its usual spelling, so the exact-spelling reads and writes after it see one key. A no-op on process.env. */
+function canonWorldNames(env) {
+  if (!env || env === process.env) return env;
+  for (const k of [launchidentity.WORLD_ENV_VAR, PRE_WORLD_ROOTS_ENV_VAR, ...WORLD_ROOT_ENV_VARS, 'AGENT_WORKFORCE_HOME']) envCanon(env, k);
+  return env;
+}
 const setVar = (env, k, v) => { if (env === process.env) env[k] = v; else envSet(env, k, v); };
 
 /* Put the recorded original roots back in place and drop the world variables. */
@@ -224,6 +231,7 @@ function restorePreWorldRoots(env, marker) {
 /* Apply one world's roots to `env` in place, recording the originals and the
    world id. The default world sets nothing and records nothing. */
 function applyWorldEnv(env, base, world) {
+  canonWorldNames(env);   // #5386: a copy passed straight here (applyActiveWorldEnv) gets the same one-key treatment
   const overrides = envOverridesFor(base, world);
   if (!Object.keys(overrides).length) return overrides;
   const recorded = readWorldMarker(env);
@@ -256,13 +264,7 @@ function applyWorldEnv(env, base, world) {
  */
 function applyAgentWorldEnv(env) {
   const e = env || process.env;
-  /* #5386: on a copy, every name this function and applyWorldEnv read or write (the world, its marker, the three roots,
-     and AGENT_WORKFORCE_HOME, which baseRoot reads) is moved to its usual spelling first, so the exact-spelling reads
-     and writes below see the one key. process.env needs no help on Windows, and on a Mac must not have its variables
-     renamed. */
-  if (e !== process.env) {
-    for (const k of [launchidentity.WORLD_ENV_VAR, PRE_WORLD_ROOTS_ENV_VAR, ...WORLD_ROOT_ENV_VARS, 'AGENT_WORKFORCE_HOME']) envCanon(e, k);
-  }
+  canonWorldNames(e);   // #5386: on a copy, before currentWorldId and readWorldMarker read by the usual spelling
   const id = launchidentity.currentWorldId(e);
   const recorded = readWorldMarker(e);
   if (recorded && recorded.world === id) return {};   // inherited, already applied for this world
@@ -284,7 +286,7 @@ function applyAgentWorldEnv(env) {
  */
 function preWorldEnv(env) {
   const out = Object.assign({}, env || {});
-  envCanon(out, PRE_WORLD_ROOTS_ENV_VAR);   // #5386: an inherited marker in another spelling is still the marker
+  canonWorldNames(out);   // #5386: the marker, world and roots in another spelling are still those names
   if (out[PRE_WORLD_ROOTS_ENV_VAR] !== undefined) {
     /* An unreadable marker restores nothing: all three roots go, which is the
        legacy-root answer, never another world's. */
