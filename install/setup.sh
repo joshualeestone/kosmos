@@ -2981,15 +2981,13 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
     done
     # Not recorded in #2055's update-abort streak: the board shows that streak as "Kosmos was busy, quit and
     # reopen it", which is not the remedy for the stops below (#4675).
-    # #4651 x #4818/#5033: the two stops below are for a shell that cannot see or reach the board. It cannot start one
-    # either (#4636 refuses an unreachable start), so the put-back is not tried from here and its "could not be
-    # started again" would be wrong; the marker this run wrote (if any) is taken back instead, so launchd and the
-    # watchdog run the board as before the run.
+    # #4651 x #4818: the put-back is armed before the two stops below, but whether this run really paused the board
+    # is read from the marker its stop writes: in a sandboxed shell `kosmos stop` changes nothing (#4636), so the
+    # board is still running, and the put-back's start from this shell would fail and say "could not be started
+    # again" about a board that never stopped. With no marker, nothing was paused: the put-back stands down and the
+    # stop's own words are the whole story. With the marker, the stop did happen, and the put-back runs as before.
     _kosmos_blocked_shell_handback() {
-      _kosmos_marker_ours="$_kosmos_paused_board"
-      # Said only when this run did pause it (review: not silence). True whatever supervises it: the app restarts it too.
-      [ "$_kosmos_paused_board" = yes ] && printf '  Kosmos was paused for this update. It will start again by itself; if it does not, open the Kosmos app.\n\n' >&2
-      _kosmos_paused_board=no
+      [ -e "$KOSMOS_HOME/board.stopped" ] || _kosmos_paused_board=no
     }
     if [ -z "$_pids" ] && [ -n "$_lsofbad" ]; then
       _kosmos_blocked_shell_handback
