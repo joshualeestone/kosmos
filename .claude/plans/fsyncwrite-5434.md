@@ -11,8 +11,10 @@ contents after a crash (found on a Windows box with repeated crashes, #5431).
 `engine/securewrite.js` `writeSecret` is the shared tmp-then-rename writer for 8 engine modules (cloudflare,
 githubdevice, instructions, messages, outbox, sendertoken, tokendoor, webhooks). It now:
 - flushes the temp's fd (fsyncSync) after writing and before the rename;
-- flushes the directory after the rename (not on Windows, where a folder cannot be opened for this and NTFS
-  journals the rename).
+- flushes the directory after the rename (not on Windows, where Node cannot flush a directory; the file's
+  own flush, FlushFileBuffers there, is the part #5431 needs);
+- flushes on the in-place fallback too (reached only after three failed atomic attempts; it truncates
+  then writes, so it is the path most exposed to a zero-filled file).
 Both are best effort: a file system that refuses fsync must not push the write onto writeSecret's in-place
 fallback, which the module's own comments call the destructive case.
 
@@ -29,7 +31,11 @@ counted every open under the token folder, which now includes securewrite openin
 it counts opens below the folder, as its own comment intends. Tests of securewrite and its 8 users: 132
 files, all passing after that change.
 
+## Cost, measured
+On this Mac (APFS, node 26.8.1, 50 writes of a small token record): 0.112 ms per write on main, 7.963 ms with
+the flushes. macOS's fsync is a full drive-cache flush (F_FULLFSYNC). The callers write per action (a token
+mint, a secret, an outbox entry, a long-message spill), not in a loop, so about 8 ms each is accepted.
+
 ## Weakest premise
-That fsync's cost on these writes is acceptable: they are small, infrequent records (tokens, secrets,
-messages), not a hot loop. messages.js is the busiest; if a measurement ever shows the flush costs, move
-that one to a batched writer rather than dropping the flush.
+That no caller writes through this in a loop. If one ever does (messages.js is the busiest), move that
+caller to a batched writer rather than dropping the flush.

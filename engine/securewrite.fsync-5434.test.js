@@ -13,14 +13,23 @@ const os = require('node:os');
 const path = require('node:path');
 const securewrite = require('./securewrite');
 
-/* Record fsync and rename calls (in order) while `fn` runs, then put fs back. */
-function recording(fn, { fsyncThrows = false } = {}) {
+/* Record opens (with the fd each returned), fsyncs and renames, in order, while `fn` runs; put fs
+   back afterwards. `wxFails` makes every 'wx' create fail with EEXIST, which sends writeSecret to
+   its in-place fallback after three attempts. */
+function recording(fn, { fsyncThrows = false, wxFails = false } = {}) {
   const events = [];
+  const realOpen = fs.openSync;
   const realFsync = fs.fsyncSync;
   const realRename = fs.renameSync;
+  fs.openSync = (target, flags, ...rest) => {
+    if (wxFails && flags === 'wx') throw Object.assign(new Error('planted'), { code: 'EEXIST' });
+    const fd = realOpen.call(fs, target, flags, ...rest);
+    events.push(['open', target, flags, fd]);
+    return fd;
+  };
   fs.fsyncSync = (fd) => { events.push(['fsync', fd]); if (fsyncThrows) throw Object.assign(new Error('fsync refused'), { code: 'EINVAL' }); return realFsync(fd); };
   fs.renameSync = (a, b) => { events.push(['rename', b]); return realRename(a, b); };
-  try { fn(); } finally { fs.fsyncSync = realFsync; fs.renameSync = realRename; }
+  try { fn(); } finally { fs.openSync = realOpen; fs.fsyncSync = realFsync; fs.renameSync = realRename; }
   return events;
 }
 
@@ -29,11 +38,13 @@ test('#5434: writeSecret flushes the temp before the rename that makes it the fi
   try {
     const file = path.join(dir, 'tokens.json');
     const events = recording(() => securewrite.writeSecret(file, '{"a":1}\n', 0o600));
-    const firstFsync = events.findIndex((e) => e[0] === 'fsync');
+    const tempOpen = events.find((e) => e[0] === 'open' && e[2] === 'wx');
+    assert.ok(tempOpen, 'no temp was created: ' + JSON.stringify(events));
+    const tempFlush = events.findIndex((e) => e[0] === 'fsync' && e[1] === tempOpen[3]);
     const rename = events.findIndex((e) => e[0] === 'rename' && e[1] === file);
-    assert.ok(firstFsync > -1, 'the temp was never flushed: ' + JSON.stringify(events));
+    assert.ok(tempFlush > -1, 'the temp\'s own fd was never flushed: ' + JSON.stringify(events));
     assert.ok(rename > -1, 'the file was not renamed into place: ' + JSON.stringify(events));
-    assert.ok(firstFsync < rename, 'the flush came after the rename: ' + JSON.stringify(events));
+    assert.ok(tempFlush < rename, 'the temp was flushed after the rename: ' + JSON.stringify(events));
     assert.equal(fs.readFileSync(file, 'utf8'), '{"a":1}\n');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
@@ -44,7 +55,10 @@ test('#5434: off Windows the folder is flushed after the rename too', { skip: pr
     const file = path.join(dir, 'tokens.json');
     const events = recording(() => securewrite.writeSecret(file, 'x', 0o600));
     const rename = events.findIndex((e) => e[0] === 'rename' && e[1] === file);
-    assert.ok(events.slice(rename + 1).some((e) => e[0] === 'fsync'), 'no flush after the rename: ' + JSON.stringify(events));
+    const after = events.slice(rename + 1);
+    const dirOpen = after.find((e) => e[0] === 'open' && e[1] === dir && e[2] === 'r');
+    assert.ok(dirOpen, 'the folder was not opened after the rename: ' + JSON.stringify(events));
+    assert.ok(after.some((e) => e[0] === 'fsync' && e[1] === dirOpen[3]), 'the folder itself was not flushed: ' + JSON.stringify(events));
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -59,3 +73,17 @@ test('#5434: a file system that refuses fsync still gets the atomic write, not t
     assert.deepEqual(fs.readdirSync(dir), ['tokens.json'], 'a temp was left behind');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('#5434: the in-place fallback flushes what it wrote too', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw5434-fb-'));
+  try {
+    const file = path.join(dir, 'tokens.json');
+    fs.writeFileSync(file, 'old');
+    const events = recording(() => securewrite.writeSecret(file, 'new', 0o600), { wxFails: true });
+    const fbOpen = events.find((e) => e[0] === 'open' && e[1] === file);
+    assert.ok(fbOpen, 'the fallback did not open the file in place: ' + JSON.stringify(events));
+    assert.ok(events.some((e) => e[0] === 'fsync' && e[1] === fbOpen[3]), 'the fallback did not flush: ' + JSON.stringify(events));
+    assert.equal(fs.readFileSync(file, 'utf8'), 'new');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
