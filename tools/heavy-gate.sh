@@ -146,7 +146,7 @@ live_snapshot() {
 # so a `*` in a command line stays one literal word.
 script_of() (
   set -f
-  first=1; lead=""; skip=0
+  first=1; lead=""; skip=0; seen_sh=0
   for w in $1; do
     if [ "$first" = 1 ]; then first=0; continue; fi
     if [ -z "$lead" ]; then
@@ -160,11 +160,17 @@ script_of() (
       esac
       lead="$w"
     fi
-    # #5470: a tools/queued-heavy.sh WAITER (also when ps split a spaced checkout path, so the lead is only
-    # the path's first piece) carries its wrapped command as arguments while it waits for the machine; it is
-    # not running it. When its turn comes it starts that command as its own process, which counts. Read as a
-    # run, a waiter deadlocked the 0.7.27 cut (#5467).
-    case "$w" in */tools/queued-heavy.sh|tools/queued-heavy.sh|queued-heavy.sh) exit 0 ;; esac
+    # #5470: a tools/queued-heavy.sh WAITER carries its wrapped command as arguments while it waits for the
+    # machine; it is not running it. When its turn comes it starts that command as its own process, which
+    # counts. Read as a run, a waiter deadlocked the 0.7.27 cut (#5467). Only the FIRST word ending in .sh
+    # is the script being run (the lead, or the end of a lead that ps split at a space in its path); a
+    # queued-heavy.sh that appears after it is just an argument.
+    case "$w" in *.sh)
+      if [ "$seen_sh" = 0 ]; then
+        seen_sh=1
+        case "$w" in */tools/queued-heavy.sh|tools/queued-heavy.sh|queued-heavy.sh) exit 0 ;; esac
+      fi ;;
+    esac
     case "$w" in */tools/release.sh|*/tools/browser-checks.sh|*/tools/test-install.sh|tools/release.sh|tools/browser-checks.sh|tools/test-install.sh|*/tools/run-tests.sh|tools/run-tests.sh)
       printf '%s' "$w"; exit 0 ;; esac
   done

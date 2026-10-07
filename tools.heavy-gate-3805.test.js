@@ -204,6 +204,9 @@ test('#5470: a tools/queued-heavy.sh waiter is not a run, also under a spaced ch
   const spaced = run([['114', '/Users/someone/My Work/kosmos', 'bash /Users/someone/My Work/kosmos/tools/queued-heavy.sh #5244 browser-checks bash tools/browser-checks.sh', 'zsh']]);
   assert.equal(spaced.code, 0, spaced.out);
   assert.doesNotMatch(spaced.out, /COUNTS 114/);
+  const arg = run([['115', WORK, 'bash tools/foo.sh queued-heavy.sh tools/release.sh', 'zsh']]);
+  assert.equal(arg.code, 1, arg.out);   // queued-heavy.sh after the lead script is only an argument
+  assert.match(arg.out, /COUNTS 115/);
   const parent = run([['112', WORK, 'sh -c bash tools/queued-heavy.sh "#5244" bash tools/browser-checks.sh', 'zsh']]);
   assert.equal(parent.code, 0, parent.out);
   assert.doesNotMatch(parent.out, /COUNTS 112/);
