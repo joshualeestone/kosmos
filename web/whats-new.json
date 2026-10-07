@@ -13,8 +13,8 @@
     },
     {
       "icon": "shield",
-      "title": "Claude agents skip permission prompts",
-      "line": "From their next start, Claude agents skip permission prompts. What you never allow stays blocked, and their questions to you still show."
+      "title": "Claude agents stop pausing for permission",
+      "line": "From their next start, Claude agents go ahead past permission prompts. What you set to never allow stays blocked; their questions show."
     }
   ]
 }
