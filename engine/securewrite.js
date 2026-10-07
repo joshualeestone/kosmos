@@ -330,8 +330,9 @@ function writeSecret(file, data, mode) {
         }
         /* #5434: the bytes reach the disk BEFORE the rename makes them the file. Without this a
            crash can leave the renamed file at full length with zeroed contents (found on a
-           Windows box after repeated crashes, #5431). Best effort: a file system that refuses
-           fsync must not push the write onto the in-place fallback below. */
+           Windows box after repeated crashes, #5431). Best effort, and deliberately so for EVERY
+           error, a real EIO or ENOSPC included, not only "fsync unsupported": failing here would
+           retry and then land on the in-place fallback below, which is less durable, not more. */
         try { fs.fsyncSync(tfd); } catch { /* best effort, see above */ }
       } finally {
         fs.closeSync(tfd);

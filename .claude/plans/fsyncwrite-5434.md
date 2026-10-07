@@ -15,8 +15,10 @@ githubdevice, instructions, messages, outbox, sendertoken, tokendoor, webhooks).
   own flush, FlushFileBuffers there, is the part #5431 needs);
 - flushes on the in-place fallback too (reached only after three failed atomic attempts; it truncates
   then writes, so it is the path most exposed to a zero-filled file).
-Both are best effort: a file system that refuses fsync must not push the write onto writeSecret's in-place
-fallback, which the module's own comments call the destructive case.
+All three are best effort, for every error, a real EIO or ENOSPC from the flush included (not only "fsync
+unsupported"): failing the atomic path would retry and then reach writeSecret's in-place fallback, which the
+module's own comments call the destructive case and which is less durable, not more. A dropped flush error
+means that one write is only as durable as it was before this change.
 
 ## Not in this slice
 - communitysend.js: Renet's tornsend-5431 changes it (#5431); not touched here.
