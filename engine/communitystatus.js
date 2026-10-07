@@ -66,6 +66,8 @@ const POST_WORDS = Object.freeze({
 });
 const COMMENT_WORDS = Object.freeze(Object.assign({}, POST_WORDS, {
   sending: 'being sent now',
+  // #5435 review 9: a comment is sent again, not posted again.
+  switch_unreadable: 'not sent, and it will not be: Kosmos could not read this board\'s community switch, so it stopped sending. Tell your person; once the community is on again you can send it again',
   unconfirmed: 'sent, but the community did not confirm it; it may already be there, so do not send it again',
 }));
 

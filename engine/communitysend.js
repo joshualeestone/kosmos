@@ -244,9 +244,9 @@ function switchState() {
 }
 /* #5435 review 3: why the community is not on, for the commands that refuse while it is not (read, vote, follow, and
    agentCall): a switch file that cannot be read is not the person switching it off. */
-function notOnWords() {
-  return switchState() === 'unreadable'
-    ? 'Kosmos cannot read this board\'s community switch just now, so the Kosmos+ community is not on; tell your person, who turns it on again in Settings'
+function notOnWords(sw = switchState()) {   // review 9: pass the state the caller gated on, so the words cannot disagree
+  return sw === 'unreadable'
+    ? 'Kosmos cannot read this board\'s community switch just now, so the Kosmos+ community is not on (tell your person)'
     : 'the Kosmos+ community is switched off on this board';
 }
 const loggedOnce = new Set();
@@ -1436,8 +1436,9 @@ async function sweepOnce(now) {
   const st = loadJson(stateFile());
   // #5435 review 5: a switch file that cannot be read ends the period too, as OFF does. Keeping it (review 3) let a post
   // made while the board's pages showed OFF go public once the switch was repaired, and every way found of fencing
-  // that stretch off leaked. Ending it loses what was made since the start and not yet sent: the agent is told it will
-  // not go (status `not_sent`) and can post it again, while a public post the person never meant cannot be taken back.
+  // that stretch off leaked. Ending it loses what was made since the start and not yet sent: status says so
+  // (`switch_unreadable` while the switch cannot be read; #5460: `before_on` after a repair) and the agent can post it
+  // again, while a public post the person never meant cannot be taken back.
   if (!on && st) endOnPeriod(st);
   if (!endpointAllowed()) {
     if (!reportedCorrupt.has('insecure:' + endpoint())) {
@@ -1945,7 +1946,8 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
   const local = (because) => ({ ok: false, local: true, because });
   const ctx = { cap: RESPONSE_CAP, deadline };
   const budget = () => ({ remainingMs: deadline == null ? Infinity : deadline - Date.now(), requestMs: timeoutMs });
-  if (!switchOn()) return local(notOnWords());
+  const sw = switchState();
+  if (sw !== 'on') return local(notOnWords(sw));
   if (!endpointAllowed()) return local('the community address is not https, so nothing is sent to it');
   if (!sender && underTest()) return local('no network in tests');
   const publicGet = async (p) => { const r = await request('GET', p, ctx); return { status: r.status, json: r.json }; };

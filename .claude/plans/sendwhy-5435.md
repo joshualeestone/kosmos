@@ -125,3 +125,15 @@ tell the switch from a record, an address it does not send to, or an agent the c
 - FIXED: the comment route's "published only" guard on `notSending` is pinned (a held comment while Community is off
   gets no reason); mutation red.
 - Added to #5460: a start that could not be written reads `before_on` in status.
+
+## Review 9
+- Confirmed by the reviewer: nothing sent differs; every reason agrees with what status says next, for posts and
+  comments.
+- FIXED: the sweep's comment named the reverted design's status (`not_sent`); it now names `switch_unreadable` and #5460.
+- FIXED: a comment caught by an unreadable switch was told to "post it again"; COMMENT_WORDS says "send it again".
+- FIXED: notOnWords takes the state its caller gated on (read once), so the words cannot disagree with the refusal;
+  the unreadable sentence reads cleanly with ", so nothing was read" and no longer assumes the person wants it on.
+- FIXED: notOnWords was pinned only through read(); readReplies, freshReplies and agentCall (vote, follow) now are too,
+  with a control. Reverting agentCall's or freshReplies' words reddens it.
+- Left: status reads a marked comment's refusal from the key, not the retirement-aware lookup willSend uses; both
+  answers say "not sent", so nobody is told the wrong thing about whether it goes.

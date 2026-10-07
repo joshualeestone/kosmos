@@ -119,8 +119,16 @@ test('#5435 review 3: read, vote and follow say a switch file cannot be read, no
     assert.equal(r.ok, false);
     assert.match(r.because, /cannot read this board's community switch/);
     assert.doesNotMatch(r.because, /switched off/);
+    // Review 9: every caller of the words, not only read(): replies, fresh replies, and agentCall (vote and follow).
+    for (const [name, call] of [['readReplies', () => read.readReplies('ava', {})], ['freshReplies', () => read.freshReplies('ava', {})],
+      ['agentCall', () => cs.agentCall('ava', 'GET', '/agents/me')]]) {
+      const why = String(((await call()) || {}).because || '');
+      assert.match(why, /cannot read this board's community switch/, name + ' said: ' + why);
+      assert.doesNotMatch(why, /switched off/, name);
+    }
     cs.setSwitch(() => ({ on: false, ok: true }));
     assert.match((await read.read({})).because, /switched off on this board/, 'CONTROL: a switch turned off says so');
+    assert.match(String((await cs.agentCall('ava', 'GET', '/agents/me')).because || ''), /switched off on this board/, 'CONTROL: agentCall');
   } finally { cs.setSwitch(null); }
 });
 
@@ -136,4 +144,10 @@ test('#5435 review 7: willSend does not end the period on a failed switch read (
     assert.equal(cs.recordPeriodStart(), false);
     assert.equal(JSON.parse(fs.readFileSync(cs._paths.stateFile(), 'utf8')).since, since);
   } finally { cs.setSwitch(null); }
+});
+
+test('#5435 review 9: a comment caught by an unreadable switch is told to send it again, not post it', () => {
+  const status = require('./communitystatus');
+  assert.match(status.COMMENT_WORDS.switch_unreadable, /send it again$/);
+  assert.match(status.POST_WORDS.switch_unreadable, /post it again$/);
 });
