@@ -1410,6 +1410,8 @@ uninstall() {
   if [ "$(uname -s)" = "Linux" ]; then
     # #4920: piece B's removeBoard (stop, disable, delete, reload), the same derivation of the unit's name and path as
     # installBoard. Run before the app folder is deleted, since it is the app's own code.
+    # As the install step does: systemctl --user needs the user bus, which su and cron do not set up.
+    [ -n "${XDG_RUNTIME_DIR:-}" ] || export XDG_RUNTIME_DIR="/run/user/$(id -u 2>/dev/null || echo 1000)"
     if [ -n "${AGENT_WORKFORCE_LAUNCH:-}" ] && [ -z "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ]; then
       # A sandboxed run never touches real systemd (linuxboard refuses it by design): said as what it is.
       info "sandboxed run: the systemd step was skipped on purpose"
@@ -4106,7 +4108,8 @@ try {
   const read = () => { try { return fs.readFileSync(lb.boardUnitPath(process.argv[3]), 'utf8'); } catch (e0) { return null; } };
   const before = read();
   // A tmux the launcher picked, marked by KOSMOS_TMUX_BIN_PICKED, is a choice for this run, not one to write into the
-  // unit, where it would read as a person choice forever. The unit PATH already holds the Kosmos tmux folder.
+  // unit, where it would read as a person choice forever. The unit PATH already holds the Kosmos tmux folder. Reached
+  // on an in-app update: the board runs setup.sh with the environment its launcher exported, marker included.
   if (process.env.KOSMOS_TMUX_BIN_PICKED === '1') delete process.env.AGENT_WORKFORCE_TMUX_BIN;
   r = lb.installBoard(process.argv[3], Number(process.argv[4]));
   if (r && r.ok) {
