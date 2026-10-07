@@ -10,6 +10,11 @@
       "icon": "tasks",
       "title": "Choose who hears about a missed run",
       "line": "A repeating task can now name who to tell when a run is missed: you, or an agent on the project."
+    },
+    {
+      "icon": "shield",
+      "title": "Claude agents skip permission prompts",
+      "line": "From their next start, Claude agents skip permission prompts. What you never allow stays blocked, and their questions to you still show."
     }
   ]
 }
