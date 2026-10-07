@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: boardkeychain-4491
-diff_hash: 28628ddc726d44f53c3f33403e567c2a49ddf536d6ba3c0b1a9f1b18a6d644ea
+diff_hash: e093725e1151fa177f66812cc2d58a0ef9bd98e623ed816e43f4e62afe467af1
 validation: passed (Mortals full suite at a3d4699db, 08:35 CDT 2026-10-04: 15036 tests, 14812 pass, 0 fail, 224 skipped; hash 28628ddc726d; full suite passed on Mortals)
 subdir_audit: passed
 timestamp: 2026-10-04T13:50:43Z
@@ -106,3 +106,9 @@ None.
 - [WARNING] sandbox may limit normal work: NOT fixed; weakest premise (unmeasured outside the spike).
 Detail kept off the public repo: ~/.cache/claude-handoffs/private/.
 - [BLOCKER, Kitty re-review] the list of worlds the gate trusts was not change-protected, and a world added later was uncovered: FIXED (option A: registry write-denied in both layers, a glob over every world store for Read and Edit); test + mutant. Option B (gate-side snapshot) left as follow-up hardening.
+
+### Rebase onto main, 2026-10-07 (Angel)
+Rebased 986 commits forward. One conflict, engine/sendertoken.js's export list: main added instanceState and NO_MATCH
+(#5333), this branch added tokenOnlyList; both kept. 280 tests pass on the rebased head (the #4491 tests, every
+sendertoken, boardauth and token CLI test, and the file-scanning guards). A blind review of what main added since
+10-04 against the guard runs before merge; GitHub CI runs the full suites.
