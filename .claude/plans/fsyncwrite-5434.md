@@ -17,8 +17,9 @@ instructions.js imports only refuseSymlinkTarget). It now:
 - flushes on the in-place fallback too (reached only after three failed atomic attempts; it truncates
   then writes, so it is the path most exposed to a zero-filled file).
 Which flush errors count: a file system that cannot flush at all (EINVAL, ENOTSUP, EOPNOTSUPP, ENOSYS
-everywhere, and EPERM on Windows only, where some handles and mounts return it; those writes worked before
-this change) is skipped, so the write takes its usual path. Any other error (EIO, ENOSPC, EDQUOT; on a
+everywhere, and EPERM and EISDIR on Windows only, where some handles and volumes return them; libuv reports
+ERROR_INVALID_FUNCTION from FlushFileBuffers as EISDIR, per a reading of its error table, not measured here;
+those writes worked before this change) is skipped, so the write takes its usual path. Any other error (EIO, ENOSPC, EDQUOT; on a
 mount that reports a failed write late, this is where it shows) fails the write AT ONCE: the temp is
 removed and writeSecret throws, with no retry (a space or quota error would only recur) and no in-place
 fallback (the one path that truncates the live file). If the close then fails too (NFS often repeats the

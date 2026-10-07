@@ -263,10 +263,11 @@ function secureDir(dir, mode) {
 }
 
 /* #5434: flush `fd` to disk. A file system that cannot flush at all is skipped, so the write still
-   takes its usual path: EINVAL, ENOTSUP, EOPNOTSUPP, ENOSYS everywhere, and EPERM on Windows only
-   (some Windows handles and mounts refuse the flush that way, and those writes worked before
-   #5434). Any other error (EIO, ENOSPC, EDQUOT: on a mount that reports a failed write late, this
-   is where it shows) is thrown (marked `flushFailed`, for callers and tests); the atomic path below
+   takes its usual path: EINVAL, ENOTSUP, EOPNOTSUPP, ENOSYS everywhere, and on Windows only EPERM
+   and EISDIR (some Windows handles and volumes refuse the flush that way; libuv reports
+   ERROR_INVALID_FUNCTION from FlushFileBuffers as EISDIR; those writes worked before #5434).
+   Any other error, for example EIO, ENOSPC or EDQUOT (on a mount that reports a failed write
+   late, this is where it shows), is thrown (marked `flushFailed`, for callers and tests); the atomic path below
    records it in its local `flushError` and stops at once, so the old file stays as it was: no
    retry (a space or quota error would only recur) and no in-place fallback (the one path that
    truncates the live file). This covers errors the FLUSH reports. The same errors reported by a
@@ -275,7 +276,7 @@ function secureDir(dir, mode) {
 const FLUSH_UNSUPPORTED = new Set(['EINVAL', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS']);
 function flushOrThrow(fd) {
   try { fs.fsyncSync(fd); } catch (e) {
-    if (e && (FLUSH_UNSUPPORTED.has(e.code) || (e.code === 'EPERM' && process.platform === 'win32'))) return;
+    if (e && (FLUSH_UNSUPPORTED.has(e.code) || (process.platform === 'win32' && (e.code === 'EPERM' || e.code === 'EISDIR')))) return;
     if (e && typeof e === 'object') { try { e.flushFailed = true; } catch { /* frozen */ } }
     throw e;
   }
@@ -298,7 +299,8 @@ function syncDir(dir) {
  * Throws on failure. On the fallback path a failure leaves the previous contents
  * in place where it can, because the alternative is destroying what it failed to
  * replace. #5434: the new contents are flushed to disk before they replace the old.
- * On the atomic path, a refused flush (EIO, ENOSPC, EDQUOT) throws at once and the
+ * On the atomic path, a refused flush (any error but "cannot flush", for example EIO,
+ * ENOSPC or EDQUOT) throws at once and the
  * old file is left as it was (no retry, no fallback; securewrite.fsync-5434.test.js).
  * On the in-place fallback a refused flush comes after the truncate, so the old
  * contents survive only through that path's best-effort restore; with no old
@@ -358,6 +360,8 @@ function writeSecret(file, data, mode) {
         /* #5434: the bytes reach the disk BEFORE the rename makes them the file. Without this a
            crash can leave the renamed file at full length with zeroed contents (found on a
            Windows box after repeated crashes, #5431). See flushOrThrow for which errors count. */
+        // Cost: a synchronous flush on the caller's thread, the board's event loop for most callers
+        // (about 8 ms on this Mac's SSD, unmeasured on a slow disk; #5434's plan).
         try { flushOrThrow(tfd); } catch (e) { flushError = e; throw e; }
       } finally {
         /* With a flush error pending, a close that fails too (NFS often repeats the EIO there) must

@@ -65,7 +65,7 @@ test('#5434: off Windows the folder is flushed after the rename too', { skip: pr
 });
 
 test('#5434: a file system that cannot flush (each skipped code) still gets the atomic write, not the in-place fallback', () => {
-  for (const code of ['EINVAL', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS'].concat(process.platform === 'win32' ? ['EPERM'] : [])) {
+  for (const code of ['EINVAL', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS'].concat(process.platform === 'win32' ? ['EPERM', 'EISDIR'] : [])) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw5434-ref-'));
     try {
       const file = path.join(dir, 'tokens.json');
