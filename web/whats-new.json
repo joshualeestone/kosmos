@@ -24,7 +24,7 @@
     {
       "icon": "chat",
       "title": "The mic button opens the setting it needs",
-      "line": "If the microphone or speech recognition is off for Kosmos, the mic button becomes Turn on in Settings and opens the right page.",
+      "line": "If the microphone or speech recognition is turned off for Kosmos, the mic button becomes Turn on in Settings and opens the right page.",
       "platforms": [
         "mac"
       ]
