@@ -251,7 +251,7 @@ const LX = (win, why) => Object.assign({}, win, onLinux(why));
    so there this is the old a[0] !== 'print' filter exactly. */
 const notARead = ([, a]) => a && a[0] !== 'print' && !a.includes('is-active');
 /* #5432 review 3: these assert the launchd job itself, and the Linux unit's equivalent is NOT tested yet (no Linux
-   test checks it); #5500 lists them beside the fixture-only ones. */
+   test checks it). #5500's later slice. */
 const LINUX_UNIT_UNTESTED_WHY = 'it asserts the launchd job itself; the systemd unit\'s equivalent (the same value carried, or '
   + 'the same refusal) is NOT tested on Linux yet: #5500';
 /* #5432 review 4: the #4279 leftover-job rules read launchctl print output and plist paths (macOS temp folders, the
