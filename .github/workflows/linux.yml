@@ -13,8 +13,9 @@
 #     install.uninstall-watchdog-2955
 #   #5419 slice 2 (provider runners on Linux): engine/runners, server.runners, engine/muserun. Slice 1 (Claude Code
 #     downloads) turned engine/connect, connect.install-997, connect.nobinary-1580 and connect.hookwiring-1569
-#     green: run 37596187037 on linuxclaude-5419 96ca3afba (its connect code with the final C-library rule),
-#     read per file: none of its 82 failing test names is in those four, platform, the download gate or reachable.
+#     green: run 37599038975 on linuxclaude-5419 7f6ccadbe (the final connect code, and the test of the real C-library
+#     detection on this glibc host, which ran and passed), read per file: none of its 82 failing test names is in
+#     those four, platform, the download gate or reachable.
 #   #5420 (kill guard timing): report-hook-killguard-4671
 #   #5424 (folder preview vs act on a case-sensitive disk): engine/projects (one test)
 # A red in any other file is new. A known-red list is a follow-up once those land (#4919).
