@@ -42,8 +42,10 @@ every `tools.windows-*` test). On the Mac: the file's non-probe tests and the la
 On #5482 (runboth-nav-5169, open), which adds MAC_ONLY_WHYS. After it merges: rebase onto main, then the PR.
 
 ## Decided
-- A FIRST load redirected off-site (a captive portal) is now refused, as on the Mac: the window shows nothing (a
-  cancel is not a failure, so no box); F5 retries. Parity chosen over a Windows-only message.
+- A FIRST load redirected off-site (a captive portal) is now refused, as on the Mac. WebView2 reports that as a
+  cancel, which the launcher did not count as a failure, so the window would have sat blank with no way back
+  (review iteration 2). Now a first load the connect rules refused counts as failed: the "could not reach Kosmos
+  Plus" box shows and Reopen loads it again. Before this change the redirect opened in the browser instead.
 
 ## Weakest premise
 `get_Source` during NavigationStarting returns the page being left (WebView2 documents Source as the current top-level
