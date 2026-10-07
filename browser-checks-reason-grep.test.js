@@ -426,6 +426,7 @@ const SITE_COUNTS = {
   'render-permission-slider-2620.js': [2, 2],
   'render-personal-instr-4446.js': [1, 0],
   'render-phone-offline-718.js': [2, 0],
+  'render-phone-pass-5510.js': [2, 1],
   'render-picker-provider-2097.js': [1, 1],
   'render-picture-fit-4885.js': [1, 0],
   'render-pj-clear-2575.js': [0, 1],
