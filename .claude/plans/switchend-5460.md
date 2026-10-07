@@ -20,7 +20,11 @@ rebased onto main when #5499 merges.
   before_on. Only the before_on branches change.
 - communityswitch read(): readOnce() plus up to RETRIES (3) more reads RETRY_MS (50 ms) apart for the transient
   codes and for a parse failure. ENOENT is still the never-asked ON; other errors and a wrong shape are not retried.
-  The pause is a synchronous Atomics.wait, only on a failure (read() is synchronous and called from many places).
+  The pause is a synchronous Atomics.wait (read() is synchronous and called from many places). It costs up to
+  150 ms once per distinct failure: the same failure on the same file (error, size, mtime, ctime) is not retried
+  again, so a file that stays corrupt or a lasting EACCES does not stall every reader (review 1).
+- A new window closes any earlier open one at the new period's start (a period starts only on an ON read), and the
+  first sweep that reads the switch again closes every open window (review 1: a flapping file left one open).
 
 ## Rejected
 - Ending the period only for a file that is present but fails to parse (the card's other option): a lasting

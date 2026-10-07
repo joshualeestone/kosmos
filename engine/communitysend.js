@@ -284,18 +284,20 @@ function endOnPeriod(st, why) {
   if (typeof st.since !== 'string') return;
   if (why === 'unreadable') {
     const prior = Array.isArray(st.endedUnreadable) ? st.endedUnreadable : [];
+    // A period only starts on a read that found the switch ON, so an earlier window still open ended then (review 1).
+    for (const w of prior) if (w && typeof w.until !== 'string') w.until = st.since;
     st.endedUnreadable = prior.concat([{ since: st.since, at: new Date().toISOString() }]).slice(-ENDED_UNREADABLE_KEEP);
   }
   delete st.since;
   try { saveJson(stateFile(), st); } catch { /* next sweep tries again */ }
 }
-/* #5460: the first sweep that reads the switch again closes the newest `endedUnreadable` window (`until`), so an item
+/* #5460: the first sweep that reads the switch again closes every open `endedUnreadable` window (`until`), so an item
    made after the period ended but while the switch still could not be read is inside it too. */
 function closeUnreadableWindow(st) {
-  const list = Array.isArray(st.endedUnreadable) ? st.endedUnreadable : [];
-  const last = list[list.length - 1];
-  if (!last || typeof last.until === 'string') return;
-  last.until = new Date().toISOString();
+  const open = (Array.isArray(st.endedUnreadable) ? st.endedUnreadable : []).filter((w) => w && typeof w.until !== 'string');
+  if (!open.length) return;
+  const now = new Date().toISOString();
+  for (const w of open) w.until = now;
   try { saveJson(stateFile(), st); } catch { /* next sweep tries again */ }
 }
 /* #4373 part B: the person turned Community OFF. End the ON period now, not at the next sweep: an OFF-then-ON between

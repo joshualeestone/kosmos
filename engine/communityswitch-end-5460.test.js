@@ -98,13 +98,47 @@ test('#5460 CONTROL: the person switching OFF still reads "switched off" after i
 
 test('#5460: only the newest windows are kept', async () => {
   fresh();
+  const starts = [];
   for (let i = 0; i < 25; i++) {
     position = { on: true, ok: true };
     startPeriod();
+    starts.push(readState().since);
+    await tick();
     position = { on: false, ok: false };
     await cs.sweep();
   }
-  assert.equal(readState().endedUnreadable.length, 20);
+  const kept = readState().endedUnreadable;
+  assert.equal(kept.length, 20);
+  assert.deepEqual(kept.map((w) => w.since), starts.slice(-20), 'the oldest five go, not the newest');
+});
+
+test('#5460 review 1: a switch that flaps (unreadable, one good read, unreadable) leaves no window open for good', async () => {
+  fresh();
+  position = { on: true, ok: true };
+  startPeriod();
+  await tick();
+  position = { on: false, ok: false };
+  await cs.sweep();                                    // window 1, open
+  await tick();
+  position = { on: true, ok: true };
+  assert.equal(cs.willSend('cal').sends, true, 'a post route reads it ON once and records a new start');
+  await tick();
+  position = { on: false, ok: false };
+  await cs.sweep();                                    // window 2
+  await tick();
+  position = { on: true, ok: true };
+  await cs.sweep();                                    // repaired
+  const windows = readState().endedUnreadable;
+  assert.equal(windows.length, 2);
+  assert.ok(windows.every((w) => typeof w.until === 'string'), 'a window left open: ' + JSON.stringify(windows));
+  await tick();
+  position = { on: false, ok: true };                  // later, the person's own OFF
+  await cs.sweep();
+  post('cal', 'Made while switched off');
+  await tick();
+  position = { on: true, ok: true };
+  await cs.sweep();
+  assert.equal(stateOfTitle('cal', 'Made while switched off'), 'before_on', 'an old open window relabelled the person\'s OFF');
 });
 
 /* The switch reader. fs.readFileSync is replaced for the switch file only, so each failure is staged exactly. */
@@ -119,7 +153,7 @@ function withReads(errors, fn) {
     return real.call(this, file, ...rest);
   };
   sw._setPause(() => {});
-  try { return { r: fn(), calls: () => calls }; } finally { fs.readFileSync = real; }
+  try { return { r: fn(), calls: () => calls }; } finally { fs.readFileSync = real; sw._setPause(null); }
 }
 
 test('#5460: a brief read failure or a file caught mid-write is read again before the switch counts as unreadable', () => {
@@ -149,4 +183,27 @@ test('#5460 CONTROL: an error that is not transient, and a file that parses to t
   assert.equal(shape.calls(), 1);
   fs.rmSync(sw.FILE);
   assert.deepEqual(withReads([], () => sw.read()).r, { on: true, ok: true }, 'no file is still the never-asked ON');
+});
+
+test('#5460 review 1: a file that stays corrupt is read again once, not on every read; a changed file is retried again', () => {
+  fresh();
+  fs.mkdirSync(path.dirname(sw.FILE), { recursive: true });
+  fs.writeFileSync(sw.FILE, '{"on": tr');              // corrupt, and it stays so
+  const real = fs.readFileSync;
+  let calls = 0;
+  fs.readFileSync = function (file, ...rest) { if (file === sw.FILE) calls++; return real.call(this, file, ...rest); };
+  sw._setPause(() => {});
+  try {
+    assert.deepEqual(sw.read(), { on: false, ok: false });
+    assert.equal(calls, sw.RETRIES + 1, 'the first failure is retried');
+    calls = 0;
+    assert.deepEqual(sw.read(), { on: false, ok: false });
+    assert.equal(calls, 1, 'the same corrupt file made every reader wait again');
+    fs.writeFileSync(sw.FILE, '{"on": tru');           // a writer changed it (size differs)
+    calls = 0;
+    sw.read();
+    assert.equal(calls, sw.RETRIES + 1, 'CONTROL: a file that changed is a new failure, retried');
+    fs.writeFileSync(sw.FILE, JSON.stringify({ on: true }) + '\n');
+    assert.deepEqual(sw.read(), { on: true, ok: true }, 'repaired');
+  } finally { fs.readFileSync = real; sw._setPause(null); }
 });

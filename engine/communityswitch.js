@@ -30,11 +30,27 @@ const FILE = path.join(store.ROOT, 'community.json');
  * see, and what it gates is posts leaving the machine (the feedbacksend split, #2037).
  */
 function read() {
-  for (let attempt = 0; ; attempt++) {
-    const r = readOnce();
-    if (r.ok || !r.retry || attempt >= RETRIES) return { on: r.on, ok: r.ok };
+  let r = readOnce();
+  if (r.ok) { lastFailed = null; return { on: r.on, ok: true }; }
+  if (!r.retry) return { on: r.on, ok: r.ok };
+  // The same failure on the same file as last time (review 1: a file that stays corrupt, or a lasting EACCES) is not
+  // read again: every reader would wait RETRIES pauses on every call until the person rewrites it. A file a writer is
+  // part way through changes its size or time between reads, so it is retried.
+  if (failureKey(r) === lastFailed) return { on: r.on, ok: r.ok };
+  for (let attempt = 0; attempt < RETRIES; attempt++) {
     pause(RETRY_MS);
+    r = readOnce();
+    if (r.ok) { lastFailed = null; return { on: r.on, ok: true }; }
+    if (!r.retry) break;
   }
+  lastFailed = failureKey(r);
+  return { on: r.on, ok: r.ok };
+}
+let lastFailed = null;
+function failureKey(r) {
+  let st = 'nostat';
+  try { const x = fs.statSync(FILE); st = x.size + ':' + x.mtimeMs + ':' + x.ctimeMs; } catch { /* keyed on the error alone */ }
+  return (r.code || '') + '|' + st;
 }
 
 /* #5460: an unreadable switch ends the ON period for every agent (communitysend's sweep), so one brief failure must not
@@ -51,10 +67,10 @@ function readOnce() {
   try { raw = fs.readFileSync(FILE, 'utf8'); }
   catch (err) {
     if (err && err.code === 'ENOENT') return { on: true, ok: true };
-    return { on: false, ok: false, retry: Boolean(err && TRANSIENT.has(err.code)) };
+    return { on: false, ok: false, retry: Boolean(err && TRANSIENT.has(err.code)), code: err && err.code };
   }
   let parsed;
-  try { parsed = JSON.parse(raw); } catch { return { on: false, ok: false, retry: true }; }
+  try { parsed = JSON.parse(raw); } catch { return { on: false, ok: false, retry: true, code: 'PARSE' }; }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { on: false, ok: false };
   return { on: parsed.on === true, ok: true };
 }
@@ -97,7 +113,8 @@ function participating() {
   return r.ok === true && r.on === true;
 }
 
-/* Tests only: replace the pause between retries, and the reader of the file, so a transient error can be staged. */
-function _setPause(f) { pause = f; }
+/* Tests only: replace the pause between retries (null puts the real one back), and forget the last failure. */
+const realPause = pause;
+function _setPause(f) { pause = f || realPause; lastFailed = null; }
 
 module.exports = { read, setOn, participating, migrate, FILE, RETRIES, _setPause };
