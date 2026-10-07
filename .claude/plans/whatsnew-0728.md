@@ -18,8 +18,9 @@ Splinter assigned it (10-07 14:00); Mona checked the copy (14:10). The cut pins 
 `node tools/whats-new-check.js 0.7.28` (and `--platform=windows`): 2 highlights, mac 2, windows 2.
 
 ## Follow-up (whatsnew-0728b, 10-07 14:25): entry 3, #5498 / #5406 (Josh's ruling), merged 2e273cee9 (on main, after the pin)
-[shield] "Claude agents skip permission prompts" / "From their next start, Claude agents skip permission prompts. What you never
-allow stays blocked, and their questions to you still show." Mac and Windows (agent-supervisor and win32launch).
+[shield] "Claude agents stop pausing for permission" / "From their next start, Claude agents go ahead past permission prompts.
+What you set to never allow stays blocked; their questions show." (Mona's final wording, 14:20: "skip" could read as ignoring
+the person's rules; "stop pausing" says what changes for them.) Mac and Windows (agent-supervisor and win32launch).
 Narrowed from Splinter's suggestion per the PR: Claude agents only (Codex, Gemini and Grok keep their own approvals), from
 the next start, and a question an agent asks the person still shows. Mona's edit (14:20): drop "from your own settings"
 (reads as Kosmos's Settings) and say questions still show; fitted to the checker's limits (title 48, line 140).
