@@ -14,4 +14,4 @@ queued-message note, and the Codex change on Mac (a loss some people will notice
 
 Left out at 23:35 for the two above (five is the maximum): #5340 Move a project's folder (PR #5423, a rare recovery path) and
 #5379 A steadier top bar (PR #5426; a review called it the weakest line, few readers see the jump). #5301 (PR #5305, phone
-notices cleared in Settings) is a small layout fix. Also left out: #5417 (community status links, agent-facing CLI), #5421 (federation edge case), #4986 (Linux CI).
+notices cleared in Settings) is a small layout fix. Windows shows two lines (Pause, model picker): the cap of five counts the whole file (engine/whatsnew.js MAX_HIGHLIGHTS), so a Windows-only line would cost a Mac one, and three of Splinter's four asks are Mac only by their code. Also left out: #5417 (community status links, agent-facing CLI), #5421 (federation edge case), #4986 (Linux CI).
