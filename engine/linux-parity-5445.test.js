@@ -161,6 +161,10 @@ test('#5445 a masked unit reads as masked, not as a broken unit', () => {
   assert.equal(v.job, null);
   assert.equal(v.masked, true);
   assert.match(v.because, /it is masked in systemd.*systemctl --user unmask/);
+  // Joined into a refusal it reads as one reason and one remedy (review 8): one "because", and it ends with a full stop.
+  const refusal = create.trustAgentFolder('maskedbot', { platform: 'linux' }).because;
+  assert.equal((refusal.match(/because/g) || []).length, 1, refusal);
+  assert.match(refusal, /\.\)?$/);
   // CONTROL: an ordinary unit is read as a job.
   unit('plainbot', myWorld());
   assert.ok(create.readJobVerdict('plainbot', undefined, 'linux').job, 'the ordinary unit was not read');
@@ -273,7 +277,7 @@ test('#5445 the board says where a switched-off agent was switched off, per plat
   // Linux: systemd, never System Settings.
   const lin = create.switchedOffSentence('offrow', off, 'linux');
   assert.match(lin, /switched off \(or masked\) in systemd/);
-  assert.match(lin, /systemctl --user enable 'kosmos-agent-offrow\.service'/, 'names how to switch it back on, as the Mac names its screen');
+  assert.match(lin, /systemctl --user enable --now 'kosmos-agent-offrow\.service'/, 'names how to switch it back on, as the Mac names its screen');
   assert.doesNotMatch(lin, /System Settings/);
   assert.equal(create.switchedOffSentence('onrow', off, 'linux'), null);
   // A masked unit is read from the disk, so it is said even when systemctl gave no switched-off set.
@@ -287,7 +291,7 @@ test('#5445 the folder-trust step says a masked agent is masked, not that it has
   fs.symlinkSync('/dev/null', linuxjob.unitPath('trustmask'));
   const r = create.trustAgentFolder('trustmask', { platform: 'linux' });
   assert.equal(r.wrote, false);
-  assert.match(r.because, /^we did not write the folder trust, because it is masked in systemd/, 'the reason comes first: ' + r.because);
+  assert.match(r.because, /^we did not write the folder trust because it is masked in systemd, so it does not start\. To undo that, run systemctl --user unmask '[^']+' and then set the agent up again in Kosmos/, 'the reason comes first: ' + r.because);
   assert.doesNotMatch(r.because, /no Kosmos launch job/);
   fs.rmSync(linuxjob.unitPath('trustmask'));
   // CONTROL: with no unit at all it is still "no launch job".

@@ -1232,7 +1232,7 @@ function noJobRefusal(clean, spoken, verdict, macSentence) {
       outcome: OUTCOME.REFUSED,
       because: verdict.absent
         ? `${spoken} has no startup unit in systemd (${task}), so there is nothing to change and we have not changed it.`
-        : verdict.masked ? `${spoken} is not changed because ${verdict.because}.`   // #5445: read and found masked, not unreadable
+        : verdict.masked ? `${spoken} is not changed because ${require('./linuxjob').maskedFact()}. ${require('./linuxjob').maskedRemedy(clean)}`   // #5445: read and found masked, not unreadable
         : `we could not read ${spoken}'s startup unit in systemd (${verdict.because}), so we have not changed it.`,
     };
   }
@@ -1374,7 +1374,7 @@ function trustAgentFolder(name, opts) {
   if (!job) {
     // #5445: a masked Linux unit is still the agent's job; it is masked, not missing (review 6).
     // The reason first: the masked sentence goes on to say how to undo it, which is not why the trust was skipped (review 7).
-    if (verdict.masked) return { wrote: false, because: `we did not write the folder trust, because ${verdict.because}` };
+    if (verdict.masked) return { wrote: false, because: `we did not write the folder trust because ${require('./linuxjob').maskedFact()}. ${require('./linuxjob').maskedRemedy(clean)}` };
     if (!verdict.win32) return { wrote: false, because: 'this agent has no Kosmos launch job, so there was no folder to trust' };
     return {
       wrote: false,
@@ -6121,13 +6121,13 @@ function switchedOffSentence(name, switchedOff, platform) {
   if (plat === 'linux') {
     let masked = false;
     try { masked = require('./linuxjob').masked(name); } catch { masked = false; }
-    if (masked) return 'this agent is not running because ' + require('./linuxjob').maskedSentence(name);
+    if (masked) return 'this agent is not running because ' + require('./linuxjob').maskedFact() + '. ' + require('./linuxjob').maskedRemedy(name);
     if (!(switchedOff && switchedOff.has(name))) return null;
     /* The command, as the Mac sentence names a screen (review 7): Linux has no settings screen for a user unit. A
        runtime mask (the file stays ordinary) needs unmask --runtime first. */
     let u = name;
     try { u = require('./linuxjob').unitName(name); } catch { /* the bare name still identifies it */ }
-    return `this agent is not running because its background job was switched off (or masked) in systemd, this computer's service manager. Switch it back on with systemctl --user enable '${u}' (if it was masked, first systemctl --user unmask --runtime '${u}') and it can start again`;
+    return `this agent is not running because its background job was switched off (or masked) in systemd, this computer's service manager. Switch it back on and start it with systemctl --user enable --now '${u}' (if it was masked, first systemctl --user unmask --runtime '${u}')`;   // --now: enable alone starts nothing (review 8)
   }
   if (!(switchedOff && switchedOff.has(name))) return null;
   return 'this agent is not running because its background job was switched off, probably in System Settings under Login Items. Switch it back on there and it can start again';
