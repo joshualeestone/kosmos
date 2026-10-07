@@ -1597,7 +1597,6 @@ fi
 site_deploy_landed_args_ok "${KOSMOS_DEPLOY_LANDED_TRIES:-24}" "${KOSMOS_DEPLOY_LANDED_WAIT_S:-15}" || { echo "nothing was deployed"; exit 1; }
 _vdep_rc=0
 ( cd "$_site_export" && vercel deploy --prod --yes ) || _vdep_rc=$?
-case "$_vdep_rc" in 130|137|143) echo "vercel deploy was killed (exit $_vdep_rc); not waiting to see whether it landed"; exit "$_vdep_rc" ;; esac
 if [ "$_vdep_rc" != 0 ]; then
   # #5471: the CLI's own failure is not the answer; what is served is. LANDED means the served
   # kosmos-$V-arm64.tar.gz.sha256 is the one this cut wrote. Only this cut's upload can serve it: an
@@ -1608,16 +1607,21 @@ if [ "$_vdep_rc" != 0 ]; then
   # KOSMOS_DEPLOY_LANDED_TRIES times, KOSMOS_DEPLOY_LANDED_WAIT_S apart (default 24 x 15 s: about 6 min,
   # up to about 18 min if every fetch times out at -m 30). Not seen landing: DEPLOYED stays unset and the
   # trap restores, exactly as before.
-  echo "   vercel deploy exited $_vdep_rc; checking whether this cut's build is served anyway before calling it a failure (#5471)"
-  # Recorded BEFORE the poll: an interrupted cut (Ctrl-C during the wait) runs the trap, which deletes the local copy.
-  _my_sha="$(awk 'NR==1 {print $1}' "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256" 2>/dev/null)"
-  echo "   THIS cut's build is sha256 ${_my_sha:-<unreadable>}; the served copy is ${HOST:-https://installkosmos.com}/dist/kosmos-$V-arm64.tar.gz.sha256 (equal: this cut landed; different: another build of $V is served)."
+  # The record comes FIRST, on every non-zero exit: whatever ends this cut next (a signal, an unreadable
+  # local file, the poll giving up, a Ctrl-C during it) runs the trap, which deletes the local copy.
+  _my_sha="$(awk 'NR==1 {print $1}' "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256" 2>/dev/null || true)"   # set -e: a missing file must not end the cut here
+  echo "   vercel deploy exited $_vdep_rc (#5471). THIS cut's build is sha256 ${_my_sha:-<unreadable>}; the served copy is ${HOST:-https://installkosmos.com}/dist/kosmos-$V-arm64.tar.gz.sha256 (equal: this cut landed; different: another build of $V is served). Compare them before any revert or re-cut."
+  case "$_vdep_rc" in
+    130|137|143) echo "vercel deploy was stopped by a signal (exit $_vdep_rc); not waiting to see whether it landed"; exit "$_vdep_rc" ;;
+  esac
+  [ -n "$_my_sha" ] || { echo "this cut's own kosmos-$V-arm64.tar.gz.sha256 cannot be read, so whether it landed cannot be checked"; exit "$_vdep_rc"; }
+  echo "   checking whether this cut's build is served anyway before calling it a failure"
   if site_deploy_landed "${KOSMOS_DEPLOY_LANDED_TRIES:-24}" "${KOSMOS_DEPLOY_LANDED_WAIT_S:-15}" \
        site_deploy_serves_this_build "${HOST:-https://installkosmos.com}" "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256" "kosmos-$V-arm64.tar.gz"; then
     echo "   THE DEPLOY LANDED although vercel deploy exited $_vdep_rc: the served kosmos-$V-arm64.tar.gz.sha256 is this cut's. Continuing as a successful deploy; step 9 verifies the rest (#5471)."
   else
     echo "vercel deploy exited $_vdep_rc and this cut's $V build was not seen served after $((10#${KOSMOS_DEPLOY_LANDED_TRIES:-24})) checks. It may still land."
-    echo "   Before any revert or re-cut: compare the served .sha256 with this cut's sha, printed above (${_my_sha:-<unreadable>}). The local copy is about to be removed."
+    echo "   Before any revert or re-cut: compare the served .sha256 with this cut's sha, printed above ($_my_sha). The local copy is about to be removed."
     echo "   This cut now restores the site checkout and removes its local tarball, as on any failure before step 8 finished; where a line below says \"never served\", read \"not seen served\"."
     exit "$_vdep_rc"
   fi

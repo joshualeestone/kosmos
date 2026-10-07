@@ -42,7 +42,9 @@ did not run, and the operator had to verify by hand while resisting a revert or 
    that reused a previously built tarball without rebuilding would make an earlier attempt's served .sha256
    equal this cut's, and a failed deploy would read as landed. Step 9 then verifies the same served state,
    so the harm is bounded, but the "landed" line would be wrong.
-- A deploy killed by a signal (130, 137, 143) is an interruption, not the CLI's hiccup, and fails at once.
+- On any non-zero exit the cut first prints this cut's sha and the served .sha256 URL (the trap deletes the
+  local copy on whatever ends the cut next). Then a deploy stopped by a signal (130, 137, 143, which may be
+  an operator or an out-of-memory kill) fails at once, and so does a cut whose own .sha256 cannot be read.
 - docs/staging-channel.md's manual promote recipe has its own `vercel deploy` under `set -e`; it is a
   different path (an operator watching it), left as is.
 
