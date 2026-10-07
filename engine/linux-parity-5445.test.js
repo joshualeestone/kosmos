@@ -293,7 +293,10 @@ test('#5445 the board says where a switched-off agent was switched off, per plat
   assert.equal(create.switchedOffSentence('onrow', off, 'linux'), null);
   // A masked unit is read from the disk, so it is said even when systemctl gave no switched-off set.
   fs.symlinkSync('/dev/null', linuxjob.unitPath('maskrow2'));
-  assert.match(create.switchedOffSentence('maskrow2', new Set(), 'linux'), /it is masked in systemd.*unmask/);
+  const m2 = create.switchedOffSentence('maskrow2', new Set(), 'linux');
+  assert.match(m2, /^this agent is not running because its startup unit is masked in systemd\. To undo that, run systemctl --user unmask '[^']+'/);
+  // Every arm ends as the Mac sentence does, with no full stop of its own (the row adds one).
+  for (const t of [m2, lin, create.switchedOffSentence('offrow', off, 'darwin')]) assert.doesNotMatch(t, /\.$/, t);
   assert.equal(create.switchedOffSentence('maskrow2', new Set(), 'darwin'), null, 'CONTROL: the Mac never reads units');
 });
 
