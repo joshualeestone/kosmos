@@ -117,24 +117,34 @@ function saveJson(file, data) {
     } finally { fs.closeSync(fd); }
     fs.renameSync(tmp, file);
   } catch (e) { try { fs.unlinkSync(tmp); } catch { /* already gone */ } throw e; }
-  // Windows cannot flush a folder (the call fails and is ignored); there the rename is what NTFS journals.
-  try { const d = fs.openSync(path.dirname(file), 'r'); try { fs.fsyncSync(d); } finally { fs.closeSync(d); } } catch { /* best effort */ }
+  // Windows cannot flush a folder (the call fails); there the rename is what NTFS journals. Elsewhere a failure is said.
+  try { const d = fs.openSync(path.dirname(file), 'r'); try { fs.fsyncSync(d); } finally { fs.closeSync(d); } }
+  catch (e) {
+    if (process.platform !== 'win32' && !reportedCorrupt.has('dirsync:' + path.dirname(file))) {
+      reportedCorrupt.add('dirsync:' + path.dirname(file));
+      log(`the folder holding ${path.basename(file)} could not be flushed to disk (${e && e.code ? e.code : 'unknown'}); a crash could lose its last change`);
+    }
+  }
 }
 
-/* #5431: a record that is empty or only NUL bytes is a write torn by a crash, not a record someone damaged. sent.json
-   and comments-sent.json in that state are reset to {} when this service's keys.json holds no agent at all: with no
-   key nothing can have been posted or commented, so an empty record is the truth and nothing is sent twice. Any other
-   torn file (keys.json above all: resetting it would give every agent a second public name) stays unreadable, and
-   sending stays paused until a person repairs it. Runs only inside an exclusive section, so no writer races it. */
+/* #5431: a record that is empty, or zero-filled at the length of an empty record ({}\n), is a write torn by a crash,
+   not a record someone damaged. sent.json and comments-sent.json in that state are reset to {} when this service's
+   keys.json holds no agent at all: with no key nothing can have been posted or commented, so an empty record is the
+   truth and nothing is sent twice. Any other torn file (keys.json above all: resetting it would give every agent a
+   second public name) stays unreadable, and sending stays paused until a person repairs it. Called at the start of
+   each exclusive section; it is synchronous, so nothing else in this process runs between its check and its write. */
+const EMPTY_RECORD_BYTES = Buffer.byteLength('{}\n');   // what saveJson writes for an empty record
 function torn(file) {
   let fd;
   try { fd = fs.openSync(file, 'r'); } catch { return false; }
   try {
+    // A torn file keeps the length of the write that was cut off, so only one the length of an EMPTY record can be
+    // reset: a sent.json that held rows is longer, and stays for a person whatever keys.json says.
     const size = fs.fstatSync(fd).size;
-    const head = Buffer.alloc(Math.min(size, 4096));
-    fs.readSync(fd, head, 0, head.length, 0);
-    if (!head.every((b) => b === 0)) return false;           // the common case: real content, one small read
-    return size <= head.length || fs.readFileSync(file).every((b) => b === 0);
+    if (size > EMPTY_RECORD_BYTES) return false;
+    const bytes = Buffer.alloc(size);
+    if (size && fs.readSync(fd, bytes, 0, size, 0) !== size) return false;
+    return bytes.every((b) => b === 0);
   } catch { return false; } finally { fs.closeSync(fd); }
 }
 function repairTornRecords() {
@@ -183,6 +193,9 @@ function corrupt(file, why) {
     // #4801: nor comment-deletes.json: without it a comment the owner removed before it went out would be sent.
     const fix = file === commentsSentFile() ? 'repaired (do NOT remove it: that would send every comment again)'
       : file === commentDeletesFile() ? 'repaired (do NOT remove it: a comment the owner removed would be sent)'
+      // #5431: nor keys.json: without it every agent registers again under a second public name, and a torn sent.json
+      // beside it would read as nothing ever sent.
+      : file === keysFile() ? 'repaired (do NOT remove it: every agent would register again under a second public name)'
       : 'repaired or removed';
     log(`${path.basename(file)} cannot be read (${why || 'unknown'}); sending is paused until it is ${fix}`);
   }

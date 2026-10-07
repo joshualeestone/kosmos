@@ -726,17 +726,50 @@ test('#5431: a file system that does not support a flush (EINVAL, ENOTSUP) still
   }
 });
 
-test('#5431: a large all-NUL record is torn; one with content past its first 4 KB is not', async () => {
-  for (const [bytes, resets] of [[Buffer.alloc(5000), true], [Buffer.concat([Buffer.alloc(4096), Buffer.from('{"x":1}')]), false]]) {
+test('#5431: only a record the length of an empty one ({}\\n) is reset; a longer zero-filled one held rows and stays', async () => {
+  // A torn file keeps the length of the write that was cut off. Review 3: if a crash tore keys.json and sent.json
+  // together and a person then removed keys.json, a reset of a sent.json that held rows would send every post again.
+  for (const [bytes, keysGone] of [[Buffer.alloc(5000), false], [Buffer.alloc(5), true], [Buffer.alloc(4), false]]) {
     fresh();
     await on();
+    if (keysGone) {
+      agentPost('rm', { topic: 'before', body: 'sent, then the crash' });
+      await cs.sweep();
+      fs.rmSync(cs._paths.keysFile());
+    }
+    assert.equal(fs.existsSync(cs._paths.keysFile()), false, 'control: no keys.json');
     fs.mkdirSync(path.dirname(cs._paths.sentFile()), { recursive: true });
     fs.writeFileSync(cs._paths.sentFile(), bytes);
-    await cs.sweep();
-    const now = fs.readFileSync(cs._paths.sentFile());
-    if (resets) assert.equal(typeof JSON.parse(now.toString('utf8')), 'object', 'a 5000-byte zero-filled record was not reset');
-    else assert.ok(now.equals(bytes), 'a record with content past 4 KB was reset');
+    const before = posts().length;
+    assert.deepEqual(await cs.sweep(), { skipped: 'unreadable' }, `${bytes.length} bytes: the sweep ran`);
+    assert.equal(posts().length, before, `${bytes.length} bytes: sent while a record that held rows was torn`);
+    assert.ok(fs.readFileSync(cs._paths.sentFile()).equals(bytes), `${bytes.length} bytes: a record longer than an empty one was reset`);
   }
+});
+
+test('#5431: once an agent has a key, a torn comments-sent.json is not reset either', async () => {
+  fresh();
+  await on();
+  agentPost('cmk', { topic: 'x', body: 'registers the agent' });
+  await cs.sweep();
+  assert.ok(Object.keys(JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'))).length, 'control: a key exists');
+  fs.writeFileSync(cs._paths.commentsSentFile(), Buffer.alloc(3));
+  await cs.sweep();
+  assert.deepEqual([...fs.readFileSync(cs._paths.commentsSentFile())], [0, 0, 0], 'reset although a key exists');
+});
+
+test('#5431: an unreadable keys.json is never advised to be removed', async () => {
+  fresh();
+  await on();
+  fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.keysFile(), '{ not json');
+  const said = []; const realError = console.error;
+  console.error = (...a) => { said.push(a.join(' ')); };
+  try { await cs.sweep(); } finally { console.error = realError; }
+  const line = said.find((l) => l.includes('keys.json cannot be read'));
+  assert.ok(line, 'control: the corrupt keys.json was reported');
+  assert.match(line, /do NOT remove it/);
+  assert.doesNotMatch(line, /or removed/);
 });
 
 test('#5431: every record is flushed to disk before it is renamed into place', async () => {
