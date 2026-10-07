@@ -341,8 +341,10 @@ report() { [ -n "$KOSMOS" ] && ( "$KOSMOS" report "$@" >/dev/null 2>&1 </dev/nul
 
 # #5495: true when this agent runs with Kosmos's PermissionRequest allow hook (Kosmos's settings file sets these two
 # names, engine/agentpermission.js; Claude Code hands a settings file's env to its hooks) AND that hook allows this
-# request: the same decide(), asked by running the hook itself on the same input. Anything missing or failing is false,
-# so the report says needs-you as before #5495: briefly wrong at worst, never hiding a real prompt.
+# request: the same decide(), asked by running the hook itself on the same input. The two paths are the node and script
+# that same settings file has Claude run as the allow hook, so running them here trusts nothing new; a path relative to
+# this hook would not do, because copies of this hook are deployed elsewhere (#1467). Anything missing or failing is
+# false, so the report says needs-you as before #5495. The grep matches decide()'s compact JSON.stringify output.
 kosmos_allows() {
   [ -n "${KOSMOS_PERMISSION_ALLOW_NODE:-}" ] && [ -n "${KOSMOS_PERMISSION_ALLOW_SCRIPT:-}" ] || return 1
   [ -x "$KOSMOS_PERMISSION_ALLOW_NODE" ] && [ -f "$KOSMOS_PERMISSION_ALLOW_SCRIPT" ] || return 1
@@ -448,7 +450,9 @@ case "$EVENT" in
     CMD=$(json_field '.tool_input.command' 'command' | head -c 200)
     rm -f "$MARK" 2>/dev/null || true
     # #5495: Kosmos's own allow hook answered this request (no prompt shows), so the agent is working, not waiting.
-    if kosmos_allows; then report working --auto "running ${TOOL}"
+    if kosmos_allows; then
+      mkdir -p "$THROTTLE_DIR" 2>/dev/null; date +%s > "$MARK" 2>/dev/null || true
+      report working --auto "running ${TOOL}"
     else report needs_you --auto "asking permission to use ${TOOL}${CMD:+: $CMD}"; fi ;;
   Stop)
     rm -f "$MARK" 2>/dev/null || true

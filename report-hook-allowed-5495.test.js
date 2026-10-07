@@ -94,3 +94,19 @@ test('#5495 node hook (Windows): allowed requests report working, the rest needs
 test('#5495 the shell cases above really ran', { skip: process.platform === 'win32' }, () => {
   assert.ok(n >= 15, 'shell runs: ' + n);
 });
+
+test('#5495 node hook: an allowed request starts a heartbeat window, so the next tool call sends no second working line', async () => {
+  const throttleDir = fs.mkdtempSync(path.join(SANDBOX, 'hb-'));
+  const sent = [];
+  const fetchImpl = async (url, init) => { sent.push(JSON.parse(init.body).state); return { ok: true, status: 200, text: async () => '{"recorded":true}' }; };
+  const run = (payload, env) => nodeHook.main({ input: payload, env: { ...env }, url: 'http://127.0.0.1:1', boardToken: 'BT', fetchImpl, throttleDir, ppid: 4242, stdout: () => {} });
+  const pre = JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'ls' } });
+  await run(req('Bash', { command: 'ls' }), KOSMOS_ENV);
+  await run(pre, KOSMOS_ENV);
+  assert.deepEqual(sent, ['working'], 'one working line, no heartbeat straight after');
+  sent.length = 0;
+  const ctl = fs.mkdtempSync(path.join(SANDBOX, 'hb-')); // control: a request left to the person clears the window
+  await nodeHook.main({ input: req('AskUserQuestion', {}), env: { ...KOSMOS_ENV }, url: 'http://127.0.0.1:1', boardToken: 'BT', fetchImpl, throttleDir: ctl, ppid: 4242, stdout: () => {} });
+  await nodeHook.main({ input: pre, env: { ...KOSMOS_ENV }, url: 'http://127.0.0.1:1', boardToken: 'BT', fetchImpl, throttleDir: ctl, ppid: 4242, stdout: () => {} });
+  assert.deepEqual(sent, ['needs_you', 'working'], 'control: after needs-you the next tool call reports working at once');
+});

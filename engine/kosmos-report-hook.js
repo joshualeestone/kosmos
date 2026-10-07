@@ -137,9 +137,9 @@ function reportFor(evt, ctx) {
 
 /**
  * #5495: true when this agent runs with Kosmos's own PermissionRequest allow hook (its settings file sets the env name,
- * engine/agentpermission.js) AND that hook's decide() allows this request, so no prompt will show. Asks this install's
- * own copy of decide(), never a path from the environment. Any failure reads as false: the report says needs-you, as
- * before #5495, which can be briefly wrong but never hides a real prompt.
+ * engine/agentpermission.js) AND that hook's decide() allows this request, so no prompt will show. It calls this
+ * install's decide() in-process, which on Windows is the same file the allow hook runs. Any failure reads as false: the
+ * report says needs-you, as before #5495.
  */
 function kosmosAllows(input, env) {
   try {
@@ -329,16 +329,18 @@ async function main(io) {
   // Throttle bookkeeping mirrors the bash hook: PreToolUse consults the mark;
   // every state-change event clears it; UserPromptSubmit sets it (a prompt is a
   // fresh "working", so the next PreToolUse heartbeat waits a full window).
+  // #5495: a request Kosmos's own allow hook answers reports working, so it starts a heartbeat window like a prompt does.
+  const allows = event === 'PermissionRequest' && kosmosAllows(o.input, env);
   let due = false;
   if (event === 'PreToolUse') {
     due = heartbeatDue(ctx);
-  } else if (event === 'UserPromptSubmit') {
+  } else if (event === 'UserPromptSubmit' || allows) {
     setMark(ctx);
   } else if (event === 'PermissionRequest' || event === 'Stop' || event === 'StopFailure' || event === 'SessionEnd' || event === 'SessionStart') {
     resetMark(ctx);
   }
 
-  const report = reportFor(evt, { heartbeatDue: due, kosmosAllows: event === 'PermissionRequest' && kosmosAllows(o.input, env) });
+  const report = reportFor(evt, { heartbeatDue: due, kosmosAllows: allows });
   if (!report) return 0;
 
   const url = o.url || resolveUrl(env, typeof o.uid === 'number' ? o.uid : safeUid());
