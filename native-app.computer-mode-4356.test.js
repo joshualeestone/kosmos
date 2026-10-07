@@ -4,7 +4,7 @@
  * #4356: a computer either runs agents or connects to agents on another computer.
  *
  * Reading the choice and deciding a connect computer's links are pure Swift functions that
- * --kosmos-app-mode-selftest drives at bundle build (86 rows). What no selftest can reach is the
+ * --kosmos-app-mode-selftest drives at bundle build (98 rows; #5169 added 12). What no selftest can reach is the
  * wiring in the AppKit delegate, so that is read here from source: a connect computer never starts
  * its board, not at launch, not on Reload, not after an unreadable choice; switching stops what
  * belongs to a board before sign-in loads; only the board's own page, and only while the app is
@@ -240,11 +240,12 @@ test('#4356: the connect navigation policy is pinned to WebKit\'s selector, so a
   assert.match(SRC, /@objc\(webView:decidePolicyForNavigationAction:decisionHandler:\)\n\s+func webView\(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,/);
 });
 
-test('#4356: a connect computer keeps its window to Kosmos Plus; a run computer is unchanged', () => {
+test('#4356 + #5169: connect, run and both computers follow the main-frame navigation policy', () => {
   const policy = body('func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,');
-  assert.match(policy, /guard computerMode == \.connect, let url = navigationAction\.request\.url,\n\s+let frame = navigationAction\.targetFrame, frame\.isMainFrame\n\s+else \{ decisionHandler\(\.allow\); return \}/,
-    'the policy reaches a computer that runs agents, which had none before');
-  assert.match(policy, /connectLinkDecision\(for: url, clicked: navigationAction\.navigationType == \.linkActivated\)/);
+  assert.match(policy, /guard computerMode == \.connect \|\| computerMode == \.run \|\| computerMode == \.both,\n\s+let url = navigationAction\.request\.url,\n\s+let frame = navigationAction\.targetFrame, frame\.isMainFrame\n\s+else \{ decisionHandler\(\.allow\); return \}/,
+    'the #5169 fix no longer covers run and both computers, so a foreign link or redirect can replace their board again');
+  assert.match(policy, /connectLinkDecision\(for: url, clicked: navigationAction\.navigationType == \.linkActivated, board: badgeOrigin, fromKosmosPlusPage: isKosmosPlusSiteURL\(committedPageURL\)\)/,
+    'the policy no longer passes the board origin and the Kosmos+-site flag #5169 added');
   assert.match(SRC, /let kosmosPlusSignIn = URL\(string: "https:\/\/login\.kosmosplus\.com\/"\)!/, 'connect does not load the sign-in the phone apps load');
 });
 
@@ -268,5 +269,5 @@ test('#4356: quitting a connect computer does not say its agents keep running', 
 test('#4356: the bundle build runs the mode selftest and fails on a wrong row or a hollow run', () => {
   assert.match(BUILD, /--kosmos-app-mode-selftest/);
   assert.match(BUILD, /\*"mode-check: all good"\*\) ;;/);
-  assert.match(SRC, /let expected = 86\n\s+if ran != expected \{\n\s+print\("\\nmode-check: only/);
+  assert.match(SRC, /let expected = 98[^\n]*\n\s+if ran != expected \{\n\s+print\("\\nmode-check: only/);
 });
