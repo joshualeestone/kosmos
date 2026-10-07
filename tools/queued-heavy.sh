@@ -44,8 +44,10 @@ fi
 # branch's own lib would put several lib generations in one queue (the cause of #4977's item 1). That checkout is meant
 # to sit at origin/main; nothing here updates it or checks that it does.
 LIB_CHECKOUT="${QUEUED_HEAVY_LIB:-$HOME/work/kosmos-bc-main-4610}"
-# #5446: that default folder exists on one Mac only, so elsewhere the documented route died here (exit 3) before joining
-# the queue. With QUEUED_HEAVY_LIB unset and the default missing, use the MAIN checkout of the repo this script is in:
+# #5446: that default folder exists on one Mac only, so elsewhere a REPO copy of this script died here (exit 3) before
+# joining the queue. With QUEUED_HEAVY_LIB unset and no cut-guard.sh in the default, a repo copy uses the MAIN checkout
+# of the repo it is in (common dir ending in /.git). A copy outside any repo (the installed one under ~/.cache), a
+# bare-repo worktree or a submodule has no such checkout and still exits 3 as before:
 # every worktree of one clone resolves that same folder. A second clone, or a run with QUEUED_HEAVY_LIB set, can still
 # bring another lib generation; the line below names the folder and its commit so that is visible. A QUEUED_HEAVY_LIB
 # that is set and wrong still exits 3 below.
