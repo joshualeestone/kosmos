@@ -612,7 +612,7 @@ test('#5446: in a repo with a worktree, the hint names the main checkout\'s queu
     for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR']) delete genv[k];
     const git = (...a) => execFileSync('git', a, { env: genv, stdio: 'pipe' });
     fs.mkdirSync(path.join(main, 'tools', 'lib'), { recursive: true });
-    for (const f of ['tools/heavy-gate.sh', 'tools/queued-heavy.sh', 'tools/lib/process-fixture.sh']) fs.copyFileSync(path.join(__dirname, f), path.join(main, f));
+    for (const f of ['tools/heavy-gate.sh', 'tools/queued-heavy.sh', 'tools/lib/process-fixture.sh', 'tools/lib/cut-guard.sh']) fs.copyFileSync(path.join(__dirname, f), path.join(main, f));
     git('-C', main, 'init', '-q');
     git('-C', main, 'add', '-A');
     git('-C', main, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture');
