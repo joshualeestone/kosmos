@@ -23,6 +23,8 @@ process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 const DATA_ROOT = require('./store').ROOT;
 const FAKE_BIN = nodePath.join(SANDBOX, 'fake-kosmos-tunnel');
 const RECORD = nodePath.join(SANDBOX, 'fake-record.jsonl');
+// kosmos#5422: the id the fake tunnel answers for its default key (the fingerprint of the bytes 'fake key').
+const FAKE_KEYED = 'k1.' + require('node:crypto').createHash('sha256').update('fake key').digest('base64url').slice(0, 32);
 process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_BIN;
 
 /* The fake speaks the binary's contract: setup start/complete exit codes
@@ -45,6 +47,10 @@ if (process.argv[2] === 'run') {
 const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i === -1 ? null : args[i + 1]; };
 const mode = process.env.FAKE_TUNNEL_MODE || '';
+// kosmos#5422: a made key's bytes, fixed by default so tests can name its id (FAKE_KEYED), random in devkey-random so
+// two keys made by two runs differ, as real ones do.
+const newFakeKey = () => (mode.includes('devkey-random') ? 'fake key ' + require('node:crypto').randomBytes(8).toString('hex') : 'fake key');
+const fakeKeyId = (bytes) => 'k1.' + require('node:crypto').createHash('sha256').update(bytes).digest('base64url').slice(0, 32);
 if (args[0] === 'setup' && args[1] === 'start') {
   if ((flag('--email') || '').includes('down')) {
     process.stderr.write('the coordinator is unreachable: connect refused\\n');
@@ -82,10 +88,12 @@ if (args[0] === 'signin') {
     // A file that is not a key: the real tunnel refuses it with these words (devkey.rs), whatever else the mode says.
     if (fs.existsSync(flag('--device-key')) && fs.readFileSync(flag('--device-key'), 'utf8') === 'corrupt') { process.stderr.write('Error: the device key ' + flag('--device-key') + ' is not a P-256 key; remove it to make a new one (this device must then be allowed again)\\n\\nCaused by:\\n    ASN.1 error: unexpected end\\n'); process.exit(1); }
     if (mode.includes('devkey-usage')) { process.stderr.write("error: unexpected argument '--device-key' found\\n"); process.exit(2); }
-    if (mode.includes('devkey-slow')) { const until = Date.now() + 800; while (Date.now() < until) { /* making the key */ } }
+    // Whole mode words: 'devkey-slow' must not also match 'devkey-slow-start'.
+    if (mode.split(/[ ,]+/).includes('devkey-slow')) { const until = Date.now() + 800; while (Date.now() < until) { /* making the key */ } }
     fs.mkdirSync(path.dirname(flag('--device-key')), { recursive: true });
-    if (!fs.existsSync(flag('--device-key'))) fs.writeFileSync(flag('--device-key'), 'fake key ' + Date.now());
-    console.log(JSON.stringify({ device_id: mode.includes('devkey-rotated') ? 'k1.' + 'R'.repeat(32) : 'k1.' + 'A'.repeat(31) + 'Q' }));
+    if (!fs.existsSync(flag('--device-key'))) fs.writeFileSync(flag('--device-key'), newFakeKey());
+    // As the real tunnel does, the id is the key's own fingerprint (here: of the file's bytes), not a constant.
+    console.log(JSON.stringify({ device_id: mode.includes('devkey-rotated') ? 'k1.' + 'R'.repeat(32) : fakeKeyId(fs.readFileSync(flag('--device-key'))) }));
     process.exit(0);
   }
   if (verb === 'start') {
@@ -93,7 +101,7 @@ if (args[0] === 'signin') {
     if (flag('--device-key')) {
       if (mode.includes('devkey-slow-start')) { const until = Date.now() + 800; while (Date.now() < until) { /* making the key */ } }
       fs.mkdirSync(path.dirname(flag('--device-key')), { recursive: true });
-      if (!fs.existsSync(flag('--device-key'))) fs.writeFileSync(flag('--device-key'), 'fake key ' + Date.now());
+      if (!fs.existsSync(flag('--device-key'))) fs.writeFileSync(flag('--device-key'), newFakeKey());
     }
     // Anti-enum: the same answer whatever the email, except an unreachable
     // coordinator (email carrying 'down'), which fails like setup start.
@@ -1731,7 +1739,7 @@ test('a malformed answer AFTER a good one fails closed: the earlier session is c
 });
 
 test('kosmos#5422: with a tunnel that keeps a device key, sign-in passes the key file, not an id', async () => {
-  const KEYED = 'k1.' + 'A'.repeat(31) + 'Q';
+  const KEYED = FAKE_KEYED;
   // This computer signed in before, on the opaque id.
   fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: 'old-opaque-id' }));
   process.env.FAKE_TUNNEL_MODE = 'devkey';
@@ -1789,7 +1797,7 @@ test('kosmos#5422: a new key (a Forget, a restore) keeps the older key id as thi
 });
 
 test('kosmos#5422: on a damaged remote.json, the repair keeps the key id and the ids before it', async () => {
-  const KEYED = 'k1.' + 'A'.repeat(31) + 'Q';
+  const KEYED = FAKE_KEYED;
   fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: 'old-opaque-id' }));
   process.env.FAKE_TUNNEL_MODE = 'devkey';
   try {
@@ -1949,7 +1957,7 @@ test('kosmos#5422: a keyed start that never returns cannot hold a Forget', async
 });
 
 test('kosmos#5422: on a damaged file, an older tunnel\'s untaken start does not make its new id the one in use', async () => {
-  const KEYED = 'k1.' + 'A'.repeat(31) + 'Q';
+  const KEYED = FAKE_KEYED;
   process.env.FAKE_TUNNEL_MODE = 'devkey';
   try { assert.equal((await remote.signinStart('her@example.com')).ok, true); } finally { delete process.env.FAKE_TUNNEL_MODE; }
   fs.writeFileSync(remote.FILE, '{"on": true, "relay": "rel');
@@ -1986,7 +1994,7 @@ test('kosmos#5422: a key id the tunnel answers is this computer\'s own at once, 
   process.env.FAKE_TUNNEL_MODE = 'devkey';
   try { await remote.signinStart('down@example.com'); } finally { delete process.env.FAKE_TUNNEL_MODE; }
   assert.equal(remote.read().device_id, 'old-opaque-id', 'precondition: the start was not taken');
-  assert.ok(remote.ownDeviceIds().includes('k1.' + 'A'.repeat(31) + 'Q'), 'a row the coordinator may hold is not hidden');
+  assert.ok(remote.ownDeviceIds().includes(FAKE_KEYED), 'a row the coordinator may hold is not hidden');
 });
 
 test('kosmos#5422: a Forget on a damaged remote.json keeps this computer\'s ids (its old rows stay its own)', async () => {
@@ -1996,7 +2004,7 @@ test('kosmos#5422: a Forget on a damaged remote.json keeps this computer\'s ids 
   try { assert.equal((await remote.signinStart('her@example.com')).ok, true); } finally { delete process.env.FAKE_TUNNEL_MODE; }
   fs.writeFileSync(remote.FILE, '{"on": true, "relay": "rel');
   await remote.forget();
-  assert.equal(remote.read().device_id, 'k1.' + 'A'.repeat(31) + 'Q', 'the Forget dropped the id in use');
+  assert.equal(remote.read().device_id, FAKE_KEYED, 'the Forget dropped the id in use');
   assert.deepEqual(remote.read().past_device_ids, ['old-opaque-id'], 'the Forget dropped the ids before');
 });
 
@@ -2004,6 +2012,48 @@ test('kosmos#5422: a stored id that could never be valid is replaced at once, ev
   fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: 'has spaces and / slashes' }));
   assert.equal((await remote.signinStart('down@example.com')).ok, false, 'precondition: not taken');
   assert.match(remote.read().device_id, /^[A-Za-z0-9_-]{1,128}$/, 'the self-grant kept a malformed id');
+});
+
+test('kosmos#5422: two starts on a corrupt key file replace it once, and name one device', async () => {
+  const keyFile = nodePath.join(process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote'), 'signin-device.key');
+  fs.mkdirSync(nodePath.dirname(keyFile), { recursive: true });
+  fs.writeFileSync(keyFile, 'corrupt');
+  process.env.FAKE_TUNNEL_MODE = 'devkey devkey-random';
+  let a; let b;
+  try { [a, b] = await Promise.all([remote.signinStart('her@example.com'), remote.signinStart('her@example.com')]); } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  assert.equal(a.ok && b.ok, true, 'a start failed');
+  const keyed = remote.ownDeviceIds().filter((x) => x.startsWith('k1.'));
+  assert.equal(keyed.length, 1, 'two keys were made, so the starts named two devices: ' + keyed.join(' '));
+  const onDisk = 'k1.' + require('node:crypto').createHash('sha256').update(fs.readFileSync(keyFile)).digest('base64url').slice(0, 32);
+  assert.equal(keyed[0], onDisk, 'the id in use is not the key on disk');
+});
+
+test('kosmos#5422: a repair keeps a key id the tunnel answered even when no sign-in with it was taken', async () => {
+  fs.writeFileSync(remote.FILE, '{"on": true, "relay": "rel');
+  process.env.FAKE_TUNNEL_MODE = 'devkey';
+  try { assert.equal((await remote.signinStart('down@example.com')).ok, false, 'precondition: not taken'); } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  assert.equal(remote.setOn(true).ok, true);   // the repair
+  assert.ok(remote.read().past_device_ids.includes(FAKE_KEYED), 'the repair forgot a key id the coordinator may hold');
+  remote.setOn(false);
+});
+
+test('kosmos#5422: the folder is scrubbed however its setting is spelled (a doubled separator)', async (t) => {
+  const prev = process.env.AGENT_WORKFORCE_TUNNEL_STATE;
+  // Not normalised: the tunnel prints the joined (normalised) path, which this raw string never matches.
+  process.env.AGENT_WORKFORCE_TUNNEL_STATE = nodePath.join(SANDBOX, 'Jane Doe') + nodePath.sep + nodePath.sep + 'remote';
+  t.after(() => { if (prev === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_STATE; else process.env.AGENT_WORKFORCE_TUNNEL_STATE = prev; });
+  process.env.FAKE_TUNNEL_MODE = 'devkey-unreadable';
+  let r;
+  try { r = await remote.signinStart('her@example.com'); } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  for (const leak of ['/', 'Jane', 'Doe']) assert.ok(!r.because.includes(leak), 'the folder reached the person: ' + r.because);
+});
+
+test('kosmos#5422: a tunnel program that cannot be started is said in fixed words, not its path', async (t) => {
+  const prev = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = nodePath.join(SANDBOX, 'Jane Doe', 'no-such-tunnel');
+  t.after(() => { process.env.AGENT_WORKFORCE_TUNNEL_BIN = prev; });
+  const r = await remote.signinStart('her@example.com');
+  assert.equal(r.because, 'the tunnel program could not be started');
 });
 
 test('kosmos#5422: a cancel while start asks the tunnel sends no start', async () => {

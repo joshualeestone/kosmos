@@ -551,9 +551,11 @@ function write(patch, opts) {
      start mints another, a second "this computer" in the account's device list (#3149, review of #4308).
      kosmos#5422: whatever kind of id it is (a key's id too), and the ids before it, so those rows stay this
      computer's own after the repair. */
-  if (current.ok === false && !next.device_id && heldIdentity && DEVICE_ID.test(heldIdentity.device_id)) {
-    next.device_id = heldIdentity.device_id;
-    if (!(next.past_device_ids || []).length) next.past_device_ids = heldIdentity.past_device_ids;
+  if (current.ok === false && heldIdentity) {
+    if (!next.device_id && DEVICE_ID.test(heldIdentity.device_id)) next.device_id = heldIdentity.device_id;
+    // The ids before come back whether or not one is in use yet: a key id the tunnel answered is hidden as this
+    // computer's own from that moment, even if no sign-in with it was taken.
+    if (!(next.past_device_ids || []).length && heldIdentity.past_device_ids.length) next.past_device_ids = heldIdentity.past_device_ids;
   }
   /* Atomic (#4308): the new content goes to a temporary file of its own in the same folder, is fsynced, and only
      then renamed over the old one. An interrupted write leaves the previous file whole, and the bytes are handed to
@@ -1715,7 +1717,9 @@ function trackKeyCall(p) { deviceIdInFlight.add(p); const done = () => deviceIdI
    person's home folder, often with spaces in it, so no pattern on the path itself is safe). */
 function tunnelWords(asked) {
   const lines = String(asked.stderr || '').split('\n');
-  const scrub = (l) => l.split(STATE_DIR() + path.sep).join('').split(STATE_DIR()).join('')
+  // Every spelling of the folder the tunnel might print: as set, as joined into the key's path, and resolved.
+  const dirs = [...new Set([path.dirname(DEVICE_KEY_FILE()), path.resolve(STATE_DIR()), STATE_DIR()])].sort((x, y) => y.length - x.length);
+  const scrub = (l) => dirs.reduce((t, d) => t.split(d + path.sep).join('').split(d).join(''), l)
     .replace(/\s*\bsignin-device\.key[^\s;:,)]*/g, '').replace(/\s+/g, ' ').trim();
   const head = lines.find((l) => /^Error: /.test(l));
   const causes = lines.slice(lines.findIndex((l) => /^Caused by:/.test(l)) + 1).map((l) => l.replace(/^\s*(\d+:\s*)?/, '')).filter(Boolean);
@@ -1746,7 +1750,15 @@ function noteOwnId(id) {
   }
   write({ past_device_ids: [id, ...cur.past_device_ids] });
 }
-async function signinDeviceArgs(forVerify) {
+/* One at a time: two starts at once (a double click, two tabs) must not both remove a corrupt key, the second
+   removing the good one the first just made, so the two name different devices. */
+let deviceArgsTail = Promise.resolve();
+function signinDeviceArgs(forVerify) {
+  const turn = deviceArgsTail.then(() => signinDeviceArgsNow(forVerify));
+  deviceArgsTail = turn.catch(() => {});
+  return turn;
+}
+async function signinDeviceArgsNow(forVerify) {
   // Nothing may ask for (and so make) a key once a Forget has begun; busy() refuses the step too, this is the same
   // rule at the call that writes into the folder.
   if (forgetting) return { failed: busy() };
@@ -1766,7 +1778,8 @@ async function signinDeviceArgs(forVerify) {
     return { args: ['--device-id', opaque], id: opaque };
   }
   // The program itself did not run or answer (missing, not startable, timed out): its own words, not the key's.
-  if (!asked.ok && typeof asked.code !== 'number') return { failed: { ok: false, because: asked.because || 'the tunnel program did not answer' } };
+  // Fixed words: setupRun's own sentence for a spawn failure carries the program's path (under the home folder).
+  if (!asked.ok && typeof asked.code !== 'number') return { failed: { ok: false, because: asked.timedOut ? 'the tunnel program did not answer in time' : 'the tunnel program could not be started' } };
   let id = keyedIdIn(asked);
   /* A file that is not a key at all (the tunnel's "is not a P-256 key"; a truncated write, a hand edit) can never be
      used, and the person has no button that removes it (Remove this computer shows only once enrolled). Its own
@@ -1774,7 +1787,10 @@ async function signinDeviceArgs(forVerify) {
      start again, since a key made now could not answer the code. Any other failure (a key it could not READ) is
      never removed: the tunnel's words say what is wrong. */
   if (!id && /is not a P-256 key/.test(String(asked.stderr || ''))) {
-    try { fs.rmSync(DEVICE_KEY_FILE(), { force: true }); } catch { /* the next ask says so again */ }
+    try { fs.rmSync(DEVICE_KEY_FILE(), { force: true }); } catch {
+      // Not removable (a lock, antivirus): the tunnel's "remove it" is not something the person can do here.
+      return { failed: { ok: false, because: "this computer's sign-in key could not be used or replaced just now; quit and reopen Kosmos, then sign in again" } };
+    }
     if (forVerify) return { failed: { ok: false, because: "this computer's sign-in key could not be used and was removed; start the sign-in again (this computer will be a new device, allowed once)" } };
     // A Forget that began during the first ask must not be outrun by a second one making a key in its folder.
     { const b = busy(); if (b) return { failed: b }; }
