@@ -131,10 +131,15 @@ test('#4342: the wake handler reclaims ONLY a sustained wedge, re-checking the g
   // Two probes (first + confirm), and the kill happens exactly once, only on the confirmed wedge.
   assert.equal((body.match(/probeBoardHealth\(port: port\)/g) || []).length, 2, 'the handler does not probe twice (first + confirm)');
   assert.equal((body.match(/reclaimStuckBoard\(home: home, port: port\)/g) || []).length, 1, 'the reclaim is reachable from more than the confirmed-wedge path');
-  // The gate is re-checked on the main thread immediately before the kill (TOCTOU: the ~14s window
-  // is long enough for a deliberate stop or an update to begin).
-  assert.match(body, /guard self\.wakeRecoveryGateOpen\(home: home\) else \{ return \}\n\s+logLine[^\n]*\n\s+self\.reclaimStuckBoard/,
-    'the gate is not re-checked immediately before the reclaim');
+  // The gate is consulted three times: at entry, before the confirm probe, and before the kill
+  // (TOCTOU: the ~14s probe+confirm window is long enough for a deliberate stop or an update to begin).
+  assert.equal((body.match(/wakeRecoveryGateOpen\(home: home\)/g) || []).length, 3,
+    'the gate is not re-checked before the confirm probe AND before the kill (not just once up front)');
+  // Overlapping wake chains are serialized by a generation token captured at entry and re-checked at
+  // every continuation, so a second didWake cannot drive a second chain that kills a freshly-restarted board.
+  assert.match(body, /wakeRecoveryGeneration \+= 1\n\s+let gen = wakeRecoveryGeneration/, 'the handler does not capture a wake generation at entry');
+  assert.equal((body.match(/self\.wakeRecoveryGeneration == gen/g) || []).length, 3,
+    'not every continuation (first completion, settle, confirm completion) drops out when a newer wake supersedes this chain');
 });
 
 test('#4342: the reclaim runs the --force form through boardStartInFlight, with no redundant second flag', () => {
@@ -148,8 +153,14 @@ test('#4342: the reclaim runs the --force form through boardStartInFlight, with 
   assert.match(body, /asyncAfter\(deadline: \.now\(\) \+ 300\)/, 'a reclaim that never returns would leave every later Cmd-R a silent no-op (#965)');
   // #4356: the completion undoes a start that finished after a switch to connect (switchToConnect
   // does not bump the generation, so the generation guard alone would miss it), mirroring loadBoard.
-  assert.match(body, /if self\.computerMode == \.connect \{[\s\S]*?stopBoard\(kosmosHome: home, port: port\)[\s\S]*?return\n\s+\}/,
-    'the reclaim completion does not stop a board left running after a switch to connect');
+  // The undo must hold Run-agents until its stop finishes (stopsInFlight += 1 / -= 1 balanced) and
+  // must run BEFORE the stale-generation guard, or a reclaimed board is orphaned on a connect computer.
+  assert.match(body, /if self\.computerMode == \.connect \{[\s\S]*?self\.stopsInFlight \+= 1[\s\S]*?stopBoard\(kosmosHome: home, port: port\)[\s\S]*?self\?\.stopsInFlight -= 1[\s\S]*?return\n\s+\}/,
+    'the reclaim completion does not stop a board left running after a switch to connect, with balanced stopsInFlight bookkeeping');
+  const connectAt = body.indexOf('if self.computerMode == .connect');
+  const genGuardAt = body.indexOf('guard self.boardStartGeneration == generation');
+  assert.ok(connectAt !== -1 && genGuardAt !== -1 && connectAt < genGuardAt,
+    'the connect-undo must run before the stale-generation guard, or the undo is skipped for a stale generation and the board is orphaned');
   // Control: the redundant boardWakeReclaimInFlight flag is gone; boardStartInFlight alone serializes,
   // so there is no second flag that could latch true and silently disable all future wake recovery.
   assert.doesNotMatch(SRC, /boardWakeReclaimInFlight/, 'the redundant wake-reclaim-in-flight flag is back (it can latch true and disable recovery)');
