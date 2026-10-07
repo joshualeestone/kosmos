@@ -1,8 +1,8 @@
 'use strict';
 /**
  * #5450: board-run tells the board who started it, for the restart note (engine/restartnote.js): the supervisor (the
- * login item, or a crash relaunch) unless a person's `kosmos start` left its fresh mark (written first, before the stop marker goes, for) the supervised
- * board, and a direct start always says person. Harness as cli.busy-health-4466.test.js's board-run arm: a fake node
+ * login item, or a crash relaunch) unless a person's `kosmos start` left a fresh mark (written first, before the stop
+ * marker goes), and a direct start says person. Harness as cli.busy-health-4466.test.js's board-run arm: a fake node
  * that writes its environment.
  *
  *   node --test cli.startedby-5450.test.js
