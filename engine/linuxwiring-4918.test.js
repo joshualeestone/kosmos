@@ -314,3 +314,10 @@ test('#4918 review 19: the unit folder ignores the board\'s own XDG_CONFIG_HOME 
     linuxjob.setSystemdDirForTests(() => unitDir);
   }
 });
+
+test('#4918 review 20: a never-loaded unit is read by systemctl\'s exit 5 too, whatever the locale', () => {
+  const file = linuxjob.unitPath('kenshi', 'w1');
+  fs.writeFileSync(file, '[Service]\n');
+  answer = (cmd, args) => (args[1] === 'stop' || args[1] === 'disable' ? { ok: false, code: 5, stderr: 'Einheit nicht geladen.' } : { ok: true, stdout: '' });
+  try { assert.deepEqual(linuxjob.remove('kenshi', 'w1'), { ok: true }); } finally { answer = () => ({ ok: true, stdout: '' }); fs.rmSync(file, { force: true }); }
+});

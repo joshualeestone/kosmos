@@ -392,15 +392,19 @@ function presence(name, worldId) {
 // ("Failed to connect to bus: No such file or directory"), which must stay a failure (#4918 review 3).
 const NOT_LOADED = /Unit (file )?\S+ (not loaded|does not exist|not found)/i;   // incl. disable's "Unit file X.service does not exist"
 /* A stop result that leaves the unit not running: ok, or systemd saying it never had it (review 14). */
+/* "systemd does not have this unit": systemctl's exit 5 (any locale), or its English wording (review 20). */
+function notLoaded(r) {
+  return Boolean(r) && (r.code === 5 || NOT_LOADED.test(String(r.stderr || r.because || '')));
+}
 function stoppedOrNotLoaded(r) {
-  return Boolean(r && (r.ok || NOT_LOADED.test(String(r.stderr || r.because || ''))));
+  return Boolean(r && (r.ok || notLoaded(r)));
 }
 
 function remove(name, worldId) {
   const st = stop(name, worldId);
-  const stopFailed = st && st.ok === false && !NOT_LOADED.test(String(st.stderr || st.because || ''));
+  const stopFailed = st && st.ok === false && !notLoaded(st);
   const dis = disable(name, worldId);
-  const disableFailed = dis && dis.ok === false && !NOT_LOADED.test(String(dis.stderr || dis.because || ''));
+  const disableFailed = dis && dis.ok === false && !notLoaded(dis);
   if (stopFailed) {
     return { ok: false, because: 'systemd could not stop it, so it may still be running: ' + String(st.stderr || st.because || '').trim() };
   }

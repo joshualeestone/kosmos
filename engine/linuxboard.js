@@ -181,7 +181,7 @@ function canRestart(kosmosHome) {
   }
   return {
     canRestart: true,
-    because: 'the board is the kosmos-board systemd user service and will relaunch when stopped',
+    because: 'the board is the kosmos-board systemd user service, so systemctl restart brings it back',
     via: 'systemd',
   };
 }
