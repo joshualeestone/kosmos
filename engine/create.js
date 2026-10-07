@@ -3741,8 +3741,11 @@ function installJob(name, opts) {
     } else {
       try {
         lingering = linuxRun(() => lj.enableLinger()).lingering;
+        /* review 23: a start of an already-active unit does nothing and exits 0, leaving the old ExecStart running.
+           As the Mac's bootstrap of a loaded job, that is "next start", not "started now". */
+        const wasActive = Boolean(linuxRun(() => lj.loaded(clean)));
         const r = linuxRun(() => lj.start(clean));
-        started = Boolean(r && r.ok === true);
+        started = !wasActive && Boolean(r && r.ok === true);
         if (!started && /did not (enable|reload)/.test(String((r && r.because) || ''))) atLogin = false;
       } catch { started = false; }
     }
