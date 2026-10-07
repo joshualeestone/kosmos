@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: sendwhy-5435
-diff_hash: 6f2c04e2dde1f6530e4fb78589eb4449c94a8daf8ed18306a6d3f5c55278d309
-validation: passed (Mortals full suite at a80d942f2, hash 6f2c04e2dde1)
+diff_hash: 3116af0009fbb9d40e3d39068b33551bfceee00ea89b2ab318bbc5841300c40b
+validation: passed (Mortals full suite at a80d942f2, hash 6f2c04e2dde1); a wording-only change followed (below), its 347 tests pass and the PR CI runs the full suite on it
 subdir_audit: passed
-timestamp: 2026-10-07T16:42:28Z
+timestamp: 2026-10-07T16:44:02Z
 iterations: 10
 converged: true
 ---
@@ -46,3 +46,6 @@ Two merges of main landed after the loop converged; neither changed this branch'
 - a80d942f2 merged main to take #5474, the fix for the known cli.sandbox-4636:159 red. The run before it failed only on
   that test, which Splinter ruled the change does not chase; the re-run after the merge passed.
 No web/ file changes, so no browser check applies.
+- After the PR opened, Mona's design review changed two sentences and the matching CLI fallback (wording only, no
+  logic): post.off now ends "before you see where it stands with:", and the comment records/switch sentences say
+  "this one" for "this copy". The tests that pin those strings were updated with them.
