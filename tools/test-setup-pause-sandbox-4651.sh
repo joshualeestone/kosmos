@@ -139,7 +139,7 @@ chk "sandbox B, live board: says to use a normal Terminal, and shows what the po
 chk "sandbox B, live board: the put-back still runs, marked unsure" '[[ "$OUT" == *"STATE put-back=yes unsure=yes"* ]]'
 # B, but the person had stopped the board before the run (board.stopped already there): nothing is put back.
 P="$(free_port)"; start_listener "$P" http; OUT="$(PRESTOPPED=1 run_pause "$PROFILE_B" "$P")"; stop_listener
-chk "sandbox B, a board the person stopped: nothing is put back" '[[ "$OUT" == *"DIE:"* && "$OUT" == *"STATE put-back=no"* && "$OUT" != *"Kosmos is running again"* && "$OUT" != *"open the Kosmos app"* ]]'
+chk "sandbox B, a board the person stopped: nothing is put back" '[[ "$OUT" == *"DIE:"* && "$OUT" == *"STATE put-back=no"* && "$OUT" != *"Kosmos is running"* ]]'
 
 # C: no file can be written, and lsof is denied. Must still stop.
 P="$(free_port)"; start_listener "$P" http; OUT="$(run_pause "$PROFILE_C" "$P")"; stop_listener
@@ -154,6 +154,9 @@ chk "sandbox B, free port: the put-back still runs, marked unsure" '[[ "$OUT" ==
 # A, and the put-back's start fails (it cannot start a board from this shell): the words must not claim a pause.
 P="$(free_port)"; start_listener "$P" http; OUT="$(STUBSTART=fail run_pause "$PROFILE_A" "$P")"; stop_listener
 chk "sandbox A, the start fails: says to open the app or run kosmos start, never that Kosmos was paused" '[[ "$OUT" == *"If Kosmos is not running, open the Kosmos app, or run: kosmos start (from a normal Terminal)."* && "$OUT" != *"was paused"* ]]'
+# B (the FIRST stop: the port check itself failed), and the start fails: the same neutral words.
+P="$(free_port)"; start_listener "$P" http; OUT="$(STUBSTART=fail run_pause "$PROFILE_B" "$P")"; stop_listener
+chk "sandbox B, the start fails: the first stop's words never say Kosmos was paused either" '[[ "$OUT" == *"If Kosmos is not running, open the Kosmos app, or run: kosmos start (from a normal Terminal)."* && "$OUT" != *"was paused"* ]]'
 # CONTROL: the third stop with a failing start keeps main's own words.
 P="$(free_port)"; start_listener "$P" silent; OUT="$(STUBSTART=fail run_pause "" "$P")"; stop_listener
 chk "control: the third stop with a failing start keeps main's words (#4818)" '[[ "$OUT" == *"Kosmos was paused for this update and could not be started again"* ]]'
