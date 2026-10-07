@@ -8,7 +8,8 @@
  * The scan covers EVERY non-test module in engine/, so a new site cannot hide by not being on a list. It is a regex
  * scanner, not a parser. What it cannot see: a name built at runtime (env[name]); code after a `/*` or `//` that sits
  * inside a string (comment stripping blanks it); a nested receiver (opts.env.CODEX_HOME = x); a spread or
- * Object.assign of anything but process.env, or one split across lines. What it over-flags: any object's property of these names
+ * Object.assign of anything but process.env, or one split across lines; a quoted key ({ ...process.env, 'CODEX_HOME':
+ * x }) or a key after a nested {...} in one. What it over-flags: any object's property of these names
  * (opts.CODEX_HOME = x), which here is always an env; rename the property if that ever stops being true.
  * It covers only the names in NAMES below: a NEW account-scoped or world name must be added there to be guarded.
  *
@@ -128,4 +129,19 @@ test('#5386: preWorldEnv with no marker leaves one spelling of each root', () =>
   assert.deepEqual(Object.keys(out).filter((k) => k.toUpperCase() === 'AGENT_WORKFORCE_DATA'), ['AGENT_WORKFORCE_DATA']);
   const over = Object.assign(out, { AGENT_WORKFORCE_DATA: 'C:\\w' });   // how worldWorkersDir lays a world's override over it
   assert.deepEqual(Object.keys(over).filter((k) => k.toUpperCase() === 'AGENT_WORKFORCE_DATA'), ['AGENT_WORKFORCE_DATA'], 'two spellings after an override');
+});
+
+test('#5386: applyActiveWorldEnv given a copy (straight into applyWorldEnv) keeps one spelling and records the root', () => {
+  const os = require('node:os');
+  const worlds = require('./worlds');
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'envcase-5386-'));
+  try {
+    const w = worlds.createWorld(base, 'probe');
+    worlds.setActiveWorld(base, w.id);
+    const env = { Agent_Workforce_Data: '/sandbox/data', PATH: '/bin' };
+    worlds.applyActiveWorldEnv(env, base);
+    assert.deepEqual(Object.keys(env).filter((k) => k.toUpperCase() === 'AGENT_WORKFORCE_DATA'), ['AGENT_WORKFORCE_DATA']);
+    assert.equal(JSON.parse(env.KOSMOS_PRE_WORLD_ROOTS).roots.AGENT_WORKFORCE_DATA, '/sandbox/data', 'the marker recorded the root');
+    assert.equal(env.KOSMOS_WORLD, w.id);
+  } finally { fs.rmSync(base, { recursive: true, force: true }); }
 });

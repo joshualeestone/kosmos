@@ -33,7 +33,7 @@
  * and its child process is an injectable seam.
  */
 const { spawn } = require('node:child_process');
-const { envSet } = require('./win32env');
+const { envSet } = require('./win32env');   // #5386: env copies keep names as spelled; on Windows any spelling counts
 
 /* codex's spelling of claude's --dangerously-skip-permissions. The same flag
    win32launch.AUTONOMY.codex carries, written once here so the two cannot drift. */

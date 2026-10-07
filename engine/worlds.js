@@ -209,6 +209,7 @@ function readWorldMarker(env) {
    go through win32env. process.env itself is left to plain access: on Windows Node already matches its names in any
    case, and on a Mac a differently spelled name is a different variable this process must not lose. */
 const delVar = (env, k) => { if (env === process.env) delete env[k]; else envDelete(env, k); };
+const setVar = (env, k, v) => { if (env === process.env) env[k] = v; else envSet(env, k, v); };
 /* On a copy, move every world name (the world, its marker, the three roots, and AGENT_WORKFORCE_HOME, which baseRoot
    reads) to its usual spelling, so the exact-spelling reads and writes after it see one key. A no-op on process.env. */
 function canonWorldNames(env) {
@@ -216,7 +217,6 @@ function canonWorldNames(env) {
   for (const k of [launchidentity.WORLD_ENV_VAR, PRE_WORLD_ROOTS_ENV_VAR, ...WORLD_ROOT_ENV_VARS, 'AGENT_WORKFORCE_HOME']) envCanon(env, k);
   return env;
 }
-const setVar = (env, k, v) => { if (env === process.env) env[k] = v; else envSet(env, k, v); };
 
 /* Put the recorded original roots back in place and drop the world variables. */
 function restorePreWorldRoots(env, marker) {

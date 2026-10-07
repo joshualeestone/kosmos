@@ -73,9 +73,19 @@ How often a real Windows environment carries a non-canonical spelling of these n
 
 ## Review 4 (sonnet), 2026-10-07
 - worlds: one helper, canonWorldNames (copies only), now runs in preWorldEnv, applyAgentWorldEnv AND applyWorldEnv, so
-  an exported entry point given a copy, and worldWorkersDir's override laid over preWorldEnv's result, keep one
+  applyActiveWorldEnv given a copy (it calls applyWorldEnv, which is not exported), and worldWorkersDir's override laid over preWorldEnv's result, keep one
   spelling (test: preWorldEnv with no marker; red without it).
 - The guard also covers ANTHROPIC_API_KEY, OPENAI_API_KEY, AGENT_WORKFORCE_HOME, KOSMOS_AGENT_SESSION and
   KOSMOS_BOARD_TOKEN (no exact-spelling site exists today); its header says a new name must be added to be guarded.
 - Left: subscription.test.js's title (the plan already says it discriminates only on a case-sensitive host);
   orgchartcodex CODEX_HOME via envSet is a no-op in effect, kept for uniformity.
+
+## Review 5 (opus), 2026-10-07
+- BLOCKER fixed: engine/win32anchor.world-1704.test.js builds a stand-in engine from a hand-kept file list, which lacked
+  win32env.js once worlds.js required it at load time ("Cannot find module './win32env'"). The list is now DERIVED: the
+  seeds plus every column-0 require('./x') they reach, followed through (lazy requires inside functions are not). A
+  guard asserts it carries store, launchidentity and win32env and not the lazy worldbootguard. My touched-module runs
+  missed it because the file is not named after worlds; the full-suite validation at convergence is the gate for that.
+- applyActiveWorldEnv given a copy: a test with a real temp world (red without canonWorldNames in applyWorldEnv).
+- Header: quoted keys and keys after a nested {...} in a spread are unseen. Nits: setVar beside delVar; win32codex's
+  require comment.
