@@ -137,7 +137,14 @@ function enableLinger() {
   try { runner('loginctl', u ? ['enable-linger', u] : ['enable-linger']); } catch { /* read back below */ }
   let r = null;
   try { r = runner('loginctl', u ? ['show-user', u, '-p', 'Linger'] : ['show-user', '-p', 'Linger']); } catch { r = null; }
-  return { lingering: Boolean(r && r.ok && /^Linger=yes\s*$/m.test(String(r.stdout || ''))) };
+  if (r && r.ok && /^Linger=yes\s*$/m.test(String(r.stdout || ''))) return { lingering: true };
+  /* review 24: show-user can lag the enable a moment. logind's own record of linger is a file named for the user;
+     consulted only outside a test process (create runs through its own runner, so "is the runner real" is the wrong
+     question), so a test's faked "Linger=no" is never overruled by a CI runner that has linger on. */
+  if (!require('./live-execution').inTestProcess()) {
+    try { if (fs.existsSync(path.join('/var/lib/systemd/linger', os.userInfo().username))) return { lingering: true }; } catch { /* off */ }
+  }
+  return { lingering: false };
 }
 
 /* A value written into a unit file. systemd expands "%" specifiers in most directives and "$" in ExecStart, unescapes
