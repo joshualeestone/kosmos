@@ -102,7 +102,8 @@ jobs:
           # The #4918 loop, reproduced: with board.stopped present the board's own exit is clean, and Restart=always
           # restarted it every RestartSec (board-run then exited 0 at once, forever). kosmos stop cannot show this: its
           # systemctl stop cancels any pending restart. So: mark stopped, end the board with a plain TERM (not through
-          # systemd), wait two restart windows, and require systemd restarted it zero times.
+          # systemd), wait two restart windows, and require systemd restarted it zero times. A TERM exit is clean
+          # (SuccessExitStatus=143), so this fails on Restart=always (any exit restarts), the regression it names.
           KOSMOS_HOME="$HOME/.local/share/kosmos"
           PID="$(systemctl --user show -p MainPID --value kosmos-board.service)"
           test -n "$PID" && test "$PID" != 0
