@@ -8,7 +8,8 @@
  * open part of any task assigned to it.
  *
  * WHAT IT DELIBERATELY DOES NOT DO. It never creates a project or a task, never adds an agent to
- * a project, never touches a task somebody is already on, and never assigns in an archived
+ * a project, never touches a task somebody is already on (one exception, #5382's failover, off by
+ * default: an agent rate-limited for FAILOVER_MS), and never assigns in an archived
  * project. An agent whose last stated list named work (fresh or stale), or whose record cannot be
  * read or is dated in the future, is left alone.
  *
@@ -50,6 +51,16 @@ const MAX_ASK_FAILS = 3;
 /* At most one goal ask per agent per hour, so an agent that answers "nothing to add" is not asked
    about its next goal project a minute later. */
 const MAX_ASKS_PER_AGENT_PER_HOUR = 1;
+/* #5382: failover (the setting's `failover`, off by default). An agent whose card has read rate_limited for this long,
+   continuously, has its open parts given to an idle agent on the same project that runs on ANOTHER provider. Long, so a
+   limit line misread off the screen (#966: a scraped limit is a warning) has time to clear before work moves, and so
+   a short per-minute limit is waited out rather than acted on. */
+const FAILOVER_MS = 15 * 60 * 1000;
+/* A limit whose reset Kosmos knows (Antigravity's quotaUntil, or the shared pool's poolUntil) and that resets within
+   this long is waited out: the agent holding the work will be back before a new one has read the task. */
+const RESET_SOON_MS = 10 * 60 * 1000;
+/* A saved limit start older than this is not restored (review 15): longer than any provider limit Kosmos reads. */
+const LIMIT_KEEP_MS = 8 * 24 * 60 * 60 * 1000;
 /* #4552: does this agent's commitments record leave it free for new work? Stated clear, yes. Also,
    with nothing stated: an agent that never reported a list, or whose last list was empty and has only
    aged. Nothing shipped writes the record (only an agent's own PUT does), so requiring `clear` meant
@@ -86,6 +97,37 @@ const isSwarmOff = (p, session) => require('./projects').isSwarmOff(p, session);
    Once anyone else is on the project it is an ordinary project and the maker an ordinary member. */
 const aloneOnItsOwn = (p, session) => Array.isArray(p.agents) && p.agents.length === 1 && p.agents[0] === session
   && !!p.made && typeof p.made === 'object' && p.made.by === session;
+
+/* #5382: the provider a runner bills, for the failover's "another provider" test, from create.runnerProvider (the ONE
+   runner -> provider map). One more rule on top: Antigravity and the Gemini CLI are one, because both can run on the
+   same Google account, whose shared quota (#4588) is what stopped the first agent. Only a runner Kosmos recognises
+   has a provider; anything else (null, empty, an unknown string, which runnerProvider would call anthropic) is null,
+   and the failover neither takes from nor gives to it. Note: readRunner's create.recordedRunner floors a missing record
+   at claude, so in practice "unknown" reaches here as claude; that errs toward missing a move (review 7). */
+function providerOf(runner) {
+  if (typeof runner !== 'string' || !runner) return null;
+  const create = require('./create');
+  if (runner !== 'claude' && !create.isNonClaudeRunner(runner)) return null;
+  const p = create.runnerProvider(runner);
+  return p === 'antigravity' ? 'google' : p;
+}
+
+/* #5382: a card the failover may take work FROM: ours, reading rate_limited on evidence that is still current, and not
+   about to reset. "Current" means Kosmos can date it: a reset time from Antigravity's report (quotaUntil), the shared
+   pool (poolUntil) or the vendor's own line (status.limitResetAt), still in the future. A limit with no reset time is
+   NOT acted on, whoever's it is: an idle pane can keep showing an old line long after the agent recovered (status.js,
+   the #5031 notes), and 15 minutes of waiting cannot tell those apart (review 6). That includes Codex and Gemini CLI
+   limits: status keeps them only until a newer turn appears below the line, and nothing clears them at the reset
+   (review 7). So, today, a Claude 5-hour limit (printed with no date) never moves work; a weekly one does. */
+function limitedCard(a, now) {
+  if (!(a && a.sessionName && a.isNamedOurs === true && a.state === 'rate_limited')) return false;
+  let fromLine = null;
+  try { fromLine = typeof a.stateEvidence === 'string' && a.stateEvidence ? require('./status').limitResetAt(a.stateEvidence, now) : null; } catch { fromLine = null; }
+  // Each reset on its own: Math.max over a missing one (NaN) is NaN, which would read as no reset known.
+  const resets = [Date.parse(a.quotaUntil || ''), Date.parse(a.poolUntil || ''), Number(fromLine)].filter((x) => Number.isFinite(x) && x > 0);
+  if (!resets.length) return false;
+  return Math.max(...resets) - now > RESET_SOON_MS;
+}
 
 /* Live (non-archived) project records only. */
 function liveProjects(records) {
@@ -161,7 +203,8 @@ function pick(session, projects, taken) {
 
 /* The Assigner's memory between ticks, empty. */
 function emptyMemory() {
-  return { idleSince: new Map(), log: [], asked: new Map(), askLog: [], askFails: new Map(), askedSig: new Map() };
+  return { idleSince: new Map(), log: [], asked: new Map(), askLog: [], askFails: new Map(), askedSig: new Map(),
+    limitedSince: new Map(), limitedMiss: new Map() };
 }
 
 /* #5161: what a goal ask is about, as one short string. Two installs (and the Feedback and Community project here) were
@@ -193,7 +236,9 @@ const MEMORY_CAP = 2000;   // project ids; far above any real board, so a corrup
 function savedForm(mem) {
   const asked = mem && mem.asked instanceof Map ? [...mem.asked].filter(([k, v]) => typeof k === 'string' && Number.isFinite(v)) : [];
   const sig = mem && mem.askedSig instanceof Map ? [...mem.askedSig].filter(([k, v]) => typeof k === 'string' && typeof v === 'string') : [];
-  return { v: 1, asked: asked.slice(-MEMORY_CAP), askedSig: sig.slice(-MEMORY_CAP) };
+  // #5382 review 15: each limit's start, so a restart does not move a person's queued work (stalledParts).
+  const lim = mem && mem.limitedSince instanceof Map ? [...mem.limitedSince].filter(([k, v]) => typeof k === 'string' && Number.isFinite(v)) : [];
+  return { v: 1, asked: asked.slice(-MEMORY_CAP), askedSig: sig.slice(-MEMORY_CAP), limitedSince: lim.slice(-MEMORY_CAP) };
 }
 
 /* Read back what savedForm wrote, into a fresh memory. Anything unreadable or malformed is dropped, never trusted:
@@ -207,6 +252,11 @@ function restoredMemory(obj, now) {
   }
   for (const e of (Array.isArray(obj.askedSig) ? obj.askedSig : []).slice(-MEMORY_CAP)) {
     if (Array.isArray(e) && typeof e[0] === 'string' && typeof e[1] === 'string' && /^[0-9a-f]{16}$/.test(e[1])) mem.askedSig.set(e[0], e[1]);
+  }
+  /* #5382 review 15: a limit start in the future, or older than LIMIT_KEEP_MS (no provider limit lasts that long), is
+     dropped: the clock then starts again, toward waiting. A card no longer limited clears its entry within two ticks. */
+  for (const e of (Array.isArray(obj.limitedSince) ? obj.limitedSince : []).slice(-MEMORY_CAP)) {
+    if (Array.isArray(e) && typeof e[0] === 'string' && Number.isFinite(e[1]) && e[1] <= now && now - e[1] <= LIMIT_KEEP_MS) mem.limitedSince.set(e[0], e[1]);
   }
   return mem;
 }
@@ -278,6 +328,55 @@ function askText(item) {
     + 'If there is nothing real to add, add nothing and say so in the room: kosmos post ' + item.projectId + ' "...".';
 }
 
+/* #5382: the open parts held by an agent in `ripe` (rate-limited for FAILOVER_MS), in live projects, that the failover
+   may move: never a part on hold, in a paused project, of a built or closed task, or of a webhook task (a person gives
+   those out, #1307). `runnerOf` maps session -> provider. */
+function stalledParts(projects, ripe, runnerOf, now = Date.now(), limitedSince = new Map()) {
+  const out = [];
+  for (const p of projects) {
+    if (require('./projects').isPaused(p)) continue;
+    for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
+      if (typeof t.number !== 'number' || tasks.isOnHold(t) || t.builtAt || t.addedVia === 'webhook') continue;
+      if (require('./taskrepeat').waitingForNextRun(t, now)) continue;   // #4787: between runs a repeating task holds no work
+      const prog = tasks.progressOf(t);
+      if (prog.closed) continue;
+      for (const x of prog.parts) {
+        if (x.closedAt || !ripe.has(x.who)) continue;
+        /* Review 13: a part a PERSON gave this agent while it was already limited stays (they may be queueing work for
+           after its reset); only work it held before its limit began moves. */
+        const since = limitedSince instanceof Map ? limitedSince.get(x.who) : undefined;
+        if (Number.isFinite(since) && personGiveAt(t, x) >= since) continue;
+        out.push({ projectId: p.id, n: t.number, partId: x.id, from: x.who, fromRunner: runnerOf.get(x.who) || null,
+          due: dueKey(t), age: ageKey(t) });
+      }
+    }
+  }
+  out.sort((a, b) => (a.due < b.due ? -1 : a.due > b.due ? 1 : a.age - b.age));
+  return out;
+}
+
+/* #5382 (review 14): when a PERSON last gave this part to its holder, epoch ms, else NaN. Every way a person gives
+   work counts, not only a move: a move on the page (movedVia 'screen', movedAt); a part they added with somebody on it
+   (addedVia 'screen', createdAt); a task they created with somebody on it (its one derived part has neither stamp, so
+   the task's addedVia 'screen' and createdAt). A part last moved by anything else (the Assigner, a process) is NaN. */
+function personGiveAt(t, x) {
+  if (x.movedVia) return x.movedVia === 'screen' ? Date.parse(x.movedAt || '') : NaN;
+  if (x.addedVia) return x.addedVia === 'screen' ? Date.parse(x.createdAt || '') : NaN;
+  return t && t.addedVia === 'screen' ? Date.parse(t.createdAt || '') : NaN;
+}
+
+/* #5382: the stalled part this idle agent takes, if any: in a project it belongs to (and is not swarm-off in), held by
+   an agent on a DIFFERENT provider (the same provider is likely the same limit), not already moved this step. */
+function failoverPick(session, runner, stalled, projects, movedParts) {
+  for (const s of stalled) {
+    if (!s.fromRunner || !runner || s.fromRunner === runner || movedParts.has(s.projectId + '#' + s.n + '#' + s.partId)) continue;
+    const p = projects.find((q) => q.id === s.projectId);
+    if (!p || !(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session)) continue;
+    return s;
+  }
+  return null;
+}
+
 /**
  * One Assigner step. Pure apart from two reads: agyquota.heldForAgy records the Antigravity quota pool's reset in that
  * module's memory (POOL_MEMO, #4588 PR B) and reads the Gemini cap setting from disk (#4588 ask 3).
@@ -292,7 +391,7 @@ function askText(item) {
  * @param {number} o.now  ms clock
  * @returns {{toAssign: Array<object>, toAsk: Array<object>, next: object}}
  */
-function step({ prev, roster, setting, records, commitments, goals, now }) {
+function step({ prev, roster, setting, records, commitments, goals, now, runners }) {
   const base = prev && prev.idleSince instanceof Map ? prev : emptyMemory();
   if (!setting || setting.on !== true) return { toAssign: [], toAsk: [], next: emptyMemory() };
   // A null roster is a READ FAILURE, not an empty fleet: keep the memory, do nothing.
@@ -310,6 +409,35 @@ function step({ prev, roster, setting, records, commitments, goals, now }) {
   const askedSig = new Map([...(base.askedSig instanceof Map ? base.askedSig : new Map())].filter(([id]) => ids.has(id)));
   const askLog = (Array.isArray(base.askLog) ? base.askLog : []).filter((e) => e && now - e.at < HOUR_MS);
   const toAsk = [];
+  /* #5382: how long each of our agents has read rate_limited, kept like idleSince (a card that stops reading it starts
+     again from zero). Kept with the failover off too, so turning it on does not restart every clock. */
+  const limitedSince = new Map();
+  const runnerOf = new Map();
+  const ripe = new Set();
+  const baseLimited = base.limitedSince instanceof Map ? base.limitedSince : new Map();
+  /* `runners` (session -> runner or null) is the board's own derivation, passed in by tick (review 6: a card's runner of
+     'claude' can be a default, not a fact). Without it, the card's own field. */
+  /* Review 15: one tick that does not read the limit (a scrape that lost the dated row) keeps the clock; only a second
+     in a row clears it. The clock is also saved with the Assigner's memory (savedForm), so a restart keeps it: both
+     matter for the person-give exemption below, where a clock that restarts late would let a person's queued work move. */
+  const limitedMiss = new Map();
+  const baseMiss = base.limitedMiss instanceof Map ? base.limitedMiss : new Map();
+  for (const a of Array.isArray(roster) ? roster : []) {
+    if (a && a.sessionName) runnerOf.set(a.sessionName, providerOf(runners instanceof Map ? runners.get(a.sessionName) : a.runner));
+    if (!a || !a.sessionName) continue;
+    if (!limitedCard(a, now)) {
+      if (baseLimited.has(a.sessionName) && !baseMiss.has(a.sessionName)) {
+        limitedSince.set(a.sessionName, baseLimited.get(a.sessionName));
+        limitedMiss.set(a.sessionName, 1);
+      }
+      continue;
+    }
+    const since = baseLimited.has(a.sessionName) ? baseLimited.get(a.sessionName) : now;
+    limitedSince.set(a.sessionName, since);
+    if (now - since >= FAILOVER_MS) ripe.add(a.sessionName);
+  }
+  const stalled = setting.failover === true && ripe.size ? stalledParts(projects, ripe, runnerOf, now, limitedSince) : [];
+  const movedParts = new Set();
   for (const a of Array.isArray(roster) ? roster : []) {
     if (!idleCard(a)) continue;
     const session = a.sessionName;
@@ -324,12 +452,17 @@ function step({ prev, roster, setting, records, commitments, goals, now }) {
     let held = null;
     try { held = require('./agyquota').heldForAgy(session, roster, now); } catch { held = null; }   // #4588 ask 3: the cap too
     if (held !== null) continue;
-    const choice = pick(session, projects, taken);
+    /* #5382: work stalled on a rate-limited agent comes before the backlog: it was already started for somebody. */
+    const moved = stalled.length ? failoverPick(session, runnerOf.get(session) || null, stalled, projects, movedParts) : null;
+    const choice = moved
+      ? { projectId: moved.projectId, n: moved.n, partId: moved.partId, from: moved.from }
+      : pick(session, projects, taken);
     if (choice) {
       // The assignment caps gate assignments only; the ask below has its own.
       if (log.length >= MAX_PER_HOUR) continue;
       if (log.filter((e) => e.session === session).length >= MAX_PER_AGENT_PER_HOUR) continue;
-      taken.add(choice.projectId + '#' + choice.n);
+      if (moved) movedParts.add(choice.projectId + '#' + choice.n + '#' + choice.partId);
+      else taken.add(choice.projectId + '#' + choice.n);
       toAssign.push({ session, name: a.name || session, ...choice });
       log.push({ at: now, session });
       continue;
@@ -348,7 +481,7 @@ function step({ prev, roster, setting, records, commitments, goals, now }) {
     toAsk.push({ session, name: a.name || session, ...g });
   }
   const askFails = new Map(base.askFails instanceof Map ? base.askFails : []);
-  return { toAssign, toAsk, next: { idleSince, log, asked, askLog, askFails, askedSig } };
+  return { toAssign, toAsk, next: { idleSince, log, asked, askLog, askFails, askedSig, limitedSince, limitedMiss } };
 }
 
 /**
@@ -356,8 +489,8 @@ function step({ prev, roster, setting, records, commitments, goals, now }) {
  * charge back off the budget, so a refusal does not spend an hour's allowance.
  * @returns {{next: object, acted: Array<object>}}
  */
-function runOnce({ prev, roster, setting, records, commitments, goals, now, give, ask, DELIVERY }) {
-  const out = step({ prev, roster, setting, records, commitments, goals, now });
+function runOnce({ prev, roster, setting, records, commitments, goals, now, give, ask, DELIVERY, runners }) {
+  const out = step({ prev, roster, setting, records, commitments, goals, now, runners });
   /* #5161: an ask that did not land must not record the project as asked-about-in-this-state, or a pane that refused
      once would silence that project until something changed. */
   const unrecord = (item) => {
@@ -367,7 +500,7 @@ function runOnce({ prev, roster, setting, records, commitments, goals, now, give
   const acted = [];
   for (const item of out.toAssign) {
     let res;
-    try { res = give(item.projectId, item.n, item.partId, item.session); } catch (err) { res = { ok: false, because: String((err && err.message) || err) }; }
+    try { res = give(item.projectId, item.n, item.partId, item.session, item.from); } catch (err) { res = { ok: false, because: String((err && err.message) || err) }; }
     const ok = Boolean(res && res.ok);
     if (!ok) {
       // Finds this give's own charge by (now, session): step charges each session at most once
@@ -376,7 +509,7 @@ function runOnce({ prev, roster, setting, records, commitments, goals, now, give
       const i = out.next.log.findIndex((e) => e.at === now && e.session === item.session);
       if (i !== -1) out.next.log.splice(i, 1);
     }
-    acted.push({ session: item.session, name: item.name, projectId: item.projectId, n: item.n, ok,
+    acted.push({ session: item.session, name: item.name, projectId: item.projectId, n: item.n, ok, from: item.from || null,
       because: ok ? null : (res && res.because) || 'refused', heard: (res && res.heard) || null });
   }
   // Phase 3 asks. One that reached nobody (COULD_NOT, or a throw) is tried again after
@@ -424,11 +557,12 @@ function runOnce({ prev, roster, setting, records, commitments, goals, now, give
  * Goals (phase 3) are read only for live projects with no open task that an idle agent
  * belongs to, and a goal read that throws is no goal.
  * @param {object} o  prev, now, readSetting, readRoster, readRecords, readCommitment(session)->
- *   {state}, readGoal(project)->string|null, give(projectId, n, partId, who, roster),
+ *   {state}, readGoal(project)->string|null, give(projectId, n, partId, who, roster, from) (`from`: #5382, the
+ *   rate-limited agent a failover move takes the part from, else undefined),
  *   ask(session, text, roster), DELIVERY
  * @returns {{next: object, acted: Array<object>, asks: Array<object>}}
  */
-function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment, readGoal, give, ask, DELIVERY }) {
+function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment, readGoal, give, ask, DELIVERY, readRunner }) {
   const setting = readSetting();
   const roster = setting && setting.on === true ? readRoster() : null;
   const records = setting && setting.on === true ? readRecords() : [];
@@ -447,11 +581,21 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
       try { const g = readGoal(p); if (typeof g === 'string' && g) goals.set(p.id, g); } catch { /* no goal */ }
     }
   }
-  return runOnce({ prev, roster, setting, records, commitments: states, goals, now, DELIVERY,
-    give: (projectId, n, partId, who) => give(projectId, n, partId, who, roster),
+  /* #5382: each card's runner, from the board's derivation (readRunner), read only while failover is on. A read that
+     throws is unknown (null), which the failover skips. */
+  let runners;
+  if (setting && setting.on === true && setting.failover === true && typeof readRunner === 'function') {
+    runners = new Map();
+    for (const c of Array.isArray(roster) ? roster : []) {
+      if (!c || !c.sessionName) continue;
+      try { const r = readRunner(c); runners.set(c.sessionName, typeof r === 'string' && r ? r : null); } catch { runners.set(c.sessionName, null); }
+    }
+  }
+  return runOnce({ prev, roster, setting, records, commitments: states, goals, now, DELIVERY, runners,
+    give: (projectId, n, partId, who, from) => give(projectId, n, partId, who, roster, from),
     ask: typeof ask === 'function' ? (session, text) => ask(session, text, roster) : undefined });
 }
 
 module.exports = { step, runOnce, tick, pick, hasOpenWork, commitmentsFree, idleCard, liveProjects, goalProject, askText,
   projectSig, savedForm, restoredMemory, loadMemory, saveMemory, MEMORY_FILE,
-  IDLE_MS, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS };
+  IDLE_MS, FAILOVER_MS, RESET_SOON_MS, LIMIT_KEEP_MS, providerOf, limitedCard, personGiveAt, stalledParts, failoverPick, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS };

@@ -493,6 +493,7 @@ function assignPart(projectId, n, partId, who, made) {
   // `made.onlyIfWho` likewise refuses unless the part is still on that agent (the Assigner's
   // takeback, so it never clears a part somebody else took in the meantime).
   let taken = false;
+  let stopped = false;   // #5382: a failover move refused because the work itself changed (finished, closed, held), not its owner
   // The membership check runs only for a part that actually exists (inside
   // the id match below) -- checked unconditionally up front, a nonexistent
   // partId with an unrecognised who threw the membership error instead of
@@ -512,6 +513,12 @@ function assignPart(projectId, n, partId, who, made) {
       /* #4771: nor one put on hold, or whose project was paused, since it was picked. */
       if (made && made.onlyIfFree && (isOnHold(t) || projects.isPaused(p))) { taken = true; return x; }
       if (made && typeof made.onlyIfWho === 'string' && x.who !== made.onlyIfWho) { taken = true; return x; }
+      /* #5382: a failover move (the Assigner taking a rate-limited agent's part) is refused if the part was finished, or
+         its task built, put on hold or its project paused, since it was picked. */
+      if (made && made.failover === true && (x.closedAt || t.closedAt || t.builtAt || isOnHold(t) || projects.isPaused(p))) { taken = true; stopped = true; return x; }
+      /* #5382 (post-merge review 2): a failover's take-back to the agent it came from is a move to a named agent, which
+         would drop a built mark set while the line was in flight; `keepBuilt` refuses it so the caller gives it to nobody. */
+      if (made && made.keepBuilt === true && whoKey && t.builtAt) { taken = true; stopped = true; return x; }
       moved = (x.who || null) !== whoKey;
       givenOpen = moved && !!whoKey && !x.closedAt;
       if (moved && whoKey && !(p.agents || []).includes(whoKey)) {
@@ -519,10 +526,24 @@ function assignPart(projectId, n, partId, who, made) {
       }
       const hookNo = moved ? webhookGiveProblem(t, whoKey, made) : null;
       if (hookNo) throw new Error(hookNo);
-      return moved ? { ...x, who: whoKey, movedVia: viaOf(made), movedAt: new Date().toISOString() } : x;
+      if (!moved) return x;
+      const y = { ...x, who: whoKey, movedVia: viaOf(made), movedAt: new Date().toISOString() };
+      /* #5382: `movedFrom`, who a failover move took the part from (the receiver's line names it; any other move clears it).
+         `owedTell`, every agent the failover took this part from that has not yet been TOLD (engine/failovertell.js), kept
+         on the part so the obligation survives a restart, a setting change and a long pause (review 8). A failover move
+         adds its source; any move drops the new holder (it is theirs again, nothing to tell). Finishing it does NOT end
+         the need (review 10): the source may still resume it. A chain A -> B -> C owes both A and B. */
+      const owed = (Array.isArray(x.owedTell) ? x.owedTell : []).filter((s) => typeof s === 'string' && s !== whoKey);
+      if (made && made.failover === true && x.who) {
+        y.movedFrom = x.who;
+        if (!owed.includes(x.who)) owed.push(x.who);
+      } else delete y.movedFrom;
+      if (owed.length) y.owedTell = owed; else delete y.owedTell;
+      return y;
     });
   }, { dropBuilt: () => givenOpen });   // #3951 (review round 5): an open part given to somebody is work to do
   if (!found) return { ok: false, because: 'there is no part by that number on this task' };
+  if (stopped) return { ok: false, because: 'that part was finished, closed, built or put on hold since it was picked' };
   if (taken) return { ok: false, because: made && typeof made.onlyIfWho === 'string' ? 'that part is no longer on ' + made.onlyIfWho : 'somebody is already on that part' };
   // Only a real move is recorded: a resubmit of the current assignee (moved
   // false) changed nothing and types no pane line, so it leaves no transcript
@@ -530,6 +551,23 @@ function assignPart(projectId, n, partId, who, made) {
   if (moved) taskchat.record(projectId, Number(n), { kind: 'assigned', partId: Number(partId), who: whoKey });
   recordDroppedForWork(projectId, n, task);
   return { ok: true, task, changed: moved };
+}
+
+/* #5382 (review 8): `session` was told this part was given away; it leaves the part's owedTell. Records nothing
+   else and is a no-op when the session is not owed (a told mark is never a move). */
+function markMoveTold(projectId, n, partId, session) {
+  let found = false;
+  try {
+    writeParts(projectId, n, (parts) => parts.map((x) => {
+      if (Number(x.id) !== Number(partId) || !Array.isArray(x.owedTell) || !x.owedTell.includes(session)) return x;
+      found = true;
+      const rest = x.owedTell.filter((s) => s !== session);
+      const y = { ...x };
+      if (rest.length) y.owedTell = rest; else delete y.owedTell;
+      return y;
+    }));
+  } catch { return { ok: false }; }   // the task or project went away: nothing left to tell about
+  return { ok: found };
 }
 
 /** Finish a part, or put it back. The parent's state follows from its parts. */
@@ -1071,6 +1109,10 @@ function partsOf(task) {
       ...(part.createdAt ? { createdAt: part.createdAt } : {}),
       ...(part.movedVia ? { movedVia: part.movedVia } : {}),
       ...(part.movedAt ? { movedAt: part.movedAt } : {}),
+      /* #5382: who a failover move took the part from. Carried like the provenance above: without it every reader
+         (server movedAwayFrom) saw nothing, and the next write to the task erased it from the store. */
+      ...(part.movedFrom ? { movedFrom: part.movedFrom } : {}),
+      ...(Array.isArray(part.owedTell) && part.owedTell.length ? { owedTell: part.owedTell.filter((s) => typeof s === 'string') } : {}),
     }));
   }
   return [{
@@ -1516,6 +1558,6 @@ function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null,
 
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, waitingOnPerson, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, setParent, tasksEverCreated, tasksTabShown, claimWho,
-  partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem, say, isOnHold, setOnHold,
+  partsOf, progressOf, whoOf, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, setRepeat, setReviewer, reviewerProblem, recordRun };
