@@ -16,11 +16,13 @@ const securewrite = require('./securewrite');
 /* Record opens (with the fd each returned), fsyncs and renames, in order, while `fn` runs; put fs
    back afterwards. `wxFails` makes every 'wx' create fail with EEXIST, which sends writeSecret to
    its in-place fallback after three attempts. */
-function recording(fn, { fsyncThrows = false, wxFails = false } = {}) {   // fsyncThrows: false, or an error code
+function recording(fn, { fsyncThrows = false, wxFails = false, closeThrows = false } = {}) {   // *Throws: false, or an error code
   const events = [];
   const realOpen = fs.openSync;
   const realFsync = fs.fsyncSync;
   const realRename = fs.renameSync;
+  const realClose = fs.closeSync;
+  fs.closeSync = (fd) => { realClose(fd); if (closeThrows) throw Object.assign(new Error('close failed'), { code: closeThrows }); };
   fs.openSync = (target, flags, ...rest) => {
     if (wxFails && flags === 'wx') throw Object.assign(new Error('planted'), { code: 'EEXIST' });
     const fd = realOpen.call(fs, target, flags, ...rest);
@@ -29,7 +31,7 @@ function recording(fn, { fsyncThrows = false, wxFails = false } = {}) {   // fsy
   };
   fs.fsyncSync = (fd) => { events.push(['fsync', fd]); if (fsyncThrows) throw Object.assign(new Error('fsync failed'), { code: fsyncThrows === true ? 'EINVAL' : fsyncThrows }); return realFsync(fd); };
   fs.renameSync = (a, b) => { events.push(['rename', b]); return realRename(a, b); };
-  try { fn(); } finally { fs.openSync = realOpen; fs.fsyncSync = realFsync; fs.renameSync = realRename; }
+  try { fn(); } finally { fs.openSync = realOpen; fs.fsyncSync = realFsync; fs.renameSync = realRename; fs.closeSync = realClose; }
   return events;
 }
 
@@ -63,7 +65,7 @@ test('#5434: off Windows the folder is flushed after the rename too', { skip: pr
 });
 
 test('#5434: a file system that cannot flush (each skipped code) still gets the atomic write, not the in-place fallback', () => {
-  for (const code of ['EINVAL', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EPERM']) {
+  for (const code of ['EINVAL', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS'].concat(process.platform === 'win32' ? ['EPERM'] : [])) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw5434-ref-'));
     try {
       const file = path.join(dir, 'tokens.json');
@@ -104,3 +106,30 @@ test('#5434: a real flush error (EIO) fails the write and keeps the old file, as
     assert.deepEqual(fs.readdirSync(dir), ['tokens.json'], 'a temp was left behind');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('#5434: when the close fails too after a refused flush (NFS repeats the EIO), it still stops at once and keeps the old file', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw5434-eio2-'));
+  try {
+    const file = path.join(dir, 'tokens.json');
+    fs.writeFileSync(file, 'old');
+    let threw = null;
+    const events = recording(() => { try { securewrite.writeSecret(file, 'new', 0o600); } catch (e) { threw = e; } }, { fsyncThrows: 'EIO', closeThrows: 'EIO' });
+    assert.ok(threw && threw.flushFailed, 'the error that stopped the write is not the refused flush: ' + (threw && threw.message));
+    assert.equal(events.filter((e) => e[0] === 'open' && e[2] === 'wx').length, 1, 'it retried: ' + JSON.stringify(events));
+    assert.ok(!events.some((e) => e[0] === 'open' && e[1] === file && typeof e[2] === 'number'), 'it reached the in-place fallback: ' + JSON.stringify(events));
+    assert.equal(fs.readFileSync(file, 'utf8'), 'old');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#5434 control: on POSIX an EPERM from the flush is not skipped (only Windows returns it for "cannot flush")', { skip: process.platform === 'win32' && 'EPERM is skipped on Windows' }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw5434-eperm-'));
+  try {
+    const file = path.join(dir, 'tokens.json');
+    fs.writeFileSync(file, 'old');
+    let threw = null;
+    recording(() => { try { securewrite.writeSecret(file, 'new', 0o600); } catch (e) { threw = e; } }, { fsyncThrows: 'EPERM' });
+    assert.ok(threw, 'a POSIX EPERM from the flush was treated as "cannot flush"');
+    assert.equal(fs.readFileSync(file, 'utf8'), 'old');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+

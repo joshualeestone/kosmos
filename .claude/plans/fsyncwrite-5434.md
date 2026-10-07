@@ -16,14 +16,15 @@ instructions.js imports only refuseSymlinkTarget). It now:
   own flush, FlushFileBuffers there, is the part #5431 needs);
 - flushes on the in-place fallback too (reached only after three failed atomic attempts; it truncates
   then writes, so it is the path most exposed to a zero-filled file).
-Which flush errors count: a file system that cannot flush at all (EINVAL, ENOTSUP, EOPNOTSUPP, ENOSYS, and
-EPERM, which some Windows handles and mounts return; those writes worked before this change) is skipped, so
-the write takes its usual path. Any other error (EIO, ENOSPC, EDQUOT; on a mount that reports a failed write
-late, this is where it shows) fails the write AT ONCE: the temp is removed and writeSecret throws, with no
-retry (a retried fsync after EIO can falsely succeed on Linux) and no in-place fallback (the one path that
-truncates the live file). The old file stays as it was. The restore of the old contents on the fallback and
-the folder flush stay best effort for every error (syncDir is guarded so it cannot throw, which is why it
-can stay inside the atomic try).
+Which flush errors count: a file system that cannot flush at all (EINVAL, ENOTSUP, EOPNOTSUPP, ENOSYS
+everywhere, and EPERM on Windows only, where some handles and mounts return it; those writes worked before
+this change) is skipped, so the write takes its usual path. Any other error (EIO, ENOSPC, EDQUOT; on a
+mount that reports a failed write late, this is where it shows) fails the write AT ONCE: the temp is
+removed and writeSecret throws, with no retry (a space or quota error would only recur) and no in-place
+fallback (the one path that truncates the live file). If the close then fails too (NFS often repeats the
+EIO there), the flush error still stands. The old file stays as it was. The restore of the old contents on
+the fallback and the folder flush stay best effort for every error (syncDir is guarded so it cannot throw,
+which is why it can stay inside the atomic try).
 
 ## Not in this slice
 - communitysend.js: Renet's tornsend-5431 changes it (#5431); not touched here.
