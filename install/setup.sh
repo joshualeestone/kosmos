@@ -2985,7 +2985,12 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
     # either (#4636 refuses an unreachable start), so the put-back is not tried from here and its "could not be
     # started again" would be wrong; the marker this run wrote (if any) is taken back instead, so launchd and the
     # watchdog run the board as before the run.
-    _kosmos_blocked_shell_handback() { _kosmos_marker_ours="$_kosmos_paused_board"; _kosmos_paused_board=no; }
+    _kosmos_blocked_shell_handback() {
+      _kosmos_marker_ours="$_kosmos_paused_board"
+      # Said only when this run did pause it (review: not silence). True whatever supervises it: the app restarts it too.
+      [ "$_kosmos_paused_board" = yes ] && printf '  Kosmos was paused for this update. It will start again by itself; if it does not, open the Kosmos app.\n\n' >&2
+      _kosmos_paused_board=no
+    }
     if [ -z "$_pids" ] && [ -n "$_lsofbad" ]; then
       _kosmos_blocked_shell_handback
       _lsofsaid="$(printf '%s\n' "$_lsofout" | sed -n '/./{p;q;}')"
