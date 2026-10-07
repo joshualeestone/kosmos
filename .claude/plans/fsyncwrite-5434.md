@@ -8,7 +8,7 @@ corrected in its review). A temp file renamed into place with no flush can be le
 contents after a crash (found on a Windows box with repeated crashes, #5431).
 
 ## This slice
- `writeSecret` is the shared tmp-then-rename writer for 8 engine modules (cloudflare,
+`engine/securewrite.js` `writeSecret` is the shared tmp-then-rename writer for 8 engine modules (cloudflare,
 githubdevice, instructions, messages, outbox, sendertoken, tokendoor, webhooks). It now:
 - flushes the temp's fd (fsyncSync) after writing and before the rename;
 - flushes the directory after the rename (not on Windows, where a folder cannot be opened for this and NTFS
