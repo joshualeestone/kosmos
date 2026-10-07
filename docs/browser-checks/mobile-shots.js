@@ -594,9 +594,10 @@ const SCREENS = [
     await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
   } },
   /* #5456: the Tasks view with a repeating task nobody is named on, under On a schedule (not Unassigned). The task is made
-     and given its rule here, and the rule is cleared after the shot. */
+     and given its rule here, and the rule is cleared after the shot. The task is made ONCE per run and reused by every
+     size and theme (there is no task delete), so each shot shows the same counts. */
   { name: 'tasks-scheduled', owner: 'Angel', go: async (page, data) => {
-    const n = await page.evaluate(async (id) => {
+    const n = typeof data.scheduledTask === 'number' ? data.scheduledTask : await page.evaluate(async (id) => {
       const r = await fetch('/api/project/' + encodeURIComponent(id) + '/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sentence: 'Check the price list every morning' }) });
       const j = await r.json().catch(() => ({}));
       return r.status === 200 ? ((j.task && j.task.number) || j.number || null) : 'status ' + r.status;
