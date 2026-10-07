@@ -2773,6 +2773,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// recovery or protection, which a longer wait cannot, so the wait is the safe interim guard.
     static let wakeStuckTimeout: TimeInterval = 10
     static let wakeFirstProbeGrace: TimeInterval = 20
+    /// #4342: the settle between the first probe and the confirm probe. Named like the two timeouts above so the
+    /// whole pre-reclaim window is self-documenting: wakeFirstProbeGrace (20s) + wakeSettleBeforeConfirm (4s) +
+    /// wakeStuckTimeout (10s) = ~34s of sustained no-answer before a wedge is reclaimed.
+    static let wakeSettleBeforeConfirm: TimeInterval = 4
     /// A version the installer finished while nobody asked (updates are on). The new app waits for the
     /// person's Restart, so words being typed on the page are never lost to a restart nobody chose.
     private var installedUpdate: String?
@@ -2876,7 +2880,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 logLine("#4342: board is down (not wedged) after wake; launchd relaunches it, leaving it")
             case .wedged:
                 logLine("#4342: board did not answer after wake; confirming with a second probe before any restart")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.wakeSettleBeforeConfirm) { [weak self] in
                     guard let self, self.wakeRecoveryGeneration == gen, self.computerMode != .connect else { return }
                     guard self.wakeRecoveryGateOpen(home: home) else { return }
                     self.probeBoardHealth(port: port, timeout: Self.wakeStuckTimeout) { [weak self] confirm in
