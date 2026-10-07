@@ -45,6 +45,9 @@ unanchored `pgrep -f` stays exposed.
   node child, and a run would be missed then.
 - Changing queued-heavy's argv only (#5467's fix): it cannot reach the parent shell, which the harness owns.
 
+- Deferred: heavy-gate prints the generic "mentions the name but does not run it" for a waiter; a reason
+  of its own would need a sentinel out of script_of, and the verdict (not counted) is already right.
+
 ## Weakest premise
 That every real run starts its command line with the interpreter. A run started as `./tools/browser-checks.sh`
 (exec by shebang) shows `/bin/bash ./tools/browser-checks.sh`, which matches, as do shell options before the
