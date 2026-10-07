@@ -1629,6 +1629,7 @@ if [ "$_vdep_rc" != 0 ]; then
        site_deploy_serves_this_build "${HOST:-https://installkosmos.com}" "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256" "kosmos-$V-arm64.tar.gz"; then
     echo "   THE DEPLOY LANDED although vercel deploy exited $_vdep_rc: the served kosmos-$V-arm64.tar.gz.sha256 is this cut's. Continuing as a successful deploy; step 9 verifies the rest (#5471)."
   else
+    # 10# is safe here only because step 1 and step 8 validated the value (site_deploy_landed_args_ok).
     echo "vercel deploy exited $_vdep_rc and this cut's $V build was not seen served after $((10#${KOSMOS_DEPLOY_LANDED_TRIES:-24})) checks. It may still land."
     echo "   Before any revert or re-cut: compare the served .sha256 with this cut's sha, printed above ($_my_sha). The local copy is about to be removed."
     echo "   If it did land: do not revert or re-cut; fetch the served tarball pair back into $SITE/dist before any promote (docs/releasing.md, after a failed cut)."

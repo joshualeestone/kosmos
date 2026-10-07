@@ -52,6 +52,10 @@ did not run, and the operator had to verify by hand while resisting a revert or 
 - docs/releasing.md says what to do when it landed late: no revert or re-cut; run step 9's checks by hand
   from a checkout at the cut's version; FETCH THE SERVED TARBALL PAIR BACK into the site's dist/ (the
   trap deleted it, and promote-channel.sh refuses without it); refresh the tracked site files.
+- The unversioned pair (kosmos-arm64.tar.gz) is prod's build and a staging cut leaves it as served; only a
+  prod-channel late landing needs it fetched back (docs). Deferred: the trap's "never served it" lines still
+  print after the not-seen message; the message explains how to read them, and moving them means changing
+  the shared trap in release-freeze.sh for one case.
 - docs/staging-channel.md's manual promote recipe has its own `vercel deploy` under `set -e`; it is a
   different path (an operator watching it), left as is.
 
