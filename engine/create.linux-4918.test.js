@@ -139,3 +139,15 @@ test('#4918 review 27: with the user bus unreachable, the roll back removes the 
   assert.equal(fs.existsSync(linuxjob.unitPath('busbot')), false, 'a never-loaded unit was left holding the name');
   assert.match(r.because, /user services are not reachable/);
 });
+
+test('#4918 review 35: a value a systemd unit cannot hold is said to the person, not "try that name again"', () => {
+  systemd = lingerIs(true);
+  const saved = process.env.TMUX_TMPDIR;
+  process.env.TMUX_TMPDIR = '/tmp/a%b';
+  try {
+    const r = create.createAgent({ ...BINS, name: 'pctbot', role: 'pm', platform: 'linux' });
+    assert.notEqual(r.outcome, create.OUTCOME.CREATED, JSON.stringify(r));
+    assert.match(r.because, /cannot go into a systemd unit/, 'the refusal reason is hidden: ' + r.because);
+    assert.doesNotMatch(r.because, /you can try that name again/);
+  } finally { if (saved === undefined) delete process.env.TMUX_TMPDIR; else process.env.TMUX_TMPDIR = saved; }
+});

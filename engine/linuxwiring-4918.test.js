@@ -440,6 +440,10 @@ test('#4918 review 32: with a Trash, a startup job systemd will not remove still
   fs.mkdirSync(create.workerDir(name), { recursive: true });
   fs.writeFileSync(path.join(create.workerDir(name), 'work.txt'), 'x');
   fs.writeFileSync(linuxjob.unitPath(name), '[Service]\n');
+  const removeMod = require('./remove');
+  const origForget = removeMod.forget;
+  let forgot = 0;
+  removeMod.forget = (...a) => { forgot += 1; return origForget(...a); };
   del.setRunner((file, args) => (file === 'systemctl' && args[1] === 'stop' ? { ok: false, stderr: 'Failed to connect to bus: No such file or directory' } : { ok: true, stdout: '' }));
   try {
     const p = del.plan(name, { platform: 'linux' });
@@ -448,9 +452,11 @@ test('#4918 review 32: with a Trash, a startup job systemd will not remove still
     assert.equal(fs.existsSync(path.join(create.workerDir(name), 'work.txt')), true, 'the folder moved while the unit still holds the name');
     assert.notEqual(r.outcome, del.OUTCOME.DELETED, JSON.stringify(r));
     assert.match(r.because, /folder was kept too/, 'the sentence says the folder could not move, not that it was kept (review 34)');
+    assert.equal(forgot, 0, 'the removal record was dropped though nothing was deleted (review 35)');
   } finally {
     fs.rmSync(process.env.AGENT_WORKFORCE_TRASH, { recursive: true, force: true });
     if (savedTrash === undefined) delete process.env.AGENT_WORKFORCE_TRASH; else process.env.AGENT_WORKFORCE_TRASH = savedTrash;
+    removeMod.forget = origForget;
     del.setRunner(null);
     fs.rmSync(linuxjob.unitPath(name), { force: true });
     fs.rmSync(create.workerDir(name), { recursive: true, force: true });

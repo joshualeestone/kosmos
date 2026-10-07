@@ -469,11 +469,16 @@ function del(name, opts) {
      would be deleted for good: losing the files while the unit stays is the worst of both. Into the Trash it can go. */
   /* review 32: kept whether or not there is a Trash: the folder is what shows the leftover on the board, and moving it
      while the unit still holds the name would leave nothing to look at. */
-  let keptForUnit = false;   // review 34: the PARTIAL sentence says the folder was KEPT, not that it could not move
   if (p.folder && p.job && p.job.unit && stuck.includes('its startup job')) {   // review 33: Linux units only; Windows unchanged
-    keptForUnit = true;
     stuck.push('its folder');
     steps.push({ step: 'its folder', ok: false, because: 'kept, because its startup job could not be removed' });
+    /* review 35: stop here. Nothing was deleted, so the removal record, the tokens and the crash history stay: dropping
+       them would bring the agent back as an ordinary one with dead tokens and nothing on screen to retry from. */
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: `systemd would not remove ${p.shown}'s startup job, so its folder was kept too. The name stays taken; try again once this computer's user services are reachable.`,
+      steps,
+    };
   } else if (p.folder) move(p.folder.path, 'its folder');
   /* The removed-list record, if any, is what keeps a name hidden on the
      board; with the files gone it has nothing to point at. */
@@ -519,9 +524,7 @@ function del(name, opts) {
       /* #4994: the community account is retired, not moved or deleted, and only once everything else is gone, so a
          failure there is its own sentence: the old account still answers to the name. #5000's standing reset has
          already run by here (it is unconditional and early-returns on failure), so the all-stuck tail says so. */
-      because: keptForUnit
-        ? `systemd would not remove ${p.shown}'s startup job, so its folder was kept too. The name stays taken; try again once this computer's user services are reachable.`
-        : (stuck.length === 1 && stuck[0] === 'its community account' && gone.length)
+      because: (stuck.length === 1 && stuck[0] === 'its community account' && gone.length)
         ? `${gone.join(' and ')} ${gone.length === 1 ? 'is' : 'are'} gone, but we could not retire its community account yet. Making a new agent with this name retires it first, or refuses.`
         : (stuck.some((x) => x !== 'its community account')
           ? `we could not ${p.toTrash ? 'move' : 'delete'} ${stuck.filter((x) => x !== 'its community account').join(' or ')}`

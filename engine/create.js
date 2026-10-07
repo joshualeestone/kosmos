@@ -5061,7 +5061,8 @@ function createAgentInner(opts) {
   let win32Launched = null;
   let linuxLingering = null;   // #4918 review 2: whether systemd keeps the agent running with nobody logged in
   let linuxStartWhy = '';      // #4918 review 8: systemd's own reason when the start failed
-  let linuxNeverLoaded = false;  // #4918 review 27: the reload failed, so systemd never read the unit file
+  let linuxNeverLoaded = false;
+  let linuxUnitRefusal = '';     // #4918 review 35: unitSafe/model refusal, said to the person  // #4918 review 27: the reload failed, so systemd never read the unit file
 
   function rollBack({ unload = false } = {}) {
     /* ⚠️ `unload` is for a failed START, and only then.
@@ -5594,7 +5595,13 @@ function createAgentInner(opts) {
       if (DRY_RUN) return true;
       if (jobPlatform === 'linux') {
         const lj = require('./linuxjob');
-        lj.writeUnitFile(lj.unitPath(name), lj.unitFor(name, runnerBin, tmuxBin, modelArg, configDir, runner));
+        try {
+          lj.writeUnitFile(lj.unitPath(name), lj.unitFor(name, runnerBin, tmuxBin, modelArg, configDir, runner));
+        } catch (err) {
+          // review 35: a value a unit cannot hold is a sentence the person needs (a retry fails the same way forever).
+          if (/cannot go into a systemd unit|model name/.test(String((err && err.message) || ''))) linuxUnitRefusal = err.message;
+          throw err;
+        }
         return true;
       }
       writePlistFile(plistPath(name), plistFor(name, runnerBin, tmuxBin, modelArg, configDir, runner), { mkdir: true });
@@ -5632,7 +5639,9 @@ function createAgentInner(opts) {
     }
     return {
       outcome: OUTCOME.PARTIAL,
-      because: 'we could not write everything it needs, so we have not made it. Nothing has been left on your computer, and you can try that name again.',
+      because: linuxUnitRefusal
+        ? `we could not write the file that keeps it running, so we have not made it: ${linuxUnitRefusal}. Nothing has been left on your computer; trying the same name again will fail the same way until that is changed.`
+        : 'we could not write everything it needs, so we have not made it. Nothing has been left on your computer, and you can try that name again.',
       steps,
     };
   }
