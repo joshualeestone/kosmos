@@ -2916,7 +2916,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         DispatchQueue.global(qos: .userInitiated).async {
             let result = startBoard(kosmosHome: home, port: port, reclaim: true)
             DispatchQueue.main.async { [weak self] in
-                guard let self, self.boardStartGeneration == generation else { return }
+                guard let self else { return }
+                // #4356/#4342: the reclaim can finish AFTER the person switched this computer to
+                // connect. Reachable on an unset first-run computer -- the wake watch runs while
+                // unset, and a connect choice made during the background start lands here.
+                // switchToConnect sets computerMode but does NOT bump boardStartGeneration, so the
+                // generation guard below would not catch it. Undo the start exactly as loadBoard's
+                // #4356 block does, or a reclaimed board is left running on a computer that no longer
+                // hosts one. This runs before the generation guard, as loadBoard's does.
+                if self.computerMode == .connect {
+                    logLine("#4342: a wake reclaim finished after Connect; stopping it again")
+                    self.boardStartInFlight = false
+                    self.boardStartGeneration += 1
+                    self.stopsInFlight += 1
+                    DispatchQueue.global(qos: .utility).async { [weak self] in
+                        _ = stopBoard(kosmosHome: home, port: port)
+                        DispatchQueue.main.async { self?.stopsInFlight -= 1 }
+                    }
+                    return
+                }
+                guard self.boardStartGeneration == generation else { return }
                 self.boardStartInFlight = false
                 switch result {
                 case .alreadyRunningOrStarted:

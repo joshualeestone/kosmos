@@ -146,6 +146,10 @@ test('#4342: the reclaim runs the --force form through boardStartInFlight, with 
     'the reclaim does not take a start generation, so a Cmd-R could race it');
   assert.match(body, /startBoard\(kosmosHome: home, port: port, reclaim: true\)/, 'the reclaim does not call the reclaim form of startBoard');
   assert.match(body, /asyncAfter\(deadline: \.now\(\) \+ 300\)/, 'a reclaim that never returns would leave every later Cmd-R a silent no-op (#965)');
+  // #4356: the completion undoes a start that finished after a switch to connect (switchToConnect
+  // does not bump the generation, so the generation guard alone would miss it), mirroring loadBoard.
+  assert.match(body, /if self\.computerMode == \.connect \{[\s\S]*?stopBoard\(kosmosHome: home, port: port\)[\s\S]*?return\n\s+\}/,
+    'the reclaim completion does not stop a board left running after a switch to connect');
   // Control: the redundant boardWakeReclaimInFlight flag is gone; boardStartInFlight alone serializes,
   // so there is no second flag that could latch true and silently disable all future wake recovery.
   assert.doesNotMatch(SRC, /boardWakeReclaimInFlight/, 'the redundant wake-reclaim-in-flight flag is back (it can latch true and disable recovery)');
