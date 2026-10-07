@@ -69,6 +69,8 @@ test('#5495 shell: a missing or broken allow hook reads as not allowed (needs-yo
   const bash = req('Bash', { command: 'ls' });
   const missing = { ...KOSMOS_ENV, [ap.ENV_SCRIPT]: path.join(SANDBOX, 'no-such-hook.js') };
   assert.match(runShell(bash, { env: missing }), /^report\|needs_you\|/);
+  // A folder passes a bare [ -x ]: the node named must be a file (installer runnable-guard).
+  assert.match(runShell(bash, { env: { ...KOSMOS_ENV, [ap.ENV_NODE]: SANDBOX } }), /^report\|needs_you\|/, 'a folder was run as node');
   const notNode = { ...KOSMOS_ENV, [ap.ENV_NODE]: '/usr/bin/false' };
   assert.match(runShell(bash, { env: notNode }), /^report\|needs_you\|/);
   assert.match(runShell(bash, { env: { [ap.ENV_NODE]: process.execPath } }), /^report\|needs_you\|/, 'only one of the two names');
@@ -110,7 +112,7 @@ test('#5495 shell: an allow hook that hangs is stopped by the clock bound and re
 });
 
 test('#5495 the shell cases above really ran', { skip: process.platform === 'win32' }, () => {
-  assert.equal(n, 17, 'shell runs on a full-file run (update this when a shell case is added or removed)');
+  assert.equal(n, 18, 'shell runs on a full-file run (update this when a shell case is added or removed)');
 });
 
 test('#5495 node hook: an allowed request starts a heartbeat window, so the next tool call sends no second working line', async () => {
