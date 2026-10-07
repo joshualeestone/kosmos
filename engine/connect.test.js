@@ -3073,6 +3073,7 @@ test('#5419: the real Linux tmux pick is held between sign-in ticks, and a new l
   // a held pick is re-checked on every hit, so the stubbed path must read as runnable on this machine too
   runners.isRunnable = (f) => (f === '/usr/bin/tmux' ? true : origRunnable(f));
   try {
+    connect.resetForTests();   // no held pick from an earlier test, whatever its key
     process.env.AGENT_WORKFORCE_TMUX_BIN = '/nowhere/tmux-a';   // not runnable, so the picker is asked
     connect.tmuxBinPath('linux'); connect.tmuxBinPath('linux'); connect.tmuxBinPath('linux');
     assert.equal(asked, 1, 'the picker walked PATH on every tick');
@@ -3209,6 +3210,7 @@ test('#5419: a held tmux pick that has since gone away is not handed back', () =
   create.linuxTmuxBin = () => (present ? '/opt/held/tmux' : null);
   runners.isRunnable = (f) => (f === '/opt/held/tmux' ? present : origRunnable(f));
   try {
+    connect.resetForTests();   // no held pick from an earlier test, whatever its key
     process.env.AGENT_WORKFORCE_TMUX_BIN = '/nowhere/tmux-d';
     assert.equal(connect.tmuxBinPath('linux'), '/opt/held/tmux', 'CONTROL: found and held');
     present = false;   // tmux removed within 30 s

@@ -1134,9 +1134,12 @@ const DEFAULT_IS_MUSL = () => {
 let isMuslFn = DEFAULT_IS_MUSL;
 function setMuslDetectForTests(fn) { isMuslFn = typeof fn === 'function' ? fn : DEFAULT_IS_MUSL; muslCache = null; }
 
-/* #5419 review 24: Claude Code's musl build loads libstdc++ and libgcc_s, which a stock Alpine does not have; without
-   them the 200MB download verifies and then fails at `claude install` with a loader error shown only as a log tail.
-   Asked before any bytes move, only on a real musl Linux host (a test drives it through the seam). */
+/* #5419 review 24: Claude Code's musl build loads libstdc++ and libgcc_s; without them the 200MB download verifies and
+   then fails at `claude install` with a loader error shown only as a log tail. Asked before any bytes move, only on a
+   real musl Linux host (a test drives it through the seam). ⚠️ Review 27: a musl Node (Alpine's nodejs, Node's musl
+   build) loads the same two libraries from the same folders, so on a running board this nearly always passes; it is
+   a defence for a statically linked or bundled Node, not the cover for Alpine. What Alpine can still lack is ripgrep,
+   which nothing here checks; that stays open with piece D's installer (#4920). */
 const MUSL_LIBS_MISSING = 'This computer uses musl (Alpine, for example), and Claude Code needs libstdc++ and libgcc there, which Kosmos could not find in /usr/lib, /lib or /usr/local/lib';
 const MUSL_LIBS_HINT = 'Install them (for example apk add libstdc++ libgcc) and try again';
 function muslLibsPresent(exists = fs.existsSync) {
