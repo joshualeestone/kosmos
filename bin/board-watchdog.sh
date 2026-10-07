@@ -77,6 +77,8 @@ COOLDOWN="$(numdef "${KOSMOS_WATCHDOG_COOLDOWN:-}" 3600)"
 # into minute-long blackouts on an external tester's 25-agent board. It can also be a wedged board (#2955), which
 # still needs recovering. So a busy reading counts toward the same down streak, but with this much
 # longer grace before the first restart: a board that has not answered once in five minutes is wedged.
+# (#4636: exit 5 is different: this shell cannot connect at all, or with sandbox evidence cannot check at
+# all, so it tells nothing about the board and kicks nothing; see its branch below.)
 BUSY_GRACE="$(numdef "${KOSMOS_WATCHDOG_BUSY_GRACE:-}" 300)"
 
 now() { date +%s; }
@@ -137,6 +139,7 @@ BUSY_SINCE_RAW="$(state_get busy_since)"
 # in: the worst case is one redundant, idempotent kosmos start on the first post-boot
 # run, since cmd_start no-ops when the board is already answering.)
 BOOT="$(boot_epoch)"
+UNREACH_MARK="$STATE_DIR/board-watchdog.unreachable"   # #4636: an exit-5 spell, logged once per 6 hours (see below)
 if [ -n "$BOOT" ] && [ -n "$DOWN_SINCE_RAW" ] && [ "$(num "$DOWN_SINCE_RAW")" -lt "$BOOT" ]; then
   DOWN_SINCE_RAW=""; BUSY_SINCE_RAW=""; LAST_KICK=0; FAILS=0
   # A reboot is a fresh chance, so a pre-reboot crash-loop alert should not survive
@@ -152,9 +155,31 @@ STATUS_RC=0
 bash "$KOSMOS_BIN" status >/dev/null 2>&1 || STATUS_RC=$?
 if [ "$STATUS_RC" -eq 0 ]; then
   [ -f "$ALERT" ] && { rm -f "$ALERT" 2>/dev/null || true; log "board healthy again; cleared crash-loop alert"; }
+  rm -f "$UNREACH_MARK" 2>/dev/null || true   # #4636: an unreachable spell ends here too
   state_put "" "$LAST_KICK" 0             # clear the down streak and the fail count
   exit 0
 fi
+
+# #4636: status exit 5 is "a listener is there, but this shell cannot connect to it" (a sandbox, a network
+# rule, a local network fault), or, with sandbox evidence, "this shell cannot check at all" (a stricter sandbox
+# that also refuses lsof or kills curl; nothing need be listening). Under launchd ps works, so only the first
+# arises here. The watchdog cannot tell anything about the board from here, and restarting it would not help,
+# so it kicks nothing and ends any down streak and busy clock (a later down or busy reading
+# starts a fresh grace). Accepted, like the busy/down flap below: a board whose status flips between 5 and 4 (or
+# 1) on every tick restarts a clock each time and so is never recovered by the watchdog; under launchd, 5 comes
+# only from a real local network fault, where a restart could not fix the kernel's state anyway.
+if [ "$STATUS_RC" -eq 5 ]; then
+  # Logged when the spell starts, and again every 6 hours while it lasts, so a long one is not silent. Any other
+  # status reading ends the spell (its marker is removed; the gates above exit before reading one), so only an
+  # unbroken run of exit-5 readings, across a reboot or a deliberate stop too, stays quiet between lines. If the marker cannot be written, this logs on every tick instead.
+  if [ ! -f "$UNREACH_MARK" ] || [ "$(( $(now) - $(num "$(/usr/bin/stat -f %m "$UNREACH_MARK" 2>/dev/null)") ))" -ge 21600 ]; then
+    log "cannot reach the board from this shell (status exit 5); leaving it alone until it can"
+    : > "$UNREACH_MARK" 2>/dev/null || true
+  fi
+  state_put "" "$LAST_KICK" "$FAILS"
+  exit 0
+fi
+rm -f "$UNREACH_MARK" 2>/dev/null || true
 
 # --- board is down ----------------------------------------------------------
 NOW="$(now)"

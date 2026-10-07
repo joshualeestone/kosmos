@@ -49,6 +49,7 @@ render-composer-stroke
 render-computers-4648
 render-conn-ask-4451
 render-conn-top-3708
+render-connect-linux-stuck-5449
 render-connect-sheet-4637
 render-connect-win32-install-570
 render-connlost-reconnect-3410
@@ -120,6 +121,7 @@ render-home-phone-718
 render-import-add-inplace-2419
 render-import-name-4962
 render-inline-field-errors-2606
+render-instradd-5293
 render-keyed-install-3713
 render-layer-gutter-4494
 render-long-title
@@ -190,6 +192,7 @@ render-reassign-update-3050
 render-reauth-reach-1918
 render-recommender-guards-4545
 render-recommender-live-3595
+render-refreshlogin-5407
 render-remote-file-download-5165
 render-remove-force-2651
 render-rename-4421

@@ -67,6 +67,7 @@ test.before(async () => {
     fs.writeFileSync(nodePath.join(process.env.AGENT_WORKFORCE_LAUNCH, `${create.serviceLabel('ava', world)}.plist`), '<plist/>');
   }
 
+  create.setProbePlatformForTests('darwin');   // #5445: create's two fleet probes (switched off, running) ask the launchctl fake below on any runner; the roster and survey still follow the host
   create.setRunner((file, args) => {
     if (args && args[0] === 'list') return { ok: true, stdout: launchd.list };
     if (args && args[0] === 'print-disabled') return { ok: true, stdout: launchd.disabled };
@@ -81,6 +82,7 @@ test.before(async () => {
 });
 test.after(() => {
   create.setRunner(null);
+  create.setProbePlatformForTests(null);
   win32job.setRunner(null);
   if (savedWorld === undefined) delete process.env.KOSMOS_WORLD; else process.env.KOSMOS_WORLD = savedWorld;
   try { server.closeAllConnections(); server.close(); } catch { /* going away */ }

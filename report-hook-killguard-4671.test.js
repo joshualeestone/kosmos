@@ -255,3 +255,97 @@ test('#4671 KNOWN GAP, pinned so it is not mistaken for coverage: a pid computed
   const r = run('Write', { file_path: '/tmp/t.js', content: "const pids = [N1, 999999];\nfor (const pid of pids) process.KILL(pid, 'SIGKILL');\n" });
   assert.equal(r.code, 0);
 });
+
+test('#5420 every grep in the kill guard runs in the locale it picked: C for GNU grep, the caller\'s otherwise', () => {
+  // On Linux (GNU grep 3.11, LANG=C.UTF-8) the first pattern took over 60 s on the 1.5 MB case above and the
+  // hook's 15 s timeout cut it off; in C it took 0.07 s. BSD grep on a Mac is about twice as slow in C, so the
+  // hook picks per grep flavour. The Mac cannot run GNU grep, so the next test fakes one; this pins the source.
+  const src = fs.readFileSync(HOOK, 'utf8');
+  const start = src.indexOf('_kill_all_reason() {');
+  const body = src.slice(start, src.indexOf('\n}\n', start));
+  // Any spelling of grep (-qE, -F, bare), not only grep -E; pgrep has no word boundary before its g. The
+  // flavour probe (`grep --version`, and the `(GNU grep)` it is matched against) is not a match.
+  const greps = body.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n').match(/(\S+=\S+ )?\bgrep\b(?! --version|\))/g) || [];
+  assert.equal(greps.length, 6, 'the guard has six greps; a change in that number needs this test read again');
+  for (const g of greps) assert.equal(g, 'LC_ALL="$_lc" grep', 'every grep in _kill_all_reason runs in the picked locale');
+});
+
+test('#5420 the guard runs its greps in C under GNU grep, and in the caller\'s locale under BSD grep', () => {
+  // A fake grep first on PATH: it answers --version as the flavour asked for, records the LC_ALL each guard
+  // grep (the -Eq -- calls) ran with, and otherwise runs the real grep, so every decision is real.
+  const dir = fs.mkdtempSync(path.join(SANDBOX, 'fakegrep-'));
+  const log = path.join(dir, 'log');
+  fs.writeFileSync(path.join(dir, 'grep'), [
+    '#!/bin/bash',
+    'if [ "$1" = --version ]; then',
+    '  if [ "$FAKE_GREP_FLAVOUR" = gnu ]; then echo "grep (GNU grep) 3.11"; else echo "grep (BSD grep, GNU compatible) 2.6.0-FreeBSD"; fi',
+    '  exit 0',
+    'fi',
+    'if [ "$1" = -Eq ] && [ "$2" = -- ]; then printf "[%s]\\n" "${LC_ALL-unset}" >> "$FAKE_GREP_LOG"; fi',
+    'exec "$FAKE_GREP_REAL" "$@"',
+  ].join('\n') + '\n', { mode: 0o755 });
+  const real = spawnSync('/bin/sh', ['-c', 'command -v grep'], { encoding: 'utf8' }).stdout.trim();
+  for (const [flavour, want] of [['gnu', '[C]'], ['bsd', '[]']]) {
+    fs.rmSync(log, { force: true });
+    const env = { PATH: `${dir}:${process.env.PATH}`, FAKE_GREP_FLAVOUR: flavour, FAKE_GREP_LOG: log, FAKE_GREP_REAL: real, LC_ALL: '' };
+    assert.equal(run('Bash', { command: 'KILL -9 N1' }, { env }).code, 2, `${flavour}: still blocks`);
+    const first = fs.readFileSync(log, 'utf8').trim().split('\n');
+    assert.equal(first.length, 1, `${flavour}: a blocked command stops at the first guard grep`);
+    assert.equal(first[0], want, `${flavour}: that grep ran with LC_ALL ${want}`);
+    // A benign command runs the guard's other greps too (all but the kword one, which only follows a pgrep hit).
+    fs.rmSync(log, { force: true });
+    assert.equal(run('Bash', { command: 'echo hi' }, { env }).code, 0, `${flavour}: a benign command is allowed`);
+    const all = fs.readFileSync(log, 'utf8').trim().split('\n');
+    assert.equal(all.length, 5, `${flavour}: five guard greps ran for a benign command`);
+    for (const s of all) assert.equal(s, want, `${flavour}: every guard grep ran with LC_ALL ${want}`);
+  }
+});
+
+test('#5420 the code arm still reads Unicode spaces as JavaScript does, now that the greps run in C', () => {
+  // In C, [[:space:]] is ASCII only. JavaScript treats these as whitespace, so the minus one below is still a
+  // minus one to node; under the UTF-8 locale the old greps caught some of them, and all must still block.
+  for (const ws of ['\u00a0', '\u1680', '\u2000', '\u2003', '\u2007', '\u200a', '\u2028', '\u2029', '\u202f', '\u205f', '\u3000', '\ufeff']) {
+    const content = `process.KILL(${ws}N1, 9);\n`;
+    const name = `U+${ws.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`;
+    assert.equal(run('Write', { file_path: '/tmp/x.js', content }).code, 2, `${name} with jq`);
+    assert.equal(run('Write', { file_path: '/tmp/x.js', content }, { noJq: true }).code, 2, `${name} without jq`);
+    // In C, as GNU grep runs it, [[:space:]] is ASCII only: only the fold reads this space (review 7).
+    assert.equal(run('Write', { file_path: '/tmp/x.js', content }, { env: { LC_ALL: 'C' } }).code, 2, `${name} in C`);
+  }
+  // Control: a letter that is not whitespace makes an identifier, not a minus one, and stays allowed.
+  assert.equal(run('Write', { file_path: '/tmp/x.js', content: 'process.KILL(\u00e9N1, 9);\n' }).code, 0);
+});
+
+test('#5420 the argv arm reads Unicode spaces too, and a signal 0 after one stays allowed', () => {
+  for (const ws of ['\u00a0', '\u1680', '\u2000', '\u2003', '\u2007', '\u200a', '\u2028', '\u2029', '\u202f', '\u205f', '\u3000', '\ufeff']) {
+    const name = `U+${ws.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`;
+    for (const content of [
+      `execFileSync('KILL',${ws}['-9', 'N1']);\n`,
+      `spawn('KILL',${ws}['-9','N1']);\n`,
+      `spawn([${ws}'KILL', 'N1']);\n`,
+    ]) {
+      assert.equal(run('Write', { file_path: '/tmp/x.js', content }).code, 2, `${name} argv with jq: ${content}`);
+      assert.equal(run('Write', { file_path: '/tmp/x.js', content }, { noJq: true }).code, 2, `${name} argv without jq: ${content}`);
+      // In C, as GNU grep runs it, [[:space:]] is ASCII only: only the fold reads this space (review 7).
+      assert.equal(run('Write', { file_path: '/tmp/x.js', content }, { env: { LC_ALL: 'C' } }).code, 2, `${name} argv in C: ${content}`);
+    }
+    // Signal 0 sends nothing: a Unicode space before or after the 0 must not turn it into a refusal.
+    for (const content of [`process.KILL(N1,${ws}0);\n`, `process.KILL(N1, 0${ws});\n`]) {
+      assert.equal(run('Write', { file_path: '/tmp/x.js', content }).code, 0, `${name} signal 0 with jq: ${content}`);
+      assert.equal(run('Write', { file_path: '/tmp/x.js', content }, { noJq: true }).code, 0, `${name} signal 0 without jq: ${content}`);
+      // In C, as GNU grep runs it, [[:space:]] is ASCII only: only the fold reads this space (review 7).
+      assert.equal(run('Write', { file_path: '/tmp/x.js', content }, { env: { LC_ALL: 'C' } }).code, 0, `${name} signal 0 in C: ${content}`);
+    }
+    // Control for the signal arm: a real signal after the same space still blocks.
+    assert.equal(run('Write', { file_path: '/tmp/x.js', content: `process.KILL(N1,${ws}9);\n` }).code, 2, `${name} signal 9`);
+  }
+  // Control for the other direction: a signal that merely starts with the same lead byte as a JW space (a
+  // copyright sign, katakana, an ideographic comma, a hyphen) is a nonzero signal and still blocks.
+  for (const sig of ['\u00a9x', '\u30b7\u30b0', '\u3001', '\u2010', '\u1681', '\uff21', '\ufeffx']) {
+    const content = `process.KILL(N1, ${sig});\n`;
+    assert.equal(run('Write', { file_path: '/tmp/x.js', content }).code, 2, `a non-ASCII signal blocks with jq: ${content}`);
+    assert.equal(run('Write', { file_path: '/tmp/x.js', content }, { noJq: true }).code, 2, `a non-ASCII signal blocks without jq: ${content}`);
+    // In C, as GNU grep runs it, [[:space:]] is ASCII only: only the fold reads this space (review 7).
+    assert.equal(run('Write', { file_path: '/tmp/x.js', content }, { env: { LC_ALL: 'C' } }).code, 2, `a non-ASCII signal blocks in C: ${content}`);
+  }
+});

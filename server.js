@@ -394,7 +394,7 @@ function agentRunawayRefusal(times, noun, now = Date.now(), limit = agentRunaway
 // `roster`: the caller's already-fetched snapshot, never a fresh
 // safeRoster() of our own -- snapshot() fans out a real tmux capture-pane
 // per agent, and every call site here already has one in scope.
-function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver) {
+function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver, note = '') {
   const name = typeof who === 'string' && who.trim() ? who.trim() : null;
   if (!name || !t || typeof t.number !== 'number') return undefined;
   /* #3564: a swarm switched off in this project is not told it was given work here. */
@@ -406,7 +406,7 @@ function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver) {
   /* #1307: a webhook task's words are marked and quoted as outside text, here where they reach
      the agent (tasks.forAgent). */
   const line = '[Kosmos: you were given task ' + t.number + ' in "' + String(title).replace(/[\r\n"]/g, ' ') + '": '
-    + tasks.forAgent(t, sentence || '') + '. When you take it up, say "task ' + t.number + ' of ' + String(title).replace(/[\r\n"]/g, ' ')
+    + tasks.forAgent(t, sentence || '') + '. ' + (note ? note + ' ' : '') + 'When you take it up, say "task ' + t.number + ' of ' + String(title).replace(/[\r\n"]/g, ' ')
     + '" in what you report (every project numbers from 1, so the name matters; #779); the room is: kosmos post ' + projectId + ']';
   const answer = (sent) => ({ who: name, state: sent.state, because: sent.because || null });
   const failed = (err2) => answer({ state: chat.DELIVERY.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') });
@@ -447,11 +447,24 @@ function tellEveryoneOn(t, roster) {
      pane line spends the assignee's paging allowance (heardBudgetAllows, per assignee).
    - assigner: the Kosmos Assigner. Its own provenance ('assigner'), so neither the parts
      valve nor the paging allowance is charged (the Assigner has its own hourly caps);
-     the part must still be free at the moment of the write (onlyIfFree); the pane line is
+     the part must still be free at the moment of the write (onlyIfFree), or, for a #5382
+     failover move (`from`), still on that agent (onlyIfWho); the pane line is
      always sent, and if it could not reach the agent at all (COULD_NOT) the assignment is
-     taken back, so nobody is left on a task they were never told about.
+     taken back (to `from` for a failover move), so nobody is left on a task they were never told about.
    Returns the route's body fields plus `ok`/`status`/`because`; never throws for a refusal. */
-function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDelivery, noPage } = {}) {
+/* #5382 (review 8): the runner the failover compares, or null when nothing recorded says. A non-claude value on the
+   card is a recorded or command-read fact; 'claude' there can be a default (status reads an absent marker as claude),
+   so the launch job's runner, else the profile's provider, answers; with neither, null, which the failover never moves
+   from or to. (create.recordedRunner floors at claude, so it is not used here: an unrecorded Antigravity agent read as
+   claude could hand its part to a Gemini CLI agent on the same Google account.) */
+function failoverRunnerOf(card) {
+  if (!card || !card.sessionName) return null;
+  if (card.runner && card.runner !== 'claude') return card.runner;
+  try { const j = create.readJob(card.sessionName); if (j && j.runner) return j.runner; } catch { /* no job */ }
+  try { const prov = store.readProfile(card.sessionName).provider; if (prov) return create.providerRunner(prov); } catch { /* no profile */ }
+  return null;
+}
+function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDelivery, noPage, from } = {}) {
   if (!screen && !assigner) {
     const v = tasks.partValve();
     if (v.refused) return { ok: false, status: 429, because: v.because, retryAfterSecs: v.retryAfterSecs };
@@ -473,8 +486,14 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     // Reserve now, before the part is assigned and told, so the next givePart in this same tick counts it.
     try { capSlot = agyq.noteCapStart(who, r, now); } catch { capSlot = null; }
   }
-  const made = assigner ? { via: 'assigner', onlyIfFree: true } : { via: screen ? 'screen' : 'process' };
-  const out = tasks.assignPart(projectId, n, partId, who, made);
+  /* #5382: a failover move (`from`: the rate-limited agent the Assigner takes the part from) is refused unless the part is
+     still on that agent and still open, not held and not built, at the moment of the write (tasks.assignPart). */
+  const failoverFrom = assigner && typeof from === 'string' && from ? from : null;
+  const made = failoverFrom ? { via: 'assigner', onlyIfWho: failoverFrom, failover: true }
+    : assigner ? { via: 'assigner', onlyIfFree: true } : { via: screen ? 'screen' : 'process' };
+  let out;
+  try { out = tasks.assignPart(projectId, n, partId, who, made); }
+  catch (err) { require('./engine/agyquota').releaseCapStart(capSlot); throw err; }   // a write that threw gave nothing
   if (!out.ok) { require('./engine/agyquota').releaseCapStart(capSlot); return { ok: false, status: 400, because: out.because }; }
   if (!out.changed) require('./engine/agyquota').releaseCapStart(capSlot);   // nothing new was given, so no slot is held
   const r = roster || safeRoster();
@@ -483,7 +502,13 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     heard = undefined;   // #4914: an agent that gave the part to itself is not paged about it
   } else if (out.changed && (screen || assigner || heardBudgetAllows(who, r))) {
     const sentence = (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partId)) || {}).sentence;
-    try { heard = heardBy(projectId, out.task, who, sentence, r, asyncDelivery ? chat.deliverAsync : chat.deliver); }
+    /* #5382: a failover move says where the part came from, so the new agent looks before starting over (review 6). */
+    // Review 15: the source by the name the person sees, not its session key.
+    const fromCard = failoverFrom && Array.isArray(r) ? r.find((c) => c && c.sessionName === failoverFrom) : null;
+    const fromName = String((fromCard && fromCard.name) || failoverFrom).replace(/[\r\n"]/g, ' ');   // the name the page shows, one line
+    const note = failoverFrom ? 'It was moved to you from ' + fromName + ', which hit its provider\'s usage limit and may'
+      + ' already have started it: read the task\'s room and ' + fromName + '\'s work on it before you begin.' : '';
+    try { heard = heardBy(projectId, out.task, who, sentence, r, asyncDelivery ? chat.deliverAsync : chat.deliver, note); }
     catch (err) { require('./engine/agyquota').releaseCapStart(capSlot); throw err; }   // #4588 ask 3: a throw reached nothing
   } else if (out.changed) {
     heard = heardBudgetSkipped(who); // only a process reaches here: screen and assigner always pass
@@ -492,8 +517,17 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     if (heardResult && heardResult.state === chat.DELIVERY.PLACED && !screen && !assigner) heardBudgetRecord(who, r);
     if (assigner && out.changed && !(heardResult && heardResult.state !== chat.DELIVERY.COULD_NOT)) {
       // Only if it is still ours: the pane line took time, and somebody may have taken the part since.
-      const back = tasks.assignPart(projectId, n, partId, null, { via: 'assigner', onlyIfWho: who });
-      require('./engine/agyquota').releaseCapStart(capSlot);   // nothing reached the pane: the slot is free again
+      // #5382: a failover move goes back to the agent it was taken from. If that is refused (it has left the project
+      // since), the part goes to nobody, as an ordinary give's does, rather than staying on an agent never told.
+      // Nothing reached the pane, so the slot is free again FIRST: a take-back that throws must not keep it (merge review).
+      require('./engine/agyquota').releaseCapStart(capSlot);
+      // keepBuilt: a task marked built meanwhile is not un-built by moving the part back; it goes to nobody instead.
+      const takeBack = (to) => {
+        try { return tasks.assignPart(projectId, n, partId, to, { via: 'assigner', onlyIfWho: who, keepBuilt: true }); }
+        catch (err) { return { ok: false, because: String((err && err.message) || err) }; }
+      };
+      let back = takeBack(failoverFrom);
+      if (failoverFrom && !back.ok) back = takeBack(null);
       return { ok: false, status: 409, because: 'we could not reach ' + who + ', so the task was not given' + (back.ok ? '' : ' (and taking it back failed: ' + back.because + ')'), heard: heardResult };
     }
     return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r), heard: heardResult };
@@ -1063,6 +1097,7 @@ const recordGuideOutcome = guidestate.makeRecorder({
 });
 const heartbeat = require('./engine/heartbeat');
 const roomhold = require('./engine/roomhold'); // #4624: a colleague's un-addressed room post is held while the member works
+const missedtell = require('./engine/missedtell'); // kosmos#4787 slice 3: a repeating task's reviewer is told of a missed run
 const agentnudge = require('./engine/agentnudge'); // #4544: the Prompter's nudge to the AGENT (an idle agent that still has open work)
 const replynudge = require('./engine/replynudge'); // #4951: tell an idle agent its community post has new comments, once per comment
 const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter's local in-app nudge store (the delivery half #2623 removed)
@@ -1232,6 +1267,7 @@ function connectionsHeld() {
 
 const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
+const instructionadds = require('./engine/instructionadds'); // #5293: an agent proposes an addition, the person applies it
 const personalinstr = require('./engine/personalinstr'); // #4446: a personal instructions file the agent's CLI also loads
 const projects = require('./engine/projects');
 const autoretell = require('./engine/autoretell');
@@ -4293,7 +4329,9 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
    givePart, so the parts valve and the paging allowance apply. The part route (.../part/<m>/who) stays out. */
 /* #5300: `kosmos project role` (POST .../role) joins: its handler names the caller (processCaller), sets that member's
    own role here only, and refuses an agent that is not on the project (projects.setRoleHere). */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
+/* #5293 review 1: POST /api/agent/<name>/instruction-add joins: it only HOLDS a proposal the person applies on the page,
+   and its handler names the caller with resolveAgentSender, header token first. */
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/agent\/[^/]+\/instruction-add$/, /^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a pane row (`paneless`, on the result or its card): the
@@ -5557,8 +5595,9 @@ const server = http.createServer(async (req, res) => {
                      words (Mona Lisa's ruling: a person who installed Kosmos
                      has no reason to have heard "tmux"). */
                   ? 'something is off about this agent: this computer says its background job is running, but no session for it is visible from here, so Kosmos cannot show or reach whatever that job started'
-                  : (!create.jobMissing(k.name) && switchedOff.has(k.name))
-                    ? 'this agent is not running because its background job was switched off, probably in System Settings under Login Items. Switch it back on there and it can start again'
+                  : (!create.jobMissing(k.name) && create.switchedOffSentence(k.name, switchedOff))
+                    // #5445: one function words the switched-off cause per platform (Linux: systemd, a masked unit), tested
+                    ? create.switchedOffSentence(k.name, switchedOff)
                     : !create.jobMissing(k.name)
                     /* #671: the one offline cause whose sentence ended at the
                        diagnosis. The agent has a job, is not removed (filtered
@@ -5576,9 +5615,9 @@ const server = http.createServer(async (req, res) => {
                        promising: "where to look" holds whether or not the pane has
                        content, and naming what the tab SHOWS would over-promise for an
                        agent that genuinely has no session. Sentence shared with
-                       remove.js's restart refusal via create.SELF_STARTS. */
+                       remove.js's restart refusal via create.selfStartsSentence (create.SELF_STARTS, linger-aware on Linux; #5445). */
                     ? 'this agent is not running: nothing on this computer has a session for it. '
-                      + create.SELF_STARTS.charAt(0).toUpperCase() + create.SELF_STARTS.slice(1)
+                      + create.selfStartsSentence().slice(0, -1)   // #5445: true on Linux with linger off too
                       // #5127: there is no Terminal tab. The place is named (AI Settings on its page), never what
                       // it shows, for the reason above: with no session there may be nothing there to see.
                       + '; if it stays off, look under AI Settings on its page'
@@ -7408,7 +7447,8 @@ const server = http.createServer(async (req, res) => {
         const got = await orgchartfile.readWithModel(name, bytes, { signal: stop.signal, reader });
         if (stop.signal.aborted) return;
         if (got.unavailable) {
-          sendJson(res, 200, { unavailable: true, problems: [orgchartfile.NO_MODEL] });
+          // #5346: after a ChatGPT read could not run, the sentence does not offer ChatGPT again.
+          sendJson(res, 200, { unavailable: true, problems: [orgchartfile.noModelAfter(reader)] });
           return;
         }
         sendJson(res, 200, { source: 'model', provider: orgchartfile.providerLabel(reader), rows: got.rows, problems: got.problems });
@@ -8234,9 +8274,31 @@ const server = http.createServer(async (req, res) => {
     const name = decodeSegment(prov[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     readBody(req)
-      .then((raw) => {
+      .then(async (raw) => {
         let body = null;
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        /* kosmos#5429 (Josh, 2026-10-06): a switch can carry the MODEL too, so provider, account and model change in ONE
+           restart (it used to start on the default model, and picking the model was a second restart). Checked BEFORE
+           anything is written, so a refused model leaves the agent as it was: Claude against create.js's MODELS; OpenAI
+           against the chosen account's runnable list, as the model route does (fail open when it cannot be read, #1916).
+           Empty or absent: no model is set, exactly as before (the target's own default). */
+        const wantModel = body && typeof body.model === 'string' ? body.model.trim() : '';
+        if (wantModel) {
+          const target = body && body.provider;
+          if (target === 'anthropic') {
+            const m = create.MODELS.find((x) => x.key === wantModel && x.provider === 'anthropic');
+            if (!m) { sendJson(res, 400, { outcome: 'refused', because: `${wantModel} is not a Claude model we can start, so nothing was changed` }); return; }
+          } else if (target === 'openai') {
+            const dir = (body && typeof body.account === 'string' && body.account) || openaiAccounts.defaultDir();
+            try {
+              const allowed = openaiAccounts.runnableAllowlist(await openaiAccounts.accountModels(dir));
+              if (allowed && !allowed.includes(wantModel)) { sendJson(res, 400, { outcome: 'refused', because: `${wantModel} is not a model that account can run, so nothing was changed; pick one from the list` }); return; }
+            } catch { /* not checkable: fail open, setModel bounds the id (#1916) */ }
+          } else {
+            sendJson(res, 400, { outcome: 'refused', because: 'that provider picks its own model, so one cannot be chosen with the switch; nothing was changed' });
+            return;
+          }
+        }
         /* #1373: the account the person picked rides through. Absent, the
            engine states a default and names it, exactly as before. */
         const wrote = create.setProvider(name, body && body.provider, {
@@ -8251,6 +8313,14 @@ const server = http.createServer(async (req, res) => {
         if (wrote.outcome === create.OUTCOME.REFUSED) {
           sendJson(res, 400, { outcome: 'refused', because: wrote.because });
           return;
+        }
+        /* #5429: the model, written to the job the switch just wrote, BEFORE the one restart. */
+        let pickedModel = null;
+        let modelMiss = '';
+        if (wantModel) {
+          const m = create.setModel(name, wantModel);
+          if (m.outcome === create.OUTCOME.REFUSED) modelMiss = m.because || 'the model could not be set';
+          else pickedModel = m.model || null;
         }
         let back;
         try { back = removal.restart(name, 'provider'); }
@@ -8273,11 +8343,17 @@ const server = http.createServer(async (req, res) => {
            "previous" rather than "Claude" because the old provider need not be claude. */
         /* #5091: a switch to Claude can now carry a picked Claude account; then only the model default is said here
            (the account is named by landedOn), and "your main Claude account" stays for a switch nobody picked for. */
+        /* #5429: a model picked with the switch is named; only an unpicked one is the default. */
+        const claudeModelWords = pickedModel && pickedModel.label ? 'it starts on ' + pickedModel.label : 'it starts on Claude’s own default model until you change it';
         const dropped = wrote.provider === 'anthropic'
-          ? [wrote.account ? 'it starts on Claude’s own default model until you change it'
-            : 'it starts on your main Claude account and Claude’s own default model until you change them']
-          : [wrote.dropped.model ? `its previous model choice does not cross (${label} picks its own)` : '',
+          ? [wrote.account ? claudeModelWords
+            : (pickedModel && pickedModel.label ? 'it starts on your main Claude account and ' + pickedModel.label : 'it starts on your main Claude account and Claude’s own default model until you change them')]
+          : [pickedModel && pickedModel.label ? 'it starts on ' + pickedModel.label   // #5429: picked with the switch
+            : wrote.dropped.model ? `its previous model choice does not cross (${label} picks its own)` : '',
             wrote.dropped.account ? 'and it leaves its previous account behind' : ''];
+        /* #5429: a model that could not be set after the switch was written (checked first, so this is rare): said, and
+           the agent starts on the default. */
+        const modelMissWords = modelMiss ? ` The model you picked could not be set (${modelMiss}), so it starts on the default; change it on this card.` : '';
         const droppedWords = dropped.filter(Boolean).join(' ');
         /* WHICH OpenAI sign-in it landed on (#1211). Josh switched an agent,
            read "API key ending WWUA" elsewhere on the screen, and could not
@@ -8366,7 +8442,8 @@ const server = http.createServer(async (req, res) => {
             outcome: 'partial',
             provider: wrote.provider,
             restarted: ok,   // #5091: the page repaints Runs on from this, not from a sentence
-            because: wrote.because + ' ' + (ok ? 'It is starting again now.' : `It could not start again yet: ${back.because} It is still running as before until it restarts.`),
+            ...(pickedModel ? { model: pickedModel } : {}),   // #5429 review 2: the model was still written; say so
+            because: wrote.because + (pickedModel && pickedModel.label ? ' It runs on ' + pickedModel.label + '.' : '') + modelMissWords + ' ' + (ok ? 'It is starting again now.' : `It could not start again yet: ${back.because} It is still running as before until it restarts.`),
             steps: back.steps || [],
           });
           return;
@@ -8374,6 +8451,7 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, {
           outcome: ok ? 'changed' : 'partial',
           provider: wrote.provider,
+          ...(pickedModel ? { model: pickedModel } : {}),   // #5429: what Runs on can say it moved to
           /* #5145: the dir of the account the switch landed on (the same `acct` the sentence names), resolved so it
              compares with the listed rows. Null when the engine named none (a Claude switch with no account sent,
              Antigravity, a dry-run). The engine-partial answer above sends none; the restart-failed partial here
@@ -8386,6 +8464,7 @@ const server = http.createServer(async (req, res) => {
               + 'It is starting again now, and it will look idle until you say something to it.'
               + landedOn
               + signInNote
+              + modelMissWords
             : `We saved the switch to ${label}, but could not start it again: ${back.because} `
               + 'It is still running as before until it restarts.'
               /* ⚠️ FUTURE TENSE HERE, NOT `landedOn`'S PRESENT. The plist already
@@ -9692,7 +9771,7 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/assigner-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
       const r = assignerSetting.read();
-      sendJson(res, 200, { on: r.on, ok: r.ok });
+      sendJson(res, 200, { on: r.on, failover: r.failover === true, ok: r.ok });
     } catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
     return;
   }
@@ -9706,11 +9785,16 @@ const server = http.createServer(async (req, res) => {
            Recommender, refuse a caller isViaScreen reads as a process. ADVISORY (a local process
            can send the header); it stops the default CLI path only. */
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
-        if (typeof body.on !== 'boolean') { sendJson(res, 400, { error: 'that has to be on or off' }); return; }
-        const saved = assignerSetting.setOn(body.on);
+        /* #5382: one change per PUT, `on` or `failover`, as the Recommender's guards are. */
+        if (typeof body.on === 'boolean' && typeof body.failover === 'boolean') {
+          sendJson(res, 400, { error: 'change one setting at a time' }); return;   // review 6: never drop one silently
+        }
+        const field = typeof body.on === 'boolean' ? 'on' : typeof body.failover === 'boolean' ? 'failover' : null;
+        if (!field) { sendJson(res, 400, { error: 'that has to be on or off' }); return; }
+        const saved = field === 'on' ? assignerSetting.setOn(body.on) : assignerSetting.setFailover(body.failover);
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         const r = assignerSetting.read();
-        sendJson(res, 200, { on: r.on, ok: r.ok });
+        sendJson(res, 200, { on: r.on, failover: r.failover === true, ok: r.ok });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
@@ -9942,6 +10026,20 @@ const server = http.createServer(async (req, res) => {
             connection: { ...(a.connection || {}), badge: loginGreen ? 'working' : v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
               ...(obs && v.observedAt != null ? { observedFrom: obs === checkObs ? 'check' : 'agent' } : {}),   // a stale one decided nothing (#4139 follow-up)
               ...(loginOk ? { loginValidUntil: loginArgs.until } : {}),
+              /* #5407: the login notice's window, from the login date alone (review 1: NOT from loginOk, which needs an
+                 idle row, so an account whose agents were working, the very one the notice is about, never got it).
+                 Not over a rejection or a sign-out, which say more already. Inside the window: loginExpiresInDays (and
+                 the date, for the title). Past its date: loginEnded, unless loginStopsAt (below) says the agents still
+                 work for a while, which the row says instead. */
+              ...((() => {
+                const until = loginUntil.get(a);
+                if (!Number.isFinite(until) || v.badge === 'rejected' || v.badge === 'signed_out') return {};
+                const d = require('./engine/loginexpiry').daysLeftInWindow(until, nowMs);
+                if (d === null) return {};
+                if (until > nowMs) return { loginExpiresInDays: Math.max(0, d), loginExpiresAt: until };
+                // Review 4: never beside loginStopsAt (agents still working until then say that instead).
+                return claudeloginlive.worksUntil(a, nowMs) ? {} : { loginEnded: true };
+              })()),
               ...(loginGreen ? { observedFrom: 'login' } : {}),
               /* #5168: the login has ended but its agents still work on the access token they hold, until this time.
                  Not over a rejection or a sign-out, which say more than this does. worksUntil reads ONLY the cache that
@@ -16406,6 +16504,50 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* kosmos#5293: an agent PROPOSES an addition to another agent's instructions; the PERSON applies it on that agent's
+     page. The propose route is an agent's (it names the asker the way /api/msg names a sender: the agent token, else
+     the caller's pane, never a name the caller types). Apply, Dismiss and Undo are the person's: they refuse an agent
+     token and want a browser's headers (isViaScreen, the check community release uses). As there, a speed bump, not
+     a wall, until #4491 keeps the board token out of agents' reach. One pending per target: a second is refused. */
+  const instrAdd = pathname.match(/^\/api\/agent\/([^/]+)\/instruction-add(?:\/(apply|dismiss|undo))?$/);
+  if (instrAdd) {
+    const asked = decodeSegment(instrAdd[1]);
+    const act = instrAdd[2] || null;
+    if (asked === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    if (!knownAgent(asked)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
+    /* Review 1 (BLOCKER): resolve the spelling to the ONE agent and key everything by its session name, which is what
+       the page reads by. A case or punctuation variant the gate accepts was stored apart: shown nowhere, and a second
+       "one pending" beside the first. */
+    const card = claimantFor(asked);
+    if (!card || typeof card.sessionName !== 'string' || !card.sessionName) { sendJson(res, 404, { error: 'no agent by that name' }); return; }   // review 2: never the raw spelling
+    const name = card.sessionName;
+    if (!act && (req.method === 'GET' || req.method === 'HEAD')) {
+      try { sendJson(res, 200, instructionadds.state(name)); } catch { sendJson(res, 500, { error: 'the waiting addition could not be read' }); }
+      return;
+    }
+    if (req.method !== 'POST') { sendJson(res, 405, { error: 'that is not something this route does' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = null; }
+        if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'send it as JSON, like {"text": "..."}' }); return; }
+        if (!act) {
+          const roster = safeRoster();
+          if (roster === null) { sendJson(res, 200, { ok: false, because: 'we could not check which agents are running, so nothing was held' }); return; }
+          const who = resolveAgentSender(req, body, roster);
+          if (!who || !who.ok) { sendJson(res, 200, { ok: false, because: (who && who.because) || 'we could not tell which agent is asking' }); return; }
+          const askedBy = (who.card && (who.card.name || who.card.sessionName)) || '';
+          sendJson(res, 200, instructionadds.propose(name, body.text, askedBy));
+          return;
+        }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can do this, from the agent’s page' }); return; }
+        const out = act === 'apply' ? instructionadds.apply(name) : act === 'dismiss' ? instructionadds.dismiss(name) : instructionadds.undo(name);
+        sendJson(res, out.ok ? 200 : 409, out);
+      })
+      .catch(() => { if (!res.headersSent) sendJson(res, 500, { error: 'that could not be done' }); });
+    return;
+  }
+
   if (instr && req.method === 'PUT') {
     const name = decodeSegment(instr[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
@@ -16724,8 +16866,8 @@ const server = http.createServer(async (req, res) => {
     try { asked = new URL(req.url, ROUTING_BASE).searchParams.get('name') || ''; } catch { asked = ''; }
     const problem = projects.folderNameProblem(asked);
     if (problem) { sendJson(res, 200, { path: null, problem }); return; }
-    // ⚠️ `folderPathPreview`, which does NOT create anything (it only lists
-    // the parent). Somebody typing into a name box must not leave a trail of
+    // ⚠️ `folderPathPreview`, which does NOT create anything (it lists the
+    // parent and stats the path). Somebody typing into a name box must not leave a trail of
     // empty directories behind them; the folder is made once, by `create`,
     // when they press the button. The preview carries makeFolder's own
     // case correction, so the path shown is the path the act produces.
@@ -16867,7 +17009,8 @@ const server = http.createServer(async (req, res) => {
       }
       /* #3949: Needs Your Decision, from the same roster read (the engine's rule, tasks.waitingOnPerson). */
       /* #5034: with the project's members, so a holder taken off the project does not keep its card red. */
-      const waitingOnPerson = tasks.waitingOnPerson(t, roster, membersOf.get(t.projectId));
+      /* kosmos#4787 slice 3: a repeating task the PERSON reviews waits on them while a run is missed (they asked to be told). */
+      const waitingOnPerson = tasks.waitingOnPerson(t, roster, membersOf.get(t.projectId)) || missedtell.personReviewMissed(t);
       return Object.assign({}, t, {
         claim,
         waitingOnPerson,
@@ -18592,8 +18735,9 @@ const server = http.createServer(async (req, res) => {
     if (taskAct[3] === 'close' && !isViaScreen(req, {})) {
       let held = null;
       try { const pr = projects.readAll().find((x) => x && x.id === id); held = pr ? tasks.byNumber(pr, taskAct[2]) : null; } catch { held = null; }
-      if (held && held.repeat && held.repeatByPerson === true) {
-        sendJson(res, 409, { error: 'the person set this task to repeat, so only they can close it; record each run with kosmos task ran' });
+      // slice 3 review 6: a reviewer the person chose is theirs too, and closing would drop it with the rule.
+      if (held && held.repeat && (held.repeatByPerson === true || held.repeatReviewerByPerson === true)) {
+        sendJson(res, 409, { error: 'the person set this task to repeat, or chose who reviews it, so only they can close it; record each run with kosmos task ran' });
         return;
       }
     }
@@ -18984,11 +19128,25 @@ const server = http.createServer(async (req, res) => {
         } else {
           const rule = body.clear === true ? null
             : taskrepeat.fromWords(body.every, { at: body.at === undefined ? (body.minute === undefined ? undefined : String(body.minute)) : body.at, on: body.on });
-          task = tasks.setRepeat(id, taskRepeat[2], rule, { person: viaScreen });
+          /* slice 3: `reviewer` ('me', an agent's session name, or 'none') rides the same request; a rule being set
+             (not cleared) is in place first, so the reviewer is checked against it. Omitted: the reviewer is unchanged. */
+          /* Review 1: a reviewer sent WITH a rule is checked first, so a refused reviewer leaves the rule as it was. */
+          if (rule !== null && body.every !== undefined && body.reviewer !== undefined) {
+            const proj = projects.readAll().find((x) => x && x.id === id) || null;
+            const cur = proj ? tasks.byNumber(proj, taskRepeat[2]) : null;
+            // Review 2: no such project or task: setRepeat below answers that (404), not this check.
+            const problem = cur ? tasks.reviewerProblem(proj, cur, body.reviewer, { person: viaScreen }) : null;
+            if (problem) throw new Error(problem);
+          }
+          if (rule === null || body.every !== undefined) task = tasks.setRepeat(id, taskRepeat[2], rule, { person: viaScreen });
+          // Review 3: a time or day with no frequency would be dropped without a word (both CLIs refuse it too).
+          if (rule !== null && body.every === undefined && (body.at !== undefined || body.on !== undefined || body.minute !== undefined)) throw new Error('a time or a day goes with how often: hourly, daily or weekly');
+          if (rule !== null && body.reviewer !== undefined) task = tasks.setReviewer(id, taskRepeat[2], body.reviewer, { person: viaScreen });
+          if (!task) throw new Error('say how often it repeats, or who reviews it');
         }
       } catch (err) {
         const msg = String((err && err.message) || 'we could not change that task');
-        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : /closed/.test(msg) ? 409 : /only they can (change it|make it repeat)/.test(msg) ? 403 : 400, { error: msg });
+        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : /closed/.test(msg) ? 409 : /only they can (change it|make it repeat|stop it repeating)|only the person can name/.test(msg) ? 403 : 400, { error: msg });
         return;
       }
       sendJson(res, 200, { task, ...(task.duplicate ? { duplicate: true } : {}), ...(task.repeat ? { words: taskrepeat.describe(task.repeat), next_at: taskrepeat.nextAfter(task.repeat, Date.now()) } : {}) });
@@ -19369,8 +19527,8 @@ const server = http.createServer(async (req, res) => {
           try { const pr = projects.readAll().find((x) => x && x.id === id); held = pr ? tasks.byNumber(pr, partAct[2]) : null; } catch { held = null; }
           // review 4: only the close that would finish the task (its last open part) ends the rule, so only that is refused.
           const open = held ? tasks.partsOf(held).filter((x) => !x.closedAt) : [];
-          if (held && held.repeat && held.repeatByPerson === true && open.length === 1 && Number(open[0].id) === Number(partAct[3])) {   // review 5: "01" is part 1
-            sendJson(res, 409, { error: 'the person set this task to repeat, so closing its last part would end it, and only they can do that; record each run with kosmos task ran' });
+          if (held && held.repeat && (held.repeatByPerson === true || held.repeatReviewerByPerson === true) && open.length === 1 && Number(open[0].id) === Number(partAct[3])) {   // review 5: "01" is part 1; slice 3 review 6: the person's reviewer too
+            sendJson(res, 409, { error: 'the person set this task to repeat, or chose who reviews it, so closing its last part would end it, and only they can do that; record each run with kosmos task ran' });
             return;
           }
         }
@@ -20574,6 +20732,9 @@ function start(port = PORT) {
         roster: () => safeRoster(),
         book: AGY_QUOTA_BOOK,
         deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
+        // #5382 (review 8): the parts the failover gave away that this agent was not yet told about, marked once told.
+        movedAway: (session, roster) => require('./engine/failovertell').owedFor(session, projects.readAll(), roster),
+        movedTold: (session, items) => require('./engine/failovertell').markAll(session, items, tasks.markMoveTold),
         DELIVERY: chat.DELIVERY,
         log: (r) => process.stdout.write(`agy-quota-resume: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}${r.waiting ? '; ' + r.waiting + ' more waiting' : ''}\n`),
       });
@@ -20677,6 +20838,7 @@ function start(port = PORT) {
       /* #5161: the goal-ask memory is read back from disk, so a restart does not forget which projects were asked about
          (and in what state); written back only when it changes. */
       let assignerPrev = assigner.loadMemory(Date.now());
+      const FAILOVER_TELL_SEEN = new Set();   // #5382: cards idle at the previous tell sweep (engine/failovertell.js)
       let assignerSaved = null;
       const assignerSweep = setInterval(() => {
         if (!liveExecution.liveExecutionAllowed()) return; // inert under test / before opt-in
@@ -20687,14 +20849,32 @@ function start(port = PORT) {
             readRoster: () => safeRoster(),
             readRecords: () => projects.readAll(),
             readCommitment: (session) => commitments.read(session),
+            readRunner: (card) => failoverRunnerOf(card),   // #5382: the runner the failover compares (null: unknown)
             readGoal: (project) => brief.readGoal(project && project.folder),
-            give: (projectId, n, partId, who, roster) => givePart(projectId, n, partId, who, { assigner: true, roster }),
+            give: (projectId, n, partId, who, roster, from) => givePart(projectId, n, partId, who, { assigner: true, roster, from }),
             ask: (session, text, roster) => chat.deliverAutomatic(session, text, roster),
             DELIVERY: chat.DELIVERY,
           });
           assignerPrev = out.next;
+          /* #5382 (review 8): tell each idle agent which of its parts the failover gave away (the record is on the part,
+             engine/failovertell.js), whatever the failover setting says now: the parts were already moved. */
+          try {
+            const ft = require('./engine/failovertell');
+            const records = projects.readAll();
+            // Review 9: on almost every board nothing is owed, and then no roster is read at all.
+            const owed = ft.anyOwed(records);
+            if (!owed) FAILOVER_TELL_SEEN.clear();   // review 11: no stale "idle last pass" outlives a quiet spell
+            const told = !owed ? [] : ft.sweepOnce({ roster: safeRoster(), records, DELIVERY: chat.DELIVERY,
+              isIdle: (c) => c.state === 'idle', seenIdle: FAILOVER_TELL_SEEN, markTold: tasks.markMoveTold,
+              /* An Antigravity agent whose quota resume is still due is left to agyquota's carry-on line, which names the
+                 same parts (review 11); once that is not pending (sent, given up, switched off), it is told here plainly. */
+              skip: (c) => failoverRunnerOf(c) === 'antigravity' && agyQuota.resumePending(c.sessionName,
+                { now: Date.now(), env: process.env, allowed: liveExecution.liveExecutionAllowed(), book: AGY_QUOTA_BOOK }),
+              deliver: (session, text, r) => chat.deliverAutomatic(session, text, r) });
+            for (const t of told) process.stdout.write(`assigner: told ${t.session} that ${t.n} of its parts went to another agent while it was limited: ${t.verdict || 'threw'}\n`);
+          } catch { /* best-effort, like the tick */ }
           assignerSaved = assigner.saveMemory(assignerPrev, assignerSaved);
-          for (const a of out.acted) process.stdout.write(`assigner: ${a.name} (${a.session}) task ${a.n} of ${a.projectId}: ${a.ok ? 'given, pane line ' + ((a.heard && a.heard.state) || 'none') : 'not given: ' + a.because}\n`);
+          for (const a of out.acted) process.stdout.write(`assigner: ${a.name} (${a.session}) task ${a.n} of ${a.projectId}${a.from ? ' (moved from ' + a.from + ', rate-limited)' : ''}: ${a.ok ? 'given, pane line ' + ((a.heard && a.heard.state) || 'none') : 'not given: ' + a.because}\n`);
           for (const a of out.asks) process.stdout.write(`assigner: asked ${a.name} (${a.session}) to draft tasks toward ${a.projectId}'s goal: ${a.verdict || 'threw'}\n`);
         } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_ASSIGNER_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_ASSIGNER_MS) : 60 * 1000); // the env is the test seam only
@@ -20856,6 +21036,8 @@ function start(port = PORT) {
       let heartbeatPrev = new Map();
       const AGENT_NUDGE_BOOK = new Map();   // #4544: session -> this stall's nudge entry
       const AGENT_NUDGE_SENT = [];          // #4544: when each nudge went, for the board-wide hour
+      const MISSED_TELL_BOOK = new Map();   // kosmos#4787 slice 3: tries per (task, missed slot) for an agent reviewer
+      const MISSED_TELL_IDLE = new Map();   // slice 3 review 10: when each reviewer was first seen idle, across passes
       const HEARTBEAT_OFF_POLL_MS = Number(process.env.AGENT_WORKFORCE_HEARTBEAT_POLL_MS) > 0
         ? Number(process.env.AGENT_WORKFORCE_HEARTBEAT_POLL_MS) : 60 * 1000; // the env is the test seam only
       const heartbeatTick = () => {
@@ -20919,6 +21101,33 @@ function start(port = PORT) {
       Promise.resolve().then(() => fedseats.ensureAll()).catch(() => {});
       const fedTick = setInterval(() => { fedseats.ensureAll().catch(() => {}); }, 60000);
       if (fedTick && typeof fedTick.unref === 'function') fedTick.unref();
+      /* kosmos#4787 slice 3: a repeating task's named reviewer is told once when a run is missed (engine/missedtell.js,
+         which holds the rules and is tested there). Its own minute timer, not the Prompter tick: it runs whether or not
+         the Prompter is on (the reviewer asked to be told), and the Prompter tick types only through prompterTick. The
+         roster is read only when an AGENT reviewer is owed a line, so a quiet board costs one projects read a minute. */
+      const missedTellTick = setInterval(() => {
+        try {
+          const projs = projects.readAll();
+          const owed = missedtell.owed(projs);
+          if (!owed.length) return;
+          const allowed = agentnudge.nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env);
+          // Review 6: the roster only when an agent can actually be typed into (the sweep holds those lines otherwise).
+          const r = allowed && owed.some((x) => !x.person && !x.swarmOff && x.members.includes(x.reviewer)) ? safeRoster() : null;   // reviews 7, 8: not for a departed or switched-off reviewer
+          missedtell.sweep({
+            projects: projs, roster: r, now: Date.now(),
+            allowed,
+            limit: (() => { try { return limits.read(); } catch { return limits.DEFAULTS; } })(),
+            sent: AGENT_NUDGE_SENT, book: MISSED_TELL_BOOK, idleSeen: MISSED_TELL_IDLE,
+            // Review 11: when the reviewer went idle, by its own report (as the reply nudge and the community turn read it).
+            idleSince: (session) => { const sr = selfreport.read(session); const t = sr && sr.found && sr.state === 'idle' ? Date.parse(sr.at) : NaN; return Number.isFinite(t) ? t : null; },
+            deliver: (session, text, ro) => chat.deliverAutomatic(session, text, ro, undefined, undefined),
+            DELIVERY: chat.DELIVERY,
+            nameOf: (sn) => { const c = Array.isArray(r) ? r.find((a) => a && a.sessionName === sn) : null; return (c && c.name) || sn; },
+            log: (x) => process.stdout.write(`missed-run tell: task #${x.task} (${x.project}) to ${x.reviewer} reached=${x.reached} delivery=${x.delivery} try ${x.tries}\n`),
+          });
+        } catch { /* best-effort, like the nudge sweep */ }
+      }, 60000);
+      if (missedTellTick && typeof missedTellTick.unref === 'function') missedTellTick.unref();
       const heartbeatFirst = setTimeout(heartbeatTick, 0);
       if (heartbeatFirst && typeof heartbeatFirst.unref === 'function') heartbeatFirst.unref();
       /* #4951: new comments on an agent's own community post: one line to the idle agent, once per comment

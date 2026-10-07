@@ -65,6 +65,7 @@ function boardWithUnseenAgent(launchctlListStdout) {
     // launchd's half of the disagreement, faked at the one seam every
     // launchctl read goes through. Anything that is not the fleet list
     // answers empty, so no probe touches the real launchd.
+    create.setProbePlatformForTests('darwin');   // #5445: launchd's arm on any runner (a Linux one asks systemctl)
     create.setRunner((file, args) => {
       if (/launchctl$/.test(String(file)) && args && args[0] === 'list') {
         return { ok: true, stdout: ${JSON.stringify(launchctlListStdout)} };

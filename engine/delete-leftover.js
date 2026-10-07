@@ -15,7 +15,8 @@
  * A folder that goes to the Mac's Trash answers yes to both, so that is what
  * this does whenever it can: the folder and the job file are MOVED into
  * `~/.Trash` under a dated name, where Finder shows them and the person can
- * drag them back. Only when the Trash cannot take them (a different volume,
+ * drag them back (on Linux the desktop Trash, `~/.local/share/Trash`, with the
+ * record a file manager needs to put them back; #5445). Only when the Trash cannot take them (a different volume,
  * or no Trash directory) are they deleted for good, and the plan says which
  * BEFORE the click, so the confirmation is never lighter than the act.
  *
@@ -63,7 +64,15 @@ const OUTCOME = { DELETED: 'deleted', REFUSED: 'refused', PARTIAL: 'partial' };
    sandboxed. Measured elsewhere in this class: `accounts.list()` returned four
    of the operator's real accounts against an empty fixture (#1419). */
 function homeDir() { return process.env.AGENT_WORKFORCE_HOME || os.homedir(); }
-const TRASH = () => process.env.AGENT_WORKFORCE_TRASH || path.join(homeDir(), '.Trash');
+/* #5445: on Linux the desktop Trash is the freedesktop one, $XDG_DATA_HOME/Trash/files (default
+   ~/.local/share/Trash/files), not ~/.Trash, which no Linux file manager shows. A sandboxed home
+   (AGENT_WORKFORCE_HOME) ignores XDG_DATA_HOME, which names the person's real folder. */
+function linuxTrashRoot() {
+  const xdg = !process.env.AGENT_WORKFORCE_HOME && process.env.XDG_DATA_HOME;
+  return path.join(xdg && path.isAbsolute(xdg) ? xdg : path.join(homeDir(), '.local', 'share'), 'Trash');
+}
+const TRASH = (platform) => process.env.AGENT_WORKFORCE_TRASH
+  || ((platform || process.platform) === 'linux' ? path.join(linuxTrashRoot(), 'files') : path.join(homeDir(), '.Trash'));
 /* A walk that stops counting past this many entries: the numbers are for a
    sentence, and "more than 20,000 files" is the honest form past it. */
 const WALK_CAP = 20000;
@@ -164,9 +173,17 @@ function filesWords(m) {
 
 /** Whether the Trash can take a path: it exists, and it is on the same
     volume, so a rename works and nothing is copied-then-deleted. */
-function trashCanTake(p) {
+function trashCanTake(p, platform) {
   try {
-    const t = fs.statSync(TRASH());
+    let t;
+    try { t = fs.statSync(TRASH(platform)); } catch (e) {
+      /* #5445: a Linux desktop makes its Trash on first use, so a missing one is made at the move (as the Mac's
+         mkdir does); the volume is then its home's. Anywhere else a missing Trash still cannot take it. */
+      if (!(e && e.code === 'ENOENT' && (platform || process.platform) === 'linux' && !process.env.AGENT_WORKFORCE_TRASH)) throw e;
+      // The nearest folder that exists on the way to it: the volume the mkdir will make the Trash on (review 1).
+      let at = path.dirname(TRASH(platform));
+      for (;;) { try { t = fs.statSync(at); break; } catch (e2) { if (!(e2 && e2.code === 'ENOENT') || path.dirname(at) === at) throw e2; at = path.dirname(at); } }
+    }
     if (!t.isDirectory()) return false;
     return fs.statSync(p).dev === t.dev;
   } catch { return false; }
@@ -252,7 +269,9 @@ function plan(name, opts) {
      nothing to move and `path` stays null -- `del` below removes it through
      `win32job` instead. `label` is what a person would recognise in Task
      Scheduler, the same role the launchd label plays. */
-  const jobPath = platform === 'win32' ? null : create.plistPath(clean);
+  const jobPath = platform === 'win32'
+    ? null
+    : (platform === 'linux' ? require('./linuxjob').unitPath(clean) : create.plistPath(clean));
   let folder = null;
   let lst = null;
   try { lst = fs.lstatSync(folderPath); } catch { lst = null; }
@@ -264,7 +283,7 @@ function plan(name, opts) {
       return { ok: false, because: `${shown}'s folder is not where Kosmos keeps agents, so Kosmos will not delete it.` };
     }
     const m = measure(folderPath);
-    folder = { path: folderPath, ...m, trash: trashCanTake(folderPath) };
+    folder = { path: folderPath, ...m, trash: trashCanTake(folderPath, platform) };
   }
   let job = null;
   if (platform === 'win32') {
@@ -282,7 +301,15 @@ function plan(name, opts) {
     }
     if (seen.registered) job = { path: null, label: win32job.taskName(clean), task: true, trash: false };
   } else if (fs.existsSync(jobPath)) {
-    job = { path: jobPath, label: create.serviceLabel(clean), trash: trashCanTake(jobPath) };
+    const isLinux = platform === 'linux';
+    job = {
+      path: jobPath,
+      label: isLinux ? require('./linuxjob').unitName(clean) : create.serviceLabel(clean),
+      /* #4918 review 1: a systemd unit is deleted by linuxjob.remove, never moved to the Trash, so the Trash promise
+         is never made for it. */
+      trash: isLinux ? false : trashCanTake(jobPath, platform),
+      ...(isLinux ? { unit: true } : {}),
+    };
   }
   if (!folder && !job) {
     return { ok: false, because: `nothing of ${shown} is left on this computer, so there is nothing to delete. If the name is still refused, something else holds it.` };
@@ -290,7 +317,10 @@ function plan(name, opts) {
 
   /* One mode for the whole act, so the sentence is one sentence: to the
      Trash only if EVERYTHING can go there. */
-  const toTrash = (!folder || folder.trash) && (!job || job.trash);
+  /* #4918 review 31: a systemd unit is removed by systemd whatever happens to the folder, so it does not decide whether
+     the folder can go to the Trash (a folder-only Linux leftover already does). A Scheduled Task is unchanged. */
+  // review 32: only with a folder; a unit-only leftover moves nothing, so it never promises the Trash.
+  const toTrash = (!folder || folder.trash) && (!job || job.trash || (Boolean(job.unit) && Boolean(folder)));
   const loses = [];
   if (folder) {
     const what = filesWords(folder) + (folder.files ? ', ' + sizeWords(folder.bytes) : '');
@@ -303,8 +333,10 @@ function plan(name, opts) {
      speak of. Calling a Scheduled Task an "auto-start file" sends somebody
      hunting for something that does not exist. */
   const jobIsTask = Boolean(job && job.task);
+  // #4918 review 30: a systemd unit is a registration too, not a file the person keeps: same nouns as a Scheduled Task.
+  const jobIsService = jobIsTask || Boolean(job && job.unit);
   if (job) {
-    loses.push(jobIsTask
+    loses.push(jobIsService
       ? 'Its startup job, so nothing tries to start it again'
       : 'Its auto-start file, so nothing tries to start it again');
   }
@@ -321,8 +353,11 @@ function plan(name, opts) {
   const question = `Delete what is left of ${shown}?`;
   /* A Scheduled Task holds nothing a person can lose, so a job-only leftover is
      not the "gone for good" case the Trash sentence is written for. */
-  const jobOnlyTask = jobIsTask && !folder;
-  const reassurance = toTrash
+  const jobOnlyTask = jobIsService && !folder;
+  const reassurance = toTrash && job && job.unit && folder
+    // #4918 review 31: the folder goes to the Trash; the unit is removed, not moved, so "everything" would be false.
+    ? `Its files go to the Trash, where you can get them back until you empty it, and its startup job is removed${community ? '. Its community account does not come back' : waiting ? '. Anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`
+    : toTrash
     ? (community || waiting
       ? `Its files go to the Trash, where you can get them back until you empty it. ${community ? 'Its community account does not come back' : 'Anything it wrote for the community that has not gone out stays unsent'}. After this, the name ${shown} is free for a new agent.`
       : `Everything goes to the Trash, where you can get it back until you empty it. After this, the name ${shown} is free for a new agent.`)
@@ -331,11 +366,11 @@ function plan(name, opts) {
       : `This cannot be undone: the Trash cannot take these files, so they will be deleted for good${community ? ', and its community account does not come back' : waiting ? ', and anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`;
   const verb = folder
     ? (toTrash ? `Move ${filesWords(folder)} to the Trash` : `Delete ${filesWords(folder)} for good`)
-    : jobIsTask ? 'Remove its startup job'
+    : jobIsService ? 'Remove its startup job'
       : (toTrash ? 'Move the auto-start file to the Trash' : 'Delete the auto-start file for good');
   const hint = folder
     ? `${shown}'s folder is still on this computer (${filesWords(folder)}${folder.newest ? ', last changed ' + agoWords(folder.newest, now) : ''}), and the name stays taken until it is gone.`
-    : jobIsTask
+    : jobIsService
       ? `Something on this computer still starts ${shown} when you log in, and the name stays taken until it is gone.`
       : `An auto-start file for ${shown} is still on this computer, and the name stays taken until it is gone.`;
   return {
@@ -350,7 +385,7 @@ function plan(name, opts) {
     folder: folder && { path: folder.path, files: folder.files, bytes: folder.bytes, newest: folder.newest, capped: folder.capped, git: folder.git },
     /* `task` travels so `del` knows whether to move a file or unregister a job;
        `path` is null on win32 and every reader of it must check. */
-    job: job && { path: job.path, label: job.label, ...(jobIsTask ? { task: true } : {}) },
+    job: job && { path: job.path, label: job.label, ...(jobIsTask ? { task: true } : {}), ...(job.unit ? { unit: true } : {}) },
     question,
     reassurance,
     loses,
@@ -359,9 +394,22 @@ function plan(name, opts) {
   };
 }
 
-function trashName(p) {
+function trashName(p, platform) {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  return path.join(TRASH(), `${path.basename(p)} (Kosmos ${stamp})`);
+  return path.join(TRASH(platform), `${path.basename(p)} (Kosmos ${stamp})`);
+}
+
+/* #5445: a Linux file manager lists a trashed item, and can put it back, only with its .trashinfo beside it in
+   Trash/info (the freedesktop Trash spec): where it came from and when. Not written for a test's own Trash folder. */
+function writeTrashInfo(from, to) {
+  if (process.env.AGENT_WORKFORCE_TRASH) return;
+  const info = path.join(linuxTrashRoot(), 'info');
+  fs.mkdirSync(info, { recursive: true });
+  const when = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const date = `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())}T${pad(when.getHours())}:${pad(when.getMinutes())}:${pad(when.getSeconds())}`;
+  const enc = path.resolve(from).split('/').map(encodeURIComponent).join('/');
+  fs.writeFileSync(path.join(info, path.basename(to) + '.trashinfo'), `[Trash Info]\nPath=${enc}\nDeletionDate=${date}\n`);
 }
 
 /** The act. Re-plans first, so nothing is deleted that the plan would not
@@ -371,6 +419,7 @@ function del(name, opts) {
      test (and a Mac driving the win32 arm) plans one act and performs another. */
   const p = plan(name, opts && opts.platform ? { platform: opts.platform } : undefined);
   if (!p.ok) return { outcome: OUTCOME.REFUSED, because: p.because };
+  const platform = (opts && opts.platform) || process.platform;
   if (p.typeToConfirm && String((opts && opts.typed) || '').trim() !== p.typeToConfirm) {
     return { outcome: OUTCOME.REFUSED, because: `type ${p.typeToConfirm} to confirm; nothing was deleted` };
   }
@@ -400,8 +449,10 @@ function del(name, opts) {
   const move = (from, what) => {
     try {
       if (p.toTrash) {
-        fs.mkdirSync(TRASH(), { recursive: true });
-        fs.renameSync(from, trashName(from));
+        fs.mkdirSync(TRASH(platform), { recursive: true });
+        const to = trashName(from, platform);
+        fs.renameSync(from, to);
+        if (platform === 'linux') { try { writeTrashInfo(from, to); } catch { /* moved; only the put-back record is missing */ } }
       } else {
         fs.rmSync(from, { recursive: true, force: true });
       }
@@ -427,6 +478,19 @@ function del(name, opts) {
     catch (err) { out = { ok: false, because: String((err && err.message) || err) }; }
     if (out && out.ok) { gone.push(what); steps.push({ step: what, ok: true }); }
     else { stuck.push(what); steps.push({ step: what, ok: false, because: (out && out.because) || 'no reason given' }); }
+  } else if (p.job && p.job.unit) {
+    const what = 'its startup job';
+    let out;
+    try {
+      // { ok } only when the unit file is gone (#4918 review 1); through this module's run() seam (review 7).
+      const lj = require('./linuxjob');
+      lj.ensureRuntimeDir();
+      out = lj.runWith((file, args) => run(file, args), () => lj.remove(p.name));
+    } catch (err) {
+      out = { ok: false, because: String((err && err.message) || err) };
+    }
+    if (out && out.ok) { gone.push(what); steps.push({ step: what, ok: true }); }
+    else { stuck.push(what); steps.push({ step: what, ok: false, because: (out && out.because) || 'no reason given' }); }
   } else if (p.job) {
     /* Stop the job first, so launchd does not hold a job whose file has
        gone. Best effort: a job that was never loaded answers "not found",
@@ -434,7 +498,25 @@ function del(name, opts) {
     run('launchctl', ['bootout', `gui/${process.getuid ? process.getuid() : 501}/${p.job.label}`]);
     move(p.job.path, 'its auto-start file');
   }
-  if (p.folder) move(p.folder.path, 'its folder');
+  /* #4918 review 31: a startup job systemd would not remove (the user bus unreachable) keeps the folder when the folder
+     would be deleted for good: losing the files while the unit stays is the worst of both. Into the Trash it can go. */
+  /* review 32: kept whether or not there is a Trash: the folder is what shows the leftover on the board, and moving it
+     while the unit still holds the name would leave nothing to look at. */
+  // review 40: with or without a folder; a unit systemd still holds keeps every record, as review 35 decided.
+  if (p.job && p.job.unit && stuck.includes('its startup job')) {   // review 33: Linux units only; Windows unchanged
+    if (p.folder) {
+      stuck.push('its folder');
+      steps.push({ step: 'its folder', ok: false, because: 'kept, because its startup job could not be removed' });
+    }
+    /* review 35: stop here. Nothing was deleted, so the removal record, the tokens and the crash history stay: dropping
+       them would bring the agent back as an ordinary one with dead tokens and nothing on screen to retry from. */
+    return {
+      outcome: OUTCOME.REFUSED,
+      // review 37: the community standing reset (#5000) has already run and cannot be undone, so the sentence says so.
+      because: `systemd would not remove ${p.shown}'s startup job${p.folder ? ', so its folder was kept too' : ''}. The name stays taken; try again once this computer's user services are reachable. Its standing in the community was reset, so if it comes back it starts at the beginning.`,
+      steps,
+    };
+  } else if (p.folder) move(p.folder.path, 'its folder');
   /* The removed-list record, if any, is what keeps a name hidden on the
      board; with the files gone it has nothing to point at. */
   try { remove.forget(p.name); } catch { /* the record is inert without files */ }
@@ -497,7 +579,7 @@ function del(name, opts) {
        can be a startup job and NOTHING else, and "their files are deleted" about
        an agent that had none is a false sentence in the one line that reports
        the act. */
-    said: !p.folder && p.job && p.job.task
+    said: !p.folder && p.job && (p.job.task || p.job.unit)   // review 32: a unit-only leftover moved nothing either
       ? `Nothing starts ${p.shown} any more. The name is free.`
       : p.toTrash
         ? `${p.shown}'s files are in the Trash. The name is free.`
@@ -506,4 +588,4 @@ function del(name, opts) {
   };
 }
 
-module.exports = { OUTCOME, plan, del, setRunner, resetForTests, run, measure, TRASH };
+module.exports = { OUTCOME, plan, del, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo };   // writeTrashInfo for its #5445 test

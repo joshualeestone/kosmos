@@ -350,7 +350,8 @@ test('after the agent registers afresh (keys.json lost), its old comments are no
   const first = [...be.st.agents.values()][0];
   assert.equal(readJson(cs._paths.commentsSentFile())[c.id].agentId, first.id, 'the sent record names the service agent that stored it');
   assert.equal(mine.mineComments()[0].canDelete, true, 'CONTROL: with the same registration it can be removed');
-  // keys.json removed (its corrupt-file message allows it); the next sweep registers the agent again, as a new service agent.
+  // keys.json lost (a person may still remove it, though since #5431 its corrupt-file message says not to); the next sweep
+  // registers the agent again, as a new service agent.
   fs.rmSync(cs._paths.keysFile());
   comment('ava', 'a later comment, which registers the agent again');
   await cs.sweep();

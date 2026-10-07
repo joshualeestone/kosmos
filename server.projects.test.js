@@ -61,13 +61,6 @@ process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
 process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'kosmos-projects');
 process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
 
-function caseInsensitiveFS() {
-  const probe = path.join(SANDBOX, 'CaseProbe');
-  try { fs.mkdirSync(probe, { recursive: true }); } catch { /* exists */ }
-  const ci = fs.existsSync(path.join(SANDBOX, 'caseprobe'));
-  try { fs.rmSync(probe, { recursive: true, force: true }); } catch { /* best effort */ }
-  return ci;
-}
 /* ⚠️ A FAKE TMUX, NOT /bin/echo (#332). echo stubbed the writes and printed
    its arguments to the reads, which the parser refused, so every read fell
    through to the real tmux on the PATH and these tests measured the
@@ -1825,7 +1818,7 @@ test('a project reusing an earlier name says its OWN conversation is empty, not 
     });
 });
 
-test('the folder-preview ROUTE answers the case-corrected path, not the raw derivation', { skip: !caseInsensitiveFS() && 'case correction requires case-insensitive filesystem' }, async () => {
+test('the folder-preview ROUTE answers the case-corrected path, not the raw derivation', async () => {
   // ⚠️ The route's docblock is where "the path shown is the path the act
   // produces" is promised, and swapping folderPathPreview back to
   // folderPathFor there failed nothing (round 13) -- the engine function was
@@ -1833,11 +1826,15 @@ test('the folder-preview ROUTE answers the case-corrected path, not the raw deri
   // engine test: the assertion is agreement with the act, not a spelling.
   reset();
   fs.mkdirSync(path.join(projects.projectsRoot(), 'Lease'), { recursive: true });
+  // #5424: whether `lease` opens `Lease` is the disk's answer (yes on macOS and Windows, no on Linux).
+  const sameFolder = fs.existsSync(path.join(projects.projectsRoot(), 'lease'));
   const body = json(await req('/api/project-folder?name=lease'));
   assert.equal(body.problem, null);
-  assert.equal(body.exists, true, 'an existing folder must preview as ADOPT, not make (round 17)');
-  assert.equal(body.path, projects.makeFolder('lease'),
-    'the route previewed one path and the act produced another');
+  assert.equal(body.exists, sameFolder, 'the route previews ADOPT exactly when this name opens a folder (round 17)');
+  const made = projects.makeFolder('lease');
+  assert.equal(body.path, made, 'the route previewed one path and the act produced another');
+  assert.equal(path.basename(made), sameFolder ? 'Lease' : 'lease',
+    'a case-insensitive disk adopts Lease; a case-sensitive one makes lease beside it');
   const fresh = json(await req('/api/project-folder?name=Entirely%20new%20here'));
   assert.equal(fresh.exists, false, 'control: a fresh name previews as make');
 });

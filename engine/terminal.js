@@ -83,7 +83,7 @@ function openTerminal(name) {
     return {
       ok: false,
       because: `${clean} is not running, so there is no terminal to open. `
-        + create.SELF_STARTS.charAt(0).toUpperCase() + create.SELF_STARTS.slice(1) + '.',
+        + create.selfStartsSentence(),
     };
   }
   if (card.isNamedOurs !== true) {

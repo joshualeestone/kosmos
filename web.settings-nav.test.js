@@ -196,3 +196,12 @@ test('the accounts section is named AI Models, has no standalone subscription bo
   assert.match(PAGE, /@media \(prefers-reduced-motion: reduce\) \{\n  \.acct-connected \.dot \{ animation: none; \}/,
     'the pulse has no reduced-motion guard');
 });
+
+// #5301: below 56rem the nav is static and stacks above the settings section,
+// where a floating notice in .topnotes sits directly over the pills. #s-nav
+// clears a showing stack with --topnotes-clear (0 with no notice).
+test('#5301: below 56rem #s-nav clears floating notices with --topnotes-clear', () => {
+  assert.match(PAGE, /@media \(max-width: 56rem\) \{[\s\S]*?#s-nav \{ margin-top: var\(--topnotes-clear, 0px\); \}/,
+    '#s-nav is missing margin-top: var(--topnotes-clear, 0px) under max-width: 56rem');
+});
+

@@ -29,7 +29,8 @@
 #     folder passed by mistake is exit 2, not a clear. An install harness (test-install.sh) is
 #     never ruled out this way: your own harness collides with your own suite too, and
 #     run-tests.sh would refuse beside it (#4410).
-# --quiet: print nothing on stdout, not even the CLEAR/BUSY verdict; read the exit code.
+# --quiet: print nothing on stdout, not even the CLEAR/BUSY verdict; read the exit code. (Without it, a BUSY
+#   answer also prints, on stderr, how to wait your turn in the fair queue instead of polling: #5446.)
 # --quiet-box: for timing-sensitive work, also count a live tools/run-tests.sh validation
 #   suite. The default deliberately does not count validation suites, which may overlap.
 #   Use it before tools/test-install.sh, which refuses beside a live suite (#4410).
@@ -243,4 +244,28 @@ if [ "$TWICE" = 1 ] && [ "$first" = 0 ]; then
   if one_read; then first=0; else first=1; fi
 fi
 if [ "$first" = 0 ]; then say "heavy-gate: CLEAR"; exit 0; fi
-say "heavy-gate: BUSY"; exit 1
+say "heavy-gate: BUSY"
+# #5446: polling holds no place in line. On a night of back-to-back suites a poller loses to every one that queued
+# (90 reads, all BUSY, 2026-10-06), so the BUSY answer names the queue that does give a turn. stderr, and not with
+# --quiet, so a caller reading the verdict on stdout sees the same single line as before.
+# The queue named: the installed copy agents already run, when it and its lib are there (so a Mac where that route works
+# keeps one wrapper generation); else the MAIN checkout's copy when it has the fallback and a lib (one generation per
+# clone); else the one beside this. KOSMOS_HG_INSTALLED_QH is a test seam for the installed copy's path.
+if [ "$QUIET" != 1 ]; then
+  _hg_qh="$REPO/tools/queued-heavy.sh"
+  _hg_common="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR git -C "$(dirname "$0")" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || _hg_common=""
+  # Only a main-checkout copy that already has #5446's fallback: an older one fails on a Mac without the default lib.
+  case "$_hg_common" in */.git) grep -q '#5446-lib-fallback' "${_hg_common%/.git}/tools/queued-heavy.sh" 2>/dev/null \
+    && [ -f "${_hg_common%/.git}/tools/lib/cut-guard.sh" ] && _hg_qh="${_hg_common%/.git}/tools/queued-heavy.sh" ;; esac
+  _hg_inst="${KOSMOS_HG_INSTALLED_QH:-${HOME:-}/.cache/claude-handoffs/queued-heavy.sh}"
+  # Only with the lib it loads (it is outside any repo, so it has no fallback): QUEUED_HEAVY_LIB, else its default folder.
+  [ -f "$_hg_inst" ] && [ -f "${QUEUED_HEAVY_LIB:-${HOME:-}/work/kosmos-bc-main-4610}/tools/lib/cut-guard.sh" ] && _hg_qh="$_hg_inst"
+  # Name a path only if it is there; otherwise say where the script lives, rather than a command that cannot run.
+  [ -f "$_hg_qh" ] && _hg_cmd="bash '$_hg_qh'" || _hg_cmd="bash <a Kosmos checkout>/tools/queued-heavy.sh"
+  printf '%s\n' "heavy-gate: polling this holds no place in line. To wait your turn, run it through the queue: $_hg_cmd \"<what>\" <command>   (add --light first for ONE browser check or ONE test file)" >&2
+  # A QUEUED_HEAVY_LIB that is set and has no lib makes every copy exit 3 (only an unset one falls back): say so.
+  if [ -n "${QUEUED_HEAVY_LIB:-}" ] && [ ! -f "$QUEUED_HEAVY_LIB/tools/lib/cut-guard.sh" ]; then
+    printf '%s\n' "heavy-gate: but QUEUED_HEAVY_LIB=$QUEUED_HEAVY_LIB has no tools/lib/cut-guard.sh, so the queue will refuse to start: fix it or unset it" >&2
+  fi
+fi
+exit 1

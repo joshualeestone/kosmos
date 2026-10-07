@@ -175,6 +175,12 @@ function readRoot(dir) {
  * branch may not change the behaviour of. Left as found, deliberately.
  */
 function jobReader(platform) {
+  /* #4918 review 11: on Linux the startup job is a systemd user unit, never a plist, so the survey reads the unit;
+     the plist check said no Linux agent comes back after a restart. */
+  if (platform === 'linux') {
+    const lj = require('./linuxjob');
+    return { win32: false, linux: true, known: true, fleet: null, of: (name) => lj.presence(name) };
+  }
   if (platform !== 'win32') {
     return { win32: false, known: true, fleet: null, of: (name) => fs.existsSync(create.plistPath(name)) };
   }
@@ -246,6 +252,13 @@ function strays(profileNames, jobs) {
   if (jobs.win32) {
     if (!jobs.known) failed = true;
     else for (const n of jobs.fleet) note(n, 'job');
+  } else if (jobs.linux) {
+    /* #5445 (display parity): on Linux the jobs are systemd user units, so the walk is the unit folder's, read by
+       name and world as the plist walk below reads labels; a folder that cannot be read is could-not-look. */
+    try {
+      const myWorld = launchidentity.currentWorldId();
+      for (const u of require('./linuxjob').listUnits()) if (u.worldId === myWorld) note(u.name, 'job');
+    } catch { failed = true; }
   } else {
     try {
       const myWorld = launchidentity.currentWorldId();
@@ -416,8 +429,9 @@ function repair(opts) {
     results,
     /* Counts for a headline, beside the list rather than instead of it. */
     installed: results.filter((r) => r.ok).length,
-    started: results.filter((r) => r.ok && r.started).length,
+    // #4918 review 34: a Linux unit already active is running too (installJob's alreadyRunning), not a failure to start.
+    started: results.filter((r) => r.ok && (r.started || r.alreadyRunning)).length,
   };
 }
 
-module.exports = { known, survey, repair, shownName };
+module.exports = { known, survey, repair, shownName, jobReader };   // jobReader exported for its Linux test (#4918 review 11)

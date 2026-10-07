@@ -1,4 +1,4 @@
-// Browser-check-surface: tk-hold tk-hold-msg tk-hold-hint tk-activity pj-one-pause pj-one-pause-label pj-one-pause-hint pj-one-pause-msg tsk-tiles tk-repeat-every tk-repeat-day tk-repeat-at tk-repeat-save tk-repeat-line tk-repeat-msg tkPaintRepeat
+// Browser-check-surface: tk-hold tk-hold-msg tk-hold-hint tk-activity pj-one-pause pj-one-pause-label pj-one-pause-hint pj-one-pause-msg tsk-tiles tk-repeat-every tk-repeat-day tk-repeat-at tk-repeat-save tk-repeat-line tk-repeat-msg tkPaintRepeat pj-head-pause pj-one-paused pj-head-pause-msg paintHeadPause pjTogglePause tk-review-row tk-review-who tk-review-msg tkPaintReviewer tkReviewerOf
 'use strict';
 /**
  * On hold and paused, on the screen (kosmos#4771).
@@ -132,6 +132,27 @@ function chk(ok, label, extra) {
       await page.click('#pj-one-pause');
       await page.waitForFunction(() => document.getElementById('pj-one-pause').textContent === 'Pause it', null, { timeout: 5000 }).catch(() => {});
       chk(await text(page, '#pj-one-pause') === 'Pause it', `${tag} Resume it resumes the project`, await text(page, '#pj-one-pause'));
+      /* kosmos#5391: the project page's own Pause / Resume, beside the name: one press pauses (it reads Resume and the
+         Paused line shows), the next resumes, through the same call as Settings (the Settings button agrees). */
+      await page.evaluate((pid) => tskGoToProject(pid), winter.id);
+      await page.waitForSelector('#pj-head-pause', { state: 'visible', timeout: 5000 });
+      chk(/^\s*Pause\s*$/.test(await text(page, '#pj-head-pause') || '') && await page.isHidden('#pj-one-paused'),
+        `${tag} #5391 the project page offers Pause beside its name, and says nothing about pausing yet`, await text(page, '#pj-head-pause'));
+      await page.click('#pj-head-pause');
+      await page.waitForFunction(() => /Resume/.test(document.getElementById('pj-head-pause').textContent), null, { timeout: 5000 }).catch(() => {});
+      chk(/Resume/.test(await text(page, '#pj-head-pause') || '') && await page.isVisible('#pj-one-paused')
+        && /^Paused: Kosmos is not nudging anyone/.test(await text(page, '#pj-one-paused') || ''),
+        `${tag} #5391 pressing it pauses the project: it reads Resume and the Paused line shows`, await text(page, '#pj-one-paused'));
+      // Review 1: Settings repaints only while it is open, so it is opened to read its agreement, then left.
+      await openSettings(page, winter.id);
+      chk(await text(page, '#pj-one-pause') === 'Resume it' && await page.isEnabled('#pj-one-pause'),
+        `${tag} #5391 Settings agrees: Resume it, and its button is usable (review 3: it never sticks disabled)`, await text(page, '#pj-one-pause'));
+      await page.evaluate((pid) => tskGoToProject(pid), winter.id);
+      await page.waitForSelector('#pj-head-pause', { state: 'visible', timeout: 5000 });
+      await page.click('#pj-head-pause');
+      await page.waitForFunction(() => /Pause/.test(document.getElementById('pj-head-pause').textContent), null, { timeout: 5000 }).catch(() => {});
+      chk(/^\s*Pause\s*$/.test(await text(page, '#pj-head-pause') || '') && await page.isHidden('#pj-one-paused'),
+        `${tag} #5391 Resume resumes it, and the Paused line goes`, await text(page, '#pj-head-pause'));
       await openTask(page, launch.id, 1);
       await page.click('#tk-hold');
       await page.waitForFunction(() => document.getElementById('tk-hold').textContent === 'Put on hold', null, { timeout: 5000 }).catch(() => {});
@@ -167,6 +188,24 @@ function chk(ok, label, extra) {
       await page.waitForFunction(() => document.getElementById('tk-repeat-every').value === 'day', null, { timeout: 5000 }).catch(() => {});
       chk(await page.inputValue('#tk-repeat-every') === 'day' && await page.inputValue('#tk-repeat-at') === '07:45' && await page.isDisabled('#tk-repeat-save'),
         `${tag} #4787 with no unsaved choice the controls follow a rule changed elsewhere (control for the arm above)`, await page.inputValue('#tk-repeat-at'));
+      /* kosmos#4787 slice 3: "If missed, tell", shown once the task repeats: Nobody, Me and the project's agents, showing what
+         is stored. Choosing Me saves at once (the board stores the person as reviewer), says Saved. and keeps focus on the
+         choice; Nobody puts it back. */
+      const revOpts = await page.evaluate(() => [...document.querySelectorAll('#tk-review-who option')].map((o) => o.value));
+      chk(await page.isVisible('#tk-review-who') && await page.inputValue('#tk-review-who') === 'none' && revOpts[0] === 'none' && revOpts[1] === 'me',
+        `${tag} #4787 slice 3 a repeating task offers If missed, tell: Nobody, Me and the project's agents, showing Nobody`, JSON.stringify(revOpts));
+      await page.focus('#tk-review-who');
+      await page.selectOption('#tk-review-who', 'me');
+      await page.waitForFunction(() => document.getElementById('tk-review-msg').textContent === 'Saved.', null, { timeout: 5000 }).catch(() => {});
+      const revStored = tasks.byNumber(projects.readAll().find((x) => x.id === winter.id), 1) || {};
+      const revFocus = await page.evaluate(() => document.activeElement && document.activeElement.id);
+      chk(await text(page, '#tk-review-msg') === 'Saved.' && revStored.repeatReviewerPerson === true && await page.inputValue('#tk-review-who') === 'me' && revFocus === 'tk-review-who',
+        `${tag} #4787 slice 3 choosing Me saves it, says Saved. and keeps focus on the choice`, JSON.stringify({ msg: await text(page, '#tk-review-msg'), person: revStored.repeatReviewerPerson, focus: revFocus }));
+      await page.selectOption('#tk-review-who', 'none');
+      await page.waitForFunction(() => document.getElementById('tk-review-who').value === 'none' && !document.getElementById('tk-review-who').disabled, null, { timeout: 5000 }).catch(() => {});
+      const revBack = tasks.byNumber(projects.readAll().find((x) => x.id === winter.id), 1) || {};
+      chk(revBack.repeatReviewerPerson === undefined && revBack.repeatReviewer === undefined,
+        `${tag} #4787 slice 3 Nobody puts it back (control: the Me above was stored)`, JSON.stringify({ person: revBack.repeatReviewerPerson, who: revBack.repeatReviewer }));
       await page.fill('#tk-repeat-at', '');
       chk(await page.isDisabled('#tk-repeat-save') && /Choose a time/.test(await text(page, '#tk-repeat-msg') || ''),
         `${tag} #4787 an empty time is no choice: Save stays off and the page asks for a time`, await text(page, '#tk-repeat-msg'));
@@ -175,6 +214,7 @@ function chk(ok, label, extra) {
       await page.waitForFunction(() => document.getElementById('tk-repeat-line').hidden, null, { timeout: 5000 }).catch(() => {});
       chk(await page.isHidden('#tk-repeat-line') && await page.isHidden('#tk-repeat-when') && await page.inputValue('#tk-repeat-every') === '',
         `${tag} #4787 Never clears it: no repeat line, back to a one-off`, await text(page, '#tk-repeat-line'));
+      chk(await page.isHidden('#tk-review-row'), `${tag} #4787 slice 3 a one-off task has no If missed, tell`);
 
       /* A project an agent paused says so where it is resumed. */
       await openSettings(page, summer.id);

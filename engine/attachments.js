@@ -12,15 +12,22 @@
  *
  * 🔑 HOW AN AGENT READS ONE. The message delivered to the agent's pane ends
  * with the absolute path of the stored file in the bracketed line, so `cat`
- * or `open` works on the spot. Nothing else tells the agent where the
- * folder is (Mona Lisa, 2026-08-23: the who-you-work-for block is about the
- * person; finding attachments it was not sent is a later card).
+ * or `open` works on the spot, followed inside the same bracket by the
+ * file's facts in parentheses (type, an image's pixel size, size on disk;
+ * #5448) so the agent can tell a screenshot from a contract before
+ * deciding to open it. Nothing else tells the agent where the folder is
+ * (Mona Lisa, 2026-08-23: the who-you-work-for block is about the person;
+ * finding attachments it was not sent is a later card).
  *
  * ⚠️ A FILE FROM A PERSON IS BYTES, NOT A PROGRAM. The stored name is
  * sanitised to one path segment, the file is written with the bytes it
  * arrived with and never executed, served back with content-disposition
  * attachment and nosniff, and the preview is made by macOS's own renderer in
- * a subprocess with a timeout, never by parsing the file here.
+ * a subprocess with a timeout, never by decoding the file here. The one
+ * read of its bytes here (#5448, imageFacts) is a bounded header read of at
+ * most 256 KB for an image's signature and pixel size: fixed offsets and a
+ * length-walked JPEG segment list, every read bounds-checked, nothing
+ * decoded.
  *
  * The record on a message row, the shape the page draws against:
  *   attachment: { id, name, type, size, kind, url, preview }
@@ -195,11 +202,142 @@ async function preview(rec) {
   try { return { ok: true, type: 'image/png', bytes: fs.readFileSync(out) }; } catch { return { ok: false, because: 'this computer could not draw the first page' }; }
 }
 
+/**
+ * An image's pixel size from its first bytes, or null (#5448). Reads the
+ * header only, never decodes: PNG (IHDR), GIF (logical screen), JPEG (the
+ * first SOF marker, walking segments by their lengths), WebP (VP8, VP8L,
+ * VP8X). The format is decided by the bytes' own magic, never by the name
+ * or the uploader's type, so a .png that is really text answers null.
+ * HEIC and AVIF are boxes nested in boxes and answer null: the agent is
+ * then told type and size without dimensions, which is still true.
+ */
+function imageFacts(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 12) return null;
+  const ok = (type, w, h) => (w > 0 && h > 0 ? { type, width: w, height: h } : null);
+  if (buf.length >= 24 && buf.readUInt32BE(0) === 0x89504e47 && buf.readUInt32BE(4) === 0x0d0a1a0a && buf.toString('latin1', 12, 16) === 'IHDR') {
+    return ok('image/png', buf.readUInt32BE(16), buf.readUInt32BE(20));
+  }
+  if (buf.toString('latin1', 0, 6) === 'GIF87a' || buf.toString('latin1', 0, 6) === 'GIF89a') {
+    return ok('image/gif', buf.readUInt16LE(6), buf.readUInt16LE(8));
+  }
+  if (signatureType(buf) === 'image/jpeg') {
+    let i = 2;
+    while (i + 8 < buf.length) {
+      if (buf[i] === 0x00) { i += 1; continue; }   // zero padding some encoders leave between segments
+      if (buf[i] !== 0xff) return null;
+      const marker = buf[i + 1];
+      if (marker === 0xff) { i += 1; continue; }   // fill byte
+      if (marker === 0x00) return null;            // a stuffed byte outside image data: damaged
+      if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { i += 2; continue; }   // no length
+      const len = buf.readUInt16BE(i + 2);
+      if (len < 2) return null;
+      /* SOF0-SOF15, but not DHT (C4), JPG (C8) or DAC (CC), which share the range. */
+      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+        if (len < 8) return null;   // a frame header too short to hold its size: damaged
+        return ok('image/jpeg', buf.readUInt16BE(i + 7), buf.readUInt16BE(i + 5));
+      }
+      if (marker === 0xda || marker === 0xd9) return null;   // image data or the end before any frame header
+      i += 2 + len;
+    }
+    return null;
+  }
+  if (buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP' && buf.length >= 30) {
+    const chunk = buf.toString('latin1', 12, 16);
+    if (chunk === 'VP8 ' && buf[23] === 0x9d && buf[24] === 0x01 && buf[25] === 0x2a) {
+      return ok('image/webp', buf.readUInt16LE(26) & 0x3fff, buf.readUInt16LE(28) & 0x3fff);
+    }
+    if (chunk === 'VP8L' && buf[20] === 0x2f) {
+      const b = buf.readUInt32LE(21);
+      return ok('image/webp', (b & 0x3fff) + 1, ((b >>> 14) & 0x3fff) + 1);
+    }
+    if (chunk === 'VP8X') {
+      return ok('image/webp', buf.readUIntLE(24, 3) + 1, buf.readUIntLE(27, 3) + 1);
+    }
+  }
+  return null;
+}
+
+/** The format an image's bytes carry by their signature alone, or null:
+    a real image whose dimensions sit past the bytes read (a JPEG behind a
+    large ICC profile) still matches its format. A match is a signature,
+    not a validation: a file that starts like a JPEG and is not one past its
+    first marker is still called a JPEG. */
+function signatureType(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 12) return null;
+  if (buf.readUInt32BE(0) === 0x89504e47 && buf.readUInt32BE(4) === 0x0d0a1a0a) return 'image/png';
+  if (buf.toString('latin1', 0, 6) === 'GIF87a' || buf.toString('latin1', 0, 6) === 'GIF89a') return 'image/gif';
+  /* JPEG: the start marker, then a marker a JPEG opens with (APPn, DQT, DHT, a frame header, a comment, DRI). */
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff && ((buf[3] >= 0xc0 && buf[3] <= 0xcf) || (buf[3] >= 0xdb && buf[3] <= 0xef) || buf[3] === 0xfe)) return 'image/jpeg';
+  if (buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP' && ['VP8 ', 'VP8L', 'VP8X'].includes(buf.toString('latin1', 12, 16))) return 'image/webp';
+  return null;
+}
+
+/* How much of a file is read to find its pixel size: enough for a JPEG whose
+   frame header sits behind a camera's metadata (one APP segment is at most
+   64 KB; a phone photo can carry two or three). Past this, no dimensions. */
+const HEAD_BYTES = 256 * 1024;
+function headOf(file) {
+  let fd = null;
+  try {
+    fd = fs.openSync(file, 'r');
+    const buf = Buffer.allocUnsafe(HEAD_BYTES);   // only the n bytes read are returned
+    const n = fs.readSync(fd, buf, 0, HEAD_BYTES, 0);
+    return buf.subarray(0, n);
+  } catch { return null; } finally { if (fd !== null) try { fs.closeSync(fd); } catch { /* closed */ } }
+}
+
+/** A size the way a person says it: 512 bytes, 312 KB, 4.2 MB (1024s, as
+    the 25 MB cap counts). */
+function sizeWords(n) {
+  const b = Number(n);
+  if (!Number.isFinite(b) || b < 0) return null;
+  if (b < 1024) return b + (b === 1 ? ' byte' : ' bytes');
+  if (Math.round(b / 1024) < 1024) return Math.round(b / 1024) + ' KB';
+  return (Math.round(b / (1024 * 1024) * 10) / 10) + ' MB';
+}
+
+/** The facts typed after a file's path (#5448): type, then for an image its
+    pixel size, then its size on disk. For an image the type is the one its
+    bytes' signature matches (PNG, GIF, JPEG, WebP), with dimensions when the
+    header could be read. A stored PNG, GIF, JPEG (or image/jpg) or WebP
+    type whose bytes were read and match no signature is not repeated
+    ("unknown type"): the uploader claimed it and the bytes say otherwise.
+    A file that was not read keeps its stored type. Only a file stored as kind
+    'image' is read this way; any other file, and a HEIC or AVIF, is told by
+    its stored type, kept to the plain characters a media type has (the
+    uploader chose it, and this line is typed into a terminal; chat.js
+    refuses a trailer with control characters). Size is read from the disk,
+    not the record. */
+function factsOf(r) {
+  let st = null;
+  try { st = fs.statSync(r.file); } catch { /* the record's own count, below */ }
+  const head = r.kind === 'image' && st && st.isFile() ? headOf(r.file) : null;   // never open a FIFO or device
+  const img = head ? imageFacts(head) : null;
+  const proven = img ? img.type : (head ? signatureType(head) : null);
+  const stored = String(r.type || '').toLowerCase();
+  const PROVABLE = ['image/png', 'image/gif', 'image/jpeg', 'image/jpg', 'image/webp'];
+  /* A claimed png/gif/jpeg/webp is dropped only when the bytes WERE read and did not match it. */
+  const contradicted = head !== null && PROVABLE.includes(stored);
+  const plain = /^[a-z0-9][a-z0-9._+-]*\/[a-z0-9][a-z0-9._+-]*$/.test(stored) && !contradicted;
+  const type = proven || (plain ? stored : null);
+  const bytes = st && st.isFile() ? st.size : r.size;
+  const parts = [type || 'unknown type'];
+  if (img) parts.push(img.width + 'x' + img.height);
+  const size = sizeWords(bytes);
+  if (size) parts.push(size);
+  return parts.join(', ');
+}
+
 /** The sentence added to the wire so the agent can open the file(s): one
-    bracket per file, in the order they were attached. */
+    bracket per file, in the order they were attached, each with the file's
+    facts (#5448) so the agent knows what it is before deciding to open it:
+      [attached file: /…/shot.png (image/png, 1280x720, 312 KB)]
+    The path already ends with the file's name, so the name is not repeated.
+    Reads up to 256 KB of each image synchronously (at most MAX_PER_MESSAGE
+    files), on the send path. */
 function wireNote(recs) {
   const list = Array.isArray(recs) ? recs : (recs ? [recs] : []);
-  return list.filter(Boolean).map((r) => ' [attached file: ' + r.file + ']').join('');
+  return list.filter(Boolean).map((r) => ' [attached file: ' + r.file + ' (' + factsOf(r) + ')]').join('');
 }
 
 /** Resolve a request's attachment ids (either `attachment: id` or
@@ -231,4 +369,4 @@ function rowFields(recs) {
   return { attachment: list[0], attachments: list };
 }
 
-module.exports = { MAX_BYTES, MAX_PER_MESSAGE, ROOT, kindOf, imageTypeOf, renderPdf, hasRenderer, safeName, save, read, rowField, rowFields, resolveForMessage, preview, wireNote, setRenderer };   // #4997: imageTypeOf, renderPdf and hasRenderer for engine/filepreview.js
+module.exports = { MAX_BYTES, MAX_PER_MESSAGE, ROOT, kindOf, imageTypeOf, renderPdf, hasRenderer, safeName, save, read, rowField, rowFields, resolveForMessage, preview, wireNote, imageFacts, signatureType, sizeWords, setRenderer };   // #4997: imageTypeOf, renderPdf and hasRenderer for engine/filepreview.js

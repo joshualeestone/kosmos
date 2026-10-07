@@ -1695,7 +1695,14 @@ test('the startup script, actually run, hands the pane its account and its board
        branch -- written into the expected SET, not filtered, for the same reason the
        token and renderer riders are: this assertion's value is that nothing
        UNEXPECTED reaches a pane. */
-    const expected = [`CLAUDE_CONFIG_DIR=${claudeDir}`, `CODEX_HOME=${codexDir}`, 'KOSMOS_PORT=16245',
+    // #4592: CODEX_HOME from the launch job remains the selected account SOURCE,
+    // but a codex pane receives its per-agent Kosmos runtime home. Claude still
+    // forwards the ambient CODEX_HOME unchanged, as this runner-neutral test has
+    // always asserted.
+    const paneCodexHome = (b.runner || 'claude') === 'codex'
+      ? nodePath.join(process.env.AGENT_WORKFORCE_DATA || nodePath.join(process.env.HOME, 'Library', 'Application Support'), 'Kosmos', 'codex-homes', 'probe')
+      : codexDir;
+    const expected = [`CLAUDE_CONFIG_DIR=${claudeDir}`, `CODEX_HOME=${paneCodexHome}`, 'KOSMOS_PORT=16245',
       `HOME=${process.env.HOME || ''}`,
       'KOSMOS_WORLD=',
       `AGENT_WORKFORCE_DATA=${process.env.AGENT_WORKFORCE_DATA || ''}`,
@@ -3864,7 +3871,7 @@ test('runningJobs reads which of our jobs launchd holds a live process for, and 
   });
   create.setDryRun(false);
   try {
-    const up = create.runningJobs();
+    const up = create.runningJobs('darwin');
     assert.deepEqual([...up].sort(), ['alive'],
       'the parse claimed a parked, zero-pid or foreign job as running, or missed the live one');
     assert.ok(asked.some((c) => /launchctl list$/.test(c)), 'the probe is not the non-mutating fleet read');
@@ -3876,7 +3883,7 @@ test('runningJobs reads which of our jobs launchd holds a live process for, and 
   create.setRunner(() => { throw new Error('no launchctl here'); });
   create.setDryRun(false);
   try {
-    assert.equal(create.runningJobs().size, 0, 'a failed look dressed a stopped agent in running-unseen');
+    assert.equal(create.runningJobs('darwin').size, 0, 'a failed look dressed a stopped agent in running-unseen');
   } finally {
     create.setRunner(null);
   }
@@ -5625,7 +5632,7 @@ test('disabledJobs reads the launchd overrides and fails soft to an empty set (#
   });
   create.setDryRun(false);
   try {
-    const off = create.disabledJobs();
+    const off = create.disabledJobs('darwin');
     assert.deepEqual([...off].sort(), ['anna', 'rick'], 'the parse missed a form launchctl uses, or claimed a label that is not ours');
     assert.ok(orig.some((c) => /launchctl print-disabled gui\//.test(c)), 'the probe is not the non-mutating read');
     assert.ok(!orig.some((c) => /enable|disable |bootout|bootstrap/.test(c)), 'the probe mutates launchd state');
@@ -5636,7 +5643,7 @@ test('disabledJobs reads the launchd overrides and fails soft to an empty set (#
   create.setRunner(() => { throw new Error('no launchctl here'); });
   create.setDryRun(false);
   try {
-    assert.equal(create.disabledJobs().size, 0, 'a failed look dressed agents in switched-off');
+    assert.equal(create.disabledJobs('darwin').size, 0, 'a failed look dressed agents in switched-off');
   } finally {
     create.setRunner(null);
   }
@@ -5647,10 +5654,10 @@ test('#2977: disabledJobsResult says whether it could LOOK, distinguishing "we l
   create.setRunner(() => ({ ok: true, stdout: 'disabled services = {\n\t"com.kosmos.agent.rick" => disabled\n}\n' }));
   create.setDryRun(false);
   try {
-    const r = create.disabledJobsResult();
+    const r = create.disabledJobsResult(undefined, 'darwin');
     assert.equal(r.ok, true);
     assert.deepEqual([...r.jobs].sort(), ['rick']);
-    assert.equal(create.disabledJobs().size, 1, 'disabledJobs must still unwrap the result to a plain Set');
+    assert.equal(create.disabledJobs('darwin').size, 1, 'disabledJobs must still unwrap the result to a plain Set');
   } finally {
     create.setRunner(null);
   }
@@ -5658,8 +5665,8 @@ test('#2977: disabledJobsResult says whether it could LOOK, distinguishing "we l
   create.setRunner(() => { throw new Error('no launchctl here'); });
   create.setDryRun(false);
   try {
-    assert.deepEqual(create.disabledJobsResult(), { ok: false }, 'a thrown probe must report it could not look');
-    assert.equal(create.disabledJobs().size, 0, 'and disabledJobs still fails soft to an empty set for its other callers');
+    assert.deepEqual(create.disabledJobsResult(undefined, 'darwin'), { ok: false }, 'a thrown probe must report it could not look');
+    assert.equal(create.disabledJobs('darwin').size, 0, 'and disabledJobs still fails soft to an empty set for its other callers');
   } finally {
     create.setRunner(null);
   }
@@ -5668,7 +5675,7 @@ test('#2977: disabledJobsResult says whether it could LOOK, distinguishing "we l
   create.setRunner(() => ({ ok: false }));
   create.setDryRun(false);
   try {
-    assert.deepEqual(create.disabledJobsResult(), { ok: false }, 'an ok:false runner result must report it could not look, not an empty set');
+    assert.deepEqual(create.disabledJobsResult(undefined, 'darwin'), { ok: false }, 'an ok:false runner result must report it could not look, not an empty set');
   } finally {
     create.setRunner(null);
   }
@@ -5942,6 +5949,10 @@ test('#1139: installSupervisor leaves an engine-path beside the supervisor, poin
     fs.existsSync(nodePath.join(dir, 'sendertoken.js')),
     `engine-path points at ${dir}, which has no sendertoken.js`,
   );
+  assert.ok(
+    fs.existsSync(nodePath.join(dir, 'codexruntime.js')),
+    `engine-path points at ${dir}, which has no codexruntime.js`,
+  );
 
   /* And it must not be the SUPPORT_DIR copy's own parent, which is the layout
      that had no engine at all. */
@@ -6057,7 +6068,10 @@ test('#1315: the SUPERVISOR dismisses the update notice, in the codex branch onl
 
   /* It must be inside the codex branch. The claude launch is below the `else`,
      and running a codex helper there would be wrong even if harmless. */
-  const codexBranch = sup.indexOf('if [ "$RUNNER" = codex ]');
+  // #4592 adds an earlier codex-only home-isolation branch. Anchor to the
+  // enclosing codex launch branch nearest the helper, not the first codex
+  // condition in the file.
+  const codexBranch = sup.lastIndexOf('if [ "$RUNNER" = codex ]', at);
   const elseBranch = sup.indexOf('else', codexBranch);
   assert.ok(codexBranch > 0 && elseBranch > codexBranch, 'the codex branch moved: this guard needs re-aiming');
   assert.ok(at > codexBranch && at < elseBranch,
