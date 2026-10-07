@@ -190,7 +190,7 @@ Before submission, test those exact instructions on a clean Android device that 
 
 - Android shell and TWA: `android/app/src/main/AndroidManifest.xml`, `android/app/build.gradle`, and `android/app/src/main/java/io/kosmos/app/`.
 - Canonical approved listing work and upload assets: `docs/play-listing.md` and `docs/play-listing/`.
-- Real AVD evidence: `android/evidence/vc2-4132/`.
+- Real AVD evidence (device and manifest audit, not the store screenshots, which are Chromium board renders): `android/evidence/vc2-4132/`.
 - Coordinator storage and deletion: `coordinator/src/db.rs`, `coordinator/src/account_delete.rs`, `coordinator/src/config.rs`, and `coordinator/src/lib.rs` in kosmos-relay.
 - Authentication, billing, push, and logging: `coordinator/src/signin.rs`, `coordinator/src/second.rs`, `coordinator/src/stripe.rs`, `coordinator/src/push.rs`, `coordinator/src/access_log.rs`, and `deploy/caddy/Caddyfile` in kosmos-relay.
 - Public policy: `https://installkosmos.com/privacy`.
