@@ -1114,7 +1114,11 @@ async function forget() {
       // bound), so this wait ends with the calls ended.
       if (signedInFlight.size) await Promise.allSettled([...signedInFlight]);
       // kosmos#5422: a device-key ask may be making the key in the folder Forget empties (bounded at 15 s).
-      if (deviceIdInFlight.size) await Promise.allSettled([...deviceIdInFlight]);
+      if (deviceIdInFlight.size) {
+        let timer;
+        await Promise.race([Promise.allSettled([...deviceIdInFlight]), new Promise((ok) => { timer = setTimeout(ok, keyCallWaitMs()); })]);
+        clearTimeout(timer);
+      }
       return await forgetNow();
     } finally {
       forgetting = false;
@@ -1692,7 +1696,10 @@ function signinDeviceId() {
 const DEVICE_KEY_FILE = () => path.join(STATE_DIR(), 'signin-device.key');
 const DEVICE_ID_ASK_MS = 15000;
 /* Calls that can make the device key (the ask, and a keyed start: the tunnel's start makes a missing key too). Forget
-   waits for them, since they write into the folder it empties. Each is bounded. */
+   waits for them, since they write into the folder it empties. The ask is bounded (DEVICE_ID_ASK_MS); a start is
+   not, so Forget's wait is (KEY_CALL_WAIT_MS): a start still out after that cannot hold the Forget. */
+const KEY_CALL_WAIT_MS = 60000;
+const keyCallWaitMs = () => Number(process.env.AGENT_WORKFORCE_KEY_CALL_WAIT_MS) || KEY_CALL_WAIT_MS;   // test seam
 const deviceIdInFlight = new Set();
 function trackKeyCall(p) { deviceIdInFlight.add(p); const done = () => deviceIdInFlight.delete(p); p.then(done, done); return p; }
 async function signinDeviceArgs(forVerify) {

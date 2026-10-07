@@ -33,10 +33,15 @@ This merges first; #297 is held until it does (comment on #297).
   process that never signed in has none to put back.
 - A verify never makes a key: with the key file gone it says start again (a Forget between start and verify).
 
-## Tests (engine/remote.test.js, names carry kosmos#5422)
-- a key that cannot be opened refuses in words, sends no start (control: an older tunnel signs in).
-- a new key keeps the older key id among this computer's own; a cancel while start asks the tunnel sends no start.
-- devkey tunnel: start and verify pass the same key file in the state dir, no id; asked once; remote.json moves ids.
-- older tunnel: opaque id, no key file, stored id unchanged.
-- after a key, an older tunnel uses the kept opaque id (control: none kept, one is made, key id stays).
-- allow accepts a k1 id and refuses near misses and `../evil`.
+## Tests (engine/remote.test.js unless named; names carry kosmos#5422)
+- devkey tunnel: start and verify pass the same key file in the state dir and no id; remote.json moves the ids.
+- older tunnel (exit 2 + clap's words): opaque id, no key file; an exit 2 without the words refuses.
+- after a key, an older tunnel uses the kept opaque id, and moves the id in use only once a start is taken.
+- a key that cannot be opened refuses in words (control: an older tunnel signs in).
+- a new key keeps the older key id; a start the coordinator does not take leaves the id; a verify it takes records it.
+- damaged remote.json: the repair keeps the key id and the ids before; key gone still says start again.
+- verify with the key file gone sends nothing; a cancel during the ask sends no start.
+- Forget waits for the ask and for a keyed start (bounded; a start that never returns cannot hold it).
+- the folder is owner-only from the first ask; the key survives clearing an unfinished sign-in, 0600.
+- the pending list and server.test.js's allowed list hide every own id; allow accepts exactly the k1 shape.
+- remote-unreadable-4308.test.js and server.test.js fakes act as older tunnels for device-id.

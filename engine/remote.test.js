@@ -1918,6 +1918,19 @@ test('kosmos#5422: Forget waits for a keyed start too (the tunnel\'s start makes
   assert.equal(fs.existsSync(keyFile), false, 'a key made by the start during the Forget survived it');
 });
 
+test('kosmos#5422: a keyed start that never returns cannot hold a Forget', async () => {
+  process.env.FAKE_TUNNEL_MODE = 'devkey devkey-slow-start';
+  process.env.AGENT_WORKFORCE_KEY_CALL_WAIT_MS = '200';
+  try {
+    const starting = remote.signinStart('her@example.com');
+    await until(() => recorded().some((c) => c[1] === 'start'), 'the keyed start to go out');
+    const t0 = Date.now();
+    await remote.forget();
+    assert.ok(Date.now() - t0 < 700, 'Forget waited out the whole start (' + (Date.now() - t0) + ' ms)');
+    await starting;
+  } finally { delete process.env.FAKE_TUNNEL_MODE; delete process.env.AGENT_WORKFORCE_KEY_CALL_WAIT_MS; }
+});
+
 test('kosmos#5422: a cancel while start asks the tunnel sends no start', async () => {
   process.env.FAKE_TUNNEL_MODE = 'devkey';
   try {
