@@ -4,7 +4,7 @@
 #
 # setup.sh is served as a single curl|sh file and sources nothing, so this extracts the REAL pause block
 # (from the FRESH_INSTALL=no guard to its closing fi) and runs it in a harness: a throwaway KOSMOS_HOME, a
-# stub `kosmos` whose every verb does nothing (as #4636's stop in a sandbox) (as a sandboxed stop does), and a node stub listener as the board.
+# stub `kosmos` whose every verb does nothing, as #4636's stop does in a sandbox, and a node stub listener as the board.
 # "Passed the pause" is the line the harness prints if the block lets the update go on to replace files.
 #
 # Three seatbelt profiles, measured on a Mac (2026-09-30):
@@ -55,6 +55,9 @@ KOSMOS_HOME="$T/home"; LOG_DIR="$T/logs"; FRESH_INSTALL=no
 info() { echo "INFO: $*"; }
 die() { echo "DIE: $*"; echo "STATE put-back=${_kosmos_paused_board:-unset} take-back=${_kosmos_marker_ours:-unset}"; exit 1; }
 _kosmos_mode_keeps_board_off() { return 1; }
+# As setup.sh sets them above the block (the block reads them).
+_kosmos_was_running=no; _kosmos_paused_board=no; _kosmos_marker_ours=no
+if [ -n "${PRESTOPPED:-}" ]; then : > "$KOSMOS_HOME/board.stopped"; fi
 . "$T/pause.sh"
 echo "PASSED THE PAUSE"
 EOF
@@ -78,6 +81,7 @@ start_listener() {
 }
 stop_listener() { if [ -n "$LISTENER" ]; then kill "$LISTENER" 2>/dev/null; wait "$LISTENER" 2>/dev/null; LISTENER=""; fi; }
 run_pause() { # profile-or-empty port
+  rm -f "$T/home/board.stopped"   # outside the sandbox: profile C cannot remove it
   # /bin/sh: setup.sh ships as curl | sh, so the block runs in that dialect here too.
   if [ -n "$1" ]; then /usr/bin/sandbox-exec -p "$1" /bin/sh "$T/run.sh" "$T" "$2" 2>&1
   else /bin/sh "$T/run.sh" "$T" "$2" 2>&1; fi
@@ -114,7 +118,7 @@ chk "sandbox A, free port: passes the pause (the board really stopped)" '[[ "$OU
 P="$(free_port)"; start_listener "$P" http; OUT="$(run_pause "$PROFILE_A" "$P")"; stop_listener
 chk "sandbox A, live board: the update stops before changing anything" '[[ "$OUT" == *"DIE:"* && "$OUT" != *"PASSED THE PAUSE"* ]]'
 chk "sandbox A, live board: says to use a normal Terminal, never to kill the pid" '[[ "$OUT" == *"normal Terminal"* && "$OUT" != *"kill "* ]]'
-chk "sandbox A, live board: says to open the Kosmos app if it is not running afterwards" '[[ "$OUT" == *"If Kosmos is not running afterwards, open the Kosmos app."* ]]'
+chk "sandbox A, live board: says to open the Kosmos app if it is not running" '[[ "$OUT" == *"If you leave the update here and Kosmos is not running, open the Kosmos app."* ]]'
 chk "sandbox A, live board: no put-back from a blocked shell; its own marker is taken back" '[[ "$OUT" == *"STATE put-back=no take-back=yes"* ]]'
 
 # B: lsof is denied too. Before #4651 this PASSED the pause under a live board.
@@ -122,6 +126,11 @@ P="$(free_port)"; start_listener "$P" http; OUT="$(run_pause "$PROFILE_B" "$P")"
 chk "sandbox B, live board: the update stops before changing anything (it passed before #4651)" '[[ "$OUT" == *"DIE:"* && "$OUT" != *"PASSED THE PAUSE"* ]]'
 chk "sandbox B, live board: says to use a normal Terminal, and shows what the port check said" '[[ "$OUT" == *"normal Terminal"* && "$OUT" == *"Operation not permitted"* ]]'
 chk "sandbox B, live board: no put-back from a blocked shell; its own marker is taken back" '[[ "$OUT" == *"STATE put-back=no take-back=yes"* ]]'
+chk "sandbox B, live board: says to open the Kosmos app if it is not running" '[[ "$OUT" == *"If you leave the update here and Kosmos is not running, open the Kosmos app."* ]]'
+# B, but the person had stopped the board before the run (board.stopped already there): nothing was this run's to
+# hand back, so no take-back, and no advice to start it.
+P="$(free_port)"; start_listener "$P" http; OUT="$(PRESTOPPED=1 run_pause "$PROFILE_B" "$P")"; stop_listener
+chk "sandbox B, a board the person stopped: no put-back, no take-back, no advice to open the app" '[[ "$OUT" == *"DIE:"* && "$OUT" == *"STATE put-back=no take-back=no"* && "$OUT" != *"open the Kosmos app"* ]]'
 
 # C: no file can be written, and lsof is denied. Must still stop.
 P="$(free_port)"; start_listener "$P" http; OUT="$(run_pause "$PROFILE_C" "$P")"; stop_listener
