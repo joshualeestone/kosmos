@@ -56,9 +56,20 @@ test('#4491: the undo copier never keeps a copy of the board token or a sender t
   fs.writeFileSync(st, SECRET);
   assert.equal(undo.keep(st, { cwd: me }).because, 'credential', 'a sender token was copied');
   const link = path.join(me, 'notes.txt');
-  let linked = true;
-  try { fs.linkSync(token, link); } catch { linked = false; }
-  if (linked) assert.equal(undo.keep(link, { cwd: me }).because, 'credential', 'a hard link to board.token under another name was copied');
+  fs.linkSync(token, link);   // must work in the sandbox: a skipped arm here would prove nothing
+  assert.equal(undo.keep(link, { cwd: me }).because, 'credential', 'a hard link to board.token under another name was copied');
+  assert.equal(undo.keep(path.join(store.ROOT, 'BOARD.TOKEN.new'), { cwd: me }).because, 'credential', 'a case variant of the name was recorded');
+  const stLink = path.join(me, 'colleague.txt');
+  fs.linkSync(st, stLink);
+  assert.equal(undo.keep(stLink, { cwd: me }).because, 'credential', 'a hard link to a sender token was copied');
+  const upper = path.join(path.dirname(sendertoken.DIR), path.basename(sendertoken.DIR).toUpperCase(), 'someone');
+  assert.equal(undo.keep(upper, { cwd: me }).because, 'credential', 'the sender tokens folder spelled in another case was not refused');
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), '[]');
+  assert.equal(undo.keep(sendertoken.tokenOnlyFile(), { cwd: me }).because, 'credential', 'the token-only list was copied');
+  const own = path.join(me, '.claude');
+  fs.mkdirSync(own, { recursive: true });
+  fs.writeFileSync(path.join(own, 'settings.json'), '{}');
+  assert.equal(undo.keep(path.join(own, 'settings.json'), { cwd: me }).because, 'credential', 'an agent settings file is kept (and could be restored over its guard)');
   assert.equal(undo.keep(path.join(store.ROOT, 'board.token.gone'), { cwd: me }).because, 'credential', 'a not-yet-existing token name was recorded');
   assert.equal(storeHolds(SECRET), false, 'the undo store holds the token bytes');
   assert.equal(storeHolds(secretHash), false, 'the undo store names the token blob');
@@ -68,4 +79,39 @@ test('#4491: the undo copier never keeps a copy of the board token or a sender t
   fs.writeFileSync(plain, 'ordinary words');
   assert.deepEqual(undo.keep(plain, { cwd: me }), { kept: true });
   assert.equal(storeHolds('ordinary words'), true, 'CONTROL: the ordinary copy did not reach the store');
+});
+
+/* A record in the undo store naming a credential (written there by something other than keep, which refuses it) is
+   never restored or moved: plan flags it and apply refuses it again at the write. */
+const taskchat = require('./taskchat');
+const T = (hhmm) => `2026-10-01T${hhmm}:00.000Z`;
+const ms = (hhmm) => Date.parse(T(hhmm));
+test('#4491: a forged undo record naming board.token is never restored, moved or copied', () => {
+  undo.setOn(true, ms('08:00'));
+  const me = worker('ud-forge');
+  const own = path.join(me, 'mine.txt');
+  fs.writeFileSync(own, 'before'); const t9 = new Date(ms('09:00')); fs.utimesSync(own, t9, t9);
+  const file = taskchat.taskChatFile('pf', 1);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, [{ at: T('10:00'), kind: 'created', who: 'ud-forge' }, { at: T('11:00'), kind: 'closed' }].map((r) => JSON.stringify(r)).join('\n') + '\n');
+  assert.deepEqual(undo.keep(own, { cwd: me, session: 's', now: ms('10:10') }), { kept: true });
+  fs.writeFileSync(own, 'after'); const t10 = new Date(ms('10:11')); fs.utimesSync(own, t10, t10);
+  const token = path.join(store.ROOT, 'board.token');
+  fs.writeFileSync(token, SECRET);
+  const t8 = new Date(ms('08:30')); fs.utimesSync(token, t8, t8);
+  const index = path.join(store.ROOT, 'undo', 'index.jsonl');
+  const forged = fs.readFileSync(index, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((r) => r.path === own)
+    .map((r) => JSON.stringify({ ...r, id: r.id + 'f', path: token, dirReal: fs.realpathSync(store.ROOT) }));
+  fs.appendFileSync(index, forged.join('\n') + '\n');
+  const plan = undo.plan('pf', { number: 1, closedAt: T('11:00') });
+  const row = plan.files.find((x) => x.path === token);
+  assert.ok(row, 'CONTROL: the forged record is in the plan, so the check below is reached: ' + JSON.stringify(plan.files));
+  assert.deepEqual([row.ok, row.why], [false, 'protected']);
+  const r = undo.apply('pf', { number: 1, closedAt: T('11:00') }, [token, own], { now: ms('12:00') });
+  assert.ok(!r.done.includes(token), 'board.token was restored');
+  assert.equal(fs.readFileSync(token, 'utf8'), SECRET, 'board.token was changed');
+  assert.ok(r.done.includes(own), 'CONTROL: the agent\'s own file was undone in the same call');
+  const saved = path.join(store.ROOT, 'undo-saved');
+  const savedHolds = (d) => { try { return fs.readdirSync(d, { recursive: true }).some((n) => { try { return fs.readFileSync(path.join(d, n), 'utf8').includes(SECRET); } catch { return false; } }); } catch { return false; } };
+  assert.equal(savedHolds(saved), false, 'a copy of board.token was saved aside');
 });

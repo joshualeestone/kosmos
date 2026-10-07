@@ -124,24 +124,37 @@ function readIndex() {
   return out;
 }
 
+/* Undefined on win32 (#1732 fs-const-platform-flag): captured here and ORed in undefined-safe. keep's lstat link refusal
+   before the open, and isCredential's identity check on the OPENED file (device and inode against every credential
+   file), refuse a swapped link or another file on every platform; the kernel flags are a second guard where they
+   exist (O_NOFOLLOW closes the swap between that lstat and the open). */
+const NOFOLLOW = fs.constants.O_NOFOLLOW;
+const NONBLOCK = fs.constants.O_NONBLOCK;
+
 /* #4491 (post-rebase review): the board reads the file for the caller, so a copy of one of the board's own credentials
-   would hand it to an agent whose shell is denied reading it. Refused by name (board.token and its temp names), by
-   place (the sender tokens folder), and by identity on disk (the same device and inode as a credential file, which
-   catches a hard link under another name), whether or not the file exists yet. Fails closed: a check that cannot
-   run refuses. */
+   would hand it to an agent whose shell is denied reading it. Refused by name (board.token and its temp names, in any
+   case), by place (a sender tokens folder in any root), and by identity on disk (the same device and inode as a
+   credential file, which catches a hard link under another name or a symlinked parent), whether or not the file
+   exists yet. Paths are compared without case (macOS and Windows disks ignore it; on Linux that can only refuse more,
+   never less). Fails closed: a check that cannot run refuses. Also refused: a Claude settings file in a .claude or
+   .claude-<label> folder, which restore must never rewrite (it could switch an agent's guard off). */
 function isCredential(abs, st) {
   try {
-    if (/^\.?board\.token(\..*)?$/.test(path.basename(abs))) return true;
+    if (/^\.?board\.token(\..*)?$/i.test(path.basename(abs))) return true;
+    if (/^settings(\.local)?\.json$/i.test(path.basename(abs)) && /^\.claude(-.*)?$/i.test(path.basename(path.dirname(abs)))) return true;
     const cred = require('./setup-assistant').boardCredentialPaths();
-    let real = abs;
-    try { real = fs.realpathSync(path.dirname(abs)) + path.sep + path.basename(abs); } catch { /* the path as given */ }
+    const realOf = (q) => { try { return fs.realpathSync.native(q); } catch { return null; } };
+    const lc = (q) => String(q).toLowerCase();
+    const parentReal = realOf(path.dirname(abs));
+    const real = parentReal ? path.join(parentReal, path.basename(abs)) : abs;
+    const files = cred.files.slice();
     for (const d of cred.dirs) {
-      let dr = d;
-      try { dr = fs.realpathSync(d); } catch { /* as given */ }
-      if (real === dr || real.startsWith(dr + path.sep) || abs.startsWith(d + path.sep)) return true;
+      const dr = realOf(d) || d;
+      for (const [x, y] of [[real, dr], [abs, d]]) if (lc(x) === lc(y) || lc(x).startsWith(lc(y) + path.sep)) return true;
+      try { for (const n of fs.readdirSync(d)) files.push(path.join(d, n)); } catch { /* no such folder */ }
     }
-    for (const f of cred.files) {
-      if (abs === f || real === f) return true;
+    for (const f of files) {
+      if (lc(abs) === lc(f) || lc(real) === lc(f) || lc(real) === lc(realOf(f) || f)) return true;
       if (st) { try { const c = fs.statSync(f); if (c.dev === st.dev && c.ino === st.ino) return true; } catch { /* that one is absent */ } }
     }
     return false;
@@ -171,18 +184,37 @@ function keep(file, { cwd = '', session = '', now = Date.now(), onlyFor = null }
       if (!mine) return { kept: false, because: 'not-yours' };
     }
     const abs = path.resolve(file);
+    /* #4491 review: ONE open, without following a final link, and every check and the read on that open file, so the
+       path cannot be swapped (for a link or another file) between the check and the read. */
+    let fd = null;
     let st = null;
-    try { st = fs.lstatSync(abs); } catch (err) { if (err.code !== 'ENOENT') return { kept: false, because: 'unreadable' }; }
-    if (st && st.isSymbolicLink()) return { kept: false, because: 'link' };
-    if (isCredential(abs, st)) return { kept: false, because: 'credential' };
-    if (st && !st.isFile()) return { kept: false, because: 'not-a-file' };
-    if (st && st.size > MAX_BYTES) return { kept: false, because: 'too-large' };
+    try { const l = fs.lstatSync(abs); if (l.isSymbolicLink()) return { kept: false, because: 'link' }; } catch { /* absent: the open says so */ }
+    try { fd = fs.openSync(abs, fs.constants.O_RDONLY | (NOFOLLOW || 0) | (NONBLOCK || 0)); }
+    catch (err) {
+      if (err.code === 'ELOOP' || err.code === 'EMLINK') return { kept: false, because: 'link' };
+      if (err.code !== 'ENOENT') return { kept: false, because: 'unreadable' };
+    }
+    try {
+      if (fd !== null) st = fs.fstatSync(fd);
+      if (isCredential(abs, st)) return { kept: false, because: 'credential' };
+      if (st && !st.isFile()) return { kept: false, because: 'not-a-file' };
+      if (st && st.size > MAX_BYTES) return { kept: false, because: 'too-large' };
+      return keepOpen(abs, fd, st, { cwd, session, now, who });
+    } finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
+  } catch {
+    return { kept: false, because: 'failed' };
+  }
+}
+
+/* The rest of keep, on the file keep opened (fd null: the file does not exist yet). */
+function keepOpen(abs, fd, st, { cwd, session, now, who }) {
+  try {
     let dirReal = '';
     try { dirReal = fs.realpathSync(path.dirname(abs)); } catch { dirReal = ''; }
     mkdirPrivate(blobsDir());
     let hash = null;
     if (st) {
-      const buf = fs.readFileSync(abs);
+      const buf = fs.readFileSync(fd);   // the file checked above, never the path again
       hash = sha(buf);
       const blob = path.join(blobsDir(), hash);
       if (!fs.existsSync(blob)) { fs.writeFileSync(blob + '.tmp', buf, { mode: 0o600 }); fs.renameSync(blob + '.tmp', blob); }
@@ -292,7 +324,9 @@ function plan(projectId, task, { now = Date.now() } = {}) {
     let dirReal = '';
     try { dirReal = fs.realpathSync(path.dirname(p)); } catch { dirReal = ''; }
     const flag = (why) => { if (entry.ok) { entry.ok = false; entry.why = why; } };
-    if (cur.kind === 'other') flag('not-a-file');
+    // #4491 review: a credential or a Claude settings file is never restored or moved, whatever its record says.
+    if (isCredential(p, cur.st || null)) flag('protected');
+    else if (cur.kind === 'other') flag('not-a-file');
     /* No folder recorded (the file was created in a folder that did not exist yet): its folder must still be exactly
        the path it was named by, not a link to somewhere else (review 2). */
     else if (rec.dirReal ? (dirReal && dirReal !== rec.dirReal) : (dirReal && dirReal !== path.dirname(p))) flag('moved');
@@ -339,6 +373,7 @@ function apply(projectId, task, paths, { now = Date.now() } = {}) {
   for (const f of p.files) {
     if (!chosen.has(f.path)) continue;
     if (!f.ok && !CHOOSABLE.has(f.why)) { skipped.push({ path: f.path, why: f.why }); continue; }
+    if (isCredential(f.path, null)) { skipped.push({ path: f.path, why: 'protected' }); continue; }   // again, at the write
     const rec = byId.get(f.copyId);
     const cur = nowIs(f.path);
     if (!rec || cur.kind === 'other') { skipped.push({ path: f.path, why: 'not-a-file' }); continue; }
