@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: boardkeychain-4491
-diff_hash: 8fc63156edc1fc0cbec55f088357d8fe50fbbda6073ceaff44180e04fe96434a
+diff_hash: a9f300f259bedeb669da481d6fe69dca1fdb57d9c5a16c815068dd928ff7ecdd
 validation: passed (Mortals full suite at a3d4699db, 08:35 CDT 2026-10-04: 15036 tests, 14812 pass, 0 fail, 224 skipped; hash 28628ddc726d; full suite passed on Mortals)
 subdir_audit: passed
 timestamp: 2026-10-04T13:50:43Z
