@@ -7,6 +7,7 @@
  * ann and bob both connected to one folder, and both read { displayName: 'Ann', role: 'project manager' }.
  */
 const test = require('node:test');
+const jobfix = require('../test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -296,7 +297,7 @@ test('#4896 r7: a created agent whose name safeKey empties (a job, no profile) h
   const home = path.join(process.env.AGENT_WORKFORCE_WORKERS, odd);
   fs.mkdirSync(home, { recursive: true });
   fs.writeFileSync(path.join(home, 'CLAUDE.md'), 'You are **Ee**, a singer.\n');
-  const plist = create.plistPath(odd);
+  const plist = jobfix.jobPath(odd);
   fs.mkdirSync(path.dirname(plist), { recursive: true });
   fs.writeFileSync(plist, '<plist/>');   // the job is what makes the agent exist; safeKey cannot give it a profile
   try {
@@ -343,7 +344,7 @@ test('#4896 r8: an unkeyable created agent is not called removed because a DIFFE
   const home = path.join(process.env.AGENT_WORKFORCE_WORKERS, odd);
   fs.mkdirSync(home, { recursive: true });
   fs.writeFileSync(path.join(home, 'CLAUDE.md'), 'You are **Ea**, a painter.\n');
-  const plist = create.plistPath(odd);
+  const plist = jobfix.jobPath(odd);
   fs.mkdirSync(path.dirname(plist), { recursive: true });
   fs.writeFileSync(plist, '<plist/>');
   try {
