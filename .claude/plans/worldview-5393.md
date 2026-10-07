@@ -50,11 +50,16 @@ limited, and an idle or unknown agent also counts as not paused.
 - Then /challenge-loop.
 
 - **Provider rows (reviews 3 and 4):** `until` is null unless every paused agent on the provider states a time, and
-  an agent whose only stated time has passed counts as stating none (review 5), so `until` is only ever in the future. Each row carries
+  an agent whose only stated time has passed counts as stating none (review 5), so `until` is only ever a future time every paused agent stated. Each row carries
   `signInFailed` (auth_failed cards) and `stopped` (stopped cards, which are not counted in `agents`); a provider
   with only stopped agents reads 'stopped'. No screen reads the route yet (slice 2 does), so the shape changes break
   nothing.
 - **Agents with no known provider (review 5):** paneless cards (Windows and remote agents) carry no runner, so they
   cannot sit in a provider row; the running world's row counts the live ones in `agentsWithoutProvider`.
+- **A half-done task (review 6):** a task whose finished part has a person is not counted as nobody's, by
+  tasks.whoOf, the same rule the board's columns and the Assigner use, so it shows in that person's column and the
+  two views agree. Counting only open parts would make this view disagree with the board.
+- **Snapshot per request (reviews 1, 2, 6):** the route builds a fresh safeRoster() each call; slice 2's page must
+  poll gently or reuse the board's snapshot. Recorded for slice 2, not built here.
 - **Whose worlds (review 4):** worldBase() is worlds.baseRoot(process.env), which is store.dataRootFor on this
   account's own environment, so the route lists this account's worlds only, as /api/worlds/list does.

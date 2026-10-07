@@ -10,7 +10,8 @@
  * gates every projects write in the world this board is running, and a read of ANOTHER world's file must not be
  * able to switch writes off here. An unreadable or damaged file is said, never counted as zero.
  *
- * 🔑 "NOBODY IS ON IT": open, no part given to anyone, not marked built, in a live (not archived) project. Of
+ * 🔑 "NOBODY IS ON IT": open, no part given to anyone (a finished part's person counts, as on the board's columns
+ * and in the Assigner: tasks.whoOf, so a half-done task is in that person's column, not here), not marked built, in a live (not archived) project. Of
  * those, a task on hold or in a paused project is `held`; the rest are `waiting`. This is wider than what the
  * Assigner hands out (engine/assigner.js pick also skips webhook tasks, tasks with no number, and projects
  * with no agents or a paused swarm): those tasks still have nobody on them, so they are counted as waiting.
@@ -24,7 +25,7 @@
  * makes `until` null, meaning "paused, reset time not known", because a provider-wide time would be wrong for it.
  *
  * A time already past is not a resume time either: an agent whose only stated time has passed counts as stating
- * none, so `until` is only ever in the future and only ever true for every paused agent.
+ * none, so `until` is only ever a future time that every paused agent on the provider has stated (the latest).
  *
  * ⚠️ AN AGENT WITH NO KNOWN PROVIDER IS SAID, NOT DROPPED. A paneless card (every Windows and remote agent) carries
  * no runner, so it cannot go in a provider row; `agentsWithoutProvider` on the running world's row counts the ones
@@ -128,7 +129,6 @@ function overview({ base, runningId, cards, now }) {
       if (read.ok) count = unassignedIn(read.records);
       else because = read.because;
     } catch (_e) {
-      count = null;
       because = 'we cannot read the projects in this Kosmos right now';
     }
     const running = w.id === runningId;
