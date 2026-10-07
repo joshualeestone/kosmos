@@ -46,3 +46,16 @@ tell the switch from a record, an address it does not send to, or an agent the c
 - FIXED: the Mac CLI trims the board's sentence, as the Windows one does.
 - Left, and named: the kept `off` post sentence says "Do not post it again" while status's `before_on` says it can be
   posted again once Community is on. It predates this card; the agent is sent to status, which is right.
+
+## Review 2
+- FIXED: the contradiction moved one command later. `kosmos community status` read a torn switch file as "switched
+  off" (`paused` / `before_on`) right after the post command said a record could not be read. Status now reads
+  switchState too and says `unreadable` for an unsent item while the switch cannot be read (control: a switch the
+  person turned off still says paused).
+- FIXED: the words send the person to the log, so the log names the file: the switch file and a state file that could
+  not be written are each logged once (again after a recovery), as an unreadable record already was.
+- FIXED: the Mac trim is pinned (a trailing line break).
+- Left, and named: a start that could not be written still reads `before_on` in status ("switched off before it went
+  out"): status cannot tell that from a post made while off and then switched on before any sweep. It needs a disk
+  write failure; the log names the file.
+- Left: the routes' catch that reads a throwing willSend as `records` has no test (willSend catches internally).

@@ -231,13 +231,19 @@ function switchOn() {
 /* #5435 review 1: 'on', 'off', or 'unreadable' (the person's switch file cannot be read: not the person switching it off,
    so willSend does not say so). Every reader other than willSend keeps treating 'unreadable' as off. */
 function switchState() {
+  let state;
   try {
     const r = switchRead ? switchRead() : require('./communityswitch').read();
-    if (!r) return 'off';
-    if (r.ok !== true) return 'unreadable';
-    return r.on === true ? 'on' : 'off';
-  } catch { return 'unreadable'; }
+    state = !r ? 'off' : r.ok !== true ? 'unreadable' : r.on === true ? 'on' : 'off';
+  } catch { state = 'unreadable'; }
+  // #5435 review 2: the agent is told "the board's log says which record", so the log does, once until it reads again.
+  if (state === 'unreadable') logOnce('switch', 'communitysend: cannot read the community switch file (' + switchFileName() + '), so nothing is sent until it can be read; your person turns Community on or off again in Settings to rewrite it');
+  else loggedOnce.delete('switch');
+  return state;
 }
+const loggedOnce = new Set();
+function logOnce(key, line) { if (!loggedOnce.has(key)) { loggedOnce.add(key); console.error(line); } }
+function switchFileName() { try { return require('./communityswitch').FILE; } catch { return 'community.json'; } }
 
 // `since` for this ON period: recorded by the first sweep, or post, comment or release request, that finds the switch ON.
 function sinceForOnPeriod(st) {
@@ -248,7 +254,13 @@ function sinceForOnPeriod(st) {
   const fresh = loadJson(stateFile());
   if (fresh && typeof fresh.since === 'string') { st.since = fresh.since; return fresh.since; }
   const now = new Date().toISOString();
-  try { saveJson(stateFile(), { ...(fresh || st), since: now }); } catch { return null; }
+  try { saveJson(stateFile(), { ...(fresh || st), since: now }); }
+  catch (err) {
+    // #5435 review 2: named in the log, as the words the agent gets promise ("the board's log says which record").
+    logOnce('start', 'communitysend: cannot write ' + stateFile() + ' (' + ((err && err.code) || 'write failed') + '), so this ON period has no start and nothing is sent until it can be written');
+    return null;
+  }
+  loggedOnce.delete('start');
   st.since = now;
   return now;
 }
@@ -2300,7 +2312,7 @@ function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }
 function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : ms; }
 
 module.exports = {
-  switchOn, willSend, NOT_SENDING, notSendingWords, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete,
+  switchOn, switchState, willSend, NOT_SENDING, notSendingWords, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
   sendAddress: endpoint,   // #5415: communitystatus takes a sent item's public link host from it, and whether there is one
   setSender, resetPauses, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,

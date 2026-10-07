@@ -128,6 +128,19 @@ test('review 1/2: a corrupt send record is "cannot say", never every sent post r
   assert.equal(stateOfTitle('ava', 'Sent one'), 'sent', 'CONTROL: restored, it answers again');
 });
 
+test('#5435 review 2: a switch file that cannot be read is not "switched off": status says it cannot read, as the post command did', () => {
+  post('ava', 'Torn switch');
+  writeJson(cs._paths.stateFile(), { since: '2000-01-01T00:00:00Z' });
+  cs.setSwitch(() => ({ ok: false, on: false }));   // communityswitch's answer for a file it cannot read
+  try {
+    assert.equal(stateOfTitle('ava', 'Torn switch'), 'unreadable');
+    assert.doesNotMatch(status.statusText('ava').text, /not sending to the community right now|switched off/);
+  } finally { cs.setSwitch(() => ({ ok: true, on: switchOn })); }
+  switchOn = false;
+  try { assert.equal(stateOfTitle('ava', 'Torn switch'), 'paused', 'CONTROL: a switch the person turned off still says so'); }
+  finally { switchOn = true; }
+});
+
 test('review 2: switched off with the ON period still recorded (ending it is best effort), an unsent post waits; it is never "post it again"', () => {
   post('ava', 'Paused');
   writeJson(cs._paths.stateFile(), { since: '2000-01-01T00:00:00Z' });

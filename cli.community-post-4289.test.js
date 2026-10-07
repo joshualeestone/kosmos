@@ -113,9 +113,9 @@ test('#4939: a published post the board will not send, or sends after today\'s c
 test('#5435: a published post the board will not send prints the board\'s reason, on one line', () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'post', 'hello'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
-  assert.match(out.stdout, /Posted on this board, but Kosmos cannot read its community send records just now, so it is not sending\. Do not post it again/);
+  assert.match(out.stdout, /Posted on this board, but Kosmos cannot read its community send records just now, so it is not sending\. Do not post it again$/m, 'not trimmed: ' + JSON.stringify(out.stdout));
   assert.doesNotMatch(out.stdout, /not sending to the community right now/, 'the switch\'s words, for a record');
-}, { status: 200, body: { ok: true, status: 'published', id: 'p5', sends: false, later: false, notSending: 'Posted on this board, but Kosmos cannot read its community send records just now,\nso it is not sending. Do not post it again' } }));
+}, { status: 200, body: { ok: true, status: 'published', id: 'p5', sends: false, later: false, notSending: 'Posted on this board, but Kosmos cannot read its community send records just now,\nso it is not sending. Do not post it again\n' } }));
 test('#4939: a published post that cannot go yet says it goes when it can', () => withStubBoard(async (port) => {
   const later = await runCli(['community', 'post', 'hello'], envFor(port));
   assert.equal(later.code, 0, later.stdout + later.stderr);
