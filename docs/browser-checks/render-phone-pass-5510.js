@@ -13,7 +13,7 @@
  *   P  the room composer's hint is the short "Write something…" on a phone, and turns back into the @name tip
  *      when the window widens (and short again when it narrows), so it is never cut after "Write something c".
  * CONTROLS at a desktop width (1280, mouse): the name stays on one line, the emoji button shows, the hint is the
- * long one. They keep N, E and P from passing on a page that simply changed every width.
+ * long one; narrowed to 360 with the mouse, the emoji button still shows (only a touchscreen loses it). They keep N, E and P from passing on a page that simply changed every width.
  * Against web/index.html from before #5510, T, N, E and P FAIL:
  *   PHONEPASS_HTML=/path/to/old/index.html node docs/browser-checks/render-phone-pass-5510.js
  * Needs no URL. ENGINES=chromium,webkit adds WebKit (it has no isMobile; it gets touch only).
@@ -120,6 +120,9 @@ const lines = (pg) => pg.evaluate(() => {
     await pg.setViewportSize({ width: 360, height: 800 });
     await pg.waitForTimeout(150);
     ok(await pg.evaluate(() => document.getElementById('pj-post').placeholder) === SHORT_HINT, `${engine} P: narrowing the window shortens the hint`);
+    // A narrow window with a MOUSE keeps the emoji button: only a phone touchscreen loses it (the (hover: none) half).
+    ok(await pg.evaluate(() => getComputedStyle(document.getElementById('pj-emoji-btn')).display !== 'none'),
+      `${engine} 360 CONTROL: a narrow window with a mouse keeps the emoji button`);
     await pg.setViewportSize({ width: 1280, height: 900 });
     await pg.waitForTimeout(150);
     ok(await pg.evaluate(() => document.getElementById('pj-post').placeholder) === LONG_HINT, `${engine} P: widening it brings the @name tip back`);

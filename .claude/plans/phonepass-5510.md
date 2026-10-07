@@ -26,3 +26,13 @@ The Android app opens <computer>.kosmosplus.com, so kplusRemote() is true and th
 - Shots before/after at 360 and 412, light and dark, with --remote.
 
 Weakest premise: Chromium with isMobile is not an Android phone; the real check is Josh's phone after the release.
+
+## Review 1 (opus): 2 WARNING, 5 NIT
+- [WARNING] fixed: under --remote, a screen's own page.route stubs called route.fetch()/continue() bare, which went to the made-up host (page routes run before the context proxy): login-notice, reboot-with-login, the consolidated screens, task-receipt, settings-undo broke. Now every stub fetches through fetchBoard() and passes on with fallback() (same as continue() without --remote); page.request (not routed at all) uses boardUrl(). Measured: those screens, plus settings-recommender, shoot clean with and without --remote.
+- [WARNING] fixed: the proxy passed the page's Origin through, and the board refuses a write from another site. fetchBoard sets Origin (and Referer) to the board's. Measured: a PUT from inside the page at the made-up host returns 200 (the reviewer measured the refusal before).
+- [NIT] fixed: the (hover: none) half of the emoji rule was untested; a mouse at 360 now asserts the button stays (proven red by dropping (hover: none)).
+- [NIT] fixed: the new placeholder block sat between an existing comment and its subject; moved above it.
+- [NIT] fixed: the query is named once (ROOM_HINT_MQ), with why it is not PNAV_PHONE_MQ.
+- [NIT] fixed: addListener fallback for engines without MediaQueryList.addEventListener.
+- [NIT] decided: the sort menu stretches wide on a phone turned sideways (the kremote block covers landscape); the gaps stay even, so it reads as one row. Left.
+Found while testing, out of this card's six screens: Settings at 360 overflows horizontally (with and without --remote). Noted on the card.
