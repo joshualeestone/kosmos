@@ -20,8 +20,9 @@ unset _kosmos_cut_guard_lib_dir
 # started that waiter, and any command that only names it. On the 0.7.27 cut a wait written that way
 # held the machine for a waiter that was waiting for the same machine (#5467). A run's command line
 # STARTS with the interpreter and the script: `[path/](ba)sh [options] [path/]<script>[ args]`, where the
-# options are flags like -x, -e or --norc but never a cluster holding c (a command string, which only
-# mentions the script) or n (a syntax check, which never runs it). This prints the
+# options are flags like -x, -e or --norc, the value-taking -o/-O NAME (also as the end of a cluster like
+# -eo NAME) and --rcfile/--init-file FILE, as tools/heavy-gate.sh reads them, but never a cluster holding
+# c (a command string, which only mentions the script) or n (a syntax check, which never runs it). This prints the
 # "<pid> <command>" lines of exactly those, from `pgrep -fl`, and returns 0 when there is one, 1 when
 # there is none, 2 when pgrep itself failed (so a caller can tell "nothing" from "could not tell").
 # <script> is a path like tools/browser-checks.sh (letters, digits, . _ / - only; anything else returns 2);
@@ -33,7 +34,7 @@ kosmos_running_lines() {   # <script path>
   re="${script//./\\.}"
   raw="$(pgrep -fl "$re" 2>/dev/null)"; rc=$?
   [ "$rc" -ge 2 ] && return 2
-  lines="$(printf '%s\n' "$raw" | grep -E "^[0-9]+ +([^ ]*/)?(ba)?sh( +(-[A-Za-bd-mo-z]+|--[a-z][a-z-]*))* +([^ ]*/)?${re}( |$)" || true)"
+  lines="$(printf '%s\n' "$raw" | grep -E "^[0-9]+ +([^ ]*/)?(ba)?sh( +([-+][A-Za-bd-mo-z]*[oO] +[A-Za-z_]+|--(rcfile|init-file) +[^ ]+|-[A-Za-bd-mo-z]+|--[a-z][a-z-]*))* +([^ ]*/)?${re}( |$)" || true)"
   [ -n "$lines" ] || return 1
   printf '%s\n' "$lines"
 }
@@ -272,13 +273,13 @@ _kosmos_marker_other_live() {
 # release outage that reads exactly like the guard working. The seam is an
 # env var so the tests can drive it; it defaults to the caller's own pid.
 # 🛑 CALLING CONTRACT for the pgrep-probing kosmos_refuse_if_* guards below (#4410 review): call as
-# `kosmos_refuse_if_x "what" || exit 1`, or inside an `if`. Each runs `raw="$(pgrep ...)"; rc=$?`,
-# and pgrep exits 1 when nothing matches, which is the ordinary nothing-running case. Called as a
+# `kosmos_refuse_if_x "what" || exit 1`, or inside an `if`. Each asks kosmos_running_lines (#5470),
+# which returns 1 when nothing matches, the ordinary nothing-running case. Called as a
 # bare statement under `set -e` (release.sh and test-install.sh both set it), that exit 1 would end
 # the caller silently at the very moment the answer is "go ahead". The `||` or `if` suspends -e for
 # the whole call, which is why every call site in this repo is written that way.
 kosmos_refuse_if_cut_live() {
-  local what="${1:-this run}" probe="${KOSMOS_CUT_PROBE:-}" raw out rc self marker_other
+  local what="${1:-this run}" probe="${KOSMOS_CUT_PROBE:-}" out rc self marker_other
   self="${KOSMOS_CUT_SELF_PID:-$$}"
   # #1796: the reliable arm -- a marked cut that is not this caller's own run. A
   # mention/edit/worktree never marks, so it is never a candidate; self-exclusion is
@@ -291,8 +292,8 @@ kosmos_refuse_if_cut_live() {
     # ⚠️ THE PROCESS, NOT THE WORDS: a peer's shell whose command text merely
     # mentions release.sh (a git log, a grep, an eval) matched the first
     # draft and would have refused every run on a busy Mac. Only a bash/sh
-    # whose own command line starts with the script counts. pgrep's status
-    # is read from its own line, never after a pipe (#632).
+    # whose own command line starts with the script counts (kosmos_running_lines
+    # reads pgrep's status from its own line, never after a pipe, #632).
     out="$(kosmos_running_lines tools/release.sh)"; rc=$?   # #5470: the shared anchored match; 0 run, 1 none, 2 could not tell
   fi
   # Drop the caller's own line, in BOTH paths, so the probe seam exercises the
@@ -342,7 +343,7 @@ kosmos_refuse_if_cut_live() {
 # Same posture as above: a probe that cannot answer is a refusal, and the
 # seam exists so this can be shown red and green without a real run.
 kosmos_refuse_if_browser_run_live() {
-  local what="${1:-this run}" probe="${KOSMOS_BC_PROBE:-}" raw out rc self marker_other
+  local what="${1:-this run}" probe="${KOSMOS_BC_PROBE:-}" out rc self marker_other
   self="${KOSMOS_BC_SELF_PID:-$$}"
   # #1796: the reliable arm. This guard is the one whose caller (browser-checks.sh)
   # genuinely self-matches -- it forks subshells inheriting `bash tools/browser-
@@ -420,7 +421,7 @@ kosmos_refuse_if_browser_run_live() {
 # tools/test-cut-guard.sh can prove the real pgrep detects a stand-in that every OTHER guard on
 # the Mac drops. Left set by mistake it only refuses more, never less.
 kosmos_refuse_if_harness_live() {
-  local what="${1:-this run}" override="${2:-KOSMOS_CUT_IGNORE_HARNESS=1 cuts anyway}" probe="${KOSMOS_HARNESS_PROBE:-}" raw out rc self marker_other
+  local what="${1:-this run}" override="${2:-KOSMOS_CUT_IGNORE_HARNESS=1 cuts anyway}" probe="${KOSMOS_HARNESS_PROBE:-}" out rc self marker_other
   self="${KOSMOS_HARNESS_SELF_PID:-$$}"
   # #1796: the reliable arm -- a marked harness that is not this caller's own. This
   # is the guard the card measured firing during a cut: a real test-install.sh RUN
@@ -479,7 +480,7 @@ _kosmos_suite_candidates() {
 }
 
 kosmos_refuse_if_suite_live() {
-  local what="${1:-this run}" override="${2:-KOSMOS_HARNESS_IGNORE_SUITE=1 runs anyway}" probe="${KOSMOS_SUITE_PROBE:-}" raw out rc self
+  local what="${1:-this run}" override="${2:-KOSMOS_HARNESS_IGNORE_SUITE=1 runs anyway}" probe="${KOSMOS_SUITE_PROBE:-}" out rc self
   self="${KOSMOS_SUITE_SELF_PID:-$$}"
   # The source differs (the seam or the real name arm); everything after it is shared, so the
   # probe arms in tools/test-cut-guard.sh exercise the same code a live read does, and the real
