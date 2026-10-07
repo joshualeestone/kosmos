@@ -223,7 +223,8 @@ function imageFacts(buf) {
   if (signatureType(buf) === 'image/jpeg') {
     let i = 2;
     while (i + 8 < buf.length) {
-      if (buf[i] !== 0xff) { i += 1; continue; }   // stray padding some encoders leave between segments
+      if (buf[i] === 0x00) { i += 1; continue; }   // zero padding some encoders leave between segments
+      if (buf[i] !== 0xff) return null;
       const marker = buf[i + 1];
       if (marker === 0xff) { i += 1; continue; }   // fill byte
       if (marker === 0x00) return null;            // a stuffed byte outside image data: damaged
@@ -258,13 +259,16 @@ function imageFacts(buf) {
 
 /** The format an image's bytes carry by their signature alone, or null:
     a real image whose dimensions sit past the bytes read (a JPEG behind a
-    large ICC profile) still proves what it is. */
+    large ICC profile) still matches its format. A match is a signature,
+    not a validation: a file that starts like a JPEG and is not one past its
+    first marker is still called a JPEG. */
 function signatureType(buf) {
   if (!Buffer.isBuffer(buf) || buf.length < 12) return null;
   if (buf.readUInt32BE(0) === 0x89504e47 && buf.readUInt32BE(4) === 0x0d0a1a0a) return 'image/png';
   if (buf.toString('latin1', 0, 6) === 'GIF87a' || buf.toString('latin1', 0, 6) === 'GIF89a') return 'image/gif';
-  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
-  if (buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP') return 'image/webp';
+  /* JPEG: the start marker, then a marker a JPEG opens with (APPn, DQT, DHT, a frame header, a comment, DRI). */
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff && ((buf[3] >= 0xc0 && buf[3] <= 0xcf) || (buf[3] >= 0xdb && buf[3] <= 0xef) || buf[3] === 0xfe)) return 'image/jpeg';
+  if (buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP' && ['VP8 ', 'VP8L', 'VP8X'].includes(buf.toString('latin1', 12, 16))) return 'image/webp';
   return null;
 }
 
@@ -294,10 +298,11 @@ function sizeWords(n) {
 
 /** The facts typed after a file's path (#5448): type, then for an image its
     pixel size, then its size on disk. For an image the type is the one its
-    bytes' signature proves (PNG, GIF, JPEG, WebP), with dimensions when the
-    header could be read. A stored type naming one of those four whose bytes
-    carry no such signature is not repeated ("unknown type"): the uploader
-    claimed it and the bytes say otherwise. Only a file stored as kind
+    bytes' signature matches (PNG, GIF, JPEG, WebP), with dimensions when the
+    header could be read. A stored PNG, GIF, JPEG (or image/jpg) or WebP
+    type whose bytes were read and match no signature is not repeated
+    ("unknown type"): the uploader claimed it and the bytes say otherwise.
+    A file that was not read keeps its stored type. Only a file stored as kind
     'image' is read this way; any other file, and a HEIC or AVIF, is told by
     its stored type, kept to the plain characters a media type has (the
     uploader chose it, and this line is typed into a terminal; chat.js
@@ -311,7 +316,9 @@ function factsOf(r) {
   const proven = img ? img.type : (head ? signatureType(head) : null);
   const stored = String(r.type || '').toLowerCase();
   const PROVABLE = ['image/png', 'image/gif', 'image/jpeg', 'image/jpg', 'image/webp'];
-  const plain = /^[a-z0-9][a-z0-9._+-]*\/[a-z0-9][a-z0-9._+-]*$/.test(stored) && !PROVABLE.includes(stored);
+  /* A claimed png/gif/jpeg/webp is dropped only when the bytes WERE read and did not match it. */
+  const contradicted = head !== null && PROVABLE.includes(stored);
+  const plain = /^[a-z0-9][a-z0-9._+-]*\/[a-z0-9][a-z0-9._+-]*$/.test(stored) && !contradicted;
   const type = proven || (plain ? stored : null);
   const bytes = st && st.isFile() ? st.size : r.size;
   const parts = [type || 'unknown type'];

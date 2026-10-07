@@ -15,13 +15,19 @@ in `attachments.wireNote` covers both.
 - **Header parsing only, by magic bytes**: PNG IHDR, GIF screen descriptor, JPEG first SOF (segment
   walk), WebP VP8 / VP8L / VP8X. HEIC and AVIF answer no dimensions (nested boxes); the agent still
   gets type and size, which is true.
-- **For an image, the type shown is the one its bytes' signature proves** (PNG, GIF, JPEG, WebP),
+- **For an image, the type shown is the one its bytes' signature matches** (PNG, GIF, JPEG, WebP),
   with dimensions when the header could be read; a real JPEG whose frame header is past 256 KB keeps
   its type without dimensions. A stored png/gif/jpeg/webp type whose bytes carry no such signature
   says "unknown type" (review 1: for those four the bytes can contradict the claim, so a
   contradicted claim is not repeated). A non-image file's stored type is NOT verified (an executable
   uploaded as application/pdf says application/pdf): proving a PDF's or a ZIP's type is beyond this
-  card, and it is the same type the board already shows on the attachment card (review 4). Otherwise the stored
+  card, and it is the same type the board already shows on the attachment card (review 4). A
+  claimed png/gif/jpeg/webp type is dropped only when the bytes were read (review 6).
+- **Signatures, not validation** (review 6): JPEG = FF D8 FF plus an opening marker; WebP = RIFF,
+  WEBP and a VP8/VP8L/VP8X chunk. Between JPEG segments only zero padding is skipped.
+- **Deferred (review 6): the header read is synchronous** on the send path, bounded at 256 KB per
+  image and 10 images per message, and said at wireNote. Making it async changes three server call
+  sites for a local read; reconsider if the data folder can be a network mount. Otherwise the stored
   type, kept only if it is a plain media type (`a/b` of [a-z0-9.+-]), else "unknown type". The
   uploader chose it and the line is typed into a terminal (chat.js refuses control characters, and
   a `]` would read as a second bracket).
