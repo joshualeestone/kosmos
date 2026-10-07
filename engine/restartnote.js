@@ -8,6 +8,9 @@
  * start compares that with the computer's boot time (os.uptime()). A note is made only when both hold:
  *   - the board was alive within WINDOW_MS before this boot (it was running when the computer went down), and
  *   - this start is within WINDOW_MS after the boot (it came back with the computer, not long after it).
+ * #5450: that second test is a guess, used only when nothing says who started the board. The Mac launcher says so
+ * (KOSMOS_BOARD_STARTED_BY, install/kosmos): the supervisor (the login item, or a crash relaunch) makes a note however
+ * long after the boot, and a person's start never does. Windows passes nothing yet, so the guess stands there.
  * A person who quit Kosmos yesterday and opened it after a restart gets no note: their last-alive time is old.
  * The words say "restarted", true of a crash and of a person's restart alike; nothing here can tell them apart.
  *
@@ -49,13 +52,17 @@ const ms = (iso) => { const t = Date.parse(iso); return Number.isFinite(t) ? t :
  * The note for a start at `now`, given when the board was last alive and how long the computer has been up, or null.
  * Pure, so the rule is tested without a clock or a disk.
  */
-function noteFor({ now, uptimeSec, lastAliveAt }) {
+function noteFor({ now, uptimeSec, lastAliveAt, startedBy }) {
   const last = typeof lastAliveAt === 'number' ? lastAliveAt : ms(lastAliveAt);
   if (!Number.isFinite(now) || !Number.isFinite(uptimeSec) || uptimeSec < 0 || last == null) return null;
+  // #5450: who started this board, when the launcher said: a person never makes "it came back by itself".
+  if (startedBy === 'person') return null;
   const bootAt = now - uptimeSec * 1000;
   if (!(last < bootAt)) return null;                      // alive since this boot: Kosmos restarted, the computer did not
   if (bootAt - last > WINDOW_MS) return null;             // last alive long before the boot: it was not running then
-  if (now - bootAt > WINDOW_MS) return null;              // started long after the boot: a person opened it
+  // Started long after the boot: a person opened it. #5450: only a guess when nothing says who started it (Windows
+  // today); the supervisor's word replaces it, so a machine left at a login screen still gets its note.
+  if (startedBy !== 'supervisor' && now - bootAt > WINDOW_MS) return null;
   return { lastAliveAt: new Date(last).toISOString(), bootAt: new Date(bootAt).toISOString(), upAt: new Date(now).toISOString() };
 }
 
@@ -66,8 +73,14 @@ function noteFor({ now, uptimeSec, lastAliveAt }) {
 function atStart(deps = {}) {
   const now = deps.now ? deps.now() : Date.now();
   const uptimeSec = deps.uptime ? deps.uptime() : os.uptime();
+  // #5450: the launcher's word (install/kosmos board-run and start), read once and removed, so no agent started from
+  // this board inherits it. Anything else is unknown, and the timer decides.
+  const env = deps.env || process.env;
+  const said = env.KOSMOS_BOARD_STARTED_BY;
+  delete env.KOSMOS_BOARD_STARTED_BY;
+  const startedBy = said === 'person' || said === 'supervisor' ? said : undefined;
   const prev = readJson(aliveFile());
-  const note = noteFor({ now, uptimeSec, lastAliveAt: prev && prev.at });
+  const note = noteFor({ now, uptimeSec, lastAliveAt: prev && prev.at, startedBy });
   if (note) writeJson(noteFile(), { ...note, dismissed: false });
   beat(now);
   return note;

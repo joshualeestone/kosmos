@@ -141,6 +141,10 @@ PIDFILE="$KOSMOS_HOME/board.pid"
 # stop stays stopped; once any start clears it the watchdog resumes recovering a
 # board that has died. See bin/board-watchdog.sh.
 STOP_MARKER="$KOSMOS_HOME/board.stopped"
+# #5450: left by `kosmos start` just before it kickstarts the supervised board, so board-run can tell a person's start
+# from the login item's or a crash relaunch's. Consumed by board-run; older than PERSON_START_MAX_S it is stale.
+PERSON_START_FILE="$KOSMOS_HOME/board.person-start"
+PERSON_START_MAX_S=120
 LOG_DIR="$KOSMOS_HOME/logs"
 BOARD_LOG="$LOG_DIR/board.log"
 
@@ -1239,6 +1243,8 @@ cmd_start() {
     _mark_board_started
     local _sup_label _sup_uid
     _sup_label="$(_kosmos_board_label)"; _sup_uid="$(/usr/bin/id -u)"
+    # #5450: this start is a person's; board-run reads it so the restart note never says the board came back by itself.
+    date +%s > "$PERSON_START_FILE" 2>/dev/null || true
     "$LAUNCHCTL" kickstart -k "gui/$_sup_uid/$_sup_label" >/dev/null 2>&1 || true
     _await_board_up && return 0
     die "Kosmos did not come up under launchd. What it said is in $BOARD_LOG"
@@ -1267,7 +1273,8 @@ cmd_start() {
   # starts the child with SIGINT/SIGQUIT ignored; the board handles SIGINT itself, and in its own group a
   # Ctrl-C in the terminal cannot reach it anyway.
   set -m
-  env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE PORT="$PORT" nohup "$NODE" "$APP" </dev/null >> "$BOARD_LOG" 2>&1 3>&- &
+  # #5450: a direct start is always a person's (the supervised paths go through board-run).
+  env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE PORT="$PORT" KOSMOS_BOARD_STARTED_BY=person nohup "$NODE" "$APP" </dev/null >> "$BOARD_LOG" 2>&1 3>&- &
   set +m
   printf '%s' "$!" > "$PIDFILE"
   # ⚠️ WAIT FOR THE BOARD TO ANSWER, NOT FOR THE PROCESS TO EXIST. A pid that
@@ -1360,7 +1367,15 @@ cmd_board_run() {
   _mark_board_started
   # #4466: the same scrub as cmd_start's nohup launch, so a board-run typed in an agent's pane does not hand
   # the board an agent's markers (every later kosmos call from it would read as an agent). exec env keeps the pid.
-  exec env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE PORT="$PORT" "$NODE" "$APP"
+  # #5450: who started this board, for the restart note (engine/restartnote.js): the supervisor (the login item, or a
+  # crash relaunch), unless `kosmos start` left its fresh mark just before kickstarting. The mark is consumed either way.
+  local _started_by=supervisor _ps_at _ps_now
+  if [ -f "$PERSON_START_FILE" ]; then
+    _ps_at="$(cat "$PERSON_START_FILE" 2>/dev/null)"; _ps_now="$(date +%s)"
+    case "$_ps_at" in ''|*[!0-9]*) ;; *) [ $((_ps_now - _ps_at)) -le "$PERSON_START_MAX_S" ] && _started_by=person ;; esac
+    rm -f "$PERSON_START_FILE" 2>/dev/null || true
+  fi
+  exec env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE PORT="$PORT" KOSMOS_BOARD_STARTED_BY="$_started_by" "$NODE" "$APP"
 }
 
 # #5359: remove the board's last-alive record (engine/restartnote.js), best effort, from the same data root
