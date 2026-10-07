@@ -111,6 +111,7 @@ function cut(start, end) {
   return SETUP.slice(i, j + end.length);
 }
 const INSTALL_BLOCK = cut('  if ! command -v systemctl >/dev/null 2>&1; then\n    if [ "$_kosmos_board_off" = yes ]; then\n      info "note: systemctl not available', '\n  fi\n  ok\nelse\n').replace(/\n  ok\nelse\n$/, '\n');
+const UNIT_FNS = cut('_kosmos_linux_unit_name() {', '\n  return 0\n}\n');
 const UNINSTALL_BLOCK = cut('    if [ -n "${AGENT_WORKFORCE_LAUNCH:-}" ] && [ -z "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ]; then', '\n      done\n    fi\n');
 
 function world({ systemctl = true, app = true, legacy = false, nodeOut = '', nodeRc = 0, units = [], restartRc = 0 } = {}) {
@@ -140,7 +141,7 @@ function world({ systemctl = true, app = true, legacy = false, nodeOut = '', nod
 }
 function runBlock(block, w, { off = 'no', shell = '/bin/sh', env = {} } = {}) {
   const script = OPTS + 'info() { printf "INFO %s\\n" "$*"; }\n_kosmos_off_why() { printf "(set off)"; }\n'
-    + '_kosmos_board_decide() { :; }\n_kosmos_board_off=' + off + '\nPORT=16180\n_kosmos_home_default=/nowhere/default\n' + block;
+    + '_kosmos_board_decide() { :; }\n_kosmos_board_off=' + off + '\nPORT=16180\n_kosmos_home_default=/nowhere/default\n' + UNIT_FNS + block;
   return spawnSync(shell, ['-c', script], { encoding: 'utf8', env: { PATH: w.bin, HOME: w.root, KOSMOS_HOME: w.home, AGENT_WORKFORCE_SYSTEMD_DIR: w.unitDir, ...env } });
 }
 
@@ -317,4 +318,29 @@ test('#4920 uninstall: a sandboxed run says the systemd step was skipped on purp
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /sandboxed run: the systemd step was skipped on purpose/);
   assert.doesNotMatch(r.stdout, /not fully removed/);
+});
+
+test('#4920 before an update pause, an old unit without KillMode=process gets it and systemd is reloaded; once only', () => {
+  const w = world({});
+  for (const tool of ['grep', 'awk', 'mv']) { const src = ['/usr/bin/' + tool, '/bin/' + tool].find((f) => fs.existsSync(f)); if (src && !fs.existsSync(path.join(w.bin, tool))) fs.symlinkSync(src, path.join(w.bin, tool)); }
+  fs.writeFileSync(path.join(w.bin, 'uname'), '#!/bin/sh\necho Linux\n'); fs.chmodSync(path.join(w.bin, 'uname'), 0o755);
+  const unitName = 'kosmos-board.' + require('node:crypto').createHash('sha256').update(w.home).digest('hex').slice(0, 8) + '.service';
+  const file = path.join(w.unitDir, unitName);
+  fs.writeFileSync(file, '[Unit]\nDescription=Kosmos Board\n\n[Service]\nRestart=always\n\n[Install]\nWantedBy=default.target\n');
+  let r = runBlock('_kosmos_linux_unit_killmode\n', w);
+  assert.equal(r.status, 0, r.stderr);
+  const after = fs.readFileSync(file, 'utf8');
+  assert.match(after, /\[Service\]\nKillMode=process\nRestart=always/, 'KillMode=process was not added under [Service]: ' + after);
+  assert.match(w.systemctlLog(), /--user daemon-reload/, 'systemd was not reloaded after the change');
+  fs.rmSync(path.join(w.root, 'systemctl.log'), { force: true });
+  r = runBlock('_kosmos_linux_unit_killmode\n', w);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(fs.readFileSync(file, 'utf8'), after, 'a unit that already has it is left as it is');
+  assert.equal(w.systemctlLog(), '', 'CONTROL: no reload when nothing changed');
+});
+
+test('#4920 the update pause runs the KillMode fix before it stops the board', () => {
+  const i = SETUP.indexOf('  _kosmos_linux_unit_killmode   # #4920: before the stop');
+  const j = SETUP.indexOf('"$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true', i);
+  assert.ok(i > 0 && j > i && j - i < 200, 'the KillMode fix is not right before the update pause');
 });
