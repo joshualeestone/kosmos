@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: askallow-5406
-diff_hash: 7477aa07d54316da593f6bb844f45c61bb9be8f8b40392eee5400bf01665e6e8
+diff_hash: 901a37302fc8a4d4c4d2d5051f5ba766e7439d472d21cf13200140c1d0601594
 validation: rebased on origin/main 2026-10-07T16:25:59Z; agentpermission-5406 + win32supervisor + win32launch + file-scanning and Windows guards 183 pass, 0 fail, 1 opt-in skip; all 8 tools/test-supervisor-*.sh pass (reviewer runs) and test-supervisor-agentbrowser-3633.sh asserts the real launch; LIVE B/G/H (KOSMOS_LIVE_CLAUDE=1) passed against Claude Code 2.1.292; interactive arm G measured in tmux; full suite on CI
 subdir_audit: not run (no subdirectory CLAUDE.md changed)
 timestamp: 2026-10-07T16:25:59Z
