@@ -8,17 +8,22 @@ corrected in its review). A temp file renamed into place with no flush can be le
 contents after a crash (found on a Windows box with repeated crashes, #5431).
 
 ## This slice
-`engine/securewrite.js` `writeSecret` is the shared tmp-then-rename writer for 8 engine modules (cloudflare,
-githubdevice, instructions, messages, outbox, sendertoken, tokendoor, webhooks). It now:
+`engine/securewrite.js` `writeSecret` is the shared tmp-then-rename writer for 7 engine modules (cloudflare,
+githubdevice, messages, outbox, sendertoken, tokendoor, webhooks; measured by grep for `writeSecret(` callers;
+instructions.js imports only refuseSymlinkTarget). It now:
 - flushes the temp's fd (fsyncSync) after writing and before the rename;
 - flushes the directory after the rename (not on Windows, where Node cannot flush a directory; the file's
   own flush, FlushFileBuffers there, is the part #5431 needs);
 - flushes on the in-place fallback too (reached only after three failed atomic attempts; it truncates
   then writes, so it is the path most exposed to a zero-filled file).
-All three are best effort, for every error, a real EIO or ENOSPC from the flush included (not only "fsync
-unsupported"): failing the atomic path would retry and then reach writeSecret's in-place fallback, which the
-module's own comments call the destructive case and which is less durable, not more. A dropped flush error
-means that one write is only as durable as it was before this change.
+Which flush errors count (review 3): a file system that cannot flush at all (EINVAL, ENOTSUP, EOPNOTSUPP,
+ENOSYS) is skipped, so the write takes its usual path. Any other error (EIO, ENOSPC, EDQUOT; on a mount that
+reports a failed write late, this is where it shows) fails the write exactly as a failed close did before
+this change: on the atomic path the temp is removed and the old file kept; on the fallback the old contents
+are restored. Swallowing those, as the first version did, would have renamed bytes the disk refused over a
+good secret. The restore of the old contents and the folder flush stay best effort for every error (the
+first is on a path already failing; syncDir is guarded so it cannot throw, which is why it can stay inside
+the atomic try).
 
 ## Not in this slice
 - communitysend.js: Renet's tornsend-5431 changes it (#5431); not touched here.
@@ -30,8 +35,9 @@ means that one write is only as durable as it was before this change.
 folder is flushed after the rename (fails on main); a refused fsync still takes the atomic path (passes on
 main trivially; a mutation making fsync fatal turns it red). `engine/sendertoken.test.js`'s #1761 test
 counted every open under the token folder, which now includes securewrite opening the folder to flush it;
-it counts opens below the folder, as its own comment intends. Tests of securewrite and its 8 users: 132
-files, all passing after that change.
+it counts opens below the folder, as its own comment intends. Tests of securewrite and its callers: 132
+files, all passing after that change. Also: the fallback flushes (forced with a planted temp; fails before),
+and a real flush error (EIO) fails the write and keeps the old file (fails on the first version).
 
 ## Cost, measured
 On this Mac (APFS, node 26.8.1, 50 writes of a small token record): 0.112 ms per write on main, 7.963 ms with
