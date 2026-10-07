@@ -3049,13 +3049,14 @@ test('#5419: the real Linux tmux pick is held between sign-in ticks, and a new l
   }
 });
 
-driverTest('#5419: sign-in on Linux with no tmux goes stuck with the tmux sentence, and launches no session', async () => {
-  // Claude is already installed here (the harness points at node), so download() never asks: launchSignin must.
+driverTest('#5419: a tmux that goes away after the flow started is caught before sign-in launches a session', async () => {
+  // runFlow asks first (tmux present), launchSignin asks again (now gone): only launchSignin's check can go stuck here.
   const term = fakeTerminal();
   connect.setRunner(term.runner);
   connect.setDryRun(false);
   connect.setSigninPlatformForTests('linux');
-  connect.setTmuxCheckForTests(() => true);
+  let asks = 0;
+  connect.setTmuxCheckForTests(() => { asks += 1; return asks > 1; });
   try {
     await connect.start();
     await until(() => connect.state().phase === connect.PHASE.STUCK, 5000);

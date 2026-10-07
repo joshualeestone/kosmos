@@ -177,9 +177,10 @@ function tmuxMissingOnLinux(env = process.env, runnable = (f) => require('./runn
 }
 /* a seam, so the guard as wired into download() is tested on any platform (not only on a real Linux host). */
 let tmuxCheckOverride = null;
-/* #5419: one answer for "is there no tmux to sign Claude in with", asked by download() before any bytes move and by
-   launchSignin before the tmux host runs (Claude may already be installed, so the download never asks). Only on a real
-   Linux host, or through the seam. */
+/* #5419: one answer for "is there no tmux to sign Claude in with". runFlow asks first, before any download, so the
+   headline says it; download() asks again before any bytes move (it has other callers); launchSignin asks once more
+   before the tmux host runs, for a tmux that went away during a long download. Only on a real Linux host, or through
+   the seam. */
 const LINUX_NO_TMUX = 'Kosmos needs tmux on this computer to sign Claude in, and none was found';
 const LINUX_TMUX_HINT = 'Install tmux with your system\'s package manager (for example sudo apt install tmux, sudo dnf install tmux, or apk add tmux) and try again';
 function tmuxMissingForSignin(platform) {
@@ -2753,8 +2754,8 @@ async function launchSignin(owner) {
   }
   /* The flow keeps the host it launched with, so every tick and the teardown reach
      the same program. */
-  /* #5419: Claude may already be installed (download() never asked), so the tmux host is checked here too, before any
-     program runs: the same sentence, not a bare ENOENT from tmux. */
+  /* #5419: runFlow already asked before the download; asked again here because a tmux can go away while a large
+     download runs, and the same sentence beats a bare ENOENT from tmux. */
   if (host === tmuxSigninHost && tmuxMissingForSignin(signinPlatform())) {
     becomeStuck(owner, `${LINUX_NO_TMUX}. ${LINUX_TMUX_HINT}`, null);
     return;
