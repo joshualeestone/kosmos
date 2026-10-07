@@ -841,6 +841,10 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
          kept (pinned by a test; a socket is not a file read). */
       const { excludedCommands: _dropExcluded, ...sbKept } = sb;
       const { allowRead: _dropAllowRead, allowWrite: _dropAllowWrite, ...fsbKept } = fsb;
+      const dropped = [['sandbox.excludedCommands', _dropExcluded], ['sandbox.filesystem.allowRead', _dropAllowRead], ['sandbox.filesystem.allowWrite', _dropAllowWrite]]
+        .filter(([, v]) => v !== undefined).map(([k]) => k);
+      // Review 10: a dropped key may have been the person's own (a repo the agent wrote to): say so, never silently.
+      if (dropped.length) console.error(`token-only guard: removed ${dropped.join(', ')} from ${file}; a token-only agent's shell may not run outside the sandbox or reopen a denied path`);
       next.sandbox = {
         ...sbKept, enabled: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false,
         network: { ...net, allowLocalBinding: true },
@@ -878,7 +882,7 @@ function refreshTokenOnlyGuards(deps = {}) {
   const platform = deps.platform || process.platform;
   const out = { guarded: [], unguarded: [], managed: managedSettingsPresent(platform) };
   let names;
-  try { names = require('./sendertoken').tokenOnlyList(); } catch { return out; }   // one parse site (#4491)
+  try { names = require('./sendertoken').tokenOnlyList(); } catch { return out; }   // the roster's own reader (#4491)
   const toDir = deps.workerDir || create.workerDir;
   for (const name of names) {
     let dir = null;

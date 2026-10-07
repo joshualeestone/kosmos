@@ -96,7 +96,7 @@ logger.
   agent's next start rewrites the concrete denies. Do not widen that write scope to the Kosmos store, the worlds
   base or the home (a note sits by the sandbox block).
 - Gate-side hardening (accept other worlds' tokens only from the board's start-time snapshot, or refuse them for
-  agent-marked requests) is a follow-up card: 5247.
+  agent-marked requests) was follow-up card #5247, which has since landed on main.
 
 ## Post-rebase review, 2026-10-07 (after rebasing 986 commits onto main)
 A board-side route added to main after this was approved (#5153 slice 4, the undo copier: an agent-token route that
@@ -182,3 +182,8 @@ Ninth review (opus, the whole branch), decided:
 - Residual, filed as a follow-up card: other agent-writable configuration Claude Code reads at the next start, which
   can start processes outside the sandbox. Not denied here: denying it needs measuring what that breaks in Claude
   Code itself, and main has no guard at all today, so shipping this is still strictly better.
+Tenth review (sonnet): fixed: a dropped key is logged (it may have been the person's own, such as a repo the agent
+writes to); the stale "one parse site" and #5247 lines. Residual, added to #5516's scope: the guard keeps every other
+key already in the token-only agent's own settings file (hooks, env, apiKeyHelper, statusLine, enabledPlugins,
+mcpServers, allowAllUnixSockets, enableWeakerNestedSandbox), some of which run processes outside the sandbox. Not
+dropped here: what else legitimately writes that file is not yet measured, and dropping blind could break agents.
