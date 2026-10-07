@@ -1,7 +1,7 @@
 # fsyncwrite3-5434: #5434 slice 3, the provider settings writers
 
 Addresses #5434. Slices 1 and 2 (#5441, #5480) made `securewrite.writeSecret` flush before the rename
-and moved the account stores onto it. This slice moves the three remaining settings writers that wrote a
+and moved the account stores onto it. This slice moves three settings writers that wrote a
 `<file>.kosmos.<pid>.new` temp and renamed it without flushing:
 
 - `engine/reporthook.js` `writeSettings` (shared with `engine/allowance.js`): the Claude settings.json hooks.
@@ -22,11 +22,18 @@ and moved the account stores onto it. This slice moves the three remaining setti
 - **Temp name.** writeSecret's temp is unique per process, thread, start and write, so the reason these
   were pid-suffixed (two concurrent writers must not share a staging file) still holds. A temp left by a
   death in the window is reaped by writeSecret's existing reaper on the next write into that folder.
+  An old-format `<file>.kosmos.<pid>.new` an earlier release left is NOT reaped (it does not match the
+  reaper's shape); nothing removed those before either.
 - **Cost:** about 8 ms per save on this Mac (slice 1's measurement); these run once per agent birth or
   wiring, not in a loop.
 
-Not in this slice: `store.js` profile and settings saves (after #5418 merges), the write/close error rule
-from slice 1, and the other files the card lists.
+Not in this slice, so these are NOT yet flushed (each a later slice on the card):
+- `install/setup.sh`'s inline node writer of the same Claude settings.json (`<file>.kosmos.new`, fixed
+  name). So the Claude settings.json is durable when Kosmos saves it, not yet when the installer does.
+- `engine/allowance.js` `calibrate` (`<file>.<pid>.new`).
+- `engine/kosmos-statusline.js` (same pattern).
+- `store.js` profile and settings saves (after #5418 merges), the write/close error rule from slice 1,
+  and the other files the card lists.
 
 ## Tests
 `engine/settingswrite.fsync-5434.test.js`, 11 arms, in `tools/windows-tests.js` ALSO. For each writer:
