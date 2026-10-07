@@ -29,7 +29,8 @@ const runners = require('./runners');
    (or refuse the claude arm) and these tests would test something else. Linux installs are tested in
    runners.linux-5419.test.js and runners.gemini-grok-3713.test.js. */
 const realInstall = runners.install;
-runners.install = (provider, o) => realInstall(provider, { platform: 'darwin', ...(o || {}) });
+// The CPU too: the darwin openai pin is arm64, so on an x64 runner an unpinned test would stop at the arch guard.
+runners.install = (provider, o) => realInstall(provider, { platform: 'darwin', arch: 'arm64', ...(o || {}) });
 
 test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 

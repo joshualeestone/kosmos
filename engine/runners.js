@@ -1127,7 +1127,8 @@ function download(url, file, job, redirectsLeft, getter) {
 }
 
 /**
- * The tar that unpacks a runner tarball. The Mac's is /usr/bin/tar. Windows 10
+ * The tar that unpacks a runner tarball. The Mac's is /usr/bin/tar; Linux's is /usr/bin/tar or /bin/tar (see the
+ * branch below). Windows 10
  * (1803) and later ship bsdtar as %SystemRoot%\System32\tar.exe, which reads .tgz
  * natively and takes the same flags; there is no /usr/bin on Windows, and a clean
  * laptop has no Git or MSYS tar to fall back on, so the system copy is named by its
@@ -1526,8 +1527,8 @@ function install(provider, opts) {
       // The verified archive's WHOLE package tree lands under pkg/ (the
       // binary resolves vendored siblings -- rg, zsh, code-mode-host --
       // relative to itself, so one extracted file would be a runner
-      // stranded from its own tools). /usr/bin/tar ships on every Mac and
-      // reads .tgz natively; --strip-components 1 drops the npm "package/"
+      // stranded from its own tools). tarBin is /usr/bin/tar on a Mac, /usr/bin/tar or /bin/tar on
+      // Linux, tar.exe on Windows; each reads .tgz natively; --strip-components 1 drops the npm "package/"
       // root. A previous version's pkg/ is replaced whole, never merged.
       // Unpack into a per-process tree, then SWAP it in whole: the pkg/
       // tree is never half-written at its final name, so a concurrent
