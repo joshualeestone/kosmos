@@ -6125,11 +6125,10 @@ function switchedOffSentence(name, switchedOff, platform) {
        start", which "not running" already says. */
     if (masked) return 'this agent is not running because its startup unit is masked in systemd. ' + require('./linuxjob').maskedRemedy(name).replace(/\.$/, '');
     if (!(switchedOff && switchedOff.has(name))) return null;
-    /* The command, as the Mac sentence names a screen (review 7): Linux has no settings screen for a user unit. A
-       runtime mask (the file stays ordinary) needs unmask --runtime first. */
+    /* The command, as the Mac sentence names a screen (review 7): Linux has no settings screen for a user unit. */
     let u = name;
     try { u = require('./linuxjob').unitName(name); } catch { /* the bare name still identifies it */ }
-    return `this agent is not running because its background job was switched off (or masked) in systemd, this computer's service manager. Switch it back on and start it with systemctl --user enable --now '${u}' (if it was masked, first systemctl --user unmask --runtime '${u}')`;   // --now: enable alone starts nothing (review 8)
+    return `this agent is not running because its background job was switched off (or masked) in systemd, this computer's service manager. Switch it back on and start it with systemctl --user enable --now '${u}'`;   // --now: enable alone starts nothing (review 8); no unmask --runtime advice: never measured on a real systemd (review 11), and enable says so itself when a unit is masked
   }
   if (!(switchedOff && switchedOff.has(name))) return null;
   return 'this agent is not running because its background job was switched off, probably in System Settings under Login Items. Switch it back on there and it can start again';
