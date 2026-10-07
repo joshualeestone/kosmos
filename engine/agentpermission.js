@@ -46,7 +46,7 @@ function hookEntry(opts) {
    PermissionRequest and would show the agent as "needs you" for a request this hook has just allowed. Claude Code hands
    a settings file's `env` to its hook processes (measured, 2.1.293), so these two names tell the report hook that THIS
    agent runs with Kosmos's allow hook and where it is; the report hook then asks the same decide() and, for a request it
-   allows, reports working instead. Set only through this file, so an agent launched without it reports as before. */
+   allows, reports working instead. */
 const ENV_NODE = 'KOSMOS_PERMISSION_ALLOW_NODE';
 const ENV_SCRIPT = 'KOSMOS_PERMISSION_ALLOW_SCRIPT';
 

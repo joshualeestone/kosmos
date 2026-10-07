@@ -33,6 +33,15 @@ That the allow hook really answered whenever decide() says allow. If the allow h
 crash) while the report hook's own run of it succeeds, a real prompt would show with the card "working". Both
 run the same file with the same node on the same input, so this needs a failure in one run only.
 Also: the env propagation was measured on 2.1.293 on macOS only, not on Windows or Linux.
+Residual (review 1): a settings file's env reaches the agent's own child processes too, so a second Claude
+started from an agent's shell without Kosmos's settings file inherits the names, and its report hook would
+say working for a prompt that does show. Accepted: such a nested Claude already reports to the parent's card
+today (it inherits the pane and the agent token), the parent is busy in that tool call either way, and in -p
+mode a prompt is refused rather than shown. A per-session marker written by the allow hook was rejected: the
+two hooks run in parallel, so the report hook would have to wait on it.
+Decided (review 1): the shell hook runs the node and script named in the env because they are the same ones
+the settings file runs as the allow hook; a path relative to the report hook breaks for deployed copies (#1467).
+An allowed request also starts a heartbeat window, so the next PreToolUse does not send a second working line.
 
 ## Validation
 - node --test on report-hook-allowed-5495, agentpermission-5406, the report-hook tests, reporthook, the
