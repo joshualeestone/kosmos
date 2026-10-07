@@ -213,7 +213,11 @@ cut's sha before it starts waiting:
   curl -fsS -O "https://installkosmos.com/dist/kosmos-<V>-arm64.tar.gz.sha256"
   shasum -a 256 -c "kosmos-<V>-arm64.tar.gz.sha256"
   ```
-  The sha must also equal the one the cut printed. Then refresh the tracked files of the site checkout
+  The sha must also equal the one the cut printed. The unversioned pair (`kosmos-arm64.tar.gz` and
+  `.sha256`, also gitignored) needs nothing on a staging cut: it is prod's build, and a staging cut serves
+  it unchanged (measured on 0.7.27: served and local both 0.7.25's). On a `KOSMOS_CUT_CHANNEL=prod` cut the
+  trap put back the PREVIOUS release's pair, so fetch the served one the same way, or the next deploy from
+  this checkout serves the old pair again. Then refresh the tracked files of the site checkout
   from origin before the next cut (the trap restored them to the pre-cut state). The cut's own record
   still shows it failing, with the CLI's exit code.
 
