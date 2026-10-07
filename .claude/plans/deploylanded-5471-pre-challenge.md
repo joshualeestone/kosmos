@@ -3,9 +3,9 @@ pre_challenge: true
 method: challenge-loop
 branch: deploylanded-5471
 diff_hash: 11a8bfee9010d7cbe22a41b39168b7adb30529716f412bc23a2591257c754bb6
-validation: pending (the Mortals full suite at 23a545e90 gave up in its queue after ~3.6 h at 09:16, not a test result; the PR's GitHub CI, which runs the full node and shell suites, is the validation, and this line is updated when it reports. Run by hand on this head: tools/test-deploy-landed-5471.sh 0 failures; test-deploy-site-exit0-2791, test-served-verify, test-site-deploy-export, test-cut-step-record, test-site-restore-1548 pass)
+validation: passed (FULL LOCAL SUITE on Agent1s, 12:54-13:23 CDT 10-07, at 1a3894b49 (this branch rebased onto main; diff hash unchanged): node 16481 tests, 16257 pass, 0 fail, 0 cancelled, 224 skipped; test:shell ran to the end with tools/test-deploy-landed-5471.sh 0 failures; run-tests rc 0. Run locally because GitHub's hosted macOS runners stalled from 11:07; this PR's ubuntu and windows checks are green. An earlier local run at 7419ce3fd stopped on cli.sandbox-4636:162, the known red that #5474 fixed on main, and so never reached test:shell; it is not counted)
 subdir_audit: passed
-timestamp: 2026-10-07T14:17:00Z
+timestamp: 2026-10-07T18:46:00Z
 iterations: 20
 converged: true
 ---
