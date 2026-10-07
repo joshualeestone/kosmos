@@ -12,14 +12,19 @@ unanchored `pgrep -f` stays exposed.
 
 ## Decided
 - `kosmos_running_lines <script>` in tools/lib/cut-guard.sh: the "<pid> <command>" lines whose command
-  STARTS with `[path/](ba)sh [path/]<script>[ args]`. Returns 0 (running), 1 (not running), 2 (pgrep
-  failed, or no script named), the same three outcomes the existing callers already used.
-- The two places cut-guard.sh already anchored this by hand (the browser gate, and the side-turn intruder
-  check) now call it. One regex instead of two: they differed (`(/bin/)?` vs `([^ ]*/)?` before the shell),
-  and the helper takes the wider `([^ ]*/)?`, which is a superset of real runs (`/usr/local/bin/bash ...`).
-- The per-cut wrapper (outside the repo, `mortals:~/.cut-07NN.sh`) sources this cut-guard.sh, so 0.7.28's
-  wrapper calls `kosmos_running_lines tools/browser-checks.sh` and treats rc 2 as "still running" (wait,
-  never assume quiet). That wrapper is written after this merges and Mortals' main is fresh.
+  STARTS with `[path/](ba)sh [options] [path/]<script>[ args]`, options being flags like -x or --norc but
+  never a cluster holding c (a command string) or n (a syntax check). Returns 0 (running), 1 (not running),
+  2 (pgrep failed, or no usable script named): the three outcomes the callers already used.
+- EVERY "is X running" check in cut-guard.sh now calls it: the cut (release.sh), the install harness
+  (test-install.sh), the suite candidates (run-tests.sh), the browser gate and the side-turn intruder check
+  (browser-checks.sh). Before, five hand-written copies used two different interpreter patterns; the
+  helper takes the wider `([^ ]*/)?`, which only ever adds candidates (a Homebrew bash), failing toward busy.
+- tools/heavy-gate.sh (what cutters run for a quiet box) classifies a command whose lead script is
+  tools/queued-heavy.sh as a waiter, not a run. It keeps its deliberate rule that a script taking a heavy
+  path as an argument counts (fail toward busy); only the queue's own waiter is carved out, because the
+  waiter starts the real run as its own process when its turn comes, and that run counts.
+- The per-cut wrapper (outside the repo, mortals:~/.cut-07NN.sh) sources this cut-guard.sh, so 0.7.28's
+  wrapper calls `kosmos_running_lines tools/browser-checks.sh` and treats rc 2 as "still running".
 
 ## Rejected
 - Matching on a node child (as the wrapper's suite check does): browser-checks.sh's first seconds have no
@@ -28,13 +33,18 @@ unanchored `pgrep -f` stays exposed.
 
 ## Weakest premise
 That every real run starts its command line with the interpreter. A run started as `./tools/browser-checks.sh`
-(exec by shebang) shows `/bin/bash ./tools/browser-checks.sh`, which matches. A `zsh tools/...` run would
-not, and nothing in the repo starts one that way.
+(exec by shebang) shows `/bin/bash ./tools/browser-checks.sh`, which matches, as do shell options before the
+script. A `zsh tools/...` run, or an option that takes a value (`bash -o pipefail tools/...`), would not,
+and nothing in the repo starts one that way. macOS only: Linux's `pgrep -fl` prints process names.
 
 ## Tests
-`tools/test-running-anchor-5470.sh`, in test:shell, real processes, a unique script name per run:
-nothing running gives 1; a queued-heavy-shaped waiter, its `sh -c` parent and a mention are NOT runs
-(with a control that the unanchored pgrep DOES match the waiter and parent); `bash tools/<script>` and
-`/bin/bash /abs/tools/<script>` ARE runs; a failing pgrep gives 2. Measured red: with the anchor removed,
-3 failures. Existing guards still pass: test-cut-guard, test-browser-run-guard (and its real-path control,
-KOSMOS_BC_REALPATH=1), test-browser-gate-cut-claim-1398, test-machine-claim-1962.
+- `tools/test-running-anchor-5470.sh`, in test:shell, real processes and a unique script name per run:
+  nothing running gives 1; a queued-heavy-shaped waiter, its `sh -c` parent, a mention kept on a command
+  line and a `-c` string naming the script are NOT runs (with a control that the unanchored pgrep DOES
+  match all four); `bash tools/<script>`, `/bin/bash /abs/tools/<script>` and `bash -x tools/<script>`
+  ARE runs; a failing pgrep or no script gives 2. Measured red: anchor removed gives 3 failures.
+- tools.heavy-gate-3805.test.js gains a #5470 case: a waiter line and its sh -c parent do not count; the
+  run the waiter starts (with the waiter as its ancestor) does.
+- Existing guards pass: test-cut-guard, test-browser-run-guard (and its real-path control,
+  KOSMOS_BC_REALPATH=1), test-browser-gate-cut-claim-1398, test-machine-claim-1962, test-light-side-4911,
+  tools.heavy-gate-3805.test.js.

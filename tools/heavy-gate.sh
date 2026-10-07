@@ -159,6 +159,10 @@ script_of() (
         -*|+*) continue ;;
       esac
       lead="$w"
+      # #5470: a tools/queued-heavy.sh WAITER carries its wrapped command as arguments while it waits
+      # for the machine; it is not running it. When its turn comes it starts that command as its own
+      # process, which counts. Read as a run, a waiter deadlocked the 0.7.27 cut (#5467).
+      case "$lead" in */tools/queued-heavy.sh|tools/queued-heavy.sh|queued-heavy.sh) exit 0 ;; esac
     fi
     case "$w" in */tools/release.sh|*/tools/browser-checks.sh|*/tools/test-install.sh|tools/release.sh|tools/browser-checks.sh|tools/test-install.sh|*/tools/run-tests.sh|tools/run-tests.sh)
       printf '%s' "$w"; exit 0 ;; esac
