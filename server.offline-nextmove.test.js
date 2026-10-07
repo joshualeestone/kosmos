@@ -122,7 +122,7 @@ test('#671: the plain offline sentence carries the launch model and the honest c
     'the sentence still asserts the cause is unknowable, beside the box that holds it (#1663)');
 });
 
-test('#671: a job-less agent gets no self-starting claim, because nothing will start it', () => {
+test('#671: a job-less agent gets no self-starting claim, because nothing will start it', LINUX_LAUNCHD, () => {   // #5432: a control for the tests skipped above; alone on Linux it proves nothing
   const row = (boardWithStoppedAgent({ job: false }).agents || []).find((a) => a.sessionName === 'quiet');
   assert.ok(row, 'the job-less agent fell out of the roster');
   assert.doesNotMatch(row.because, /starts itself/,

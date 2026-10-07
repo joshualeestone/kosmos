@@ -4422,7 +4422,7 @@ test('creating on an account that keeps its own history is refused before anythi
   /* 🛑 AND NOTHING WAS MADE. A refusal that has already written the folder and
      the launch file is not a refusal; the name would then be permanently taken
      by a half-agent and the person could not even retry. */
-  assert.equal(fs.existsSync(create.plistPath(name)), false, 'the refusal left a launchd job behind');
+  assert.equal(fs.existsSync(require('../test-support/jobfixture').jobPath(name)), false, 'the refusal left a startup job behind');   // #5432: plist or unit
   assert.equal(fs.existsSync(create.workerDir(name)), false, 'the refusal left a worker folder behind');
 });
 
@@ -4476,7 +4476,7 @@ test('an agent cannot report to itself', () => {
   assert.match(out.because, /cannot report to itself/);
   /* A cycle of one is the whole cycle problem in its smallest form, and it is
      the only one a person can create by picking a name out of a list. */
-  assert.equal(fs.existsSync(create.plistPath(name)), false, 'the refusal made the agent anyway');
+  assert.equal(fs.existsSync(require('../test-support/jobfixture').jobPath(name)), false, 'the refusal made the agent anyway');   // #5432: plist or unit
 });
 
 /* ── the birth record (#157) ─────────────────────────────────────────────── */
@@ -5566,7 +5566,7 @@ test('#548: a claude-less Mac refuses an anthropic creation in words, offering O
 
   // And nothing was half-made by any of the three refusals.
   for (const n of ['cg-a', 'cg-b', 'cg-c']) {
-    assert.equal(fs.existsSync(create.plistPath(n)), false, `${n} left a job behind`);
+    assert.equal(fs.existsSync(require('../test-support/jobfixture').jobPath(n)), false, `${n} left a job behind`);   // #5432: plist or unit
     assert.equal(fs.existsSync(create.workerDir(n)), false, `${n} left a folder behind`);
   }
 });
