@@ -204,27 +204,34 @@ test('#4381: "Run agents on this computer" is in the system menu only on a conne
 
 test('#4381: a connect window follows the connect link rules; Kosmos Plus not answering is said', () => {
   const nav = method('internal void OnNavigationStarting(ICoreWebView2NavigationStartingEventArgs args)');
-  inOrder(nav, ['if (mode == KosmosLauncher.ComputerMode.Connect)', 'args.get_IsUserInitiated(out userInitiated);', 'webView.get_Source(out page);',
-    'KosmosLauncher.ConnectLinkDecision(uri, userInitiated != 0, KosmosLauncher.IsKosmosPlusSiteAddress(page))',
-    'if (decided == KosmosLauncher.ConnectLink.InApp) return;', 'args.put_Cancel(1);', 'OpenInPersonsBrowser(uri, true)', 'return;', 'KosmosLauncher.IsBoardAddress(uri, port)'], 'the connect rules');
+  inOrder(nav, ['if (mode == KosmosLauncher.ComputerMode.Connect)', 'args.get_IsUserInitiated(out userInitiated);', 'args.get_IsRedirected(out redirected);',
+    'args.get_NavigationId(out navId);',
+    'KosmosLauncher.ConnectLinkDecision(uri, userInitiated != 0 && redirected == 0, KosmosLauncher.IsKosmosPlusSiteAddress(committedPage))',
+    'if (decided == KosmosLauncher.ConnectLink.InApp) { connectInWindow[navId] = uri; return; }',
+    'args.put_Cancel(1);', 'OpenInPersonsBrowser(uri, true)', 'return;', 'KosmosLauncher.IsBoardAddress(uri, port)'], 'the connect rules');
   const popup = method('internal void OnNewWindowRequested(ICoreWebView2NewWindowRequestedEventArgs args)');
   assert.match(popup, /KosmosLauncher\.ConnectLinkDecision\(uri, true\)/);
   const done = method('internal void OnNavigationCompleted(ICoreWebView2NavigationCompletedEventArgs args)');
-  assert.match(done, /if \(mode != KosmosLauncher\.ComputerMode\.Connect \|\| !connectLoadPending\) return;/);
+  assert.match(done, /if \(mode != KosmosLauncher\.ComputerMode\.Connect\) return;/);
   assert.match(done, /connectLoadFailed = \(success == 0 && status != COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED\) \|\| connectLoadRefused;/);
   // #5483: a first load the connect rules refused counts as failed (box + Reopen), set only while it is pending.
-  assert.match(nav, /if \(decided == KosmosLauncher\.ConnectLink\.Block && connectLoadPending\) connectLoadRefused = true;/);
-  assert.match(method('void LoadConnect()'), /connectLoadPending = true;\s*connectLoadRefused = false;/);
+  // Scoped to the first load's own navigation (one id across its redirects), never another nav's refusal.
+  assert.match(nav, /if \(decided == KosmosLauncher\.ConnectLink\.Block && connectLoadPending && connectLoadNavKnown && navId == connectLoadNavId\) connectLoadRefused = true;/);
+  assert.match(method('void LoadConnect()'), /connectLoadPending = true;\s*connectLoadRefused = false;\s*connectLoadNavKnown = false;\s*committedPage = null;/);
+  // The committed page is the last in-window navigation that COMPLETED successfully (the Mac's committedPageURL),
+  // and only the first load's own completion settles it.
+  inOrder(done, ['args.get_NavigationId(out navId);', 'if (connectInWindow.TryGetValue(navId, out inWindow))', 'if (success != 0) committedPage = inWindow;',
+    'if (!connectLoadPending || !connectLoadNavKnown || navId != connectLoadNavId) return;', 'connectLoadPending = false;'], 'the first load, by its own id');
   assert.match(done, /KosmosLauncher\.KosmosPlusUnreachableMessage/);
   /* WebView2.h 1.0.4191.47: the handler's and the args' ids, and add_NavigationCompleted's slot. */
   assert.match(SOURCE, /\[ComImport, Guid\("d33a35bf-1c49-4f98-93ab-006e0533fe1c"\), InterfaceType\(ComInterfaceType\.InterfaceIsIUnknown\)\]\npublic interface ICoreWebView2NavigationCompletedEventHandler/);
-  assert.match(SOURCE, /\[ComImport, Guid\("30d68b7d-20d9-4752-a9ca-ec8448fbb5c1"\), InterfaceType\(ComInterfaceType\.InterfaceIsIUnknown\)\]\npublic interface ICoreWebView2NavigationCompletedEventArgs\n\{\n    void get_IsSuccess\(out int isSuccess\);\n    void get_WebErrorStatus\(out int webErrorStatus\);\n\}/);
+  assert.match(SOURCE, /\[ComImport, Guid\("30d68b7d-20d9-4752-a9ca-ec8448fbb5c1"\), InterfaceType\(ComInterfaceType\.InterfaceIsIUnknown\)\]\npublic interface ICoreWebView2NavigationCompletedEventArgs\n\{\n    void get_IsSuccess\(out int isSuccess\);\n    void get_WebErrorStatus\(out int webErrorStatus\);\n    void get_NavigationId\(out ulong navigationId\);\n\}/);
   const core = slice('public interface ICoreWebView2\n{', '\n}\n');
   const slots = core.split('\n').map((l) => l.match(/^\s+void (?:_unused_)?(\w+)\(/)).filter(Boolean).map((m) => m[1]);
   assert.equal(slots.indexOf('add_NavigationCompleted'), 12, 'add_NavigationCompleted is not ICoreWebView2\'s 13th method');
   const starting = slice('public interface ICoreWebView2NavigationStartingEventArgs\n{', '\n}\n');
   assert.deepEqual(starting.split('\n').map((l) => l.match(/^\s+void (?:_unused_)?(\w+)\(/)).filter(Boolean).map((m) => m[1]),
-    ['get_Uri', 'get_IsUserInitiated', 'get_IsRedirected', 'get_RequestHeaders', 'get_Cancel', 'put_Cancel']);
+    ['get_Uri', 'get_IsUserInitiated', 'get_IsRedirected', 'get_RequestHeaders', 'get_Cancel', 'put_Cancel', 'get_NavigationId']);   // WebView2.h 1.0.4191.47
 });
 
 test('#4381: the updater\'s board starts obey the mode too (engine/win32apply.js), so an update never brings a connect computer\'s board back', () => {
