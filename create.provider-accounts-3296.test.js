@@ -45,7 +45,7 @@ const grokAccounts = require('./engine/grokaccounts');
 /* #5432: on a Linux host an agent's job is a systemd user unit, so a test that seeds, reads or drives the job as a
    launchd plist cannot run unchanged there. Skipped on Linux only; its reason says whether a Linux test covers it, or
    that it is not tested on Linux yet (#5500). macOS and Windows unchanged. */
-const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS plist test on a Linux host (#5432): it asserts the plist's environment text; on Linux the account folder is the unit's Environment= line: linuxjob.test.js (readUnitJob round-trips configDir, for codex only; GEMINI_CLI_HOME and GROK_HOME are NOT round-tripped on Linux yet: #5500)" } : {};
+const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS plist test on a Linux host (#5432): it asserts the plist's environment text; on Linux the account folder is the unit's Environment= line: GEMINI_CLI_HOME and GROK_HOME are NOT round-tripped through the unit on Linux yet: #5500" } : {};
 
 // DRY_RUN for the whole file: createAgent must never spawn a real agent here. The
 // engine refuses to leave dry-run without an injected runner (setDryRun(false)
