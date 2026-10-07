@@ -1502,17 +1502,17 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         @unknown default: return "unknown"
         }
     }
-    /// #5481 review 1: ready means a fresh start can only succeed or prompt. Speech is asked FIRST, so after a speech
+    /// #5481: ready means a fresh start can only succeed or prompt. Speech is asked FIRST, so after a speech
     /// refusal the mic has usually never been asked; requiring it "authorized" here would leave the pill up forever (the
     /// Microphone pane does not list an app that never asked). Not asked is fine: the next start shows its prompt.
     static func readyToStart(speech: SFSpeechRecognizerAuthorizationStatus, mic: AVAuthorizationStatus) -> Bool {
         return speech == .authorized && (mic == .authorized || mic == .notDetermined)
     }
-    /// #5481 review 2: the whole decision on coming back from Settings, PURE so the selftest pins the event and its
-    /// id (the page matches it to the Settings visit by that id, never to the listening session's). Review 3: with
+    /// #5481: the whole decision on coming back from Settings, PURE so the selftest pins the event and its
+    /// id (the page matches it to the Settings visit by that id, never to the listening session's). With
     /// speech now on but the mic still refused (both were off; speech is asked first), it names the next pane, so the
     /// pill does not keep opening the Speech pane.
-    /// Review 5: `pane` is the pane this visit opened. "Speech on, mic refused" means move on only after a SPEECH visit;
+    /// `pane` is the pane this visit opened. "Speech on, mic refused" means move on only after a SPEECH visit;
     /// after a MIC visit it is the state before the switch is flipped, so nothing has changed yet. A restricted mic is
     /// said as that (the Privacy pane cannot undo it), so the page swaps the pill for the sentence.
     static func allowedEvent(awaiting: Bool, pane: String, speech: SFSpeechRecognizerAuthorizationStatus, mic: AVAuthorizationStatus, settingsId: String) -> [String: String]? {
@@ -1523,18 +1523,18 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         if speech == .authorized && mic == .denied && pane == "speech" { return ["kind": "settings-next", "pane": "mic", "id": settingsId] }
         return nil
     }
-    /// Review 3 and 4: how long a Settings visit may still start the mic by itself. Not "the first return": the app also
+    /// how long a Settings visit may still start the mic by itself. Not "the first return": the app also
     /// comes back for a Dock click or a password sheet before the switch is flipped. Not forever: a return hours later,
     /// the permission turned on some other way, must not start the mic without a press.
     static let settingsVisitSeconds: TimeInterval = 600
-    /// Review 4: what one return to the app does with an open visit: the event to send, and whether the visit stays open
+    /// what one return to the app does with an open visit: the event to send, and whether the visit stays open
     /// (only while nothing has changed and it is not too old). PURE, selftested.
     static func visitOnReturn(ageSeconds: TimeInterval, pane: String, speech: SFSpeechRecognizerAuthorizationStatus, mic: AVAuthorizationStatus, settingsId: String) -> (event: [String: String]?, keepOpen: Bool) {
         guard ageSeconds >= 0, ageSeconds <= settingsVisitSeconds else { return (nil, false) }
         if let event = allowedEvent(awaiting: true, pane: pane, speech: speech, mic: mic, settingsId: settingsId) { return (event, false) }
         return (nil, true)
     }
-    /// Review 4: the page may name a pane, never a URL; it also may not open Settings over and over (more than once a
+    /// the page may name a pane, never a URL; it also may not open Settings over and over (more than once a
     /// second; a clock moved backwards counts as a second gone by, which only ever allows one more open).
     /// Settings is opened only in answer to a denial this app said (the page's pill exists for nothing else). PURE.
     static func settingsAccepted(lastRefusal: String) -> Bool { lastRefusal == "speech-denied" || lastRefusal == "mic-denied" }
@@ -6582,28 +6582,28 @@ if CommandLine.arguments.contains("--kosmos-app-voice-selftest") {
     row(VoiceBridge.settingsURL(pane: "mic")?.absoluteString == "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone", "#5481: mic opens the Microphone pane")
     row(VoiceBridge.settingsURL(pane: "https://example.com") == nil && VoiceBridge.settingsURL(pane: "") == nil, "#5481: anything else opens nothing")
     row(VoiceBridge.readyToStart(speech: .authorized, mic: .authorized), "#5481: both allowed starts again")
-    row(VoiceBridge.readyToStart(speech: .authorized, mic: .notDetermined), "#5481 review 1: speech allowed and the mic never asked starts again (its prompt comes next)")
+    row(VoiceBridge.readyToStart(speech: .authorized, mic: .notDetermined), "#5481: speech allowed and the mic never asked starts again (its prompt comes next)")
     row(!VoiceBridge.readyToStart(speech: .authorized, mic: .denied) && !VoiceBridge.readyToStart(speech: .denied, mic: .authorized) && !VoiceBridge.readyToStart(speech: .notDetermined, mic: .authorized) && !VoiceBridge.readyToStart(speech: .authorized, mic: .restricted), "#5481: either still off does not")
     row(VoiceBridge.speechRefusal(.restricted) == "speech-restricted" && VoiceBridge.micRefusal(.restricted) == "mic-restricted", "#5481: restricted is said as restricted")
     row(VoiceBridge.speechRefusal(.denied) == "speech-denied" && VoiceBridge.micRefusal(.denied) == "mic-denied", "#5481 CONTROL: denied stays denied")
     row(VoiceBridge.speechRefusal(.notDetermined) == "speech-unanswered", "#5481: no answer stays unanswered")
-    row(VoiceBridge.allowedEvent(awaiting: true, pane: "speech", speech: .authorized, mic: .notDetermined, settingsId: "set7") == ["kind": "allowed", "id": "set7"], "#5481 review 2: coming back ready says allowed with the Settings visit's own id")
-    row(VoiceBridge.allowedEvent(awaiting: false, pane: "speech", speech: .authorized, mic: .authorized, settingsId: "set7") == nil, "#5481 review 2: no Settings visit, no allowed")
-    row(VoiceBridge.allowedEvent(awaiting: true, pane: "speech", speech: .denied, mic: .authorized, settingsId: "set7") == nil, "#5481 review 2 CONTROL: still off says nothing")
-    row(VoiceBridge.allowedEvent(awaiting: true, pane: "speech", speech: .authorized, mic: .denied, settingsId: "set7") == ["kind": "settings-next", "pane": "mic", "id": "set7"], "#5481 review 3: speech now on, the mic still refused: the next pane is the Microphone one")
+    row(VoiceBridge.allowedEvent(awaiting: true, pane: "speech", speech: .authorized, mic: .notDetermined, settingsId: "set7") == ["kind": "allowed", "id": "set7"], "#5481: coming back ready says allowed with the Settings visit's own id")
+    row(VoiceBridge.allowedEvent(awaiting: false, pane: "speech", speech: .authorized, mic: .authorized, settingsId: "set7") == nil, "#5481: no Settings visit, no allowed")
+    row(VoiceBridge.allowedEvent(awaiting: true, pane: "speech", speech: .denied, mic: .authorized, settingsId: "set7") == nil, "#5481 CONTROL: still off says nothing")
+    row(VoiceBridge.allowedEvent(awaiting: true, pane: "speech", speech: .authorized, mic: .denied, settingsId: "set7") == ["kind": "settings-next", "pane": "mic", "id": "set7"], "#5481: speech now on, the mic still refused: the next pane is the Microphone one")
     let still = VoiceBridge.visitOnReturn(ageSeconds: 5, pane: "speech", speech: .denied, mic: .notDetermined, settingsId: "set7")
-    row(still.event == nil && still.keepOpen, "#5481 review 4: back before the switch is flipped (a Dock click) keeps the visit open")
+    row(still.event == nil && still.keepOpen, "#5481: back before the switch is flipped (a Dock click) keeps the visit open")
     let ready = VoiceBridge.visitOnReturn(ageSeconds: 5, pane: "speech", speech: .authorized, mic: .notDetermined, settingsId: "set7")
-    row(ready.event == ["kind": "allowed", "id": "set7"] && !ready.keepOpen, "#5481 review 4: back ready says allowed and closes the visit")
+    row(ready.event == ["kind": "allowed", "id": "set7"] && !ready.keepOpen, "#5481: back ready says allowed and closes the visit")
     let late = VoiceBridge.visitOnReturn(ageSeconds: VoiceBridge.settingsVisitSeconds + 1, pane: "mic", speech: .authorized, mic: .authorized, settingsId: "set7")
-    row(late.event == nil && !late.keepOpen, "#5481 review 3: a return after the visit's time starts nothing, even with both allowed")
-    row(!VoiceBridge.settingsOpenAllowed(sinceLast: 0.2) && VoiceBridge.settingsOpenAllowed(sinceLast: 1.5) && VoiceBridge.settingsOpenAllowed(sinceLast: nil) && VoiceBridge.settingsOpenAllowed(sinceLast: -5), "#5481 review 4: Settings opens at most once a second (a clock moved back allows one more)")
+    row(late.event == nil && !late.keepOpen, "#5481: a return after the visit's time starts nothing, even with both allowed")
+    row(!VoiceBridge.settingsOpenAllowed(sinceLast: 0.2) && VoiceBridge.settingsOpenAllowed(sinceLast: 1.5) && VoiceBridge.settingsOpenAllowed(sinceLast: nil) && VoiceBridge.settingsOpenAllowed(sinceLast: -5), "#5481: Settings opens at most once a second (a clock moved back allows one more)")
     let micStill = VoiceBridge.visitOnReturn(ageSeconds: 5, pane: "mic", speech: .authorized, mic: .denied, settingsId: "set7")
-    row(micStill.event == nil && micStill.keepOpen, "#5481 review 5: back from the Microphone pane before the switch is flipped keeps the visit open")
-    row(VoiceBridge.allowedEvent(awaiting: true, pane: "speech", speech: .authorized, mic: .restricted, settingsId: "set7") == ["kind": "refused", "reason": "mic-restricted", "id": "set7"], "#5481 review 5: a restricted mic is said as that, not left on a pill")
+    row(micStill.event == nil && micStill.keepOpen, "#5481: back from the Microphone pane before the switch is flipped keeps the visit open")
+    row(VoiceBridge.allowedEvent(awaiting: true, pane: "speech", speech: .authorized, mic: .restricted, settingsId: "set7") == ["kind": "refused", "reason": "mic-restricted", "id": "set7"], "#5481: a restricted mic is said as that, not left on a pill")
     row(VoiceBridge.stampId(["kind": "allowed", "id": "set7"], pageId: "s3")["id"] as? String == "set7", "#5481: a Settings visit's event keeps its own id")
     row(VoiceBridge.stampId(["kind": "stopped"], pageId: "s3")["id"] as? String == "s3", "#5481 CONTROL: any other event carries the listening session's id")
-    row(VoiceBridge.allowedEvent(awaiting: true, pane: "speech", speech: .restricted, mic: .notDetermined, settingsId: "set7") == ["kind": "refused", "reason": "speech-restricted", "id": "set7"], "#5481 review 7: speech restricted is said as that, not left on a pill")
+    row(VoiceBridge.allowedEvent(awaiting: true, pane: "speech", speech: .restricted, mic: .notDetermined, settingsId: "set7") == ["kind": "refused", "reason": "speech-restricted", "id": "set7"], "#5481: speech restricted is said as that, not left on a pill")
     row(VoiceBridge.settingsAccepted(lastRefusal: "speech-denied") && VoiceBridge.settingsAccepted(lastRefusal: "mic-denied"), "#5481: Settings opens after a denial")
     row(!VoiceBridge.settingsAccepted(lastRefusal: "") && !VoiceBridge.settingsAccepted(lastRefusal: "no-mic") && !VoiceBridge.settingsAccepted(lastRefusal: "mic-restricted"), "#5481 CONTROL: and after nothing else")
     let expected = 40   // #5311: + Dictation off, + its control; #5481: + 24

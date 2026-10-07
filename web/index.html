@@ -7742,7 +7742,7 @@ html.has-voice .micbtn.has-pill { display: none; }
 .asp-in .voice-pill, .micwrap > .voice-pill { height: 28px; }
 .micwrap > .voice-pill { position: absolute; right: calc(8px + var(--scrollbar-width, 0px)); top: 6px; z-index: 1; }   /* where the field's mic sat */
 .micwrap.line > .voice-pill { top: 50%; right: 8px; transform: translateY(-50%); }
-/* review 1: in a field the pill sits over the text box, so it is always the short [X  Settings] there and the box
+/* in a field the pill sits over the text box, so it is always the short [X  Settings] there and the box
    makes room for it (the box's own mic padding rules are more specific, hence !important while the pill shows). */
 .micwrap > .voice-pill .vp-pre { display: none; }
 /* 124px = the short pill's width plus its 8px offset and a margin; render-voice-4409.js V6e measures that the text ends
@@ -65530,7 +65530,7 @@ function voiceSettingsOffer(btn, pane, said) {
   VOICE_SETTINGS.pane = pane;
   const pill = document.createElement('span');
   pill.className = 'voice-pill';
-  /* Review 3: the refusal is said by the pill's own alert, hidden from sight (no sentence below the input), so a screen
+  /* the refusal is said by the pill's own alert, hidden from sight (no sentence below the input), so a screen
      reader hears it even though a click in the app moves no focus. Not the mic's message line: other messages share
      that line (a send that is still going, a Create refusal), and hiding it would hide them too. */
   const alert = document.createElement('span');
@@ -65547,7 +65547,7 @@ function voiceSettingsOffer(btn, pane, said) {
     const h = voiceBridge();
     if (!h || h.phone) return;
     const box = document.getElementById(btn.getAttribute('data-voice-for') || '');
-    /* Review 3: where the person is when they press it (the DM's mic is shared by every agent's chat), so "allowed"
+    /* where the person is when they press it (the DM's mic is shared by every agent's chat), so "allowed"
        restarts the mic only if they are still there when they come back. */
     Object.assign(VOICE_SETTINGS, { btn, id: visitId, where: box ? voiceWhere(box, true) : '' });
     h.postMessage({ op: 'settings', pane: VOICE_SETTINGS.pane, id: VOICE_SETTINGS.id });
@@ -65562,7 +65562,7 @@ function voiceOnEvent(ev) {
   // #5481: "allowed" comes after the mic stopped (VOICE.btn is gone), so it is matched to the Settings visit itself.
   if (ev && ev.kind === 'allowed') {
     const btn = VOICE_SETTINGS.btn;
-    if (!btn || ev.id !== VOICE_SETTINGS.id) return;   // review 4: the app always sends the visit's id; none is not a match
+    if (!btn || ev.id !== VOICE_SETTINGS.id) return;   // the app always sends the visit's id; none is not a match
     const box = document.getElementById(btn.getAttribute('data-voice-for') || '');
     /* Another agent, room or a closed dialog means no restart. Compared steady (without the page-hidden part), which can
        still read hidden at the instant the app comes back from Settings. */
@@ -65579,8 +65579,8 @@ function voiceOnEvent(ev) {
     document.addEventListener('visibilitychange', once);
     return;
   }
-  // Review 3: speech is now on but the mic is still refused (both were off); the same pill now opens the Microphone pane.
-  // Review 5: back from Settings with the mic restricted (Screen Time or a profile): no pane can undo it, so say so.
+  // speech is now on but the mic is still refused (both were off); the same pill now opens the Microphone pane.
+  // back from Settings with the mic restricted (Screen Time or a profile): no pane can undo it, so say so.
   if (ev && ev.kind === 'refused') {
     const btn = VOICE_SETTINGS.btn;
     if (!btn || ev.id !== VOICE_SETTINGS.id || !VOICE_SAYS[ev.reason]) return;

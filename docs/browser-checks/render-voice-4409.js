@@ -358,7 +358,7 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     const v14 = await page.evaluate((n) => ({ ops: window.__voice.slice(n).map((m) => m.op), desc: document.getElementById('pj-add-desc').value, pressed: document.querySelector('.fieldmic[data-voice-for="pj-add-desc"]').getAttribute('aria-pressed') }), n5);
     chk(JSON.stringify(v14.ops) === '["start","cancel"]' && v14.desc === 'first words' && v14.pressed === 'false',
       'V14 focus moving to another field stops listening and keeps the words heard so far', JSON.stringify(v14));
-    // V6e (#5481 review 1): in a field the pill is the short [X  Settings] and the box makes room, so it covers no text.
+    // V6e (#5481): in a field the pill is the short [X  Settings] and the box makes room, so it covers no text.
     await page.evaluate(() => { document.querySelector('.fieldmic[data-voice-for="pj-add-desc"]').click(); window.kosmosVoiceEvent({ kind: 'error', reason: 'speech-denied', canOpenSettings: true }); window.kosmosVoiceEvent({ kind: 'stopped' }); });
     const v6e = await page.evaluate(() => {
       const ta = document.getElementById('pj-add-desc'), pill = document.querySelector('.micwrap > .voice-pill');

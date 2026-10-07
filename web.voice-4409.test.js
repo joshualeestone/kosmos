@@ -351,6 +351,10 @@ test('#4409: the native recognizer is on-device only, and only the board\'s own 
   assert.match(SWIFT, /delegate\.voice = voice/, 'the app has no handle on the bridge, so hostCancel is never reached');
   assert.match(bridge, /event\["id"\] = pageId/, 'events carry no session id, so a late one ends the next session');
   assert.match(bridge, /private func emit\(_ event: \[String: Any\]\) \{\n        let event = Self\.stampId\(event, pageId: pageId\)/, 'emit no longer stamps the session id (#5481 moved it into stampId)');
+  // #5481: the page and the app agree on the Settings message only by these names; a rename on one side would leave a
+  // button that does nothing, which no pure selftest row can see.
+  assert.match(bridge, /case "settings":[\s\S]{0,300}body\["pane"\] as\? String[\s\S]{0,900}body\["id"\] as\? String/, 'the app no longer reads pane and id from the settings op');
+  assert.match(PAGE, /h\.postMessage\(\{ op: 'settings', pane: VOICE_SETTINGS\.pane, id: VOICE_SETTINGS\.id \}\)/, 'the page no longer posts op settings with pane and id');
   assert.match(bridge, /guard pending \|\| engine != nil/, 'a window hidden during the permission prompt leaves the next start listening');
 });
 
@@ -450,7 +454,7 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   go().handlers.click();
   const ask = posted.at(-1);
   assert.deepEqual([ask.op, ask.pane], ['settings', 'speech'], 'the label did not ask for the Speech Recognition pane');
-  // review 3: both were off. Back with speech on and the mic still refused, the same pill opens the Microphone pane.
+  // both were off. Back with speech on and the mic still refused, the same pill opens the Microphone pane.
   h.voiceOnEvent({ kind: 'settings-next', pane: 'mic', id: 'not-this-visit' });
   h.voiceOnEvent({ kind: 'settings-next', pane: 'https://example.com', id: ask.id });
   go().handlers.click();
@@ -495,7 +499,7 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   h.voiceOnEvent({ kind: 'error', reason: 'mic-denied', canOpenSettings: true, id: posted.at(-1).id });
   go().handlers.click();
   assert.equal(posted.at(-1).pane, 'mic');
-  // review 2: "allowed" after the person moved to another agent clears the pill but does not start the mic there.
+  // "allowed" after the person moved to another agent clears the pill but does not start the mic there.
   const visit = posted.at(-1).id;
   h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });   // the app always ends a refusal with stopped
   assert.equal(h.VOICE.btn, null, 'fixture: the mic is still on, so nothing below could start it either way');
@@ -507,7 +511,7 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   assert.equal(pills.length, 0, 'the pill stayed after allowed in another view');
   assert.equal(posted.length, before, 'the mic started in a view the person had left: ' + JSON.stringify(posted.slice(before)));
   h.set(CARD('april'), null);
-  // review 3: the place is where the person PRESSED Settings. Offered in one chat, pressed in another (the DM's mic is
+  // the place is where the person PRESSED Settings. Offered in one chat, pressed in another (the DM's mic is
   // shared), "allowed" restarts the mic in the chat it was pressed from.
   h.voiceToggle(btn);
   h.voiceOnEvent({ kind: 'error', reason: 'mic-denied', canOpenSettings: true, id: posted.at(-1).id });
@@ -518,7 +522,7 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   h.voiceOnEvent({ kind: 'allowed', id: pressed });
   assert.equal(posted.at(-1).op, 'start', 'the mic did not restart in the chat Settings was pressed from');
   h.set(CARD('april'), null);
-  // review 5: back with the mic restricted, the pill gives way to the restricted sentence.
+  // back with the mic restricted, the pill gives way to the restricted sentence.
   h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
   h.voiceToggle(btn);
   h.voiceOnEvent({ kind: 'error', reason: 'speech-denied', canOpenSettings: true, id: posted.at(-1).id });
