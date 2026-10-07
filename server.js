@@ -38,14 +38,6 @@ const crypto = require('node:crypto');
 const LAUNCH_ENV_OVERRIDES = Object.fromEntries(Object.entries(process.env)
   .filter(([key]) => key === 'PORT' || key.startsWith('AGENT_WORKFORCE_')));
 const worldRegistryBase = require('./engine/worldenv').bootstrapWorldEnv(process.env);
-/* #5450: who started this board (install/kosmos board-run and start), taken out of the environment before anything
-   can start a process that would inherit it; engine/restartnote.js atStart reads these values. (engine/worldenv.js
-   froze a copy of the environment above; its only reader takes paths from it and starts nothing.) */
-const BOARD_STARTED_BY = process.env.KOSMOS_BOARD_STARTED_BY;
-const BOARD_PERSON_MARK = process.env.KOSMOS_BOARD_PERSON_MARK;
-delete process.env.KOSMOS_BOARD_STARTED_BY;
-delete process.env.KOSMOS_BOARD_PERSON_MARK;
-delete process.env.KOSMOS_START_BY;   // the watchdog's word to `kosmos start`; the launchers strip it, this is the backstop
 /* #4199: next, right after the world bootstrap above (which must stay the FIRST engine require: see
    server.worldenv-order.test.js): when this file IS the board (not required by a test), every line it writes into
    board.log starts with a UTC time, so a restart can be matched to what an agent was doing. Only when stdout/stderr is
@@ -61,6 +53,14 @@ if (require.main === module) {
   logstamp.install(process.stdout, 1, { shared, logPaths });
   logstamp.install(process.stderr, 2, { shared, logPaths });
 }
+/* #5450: who started this board (install/kosmos board-run and start), taken out of the environment before anything
+   can start a process that would inherit it (the log stamp above starts none; #4199 keeps it right after the bootstrap); engine/restartnote.js atStart reads these values. (engine/worldenv.js
+   froze a copy of the environment above; its only reader takes paths from it and starts nothing.) */
+const BOARD_STARTED_BY = process.env.KOSMOS_BOARD_STARTED_BY;
+const BOARD_PERSON_MARK = process.env.KOSMOS_BOARD_PERSON_MARK;
+delete process.env.KOSMOS_BOARD_STARTED_BY;
+delete process.env.KOSMOS_BOARD_PERSON_MARK;
+delete process.env.KOSMOS_START_BY;   // the watchdog's word to `kosmos start`; the launchers strip it, this is the backstop
 /* #5112: before any tmux is asked anything, forget an inherited $TMUX (engine/sandbox.js says why). The real start only:
    the routing tests require this file, and the test runner's own $TMUX is not this board's to change. */
 if (require.main === module) require('./engine/sandbox').dropInheritedTmux(process.env);
