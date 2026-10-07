@@ -79,6 +79,8 @@ test('#5406 the settings file holds one PermissionRequest hook and #5495\'s env 
   const h = win.hooks.PermissionRequest[0].hooks[0];
   assert.equal(h.command, 'C:\\Kosmos\\node.exe', 'Windows: the exec form, no shell (as the report hook, #570)');
   assert.deepEqual(h.args, ['C:\\Kosmos\\engine\\kosmos-permission-allow.js']);
+  assert.deepEqual(win.env, { [ap.ENV_NODE]: 'C:\\Kosmos\\node.exe', [ap.ENV_SCRIPT]: 'C:\\Kosmos\\engine\\kosmos-permission-allow.js' },
+    '#5495: Windows carries the env names too (the Windows report hook gates on them)');
   assert.equal(ap.settingsText({ platform: 'darwin', node: '/odd"path/node' }), null, 'a path that cannot ride in a command: no file');
 });
 
