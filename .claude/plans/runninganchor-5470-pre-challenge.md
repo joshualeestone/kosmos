@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: runninganchor-5470
-diff_hash: cbecbbde14b9fd9dd83ae950f1155152a6d15236d282f8ceeb67402180609182
-validation: pending (the Mortals full suite queue is jammed: two sibling runs gave up after ~3.6 h at 09:16, not test results; this PR's GitHub CI, which runs the full node and shell suites on macOS, is the validation, and this line is updated when it reports. Run by hand on this head: test-running-anchor-5470 0 failures, tools.heavy-gate-3805.test.js 46 pass, test-cut-guard 0 failures, test-light-side-4911 0 failures, test-queued-heavy-4977 93/93, test-browser-gate-cut-claim-1398 pass, and test-browser-run-guard with its real-path control KOSMOS_BC_REALPATH=1)
+diff_hash: 31faab9dad7025ca6c081f3f5cd76d775ed94fa44967f952c48704f230b3a958
+validation: passed (FULL LOCAL SUITE on Agent1s, 13:23-13:50 CDT 10-07, at 771133d28 (this branch rebased onto main; diff hash unchanged then): node 16482 tests, 16258 pass, 0 fail, 0 cancelled, 224 skipped; test:shell ran to the end with tools/test-running-anchor-5470.sh 0 failures; run-tests rc 0. Run locally because GitHub's hosted macOS runners stalled from 11:07. Then rebased once more onto main after #5462, #5444 and #5484 merged (only package.json's test:shell line conflicted, resolved as a union; no main commit since 771133d28 touches this branch's five files); on that tree test-running-anchor-5470, test-cut-guard (0 failures), tools.heavy-gate-3805, tools.shell-shard-4317 and test-deploy-landed-5471 pass. An earlier local run at af3dfbae4 stopped on cli.sandbox-4636:162, the known red that #5474 fixed on main, and is not counted)
 subdir_audit: passed
-timestamp: 2026-10-07T14:33:00Z
+timestamp: 2026-10-07T18:58:00Z
 iterations: 15
 converged: true
 ---
