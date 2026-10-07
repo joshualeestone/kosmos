@@ -26,8 +26,11 @@ writes, not renames), and the other files the card lists.
     folder. So `forgetKey` now calls `securewrite.reapDeadTempsOf(keyFile)`, which removes that file's
     temps by the reaper's own proof of death (a live writer's temp is left). The `<keyfile>.tmp`
     cleanup stays for temps an older version left.
-  - After three failed atomic attempts writeSecret falls back to an in-place write; main threw. That is
-    the fallback every other secret already has, and a refused flush never reaches it.
+  - Key files: after three failed atomic attempts writeSecret falls back to an in-place write; main
+    threw. That is the fallback every other secret already has, and a refused flush never reaches it.
+    settings.json is NOT a secret and holds the user's other settings, so its saves pass a new
+    `atomicOnly` option: they throw and leave the file as it was, as on main, rather than risk a
+    failed in-place rewrite emptying it.
   - `settings.json` mode. writeSecret sets a mode exactly (no umask), so it is chosen here:
     - an existing file keeps its mode, with owner read and write always set and no write or execute
       for others (`(mode & 0o644) | 0o600`). It holds `apiKeyHelper`, a command Claude Code runs. On
@@ -38,7 +41,7 @@ writes, not renames), and the other files the card lists.
   entered or account wired, not in a loop.
 
 ## Tests
-`engine/accounts.fsync-5434.test.js`, 11 arms, also listed in `tools/windows-tests.js` (ALSO):
+`engine/accounts.fsync-5434.test.js`, 13 arms, also listed in `tools/windows-tests.js` (ALSO):
 - each `storeKey` flushes the temp it renames into the key file (fails on main), the key reads back
   trimmed, and the mode is 0600;
 - each `storeKey` still removes a stale `<keyfile>.tmp` (a guard: passes on main; fails when the
@@ -48,7 +51,7 @@ writes, not renames), and the other files the card lists.
 - wire and unwire flush settings.json before its rename (fails on main);
 - settings.json keeps 0600 and 0644, a 0666 one comes back 0644 (fails with the mask removed), a
   0400 one comes back 0600 (fails without the owner bits), other settings are kept, and a new one is 0600 under umask 022 (fails on main).
-Locally: 153 files (the account and securewrite tests plus every repo-wide meta test), 4101 tests, 0 fail.
+Locally: 153 files (the account and securewrite tests plus every repo-wide meta test), 4105 tests, 0 fail.
 
 ## Weakest premise
 That nothing reads a new settings.json as another user. Claude Code runs as the agent's own user here;

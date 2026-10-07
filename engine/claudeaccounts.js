@@ -185,13 +185,14 @@ function apiKeyHelperCommand(dir) {
    always readable and writable by its owner and never writable by others (the file holds
    apiKeyHelper, a command Claude Code runs). A new file is 0600. On main every save took the umask
    default, so a 0600 file became 0644.
-   Accepted: after three failed atomic attempts writeSecret rewrites in place (main threw there) and
-   refuses a symlink on that path (ERR_KOSMOS_SYMLINK); every caller (two in server.js, one in
-   accounts.js) catches a throw. On the atomic path a symlink is replaced by a regular file, as on main. */
+   atomicOnly: when every atomic attempt fails the save throws and the file is left as it was, as on
+   main, rather than being rewritten in place (a failed in-place rewrite could empty the user's other
+   settings). Every caller (two in server.js, one in accounts.js) catches a throw. A symlinked
+   settings.json is replaced by a regular file, as main's rename replaced it. */
 function writeSettings(settingsPath, obj) {
   let mode = 0o600;
   try { mode = (fs.statSync(settingsPath).mode & 0o644) | 0o600; } catch { /* absent: a new file */ }
-  securewrite.writeSecret(settingsPath, JSON.stringify(obj, null, 2) + '\n', mode);
+  securewrite.writeSecret(settingsPath, JSON.stringify(obj, null, 2) + '\n', mode, { atomicOnly: true });
 }
 
 /**

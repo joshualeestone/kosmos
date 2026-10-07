@@ -181,8 +181,10 @@ function reapOrphanTemps(dir) {
    without this it outlived the forget until some later write into that folder. Best effort, never
    throws. */
 function reapDeadTempsOf(file) {
-  const base = path.basename(file) + '.kosmos-';
-  reapDeadTemps(path.dirname(file), (name) => name.startsWith(base));
+  // Anchored at both ends to this file's own temp shape, so a sibling whose NAME starts like a temp
+  // of this file (`<file>.kosmos-x`) is never a candidate.
+  const own = new RegExp('^' + path.basename(file).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\.kosmos-\\d+-(?:t\\d+-)?\\d+-\\d+\\.tmp$');
+  reapDeadTemps(path.dirname(file), (name) => own.test(name));
 }
 
 function reapDeadTemps(dir, wanted) {
@@ -331,8 +333,13 @@ function syncDir(dir) {
  * contents to restore (no file, or one that could not be read) the new, unflushed
  * contents stay, as a failed write on that path always left them. Not unlinked: an
  * unreadable old file looks the same, and unlinking would delete it.
+ *
+ * `opts.atomicOnly` (#5434 slice 2): never take the in-place fallback; when all three atomic
+ * attempts fail, throw the last attempt's error and leave the file as it was. For a file that
+ * is not a secret and holds other content a failed write must never empty (an account's Claude
+ * settings.json), where failing the save beats rewriting it in place.
  */
-function writeSecret(file, data, mode) {
+function writeSecret(file, data, mode, opts) {
   /* #1793: sweep this target's directory of orphan temps a prior death left behind,
      once per directory per process, before we add our own. Best-effort: it never
      throws, and it deletes only a temp it can prove is dead (see reapOrphanTemps),
@@ -424,6 +431,8 @@ function writeSecret(file, data, mode) {
       }
     }
   }
+
+  if (opts && opts.atomicOnly) throw lastAtomicError;   // #5434: the caller asked for no in-place rewrite
 
   /* The in-place fallback. It exists so a write that cannot take the atomic path
      fails soft rather than outright, and every line of it is defensive. */
