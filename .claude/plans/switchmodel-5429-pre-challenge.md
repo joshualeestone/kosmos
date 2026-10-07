@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: switchmodel-5429
-diff_hash: f654720814f7ca0b9eaeee273613892ae87595d9d4b2a62f334fe11c314a7525
+diff_hash: 93955846606a38767f6371a68700401be76d870b923ef9fb31836da557198d66
 validation: focused after every round (server.switch-model-5429.test.js, web.switch-model-5429.test.js, web.switch-account-1373.test.js, fixture-discipline.test.js); at convergence every root-level and engine test file, 15822 pass, 0 fail, rc 0. Each new test was proven to fail by undoing what it guards. Browser: render-switch-claude-5091 gained the model arms; a local light-lane run is queued and CI runs it.
 subdir_audit: not run
 timestamp: 2026-10-06T23:54:33Z
