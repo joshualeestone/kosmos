@@ -49,9 +49,9 @@ function withStub(answers, fn) {
   });
 }
 
-function cli(port, args) {
+function cli(port, args, extraEnv = {}) {
   return new Promise((resolve, reject) => {
-    const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port) };
+    const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), ...extraEnv };
     delete env.KOSMOS_AGENT_TOKEN;
     const child = spawn(CLI, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
@@ -98,12 +98,12 @@ test('#5359: kosmos accounts reads /api/accounts with the board token, and says 
   assert.match(r.out, /^Anthropic \/ Claude: r@example\.com \(subscription\): not signed in: its last request was refused\./m, 'a refused login read as signed in');
   assert.match(r.out, /^Anthropic \/ Claude: u@example\.com: signed in by Kosmos's record, not yet confirmed by a real request$/m);
   assert.match(r.out, /^Anthropic \/ Claude: s@example\.com: its sign-in has run out; its agents keep working until .+, then stop\./m);
-  assert.match(r.out, /^OpenAI: b@example\.com \(chatgpt\): being checked now; it is known on the next read$/m);
+  assert.match(r.out, /^OpenAI: b@example\.com \(chatgpt\): being checked now; run it once more in a few seconds for the answer$/m);
   assert.match(r.out, /^Google Gemini: k@example\.com \(apikey\): signed in$/m, 'a row with no badge lost its state');
   assert.match(r.out, /^xAI Grok: API key ending 7f3q \(apikey\): signed in$/m, 'a keyed account was not named by its key ending');
   assert.match(r.out, /^OpenAI: Research key \(apikey\): signed in$/m, 'a chosen name was not used');
-  assert.match(r.out, /^Gemini: its Google subscription sign-in \(antigravity\): signed in by Kosmos's record, not yet confirmed by a real request$/m);
-  assert.match(r.out, /^Meta: its Meta account sign-in \(muse\): not signed in: its last request was refused\./m);
+  assert.match(r.out, /^Gemini: its Google subscription sign-in: signed in by Kosmos's record, not yet confirmed by a real request$/m);
+  assert.match(r.out, /^Meta: its Meta account sign-in: not signed in: its last request was refused\./m);
   assert.match(r.out, /^OpenAI: g@example\.com \(chatgpt\): signed in by its own record, not yet confirmed by a real request$/m, 'a ChatGPT row read unlike the board');
   assert.match(r.out, /^Anthropic \/ Claude: p@example\.com: signed in$/m, 'a stop time already past still said they stop');
   assert.match(r.out, /^Anthropic \/ Claude: x@example\.com: its sign-in has run out; its agents keep working until /m, 'the stop notice did not come first');
@@ -151,6 +151,20 @@ test('#5359: kosmos accounts says when there are none, when the board refuses, a
     assert.match(r.out, /an answer we could not read about its accounts/);
   });
 });
+
+test('#5359 review 7: an install missing its accounts reader says so, with no stack trace and no path, and never blames the board', () => withStub({ 'GET /api/accounts': { json: ACCOUNTS } }, async (port) => {
+  const HOME_NO_ENGINE = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-accounts-noengine-'));
+  try {
+    const r = await cli(port, ['accounts'], { KOSMOS_HOME: HOME_NO_ENGINE });
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /could not find its own reader for the board's accounts; this install looks incomplete\./);
+    assert.doesNotMatch(r.out, /an answer we could not read|at Module|Error:|kosmos-accounts-noengine-/);
+    // Control: the same board with the real install prints the accounts, so the line above comes from the missing module.
+    const ok = await cli(port, ['accounts']);
+    assert.equal(ok.code, 0, ok.out);
+    assert.match(ok.out, /a@example\.com/);
+  } finally { fs.rmSync(HOME_NO_ENGINE, { recursive: true, force: true }); }
+}));
 
 test('#5359: kosmos accounts --help prints its usage and never runs the live check', () => withStub({ 'GET /api/accounts': { json: ACCOUNTS } }, async (port, seen) => {
   const r = await cli(port, ['accounts', '--help']);

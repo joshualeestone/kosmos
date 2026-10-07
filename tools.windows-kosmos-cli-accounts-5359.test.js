@@ -65,12 +65,12 @@ test('#5359: kosmos accounts reads /api/accounts with the board token only, and 
   assert.match(out, /^Anthropic \/ Claude: r@example\.com \(subscription\): not signed in: its last request was refused\./m, 'a refused login read as signed in');
   assert.match(out, /^Anthropic \/ Claude: u@example\.com: signed in by Kosmos's record, not yet confirmed by a real request$/m);
   assert.match(out, /^Anthropic \/ Claude: s@example\.com: its sign-in has run out; its agents keep working until .+, then stop\./m);
-  assert.match(out, /^OpenAI: b@example\.com \(chatgpt\): being checked now; it is known on the next read$/m);
+  assert.match(out, /^OpenAI: b@example\.com \(chatgpt\): being checked now; run it once more in a few seconds for the answer$/m);
   assert.match(out, /^Google Gemini: k@example\.com \(apikey\): signed in$/m, 'a row with no badge lost its state');
   assert.match(out, /^xAI Grok: API key ending 7f3q \(apikey\): signed in$/m, 'a keyed account was not named by its key ending');
   assert.match(out, /^OpenAI: Research key \(apikey\): signed in$/m, 'a chosen name was not used');
-  assert.match(out, /^Gemini: its Google subscription sign-in \(antigravity\): signed in by Kosmos's record, not yet confirmed by a real request$/m);
-  assert.match(out, /^Meta: its Meta account sign-in \(muse\): not signed in: its last request was refused\./m);
+  assert.match(out, /^Gemini: its Google subscription sign-in: signed in by Kosmos's record, not yet confirmed by a real request$/m);
+  assert.match(out, /^Meta: its Meta account sign-in: not signed in: its last request was refused\./m);
   assert.match(out, /^OpenAI: g@example\.com \(chatgpt\): signed in by its own record, not yet confirmed by a real request$/m, 'a ChatGPT row read unlike the board');
   assert.match(out, /^Anthropic \/ Claude: p@example\.com: signed in$/m, 'a stop time already past still said they stop');
   assert.match(out, /^Anthropic \/ Claude: x@example\.com: its sign-in has run out; its agents keep working until /m, 'the stop notice did not come first');

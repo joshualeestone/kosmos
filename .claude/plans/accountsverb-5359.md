@@ -55,8 +55,9 @@ accounts, so it is a direct read of the route", with the port, the board token a
   rejected-badge arm removed in both CLIs.
 - Every cli.* and tools.windows-kosmos-cli* test, the repo guards (engine.reachable, windows-tests-1777, the #3628
   exit-code rule) and the instruction tests: all green (counts in the proof).
-- engine/accountline-5359.test.js pins what the CLI fixtures do not reach: the signed_out and unchecked badges, the
+- engine/accountline-5359.test.js pins what the CLI fixtures do not reach: the signed_out and unchecked badges (fixtures where the badge and the state disagree, so deleting either arm reddens the test; measured in review 7), a sign-in named by its own words not repeating its mode, the
   default account's name (never its folder), a newline in a reason or a refusal staying on one line, and the classes
   of a failed answer (empty or non-JSON 5xx, a 4xx with or without a reason, an error on a 200). Mutation: the
   control-character cleaning removed turns it red.
 - Extra words after `kosmos accounts` are ignored, as `kosmos connections` ignores them (decided, review 5 NIT).
+- Review 7: a Mac install missing engine/accountline.js says "could not find its own reader ... looks incomplete" (exit 4 from node, no stack trace, no path) rather than blaming the board, as the Windows verb already did; pinned in cli.accounts-5359 with a control. "being checked now" now says run it once more, not "on the next read". Left as decided: two unnamed non-default accounts print the same line (the CLI never prints a folder; rare).

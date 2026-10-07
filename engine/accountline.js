@@ -36,7 +36,7 @@ function accountState(a, now = Date.now()) {
   if (c.badge === 'rejected') return 'not signed in: its last request was refused. The person signs in again in Settings > AI Models';
   if (c.badge === 'signed_out') return 'not signed in' + why;
   if (c.badge === 'unchecked') return 'could not be checked just now' + why;
-  if (c.liveCheckPending === true) return 'being checked now; it is known on the next read';
+  if (c.liveCheckPending === true) return 'being checked now; run it once more in a few seconds for the answer';
   if (a.authMode === 'chatgpt' && c.state === 'unknown') return 'signed in by its own record, not yet confirmed by a real request';
   if (c.state === 'connected') return 'signed in';
   if (c.state === 'none') return 'not signed in' + why;
@@ -45,8 +45,10 @@ function accountState(a, now = Date.now()) {
 
 function accountLine(a, now = Date.now()) {
   const provider = str(a.providerName) || str(a.provider) || 'a provider';
-  const how = str(a.authMode) ? ' (' + str(a.authMode) + ')' : '';
-  return provider + ': ' + accountName(a) + how + ': ' + accountState(a, now);
+  const name = accountName(a);
+  // The sign-in's own words already say which it is for these two, so the internal mode is not repeated after them.
+  const how = str(a.authMode) && !/ sign-in$/.test(name) ? ' (' + str(a.authMode) + ')' : '';
+  return provider + ': ' + name + how + ': ' + accountState(a, now);
 }
 
 /**

@@ -17,9 +17,21 @@ test('#5359: every badge, and the state when there is none, in the board\'s word
     'Anthropic / Claude: a@example.com: not signed in: not signed in on this computer');
   assert.equal(accountLine(row({ state: 'unknown', badge: 'unchecked', because: 'the check timed out' })),
     'Anthropic / Claude: a@example.com: could not be checked just now: the check timed out');
-  // Control: the same data with no badge falls to the state, so the two arms above are reached by the badge.
-  assert.equal(accountLine(row({ state: 'none', because: 'not signed in on this computer' })),
-    'Anthropic / Claude: a@example.com: not signed in: not signed in on this computer');
+  // The badge wins over the state, as on the board: a state that says connected under a signed_out or unchecked
+  // badge prints the badge's words. Without the badge arms these two lines would read "signed in".
+  assert.equal(accountLine(row({ state: 'connected', badge: 'signed_out', because: 'its sign-in was removed' })),
+    'Anthropic / Claude: a@example.com: not signed in: its sign-in was removed');
+  assert.equal(accountLine(row({ state: 'connected', badge: 'unchecked', because: 'the check timed out' })),
+    'Anthropic / Claude: a@example.com: could not be checked just now: the check timed out');
+  // Control: the same state with no badge is "signed in", so the two lines above differ from it only by the badge.
+  assert.equal(accountLine(row({ state: 'connected' })), 'Anthropic / Claude: a@example.com: signed in');
+});
+
+test('#5359: a sign-in named by its own words does not repeat its internal mode; other modes still show', () => {
+  assert.equal(accountLine({ provider: 'google', providerName: 'Google Gemini', authMode: 'antigravity', connection: { state: 'connected', badge: 'working' } }),
+    'Google Gemini: its Google subscription sign-in: signed in');
+  assert.equal(accountLine(row({ state: 'connected', badge: 'working' }, { authMode: 'subscription' })),
+    'Anthropic / Claude: a@example.com (subscription): signed in');
 });
 
 test('#5359: a default account with nothing else to name it by is called the default account, never by its folder', () => {
