@@ -1076,9 +1076,9 @@ function cleanupSegments(part) {
 }
 
 /* #5419: on Linux the build also depends on the C library: Anthropic publishes linux-<arch> (glibc) and
-   linux-<arch>-musl (Alpine and the like). Pure, so every branch is testable: Node's report names the glibc it runs
-   on (present: glibc; report readable with no glibc: musl); with no readable report (Node built without it), musl's
-   own loader file decides (review 1: it used to default to glibc, the wrong build on exactly the host it guards). */
+   linux-<arch>-musl (Alpine and the like). Pure, so every branch is testable. The rule: a report naming glibc is
+   glibc; otherwise (no glibc in the report, or no readable report at all) musl only when musl's own loader file is
+   present, and glibc when it is not. */
 function detectMusl({ platform, report, exists }) {
   if (platform !== 'linux') return false;
   let r = null;
@@ -1192,7 +1192,7 @@ async function download(onProgress, track, platform = process.platform) {
   // review 5: only on a real Linux host (a test drives platform 'linux' from a Mac); asked before any bytes move.
   if (platform === 'linux' && (tmuxCheckOverride ? tmuxCheckOverride() : (process.platform === 'linux' && tmuxMissingOnLinux()))) {
     // review 8: sign-in only (the agent path's tmux pick on Linux is piece D's); the install hint names no single package manager.
-    throw new Error('Kosmos needs tmux on this computer to sign Claude in, and none was found, so Claude was not downloaded. Install tmux with your system\'s package manager (apt install tmux, dnf install tmux, apk add tmux) and try again');
+    throw new Error('Kosmos needs tmux on this computer to sign Claude in, and none was found, so Claude was not downloaded. Install tmux with your system\'s package manager (for example sudo apt install tmux, sudo dnf install tmux, or apk add tmux) and try again');
   }
   const base = downloadBase();
   const version = (await fetchText(`${base}/latest`, undefined, track)).trim();
