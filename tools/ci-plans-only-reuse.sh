@@ -6,11 +6,13 @@
 # Says why on stderr. Always exits 0: any doubt prints nothing, and nothing means "run the suite".
 #
 # Reusable only when ALL of these hold:
-#   - a successful `test.yml` pull_request run exists for this branch at another sha, created at most
+#   - a successful `test.yml` pull_request run exists for this branch at another sha, whose suite jobs
+#     RAN and passed (not itself a reuse: that would chain past the age cap), created at most
 #     KOSMOS_REUSE_MAX_AGE_S seconds ago (default 21600, six hours);
 #   - that sha is still in this clone (a force-push can drop it: then there is nothing to diff);
 #   - every path changed since that sha, BOTH sides of a rename (--no-renames), is a plain Markdown
-#     file directly under .claude/plans/ with a name of letters, digits, '.', '_' and '-' only;
+#     file directly under .claude/plans/ with a name of letters, digits, '.', '_' and '-' only, and a
+#     plain-file mode on both sides (no symlink, no executable bit);
 #   - none of them is a goldencard-2519 plan, which render-talk-goldencard-2519.test.js reads.
 #
 # Why that narrow (measured on #5488, every test that walks tracked files or names a plan):
@@ -41,14 +43,24 @@ runs="$(gh run list --workflow test.yml --branch "$BRANCH" --event pull_request 
   --jq '.[] | "\(.databaseId) \(.headSha) \((now - (.createdAt | fromdateiso8601)) | floor)"' 2>/dev/null)"
 if [ -z "$runs" ]; then say "no earlier green run for this branch: run the suite"; exit 0; fi
 
+# Only a run whose suite jobs RAN and passed is a source. A run that itself reused a verdict also
+# concludes success with a fresh createdAt, so accepting it would chain reuses past the age cap forever.
+suite_ran() { # <run id>: 0 only if it has suite jobs and every one concluded success
+  local c
+  c="$(gh run view "$1" --json jobs --jq '.jobs[] | select(.name | startswith("suite (")) | .conclusion' 2>/dev/null)" || return 1
+  [ -n "$c" ] || return 1
+  ! printf '%s\n' "$c" | grep -qv '^success$'
+}
 prev_id=""; prev_sha=""; prev_age=""
 while read -r id sha age; do
   [ -n "$id" ] || continue
-  if [ "$sha" != "$HEAD_SHA" ]; then prev_id="$id"; prev_sha="$sha"; prev_age="$age"; break; fi
+  [ "$sha" != "$HEAD_SHA" ] || continue
+  if suite_ran "$id"; then prev_id="$id"; prev_sha="$sha"; prev_age="$age"; break; fi
+  say "green run $id did not run the suite itself (a reuse, or unreadable): looking further back"
 done <<EOF
 $runs
 EOF
-if [ -z "$prev_id" ]; then say "the only green run is at this same sha: run the suite"; exit 0; fi
+if [ -z "$prev_id" ]; then say "no green run at another sha whose suite ran: run the suite"; exit 0; fi
 case "$prev_id$prev_age" in *[!0-9]*) say "unexpected run listing ($prev_id, age $prev_age): run the suite"; exit 0 ;; esac
 if [ "$prev_age" -gt "$MAX_AGE" ]; then
   say "the newest green run $prev_id is ${prev_age}s old (over ${MAX_AGE}s; main may have moved far): run the suite"; exit 0
@@ -57,12 +69,21 @@ fi
 if ! git cat-file -e "${prev_sha}^{commit}" 2>/dev/null; then
   say "the green run's sha $prev_sha is not in this clone (force-pushed away?): run the suite"; exit 0
 fi
-if ! changed="$(git diff --no-renames --name-only "$prev_sha" "$HEAD_SHA" 2>/dev/null)"; then
+if ! changed="$(git diff --no-renames --raw "$prev_sha" "$HEAD_SHA" 2>/dev/null)"; then
   say "could not diff $prev_sha..$HEAD_SHA: run the suite"; exit 0
 fi
 if [ -z "$changed" ]; then say "nothing changed since run $prev_id: run the suite (a re-run is deliberate)"; exit 0; fi
 
-while IFS= read -r f; do
+TAB="$(printf '\t')"
+while IFS= read -r line; do
+  # --raw: ":<old mode> <new mode> <old blob> <new blob> <status>\t<path>". Both modes must be a plain
+  # file (100644) or absent (000000): a symlink or an executable bit is not "a plan".
+  f="${line#*$TAB}"; meta="${line%%$TAB*}"; meta="${meta#:}"
+  om="${meta%% *}"; rest="${meta#* }"; nm="${rest%% *}"
+  case "$om:$nm" in
+    100644:100644|000000:100644|100644:000000) ;;
+    *) say "$f changed mode ($om to $nm): run the suite"; exit 0 ;;
+  esac
   case "$f" in
     .claude/plans/goldencard-2519-*) say "$f is read by render-talk-goldencard-2519.test.js: run the suite"; exit 0 ;;
   esac
