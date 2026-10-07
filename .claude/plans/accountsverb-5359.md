@@ -9,8 +9,10 @@ accounts, so it is a direct read of the route", with the port, the board token a
 
 ## The change
 
-- `kosmos accounts` in both CLIs (install/kosmos `cmd_accounts`, tools/windows/kosmos-cli.js `accountLine` and
-  `verbAccounts`), the same lines on both: one line per account, "<provider>: <email> (<auth mode>): <state>".
+- `kosmos accounts` in both CLIs (install/kosmos `cmd_accounts`, tools/windows/kosmos-cli.js `verbAccounts`), one
+  line per account, "<provider>: <name> (<auth mode>): <state>". The words live ONCE, in engine/accountline.js
+  (`answer`, `accountLine`), which both CLIs call (review 5: two copies kept in step only by copied fixtures could
+  drift with nothing going red). A default account with nothing else to name it is "the default account".
 - The state is read as the board's Settings > AI Models row reads it, the badge first (blind review 1, a BLOCKER:
   a Claude credential on disk is state "connected" even when its last request was refused, #874, so reading state
   alone printed "signed in" for a refused login). In words: a sign-in that has run out says when its agents stop
@@ -53,3 +55,8 @@ accounts, so it is a direct read of the route", with the port, the board token a
   rejected-badge arm removed in both CLIs.
 - Every cli.* and tools.windows-kosmos-cli* test, the repo guards (engine.reachable, windows-tests-1777, the #3628
   exit-code rule) and the instruction tests: all green (counts in the proof).
+- engine/accountline-5359.test.js pins what the CLI fixtures do not reach: the signed_out and unchecked badges, the
+  default account's name (never its folder), a newline in a reason or a refusal staying on one line, and the classes
+  of a failed answer (empty or non-JSON 5xx, a 4xx with or without a reason, an error on a 200). Mutation: the
+  control-character cleaning removed turns it red.
+- Extra words after `kosmos accounts` are ignored, as `kosmos connections` ignores them (decided, review 5 NIT).

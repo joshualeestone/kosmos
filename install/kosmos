@@ -2377,52 +2377,16 @@ cmd_accounts() {
   if [ "$rc" -ne 0 ]; then say_unreached "read which accounts are set up" "$rc"; exit 1; fi
   code="${body##*$'\n'}"
   body="${body%$'\n'*}"
-  if [ -z "$body" ]; then say "Kosmos gave an empty answer about its accounts. Try again in a minute."; exit 1; fi
-  # The same words as tools/windows/kosmos-cli.js accountLine (#5359): the badge first, as the board's own Settings >
-  # AI Models row reads it (a credential on disk is state "connected" even when its login was refused, #874).
+  # The words live once, in engine/accountline.js, which the Windows CLI's verbAccounts calls too (#5359).
   local prc=0
   printf '%s' "$body" | KOSMOS_HTTP_CODE="$code" "$_node" -e '
-    const code = Number(process.env.KOSMOS_HTTP_CODE);
+    const { answer } = require(process.argv[1]);
     let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
-      let j = null; try { j = JSON.parse(s); } catch { if (code < 400) process.exit(1); }
-      const err = j && typeof j.error === "string" ? j.error.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/[.\s]+$/, "") : "";
-      // The same classes as tools/windows/kosmos-cli.js verbAccounts: a fault on the board (5xx) is never a refusal,
-      // and a 4xx is a refusal only when the board said why.
-      const ind = process.env.KOSMOS_SAY_INDENT === undefined ? "  " : process.env.KOSMOS_SAY_INDENT;   // as say()
-      if (code >= 500 || (code >= 400 && !err)) { console.log(ind + "Kosmos could not read its accounts just now" + (err ? ": " + err : "") + ". Try again in a minute."); process.exit(3); }
-      if (code >= 400) { console.log(ind + "Kosmos refused that request: " + err + "."); process.exit(3); }
-      if (!j || !Array.isArray(j.accounts)) process.exit(1);
-      if (!j.accounts.length) { console.log("No provider accounts are set up on this board yet. The person adds one in Settings > AI Models."); return; }
-      const when = (t) => new Date(t).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
-      for (const a of j.accounts) {
-        if (!a || typeof a !== "object") continue;
-        // Named as the board names a row (acctPrimaryName), short of its folder: the chosen name, the email, the key
-        // ending for a keyed provider, the label; then which sign-in it is for the two that carry none of those.
-        const str = (v) => (typeof v === "string" && v.trim() ? v.trim() : "");
-        const who = str(a.name) || str(a.email)
-          || (/^(openai|google|xai)$/i.test(String(a.provider || "")) && str(a.keyTail) ? "API key ending " + str(a.keyTail) : "")
-          || str(a.label)
-          || (a.authMode === "antigravity" ? "its Google subscription sign-in" : a.authMode === "muse" ? "its Meta account sign-in" : "")
-          || "an account with no name or email on record";
-        const how = typeof a.authMode === "string" && a.authMode ? " (" + a.authMode + ")" : "";
-        const c = a.connection && typeof a.connection === "object" ? a.connection : {};
-        const why = typeof c.because === "string" && c.because ? ": " + c.because : "";
-        const stops = Number.isFinite(c.loginStopsAt) && c.loginStopsAt > Date.now() ? c.loginStopsAt : null;
-        const state = stops ? "its sign-in has run out; its agents keep working until " + when(stops) + ", then stop. The person signs in again in Settings > AI Models"
-          : c.badge === "working" ? "signed in"
-          : c.badge === "signed_in_unverified" ? "signed in by Kosmos'"'"'s record, not yet confirmed by a real request"
-          : c.badge === "rejected" ? "not signed in: its last request was refused. The person signs in again in Settings > AI Models"
-          : c.badge === "signed_out" ? "not signed in" + why
-          : c.badge === "unchecked" ? "could not be checked just now" + why
-          : c.liveCheckPending === true ? "being checked now; it is known on the next read"
-          : a.authMode === "chatgpt" && c.state === "unknown" ? "signed in by its own record, not yet confirmed by a real request"
-          : c.state === "connected" ? "signed in"
-          : c.state === "none" ? "not signed in" + why
-          : "could not be checked just now" + why;
-        const line = (typeof a.providerName === "string" && a.providerName ? a.providerName : (a.provider || "a provider")) + ": " + who + how + ": " + state;
-        console.log(line.replace(/[\u0000-\u001f\u007f]+/g, " "));   // board text never prints as an extra line
-      }
-    });' || prc=$?
+      let j = null; try { j = JSON.parse(s); } catch { j = null; }
+      const r = answer(Number(process.env.KOSMOS_HTTP_CODE), j);
+      if (r.fail) { console.log((process.env.KOSMOS_SAY_INDENT === undefined ? "  " : process.env.KOSMOS_SAY_INDENT) + r.fail); process.exit(3); }
+      for (const l of r.lines) console.log(l);
+    });' "$(kosmos_engine_module accountline).js" || prc=$?
   if [ "$prc" -eq 3 ]; then exit 1; fi
   if [ "$prc" -ne 0 ]; then say "Kosmos gave an answer we could not read about its accounts."; exit 1; fi
 }
