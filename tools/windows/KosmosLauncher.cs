@@ -1157,13 +1157,6 @@ class KosmosLauncher
         return true;
     }
 
-    // A connect computer's main-frame navigations, as the Mac's connectLinkDecision decides them: Kosmos
-    // Plus and the person's computers in the window; any other https site in the person's browser, but
-    // only from a click or from the Kosmos Plus SITE (#5483, the Mac's #5169: any other UNCLICKED
-    // foreign nav, a redirect or a script, is refused, not opened); plain http, mail, phone and text
-    // links only from a click, and then in the browser; about:blank for the page's own use; every
-    // other scheme refused. So another site can never REPLACE the window's page
-    // with a fake Kosmos screen, and this computer's stopped board is never loaded by a script.
     // #5483 (the Mac's isKosmosPlusSiteURL, #5169): the Kosmos Plus SITE, meaning the sign-in coordinator
     // or its apex, and NOT a computer's board (josh.kosmosplus.com). Only the site may hand off to a
     // foreign page by script (signin.html -> checkout.stripe.com); a board page that could would be #5169.
@@ -1181,6 +1174,13 @@ class KosmosLauncher
         return dot > 0 && host == coordinator.Substring(dot + 1);   // "login.kosmosplus.com" -> "kosmosplus.com"
     }
 
+    // A connect computer's main-frame navigations, as the Mac's connectLinkDecision decides them: Kosmos
+    // Plus and the person's computers in the window; any other https site in the person's browser, but
+    // only from a click or from the Kosmos Plus SITE (#5483, the Mac's #5169: any other UNCLICKED
+    // foreign nav, a redirect or a script, is refused, not opened); plain http, mail, phone and text
+    // links only from a click, and then in the browser; about:blank for the page's own use; every
+    // other scheme refused. So another site can never REPLACE the window's page with a fake Kosmos
+    // screen, and this computer's stopped board is never loaded by a script.
     internal static ConnectLink ConnectLinkDecision(string address, bool clicked, bool fromKosmosPlusPage = false)
     {
         Uri uri;
@@ -2886,6 +2886,10 @@ class BoardWindowForm : System.Windows.Forms.Form
     bool connectLoadPending;
     // The last sign-in load failed: opening Kosmos again (SignInAgain) loads sign-in afresh.
     bool connectLoadFailed;
+    // #5483: the connect rules REFUSED a navigation of that first load (an unclicked redirect off Kosmos
+    // Plus, e.g. a captive portal). WebView2 reports it as a cancel, which is not a failure, so without this
+    // the window would sit blank with no box and no way to retry.
+    bool connectLoadRefused;
     bool runAgentsItemShown;
     // The system menu's ids. WM_SYSCOMMAND keeps its low four bits for Windows, so both end in 0.
     internal const int RunAgentsMenuId = 0x4380;
@@ -2999,6 +3003,7 @@ class BoardWindowForm : System.Windows.Forms.Form
     {
         if (webView == null) return;
         connectLoadPending = true;
+        connectLoadRefused = false;
         webView.Navigate(KosmosLauncher.KosmosPlusSignIn);
     }
 
@@ -3077,6 +3082,7 @@ class BoardWindowForm : System.Windows.Forms.Form
             try { webView.get_Source(out page); } catch (Exception) { page = null; }
             KosmosLauncher.ConnectLink decided = KosmosLauncher.ConnectLinkDecision(uri, userInitiated != 0, KosmosLauncher.IsKosmosPlusSiteAddress(page));
             if (decided == KosmosLauncher.ConnectLink.InApp) return;
+            if (decided == KosmosLauncher.ConnectLink.Block && connectLoadPending) connectLoadRefused = true;
             args.put_Cancel(1);
             if (decided == KosmosLauncher.ConnectLink.Browser) BeginInvoke(new Action(() => KosmosLauncher.OpenInPersonsBrowser(uri, true)));
             return;
@@ -3111,9 +3117,9 @@ class BoardWindowForm : System.Windows.Forms.Form
     // #4381: a connect computer's sign-in that did not load says so, in a box titled Kosmos (WebView2's own
     // error page stays behind it, so the window is never blank). Only the load this window started
     // (LoadConnect): a page the person moved on to is that page's business. A load cancelled on purpose
-    // (the connect rules refused a redirect, or sent a click to the browser) is not Kosmos Plus failing
-    // to answer. #5483, as the Mac: an unclicked redirect of the FIRST load to another site is refused, and
-    // the window then shows nothing (no box: it was cancelled, not failed); F5 retries.
+    // (a click the connect rules sent to the browser) is not Kosmos Plus failing to answer. But a first
+    // load the rules REFUSED (#5483: an unclicked redirect off Kosmos Plus, e.g. a captive portal) is: it
+    // never reached Kosmos Plus, so the box shows and Reopen (SignInAgain) loads it again.
     internal void OnNavigationCompleted(ICoreWebView2NavigationCompletedEventArgs args)
     {
         if (mode != KosmosLauncher.ComputerMode.Connect || !connectLoadPending) return;
@@ -3122,7 +3128,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         args.get_IsSuccess(out success);
         int status;
         args.get_WebErrorStatus(out status);
-        connectLoadFailed = success == 0 && status != COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED;
+        connectLoadFailed = (success == 0 && status != COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED) || connectLoadRefused;
         if (connectLoadFailed) BeginInvoke(new Action(() => KosmosLauncher.ShowWindowMessage(KosmosLauncher.KosmosPlusUnreachableMessage, true)));
     }
 

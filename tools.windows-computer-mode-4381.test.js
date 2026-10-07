@@ -211,7 +211,10 @@ test('#4381: a connect window follows the connect link rules; Kosmos Plus not an
   assert.match(popup, /KosmosLauncher\.ConnectLinkDecision\(uri, true\)/);
   const done = method('internal void OnNavigationCompleted(ICoreWebView2NavigationCompletedEventArgs args)');
   assert.match(done, /if \(mode != KosmosLauncher\.ComputerMode\.Connect \|\| !connectLoadPending\) return;/);
-  assert.match(done, /connectLoadFailed = success == 0 && status != COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED;/);
+  assert.match(done, /connectLoadFailed = \(success == 0 && status != COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED\) \|\| connectLoadRefused;/);
+  // #5483: a first load the connect rules refused counts as failed (box + Reopen), set only while it is pending.
+  assert.match(nav, /if \(decided == KosmosLauncher\.ConnectLink\.Block && connectLoadPending\) connectLoadRefused = true;/);
+  assert.match(method('void LoadConnect()'), /connectLoadPending = true;\s*connectLoadRefused = false;/);
   assert.match(done, /KosmosLauncher\.KosmosPlusUnreachableMessage/);
   /* WebView2.h 1.0.4191.47: the handler's and the args' ids, and add_NavigationCompleted's slot. */
   assert.match(SOURCE, /\[ComImport, Guid\("d33a35bf-1c49-4f98-93ab-006e0533fe1c"\), InterfaceType\(ComInterfaceType\.InterfaceIsIUnknown\)\]\npublic interface ICoreWebView2NavigationCompletedEventHandler/);
