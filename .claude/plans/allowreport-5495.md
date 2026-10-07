@@ -53,3 +53,9 @@ An allowed request also starts a heartbeat window, so the next PreToolUse does n
   sleep 0.1 took about 10 s.
 - Accepted residual: on Windows the report hook asks its own install's decide(), not the file the settings name. During
   an update while an agent runs, the two could differ for one request. Same failure shape as the weakest premise above.
+
+## Review 4
+- Deferred: an allow hook that answers allow but takes 5 s or more reads as not allowed here, so the card says needs you
+  until the next heartbeat. Safe direction (it never hides a prompt); same shape as the weakest premise.
+- Deferred: the shell hook starts node once more per PermissionRequest (about 50 to 100 ms). It runs beside the real
+  allow hook, so it adds no wait for the person; PermissionRequest fires only when an ask rule matches.
