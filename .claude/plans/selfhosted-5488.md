@@ -20,15 +20,31 @@ name the label, and test.yml's routing only stops the honest path (review iterat
 claimed otherwise). The boundaries, in order:
 1. **The machine's job-started hook, `tools/ci-runner-job-guard.sh`.** It runs before any step, and a non-zero exit
    fails the job. It is installed on the Mac from main, never from a job's checkout, so a fork cannot change it.
-   It allows only push, workflow_dispatch, schedule, and a pull_request whose head repo is this repo. It refuses
-   everything else, including pull_request_target and unknown events, and it fails closed on a missing or
-   unreadable payload. It reads the payload with plutil, which ships with macOS.
-2. **Approval of outside contributors' runs.** Set 10-07 11:33 via the API; it was first_time_contributors. Even
+   It reads only the RUNNER'S OWN event file at its fixed path, so a variable pointing at a planted or stale file is
+   refused. It requires that file to name this repo, so a variable alone cannot claim it. Then it allows only push,
+   workflow_dispatch, schedule, and a pull_request whose head repo is this repo. It refuses everything else,
+   including pull_request_target and unknown events, and fails closed on a missing or unreadable payload. It
+   reads JSON with plutil, which ships with macOS.
+   It is installed from a PINNED main commit and verified by sha256 (`ci-mini-setup.sh install <commit> <sha256>`),
+   so a later change on main is never adopted silently.
+2. **Approval of outside contributors' runs.** The repo setting is now `all_external_contributors` (set 10-07 11:33
+   via the API and read back; before that it was `first_time_contributors`). Even
    so, a fork PR that touches `.github/` should not be approved while the switch is on: approval runs the fork's
    workflow file.
 3. **`test.yml` holds no secrets** (`contents: read`).
 
 Same-repo pushers are trusted; they can already edit workflows.
+
+**Interim risk, stated:** jobs run as `kosmos-ci`, the user that owns the guard and hooks. So until the one-time
+admin step (`ci-mini-setup.sh admin-commands` prints it) moves them to a root-owned folder, an ALLOWED job (this
+repo's own code) could rewrite the guard. That needs a trusted writer's code to be hostile first, but it would then
+open the door to forks. The admin step is part of setup, not optional.
+
+**Must be checked live on the Mac before the switch goes on** (no test here can reach them):
+- A same-repo PR whose workflow sets `env: GITHUB_EVENT_NAME / GITHUB_REPOSITORY / GITHUB_EVENT_PATH` to false
+  values: the guard must still see the runner's real values. GitHub documents GITHUB_* as not overridable.
+- A refused job fails before any step, including a job with `container:` or `services:`.
+- A job is refused when the payload names a fork (by hand, with the guard's own test payloads).
 
 ## Cost, stated
 - One runner instance: every routed job runs one at a time, three per run. At a burst (three PRs syncing, nine jobs
