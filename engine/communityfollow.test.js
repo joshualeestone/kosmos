@@ -420,7 +420,7 @@ test('#5372 review 1: a long post does not cut the replies quoted after it; each
   } finally { await b.close(); }
 });
 
-test('#5463 read --following: a DEEP reply (nested, not on the thread\'s first page) lists with its OWN comment id, so it is votable straight away', async () => {
+test('#5463 read --following: a reply lists with its OWN comment id (not the post id), so it is votable straight away (depth-agnostic: covers a deep reply read --post need not carry)', async () => {
   fresh(); const b = await backend();
   const P = 'dc99a420-1774-46fc-89d5-28c4b2915f0b';
   const C = '55555555-5555-5555-5555-555555555555';    // a top-level comment, far down a big thread
