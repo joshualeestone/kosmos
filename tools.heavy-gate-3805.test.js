@@ -204,6 +204,12 @@ test('#5470: a tools/queued-heavy.sh waiter is not a run, also under a spaced ch
   const spaced = run([['114', '/Users/someone/My Work/kosmos', 'bash /Users/someone/My Work/kosmos/tools/queued-heavy.sh #5244 browser-checks bash tools/browser-checks.sh', 'zsh']]);
   assert.equal(spaced.code, 0, spaced.out);
   assert.doesNotMatch(spaced.out, /COUNTS 114/);
+  // The copy agents actually run is the installed one (queued-heavy.sh's own header), not tools/.
+  const installed = run([['116', WORK, '/bin/bash /Users/someone/.cache/claude-handoffs/queued-heavy.sh renet restartnote-5359: FULL browser-checks bash tools/browser-checks.sh', 'zsh']]);
+  assert.equal(installed.code, 0, installed.out);
+  assert.doesNotMatch(installed.out, /COUNTS 116/);
+  const dotslash = run([['117', WORK + '/tools', 'bash ./queued-heavy.sh x bash tools/browser-checks.sh', 'zsh']]);
+  assert.equal(dotslash.code, 0, dotslash.out);
   const arg = run([['115', WORK, 'bash tools/foo.sh queued-heavy.sh tools/release.sh', 'zsh']]);
   assert.equal(arg.code, 1, arg.out);   // queued-heavy.sh after the lead script is only an argument
   assert.match(arg.out, /COUNTS 115/);

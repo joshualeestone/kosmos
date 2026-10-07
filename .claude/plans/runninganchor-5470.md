@@ -22,11 +22,15 @@ unanchored `pgrep -f` stays exposed.
 - tools/heavy-gate.sh (what cutters run for a quiet box) classifies a command whose lead script is
   tools/queued-heavy.sh as a waiter, not a run. It keeps its deliberate rule that a script taking a heavy
   path as an argument counts (fail toward busy); only the queue's own waiter is carved out (the FIRST word
-  ending in .sh being tools/queued-heavy.sh, which also covers a lead that ps split at a space; a
+  ending in .sh being a queued-heavy.sh in any directory: tools/, or the installed copy agents actually
+  run, ~/.cache/claude-handoffs/queued-heavy.sh; this also covers a lead that ps split at a space; a
   queued-heavy.sh after the lead script is just an argument), because the
   waiter starts the real run as its own process when its turn comes, and that run counts.
-- The per-cut wrapper (outside the repo, mortals:~/.cut-07NN.sh) sources this cut-guard.sh, so 0.7.28's
-  wrapper calls `kosmos_running_lines tools/browser-checks.sh` and treats rc 2 as "still running".
+- The per-cut wrapper (outside the repo, mortals:~/.cut-07NN.sh) sources the Mortals main checkout's
+  cut-guard.sh, so 0.7.28's wrapper calls `kosmos_running_lines tools/browser-checks.sh` and treats rc 2
+  as "still running". MERGED IS NOT IN EFFECT: the wrapper reads mortals:~/work/agent-workforce (main),
+  and tools/queued-heavy.sh loads its guards from ~/work/kosmos-bc-main-4610 (or the main-checkout
+  fallback), so each of those checkouts must be pulled to a main holding this merge before it applies.
 
 ## Rejected
 - Matching on a node child (as the wrapper's suite check does): browser-checks.sh's first seconds have no
@@ -51,7 +55,8 @@ options group, so an optioned fixture can only be dropped by ancestry or cwd: mo
   awaited in pgrep (up to ~5 s), not a fixed sleep. Shapes that cannot be held open (bash -n exits at
   once) are read through a stubbed pgrep: -n, -xn and -lc are not runs; -eo NAME, +x, -- and --rcfile ARE. Measured red: anchor removed gives 3 failures.
 - tools.heavy-gate-3805.test.js gains a #5470 case: a waiter line (also under a spaced checkout path) does
-  not count; the run the waiter starts (with the waiter as its ancestor) does; a queued-heavy.sh that is
+  not count, nor one using the installed ~/.cache/claude-handoffs/queued-heavy.sh or ./queued-heavy.sh;
+  the run the waiter starts (with the waiter as its ancestor) does; a queued-heavy.sh that is
   only an argument after another script does not stop that script's heavy path counting. Its sh -c parent is a
   command string, which heavy-gate already never counted.
 - Existing guards pass: test-cut-guard, test-browser-run-guard (and its real-path control,

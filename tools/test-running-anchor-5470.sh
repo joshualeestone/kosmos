@@ -37,8 +37,8 @@ start bash -c "sleep 30; : $SCRIPT"; CSTRING=$!                  # a -c command 
 settle $WAITER $PARENT $MENTION $CSTRING
 # CONTROL: the unanchored pattern a hand-written wait used really does match them (else this proves nothing).
 loose="$(pgrep -f "${NAME//./\\.}" | tr '\n' ' ')"
-for p in $WAITER $PARENT $MENTION $CSTRING; do case " $loose " in *" $p "*) : ;; *) bad "control: unanchored pgrep did not match pid $p, so the test cannot show the bug" ;; esac; done
-[ "$FAILS" = 0 ] && ok "CONTROL: an unanchored pgrep -f matches the waiter, its sh -c parent, the mention and the -c string"
+cmiss=0; for p in $WAITER $PARENT $MENTION $CSTRING; do case " $loose " in *" $p "*) : ;; *) cmiss=1; bad "control: unanchored pgrep did not match pid $p, so the test cannot show the bug" ;; esac; done
+[ "$cmiss" = 0 ] && ok "CONTROL: an unanchored pgrep -f matches the waiter, its sh -c parent, the mention and the -c string"
 
 out="$(kosmos_running_lines "$SCRIPT")"; rc=$?
 [ "$rc" = 1 ] && ok "a queued waiter, its sh -c parent, a mention and a -c string are NOT runs (rc 1)" || bad "non-runs matched: rc=$rc pids=$(pids_of "$out") (waiter $WAITER, parent $PARENT, mention $MENTION, -c $CSTRING)"
