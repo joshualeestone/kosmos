@@ -116,10 +116,9 @@ function stateOf(kind, rec, item, ctx) {
   // OFF ends the ON period at once and the next ON starts a new one from that moment, so an unsent item is never sent.
   // Review 2: unless the period's start is still recorded (ending it is best effort): then it goes if sending resumes
   // first, so it is waiting, never "post it again". (#5435: the sweep ends it for an unreadable switch too.)
-  // #5435: a switch file that cannot be read is not the person turning Community off, so its words are not the switch's.
-  // Inside the period (nothing has ended it yet) it cannot say; once ended, it will not go (review 6: words of its own,
-  // since it may have been made while Kosmos WAS sending).
-  if (ctx.switchUnreadable) return ctx.since && madeAt(item) >= ctx.since ? 'unreadable' : 'switch_unreadable';
+  // #5435: a switch file that cannot be read is not the person turning Community off, so its words are not the switch's,
+  // and they match the post command's (review 7). The sweep ends the period for it within a minute, as on main.
+  if (ctx.switchUnreadable) return 'switch_unreadable';
   if (!ctx.on) return ctx.since && madeAt(item) >= ctx.since ? 'paused' : 'before_on';
   // The sweep sends only items made at or after the ON period's recorded start (`since`). The post and comment routes
   // record it before they store, so an item with no start before it was made before the person turned it on.

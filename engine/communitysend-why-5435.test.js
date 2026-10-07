@@ -25,15 +25,15 @@ function fresh() {
   fs.rmSync(data, { recursive: true, force: true });
 }
 
-test('#5435: an unreadable switch file is a record fault, not the switch; an OFF switch is still the switch', () => {
+test('#5435: an unreadable switch file has its own reason, not the switch\'s; an OFF switch is still the switch', () => {
   fresh();
   cs.setSwitch(() => ({ on: false, ok: false }));   // communityswitch's answer for a file it cannot read
-  assert.equal(cs.willSend('ava').why, 'records');
+  assert.equal(cs.willSend('ava').why, 'switch');
   assert.equal(cs.switchOn(), false, 'every other reader must still treat an unreadable switch as off');
   cs.setSwitch(() => ({ on: false, ok: true }));
   assert.equal(cs.willSend('ava').why, 'off', 'control: a switch the person turned off');
   cs.setSwitch(() => { throw new Error('torn'); });
-  assert.equal(cs.willSend('ava').why, 'records', 'a switch read that throws is not the person\'s choice either');
+  assert.equal(cs.willSend('ava').why, 'switch', 'a switch read that throws is not the person\'s choice either');
   cs.setSwitch(null);
 });
 
@@ -124,21 +124,16 @@ test('#5435 review 3: read, vote and follow say a switch file cannot be read, no
   } finally { cs.setSwitch(null); }
 });
 
-test('#5435 review 6: willSend and a release end the period the moment the switch is unreadable, not at the next sweep', () => {
+test('#5435 review 7: willSend does not end the period on a failed switch read (the sweep does, as on main)', () => {
   fresh();
   const since = '2026-01-01T00:00:00.000Z';
-  const put = () => { fs.mkdirSync(path.dirname(cs._paths.stateFile()), { recursive: true }); fs.writeFileSync(cs._paths.stateFile(), JSON.stringify({ since }) + '\n'); };
-  const kept = () => JSON.parse(fs.readFileSync(cs._paths.stateFile(), 'utf8')).since;
+  fs.mkdirSync(path.dirname(cs._paths.stateFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.stateFile(), JSON.stringify({ since }) + '\n');
+  cs.setSwitch(() => ({ on: false, ok: false }));
   try {
-    put();
-    cs.setSwitch(() => ({ on: true, ok: true }));
-    cs.willSend('ava', Date.now(), 'post');
-    assert.equal(kept(), since, 'CONTROL: on, willSend keeps the period');
-    cs.setSwitch(() => ({ on: false, ok: false }));
-    assert.equal(cs.willSend('ava', Date.now(), 'post').why, 'records');
-    assert.equal(kept(), undefined, 'willSend left the period open, so a repair before the sweep could send what was made now');
-    put();
+    assert.equal(cs.willSend('ava', Date.now(), 'post').why, 'switch');
+    assert.equal(JSON.parse(fs.readFileSync(cs._paths.stateFile(), 'utf8')).since, since, 'one request ended the period for every agent on a read that may be transient');
     assert.equal(cs.recordPeriodStart(), false);
-    assert.equal(kept(), undefined, 'a release while the switch is unreadable left the period open');
+    assert.equal(JSON.parse(fs.readFileSync(cs._paths.stateFile(), 'utf8')).since, since);
   } finally { cs.setSwitch(null); }
 });

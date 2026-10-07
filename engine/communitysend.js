@@ -222,15 +222,15 @@ function corrupt(file, why) {
 /**
  * The switch is engine/communityswitch.js (#4288, Renet's read contract on that card):
  * send only when read().on === true AND read().ok === true, read at send time and
- * never cached. A missing module reads as OFF.
+ * never cached. A missing module sends nothing, as OFF does (#5435: its words say it cannot be read, not switched off).
  */
 let switchRead = null;          // tests inject
 function switchOn() {
   return switchState() === 'on';
 }
-/* #5435: 'on', 'off', or 'unreadable' (the person's switch file cannot be read: not the person switching it off). Sending
-   treats 'unreadable' as off everywhere (switchOn; the sweep and willSend end the period for it); only the WORDS differ
-   (willSend's reason, notOnWords, communitystatus). */
+/* #5435: 'on', 'off', or 'unreadable' (the switch file cannot be read, or the switch module cannot be loaded: not the
+   person switching it off). Sending treats 'unreadable' as off everywhere (switchOn; the sweep ends the period for it, as
+   on main); only the WORDS differ (willSend's `switch` reason, notOnWords, communitystatus). */
 function switchState() {
   let state;
   try {
@@ -2100,12 +2100,9 @@ function willSend(agentKey, now = Date.now(), kind = 'comment') {
   // #5435: a "no" says why (NOT_SENDING's keys), so the agent is not told the switch is off when a record is unreadable.
   const no = (why) => ({ sends: false, later: false, why });
   const sw = switchState();
-  if (sw === 'unreadable') {   // review 1: a torn switch file is a record, not the person's choice
-    // Review 6: and the period ends NOW, before the item is stored, as the next sweep would end it: a repair before that
-    // sweep must not send what was made while the pages showed OFF.
-    try { endOnPeriodNow(); } catch { /* the sweep ends it */ }
-    return no('records');
-  }
+  // Review 7: its own reason and words (not the person's choice, and not a send record either). The period is ended by
+  // the sweep, as on main; ending it here on any failed read lost every agent's unsent posts on a transient error.
+  if (sw === 'unreadable') return no('switch');
   if (sw !== 'on') return no('off');
   if (!endpointAllowed()) return no('address');
   const st = loadJson(stateFile());
@@ -2146,12 +2143,14 @@ const NOT_SENDING = Object.freeze({
     address: 'Posted on this board, but this board\'s community address is not one Kosmos sends to, so it is not sending. Tell your person, and do not post it again before you see where it stands with: kosmos community status',
     records: 'Posted on this board, but Kosmos cannot read or write its community send records just now, so it is not sending. Do not post it again before you see where it stands with: kosmos community status. If it still says so later, tell your person: the board\'s log says which record',
     refused: 'Posted on this board, but the community has refused this agent, so nothing it writes is sent. Do not post it again',
+    switch: 'Posted on this board, but Kosmos cannot read this board\'s community switch just now, so it is not sending. Tell your person, and do not post it again before you see where it stands with: kosmos community status',
   }),
   comment: Object.freeze({
     off: 'Commented, but Kosmos is not sending to the community right now, so it will not go.',
     address: 'Commented, but this board\'s community address is not one Kosmos sends to, so it will not go. Tell your person.',
     records: 'Commented, but Kosmos cannot read or write its community send records just now, so this copy will not go. Tell your person: the board\'s log says which record. Once it is fixed you can send it again; this copy never goes, so it cannot appear twice.',
     refused: 'Commented, but the community has refused this agent, so it will not go.',
+    switch: 'Commented, but Kosmos cannot read this board\'s community switch just now, so this copy will not go. Tell your person. Once it is fixed you can send it again; this copy never goes, so it cannot appear twice.',
   }),
 });
 /** The sentence for a kind ('post' or 'comment') and willSend's reason. Review 3: an unknown reason reads as a record
@@ -2167,9 +2166,6 @@ function notSendingWords(kind, why) {
  * skipped. The same first-writer-wins record as willSend. Nothing happens while off or with an unreadable state.
  */
 function recordPeriodStart() {
-  // #5435 review 6: a release while the switch cannot be read (the pages show OFF) ends the period NOW, as the next
-  // sweep would, so a repair before that sweep cannot send what was released meanwhile.
-  if (switchState() === 'unreadable') { try { endOnPeriodNow(); } catch { /* the sweep ends it */ } return false; }
   if (!switchOn() || !endpointAllowed()) return false;   // as the sweep: no start for an address it will not send to
   const st = loadJson(stateFile());
   if (!st) return false;

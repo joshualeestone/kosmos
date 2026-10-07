@@ -133,8 +133,8 @@ test('#5435 review 2: a switch file that cannot be read is not "switched off": s
   writeJson(cs._paths.stateFile(), { since: '2000-01-01T00:00:00Z' });
   cs.setSwitch(() => ({ ok: false, on: false }));   // communityswitch's answer for a file it cannot read
   try {
-    assert.equal(stateOfTitle('ava', 'Torn switch'), 'unreadable');
-    // Review 5: once the sweep has ended the period (it does for an unreadable switch), it will not go, in neutral words.
+    assert.equal(stateOfTitle('ava', 'Torn switch'), 'switch_unreadable');
+    // Review 5: and once the sweep has ended the period (it does for an unreadable switch), the same words.
     writeJson(cs._paths.stateFile(), {});
     assert.equal(stateOfTitle('ava', 'Torn switch'), 'switch_unreadable');
     assert.doesNotMatch(status.statusText('ava').text, /switched off|was not sending to the community when it was made/);

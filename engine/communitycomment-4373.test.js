@@ -499,10 +499,11 @@ test('#5435: a "no" says why: the switch, the address, an unreadable record, or 
   assert.equal(cs.willSend('ava').why, 'refused');
   assert.equal(cs.willSend('bo').sends, true, 'control: another agent still sends');
   assert.equal(cs.willSend('bo').why, undefined, 'a "yes" carries a reason');
-  // The words: one per reason and kind, never the switch's for a record; an unknown reason reads as the switch's.
+  // The words: one per reason and kind, never the switch's for a record; an unknown reason reads as a record's (review 3).
   for (const kind of ['post', 'comment']) {
-    const words = new Set(['off', 'address', 'records', 'refused'].map((why) => cs.notSendingWords(kind, why)));
-    assert.equal(words.size, 4, kind + ': two reasons share one sentence');
+    const words = new Set(['off', 'address', 'records', 'refused', 'switch'].map((why) => cs.notSendingWords(kind, why)));
+    assert.equal(words.size, 5, kind + ': two reasons share one sentence');
+    assert.doesNotMatch(cs.notSendingWords(kind, 'switch'), /not sending to the community right now/, kind + ': an unreadable switch read as switched off');
     assert.doesNotMatch(cs.notSendingWords(kind, 'records'), /not sending to the community right now/, kind + ': a record read as the switch');
     assert.equal(cs.notSendingWords(kind, 'nonsense'), cs.notSendingWords(kind, 'records'), kind + ': an unknown reason read as the switch (review 3)');
   }

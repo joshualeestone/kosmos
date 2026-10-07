@@ -13,7 +13,7 @@ tell the switch from a record, an address it does not send to, or an agent the c
   pass needs is unreadable, or the period's start could not be written), `refused`. `NOT_SENDING` holds the words once,
   per kind: a comment that will not go is marked never to send, so its words say it will not go; a post can still go
   once the cause is fixed, so its words point at `kosmos community status`. `off` keeps the sentence the CLIs said
-  before, which was right only for the switch. `notSendingWords(kind, why)` reads an unknown reason as the switch's.
+  before, which was right only for the switch. `notSendingWords(kind, why)` reads an unknown reason as `records` (review 3), never the switch's.
 - server.js: the post and service-comment routes return `notSending` (the sentence) only for a PUBLISHED item that
   will not go. A held post, and anything that goes, carry no reason. A throwing willSend reads as `records`.
 - install/kosmos and tools/windows/kosmos-cli.js print the board's sentence on one line, and keep their old sentence
@@ -103,3 +103,15 @@ tell the switch from a record, an address it does not send to, or an agent the c
   in that gap would send it. willSend and recordPeriodStart (the release route's call) now end the period the moment
   they find the switch unreadable, before anything is stored. Each mutation red.
 - Plan's verification count updated; the switchState docblock no longer claims only willSend reads it.
+
+## Review 7: scope pulled back
+- REVERTED review 6's period-ending in willSend and recordPeriodStart: any failed read of the switch file (EMFILE, EIO,
+  a Windows scanner holding it) then ended the period for every agent from one request, and the post route reads the
+  switch twice, so the answer and the outcome could disagree. Only the sweep ends the period, as on main. Pinned:
+  willSend and recordPeriodStart leave it (mutation red).
+- ADDED a `switch` reason with its own words ("cannot read this board's community switch"), matching read, vote,
+  follow and status; status uses `switch_unreadable` for it in and out of the period.
+- FILED #5460 for what is left and is not wording: status says "switched off" again after a repair (needs a record of
+  why the period ended); any failed read counts as a tear; the narrow window before the sweep notices. Main behaves
+  the same today, so this card does not make any of it worse.
+- Stale text fixed: the plan's and a test comment's fallback ("records", not the switch's) and switchOn's docblock.
