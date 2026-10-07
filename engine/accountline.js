@@ -9,7 +9,7 @@
  * Board text never prints as an extra line: control characters are replaced.
  */
 
-const clean = (v) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]+/g, ' ');
+const clean = (v) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ');
 const str = (v) => (typeof v === 'string' && v.trim() ? clean(v).trim() : '');
 
 /** What the account is called: the chosen name, the email, a keyed provider's key ending, the label, then which

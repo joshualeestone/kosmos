@@ -1598,7 +1598,8 @@ async function verbAccounts(ctx) {
   const r = await ctx.call('GET', '/api/accounts', undefined, { agent: false, timeoutMs: ACCOUNTS_TIMEOUT_MS });
   if (!r.reached) return ctx.unreachable('read which accounts are set up');
   // No token hint (#5333) here: this verb sends the board token only, never an agent's, so it cannot be about one.
-  const got = ctx.engine('accountline').answer(r.status, r.json);
+  let got;
+  try { got = ctx.engine('accountline').answer(r.status, r.json); } catch { got = { fail: 'Kosmos gave an answer we could not read about its accounts.' }; }
   if (got.fail) { ctx.err(got.fail); return 1; }
   for (const l of got.lines) ctx.out(l);
   return 0;

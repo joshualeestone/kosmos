@@ -2379,12 +2379,12 @@ cmd_accounts() {
   body="${body%$'\n'*}"
   # The words live once, in engine/accountline.js, which the Windows CLI's verbAccounts calls too (#5359).
   local prc=0
-  printf '%s' "$body" | KOSMOS_HTTP_CODE="$code" "$_node" -e '
+  printf '%s' "$body" | KOSMOS_HTTP_CODE="$code" KOSMOS_ACCT_INDENT="${KOSMOS_SAY_INDENT:-  }" "$_node" -e '
     const { answer } = require(process.argv[1]);
     let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
       let j = null; try { j = JSON.parse(s); } catch { j = null; }
       const r = answer(Number(process.env.KOSMOS_HTTP_CODE), j);
-      if (r.fail) { console.log((process.env.KOSMOS_SAY_INDENT === undefined ? "  " : process.env.KOSMOS_SAY_INDENT) + r.fail); process.exit(3); }
+      if (r.fail) { console.log((process.env.KOSMOS_ACCT_INDENT || "") + r.fail); process.exit(3); }   // the indent say() would use
       for (const l of r.lines) console.log(l);
     });' "$(kosmos_engine_module accountline).js" || prc=$?
   if [ "$prc" -eq 3 ]; then exit 1; fi
