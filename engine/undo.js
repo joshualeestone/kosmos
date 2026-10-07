@@ -109,7 +109,8 @@ function ownerOf(cwd, session, now) {
   return null;
 }
 let lastSweep = 0;
-function resetForTests() { sessionsCache = { at: 0, byAgent: new Map(), folders: new Map() }; lastSweep = 0; }
+function resetForTests() {
+  setCache = { at: 0, key: '', set: null }; sessionsCache = { at: 0, byAgent: new Map(), folders: new Map() }; lastSweep = 0; }
 
 /* ---- the index: one line per copy kept ---- */
 function readIndex() {
@@ -148,7 +149,7 @@ function credentialVerdict(abs, st, cred) {
   try {
     if (/^\.?board\.token(\..*)?$/i.test(path.basename(abs))) return 'protected';
     let c = cred;
-    if (!c) { try { c = require('./setup-assistant').boardCredentialPaths(); } catch { return 'unknown'; } }
+    if (!c) { c = cachedSet(); if (!c) return 'unknown'; }
     const realOf = (q) => { try { return fs.realpathSync.native(q); } catch { return null; } };
     const lc = (q) => String(q).toLowerCase();
     const parentReal = realOf(path.dirname(abs));
@@ -193,6 +194,21 @@ let cannotCheckNow = false;   // the last keep's state, so the log says when it 
 function isCredential(abs, st, cred) { return credentialVerdict(abs, st, cred) !== null; }
 /* Worked out once for a caller that checks many paths; null when it cannot be (each check then says 'unknown'). */
 function credentialSet() { try { return require('./setup-assistant').boardCredentialPaths(); } catch { return null; } }
+/* Review 12: keep runs before every agent edit, so the set is reused for SET_TTL_MS rather than worked out each time.
+   A credential made in that window is still caught by name and place; only the identity list can be up to 2 s old.
+   A failure is never cached. */
+const SET_TTL_MS = 2000;
+let setCache = { at: 0, key: '', set: null };
+function cachedSet() {
+  const now = Date.now();
+  // The token-only list decides which folders are protected: any change to it (or it breaking) is seen at once.
+  let key = 'absent';
+  try { const st = fs.statSync(require('./sendertoken').tokenOnlyFile()); key = st.size + ':' + st.mtimeMs + ':' + st.ino; } catch { key = 'absent'; }
+  if (setCache.set && setCache.key === key && now - setCache.at < SET_TTL_MS) return setCache.set;
+  const set = credentialSet();
+  setCache = set ? { at: now, key, set } : { at: 0, key: '', set: null };
+  return set;
+}
 
 /**
  * Keep a copy of `file` as it is now, just before an edit. Never throws. { kept, because? }. A missing file is

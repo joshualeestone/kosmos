@@ -875,14 +875,11 @@ function managedSettingsPresent(platform = process.platform) {
   try { return fs.existsSync(MANAGED_SETTINGS_PATH); } catch { return false; }
 }
 
-/* #4491: at board start, guard every agent currently listed in agent-token-only.json, so a pilot listed
-   before this shipped (echo) is guarded from its next session without a re-create. Warns (once per board
-   start, no cross-start dedup) when the root-owned managed belt is absent (the durable close is the
-   parked admin step). workerDir is overridable for tests. { guarded: [names], unguarded: [{ name, because }], managed: boolean }. Never throws. */
 /* #4491 review 11: settings.local.json in the agent's .claude takes precedence over settings.json, and a token-only
    agent may have written one before the guard existed. The keys that would undo the guard are removed from it too (a
    sandbox switched off, unsandboxed commands allowed, commands run outside it, paths reopened), logged, and the file
-   rewritten only when something changed. A file that does not parse is left as it is. */
+   rewritten only when something changed. A file that does not parse is left as it is. A failure to rewrite it
+   throws on purpose (review 12): the guard then reports not ok, because keys left there could undo it. */
 function cleanLocalSettings(file) {
   let cur;
   try { cur = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return; }
@@ -902,6 +899,10 @@ function cleanLocalSettings(file) {
   console.error(`token-only guard: removed ${dropped.join(', ')} from ${file}; they would undo the guard`);
 }
 
+/* #4491: at board start, guard every agent currently listed in agent-token-only.json, so a pilot listed
+   before this shipped (echo) is guarded from its next session without a re-create. Warns (once per board
+   start, no cross-start dedup) when the root-owned managed belt is absent (the durable close is the
+   parked admin step). workerDir is overridable for tests. { guarded: [names], unguarded: [{ name, because }], managed: boolean }. Never throws. */
 function refreshTokenOnlyGuards(deps = {}) {
   const platform = deps.platform || process.platform;
   const out = { guarded: [], unguarded: [], managed: managedSettingsPresent(platform) };
@@ -919,10 +920,15 @@ function refreshTokenOnlyGuards(deps = {}) {
     const g = exists ? guardTokenOnlyFolder(dir, name, { ...deps, runner }) : { ok: false, because: 'no agent folder yet' };
     if (g.ok) out.guarded.push(name); else out.unguarded.push({ name, because: g.because });
   }
-  if (out.unguarded.length) {
-    process.stderr.write('#4491: ' + out.unguarded.length + ' token-only agent(s) NOT guarded from reading the board token: '
-      + out.unguarded.map((u) => u.name + ' (' + u.because + ')').join('; ') + '\n');
+  /* Review 12: a listed name with no agent folder (not made yet, or removed and still listed) is a note, not a guard
+     failure: nothing is running under that name to guard. */
+  const failed = out.unguarded.filter((u) => u.because !== 'no agent folder yet');
+  const noFolder = out.unguarded.filter((u) => u.because === 'no agent folder yet');
+  if (failed.length) {
+    process.stderr.write('#4491: ' + failed.length + ' token-only agent(s) NOT guarded from reading the board token: '
+      + failed.map((u) => u.name + ' (' + u.because + ')').join('; ') + '\n');
   }
+  if (noFolder.length) process.stderr.write('#4491 note: listed as token-only but no agent folder (nothing to guard yet): ' + noFolder.map((u) => u.name).join(', ') + '\n');
   // The managed-belt warning is a macOS-only concern: off darwin no sandbox block is written and
   // managed-settings does not apply, so warning there would be misleading.
   if (names.length && platform === 'darwin' && !out.managed) {
