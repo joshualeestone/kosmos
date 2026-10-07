@@ -262,13 +262,54 @@ function secureDir(dir, mode) {
   try { fs.chmodSync(dir, mode); } catch { /* see above */ }
 }
 
+/* #5434: flush `fd` to disk. A file system that cannot flush at all is skipped, so the write still
+   takes its usual path: EINVAL, ENOTSUP, EOPNOTSUPP, ENOSYS everywhere, and on Windows only EPERM
+   and EISDIR (some Windows handles and volumes refuse the flush that way; libuv reports
+   ERROR_INVALID_FUNCTION from FlushFileBuffers as EISDIR; those writes worked before #5434).
+   Premise, not measured: that on these writable handles a Windows EPERM means "cannot flush"
+   rather than a real refusal (antivirus, a sharing violation). If it is a refusal, skipping it
+   leaves that write exactly as durable as before #5434, never less.
+   Any other error, for example EIO, ENOSPC or EDQUOT (on a mount that reports a failed write
+   late, this is where it shows), is thrown (marked `flushFailed`, for callers and tests); the atomic path below
+   records it in its local `flushError` and stops at once, so the old file stays as it was: no
+   retry (a space or quota error would only recur) and no in-place fallback (the one path that
+   truncates the live file). This covers errors the FLUSH reports. The same errors reported by a
+   write or a close keep main's behaviour (retries, then the fallback); that is a later slice of
+   #5434, not this one. */
+const FLUSH_UNSUPPORTED = new Set(['EINVAL', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS']);
+function flushOrThrow(fd) {
+  try { fs.fsyncSync(fd); } catch (e) {
+    if (e && (FLUSH_UNSUPPORTED.has(e.code) || (process.platform === 'win32' && (e.code === 'EPERM' || e.code === 'EISDIR')))) return;
+    if (e && typeof e === 'object') { try { e.flushFailed = true; } catch { /* frozen */ } }
+    throw e;
+  }
+}
+
+/* #5434: flush a directory so a rename into it survives a crash. Not on Windows, where Node
+   cannot flush a directory (the file's own flush, FlushFileBuffers there, is the part #5431
+   needs). Best effort everywhere: it never throws. */
+function syncDir(dir) {
+  if (process.platform === 'win32') return;
+  let fd = null;
+  try { fd = fs.openSync(dir, 'r'); fs.fsyncSync(fd); } catch { /* best effort */ }
+  finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* ignore */ } } }
+}
+
 /**
  * Write `data` to `file` at `mode`, so that `file` is never briefly loose and
  * never partially written.
  *
  * Throws on failure. On the fallback path a failure leaves the previous contents
  * in place where it can, because the alternative is destroying what it failed to
- * replace.
+ * replace. #5434: the new contents are flushed to disk before they replace the old.
+ * On the atomic path, a refused flush (any error but "cannot flush", for example EIO,
+ * ENOSPC or EDQUOT) throws at once and the
+ * old file is left as it was (no retry, no fallback; securewrite.fsync-5434.test.js).
+ * On the in-place fallback a refused flush comes after the truncate, so the old
+ * contents survive only through that path's best-effort restore; with no old
+ * contents to restore (no file, or one that could not be read) the new, unflushed
+ * contents stay, as a failed write on that path always left them. Not unlinked: an
+ * unreadable old file looks the same, and unlinking would delete it.
  */
 function writeSecret(file, data, mode) {
   /* #1793: sweep this target's directory of orphan temps a prior death left behind,
@@ -285,6 +326,7 @@ function writeSecret(file, data, mode) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const tmp = tempPath(file);
     let created = false;
+    let flushError = null;   // #5434: set when the disk refused the flush (see flushOrThrow)
     try {
       /* `wx` refuses rather than following or reusing anything already at the
          temp path, which also refuses a symlink planted there. */
@@ -318,12 +360,22 @@ function writeSecret(file, data, mode) {
           if (!(n > 0)) throw Object.assign(new Error('short write on the temp'), { code: 'EIO' });
           off += n;
         }
+        /* #5434: the bytes reach the disk BEFORE the rename makes them the file. Without this a
+           crash can leave the renamed file at full length with zeroed contents (found on a
+           Windows box after repeated crashes, #5431). See flushOrThrow for which errors count. */
+        // Cost: a synchronous flush on the caller's thread, the board's event loop for most callers
+        // (about 8 ms on this Mac's SSD, unmeasured on a slow disk; #5434's plan).
+        try { flushOrThrow(tfd); } catch (e) { flushError = e; throw e; }
       } finally {
-        fs.closeSync(tfd);
+        /* With a flush error pending, a close that fails too (NFS often repeats the EIO there) must
+           not replace it: `flushError` is what stops the loop below. */
+        if (flushError) { try { fs.closeSync(tfd); } catch { /* the flush error stands */ } }
+        else fs.closeSync(tfd);
       }
       /* rename is atomic, and it REPLACES a symlink at the target rather than
          following it. */
       fs.renameSync(tmp, file);
+      syncDir(path.dirname(file));   // #5434: the rename itself, made durable where the platform allows
       return;
     } catch (err) {
       /* Keep WHY the atomic path was abandoned, so it is not lost behind the
@@ -335,6 +387,7 @@ function writeSecret(file, data, mode) {
          is worse. Surfacing it needs a channel this function does not have (a warning
          on the result, or a log line), and that is a caller-shaped change rather than
          a writer-shaped one. Not done here. */
+      const earlierAtomicError = lastAtomicError;   // #5434: an earlier attempt's, for the early exit below
       lastAtomicError = err;
       /* ⚠️ ONLY REMOVE A TEMP WE CREATED. `wx` means a pre-existing file makes
          the write throw, and unlinking then would delete somebody else's file.
@@ -343,6 +396,11 @@ function writeSecret(file, data, mode) {
          `err.code !== 'EEXIST'` test is a PROXY for it and misses an EEXIST from
          the chmod or the rename. */
       if (created) { try { fs.unlinkSync(tmp); } catch { /* nothing to clean */ } }
+      // #5434: the disk refused the flush; keep the old file (see flushOrThrow).
+      if (flushError) {   // the same condition the close above used, so the two cannot disagree
+        if (earlierAtomicError && typeof flushError === 'object' && !flushError.cause) { try { flushError.cause = earlierAtomicError; } catch { /* frozen */ } }
+        throw flushError;
+      }
     }
   }
 
@@ -386,6 +444,7 @@ function writeSecret(file, data, mode) {
        loose would read as a promise. Pre-existing on main, carried, not hidden. */
     try { fs.fchmodSync(fd, mode); } catch { /* best effort, cost named above */ }
     fs.writeFileSync(fd, data);
+    flushOrThrow(fd);   // #5434: a real flush error lands in the restore below, as a failed write does
     wrote = true;
   } catch (err) {
     /* The fallback failed too. Attach why the ATOMIC path was abandoned, so a
@@ -440,6 +499,7 @@ function writeSecret(file, data, mode) {
             if (!(n > 0)) break;
             off += n;
           }
+          try { fs.fsyncSync(fd); } catch { /* #5434: best effort; this path is already failing */ }
         } catch { /* the restore failed too; the caller still gets the real error */ }
       }
       try { fs.closeSync(fd); } catch { /* already closed */ }

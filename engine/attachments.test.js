@@ -119,6 +119,6 @@ test('too large, empty, and a bad id are refused in words, and read never walks 
 test('the wire note carries the absolute path of the stored file, so the agent can open it', () => {
   const rec = attachments.save('agent', 'april', { name: 'brief.txt', type: 'text/plain', bytes: Buffer.from('hi') });
   const note = attachments.wireNote(attachments.read(rec.id));
-  assert.match(note, /^ \[attached file: \/.+\/brief\.txt\]$/, note);
+  assert.match(note, /^ \[attached file: \/.+\/brief\.txt \(text\/plain, 2 bytes\)\]$/, note);   // #5448: the facts follow the path
   assert.equal(attachments.wireNote(null), '');
 });

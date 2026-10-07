@@ -300,7 +300,7 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
        with the control hidden while it was closed). */
     if (closedNow && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; heldDropped = true; }
     // kosmos#4787 review 2: nor does a repeat rule, when the task closes because its last part did (as setClosed).
-    if (closedNow && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; repeatDropped = true; }
+    if (closedNow && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; dropReviewer(changed); repeatDropped = true; }
     /* ⚠️ `who` is DROPPED once parts are stored, not kept in step. Two fields
        answering "who is on this" is two things that disagree the first time
        one of them is edited, and every reader would then have to know which
@@ -747,7 +747,7 @@ function setClosed(projectId, n, closedAt) {
     // #4771: nor does a hold: a reopen must not come back silently held, its control hidden while it was closed.
     if (after && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; heldDropped = true; }
     // kosmos#4787 review 1: closing is how a recurring job ends; a reopen does not bring the rule back silently.
-    if (after && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; repeatDropped = true; }
+    if (after && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; dropReviewer(changed); repeatDropped = true; }
     return {
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
@@ -870,6 +870,9 @@ function setRepeat(projectId, n, rule, opts = {}) {
     if (!person && t.repeatByPerson === true && JSON.stringify(t.repeat || null) !== JSON.stringify(next)) {
       throw new Error('the person set how often this task repeats, so only they can change it');
     }
+    /* slice 3 review 2: stopping the repeat takes the reviewer with it, so a process cannot stop a task whose reviewer the
+       person chose (it would clear the person's choice, then name its own after setting the rule again). */
+    if (!person && !next && t.repeatReviewerByPerson === true) throw new Error('the person chose who reviews this task, so only they can stop it repeating');
     didChange = JSON.stringify(t.repeat || null) !== JSON.stringify(next);
     changed = { ...t };
     // review 2: the flag moves only with a real change; an agent re-sending the person's own rule leaves it theirs.
@@ -881,6 +884,8 @@ function setRepeat(projectId, n, rule, opts = {}) {
     } else {
       // review 3: the runs belonged to the rule; a rule set again later starts with no stale "last run".
       delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; delete changed.lastRunAt; delete changed.lastRunBy; delete changed.lastRunByPerson; delete changed.lastRunNote; delete changed.lastRunLate;
+      // slice 3: the reviewer reviewed this rule's results, so it goes with the rule.
+      dropReviewer(changed);
     }
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
@@ -890,6 +895,70 @@ function setRepeat(projectId, n, rule, opts = {}) {
     taskchat.record(projectId, changed.number, next
       ? { kind: 'repeat-set', every: next.every, words: taskrepeat.describe(next), via: person ? 'screen' : 'agent' }
       : { kind: 'repeat-cleared', via: person ? 'screen' : 'agent' });
+  }
+  return changed;
+}
+
+/**
+ * kosmos#4787 slice 3: name who reviews a repeating task's results: the person (`who` 'me'), an agent on the project (its
+ * session name), or nobody (null / 'none'). When a run is missed, the reviewer is told once (engine/missedtell.js).
+ * Only the person can name themselves, and a reviewer the person chose is theirs: a process cannot change or clear it
+ * (as the person's rule, setRepeat). An agent must be on the project, checked inside the same read that stores it.
+ */
+/* The checks a reviewer must pass, on a task as it stands (`t`) in its project (`p`); a sentence, or null. Shared by
+   setReviewer and the repeat route, which checks a reviewer BEFORE storing a rule sent with it (review 1: a refused
+   reviewer must not leave the rule half-applied). "Does it repeat" is setReviewer's own check. */
+/* slice 3 review 3: the reviewer belongs to the rule, so wherever the rule is dropped (closing, stopping) it goes too;
+   otherwise a reopened task given a new rule would bring back an old reviewer still marked as the person's choice. */
+function dropReviewer(t) {
+  delete t.repeatReviewer; delete t.repeatReviewerPerson; delete t.repeatReviewerByPerson; delete t.repeatReviewerSetAt; delete t.missToldAt;
+}
+function reviewerChoice(who) {
+  const raw = who === undefined || who === null ? 'none' : String(who).trim();
+  const low = raw.toLowerCase();
+  if (low === 'me') return 'me';
+  return raw === '' || low === 'nobody' || low === 'none' ? 'none' : raw;   // review 4: 'nobody', as task assign takes; review 12: any case
+}
+function reviewerProblem(p, t, who, opts = {}) {
+  const person = opts.person === true;
+  const after = reviewerChoice(who);
+  if (after === 'me' && !person) return 'only the person can name themselves as the reviewer';
+  if (after !== 'me' && after !== 'none' && !((p && p.agents) || []).includes(after)) return 'that agent is not on this project, so it cannot review this task';
+  const before = t && t.repeatReviewerPerson === true ? 'me' : (t && t.repeatReviewer) || 'none';
+  if (!person && t && t.repeatReviewerByPerson === true && before !== after) return 'the person chose who reviews this task, so only they can change it';
+  return null;
+}
+function setReviewer(projectId, n, who, opts = {}) {
+  const person = opts.person === true;
+  const after = reviewerChoice(who);
+  let changed;
+  let didChange = false;
+  projects.mutate(projectId, (p) => {
+    const t = byNumber(p, n);
+    if (!t) throw new Error('there is no task by that number on this project');
+    if (!t.repeat) throw new Error('that task does not repeat; set how often first, then who reviews its results');
+    if (progressOf(t).closed) throw new Error('that task is closed, so it no longer repeats');
+    const problem = reviewerProblem(p, t, after, { person });
+    if (problem) throw new Error(problem);
+    const before = t.repeatReviewerPerson === true ? 'me' : (t.repeatReviewer || 'none');
+    didChange = before !== after;
+    changed = { ...t };
+    /* Review 1: the person's choice is theirs, Nobody included, and choosing what an agent already named makes it theirs
+       (the mark is written even when the reviewer itself is unchanged; nothing is recorded then). */
+    const lock = person && t.repeatReviewerByPerson !== true;
+    if (!didChange && !lock) return p;
+    if (didChange) {
+      delete changed.repeatReviewer; delete changed.repeatReviewerPerson; delete changed.missToldAt;
+      if (after === 'me') changed.repeatReviewerPerson = true;
+      else if (after !== 'none') changed.repeatReviewer = after;
+      if (after === 'none') delete changed.repeatReviewerSetAt; else changed.repeatReviewerSetAt = new Date().toISOString();
+    }
+    if (person) changed.repeatReviewerByPerson = true; else if (didChange) delete changed.repeatReviewerByPerson;
+    return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
+  });
+  if (didChange) {
+    taskchat.record(projectId, changed.number, changed.repeatReviewerPerson === true ? { kind: 'reviewer-set', person: true }
+      : changed.repeatReviewer ? { kind: 'reviewer-set', who: changed.repeatReviewer } : { kind: 'reviewer-cleared', ...(person ? { person: true } : {}) });
   }
   return changed;
 }
@@ -1310,7 +1379,9 @@ function lastActivityOf(projectId, task) {
     if (!progressOf(task).closed) {
       let events = [];
       try { events = taskchat.read(projectId, task.number) || []; } catch { events = []; }
-      for (const e of events) consider(e && e.at);
+      /* kosmos#4787 slice 3 (review 5): Kosmos's own note that a run was MISSED is not activity: a dead job must not sort
+         as freshly active under "Quietest first". */
+      for (const e of events) if (!(e && e.kind === 'missed')) consider(e && e.at);
     }
   }
   return newest;
@@ -1489,4 +1560,4 @@ module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claim
   taskState, waitingOnPerson, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
-  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, setRepeat, recordRun };
+  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, setRepeat, setReviewer, reviewerProblem, recordRun };

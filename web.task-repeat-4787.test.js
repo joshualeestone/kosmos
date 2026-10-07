@@ -95,3 +95,59 @@ test('#4787 slice 2 review 5: an open Tasks view reads again once a shown slot p
   assert.ok(stamp > 0 && stamp < load.indexOf('await fetch('), 'review 6: a read stamps readAt when it STARTS, before it fetches');
   assert.equal(load.split('TSK.readAt =').length, 2, 'and only there');
 });
+
+test('#4787 slice 3: the task page\'s reviewer choice: Nobody, Me and the project\'s agents, showing what is stored; hidden for a one-off', () => {
+  const el = (id) => ({ id, hidden: true, textContent: '', value: '', dataset: {}, children: [], disabled: false,
+    appendChild(o) { this.children.push(o); }, set textContent(v) { this._t = v; if (v === '') this.children = []; }, get textContent() { return this._t || ''; } });
+  const els = { 'tk-review-row': el('tk-review-row'), 'tk-review-who': el('tk-review-who'), 'tk-review-msg': el('tk-review-msg') };
+  const doc = { activeElement: null, getElementById: (id) => els[id] || null, createElement: () => ({ value: '', textContent: '' }) };
+  const paint = new Function('document', 'TK_ACT', 'tskAgentName', page.liftAll(SCRIPT, ['tkReviewerOf', 'tkPaintReviewer']) + '\nreturn tkPaintReviewer;')(doc, 'close', (s) => ({ ada: 'Ada', rex: 'Rex' }[s] || s));
+  const p = { id: 'p1', agents: ['ada', 'rex'] };
+  paint(p, { number: 4 });
+  assert.equal(els['tk-review-row'].hidden, true, 'a one-off task has no reviewer choice');
+  const t = { number: 4, repeat: { every: 'day', at: '09:00' }, repeatReviewer: 'rex' };
+  paint(p, t);
+  const sel = els['tk-review-who'];
+  assert.equal(els['tk-review-row'].hidden, false);
+  assert.deepEqual(sel.children.map((o) => o.value + '=' + o.textContent), ['none=Nobody', 'me=Me', 'ada=Ada', 'rex=Rex']);
+  assert.equal(sel.value, 'rex');
+  paint(p, { ...t, repeatReviewer: undefined, repeatReviewerPerson: true });
+  assert.equal(sel.value, 'me');
+  // A stored reviewer who left the project stays listed, so the select never shows a choice that is not stored.
+  paint({ id: 'p1', agents: ['ada'] }, t);
+  assert.equal(sel.value, 'rex');
+  assert.ok(sel.children.some((o) => o.value === 'rex' && o.textContent === 'Rex (left the project)'), 'review 12: it says so');
+  assert.ok(!sel.children.some((o) => o.value === 'ada' && /left/.test(o.textContent)), 'CONTROL: a member is not marked');
+  // Under the person's own focus it is not repainted; forced (its own answer) it is.
+  doc.activeElement = sel; sel.value = 'ada';
+  paint(p, { ...t, repeatReviewer: 'rex' });
+  assert.equal(sel.value, 'ada', 'not repainted under focus');
+  delete sel.dataset.sig;
+  paint(p, { ...t, repeatReviewer: 'rex' }, true);
+  assert.equal(sel.value, 'rex', 'forced: back to what is stored (a refusal puts it back)');
+});
+
+test('#4787 slice 3 review 5: the task history says the reviewer and a missed run in words, never the raw kind', () => {
+  const phrase = new Function('tkMemberName', page.liftAll(SCRIPT, ['tkActPhrase']) + '\nreturn tkActPhrase;')((p, sn) => ({ ada: 'Ada' }[sn] || sn));
+  const p = { id: 'p1' };
+  assert.equal(phrase({ kind: 'reviewer-set', who: 'ada' }, p), 'Ada will be told if a run is missed');
+  assert.equal(phrase({ kind: 'reviewer-set', person: true }, p), 'You will be told if a run is missed');
+  assert.equal(phrase({ kind: 'reviewer-cleared' }, p), 'Nobody is told now if a run is missed');
+  assert.equal(phrase({ kind: 'missed', count: 1, told: 'ada', reached: true }, p), 'A run was missed; Ada was told');
+  assert.equal(phrase({ kind: 'missed', count: 3, told: 'ada', reached: false }, p), '3 runs missed; Kosmos could not reach Ada');
+  assert.equal(phrase({ kind: 'missed', count: 1, person: true }, p), 'A run was missed; you review it');
+});
+
+test('#4787 slice 3 review 6: a capped miss reads "More than 99"; a finished task hides the reviewer row', () => {
+  const phrase = new Function('tkMemberName', page.liftAll(SCRIPT, ['tkActPhrase']) + '\nreturn tkActPhrase;')((p, sn) => sn);
+  assert.equal(phrase({ kind: 'missed', count: 99, more: true, person: true }, { id: 'p1' }), 'More than 99 runs missed; you review it');
+  const el = (id) => ({ id, hidden: false, textContent: '', value: '', dataset: {}, children: [], appendChild(o) { this.children.push(o); } });
+  const els = { 'tk-review-row': el('tk-review-row'), 'tk-review-who': el('tk-review-who'), 'tk-review-msg': el('tk-review-msg') };
+  const doc = { activeElement: null, getElementById: (id) => els[id] || null, createElement: () => ({ value: '', textContent: '' }) };
+  const paint = new Function('document', 'TK_ACT', 'tskAgentName', page.liftAll(SCRIPT, ['tkReviewerOf', 'tkPaintReviewer']) + '\nreturn tkPaintReviewer;')(doc, 'reopen', (s) => s);
+  paint({ id: 'p1', agents: ['ada'] }, { number: 4, repeat: { every: 'day', at: '09:00' }, repeatReviewer: 'ada' });
+  assert.equal(els['tk-review-row'].hidden, true, 'a finished task (TK_ACT reopen) shows no reviewer row');
+  // And tkPaintRepeat's early return for a finished task still reaches it.
+  const src = page.liftAll(SCRIPT, ['tkPaintRepeat']);
+  assert.match(src, /if \(done\) \{[^\n]*tkPaintReviewer\(p, t\); return; \}/);
+});

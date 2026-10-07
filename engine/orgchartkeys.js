@@ -177,8 +177,20 @@ const ENABLED_DEFAULT = { openai: true, google: false, xai: true };
 let enabled = { ...ENABLED_DEFAULT };
 /** Tests only: which providers are on; null restores the ruling. */
 function setEnabled(map) { enabled = map && typeof map === 'object' ? { ...map } : { ...ENABLED_DEFAULT }; }
+/* #5346: as orgchartfile.noModelFor, Claude first and ChatGPT only where it reads. */
+function googleOffWhyFor(platform) {
+  return 'Claude can read a picture or PDF, connected in Settings, AI Models'
+    + (platform === 'win32' ? ', and so can OpenAI or Grok connected with a key (Grok a PNG or JPG picture only)'
+      : '. ChatGPT, connected the same way, also reads a PNG or JPG picture, and so can OpenAI or Grok connected with a key (an OpenAI key also reads a PDF)')
+    + '. Kosmos does not send an org chart to Gemini: Google\'s terms say not to send personal information on a free Gemini key, and Kosmos cannot tell a free key from a paid one.'
+    + ' ' + require('./orgchartcodex').ANY_PROVIDER;
+}
+/* #5346: the same, in one sentence, for when another reason comes first (orgchartfile currentReader). */
+const OFF_SHORT = {
+  google: 'Gemini is not used for org charts: Google\'s terms say not to send personal information on a free Gemini key, and Kosmos cannot tell a free key from a paid one.',
+};
 const OFF_WHY = {
-  google: 'Kosmos does not send an org chart to Gemini: Google\'s terms say not to send personal information on a free Gemini key, and Kosmos cannot tell a free key from a paid one. Claude or an OpenAI key can read a picture or PDF (a Grok key reads a PNG or JPG picture); a CSV or Excel export works with any provider, and so does typing the list.',
+  get google() { return googleOffWhyFor(process.platform); },   // read when used, like composeWhy's platform
 };
 
 /* What each provider keeps even though every request says store:false, from its own docs (Liu Kang m3686; the
@@ -224,7 +236,7 @@ function pick() {
   const r = list.find((a) => a && PROVIDERS[a.provider] && enabled[a.provider]);
   if (r) return { reader: { provider: r.provider, dir: r.dir, account: r.account || null, keyTail: r.keyTail || null }, offWhy: null };
   const off = list.find((a) => a && PROVIDERS[a.provider] && !enabled[a.provider] && OFF_WHY[a.provider]);
-  return { reader: null, offWhy: off ? OFF_WHY[off.provider] : null };
+  return { reader: null, offWhy: off ? OFF_WHY[off.provider] : null, offShort: off ? OFF_SHORT[off.provider] : null };
 }
 function chooseReader() { return pick().reader; }
 function offReason() { return pick().offWhy; }
@@ -382,4 +394,4 @@ async function readOnce(reader, prompt, name, media, buf, signal) {
   return { ok: true, structured };
 }
 
-module.exports = { TIMEOUT_MS, KNOWN_PARAMS, diagnosis, KNOWN_TYPES, pick, KNOWN_CODES, urlFrom, MAX_OUTPUT_TOKENS, offReason, setEnabled, ENABLED_DEFAULT, OFF_WHY, keeps, KEEPS, setTimeoutMs, MAX_ANSWER_BYTES, accountsFrom, PROVIDERS, ORDER, STRICT_SCHEMA, chooseReader, label, cannotRead, read, setAccounts, setKeyFor, refusal, responsesAnswer };
+module.exports = { TIMEOUT_MS, KNOWN_PARAMS, diagnosis, KNOWN_TYPES, pick, KNOWN_CODES, urlFrom, MAX_OUTPUT_TOKENS, offReason, setEnabled, ENABLED_DEFAULT, OFF_WHY, OFF_SHORT, googleOffWhyFor, keeps, KEEPS, setTimeoutMs, MAX_ANSWER_BYTES, accountsFrom, PROVIDERS, ORDER, STRICT_SCHEMA, chooseReader, label, cannotRead, read, setAccounts, setKeyFor, refusal, responsesAnswer };

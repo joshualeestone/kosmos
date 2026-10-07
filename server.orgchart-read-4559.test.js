@@ -193,7 +193,9 @@ test('#4559: with no Claude on this computer a picture is not offered, and the a
   const r = await send('chart.png', fs.readFileSync(path.join(FIX, 'chart.png')), { headers: SCREEN, query: '?consent=1' });
   assert.equal(r.json.unavailable, true);
   assert.equal(r.json.problems[0], orgchartfile.NO_MODEL);
-  assert.match(r.json.problems[0], /Claude or an OpenAI key \(a Grok key reads a PNG or JPG picture\).*A CSV or Excel export works with any provider/);
+  // #5346: leads with Claude, names ChatGPT for a picture, and never tells the person they need an API key.
+  assert.match(r.json.problems[0], /^Claude reads a picture or PDF, connected in Settings, AI Models\. .*A CSV or Excel export works with any provider/);
+  assert.doesNotMatch(r.json.problems[0], /API key/i);
   assert.equal(sent.length, 0);
 });
 
@@ -399,4 +401,19 @@ test('#4560 END TO END: the route, the reader it pinned, and the provider call, 
     stub.close();
     orgchartfile.setReaderForTest(() => ({ kind: 'claude' }));
   }
+});
+
+test('#5346 step 2: a consented ChatGPT read whose Codex is gone answers why, Claude first, and does not offer ChatGPT again', async () => {
+  const codex = require('./engine/orgchartcodex');
+  const pinned = { kind: 'codex', provider: 'openai', dir: '/x', account: 'a@x.test' };
+  orgchartfile.setReaderForTest(() => pinned);
+  codex.setBin(() => null);
+  try {
+    const r = await send('chart.png', fs.readFileSync(path.join(FIX, 'chart.png')), { headers: SCREEN, query: '?consent=1&reader=' + encodeURIComponent(orgchartfile.readerId(pinned)) });
+    assert.equal(r.json.unavailable, true, JSON.stringify(r.json));
+    assert.equal(r.json.problems[0], orgchartfile.noModelAfter({ kind: 'codex' }));
+    assert.ok(r.json.problems[0].includes(codex.WHY_NO_CODEX.slice(0, -(' ' + codex.ANY_PROVIDER).length)), r.json.problems[0]);
+    assert.match(r.json.problems[0], /^Claude reads a picture or PDF/);
+    assert.notEqual(r.json.problems[0], orgchartfile.NO_MODEL, 'control: not the sentence that offers ChatGPT');
+  } finally { codex.setBin(null); orgchartfile.setReaderForTest(() => ({ kind: 'claude' })); }
 });

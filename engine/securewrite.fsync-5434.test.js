@@ -1,0 +1,163 @@
+'use strict';
+/**
+ * kosmos#5434: writeSecret flushes the temp file to disk BEFORE the rename makes it the file,
+ * and a file system that refuses fsync does not stop the write. Every arm writes in its own
+ * scratch folder.
+ *
+ *   node --test engine/securewrite.fsync-5434.test.js
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const securewrite = require('./securewrite');
+
+/* Record opens (with the fd each returned), fsyncs and renames, in order, while `fn` runs; put fs
+   back afterwards. `wxFails` makes every 'wx' create fail with EEXIST, which sends writeSecret to
+   its in-place fallback after three attempts. */
+function recording(fn, { fsyncThrows = false, wxFails = false, closeThrows = false, fsyncOnly = null } = {}) {   // fsyncOnly(fd, events): throw only for these fds   // *Throws: false, or an error code
+  const events = [];
+  const realOpen = fs.openSync;
+  const realFsync = fs.fsyncSync;
+  const realRename = fs.renameSync;
+  const realClose = fs.closeSync;
+  fs.closeSync = (fd) => { realClose(fd); if (closeThrows) throw Object.assign(new Error('close failed'), { code: closeThrows }); };
+  fs.openSync = (target, flags, ...rest) => {
+    if (wxFails && flags === 'wx') throw Object.assign(new Error('planted'), { code: 'EEXIST' });
+    const fd = realOpen.call(fs, target, flags, ...rest);
+    events.push(['open', target, flags, fd]);
+    return fd;
+  };
+  fs.fsyncSync = (fd) => { events.push(['fsync', fd]); if (fsyncOnly && !fsyncOnly(fd, events)) return realFsync(fd); if (fsyncThrows) throw Object.assign(new Error('fsync failed'), { code: fsyncThrows === true ? 'EINVAL' : fsyncThrows }); return realFsync(fd); };
+  fs.renameSync = (a, b) => { events.push(['rename', b]); return realRename(a, b); };
+  try { fn(); } finally { fs.openSync = realOpen; fs.fsyncSync = realFsync; fs.renameSync = realRename; fs.closeSync = realClose; }
+  return events;
+}
+
+test('#5434: writeSecret flushes the temp before the rename that makes it the file', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw5434-'));
+  try {
+    const file = path.join(dir, 'tokens.json');
+    const events = recording(() => securewrite.writeSecret(file, '{"a":1}\n', 0o600));
+    const tempOpen = events.find((e) => e[0] === 'open' && e[2] === 'wx');
+    assert.ok(tempOpen, 'no temp was created: ' + JSON.stringify(events));
+    const tempFlush = events.findIndex((e) => e[0] === 'fsync' && e[1] === tempOpen[3]);
+    const rename = events.findIndex((e) => e[0] === 'rename' && e[1] === file);
+    assert.ok(tempFlush > -1, 'the temp\'s own fd was never flushed: ' + JSON.stringify(events));
+    assert.ok(rename > -1, 'the file was not renamed into place: ' + JSON.stringify(events));
+    assert.ok(tempFlush < rename, 'the temp was flushed after the rename: ' + JSON.stringify(events));
+    assert.equal(fs.readFileSync(file, 'utf8'), '{"a":1}\n');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#5434: off Windows the folder is flushed after the rename too', { skip: process.platform === 'win32' && 'a folder cannot be flushed this way on Windows' }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw5434-dir-'));
+  try {
+    const file = path.join(dir, 'tokens.json');
+    const events = recording(() => securewrite.writeSecret(file, 'x', 0o600));
+    const rename = events.findIndex((e) => e[0] === 'rename' && e[1] === file);
+    const after = events.slice(rename + 1);
+    const dirOpen = after.find((e) => e[0] === 'open' && e[1] === dir && e[2] === 'r');
+    assert.ok(dirOpen, 'the folder was not opened after the rename: ' + JSON.stringify(events));
+    assert.ok(after.some((e) => e[0] === 'fsync' && e[1] === dirOpen[3]), 'the folder itself was not flushed: ' + JSON.stringify(events));
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#5434: a file system that cannot flush (each skipped code) still gets the atomic write, not the in-place fallback', () => {
+  for (const code of ['EINVAL', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS'].concat(process.platform === 'win32' ? ['EPERM', 'EISDIR'] : [])) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw5434-ref-'));
+    try {
+      const file = path.join(dir, 'tokens.json');
+      fs.writeFileSync(file, 'old');
+      const events = recording(() => securewrite.writeSecret(file, 'new', 0o600), { fsyncThrows: code });
+      assert.ok(events.some((e) => e[0] === 'rename' && e[1] === file), code + ': the write left the atomic path: ' + JSON.stringify(events));
+      assert.equal(fs.readFileSync(file, 'utf8'), 'new', code);
+      assert.deepEqual(fs.readdirSync(dir), ['tokens.json'], code + ': a temp was left behind');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+});
+
+test('#5434: the in-place fallback flushes what it wrote too', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw5434-fb-'));
+  try {
+    const file = path.join(dir, 'tokens.json');
+    fs.writeFileSync(file, 'old');
+    const events = recording(() => securewrite.writeSecret(file, 'new', 0o600), { wxFails: true });
+    // The fallback's own open: numeric O_* flags (the read that captures the old contents opens with 'r').
+    const fbOpen = events.find((e) => e[0] === 'open' && e[1] === file && typeof e[2] === 'number');
+    assert.ok(fbOpen, 'the fallback did not open the file in place: ' + JSON.stringify(events));
+    assert.ok(events.some((e) => e[0] === 'fsync' && e[1] === fbOpen[3]), 'the fallback did not flush: ' + JSON.stringify(events));
+    assert.equal(fs.readFileSync(file, 'utf8'), 'new');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#5434: a real flush error (EIO) fails the write at once and keeps the old file', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw5434-eio-'));
+  try {
+    const file = path.join(dir, 'tokens.json');
+    fs.writeFileSync(file, 'old');
+    let threw = null;
+    const events = recording(() => { try { securewrite.writeSecret(file, 'new', 0o600); } catch (e) { threw = e; } }, { fsyncThrows: 'EIO' });
+    assert.ok(threw, 'a write whose bytes may never have reached the disk was reported as a success');
+    assert.equal(events.filter((e) => e[0] === 'open' && e[2] === 'wx').length, 1, 'it retried after the disk refused: ' + JSON.stringify(events));
+    assert.ok(!events.some((e) => e[0] === 'open' && e[1] === file && typeof e[2] === 'number'), 'it went on to the in-place fallback, which truncates the live file: ' + JSON.stringify(events));
+    assert.equal(fs.readFileSync(file, 'utf8'), 'old', 'the old file was replaced by bytes the disk refused');
+    assert.deepEqual(fs.readdirSync(dir), ['tokens.json'], 'a temp was left behind');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#5434: when the close fails too after a refused flush (NFS repeats the EIO), it still stops at once and keeps the old file', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw5434-eio2-'));
+  try {
+    const file = path.join(dir, 'tokens.json');
+    fs.writeFileSync(file, 'old');
+    let threw = null;
+    const events = recording(() => { try { securewrite.writeSecret(file, 'new', 0o600); } catch (e) { threw = e; } }, { fsyncThrows: 'EIO', closeThrows: 'EIO' });
+    assert.ok(threw && threw.flushFailed, 'the error that stopped the write is not the refused flush: ' + (threw && threw.message));
+    assert.equal(events.filter((e) => e[0] === 'open' && e[2] === 'wx').length, 1, 'it retried: ' + JSON.stringify(events));
+    assert.ok(!events.some((e) => e[0] === 'open' && e[1] === file && typeof e[2] === 'number'), 'it reached the in-place fallback: ' + JSON.stringify(events));
+    assert.equal(fs.readFileSync(file, 'utf8'), 'old');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#5434 control: on POSIX an EPERM from the flush is not skipped (only Windows returns it for "cannot flush")', { skip: process.platform === 'win32' && 'EPERM is skipped on Windows' }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw5434-eperm-'));
+  try {
+    const file = path.join(dir, 'tokens.json');
+    fs.writeFileSync(file, 'old');
+    let threw = null;
+    recording(() => { try { securewrite.writeSecret(file, 'new', 0o600); } catch (e) { threw = e; } }, { fsyncThrows: 'EPERM' });
+    assert.ok(threw, 'a POSIX EPERM from the flush was treated as "cannot flush"');
+    assert.equal(fs.readFileSync(file, 'utf8'), 'old');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#5434: a real flush error on the in-place fallback restores the old contents and is reported', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw5434-fbeio-'));
+  try {
+    const file = path.join(dir, 'tokens.json');
+    fs.writeFileSync(file, 'old');
+    let threw = null;
+    recording(() => { try { securewrite.writeSecret(file, 'new', 0o600); } catch (e) { threw = e; } }, { wxFails: true, fsyncThrows: 'EIO' });
+    assert.ok(threw && threw.flushFailed, 'the refused flush was not reported: ' + (threw && threw.message));
+    assert.ok(threw.cause, 'why the atomic path was abandoned is not attached');
+    assert.equal(fs.readFileSync(file, 'utf8'), 'old', 'the old contents were not restored');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#5434: a refused FOLDER flush after the rename never fails the write or sends it to the fallback', { skip: process.platform === 'win32' && 'the folder is not flushed on Windows' }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw5434-dirfail-'));
+  try {
+    const file = path.join(dir, 'tokens.json');
+    fs.writeFileSync(file, 'old');
+    // Throw only for the descriptor opened on the folder itself (flags 'r').
+    const isFolderFd = (fd, events) => events.some((e) => e[0] === 'open' && e[1] === dir && e[2] === 'r' && e[3] === fd);
+    const events = recording(() => securewrite.writeSecret(file, 'new', 0o600), { fsyncThrows: 'EIO', fsyncOnly: isFolderFd });
+    assert.equal(events.filter((e) => e[0] === 'open' && e[2] === 'wx').length, 1, 'it retried: ' + JSON.stringify(events));
+    assert.ok(!events.some((e) => e[0] === 'open' && e[1] === file && typeof e[2] === 'number'), 'it reached the fallback: ' + JSON.stringify(events));
+    assert.ok(events.some((e) => e[0] === 'open' && e[1] === dir && e[2] === 'r'), 'the folder flush never ran, so this arm proved nothing');
+    assert.equal(fs.readFileSync(file, 'utf8'), 'new');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+

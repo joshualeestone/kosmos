@@ -1097,6 +1097,7 @@ const recordGuideOutcome = guidestate.makeRecorder({
 });
 const heartbeat = require('./engine/heartbeat');
 const roomhold = require('./engine/roomhold'); // #4624: a colleague's un-addressed room post is held while the member works
+const missedtell = require('./engine/missedtell'); // kosmos#4787 slice 3: a repeating task's reviewer is told of a missed run
 const agentnudge = require('./engine/agentnudge'); // #4544: the Prompter's nudge to the AGENT (an idle agent that still has open work)
 const replynudge = require('./engine/replynudge'); // #4951: tell an idle agent its community post has new comments, once per comment
 const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter's local in-app nudge store (the delivery half #2623 removed)
@@ -1266,6 +1267,7 @@ function connectionsHeld() {
 
 const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
+const instructionadds = require('./engine/instructionadds'); // #5293: an agent proposes an addition, the person applies it
 const personalinstr = require('./engine/personalinstr'); // #4446: a personal instructions file the agent's CLI also loads
 const projects = require('./engine/projects');
 const autoretell = require('./engine/autoretell');
@@ -4327,7 +4329,9 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
    givePart, so the parts valve and the paging allowance apply. The part route (.../part/<m>/who) stays out. */
 /* #5300: `kosmos project role` (POST .../role) joins: its handler names the caller (processCaller), sets that member's
    own role here only, and refuses an agent that is not on the project (projects.setRoleHere). */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
+/* #5293 review 1: POST /api/agent/<name>/instruction-add joins: it only HOLDS a proposal the person applies on the page,
+   and its handler names the caller with resolveAgentSender, header token first. */
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/agent\/[^/]+\/instruction-add$/, /^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a pane row (`paneless`, on the result or its card): the
@@ -7442,7 +7446,8 @@ const server = http.createServer(async (req, res) => {
         const got = await orgchartfile.readWithModel(name, bytes, { signal: stop.signal, reader });
         if (stop.signal.aborted) return;
         if (got.unavailable) {
-          sendJson(res, 200, { unavailable: true, problems: [orgchartfile.NO_MODEL] });
+          // #5346: after a ChatGPT read could not run, the sentence does not offer ChatGPT again.
+          sendJson(res, 200, { unavailable: true, problems: [orgchartfile.noModelAfter(reader)] });
           return;
         }
         sendJson(res, 200, { source: 'model', provider: orgchartfile.providerLabel(reader), rows: got.rows, problems: got.problems });
@@ -10020,6 +10025,20 @@ const server = http.createServer(async (req, res) => {
             connection: { ...(a.connection || {}), badge: loginGreen ? 'working' : v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
               ...(obs && v.observedAt != null ? { observedFrom: obs === checkObs ? 'check' : 'agent' } : {}),   // a stale one decided nothing (#4139 follow-up)
               ...(loginOk ? { loginValidUntil: loginArgs.until } : {}),
+              /* #5407: the login notice's window, from the login date alone (review 1: NOT from loginOk, which needs an
+                 idle row, so an account whose agents were working, the very one the notice is about, never got it).
+                 Not over a rejection or a sign-out, which say more already. Inside the window: loginExpiresInDays (and
+                 the date, for the title). Past its date: loginEnded, unless loginStopsAt (below) says the agents still
+                 work for a while, which the row says instead. */
+              ...((() => {
+                const until = loginUntil.get(a);
+                if (!Number.isFinite(until) || v.badge === 'rejected' || v.badge === 'signed_out') return {};
+                const d = require('./engine/loginexpiry').daysLeftInWindow(until, nowMs);
+                if (d === null) return {};
+                if (until > nowMs) return { loginExpiresInDays: Math.max(0, d), loginExpiresAt: until };
+                // Review 4: never beside loginStopsAt (agents still working until then say that instead).
+                return claudeloginlive.worksUntil(a, nowMs) ? {} : { loginEnded: true };
+              })()),
               ...(loginGreen ? { observedFrom: 'login' } : {}),
               /* #5168: the login has ended but its agents still work on the access token they hold, until this time.
                  Not over a rejection or a sign-out, which say more than this does. worksUntil reads ONLY the cache that
@@ -16484,6 +16503,50 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* kosmos#5293: an agent PROPOSES an addition to another agent's instructions; the PERSON applies it on that agent's
+     page. The propose route is an agent's (it names the asker the way /api/msg names a sender: the agent token, else
+     the caller's pane, never a name the caller types). Apply, Dismiss and Undo are the person's: they refuse an agent
+     token and want a browser's headers (isViaScreen, the check community release uses). As there, a speed bump, not
+     a wall, until #4491 keeps the board token out of agents' reach. One pending per target: a second is refused. */
+  const instrAdd = pathname.match(/^\/api\/agent\/([^/]+)\/instruction-add(?:\/(apply|dismiss|undo))?$/);
+  if (instrAdd) {
+    const asked = decodeSegment(instrAdd[1]);
+    const act = instrAdd[2] || null;
+    if (asked === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    if (!knownAgent(asked)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
+    /* Review 1 (BLOCKER): resolve the spelling to the ONE agent and key everything by its session name, which is what
+       the page reads by. A case or punctuation variant the gate accepts was stored apart: shown nowhere, and a second
+       "one pending" beside the first. */
+    const card = claimantFor(asked);
+    if (!card || typeof card.sessionName !== 'string' || !card.sessionName) { sendJson(res, 404, { error: 'no agent by that name' }); return; }   // review 2: never the raw spelling
+    const name = card.sessionName;
+    if (!act && (req.method === 'GET' || req.method === 'HEAD')) {
+      try { sendJson(res, 200, instructionadds.state(name)); } catch { sendJson(res, 500, { error: 'the waiting addition could not be read' }); }
+      return;
+    }
+    if (req.method !== 'POST') { sendJson(res, 405, { error: 'that is not something this route does' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = null; }
+        if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'send it as JSON, like {"text": "..."}' }); return; }
+        if (!act) {
+          const roster = safeRoster();
+          if (roster === null) { sendJson(res, 200, { ok: false, because: 'we could not check which agents are running, so nothing was held' }); return; }
+          const who = resolveAgentSender(req, body, roster);
+          if (!who || !who.ok) { sendJson(res, 200, { ok: false, because: (who && who.because) || 'we could not tell which agent is asking' }); return; }
+          const askedBy = (who.card && (who.card.name || who.card.sessionName)) || '';
+          sendJson(res, 200, instructionadds.propose(name, body.text, askedBy));
+          return;
+        }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can do this, from the agent’s page' }); return; }
+        const out = act === 'apply' ? instructionadds.apply(name) : act === 'dismiss' ? instructionadds.dismiss(name) : instructionadds.undo(name);
+        sendJson(res, out.ok ? 200 : 409, out);
+      })
+      .catch(() => { if (!res.headersSent) sendJson(res, 500, { error: 'that could not be done' }); });
+    return;
+  }
+
   if (instr && req.method === 'PUT') {
     const name = decodeSegment(instr[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
@@ -16802,8 +16865,8 @@ const server = http.createServer(async (req, res) => {
     try { asked = new URL(req.url, ROUTING_BASE).searchParams.get('name') || ''; } catch { asked = ''; }
     const problem = projects.folderNameProblem(asked);
     if (problem) { sendJson(res, 200, { path: null, problem }); return; }
-    // ⚠️ `folderPathPreview`, which does NOT create anything (it only lists
-    // the parent). Somebody typing into a name box must not leave a trail of
+    // ⚠️ `folderPathPreview`, which does NOT create anything (it lists the
+    // parent and stats the path). Somebody typing into a name box must not leave a trail of
     // empty directories behind them; the folder is made once, by `create`,
     // when they press the button. The preview carries makeFolder's own
     // case correction, so the path shown is the path the act produces.
@@ -16945,7 +17008,8 @@ const server = http.createServer(async (req, res) => {
       }
       /* #3949: Needs Your Decision, from the same roster read (the engine's rule, tasks.waitingOnPerson). */
       /* #5034: with the project's members, so a holder taken off the project does not keep its card red. */
-      const waitingOnPerson = tasks.waitingOnPerson(t, roster, membersOf.get(t.projectId));
+      /* kosmos#4787 slice 3: a repeating task the PERSON reviews waits on them while a run is missed (they asked to be told). */
+      const waitingOnPerson = tasks.waitingOnPerson(t, roster, membersOf.get(t.projectId)) || missedtell.personReviewMissed(t);
       return Object.assign({}, t, {
         claim,
         waitingOnPerson,
@@ -18670,8 +18734,9 @@ const server = http.createServer(async (req, res) => {
     if (taskAct[3] === 'close' && !isViaScreen(req, {})) {
       let held = null;
       try { const pr = projects.readAll().find((x) => x && x.id === id); held = pr ? tasks.byNumber(pr, taskAct[2]) : null; } catch { held = null; }
-      if (held && held.repeat && held.repeatByPerson === true) {
-        sendJson(res, 409, { error: 'the person set this task to repeat, so only they can close it; record each run with kosmos task ran' });
+      // slice 3 review 6: a reviewer the person chose is theirs too, and closing would drop it with the rule.
+      if (held && held.repeat && (held.repeatByPerson === true || held.repeatReviewerByPerson === true)) {
+        sendJson(res, 409, { error: 'the person set this task to repeat, or chose who reviews it, so only they can close it; record each run with kosmos task ran' });
         return;
       }
     }
@@ -19062,11 +19127,25 @@ const server = http.createServer(async (req, res) => {
         } else {
           const rule = body.clear === true ? null
             : taskrepeat.fromWords(body.every, { at: body.at === undefined ? (body.minute === undefined ? undefined : String(body.minute)) : body.at, on: body.on });
-          task = tasks.setRepeat(id, taskRepeat[2], rule, { person: viaScreen });
+          /* slice 3: `reviewer` ('me', an agent's session name, or 'none') rides the same request; a rule being set
+             (not cleared) is in place first, so the reviewer is checked against it. Omitted: the reviewer is unchanged. */
+          /* Review 1: a reviewer sent WITH a rule is checked first, so a refused reviewer leaves the rule as it was. */
+          if (rule !== null && body.every !== undefined && body.reviewer !== undefined) {
+            const proj = projects.readAll().find((x) => x && x.id === id) || null;
+            const cur = proj ? tasks.byNumber(proj, taskRepeat[2]) : null;
+            // Review 2: no such project or task: setRepeat below answers that (404), not this check.
+            const problem = cur ? tasks.reviewerProblem(proj, cur, body.reviewer, { person: viaScreen }) : null;
+            if (problem) throw new Error(problem);
+          }
+          if (rule === null || body.every !== undefined) task = tasks.setRepeat(id, taskRepeat[2], rule, { person: viaScreen });
+          // Review 3: a time or day with no frequency would be dropped without a word (both CLIs refuse it too).
+          if (rule !== null && body.every === undefined && (body.at !== undefined || body.on !== undefined || body.minute !== undefined)) throw new Error('a time or a day goes with how often: hourly, daily or weekly');
+          if (rule !== null && body.reviewer !== undefined) task = tasks.setReviewer(id, taskRepeat[2], body.reviewer, { person: viaScreen });
+          if (!task) throw new Error('say how often it repeats, or who reviews it');
         }
       } catch (err) {
         const msg = String((err && err.message) || 'we could not change that task');
-        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : /closed/.test(msg) ? 409 : /only they can (change it|make it repeat)/.test(msg) ? 403 : 400, { error: msg });
+        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : /closed/.test(msg) ? 409 : /only they can (change it|make it repeat|stop it repeating)|only the person can name/.test(msg) ? 403 : 400, { error: msg });
         return;
       }
       sendJson(res, 200, { task, ...(task.duplicate ? { duplicate: true } : {}), ...(task.repeat ? { words: taskrepeat.describe(task.repeat), next_at: taskrepeat.nextAfter(task.repeat, Date.now()) } : {}) });
@@ -19447,8 +19526,8 @@ const server = http.createServer(async (req, res) => {
           try { const pr = projects.readAll().find((x) => x && x.id === id); held = pr ? tasks.byNumber(pr, partAct[2]) : null; } catch { held = null; }
           // review 4: only the close that would finish the task (its last open part) ends the rule, so only that is refused.
           const open = held ? tasks.partsOf(held).filter((x) => !x.closedAt) : [];
-          if (held && held.repeat && held.repeatByPerson === true && open.length === 1 && Number(open[0].id) === Number(partAct[3])) {   // review 5: "01" is part 1
-            sendJson(res, 409, { error: 'the person set this task to repeat, so closing its last part would end it, and only they can do that; record each run with kosmos task ran' });
+          if (held && held.repeat && (held.repeatByPerson === true || held.repeatReviewerByPerson === true) && open.length === 1 && Number(open[0].id) === Number(partAct[3])) {   // review 5: "01" is part 1; slice 3 review 6: the person's reviewer too
+            sendJson(res, 409, { error: 'the person set this task to repeat, or chose who reviews it, so closing its last part would end it, and only they can do that; record each run with kosmos task ran' });
             return;
           }
         }
@@ -20956,6 +21035,8 @@ function start(port = PORT) {
       let heartbeatPrev = new Map();
       const AGENT_NUDGE_BOOK = new Map();   // #4544: session -> this stall's nudge entry
       const AGENT_NUDGE_SENT = [];          // #4544: when each nudge went, for the board-wide hour
+      const MISSED_TELL_BOOK = new Map();   // kosmos#4787 slice 3: tries per (task, missed slot) for an agent reviewer
+      const MISSED_TELL_IDLE = new Map();   // slice 3 review 10: when each reviewer was first seen idle, across passes
       const HEARTBEAT_OFF_POLL_MS = Number(process.env.AGENT_WORKFORCE_HEARTBEAT_POLL_MS) > 0
         ? Number(process.env.AGENT_WORKFORCE_HEARTBEAT_POLL_MS) : 60 * 1000; // the env is the test seam only
       const heartbeatTick = () => {
@@ -21019,6 +21100,33 @@ function start(port = PORT) {
       Promise.resolve().then(() => fedseats.ensureAll()).catch(() => {});
       const fedTick = setInterval(() => { fedseats.ensureAll().catch(() => {}); }, 60000);
       if (fedTick && typeof fedTick.unref === 'function') fedTick.unref();
+      /* kosmos#4787 slice 3: a repeating task's named reviewer is told once when a run is missed (engine/missedtell.js,
+         which holds the rules and is tested there). Its own minute timer, not the Prompter tick: it runs whether or not
+         the Prompter is on (the reviewer asked to be told), and the Prompter tick types only through prompterTick. The
+         roster is read only when an AGENT reviewer is owed a line, so a quiet board costs one projects read a minute. */
+      const missedTellTick = setInterval(() => {
+        try {
+          const projs = projects.readAll();
+          const owed = missedtell.owed(projs);
+          if (!owed.length) return;
+          const allowed = agentnudge.nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env);
+          // Review 6: the roster only when an agent can actually be typed into (the sweep holds those lines otherwise).
+          const r = allowed && owed.some((x) => !x.person && !x.swarmOff && x.members.includes(x.reviewer)) ? safeRoster() : null;   // reviews 7, 8: not for a departed or switched-off reviewer
+          missedtell.sweep({
+            projects: projs, roster: r, now: Date.now(),
+            allowed,
+            limit: (() => { try { return limits.read(); } catch { return limits.DEFAULTS; } })(),
+            sent: AGENT_NUDGE_SENT, book: MISSED_TELL_BOOK, idleSeen: MISSED_TELL_IDLE,
+            // Review 11: when the reviewer went idle, by its own report (as the reply nudge and the community turn read it).
+            idleSince: (session) => { const sr = selfreport.read(session); const t = sr && sr.found && sr.state === 'idle' ? Date.parse(sr.at) : NaN; return Number.isFinite(t) ? t : null; },
+            deliver: (session, text, ro) => chat.deliverAutomatic(session, text, ro, undefined, undefined),
+            DELIVERY: chat.DELIVERY,
+            nameOf: (sn) => { const c = Array.isArray(r) ? r.find((a) => a && a.sessionName === sn) : null; return (c && c.name) || sn; },
+            log: (x) => process.stdout.write(`missed-run tell: task #${x.task} (${x.project}) to ${x.reviewer} reached=${x.reached} delivery=${x.delivery} try ${x.tries}\n`),
+          });
+        } catch { /* best-effort, like the nudge sweep */ }
+      }, 60000);
+      if (missedTellTick && typeof missedTellTick.unref === 'function') missedTellTick.unref();
       const heartbeatFirst = setTimeout(heartbeatTick, 0);
       if (heartbeatFirst && typeof heartbeatFirst.unref === 'function') heartbeatFirst.unref();
       /* #4951: new comments on an agent's own community post: one line to the idle agent, once per comment

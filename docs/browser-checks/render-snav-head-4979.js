@@ -79,6 +79,7 @@ function chk(ok, label, extra) {
   let resizeRan = 0;
   let tallRan = 0;
   let notesRan = 0;
+  let phoneNotesRan = 0;
   try {
     for (const [engineName, engine] of [['chromium', chromium], ['webkit', webkit]]) {
       const browser = await engine.launch({ headless: process.env.HEADED === '0' });
@@ -250,6 +251,39 @@ function chk(ok, label, extra) {
           notesRan += 1;
           await page.close();
         }
+        /* #5301: on a phone (375x667), a floating notice in #topnotes must not cover #s-nav:
+           the nav has position: static below 56rem and clears the notice with --topnotes-clear.
+           Every pill must be below the notice, and the pills take the hit-test click. */
+        {
+          const page = await browser.newPage({ viewport: { width: 375, height: 667 }, hasTouch: true });
+          await page.goto(URL + '/?tab=settings&sec=mac');
+          await page.waitForSelector('#s-nav button[data-go]', { state: 'visible', timeout: 20000 });
+          await page.evaluate(() => {
+            const conn = document.getElementById('conn'); if (conn) conn.hidden = true;
+            const slot = document.createElement('div'); slot.dataset.check5301 = 'slot';
+            const n = document.createElement('div');
+            n.className = 'utoast login-adv';
+            n.style.cssText = 'width:327px;height:65px;pointer-events:auto;';
+            n.textContent = 'a phone floating notice';
+            slot.appendChild(n);
+            document.getElementById('topnotes').appendChild(slot);
+          });
+          await page.waitForTimeout(400);
+          const r = await page.evaluate(() => {
+            const nb = document.getElementById('topnotes').getBoundingClientRect();
+            const pills = [...document.querySelectorAll('#s-nav button[data-go]')].filter((x) => !x.hidden && x.getClientRects().length);
+            const active = pills.find((x) => x.classList.contains('on')) || pills[0];
+            const ab = active.getBoundingClientRect();
+            const hit = document.elementFromPoint(ab.left + ab.width / 2, ab.top + ab.height / 2);
+            return { notesH: Math.round(nb.height), navPos: getComputedStyle(document.getElementById('s-nav')).position,
+              underNotes: pills.filter((x) => x.getBoundingClientRect().top < nb.bottom - 0.5).length, activeTakesClick: Boolean(hit && active.contains(hit)) };
+          });
+          const tag = `${engineName} a floating notice on phone, 375x667 mac`;
+          chk(r.notesH >= 65 && r.navPos === 'static', `${tag}: control: notice shows and nav is static below 56rem`, JSON.stringify(r));
+          chk(r.underNotes === 0 && r.activeTakesClick, `${tag}: every pill is below the floating notice, and the active pill takes the click`, JSON.stringify(r));
+          phoneNotesRan += 1;
+          await page.close();
+        }
         /* The consolidated view: Settings from the user menu, inside Projects, its own scroll box. */
         await fetch(URL + '/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'consolidated' }) });
         for (const width of [1000, 1280]) {
@@ -293,7 +327,7 @@ function chk(ok, label, extra) {
     server.close();
     for (const d of ROOTS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
   }
-  chk(ran === 16 && shortRan === 8 && aboveRan === 8 && resizeRan === 2 && tallRan === 8 && notesRan === 2 && consRan === 4, 'precondition: every engine, layout, width and section ran, and the short, near-threshold, resize, taller-header, floating-notice and consolidated arms on both engines', `ran=${ran} shortRan=${shortRan} aboveRan=${aboveRan} resizeRan=${resizeRan} tallRan=${tallRan} notesRan=${notesRan} consRan=${consRan}`);
+  chk(ran === 16 && shortRan === 8 && aboveRan === 8 && resizeRan === 2 && tallRan === 8 && notesRan === 2 && phoneNotesRan === 2 && consRan === 4, 'precondition: every engine, layout, width and section ran, and the short, near-threshold, resize, taller-header, floating-notice, phone-notice and consolidated arms on both engines', `ran=${ran} shortRan=${shortRan} aboveRan=${aboveRan} resizeRan=${resizeRan} tallRan=${tallRan} notesRan=${notesRan} phoneNotesRan=${phoneNotesRan} consRan=${consRan}`);
   console.log(fail.length ? `${fail.length} check(s) FAILED` : 'all checks passed');
   process.exit(fail.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });

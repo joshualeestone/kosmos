@@ -794,6 +794,21 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .acct-remove { align-self: flex-start; background: none; border: 0; padding: 0; font: inherit; font-size: .8125rem;
   color: var(--label-2); text-decoration: underline; cursor: pointer; min-height: 24px; }
 .acct-check[disabled] { cursor: default; text-decoration: none; opacity: .7; }
+/* #5407 (Josh): a Claude sign-in inside the login notice's window, or ended with its agents on borrowed time: the
+   row's edge takes the warning ink, one line says when and what to do, and Sign in again is its main action (the
+   gold primary, first in the row). Arriving from the notice's Refresh login rings the row for a short while. */
+.acct-box.acct-expiring { border-color: var(--warn-ink); }
+.acct-box.acct-expiring.acct-ended { border-color: var(--danger); }   /* Mona Lisa: ended is the Issue red, expiring amber */
+#set-accounts .acct-expiring-line { margin: 0; font-size: .8125rem; line-height: 1.4; color: var(--label); }   /* #set-accounts: outranks the panel's p margin (Mona Lisa's gap) */
+.acct-actions > button.acct-reauth-main { text-decoration: none; font-weight: 600; padding: .45em .95em; border-radius: 8px;
+  border: 1px solid var(--gold-bright); min-height: 32px; }
+.acct-box.acct-land { box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold-bright) 75%, transparent); }
+@media (prefers-reduced-motion: no-preference) { .acct-box.acct-land { transition: box-shadow .3s ease; } }
+/* #5407: on Settings > AI Models a login notice steps aside when ITS row there says the same thing (marked
+   adv-covered by loginAdvSyncCovered); floating over the list, notices covered the very row Refresh login lands on.
+   Review 2: only then. A notice whose row is missing or not warned (a symlinked folder, a date read still on its
+   way) stays, so an expiring login is never left with no warning on screen. Every other screen shows them all. */
+body:has(#panel-settings:not([hidden]) #s-sec-accounts:not([hidden])) #login-adv-slot .login-adv.adv-covered { display: none; }
 /* #2264: the per-connection actions on ONE bar-separated row instead of stacked
    single links. Each action after the first carries a left bar (--k-rule, the
    same hairline as the box), so an OpenAI two-action row and a Claude
@@ -3587,6 +3602,10 @@ html.snav-loose body:not(.consolidated) #s-nav { position: static; }
   .snav { position: static; flex-direction: row; flex-wrap: wrap; }
   .snav button { width: auto; }
   .snav .sep { display: none; }
+  /* #5301: below 56rem .snav is static and stacks above the settings section, where a floating
+     notice in .topnotes sits directly over the pills. Clear a showing stack with --topnotes-clear
+     (0 with no notice). */
+  #s-nav { margin-top: var(--topnotes-clear, 0px); }
 }
 /* #5303: the "More sections" chevron exists only on a phone (the #718 phone block below); a wider Settings nav is a column. */
 #s-nav .snav-more { display: none; }
@@ -6343,8 +6362,8 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tk-repeat-when { display: inline-flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .tk-repeat-actions { display: flex; justify-content: flex-end; margin: 4px 0 0; }
 .tk-repeat-actions .btn[disabled] { opacity: .5; cursor: default; }
-#tk-repeat-every, #tk-repeat-day { background-color: var(--field-fill); }   /* render-fields: a field never wears its column's own white */
-@media (hover: none) { .tk-repeat-in, #tk-repeat-every, #tk-repeat-day, #tk-repeat-save { min-height: 44px; } }   /* review 1: one touch size */
+#tk-repeat-every, #tk-repeat-day, #tk-review-who { background-color: var(--field-fill); }   /* render-fields: a field never wears its column's own white (slice 3: the reviewer choice too) */
+@media (hover: none) { .tk-repeat-in, #tk-repeat-every, #tk-repeat-day, #tk-repeat-save, #tk-review-who { min-height: 44px; } }   /* review 1: one touch size */
 .tk-due-input { font: inherit; text-align: right; color: inherit; background: transparent;
                 border: 1px solid var(--k-rule); border-radius: 6px; padding: 2px 6px; }
 .tk-due-input:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
@@ -6391,6 +6410,8 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
   .namego, .utoast .ux { position: relative; }
   :is(.namego, .utoast .ux)::after { content: ""; position: absolute; left: 50%; top: 50%; width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%); }
   :is(.apphead .tab, #agent-sort) { min-height: 44px; }
+  /* #5407: the login notice's Refresh login, at finger size. */
+  .utoast .uacts button.login-adv-go { min-height: 44px; }   /* the row's main Sign in again already is (review 4) */
   /* #5225: in the one-screen layout the name's b clips its overflow (the ellipsis), which clipped the name's hit area to
      its 16px line. The b's clip box grows instead (padding taken back by a negative margin): 14px above and below, and
      10px to the left for a short name's area; nothing drawn moves. */
@@ -12911,6 +12932,14 @@ window.kosmosMeasureScrollbarWidth();
            can see, and a label that rewords the button breaks them. -->
       <button class="btn" id="d-instr-save" type="button" aria-label="Save instructions" disabled>Save</button>
     </div>
+    <!-- kosmos#5293 (design: Mona Lisa): an addition another agent proposed for these instructions, waiting for the
+         person. The community's held row, reused; nothing shows when nothing is pending. Apply, Dismiss and Undo go
+         to person-only routes (an agent token is refused there). After Apply the row becomes one quiet line with
+         Undo; the running-stale note below still offers the restart. -->
+    <div id="d-instr-add" hidden>
+      <h4 class="dlab" id="d-instr-add-head" style="margin:14px 0 4px;">Waiting for you</h4>
+      <ul class="community-mine" id="d-instr-add-list" aria-labelledby="d-instr-add-head"></ul>
+    </div>
     <!-- Announced: this is the only channel for every outcome of the most
          powerful write in the product, including each refusal and the reason a
          file cannot be edited. The staleness note beside it is already a live
@@ -16641,6 +16670,12 @@ window.kosmosMeasureScrollbarWidth();
         <div class="tk-repeat-actions"><button class="btn" id="tk-repeat-save" type="button" aria-label="Save how this task repeats" disabled>Save</button></div>
         <p class="fmsg" id="tk-repeat-msg" aria-live="polite" style="margin:2px 0 0;"></p>
         <p class="dhint" id="tk-repeat-line" style="margin:4px 0 0;" hidden></p>
+        <!-- kosmos#4787 slice 3: who is told when a run is missed (once per missed run): nobody, the person (the task then
+             waits in Needs Your Decision), or an agent on the project (one line in its session). Saved on change. -->
+        <div class="tmeta" id="tk-review-row" hidden><span>If missed, tell</span>
+          <select id="tk-review-who" class="tsk-sel" aria-label="Who is told if a run is missed"></select>
+        </div>
+        <p class="fmsg" id="tk-review-msg" aria-live="polite" style="margin:2px 0 0;"></p>
         <p class="dhint" style="margin:12px 0 0;">Anything written here is part of the task, so an agent picking it up later reads the whole thing rather than just the title.</p>
       </aside>
     </div>
@@ -19173,6 +19208,15 @@ function servedPlatform() {
 function onWindows(platform) {
   const known = typeof platform === 'string' && platform ? platform : servedPlatform();
   return known === 'win32';
+}
+/* #5449: the Linux companion to onWindows. The stuck Connect card's "way out" was
+   binary (Windows PowerShell, else a Mac "open Terminal"), and the Mac arm caught a
+   headless Linux server, which has no Terminal app and is reached over SSH. This names
+   the Linux case so that one arm can speak to it. An explicit platform wins; otherwise
+   the served meta answers; an unstamped page is not Linux. */
+function onLinux(platform) {
+  const known = typeof platform === 'string' && platform ? platform : servedPlatform();
+  return known === 'linux';
 }
 function windowsCopyTable() {
   const restartKosmos = 'restart Kosmos by double-clicking Kosmos.exe in your Kosmos folder, or by signing out of Windows and signing back in.';
@@ -21928,12 +21972,17 @@ function paintLoginAdvisories(advs) {
       ? ('Sign in again to bring ' + (n === 1 ? 'it' : 'them') + ' back.')
       : ('Sign in again to keep ' + (n === 1 ? 'it' : 'them') + ' running.');
     // role=status on the words, not the notice, so the close button is not read out with every announcement.
-    return '<div class="utoast login-adv ' + sev + '">'
+    return '<div class="utoast login-adv ' + sev + '" data-adv-dir="' + esc(a.dir || '') + '">'
       + '<span class="udot" aria-hidden="true"></span>'
       + '<div class="utxt" role="status"><b>' + esc(head) + '</b><small>' + acct + who + '. ' + esc(tail) + '</small></div>'
+      /* #5407 (Josh): one press to where the person signs in again: Settings > AI Models, at this account's row. */
+      + '<div class="uacts"><button type="button" class="uprime login-adv-go" data-adv-dir="' + esc(a.dir || '') + '" aria-label="'
+      + esc('Refresh login: ' + (a.provider || 'Claude') + (a.email ? ', ' + a.email : '')) + '">Refresh login</button></div>'
       + '<button type="button" class="ux" data-adv-key="' + esc(advKey(a)) + '" aria-label="' + esc('Close: ' + head) + '">&times;</button>'
       + '</div>';
   }).join('');
+  loginAdvSyncCovered();
+  slot.querySelectorAll('.login-adv-go').forEach((btn) => btn.addEventListener('click', () => loginAdvGo(btn.getAttribute('data-adv-dir'))));
   slot.querySelectorAll('.ux').forEach((btn) => btn.addEventListener('click', () => {
     loginAdvDismiss(btn.getAttribute('data-adv-key'));
     delete slot.dataset.v;   // always repaint, so an X that did not stick shows as a notice still there, never a dead button
@@ -21944,6 +21993,59 @@ function paintLoginAdvisories(advs) {
       || ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
     if (next) next.focus();
   }));
+}
+/* #5407 (Josh): the notice's Refresh login opens Settings > AI Models at that account's row, highlighted, with its
+   Sign in again focused. The account list paints after a live read, so the row is found when it paints (acctLand,
+   called from paintAccounts) as well as at once when it is already there. The highlight stays a short while across
+   the list's own follow-up repaints, then a timer takes it off. With no row for that folder (removed meanwhile), the section opens
+   with nothing highlighted, never a wrong row. */
+let ACCT_LAND_DIR = '';
+let ACCT_LAND_UNTIL = 0;
+const ACCT_LAND_MS = 20000;
+let ACCT_SOON_SEQ = 0;   // unique ids for each row's warning line (aria-describedby)
+function loginAdvGo(dir) {
+  ACCT_LAND_DIR = typeof dir === 'string' ? dir : '';
+  ACCT_LAND_UNTIL = Date.now() + ACCT_LAND_MS;
+  if (document.body.classList.contains('consolidated')) {
+    SETTINGS_SEC = 'accounts';
+    openConsolidatedSettings();
+  } else {
+    showTab('settings');
+    settingsOpen('accounts');
+  }
+  /* Review 1: the pressed button sat in a notice that has just stepped aside. Opening the section already puts focus
+     in it (settingsOpen), and acctLand moves it on to the row's Sign in again once the row paints; with no row for that
+     folder it stays in the section (render-refreshlogin-5407 C2). */
+  acctLand();
+}
+/* Review 2: mark each login notice whose account's row in AI Models carries the warning; only those step aside there.
+   Called after either side paints. */
+function loginAdvSyncCovered() {
+  const warned = new Set([...document.querySelectorAll('#set-accounts .acct-box.acct-expiring[data-acct-dir]')].map((r) => r.getAttribute('data-acct-dir')));
+  document.querySelectorAll('#login-adv-slot .login-adv').forEach((n) => {
+    const d = n.getAttribute('data-adv-dir');
+    n.classList.toggle('adv-covered', !!d && warned.has(d));
+  });
+}
+/* Whether this row is the one the person arrived at (drawn highlighted while the window lasts). */
+function acctLanded(dir) { return !!dir && dir === ACCT_LAND_DIR && Date.now() < ACCT_LAND_UNTIL; }
+/* Bring the landed row into view and focus its Sign in again, once: the first paint that has the row. */
+let ACCT_LAND_DONE = '';
+function acctLand() {
+  if (!acctLanded(ACCT_LAND_DIR) || ACCT_LAND_DONE === ACCT_LAND_DIR + ':' + ACCT_LAND_UNTIL) return;
+  const box = document.getElementById('set-accounts');
+  const row = box && [...box.querySelectorAll('.acct-box[data-acct-dir]')].find((r) => r.getAttribute('data-acct-dir') === ACCT_LAND_DIR);
+  if (!row) return;
+  ACCT_LAND_DONE = ACCT_LAND_DIR + ':' + ACCT_LAND_UNTIL;
+  row.classList.add('acct-land');
+  // Review 1: the ring goes when its time is up, not at the next repaint (which may never come).
+  setTimeout(() => {
+    if (Date.now() < ACCT_LAND_UNTIL) return;   // a newer landing extended it
+    document.querySelectorAll('#set-accounts .acct-box.acct-land').forEach((r) => r.classList.remove('acct-land'));
+  }, Math.max(0, ACCT_LAND_UNTIL - Date.now()) + 50);
+  row.scrollIntoView({ block: 'center' });
+  const go = row.querySelector('.acct-reauth');
+  if (go) go.focus({ preventScroll: true });
 }
 /* #5018: the floating notice stack's height, as --topnotes-h on <html>, so scroll-padding-top clears a showing
    notice (a focused element scrolled into view must not land under it). 0 when nothing shows. */
@@ -26307,9 +26409,21 @@ async function paintAccounts(opts) {
        then stop. The same fact the board's notice says, in the same words; it outranks "Signed in · active", which is
        true now and wrong in a few hours. The page's own clock decides it has passed. */
     const stopsAt = a.connection && Number.isFinite(a.connection.loginStopsAt) && a.connection.loginStopsAt > Date.now() ? a.connection.loginStopsAt : null;
+    /* #5407 (Josh): a login inside the notice's window (the board counts the days the way the notice does). */
+    const expiresIn = a.connection && Number.isInteger(a.connection.loginExpiresInDays) ? a.connection.loginExpiresInDays : null;
+    const expiresWords = expiresIn === null ? '' : expiresIn === 0 ? 'expires today' : 'expires in ' + expiresIn + (expiresIn === 1 ? ' day' : ' days');
+    const expiresAt = a.connection && Number.isFinite(a.connection.loginExpiresAt) ? a.connection.loginExpiresAt : null;
+    const expiresDate = expiresAt ? new Date(expiresAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
+    /* #5407 review 1: past its date with the agents already stopped (no stop time ahead): the notice's "has expired". */
+    const loginEnded = !!(a.connection && a.connection.loginEnded === true) && !stopsAt;
     if (stopsAt) {
       const when = loginAdvWhen(stopsAt);
       connBadge = '<span class="acct-unverified acct-stopsat" title="' + esc('This account\'s sign-in has run out. Its agents keep working on the access they already hold until ' + when.replace(/^at /, '') + ', then stop. Sign in again before then to keep them running.') + '"><span class="dot" aria-hidden="true"></span>Signed in · stops working ' + esc(when) + '</span>';
+    } else if (loginEnded) {
+      // Mona Lisa (design review): an ended login is the app's Issue red, so it never reads like an expiring one.
+      connBadge = '<span class="acct-none acct-ended-badge" title="' + esc('This account\'s sign-in has run out. Sign in again to bring its agents back.') + '"><span class="dot" aria-hidden="true"></span>Login expired</span>';
+    } else if (expiresIn !== null) {
+      connBadge = '<span class="acct-unverified acct-expiring-badge" title="' + esc('Kosmos read this account\'s sign-in on this computer: it is good until ' + (expiresDate || 'soon') + '. Sign in again before then to keep its agents running.') + '"><span class="dot" aria-hidden="true"></span>' + esc(expiresDate ? 'Signed in until ' + expiresDate : 'Signed in · login ' + expiresWords) + '</span>';   // Mona Lisa: the line below says the days
     } else if (badge === 'working' && a.connection && a.connection.observedFrom === 'login' && loginDate) {
       connBadge = '<span class="acct-connected" title="' + esc(loginGreenWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · login good until ' + esc(loginDate) + '</span>';
     } else if (badge === 'signed_in_unverified' && loginDate) {
@@ -26363,10 +26477,27 @@ async function paintAccounts(opts) {
         : a.connection && a.connection.state === 'none' ? '<span class="acct-none" title="' + esc(noneWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(noneWhy) + '</span>'
         : '<span class="acct-unknown" title="' + esc(unknownWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(unknownWhy) + '</span>';
     }
-    return '<div class="acct-box"><div class="acct-box-top"><div class="acct-who"><b>' + who
+    /* #5407 (Josh): a Claude sign-in that needs signing in again soon (inside the notice's window, or ended with its
+       agents on borrowed time), or the row the person arrived at from the notice, leads with Sign in again and says
+       why in one line. Not an API-key row: it has no sign-in to redo (#2433). */
+    const claudeSignIn = !isKeyed && !a.apiKey;
+    const signInFirst = claudeSignIn && (!!stopsAt || loginEnded || expiresIn !== null);
+    const soonLine = !claudeSignIn ? ''
+      : stopsAt ? 'Its login has ended, and its agents stop working ' + loginAdvWhen(stopsAt) + '. Sign in again to keep them running.'
+      : loginEnded ? 'Sign in again to bring its agents back.'   // Mona Lisa: the badge already says "Login expired"; review 2: no claim the cache cannot prove
+      : expiresIn !== null ? (expiresIn === 0 ? 'Expires today' : 'Expires in ' + expiresIn + (expiresIn === 1 ? ' day' : ' days')) + ': sign in again to keep its agents running.'
+      : '';
+    const soonId = soonLine ? 'acct-soon-' + (++ACCT_SOON_SEQ) : '';   // review 1: the line describes the main button
+    const reauthBtn = (main) => '<button class="acct-reauth' + (main ? ' uprime acct-reauth-main' : '') + '" type="button" data-reauth="' + esc(a.dir) + '" '
+      + (main && soonId ? 'aria-describedby="' + soonId + '" ' : '')
+      + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
+      + 'title="' + esc('Signs in again as ' + (a.email || 'this account') + ' and updates this account rather than making a second one.') + '">Sign in again</button>';
+    return '<div class="acct-box' + (soonLine ? ' acct-expiring' : '') + (loginEnded && claudeSignIn ? ' acct-ended' : '') + (acctLanded(a.dir) ? ' acct-land' : '') + '" data-acct-dir="' + esc(a.dir || '') + '">'
+      + '<div class="acct-box-top"><div class="acct-who"><b>' + who
       // No "your first account" tag (#394): the email is the answer, whole.
       + '</b>' + qualTag + keyDetail + org + '</div>'
       + connBadge + '</div>'
+      + (soonLine ? '<p class="acct-expiring-line" id="' + soonId + '">' + esc(soonLine) + '</p>' : '')
       + shared
       /* ✅ LIVE FOR BOTH PROVIDERS (#1372 OpenAI, #1659 Claude). Each route
          enumerates the agents on an account and REFUSES while any is on it,
@@ -26405,6 +26536,7 @@ async function paintAccounts(opts) {
          a CSS border-left on each action after the first (.acct-actions), so a
          row with two actions or three lays out the same with no separator markup. */
       + '<div class="acct-actions">'
+      + (signInFirst ? reauthBtn(true) : '')   // #5407: the row's main action, first
       /* #3136: "Check now" — a USER-INITIATED real liveness check that greens (or
          honestly reddens) THIS account's badge on demand. The passive badge only
          greens from a witnessed streaming turn, so a signed-in-but-idle account
@@ -26453,10 +26585,7 @@ async function paintAccounts(opts) {
               + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
               + 'title="' + esc('Signs in again to this Grok subscription and updates this account rather than making a second one.') + '">Sign in again</button>'
             : ''))
-        : (a.apiKey ? ''
-          : '<button class="acct-reauth" type="button" data-reauth="' + esc(a.dir) + '" '
-            + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
-            + 'title="' + esc('Signs in again as ' + (a.email || 'this account') + ' and updates this account rather than making a second one.') + '">Sign in again</button>'))
+        : (a.apiKey || signInFirst ? '' : reauthBtn(false)))
       /* #2441: api-key Claude Disconnect is now LIVE. #2420's removal slice landed, so
          `forgetAccount` accepts api-key accounts (erases the stored key + unwires the
          apiKeyHelper pointer), and the disabled "removal coming" arm that #2433 wrapped
@@ -26566,6 +26695,8 @@ async function paintAccounts(opts) {
   const fEl = followUp && box.contains(document.activeElement) ? document.activeElement : null;
   const fAttr = fEl ? [...fEl.attributes].find((x) => x.name.startsWith('data-')) : null;
   box.innerHTML = accountGroupsHtml(list, acctRowHtml);
+  loginAdvSyncCovered();   // #5407: a notice whose row now says the same thing steps aside here
+  acctLand();   // #5407: arriving from the login notice
   if (fAttr) {
     const back = [...box.querySelectorAll('[' + fAttr.name + ']')].find((x) => x.getAttribute(fAttr.name) === fAttr.value);
     if (back && typeof back.focus === 'function') back.focus();
@@ -40765,7 +40896,7 @@ function setWritesOffered(a, tied) {
     INSTR_READY = false;
     INSTR_BANNER = false;   // not our card: nothing here is about the agent on screen
     INSTR_VERSION = null;
-    for (const id of ['d-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev', 'd-instr-updating', 'd-instr-loading', 'd-instr-retry-row', 'd-instr-personal']) {
+    for (const id of ['d-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev', 'd-instr-updating', 'd-instr-loading', 'd-instr-retry-row', 'd-instr-personal', 'd-instr-add']) {
       const el = document.getElementById(id);
       if (el) el.hidden = true;
     }
@@ -40905,6 +41036,182 @@ function paintPersonalInstr(personal) {
     : '';
   el.hidden = !tool;
 }
+/* kosmos#5293 (design: Mona Lisa, on the card): an addition another agent PROPOSED for these instructions, waiting for
+   the person. The community's held row, reused: bold title, the text clamped to four lines with Read all only when it
+   is cut, a meta line, then Apply and Dismiss. Apply / Dismiss / Undo go to person-only routes (server.js refuses an
+   agent token and wants a browser's headers, which this page's fetch sends by itself). After Apply the row becomes one
+   quiet line with Undo, shown while Undo can still work or for a day after; the running-stale note below keeps its
+   own restart. An unsaved edit in the box is never replaced: the "file has changed" note is shown instead. */
+let INSTR_ADD_LOAD = 0;
+let INSTR_ADD_UNDONE = null;   // the agent whose addition was just undone, for the one sentence that says so
+const INSTR_ADD_LAST_SHOWN_MS = 24 * 60 * 60 * 1000;
+function instrAddWhen(iso) {
+  const d = new Date(iso);
+  return isNaN(d) ? '' : d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+async function loadInstrAdd(sessionName) {
+  const mine = ++INSTR_ADD_LOAD;
+  let data = null;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/instruction-add?t=' + Date.now(), { cache: 'no-store' });
+    data = res.ok ? await res.json() : null;
+  } catch { data = null; }
+  if (mine !== INSTR_ADD_LOAD || !CURRENT || CURRENT.sessionName !== sessionName) return;
+  instrAddPaint(sessionName, data);
+}
+function instrAddPaint(sessionName, data) {
+  const wrap = document.getElementById('d-instr-add');
+  const list = document.getElementById('d-instr-add-list');
+  list.textContent = '';
+  const p = data && data.pending;
+  const last = data && data.last;
+  /* Review 18: the "taken out" sentence is said by the first paint after an Undo, whatever that paint shows, and only
+     while the file itself says the addition is gone; the flag never waits for a later paint (a later Apply). */
+  const justUndone = INSTR_ADD_UNDONE === sessionName && !!(last && last.undone);
+  INSTR_ADD_UNDONE = null;
+  const li = document.createElement('li');
+  li.className = 'community-mine-row community-held-row';
+  if (data && (data.unreadable || data.busy)) {
+    /* Never a silent empty block (review 2). Busy: a passing read error, nothing moved. Unreadable: the file is corrupt;
+       the next change to it keeps it aside under its own name and starts a new one (review 3: said as what happens). */
+    const line = document.createElement('p');
+    line.className = 'dhint';
+    line.style.margin = '0';
+    line.textContent = data.busy
+      ? 'Kosmos could not read the additions waiting for you just now. Open this agent again in a moment.'
+      : 'Kosmos could not read the file that holds additions waiting for you, so none can be shown here. It is kept as it is, and Kosmos starts a new one the next time anything here changes.';
+    li.append(line);
+  } else if (p) {
+    const who = p.askedBy || 'another agent';
+    const text = document.createElement('div');
+    const title = document.createElement('b');
+    title.textContent = 'An addition to these instructions';
+    const body = document.createElement('p');
+    body.className = 'dhint community-held-body';
+    body.style.webkitLineClamp = String(COMMUNITY_HELD_CLAMP_LINES);
+    body.textContent = typeof p.text === 'string' ? p.text : '';
+    const meta = document.createElement('p');
+    meta.className = 'dhint';
+    meta.style.margin = '2px 0 0';
+    meta.textContent = 'Asked by ' + who + ' \u00b7 ' + instrAddWhen(p.askedAt)
+      + '. Apply adds it at the end of these instructions, under a line saying who asked and when.';
+    text.append(title, body);
+    /* Review 1: a trailing newline is not a fifth line (a file ends with one), so it is not counted. */
+    if (body.textContent.length > COMMUNITY_HELD_READ_ALL_CHARS || body.textContent.replace(/\n+$/, '').split('\n').length > COMMUNITY_HELD_CLAMP_LINES) {
+      const more = document.createElement('button');
+      more.className = 'linkish community-held-more';
+      more.type = 'button';
+      more.textContent = 'Read all';
+      more.setAttribute('aria-expanded', 'false');
+      more.addEventListener('click', () => {
+        const open = body.classList.toggle('open');
+        more.textContent = open ? 'Read less' : 'Read all';
+        more.setAttribute('aria-expanded', String(open));
+      });
+      text.append(more);
+    }
+    const note = document.createElement('p');
+    note.className = 'dhint';
+    note.style.margin = '2px 0 0';
+    note.setAttribute('role', 'status');
+    note.hidden = true;
+    text.append(meta, note);
+    const acts = document.createElement('div');
+    acts.className = 'community-held-acts';
+    const apply = document.createElement('button');
+    apply.className = 'btn';
+    apply.type = 'button';
+    apply.textContent = 'Apply';
+    apply.setAttribute('aria-label', 'Apply the addition ' + who + ' asked for');
+    const dismiss = document.createElement('button');
+    dismiss.className = 'btn danger-btn';
+    dismiss.type = 'button';
+    dismiss.textContent = 'Dismiss';
+    dismiss.setAttribute('aria-label', 'Dismiss the addition ' + who + ' asked for');
+    apply.addEventListener('click', () => instrAddAct(sessionName, 'apply', note, [apply, dismiss]));
+    dismiss.addEventListener('click', () => instrAddAct(sessionName, 'dismiss', note, [apply, dismiss]));
+    acts.append(apply, dismiss);
+    li.append(text, acts);
+  } else if (justUndone) {
+    const line = document.createElement('p');
+    line.className = 'dhint';
+    line.style.margin = '0';
+    /* Review 9: Undo keeps edits made elsewhere and Kosmos's own block, so only the addition is said to be gone. */
+    line.textContent = 'The addition was taken out. The rest of these instructions is as it was.';
+    li.append(line);
+    // said once (the flag was consumed above); the line goes on the next load
+  } else if (last && !last.undone && (last.undoable || Date.now() - new Date(last.appliedAt).getTime() < INSTR_ADD_LAST_SHOWN_MS)) {
+    const line = document.createElement('p');
+    line.className = 'dhint';
+    line.style.margin = '0';
+    line.textContent = 'Added on ' + instrAddWhen(last.appliedAt) + ', asked by ' + (last.askedBy || 'another agent') + '.'
+      /* Review 3: the real reason, never "edited" when nobody did. */
+      + (last.undoable ? ''
+        : last.blocked === 'edited' ? ' This addition can no longer be undone here, because it was changed or copied after it was added. Edit the instructions above instead.'
+        : last.blocked === 'short' ? ' This addition cannot be undone here, because what would be left is too short to keep. Edit the instructions above instead.'
+        : ' This addition cannot be undone right now, because these instructions could not be read.');
+    li.append(line);
+    if (last.undoable) {
+      const note = document.createElement('p');
+      note.className = 'dhint';
+      note.style.margin = '2px 0 0';
+      note.setAttribute('role', 'status');
+      note.hidden = true;
+      const undo = document.createElement('button');
+      undo.className = 'linkish';
+      undo.type = 'button';
+      undo.textContent = 'Undo this addition';
+      undo.addEventListener('click', () => instrAddAct(sessionName, 'undo', note, [undo]));
+      li.append(undo, note);
+    }
+  } else if (!(data && data.movedAside && data.movedAt && Date.now() - new Date(data.movedAt).getTime() < INSTR_ADD_LAST_SHOWN_MS)) {
+    wrap.hidden = true;
+    return;
+  }
+  /* Review 3: for a day after a corrupt file was set aside, name the kept file, so earlier additions are not lost silently. */
+  if (data && data.movedAside && data.movedAt && Date.now() - new Date(data.movedAt).getTime() < INSTR_ADD_LAST_SHOWN_MS) {
+    const kept = document.createElement('p');
+    kept.className = 'dhint';
+    kept.style.margin = '6px 0 0';
+    kept.textContent = 'An earlier file of waiting additions could not be read, so Kosmos started a new one. The old file is kept, as ' + data.movedAside + ', in the Kosmos data folder.';
+    li.append(kept);
+  }
+  list.append(li);
+  wrap.hidden = false;
+}
+async function instrAddAct(sessionName, act, note, buttons) {
+  buttons.forEach((b) => { b.disabled = true; });
+  note.hidden = false;
+  note.textContent = act === 'apply' ? 'Adding\u2026' : act === 'dismiss' ? 'Dismissing\u2026' : 'Taking it out\u2026';
+  let out = null; let ok = false;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/instruction-add/' + act, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+    });
+    out = await res.json().catch(() => null);
+    ok = res.ok && out && out.ok === true;
+  } catch { ok = false; }
+  if (!CURRENT || CURRENT.sessionName !== sessionName) return;
+  if (!ok) {
+    /* Review 1: the addition is already gone (applied or dismissed elsewhere): show where it stands now. */
+    if (out && out.code === 'none') { loadInstrAdd(sessionName); return; }
+    /* Review 3: written but not recorded: the box shows the addition, and the row keeps Apply to finish (never adds twice). */
+    if (out && out.code === 'unrecorded') document.getElementById('d-instr-outdated').hidden = false;   // the box is behind the file now
+    buttons.forEach((b) => { b.disabled = false; });
+    note.textContent = (out && (out.because || out.error)) || 'That did not work. Try again.';
+    return;
+  }
+  INSTR_ADD_UNDONE = act === 'undo' ? sessionName : null;   // review 18: any other act clears it
+  if (act === 'dismiss') { loadInstrAdd(sessionName); return; }
+  /* Apply and Undo changed the file. An unsaved edit in the box is never replaced: show the note that offers Update. */
+  const box = document.getElementById('d-instr');
+  if (box && box.value !== INSTR_LOADED_TEXT) {
+    document.getElementById('d-instr-outdated').hidden = false;
+    loadInstrAdd(sessionName);
+    return;
+  }
+  loadInstructions(sessionName);
+}
 async function loadInstructions(sessionName) {
   const mine = ++INSTR_LOAD;
   INSTR_EPOCH += 1;
@@ -40916,6 +41223,7 @@ async function loadInstructions(sessionName) {
   const msg = document.getElementById('d-instr-msg');
   box.value = '';
   msg.textContent = '';
+  document.getElementById('d-instr-add').hidden = true;   // #5293: another agent's waiting addition never shows here
   // Re-enabled on every load: a previous agent whose file could not be edited
   // left both of these disabled.
   // ⚠️ Disabled and hidden UNTIL the answer lands, not from the moment the
@@ -40982,6 +41290,7 @@ async function loadInstructions(sessionName) {
     document.getElementById('d-instr-outdated').hidden = true;
     INSTR_READY = true;
     INSTR_BANNER = true;
+    loadInstrAdd(sessionName);   // #5293: an addition another agent proposed, waiting for the person
     // Now that there is something real in the box, the controls may match it.
     box.disabled = false;
     saveBtn.disabled = false;
@@ -58682,7 +58991,7 @@ const TSK_GROUPS = [
   { k: 'decision', l: 'Needs Your Decision', c: 'var(--tsk-decision)',
     /* Not "your go-ahead" (review round 11): a trust wait never reaches the tasks route's roster today (the
        status route builds those rows offline), the same gap projects.js names; the rule covers it if it does. */
-    why: 'The agent on these needs you: a question about its project, or a connection Kosmos could not restore.' },
+    why: 'The agent on these needs you: a question about its project, or a connection Kosmos could not restore. Also a repeating task you review that missed a run.' },
   { k: 'working', l: 'In progress', c: 'var(--tsk-working)',
     why: 'The agent’s own report names these as what it is working on.' },
   { k: 'assigned', l: 'Assigned but not started', c: 'var(--tsk-assigned)',
@@ -59738,6 +60047,15 @@ function tkActPhrase(ev, p) {
     case 'repeat-set': return ev.words ? 'Set to repeat ' + ev.words : 'Set to repeat';
     case 'repeat-cleared': return 'No longer repeats';
     case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.late ? ', late' : '') + (ev.note ? ': ' + ev.note : ''); }
+    /* kosmos#4787 slice 3 (review 5): who reviews it, and a missed run with who was told. */
+    case 'reviewer-set': return ev.person ? 'You will be told if a run is missed' : (nameOf(ev.who) || 'An agent') + ' will be told if a run is missed';
+    case 'reviewer-cleared': return 'Nobody is told now if a run is missed';
+    case 'missed': {
+      const runs = ev.more === true ? 'More than ' + ev.count + ' runs missed' : Number(ev.count) > 1 ? ev.count + ' runs missed' : 'A run was missed';
+      if (ev.person) return runs + '; you review it';
+      const who = nameOf(ev.told) || 'its reviewer';
+      return runs + (ev.reached === false ? '; Kosmos could not reach ' + who : '; ' + who + ' was told');
+    }
     // #768: a free-text message recorded via the composer. `who` is optional (a
     // message typed on the board carries none today; the field is honoured now so
     // an authored message reads correctly when two-way delivery lands later). The
@@ -60266,7 +60584,7 @@ function tkPaintRepeat(p, t) {
   const msg = document.getElementById('tk-repeat-msg');
   const key = p.id + '#' + t.number;
   if (msg && msg.dataset.task !== key) msg.textContent = '';
-  if (done) { if (msg) { msg.textContent = ''; delete msg.dataset.needsTime; } return; }   // review 2: nothing sticks on a finished task
+  if (done) { if (msg) { msg.textContent = ''; delete msg.dataset.needsTime; } tkPaintReviewer(p, t); return; }   // review 2: nothing sticks on a finished task (slice 3 review 6: the reviewer row hides too)
   document.getElementById('tk-repeat-row').hidden = false;
   const every = document.getElementById('tk-repeat-every');
   const stored = JSON.stringify(tkRepeatStoredChoice(t));
@@ -60294,7 +60612,69 @@ function tkPaintRepeat(p, t) {
   if (line.textContent !== said) line.textContent = said;
   line.classList.toggle('missed', !!(t.repeat && tskRepeatMissed(t)));   // slice 2: red while a run is missed
   line.hidden = !said;
+  tkPaintReviewer(p, t);
 }
+/* kosmos#4787 slice 3: the reviewer choice, shown only for a task that repeats (stored, not merely chosen). The options
+   are Nobody, Me and the project's agents; a stored reviewer who has left the project stays listed, so the select never
+   shows a choice that is not stored. Not repainted while a save is in flight, nor under the person's own focus. */
+function tkReviewerOf(t) { return t && t.repeatReviewerPerson === true ? 'me' : (t && t.repeatReviewer) || 'none'; }
+function tkPaintReviewer(p, t, force) {
+  const row = document.getElementById('tk-review-row');
+  const sel = document.getElementById('tk-review-who');
+  const msg = document.getElementById('tk-review-msg');
+  if (!row || !sel) return;
+  const key = p.id + '#' + t.number;
+  if (msg && msg.dataset.task !== key) msg.textContent = '';
+  row.hidden = !t.repeat || TK_ACT === 'reopen';
+  if (row.hidden) { if (msg) msg.textContent = ''; return; }   // review 7: its answer goes with it
+  const stored = tkReviewerOf(t);
+  const agents = (Array.isArray(p.agents) ? p.agents : []).slice();
+  if (stored !== 'none' && stored !== 'me' && !agents.includes(stored)) agents.push(stored);
+  /* Review 12: a reviewer no longer on the project stays listed (so the select shows what is stored) and says so. */
+  const onProject = new Set(Array.isArray(p.agents) ? p.agents : []);
+  const opts = [['none', 'Nobody'], ['me', 'Me']].concat(agents.map((a) => [a, tskAgentName(a) + (onProject.has(a) ? '' : ' (left the project)')]));
+  const sig = key + '|' + JSON.stringify(opts) + '|' + stored;
+  if (sel.dataset.busy === '1' || (!force && document.activeElement === sel && sel.dataset.task === key)) return;
+  if (sel.dataset.sig === sig) return;
+  sel.textContent = '';
+  for (const [v, l] of opts) { const o = document.createElement('option'); o.value = v; o.textContent = l; sel.appendChild(o); }
+  sel.value = stored;
+  sel.dataset.sig = sig;
+  sel.dataset.task = key;
+}
+document.getElementById('tk-review-who').addEventListener('change', async () => {
+  const [p, t] = tkOpenTask();
+  if (!p || !t) return;
+  const sel = document.getElementById('tk-review-who');
+  const msg = document.getElementById('tk-review-msg');
+  const key = p.id + '#' + t.number;
+  const want = sel.value;
+  const before = tkReviewerOf(t);
+  if (want === before) return;
+  sel.dataset.busy = '1';
+  sel.disabled = true;
+  if (msg) { msg.textContent = ''; msg.dataset.task = key; }
+  const still = () => PJ_CURRENT === p.id && String(TK_OPEN) === String(t.number);
+  let said = '';
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + encodeURIComponent(t.number) + '/repeat', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reviewer: want }),
+    });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) said = (out && out.error) || 'we could not change who is told';
+    else { await pjReload(); paintTaskActivity(TK_OPEN); said = 'Saved.'; }
+  } catch { said = 'we could not reach Kosmos to change who is told'; }
+  delete sel.dataset.busy;
+  sel.disabled = false;
+  delete sel.dataset.sig;   // repaint from what is stored now (a refusal puts the stored choice back)
+  const [p2, t2] = tkOpenTask();
+  // Review 1: repaint whatever task is open now (its own answer, under the person's focus; or the task they moved to).
+  if (p2 && t2) tkPaintReviewer(p2, t2, true);
+  if (still()) {
+    if (msg) msg.textContent = said;
+    sel.focus();   // review 1: disabling it while saving dropped focus; it goes back, as the Repeats Save does
+  }
+});
 function tkOpenTask() {
   const p = pjById(PJ_CURRENT);
   if (!p || TK_OPEN === null) return [null, null];
@@ -67507,6 +67887,12 @@ function paintThread(body) {
      whose agent has gone -- the ordinary state, not an exotic one. Every
      pointer around it was already gated on the same read; the bold line
      above them was the one that was missed. */
+  pjPaintScreen(body, name);   // #5257: its own function, so a test can run it without a live thread
+}
+
+/* #5257: the project page's "Its screen" block for one thread read (body.viewport) and the member's name. Lifted
+   out of paintThread unchanged so web.pj-screen-5257.test.js can run the real painter on each state. */
+function pjPaintScreen(body, name) {
   const screen = document.getElementById('pj-screen');
   const hint = document.getElementById('pj-screen-hint');
   if (body.viewport && body.viewport.text !== null && body.viewport.text !== undefined) {
@@ -72916,11 +73302,20 @@ function frPaintConnect(st) {
         + '<div class="fr-cmd-row"><pre class="fr-cmd">' + esc(windowsSigninLine) + '</pre>'
         + '<button class="btn-quiet fr-copy" type="button" data-copy-command>' + windowsCopy('copyLabel') + '</button></div>'
         + windowsCopy('claudeSigninHatchEnd')
-      : ((st && st.canRunClaude && !onWindows(st && st.platform))
-        ? '<details class="fr-hatch"><summary>Already use Terminal?</summary>'
-          + 'You can sign in to Claude outside Kosmos: open Terminal, type <b>claude</b>, '
-          + 'and follow its sign-in. Then come back and press Try again.</details>'
-        : ''))
+      /* #5449: Linux first. A headless Linux server reached from a browser has no Terminal
+         app to open; the way in is a shell on the server itself (over SSH), then `claude`.
+         Linux is matched before the Mac `!onWindows` arm below, which it would otherwise
+         fall into. Mac and Windows copy are unchanged. */
+      : ((st && st.canRunClaude && onLinux(st && st.platform))
+        ? '<details class="fr-hatch"><summary>Have a shell on the server?</summary>'
+          + 'You can sign in to Claude on the computer running Kosmos. Open a terminal there '
+          + '(on a headless server, connect over SSH), type <b>claude</b>, and follow its sign-in. '
+          + 'Then come back and press Try again.</details>'
+        : ((st && st.canRunClaude && !onWindows(st && st.platform))
+          ? '<details class="fr-hatch"><summary>Already use Terminal?</summary>'
+            + 'You can sign in to Claude outside Kosmos: open Terminal, type <b>claude</b>, '
+            + 'and follow its sign-in. Then come back and press Try again.</details>'
+          : '')))
     + '</div>';
     frActions({ label: 'Try again', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(frStepAfter(5)) });
     return;
