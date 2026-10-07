@@ -5,8 +5,8 @@
   and names the queue command with its absolute path: `bash <repo>/tools/queued-heavy.sh "<what>" <command>`, and
   `--light` for one browser check or one test file. The stdout verdict stays one line.
 - `tools/queued-heavy.sh` run with QUEUED_HEAVY_LIB unset on a machine without `~/work/kosmos-bc-main-4610` uses
-  the MAIN checkout of the repo it lives in (git common dir's parent; GIT_DIR and friends ignored), says so on stderr
-  with that checkout's commit, and joins the queue. Every worktree of one clone resolves the same folder; a second clone
+  the MAIN checkout of the repo it lives in (git common dir's parent; GIT_DIR, GIT_WORK_TREE and GIT_COMMON_DIR ignored), says so on stderr
+  with that checkout's commit and branch (it is not guaranteed to be on main), and joins the queue. Every worktree of one clone resolves the same folder; a second clone
   or a set QUEUED_HEAVY_LIB can still bring another lib generation, which the stderr line makes visible. If that main
   checkout's lib is too old (a needed function missing), it exits 3 and names `git -C <it> pull --ff-only`. A
   QUEUED_HEAVY_LIB that is set and wrong still exits 3 (unchanged).
@@ -34,10 +34,10 @@ the default folder carries today); the stderr line naming the folder and commit 
 
 ## Tests
 - tools.heavy-gate-3805.test.js: BUSY names the queue on stderr with an existing path; CLEAR and --quiet do not.
-- tools/test-queued-heavy-4977.sh: four arms: in a throwaway git repo, the fallback joins and runs and names the
+- tools/test-queued-heavy-4977.sh, six arms in all: in a throwaway git repo, the fallback joins and runs and names the
   folder and commit; without cut-guard.sh it still exits 3 and runs nothing; with an old lib it exits 3 and names the
   pull; a copy outside any repo (the installed one) still exits 3.
 - tools.heavy-gate-3805.test.js: in a throwaway repo plus a worktree of it, the hint names the main checkout's queue only when
   that copy carries the #5446-lib-fallback marker AND that checkout has cut-guard.sh, else the worktree's own.
-- tools/test-queued-heavy-4977.sh also: a worktree's copy falls back to its MAIN checkout (not its own tree); a main
+- and: a worktree's copy falls back to its MAIN checkout (not its own tree); a main
   checkout with no lib at all gets the pull line.
