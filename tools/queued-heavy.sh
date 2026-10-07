@@ -44,6 +44,20 @@ fi
 # branch's own lib would put several lib generations in one queue (the cause of #4977's item 1). That checkout is meant
 # to sit at origin/main; nothing here updates it or checks that it does.
 LIB_CHECKOUT="${QUEUED_HEAVY_LIB:-$HOME/work/kosmos-bc-main-4610}"
+# #5446: that default folder exists on one Mac only, so elsewhere the documented route died here (exit 3) before joining
+# the queue. With QUEUED_HEAVY_LIB unset and the default missing, use the MAIN checkout of the repo this script is in:
+# every agent on this Mac resolves the same folder, so the queue still has one lib generation. A QUEUED_HEAVY_LIB
+# that is set and wrong still exits 3 below.
+if [ -z "${QUEUED_HEAVY_LIB:-}" ] && [ ! -f "$LIB_CHECKOUT/tools/lib/cut-guard.sh" ]; then
+  _qh_common="$(git -C "$(dirname "$0")" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || _qh_common=""
+  case "$_qh_common" in
+    */.git) if [ -f "${_qh_common%/.git}/tools/lib/cut-guard.sh" ]; then
+              echo "QUEUED-HEAVY: $LIB_CHECKOUT is missing; using this repo's main checkout ${_qh_common%/.git} for the queue's guards (set QUEUED_HEAVY_LIB to choose)" >&2
+              LIB_CHECKOUT="${_qh_common%/.git}"
+            fi ;;
+  esac
+  unset _qh_common
+fi
 . "$LIB_CHECKOUT/tools/lib/cut-guard.sh" || { echo "QUEUED-HEAVY: could not load cut-guard.sh from $LIB_CHECKOUT (set QUEUED_HEAVY_LIB to a checkout of origin/main)" >&2; exit 3; }
 # The functions called unguarded: every run's, then the side lane's (it is offered only when kosmos_light_side_clear exists).
 _qh_need="kosmos_wait_until_clear kosmos_mark_suite_waiting kosmos_unmark_suite_waiting kosmos_refuse_if_earlier_suite_waiter _kosmos_suite_waiter_file kosmos_claim_machine kosmos_release_machine kosmos_refuse_if_machine_claimed kosmos_refuse_if_suite_live kosmos_refuse_if_harness_live _kosmos_marker_dir"

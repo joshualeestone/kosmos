@@ -583,3 +583,21 @@ test('the cut starts after 160 characters: 160 print whole, 161 are cut', () => 
   assert.ok(run([['601', WORK, at, 'zsh']]).stdout.includes('(' + at + ')\n'));
   assert.ok(run([['602', WORK, over, 'zsh']]).stdout.includes('(' + over.slice(0, 160) + '...)\n'));
 });
+
+/* #5446: polling holds no place in line, so the BUSY answer names the queue that gives a turn. */
+test('#5446: BUSY names the queue (queued-heavy.sh, --light) on stderr; CLEAR and --quiet do not', () => {
+  const busy = run([realRun()]);
+  assert.equal(busy.code, 1, busy.out);
+  assert.match(busy.stderr, /holds no place in line/);
+  assert.match(busy.stderr, /\/tools\/queued-heavy\.sh "<what>" <command>/);
+  assert.match(busy.stderr, /--light/);
+  assert.equal(busy.stdout.trim().split('\n').filter((l) => /^heavy-gate: (BUSY|CLEAR)/.test(l)).length, 1, 'the stdout verdict is still one line');
+  const named = (busy.stderr.match(/bash (\S+queued-heavy\.sh)/) || [])[1];
+  assert.ok(named && fs.existsSync(named), 'the named queue script does not exist: ' + named);
+  const clear = run([]);
+  assert.equal(clear.code, 0, clear.out);
+  assert.doesNotMatch(clear.out, /queued-heavy/, 'CLEAR pointed at the queue');
+  const quiet = run([realRun()], { args: ['--quiet'] });
+  assert.equal(quiet.code, 1);
+  assert.doesNotMatch(quiet.stderr, /queued-heavy/, '--quiet printed the queue hint');
+});
