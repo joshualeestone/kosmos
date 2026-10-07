@@ -2954,3 +2954,27 @@ test('#5419 a manifest with no build for this linux key refuses before anything 
   // review 1: the matcher, so only the no-build refusal passes (a bare message argument accepted any throw).
   await assert.rejects(() => connect.download(() => {}, undefined, 'linux'), /no build for this kind of computer \(linux-(x64|arm64)-musl\)/);
 });
+
+test('#5419 review 2: the tmux default is the Mac\'s Homebrew path only on a Mac; elsewhere the tmux on PATH', () => {
+  const saved = process.env.AGENT_WORKFORCE_TMUX_BIN;
+  delete process.env.AGENT_WORKFORCE_TMUX_BIN;
+  try {
+    assert.equal(connect.tmuxBinPath('linux'), 'tmux');
+    assert.equal(connect.tmuxBinPath('darwin'), '/opt/homebrew/bin/tmux', 'CONTROL: the Mac default is unchanged');
+    process.env.AGENT_WORKFORCE_TMUX_BIN = '/x/tmux';
+    assert.equal(connect.tmuxBinPath('linux'), '/x/tmux', 'the launcher\'s pick wins');
+  } finally { if (saved === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = saved; }
+});
+
+test('#5419 review 2: the C-library report is read with network handles excluded, and the setting is put back', () => {
+  if (!process.report) return;   // a Node built without report support has nothing to read
+  const prevGet = process.report.getReport;
+  const prevEx = process.report.excludeNetwork;
+  let seen = null;
+  process.report.getReport = () => { seen = process.report.excludeNetwork; return { header: {} }; };
+  try {
+    connect.readReportQuietly();
+    assert.equal(seen, true, 'the report walked network handles');
+    assert.equal(process.report.excludeNetwork, prevEx, 'excludeNetwork was not put back');
+  } finally { process.report.getReport = prevGet; }
+});

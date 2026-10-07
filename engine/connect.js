@@ -169,8 +169,10 @@ function claudeBinPath() {
   return require('./runners').resolveBin('claude').bin;
 }
 
-function tmuxBinPath() {
-  return process.env.AGENT_WORKFORCE_TMUX_BIN || '/opt/homebrew/bin/tmux';
+function tmuxBinPath(platform = process.platform) {
+  /* #5419 review 2: the launcher (install/kosmos) exports its tmux pick, so this default is for a board started some
+     other way. Homebrew's path is the Mac's; elsewhere the tmux on PATH (run() resolves a bare name). */
+  return process.env.AGENT_WORKFORCE_TMUX_BIN || (platform === 'darwin' ? '/opt/homebrew/bin/tmux' : 'tmux');
 }
 
 const STATE_FILE = () => path.join(store.ROOT, 'connect.json');
@@ -1070,15 +1072,22 @@ function detectMusl({ platform, report, exists }) {
   if (r && r.header) return !r.header.glibcVersionRuntime;
   return ['/lib/ld-musl-x86_64.so.1', '/lib/ld-musl-aarch64.so.1'].some((f) => { try { return exists(f); } catch { return false; } });
 }
+/* review 2: without excludeNetwork a report walks every network handle (reverse DNS included), synchronously, inside
+   the board mid-download. The C library is all this reads. */
+function readReportQuietly() {
+  if (!process.report) return null;
+  const prev = process.report.excludeNetwork;
+  try { process.report.excludeNetwork = true; return process.report.getReport(); } finally { process.report.excludeNetwork = prev; }
+}
 let muslCache = null;   // review 1: a report is tens of milliseconds and the C library never changes under a process
 const DEFAULT_IS_MUSL = () => {
   if (muslCache === null) {
-    muslCache = detectMusl({ platform: process.platform, report: () => (process.report ? process.report.getReport() : null), exists: fs.existsSync });
+    muslCache = detectMusl({ platform: process.platform, report: readReportQuietly, exists: fs.existsSync });
   }
   return muslCache;
 };
 let isMuslFn = DEFAULT_IS_MUSL;
-function setMuslDetectForTests(fn) { isMuslFn = typeof fn === 'function' ? fn : DEFAULT_IS_MUSL; }
+function setMuslDetectForTests(fn) { isMuslFn = typeof fn === 'function' ? fn : DEFAULT_IS_MUSL; muslCache = null; }
 
 function platformKey(platform = process.platform, rawArch = os.arch()) {
   if (platform === 'linux') return `linux-${rawArch}${isMuslFn() ? '-musl' : ''}`;
@@ -3561,6 +3570,7 @@ function resetForTests() {
 module.exports = {
   setMuslDetectForTests,
   detectMusl,   // #5419 review 1: pure, so each branch is tested
+  readReportQuietly, tmuxBinPath,   // #5419 review 2: tested directly
   setRefreshExpiryReader, // #3326 test seam
   PHASE, SESSION, ACTIVE_PHASES,
   state, publicView, start, submitCode, cancel,

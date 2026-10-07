@@ -166,7 +166,7 @@ function canDownloadKeyedRunner(platform = process.platform) {
 }
 
 /** True only where Claude Code publishes a checksum-verifiable build Kosmos can
- *  fetch (darwin and, since the vendor shipped Windows builds, win32). Same
+ *  fetch (darwin and, since the vendor shipped Windows and (#5419) Linux builds, win32 and linux). Same
  *  fail-closed shape as its siblings. connect.js's download gate and the
  *  `canInstallClaude` web capability both read this -- NOT canDownloadRunner, which
  *  is codex-only and would wrongly refuse Claude on Windows. */
@@ -186,7 +186,7 @@ function canSelfInstall(platform = process.platform) {
  *  Each capability is reported SEPARATELY because they diverge: a platform can run
  *  agents (`supported`) while being unable to fetch the codex runner
  *  (`runnerDownloads`, darwin-only), yet still able to fetch Claude Code
- *  (`claudeDownloads`, darwin+win32). A screen that read only one of these could not
+ *  (`claudeDownloads`, darwin+win32+linux). A screen that read only one of these could not
  *  express win32, where claudeDownloads is true but runnerDownloads is false -- and a
  *  consumer that reused runnerDownloads to decide "can Kosmos install Claude here"
  *  would silently suppress the win32 auto-install. `claudeDownloads` is the one to
