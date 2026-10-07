@@ -182,6 +182,38 @@ esac
 # two later copies compute it (slash-normalised like KOSMOS_HOME itself).
 _kosmos_home_default="$(printf '%s' "$HOME/.local/share/kosmos" | /usr/bin/tr -s '/')"
 _kosmos_home_default="${_kosmos_home_default%/}"
+
+# #4920: the board unit's file name as the shell rule before linuxboard.js wrote it (the default home gives
+# kosmos-board.service, any other the sha256 of KOSMOS_HOME, first 8 hex). setup.sh normalizes KOSMOS_HOME above and
+# refuses a relative one, so this equals linuxboard.boardUnitName for every home setup.sh accepts. Used only for units
+# an earlier release wrote: the uninstall of such an install, and the KillMode fix before an update pause.
+_kosmos_linux_unit_name() {
+  if [ "$KOSMOS_HOME" = "$_kosmos_home_default" ]; then
+    printf '%s' "kosmos-board.service"
+  else
+    printf 'kosmos-board.%s.service' "$(printf '%s' "$KOSMOS_HOME" | (sha256sum 2>/dev/null || shasum -a 256 2>/dev/null) | cut -c1-8)"
+  fi
+}
+# #4920 review 11: a unit an earlier release wrote (0.7.27) has no KillMode=, so systemd's default control-group kill
+# applies: stopping the board kills every process in its cgroup, and an in-app update runs this script there, beside
+# the agents' tmux server. Before the update pauses the board, give that unit KillMode=process, as linuxboard's unit
+# has, and reload, so the pause stops the board only. Reasoned from systemd's documented default, not yet measured.
+_kosmos_linux_unit_killmode() {
+  [ "$(uname -s)" = "Linux" ] || return 0
+  command -v systemctl >/dev/null 2>&1 || return 0
+  if [ -n "${AGENT_WORKFORCE_LAUNCH:-}" ] && [ -z "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ]; then return 0; fi
+  _lk_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
+  _lk_file="$_lk_dir/$(_kosmos_linux_unit_name)"
+  [ -f "$_lk_file" ] || return 0
+  grep -qx 'KillMode=process' "$_lk_file" && return 0
+  _lk_tmp="$_lk_dir/.kosmos-killmode.$"
+  if awk '{ print } /^\[Service\]$/ { print "KillMode=process" }' "$_lk_file" > "$_lk_tmp" && mv "$_lk_tmp" "$_lk_file"; then
+    systemctl --user daemon-reload 2>/dev/null || true
+  else
+    rm -f "$_lk_tmp"
+  fi
+  return 0
+}
 if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
   [ -n "${KOSMOS_BIN_DIR:-}" ] || export KOSMOS_BIN_DIR="$KOSMOS_HOME/localbin"
   [ -n "${KOSMOS_PROFILE_FILE:-}" ] || export KOSMOS_PROFILE_FILE="$KOSMOS_HOME/zprofile"
@@ -1447,10 +1479,7 @@ BOARDEOF
       # 8 hex. That rule is what wrote those files, so it is the one that removes them; without this, the app folder is
       # deleted below and that unit (Restart=always) retries a missing folder every 5 seconds, at every boot.
       _lb_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
-      _lb_name="kosmos-board.service"
-      if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
-        _lb_name="kosmos-board.$(printf '%s' "$KOSMOS_HOME" | (sha256sum 2>/dev/null || shasum -a 256 2>/dev/null) | cut -c1-8).service"
-      fi
+      _lb_name="$(_kosmos_linux_unit_name)"
       if [ -f "$_lb_dir/$_lb_name" ]; then
         info "removing the systemd service an earlier Kosmos made for the board"
         systemctl --user stop "$_lb_name" 2>/dev/null || true
@@ -1465,10 +1494,8 @@ BOARDEOF
     else
       # Without the app's own code there is no second copy of the name rule here, so name what is there instead. Each
       # KOSMOS_HOME has its own unit (the name carries a hash of it), so a file here may be another install's.
-      # The folder is linuxjob.defaultSystemdDir's: SYSTEMD_DIR, else LAUNCH/systemd/user, else ~/.config.
-      if [ -n "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ]; then _lb_dir="$AGENT_WORKFORCE_SYSTEMD_DIR"
-      elif [ -n "${AGENT_WORKFORCE_LAUNCH:-}" ]; then _lb_dir="$AGENT_WORKFORCE_LAUNCH/systemd/user"
-      else _lb_dir="$HOME/.config/systemd/user"; fi
+      # The folder is linuxjob.defaultSystemdDir's (a sandboxed run, the LAUNCH case, returned at the top).
+      _lb_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
       for _lb_f in "$_lb_dir"/kosmos-board*.service; do
         [ -f "$_lb_f" ] || continue
         info "a Kosmos board service is still at $_lb_f. This install's app code or runtime is missing, so it was not removed: it may be this install's or another Kosmos's on this computer. If it is this one's, run: systemctl --user disable --now ${_lb_f##*/} and delete the file."
@@ -2905,6 +2932,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
     _kosmos_was_running=yes
   fi
   _kosmos_marker_ours="$_kosmos_was_running"   # #5033: armed before the stop, which writes the marker and then waits
+  _kosmos_linux_unit_killmode   # #4920: before the stop, so an old unit's cgroup kill cannot take this run with it
   "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true
   # Did the stop actually work? A POST-CONDITION of the line above, which is
   # why it needs the binary to exist. Fresh installs get their own check far
