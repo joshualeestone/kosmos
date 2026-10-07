@@ -302,7 +302,8 @@ function plan(name, opts) {
      Trash only if EVERYTHING can go there. */
   /* #4918 review 31: a systemd unit is removed by systemd whatever happens to the folder, so it does not decide whether
      the folder can go to the Trash (a folder-only Linux leftover already does). A Scheduled Task is unchanged. */
-  const toTrash = (!folder || folder.trash) && (!job || job.trash || Boolean(job.unit));
+  // review 32: only with a folder; a unit-only leftover moves nothing, so it never promises the Trash.
+  const toTrash = (!folder || folder.trash) && (!job || job.trash || (Boolean(job.unit) && Boolean(folder)));
   const loses = [];
   if (folder) {
     const what = filesWords(folder) + (folder.files ? ', ' + sizeWords(folder.bytes) : '');
@@ -466,7 +467,9 @@ function del(name, opts) {
   }
   /* #4918 review 31: a startup job systemd would not remove (the user bus unreachable) keeps the folder when the folder
      would be deleted for good: losing the files while the unit stays is the worst of both. Into the Trash it can go. */
-  if (p.folder && !p.toTrash && stuck.includes('its startup job')) {
+  /* review 32: kept whether or not there is a Trash: the folder is what shows the leftover on the board, and moving it
+     while the unit still holds the name would leave nothing to look at. */
+  if (p.folder && stuck.includes('its startup job')) {
     stuck.push('its folder');
     steps.push({ step: 'its folder', ok: false, because: 'kept, because its startup job could not be removed' });
   } else if (p.folder) move(p.folder.path, 'its folder');
@@ -532,7 +535,7 @@ function del(name, opts) {
        can be a startup job and NOTHING else, and "their files are deleted" about
        an agent that had none is a false sentence in the one line that reports
        the act. */
-    said: !p.folder && p.job && p.job.task
+    said: !p.folder && p.job && (p.job.task || p.job.unit)   // review 32: a unit-only leftover moved nothing either
       ? `Nothing starts ${p.shown} any more. The name is free.`
       : p.toTrash
         ? `${p.shown}'s files are in the Trash. The name is free.`

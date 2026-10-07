@@ -415,3 +415,43 @@ test('#4918 review 31: with no Trash and a startup job systemd will not remove, 
     fs.rmSync(create.workerDir(name), { recursive: true, force: true });
   }
 });
+
+test('#4918 review 32: a unit-only leftover never promises the Trash, and the result says nothing starts it', () => {
+  const del = require('./delete-leftover');
+  const name = 'leftoverunit';
+  fs.writeFileSync(linuxjob.unitPath(name), '[Service]\n');
+  del.setRunner(() => ({ ok: true, stdout: '' }));
+  try {
+    const p = del.plan(name, { platform: 'linux' });
+    assert.equal(p.ok, true, JSON.stringify(p));
+    assert.equal(p.toTrash, false, 'a unit-only leftover promised the Trash');
+    assert.doesNotMatch(p.reassurance, /Trash/);
+    const r = del.del(name, { platform: 'linux', typed: p.typeToConfirm || name });
+    assert.match(r.said, /Nothing starts/, JSON.stringify(r));
+  } finally { del.setRunner(null); fs.rmSync(linuxjob.unitPath(name), { force: true }); }
+});
+
+test('#4918 review 32: with a Trash, a startup job systemd will not remove still keeps the folder', () => {
+  const del = require('./delete-leftover');
+  const create = require('./create');
+  const name = 'leftoverbus2';
+  const savedTrash = process.env.AGENT_WORKFORCE_TRASH;
+  process.env.AGENT_WORKFORCE_TRASH = fs.mkdtempSync(path.join(path.dirname(process.env.AGENT_WORKFORCE_WORKERS), 'aw-trash-'));
+  fs.mkdirSync(create.workerDir(name), { recursive: true });
+  fs.writeFileSync(path.join(create.workerDir(name), 'work.txt'), 'x');
+  fs.writeFileSync(linuxjob.unitPath(name), '[Service]\n');
+  del.setRunner((file, args) => (file === 'systemctl' && args[1] === 'stop' ? { ok: false, stderr: 'Failed to connect to bus: No such file or directory' } : { ok: true, stdout: '' }));
+  try {
+    const p = del.plan(name, { platform: 'linux' });
+    assert.equal(p.toTrash, true, 'CONTROL: the Trash can take the folder');
+    const r = del.del(name, { platform: 'linux', typed: p.typeToConfirm || name });
+    assert.equal(fs.existsSync(path.join(create.workerDir(name), 'work.txt')), true, 'the folder moved while the unit still holds the name');
+    assert.notEqual(r.outcome, del.OUTCOME.DELETED, JSON.stringify(r));
+  } finally {
+    fs.rmSync(process.env.AGENT_WORKFORCE_TRASH, { recursive: true, force: true });
+    if (savedTrash === undefined) delete process.env.AGENT_WORKFORCE_TRASH; else process.env.AGENT_WORKFORCE_TRASH = savedTrash;
+    del.setRunner(null);
+    fs.rmSync(linuxjob.unitPath(name), { force: true });
+    fs.rmSync(create.workerDir(name), { recursive: true, force: true });
+  }
+});

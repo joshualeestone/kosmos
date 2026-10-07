@@ -10,7 +10,7 @@
 #      automatic restart does not re-check ConditionPathExists, measured here 2026-10-06).
 set -euo pipefail
 # It writes real units under ~/.config/systemd/user and uses sudo: CI only (#4918 review 2).
-[ -n "${CI:-}" ] || { echo "refusing: this test changes the real user systemd and uses sudo; it runs on CI (CI=true)" >&2; exit 2; }
+[ -n "${CI:-}" ] && [ -n "${GITHUB_ACTIONS:-}" ] || { echo "refusing: this test changes the real user systemd and uses sudo; it runs on GitHub Actions only (CI and GITHUB_ACTIONS set)" >&2; exit 2; }
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 fails=0
@@ -29,7 +29,7 @@ if [ ! -d "$XDG_RUNTIME_DIR" ]; then
 fi
 
 if ! systemctl --user is-system-running >/dev/null 2>&1; then
-  echo "Attempting to enable linger for $USER..."
+  echo "Attempting to enable linger for $(id -un)..."
   sudo loginctl enable-linger "$(id -un)" || true
   for i in $(seq 1 15); do
     if systemctl --user is-system-running >/dev/null 2>&1; then break; fi

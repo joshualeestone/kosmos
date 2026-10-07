@@ -703,7 +703,8 @@ function jobFor(name, platform, worldId) {
     const lj = require('./linuxjob');
     const unit = lj.unitPath(clean, wid);
     if (fs.existsSync(unit)) {
-      return { label: lj.unitName(clean, wid), unit, plist: unit, ours: true, worldId: wid };
+      // review 32: plist stays null; a .service path in the field Mac readers take as a launchd plist is a trap.
+      return { label: lj.unitName(clean, wid), unit, plist: null, ours: true, worldId: wid };
     }
     return null;
   }
