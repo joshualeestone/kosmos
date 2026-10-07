@@ -20,7 +20,11 @@
  *
  * ⚠️ NO QUOTA FIGURE. No provider tells Kosmos how much is left, so nothing here reports a remaining amount.
  * A paused provider carries the time it resumes only when a card states one (quotaUntil / poolUntil, which
- * today only Antigravity sets); otherwise `until` is null, meaning "paused, reset time not known".
+ * today only Antigravity sets), and only when EVERY paused agent on it states one: one agent with no stated time
+ * makes `until` null, meaning "paused, reset time not known", because a provider-wide time would be wrong for it.
+ *
+ * ⚠️ A DEAD SIGN-IN IS NOT A PAUSE. `signInFailed` counts the agents whose card reads auth_failed, so a provider
+ * whose every agent lost its sign-in is not shown only as 'not_paused'.
  */
 
 const fs = require('node:fs');
@@ -65,26 +69,30 @@ function readProjectsAt(root) {
 
 /* Each provider's state from the running world's cards. Pure. Paneless cards carry no runner and are left out
    (they are not running on any provider). A provider is paused when every agent on it is rate limited; `paused`
-   counts the agents that are. `until` is the latest stated resume time among its paused agents, or null.
-   'not_paused' says only that no card on it reads rate limited, never that its agents are working: an idle or
-   unknown card counts too. */
+   counts the agents that are. `until` is the latest stated resume time among its paused agents, and null when
+   any paused agent states none. 'not_paused' says only that no card on it reads rate limited, never that its
+   agents are working: an idle, unknown or signed-out card counts too, which is why `signInFailed` is beside it. */
 function providersFrom(cards) {
   const by = new Map();
   for (const c of Array.isArray(cards) ? cards : []) {
     if (!c || c.paneless === true || typeof c.runner !== 'string' || !c.runner) continue;
-    const row = by.get(c.runner) || { provider: c.runner, agents: 0, paused: 0, until: null };
+    const row = by.get(c.runner) || { provider: c.runner, agents: 0, paused: 0, signInFailed: 0, until: null, untimed: 0 };
     row.agents += 1;
+    if (c.state === 'auth_failed') row.signInFailed += 1;
     if (c.state === 'rate_limited') {
       row.paused += 1;
+      let stated = false;
       for (const at of [c.quotaUntil, c.poolUntil]) {
         if (typeof at !== 'string' || !Number.isFinite(Date.parse(at))) continue;
+        stated = true;
         if (row.until === null || Date.parse(at) > Date.parse(row.until)) row.until = at;
       }
+      if (!stated) row.untimed += 1;
     }
     by.set(c.runner, row);
   }
   return [...by.values()]
-    .map((r) => ({ ...r, state: r.paused === 0 ? 'not_paused' : r.paused === r.agents ? 'paused' : 'some_paused' }))
+    .map(({ untimed, ...r }) => ({ ...r, until: untimed > 0 ? null : r.until, state: r.paused === 0 ? 'not_paused' : r.paused === r.agents ? 'paused' : 'some_paused' }))
     .sort((a, b) => (a.provider < b.provider ? -1 : a.provider > b.provider ? 1 : 0));
 }
 

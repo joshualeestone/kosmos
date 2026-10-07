@@ -20,7 +20,7 @@ const worldview = require('./worldview');
 const open = (n, extra) => ({ number: n, sentence: 't' + n, ...extra });
 const given = (n, who) => ({ number: n, sentence: 't' + n, parts: [{ id: 'p' + n, sentence: 't' + n, who }] });
 
-test('#5393 unassignedIn counts open tasks nobody is on, by the Assigner rule', () => {
+test('#5393 unassignedIn counts open tasks nobody is on (wider than the Assigner: see the last test)', () => {
   const records = [
     { id: 'a', tasks: [
       open(1),                                   // waiting
@@ -67,7 +67,10 @@ test('#5393 providersFrom groups the cards by runner; paused only from rate_limi
   const rows = worldview.providersFrom([
     { runner: 'claude', state: 'working' },
     { runner: 'claude', state: 'idle' },
+    { runner: 'claude', state: 'auth_failed' },
     { runner: 'codex', state: 'rate_limited' },
+    { runner: 'grok', state: 'rate_limited', quotaUntil: '2026-10-06T15:00:00.000Z' },
+    { runner: 'grok', state: 'rate_limited', poolUntil: '2026-10-06T16:30:00.000Z' },
     { runner: 'antigravity', state: 'rate_limited', quotaUntil: '2026-10-06T15:00:00.000Z' },
     { runner: 'antigravity', state: 'rate_limited', poolUntil: '2026-10-06T16:30:00.000Z' },
     { runner: 'antigravity', state: 'rate_limited', quotaUntil: 'not a time' },
@@ -77,12 +80,15 @@ test('#5393 providersFrom groups the cards by runner; paused only from rate_limi
     { runner: '', state: 'idle' },                 // no runner: left out
   ]);
   assert.deepEqual(rows, [
-    { provider: 'antigravity', agents: 3, paused: 3, until: '2026-10-06T16:30:00.000Z', state: 'paused' },
-    { provider: 'claude', agents: 2, paused: 0, until: null, state: 'not_paused' },
-    { provider: 'codex', agents: 1, paused: 1, until: null, state: 'paused' },
-    { provider: 'gemini', agents: 2, paused: 1, until: null, state: 'some_paused' },
+    // One of antigravity's three paused agents states no time, so no provider-wide time is claimed.
+    { provider: 'antigravity', agents: 3, paused: 3, signInFailed: 0, until: null, state: 'paused' },
+    { provider: 'claude', agents: 3, paused: 0, signInFailed: 1, until: null, state: 'not_paused' },
+    { provider: 'codex', agents: 1, paused: 1, signInFailed: 0, until: null, state: 'paused' },
+    { provider: 'gemini', agents: 2, paused: 1, signInFailed: 0, until: null, state: 'some_paused' },
+    // Every paused agent states a time: the latest of them.
+    { provider: 'grok', agents: 2, paused: 2, signInFailed: 0, until: '2026-10-06T16:30:00.000Z', state: 'paused' },
   ]);
-  for (const r of rows) assert.ok(!('quota' in r) && !('remaining' in r), 'no quota figure is ever reported');
+  for (const r of rows) assert.ok(!('quota' in r) && !('remaining' in r) && !('untimed' in r), 'no quota figure, and no working field, is ever reported');
 });
 
 test('#5393 overview: the running world has providers, the others say why not; a bad world never stops the rest', () => {

@@ -7,7 +7,7 @@ Kosmos one.
 
 ## Slice 1 (this branch): an engine read and a read-only route
 - `engine/worldview.js`
-  - `unassignedIn(records)`: pure. Uses the Assigner's rule (engine/assigner.js pick): the task is open, no
+  - `unassignedIn(records)`: pure. Counts wider than the Assigner's rule (engine/assigner.js pick): the task is open, no
     part is given to anyone, it is not marked built, and its project is not archived. The count is split into
     `waiting` and `held`. Held means the task is on hold or its project is paused.
   - `readProjectsAt(root)`: reads that world's own `projects.json` directly. It never calls
@@ -47,3 +47,8 @@ limited, and an idle or unknown agent also counts as not paused.
 - The source-reading sweep files (the 92 files that read server.js).
 - The full suite once, through the queue.
 - Then /challenge-loop.
+
+- **Review 3 (after the leak fix):** `until` is now null when any paused agent on a provider states no time (a
+  provider-wide time would be wrong for that agent), and each row carries `signInFailed` (auth_failed cards), so a
+  provider whose agents all lost their sign-in no longer reads only as 'not_paused'. No screen reads the route yet
+  (slice 2 does), so the shape change breaks nothing.
