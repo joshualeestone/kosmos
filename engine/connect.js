@@ -170,7 +170,8 @@ function claudeBinPath() {
 }
 
 /* #5419: Kosmos runs Claude's sign-in, and every agent, in tmux. On Linux with no tmux to be found, a
-   download would fetch 200MB and then fail at sign-in with a bare ENOENT; download() asks this first instead. */
+   download would fetch 200MB and then fail at sign-in with a bare ENOENT. runFlow asks first (tmuxMissingForSignin),
+   and download() asks again as the second line of defence. */
 function tmuxMissingOnLinux(env = process.env, runnable = (f) => require('./runners').isRunnable(f)) {
   const t = tmuxBinPath('linux', env, runnable);
   return t === 'tmux' || !runnable(t);

@@ -2949,7 +2949,6 @@ test('#5419: musl detection, every branch (report with glibc, report without, no
 });
 
 test('#5419 a manifest with no build for this linux key refuses before anything is placed', async (t) => {
-  connect.setMuslDetectForTests(() => true);   // ask for -musl; the release serves only the glibc key
   connect.setTmuxCheckForTests(() => false);   // not the host's tmux
   t.after(() => { connect.setMuslDetectForTests(null); connect.setTmuxCheckForTests(TMUX_PRESENT); });
   const binary = crypto.randomBytes(64 * 1024);
