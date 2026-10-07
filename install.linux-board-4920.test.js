@@ -16,7 +16,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const SETUP = fs.readFileSync(path.join(__dirname, 'install', 'setup.sh'), 'utf8');
-const snippets = [...SETUP.matchAll(/<<'BOARDEOF' 2>&1\n([\s\S]*?)\nBOARDEOF\n/g)].map((m) => m[1]);
+const snippets = [...SETUP.matchAll(/<<'BOARDEOF' 2>\/dev\/null\n([\s\S]*?)\nBOARDEOF\n/g)].map((m) => m[1]);
 const WORK = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-linuxboard-4920-'));
 
 function standIn(body) {

@@ -1413,17 +1413,24 @@ uninstall() {
     if [ -f "$KOSMOS_HOME/app/engine/linuxboard.js" ] && [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ -x "$KOSMOS_HOME/runtime/bin/node" ] && command -v systemctl >/dev/null 2>&1; then
       info "removing the systemd service for the board"
       _lb_rc=0
-      _lb_out="$("$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME/app/engine/linuxboard.js" "$KOSMOS_HOME" <<'BOARDEOF' 2>&1
-const lb = require(process.argv[2]);
+      _lb_out="$("$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME/app/engine/linuxboard.js" "$KOSMOS_HOME" <<'BOARDEOF' 2>/dev/null
 let r;
-try { r = lb.removeBoard(process.argv[3]); } catch (e) { r = { ok: false, because: (e && e.message) || String(e) }; }
+try { r = require(process.argv[2]).removeBoard(process.argv[3]); } catch (e) { r = { ok: false, because: (e && e.message) || String(e) }; }
 if (!r || !r.ok) { process.stdout.write((r && r.because) || 'no reason given'); process.exit(3); }
 BOARDEOF
 )" || _lb_rc=$?
       [ "$_lb_rc" -eq 0 ] || info "the board's systemd service was not fully removed: $_lb_out"
-    elif command -v systemctl >/dev/null 2>&1 && ls "${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"/kosmos-board*.service >/dev/null 2>&1; then
-      # Without the app's own code there is no second copy of the name rule here; say where the unit is instead.
-      info "a Kosmos board service is still in ${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}; this install's app folder is gone, so remove it with systemctl --user disable --now and delete the file"
+    else
+      # Without the app's own code there is no second copy of the name rule here, so name what is there instead. Each
+      # KOSMOS_HOME has its own unit (the name carries a hash of it), so a file here may be another install's.
+      # The folder is linuxjob.defaultSystemdDir's: SYSTEMD_DIR, else LAUNCH/systemd/user, else ~/.config.
+      if [ -n "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ]; then _lb_dir="$AGENT_WORKFORCE_SYSTEMD_DIR"
+      elif [ -n "${AGENT_WORKFORCE_LAUNCH:-}" ]; then _lb_dir="$AGENT_WORKFORCE_LAUNCH/systemd/user"
+      else _lb_dir="$HOME/.config/systemd/user"; fi
+      for _lb_f in "$_lb_dir"/kosmos-board*.service; do
+        [ -f "$_lb_f" ] || continue
+        info "a Kosmos board service is still at $_lb_f. This install's app folder is gone, so it was not removed: it may be this install's or another Kosmos's on this computer. If it is this one's, run: systemctl --user disable --now ${_lb_f##*/} and delete the file."
+      done
     fi
   fi
   _board_label=com.kosmos.board
@@ -4044,10 +4051,9 @@ if [ "$(uname -s)" = "Linux" ]; then
     info "note: systemctl not available; Kosmos was started in background and will not start itself after a restart"
   else
     _lb_rc=0
-    _lb_out="$("$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME/app/engine/linuxboard.js" "$KOSMOS_HOME" "$PORT" <<'BOARDEOF' 2>&1
-const lb = require(process.argv[2]);
+    _lb_out="$("$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME/app/engine/linuxboard.js" "$KOSMOS_HOME" "$PORT" <<'BOARDEOF' 2>/dev/null
 let r;
-try { r = lb.installBoard(process.argv[3], Number(process.argv[4])); } catch (e) { r = { ok: false, because: (e && e.message) || String(e) }; }
+try { r = require(process.argv[2]).installBoard(process.argv[3], Number(process.argv[4])); } catch (e) { r = { ok: false, because: (e && e.message) || String(e) }; }
 if (!r || !r.ok) { process.stdout.write('refused: ' + ((r && r.because) || 'no reason given')); process.exit(3); }
 process.stdout.write(r.lingering ? 'lingering' : 'not lingering');
 BOARDEOF

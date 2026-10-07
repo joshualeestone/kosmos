@@ -29,7 +29,12 @@ const assert = require('node:assert/strict');
 /* #4920 (Splinter 18:53): setup.sh's own option line (setup.sh:102-103), not `set -euo pipefail`: these scripts run
    under sh, which is dash on Linux, and dash refuses `set -o pipefail`; so the functions run here as they really
    run there (pipefail only under bash). */
-const SETUP_SH_OPTIONS = 'set -eu\n[ -n "${BASH_VERSION:-}" ] && set -o pipefail || true\n';
+const SETUP_SH_OPTIONS = (() => {
+  const m = require('node:fs').readFileSync(require('node:path').join(__dirname, 'install', 'setup.sh'), 'utf8')
+    .match(/^set -eu\n\[ -n "\$\{BASH_VERSION:-\}" \] && set -o pipefail \|\| true\n/m);
+  if (!m) throw new Error('setup.sh option line not found: update SETUP_SH_OPTIONS with it');
+  return m[0];
+})();
 const fs = require('node:fs');
 const os = require('node:os');
 const nodePath = require('node:path');
