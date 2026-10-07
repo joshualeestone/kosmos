@@ -447,6 +447,7 @@ test('#4918 review 32: with a Trash, a startup job systemd will not remove still
     const r = del.del(name, { platform: 'linux', typed: p.typeToConfirm || name });
     assert.equal(fs.existsSync(path.join(create.workerDir(name), 'work.txt')), true, 'the folder moved while the unit still holds the name');
     assert.notEqual(r.outcome, del.OUTCOME.DELETED, JSON.stringify(r));
+    assert.match(r.because, /folder was kept too/, 'the sentence says the folder could not move, not that it was kept (review 34)');
   } finally {
     fs.rmSync(process.env.AGENT_WORKFORCE_TRASH, { recursive: true, force: true });
     if (savedTrash === undefined) delete process.env.AGENT_WORKFORCE_TRASH; else process.env.AGENT_WORKFORCE_TRASH = savedTrash;
@@ -479,4 +480,23 @@ test('#4918 review 33: a Linux restore whose unit file is gone says so, not "sta
   const r = remove.restore(name, { platform: 'linux' });
   assert.equal(r.outcome, remove.OUTCOME.PARTIAL, JSON.stringify(r));
   assert.match(r.because, /no longer on this computer/, 'the person was told to start by hand something that is gone');
+});
+
+test('#4918 review 34: a Linux repair counts an agent systemd already runs as started', () => {
+  const create = require('./create');
+  const register = require('./register');
+  const name = 'repairlin';
+  fs.mkdirSync(create.workerDir(name), { recursive: true });
+  const store = require('./store');
+  assert.ok(String(store.PROFILES).startsWith(process.env.AGENT_WORKFORCE_DATA), 'CONTROL: the profile store is the sandbox: ' + store.PROFILES);
+  store.writeProfile(name, { role: 'pm' });
+  const orig = create.installJob;
+  const asked = [];
+  create.installJob = (n) => { asked.push(n); return { ok: true, started: false, alreadyRunning: true }; };
+  try {
+    const r = register.repair({ platform: 'linux' });
+    assert.ok(asked.includes(name), 'CONTROL: the repair reached the folder with no unit: ' + JSON.stringify(r));
+    const mine = r.results.filter((x) => x.name === name).length;
+    assert.ok(r.started >= mine && mine === 1, 'an agent already running was not counted as started: ' + JSON.stringify(r));
+  } finally { create.installJob = orig; fs.rmSync(create.workerDir(name), { recursive: true, force: true }); }
 });

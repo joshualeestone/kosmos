@@ -422,7 +422,8 @@ function repair(opts) {
     results,
     /* Counts for a headline, beside the list rather than instead of it. */
     installed: results.filter((r) => r.ok).length,
-    started: results.filter((r) => r.ok && r.started).length,
+    // #4918 review 34: a Linux unit already active is running too (installJob's alreadyRunning), not a failure to start.
+    started: results.filter((r) => r.ok && (r.started || r.alreadyRunning)).length,
   };
 }
 
