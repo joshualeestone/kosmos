@@ -1605,7 +1605,8 @@ if [ "$_vdep_rc" != 0 ]; then
   # is the same position as a CLI success, so DEPLOYED=1 follows and step 9 verifies everything a user
   # receives, with its own retries, exactly as it does after a CLI success. Asked up to
   # KOSMOS_DEPLOY_LANDED_TRIES times, KOSMOS_DEPLOY_LANDED_WAIT_S apart (default 24 x 15 s: about 6 min,
-  # up to about 18 min if every fetch times out at -m 30). Not seen landing: DEPLOYED stays unset and the trap
+  # up to about 18 min if every fetch times out at -m 30). One host serves every channel (a staging cut
+  # differs only in its pointer file), so this reads the same HOST step 9 does. Not seen landing: DEPLOYED stays unset and the trap
   # restores, exactly as before.
   echo "   vercel deploy exited $_vdep_rc; checking whether this cut's build is served anyway before calling it a failure (#5471)"
   if site_deploy_landed "${KOSMOS_DEPLOY_LANDED_TRIES:-24}" "${KOSMOS_DEPLOY_LANDED_WAIT_S:-15}" \
