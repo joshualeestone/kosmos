@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # #5488 part b: test.yml's scope job routes the macOS suite to the self-hosted Mac ONLY when the repo
 # variable KOSMOS_CI_RUNNER is exactly `on` and the code is this repo's own (a push to main, or a PR whose
-# head repo is this repo). A fork's code never reaches that machine. This runs the REAL decide step body,
+# head repo is this repo). (This is the honest path only; the machine's job guard is what refuses fork code:
+# tools/test-ci-runner-job-guard-5488.sh.) This runs the REAL decide step body, under GitHub's own shell flags,
 # taken from the parsed workflow, with each input, and checks the suite's runs-on falls back when scope
 # gave nothing.
 set -u
@@ -39,7 +40,7 @@ route() { # <CI_RUNNER> <EVENT_NAME> <HEAD_REPO> -> the mac_runner the REAL body
   : > "$T/out"; mkdir -p "$T/cwd" "$T/runner-temp"
   # RUNNER_TEMP is its own directory: the body writes its own decide.sh there, which must not be this copy.
   (cd "$T/cwd" && CI_RUNNER="$1" EVENT_NAME="$2" HEAD_REPO="$3" THIS_REPO=owner/kosmos BASE_REF=nope HEAD_SHA=x HEAD_REF=y \
-    RUNNER_TEMP="$T/runner-temp" GITHUB_OUTPUT="$T/out" PATH="/usr/bin:/bin" bash -e "$T/decide.sh" >/dev/null 2>&1)
+    RUNNER_TEMP="$T/runner-temp" GITHUB_OUTPUT="$T/out" PATH="/usr/bin:/bin" bash --noprofile --norc -eo pipefail "$T/decide.sh" >/dev/null 2>&1)
   sed -n 's/^mac_runner=//p' "$T/out"
 }
 expect() { # <label> <want> <CI_RUNNER> <EVENT_NAME> <HEAD_REPO>

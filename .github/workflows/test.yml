@@ -131,9 +131,12 @@ jobs:
           echo "reuse=$reuse" >> "$GITHUB_OUTPUT"
           # #5488 part b: where the macOS suite runs. The self-hosted Mac (label kosmos-ci) ONLY when the repo
           # variable KOSMOS_CI_RUNNER is `on` AND the code is this repo's own (a push to main, or a PR whose head
-          # is this repo). A fork's code never reaches that machine, approved or not. Anything else, including
-          # the variable unset, is GitHub's macos-latest. The variable is the kill switch: GitHub has no fallback
-          # between runner kinds, so a mini that is off would hold every run until someone turns it `off`.
+          # is this repo); anything else, including the variable unset, is GitHub's macos-latest. This only routes
+          # the HONEST path: a fork's PR runs its OWN copy of this file and could name the label itself. What keeps
+          # fork code off that machine is its job-started hook (tools/ci-runner-job-guard.sh, installed from main),
+          # which refuses any job that is not this repo's own, plus approval of outside contributors' runs. The
+          # variable is the kill switch: a routed job with no runner online waits in the queue (up to GitHub's
+          # 24 hours), red to nobody, until the variable is set to anything but `on`.
           mac='"macos-latest"'
           if [ "$CI_RUNNER" = on ] && { [ "$EVENT_NAME" = push ] || { [ "$EVENT_NAME" = pull_request ] && [ -n "$HEAD_REPO" ] && [ "$HEAD_REPO" = "$THIS_REPO" ]; }; }; then
             mac='["self-hosted","macOS","arm64","kosmos-ci"]'
