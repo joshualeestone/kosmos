@@ -143,7 +143,8 @@ live_snapshot() {
 # a cluster like -eo NAME, and --rcfile FILE), for a
 # bare release.sh. A command string (-c, or c inside combined flags like -lc) is not a script
 # run (it only mentions the name), and neither is -n, a syntax check, nor a tools/queued-heavy.sh
-# waiter (#5470: when the first .sh word is queued-heavy.sh): prints nothing. Runs in a subshell with globbing off,
+# waiter (#5470: when the first .sh word is a queued-heavy.sh, in tools/ or the installed copy in
+# ~/.cache/claude-handoffs/): prints nothing. Runs in a subshell with globbing off,
 # so a `*` in a command line stays one literal word.
 script_of() (
   set -f
@@ -169,7 +170,7 @@ script_of() (
     case "$w" in *.sh)
       if [ "$seen_sh" = 0 ]; then
         seen_sh=1
-        case "$w" in */tools/queued-heavy.sh|tools/queued-heavy.sh|queued-heavy.sh) exit 0 ;; esac
+        case "$w" in */queued-heavy.sh|queued-heavy.sh) exit 0 ;; esac   # any directory: agents run the installed copy, ~/.cache/claude-handoffs/queued-heavy.sh
       fi ;;
     esac
     case "$w" in */tools/release.sh|*/tools/browser-checks.sh|*/tools/test-install.sh|tools/release.sh|tools/browser-checks.sh|tools/test-install.sh|*/tools/run-tests.sh|tools/run-tests.sh)
