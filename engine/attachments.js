@@ -14,9 +14,8 @@
  * with the absolute path of the stored file in the bracketed line, so `cat`
  * or `open` works on the spot, followed inside the same bracket by the
  * file's facts in parentheses (type, an image's pixel size, size on disk;
- * #5448) so the agent can tell a
- * screenshot from a contract before deciding to open it. Nothing else tells the agent where the
- * folder is (Mona Lisa, 2026-08-23: the who-you-work-for block is about the
+ * #5448) so the agent can tell a screenshot from a contract before deciding
+ * to open it. Nothing else tells the agent where the folder is (Mona Lisa, 2026-08-23: the who-you-work-for block is about the
  * person; finding attachments it was not sent is a later card).
  *
  * ⚠️ A FILE FROM A PERSON IS BYTES, NOT A PROGRAM. The stored name is
@@ -222,6 +221,7 @@ function imageFacts(buf) {
       if (buf[i] !== 0xff) { i += 1; continue; }   // stray padding some encoders leave between segments
       const marker = buf[i + 1];
       if (marker === 0xff) { i += 1; continue; }   // fill byte
+      if (marker === 0x00) return null;            // a stuffed byte outside image data: damaged
       if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { i += 2; continue; }   // no length
       const len = buf.readUInt16BE(i + 2);
       if (len < 2) return null;
@@ -250,6 +250,18 @@ function imageFacts(buf) {
   return null;
 }
 
+/** The format an image's bytes carry by their signature alone, or null:
+    a real image whose dimensions sit past the bytes read (a JPEG behind a
+    large ICC profile) still proves what it is. */
+function signatureType(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 12) return null;
+  if (buf.readUInt32BE(0) === 0x89504e47 && buf.readUInt32BE(4) === 0x0d0a1a0a) return 'image/png';
+  if (buf.toString('latin1', 0, 6) === 'GIF87a' || buf.toString('latin1', 0, 6) === 'GIF89a') return 'image/gif';
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  if (buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP') return 'image/webp';
+  return null;
+}
+
 /* How much of a file is read to find its pixel size: enough for a JPEG whose
    frame header sits behind a camera's metadata (one APP segment is at most
    64 KB; a phone photo can carry two or three). Past this, no dimensions. */
@@ -257,6 +269,7 @@ const HEAD_BYTES = 256 * 1024;
 function headOf(file) {
   let fd = null;
   try {
+    if (!fs.statSync(file).isFile()) return null;   // never open a FIFO or device: the open could block
     fd = fs.openSync(file, 'r');
     const buf = Buffer.allocUnsafe(HEAD_BYTES);   // only the n bytes read are returned
     const n = fs.readSync(fd, buf, 0, HEAD_BYTES, 0);
@@ -275,21 +288,22 @@ function sizeWords(n) {
 }
 
 /** The facts typed after a file's path (#5448): type, then for an image its
-    pixel size, then its size on disk. The type is the one the bytes prove
-    for an image this module can read. A stored type naming one of those
-    formats whose bytes did not prove it is not repeated ("unknown type"):
-    the uploader claimed it and the reader just failed to confirm it.
-    Otherwise the stored type is used, kept to the plain characters a media
+    pixel size, then its size on disk. For an image the type is the one its
+    bytes' signature proves (PNG, GIF, JPEG, WebP), with dimensions when the
+    header could be read. A stored type naming one of those four whose bytes
+    carry no such signature is not repeated ("unknown type"): the uploader
+    claimed it and the bytes say otherwise. Otherwise the stored type is used, kept to the plain characters a media
     type has (the uploader chose it, and this line is typed into a terminal;
     chat.js refuses a trailer with control characters). Size is read from the
     disk, not the record. */
 function factsOf(r) {
   const head = r.kind === 'image' ? headOf(r.file) : null;
   const img = head ? imageFacts(head) : null;
+  const proven = img ? img.type : (head ? signatureType(head) : null);
   const stored = String(r.type || '').toLowerCase();
   const PROVABLE = ['image/png', 'image/gif', 'image/jpeg', 'image/jpg', 'image/webp'];
   const plain = /^[a-z0-9][a-z0-9.+-]*\/[a-z0-9][a-z0-9.+-]*$/.test(stored) && !PROVABLE.includes(stored);
-  const type = img ? img.type : (plain ? stored : null);
+  const type = proven || (plain ? stored : null);
   let bytes = r.size;
   try { bytes = fs.statSync(r.file).size; } catch { /* the record's own count */ }
   const parts = [type || 'unknown type'];
@@ -338,4 +352,4 @@ function rowFields(recs) {
   return { attachment: list[0], attachments: list };
 }
 
-module.exports = { MAX_BYTES, MAX_PER_MESSAGE, ROOT, kindOf, imageTypeOf, renderPdf, hasRenderer, safeName, save, read, rowField, rowFields, resolveForMessage, preview, wireNote, imageFacts, sizeWords, setRenderer };   // #4997: imageTypeOf, renderPdf and hasRenderer for engine/filepreview.js
+module.exports = { MAX_BYTES, MAX_PER_MESSAGE, ROOT, kindOf, imageTypeOf, renderPdf, hasRenderer, safeName, save, read, rowField, rowFields, resolveForMessage, preview, wireNote, imageFacts, signatureType, sizeWords, setRenderer };   // #4997: imageTypeOf, renderPdf and hasRenderer for engine/filepreview.js

@@ -15,10 +15,14 @@ in `attachments.wireNote` covers both.
 - **Header parsing only, by magic bytes**: PNG IHDR, GIF screen descriptor, JPEG first SOF (segment
   walk), WebP VP8 / VP8L / VP8X. HEIC and AVIF answer no dimensions (nested boxes); the agent still
   gets type and size, which is true.
-- **The type shown for a readable image is the one its bytes prove**; otherwise the stored type,
-  kept only if it is a plain media type (`a/b` of [a-z0-9.+-]), else "unknown type". The uploader
-  chose it and the line is typed into a terminal (chat.js refuses control characters, and a `]`
-  would read as a second bracket).
+- **For an image, the type shown is the one its bytes' signature proves** (PNG, GIF, JPEG, WebP),
+  with dimensions when the header could be read; a real JPEG whose frame header is past 256 KB keeps
+  its type without dimensions. A stored png/gif/jpeg/webp type whose bytes carry no such signature
+  says "unknown type" (review 1: the uploader's claim is not repeated as fact). Otherwise the stored
+  type, kept only if it is a plain media type (`a/b` of [a-z0-9.+-]), else "unknown type". The
+  uploader chose it and the line is typed into a terminal (chat.js refuses control characters, and
+  a `]` would read as a second bracket).
+- **Only a regular file is opened** for the header read (review 2: a FIFO open could block).
 - **Size is read from disk** (stat), falling back to the record's count; said as bytes / KB / MB in
   1024s, as the 25 MB cap counts.
 - **The name is not repeated**: the path already ends with it.
