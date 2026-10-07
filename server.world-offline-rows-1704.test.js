@@ -19,9 +19,10 @@
  *   node --test server.world-offline-rows-1704.test.js
  */
 const test = require('node:test');
-/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that asserts the launchd plist itself
-   measures nothing there. Skipped on Linux only, naming where Linux covers it; macOS and Windows unchanged. */
-const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS launchd fixture on a Linux host (#5432): the test seeds or reads the agent's job as a macOS plist, or its runner stub answers launchctl only. What it asserts is platform-neutral and is tested on macOS and Windows, but NOT yet on Linux: #5500 ports it." } : {};
+/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that seeds, reads or drives the job as a
+   launchd plist cannot run unchanged there. Skipped on Linux only; its reason says whether a Linux test covers it, or
+   that it is not tested on Linux yet (#5500). macOS and Windows unchanged. */
+const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS launchd fixture on a Linux host (#5432): the test seeds or reads the agent's job as a macOS plist, or its runner stub answers launchctl only. What it asserts is platform-neutral and is tested on macOS, but NOT yet on Linux: #5500 ports it." } : {};
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
