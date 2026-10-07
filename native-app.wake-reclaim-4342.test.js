@@ -96,16 +96,34 @@ test('#4342: the probe->outcome decision is a pure function the build runs as an
   assert.match(BUILD, /\$_wake_table_actual" = "\$_wake_table_expected/, 'the build does not compare the actual table to the expected one');
 });
 
-test('#4342: the probe hits the light /api/health route and reports on the main thread', () => {
-  const pAt = SRC.indexOf('private func probeBoardHealth(port: Int, completion:');
-  assert.notEqual(pAt, -1, 'probeBoardHealth is gone');
+test('#4342: the probe hits the light /api/health route with the CALLER\'s timeout, reports on the main thread', () => {
+  const pAt = SRC.indexOf('private func probeBoardHealth(port: Int, timeout: TimeInterval, completion:');
+  assert.notEqual(pAt, -1, 'probeBoardHealth(port:timeout:completion:) is gone');
   const probe = SRC.slice(pAt, SRC.indexOf('\n    }\n', pAt) + 6);
   assert.match(probe, /\/api\/health/, 'the probe does not hit the light public /api/health route (a busy board can be slow to serve /api/status\'s snapshot and be falsely reclaimed)');
   assert.match(probe, /127\.0\.0\.1/, 'the probe is not aimed at the loopback board');
-  assert.match(probe, /req\.timeoutInterval = 10/, 'the probe has no 10s stuck limit');
+  assert.match(probe, /req\.timeoutInterval = timeout/, 'the probe hardcodes a timeout instead of using the caller\'s, so the first and confirm probes could not differ');
   assert.match(probe, /wakeProbeOutcome\(hasHTTPResponse: response != nil, errorCode: \(error as NSError\?\)\?\.code \?\? 0\)/,
     'the probe does not compute its outcome from the pure function (so the build gate would not cover the real decision)');
   assert.match(probe, /DispatchQueue\.main\.async \{ completion/, 'the probe does not hop to the main thread before reporting');
+});
+
+test('#4342: the FIRST post-wake probe waits LONGER than the confirm (Sonya #4342: timeoutInterval is an idle timeout, so pin the first wait, not just a constant)', () => {
+  // The two timeout constants, with the first-probe grace strictly LONGER than the confirm stuck threshold.
+  const grace = SRC.match(/static let wakeFirstProbeGrace: TimeInterval = (\d+(?:\.\d+)?)/);
+  const stuck = SRC.match(/static let wakeStuckTimeout: TimeInterval = (\d+(?:\.\d+)?)/);
+  assert.ok(grace, 'wakeFirstProbeGrace is gone');
+  assert.ok(stuck, 'wakeStuckTimeout is gone');
+  assert.ok(parseFloat(grace[1]) > parseFloat(stuck[1]),
+    `the first-probe grace (${grace && grace[1]}) must be LONGER than the confirm stuck threshold (${stuck && stuck[1]}); a healthy board catching up after wake needs the longer first wait`);
+  // Pinned to the CALL SITES, in order: the FIRST probe uses the grace, the confirm uses the stuck threshold.
+  const at = SRC.indexOf('private func recoverStuckBoardAfterWake()');
+  const body = SRC.slice(at, SRC.indexOf('\n    }\n', at) + 6);
+  const firstAt = body.indexOf('probeBoardHealth(port: port, timeout: Self.wakeFirstProbeGrace)');
+  const confirmAt = body.indexOf('probeBoardHealth(port: port, timeout: Self.wakeStuckTimeout)');
+  assert.ok(firstAt !== -1, 'the FIRST post-wake probe does not use the longer catch-up grace (wakeFirstProbeGrace)');
+  assert.ok(confirmAt !== -1, 'the confirm probe does not use the stuck threshold (wakeStuckTimeout)');
+  assert.ok(firstAt < confirmAt, 'the grace must be on the FIRST probe, not the confirm — the confirm already gives a board finishing catch-up a second chance');
 });
 
 test('#4342: the wake handler reclaims ONLY a sustained wedge, re-checking the gate before every kill', () => {
@@ -129,7 +147,7 @@ test('#4342: the wake handler reclaims ONLY a sustained wedge, re-checking the g
   assert.match(body, /asyncAfter\(deadline: \.now\(\) \+ 4\)/, 'the wedge path does not settle before a confirm probe (so wake-thrash could false-reclaim a healthy board)');
   assert.match(body, /guard confirm == \.wedged else \{[\s\S]*?return\n\s+\}/, 'the reclaim fires on a confirm result other than a second wedge');
   // Two probes (first + confirm), and the kill happens exactly once, only on the confirmed wedge.
-  assert.equal((body.match(/probeBoardHealth\(port: port\)/g) || []).length, 2, 'the handler does not probe twice (first + confirm)');
+  assert.equal((body.match(/probeBoardHealth\(port: port, timeout:/g) || []).length, 2, 'the handler does not probe twice (first + confirm)');
   assert.equal((body.match(/reclaimStuckBoard\(home: home, port: port\)/g) || []).length, 1, 'the reclaim is reachable from more than the confirmed-wedge path');
   // The gate is consulted three times: at entry, before the confirm probe, and before the kill
   // (TOCTOU: the ~14s probe+confirm window is long enough for a deliberate stop or an update to begin).

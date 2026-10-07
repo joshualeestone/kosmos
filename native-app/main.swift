@@ -2755,6 +2755,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// drops out at its next continuation if a newer wake has bumped it -- latest wake wins, and only
     /// one chain can ever reach the reclaim. Monotonic, so (unlike a boolean) it cannot latch.
     private var wakeRecoveryGeneration = 0
+    /// #4342: the wake probe timeouts. URLRequest.timeoutInterval is an IDLE timeout (it resets when
+    /// bytes arrive), so for a wedged board that accepts the connection and sends NOTHING it behaves
+    /// as a wall-clock deadline from the request. The FIRST post-wake probe uses the longer catch-up
+    /// grace, because right after a wake a healthy board can be busy with its own catch-up work and
+    /// slow to answer (Sonya's #4342 review); the confirm probe uses the shorter #4562 stuck threshold.
+    /// A healthy board pays neither -- it answers in milliseconds once its event loop frees -- so only
+    /// a near-full-grace SYNCHRONOUS block fails the first probe, which is itself effectively a wedge.
+    /// (The precise busy-vs-wedged discriminator, a CPU-busy check, is the follow-up once the live
+    /// sleep QA measures real post-wake behavior; a blind CPU threshold here, unmeasurable on a shared
+    /// box, could silently disable recovery or protection, which a longer wait cannot.)
+    static let wakeStuckTimeout: TimeInterval = 10
+    static let wakeFirstProbeGrace: TimeInterval = 20
     /// A version the installer finished while nobody asked (updates are on). The new app waits for the
     /// person's Restart, so words being typed on the page are never lost to a restart nobody chose.
     private var installedUpdate: String?
@@ -2849,7 +2861,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         wakeRecoveryGeneration += 1
         let gen = wakeRecoveryGeneration
         logLine("#4342: woke on a run computer; checking whether the board answers on \(port)")
-        probeBoardHealth(port: port) { [weak self] outcome in
+        probeBoardHealth(port: port, timeout: Self.wakeFirstProbeGrace) { [weak self] outcome in
             guard let self, self.wakeRecoveryGeneration == gen, self.computerMode != .connect else { return }
             switch outcome {
             case .alive:
@@ -2861,7 +2873,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
                     guard let self, self.wakeRecoveryGeneration == gen, self.computerMode != .connect else { return }
                     guard self.wakeRecoveryGateOpen(home: home) else { return }
-                    self.probeBoardHealth(port: port) { [weak self] confirm in
+                    self.probeBoardHealth(port: port, timeout: Self.wakeStuckTimeout) { [weak self] confirm in
                         guard let self, self.wakeRecoveryGeneration == gen, self.computerMode != .connect else { return }
                         guard confirm == .wedged else {
                             logLine("#4342: board answered (or went down) on the confirm probe; no restart")
@@ -2899,14 +2911,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// the MAIN thread. /api/health, NOT /api/status, and the difference is load-bearing: health is
     /// public (before the token gate), a few-byte fixed body with no snapshot() work, so it answers
     /// fast even on a board BUSY with many agents. /api/status runs the heavy snapshot() path, which a
-    /// loaded board can take seconds to serve -- long enough to blow the 10s window and get a
+    /// loaded board can take seconds to serve -- long enough to blow the window and get a
     /// busy-but-alive board wrongly reclaimed, the exact #4466 harm this wake path must not cause. The
-    /// 10s timeout is #4562's stuck threshold. The (response, error) -> outcome mapping is the pure
-    /// wakeProbeOutcome() so the build gate can verify it without a window server.
-    private func probeBoardHealth(port: Int, completion: @escaping (WakeProbeOutcome) -> Void) {
+    /// `timeout` is the caller's (the longer catch-up grace for the first post-wake probe, the #4562
+    /// stuck threshold for the confirm -- see wakeFirstProbeGrace/wakeStuckTimeout). The (response,
+    /// error) -> outcome mapping is the pure wakeProbeOutcome() so the build gate verifies it without a
+    /// window server.
+    private func probeBoardHealth(port: Int, timeout: TimeInterval, completion: @escaping (WakeProbeOutcome) -> Void) {
         guard let url = URL(string: "http://127.0.0.1:\(port)/api/health") else { completion(.down); return }
         var req = URLRequest(url: url)
-        req.timeoutInterval = 10
+        req.timeoutInterval = timeout
         req.cachePolicy = .reloadIgnoringLocalCacheData
         URLSession.shared.dataTask(with: req) { _, response, error in
             let outcome = wakeProbeOutcome(hasHTTPResponse: response != nil, errorCode: (error as NSError?)?.code ?? 0)
