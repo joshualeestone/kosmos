@@ -254,3 +254,12 @@ test('#5445 a board test can pin the fleet probes to the Mac arm on any runner',
     assert.deepEqual([...create.runningJobs('linux')], ['pinbot'], 'a platform the caller names still wins');
   } finally { create.setProbePlatformForTests(null); }
 });
+
+test('#5445 the two fleet polls fail soft on a refused runner, as the Mac arm does; an act through linuxRun does not', () => {
+  create.setRunner(() => { const e = new Error('refused for real'); e.code = 'LIVE_EXECUTION_REFUSED'; throw e; });
+  try {
+    assert.deepEqual(create.disabledJobsResult(undefined, 'linux'), { ok: false }, 'could-not-look, not a crash of the board poll');
+    assert.deepEqual([...create.runningJobs('linux')], []);
+    assert.throws(() => create.linuxRun(() => linuxjob.start('anybot')), /refused for real/, 'CONTROL: an act still fails loudly');
+  } finally { create.setRunner(fakeRunner); }
+});

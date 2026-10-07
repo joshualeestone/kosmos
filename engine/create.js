@@ -3349,7 +3349,7 @@ function nameInThisWorld(key) {
    Linux CI runner does not send its fake systemctl questions. */
 let probePlatformOverride = null;
 function setProbePlatformForTests(platform) { probePlatformOverride = platform || null; }
-function probePlatform(platform) { return platform || probePlatformOverride || process.platform; }
+function probePlatform(platform) { return platform || probePlatformOverride || process.platform; }   // server.js's offline row reads it too
 function disabledJobsResult(runner, platform) {   // #5445: platform injectable, as readJob's is
   // #3182: an optional injected runner so machine.agentAutostartCheck can read the
   // same disabled set through the SAME seam boardAutostartCheck uses (a fake
@@ -3377,7 +3377,9 @@ function linuxDisabledJobsResult(r) {
   let out;
   // An injected runner (machine.agentAutostartCheck's seam) is asked directly; the module run goes through linuxRun.
   try { out = r === run ? linuxRun(() => lj.listUnitFiles()) : lj.runWith(r, () => lj.listUnitFiles()); }
-  catch (e) { if (e && e.code === 'LIVE_EXECUTION_REFUSED') throw e; return { ok: false }; }
+  // A poll, so it fails soft like the Mac arm, the test gate's refusal included (review 4): linuxRun's loud throw is
+  // for acts; here a forgotten seam reads as could-not-look, exactly as a refused launchctl does.
+  catch { return { ok: false }; }
   if (!out || out.ok === false) return { ok: false };
   const names = new Set();
   for (const row of out.rows) {
@@ -3418,7 +3420,7 @@ function runningJobs(platform) {
         if (name !== null) names.add(name);
       }
       return names;
-    } catch (e) { if (e && e.code === 'LIVE_EXECUTION_REFUSED') throw e; return new Set(); }
+    } catch { return new Set(); }   // fail-soft, the test gate's refusal included, as the Mac arm (review 4)
   }
   try {
     const out = run('/bin/launchctl', ['list']);
@@ -6160,6 +6162,7 @@ module.exports = {
   SELF_STARTS,
   selfStarts,
   setProbePlatformForTests,
+  probePlatform,
   selfStartsSentence,
   createdLog, createdLogFile, createdCount, disabledJobs, disabledJobsResult, runningJobs,
 
