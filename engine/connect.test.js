@@ -2956,16 +2956,16 @@ test('#5419 a manifest with no build for this linux key refuses before anything 
   await assert.rejects(() => connect.download(() => {}, undefined, 'linux'), /no build for this kind of computer \(linux-(x64|arm64)-musl\)/);
 });
 
-test('#5419 review 2: the tmux default is the Mac\'s Homebrew path only on a Mac; elsewhere the tmux on PATH', () => {
-  const saved = process.env.AGENT_WORKFORCE_TMUX_BIN;
-  delete process.env.AGENT_WORKFORCE_TMUX_BIN;
-  try {
-    // review 3: create's Linux picker, one derivation (PATH plus the usual folders), then the bare name.
-    assert.equal(connect.tmuxBinPath('linux'), require('./create').linuxTmuxBin('linux') || 'tmux');
-    assert.equal(connect.tmuxBinPath('darwin'), '/opt/homebrew/bin/tmux', 'CONTROL: the Mac default is unchanged');
-    process.env.AGENT_WORKFORCE_TMUX_BIN = '/x/tmux';
-    assert.equal(connect.tmuxBinPath('linux'), '/x/tmux', 'the launcher\'s pick wins');
-  } finally { if (saved === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = saved; }
+test('#5419 review 2-4: on Linux the tmux for sign-in is create\'s picker (PATH, then the usual folders), never Homebrew\'s', () => {
+  // review 4: literal expectations, with the picker's PATH and runnable check injected, so a return of the hardcoded
+  // Homebrew path fails here (on this Mac the real picker would find /opt/homebrew/bin/tmux and hide it).
+  const onPath = '/opt/custom/bin/tmux';
+  const runnable = (f) => f === onPath || f === '/usr/bin/tmux';
+  assert.equal(connect.tmuxBinPath('linux', { PATH: '/opt/custom/bin' }, runnable), onPath, 'the tmux on PATH comes first');
+  assert.equal(connect.tmuxBinPath('linux', { PATH: '/nowhere' }, runnable), '/usr/bin/tmux', 'then /usr/bin, under a minimal PATH');
+  assert.equal(connect.tmuxBinPath('linux', { PATH: '/nowhere' }, () => false), 'tmux', 'none found: the bare name');
+  assert.equal(connect.tmuxBinPath('linux', { AGENT_WORKFORCE_TMUX_BIN: '/x/tmux', PATH: '/opt/custom/bin' }, runnable), '/x/tmux', 'the launcher\'s pick wins');
+  assert.equal(connect.tmuxBinPath('darwin', {}), '/opt/homebrew/bin/tmux', 'CONTROL: the Mac default is unchanged');
 });
 
 test('#5419 review 2: the C-library report is read with network handles excluded, and the setting is put back', () => {
