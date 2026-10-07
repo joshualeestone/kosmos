@@ -2,11 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: sandbox-4636
-diff_hash: bb9874fbe778f6ddd8c28b996fd160d43b80818069bb7b6aa622418988fbb0f5
-validation: light run on Mortals (cli.sandbox-4636.test.js: 29 passed; tools/test-board-watchdog-2955.sh: 0 failures; bash -n clean)
+diff_hash: 205b0bb7a09fc0010a32b0180c4def91353e127f5b6141c57d3b35686abcaaa4
+validation: on current main (b7224e033), with tools/run-tests.sh's env: cli.sandbox-4636 + 4466 health/busy tests + guards 123/0; tools/test-board-watchdog-2955.sh 0 failures; bash -n clean
 subdir_audit: clean
-timestamp: 2026-10-02T21:43:23Z
-iterations: 26
+timestamp: 2026-10-07T02:31:45Z
+iterations: 28
 converged: true
 ---
 
@@ -155,3 +155,20 @@ Counts are the bracket tags as each reviewer wrote them.
 #### Iteration 26
 **Reviewer model:** sonnet (10 mutations, all red)
 - Zero findings needing a change. CONVERGED. One cosmetic NIT (watchdog log words for a blind reading, unreachable under launchd) left as is.
+
+
+## [CHALLENGE-LOOP] Takeover rounds on current main (Angel, 2026-10-06; Johnny Cage out of quota, Splinter 21:15)
+
+The branch was rebased onto main b7224e033 (which now has #4933's loopback route probe), so the 26 rounds above describe the pre-rebase code. Two fresh blind rounds on the rebased code:
+
+#### Iteration 27
+**Reviewer model:** opus
+- [WARNING] install/kosmos: _ipv4_listener ran /usr/sbin/lsof directly while its guard accepts /usr/bin/lsof (main's _lsof_cmd), so on Linux the unreachable state could never be reached --> FIXED (f28644f39): uses _lsof_cmd
+- [NIT] cli.sandbox-4636.test.js: the agent start arm matched a phrase both paths print --> FIXED: asserts the guard's own "nothing to start"
+- [NIT] usage header exit 5 omitted the "cannot check" case --> FIXED
+- [NIT] reprobe can cost two #4933 route probes on a slow proxy (still inside report --auto's budget) --> noted
+- [NIT] setup.sh sandboxed-update wording is #4651's, unchanged here --> noted
+
+#### Iteration 28
+**Reviewer model:** sonnet
+**New findings:** NITs only (an "all three" count in a comment, setup.sh's bare lsof predating this change). **Converged.**
