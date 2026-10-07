@@ -285,3 +285,8 @@ test('#4918 enableLinger says whether linger is on, read back from loginctl', ()
     try { assert.equal(linuxjob.enableLinger().lingering, on, out.trim()); } finally { linuxjob.setRunnerForTests(null); }
   }
 });
+
+test('#4918 review 24: in a test process a faked Linger=no is never overruled by the machine', () => {
+  linuxjob.setRunnerForTests((cmd, args) => (args[0] === 'show-user' ? { ok: true, stdout: 'Linger=no\n' } : { ok: true, stdout: '' }));
+  try { assert.equal(linuxjob.enableLinger().lingering, false); } finally { linuxjob.setRunnerForTests(null); }
+});
