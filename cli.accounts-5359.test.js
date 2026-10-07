@@ -1,0 +1,112 @@
+'use strict';
+/**
+ * #5359: `kosmos accounts`, the agent's read of the board's provider accounts (GET /api/accounts), so an agent no
+ * longer hand-rolls the authenticated read. The Windows half is tools.windows-kosmos-cli-accounts-5359.test.js, held
+ * to the same lines.
+ *
+ * Harness as cli.connections-4451.test.js: an in-process stub answering the CLI's own health check with a page
+ * containing "Kosmos", and ASYNC child processes (a synchronous one blocks the stub's event loop).
+ */
+require('./test-support/tmpscope');   // #4273: first, so every temp dir this file makes is contained and removed
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const http = require('node:http');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { spawn } = require('node:child_process');
+/* #4796: the CLI reads the board token from the data root. A fresh one here, so the live board's token never
+   travels to this test's stub board. */
+const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-accounts-5359-'));
+process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
+// The CLI reads board.token from store.ROOT under this data root; ask store where that is rather than assume it.
+process.env.AGENT_WORKFORCE_DATA = DATA;
+const ROOT = require('./engine/store').ROOT;
+fs.mkdirSync(ROOT, { recursive: true });
+fs.writeFileSync(path.join(ROOT, 'board.token'), 'board-tok-5359\n', { mode: 0o600 });
+
+const CLI = path.join(__dirname, 'install', 'kosmos');
+
+function withStub(answers, fn) {
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    req.on('data', () => {});
+    req.on('end', () => {
+      seen.push({ method: req.method, url: req.url, headers: req.headers });
+      const a = answers[req.method + ' ' + req.url];
+      if (a) { res.writeHead(a.status || 200, { 'content-type': 'application/json' }); return res.end(JSON.stringify(a.json)); }
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end('<title>Kosmos</title>Agent Workforce');
+    });
+  });
+  return new Promise((resolve, reject) => {
+    server.listen(0, '127.0.0.1', async () => {
+      let failure = null;
+      try { await fn(server.address().port, seen); } catch (e) { failure = e; }
+      server.close(() => (failure ? reject(failure) : resolve()));
+    });
+  });
+}
+
+function cli(port, args) {
+  return new Promise((resolve, reject) => {
+    const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port) };
+    delete env.KOSMOS_AGENT_TOKEN;
+    const child = spawn(CLI, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { out += d; });
+    const t = setTimeout(() => child.kill('SIGKILL'), 20000);
+    child.on('close', (code, sig) => {
+      clearTimeout(t);
+      const r = { code, out };
+      /* #3628: a killed CLI has no exit code; it must fail the test, never read as one. */
+      if (typeof r.code !== 'number') { reject(new Error('the CLI gave no exit code (' + sig + '): killed by the 20s limit. ' + out)); return; }
+      resolve(r);
+    });
+  });
+}
+
+const ACCOUNTS = { accounts: [
+  { provider: 'anthropic', providerName: 'Anthropic / Claude', email: 'a@example.com', authMode: 'subscription', connection: { state: 'connected' } },
+  { provider: 'openai', providerName: 'OpenAI', email: 'b@example.com', authMode: 'chatgpt', connection: { state: 'unknown', liveCheckPending: true } },
+  { provider: 'google', providerName: 'Google Gemini', authMode: 'apikey', connection: { state: 'none', because: 'the key was refused' } },
+  { provider: 'xai', providerName: 'xAI Grok', email: 'c@example.com', connection: { state: 'unknown', because: 'we could not check this account just now' } },
+] };
+
+test('#5359: kosmos accounts reads /api/accounts with the board token, and says each account\'s state in words', () => withStub({ 'GET /api/accounts': { json: ACCOUNTS } }, async (port, seen) => {
+  const r = await cli(port, ['accounts']);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /^Anthropic \/ Claude: a@example\.com \(subscription\): signed in$/m);
+  assert.match(r.out, /^OpenAI: b@example\.com \(chatgpt\): being checked now; ask again in a few seconds$/m);
+  assert.match(r.out, /^Google Gemini: an account with no email on record \(apikey\): not signed in: the key was refused$/m);
+  assert.match(r.out, /^xAI Grok: c@example\.com: could not be checked just now: we could not check this account just now$/m);
+  const q = seen.find((x) => x.url === '/api/accounts');
+  assert.ok(q, 'CONTROL: the route was not asked');
+  assert.equal(q.headers['x-kosmos-board-token'], 'board-tok-5359', 'the board token did not reach the route');
+}));
+
+test('#5359: kosmos accounts says when there are none, when the board refuses, and when the answer is unreadable', async () => {
+  await withStub({ 'GET /api/accounts': { json: { accounts: [] } } }, async (port) => {
+    const r = await cli(port, ['accounts']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /No provider accounts are set up on this board yet/);
+  });
+  await withStub({ 'GET /api/accounts': { status: 401, json: { error: 'that needs the board token' } } }, async (port) => {
+    const r = await cli(port, ['accounts']);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /Kosmos refused that request: that needs the board token\./);
+  });
+  await withStub({ 'GET /api/accounts': { json: { something: 'else' } } }, async (port) => {
+    const r = await cli(port, ['accounts']);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /an answer we could not read about its accounts/);
+  });
+});
+
+test('#5359: kosmos accounts --help prints its usage and never runs the live check', () => withStub({ 'GET /api/accounts': { json: ACCOUNTS } }, async (port, seen) => {
+  const r = await cli(port, ['accounts', '--help']);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /^Usage: kosmos accounts /m);
+  assert.equal(seen.filter((x) => x.url === '/api/accounts').length, 0, '--help ran the live check');
+}));

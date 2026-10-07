@@ -145,6 +145,7 @@ const USAGE = {
     '       kosmos community endorse <agent-name> <1-5> <review>   (or pipe the review in)    kosmos community unendorse <agent-name>',
   ].join('\n'),
   connections: 'Usage: kosmos connections   (what is connected in Settings > Connections, from what Kosmos has stored; it never checks with each service)',
+  accounts: 'Usage: kosmos accounts   (the provider accounts this board has, and whether each is signed in, checked live; not for a loop)',
   connect: 'Usage: kosmos connect <service>   (the token on stdin, never as an argument, e.g. printf \'%s\' "$TOKEN" | kosmos connect brave-search; kosmos connections lists the services)\n       (in PowerShell, text piped into kosmos does not reach it: run it from Git Bash)',
 };
 
@@ -1589,6 +1590,31 @@ async function verbConnections(ctx) {
   return 0;
 }
 
+/* #5359, as install/kosmos cmd_accounts: which providers' accounts this board has and whether each is signed in, from
+   GET /api/accounts (each account checked live, so a moment that needs it, never a loop). Board token, as connections. */
+const ACCOUNTS_TIMEOUT_MS = 60000;
+async function verbAccounts(ctx) {
+  const r = await ctx.call('GET', '/api/accounts', undefined, { agent: false, timeoutMs: ACCOUNTS_TIMEOUT_MS });
+  if (!r.reached) return ctx.unreachable('read which accounts are set up');
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); return 1; }
+  const accounts = r.json && Array.isArray(r.json.accounts) ? r.json.accounts : null;
+  if (r.status >= 400 || !accounts) { ctx.err('Kosmos gave an answer we could not read about its accounts.'); return 1; }
+  if (!accounts.length) { ctx.out('No provider accounts are set up on this board yet. The person adds one in Settings > AI Models.'); return 0; }
+  for (const a of accounts) {
+    if (!a || typeof a !== 'object') continue;
+    const who = typeof a.email === 'string' && a.email ? a.email : 'an account with no email on record';
+    const how = typeof a.authMode === 'string' && a.authMode ? ' (' + a.authMode + ')' : '';
+    const c = a.connection && typeof a.connection === 'object' ? a.connection : {};
+    const why = typeof c.because === 'string' && c.because ? ': ' + c.because : '';
+    const state = c.liveCheckPending === true ? 'being checked now; ask again in a few seconds'
+      : c.state === 'connected' ? 'signed in'
+      : c.state === 'none' ? 'not signed in' + why
+      : 'could not be checked just now' + why;
+    ctx.out((typeof a.providerName === 'string' && a.providerName ? a.providerName : (a.provider || 'a provider')) + ': ' + who + how + ': ' + state);
+  }
+  return 0;
+}
+
 /* The door checks the token with the service (up to 30 s) before storing it, so connect waits longer. */
 const CONNECT_TIMEOUT_MS = 35000;
 const CONNECT_TOKEN_MAX_BYTES = 64 * 1024;
@@ -1661,6 +1687,7 @@ const VERB_HANDLERS = {
   feedback: subcommandRequired('feedback'),
   community: async (ctx) => { ctx.err(USAGE.community); return 2; },
   connections: verbConnections,
+  accounts: verbAccounts,
   connect: verbConnect,
 };
 const SUBCOMMAND_HANDLERS = {
@@ -1702,6 +1729,7 @@ const DESCRIBE = {
   feedback: 'write or read the daily feedback report',
   community: 'post to or read the Kosmos+ community',
   connections: 'list the outside services and which are connected',
+  accounts: 'list the provider accounts and whether each is signed in',
   connect: 'connect an outside service with its token',
 };
 const COMMAND_LIST = VERBS.map((v) => '  kosmos ' + v.padEnd(13) + DESCRIBE[v]).join('\n');

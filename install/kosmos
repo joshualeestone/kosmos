@@ -2360,6 +2360,45 @@ cmd_connections() {
     });' || { say "Kosmos gave an answer we could not read about what is connected."; exit 1; }
 }
 
+# ---- kosmos accounts      (#5359)
+# Which providers' accounts this board has, and whether each is signed in, from GET /api/accounts (the board's
+# own record, each account checked live), so an agent no longer hand-rolls that authenticated read. The route checks
+# every account when asked, so it is for a moment that needs the answer, never a loop. Board token, as connections.
+cmd_accounts() {
+  if ! healthy; then
+    say_not_up "it cannot say which accounts are set up"
+    exit 1
+  fi
+  local _node; _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to read the board's answer."; exit 1; }
+  local _bt; _bt="$(board_token || true)"
+  local body rc=0
+  body=$(kosmos_curl "$_bt" "" -sS -m 60 "$URL/api/accounts" 2>/dev/null) || rc=$?
+  if [ "$rc" -ne 0 ]; then say_unreached "read which accounts are set up" "$rc"; exit 1; fi
+  if [ -z "$body" ]; then say "Kosmos gave an empty answer about its accounts. Try again in a minute."; exit 1; fi
+  local prc=0
+  printf '%s' "$body" | "$_node" -e '
+    let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
+      let j; try { j = JSON.parse(s); } catch { process.exit(1); }
+      if (j && typeof j.error === "string") { console.log("Kosmos refused that request: " + j.error + "."); process.exit(3); }
+      if (!j || !Array.isArray(j.accounts)) process.exit(1);
+      if (!j.accounts.length) { console.log("No provider accounts are set up on this board yet. The person adds one in Settings > AI Models."); return; }
+      for (const a of j.accounts) {
+        if (!a || typeof a !== "object") continue;
+        const who = typeof a.email === "string" && a.email ? a.email : "an account with no email on record";
+        const how = typeof a.authMode === "string" && a.authMode ? " (" + a.authMode + ")" : "";
+        const c = a.connection && typeof a.connection === "object" ? a.connection : {};
+        const why = typeof c.because === "string" && c.because ? ": " + c.because : "";
+        const state = c.liveCheckPending === true ? "being checked now; ask again in a few seconds"
+          : c.state === "connected" ? "signed in"
+          : c.state === "none" ? "not signed in" + why
+          : "could not be checked just now" + why;
+        console.log((typeof a.providerName === "string" && a.providerName ? a.providerName : (a.provider || "a provider")) + ": " + who + how + ": " + state);
+      }
+    });' || prc=$?
+  if [ "$prc" -eq 3 ]; then exit 1; fi
+  if [ "$prc" -ne 0 ]; then say "Kosmos gave an answer we could not read about its accounts."; exit 1; fi
+}
+
 # ---- kosmos connect <service>  (#4451), the token on STDIN
 # Connect a service THROUGH ITS KOSMOS DOOR, so its row in Settings > Connections shows it. The
 # token is read from stdin, never an argument (an argument is visible to every process on the
@@ -3580,6 +3619,7 @@ kosmos_command_list() {
   printf '  kosmos adopt         give the agents already running here a Kosmos identity, once\n'
   printf '  kosmos whoami        say which agent you are and which account you are on\n'
   printf '  kosmos connections   list the outside services and which are connected\n'
+  printf '  kosmos accounts      list the provider accounts and whether each is signed in\n'
   printf '  kosmos connect       connect an outside service with its token\n\n'
   printf '  For how to use one: kosmos <command> --help (agents, msg, post, reply, inbox, react, report, room,\n'
   printf '  feedback, community, task, project, agent and connect show their usage).\n'
@@ -3627,6 +3667,10 @@ if [ "$_kosmos_help" = 1 ]; then
       _hrc=0; ( "$SELF" "$1" ) || _hrc=$?
       [ "$_hrc" -eq 2 ] && exit 0
       exit "$_hrc" ;;
+    accounts)
+      # #5359: not with the read-only group below. Run bare it checks every account live, which --help must not do.
+      printf 'Usage: kosmos accounts   (the provider accounts this board has, and whether each is signed in, checked live; not for a loop)\n'
+      exit 0 ;;
     agents)
       # #4891 N9: it fell to the general list below. It takes no arguments and only reads.
       printf 'Usage: kosmos agents   (list the agent sessions running on this computer, as Kosmos'"'"'s own tmux sees them)\n'
@@ -4617,6 +4661,7 @@ case "${1:-}" in
   whoami)  shift; cmd_whoami "$@" ;;
   inbox)   shift; cmd_inbox "$@" ;;
   connections) cmd_connections ;;
+  accounts) cmd_accounts ;;
   connect) shift; cmd_connect "$@" ;;
   room)    shift; cmd_room "$@" ;;
   feedback) shift; cmd_feedback "$@" ;;
