@@ -1133,6 +1133,23 @@ const DEFAULT_IS_MUSL = () => {
 let isMuslFn = DEFAULT_IS_MUSL;
 function setMuslDetectForTests(fn) { isMuslFn = typeof fn === 'function' ? fn : DEFAULT_IS_MUSL; muslCache = null; }
 
+/* #5419 review 24: Claude Code's musl build loads libstdc++ and libgcc_s, which a stock Alpine does not have; without
+   them the 200MB download verifies and then fails at `claude install` with a loader error shown only as a log tail.
+   Asked before any bytes move, only on a real musl Linux host (a test drives it through the seam). */
+const MUSL_LIBS_MISSING = 'This computer uses musl (Alpine, for example), and Claude Code needs libstdc++ and libgcc there, which are not installed';
+const MUSL_LIBS_HINT = 'Install them (for example apk add libstdc++ libgcc) and try again';
+function muslLibsPresent(exists = fs.existsSync) {
+  const has = (name) => ['/usr/lib', '/lib', '/usr/local/lib'].some((d) => exists(path.join(d, name)));
+  return has('libstdc++.so.6') && has('libgcc_s.so.1');
+}
+let muslLibsOverride = null;   // a seam: tests answer "missing" or "present" from any host
+function setMuslLibsCheckForTests(fn) { muslLibsOverride = typeof fn === 'function' ? fn : null; }
+function muslLibsMissing(platform) {
+  if (platform !== 'linux') return false;
+  if (muslLibsOverride) return Boolean(muslLibsOverride());
+  return process.platform === 'linux' && isMuslFn() && !muslLibsPresent();
+}
+
 /* The manifest/URL key for the Claude Code build to fetch, matching downloads.claude.ai's manifest.platforms keys:
    darwin-x64/arm64, win32-x64/arm64, and (#5419) linux-x64/arm64 plus their -musl builds. Takes the platform (and,
    for tests, the arch) as parameters so another OS's download is testable on a Mac. Only reached for a platform
@@ -1143,8 +1160,7 @@ function setMuslDetectForTests(fn) { isMuslFn = typeof fn === 'function' ? fn : 
    manifest carries, so download refuses with "no build for this kind of computer" rather than placing an x64 binary
    that fails with "exec format error" (#5419). */
 function platformKey(platform = process.platform, rawArch = os.arch()) {
-  /* ⚠️ Known gap (#5419 review 21): Anthropic documents its musl build as also needing libgcc, libstdc++ and ripgrep on
-     Alpine, which nothing here installs or checks; piece D's installer is where that gets said (not reachable before). */
+  /* musl: the libraries that build loads are checked before download (muslLibsMissing, review 24). */
   if (platform === 'linux') return `linux-${rawArch}${isMuslFn() ? '-musl' : ''}`;
   const arch = rawArch === 'arm64' ? 'arm64' : 'x64';
   return `${platform === 'win32' ? 'win32' : 'darwin'}-${arch}`;
@@ -1221,6 +1237,7 @@ async function download(onProgress, track, platform = process.platform) {
     // sign-in only (the agent path's tmux pick on Linux is piece D's); the hint names no single package manager.
     throw new Error(`${LINUX_NO_TMUX}, so Claude was not downloaded. ${LINUX_TMUX_HINT}`);
   }
+  if (muslLibsMissing(platform)) throw new Error(`${MUSL_LIBS_MISSING}, so Claude was not downloaded. ${MUSL_LIBS_HINT}`);
   const base = downloadBase();
   const version = (await fetchText(`${base}/latest`, undefined, track)).trim();
   activeRequest = null; // finished; "set" must keep meaning "in flight"
@@ -2429,6 +2446,11 @@ async function runFlow(owner, haveBinary) {
      the download it would surface only as the log tail under "we could not download Claude"). */
   if (tmuxMissingForSignin(signinPlatform())) {
     becomeStuck(owner, `${LINUX_NO_TMUX}. ${LINUX_TMUX_HINT}`, null);
+    return;
+  }
+  // Only when Claude has to be downloaded: the libraries are the download's problem, said in the headline.
+  if (!haveBinary && muslLibsMissing(signinPlatform())) {
+    becomeStuck(owner, `${MUSL_LIBS_MISSING}. ${MUSL_LIBS_HINT}`, null);
     return;
   }
   if (!haveBinary) {
@@ -3645,6 +3667,7 @@ module.exports = {
   setMuslDetectForTests,
   detectMusl,   // #5419: pure, so each branch is tested
   readReportQuietly, tmuxBinPath, tmuxMissingOnLinux, tmuxMissingForSignin, setTmuxCheckForTests,   // #5419: tested directly
+  muslLibsPresent, muslLibsMissing, setMuslLibsCheckForTests,   // #5419 review 24
   setRefreshExpiryReader, // #3326 test seam
   PHASE, SESSION, ACTIVE_PHASES,
   state, publicView, start, submitCode, cancel,

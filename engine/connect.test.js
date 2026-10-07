@@ -3024,6 +3024,39 @@ test('#5419: download refuses a Linux host with no tmux before any request is ma
   assert.ok(requests > 0, 'CONTROL: with tmux present the service is asked');
 });
 
+test('#5419: download refuses a musl host missing libstdc++/libgcc before any request; present, it goes on', async (t) => {
+  let requests = 0;
+  const http = require('node:http');
+  const server = http.createServer((req, res) => { requests += 1; res.writeHead(404); res.end(); });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const prev = process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = `http://127.0.0.1:${server.address().port}`;
+  connect.setTmuxCheckForTests(() => false);
+  connect.setMuslLibsCheckForTests(() => true);
+  t.after(() => {
+    connect.setMuslLibsCheckForTests(null);
+    connect.setTmuxCheckForTests(TMUX_PRESENT);
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; else process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = prev;
+    server.close();
+  });
+  await assert.rejects(() => connect.download(() => {}, undefined, 'linux'), /needs libstdc\+\+ and libgcc there.*apk add libstdc\+\+ libgcc/);
+  assert.equal(requests, 0, 'the download service was asked before the library check');
+  connect.setMuslLibsCheckForTests(() => false);
+  await assert.rejects(() => connect.download(() => {}, undefined, 'linux'), (e) => !/libstdc/.test(e.message), 'CONTROL: with the libraries it goes on');
+  assert.ok(requests > 0, 'CONTROL: with the libraries the service is asked');
+});
+
+test('#5419: muslLibsPresent needs both libraries, in any of the usual folders; off Linux nothing is asked', () => {
+  const at = (...files) => (p) => files.includes(p);
+  assert.equal(connect.muslLibsPresent(at('/usr/lib/libstdc++.so.6', '/usr/lib/libgcc_s.so.1')), true);
+  assert.equal(connect.muslLibsPresent(at('/usr/lib/libstdc++.so.6', '/lib/libgcc_s.so.1')), true, 'split across folders');
+  assert.equal(connect.muslLibsPresent(at('/usr/lib/libstdc++.so.6')), false, 'libgcc_s missing');
+  assert.equal(connect.muslLibsPresent(at('/usr/lib/libgcc_s.so.1')), false, 'libstdc++ missing');
+  assert.equal(connect.muslLibsPresent(at()), false);
+  for (const p of ['darwin', 'win32']) assert.equal(connect.muslLibsMissing(p), false, p + ' is never asked');
+  if (process.platform !== 'linux') assert.equal(connect.muslLibsMissing('linux'), false, 'a test host that is not Linux never reads its own folders');
+});
+
 test('#5419: the real Linux tmux pick is held between sign-in ticks, and a new launcher value is asked again', () => {
   const create = require('./create');
   const runners = require('./runners');
@@ -3082,6 +3115,33 @@ test('#5419: a "no tmux found" answer is not held, so a tmux installed after a r
     create.linuxTmuxBin = orig;
     if (saved === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = saved;
   }
+});
+
+driverTest('#5419: with no Claude on a musl host missing its libraries, the headline says so and nothing is downloaded', async (t) => {
+  let requests = 0;
+  const http = require('node:http');
+  const server = http.createServer((req, res) => { requests += 1; res.writeHead(404); res.end(); });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const prevBase = process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = `http://127.0.0.1:${server.address().port}`;
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = nodePath.join(SANDBOX, 'no-such-claude');   // nothing installed
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  connect.setSigninPlatformForTests('linux');
+  connect.setTmuxCheckForTests(() => false);
+  connect.setMuslLibsCheckForTests(() => true);
+  t.after(() => {
+    connect.setSigninPlatformForTests('darwin');
+    connect.setTmuxCheckForTests(TMUX_PRESENT);
+    connect.setMuslLibsCheckForTests(null);
+    if (prevBase === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; else process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = prevBase;
+    server.close();
+  });
+  await connect.start();
+  await until(() => connect.state().phase === connect.PHASE.STUCK, 5000);
+  assert.match(connect.state().because, /needs libstdc\+\+ and libgcc there/, 'the cause is not in the headline: ' + connect.state().because);
+  assert.equal(requests, 0, 'the download service was asked before the library check');
 });
 
 driverTest('#5419: with no Claude and no tmux on Linux, the headline is the tmux sentence and nothing is downloaded', async (t) => {
