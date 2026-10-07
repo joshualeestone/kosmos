@@ -218,7 +218,7 @@ function read() {
     device_id: typeof parsed.device_id === 'string' ? parsed.device_id : '',
     /* kosmos#5422: the ids this computer signed in with before device_id (the opaque one before it had a key, an
        older key's). Their rows stay pending at the coordinator, so they are still known as this computer's own
-       (#4610) and never ask to be allowed. Newest first, at most PAST_IDS. */
+       (#4610) and never ask to be allowed. Newest first, never trimmed (see useDeviceId). */
     past_device_ids: Array.isArray(parsed.past_device_ids) ? parsed.past_device_ids.filter((x) => typeof x === 'string') : [],
     /* Federation Kosmos+ gate: the account's last-known coordinator standing,
        cached from the sign-in flow (the only place the coordinator surfaces it,
@@ -1642,9 +1642,6 @@ let mintedDeviceId = null;
 /* kosmos#5422: the id this process last signed in with and the ids before it, held in memory so a repair of a damaged
    remote.json (whose own write of them was refused) puts them back (see write()). */
 let heldIdentity = null;
-const PAST_IDS = 8;
-/* kosmos#5422: record that this computer now signs in as `id`. The id it used before moves to past_device_ids, so
-   its row (still pending at the coordinator) stays this computer's own. Best-effort, like the mint below. */
 /* kosmos#5422: every id this computer has signed in with (the file's and, when the file cannot be read, the ones this
    process holds). Its rows at the coordinator are its own: never a request to allow (#4610), never in the allowed
    list (server.js /api/remote/devices). */
@@ -1653,12 +1650,16 @@ function ownDeviceIds(settings = read()) {
   if (heldIdentity) ids.push(heldIdentity.device_id, ...heldIdentity.past_device_ids);
   return ids.filter((x, i, all) => typeof x === 'string' && x && all.indexOf(x) === i);
 }
+/* kosmos#5422: record that this computer now signs in as `id`. The id it used before moves to past_device_ids, so
+   its row (still pending at the coordinator) stays this computer's own. No cap: a row at the coordinator outlives any
+   count, and every new id is a person's act (a Forget, a new key), so the list stays short. Best-effort, like the
+   mint below. */
 function useDeviceId(id) {
   const cur = read();
   // A file that cannot be read says nothing about the ids before: the ones this process holds stand in for it.
   const base = cur.ok === false && heldIdentity ? heldIdentity : cur;
   const past = base.device_id === id ? base.past_device_ids
-    : [base.device_id, ...base.past_device_ids].filter((x, i, all) => x && x !== id && DEVICE_ID.test(x) && all.indexOf(x) === i).slice(0, PAST_IDS);
+    : [base.device_id, ...base.past_device_ids].filter((x, i, all) => x && x !== id && DEVICE_ID.test(x) && all.indexOf(x) === i);
   heldIdentity = { device_id: id, past_device_ids: past };
   if (cur.device_id !== id) write({ device_id: id, past_device_ids: past });
 }
@@ -1703,8 +1704,9 @@ async function signinDeviceArgs(forVerify) {
   const r = parseSaid(asked);
   const id = r.ok && r.data && typeof r.data.device_id === 'string' && KEYED_ID.test(r.data.device_id) ? r.data.device_id : '';
   if (!id) return { failed: { ok: false, because: "this computer's sign-in key could not be opened (" + (r.because || 'no id came back') + ')' } };
-  useDeviceId(id);
-  return { args: ['--device-key', DEVICE_KEY_FILE()] };
+  // Recorded by the caller once the coordinator has taken a start with it, not here: a cancelled or refused start
+  // never reached the coordinator, so its id must not displace the one this computer signed in with.
+  return { args: ['--device-key', DEVICE_KEY_FILE()], keyedId: id };
 }
 
 /** Take the tunnel's `stage` answer, stash any bearer material HERE, and return
@@ -1904,6 +1906,8 @@ async function signinStart(email, deviceName) {
     '--email', email, ...dev.args];
   pushDeviceName(args, deviceName);
   const r = parseSaid(await setupRun(args));
+  // kosmos#5422: the key's id becomes this computer's once the coordinator has taken a start with it.
+  if (r.ok && dev.keyedId) useDeviceId(dev.keyedId);
   // Deliberately does NOT persist the email. The setup flow writes it because
   // setupComplete reads it back; sign-in carries the email explicitly through
   // verify, so nothing here needs it. Writing it would also make status()'s

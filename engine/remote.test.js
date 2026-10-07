@@ -1817,6 +1817,20 @@ test('kosmos#5422: an exit 2 that is not the unknown-verb error is not read as a
   assert.ok(!recorded().some((c) => c[1] === 'start'));
 });
 
+test('kosmos#5422: a start the coordinator does not take leaves this computer\'s id where it was', async () => {
+  fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: 'old-opaque-id' }));
+  process.env.FAKE_TUNNEL_MODE = 'devkey';
+  let r;
+  try { r = await remote.signinStart('down@example.com'); } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  assert.equal(r.ok, false, 'precondition: the coordinator was unreachable');
+  assert.ok(recorded().some((c) => c[1] === 'start' && c.includes('--device-key')), 'precondition: the start was keyed');
+  assert.equal(remote.read().device_id, 'old-opaque-id', 'an id the coordinator never took displaced the one in use');
+  // CONTROL: a start it takes moves it.
+  process.env.FAKE_TUNNEL_MODE = 'devkey';
+  try { await remote.signinStart('her@example.com'); } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  assert.match(remote.read().device_id, /^k1\./);
+});
+
 test('kosmos#5422: a cancel while start asks the tunnel sends no start', async () => {
   process.env.FAKE_TUNNEL_MODE = 'devkey';
   try {
