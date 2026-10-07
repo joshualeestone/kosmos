@@ -96,6 +96,7 @@ const {
 const removal = require('./engine/remove');
 const worldstarts = require('./engine/worldstarts'); // #1704 PR3: pause/resume a Kosmos's agents across a switch
 const worldimport = require('./engine/worldimport'); // #1704 PR4: copy agents from one Kosmos into another
+const worldview = require('./engine/worldview'); // #5393: one view across worlds (tasks nobody is on, provider state)
 
 /* #5223: the question clause for an agent that is asking with no words of its own, when the viewport
    said it has NO window (a Windows agent, `view.noWindow`). Both routes compose it after "<name> is
@@ -6173,6 +6174,21 @@ const server = http.createServer(async (req, res) => {
         activeWorldId: worlds.activeWorld(base).id,
         bootedWorldId: require('./engine/worldenv').bootedWorld(),
       });
+    } catch (_e) {
+      sendJson(res, 500, { because: 'the world registry is not readable on this machine' });
+    }
+    return;
+  }
+  /* #5393: one view across worlds. Every Kosmos's count of tasks nobody is on (read from its own projects.json,
+     engine/worldview.js), and each provider's state for the Kosmos this board is running (from safeRoster()).
+     Read-only and token-gated like GET /api/worlds. */
+  if (pathname === '/api/worlds/overview' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let base;
+    try { base = worldBase(); } catch (_e) { sendJson(res, 500, { because: 'the world registry is not readable on this machine' }); return; }
+    const cards = safeRoster();   // null when the cards could not be read
+    try {
+      const runningId = require('./engine/worldenv').bootedWorld() || worlds.DEFAULT_ID;
+      sendJson(res, 200, { worlds: worldview.overview({ base, runningId, cards }) });
     } catch (_e) {
       sendJson(res, 500, { because: 'the world registry is not readable on this machine' });
     }
