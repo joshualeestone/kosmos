@@ -23,8 +23,9 @@ Card: joshualeestone/kosmos#5481 (Josh, 2026-10-07; scope updated by Josh 08:16 
   an update (the binary is replaced, the process keeps old code) cannot open Settings, so it keeps the sentence.
 - web/index.html: on a desktop-bridge `mic-denied` or `speech-denied`, the mic gets class `has-pill` (hidden) and a
   `.voice-pill` is inserted after it, with ONE visit id minted for the pill. The label posts `{op:'settings', pane, id}`; `allowed` with that id clears the pill
-  and calls voiceToggle on the same mic, but only if the box is where it was when Settings was PRESSED (voiceWhere without its
-  page-hidden part, which can lag the app's return: same agent or room, the box laid out, open); X clears it and focuses the mic. The refusal is said by the pill's own hidden role=alert span, never the shared message line.
+  and calls voiceToggle on the same mic, but only if the box is where it was when Settings was PRESSED (voiceWhere(box, true),
+  steady: same agent or room, the box laid out, open, without the page-hidden part), and only once the page is
+  visible (a start while it reads hidden would be cancelled by the watcher's first look); X clears it and focuses the mic. The refusal is said by the pill's own hidden role=alert span, never the shared message line.
   `settings-next` repoints the same pill to the Microphone pane and says so again (a fresh alert); `refused` swaps it for the restricted sentence. Other refusals keep their sentence.
 
 ## Measured (not built)
@@ -35,8 +36,14 @@ The shipped binary is signed alone (identifier kosmos-app, Info.plist not bound)
 both got the system prompt on macOS 26.7.1, so that is not the cause there. Re-signing is not done here: it changes
 the identity existing grants are keyed on.
 
+## Not measured
+The round trip on a real Mac (press the pill, flip the switch in System Settings, come back, the mic starts) needs a
+person to click the switch, which a headless run cannot. Unmeasured: that authorizationStatus changes inside the
+running process without a relaunch, and the order of didBecomeActive against the page becoming visible (the page
+waits for visibilitychange either way). Words shipped and mechanism built; the behaviour is to be seen on first use.
+
 ## Tests
-- `--kosmos-app-voice-selftest`: 38 rows, including stampId, visitOnReturn (open, ready, too late), the once-a-second Settings limit, pane mapping, allowedEvent (allowed, settings-next, nothing) (the event and its Settings-visit id), readyToStart (speech allowed with the mic never asked counts as ready), and the restricted split.
+- `--kosmos-app-voice-selftest`: 40 rows, including settingsAccepted (Settings only after a denial), stampId, visitOnReturn (open, ready, too late), the once-a-second Settings limit, pane mapping, allowedEvent (allowed, settings-next, nothing) (the event and its Settings-visit id), readyToStart (speech allowed with the mic never asked counts as ready), and the restricted split.
 - web.voice-4409.test.js: the pill, the X, `allowed`, and the controls.
 - docs/browser-checks/render-voice-4409.js: V6, V6b, V6c, V6d and V6e.
 - design shots: the screen agent-chat-mic-settings.

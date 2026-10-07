@@ -411,8 +411,11 @@ test('#4409 slice 3 review 25: on the Mac, a press while Finishing is one more s
 });
 
 test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [X   Turn on in Settings], with no sentence; the label asks for that pane, X puts the mic back, "allowed" starts the same mic', () => {
-  const { h, posted, mkBtn, mkBox, doc } = voiceHarness();
+  const { h, posted, mkBtn, mkBox, doc, tick } = voiceHarness();
   const pills = [];
+  const listeners = [];
+  doc.addEventListener = (e, f) => { if (e === 'visibilitychange') listeners.push(f); };
+  doc.removeEventListener = (e, f) => { const i = listeners.indexOf(f); if (i >= 0) listeners.splice(i, 1); };
   const cls = () => { const set = new Set(); return { add: (c) => set.add(c), remove: (c) => set.delete(c), contains: (c) => set.has(c), toggle() {} }; };
   const el = () => ({ className: '', textContent: '', type: '', title: '', attrs: {}, kids: [], handlers: {},
     setAttribute(k, v) { this.attrs[k] = v; }, addEventListener(e, f) { this.handlers[e] = f; }, append(...k) { k.forEach((c) => { c.parentNode = this; }); this.kids.push(...k); },
@@ -461,12 +464,23 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   h.voiceOnEvent({ kind: 'allowed' });
   assert.equal(pills.length, 1, 'an "allowed" for another visit, or with no visit id, took the pill away');
   assert.equal(ask2.id, ask.id, 'a second press minted a new visit id the app never saw (it ignores a press within a second)');
-  doc.hidden = true;   // review 5: the page can still read hidden at the instant the app comes back from Settings
+  doc.hidden = true;   // the page can still read hidden at the instant the app comes back from Settings
+  const beforeAllowed = posted.length;
   h.voiceOnEvent({ kind: 'allowed', id: ask2.id });
+  assert.equal(posted.length, beforeAllowed, 'the mic started while the page still read hidden (the watcher would cancel it on its first look)');
   doc.hidden = false;
+  listeners.slice().forEach((f) => f());
+  assert.equal(listeners.length, 0, 'the wait for the page to show was left behind');
   assert.equal(pills.length, 0, 'the pill stayed after both were allowed');
   assert.ok(!btn.classList.contains('has-pill'), 'the mic did not come back');
   assert.equal(posted.at(-1).op, 'start', 'the mic did not start again by itself');
+  // ...and it stays on: the watcher's next look and the first word must not cancel it.
+  h.voiceOnEvent({ kind: 'listening', id: posted.at(-1).id });
+  tick();
+  h.voiceOnEvent({ kind: 'partial', text: 'hello', id: posted.at(-1).id });
+  tick();
+  assert.equal(h.VOICE.btn, btn, 'the restarted mic was cancelled by its own watcher: ' + JSON.stringify(posted.slice(-3)));
+  assert.ok(!posted.slice(-3).some((m) => m.op === 'cancel'), 'the restarted mic was cancelled: ' + JSON.stringify(posted.slice(-3)));
   // X: dismissed, the plain mic is back and nothing is asked of the app.
   h.voiceOnEvent({ kind: 'error', reason: 'mic-denied', canOpenSettings: true, id: posted.at(-1).id });
   h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });

@@ -1454,6 +1454,7 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
     private var settingsAt: Date?   // when the visit was opened (bounds how long it may start the mic by itself)
     private var settingsPane = ""   // which pane the visit opened
     private var settingsOpenedAt: Date?   // when Settings was last opened (the once-a-second limit)
+    private var lastRefusal = ""   // the last refusal said to the page; Settings opens only after a denial
     private var activeObserver: NSObjectProtocol?
     init(_ owner: AppDelegate) {
         self.owner = owner
@@ -1535,6 +1536,8 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
     }
     /// Review 4: the page may name a pane, never a URL; it also may not open Settings over and over (more than once a
     /// second; a clock moved backwards counts as a second gone by, which only ever allows one more open).
+    /// Settings is opened only in answer to a denial this app said (the page's pill exists for nothing else). PURE.
+    static func settingsAccepted(lastRefusal: String) -> Bool { lastRefusal == "speech-denied" || lastRefusal == "mic-denied" }
     static func settingsOpenAllowed(sinceLast: TimeInterval?) -> Bool { sinceLast.map { $0 < 0 || $0 >= 1 } ?? true }
     private func recheckAfterSettings() {
         guard awaitingAllow, let at = settingsAt else { return }
@@ -1553,12 +1556,14 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         case "start":
             pageId = (body["id"] as? String) ?? ""
             awaitingAllow = false   // a fresh start retires any Settings visit
+            lastRefusal = ""
             start()
         case "stop": stop()
         case "cancel": cancel()
         case "settings":
             // #5481: open the exact pane for a denied permission (only the two named panes, never a URL from the page).
-            guard let pane = body["pane"] as? String, let url = Self.settingsURL(pane: pane) else { return }
+            guard let pane = body["pane"] as? String, let url = Self.settingsURL(pane: pane),
+                  Self.settingsAccepted(lastRefusal: lastRefusal) else { return }
             // The visit is always the page's latest (its id, pane and time), so "allowed" carries the id the page now
             // holds; only re-opening the pane is limited to once a second.
             settingsId = String(((body["id"] as? String) ?? "").prefix(64))
@@ -1619,6 +1624,7 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
 
     private func refuse(_ reason: String) {
         pending = false
+        lastRefusal = reason
         logLine("voice: not listening (" + reason + ")")
         // #5481: `canOpenSettings` says this app can open the System Settings pane, so the page may offer its pill. A page newer
         // than a still-running older app (an update replaces the binary, the running process keeps the old code) sees
@@ -6598,7 +6604,9 @@ if CommandLine.arguments.contains("--kosmos-app-voice-selftest") {
     row(VoiceBridge.stampId(["kind": "allowed", "id": "set7"], pageId: "s3")["id"] as? String == "set7", "#5481: a Settings visit's event keeps its own id")
     row(VoiceBridge.stampId(["kind": "stopped"], pageId: "s3")["id"] as? String == "s3", "#5481 CONTROL: any other event carries the listening session's id")
     row(VoiceBridge.allowedEvent(awaiting: true, pane: "speech", speech: .restricted, mic: .notDetermined, settingsId: "set7") == ["kind": "refused", "reason": "speech-restricted", "id": "set7"], "#5481 review 7: speech restricted is said as that, not left on a pill")
-    let expected = 38   // #5311: + Dictation off, + its control; #5481: + 22
+    row(VoiceBridge.settingsAccepted(lastRefusal: "speech-denied") && VoiceBridge.settingsAccepted(lastRefusal: "mic-denied"), "#5481: Settings opens after a denial")
+    row(!VoiceBridge.settingsAccepted(lastRefusal: "") && !VoiceBridge.settingsAccepted(lastRefusal: "no-mic") && !VoiceBridge.settingsAccepted(lastRefusal: "mic-restricted"), "#5481 CONTROL: and after nothing else")
+    let expected = 40   // #5311: + Dictation off, + its control; #5481: + 24
     if ran != expected { print("\nvoice-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
     if bad > 0 { print("\nvoice-check: \(bad) row(s) wrong"); exit(1) }
     print("\nvoice-check: all good (\(ran) rows)")

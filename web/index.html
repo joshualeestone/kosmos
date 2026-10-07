@@ -65152,13 +65152,16 @@ function shownNow(el) {
 }
 /* The box, the conversation, and whether the box is on screen: a closed Guide hides asp-say, and a hidden window
    hides the page. Any change means the words no longer belong where they would land. */
-function voiceWhere(box) {
+function voiceWhere(box, steady) {
   if (!box) return '';
   const hidden = typeof document !== 'undefined' && document.hidden === true;
   /* #4409 (review 5): a box that stops taking words (the Guide ends a chat with readOnly; an agent going offline
      disables #d-say) is a move too: words must not land where the person cannot type or delete them. */
   const open = !box.disabled && !box.readOnly;
-  return box.id + '|' + viewKey() + '|' + (shownNow(box) && !hidden ? 'shown' : 'hidden') + '|' + (open ? 'open' : 'closed');
+  /* #5481: `steady` leaves the page-hidden part out (only the box's own layout), for a place that must survive the app
+     going to System Settings and back, when the page can still read hidden for a moment. */
+  const seen = steady ? shownNow(box) : shownNow(box) && !hidden;
+  return box.id + '|' + viewKey() + '|' + (seen ? 'shown' : 'hidden') + '|' + (open ? 'open' : 'closed');
 }
 const VOICE_SAYS = {
   'mic-denied': 'Kosmos is not allowed to use the microphone. You can turn it on in System Settings, Privacy & Security, Microphone.',
@@ -65546,7 +65549,7 @@ function voiceSettingsOffer(btn, pane, said) {
     const box = document.getElementById(btn.getAttribute('data-voice-for') || '');
     /* Review 3: where the person is when they press it (the DM's mic is shared by every agent's chat), so "allowed"
        restarts the mic only if they are still there when they come back. */
-    Object.assign(VOICE_SETTINGS, { btn, id: visitId, where: box ? voiceWhere(box) : '' });
+    Object.assign(VOICE_SETTINGS, { btn, id: visitId, where: box ? voiceWhere(box, true) : '' });
     h.postMessage({ op: 'settings', pane: VOICE_SETTINGS.pane, id: VOICE_SETTINGS.id });
   });
   pill.append(alert, x, go);
@@ -65561,14 +65564,19 @@ function voiceOnEvent(ev) {
     const btn = VOICE_SETTINGS.btn;
     if (!btn || ev.id !== VOICE_SETTINGS.id) return;   // review 4: the app always sends the visit's id; none is not a match
     const box = document.getElementById(btn.getAttribute('data-voice-for') || '');
-    /* Review 2: another agent, room or a closed dialog. Review 5: compared without voiceWhere's page-hidden part, which
-       can still read hidden at the instant the app comes back from Settings; the box's own layout says shown. */
-    const place = (w) => { const f = String(w).split('|'); f.splice(f.length - 2, 1); return f.join('|'); };   // drop shown|hidden (the view key has its own '|')
-    const still = !!box && shownNow(box) && place(voiceWhere(box)) === place(VOICE_SETTINGS.where);
+    /* Another agent, room or a closed dialog means no restart. Compared steady (without the page-hidden part), which can
+       still read hidden at the instant the app comes back from Settings. */
+    const where = VOICE_SETTINGS.where;
+    const still = !!box && voiceWhere(box, true) === where;
     const hadFocus = VOICE_SETTINGS.keys.includes(document.activeElement);
     voiceSettingsClear();
-    if (still && document.body.contains(btn) && !VOICE.btn) voiceToggle(btn);
-    else if (hadFocus) btn.focus();   // the pill had focus and nothing else takes it: back to the mic, never the page
+    if (!still || !document.body.contains(btn)) { if (hadFocus) btn.focus(); return; }   // back to the mic, never the page
+    /* Started only once the page is visible: a start while it still reads hidden records a hidden place, and the
+       watcher's first look after it shows would see a move and cancel the mic it just started. */
+    const begin = () => { if (!VOICE.btn && document.body.contains(btn) && voiceWhere(box, true) === where) voiceToggle(btn); };
+    if (!document.hidden) { begin(); return; }
+    const once = () => { if (document.hidden) return; document.removeEventListener('visibilitychange', once); begin(); };
+    document.addEventListener('visibilitychange', once);
     return;
   }
   // Review 3: speech is now on but the mic is still refused (both were off); the same pill now opens the Microphone pane.
