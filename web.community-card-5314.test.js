@@ -170,15 +170,17 @@ test('#5314: with no supplied arg, withAgentSortFields reads the published-only 
   assert.equal(row.lastCommunityPostAt, null);
 });
 
-test('#5314: communityLine helper respects community switch and formats relative time', () => {
+test('#5314: communityLine helper respects the community switch and shows the server string', () => {
   const line = buildCommunityLine();
   assert.equal(line(null), '');
   assert.equal(line({ communityOn: false, lastCommunityPost: 'Last community post: today' }), '');
   assert.equal(line({ communityOn: true, lastCommunityPost: 'Last community post: today' }), 'Last community post: today');
   assert.equal(line({ communityOn: true, lastCommunityPost: 'No community posts yet' }), 'No community posts yet');
 
-  const now = new Date();
-  assert.equal(line({ communityOn: true, lastCommunityPostAt: now.toISOString() }), 'Last community post: today');
+  // #5314: no client-side day-diff -- communityLine shows the server's lastCommunityPost string
+  // (the single source of truth, convention #5). A row with only a timestamp and no server string
+  // fabricates no line; in production the server always sends the string whenever communityOn.
+  assert.equal(line({ communityOn: true, lastCommunityPostAt: new Date().toISOString() }), '');
 });
 
 test('#5314: running agent card displays community post status or omits when switch is off', () => {

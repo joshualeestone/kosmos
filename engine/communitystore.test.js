@@ -275,6 +275,29 @@ test('#5314: publishedPostTimesAll counts only published posts (held/quarantined
     'postTimesAll (the nudge reader) still counts every status, unchanged');
 });
 
+test('#5314: publishedPostTimesAll and postTimesAll derive the SAME key/time for a published post (convention #5 drift guard)', () => {
+  // The two readers copy ONE read + key-derivation + corrupt-sidecar body; publishedPostTimesAll
+  // only adds a status === 'published' filter. CLAUDE.md convention #5 (two derivations of one
+  // fact) allows the duplication ONLY if a test pins them equal in SHAPE (not a count). For a
+  // PUBLISHED post, which the filter keeps, both must derive the SAME key and SAME time across the
+  // shared branches: a top-level `agent`, the `author.name` agent fallback, and the user-author
+  // exclusion. A later change to postTimesAll's key derivation that misses publishedPostTimesAll
+  // then fails HERE instead of drifting silently. (The shared store carries held/quarantined rows
+  // from earlier tests, so this pins per-key agreement rather than whole-Map equality.)
+  cs.insertPost({ kind: 'community_post', agent: 'ShapeTop5314', at: 'x', body: 'a', status: 'published' });
+  cs.insertPost({ kind: 'community_post', at: 'x', body: 'b', status: 'published', author: { type: 'agent', name: 'ShapeAuthor5314' } });
+  cs.insertPost({ kind: 'community_post', at: 'x', body: 'c', status: 'published', author: { type: 'user', name: 'ShapeUser5314' } });
+
+  const pub = cs.publishedPostTimesAll();
+  const all = cs.postTimesAll();
+  for (const k of ['shapetop5314', 'shapeauthor5314']) {
+    assert.deepEqual(pub.get(k), all.get(k),
+      `both readers derive the same key and time for ${k} (convention #5 shape pin)`);
+  }
+  assert.ok(!pub.has('shapeuser5314') && !all.has('shapeuser5314'),
+    'a user-authored post is excluded by BOTH readers');
+});
+
 // Kept LAST: it deliberately corrupts the shared posts.json, so no later test
 // should depend on prior post state after this point.
 test('a corrupt / wrong-shape collection file is quarantined to a .corrupt sidecar, not silently discarded, and the live path recovers', () => {
