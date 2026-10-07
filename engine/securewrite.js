@@ -350,15 +350,22 @@ function syncDir(dir) {
  * settings.json), where failing the save beats rewriting it in place.
  *
  * `opts.ownTempsOnly` (#5434 slice 3): before writing, reap only this file's own dead temps rather
- * than sweeping the whole folder once per process. For a folder Kosmos does not own.
+ * than sweeping the whole folder once per process. For a folder Kosmos does not own. Not cached: it
+ * reads the folder on every save, which is fine at a once-per-birth call rate.
  *
- * `mode` null or undefined (#5434 slice 3): create at the process umask default (0666 less the
- * umask) and set no mode, exactly as a plain writeFileSync would. For callers that write a
+ * `mode` null or undefined WITH `opts.umaskDefault` (#5434 slice 3): create at the process umask
+ * default (0666 less the umask) and set no mode, exactly as a plain writeFileSync would. Without
+ * `opts.umaskDefault` a missing mode throws, so a secret caller cannot loosen a file by a slip. For callers that write a
  * person's own config file, keep an existing file's mode by passing it, and must not choose a
  * mode for a new one.
  */
 function writeSecret(file, data, mode, opts) {
   const exactMode = mode !== null && mode !== undefined;
+  /* A missing mode is an error unless the caller chose the umask default (#5434 slice 3): a secret
+     caller that drops its mode by mistake must fail, never land at 0644. */
+  if (!exactMode && !(opts && opts.umaskDefault)) {
+    throw new TypeError('writeSecret: no mode given (pass a mode, or opts.umaskDefault for a person\'s own config file)');
+  }
   const createMode = exactMode ? mode : 0o666;
   /* #1793: sweep this target's directory of orphan temps a prior death left behind,
      once per directory per process, before we add our own. Best-effort: it never
@@ -402,7 +409,9 @@ function writeSecret(file, data, mode, opts) {
            `mode` and this only ever restores owner bits a restrictive umask
            cleared. Measured, four umasks with `flag:'wx', mode:0600`:
            0000 -> 600, 0022 -> 600, 0077 -> 600, and 0600 -> 0. The last case is
-           the real job. On the fd now, so there is no path to swap under it. */
+           the real job. On the fd now, so there is no path to swap under it.
+           With no mode (umaskDefault, #5434) both this chmod and the fallback's are skipped: the temp
+           is created at 0666 less the umask and stays there, like a plain writeFileSync. */
         if (exactMode) { try { fs.fchmodSync(tfd, mode); } catch { /* best effort, see above */ } }
         const buf = Buffer.isBuffer(data) ? data : Buffer.from(String(data));
         let off = 0;
