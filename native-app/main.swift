@@ -2749,7 +2749,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// it when it is not answering. nil when not installed.
     private var boardWakeObserver: NSObjectProtocol?
     /// Serializes overlapping wake-recovery chains. boardStartInFlight is false for the whole
-    /// probe+settle+confirm window (~14s), so a second didWake (or a wake mid-settle) could start a
+    /// probe+settle+confirm window (up to ~34s: a 20s first probe, a 4s settle, a 10s confirm), so a
+    /// second didWake (or a wake mid-settle) could start a
     /// second chain and, once the first chain's reclaim finished, kill the freshly-restarted board on
     /// a confirm probe that was already in flight. Each chain captures this generation at entry and
     /// drops out at its next continuation if a newer wake has bumped it -- latest wake wins, and only
@@ -2761,10 +2762,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// grace, because right after a wake a healthy board can be busy with its own catch-up work and
     /// slow to answer (Sonya's #4342 review); the confirm probe uses the shorter #4562 stuck threshold.
     /// A healthy board pays neither -- it answers in milliseconds once its event loop frees -- so only
-    /// a near-full-grace SYNCHRONOUS block fails the first probe, which is itself effectively a wedge.
-    /// (The precise busy-vs-wedged discriminator, a CPU-busy check, is the follow-up once the live
-    /// sleep QA measures real post-wake behavior; a blind CPU threshold here, unmeasurable on a shared
-    /// box, could silently disable recovery or protection, which a longer wait cannot.)
+    /// a SYNCHRONOUS block fails the first probe. This is a BOUNDED mitigation, not full protection:
+    /// it tolerates post-wake catch-up up to the whole window (first probe + settle + confirm, ~34s),
+    /// after which a board still not answering is reclaimed -- and a board blocked synchronously for
+    /// that long is itself effectively wedged. A board doing NORMAL async catch-up answers /api/health
+    /// between its I/O callbacks and so is never reclaimed; the residual is a healthy board blocked
+    /// synchronously past ~34s, which this does not cover. The categorical busy-vs-wedged fix is a
+    /// CPU-busy check, deferred as the follow-up once the live sleep QA measures real post-wake
+    /// behavior: a blind CPU threshold here, unmeasurable on a shared box, could silently disable
+    /// recovery or protection, which a longer wait cannot, so the wait is the safe interim guard.
     static let wakeStuckTimeout: TimeInterval = 10
     static let wakeFirstProbeGrace: TimeInterval = 20
     /// A version the installer finished while nobody asked (updates are on). The new app waits for the
@@ -2889,8 +2895,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     /// The conditions under which the wake path must NOT touch the board, each logged. Checked before
-    /// the first probe AND again before the reclaim, because the probe+confirm window (~14s) is long
-    /// enough for the person to stop the board or an update to begin after the first check.
+    /// the first probe AND again before the reclaim, because the probe+settle+confirm window (up to
+    /// ~34s) is long enough for the person to stop the board or an update to begin after the first check.
     private func wakeRecoveryGateOpen(home: String) -> Bool {
         if boardStartInFlight {
             logLine("#4342: a board start/reclaim is already in flight, leaving it")
