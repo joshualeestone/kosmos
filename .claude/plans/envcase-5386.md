@@ -27,3 +27,21 @@ How often a real Windows environment carries a non-canonical spelling of these n
   envSet, so an inherited Codex_Home cannot sit beside it (#5384 review 20 named it). Test in win32codex.test.js with an
   oddly spelled inherited name; planting the old fallback turns it red. win32codex.js joins the no-plain-delete scan.
   Production callers pass env through win32codexsup, so this is the fallback path only.
+
+## Review 1 (opus), 2026-10-07
+- More sites, same class, found by widening the scan rather than by a list: openaiaccounts.js (both Codex sign-ins:
+  a key or a subscription could land in the default CODEX_HOME), orgchartcodex.js (its allow-list keeps USERPROFILE and
+  HOME in any spelling, then set them beside it; CODEX_HOME too, for uniformity), remote.js (the board token file),
+  worlds.js (restorePreWorldRoots and preWorldEnv; the marker is moved to its usual spelling with envCanon before the
+  check, so an oddly spelled marker still restores the roots). connect.installEnvFor builds a fresh object: unchanged.
+- The guard now scans EVERY non-test engine module for a delete, an assignment, a spread-literal set or an
+  Object.assign set of the account-scoped names (CLAUDE_CONFIG_DIR, CODEX_HOME, GROK_HOME, XAI_API_KEY,
+  KOSMOS_AGENT_TOKEN, KOSMOS_BOARD_TOKEN_FILE, GEMINI_API_KEY, GEMINI_CLI_HOME). Controls: each form caught, comments
+  and process.env not; and main's own subscription.js is flagged. Run against main's engine/ it lists 14 sites in 10
+  modules, five of them sets the old delete-only scan could not see. Not seen: a name built at runtime.
+- worlds: a behaviour test with oddly spelled world variables (red on main's worlds.js).
+- On a Mac or Linux these helpers also remove a genuinely different variable that differs only in case (a lowercase
+  codex_home, say), so the child's environment does change there. Harmless for these names, which nothing uses in
+  another case; stated so nobody reads "no change on a Mac".
+- Not changed (reasons): sandbox.js deletes TMUX/TMUX_PANE (no tmux on Windows); win32channel, runners and update add
+  Kosmos-only names Windows never supplies; win32signin already deletes BROWSER in every spelling.

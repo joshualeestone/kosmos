@@ -66,6 +66,7 @@
  *                                       for a reason nobody would suspect.
  */
 const fs = require('node:fs');
+const { envDelete, envSet } = require('./win32env');   // #5386: env copies keep names as spelled; on Windows any spelling counts
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn, execFileSync } = require('node:child_process');
@@ -738,8 +739,8 @@ function startChild() {
       process.stderr.write('remote: could not find the board token file: ' + (err && err.message) + '\n');
     }
     const env = { ...process.env };
-    delete env.KOSMOS_BOARD_TOKEN_FILE;   // never a stale one inherited from the launcher
-    if (tokenFile) env.KOSMOS_BOARD_TOKEN_FILE = tokenFile;
+    envDelete(env, 'KOSMOS_BOARD_TOKEN_FILE');   // never a stale one inherited from the launcher, in any spelling
+    if (tokenFile) envSet(env, 'KOSMOS_BOARD_TOKEN_FILE', tokenFile);
     spawned = spawn(BIN(), args, connectorSpawnOptions({ stdio: ['ignore', 'ignore', 'inherit'], env }));
   } catch (err) {
     restartBecause = 'the tunnel program could not be started: ' + (err && err.message);

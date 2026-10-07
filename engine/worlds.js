@@ -33,6 +33,7 @@
  */
 
 const fs = require('fs');
+const { envDelete, envSet, envCanon } = require('./win32env');   // #5386: env copies keep names as spelled; on Windows any spelling counts
 const path = require('path');
 const os = require('os');
 const store = require('./store'); // dataRootFor, safeKey
@@ -208,10 +209,10 @@ function readWorldMarker(env) {
 function restorePreWorldRoots(env, marker) {
   for (const k of WORLD_ROOT_ENV_VARS) {
     const v = marker && Object.prototype.hasOwnProperty.call(marker.roots, k) ? marker.roots[k] : null;
-    if (typeof v === 'string') env[k] = v; else delete env[k];
+    if (typeof v === 'string') envSet(env, k, v); else envDelete(env, k);
   }
-  delete env[PRE_WORLD_ROOTS_ENV_VAR];
-  delete env[launchidentity.WORLD_ENV_VAR];
+  envDelete(env, PRE_WORLD_ROOTS_ENV_VAR);
+  envDelete(env, launchidentity.WORLD_ENV_VAR);
 }
 
 /* Apply one world's roots to `env` in place, recording the originals and the
@@ -270,12 +271,13 @@ function applyAgentWorldEnv(env) {
  */
 function preWorldEnv(env) {
   const out = Object.assign({}, env || {});
+  envCanon(out, PRE_WORLD_ROOTS_ENV_VAR);   // #5386: an inherited marker in another spelling is still the marker
   if (out[PRE_WORLD_ROOTS_ENV_VAR] !== undefined) {
     /* An unreadable marker restores nothing: all three roots go, which is the
        legacy-root answer, never another world's. */
     restorePreWorldRoots(out, readWorldMarker(out) || { roots: {} });
   }
-  delete out[launchidentity.WORLD_ENV_VAR];
+  envDelete(out, launchidentity.WORLD_ENV_VAR);
   return out;
 }
 
