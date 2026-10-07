@@ -56,8 +56,8 @@ a `zsh tools/...` run (nothing starts one), a run started from inside tools/ (`b
 heavy-gate.sh counts it by its cwd; the cut and page layer are always started as tools/...), and a run
 whose script PATH contains a space, which pgrep
 prints split (the replaced guards had the same gap; heavy-gate.sh counts it; every checkout this fleet
-cuts or tests from is space-free). _kosmos_drop_test_fixtures still reads a fixture's script without the
-options group, so an optioned fixture can only be dropped by ancestry or cwd: more refusals, never fewer. macOS only: Linux's `pgrep -fl` prints process names.
+cuts or tests from is space-free). _kosmos_drop_test_fixtures reads a fixture's script with the same
+_KOSMOS_SH_OPTS group, spelled-out letters so `[[ =~ ]]` is locale-proof. macOS only: Linux's `pgrep -fl` prints process names.
 
 ## Tests
 - `tools/test-running-anchor-5470.sh`, in test:shell, real processes and a unique script name per run:
