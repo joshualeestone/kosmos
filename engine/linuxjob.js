@@ -374,8 +374,8 @@ function status(name, worldId) {
   const act = runner('systemctl', ['--user', 'is-active', u]);
   const en = runner('systemctl', ['--user', 'is-enabled', u]);
   return {
-    active: Boolean(act && act.ok && act.stdout.trim() === 'active'),
-    enabled: Boolean(en && en.ok && en.stdout.trim() === 'enabled'),
+    active: Boolean(act && act.ok && String(act.stdout || '').trim() === 'active'),   // review 28: a result may carry no stdout
+    enabled: Boolean(en && en.ok && String(en.stdout || '').trim() === 'enabled'),
   };
 }
 
@@ -416,10 +416,13 @@ function stoppedOrNotLoaded(r) {
 }
 
 function remove(name, worldId) {
+  // review 28: whether there was a unit file at all. disable of a missing unit exits 1 (not 5) with localized text,
+  // so for an already-gone file a refused disable is not read from systemd's wording: there is nothing to disable.
+  const hadFile = fs.existsSync(unitPath(name, worldId));
   const st = stop(name, worldId);
   const stopFailed = st && st.ok === false && !notLoaded(st);
   const dis = disable(name, worldId);
-  const disableFailed = dis && dis.ok === false && !notLoaded(dis);
+  const disableFailed = hadFile && dis && dis.ok === false && !notLoaded(dis);
   if (stopFailed) {
     return { ok: false, because: 'systemd could not stop it, so it may still be running: ' + String(st.stderr || st.because || '').trim() };
   }
