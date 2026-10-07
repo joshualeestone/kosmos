@@ -3,7 +3,7 @@ pre_challenge: true
 method: challenge-loop
 branch: failoverui-5382
 diff_hash: da68aee028855ea2d9ad323c952aa943c6552c2f2871f96688bf96a2a77c4f7f
-validation: passed (Mortals full suite at 881aaa7b4, hash da68aee02885); FULL browser checks queued at this head
+validation: passed (Mortals full suite at 881aaa7b4, hash da68aee02885; FULL browser checks passed at 165684185)
 subdir_audit: passed
 timestamp: 2026-10-07T18:48:15Z
 iterations: 1
