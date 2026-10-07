@@ -110,6 +110,12 @@ test('normal run: insert -> upload -> track(internal,completed) -> commit', asyn
       track: 'internal', releases: [{ status: 'completed', versionCodes: ['42'] }],
     });
     assert.deepEqual(r, { editId: 'edit-xyz', versionCode: 42, committed: true, validated: false });
+    // the FULL happy-path log sequence (authenticated, opened edit, uploaded, set track,
+    // committed) must be free of the token and key -- this is where a commit-branch leak
+    // would show, which the failing-insert security test cannot reach.
+    const joined = logs.join('\n');
+    assert.ok(!joined.includes(ACCESS_TOKEN), 'a happy-path log line leaked the access token');
+    assert.ok(!joined.includes('PRIVATE KEY'), 'a happy-path log line leaked key material');
   } finally { await s.close(); }
 });
 

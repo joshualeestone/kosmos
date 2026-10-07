@@ -127,14 +127,12 @@ async function api(fetchImpl, token, method, url, { body, contentType, raw } = {
 async function run(opts = {}) {
   const {
     argv = process.argv.slice(2),
-    env = process.env,
     fetchImpl = globalThis.fetch,
     resolveKeyPath = defaultResolveKeyPath,
     now = Date.now,
     log = (m) => process.stdout.write(`${m}\n`),
     apiBase = DEFAULTS.apiBase,
   } = opts;
-  void env;
 
   const o = parseArgs(argv);
   const aabBytes = fs.readFileSync(o.aab);
