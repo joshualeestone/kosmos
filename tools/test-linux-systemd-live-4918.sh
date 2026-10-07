@@ -218,7 +218,8 @@ fi
 # systemctl through create's own run() (which THROWS on a non-zero exit; is-active answers 3 for "inactive"), then
 # remove.restart and remove.remove through remove.js's run(). A wiring regression there breaks this, not a fake.
 LIVE_AGENT=livecreate4918
-node -e '
+# review 27: inside an if, so set -e cannot end the script before LIVE_RC is recorded and the checks below run.
+if node -e '
   require("./engine/live-execution").allowLiveExecution();
   const create = require("./engine/create");
   const remove = require("./engine/remove");
@@ -243,7 +244,8 @@ node -e '
   console.log("restart replaced the supervisor: pid " + before + " -> " + after);
   const d = remove.remove(name, { platform: "linux" });
   if (!d || d.outcome !== remove.OUTCOME.REMOVED) { console.error("remove:", JSON.stringify(d)); process.exit(5); }
-' "$LIVE_AGENT" "$MOCK_RUNNER" "$TMUX_BIN"; LIVE_RC=$?; if [ "$LIVE_RC" = 0 ]; then
+' "$LIVE_AGENT" "$MOCK_RUNNER" "$TMUX_BIN"; then LIVE_RC=0; else LIVE_RC=$?; fi
+if [ "$LIVE_RC" = 0 ]; then
   ok "createAgent, restart of a RUNNING agent (new supervisor pid) and remove run end to end against real systemd"
   # review 15: and systemd agrees the removed agent is stopped and switched off, not only the outcome word.
   LIVE_UNIT="$(node -e 'console.log(require("./engine/linuxjob").unitName(process.argv[1]))' "$LIVE_AGENT")"

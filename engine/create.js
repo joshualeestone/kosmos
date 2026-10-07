@@ -3762,7 +3762,7 @@ function installJob(name, opts) {
         account: (configDir || isNonClaudeRunner(wantRunner)) ? null : 'it will run on your main Claude account',
       },
       because: alreadyRunning
-        ? 'set up; it is already running, and the new settings take effect at its next restart'
+        ? 'set up; systemd already has it loaded, so the new settings take effect at its next restart'
         : !started
         ? 'set up, but systemd could not start it just now'
         : lingering
@@ -4651,7 +4651,7 @@ function createAgentInner(opts) {
    * the screen offers Start over, and the person needs to be told what is in
    * the way rather than that an agent they can see is not running exists.
    */
-  const { folder: hasFolder, job: hasJob } = nameHeld(name);
+  const { folder: hasFolder, job: hasJob } = nameHeld(name, jobPlatform);
   if (hasFolder && hasJob) {
     return {
       outcome: OUTCOME.REFUSED,
@@ -5056,6 +5056,7 @@ function createAgentInner(opts) {
   let win32Launched = null;
   let linuxLingering = null;   // #4918 review 2: whether systemd keeps the agent running with nobody logged in
   let linuxStartWhy = '';      // #4918 review 8: systemd's own reason when the start failed
+  let linuxNeverLoaded = false;  // #4918 review 27: the reload failed, so systemd never read the unit file
 
   function rollBack({ unload = false } = {}) {
     /* ⚠️ `unload` is for a failed START, and only then.
@@ -5121,6 +5122,11 @@ function createAgentInner(opts) {
            refused the stop (a unit still loaded must not lose its file). A refusal is a visible step, not swallowed. */
         let r = null;
         try { r = linuxRun(() => lj.remove(name)); } catch { r = null; }
+        /* review 27: when the reload itself failed (the user bus is unreachable), systemd never read this file and
+           nothing can be running from it, so the file goes too: kept, it would hold the name with no folder. */
+        if ((!r || r.ok !== true) && linuxNeverLoaded) {
+          try { fs.rmSync(lj.unitPath(name), { force: true }); r = { ok: true }; } catch { /* the step below says so */ }
+        }
         if (!r || r.ok !== true) {
           try { steps.push({ label: 'took its systemd unit back off this computer', ok: false }); } catch { /* steps is a courtesy */ }
         }
@@ -5823,6 +5829,7 @@ function createAgentInner(opts) {
       linuxLingering = linuxRun(() => lj.enableLinger()).lingering;
       const r = linuxRun(() => lj.start(name));
       if (!(r && r.ok === true)) {
+        linuxNeverLoaded = /did not reload/.test(String((r && r.because) || ''));
         const raw = String((r && (r.stderr || r.because)) || '');
         // review 20: an unreachable user manager gets a plain sentence, not systemd's own text.
         linuxStartWhy = /Failed to connect to bus|No medium found|XDG_RUNTIME_DIR/i.test(raw)
@@ -6027,8 +6034,11 @@ const SELF_STARTS = 'it starts itself when this computer is on and it is not rem
 
 /* #4557: what holds a machine name on this computer. One derivation: create refuses on it, and the team
    step's names pre-check (teamseed.js) asks the same thing before anything is made. */
-function nameHeld(name) {
-  return { folder: fs.existsSync(workerDir(name)), job: fs.existsSync(plistPath(name)) };
+function nameHeld(name, platform) {
+  /* #4918 review 27: on Linux the job is the systemd unit, not a plist; an orphan unit holds its name as a plist does. */
+  const plat = platform || process.platform;
+  const job = plat === 'linux' ? require('./linuxjob').unitPath(name) : plistPath(name);
+  return { folder: fs.existsSync(workerDir(name)), job: fs.existsSync(job) };
 }
 
 module.exports = {

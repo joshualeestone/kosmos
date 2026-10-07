@@ -193,7 +193,10 @@ function canRestart(kosmosHome) {
 
 function restart(kosmosHome) {
   const unit = boardUnitName(kosmosHome);
-  return runner('systemctl', ['--user', 'restart', '--no-block', unit]);
+  const r = runner('systemctl', ['--user', 'restart', '--no-block', unit]);
+  if (r && r.ok) return { ok: true };
+  // review 27: a sentence a person can read, as the Mac and Windows arms return, not Node's "Command failed".
+  return { ok: false, because: 'systemd did not restart the board service; restart it by hand with: systemctl --user restart ' + unit };
 }
 
 module.exports = {
