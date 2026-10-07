@@ -27,7 +27,8 @@ browser open to a site they did not choose.
 
 ## The parity test (tools.windows-computer-mode-4381.test.js)
 - The 10 Windows probe rows that sent an unclicked foreign nav to the browser now expect `Block` and use the Mac's
-  exact words; the Mac's clicked-foreign row is added (53 -> 54 rows). The Windows-only non-ASCII host row also
+  exact words; the Mac's clicked-foreign row is added (one more row; with the Nav and Site rows below, the probe runs
+  63 rows in all, from 53). The Windows-only non-ASCII host row also
   becomes `Block` ("refused unclicked").
 - The parity check now also reads the Mac's `navCase` and `siteIs` rows (it read only `mode` and `link`, so the
   checkout exception was invisible to it): 46 Mac rows. Windows gains Nav and Site rows for them (63 probe rows).
@@ -67,6 +68,13 @@ On #5482 (runboth-nav-5169, open), which adds MAC_ONLY_WHYS. After it merges: re
   as committed (WebView2 is not believed to enable that cache; the outcome would only open the browser).
 - Nothing on the Mac exercises the committedPage state machine (ContentLoading, NavigationStarting, the clears): the
   pins check its text. A real Windows run is the only full check (#570's box).
+
+## For the real Windows run (#570's box), the parts no automated check reaches
+- Buy and Billing from a connect window open checkout in the browser (the MERGE GATE, through the COM path).
+- A first load redirected off Kosmos Plus shows the could-not-reach box, and Reopen loads it again.
+- An unclicked redirect from a computer's board is refused; a click opens the browser.
+- The parity loop proves each Mac row RUNS on Windows; each side asserts its own expected value, and nothing compares
+  the two values (noted, not built).
 
 ## Weakest premise
 WebView2 raises NavigationStarting again for a server redirect with the SAME NavigationId and IsRedirected true (its

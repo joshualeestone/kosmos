@@ -222,7 +222,7 @@ test('#4381: a connect window follows the connect link rules; Kosmos Plus not an
   // the first load. (The committed page moves at ContentLoading, pinned just below, NOT here: a completion lags
   // the page's own load-time scripts.)
   inOrder(done, ['args.get_NavigationId(out navId);', 'connectInWindow.Remove(navId);',
-    'if (!connectLoadPending || !connectLoadNavKnown || navId != connectLoadNavId) return;', 'connectLoadPending = false;'], 'the first load, by its own id');
+    'if (!connectLoadPending || (connectLoadNavKnown && navId != connectLoadNavId)) return;', 'connectLoadPending = false;'], 'the first load, by its own id');
   // The committed page moves when a document COMMITS (ContentLoading, before its scripts), as the Mac's didCommit.
   assert.match(method('internal void OnContentLoading(ICoreWebView2ContentLoadingEventArgs args)'),
     /committedPage = isErrorPage == 0 && connectInWindow\.TryGetValue\(navId, out inWindow\) \? inWindow : null;/);

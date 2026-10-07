@@ -3164,7 +3164,9 @@ class BoardWindowForm : System.Windows.Forms.Form
         int success;
         args.get_IsSuccess(out success);
         connectInWindow.Remove(navId);
-        if (!connectLoadPending || !connectLoadNavKnown || navId != connectLoadNavId) return;
+        // Settled by the first load's own completion; if its start was never recognised (an address in another
+        // form), by the first completion, as before #5483, so a load that really failed still says so.
+        if (!connectLoadPending || (connectLoadNavKnown && navId != connectLoadNavId)) return;
         connectLoadPending = false;
         int status;
         args.get_WebErrorStatus(out status);
