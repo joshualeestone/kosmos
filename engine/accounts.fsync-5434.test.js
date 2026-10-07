@@ -70,6 +70,7 @@ for (const [name, mod] of [['claude', claude], ['grok', grok], ['gemini', gemini
     const dead = base + DEAD_PID + '-t0-1-1.tmp';      // a writer that died between create and rename
     const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
     t.after(() => child.kill());
+    assert.ok(Number.isInteger(child.pid), 'the live-writer child did not start, so this arm would test nothing');
     const live = base + child.pid + '-t0-1-1.tmp';     // a live foreign writer (a child we hold open): never taken
     fs.writeFileSync(dead, 'raw-key', { mode: 0o600 });
     fs.writeFileSync(live, 'raw-key', { mode: 0o600 });

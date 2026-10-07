@@ -11,7 +11,9 @@ before the rename. This slice moves the account stores' own tmp-then-rename writ
 - The three `forgetKey`s, and a new `securewrite.reapDeadTempsOf(file)` they call (below).
 
 Not in this slice: `store.js` profile and settings saves (after #5418 merges, it touches store.js),
-`reporthook.js` settings merge, the name files (`grokaccounts.js:108`, `geminiaccounts.js:81`, plain
+`reporthook.js` settings merge (it writes the same account settings.json; until its slice the two
+writers differ: it does not flush, keeps a looser mode, creates at the umask default; documented on
+`wireApiKeyHelper`), the name files (`grokaccounts.js:108`, `geminiaccounts.js:81`, plain
 writes, not renames), and the other files the card lists.
 
 ## Decisions
@@ -26,7 +28,7 @@ writes, not renames), and the other files the card lists.
     cleanup stays for temps an older version left.
   - After three failed atomic attempts writeSecret falls back to an in-place write; main threw. That is
     the fallback every other secret already has, and a refused flush never reaches it.
-  - `settings.json` keeps its existing mode, minus group and other write: it holds `apiKeyHelper`, a
+  - `settings.json` keeps its existing mode masked to 0644 (no group or other write, no execute): it holds `apiKeyHelper`, a
     command Claude Code runs, and writeSecret sets a mode exactly (no umask), so a 0666 file would
     otherwise have stayed 0666 where main's fresh temp brought it back to 0644. On main every save
     went through a fresh temp at the umask default, so a 0600 file became 0644, though the docblock

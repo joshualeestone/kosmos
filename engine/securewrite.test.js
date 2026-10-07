@@ -775,3 +775,40 @@ test('#1793: an OLD-format temp (no thread segment) from a prior run is still re
   securewrite.writeSecret(path.join(dir, 'cf-token'), 'NEW', 0o600);
   assert.equal(fs.existsSync(old), false, 'an old-format prior-run temp was not reaped, so it would leak forever');
 });
+
+/* #5434 slice 2: reapDeadTempsOf(file) removes ONE file's temps by the reaper's proof of death, on
+   every call. Direct arms, so its coverage does not hang on the account stores calling it. */
+test('#5434: reapDeadTempsOf takes a dead writer\'s and a prior run\'s temp of that file, and nothing else', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw-reapof-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const DEAD = 2147483646;
+  assert.throws(() => process.kill(DEAD, 0), (e) => e.code === 'ESRCH');
+  const child = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  t.after(() => child.kill());
+  assert.ok(Number.isInteger(child.pid), 'the live-writer child did not start');
+  const file = path.join(dir, 'token');
+  const names = {
+    deadForeign: `token.kosmos-${DEAD}-t0-1-1.tmp`,
+    priorRunOfUs: `token.kosmos-${process.pid}-t0-1-1.tmp`,          // our pid, main thread, another STARTED
+    oldFormatDead: `token.kosmos-${DEAD}-1-1.tmp`,                    // a prior release's name (no t segment)
+    liveForeign: `token.kosmos-${child.pid}-t0-1-1.tmp`,
+    otherThreadOfUs: `token.kosmos-${process.pid}-t7-1-1.tmp`,        // may be a live sibling thread
+    otherFileDead: `other.kosmos-${DEAD}-t0-1-1.tmp`,                 // a different file's temp
+    notATemp: 'token.tmp',
+  };
+  for (const n of Object.values(names)) fs.writeFileSync(path.join(dir, n), 'x');
+  fs.writeFileSync(file, 'secret');
+  securewrite.reapDeadTempsOf(file);
+  const left = new Set(fs.readdirSync(dir));
+  for (const k of ['deadForeign', 'priorRunOfUs', 'oldFormatDead']) assert.equal(left.has(names[k]), false, k + ' was left');
+  for (const k of ['liveForeign', 'otherThreadOfUs', 'otherFileDead', 'notATemp']) assert.equal(left.has(names[k]), true, k + ' was taken');
+  assert.equal(fs.readFileSync(file, 'utf8'), 'secret', 'the file itself was touched');
+  // Every call, not once per folder: a second dead temp after the first reap is still taken.
+  fs.writeFileSync(path.join(dir, names.deadForeign), 'x');
+  securewrite.reapDeadTempsOf(file);
+  assert.equal(fs.existsSync(path.join(dir, names.deadForeign)), false, 'the second call did nothing');
+});
+
+test('#5434: reapDeadTempsOf never throws, even for a folder that does not exist', () => {
+  assert.doesNotThrow(() => securewrite.reapDeadTempsOf(path.join(os.tmpdir(), 'no-such-folder-5434-' + process.pid, 'f')));
+});

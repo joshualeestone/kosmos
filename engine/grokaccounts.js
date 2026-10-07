@@ -482,7 +482,6 @@ function storeKey(dir, key) {
   try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
   // #5434: through the shared writer, so the key is flushed to disk before the rename makes it the file.
   securewrite.writeSecret(file, String(key || '').trim(), 0o600);
-  try { fs.chmodSync(file, 0o600); } catch { /* best effort; create mode already set */ }
 }
 
 function forgetKey(dir) {
