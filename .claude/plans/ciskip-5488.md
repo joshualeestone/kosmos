@@ -53,8 +53,9 @@ commit on a PR that changes code still matches, so `paths-ignore: .claude/plans/
   2 (the stub refuses, so the reuse controls fail).
 
 ## Cost
-- `suite` now waits for the ubuntu `scope` job on every PR run. Its checkout is full history with no file contents
-  (`filter: blob:none`), so it is seconds, not the ~340 MiB full clone.
+- `suite` now waits for the ubuntu `scope` job on every PR run. Its checkout is full history without past file
+  contents (`filter: blob:none`; only the checked-out tree's files download), much cheaper than the ~340 MiB full
+  clone.
 
 ## Weakest premises
 - A pull_request run tests the merge with main AS IT WAS. Reusing it skips re-testing this head against a main that
@@ -67,7 +68,8 @@ commit on a PR that changes code still matches, so `paths-ignore: .claude/plans/
   each plans-only push would reset the six-hour clock (found in review iteration 2).
 - Both sides of every changed path must be a plain file (mode 100644, or absent): a symlink or an executable bit
   under plans is not "a plan" (`git diff --raw`).
-- `gh run list` once (of seven identical calls) returned two older runs at 10:05 CDT on 10-07; not reproducible.
+- `gh run list` once (of seven identical calls) returned two older runs at 10:05 CDT on 10-07 (seen in the author's
+  terminal, no log kept); not reproducible.
   If it recurs it is safe: an older source means an older sha, a wider diff, and the suite runs.
 - No check is required on main (no branch protection, no rulesets, measured). If `test` is ever made required, a
   skipped `suite` is still fine: `test` itself reports success with the reused run named.
