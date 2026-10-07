@@ -210,9 +210,9 @@ test('#4920 uninstall: each case names its real cause', () => {
   r = runBlock(UNINSTALL_BLOCK, w);
   assert.match(r.stdout, /systemctl is not available/);
   assert.doesNotMatch(r.stdout, /app code or runtime is missing/, 'blamed a missing app that is there');
-  w = world({ app: false, units: ['kosmos-board.service', 'kosmos-board.abcd1234.service'] });
+  w = world({ app: false, units: ['kosmos-board.other1.service', 'kosmos-board.abcd1234.service'] });
   r = runBlock(UNINSTALL_BLOCK, w);
-  assert.equal((r.stdout.match(/app code or runtime is missing/g) || []).length, 2, 'each leftover unit is named: ' + r.stdout);
+  assert.equal((r.stdout.match(/app code or runtime is missing/g) || []).length, 2, 'each leftover unit of another home is named: ' + r.stdout);
   assert.match(r.stdout, /may be this install's or another Kosmos's/);
 });
 
@@ -394,4 +394,23 @@ test('#4920 install: linger off says a board systemd runs stops at logout; one s
   w = world({ nodeOut: 'loose not lingering' });
   r = runBlock(INSTALL_BLOCK, w);
   assert.match(r.stdout, /so after a restart it stops when you log out\./, 'loose: ' + r.stdout);
+});
+
+test('#4920 uninstall: with the app gone, this home\'s own unit is removed and another home\'s is only named', () => {
+  const w = world({ app: false });
+  const mine = 'kosmos-board.' + require('node:crypto').createHash('sha256').update(w.home).digest('hex').slice(0, 8) + '.service';
+  fs.writeFileSync(path.join(w.unitDir, mine), '[Service]\n');
+  fs.writeFileSync(path.join(w.unitDir, 'kosmos-board.ffffffff.service'), '[Service]\n');
+  const r = runBlock(UNINSTALL_BLOCK, w);
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(!fs.existsSync(path.join(w.unitDir, mine)), 'this home\'s unit was left to loop on a missing folder');
+  assert.ok(fs.existsSync(path.join(w.unitDir, 'kosmos-board.ffffffff.service')), 'another home\'s unit was touched');
+  assert.match(r.stdout, /kosmos-board\.ffffffff\.service.*may be this install's or another Kosmos's/);
+  assert.doesNotMatch(r.stdout, new RegExp(mine.replace(/\./g, '\\.') + '.*may be'), 'this home\'s unit was only named');
+});
+
+test('#4920 uninstall runs the KillMode fix before it stops the board', () => {
+  const i = SETUP.indexOf('    _kosmos_linux_unit_killmode   # #4920: as before an update pause');
+  const j = SETUP.indexOf('"$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true', i);
+  assert.ok(i > 0 && j > i && j - i < 200, 'the KillMode fix is not right before the uninstall stop');
 });

@@ -6,7 +6,7 @@
  * com.kosmos.board.plist and Windows Scheduled Tasks.
  *
  * Callers: engine/boardrestart.js (self-restart on a world switch or a user restart); install/setup.sh on
- * Linux calls installBoard, loadedBoardJob and removeBoard (#4920) through the installed node.
+ * Linux calls installBoard, loadedBoardJob, removeBoard and boardUnitPath (#4920) through the installed node.
  * install/kosmos never loads this file: it names the
  * same unit itself (_kosmos_board_systemd_unit, kept equal by tools/test-board-supervised-linux-4918.sh).
  */
