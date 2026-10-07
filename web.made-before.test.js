@@ -2,8 +2,9 @@
 
 /**
  * #149/#150: an agent with no launch file says "Made before Kosmos recorded
- * this" instead of "Unknown Model", and the model picker refuses in the
- * state's own words with the way in.
+ * this" instead of "Unknown Model", and its Runs on card says the state and
+ * the way in once: since #5491 the model block, which said both again, is not
+ * shown for that agent.
  *
  * The server decides `neverRecorded` (tied pane, no plist: engine/status.js);
  * these pins hold the SCREEN's half: every surface splits on the flag rather
@@ -103,6 +104,12 @@ test('the explainer names the way in, once, and only for the never-recorded stat
     'the model block is no longer hidden for a never-recorded agent, so the card says the state twice again');
   assert.doesNotMatch(PAGE, /so its model cannot change here/,
     'the model block repeats the explainer again (#5491)');
+  assert.doesNotMatch(PAGE, /so there is no model to change here/,
+    'the OpenAI model block repeats the explainer again (#5491)');
+  /* The line about changing the model goes too, from the two painters that own those lines. */
+  assert.match(PAGE, /id="d-model-restart-hint"/, 'the model restart line lost the id its hiding keys on');
+  assert.equal((PAGE.match(/h\.id === 'd-model-restart-hint'/g) || []).length, 2,
+    'paintProviderPicker and fillSwitchAccounts must both keep the model restart line hidden for a never-recorded agent');
   assert.match(PAGE, /waiting will not add one\. /,
     'the runs-on explainer no longer says the state is permanent');
   assert.match(PAGE, /To bring it in: stop it, then add it from Found agents in Settings/,

@@ -12616,7 +12616,7 @@ window.kosmosMeasureScrollbarWidth();
         </div>
       </div>
     </div>
-    <p class="dhint d-current-hint" style="margin:12px 0 0;">Changing the model restarts the agent. It comes back with nothing in its memory, and anything it was part way through ends, including anything it agreed to and has not done yet. Its instructions and its files are untouched.</p>
+    <p class="dhint d-current-hint" id="d-model-restart-hint" style="margin:12px 0 0;">Changing the model restarts the agent. It comes back with nothing in its memory, and anything it was part way through ends, including anything it agreed to and has not done yet. Its instructions and its files are untouched.</p>
     <p class="dhint d-current-hint" style="margin:8px 0 0;">Moving it to another account takes everything it has done with it. Moving is how you take an agent off an account that is running out.</p>
   </section>
   </section>
@@ -48441,7 +48441,8 @@ async function paintModelPicker(a) {
   const forWhom = a && a.sessionName;
   /* #5491 (Mona Lisa): an agent Kosmos never recorded the launch of cannot change its model here, and the Runs on card
      already says so: its heading names the state and #d-runson-why gives the way in. The model block (menu, button,
-     hint and refusal) could only say both again, so it is not shown for that agent. Set on every paint, before any
+     why-note and refusal) could only say both again, so it is not shown for that agent; the line about changing the
+     model (#d-model-restart-hint) is hidden by paintProviderPicker and fillSwitchAccounts, which own those lines. Set on every paint, before any
      provider's path, so the next agent's block comes back. */
   const modelStep = document.getElementById('d-model-row') && document.getElementById('d-model-row').closest('.mstep');
   const neverRec = !!(a && a.neverRecorded === true);
@@ -49367,7 +49368,7 @@ function paintProviderPicker(a) {
   SWITCH_MODEL_GEN += 1;   // review 2: an OpenAI list still loading for the agent before never lands on this one
   /* #5091: the menu is about to show this agent's own provider, so its own rows show: synchronously, for every runner
      (an Antigravity or Muse agent's account picker returns early, before the refill that would also do this). */
-  { const cur0 = document.getElementById('d-current-rows'); if (cur0) cur0.hidden = false; for (const h of document.querySelectorAll('.d-current-hint')) h.hidden = false; }
+  { const cur0 = document.getElementById('d-current-rows'); if (cur0) cur0.hidden = false; for (const h of document.querySelectorAll('.d-current-hint')) h.hidden = h.id === 'd-model-restart-hint' && !!a && a.neverRecorded === true; }   // #5491: no model control, so no line about changing it
   const current = providerOf(a);
   /* kosmos#990: the row states what the agent IS on. The two real providers
      are both selectable -- the current one has to be, or it could not be
@@ -49655,7 +49656,7 @@ function fillSwitchAccounts() {
     const other = !!CURRENT && !!prov.value && prov.value !== providerOf(CURRENT);
     const cur = document.getElementById('d-current-rows'); if (cur) cur.hidden = other;
     // Round 2: the two lines under the block describe ITS controls (model change, account move); they go with it.
-    for (const h of document.querySelectorAll('.d-current-hint')) h.hidden = other;
+    for (const h of document.querySelectorAll('.d-current-hint')) h.hidden = other || (h.id === 'd-model-restart-hint' && !!CURRENT && CURRENT.neverRecorded === true);   // #5491
   }
 
   /* Hidden for THREE reasons, and the condition below names all of them because a
