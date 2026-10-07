@@ -186,11 +186,10 @@ function tmuxBinPath(platform = process.platform, env = process.env, runnable) {
     const can = runnable || ((f) => require('./runners').isRunnable(f));
     if (platform !== 'linux' || can(env.AGENT_WORKFORCE_TMUX_BIN)) return env.AGENT_WORKFORCE_TMUX_BIN;
   }
-  if (platform === 'darwin') return '/opt/homebrew/bin/tmux';
+  if (platform !== 'linux') return '/opt/homebrew/bin/tmux';   // review 7: the Mac and Windows defaults exactly as before
   // review 3: create's Linux picker (#4917: PATH plus /usr/local/bin, /usr/bin, ...), one derivation, so a board under a
   // minimal PATH still finds /usr/bin/tmux. Required at call time: create requires this module.
-  if (platform === 'linux') return require('./create').linuxTmuxBin('linux', env, runnable) || 'tmux';
-  return 'tmux';
+  return require('./create').linuxTmuxBin('linux', env, runnable) || 'tmux';
 }
 
 const STATE_FILE = () => path.join(store.ROOT, 'connect.json');

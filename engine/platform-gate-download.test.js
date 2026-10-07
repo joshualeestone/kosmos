@@ -52,12 +52,15 @@ test('#3159 connect.download PASSES win32 THROUGH the gate now (Claude publishes
       (e) => /did not answer with a version/.test(e.message)
         && !/no published Claude Code build/.test(e.message),
       'win32 reaches the download service (past the gate), then fails on the bad version');
-    // #5419: linux passes the gate too (Claude publishes linux-x64/arm64 and their musl builds).
+    // #5419: linux passes the gate too (Claude publishes linux-x64/arm64 and their musl builds). Review 7: the tmux
+    // check is pinned to "present", so this does not depend on the host having tmux.
+    connect.setTmuxCheckForTests(() => false);
     await assert.rejects(
       connect.download(() => {}, undefined, 'linux'),
       (e) => /did not answer with a version/.test(e.message)
         && !/no published Claude Code build/.test(e.message),
       'linux reaches the download service (past the gate), then fails on the bad version');
+    connect.setTmuxCheckForTests(null);
   } finally {
     if (prev === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
     else process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = prev;

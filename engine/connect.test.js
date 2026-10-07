@@ -2901,7 +2901,8 @@ test('#248: a relative configDir is refused loudly before any state moves', asyn
 // musl build where the C library is musl. Driven with the `linux` platform seam so it runs on this Mac.
 test('#5419 a linux download fetches the linux build (glibc), verified and executable', async (t) => {
   connect.setMuslDetectForTests(() => false);
-  t.after(() => connect.setMuslDetectForTests(null));
+  connect.setTmuxCheckForTests(() => false);   // review 7: not the host's tmux (a Linux runner may have none)
+  t.after(() => { connect.setMuslDetectForTests(null); connect.setTmuxCheckForTests(null); });
   const binary = crypto.randomBytes(160 * 1024);
   const checksum = crypto.createHash('sha256').update(binary).digest('hex');
   process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(t, { version: '9.9.4', binary, checksum, platform: 'linux' });
@@ -2944,7 +2945,8 @@ test('#5419 review 1: musl detection, every branch (report with glibc, report wi
 
 test('#5419 a manifest with no build for this linux key refuses before anything is placed', async (t) => {
   connect.setMuslDetectForTests(() => true);   // ask for -musl; the release serves only the glibc key
-  t.after(() => connect.setMuslDetectForTests(null));
+  connect.setTmuxCheckForTests(() => false);   // review 7: not the host's tmux
+  t.after(() => { connect.setMuslDetectForTests(null); connect.setTmuxCheckForTests(null); });
   const binary = crypto.randomBytes(64 * 1024);
   const checksum = crypto.createHash('sha256').update(binary).digest('hex');
   connect.setMuslDetectForTests(() => false);
@@ -2966,6 +2968,7 @@ test('#5419 review 2-4: on Linux the tmux for sign-in is create\'s picker (PATH,
   assert.equal(connect.tmuxBinPath('linux', { PATH: '/nowhere' }, () => false), 'tmux', 'none found: the bare name');
   assert.equal(connect.tmuxBinPath('linux', { AGENT_WORKFORCE_TMUX_BIN: '/x/tmux', PATH: '/opt/custom/bin' }, (f) => f === '/x/tmux' || runnable(f)), '/x/tmux', 'a runnable launcher pick wins');
   assert.equal(connect.tmuxBinPath('darwin', {}), '/opt/homebrew/bin/tmux', 'CONTROL: the Mac default is unchanged');
+  assert.equal(connect.tmuxBinPath('win32', {}, () => false), '/opt/homebrew/bin/tmux', 'review 7: the Windows default is unchanged too');
 });
 
 test('#5419 review 2: the C-library report is read with network handles excluded, and the setting is put back', () => {
