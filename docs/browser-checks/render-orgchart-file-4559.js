@@ -15,7 +15,7 @@
  *             - Read it sends the file again with consent=1; an unsure line shows "Check this: <why>" and
  *               Create stays disabled until Looks right (or a new manager is chosen);
  *             - making a reporting loop by hand names it and disables Create again.
- *   NO READER the "needs Claude or an OpenAI key (a Grok key reads a PNG or JPG picture)" answer is shown and nothing else happens.
+ *   NO READER the "Claude reads a picture or PDF ... ChatGPT, connected the same way, also reads a PNG or JPG picture" answer is shown and nothing else happens (#5346: it leads with Claude).
  *   ORPHAN    a manager the team create refuses: the person under them is put under you (PUT profile
  *             reportsTo '') and the result says so.
  * Light and dark screenshots of the picture preview with its Check this line (SHOT_DIR).
@@ -465,7 +465,7 @@ async function run() {
     } else check('LEAVE: the panel offers a file', false);
     await pl.close();
 
-    // NO READER (no Claude and no key-connected provider)
+    // NO READER (no Claude, no usable ChatGPT and no key-connected provider)
     const p4 = await page();
     const { NO_MODEL } = require('../../engine/orgchartfile');   // the route's own sentence, not a copy
     await p4.route('**/api/orgchart/read*', (r) => r.fulfill({ status: 200, json: { unavailable: true, problems: [NO_MODEL] } }));
@@ -474,7 +474,7 @@ async function run() {
       await p4.setInputFiles('#orgchart-file', path.join(FIX, 'chart.pdf'));
       await p4.waitForTimeout(500);
       const u = await readPreview(p4);
-      check('NO READER: says Claude or an OpenAI key is needed (a Grok key for a picture) and offers CSV, Excel or typing; no consent box, no preview', /needs Claude or an OpenAI key \(a Grok key reads a PNG or JPG picture\)/.test(u.msg) && !u.consent && !u.shown, JSON.stringify(u));
+      check('NO READER: leads with Claude, names ChatGPT for a picture, offers CSV, Excel or typing, never says API key; no consent box, no preview', (process.platform === 'win32' ? /Claude reads a picture or PDF, connected in Settings, AI Models\. OpenAI or Grok connected with a key/ : /Claude reads a picture or PDF, connected in Settings, AI Models\. ChatGPT, connected the same way, also reads a PNG or JPG picture/).test(u.msg) && !/API key/i.test(u.msg) && !u.consent && !u.shown, JSON.stringify(u));
     } else check('NO READER: the panel offers a file', false);
     await p4.close();
 

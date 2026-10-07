@@ -300,7 +300,7 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
        with the control hidden while it was closed). */
     if (closedNow && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; heldDropped = true; }
     // kosmos#4787 review 2: nor does a repeat rule, when the task closes because its last part did (as setClosed).
-    if (closedNow && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; repeatDropped = true; }
+    if (closedNow && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; dropReviewer(changed); repeatDropped = true; }
     /* ⚠️ `who` is DROPPED once parts are stored, not kept in step. Two fields
        answering "who is on this" is two things that disagree the first time
        one of them is edited, and every reader would then have to know which
@@ -493,6 +493,7 @@ function assignPart(projectId, n, partId, who, made) {
   // `made.onlyIfWho` likewise refuses unless the part is still on that agent (the Assigner's
   // takeback, so it never clears a part somebody else took in the meantime).
   let taken = false;
+  let stopped = false;   // #5382: a failover move refused because the work itself changed (finished, closed, held), not its owner
   // The membership check runs only for a part that actually exists (inside
   // the id match below) -- checked unconditionally up front, a nonexistent
   // partId with an unrecognised who threw the membership error instead of
@@ -512,6 +513,12 @@ function assignPart(projectId, n, partId, who, made) {
       /* #4771: nor one put on hold, or whose project was paused, since it was picked. */
       if (made && made.onlyIfFree && (isOnHold(t) || projects.isPaused(p))) { taken = true; return x; }
       if (made && typeof made.onlyIfWho === 'string' && x.who !== made.onlyIfWho) { taken = true; return x; }
+      /* #5382: a failover move (the Assigner taking a rate-limited agent's part) is refused if the part was finished, or
+         its task built, put on hold or its project paused, since it was picked. */
+      if (made && made.failover === true && (x.closedAt || t.closedAt || t.builtAt || isOnHold(t) || projects.isPaused(p))) { taken = true; stopped = true; return x; }
+      /* #5382 (post-merge review 2): a failover's take-back to the agent it came from is a move to a named agent, which
+         would drop a built mark set while the line was in flight; `keepBuilt` refuses it so the caller gives it to nobody. */
+      if (made && made.keepBuilt === true && whoKey && t.builtAt) { taken = true; stopped = true; return x; }
       moved = (x.who || null) !== whoKey;
       givenOpen = moved && !!whoKey && !x.closedAt;
       if (moved && whoKey && !(p.agents || []).includes(whoKey)) {
@@ -519,10 +526,24 @@ function assignPart(projectId, n, partId, who, made) {
       }
       const hookNo = moved ? webhookGiveProblem(t, whoKey, made) : null;
       if (hookNo) throw new Error(hookNo);
-      return moved ? { ...x, who: whoKey, movedVia: viaOf(made), movedAt: new Date().toISOString() } : x;
+      if (!moved) return x;
+      const y = { ...x, who: whoKey, movedVia: viaOf(made), movedAt: new Date().toISOString() };
+      /* #5382: `movedFrom`, who a failover move took the part from (the receiver's line names it; any other move clears it).
+         `owedTell`, every agent the failover took this part from that has not yet been TOLD (engine/failovertell.js), kept
+         on the part so the obligation survives a restart, a setting change and a long pause (review 8). A failover move
+         adds its source; any move drops the new holder (it is theirs again, nothing to tell). Finishing it does NOT end
+         the need (review 10): the source may still resume it. A chain A -> B -> C owes both A and B. */
+      const owed = (Array.isArray(x.owedTell) ? x.owedTell : []).filter((s) => typeof s === 'string' && s !== whoKey);
+      if (made && made.failover === true && x.who) {
+        y.movedFrom = x.who;
+        if (!owed.includes(x.who)) owed.push(x.who);
+      } else delete y.movedFrom;
+      if (owed.length) y.owedTell = owed; else delete y.owedTell;
+      return y;
     });
   }, { dropBuilt: () => givenOpen });   // #3951 (review round 5): an open part given to somebody is work to do
   if (!found) return { ok: false, because: 'there is no part by that number on this task' };
+  if (stopped) return { ok: false, because: 'that part was finished, closed, built or put on hold since it was picked' };
   if (taken) return { ok: false, because: made && typeof made.onlyIfWho === 'string' ? 'that part is no longer on ' + made.onlyIfWho : 'somebody is already on that part' };
   // Only a real move is recorded: a resubmit of the current assignee (moved
   // false) changed nothing and types no pane line, so it leaves no transcript
@@ -530,6 +551,23 @@ function assignPart(projectId, n, partId, who, made) {
   if (moved) taskchat.record(projectId, Number(n), { kind: 'assigned', partId: Number(partId), who: whoKey });
   recordDroppedForWork(projectId, n, task);
   return { ok: true, task, changed: moved };
+}
+
+/* #5382 (review 8): `session` was told this part was given away; it leaves the part's owedTell. Records nothing
+   else and is a no-op when the session is not owed (a told mark is never a move). */
+function markMoveTold(projectId, n, partId, session) {
+  let found = false;
+  try {
+    writeParts(projectId, n, (parts) => parts.map((x) => {
+      if (Number(x.id) !== Number(partId) || !Array.isArray(x.owedTell) || !x.owedTell.includes(session)) return x;
+      found = true;
+      const rest = x.owedTell.filter((s) => s !== session);
+      const y = { ...x };
+      if (rest.length) y.owedTell = rest; else delete y.owedTell;
+      return y;
+    }));
+  } catch { return { ok: false }; }   // the task or project went away: nothing left to tell about
+  return { ok: found };
 }
 
 /** Finish a part, or put it back. The parent's state follows from its parts. */
@@ -709,7 +747,7 @@ function setClosed(projectId, n, closedAt) {
     // #4771: nor does a hold: a reopen must not come back silently held, its control hidden while it was closed.
     if (after && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; heldDropped = true; }
     // kosmos#4787 review 1: closing is how a recurring job ends; a reopen does not bring the rule back silently.
-    if (after && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; repeatDropped = true; }
+    if (after && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; dropReviewer(changed); repeatDropped = true; }
     return {
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
@@ -832,6 +870,9 @@ function setRepeat(projectId, n, rule, opts = {}) {
     if (!person && t.repeatByPerson === true && JSON.stringify(t.repeat || null) !== JSON.stringify(next)) {
       throw new Error('the person set how often this task repeats, so only they can change it');
     }
+    /* slice 3 review 2: stopping the repeat takes the reviewer with it, so a process cannot stop a task whose reviewer the
+       person chose (it would clear the person's choice, then name its own after setting the rule again). */
+    if (!person && !next && t.repeatReviewerByPerson === true) throw new Error('the person chose who reviews this task, so only they can stop it repeating');
     didChange = JSON.stringify(t.repeat || null) !== JSON.stringify(next);
     changed = { ...t };
     // review 2: the flag moves only with a real change; an agent re-sending the person's own rule leaves it theirs.
@@ -843,6 +884,8 @@ function setRepeat(projectId, n, rule, opts = {}) {
     } else {
       // review 3: the runs belonged to the rule; a rule set again later starts with no stale "last run".
       delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; delete changed.lastRunAt; delete changed.lastRunBy; delete changed.lastRunByPerson; delete changed.lastRunNote; delete changed.lastRunLate;
+      // slice 3: the reviewer reviewed this rule's results, so it goes with the rule.
+      dropReviewer(changed);
     }
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
@@ -852,6 +895,70 @@ function setRepeat(projectId, n, rule, opts = {}) {
     taskchat.record(projectId, changed.number, next
       ? { kind: 'repeat-set', every: next.every, words: taskrepeat.describe(next), via: person ? 'screen' : 'agent' }
       : { kind: 'repeat-cleared', via: person ? 'screen' : 'agent' });
+  }
+  return changed;
+}
+
+/**
+ * kosmos#4787 slice 3: name who reviews a repeating task's results: the person (`who` 'me'), an agent on the project (its
+ * session name), or nobody (null / 'none'). When a run is missed, the reviewer is told once (engine/missedtell.js).
+ * Only the person can name themselves, and a reviewer the person chose is theirs: a process cannot change or clear it
+ * (as the person's rule, setRepeat). An agent must be on the project, checked inside the same read that stores it.
+ */
+/* The checks a reviewer must pass, on a task as it stands (`t`) in its project (`p`); a sentence, or null. Shared by
+   setReviewer and the repeat route, which checks a reviewer BEFORE storing a rule sent with it (review 1: a refused
+   reviewer must not leave the rule half-applied). "Does it repeat" is setReviewer's own check. */
+/* slice 3 review 3: the reviewer belongs to the rule, so wherever the rule is dropped (closing, stopping) it goes too;
+   otherwise a reopened task given a new rule would bring back an old reviewer still marked as the person's choice. */
+function dropReviewer(t) {
+  delete t.repeatReviewer; delete t.repeatReviewerPerson; delete t.repeatReviewerByPerson; delete t.repeatReviewerSetAt; delete t.missToldAt;
+}
+function reviewerChoice(who) {
+  const raw = who === undefined || who === null ? 'none' : String(who).trim();
+  const low = raw.toLowerCase();
+  if (low === 'me') return 'me';
+  return raw === '' || low === 'nobody' || low === 'none' ? 'none' : raw;   // review 4: 'nobody', as task assign takes; review 12: any case
+}
+function reviewerProblem(p, t, who, opts = {}) {
+  const person = opts.person === true;
+  const after = reviewerChoice(who);
+  if (after === 'me' && !person) return 'only the person can name themselves as the reviewer';
+  if (after !== 'me' && after !== 'none' && !((p && p.agents) || []).includes(after)) return 'that agent is not on this project, so it cannot review this task';
+  const before = t && t.repeatReviewerPerson === true ? 'me' : (t && t.repeatReviewer) || 'none';
+  if (!person && t && t.repeatReviewerByPerson === true && before !== after) return 'the person chose who reviews this task, so only they can change it';
+  return null;
+}
+function setReviewer(projectId, n, who, opts = {}) {
+  const person = opts.person === true;
+  const after = reviewerChoice(who);
+  let changed;
+  let didChange = false;
+  projects.mutate(projectId, (p) => {
+    const t = byNumber(p, n);
+    if (!t) throw new Error('there is no task by that number on this project');
+    if (!t.repeat) throw new Error('that task does not repeat; set how often first, then who reviews its results');
+    if (progressOf(t).closed) throw new Error('that task is closed, so it no longer repeats');
+    const problem = reviewerProblem(p, t, after, { person });
+    if (problem) throw new Error(problem);
+    const before = t.repeatReviewerPerson === true ? 'me' : (t.repeatReviewer || 'none');
+    didChange = before !== after;
+    changed = { ...t };
+    /* Review 1: the person's choice is theirs, Nobody included, and choosing what an agent already named makes it theirs
+       (the mark is written even when the reviewer itself is unchanged; nothing is recorded then). */
+    const lock = person && t.repeatReviewerByPerson !== true;
+    if (!didChange && !lock) return p;
+    if (didChange) {
+      delete changed.repeatReviewer; delete changed.repeatReviewerPerson; delete changed.missToldAt;
+      if (after === 'me') changed.repeatReviewerPerson = true;
+      else if (after !== 'none') changed.repeatReviewer = after;
+      if (after === 'none') delete changed.repeatReviewerSetAt; else changed.repeatReviewerSetAt = new Date().toISOString();
+    }
+    if (person) changed.repeatReviewerByPerson = true; else if (didChange) delete changed.repeatReviewerByPerson;
+    return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
+  });
+  if (didChange) {
+    taskchat.record(projectId, changed.number, changed.repeatReviewerPerson === true ? { kind: 'reviewer-set', person: true }
+      : changed.repeatReviewer ? { kind: 'reviewer-set', who: changed.repeatReviewer } : { kind: 'reviewer-cleared', ...(person ? { person: true } : {}) });
   }
   return changed;
 }
@@ -1002,6 +1109,10 @@ function partsOf(task) {
       ...(part.createdAt ? { createdAt: part.createdAt } : {}),
       ...(part.movedVia ? { movedVia: part.movedVia } : {}),
       ...(part.movedAt ? { movedAt: part.movedAt } : {}),
+      /* #5382: who a failover move took the part from. Carried like the provenance above: without it every reader
+         (server movedAwayFrom) saw nothing, and the next write to the task erased it from the store. */
+      ...(part.movedFrom ? { movedFrom: part.movedFrom } : {}),
+      ...(Array.isArray(part.owedTell) && part.owedTell.length ? { owedTell: part.owedTell.filter((s) => typeof s === 'string') } : {}),
     }));
   }
   return [{
@@ -1268,7 +1379,9 @@ function lastActivityOf(projectId, task) {
     if (!progressOf(task).closed) {
       let events = [];
       try { events = taskchat.read(projectId, task.number) || []; } catch { events = []; }
-      for (const e of events) consider(e && e.at);
+      /* kosmos#4787 slice 3 (review 5): Kosmos's own note that a run was MISSED is not activity: a dead job must not sort
+         as freshly active under "Quietest first". */
+      for (const e of events) if (!(e && e.kind === 'missed')) consider(e && e.at);
     }
   }
   return newest;
@@ -1445,6 +1558,6 @@ function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null,
 
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, waitingOnPerson, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, setParent, tasksEverCreated, tasksTabShown, claimWho,
-  partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem, say, isOnHold, setOnHold,
+  partsOf, progressOf, whoOf, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
-  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, setRepeat, recordRun };
+  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, setRepeat, setReviewer, reviewerProblem, recordRun };

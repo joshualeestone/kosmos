@@ -175,6 +175,12 @@ function readRoot(dir) {
  * branch may not change the behaviour of. Left as found, deliberately.
  */
 function jobReader(platform) {
+  /* #4918 review 11: on Linux the startup job is a systemd user unit, never a plist, so the survey reads the unit;
+     the plist check said no Linux agent comes back after a restart. */
+  if (platform === 'linux') {
+    const lj = require('./linuxjob');
+    return { win32: false, known: true, fleet: null, of: (name) => lj.presence(name) };
+  }
   if (platform !== 'win32') {
     return { win32: false, known: true, fleet: null, of: (name) => fs.existsSync(create.plistPath(name)) };
   }
@@ -416,8 +422,9 @@ function repair(opts) {
     results,
     /* Counts for a headline, beside the list rather than instead of it. */
     installed: results.filter((r) => r.ok).length,
-    started: results.filter((r) => r.ok && r.started).length,
+    // #4918 review 34: a Linux unit already active is running too (installJob's alreadyRunning), not a failure to start.
+    started: results.filter((r) => r.ok && (r.started || r.alreadyRunning)).length,
   };
 }
 
-module.exports = { known, survey, repair, shownName };
+module.exports = { known, survey, repair, shownName, jobReader };   // jobReader exported for its Linux test (#4918 review 11)

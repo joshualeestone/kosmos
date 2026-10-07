@@ -102,11 +102,77 @@ function commentDeletesFile() { return path.join(dir(), 'comment-deletes.json');
 // #4922: this install's community group id, one per endpoint like the keys (another server never sees it).
 function installGroupFile() { return path.join(endpointDir(), 'install-group.json'); }
 
+/* #5431: the temp file is flushed (fsync) before the rename. Without that, a crash or power loss can leave the renamed
+   file at its full length with zeroed contents (seen on a Windows box: sent.json was 3 NUL bytes), which loadJson
+   rightly cannot read, so sending paused with no end. The folder is not flushed: that protects only the rename itself
+   (a crash could then keep the previous, whole file), Windows cannot do it, and it doubled the cost of every save. */
 function saveJson(file, data) {
+  const body = JSON.stringify(data, null, 2) + '\n';
+  // The same bytes already on disk, at this file's own permissions, need no write and no flush: measured, 869 of 1407
+  // sent.json saves in this module's tests rewrote what was there, and each flush cost about 4 ms on a Mac. The mode
+  // is checked too (review 9): every save used to put keys.json back to owner-only, and a copy restored at 0644 must
+  // still get that on its next save. Windows has no such mode.
+  try {
+    const fd0 = fs.openSync(file, 'r');
+    try {
+      const st = fs.fstatSync(fd0);
+      const modeOk = process.platform === 'win32' || (st.mode & 0o777) === FILE_MODE;
+      if (modeOk && st.size === Buffer.byteLength(body) && fs.readFileSync(fd0).equals(Buffer.from(body))) return;
+    } finally { fs.closeSync(fd0); }
+  } catch { /* missing or unreadable: write it */ }
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const tmp = `${file}.${crypto.randomBytes(6).toString('hex')}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', { mode: FILE_MODE });
-  fs.renameSync(tmp, file);
+  try {
+    const fd = fs.openSync(tmp, 'w', FILE_MODE);
+    try {
+      fs.writeFileSync(fd, body);
+      // A file system that does not support a flush at all (some network or FUSE mounts) is not a failed save.
+      // EISDIR is how libuv reports Windows' ERROR_INVALID_FUNCTION (a redirector without a flush); ENOSYS is what some
+      // FUSE mounts answer.
+      try { fs.fsyncSync(fd); } catch (e) { if (!e || !['EINVAL', 'ENOTSUP', 'EISDIR', 'ENOSYS'].includes(e.code)) throw e; }
+    } finally { fs.closeSync(fd); }
+    fs.renameSync(tmp, file);
+  } catch (e) { try { fs.unlinkSync(tmp); } catch { /* already gone */ } throw e; }
+}
+
+/* #5431: a record zero-filled at exactly the length of an empty record ({}\n) is a write torn by a crash, not a
+   record someone damaged. sent.json and comments-sent.json in that state are reset to {} when this service's
+   keys.json holds no agent at all: with no key on disk, resetting is no worse than an intact empty record (a crash
+   that lost keys.json's own rename too is a gap that existed before #5431). Any other torn file (keys.json above all:
+   resetting it would give every agent a second public name) stays unreadable, and sending stays paused until a
+   person repairs it. Called at the start of each exclusive section; it is synchronous, so nothing else in this
+   process runs between its check and its write. */
+const EMPTY_RECORD_BYTES = Buffer.byteLength('{}\n');   // what saveJson writes for an empty record
+function torn(file) {
+  let fd;
+  try { fd = fs.openSync(file, 'r'); } catch { return false; }
+  try {
+    // Only the shape #5431 observed is reset: exactly the length of an EMPTY record, all NUL (on NTFS, 3 NUL bytes
+    // for the 3-byte write of {}\n). A sent.json that held rows was a longer write. An empty (0-byte) file is left for
+    // a person: some file systems leave 0 bytes after a crash whatever the file held.
+    const size = fs.fstatSync(fd).size;
+    if (size !== EMPTY_RECORD_BYTES) return false;
+    const bytes = Buffer.alloc(size);
+    if (fs.readSync(fd, bytes, 0, size, 0) !== size) return false;
+    return bytes.every((b) => b === 0);
+  } catch { return false; } finally { fs.closeSync(fd); }
+}
+function repairTornRecords() {
+  const records = [sentFile(), commentsSentFile()].filter(torn);
+  if (!records.length) return;
+  let keys;
+  try { keys = JSON.parse(fs.readFileSync(keysFile(), 'utf8')); }
+  catch (err) { if (err && err.code === 'ENOENT') keys = {}; else return; }
+  if (!keys || typeof keys !== 'object' || Array.isArray(keys) || Object.keys(keys).length) return;
+  for (const f of records) {
+    try {
+      saveJson(f, {});
+      reportedCorrupt.delete(f); reportedCorrupt.delete('torn:' + f);
+      log(`${path.basename(f)} was 3 NUL bytes (an empty record whose write was cut off by a crash or power loss) and no agent has a key on this service, so nothing was sent: reset it`);
+    } catch (e) {
+      if (!reportedCorrupt.has('torn:' + f)) { reportedCorrupt.add('torn:' + f); log(`${path.basename(f)} is torn and could not be reset (${e && e.code ? e.code : 'unknown'})`); }
+    }
+  }
 }
 
 function log(msg) {
@@ -130,13 +196,23 @@ function loadJson(file) {
   } catch { /* falls through */ }
   return corrupt(file, 'not a JSON object');
 }
+const DO_NOT_REMOVE = Object.freeze({
+  'comments-sent.json': 'that would send every comment again',
+  'comment-deletes.json': 'a comment the owner removed would be sent',
+  'keys.json': 'every agent would register again under a second public name',
+  'sent.json': 'posts already sent could be sent again',
+  'deletes.json': 'a post the owner removed would be sent',
+});
 function corrupt(file, why) {
   if (!reportedCorrupt.has(file)) {
     reportedCorrupt.add(file);
     // comments-sent.json must never be REMOVED: without it every comment already sent would go again, in public.
     // #4801: nor comment-deletes.json: without it a comment the owner removed before it went out would be sent.
-    const fix = file === commentsSentFile() ? 'repaired (do NOT remove it: that would send every comment again)'
-      : file === commentDeletesFile() ? 'repaired (do NOT remove it: a comment the owner removed would be sent)'
+    // #5431: nor keys.json, sent.json or deletes.json (removing one sends again), in any service's folder: matched by
+    // name, since the retirement pass reads other services' folders too.
+    const keep = Object.prototype.hasOwnProperty.call(DO_NOT_REMOVE, path.basename(file)) ? DO_NOT_REMOVE[path.basename(file)] : null;
+    // Review 8: say what a repair is, since writing {} to it is the same as removing it.
+    const fix = keep ? `repaired from a backup of it, or by whoever supports this board (do NOT remove it or write {} to it: ${keep})`
       : 'repaired or removed';
     log(`${path.basename(file)} cannot be read (${why || 'unknown'}); sending is paused until it is ${fix}`);
   }
@@ -1459,7 +1535,8 @@ function sendSoon() {
    agent the next time it is needed. */
 let keysChain = Promise.resolve();
 function exclusive(fn) {
-  const run = () => { applyRetirements(); return fn(); };   // #4994: a pending retirement lands before anything acts
+  // #4994: a pending retirement lands before anything acts. #5431: a torn record that is safe to reset goes first.
+  const run = () => { try { repairTornRecords(); } catch { /* a repair must never stop the section */ } applyRetirements(); return fn(); };
   const p = keysChain.then(run, run);
   keysChain = p.catch(() => {});
   return p;
@@ -2192,6 +2269,7 @@ module.exports = {
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL, endpointAllowed, KOSMOS_BUGS_SLUG,
   CHANNELS, channelChoice, leadingChannelWord, // kosmos#5171
   _paths: { dir, retireDir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile, installGroupFile },
+  _saveJsonForTest: saveJson,   // #5431: an unchanged save is otherwise hard to drive on its own
   namesInstallGroup,   // #4922: for its contract test against the service's real answer shapes
   _registration: (agentKey) => registration(agentKey),   // #4922: for its test of what registration carries
   REGISTER_429_WAIT_MAX_S, _registerRetryAt: (k) => registerRetryAt.get(k),   // #4940: read-only, for its test

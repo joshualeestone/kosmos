@@ -145,7 +145,7 @@ test('#3734 kosmos agent --help and -h show the agent usage, not the top-level b
     for (const flag of ['--help', '-h']) {
       const r = await cli(port, ['agent', flag]);
       assert.equal(r.code, 0, flag + ' did not exit 0');
-      assert.match(r.out, /Usage: kosmos agent <create\|roles\|role-draft>/, flag + ' showed: ' + r.out);   // #4474 added role-draft
+      assert.match(r.out, /Usage: kosmos agent <create\|roles\|role-draft\|instructions-add>/, flag + ' showed: ' + r.out);   // #4474 added role-draft, #5293 instructions-add
       assert.match(r.out, /--new-role "<label>" --from <file>/, flag + ' did not show the new-role form');
       assert.doesNotMatch(r.out, /kosmos start \| stop/, flag + ' fell through to the top-level banner');
     }

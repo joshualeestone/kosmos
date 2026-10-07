@@ -1741,6 +1741,33 @@ test('an over-long name on the default path meets the SAME sentence the preview 
     /longer than a project name should be/);
 });
 
+test('#5424 on a case-sensitive disk, the preview names the folder makeFolder will make, not a different-case one', () => {
+  // This Mac's disk is case-insensitive, so the test above passes here with or without the fix. This one
+  // makes the projects folder answer as a case-sensitive disk does (the listing holds `Lease`, and `lease`
+  // opens nothing until it is made), so the fix has a guard that runs on every machine.
+  reset();
+  const root = projects.projectsRoot();
+  fs.mkdirSync(path.join(root, 'Lease'), { recursive: true });
+  const lower = path.join(root, 'lease');
+  let made = false;
+  const realStat = fs.statSync, realMkdir = fs.mkdirSync, realReaddir = fs.readdirSync;
+  fs.statSync = (p, ...rest) => {
+    if (p === lower && !made) { const e = new Error(`ENOENT: no such file or directory, stat '${p}'`); e.code = 'ENOENT'; throw e; }
+    return realStat(p, ...rest);
+  };
+  fs.mkdirSync = (p, ...rest) => { if (p === lower) { made = true; return undefined; } return realMkdir(p, ...rest); };
+  fs.readdirSync = (p, ...rest) => (p === root && made ? [...realReaddir(p, ...rest), 'lease'] : realReaddir(p, ...rest));
+  try {
+    const previewed = projects.folderPathPreview('lease');
+    assert.equal(previewed.path, lower, 'the preview names lease, the folder that will be made');
+    assert.equal(previewed.exists, false, 'and says MAKE, since lease opens nothing yet');
+    assert.equal(projects.makeFolder('lease'), lower, 'makeFolder makes lease beside Lease');
+    assert.equal(made, true, 'control: the act really reached the make arm');
+  } finally {
+    fs.statSync = realStat; fs.mkdirSync = realMkdir; fs.readdirSync = realReaddir;
+  }
+});
+
 test('the previewed path IS the path the act produces, case correction included', () => {
   // ⚠️ Volume-portable on purpose, the same lesson create.test.js records: on
   // a case-insensitive disk `lease` beside an existing `Lease` ADOPTS that
@@ -1749,16 +1776,18 @@ test('the previewed path IS the path the act produces, case correction included'
   // property the preview exists for on both kinds of volume.
   reset();
   fs.mkdirSync(path.join(projects.projectsRoot(), 'Lease'), { recursive: true });
+  // #5424: whether `lease` opens `Lease` is the disk's answer, asked before anything is made.
+  const sameFolder = fs.existsSync(path.join(projects.projectsRoot(), 'lease'));
   const previewed = projects.folderPathPreview('lease');
   const made = projects.makeFolder('lease');
   assert.equal(previewed.path, made,
     'the screen said one path and the filesystem got another');
-  // The act distinction travels with the path: this folder existed, so the
-  // screen must say ADOPT, and a fresh name must say MAKE (round 17: the
-  // preview claimed "make" over a folder adoption).
-  // #4919: on a case-insensitive disk `lease` IS the existing `Lease` (adopt); on a case-sensitive one it is a new
-  // folder (make). Either way the preview must say what the act did.
-  assert.equal(previewed.exists, caseInsensitiveFS(), 'the preview said ' + previewed.exists + ' about an act that ' + (caseInsensitiveFS() ? 'adopted' : 'made') + ' the folder');
+  // The act distinction travels with the path: where `lease` opens the existing folder the screen must say
+  // ADOPT, and where it does not (a case-sensitive disk) MAKE, as must a fresh name (round 17: the preview
+  // claimed "make" over a folder adoption).
+  assert.equal(previewed.exists, sameFolder, 'the folder previews as existing exactly when this name opens one');
+  assert.equal(path.basename(made), sameFolder ? 'Lease' : 'lease',
+    'a case-insensitive disk adopts Lease; a case-sensitive one makes lease beside it');
   const fresh = projects.folderPathPreview('Never previewed into being');
   assert.strictEqual(fresh.exists, false, 'a fresh name previews as not existing');
   assert.ok(!fs.existsSync(fresh.path),
