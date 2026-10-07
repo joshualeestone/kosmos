@@ -4,7 +4,10 @@
     {
       "icon": "shield",
       "title": "Refresh a login from its notice",
-      "line": "The login notice now has a Refresh login button, and AI Models marks each login that needs signing in again."
+      "line": "The login notice now has a Refresh login button, and AI Models marks each Claude login that needs signing in again.",
+      "platforms": [
+        "mac"
+      ]
     },
     {
       "icon": "tasks",
