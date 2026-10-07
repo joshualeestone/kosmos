@@ -6,7 +6,7 @@ Preparation only. Nothing in this packet has been uploaded to Google Play, and n
 
 - [ ] Confirm the app name, short description, and full description below.
 - [ ] Upload the 512 by 512 app icon and 1024 by 500 feature graphic listed below.
-- [ ] Upload the five 1080 by 1920 phone screenshots in filename order and paste their matching alt text.
+- [ ] (Pending Mona's corrected phone-layout screenshots) Upload the phone screenshots in filename order and paste their matching alt text once the corrected set is listed in the Graphic assets section.
 - [ ] Complete Data safety with the answers below, then make the two owner attestations called out in that section.
 - [ ] Complete the content rating questionnaire and target audience section with the answers below.
 - [ ] Enter `https://installkosmos.com/privacy` as the privacy policy URL.
@@ -65,21 +65,10 @@ All paths are relative to this repository.
 | --- | --- | ---: | --- |
 | App icon | `docs/play-listing/app-icon-512.png` | 512 by 512 | `4e139a7461dfe43fc5fa19c9f7d6121c49aef7f9611a039fa1de0dfc428e71df` |
 | Feature graphic | `docs/play-listing/feature-graphic-1024x500.png` | 1024 by 500 | `0e22abd4cb0a2f3edf9b92dffc8e7bd1c07fdb471e95886c89c54521535dfcc3` |
-| Phone screenshot 1 | `docs/play-listing/phone/01-home.png` | 1080 by 1920 | `ed68c191348770fc7989933698aac00b8509bce04c1a53bb22b10435694cda40` |
-| Phone screenshot 2 | `docs/play-listing/phone/02-agent-chat.png` | 1080 by 1920 | `65968b5875418d8f855983459443ae063523fae5ca668d01ed8bd2076e846177` |
-| Phone screenshot 3 | `docs/play-listing/phone/03-push-landing.png` | 1080 by 1920 | `b84888de98bf1dc78989fa311d11e971e9b4db1a512c423d247b2290592dc270` |
-| Phone screenshot 4 | `docs/play-listing/phone/04-project-room.png` | 1080 by 1920 | `eb71c7bdce18bae29c076774d0356a1f100c68c9cf55f8abd353a361491b0d90` |
-| Phone screenshot 5 | `docs/play-listing/phone/05-agents-list.png` | 1080 by 1920 | `6a1d17745fae4a0578af0ec8b9d8ee008bd905184d1f51f1572bbb9e215a7125` |
 
-The five phone screenshots are Mona Lisa's store graphics (2026-10-07). They are board renders from the app code that shipped as 0.7.27 (tag `archive/0.7.27-app-commit`), the Android app being a full-screen shell around the person's board. They were shot with Kosmos's own sanctioned screenshot tool (a throwaway board, a clean store sample fleet, leak guard passed) in Chromium, each a full 1080 by 1920 (9:16) render with no cropping. They show an invented demo fleet, projects, and conversations, not a real account or real work, and no account data appears in any screenshot. The app icon is the Android launcher icon (a white dot-matrix K on Kosmos gold); the feature graphic follows the installkosmos.com look and carries the words from Josh's own social card verbatim.
+The app icon and feature graphic are Mona Lisa's store graphics (2026-10-07). The app icon is the Android launcher icon, a white dot-matrix K on Kosmos gold. The feature graphic follows the installkosmos.com look on a cream background and carries the words from Josh's own social card verbatim, "Kosmos Agent Manager" and "Create and manage a team of AI agents", with the gold dot-matrix Kosmos mark on the right and no install button or URL (Play adds its own).
 
-Paste the alt text that matches each image:
-
-1. `The Kosmos board on a phone, titled "Every agent, at a glance": a New agent button and a view switcher above counts of 4 Agents, 2 Working, 1 Idle, and 1 Issue, with a card for Dana the Writer shown as Working on Claude Sonnet.`
-2. `A direct message with Dana the Writer, titled "Message any agent": Dana says pages 9 to 12 need Thursday's photos and the full draft will follow Friday, the person replies "Perfect, thank you," and a "Dana is working" line sits above the message box.`
-3. `A direct message with Cleo the Project manager, titled "Answer when an agent asks": Cleo, marked with a Question badge, asks whether to accept the cheaper of two printer quotes for the catalogue, above the message box.`
-4. `The "Launch the spring catalogue" project room, titled "Follow a project as it happens": a note that two competitors undercut the linen range by about 8 percent, with a fire reaction, and Dana reporting pages 1 to 8 done while 9 to 12 wait on Thursday's photos.`
-5. `The Kosmos board in list view, titled "See who is working": the same counts of 4 Agents, 2 Working, 1 Idle, and 1 Issue above an agent list, with Dana the Writer and Cleo the Project manager each showing a not-yet-read reply and Cleo offering an Answer link.`
+**Phone screenshots: waiting on the corrected set.** The earlier phone screenshots showed the board's computer layout, not the Kosmos+ phone layout the Android app actually opens, so they are not used here and none are committed under `docs/play-listing/phone/`. Mona Lisa is retaking them. When the corrected 1080 by 1920 phone-layout set arrives, add each file under `docs/play-listing/phone/`, add a row per screenshot to the table above (file, dimensions, sha256) in upload order, and write alt text for each read from the image. Do not commit or upload the earlier computer-layout renders.
 
 ## Data safety
 
@@ -190,7 +179,7 @@ Before submission, test those exact instructions on a clean Android device that 
 
 - Android shell and TWA: `android/app/src/main/AndroidManifest.xml`, `android/app/build.gradle`, and `android/app/src/main/java/io/kosmos/app/`.
 - Canonical approved listing work and upload assets: `docs/play-listing.md` and `docs/play-listing/`.
-- Real AVD evidence (device and manifest audit, not the store screenshots, which are Chromium board renders): `android/evidence/vc2-4132/`.
+- Real AVD evidence (device and manifest audit, not the store screenshots): `android/evidence/vc2-4132/`.
 - Coordinator storage and deletion: `coordinator/src/db.rs`, `coordinator/src/account_delete.rs`, `coordinator/src/config.rs`, and `coordinator/src/lib.rs` in kosmos-relay.
 - Authentication, billing, push, and logging: `coordinator/src/signin.rs`, `coordinator/src/second.rs`, `coordinator/src/stripe.rs`, `coordinator/src/push.rs`, `coordinator/src/access_log.rs`, and `deploy/caddy/Caddyfile` in kosmos-relay.
 - Public policy: `https://installkosmos.com/privacy`.
