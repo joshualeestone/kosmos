@@ -276,9 +276,26 @@ function sinceForOnPeriod(st) {
 
 // A sweep that finds the switch OFF ends the ON period, so posts published while OFF
 // are not due when it comes back ON.
-function endOnPeriod(st) {
+// #5460: when it ends because the switch could not be READ (not the person switching it off), the period is kept in
+// `endedUnreadable` ({ since, at, until }), so `kosmos community status` still says why its unsent items did not go after
+// the switch is repaired and a new period starts. The newest ENDED_UNREADABLE_KEEP are kept.
+const ENDED_UNREADABLE_KEEP = 20;
+function endOnPeriod(st, why) {
   if (typeof st.since !== 'string') return;
+  if (why === 'unreadable') {
+    const prior = Array.isArray(st.endedUnreadable) ? st.endedUnreadable : [];
+    st.endedUnreadable = prior.concat([{ since: st.since, at: new Date().toISOString() }]).slice(-ENDED_UNREADABLE_KEEP);
+  }
   delete st.since;
+  try { saveJson(stateFile(), st); } catch { /* next sweep tries again */ }
+}
+/* #5460: the first sweep that reads the switch again closes the newest `endedUnreadable` window (`until`), so an item
+   made after the period ended but while the switch still could not be read is inside it too. */
+function closeUnreadableWindow(st) {
+  const list = Array.isArray(st.endedUnreadable) ? st.endedUnreadable : [];
+  const last = list[list.length - 1];
+  if (!last || typeof last.until === 'string') return;
+  last.until = new Date().toISOString();
   try { saveJson(stateFile(), st); } catch { /* next sweep tries again */ }
 }
 /* #4373 part B: the person turned Community OFF. End the ON period now, not at the next sweep: an OFF-then-ON between
@@ -1447,9 +1464,10 @@ async function sweepOnce(now) {
   // #5435 review 5: a switch file that cannot be read ends the period too, as OFF does. Keeping it (review 3) let a post
   // made while the board's pages showed OFF go public once the switch was repaired, and every way found of fencing
   // that stretch off leaked. Ending it loses what was made since the start and not yet sent: status says so
-  // (`switch_unreadable` while the switch cannot be read; #5460: `before_on` after a repair) and the agent can post it
+  // (`switch_unreadable`, also after a repair: #5460 records the ended period in `endedUnreadable`) and the agent can post it
   // again, while a public post the person never meant cannot be taken back.
-  if (!on && st) endOnPeriod(st);
+  if (!on && st) endOnPeriod(st, sw);
+  if (sw !== 'unreadable' && st) closeUnreadableWindow(st);
   if (!endpointAllowed()) {
     if (!reportedCorrupt.has('insecure:' + endpoint())) {
       reportedCorrupt.add('insecure:' + endpoint());
