@@ -1,4 +1,4 @@
-// Browser-check-surface: tk-hold tk-hold-msg tk-hold-hint tk-activity pj-one-pause pj-one-pause-label pj-one-pause-hint pj-one-pause-msg tsk-tiles tk-repeat-every tk-repeat-day tk-repeat-at tk-repeat-save tk-repeat-line tk-repeat-msg tkPaintRepeat pj-head-pause pj-one-paused pj-head-pause-msg paintHeadPause pjTogglePause tk-review-row tk-review-who tk-review-msg tkPaintReviewer tkReviewerOf
+// Browser-check-surface: tsk-groups tk-hold tk-hold-msg tk-hold-hint tk-activity pj-one-pause pj-one-pause-label pj-one-pause-hint pj-one-pause-msg tsk-tiles tk-repeat-every tk-repeat-day tk-repeat-at tk-repeat-save tk-repeat-line tk-repeat-msg tkPaintRepeat pj-head-pause pj-one-paused pj-head-pause-msg paintHeadPause pjTogglePause tk-review-row tk-review-who tk-review-msg tkPaintReviewer tkReviewerOf
 'use strict';
 /**
  * On hold and paused, on the screen (kosmos#4771).
@@ -58,6 +58,11 @@ function chk(ok, label, extra) {
   tasks.create(winter.id, { sentence: 'Draft the plan' });                // 1: held by pausing its project
   const summer = projects.create({ name: 'Summer list' });                // paused by an agent, before the page loads
   projects.edit(summer.id, { paused: true });
+  /* #5456: a repeating task with nobody on it is run by a schedule: "On a schedule", never Unassigned. */
+  const watch = projects.create({ name: 'Price watch' });
+  tasks.create(watch.id, { sentence: 'Check the price list' });           // 1: repeats, nobody on it
+  tasks.setRepeat(watch.id, 1, { every: 'day', at: '09:00' });
+  tasks.create(watch.id, { sentence: 'Pick a supplier' });                // 2: the control, unassigned, no repeat
   require('../../engine/store').writeSettings({ tasksTabShown: true });
 
   const server = await srv.start(0);
@@ -75,6 +80,14 @@ function chk(ok, label, extra) {
     await page.waitForTimeout(250);
     const rows = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-row .tl')].map((x) => x.textContent));
     await page.click('#tsk-tiles [data-tile="held"]');   // back to everything
+    await page.waitForTimeout(150);
+    return rows;
+  };
+  const tileRows = async (page, k) => {   // #5456: the rows a tile filters to, then back to everything
+    await page.click('#tsk-tiles [data-tile="' + k + '"]');
+    await page.waitForTimeout(250);
+    const rows = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-row .tl')].map((x) => x.textContent));
+    await page.click('#tsk-tiles [data-tile="' + k + '"]');
     await page.waitForTimeout(150);
     return rows;
   };
@@ -97,6 +110,12 @@ function chk(ok, label, extra) {
       await clearFirstRun(page);
 
       chk(await heldCount(page, '0') === '0', `${tag} nothing is on hold to start`);
+      /* #5456 */
+      chk(await text(page, '#tsk-tiles [data-tile="scheduled"] .num') === '1', `${tag} the On a schedule tile counts the repeating task with nobody on it`, await text(page, '#tsk-tiles [data-tile="scheduled"] .num'));
+      const sched = await tileRows(page, 'scheduled');
+      chk(sched.includes('Check the price list') && !sched.includes('Pick a supplier'), `${tag} On a schedule shows it, and not the ordinary unassigned task (control)`, JSON.stringify(sched));
+      const nobody = await tileRows(page, 'nobody');
+      chk(nobody.includes('Pick a supplier') && !nobody.includes('Check the price list'), `${tag} Unassigned leaves the scheduled task out, and keeps the control`, JSON.stringify(nobody));
 
       /* A task put on hold from its page. */
       await openTask(page, launch.id, 1);
