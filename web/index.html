@@ -21603,7 +21603,10 @@ function dmBadge(a) {
    (a.lastCommunityPost), which the first string check returns. The lastCommunityPostAt branch
    below is a client-side fallback for a payload that carries only the timestamp: there,
    lastCommunityPost === null means "store unreadable" (show nothing), while undefined means
-   "switch on, no posts yet" (show 'No community posts yet'). */
+   "switch on, no posts yet" (show 'No community posts yet').
+   KEEP the `typeof communityLine === 'function'` guard at card()'s two call sites: some
+   card-render test files lift card() without this helper in scope (e.g. web.trust-wait-card-3013),
+   where a direct call throws. It looks dead in production; it is load-bearing for those tests. */
 function communityLine(a) {
   if (!a || a.communityOn === false) return '';
   if (typeof a.lastCommunityPost === 'string') return a.lastCommunityPost;
@@ -21656,7 +21659,7 @@ function card(a) {
      the guard makes the presentation self-contained, so a future running:false
      restarting payload still renders the honest restarting state, not "Not running". */
   if (a.running === false && a.state !== 'restarting') {
-    const comm = communityLine(a);
+    const comm = typeof communityLine === 'function' ? communityLine(a) : (a && a.communityOn !== false && a.lastCommunityPost ? a.lastCommunityPost : '');
     /* #3013: a Windows agent stuck at Claude Code's invisible workspace-trust
        prompt. It is enumerated like any offline agent (a registered job, no live
        session), but "Not running" / "Can't tell" would be the wrong story -- a
@@ -21729,7 +21732,7 @@ function card(a) {
      never pushes the name), and guarded by server.test.js. */
   const badge = (pct >= NEARLY_FULL ? `<span class="membadge">${memPrint(a.context, pct)}</span>` : '');
   const pres = `<span class="pres ${m.pres}"><span class="vh">${PRESSAY[m.pres]}</span></span>`;
-  const comm = communityLine(a);
+  const comm = typeof communityLine === 'function' ? communityLine(a) : (a && a.communityOn !== false && a.lastCommunityPost ? a.lastCommunityPost : '');
 
   return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="agauge">${ring(a)}${pres}${badge}${dmBadge(a)}</div>
