@@ -74,6 +74,7 @@ shape run  "bash -eo pipefail $SCRIPT"
 shape run  "bash +x $SCRIPT"
 shape run  "bash -- $SCRIPT"
 shape run  "bash --rcfile /x/rc $SCRIPT"
+shape not  "bash ${SCRIPT%.sh}Xsh"   # the dot is literal: a name that differs only there is not this script
 # The option class is letter ranges; under a non-C locale they must still exclude c and n.
 for loc in en_US.UTF-8 C.UTF-8; do
   out="$(pgrep() { printf '4242 bash -lc %s\n' "$SCRIPT"; }; LC_ALL=$loc LANG=$loc kosmos_running_lines "$SCRIPT")"; rc=$?

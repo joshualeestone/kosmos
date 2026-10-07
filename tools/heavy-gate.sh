@@ -143,12 +143,11 @@ live_snapshot() {
 # a cluster like -eo NAME, and --rcfile FILE), for a
 # bare release.sh. A command string (-c, or c inside combined flags like -lc) is not a script
 # run (it only mentions the name), and neither is -n, a syntax check, nor a tools/queued-heavy.sh
-# waiter (#5470: when the first .sh word is a queued-heavy.sh, in tools/ or the installed copy in
-# ~/.cache/claude-handoffs/): prints nothing. Runs in a subshell with globbing off,
+# waiter (#5470: when the lead script is a queued-heavy.sh, in any directory): prints nothing. Runs in a subshell with globbing off,
 # so a `*` in a command line stays one literal word.
 script_of() (
   set -f
-  first=1; lead=""; skip=0; seen_sh=0
+  first=1; lead=""; skip=0; inlead=0
   for w in $1; do
     if [ "$first" = 1 ]; then first=0; continue; fi
     if [ -z "$lead" ]; then
@@ -160,19 +159,22 @@ script_of() (
         -*[oO]|+*[oO]) skip=1; continue ;;   # a cluster ending in o/O (-eo) takes the next word
         -*|+*) continue ;;
       esac
-      lead="$w"
+      lead="$w"; inlead=1
+    elif [ "$inlead" = 1 ]; then
+      # Still the lead only if ps split it at a space: a continuation piece holds a / but does not start
+      # with one (".../My" then "Work/kosmos/tools/x.sh"). Anything else is an argument.
+      case "$w" in /*|-*) inlead=0 ;; */*) : ;; *) inlead=0 ;; esac
     fi
-    # #5470: a tools/queued-heavy.sh WAITER carries its wrapped command as arguments while it waits for the
-    # machine; it is not running it. When its turn comes it starts that command as its own process, which
-    # counts. Read as a run, a waiter deadlocked the 0.7.27 cut (#5467). Only the FIRST word ending in .sh
-    # is the script being run (the lead, or the end of a lead that ps split at a space in its path); a
-    # queued-heavy.sh that appears after it is just an argument.
-    case "$w" in *.sh)
-      if [ "$seen_sh" = 0 ]; then
-        seen_sh=1
-        case "$w" in */queued-heavy.sh|queued-heavy.sh) exit 0 ;; esac   # any directory: agents run the installed copy, ~/.cache/claude-handoffs/queued-heavy.sh
-      fi ;;
-    esac
+    # #5470: a queued-heavy.sh WAITER (in any directory: agents run the installed copy,
+    # ~/.cache/claude-handoffs/queued-heavy.sh) carries its wrapped command as arguments while it waits for
+    # the machine; it is not running it. When its turn comes it starts that command as its own process,
+    # which counts. Read as a run, a waiter deadlocked the 0.7.27 cut (#5467). Only the LEAD script, or the
+    # end of a lead that ps split at a space, can make a line a waiter; a queued-heavy.sh that is only an
+    # argument (after a script, or after a wrapper with no .sh suffix) leaves the line to the rules below.
+    if [ "$inlead" = 1 ]; then
+      case "$w" in */queued-heavy.sh|queued-heavy.sh) exit 0 ;; esac
+      case "$w" in *.sh) inlead=0 ;; esac   # the lead script is complete; later words are its arguments
+    fi
     case "$w" in */tools/release.sh|*/tools/browser-checks.sh|*/tools/test-install.sh|tools/release.sh|tools/browser-checks.sh|tools/test-install.sh|*/tools/run-tests.sh|tools/run-tests.sh)
       printf '%s' "$w"; exit 0 ;; esac
   done
