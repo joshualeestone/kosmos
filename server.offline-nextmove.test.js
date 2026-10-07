@@ -60,6 +60,9 @@ function boardWithStoppedAgent({ job, named = true }) {
     // probe touches the launchd of the machine running this suite.
     // #5445: launchd's arm on any runner but Linux; #5500: a Linux board asks systemctl, and no unit is active.
     if (process.platform !== 'linux') create.setProbePlatformForTests('darwin');
+    /* #5500 review 3: with a systemd folder set, linuxjob no longer refuses systemctl on its own in this child (it is
+       not a test process), so a call that bypasses create's runner fails closed here and never reaches the host. */
+    require(${JSON.stringify(nodePath.join(REPO, 'engine', 'linuxjob.js'))}).setRunnerForTests(() => ({ ok: false, code: 1, stdout: '', because: 'test child: no real systemd' }));
     /* #5500: this child is not a test process, so on Linux the sentence would read the HOST's linger record
        (linuxjob.lingerFileOn) and change with the machine running the suite. Pinned on: then Linux's sentence is
        create.SELF_STARTS, the one asserted below (with linger off it is "while you are logged in", create.selfStarts). */
