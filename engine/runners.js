@@ -1140,7 +1140,7 @@ function tarBin(platform = process.platform, env = process.env, exists = fs.exis
   /* #5419 slice 2: Linux keeps tar at /usr/bin/tar only where /usr was merged; Debian 10, Ubuntu 18.04, an unmerged
      upgrade and stock Alpine (busybox) have it at /bin/tar. The Mac's path is unchanged. */
   // Neither (Nix, a minimal container): the bare name, so execFile finds tar on PATH (the reason Windows avoids a bare
-  // name, GNU tar reading C:\ as a host, does not apply here).
+  // name, GNU tar reading C:\ as a host, does not apply here). Callers: install() here and agentbrowser.js's unpack.
   if (platform === 'linux') return ['/usr/bin/tar', '/bin/tar'].find((p) => { try { return exists(p); } catch { return false; } }) || 'tar';
   if (platform !== 'win32') return '/usr/bin/tar';
   return path.win32.join(env.SystemRoot || env.windir || 'C:\\Windows', 'System32', 'tar.exe');
