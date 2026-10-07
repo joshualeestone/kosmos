@@ -1257,8 +1257,10 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
    a notice there covered New agent (render-update-toast). */
 .apphead header { position: relative; }
 .apphead .topnotes { position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%); z-index: 4;
-  display: flex; flex-direction: column; align-items: center; gap: 8px; width: max-content;
+  display: flex; flex-direction: column; align-items: stretch; gap: 8px; width: max-content;
   max-width: min(460px, 100%); pointer-events: none; }
+/* #5443 (Mona Lisa): the stack is one column. It is as wide as its widest notice (max-content, capped above) and every
+   slot stretches to that, so two notices showing at once share both edges instead of each hugging its own text. */
 .apphead .topnotes > div > * { pointer-events: auto; }   /* a notice goes in a slot div, never straight in #topnotes */
 /* The Allow card (#567) sits right under the header and is a security decision (the device and the code to compare):
    a floating notice must never paint over it, so it moves down by the stack's height (0 with no notice). */
