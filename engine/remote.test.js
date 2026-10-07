@@ -78,7 +78,9 @@ if (args[0] === 'signin') {
     // An older tunnel: clap's usage error, exit 2 (measured on two 0.7.25-era builds).
     if (!mode.includes('devkey')) { process.stderr.write("error: unrecognized subcommand 'device-id'\\n\\nUsage: kosmos-tunnel signin <COMMAND>\\n"); process.exit(2); }
     // anyhow's shape, as the real tunnel prints it: the message on the Error line, the innermost cause last.
-    if (mode.includes('devkey-broken')) { process.stderr.write('Error: the device key ' + flag('--device-key') + ' is not a P-256 key; remove it to make a new one (this device must then be allowed again)\\n\\nCaused by:\\n    ASN.1 error: unexpected end\\n'); process.exit(1); }
+    if (mode.includes('devkey-unreadable')) { process.stderr.write('Error: reading the device key ' + flag('--device-key') + '\\n\\nCaused by:\\n    Permission denied (os error 13)\\n'); process.exit(1); }
+    // A file that is not a key: the real tunnel refuses it with these words (devkey.rs), whatever else the mode says.
+    if (fs.existsSync(flag('--device-key')) && fs.readFileSync(flag('--device-key'), 'utf8') === 'corrupt') { process.stderr.write('Error: the device key ' + flag('--device-key') + ' is not a P-256 key; remove it to make a new one (this device must then be allowed again)\\n\\nCaused by:\\n    ASN.1 error: unexpected end\\n'); process.exit(1); }
     if (mode.includes('devkey-usage')) { process.stderr.write("error: unexpected argument '--device-key' found\\n"); process.exit(2); }
     if (mode.includes('devkey-slow')) { const until = Date.now() + 800; while (Date.now() < until) { /* making the key */ } }
     fs.mkdirSync(path.dirname(flag('--device-key')), { recursive: true });
@@ -1749,15 +1751,18 @@ test('kosmos#5422: with a tunnel that keeps a device key, sign-in passes the key
   assert.deepEqual(remote.read().past_device_ids, ['old-opaque-id']);
 });
 
-test('kosmos#5422: a key that cannot be opened refuses the sign-in in words; it never falls back to another device', async () => {
+test('kosmos#5422: a key that cannot be read refuses the sign-in in the tunnel\'s words, keeps the file, never falls back', async () => {
   fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: 'old-opaque-id' }));
-  process.env.FAKE_TUNNEL_MODE = 'devkey-broken';
+  const keyFile = nodePath.join(process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote'), 'signin-device.key');
+  fs.mkdirSync(nodePath.dirname(keyFile), { recursive: true });
+  fs.writeFileSync(keyFile, 'a real key nobody can read');
+  process.env.FAKE_TUNNEL_MODE = 'devkey-unreadable';
   let r;
   try { r = await remote.signinStart('her@example.com'); } finally { delete process.env.FAKE_TUNNEL_MODE; }
   assert.equal(r.ok, false);
-  assert.match(r.because, /sign-in key could not be opened: the device key is not a P-256 key; remove it to make a new one/);
-  assert.match(r.because, /Remove this computer/, 'no way out was named');
+  assert.match(r.because, /sign-in key could not be opened: reading the device key$/);
   assert.ok(!r.because.includes('/'), 'the key path reached the person: ' + r.because);
+  assert.ok(fs.existsSync(keyFile), 'a key that could not be READ was removed');
   assert.ok(!recorded().some((c) => c[0] === 'signin' && c[1] === 'start'), 'a start went out without the key');
   // CONTROL: the same computer on an older tunnel (exit 2) signs in on its opaque id.
   assert.equal((await remote.signinStart('her@example.com')).ok, true);
@@ -1947,6 +1952,33 @@ test('kosmos#5422: on a damaged file, an older tunnel\'s untaken start does not 
   assert.equal(remote.read().device_id, KEYED);
   assert.equal(remote.read().past_device_ids.length, 1, 'the minted id was not kept for the next start');
   remote.setOn(false);
+});
+
+test('kosmos#5422: a file that is not a key is removed and a new key made on start; a verify says start again', async () => {
+  const keyFile = nodePath.join(process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote'), 'signin-device.key');
+  fs.mkdirSync(nodePath.dirname(keyFile), { recursive: true });
+  fs.writeFileSync(keyFile, 'corrupt');
+  process.env.FAKE_TUNNEL_MODE = 'devkey';
+  try {
+    assert.equal((await remote.signinStart('her@example.com')).ok, true, 'a person with a corrupt key file could never sign in');
+    assert.notEqual(fs.readFileSync(keyFile, 'utf8'), 'corrupt');
+    assert.ok(recorded().some((c) => c[1] === 'start' && c.includes('--device-key')));
+    // The file goes bad between a start and its verify: the verify removes it and says start again, making nothing.
+    fs.writeFileSync(keyFile, 'corrupt');
+    fs.rmSync(RECORD, { force: true });
+    const v = await remote.signinVerify('her@example.com', '123456');
+    assert.match(v.because || '', /was removed; start the sign-in again/);
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  assert.equal(fs.existsSync(keyFile), false, 'the verify made a key');
+  assert.ok(!recorded().some((c) => c[1] === 'verify'), 'the verify went out');
+});
+
+test('kosmos#5422: a key id the tunnel answers is this computer\'s own at once, though not yet the id in use', async () => {
+  fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: 'old-opaque-id' }));
+  process.env.FAKE_TUNNEL_MODE = 'devkey';
+  try { await remote.signinStart('down@example.com'); } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  assert.equal(remote.read().device_id, 'old-opaque-id', 'precondition: the start was not taken');
+  assert.ok(remote.ownDeviceIds().includes('k1.' + 'A'.repeat(31) + 'Q'), 'a row the coordinator may hold is not hidden');
 });
 
 test('kosmos#5422: a cancel while start asks the tunnel sends no start', async () => {

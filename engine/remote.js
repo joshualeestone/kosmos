@@ -1131,6 +1131,8 @@ async function forget() {
 let forgetInFlight = null;
 
 async function forgetNow() {
+  // kosmos#5422: what this process held is the forgotten identity's; remote.json keeps the ids for hiding own rows.
+  heldIdentity = null;
   const was = { enrolled: enrolled(), address: address() };
   // A register killed mid-certificate (or any partial one) has registered the Mac
   // at the coordinator and left its key and id here, without the certificate
@@ -1707,7 +1709,33 @@ const KEY_CALL_WAIT_MS = 60000;
 const keyCallWaitMs = () => Number(process.env.AGENT_WORKFORCE_KEY_CALL_WAIT_MS) || KEY_CALL_WAIT_MS;   // test seam
 const deviceIdInFlight = new Set();
 function trackKeyCall(p) { deviceIdInFlight.add(p); const done = () => deviceIdInFlight.delete(p); p.then(done, done); return p; }
+async function askDeviceKey() {
+  // Bounded: a hung tunnel must not hold the sign-in forever (a cancel cannot free a call that never returns).
+  // The tunnel would make a missing folder with default permissions; the key's folder is owner-only from the first ask.
+  secureStateDir();
+  // A Forget waits for this (it may be making the key in the folder the Forget empties).
+  return trackKeyCall(setupRun(['signin', 'device-id', '--device-key', DEVICE_KEY_FILE()], null, DEVICE_ID_ASK_MS));
+}
+const keyedIdIn = (asked) => {
+  const r = parseSaid(asked);
+  return r.ok && r.data && typeof r.data.device_id === 'string' && KEYED_ID.test(r.data.device_id) ? r.data.device_id : '';
+};
+/* A key id the tunnel answered is this computer's own from that moment (a start with it may reach the coordinator
+   even if its answer never comes back): kept among the ids before, so its row is hidden, but not the id in use until
+   a sign-in with it is taken (the self-grant follows that one). */
+function noteOwnId(id) {
+  if (ownDeviceIds().includes(id)) return;
+  const cur = read();
+  if (cur.ok === false) {
+    heldIdentity = { device_id: heldIdentity ? heldIdentity.device_id : '', past_device_ids: [id, ...(heldIdentity ? heldIdentity.past_device_ids : [])] };
+    return;
+  }
+  write({ past_device_ids: [id, ...cur.past_device_ids] });
+}
 async function signinDeviceArgs(forVerify) {
+  // Nothing may ask for (and so make) a key once a Forget has begun; busy() refuses the step too, this is the same
+  // rule at the call that writes into the folder.
+  if (forgetting) return { failed: busy() };
   /* A verify never makes a key (the tunnel's own rule): one made now could not answer a code sent for the key that is
      gone (a Forget between the start and the verify). If this computer signs in with a key and the file is gone, say
      so; with no key file and no key id, this is an older tunnel's sign-in and the opaque id carries on. */
@@ -1716,12 +1744,7 @@ async function signinDeviceArgs(forVerify) {
     const opaque = signinDeviceId();
     return { args: ['--device-id', opaque], id: opaque };
   }
-  // Bounded: a hung tunnel must not hold the sign-in forever (a cancel cannot free a call that never returns).
-  // The tunnel would make a missing folder with default permissions; the key's folder is owner-only from the first ask.
-  secureStateDir();
-  const asking = setupRun(['signin', 'device-id', '--device-key', DEVICE_KEY_FILE()], null, DEVICE_ID_ASK_MS);
-  // A Forget waits for this (it may be making the key in the folder the Forget empties).
-  const asked = await trackKeyCall(asking);
+  let asked = await askDeviceKey();
   // clap prints "error: unrecognized subcommand 'device-id'" first and the usage after it (exit 2); match it as the
   // other verbs here do, so no other failure is read as an older tunnel.
   if (!asked.ok && asked.code === 2 && /unrecognized subcommand|invalid subcommand/i.test(String(asked.stderr || '') + '\n' + String(asked.because || ''))) {
@@ -1730,15 +1753,25 @@ async function signinDeviceArgs(forVerify) {
   }
   // The program itself did not run or answer (missing, not startable, timed out): its own words, not the key's.
   if (!asked.ok && typeof asked.code !== 'number') return { failed: { ok: false, because: asked.because || 'the tunnel program did not answer' } };
-  const r = parseSaid(asked);
-  const id = r.ok && r.data && typeof r.data.device_id === 'string' && KEYED_ID.test(r.data.device_id) ? r.data.device_id : '';
-  if (!id) {
-    /* The tunnel says what is wrong and what to do on its "Error: " line (anyhow's shape; the last line is only the
-       innermost cause). Its path is dropped; the way out the person can press is named. */
-    const said = String(asked.stderr || '').split('\n').find((l) => /^Error: /.test(l));
-    const why = said ? said.slice(7).replace(/the device key \S+ /, 'the device key ').trim() : (r.because || 'no id came back');
-    return { failed: { ok: false, because: "this computer's sign-in key could not be opened: " + why + '. Remove this computer, in Kosmos+, to start over with a new one.' } };
+  let id = keyedIdIn(asked);
+  /* A file that is not a key at all (the tunnel's "is not a P-256 key"; a truncated write, a hand edit) can never be
+     used, and the person has no button that removes it (Remove this computer shows only once enrolled). Its own
+     remedy is to remove it, so the app does: a start then makes a new key (a new device, allowed once); a verify says
+     start again, since a key made now could not answer the code. Any other failure (a key it could not READ) is
+     never removed: the tunnel's words say what is wrong. */
+  if (!id && /is not a P-256 key/.test(String(asked.stderr || ''))) {
+    try { fs.rmSync(DEVICE_KEY_FILE(), { force: true }); } catch { /* the next ask says so again */ }
+    if (forVerify) return { failed: { ok: false, because: "this computer's sign-in key could not be used and was removed; start the sign-in again (this computer will be a new device, allowed once)" } };
+    asked = await askDeviceKey();
+    id = keyedIdIn(asked);
   }
+  if (!id) {
+    // The tunnel says what is wrong on its "Error: " line (anyhow's shape; the last line is only the innermost cause).
+    const said = String(asked.stderr || '').split('\n').find((l) => /^Error: /.test(l));
+    const why = said ? said.slice(7).replace(/(the device key) \S+/, '$1').trim() : (parseSaid(asked).because || 'no id came back');
+    return { failed: { ok: false, because: "this computer's sign-in key could not be opened: " + why } };
+  }
+  noteOwnId(id);
   // Recorded by the caller once the coordinator has taken a start or verify with it, not here: a cancelled or refused start
   // never reached the coordinator, so its id must not displace the one this computer signed in with.
   return { args: ['--device-key', DEVICE_KEY_FILE()], id };
