@@ -48508,14 +48508,9 @@ async function paintOpenaiDetailModel(a, forWhom) {
   const gen = ++OPENAI_DETAIL_GEN;
   const ours = !!(a && a.isNamedOurs);
   const usable = ours && !(a && a.neverRecorded === true);
-  /* The disabled-reason, OpenAI's own and DELIBERATELY NOT the Claude picker's
-     "Made before Kosmos recorded how it starts / cannot change what it runs on"
-     sentences: those name the Claude launch-file + Found-agents migration story
-     (#149/#150/#362), which does not belong on an OpenAI panel, and reusing them
-     verbatim also collided the web.made-before pins that anchor on that copy. */
-  const refusal = !ours
-    ? 'Kosmos did not start this agent, so it cannot change its model.'
-    : 'Kosmos did not record how this agent starts, so there is no model to change here.';
+  /* The disabled-reason, OpenAI's own. A never-recorded agent never reaches here (#5491: paintModelPicker hides the
+     model block for it), so the one refusal left is an agent Kosmos did not start. */
+  const refusal = 'Kosmos did not start this agent, so it cannot change its model.';
   const currentKey = (a && typeof a.plannedModelId === 'string') ? a.plannedModelId : '';   // #4416: the raw id, not the readable name
   const acctDir = (a && a.account && a.account.dir && !a.account.isDefault) ? a.account.dir : '';
   if (row) row.hidden = false;
@@ -48599,6 +48594,20 @@ async function paintModelPicker(a) {
      openDetail's clear. Same class as TALK_FLIGHT: bail when the panel has
      moved on. */
   const forWhom = a && a.sessionName;
+  /* #5491 (Mona Lisa): an agent Kosmos never recorded the launch of cannot change its model here, and the Runs on card
+     already says so: its heading names the state and #d-runson-why gives the way in. The model block (menu, button,
+     hint and refusal) could only say both again, so it is not shown for that agent. Set on every paint, before any
+     provider's path, so the next agent's block comes back. */
+  const modelStep = document.getElementById('d-model-row') && document.getElementById('d-model-row').closest('.mstep');
+  const neverRec = !!(a && a.neverRecorded === true);
+  if (modelStep) modelStep.hidden = neverRec;
+  if (neverRec) {
+    OPENAI_DETAIL_GEN += 1;   // an OpenAI models fetch for the previous agent must not land in the hidden block
+    sel.disabled = true;
+    go.disabled = true;
+    if (msg) msg.textContent = '';
+    return;
+  }
   /* #2140 Surface 2: an OpenAI agent gets the per-account picker, NEVER the Claude
      model list. The Claude flow below matches by label against CREATE_MODELS (Claude
      models), so an OpenAI agent would show Claude Sonnet 5 etc. as switchable options
@@ -48686,16 +48695,8 @@ async function paintModelPicker(a) {
      with their own path deliberately: hiding in one place and revealing in
      another is how a control goes missing for the agent you switch TO. */
   { const row = document.getElementById('d-model-row'); if (row) row.hidden = false; }
-  if (msg && !usable && !msg.textContent) {
-    msg.textContent = ours
-      ? 'Made before Kosmos recorded how it starts, so its model cannot change here. '
-        + (a && a.profile && a.profile.dir
-          ? 'There is no control here to re-record that yet.'
-          : (a && a.running === false
-            ? 'Add it from Found agents in Settings to bring it in.'
-            : 'Stop it, then add it from Found agents in Settings to bring it in.'))
-      : 'Kosmos did not start this one, so it cannot change what it runs on.';
-  }
+  /* A never-recorded agent returned at the top (#5491), so the only refusal left here is an agent Kosmos did not start. */
+  if (msg && !usable && !msg.textContent) msg.textContent = 'Kosmos did not start this one, so it cannot change what it runs on.';
 }
 
 /* ---- which Claude account this agent runs on -------------------------
