@@ -79,7 +79,7 @@ mkdir -p "$T/site/dist"; printf 'aaa111  kosmos-9.9.9-arm64.tar.gz\n' > "$T/site
 #   prints the block's output then "DEPLOYED=<value>"; returns the block's exit code
 run_step8() {
   (
-    set -e
+    set -euo pipefail   # release.sh's own options
     export COUNT="$T/step8count" PASS_ON=1; rm -f "$COUNT" "$T/curl.urls" "$T/vercel.called"
     if [ "$2" = none ]; then rm -f "$T/served.sha256"; else printf '%s  kosmos-9.9.9-arm64.tar.gz\n' "$2" > "$T/served.sha256"; fi
     LATE="${3:-0}"

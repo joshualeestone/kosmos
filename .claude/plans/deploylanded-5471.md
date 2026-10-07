@@ -41,7 +41,9 @@ did not run, and the operator had to verify by hand while resisting a revert or 
 2. That no two builds share bytes (tools/build-kosmos-bundle.sh: codesign and tar/gzip timestamps). A cut
    that reused a previously built tarball without rebuilding would make an earlier attempt's served .sha256
    equal this cut's, and a failed deploy would read as landed. Step 9 then verifies the same served state,
-   so the harm is bounded, but the "landed" line would be wrong.
+   so the harm is bounded, but the "landed" line would be wrong. Likewise a manual tools/deploy-site.sh run
+   between step 4 and step 8 would carry this cut's files from the shared site dist and serve its .sha256;
+   that serves this very build, so "landed" would be true of the bytes but not of this cut's deploy.
 
 ## Also decided
 - Before deploying, the cut prints this cut's sha and the .sha256 URL it will be served at, so the record

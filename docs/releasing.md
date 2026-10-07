@@ -218,13 +218,15 @@ cut's sha before it starts waiting:
   it unchanged (measured on 0.7.27: served and local both 0.7.25's). On a `KOSMOS_CUT_CHANNEL=prod` cut the
   trap put back the PREVIOUS release's pair, so fetch the served one the same way, or the next deploy from
   this checkout serves the old pair again. Then refresh the tracked files of the site checkout
-  from origin before the next cut (the trap restored them to the pre-cut state). The cut's own record
+  from origin before the next cut (7b and the trap leave them behind origin's main). The cut's own record
   still shows it failing, with the CLI's exit code.
 
 The cut prints this sha before it deploys, so it is in the log however the cut ends. Keep the log: once a
 failed cut ends, its trap deletes the local `.sha256`, and that log line is then the only record of it. A
 deploy stopped by an interrupt or terminate that reached vercel alone (exit 130 or 143), or a cut whose own
-`.sha256` cannot be read (it printed `<unreadable>`), fails at once without waiting.
+`.sha256` cannot be read (it printed `<unreadable>`), fails at once without waiting. Any other failure,
+including one before anything was uploaded (not authorized, no project link), waits the full time first;
+Ctrl-C ends that wait safely.
 
 1. **The versions entry's stamp.** **Two shapes, and the second removes the guess.**
 
