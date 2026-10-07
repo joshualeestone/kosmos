@@ -35,14 +35,24 @@ claimed otherwise). The boundaries, in order:
 
 Same-repo pushers are trusted; they can already edit workflows.
 
-**Interim risk, stated:** jobs run as `kosmos-ci`, the user that owns the guard and hooks. So until the one-time
-admin step (`ci-mini-setup.sh admin-commands` prints it) moves them to a root-owned folder, an ALLOWED job (this
-repo's own code) could rewrite the guard. That needs a trusted writer's code to be hostile first, but it would then
-open the door to forks. The admin step is part of setup, not optional.
+**The trust model, decided (review iteration 3):** only this repo's own code may run on the Mac. The guard keeps
+everyone else's code from running at all, before any step. It does not defend the machine from a TRUSTED job, and on
+a machine where jobs run as the runner's own user nothing can: the runner's config, its binaries and the hooks are
+all that user's. An earlier draft proposed a root-owned guard as the fix; review showed the runner's `.env` and
+binaries would stay writable, so that step bought no real boundary and was dropped. Same-repo writers are trusted
+already (they can edit workflows), and `test.yml` installs no packages, so there is no dependency supply chain for
+a trusted job to pull hostile code through. Separating jobs from the runner for real would need a VM per job
+(ephemeral macOS VMs), which an M4 with 256 GB cannot hold beside the suite; noted for the Nov 4 Mac.
+
+The guard derives the runner's event path from where it is installed, not from any variable, runs `/bin/bash` with
+`PATH=/usr/bin:/bin`, and refuses a payload that is a link.
 
 **Must be checked live on the Mac before the switch goes on** (no test here can reach them):
 - A same-repo PR whose workflow sets `env: GITHUB_EVENT_NAME / GITHUB_REPOSITORY / GITHUB_EVENT_PATH` to false
-  values: the guard must still see the runner's real values. GitHub documents GITHUB_* as not overridable.
+  values: the guard must still see the runner's real values. GitHub documents GITHUB_* as not overridable. (The
+  path pin and the payload's repo name already refuse a forged path or a repo variable alone.)
+- After a restart of the Mac the runner comes back with no one at the keyboard (automatic login as kosmos-ci;
+  FileVault prevents it). `machine-settings` prints the admin-only settings.
 - A refused job fails before any step, including a job with `container:` or `services:`.
 - A job is refused when the payload names a fork (by hand, with the guard's own test payloads).
 
