@@ -43,6 +43,7 @@ named="$(field repository.full_name)" || named=""
 [ "$named" = "$REPO" ] || refuse "the payload names '${named:-nothing}', not $REPO"
 # The event TYPE is read from the payload too, not only from the variable: a fork PR's payload names this repo
 # (repository is the base), so the variable alone must never be what makes it a push.
+# has KEY: the key is present with a non-null value (a null reads as absent, which refuses: fail-closed).
 has() { /usr/bin/plutil -extract "$1" raw -o - "$PAYLOAD" >/dev/null 2>&1 || /usr/bin/plutil -extract "$1" json -o - "$PAYLOAD" >/dev/null 2>&1; }
 if has pull_request && [ "$EVENT" != pull_request ]; then refuse "the payload is a pull request but the event says '$EVENT'"; fi
 case "$EVENT" in
