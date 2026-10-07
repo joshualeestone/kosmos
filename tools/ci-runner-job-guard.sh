@@ -41,11 +41,18 @@ want="$(resolved "$EXPECTED")" || refuse "the runner's own event folder does not
 [ "$real" = "$want" ] || refuse "the event payload is not the runner's own file ($PAYLOAD)"
 named="$(field repository.full_name)" || named=""
 [ "$named" = "$REPO" ] || refuse "the payload names '${named:-nothing}', not $REPO"
+# The event TYPE is read from the payload too, not only from the variable: a fork PR's payload names this repo
+# (repository is the base), so the variable alone must never be what makes it a push.
+has() { /usr/bin/plutil -extract "$1" raw -o - "$PAYLOAD" >/dev/null 2>&1 || /usr/bin/plutil -extract "$1" json -o - "$PAYLOAD" >/dev/null 2>&1; }
+if has pull_request && [ "$EVENT" != pull_request ]; then refuse "the payload is a pull request but the event says '$EVENT'"; fi
 case "$EVENT" in
-  push|workflow_dispatch|schedule) echo "kosmos-ci job guard: allowed ($EVENT on $REPO)"; exit 0 ;;
+  push) has ref && has pusher || refuse "a push payload without ref and pusher" ;;
+  workflow_dispatch) has workflow || refuse "a workflow_dispatch payload without its workflow" ;;
+  schedule) has schedule || refuse "a schedule payload without its schedule" ;;
   pull_request) ;;
   *) refuse "event '$EVENT' is not one this machine runs" ;;
 esac
+[ "$EVENT" = pull_request ] || { echo "kosmos-ci job guard: allowed ($EVENT on $REPO)"; exit 0; }
 head="$(field pull_request.head.repo.full_name)" || head=""
 [ -n "$head" ] || refuse "the pull request has no head repo (a deleted fork?)"
 [ "$head" = "$REPO" ] || refuse "the pull request comes from $head, not $REPO"
