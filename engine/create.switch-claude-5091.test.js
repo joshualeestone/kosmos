@@ -12,6 +12,7 @@
  */
 
 const test = require('node:test');
+const jobfix = require('../test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -59,8 +60,11 @@ const SOLO = claudeAccount('solo', 'solo@example.com', false);
 const create = require('./create');
 const store = require('./store');
 const accounts = require('./accounts');
+/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that asserts the launchd plist itself
+   measures nothing there. Skipped on Linux only, naming where Linux covers it; macOS and Windows unchanged. */
+const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS plist test on a Linux host (#5432): it reads CLAUDE_CONFIG_DIR from the plist; on Linux it is the unit's Environment= line: linuxjob.test.js (readUnitJob, rewriteAgentJob on Linux)" } : {};
 
-const plistText = (name) => fs.readFileSync(create.plistPath(name), 'utf8');
+const plistText = (name) => fs.readFileSync(jobfix.jobPath(name), 'utf8');
 const configDirOf = (name) => { const m = plistText(name).match(/<key>CLAUDE_CONFIG_DIR<\/key>\s*<string>([\s\S]*?)<\/string>/); return m ? m[1] : null; };
 
 /* Seeded directly on Codex (the job and the profile, all setProvider reads), as #1373's suite does: createAgent would
@@ -68,7 +72,7 @@ const configDirOf = (name) => { const m = plistText(name).match(/<key>CLAUDE_CON
 function bornOnCodex(name) {
   fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
   fs.mkdirSync(create.workerDir(name), { recursive: true });
-  fs.writeFileSync(create.plistPath(name), create.plistFor(name, CODEX_BIN, TMUX_BIN, null, null, 'codex'), 'utf8');
+  fs.writeFileSync(jobfix.jobPath(name), jobfix.jobFor(name, CODEX_BIN, TMUX_BIN, null, null, 'codex'), 'utf8');
   store.writeProfile(name, { provider: 'openai' });
   assert.ok(plistText(name).includes(CODEX_BIN), 'the seed must start on Codex, or "nothing changed" proves nothing');
   return name;
@@ -93,7 +97,7 @@ test('#5091: a switch to Claude with no account named lands on the main account,
   assert.ok(plistText(a).includes(CLAUDE_BIN), 'the switch did not reach the launch job');
 });
 
-test('#5091: the Claude account the person picked is the one the agent starts on', () => {
+test('#5091: the Claude account the person picked is the one the agent starts on', LINUX_PLIST_5432, () => {
   const b = bornOnCodex('sw5091-picked');
   const r = create.setProvider(b, 'anthropic', { ...BINS, accountDir: ARIA, pickedByPerson: true });
   assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);

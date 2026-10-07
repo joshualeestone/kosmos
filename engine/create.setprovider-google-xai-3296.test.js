@@ -17,6 +17,7 @@
  */
 
 const test = require('node:test');
+const jobfix = require('../test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -65,8 +66,8 @@ function born(name, runner) {
   const runnerBin = runner === 'gemini' ? GEMINI_BIN : runner === 'grok' ? GROK_BIN : runner === 'codex' ? CODEX_BIN : CLAUDE_BIN;
   fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
   fs.mkdirSync(create.workerDir(name), { recursive: true });
-  fs.writeFileSync(create.plistPath(name),
-    create.plistFor(name, runnerBin, TMUX_BIN, null, null, runner), 'utf8');
+  fs.writeFileSync(jobfix.jobPath(name),
+    jobfix.jobFor(name, runnerBin, TMUX_BIN, null, null, runner), 'utf8');
   store.writeProfile(name, { provider: PROVIDER_OF[runner] });
   fs.writeFileSync(nodePath.join(create.workerDir(name), BRIEF[runner]), '# brief\n', 'utf8');
   return name;

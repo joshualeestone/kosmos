@@ -19,6 +19,7 @@
  */
 
 const test = require('node:test');
+const jobfix = require('../test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -75,11 +76,14 @@ const BETA = signIn('beta', 'BETA');
 const create = require('./create');
 
 const codexHomeOf = (name) => {
-  const text = fs.readFileSync(create.plistPath(name), 'utf8');
+  const text = fs.readFileSync(jobfix.jobPath(name), 'utf8');
   const m = text.match(/<key>CODEX_HOME<\/key><string>([\s\S]*?)<\/string>/);
   return m ? m[1] : null;
 };
 const store = require('./store');
+/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that asserts the launchd plist itself
+   measures nothing there. Skipped on Linux only, naming where Linux covers it; macOS and Windows unchanged. */
+const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS plist test on a Linux host (#5432): it reads the account home from the plist's environment; on Linux it is the unit's Environment= line: linuxjob.test.js (readUnitJob, rewriteAgentJob on Linux)" } : {};
 /**
  * An agent seeded DIRECTLY: its launch job and its profile, which is all
  * `setProvider` reads.
@@ -100,8 +104,8 @@ const store = require('./store');
 function born(name) {
   fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
   fs.mkdirSync(create.workerDir(name), { recursive: true });
-  fs.writeFileSync(create.plistPath(name),
-    create.plistFor(name, CLAUDE_BIN, TMUX_BIN, null, null, 'claude'), 'utf8');
+  fs.writeFileSync(jobfix.jobPath(name),
+    jobfix.jobFor(name, CLAUDE_BIN, TMUX_BIN, null, null, 'claude'), 'utf8');
   store.writeProfile(name, { provider: 'anthropic' });
   /* The fixture's own control: if the seed is not readable as a job, every
      REFUSED below would be right for the wrong reason. */
@@ -109,7 +113,7 @@ function born(name) {
   return name;
 }
 
-test('#1373: the engine offers a real choice, and the choice reaches the launch job', () => {
+test('#1373: the engine offers a real choice, and the choice reaches the launch job', LINUX_PLIST_5432, () => {
   /* THE FIXTURE'S OWN CONTROL. If both accounts are not visible, every
      assertion below is about a one-account world and proves nothing. */
   const seen = require('./openaiaccounts').list().map((a) => a.dir);
@@ -162,7 +166,7 @@ test('#1373: the engine offers a real choice, and the choice reaches the launch 
    AGENT_WORKFORCE_CODEX_HOME at the top precisely so the rest of the suite sees a
    real list, so this arm has to set it back for its own duration and put it back
    after, or every other test in the file changes meaning. */
-test('#1373: with an override home in force, the refusal says THAT, not "it is gone"', () => {
+test('#1373: with an override home in force, the refusal says THAT, not "it is gone"', LINUX_PLIST_5432, () => {
   const d = born('switch-1373-override');
   process.env.AGENT_WORKFORCE_CODEX_HOME = ALPHA;
   try {
@@ -208,7 +212,7 @@ test('#1373: with an override home in force, the refusal says THAT, not "it is g
    list, which is exactly the pre-branch behaviour for that person.
    ⚠️ Both halves, or the fix is half a fix: unpicked must SUCCEED, and picked must
    still REFUSE, or the refusal has been quietly deleted. */
-test('#1373: an unpicked account the engine cannot use falls back instead of refusing', () => {
+test('#1373: an unpicked account the engine cannot use falls back instead of refusing', LINUX_PLIST_5432, () => {
   const g = born('switch-1373-unpicked-ghost');
   const ghost = nodePath.join(HOME, '.codex-not-here-at-all');
   assert.ok(!fs.existsSync(ghost), 'the ghost must genuinely not exist');
@@ -238,7 +242,7 @@ test('#1373: an unpicked account the engine cannot use falls back instead of ref
    ⭐ The load-bearing assertion is the last one: what the answer SAYS must equal what
    the launch job actually GOT. Pinning the answer alone would pass on an engine that
    names one account and starts another. */
-test('#1373: when the unpicked fallback lands elsewhere, the answer NAMES where it landed', () => {
+test('#1373: when the unpicked fallback lands elsewhere, the answer NAMES where it landed', LINUX_PLIST_5432, () => {
   const g = born('switch-1373-fallback-names-it');
   const ghost = nodePath.join(HOME, '.codex-gone-and-unpicked');
   assert.ok(!fs.existsSync(ghost), 'the ghost must genuinely not exist');
@@ -268,7 +272,7 @@ test('#1373: an account that is not on this computer is REFUSED, not silently re
      nothing" from "the refusal wrote a Claude job". Assert what the plist DOES
      say, and the arm means something. */
   assert.equal(codexHomeOf(c), null, 'the refusal still wrote a codex home');
-  assert.match(fs.readFileSync(create.plistPath(c), 'utf8'), new RegExp(CLAUDE_BIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+  assert.match(fs.readFileSync(jobfix.jobPath(c), 'utf8'), new RegExp(CLAUDE_BIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
     'the refusal rewrote the job onto a different runner');
   assert.equal(store.readProfile(c).provider, 'anthropic',
     'the refusal still moved the agent off Claude');
