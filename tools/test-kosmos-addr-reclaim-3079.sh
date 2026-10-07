@@ -49,18 +49,24 @@ set +e +u   # the CLI sets -euo pipefail; relax so an assertion failure does not
 MYUID="$(id -u)"
 
 echo "== the safety-critical reclaim DECISION =="
+r="$(_kosmos_reclaim_decision "$MYUID" "$MYUID" 1 1)"
+[ "$r" = reclaim ] && pass "own uid + Kosmos + ours -> reclaim" || fail "own uid + Kosmos + ours: got '$r', want reclaim"
+# #4679: a Kosmos process owned by the SAME uid but from another install (ours=0) must NEVER be reclaimed.
+r="$(_kosmos_reclaim_decision "$MYUID" "$MYUID" 1 0)"
+[ "$r" = keep ] && pass "#4679: own uid + Kosmos + not-ours -> keep (do not kill another install)" || fail "own uid + Kosmos + not-ours: got '$r', want keep"
+# Backwards compatibility: missing 4th argument defaults to ours=0 (keep).
 r="$(_kosmos_reclaim_decision "$MYUID" "$MYUID" 1)"
-[ "$r" = reclaim ] && pass "own uid + Kosmos -> reclaim" || fail "own uid + Kosmos: got '$r', want reclaim"
+[ "$r" = keep ] && pass "missing 4th arg defaults to keep (fail safe)" || fail "missing 4th arg: got '$r', want keep"
 # THE control that protects another account: a Kosmos process owned by a DIFFERENT uid
 # must NEVER be reclaimed (killing it takes down that person's session).
 FOREIGN=$(( MYUID + 1 ))
-r="$(_kosmos_reclaim_decision "$FOREIGN" "$MYUID" 1)"
+r="$(_kosmos_reclaim_decision "$FOREIGN" "$MYUID" 1 1)"
 [ "$r" = keep ] && pass "FOREIGN uid + Kosmos -> keep (do not kill another account)" || fail "FOREIGN uid + Kosmos: got '$r', want keep"
-r="$(_kosmos_reclaim_decision "$MYUID" "$MYUID" 0)"
+r="$(_kosmos_reclaim_decision "$MYUID" "$MYUID" 0 1)"
 [ "$r" = keep ] && pass "own uid + NON-Kosmos -> keep (do not kill an unrelated app)" || fail "own uid + non-Kosmos: got '$r', want keep"
-r="$(_kosmos_reclaim_decision "" "$MYUID" 1)"
+r="$(_kosmos_reclaim_decision "" "$MYUID" 1 1)"
 [ "$r" = keep ] && pass "unresolved uid -> keep (fail safe)" || fail "empty uid: got '$r', want keep"
-r="$(_kosmos_reclaim_decision "$MYUID" "" 1)"
+r="$(_kosmos_reclaim_decision "$MYUID" "" 1 1)"
 [ "$r" = keep ] && pass "unresolved own uid -> keep (fail safe)" || fail "empty myuid: got '$r', want keep"
 
 echo "== owner resolution against a real spawned listener =="
@@ -79,34 +85,54 @@ JS
   }
   wait_listening() { local i; for i in $(seq 1 20); do port_has_listener && return 0; sleep 0.2; done; return 1; }
 
-  KPID="$(spawn_listener "$SANDBOX/Kosmos/app/server.js")"
+  # Arm 0: our OWN install's board ($KOSMOS_HOME/app/server.js) -> is_kosmos=1, ours=1.
+  KPID="$(spawn_listener "$KOSMOS_HOME/app/server.js")"
   if wait_listening; then
     own="$(port_listener_owner)"; rc=$?
     kpid_got="$(printf '%s' "$own" | awk '{print $1}')"
     uid_got="$(printf '%s' "$own" | awk '{print $2}')"
     kos_got="$(printf '%s' "$own" | awk '{print $3}')"
+    ours_got="$(printf '%s' "$own" | awk '{print $4}')"
     [ "$rc" -eq 0 ] && [ "$uid_got" = "$MYUID" ] && pass "owner uid is our own ($uid_got)" || fail "owner uid: got '$uid_got' rc=$rc, want $MYUID"
     [ "$kos_got" = 1 ] && pass "a Kosmos-shaped listener reads is_kosmos=1" || fail "kosmos listener: is_kosmos='$kos_got', want 1"
+    [ "$ours_got" = 1 ] && pass "this install's listener reads ours=1" || fail "this install's listener: ours='$ours_got', want 1"
     [ "$kpid_got" = "$KPID" ] && pass "owner pid matches the spawned listener ($KPID)" || fail "owner pid: got '$kpid_got', want $KPID"
     # end to end: our own Kosmos listener -> the decision says reclaim.
-    r="$(_kosmos_reclaim_decision "$uid_got" "$MYUID" "$kos_got")"
+    r="$(_kosmos_reclaim_decision "$uid_got" "$MYUID" "$kos_got" "$ours_got")"
     [ "$r" = reclaim ] && pass "own Kosmos listener -> decision reclaim" || fail "own Kosmos listener decision: got '$r', want reclaim"
   else
     fail "spawned Kosmos listener never bound 127.0.0.1:$TEST_PORT"
   fi
   kill "$KPID" 2>/dev/null; wait "$KPID" 2>/dev/null
-  # give the port a moment to free before the second listener
+  # give the port a moment to free before the next listener
   for i in $(seq 1 20); do port_has_listener || break; sleep 0.2; done
 
-  # Arm 1: command is NOT server.js (holder.js). is_kosmos must be 0 because the command
-  # is not the board entry -- NOT because of the path (SANDBOX is a mktemp "kosmos-3079.*"
-  # dir, so this path DOES contain "kosmos"; the label must not claim otherwise).
+  # Arm 1 (#4679): another install's board ($SANDBOX/other/Kosmos/app/server.js) -> is_kosmos=1, ours=0.
+  OPID="$(spawn_listener "$SANDBOX/other/Kosmos/app/server.js")"
+  if wait_listening; then
+    own="$(port_listener_owner)"
+    kos_got="$(printf '%s' "$own" | awk '{print $3}')"
+    ours_got="$(printf '%s' "$own" | awk '{print $4}')"
+    [ "$kos_got" = 1 ] && pass "another install's Kosmos listener reads is_kosmos=1" || fail "other install listener: is_kosmos='$kos_got', want 1"
+    [ "$ours_got" = 0 ] && pass "#4679: another install's Kosmos listener reads ours=0" || fail "other install listener: ours='$ours_got', want 0"
+    r="$(_kosmos_reclaim_decision "$MYUID" "$MYUID" "$kos_got" "$ours_got")"
+    [ "$r" = keep ] && pass "#4679: another install's Kosmos listener -> decision keep" || fail "other install decision: got '$r', want keep"
+  else
+    fail "spawned other-install Kosmos listener never bound 127.0.0.1:$TEST_PORT"
+  fi
+  kill "$OPID" 2>/dev/null; wait "$OPID" 2>/dev/null
+  for i in $(seq 1 20); do port_has_listener || break; sleep 0.2; done
+
+  # Arm 2: command is NOT server.js (holder.js). is_kosmos must be 0 because the command
+  # is not the board entry.
   NPID="$(spawn_listener "$SANDBOX/plainapp/holder.js")"
   if wait_listening; then
     own="$(port_listener_owner)"
     kos_got="$(printf '%s' "$own" | awk '{print $3}')"
+    ours_got="$(printf '%s' "$own" | awk '{print $4}')"
     [ "$kos_got" = 0 ] && pass "a listener whose command is not server.js reads is_kosmos=0" || fail "holder.js listener: is_kosmos='$kos_got', want 0"
-    r="$(_kosmos_reclaim_decision "$MYUID" "$MYUID" "$kos_got")"
+    [ "$ours_got" = 0 ] && pass "a listener whose command is not server.js reads ours=0" || fail "holder.js listener: ours='$ours_got', want 0"
+    r="$(_kosmos_reclaim_decision "$MYUID" "$MYUID" "$kos_got" "$ours_got")"
     [ "$r" = keep ] && pass "own non-server.js listener -> decision keep" || fail "own non-server.js decision: got '$r', want keep"
   else
     fail "spawned holder.js listener never bound 127.0.0.1:$TEST_PORT"
@@ -114,10 +140,8 @@ JS
   kill "$NPID" 2>/dev/null; wait "$NPID" 2>/dev/null
   for i in $(seq 1 20); do port_has_listener || break; sleep 0.2; done
 
-  # Arm 2: ISOLATE the Kosmos-token requirement -- a real server.js command under a path
-  # with NO "kosmos" token must read is_kosmos=0. A bug that matched server.js alone
-  # (ignoring the Kosmos token) would make this 1 and fail here (prove-a-check-can-fail).
-  # Use a neutral temp dir; skip only if the temp root itself happens to contain "kosmos".
+  # Arm 3: ISOLATE the Kosmos-token requirement: a real server.js command under a path
+  # with NO "kosmos" token must read is_kosmos=0 and ours=0.
   NEUTRAL="$(mktemp -d "${TMPDIR:-/tmp}/plain3079.XXXXXX")"
   case "$NEUTRAL" in
     *[Kk][Oo][Ss][Mm][Oo][Ss]*) echo "  SKIP: temp root contains 'kosmos', cannot isolate the token arm" ;;
@@ -126,7 +150,9 @@ JS
       if wait_listening; then
         own="$(port_listener_owner)"
         kos_got="$(printf '%s' "$own" | awk '{print $3}')"
+        ours_got="$(printf '%s' "$own" | awk '{print $4}')"
         [ "$kos_got" = 0 ] && pass "a server.js listener under a NON-Kosmos path reads is_kosmos=0 (token isolated)" || fail "non-kosmos-path server.js: is_kosmos='$kos_got', want 0"
+        [ "$ours_got" = 0 ] && pass "a server.js listener under a NON-Kosmos path reads ours=0" || fail "non-kosmos-path server.js: ours='$ours_got', want 0"
       else
         fail "spawned neutral server.js listener never bound 127.0.0.1:$TEST_PORT"
       fi

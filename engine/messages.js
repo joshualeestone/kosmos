@@ -2093,7 +2093,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
            and inviting a reply is the unaddressed-steering the room prevents. */
         : '[background from your colleague ' + from + ' \u00b7 ' + id + answers + ' \u00b7 project ' + shownProjectAs + ' \u00b7 not addressed to you]'))
       + ' ' + quoteFor(name) + bodyHere;
-    /* `trailer` (#358) is the attached file's path, typed after the envelope
+    /* `trailer` (#358) is the attached file's path and facts (#5448), typed after the envelope
        and body and outside the checks, the same way the direct thread does it. */
     /* 🔑 THE AGENT BROUGHT IN BLIND IS TOLD WHAT IT MISSED (#314, second
        defect). Josh's live test: the valve asked for the operator, he

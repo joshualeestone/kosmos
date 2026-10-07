@@ -34,6 +34,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const subscription = require('./subscription'); // the shared STATE enum the badge speaks
+const securewrite = require('./securewrite');
 
 const STATE = subscription.STATE; // CONNECTED | NONE | UNKNOWN -- one vocabulary, never a second
 
@@ -131,30 +132,30 @@ async function checkLive(dir) {
 }
 
 /**
- * Write the raw key to the account's mode-600 file. Atomic (temp + rename) and
- * WITHOUT a trailing newline, so `apiKeyHelper` (which cats it) hands Claude Code
- * exactly the key. 0600 at create, and re-chmod'd on an overwrite in case an
- * earlier write left it looser.
+ * Write the raw key to the account's mode-600 file. Atomic (temp + rename, through
+ * securewrite.writeSecret, which flushes before the rename and sets 0600 before the
+ * bytes land) and WITHOUT a trailing newline, so `apiKeyHelper` (which cats it) hands
+ * Claude Code exactly the key.
  */
 function storeKey(dir, key) {
   const file = keyFile(dir);
   const tmp = file + '.tmp';
-  // Unlink any stale temp from a prior crash first, so the write below CREATES
-  // the file and its 0600 create-mode applies from the first byte (a reused temp
-  // would keep its old, possibly looser mode for the pre-rename window).
+  // Unlink a stale <keyfile>.tmp left by a crash in an older version (which wrote through that fixed
+  // name): it can hold a raw key. writeSecret writes through its own unique temp, created at 0600.
   try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
-  fs.writeFileSync(tmp, String(key || '').trim(), { mode: 0o600 });
-  fs.renameSync(tmp, file);
-  try { fs.chmodSync(file, 0o600); } catch { /* best effort; create mode already set */ }
+  // #5434: through the shared writer, so the key is flushed to disk before the rename makes it the file.
+  securewrite.writeSecret(file, String(key || '').trim(), 0o600);
 }
 
 function forgetKey(dir) {
-  // Remove the key file AND any leftover temp: a storeKey whose writeFileSync or
-  // renameSync failed part-way can leave <keyfile>.tmp holding the raw key (mode
-  // 0600), so the failed-store cleanup must take back BOTH or a plaintext key lingers.
+  // Remove the key file AND any leftover temp, or a plaintext key lingers: an older version's
+  // <keyfile>.tmp, and (#5434) a writeSecret temp a process that died between create and rename
+  // left. reapDeadTempsOf removes only one whose writer is provably gone, so a temp whose dead
+  // writer's pid now belongs to a live process is still left (securewrite errs toward litter).
   let ok = false;
   try { fs.rmSync(keyFile(dir), { force: true }); ok = true; } catch { ok = false; }
   try { fs.rmSync(keyFile(dir) + '.tmp', { force: true }); } catch { /* best effort */ }
+  securewrite.reapDeadTempsOf(keyFile(dir));
   return ok;
 }
 
@@ -178,10 +179,30 @@ function apiKeyHelperCommand(dir) {
   return 'cat ' + shSingleQuote(keyFile(dir));
 }
 
+/* #5434: save settings.json through the shared writer, so it is flushed to disk before the rename
+   makes it the file.
+   Mode: writeSecret sets it exactly (no umask), so it is chosen here. An existing file keeps its mode,
+   always readable and writable by its owner and never writable by others (the file holds
+   apiKeyHelper, a command Claude Code runs). A new file is 0600. On main every save took the umask
+   default, so a 0600 file became 0644.
+   atomicOnly: when every atomic attempt fails the save throws and the file is left as it was, as on
+   main, rather than being rewritten in place (a failed in-place rewrite could empty the user's other
+   settings). Every caller (two in server.js, one in accounts.js) catches a throw. A symlinked
+   settings.json is replaced by a regular file, as main's rename replaced it. */
+function writeSettings(settingsPath, obj) {
+  let mode = 0o600;
+  try { mode = (fs.statSync(settingsPath).mode & 0o644) | 0o600; } catch { /* absent: a new file */ }
+  securewrite.writeSecret(settingsPath, JSON.stringify(obj, null, 2) + '\n', mode, { atomicOnly: true });
+}
+
 /**
  * Merge `apiKeyHelper` into the account's settings.json, never clobbering the
- * other settings (the same read-merge-write, atomic, mode-preserving discipline
- * engine/reporthook.js's ensureWired keeps). Returns {wired:true} on success.
+ * other settings (read-merge-write, atomic, through writeSettings above).
+ * ⚠️ engine/reporthook.js's ensureWired writes this same file and does NOT yet go
+ * through writeSecret (a later slice of #5434): it does not flush, keeps a group- or
+ * world-writable mode as it is, creates at the umask default and follows a symlink.
+ * So until that slice, "flushed" and "never writable by others" hold for this
+ * writer's saves, not for every save of the file. Returns {wired:true} on success.
  * A settings.json that is not a JSON object is replaced with a fresh one carrying
  * only apiKeyHelper -- the file was unusable to Claude Code anyway.
  */
@@ -192,10 +213,8 @@ function wireApiKeyHelper(settingsPath, dir) {
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) obj = parsed;
   } catch { /* absent or unusable: start from {} */ }
   obj.apiKeyHelper = apiKeyHelperCommand(dir);
-  const tmp = settingsPath + '.tmp';
   fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-  fs.writeFileSync(tmp, JSON.stringify(obj, null, 2) + '\n');
-  fs.renameSync(tmp, settingsPath);
+  writeSettings(settingsPath, obj);
   return { wired: true };
 }
 
@@ -209,9 +228,7 @@ function unwireApiKeyHelper(settingsPath) {
   catch { return { unwired: false }; }
   if (!obj || typeof obj !== 'object' || Array.isArray(obj) || !('apiKeyHelper' in obj)) return { unwired: false };
   delete obj.apiKeyHelper;
-  const tmp = settingsPath + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(obj, null, 2) + '\n');
-  fs.renameSync(tmp, settingsPath);
+  writeSettings(settingsPath, obj);
   return { unwired: true };
 }
 

@@ -2805,6 +2805,7 @@ _kosmos_mode_keeps_board_off() {
 # BEGIN #4818 put-back
 _kosmos_was_running=no
 _kosmos_paused_board=no
+_kosmos_putback_unsure=no   # #4651: set at the port-check stops, where this run cannot tell whether its stop stopped anything
 _kosmos_put_board_back() {
   [ "$_kosmos_paused_board" = yes ] || return 0
   _kosmos_paused_board=no
@@ -2820,9 +2821,19 @@ _kosmos_put_board_back() {
      && KOSMOS_RECLAIM_BUSY=1 "$KOSMOS_HOME/bin/kosmos" start --force >/dev/null 2>&1; then
     _kosmos_back_v="$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$KOSMOS_HOME/app/package.json" 2>/dev/null | head -1)" || _kosmos_back_v=""
     # The version on disk, which after a failure past the file swap may not be the one from before the update.
-    printf '  Kosmos is running again (%s). This update did not finish; it is safe to paste the install line again.\n\n' "${_kosmos_back_v:-version unrecorded}" >&2
+    if [ "$_kosmos_putback_unsure" = yes ]; then   # #4651: it may never have stopped, so not "again"
+      printf '  Kosmos is running (%s). This update did not finish; it is safe to paste the install line again.\n\n' "${_kosmos_back_v:-version unrecorded}" >&2
+    else
+      printf '  Kosmos is running again (%s). This update did not finish; it is safe to paste the install line again.\n\n' "${_kosmos_back_v:-version unrecorded}" >&2
+    fi
   else
-    printf '  Kosmos was paused for this update and could not be started again. Open the Kosmos app, or run: kosmos start\n\n' >&2
+    if [ "$_kosmos_putback_unsure" = yes ]; then
+      # #4651: after a failed port check this run cannot tell whether its stop stopped anything (a sandboxed shell's
+      # stop may change nothing), so it does not say the board was paused.
+      printf '  If Kosmos is not running, open the Kosmos app, or run: kosmos start (from a normal Terminal).\n\n' >&2
+    else
+      printf '  Kosmos was paused for this update and could not be started again. Open the Kosmos app, or run: kosmos start\n\n' >&2
+    fi
   fi
 }
 # #5033: the three refusals at the pause (our board would not pause, another Kosmos or another app on the port) die
@@ -2969,19 +2980,45 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
     # Ten seconds of grace: a node board draining on a busy Mac can hold
     # the listener a few seconds past the stop, and a die here on an
     # honest shutdown would be this guard crying wolf.
-    # ⚠️ EVERY lsof CALL WEARS AN || true: this script runs under set -e,
-    # and lsof answers exit 1 for the GOOD case (nothing listening), so
-    # the bare substitution killed the run silently at "pausing" (found
+    # ⚠️ EVERY lsof CALL IS GUARDED (|| _lsofrc=$?): this script runs under
+    # set -e, and lsof answers exit 1 for the GOOD case (nothing listening),
+    # so the bare substitution killed the run silently at "pausing" (found
     # by the harness's update pass going from green to a log that just
     # stops). The good case must never be the fatal one.
-    _tries=0; _pids=""
+    # #4651: an lsof that FAILS is not an lsof that found nothing. stderr is folded into the one reading, so the
+    # pids, any error text and the exit come from the same call. -w keeps warnings out.
+    _tries=0; _pids=""; _lsofbad=""
     while [ "$_tries" -lt 10 ]; do
-      _pids="$(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)"
-      if [ -z "$_pids" ]; then break; fi
+      _lsofrc=0
+      _lsofout="$(lsof -w -tiTCP:"$PORT" -sTCP:LISTEN 2>&1)" || _lsofrc=$?
+      _pids="$(printf '%s\n' "$_lsofout" | sed -n '/^[0-9][0-9]*$/p')"
+      if [ -z "$_pids" ]; then
+        if [ "$_lsofrc" -gt 1 ] || [ -n "$(printf '%s\n' "$_lsofout" | sed '/^$/d')" ]; then _lsofbad=yes; fi
+        break
+      fi
       _tries=$((_tries + 1)); sleep 1
     done
+    # Not recorded in #2055's update-abort streak: the board shows that streak as "Kosmos was busy, quit and
+    # reopen it", which is not the remedy for the stops below (#4675).
+    # #4651 x #4818: the two stops below follow a port check that failed (a sandboxed shell, or a holder this shell's
+    # curl cannot reach). The put-back still runs on exit, since an automatic update runs this script where it CAN start
+    # the board and nobody reads these words; only its words change if the start fails (_kosmos_putback_unsure).
+    if [ -z "$_pids" ] && [ -n "$_lsofbad" ]; then
+      _kosmos_putback_unsure=yes
+      _lsofsaid="$(printf '%s\n' "$_lsofout" | sed -n '/./{p;q;}')"
+      die "This shell could not check whether Kosmos is still running on port $PORT (the port check failed${_lsofsaid:+: $_lsofsaid}), so the update stopped before replacing any files. If you ran the install line in an agent's shell or another sandboxed tool, paste it into a normal Terminal window instead. If this already is a normal Terminal, run 'kosmos stop' and paste the install line again; if this message comes back, the port check itself is failing on this computer, so please send us this message."
+    fi
     if [ -n "$_pids" ]; then
       _pids="$(printf '%s' "$_pids" | tr '\n' ' ' | sed 's/ *$//')"
+      # #4651: read the probe again now, after the wait, rather than trusting the one taken before it.
+      _pauserc=0
+      curl -fsS -m 2 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null || _pauserc=$?
+      # curl exits 0, 1, 22, 28, 52 and 56 keep the pid advice below; any other curl exit gets both remedies.
+      case "$_pauserc" in
+        0|1|22|28|52|56) ;;
+        *) _kosmos_putback_unsure=yes
+           die "Something is still holding port $PORT (pid $_pids), and this shell's check of it failed, so the update stopped before replacing any files. If you ran the install line in an agent's shell or another sandboxed tool, paste it into a normal Terminal window instead. If this already is a normal Terminal, quit the app with pid $_pids, then paste the install line again." ;;
+      esac
       die "A process is still holding port $PORT after the pause (pid $_pids). Quit it (or run 'kill $_pids'), then paste the install line again."
     fi
   fi

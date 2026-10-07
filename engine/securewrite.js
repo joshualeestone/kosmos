@@ -106,7 +106,12 @@ const { threadId: THREAD } = require('node:worker_threads');
    in-flight temp - the race the glob would have created.
 
    📌 The unique name makes a leftover inert meanwhile: nothing ever asks for that
-   name again, so it is a disclosure question and never a correctness one. */
+   name again, so it is a disclosure question and never a correctness one.
+
+   #5434 slice 2: `reapDeadTempsOf(file)` applies the same predicate to ONE file's temps on
+   every call, for a caller deleting that file (the provider account stores' forgetKey), so
+   there a dead writer's temp no longer outlives the forget. The "NO CODE PATH" above is
+   history for those callers; a temp whose dead writer's pid is now reused is still left. */
 
 /* 🔑 pid ALONE IS NOT ENOUGH AND THIS REPO HAS PAID FOR LEARNING IT TWICE.
    `trust.js` documents it at its own `tempPath`: a process that dies between
@@ -140,6 +145,7 @@ const reapedDirs = new Set();
  * A process that dies between `openSync(tmp,'wx')` and `renameSync(tmp,file)` leaves
  * a `<file>.kosmos-<pid>-<started>-<seq>.tmp` holding the secret, which `forget()`
  * never removes - so a stale token outlives its own revoke, re-connect and uninstall.
+ * (The account stores' forgetKey now reaps them too, via reapDeadTempsOf, #5434.)
  *
  * ✅ SAFE BECAUSE IT DELETES ONLY A TEMP IT CAN PROVE IS DEAD, never one that might
  * still be renamed into place. A temp is reaped iff:
@@ -166,9 +172,26 @@ const reapedDirs = new Set();
 function reapOrphanTemps(dir) {
   if (reapedDirs.has(dir)) return;
   reapedDirs.add(dir);
+  reapDeadTemps(dir, () => true);
+}
+
+/* #5434 slice 2: remove the dead temps of ONE file, every time it is called (not once per directory
+   like the reap above), by the same proof of death. For a caller that is deleting `file` itself, such
+   as an account's forgetKey: a temp a crash left between create and rename holds the same secret, and
+   without this it outlived the forget until some later write into that folder. Best effort, never
+   throws. */
+function reapDeadTempsOf(file) {
+  // Anchored at both ends to this file's own temp shape, so a sibling whose NAME starts like a temp
+  // of this file (`<file>.kosmos-x`) is never a candidate.
+  const own = new RegExp('^' + path.basename(file).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\.kosmos-\\d+-(?:t\\d+-)?\\d+-\\d+\\.tmp$');
+  reapDeadTemps(path.dirname(file), (name) => own.test(name));
+}
+
+function reapDeadTemps(dir, wanted) {
   let entries;
   try { entries = fs.readdirSync(dir); } catch { return; /* dir gone / unreadable: nothing to reap */ }
   for (const name of entries) {
+    if (!wanted(name)) continue;
     const m = TEMP_RE.exec(name);
     if (!m) continue;
     const pid = Number(m[1]);
@@ -310,8 +333,13 @@ function syncDir(dir) {
  * contents to restore (no file, or one that could not be read) the new, unflushed
  * contents stay, as a failed write on that path always left them. Not unlinked: an
  * unreadable old file looks the same, and unlinking would delete it.
+ *
+ * `opts.atomicOnly` (#5434 slice 2): never take the in-place fallback; when all three atomic
+ * attempts fail, throw the last attempt's error and leave the file as it was. For a file that
+ * is not a secret and holds other content a failed write must never empty (an account's Claude
+ * settings.json), where failing the save beats rewriting it in place.
  */
-function writeSecret(file, data, mode) {
+function writeSecret(file, data, mode, opts) {
   /* #1793: sweep this target's directory of orphan temps a prior death left behind,
      once per directory per process, before we add our own. Best-effort: it never
      throws, and it deletes only a temp it can prove is dead (see reapOrphanTemps),
@@ -403,6 +431,8 @@ function writeSecret(file, data, mode) {
       }
     }
   }
+
+  if (opts && opts.atomicOnly) throw lastAtomicError;   // #5434: the caller asked for no in-place rewrite
 
   /* The in-place fallback. It exists so a write that cannot take the atomic path
      fails soft rather than outright, and every line of it is defensive. */
@@ -511,4 +541,4 @@ function writeSecret(file, data, mode) {
    and `engine/trust.js` keeps its equivalent private for the same reason: a name
    generator is an implementation detail of the writer, and exporting it invites a
    caller to build a temp path the writer will not clean up. */
-module.exports = { writeSecret, secureDir, refuseSymlinkTarget };
+module.exports = { writeSecret, secureDir, refuseSymlinkTarget, reapDeadTempsOf };

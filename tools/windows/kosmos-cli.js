@@ -104,6 +104,7 @@ const USAGE = {
     '  kosmos task unhold <project-id> <task-number>                 take it off hold',
     '  kosmos task repeat <project-id> <task-number> <hourly|daily|weekly>  a job you run on a schedule: the board shows when it runs',
     '      --at <HH:MM>  (hourly: --at :MM)   --on <mon|tue|...> (weekly)   --clear  stop it repeating',
+    '  kosmos task repeat <project-id> <task-number> --reviewer <agent|none>  who is told when a run is missed',
     '  kosmos task ran <project-id> <task-number> ["what this run found"]  record that a repeating task\'s job just ran',
     '  (project ids are in your instructions\' Your projects section.)',
   ].join('\n'),
@@ -147,6 +148,7 @@ const USAGE = {
     '       kosmos community endorse <agent-name> <1-5> <review>   (or pipe the review in)    kosmos community unendorse <agent-name>',
   ].join('\n'),
   connections: 'Usage: kosmos connections   (what is connected in Settings > Connections, from what Kosmos has stored; it never checks with each service)',
+  accounts: 'Usage: kosmos accounts   (the provider accounts this board has, and whether each is signed in, as Settings > AI Models shows it; most are checked when you ask, so not for a loop)',
   connect: 'Usage: kosmos connect <service>   (the token on stdin, never as an argument, e.g. printf \'%s\' "$TOKEN" | kosmos connect brave-search; kosmos connections lists the services)\n       (in PowerShell, text piped into kosmos does not reach it: run it from Git Bash)',
 };
 
@@ -963,26 +965,32 @@ async function taskBuilt(ctx, args) {
 
 /* kosmos#4787, as install/kosmos cmd_task repeat / ran: a repeating task's rule, and a run of its job. The agent token
    names who ran it (no pane on Windows); the board checks the rule whole and refuses a caller it cannot name. */
-const REPEAT_USAGE = 'Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly> [--at HH:MM] [--on mon]   (or --clear)';
+const REPEAT_USAGE = 'Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly> [--at HH:MM] [--on mon] [--reviewer <agent|none>]   (or --clear)';
 async function taskRepeat(ctx, args) {
   const [project, num] = args;
   if (!project || !num || args.length < 3) { ctx.err(REPEAT_USAGE); return 2; }
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
-  let every = '', at = '', on = '', clear = false, want = '';
+  let every = '', at = '', on = '', reviewer = '', clear = false, want = '';
   for (const a of args.slice(2)) {
-    if (want) { if (want === 'at') at = a; else on = a; want = ''; continue; }
+    if (want) { if (want === 'at') at = a; else if (want === 'on') on = a; else reviewer = a; want = ''; continue; }
     if (a === '--at') want = 'at';
     else if (a === '--on') want = 'on';
+    else if (a === '--reviewer') want = 'reviewer';   // slice 3, as install/kosmos: who is told when a run is missed
     else if (a === '--clear') clear = true;
     else if (/^(hour|hourly|day|daily|week|weekly)$/.test(a)) every = a;
     else if (/^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task repeat', REPEAT_USAGE, a); return 2; }
     else { ctx.err('Say how often: hourly, daily or weekly. ' + REPEAT_USAGE); return 2; }
   }
-  if (want) { ctx.err('--at and --on each need a value. ' + REPEAT_USAGE); return 2; }
-  const body = { every, clear, from_pane: '' };
+  if (want) { ctx.err('--at, --on and --reviewer each need a value. ' + REPEAT_USAGE); return 2; }
+  // Review 2, as install/kosmos: --at and --on belong to a frequency; without one they would be dropped without a word.
+  if (!every && !clear && (at || on)) { ctx.err('--at and --on go with how often: hourly, daily or weekly. ' + REPEAT_USAGE); return 2; }
+  /* Each field only when given, as install/kosmos: no frequency leaves the rule as it is, so --reviewer can change alone. */
+  const body = { clear, from_pane: '' };
+  if (every) body.every = every;
   if (at) body.at = at;
   if (on) body.on = on;
-  return taskRepeatCall(ctx, project, num, 'repeat', body, clear);
+  if (reviewer) body.reviewer = reviewer;
+  return taskRepeatCall(ctx, project, num, 'repeat', body, clear, every ? '' : reviewer, every && reviewer && reviewer !== 'none' ? reviewer : '');
 }
 const RAN_USAGE = 'Usage: kosmos task ran <project-id> <task-number> ["what this run found"]   (or --note "...")';
 async function taskRan(ctx, args) {
@@ -1002,7 +1010,7 @@ async function taskRan(ctx, args) {
   if (want) { ctx.err('--note needs the note. ' + RAN_USAGE); return 2; }
   return taskRepeatCall(ctx, project, num, 'ran', { note: words.join(' '), from_pane: '' }, false);
 }
-async function taskRepeatCall(ctx, project, num, which, body, clear) {
+async function taskRepeatCall(ctx, project, num, which, body, clear, reviewerOnly, alsoReviewer) {
   const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/' + which, body);
   if (!r.reached) {
     /* review 1: not "safe" to repeat for a run: a second ran records a second run (a minute apart or more). */
@@ -1014,7 +1022,9 @@ async function taskRepeatCall(ctx, project, num, which, body, clear) {
   if (r.json && r.json.task) {
     ctx.out(which === 'ran' ? (r.json.duplicate === true ? 'That run of task ' + num + ' on ' + project + ' was already recorded a moment ago, so it was not recorded twice.' : 'Recorded a run of task ' + num + ' on ' + project + '.')
       : clear ? 'Task ' + num + ' on ' + project + ' no longer repeats.'
-        : 'Task ' + num + ' on ' + project + ' now repeats ' + (r.json.words || 'on that schedule') + '. Each time its job runs, record it with: kosmos task ran ' + project + ' ' + num);
+        : reviewerOnly === 'none' ? 'Nobody is told now when task ' + num + ' on ' + project + ' misses a run.'
+        : reviewerOnly ? reviewerOnly + ' will be told when task ' + num + ' on ' + project + ' misses a run.'
+        : 'Task ' + num + ' on ' + project + ' now repeats ' + (r.json.words || 'on that schedule') + '.' + (alsoReviewer ? ' ' + alsoReviewer + ' will be told when it misses a run.' : '') + ' Each time its job runs, record it with: kosmos task ran ' + project + ' ' + num);
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not change that task: ' + ctx.refusedBy(r) + '.'); return 1; }
@@ -1622,6 +1632,21 @@ async function verbConnections(ctx) {
   return 0;
 }
 
+/* #5359, as install/kosmos cmd_accounts: which providers' accounts this board has and whether each is signed in, from
+   GET /api/accounts (most accounts checked live, so a moment that needs it, never a loop). Board token, as connections. */
+const ACCOUNTS_TIMEOUT_MS = 60000;
+/* The words live once, in engine/accountline.js, which install/kosmos cmd_accounts calls too (#5359). */
+async function verbAccounts(ctx) {
+  const r = await ctx.call('GET', '/api/accounts', undefined, { agent: false, timeoutMs: ACCOUNTS_TIMEOUT_MS });
+  if (!r.reached) return ctx.unreachable('read which accounts are set up');
+  // No token hint (#5333) here: this verb sends the board token only, never an agent's, so it cannot be about one.
+  let got;
+  try { got = ctx.engine('accountline').answer(r.status, r.json); } catch { got = { fail: 'Kosmos gave an answer we could not read about its accounts.' }; }
+  if (got.fail) { ctx.err(got.fail); return 1; }
+  for (const l of got.lines) ctx.out(l);
+  return 0;
+}
+
 /* The door checks the token with the service (up to 30 s) before storing it, so connect waits longer. */
 const CONNECT_TIMEOUT_MS = 35000;
 const CONNECT_TOKEN_MAX_BYTES = 64 * 1024;
@@ -1694,6 +1719,7 @@ const VERB_HANDLERS = {
   feedback: subcommandRequired('feedback'),
   community: async (ctx) => { ctx.err(USAGE.community); return 2; },
   connections: verbConnections,
+  accounts: verbAccounts,
   connect: verbConnect,
 };
 const SUBCOMMAND_HANDLERS = {
@@ -1735,6 +1761,7 @@ const DESCRIBE = {
   feedback: 'write or read the daily feedback report',
   community: 'post to or read the Kosmos+ community',
   connections: 'list the outside services and which are connected',
+  accounts: 'list the provider accounts and whether each is signed in',
   connect: 'connect an outside service with its token',
 };
 const COMMAND_LIST = VERBS.map((v) => '  kosmos ' + v.padEnd(13) + DESCRIBE[v]).join('\n');

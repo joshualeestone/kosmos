@@ -3,6 +3,8 @@
 # CI runs (it used to live only in ~/.cache, covered by a dry harness run by hand). Seeded from PigeonPete's #4911 dry
 # harness (74 arms). Every run of the wrapper goes through a shim that REFUSES unless KOSMOS_RUN_MARKER_DIR is inside
 # this test's own temp dir: a reviewer's sandbox once lost that variable and three copies waited in the real queue.
+# (The six #5446 arms run a copy in a throwaway git repo or outside any repo instead, with the same two protections set
+# by hand, an in-test KOSMOS_RUN_MARKER_DIR and the perl deadline, plus the probe stubs and fake PATH exported above.)
 # Processes this test starts are stopped by exact match on a sleep length unique to this run (never a broad pattern).
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
@@ -196,6 +198,34 @@ ok "#4977: a lib missing kosmos_release_machine exits 3 and names it, runs nothi
 mkdir -p $S/halflib/tools/lib && { cat $ROOT/tools/lib/cut-guard.sh; echo 'unset -f kosmos_release_light_side'; } > $S/halflib/tools/lib/cut-guard.sh
 o=$(QUEUED_HEAVY_LIB=$S/halflib /bin/bash $QH --light "halflib" touch $S/halflib-ran 2>&1); rc=$?
 ok "#4977: a lib with the side gate but no kosmos_release_light_side exits 3 and names it, runs nothing" '[ "$rc" = 3 ] && [[ "$o" == *"has no kosmos_release_light_side"* ]] && [ ! -e $S/halflib-ran ]'
+# #5446: with QUEUED_HEAVY_LIB unset and the default folder missing (HOME points where none exists), the wrapper uses the
+# main checkout of the repo it sits in, says so, and runs. A throwaway repo stands in for that checkout; the run keeps
+# the shim's two protections (a marker dir inside this test, a deadline). Control: the same repo without cut-guard.sh
+# still exits 3 and runs nothing.
+qh_repo() {   # qh_repo <dir> <with lib: 1|0>
+  mkdir -p "$1/tools/lib" "$1/h" && env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR git -C "$1" init -q && cp "$REAL_QH" "$1/tools/queued-heavy.sh"
+  [ "$2" = 1 ] && cp "$ROOT"/tools/lib/*.sh "$1/tools/lib/"
+  env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR git -C "$1" add -A && env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR git -C "$1" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -qm fixture   # a commit, so the line can name it
+  return 0
+}
+qh_repo $S/fbrepo 1; qh_repo $S/fbnolib 0
+o=$(env -u QUEUED_HEAVY_LIB HOME=$S/fbrepo/h KOSMOS_RUN_MARKER_DIR=$S/mfb perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/fbrepo/tools/queued-heavy.sh "fallback" touch $S/fb-ran 2>&1); rc=$?
+ok "#5446: no QUEUED_HEAVY_LIB and no default folder: the repo's main checkout supplies the guards, it says so, and runs" '[ "$rc" = 0 ] && [ -e $S/fb-ran ] && [[ "$o" =~ main\ checkout\ [^\ ]*/fbrepo\ at\ [0-9a-f]{7,}\ on\ [^\ ]+\ for\ the\ queue ]] && [[ "$o" != *"No such file"* ]]'
+o=$(env -u QUEUED_HEAVY_LIB HOME=$S/fbnolib/h KOSMOS_RUN_MARKER_DIR=$S/mfbn perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/fbnolib/tools/queued-heavy.sh "fallback-nolib" touch $S/fbn-ran 2>&1); rc=$?
+ok "#5446 CONTROL: the same with no cut-guard.sh in that checkout still exits 3 and runs nothing" '[ "$rc" = 3 ] && [ ! -e $S/fbn-ran ] && [[ "$o" == *"could not load cut-guard.sh"* ]]'
+qh_repo $S/fbold 1; echo 'unset -f kosmos_release_machine' >> $S/fbold/tools/lib/cut-guard.sh
+o=$(env -u QUEUED_HEAVY_LIB HOME=$S/fbold/h KOSMOS_RUN_MARKER_DIR=$S/mfbo perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/fbold/tools/queued-heavy.sh "fallback-old" touch $S/fbo-ran 2>&1); rc=$?
+ok "#5446: a fallen-back main checkout with an old lib exits 3, names the missing function and the pull that fixes it" '[ "$rc" = 3 ] && [ ! -e $S/fbo-ran ] && [[ "$o" == *"has no kosmos_release_machine"* ]] && [[ "$o" == *"pull --ff-only"* ]]'
+mkdir -p $S/fbout && cp "$REAL_QH" $S/fbout/queued-heavy.sh   # a copy outside any repo, as the installed one is
+o=$(env -u QUEUED_HEAVY_LIB HOME=$S/fbout KOSMOS_RUN_MARKER_DIR=$S/mfbx perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/fbout/queued-heavy.sh "outside" touch $S/fbx-ran 2>&1); rc=$?
+ok "#5446: a copy outside any git repo (the installed one) has no fallback and still exits 3" '[ "$rc" = 3 ] && [ ! -e $S/fbx-ran ] && [[ "$o" == *"could not load cut-guard.sh"* ]] && [[ "$o" != *"main checkout"* ]]'
+GE="env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR"
+$GE git -C $S/fbrepo worktree add -q $S/fbwt 2>/dev/null
+o=$(env -u QUEUED_HEAVY_LIB HOME=$S/fbrepo/h KOSMOS_RUN_MARKER_DIR=$S/mfbw perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/fbwt/tools/queued-heavy.sh "fallback-wt" touch $S/fbw-ran 2>&1); rc=$?
+ok "#5446: a worktree's copy falls back to its MAIN checkout, not its own tree" '[ "$rc" = 0 ] && [ -e $S/fbw-ran ] && [[ "$o" =~ main\ checkout\ [^\ ]*/fbrepo\ at ]] && [[ "$o" != *"/fbwt at"* ]]'
+qh_repo $S/fbnone 0; mkdir -p $S/fbnone/x && cp "$REAL_QH" $S/fbnone/x/queued-heavy.sh
+o=$(env -u QUEUED_HEAVY_LIB HOME=$S/fbnone/h KOSMOS_RUN_MARKER_DIR=$S/mfbz perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/fbnone/x/queued-heavy.sh "fallback-none" touch $S/fbz-ran 2>&1); rc=$?
+ok "#5446: a main checkout with no lib at all: exits 3, names that checkout and the pull" '[ "$rc" = 3 ] && [ ! -e $S/fbz-ran ] && [[ "$o" == *"/fbnone has none either"* ]] && [[ "$o" == *"pull --ff-only"* ]]'
 # The shim itself can fail: a run with the marker dir outside this test's dir is refused before the wrapper starts.
 o=$(KOSMOS_RUN_MARKER_DIR=/tmp/not-this-test /bin/bash $QH "escape" true 2>&1); rc=$?
 ok "CONTROL: the shim refuses a marker dir outside this test" '[ "$rc" = 99 ] && [[ "$o" == *TEST-REFUSED* ]]'
@@ -258,7 +288,66 @@ side5331 $S/qh-nojc5331.sh $S/m5331; side5331 $S/qh-old5331.sh $S/m5331c
 r5331="$(cat $S/m5331.r)"; c5331="$(cat $S/m5331c.r)"
 ok "#5331: a capper that is not a group leader and is stopped is KILLed by pid, so the teardown releases at once" '[ "$r5331" = 0 ] && [ ! -e $S/m5331/light-side-claim ] && grep -q "claim released" $S/m5331.log && ! grep -q "did not stop" $S/m5331.log'
 ok "#5331 CONTROL: with the old teardown the same capper holds it (the arm above is not vacuous)" '[ "$c5331" = 1 ] && grep -q "SIDE TURN: running" $S/m5331c.log'
-EXPECTED=87   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, three #5064 arms, three #5331 arms, two #5332 arms
+# #5467: a WAITING run must not carry its wrapped command in its own command line (a `pgrep -f browser-checks.sh` in a
+# release read a waiter as a running check and waited on it while the waiter waited on the release, 0.7.27). The real
+# run, once its turn comes, IS matched. The control runs a copy without the re-exec: there the waiter is matched, so the
+# first arm can fail. The pattern names this test's own fake script, so nothing outside this run can match it.
+mkdir -p $S/fakebc/tools; printf '#!/bin/bash\nsleep %s\n' $((U+8)) > $S/fakebc/tools/browser-checks.sh; chmod +x $S/fakebc/tools/browser-checks.sh
+sed '/^# #5467: while it waits/,/^fi$/d' "$REAL_QH" > $S/qh-no5467.sh
+hide5467() {   # $1 the wrapper (or a copy), $2 its marker dir: writes "<waiter matched> <run matched> <args file named>" to $2.r
+  local q="$1" m="$2" w wm=n rm=n fm=n
+  mkdir -p "$m"; printf '%s-%s-1 %s %s host queued run (not a cut): fake heavy\n' $H $((NOW-300)) $H $((NOW+1800)) > "$m/machine-claim"
+  ( cd /tmp && KOSMOS_RUN_MARKER_DIR="$m" exec /bin/bash "$q" "w5467" /bin/bash $S/fakebc/tools/browser-checks.sh ) > "$m.log" 2>&1 & w=$!; BG="$BG $w"
+  until_true 30 "[ -e '$m/suitewait.$w' ]" || { kill $w 2>/dev/null; reap $w 40; echo "x x" > "$m.r"; return; }
+  pgrep -f "$S/fakebc/tools/browser-checks.sh" >/dev/null && wm=y
+  case "$(ps -ww -o command= -p $w 2>/dev/null)" in *"--queued-args $TMPDIR/queued-heavy-args."*) fm=y;; esac   # the file was here (presence control)
+  rm -f "$m/machine-claim"
+  until_true 30 '! gone $((U+8))' && pgrep -f "$S/fakebc/tools/browser-checks.sh" >/dev/null && rm=y
+  for p in $(pgrep -f "^sleep $((U+8))$"); do kill -KILL $p; done; reap $w 60
+  echo "$wm $rm $fm" > "$m.r"
+}
+hide5467 "$REAL_QH" $S/m5467; hide5467 $S/qh-no5467.sh $S/m5467c
+r5467="$(cat $S/m5467.r)"; c5467="$(cat $S/m5467c.r)"
+ok "#5467: a waiting run's command line does not carry its command, and the real run's does" '[ "${r5467% *}" = "n y" ]'
+ok "#5467 CONTROL: without the re-exec the waiter IS matched (the arm above is not vacuous)" '[ "${c5467% *}" = "y y" ] && ! grep -q "queued-args" $S/qh-no5467.sh'
+# Review 1: the file is gone once read, and it WAS in this test's TMPDIR (the waiter named it), so "gone" is not "never here".
+ok "#5467: the arguments file was written in TMPDIR and is gone once read" '[ "${r5467##* }" = y ] && [ -z "$(ls "$TMPDIR" | grep queued-heavy-args)" ]'
+# Review 1: a stale TMPDIR (removed since) falls back to /tmp instead of stopping the run before it waits.
+mkdir -p $S/mstale5467; o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mstale5467 TMPDIR=$S/gone-tmpdir /bin/bash $QH "stale-tmpdir" true 2>&1)   # its own marker dir: the fake holder above holds $S/m
+ok "#5467: a stale TMPDIR falls back to /tmp and the run still takes its turn" '[[ "$o" == *"TURN: running stale-tmpdir"* && "$o" == *"END rc=0"* ]]'
+o=$(KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash "$REAL_QH" --queued-args "$TMPDIR/queued-heavy-args.x/../escape" 2>&1); r=$?
+ok "#5467: --queued-args refuses a path that continues past its own file name" '[ "$r" = 2 ] && [[ "$o" == *"is internal"* ]]'
+# Review 3: these refusal arms run the wrapper itself, so each has its own unheld marker dir and a 20 s alarm: a
+# regression that accepted the file would run (or wait) and read BAD, never hang the file.
+mkdir -p $S/mref5467
+# Review 2: and a file that is not there, and one outside TMPDIR and /tmp (each refused before anything runs).
+o=$(KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash "$REAL_QH" --queued-args "$TMPDIR/queued-heavy-args.missing" 2>&1); r=$?
+ok "#5467: --queued-args refuses a file that is not there" '[ "$r" = 2 ] && [[ "$o" == *"missing or not ours"* ]]'
+printf 'x\0true\0' > $S/queued-heavy-args.outside
+o=$(KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash "$REAL_QH" --queued-args "$S/queued-heavy-args.outside" 2>&1); r=$?
+ok "#5467: --queued-args refuses a file outside TMPDIR and /tmp" '[ "$r" = 2 ] && [[ "$o" == *"is internal"* ]] && [ -e $S/queued-heavy-args.outside ]'
+# Review 4: a symlink named like its own file is refused (it could point at any file of ours), the target kept.
+ln -s $S/queued-heavy-args.outside "$TMPDIR/queued-heavy-args.link"
+o=$(KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash "$REAL_QH" --queued-args "$TMPDIR/queued-heavy-args.link" 2>&1); r=$?
+ok "#5467: --queued-args refuses a symlink, and the file it points at is left alone" '[ "$r" = 2 ] && [[ "$o" == *"missing or not ours"* ]] && [ -e $S/queued-heavy-args.outside ]'
+rm -f "$TMPDIR/queued-heavy-args.link"
+# Review 7: nothing after the file name on the command line, and a script fed on stdin (no file to restart from).
+printf 'x\0true\0' > "$TMPDIR/queued-heavy-args.extra"
+o=$(KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash "$REAL_QH" --queued-args "$TMPDIR/queued-heavy-args.extra" more 2>&1); r=$?
+ok "#5467: --queued-args refuses anything after the file name" '[ "$r" = 2 ] && [[ "$o" == *"is internal"* ]] && [ -e "$TMPDIR/queued-heavy-args.extra" ]'
+rm -f "$TMPDIR/queued-heavy-args.extra"
+mkdir -p $S/tmpstdin; o=$(TMPDIR=$S/tmpstdin KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash -s "x" true < "$REAL_QH" 2>&1); r=$?
+ok "#5467: a script fed on stdin refuses (exit 3) and leaves no arguments file" '[ "$r" = 3 ] && [[ "$o" == *"run it as a file"* ]] && [ -z "$(ls $S/tmpstdin)" ]'
+# Review 6: the round trip itself, pinned: awkward arguments, stdin and the exit code reach the command unchanged.
+printf '#!/bin/bash\nfor a in "$@"; do printf "[%%s]" "$a"; done; echo; read -r line; echo "IN=$line"; exit 7\n' > $S/show5467; chmod +x $S/show5467
+mkdir -p $S/mrt5467; o=$(printf 'from-stdin\n' | (cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mrt5467 /bin/bash $QH "rt" $S/show5467 "a b" "" $'x\ny' -n '*' 2>&1)); r=$?
+ok "#5467: arguments (a space, an empty one, a newline, -n, *), stdin and the exit code survive the re-exec" '[[ "$o" == *"[a b][][x"$'"'"'\n'"'"'"y][-n][*]"* && "$o" == *"IN=from-stdin"* && "$o" == *"END rc=7"* ]]'
+# Review 5: a failed re-exec says so, exits 3 and leaves no arguments file (bash clears the EXIT trap while it tries).
+sed 's|  exec /bin/bash "${BASH_SOURCE\[0\]}" --queued-args "$_qh_af"|  exec /nonexistent/bash "${BASH_SOURCE[0]}" --queued-args "$_qh_af"|' "$REAL_QH" > $S/qh-noexec.sh
+mkdir -p $S/tmpx; o=$(TMPDIR=$S/tmpx KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash $S/qh-noexec.sh "noexec" true 2>&1); r=$?
+ok "#5467: a failed re-exec exits 3, says so, and leaves no arguments file" '[ "$r" = 3 ] && [[ "$o" == *"could not restart itself"* ]] && [ -z "$(ls $S/tmpx)" ] && grep -q /nonexistent/bash $S/qh-noexec.sh'
+
+EXPECTED=105   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"

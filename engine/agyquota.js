@@ -226,6 +226,34 @@ function plan(report, entry, now, heldBackUntil) {
   return { act: 'nudge', because: 'its quota reset at ' + new Date(at).toISOString() };
 }
 
+/* #5382 (review 11): will this module still type its carry-on line into this agent for its CURRENT pause? True only
+   while the resume is switched on (resumeEnabled, live execution and the operator brake) and plan() says nudge or
+   wait. The failover tell sweep leaves such an agent to that line (which names the same moved parts) and tells it
+   plainly otherwise (it once added "carry on", which ignored the brake and could resume an agent twice; its plain line
+   still starts a turn, so it asks for a one-word reply, review 12). o = { book, now, env, allowed, readReport? }. Never throws. */
+function resumePending(session, o = {}) {
+  try {
+    if (!resumeEnabled(o.allowed === true, o.env)) return false;
+    const read = typeof o.readReport === 'function' ? o.readReport : (s) => require('./selfreport').read(s);
+    const report = read(session);
+    const entry = o.book instanceof Map ? o.book.get(session) : undefined;
+    const now = Number.isFinite(o.now) ? o.now : Date.now();
+    const act = plan(report, entry, now, heldBackBy(pausedUntil(report), o.memo || POOL_MEMO)).act;
+    return act === 'nudge' || act === 'wait';
+  } catch { return false; }
+}
+
+/* #5382: the carry-on line, plus the parts the Assigner's failover gave to other agents that this one has not been told
+   about (`gone`: items from engine/failovertell.js owedFor, each with a `phrase`, or plain strings), so it does not
+   carry on with work that is now somebody else's. Review 8: the list is the part's own owedTell record, not a time
+   window, so a week-long pause still names a move made in its first hour and a second pause does not repeat the first's. */
+function nudgeText(gone) {
+  const said = (Array.isArray(gone) ? gone : []).map((g) => (typeof g === 'string' ? g : g && g.phrase)).filter((x) => typeof x === 'string' && x);
+  if (!said.length) return NUDGE_TEXT;
+  return NUDGE_TEXT + ' While you were paused, Kosmos gave ' + said.join(', ') + ' to another agent: leave '
+    + (said.length === 1 ? 'it' : 'those') + ' to them.';
+}
+
 /*
  * One sweep. o = { roster, book (Map), now, memo (the pool memory; POOL_MEMO by default), env (process.env by default),
  * readReport (session) => selfreport.read shape, deliver (session, text, roster) => result, DELIVERY, log }. Nudges at
@@ -271,7 +299,11 @@ function sweepOnce(o) {
       return { results, skipped: 'the Gemini agents are at the limit set for working at once' };
     }
     let state = null;
-    try { const r = o.deliver(d.session, NUDGE_TEXT, o.roster); state = r && r.state; }
+    /* #5382: the parts owed a line (o.movedAway(session) -> owedFor items), marked told (o.movedTold) once the line may
+       have reached the pane. A lookup that throws names nothing, and the failover sweep tells it later. */
+    let gone = [];
+    if (typeof o.movedAway === 'function') { try { gone = o.movedAway(d.session, o.roster) || []; } catch { gone = []; } }
+    try { const r = o.deliver(d.session, nudgeText(gone), o.roster); state = r && r.state; }
     catch (err) { state = 'threw: ' + String((err && err.message) || err); }
     const D = o.DELIVERY || {};
     const delivered = D.PLACED != null && state === D.PLACED;
@@ -280,6 +312,7 @@ function sweepOnce(o) {
     book.set(d.session, { until: d.report.until, nudgedAt: mayHaveReached ? now : null, tries, lastTryAt: now, delivery: state });
     // Only a line that may have reached the pane spaces the next agent out: a refusal reached nobody (review 2).
     if (mayHaveReached) { book.set(LAST, now); noteCapStart(d.session, o.roster, now, o.readCap, o.env === undefined ? process.env : o.env); }
+    if (mayHaveReached && Array.isArray(gone) && gone.length && typeof o.movedTold === 'function') { try { o.movedTold(d.session, gone); } catch { /* told again later */ } }
     const gaveUp = !mayHaveReached && tries >= MAX_TRIES;
     const r = { session: d.session, name: d.card.name || d.session, act: gaveUp ? 'gave-up' : 'nudge', delivered, delivery: state,
       because: gaveUp ? d.because + '; nothing reached the pane in ' + tries + ' tries, so it is left idle with its turn unfinished until someone messages it' : d.because, waiting: due.length - 1 };
@@ -301,9 +334,9 @@ function makeTick(deps) {
       if (!resumeEnabled(deps.allowed() === true, deps.env)) return null;
       const roster = deps.roster();
       if (!Array.isArray(roster)) return null;
-      return sweepOnce({ roster, book: deps.book, now: deps.now ? deps.now() : Date.now(), env: deps.env || process.env, readReport: deps.readReport, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log });
+      return sweepOnce({ roster, book: deps.book, now: deps.now ? deps.now() : Date.now(), env: deps.env || process.env, readReport: deps.readReport, deliver: deps.deliver, movedAway: deps.movedAway, movedTold: deps.movedTold, DELIVERY: deps.DELIVERY, log: deps.log });
     } catch { return null; }
   };
 }
 
-module.exports = { CAP_RECHECK_MS, CAP_START_MS, CAP_STARTS, noteCapStart, releaseCapStart, heldForCap, heldForAgy, GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, pausedUntil, notePool, heldBackBy, releaseAfterMs, SLOT_MS, heldForQuota, quotaHoldOff, POOL_MEMO, newPoolMemo, MAX_POOL_MS, plan, sweepOnce, resumeEnabled, makeTick };
+module.exports = { CAP_RECHECK_MS, CAP_START_MS, CAP_STARTS, noteCapStart, releaseCapStart, heldForCap, heldForAgy, GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, nudgeText, resumePending, pausedUntil, notePool, heldBackBy, releaseAfterMs, SLOT_MS, heldForQuota, quotaHoldOff, POOL_MEMO, newPoolMemo, MAX_POOL_MS, plan, sweepOnce, resumeEnabled, makeTick };

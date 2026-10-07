@@ -15,10 +15,56 @@
 # Prints QUEUED-HEAVY lines for the start, the turn, and the end with the command's rc.
 # #4977: this file in the repo (tools/queued-heavy.sh) is the reviewed source; tools/test-queued-heavy-4977.sh pins it
 # in CI. The copy agents run, ~/.cache/claude-handoffs/queued-heavy.sh, is installed separately, and nothing checks
-# that the two match.
+# that the two match. heavy-gate.sh's BUSY hint names that installed copy when it AND its lib exist, and a repo copy
+# otherwise (#5446). It does not check that lib is new enough, and the installed copy is not reviewed here.
 # TO CHANGE THE INSTALLED COPY: write the new version beside it and mv it over. Never edit it in place: waiters are
 # running it, and bash reads a script by byte offset, so an in-place edit kills them.
 set -u
+# #5467: while it waits, this process must not carry the wrapped command in its own command line. A hand-written
+# "is X running?" check (pgrep -f X) read a waiter for X as a running X, and on 2026-10-07 a release that waited for
+# running browser checks waited on a waiter that was waiting for the release (0.7.27, a deadlock a person had to break).
+# So the first thing it does is write its arguments (NUL-separated, private to this user) to a file and exec itself
+# with only that file's name; it reads them back and deletes the file at once. The command, once its turn comes,
+# starts as its own process with its own command line, so the real run IS matched. Same pid throughout (exec), so a
+# waiter marker or a pid someone holds stays right. Not covered: the CALLER's own command line (a `bash -c "...
+# queued-heavy.sh ... browser-checks.sh"` shell) still carries it; anchor such checks to the start of the line. #5470 tracks
+# one anchored helper for those checks.
+# The cost: `ps` no longer says what a waiter waits for (its label went into the file too); its own log lines do.
+# The re-exec is always /bin/bash with no options, on purpose (the fleet's one bash, the 3.2 this file is written for):
+# a `bash -x queued-heavy.sh`, or one started under another bash, runs as plain /bin/bash from here.
+if [ "${1:-}" = --queued-args ]; then
+  [ "$#" -eq 2 ] || { echo "QUEUED-HEAVY: --queued-args is internal" >&2; exit 2; }   # review 4: nothing after the file
+  _qh_af="${2:-}"
+  # Its own file only: under TMPDIR or /tmp (the stale-TMPDIR fallback below), with no further path after the name.
+  case "$_qh_af" in
+    "${TMPDIR:-/tmp}"/queued-heavy-args.*/*|/tmp/queued-heavy-args.*/*) echo "QUEUED-HEAVY: --queued-args is internal" >&2; exit 2 ;;
+    "${TMPDIR:-/tmp}"/queued-heavy-args.*|/tmp/queued-heavy-args.*) ;;
+    *) echo "QUEUED-HEAVY: --queued-args is internal" >&2; exit 2 ;;
+  esac
+  # Review 4: not a symlink (-f and -O follow one, so a planted link could name any file of ours).
+  [ ! -L "$_qh_af" ] && [ -f "$_qh_af" ] && [ -O "$_qh_af" ] || { echo "QUEUED-HEAVY: --queued-args file is missing or not ours" >&2; exit 2; }
+  _qh_args=()
+  while IFS= read -r -d '' _qh_a; do _qh_args+=("$_qh_a"); done < "$_qh_af"
+  rm -f "$_qh_af"
+  # printf writes at least one NUL, so there is always one argument; the guard is for a file emptied by hand (bash 3.2:
+  # an empty array is unbound under set -u).
+  if [ "${#_qh_args[@]}" -gt 0 ]; then set -- "${_qh_args[@]}"; else set --; fi
+  unset _qh_af _qh_a _qh_args
+else
+  # Review 4: a TERM, INT or HUP before the re-exec removes the file it wrote (an exec drops these traps).
+  _qh_af=""; trap '[ -n "$_qh_af" ] && rm -f "$_qh_af"' EXIT; trap 'exit 130' INT; trap 'exit 143' TERM; trap 'exit 129' HUP   # review 5: each signal's own code
+  # Review 1: a stale TMPDIR (a folder since removed) falls back to /tmp, as the capper's files do below (review 3 there).
+  _qh_af="$(umask 077 && { mktemp "${TMPDIR:-/tmp}/queued-heavy-args.XXXXXX" 2>/dev/null || mktemp /tmp/queued-heavy-args.XXXXXX; })" \
+    || { echo "QUEUED-HEAVY: could not write its arguments aside (mktemp)" >&2; exit 3; }
+  printf '%s\0' "$@" > "$_qh_af" || { rm -f "$_qh_af"; echo "QUEUED-HEAVY: could not write its arguments aside" >&2; exit 3; }
+  trap - INT TERM HUP
+  shopt -s execfail   # review 5: without it a failed exec ends this shell at once (126) and the line below never runs
+  # Review 7: a script fed on stdin has no file to restart from; the exec below would then run nothing.
+  [ -f "${BASH_SOURCE[0]:-}" ] || { rm -f "$_qh_af"; echo "QUEUED-HEAVY: run it as a file (bash tools/queued-heavy.sh), not on stdin" >&2; exit 3; }
+  exec /bin/bash "${BASH_SOURCE[0]}" --queued-args "$_qh_af"
+  _qh_rc=$?; rm -f "$_qh_af"   # by hand: bash clears the traps while it tries the exec (measured)
+  echo "QUEUED-HEAVY: could not restart itself ($_qh_rc)" >&2; exit 3
+fi
 # #4609 light lane (Renet, 2026-09-30): `queued-heavy.sh --light "<what>" <cmd...>` for ONE browser check or ONE focused
 # test file (a run that holds the box for seconds to a couple of minutes). It goes ahead of full suites and heavy runs,
 # still one run at a time; a heavy waiter past 45 min goes first. Honest use only: a long job marked light jumps the
@@ -44,12 +90,43 @@ fi
 # branch's own lib would put several lib generations in one queue (the cause of #4977's item 1). That checkout is meant
 # to sit at origin/main; nothing here updates it or checks that it does.
 LIB_CHECKOUT="${QUEUED_HEAVY_LIB:-$HOME/work/kosmos-bc-main-4610}"
-. "$LIB_CHECKOUT/tools/lib/cut-guard.sh" || { echo "QUEUED-HEAVY: could not load cut-guard.sh from $LIB_CHECKOUT (set QUEUED_HEAVY_LIB to a checkout of origin/main)" >&2; exit 3; }
+# #5446: that default folder exists on one Mac only, so elsewhere a REPO copy of this script died here (exit 3) before
+# joining the queue. With QUEUED_HEAVY_LIB unset (or empty) and no cut-guard.sh in the default, a repo copy uses the MAIN checkout
+# of the repo it is in (common dir ending in /.git); every worktree of one clone resolves that same folder. A second
+# clone, or a run with QUEUED_HEAVY_LIB set, can still bring another lib generation; the line below names the folder
+# and its commit so that is visible. A copy outside any repo (the installed one under ~/.cache), a bare-repo worktree
+# or a submodule has no such checkout and still exits 3 as before, as does a QUEUED_HEAVY_LIB that is set and wrong.
+# The main checkout is not guaranteed to be on main, so the line names its branch too. --path-format needs git 2.31 or
+# newer; an older git does not reach a working fallback and still exits 3, with a garbled path in its message (every
+# fleet Mac runs a newer git).
+# heavy-gate.sh's BUSY hint looks for this marker before it names a main checkout's copy: #5446-lib-fallback
+QH_LIB_FALLBACK=""
+QH_MAIN_TRIED=""
+if [ -z "${QUEUED_HEAVY_LIB:-}" ] && [ ! -f "$LIB_CHECKOUT/tools/lib/cut-guard.sh" ]; then
+  _qh_common="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR git -C "$(dirname "$0")" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || _qh_common=""
+  case "$_qh_common" in
+    */.git) if [ -f "${_qh_common%/.git}/tools/lib/cut-guard.sh" ]; then
+              echo "QUEUED-HEAVY: $LIB_CHECKOUT has no tools/lib/cut-guard.sh; using this repo's main checkout ${_qh_common%/.git} at $(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR git -C "${_qh_common%/.git}" rev-parse --short HEAD 2>/dev/null || echo '?') on $(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR git -C "${_qh_common%/.git}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?') for the queue's guards (set QUEUED_HEAVY_LIB to choose)" >&2
+              LIB_CHECKOUT="${_qh_common%/.git}"; QH_LIB_FALLBACK=1
+            else QH_MAIN_TRIED="${_qh_common%/.git}"
+            fi ;;
+  esac
+  unset _qh_common
+fi
+. "$LIB_CHECKOUT/tools/lib/cut-guard.sh" || {
+  echo "QUEUED-HEAVY: could not load cut-guard.sh from $LIB_CHECKOUT (set QUEUED_HEAVY_LIB to a checkout of origin/main)" >&2
+  # #5446: the main-checkout fallback was tried and that checkout has no lib either (it predates it).
+  [ -n "$QH_MAIN_TRIED" ] && echo "QUEUED-HEAVY: this repo's main checkout $QH_MAIN_TRIED has none either; if it is on main, bring it up to date with: git -C '$QH_MAIN_TRIED' pull --ff-only" >&2
+  exit 3; }
 # The functions called unguarded: every run's, then the side lane's (it is offered only when kosmos_light_side_clear exists).
 _qh_need="kosmos_wait_until_clear kosmos_mark_suite_waiting kosmos_unmark_suite_waiting kosmos_refuse_if_earlier_suite_waiter _kosmos_suite_waiter_file kosmos_claim_machine kosmos_release_machine kosmos_refuse_if_machine_claimed kosmos_refuse_if_suite_live kosmos_refuse_if_harness_live _kosmos_marker_dir"
 declare -F kosmos_light_side_clear >/dev/null && _qh_need="$_qh_need kosmos_light_side_take kosmos_publish_light_side_pgid kosmos_release_light_side"
 for _qh_fn in $_qh_need; do
-  declare -F "$_qh_fn" >/dev/null || { echo "QUEUED-HEAVY: cut-guard.sh in $LIB_CHECKOUT has no $_qh_fn (an old checkout? set QUEUED_HEAVY_LIB to a checkout of origin/main)" >&2; exit 3; }
+  declare -F "$_qh_fn" >/dev/null || {
+    echo "QUEUED-HEAVY: cut-guard.sh in $LIB_CHECKOUT has no $_qh_fn (an old checkout? set QUEUED_HEAVY_LIB to a checkout of origin/main)" >&2
+    # #5446: the main checkout nothing updates; say the one command that brings it current.
+    [ -n "$QH_LIB_FALLBACK" ] && echo "QUEUED-HEAVY: that is this repo's main checkout, older than this script; if it is on main, bring it up to date with: git -C '$LIB_CHECKOUT' pull --ff-only (or set QUEUED_HEAVY_LIB)" >&2
+    exit 3; }
 done
 # Review 12: started inside an ordinary turn that already holds the box (it inherited that turn's claim cookie). It
 # used to take its "turn" at once (the claim read as its own) and then RELEASE the parent's claim at its end, so the

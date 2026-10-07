@@ -363,6 +363,21 @@ let runner = null;
  * cross-branch reference that put a call to a nonexistent function in this
  * file's own route once already.)
  */
+/* #4918 review 7: every systemctl/loginctl create issues on Linux goes through THIS module's run() (setRunner, dry
+   run), as launchctl does on the Mac. run() throws on a non-zero exit, and systemctl answers non-zero for ordinary
+   states ("inactive" is exit 3), so the throw becomes a result here: { ok:false, code, stdout, stderr }. */
+function linuxRun(body) {
+  const lj = require('./linuxjob');
+  lj.ensureRuntimeDir();
+  return lj.runWith((file, args) => {
+    try { return run(file, args); } catch (err) {
+      // #5445: the live-execution gate's refusal (a test that forgot its seam) stays a throw, so it fails loudly.
+      if (err && err.code === 'LIVE_EXECUTION_REFUSED') throw err;
+      return { ok: false, code: err && err.status != null ? err.status : 1, stdout: String((err && err.stdout) || ''), stderr: String((err && err.stderr) || ''), because: (err && err.message) || String(err) };
+    }
+  }, body);
+}
+
 function setRunner(fn) {
   runner = fn || null;
   if (!runner) DRY_RUN = true;
@@ -755,13 +770,22 @@ function nameUsable(raw) {
    launch key -- an import asks it of the Kosmos it is copying INTO, which is not
    always the one this process serves. Absent means this process's own world. */
 function jobPresence(name, platform, worldId) {
-  if ((platform || process.platform) === 'win32') {
+  const plat = platform || process.platform;
+  if (plat === 'win32') {
     /* require at CALL time, matching win32RegisterJob below: this module is
        required by half the engine and win32job pulls in the anchor. */
     let p;
     try { p = require('./win32job').presence(name, worldId); } catch { return 'unknown'; }
     if (!p.known) return 'unknown';
     return p.registered ? 'yes' : 'no';
+  }
+  if (plat === 'linux') {
+    try {
+      fs.statSync(require('./linuxjob').unitPath(name, worldId));
+      return 'yes';
+    } catch (e) {
+      return (e && e.code === 'ENOENT') ? 'no' : 'unknown';
+    }
   }
   try { fs.statSync(plistPath(name, worldId)); return 'yes'; } catch (e) {
     // Only ENOENT is evidence of absence; EACCES and a broken directory are not.
@@ -1155,8 +1179,28 @@ function readJob(name, worldId, platform) {
  * `win32launch.binFor` already treats as "resolve it again".
  */
 function readJobVerdict(name, worldId, platform) {
-  const win32 = (platform || process.platform) === 'win32';
-  if (!NAME_RE.test(String(name == null ? '' : name))) return { job: null, win32, absent: true };
+  const plat = platform || process.platform;
+  const win32 = plat === 'win32';
+  const linux = plat === 'linux';
+  if (!NAME_RE.test(String(name == null ? '' : name))) {
+    const res = { job: null, win32, absent: true };
+    if (linux) res.linux = true;
+    return res;
+  }
+  if (linux) {
+    const lj = require('./linuxjob');
+    const uPath = lj.unitPath(name, worldId);
+    // #5445: a masked unit is a link to /dev/null; read, it is empty, which said "its ExecStart line is incomplete".
+    if (lj.masked(name, worldId)) return { job: null, win32: false, linux: true, masked: true, because: lj.maskedSentence(name, worldId) };
+    let content;
+    try { content = fs.readFileSync(uPath, 'utf8'); }
+    catch (e) {
+      return { job: null, win32: false, linux: true, absent: Boolean(e && e.code === 'ENOENT'), because: (e && e.message) || 'could not read unit file' };
+    }
+    const job = lj.readUnitJob(content);
+    // #4918 review 9: a unit whose ExecStart is incomplete is said, never "(undefined)".
+    return job ? { job, win32: false, linux: true } : { job: null, win32: false, linux: true, because: 'its ExecStart line is incomplete' };
+  }
   if (!win32) return { job: readPlistJob(name, worldId), win32 };
   let read;
   try { read = require('./win32job').cachedTaskSpec(name, worldId); }
@@ -1181,6 +1225,17 @@ function readJobVerdict(name, worldId, platform) {
    started by Kosmos" was the false claim this branch removes, so it says instead
    whether the task is missing or could not be read, and why. */
 function noJobRefusal(clean, spoken, verdict, macSentence) {
+  if (verdict && verdict.linux) {
+    let task = clean;
+    try { task = require('./linuxjob').unitName(clean); } catch { /* the bare name still identifies it */ }
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: verdict.absent
+        ? `${spoken} has no startup unit in systemd (${task}), so there is nothing to change and we have not changed it.`
+        : verdict.masked ? `${spoken} is not changed because ${require('./linuxjob').maskedFact()}. ${require('./linuxjob').maskedRemedy(clean)}`   // #5445: read and found masked, not unreadable
+        : `we could not read ${spoken}'s startup unit in systemd (${verdict.because}), so we have not changed it.`,
+    };
+  }
   if (!verdict.win32) return { outcome: OUTCOME.REFUSED, because: macSentence };
   let task = clean;
   try { task = require('./win32job').taskName(clean); } catch { /* the bare name still identifies it */ }
@@ -1210,7 +1265,27 @@ function noJobRefusal(clean, spoken, verdict, macSentence) {
  */
 function rewriteAgentJob(clean, spoken, fields, platform) {
   const f = fields || {};
-  if ((platform || process.platform) === 'win32') {
+  const plat = platform || process.platform;
+  if (plat === 'linux') {
+    const lj = require('./linuxjob');
+    const runnerBin = f.runnerBin || f.claudeBin;
+    const tmuxBin = f.tmux || f.tmuxBin;
+    try {
+      // #4918 review 2: unitFor refuses an unsafe value by throwing, so it sits inside the try with the write.
+      const unit = lj.unitFor(clean, runnerBin, tmuxBin, f.model, f.configDir, f.runner);
+      /* #4918 review 11: write the file only, as the Mac arm does (a plist takes effect at the next bootstrap). The
+         restart that applies a change reloads systemd first (linuxjob.startOnly), so a reload here could only fail
+         AFTER the new file was in place and report as refused a change that the next restart applies anyway. */
+      lj.writeUnitFile(lj.unitPath(clean), unit);
+    } catch (e) {
+      return {
+        outcome: OUTCOME.REFUSED,
+        because: `could not rewrite systemd unit for ${spoken}: ${String((e && e.message) || e)}`,
+      };
+    }
+    return null;
+  }
+  if (plat === 'win32') {
     const win32job = require('./win32job');
     if (!win32job.commandsAreReal()) {
       liveExec.refuseOrWarn('engine/create.js', 'schtasks.exe', ['/Create', '/F', '/TN', win32job.taskName(clean)]);
@@ -1297,6 +1372,9 @@ function trustAgentFolder(name, opts) {
   catch (err) { verdict = { job: null, win32: false, because: String((err && err.message) || err) }; }
   const job = verdict.job;
   if (!job) {
+    // #5445: a masked Linux unit is still the agent's job; it is masked, not missing (review 6).
+    // The reason first: the masked sentence goes on to say how to undo it, which is not why the trust was skipped (review 7).
+    if (verdict.masked) return { wrote: false, because: `we did not write the folder trust because ${require('./linuxjob').maskedFact('this agent\'s startup unit')}. ${require('./linuxjob').maskedRemedy(clean)}` };
     if (!verdict.win32) return { wrote: false, because: 'this agent has no Kosmos launch job, so there was no folder to trust' };
     return {
       wrote: false,
@@ -3269,12 +3347,19 @@ function nameInThisWorld(key) {
    execFileSync on a non-zero exit) AND for a runner/gate result that carries
    `ok:false` (the live-execution-refused path, and the test seam), so the unknown
    state is seen the same way in both. */
-function disabledJobsResult(runner) {
+/* #5445: the platform the two fleet probes below ask (disabledJobsResult, runningJobs) when the caller names none.
+   A test that drives the board on a launchctl fake pins 'darwin' here, as worldstarts.setPlatformForTests does, so a
+   Linux CI runner does not send its fake systemctl questions. */
+let probePlatformOverride = null;
+function setProbePlatformForTests(platform) { probePlatformOverride = platform || null; }
+function probePlatform(platform) { return platform || probePlatformOverride || process.platform; }   // switchedOffSentence reads it too
+function disabledJobsResult(runner, platform) {   // #5445: platform injectable, as readJob's is
   // #3182: an optional injected runner so machine.agentAutostartCheck can read the
   // same disabled set through the SAME seam boardAutostartCheck uses (a fake
   // launchctl in a suite, never the operator's real one). Absent, it is the
   // module `run` -- every existing caller (disabledJobs) is unchanged.
   const r = (typeof runner === 'function') ? runner : run;
+  if (probePlatform(platform) === 'linux') return linuxDisabledJobsResult(r);
   try {
     const out = r('/bin/launchctl', ['print-disabled', `gui/${process.getuid()}`]);
     if (out && out.ok === false) return { ok: false };
@@ -3287,8 +3372,29 @@ function disabledJobsResult(runner) {
     return { ok: true, jobs: names };
   } catch { return { ok: false }; }
 }
-function disabledJobs() {
-  const r = disabledJobsResult();
+/* #5445 (display parity): on Linux, systemd says which agent units are switched off. `list-unit-files` prints one
+   row per unit file, "<unit> <state> <preset>"; disabled or masked is off (enabledState's reading). The same
+   could-not-look contract as launchctl's: a failed or refused call is { ok:false }, never an empty set. */
+function linuxDisabledJobsResult(r) {
+  const lj = require('./linuxjob');
+  let out;
+  // An injected runner (machine.agentAutostartCheck's seam) is asked directly; the module run goes through linuxRun.
+  try { out = r === run ? linuxRun(() => lj.listUnitFiles()) : lj.runWith(r, () => lj.listUnitFiles()); }
+  // A poll, so it fails soft like the Mac arm, the test gate's refusal included (review 4): linuxRun's loud throw is
+  // for acts; here a forgotten seam reads as could-not-look, exactly as a refused launchctl does.
+  catch { return { ok: false }; }
+  if (!out || out.ok === false) return { ok: false };
+  const names = new Set();
+  for (const row of out.rows) {
+    if (!/^(disabled|masked|masked-runtime)$/.test(row.state)) continue;
+    const key = lj.keyFromUnitName(row.unit);
+    const name = key === null ? null : nameInThisWorld(key);
+    if (name !== null) names.add(name);
+  }
+  return { ok: true, jobs: names };
+}
+function disabledJobs(platform) {
+  const r = disabledJobsResult(undefined, platform);
   return r.ok ? r.jobs : new Set();
 }
 
@@ -3303,7 +3409,22 @@ function disabledJobs() {
    fleet's Mac, tab-separated). One probe for the whole fleet, same shape as
    disabledJobs above; fail-soft to an empty set, because "we could not look"
    must never dress a stopped agent in "running unseen". */
-function runningJobs() {
+function runningJobs(platform) {
+  if (probePlatform(platform) === 'linux') {
+    // #5445 (display parity): the agent units systemd has active; fail-soft to an empty set, as below.
+    const lj = require('./linuxjob');
+    try {
+      const out = linuxRun(() => lj.activeUnits());
+      const names = new Set();
+      if (!out || out.ok === false) return names;
+      for (const unit of out.units) {
+        const key = lj.keyFromUnitName(unit);
+        const name = key === null ? null : nameInThisWorld(key);
+        if (name !== null) names.add(name);
+      }
+      return names;
+    } catch { return new Set(); }   // fail-soft, the test gate's refusal included, as the Mac arm (review 4)
+  }
   try {
     const out = run('/bin/launchctl', ['list']);
     const text = String((out && out.stdout) || '');
@@ -3648,6 +3769,67 @@ function installJob(name, opts) {
   }
   const modelArg = (opts && typeof opts.model === 'string' && opts.model.trim()) ? opts.model.trim() : null;
   const configDir = (opts && typeof opts.configDir === 'string' && opts.configDir) ? opts.configDir : null;
+  if (jobPlatform === 'linux') {
+    const lj = require('./linuxjob');
+    try {
+      if (!DRY_RUN) {
+        lj.writeUnitFile(lj.unitPath(clean), lj.unitFor(clean, runnerBin, tmuxBin, modelArg, configDir, runner));
+      }
+    } catch (e) {
+      // #4918 review 8: unitSafe's refusal is a sentence the person can act on (a path with $ or %); keep it.
+      const why = /cannot go into a systemd unit|model name/.test(String((e && e.message) || '')) ? ` (${e.message})` : '';
+      return { ok: false, because: 'we could not write the job file' + why };
+    }
+    if (runner === 'codex') {
+      try { trustCodexFolder(workerDir(clean), configDir, !configDir); } catch { /* not worth failing the adoption */ }
+      try { dismissCodexUpdateNotice(configDir, !configDir); } catch { /* same */ }
+    }
+    let started = false;
+    let alreadyRunning = false;   // review 25: an active unit keeps running on its old settings; that is not a failure
+    let runningButNotEnabled = false;   // review 37: active, but systemd refused the reload or enable
+    let lingering = true;
+    let atLogin = true;   // #4918 review 15: false when systemd refused the reload or enable (nothing brings it back)
+    if (DRY_RUN) {
+      started = true;   // #4918 review 1: a dry run starts nothing, as the creation path's Linux arm does
+    } else {
+      try {
+        lingering = linuxRun(() => lj.enableLinger()).lingering;
+        /* review 23: a start of an already-active unit does nothing and exits 0, leaving the old ExecStart running.
+           As the Mac's bootstrap of a loaded job, that is "next start", not "started now". */
+        const wasActive = Boolean(linuxRun(() => lj.loaded(clean)));
+        const r = linuxRun(() => lj.start(clean));
+        // review 37: "already loaded" only when systemd took the change; a refused reload or enable (masked, say)
+        // leaves it running on its old settings and starting at no login, which is its own sentence.
+        alreadyRunning = wasActive && Boolean(r && r.ok === true);
+        runningButNotEnabled = wasActive && !(r && r.ok === true);
+        started = !wasActive && Boolean(r && r.ok === true);
+        if (!started && /did not (enable|reload)/.test(String((r && r.because) || ''))) atLogin = false;
+      } catch { started = false; }
+    }
+    return {
+      ok: true,
+      started,
+      alreadyRunning,
+      runningButNotEnabled,   // #4918 review 39: worldstarts words this case itself
+      atLogin,
+      model: modelArg,
+      guessed: {
+        model: modelArg ? null : 'we do not know which model it was set to run on, so it will start on the default',
+        account: (configDir || isNonClaudeRunner(wantRunner)) ? null : 'it will run on your main Claude account',
+      },
+      because: alreadyRunning
+        ? 'set up; systemd already has it loaded, so the new settings take effect at its next restart'
+          // #5445: with linger off it also stops at logout, which the started-now sentences below say and this one did not.
+          + (lingering ? '' : '. It stops when you log out: this computer does not let Kosmos keep it running (systemd linger is off)')
+        : runningButNotEnabled
+        ? 'it is running now on its old settings, but systemd would not take the new ones, so it will not start again on its own'
+        : !started
+        ? 'set up, but systemd could not start it just now'
+        : lingering
+          ? 'set up and started now, and it keeps running with nobody logged in'
+          : 'set up and started now, but it stops when you log out: this computer does not let Kosmos keep it running (systemd linger is off)',
+    };
+  }
   try {
     if (!DRY_RUN) {
       writePlistFile(plistPath(clean), plistFor(clean, runnerBin, tmuxBin, modelArg, configDir, runner), { mkdir: true });
@@ -4164,6 +4346,7 @@ function createAgentInner(opts) {
   const wantReportsTo = (opts && typeof opts.reportsTo === 'string' && opts.reportsTo.trim())
     ? opts.reportsTo.trim().slice(0, 80) : null;
   const { claudeBin, tmuxBin, codexBin, geminiBin, grokBin, antigravityBin, museBin } = binPaths(opts);
+  const jobPlatform = (opts && opts.platform) || process.platform;
 
   /**
    * Which provider this agent runs on (#245, #3296, #3391). 'anthropic' is the
@@ -4528,7 +4711,7 @@ function createAgentInner(opts) {
    * the screen offers Start over, and the person needs to be told what is in
    * the way rather than that an agent they can see is not running exists.
    */
-  const { folder: hasFolder, job: hasJob } = nameHeld(name);
+  const { folder: hasFolder, job: hasJob } = nameHeld(name, jobPlatform);
   if (hasFolder && hasJob) {
     return {
       outcome: OUTCOME.REFUSED,
@@ -4538,9 +4721,14 @@ function createAgentInner(opts) {
     };
   }
   if (hasJob) {
+    /* #4918 review 31: on Linux no page lists a leftover unit (the roster reads .plist files), so the advice is the
+       command that frees the name, as the loaded-unit-with-no-file refusal gives. Quoted: a named world's \x2b. */
+    const lj = jobPlatform === 'linux' ? require('./linuxjob') : null;
     return {
       outcome: OUTCOME.REFUSED,
-      because: `something called ${shown} is still set to start on this computer, though there is no folder for it. Pick another name, or open it under Agents and delete what was left of it, which frees the name.`,
+      because: lj
+        ? `something called ${shown} is still set to start on this computer, though there is no folder for it. Pick another name, or free it with: systemctl --user disable --now '${lj.unitName(name)}' and then delete '${lj.unitPath(name)}'.`
+        : `something called ${shown} is still set to start on this computer, though there is no folder for it. Pick another name, or open it under Agents and delete what was left of it, which frees the name.`,
       field: 'name', // #2606
       steps,
     };
@@ -4596,12 +4784,18 @@ function createAgentInner(opts) {
   // succeeding does not thereby claim every name is taken.
   let loaded = false;
   let printed = '';
-  try {
-    const r = run('/bin/launchctl', ['print', `gui/${process.getuid()}/${serviceLabel(name)}`]);
-    printed = String((r && r.stdout) || '');
-    loaded = Boolean(r && r.ok !== false && printed.trim());
-  } catch {
-    loaded = false;
+  if (jobPlatform === 'linux') {
+    const lj = require('./linuxjob');
+    // #4918 review 6: through create's own run seam, as the launchctl print below is (dry run asks nothing).
+    loaded = linuxRun(() => lj.loaded(name));
+  } else if (jobPlatform !== 'win32') {
+    try {
+      const r = run('/bin/launchctl', ['print', `gui/${process.getuid()}/${serviceLabel(name)}`]);
+      printed = String((r && r.stdout) || '');
+      loaded = Boolean(r && r.ok !== false && printed.trim());
+    } catch {
+      loaded = false;
+    }
   }
   if (loaded) {
     const leftover = leftoverJob(printed, plistPath(name));
@@ -4652,6 +4846,20 @@ function createAgentInner(opts) {
         field: 'name',
         steps,
       };
+    }
+    /* #4918 review 7: on Linux a unit can stay loaded in systemd after its file is gone (a removal while the user bus
+       was down, or a hand rm without daemon-reload). delete-leftover finds nothing to delete then, so the usual
+       advice is a dead end; the one thing that frees the name is stopping the loaded unit. */
+    if (jobPlatform === 'linux') {
+      const lj = require('./linuxjob');
+      if (!fs.existsSync(lj.unitPath(name))) {
+        return {
+          outcome: OUTCOME.REFUSED,
+          because: `systemd is still running something called ${shown}, though its startup file is gone. Pick another name, or stop it with: systemctl --user stop '${lj.unitName(name)}'`,
+          field: 'name',
+          steps,
+        };
+      }
     }
     return {
       outcome: OUTCOME.REFUSED,
@@ -4838,7 +5046,6 @@ function createAgentInner(opts) {
    * Task) rather than through a tmux pane under launchd, so tmux's absence says
    * nothing about whether an agent can start.
    */
-  const jobPlatform = (opts && opts.platform) || process.platform;
   const required = jobPlatform === 'win32'
     ? [[runnerLabel, runnerBin], ['the agents folder', workerDir(name)]]
     : [[runnerLabel, runnerBin], ['tmux', tmuxBin], ['the agents folder', workerDir(name)]];
@@ -4912,6 +5119,10 @@ function createAgentInner(opts) {
   /* What the win32 launch handed back, so a rollback can stop the process it
      started. Null on darwin and until the start step runs. */
   let win32Launched = null;
+  let linuxLingering = null;   // #4918 review 2: whether systemd keeps the agent running with nobody logged in
+  let linuxStartWhy = '';      // #4918 review 8: systemd's own reason when the start failed
+  let linuxNeverLoaded = false;  // #4918 review 27: the reload failed, so systemd never read the unit file
+  let linuxUnitRefusal = '';     // #4918 review 35: unitSafe/model refusal, said to the person
 
   function rollBack({ unload = false } = {}) {
     /* ⚠️ `unload` is for a failed START, and only then.
@@ -4966,6 +5177,33 @@ function createAgentInner(opts) {
       if (win32Launched && win32Launched.sessionId) {
         try { require('./win32stop').endSession(win32Launched.sessionId); }
         catch { /* best effort: a rollback must finish even if the kill throws */ }
+      }
+      try { fs.rmSync(workerDir(name), { recursive: true, force: true }); } catch { /* best effort */ }
+      return;
+    }
+    if (jobPlatform === 'linux') {
+      const lj = require('./linuxjob');
+      if (unload) {
+        /* #4918 review 16: linuxjob.remove stops, disables and deletes the unit, and KEEPS the file when systemd
+           refused the stop (a unit still loaded must not lose its file). A refusal is a visible step, not swallowed. */
+        let r = null;
+        try { r = linuxRun(() => lj.remove(name)); } catch { r = null; }
+        /* review 27: when the reload itself failed (the user bus is unreachable), systemd never read this file and
+           nothing can be running from it, so the file goes too: kept, it would hold the name with no folder. */
+        if ((!r || r.ok !== true) && linuxNeverLoaded) {
+          try { fs.rmSync(lj.unitPath(name), { force: true }); r = { ok: true }; } catch { /* the step below says so */ }
+        }
+        if (!r || r.ok !== true) {
+          try { steps.push({ label: 'took its systemd unit back off this computer', ok: false }); } catch { /* steps is a courtesy */ }
+        }
+      } else {
+        try {
+          const u = lj.unitPath(name);
+          if (fs.existsSync(u)) {
+            fs.unlinkSync(u);
+            linuxRun(() => lj.daemonReload());
+          }
+        } catch { /* best effort */ }
       }
       try { fs.rmSync(workerDir(name), { recursive: true, force: true }); } catch { /* best effort */ }
       return;
@@ -5415,6 +5653,17 @@ function createAgentInner(opts) {
   const wroteJob = (wroteInstructions && installedSupervisor && trustedFolder)
     && (jobPlatform === 'win32' || step('set it up to keep running', () => {
       if (DRY_RUN) return true;
+      if (jobPlatform === 'linux') {
+        const lj = require('./linuxjob');
+        try {
+          lj.writeUnitFile(lj.unitPath(name), lj.unitFor(name, runnerBin, tmuxBin, modelArg, configDir, runner));
+        } catch (err) {
+          // review 35: a value a unit cannot hold is a sentence the person needs (a retry fails the same way forever).
+          if (/cannot go into a systemd unit|model name/.test(String((err && err.message) || ''))) linuxUnitRefusal = err.message;
+          throw err;
+        }
+        return true;
+      }
       writePlistFile(plistPath(name), plistFor(name, runnerBin, tmuxBin, modelArg, configDir, runner), { mkdir: true });
     }));
 
@@ -5450,7 +5699,9 @@ function createAgentInner(opts) {
     }
     return {
       outcome: OUTCOME.PARTIAL,
-      because: 'we could not write everything it needs, so we have not made it. Nothing has been left on your computer, and you can try that name again.',
+      because: linuxUnitRefusal
+        ? `we could not write the file that keeps it running, so we have not made it: ${linuxUnitRefusal}. Nothing has been left on your computer; trying the same name again will fail the same way until that is changed.`
+        : 'we could not write everything it needs, so we have not made it. Nothing has been left on your computer, and you can try that name again.',
       steps,
     };
   }
@@ -5646,6 +5897,21 @@ function createAgentInner(opts) {
       win32Launched = win32StartViaJob(name, { runner, runnerBin, configDir, model: modelArg });
       return win32Launched.ok === true;
     }
+    if (jobPlatform === 'linux') {
+      if (DRY_RUN) return true;
+      const lj = require('./linuxjob');
+      linuxLingering = linuxRun(() => lj.enableLinger()).lingering;
+      const r = linuxRun(() => lj.start(name));
+      if (!(r && r.ok === true)) {
+        linuxNeverLoaded = /did not reload/.test(String((r && r.because) || ''));
+        const raw = String((r && (r.stderr || r.because)) || '');
+        // review 20: an unreachable user manager gets a plain sentence, not systemd's own text.
+        linuxStartWhy = /Failed to connect to bus|No medium found|XDG_RUNTIME_DIR/i.test(raw)
+          ? 'this computer\'s user services are not reachable from Kosmos; log in to this computer once, or turn on linger'
+          : raw.trim().split('\n')[0].slice(0, 200);
+      }
+      return Boolean(r && r.ok === true);
+    }
     /* ⚠️ enable BEFORE bootstrap (#4254), as the repair path above does. `remove`
        sticks by writing a per-user `disable` override keyed on the LABEL, and that
        override outlives the plist, so re-creating a removed name bootstrapped into a
@@ -5675,6 +5941,11 @@ function createAgentInner(opts) {
     if (DRY_RUN) return true;
     return Boolean(win32Launched && win32Launched.atLogin === true);
   });
+  /* #4918 review 2: on Linux the same question is whether systemd linger is on. Without it the agent stops at
+     logout and does not start at boot, and the person sees that as this step not done. */
+  const keptRunning = (jobPlatform === 'linux' && started)
+    ? step('kept it running with nobody logged in', () => DRY_RUN || linuxLingering === true)
+    : true;
 
   /* #169: what the failed-start rollback below knows in memory, persisted
      for the ordinary removal that happens weeks later. Only a line WE wrote
@@ -5741,7 +6012,9 @@ function createAgentInner(opts) {
     rollBack({ unload: true });
     return {
       outcome: OUTCOME.PARTIAL,
-      because: 'we set it up but could not start it, so we have taken it back off your computer rather than leave something half installed. You can try that name again.',
+      because: 'we set it up but could not start it'
+        + (linuxStartWhy ? ` (${linuxStartWhy})` : '')
+        + ', so we have taken it back off your computer rather than leave something half installed. You can try that name again.',
       steps,
     };
   }
@@ -5802,7 +6075,9 @@ function createAgentInner(opts) {
        other path is unchanged. */
     because: (jobPlatform === 'win32' && started && !atLogin)
       ? `${shown} is set up and starting, but it will not come back by itself after a restart`
-      : `${shown} is set up and starting`,
+      : (jobPlatform === 'linux' && started && !keptRunning)
+        ? `${shown} is set up and starting, but it stops when you log out: this computer does not let Kosmos keep it running (systemd linger is off)`
+        : `${shown} is set up and starting`,
     atLogin: jobPlatform === 'win32' ? Boolean(atLogin) : undefined,
     steps,
     firstAction: role.firstAction,
@@ -5830,14 +6105,58 @@ function createAgentInner(opts) {
    either is edited, which is this codebase's named worst habit. No trailing
    punctuation: each surface finishes its own sentence. */
 const SELF_STARTS = 'it starts itself when this computer is on and it is not removed';
+/* #5445: SELF_STARTS is false on Linux with linger off: the user manager, and the agent with it, runs only while the
+   person is logged in. `lingering` is the caller's reading (linuxjob.lingerFileOn); the other platforms ignore it. */
+function selfStarts(platform, lingering) {
+  if ((platform || process.platform) === 'linux' && lingering === false) return 'it starts itself while you are logged in to this computer and it is not removed';
+  return SELF_STARTS;
+}
+/* #5445: the board's offline-row sentence for an agent whose job is switched off, or null when it is not. `switchedOff`
+   is disabledJobs()'s set, read for probePlatform(). On the Mac: launchd's override, switched off in System Settings.
+   On Linux: systemd; a masked unit (a link to /dev/null, read from the disk, so it is said even when systemctl could not
+   be asked) gets the unmask sentence. Linux had no switched-off set before #5445 (launchctl failed there), so the
+   Mac sentence, which points at System Settings, never reached it. */
+function switchedOffSentence(name, switchedOff, platform) {
+  const plat = probePlatform(platform);
+  if (plat === 'linux') {
+    let masked = false;
+    try { masked = require('./linuxjob').masked(name); } catch { masked = false; }
+    /* Ends with no full stop, as the Mac sentence does (the row adds its own; review 10), and without "so it does not
+       start", which "not running" already says. */
+    if (masked) return 'this agent is not running because its startup unit is masked in systemd. ' + require('./linuxjob').maskedRemedy(name).replace(/\.$/, '');
+    if (!(switchedOff && switchedOff.has(name))) return null;
+    /* The command, as the Mac sentence names a screen (review 7): Linux has no settings screen for a user unit. */
+    let u = name;
+    try { u = require('./linuxjob').unitName(name); } catch { /* the bare name still identifies it */ }
+    /* Review 12: the set holds disabled AND masked units, and only the first is certainly undone by enable --now (enable
+       alone starts nothing, review 8). For a mask the sentence names no command: how a mask over Kosmos's own file
+       behaves was never measured on a real systemd (review 11); enable refuses a masked unit and says so. */
+    return `this agent is not running because its background job was switched off (or masked) in systemd, this computer's service manager. If it was switched off, systemctl --user enable --now '${u}' switches it back on and starts it; if systemd says it is masked, it has to be unmasked first`;
+  }
+  if (!(switchedOff && switchedOff.has(name))) return null;
+  return 'this agent is not running because its background job was switched off, probably in System Settings under Login Items. Switch it back on there and it can start again';
+}
+function selfStartsSentence(platform) {
+  const plat = platform || process.platform;
+  let lingering;
+  if (plat === 'linux') { try { lingering = require('./linuxjob').lingerFileOn(); } catch { lingering = undefined; } }
+  const t = selfStarts(plat, lingering);
+  return t.charAt(0).toUpperCase() + t.slice(1) + '.';
+}
 
 /* #4557: what holds a machine name on this computer. One derivation: create refuses on it, and the team
    step's names pre-check (teamseed.js) asks the same thing before anything is made. */
-function nameHeld(name) {
-  return { folder: fs.existsSync(workerDir(name)), job: fs.existsSync(plistPath(name)) };
+function nameHeld(name, platform) {
+  /* #4918 review 27: on Linux the job is the systemd unit, not a plist; an orphan unit holds its name as a plist does. */
+  const plat = platform || process.platform;
+  const job = plat === 'linux' ? require('./linuxjob').unitPath(name) : plistPath(name);
+  return { folder: fs.existsSync(workerDir(name)), job: fs.existsSync(job) };
 }
 
 module.exports = {
+  boardPort,            // #4918 review 29: linuxjob's unit reads the port from here (one derivation, as plistFor does)
+  DEFAULT_BOARD_PORT,
+  linuxRun,   // #4918 review 10: worldstarts' Linux arm runs through create's seam too
   nameHeld,
   MODELS,
   /* #4479: the name the person sees, for machine.js's login-job row (one derivation with the board's). */
@@ -5869,6 +6188,11 @@ module.exports = {
   defaultModelKeyFor,
   modelFor,
   SELF_STARTS,
+  selfStarts,
+  switchedOffSentence,
+  setProbePlatformForTests,
+  probePlatform,
+  selfStartsSentence,
   createdLog, createdLogFile, createdCount, disabledJobs, disabledJobsResult, runningJobs,
 
   /* ⚠️ Exported as the ONE machine-name rule. `slugFor` lower-cases and folds
@@ -5962,6 +6286,7 @@ module.exports = {
   defaultAgentGrokHome,
   setRunner,
   setDryRun,
+  rewriteAgentJob,
   OUTCOME,
   get DRY_RUN() { return DRY_RUN; },
 };

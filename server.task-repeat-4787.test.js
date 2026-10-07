@@ -176,3 +176,95 @@ test('#4787 slice 1b: the projects list (what the task page reads) carries the b
   const o = p.tasks.find((x) => Number(x.number) === Number(plain));
   assert.equal('repeatWords' in o, false, 'CONTROL: a task with no rule gets no repeat words');
 });
+
+test('#4787 slice 3: the reviewer rides the repeat route: an agent names an agent, only the screen names the person, and a person-reviewed miss is in Needs Your Decision', async () => {
+  const n = newTask('Daily digest');
+  const mona = sendertoken.mint('mona');
+  let r = await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'daily', at: '09:00', reviewer: 'fixture' }, { 'x-kosmos-agent-token': mona.token });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.equal(stored(n).repeatReviewer, 'fixture');
+  r = await post(`/api/project/${projectId}/task/${n}/repeat`, { reviewer: 'me' }, { 'x-kosmos-agent-token': mona.token });
+  assert.equal(r.status, 403, 'an agent cannot name the person');
+  assert.match(r.json.error, /only the person/);
+  r = await post(`/api/project/${projectId}/task/${n}/repeat`, { reviewer: 'zed' }, { 'x-kosmos-agent-token': mona.token });
+  assert.equal(r.status, 400, 'zed is not on the project');
+  r = await post(`/api/project/${projectId}/task/${n}/repeat`, { reviewer: 'me' }, screen);
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.equal(stored(n).repeatReviewerPerson, true);
+  assert.deepEqual(stored(n).repeat, { every: 'day', at: '09:00' }, 'the reviewer alone leaves the rule as it is');
+  r = await post(`/api/project/${projectId}/task/${n}/repeat`, {}, screen);
+  assert.equal(r.status, 400, 'neither a rule nor a reviewer: refused, nothing changed');
+  // A miss: rule and reviewer two days back, no run since. The Tasks route puts it in Needs Your Decision.
+  const ago = new Date(Date.now() - 2 * 86400000).toISOString();
+  projects.mutate(projectId, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === n ? { ...t, repeatSetAt: ago, repeatReviewerSetAt: ago } : t)) }));
+  const list = await (await fetch(base + '/api/tasks?view=tasks&project=' + encodeURIComponent(projectId), { headers: screen })).json();
+  const row = list.tasks.find((t) => t.number === n);
+  assert.ok(row.repeatMissed >= 1, 'precondition: a run is missed');
+  assert.equal(row.waitingOnPerson, true);
+  assert.equal(row.state, 'decision');
+  // CONTROL: the same miss with an agent reviewer is not on the person.
+  r = await post(`/api/project/${projectId}/task/${n}/repeat`, { reviewer: 'fixture' }, screen);
+  projects.mutate(projectId, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === n ? { ...t, repeatSetAt: ago, repeatReviewerSetAt: ago } : t)) }));
+  const list2 = await (await fetch(base + '/api/tasks?view=tasks&project=' + encodeURIComponent(projectId), { headers: screen })).json();
+  assert.notEqual(list2.tasks.find((t) => t.number === n).state, 'decision');
+});
+
+test('#4787 slice 3 review 1: a rule sent with a refused reviewer leaves the rule as it was; a held person-reviewed miss stays On hold', async () => {
+  const n = newTask('Weekly sweep');
+  const mona = sendertoken.mint('mona');
+  let r = await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'daily', at: '08:00' }, { 'x-kosmos-agent-token': mona.token });
+  assert.equal(r.status, 200);
+  r = await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'weekly', on: 'mon', at: '09:00', reviewer: 'bobb' }, { 'x-kosmos-agent-token': mona.token });
+  assert.equal(r.status, 400);
+  assert.deepEqual(stored(n).repeat, { every: 'day', at: '08:00' }, 'nothing half-applied');
+  r = await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'weekly', on: 'mon', at: '09:00', reviewer: 'fixture' }, { 'x-kosmos-agent-token': mona.token });
+  assert.equal(r.status, 200, 'CONTROL: a good reviewer with the rule takes both');
+  assert.equal(stored(n).repeat.every, 'week');
+  // Held: the person reviews it and a run is missed, but parking it means not now.
+  await post(`/api/project/${projectId}/task/${n}/repeat`, { reviewer: 'me' }, screen);
+  const ago = new Date(Date.now() - 15 * 86400000).toISOString();
+  projects.mutate(projectId, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === n ? { ...t, repeatSetAt: ago, repeatReviewerSetAt: ago } : t)) }));
+  const before = (await (await fetch(base + '/api/tasks?view=tasks&project=' + encodeURIComponent(projectId), { headers: screen })).json()).tasks.find((t) => t.number === n);
+  assert.equal(before.state, 'decision', 'precondition');
+  tasks.setOnHold(projectId, n, true, { viaScreen: true });
+  const after = (await (await fetch(base + '/api/tasks?view=tasks&project=' + encodeURIComponent(projectId), { headers: screen })).json()).tasks.find((t) => t.number === n);
+  assert.equal(after.state, 'held');
+});
+
+test('#4787 slice 3 review 2: a rule and reviewer for a task that does not exist answers 404, as the rule alone does', async () => {
+  const r = await post(`/api/project/${projectId}/task/99999/repeat`, { every: 'daily', at: '09:00', reviewer: 'fixture' }, screen);
+  assert.equal(r.status, 404, JSON.stringify(r.json));
+});
+
+test('#4787 slice 3 review 3: a time or day sent without a frequency is refused, not dropped', async () => {
+  const n = newTask('Time without frequency');
+  await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'daily', at: '08:00' }, screen);
+  const r = await post(`/api/project/${projectId}/task/${n}/repeat`, { reviewer: 'fixture', at: '10:00' }, screen);
+  assert.equal(r.status, 400);
+  assert.match(r.json.error, /goes with how often/);
+  assert.equal(stored(n).repeatReviewer, undefined, 'nothing applied');
+});
+
+test('#4787 slice 3 review 4: a process stopping a task whose reviewer the person chose is refused with 403', async () => {
+  const n = newTask('Person-reviewed');
+  const mona = sendertoken.mint('mona');
+  await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'daily', at: '09:00' }, { 'x-kosmos-agent-token': mona.token });
+  await post(`/api/project/${projectId}/task/${n}/repeat`, { reviewer: 'me' }, screen);
+  const r = await post(`/api/project/${projectId}/task/${n}/repeat`, { clear: true }, { 'x-kosmos-agent-token': mona.token });
+  assert.equal(r.status, 403);
+  assert.match(r.json.error, /only they can stop it repeating/);
+});
+
+test('#4787 slice 3 review 6: a process cannot close a task whose reviewer the person chose (it would drop the choice)', async () => {
+  const n = newTask('Close guard');
+  const mona = sendertoken.mint('mona');
+  await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'daily', at: '09:00' }, { 'x-kosmos-agent-token': mona.token });
+  let r = await post(`/api/project/${projectId}/task/${n}/close`, {}, { 'x-kosmos-agent-token': mona.token });
+  assert.equal(r.status, 200, 'CONTROL: an agent may close a task whose rule it set and whose reviewer nobody chose: ' + JSON.stringify(r.json));
+  const m = newTask('Close guard 2');
+  await post(`/api/project/${projectId}/task/${m}/repeat`, { every: 'daily', at: '09:00' }, { 'x-kosmos-agent-token': mona.token });
+  await post(`/api/project/${projectId}/task/${m}/repeat`, { reviewer: 'fixture' }, screen);
+  r = await post(`/api/project/${projectId}/task/${m}/close`, {}, { 'x-kosmos-agent-token': mona.token });
+  assert.equal(r.status, 409, JSON.stringify(r.json));
+  assert.equal(stored(m).repeatReviewer, 'fixture');
+});

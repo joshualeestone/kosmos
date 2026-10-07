@@ -54,6 +54,7 @@ const subscription = require('./subscription');
 const inflight = require('./inflight');
 const accountclaim = require('./accountclaim');
 const runners = require('./runners');
+const securewrite = require('./securewrite');
 
 const STATE = subscription.STATE; // CONNECTED | NONE | UNKNOWN -- one vocabulary
 const PROVIDER = 'xai';
@@ -460,8 +461,9 @@ function nextWorkDir(exclude) {
 /**
  * Write the raw key to the account's mode-600 file. Atomic (temp + rename) and
  * WITHOUT a trailing newline, so a reader that cats it hands the CLI exactly the
- * key. 0600 at create, re-chmod'd on overwrite. Creates the account dir if absent.
- * Mirrors claudeaccounts.storeKey exactly.
+ * key. Through securewrite.writeSecret (flushed before the rename, 0600 before the
+ * bytes land). Creates the account dir if absent. Mirrors claudeaccounts.storeKey,
+ * plus a refusal to write through a symlinked account dir that Claude's does not have.
  */
 function storeKey(dir, key) {
   const d = path.resolve(String(dir || ''));
@@ -475,21 +477,22 @@ function storeKey(dir, key) {
   fs.mkdirSync(d, { recursive: true });
   const file = keyFile(d);
   const tmp = file + '.tmp';
-  /* Unlink any stale temp from a prior crash first, so the write below CREATES the
-     file and its 0600 create-mode applies from the first byte. */
+  /* Unlink a stale <keyfile>.tmp left by a crash in an older version (which wrote through that
+     fixed name): it can hold a raw key. writeSecret writes through its own unique temp, at 0600. */
   try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
-  fs.writeFileSync(tmp, String(key || '').trim(), { mode: 0o600 });
-  fs.renameSync(tmp, file);
-  try { fs.chmodSync(file, 0o600); } catch { /* best effort; create mode already set */ }
+  // #5434: through the shared writer, so the key is flushed to disk before the rename makes it the file.
+  securewrite.writeSecret(file, String(key || '').trim(), 0o600);
 }
 
 function forgetKey(dir) {
-  /* Remove the key file AND any leftover temp: a storeKey whose write/rename failed
-     part-way can leave <keyfile>.tmp holding the raw key (mode 0600), so cleanup
-     must take back BOTH or a plaintext key lingers. */
+  /* Remove the key file AND any leftover temp, or a plaintext key lingers: an older version's
+     <keyfile>.tmp, and (#5434) a writeSecret temp a process that died between create and rename
+     left. reapDeadTempsOf removes only one whose writer is provably gone, so a temp whose dead
+     writer's pid now belongs to a live process is still left (securewrite errs toward litter). */
   let ok = false;
   try { fs.rmSync(keyFile(dir), { force: true }); ok = true; } catch { ok = false; }
   try { fs.rmSync(keyFile(dir) + '.tmp', { force: true }); } catch { /* best effort */ }
+  securewrite.reapDeadTempsOf(keyFile(dir));
   return ok;
 }
 

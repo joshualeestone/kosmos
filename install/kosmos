@@ -518,7 +518,7 @@ EOF
 # ours. When there is no lsof at all, it stays busy: the cost of that mistake is a wait, the cost of
 # the other is a restart. When lsof RAN and names no listener, it is another account's (see below).
 _health_no_answer() {
-  local _own _lpid _luid _lkos
+  local _own _lpid _luid _lkos _lours
   HEALTH_STATE=busy
   # Asked once per healthy() call (lsof walks every process): the owner does not change between retries,
   # and a board this busy is on a machine that cannot spare the sweeps.
@@ -533,7 +533,7 @@ _health_no_answer() {
   if [ "$_HEALTH_OWNER" = unknown ] && _lsof_present; then HEALTH_STATE=stranger; return 0; fi
   [ "$_HEALTH_OWNER" != unknown ] || return 0
   _own="$_HEALTH_OWNER"
-  read -r _lpid _luid _lkos <<EOF
+  read -r _lpid _luid _lkos _lours <<EOF
 $_own
 EOF
   # (is_kosmos is #3079's test: "kosmos" in a server.js command line, so a board run from a source
@@ -722,7 +722,9 @@ port_has_listener() {
 # documents; awk extracts the FIRST colliding listener's pid (space-bounded NAME).
 port_listener_owner() {
   _lsof_present || return 1
-  local _lsof _pid _uid _cmd _iskos _lsof_bin
+  # Keep BOTH lanes: origin/main's `_lsof_bin` resolution (Linux-C / #5216) AND
+  # this branch's `_ours` flag (reclaim-4679). The body below uses both.
+  local _lsof _pid _uid _cmd _iskos _lsof_bin _ours
   _lsof_bin="$(_lsof_cmd)" || return 1
   # -Fpn: field output, a `p<pid>` record then `n<name>` records per file. Parse the pid
   # whose name is a colliding address (exact 127.0.0.1:PORT or *:PORT). Immune to a
@@ -737,24 +739,27 @@ EOF
   [ -n "$_pid" ] || return 1
   _uid="$(/bin/ps -o uid= -p "$_pid" 2>/dev/null | tr -d ' ')"
   [ -n "$_uid" ] || return 1
-  _cmd="$(/bin/ps -o command= -p "$_pid" 2>/dev/null)"
+  _cmd="$(/bin/ps -ww -o command= -p "$_pid" 2>/dev/null)"
   _iskos=0
+  _ours=0
   case "$_cmd" in
-    *server.js*) case "$_cmd" in *[Kk][Oo][Ss][Mm][Oo][Ss]*) _iskos=1 ;; esac ;;
+    *server.js*)
+      case "$_cmd" in *[Kk][Oo][Ss][Mm][Oo][Ss]*) _iskos=1 ;; esac
+      case "$_cmd" in *"${KOSMOS_HOME:-$HOME/.local/share/kosmos}/app/server.js"*) _ours=1 ;; esac
+      ;;
   esac
-  printf '%s %s %s\n' "$_pid" "$_uid" "$_iskos"
+  printf '%s %s %s %s\n' "$_pid" "$_uid" "$_iskos" "$_ours"
 }
 
-# #3079: PURE reclaim decision (kosmos#3079). Given the listener's uid, our uid, and
-# whether the listener is a Kosmos board (1/0), should we RECLAIM the port -- kill it
-# and start ours over it? YES only for our OWN uid AND a Kosmos process: that is a
-# stale/old build of ours, the common single-user update case Josh asked to auto-heal.
-# A FOREIGN uid (another account on a shared Mac -- ports can collide across accounts
-# because the per-uid port formula wraps at 3999) or a same-uid NON-Kosmos process is
-# NEVER killed. Echoes "reclaim" or "keep". No side effects, so it is unit-testable.
+# #3079, #4679: PURE reclaim decision. Given the listener's uid, our uid, whether the
+# listener is a Kosmos board (1/0), and whether it is THIS install's board (1/0), should
+# we RECLAIM the port: kill it and start ours over it? YES only for our OWN uid AND a
+# Kosmos process AND ours=1. A foreign uid (another account), an unrelated process, or
+# another install by the same user is NEVER killed. A missing 4th argument defaults to 0
+# so old callers fail safe. Echoes "reclaim" or "keep". No side effects, unit-testable.
 _kosmos_reclaim_decision() {
-  local _luid="$1" _myuid="$2" _iskos="$3"
-  if [ -n "$_luid" ] && [ -n "$_myuid" ] && [ "$_luid" = "$_myuid" ] && [ "$_iskos" = 1 ]; then
+  local _luid="$1" _myuid="$2" _iskos="$3" _ours="${4:-0}"
+  if [ -n "$_luid" ] && [ -n "$_myuid" ] && [ "$_luid" = "$_myuid" ] && [ "$_iskos" = 1 ] && [ "$_ours" = 1 ]; then
     printf 'reclaim\n'
   else
     printf 'keep\n'
@@ -992,6 +997,40 @@ running_pid() {
 # #2956: the launchctl this file drives, overridable so a test can stub it.
 LAUNCHCTL="${KOSMOS_LAUNCHCTL:-/bin/launchctl}"
 
+# #4918: the systemctl this file drives on Linux, overridable so a test can stub it.
+SYSTEMCTL="${KOSMOS_SYSTEMCTL:-systemctl}"
+# #4918 review 13: systemctl --user needs XDG_RUNTIME_DIR, which a kosmos run from cron or after logout lacks.
+if [ "${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}" = Linux ] && [ -z "${XDG_RUNTIME_DIR:-}" ] && [ -d "/run/user/$(id -u 2>/dev/null)" ]; then
+  export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+fi
+
+# #4918: the board's systemd user service unit name on Linux.
+_kosmos_board_systemd_unit() {
+  local _def _kh
+  # #4918 review 5: one pipe into whichever tr exists. The old "| /usr/bin/tr ... || tr ..." ran the fallback
+  # OUTSIDE the pipe, so on a system with no /usr/bin/tr (NixOS, Guix) it read the terminal and hung.
+  local _tr; _tr="$(command -v tr 2>/dev/null || echo /usr/bin/tr)"
+  # #4918 review 10: resolve the folder the way engine/linuxboard.js does (path.resolve): a relative path, ".", ".."
+  # and trailing slashes collapse, logically, without resolving symlinks. An existing folder resolves by cd -L/pwd -L;
+  # a missing one keeps the slash-squeezed text, as before.
+  # A relative path is taken from the PHYSICAL working directory, as Node's process.cwd() is (on a Mac /var is a link to
+  # /private/var, and the two hashes differed); an absolute one keeps its own spelling, as path.resolve does.
+  _kosmos_resolve_dir() {
+    local _d="$1"
+    case "$_d" in /*) ;; *) _d="$(pwd -P)/$_d" ;; esac
+    if [ -d "$_d" ]; then (cd -L -- "$_d" 2>/dev/null && pwd -L) || printf '%s' "$_d"; else printf '%s' "$_d"; fi
+  }
+  _def="$(_kosmos_resolve_dir "$HOME/.local/share/kosmos" | "$_tr" -s '/')"; _def="${_def%/}"
+  _kh="$(_kosmos_resolve_dir "$KOSMOS_HOME" | "$_tr" -s '/')"; _kh="${_kh%/}"
+  if [ "$_kh" = "$_def" ]; then
+    printf 'kosmos-board.service'
+  else
+    local _h
+    _h="$(printf '%s' "$_kh" | (shasum -a 256 2>/dev/null || sha256sum 2>/dev/null) | cut -c1-8)"
+    printf 'kosmos-board.%s.service' "$_h"
+  fi
+}
+
 # #2956: the board's launchd label, mirroring install/setup.sh byte-for-byte -- a
 # default install is the literal `com.kosmos.board` (#883); a non-default
 # KOSMOS_HOME gets a hash suffix. Must match what setup.sh registered or the
@@ -1031,6 +1070,23 @@ _kosmos_board_label() {
 # domain is not a test's to touch) and never without launchctl (non-macOS).
 _kosmos_board_supervised() {
   [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ] || return 1
+  local _os="${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}"
+  if [ "$_os" = "Linux" ] && [ -z "${KOSMOS_LAUNCHCTL:-}" ]; then
+    local _sysctl="${KOSMOS_SYSTEMCTL:-${SYSTEMCTL:-systemctl}}"
+    command -v "$_sysctl" >/dev/null 2>&1 || return 1
+    local _unit="kosmos-board.service"
+    if type _kosmos_board_systemd_unit >/dev/null 2>&1; then
+      _unit="$(_kosmos_board_systemd_unit)"
+    fi
+    local _cat
+    _cat="$("$_sysctl" --user cat "$_unit" 2>/dev/null)" || return 1
+    # #4918 review 4: a unit file that exists but is disabled does not keep the board alive: not supervised.
+    "$_sysctl" --user is-enabled --quiet "$_unit" 2>/dev/null || return 1
+    grep -qE 'ExecStart=.*[[:space:]]board-run([[:space:]]|$)' <<EOF
+$_cat
+EOF
+    return $?
+  fi
   # `command -v` (not a bare `[ -x ]`, which a DIRECTORY passes -- the installer
   # runnable-guard convention) resolves both an absolute path (accepting only an
   # executable file) and a bare command name on PATH; empty => no launchctl here.
@@ -1393,12 +1449,16 @@ cmd_start() {
   # resolved (empty uid), the block declines to kill and dies with the generic guard here
   # rather than falling through -- safe either way, never a kill on an unidentified owner.
   if port_has_listener; then
-    local _own _lpid _luid _lkos _w
+    local _own _lpid _luid _lkos _lours _w
     _own="$(port_listener_owner)" || _own=""
     _lpid="$(printf '%s' "$_own" | awk '{print $1}')"
     _luid="$(printf '%s' "$_own" | awk '{print $2}')"
     _lkos="$(printf '%s' "$_own" | awk '{print $3}')"
-    if [ "$(_kosmos_reclaim_decision "$_luid" "$_kosmos_uid" "$_lkos")" = reclaim ]; then
+    _lours="$(printf '%s' "$_own" | awk '{print $4}')"
+    if [ "${_lours:-0}" != 1 ] && [ -n "$_lpid" ] && [ "$_lpid" = "$(_listener_is_our_board)" ]; then
+      _lours=1
+    fi
+    if [ "$(_kosmos_reclaim_decision "$_luid" "$_kosmos_uid" "$_lkos" "$_lours")" = reclaim ]; then
       say "The address is held by your own stale Kosmos (process $_lpid). Reclaiming it."
       # A launchd-supervised holder would be relaunched the instant we kill it. The stop
       # marker makes board-run decline to relaunch (cmd_board_run honors it BEFORE binding,
@@ -1430,6 +1490,8 @@ cmd_start() {
       # Fall through to the normal start below (supervised kickstart -k, else nohup).
     elif [ -n "$_luid" ] && [ "$_luid" != "$_kosmos_uid" ]; then
       die "Port $PORT is held by ANOTHER account's process on this shared Mac, so Kosmos will not touch it (killing it would take down that person's session). Your own copy of Kosmos is in Applications -- open that."
+    elif [ "$_lkos" = 1 ]; then
+      die "Another Kosmos install of yours on this computer is already using port $PORT. Quit that board, or set KOSMOS_PORT to a different number."
     else
       die "Another app on this computer is already using port $PORT, so Kosmos cannot start there. Quit that app and run 'kosmos start' again."
     fi
@@ -1447,29 +1509,34 @@ cmd_start() {
   fi
   [ -f "$NODE" ] && [ -x "$NODE" ] || die "Kosmos looks incomplete: the runtime is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   [ -f "$APP" ]  || die "Kosmos looks incomplete: the app is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
-  [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ] || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
+  { [ "${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}" = Linux ] && [ -f "${AGENT_WORKFORCE_TMUX_BIN:-}" ] && [ -x "${AGENT_WORKFORCE_TMUX_BIN:-}" ]; } || { [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; } || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   mkdir -p "$LOG_DIR"
-  # #2956: under launchd supervision, let launchd OWN the board -- do NOT nohup a
-  # second node beside it (two would race the one port). The stop-marker was
-  # cleared at the top, so launchd's PathState KeepAlive would relaunch on its own;
-  # `kickstart -k` makes it prompt rather than waiting on launchd's own poll --
-  # closing the "does PathState relaunch promptly" gap. (This branch is only
-  # reached for a board that is NOT already running: the `running_pid` guard above
-  # dies first on an alive-but-wedged board, so recovering a wedged supervised
-  # board is `kosmos restart`, not a bare `kosmos start` -- the -k is for the
-  # not-running-but-loaded case and to clear any half-dead instance.)
-  # board-run (the job's ProgramArguments) execs node in the foreground and never
-  # re-enters cmd_start, so there is no recursion. Falls through to the nohup path
-  # below when the board is NOT supervised (a source checkout, a hand start with no
-  # login job, or the update transition window before the new plist is loaded).
+  # #2956 / #4918: under supervision (launchd on macOS, systemd on Linux), let the supervisor OWN the board --
+  # do NOT nohup a second node beside it (two would race the one port). The stop-marker was
+  # cleared at the top, so launchd's PathState / systemd's ConditionPathExists allows relaunch;
+  # kickstart / restart makes it prompt rather than waiting on poll intervals.
   if _kosmos_board_supervised; then
-    say "Bringing the board up (launchd supervised)."
-    _mark_board_started
-    local _sup_label _sup_uid
-    _sup_label="$(_kosmos_board_label)"; _sup_uid="$(/usr/bin/id -u)"
-    "$LAUNCHCTL" kickstart -k "gui/$_sup_uid/$_sup_label" >/dev/null 2>&1 || true
-    _await_board_up && return 0
-    die "Kosmos did not come up under launchd. What it said is in $BOARD_LOG"
+    local _os="${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}"
+    if [ "$_os" = "Linux" ] && [ -z "${KOSMOS_LAUNCHCTL:-}" ]; then
+      say "Bringing the board up (systemd supervised)."
+      _mark_board_started
+      local _sup_unit="kosmos-board.service"
+      if type _kosmos_board_systemd_unit >/dev/null 2>&1; then
+        _sup_unit="$(_kosmos_board_systemd_unit)"
+      fi
+      local _sysctl="${KOSMOS_SYSTEMCTL:-${SYSTEMCTL:-systemctl}}"
+      "$_sysctl" --user restart "$_sup_unit" >/dev/null 2>&1 || true
+      _await_board_up && return 0
+      die "Kosmos did not come up under systemd. What it said is in $BOARD_LOG"
+    else
+      say "Bringing the board up (launchd supervised)."
+      _mark_board_started
+      local _sup_label _sup_uid
+      _sup_label="$(_kosmos_board_label)"; _sup_uid="$(/usr/bin/id -u)"
+      "$LAUNCHCTL" kickstart -k "gui/$_sup_uid/$_sup_label" >/dev/null 2>&1 || true
+      _await_board_up && return 0
+      die "Kosmos did not come up under launchd. What it said is in $BOARD_LOG"
+    fi
   fi
   keychain_note   # kosmos#2600: only on this direct path; the supervised start above runs in the desktop session
   say "Bringing the board up."
@@ -1579,7 +1646,7 @@ cmd_board_run() {
   if port_has_listener; then exit 0; fi
   [ -f "$NODE" ] && [ -x "$NODE" ] || die "Kosmos looks incomplete: the runtime is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   [ -f "$APP" ]  || die "Kosmos looks incomplete: the app is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
-  [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ] || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
+  { [ "${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}" = Linux ] && [ -f "${AGENT_WORKFORCE_TMUX_BIN:-}" ] && [ -x "${AGENT_WORKFORCE_TMUX_BIN:-}" ]; } || { [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; } || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   mkdir -p "$LOG_DIR"
   # The supervisor OWNS this process: record the pidfile as THIS shell's pid, then
   # `exec` node IN PLACE so node keeps that exact pid. `kosmos stop`/`status`
@@ -1643,7 +1710,12 @@ cmd_stop() {
     # come back seconds after "Stopped." Only warns when actually supervised, so an
     # unsupervised install (where the write is still harmless) is not false-alarmed.
     if [ ! -f "$STOP_MARKER" ] && _kosmos_board_supervised; then
-      say "Warning: could not write $STOP_MARKER, so launchd may restart this board within seconds. Make sure $KOSMOS_HOME is writable, then run 'kosmos stop' again."
+      local _os="${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}"
+      if [ "$_os" = "Linux" ] && [ -z "${KOSMOS_LAUNCHCTL:-}" ]; then
+        say "Warning: could not write $STOP_MARKER, so systemd may restart this board within seconds. Make sure $KOSMOS_HOME is writable, then run 'kosmos stop' again."
+      else
+        say "Warning: could not write $STOP_MARKER, so launchd may restart this board within seconds. Make sure $KOSMOS_HOME is writable, then run 'kosmos stop' again."
+      fi
     fi
     # ⚠️ The pidfile is pid-scoped and the health check is port-scoped, and
     # they can disagree: with KOSMOS_PORT pointed elsewhere, status says
@@ -1657,6 +1729,17 @@ cmd_stop() {
       say "Stopping Kosmos."
     fi
     kill "$pid" 2>/dev/null || true
+    local _os="${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}"
+    if [ "$_os" = "Linux" ] && [ -z "${KOSMOS_LAUNCHCTL:-}" ] && _kosmos_board_supervised; then
+      local _sup_unit="kosmos-board.service"
+      if type _kosmos_board_systemd_unit >/dev/null 2>&1; then
+        _sup_unit="$(_kosmos_board_systemd_unit)"
+      fi
+      local _sysctl="${KOSMOS_SYSTEMCTL:-${SYSTEMCTL:-systemctl}}"
+      # #4918 review 4: a refused stop is said, never hidden behind "Stopped." (board.stopped still holds a restart).
+      "$_sysctl" --user stop "$_sup_unit" >/dev/null 2>&1 \
+        || say "systemd did not stop $_sup_unit. The board process was stopped; if it comes back, run: $_sysctl --user stop $_sup_unit"
+    fi
     local i
     for i in $(seq 1 10); do
       kill -0 "$pid" 2>/dev/null || break
@@ -2647,6 +2730,38 @@ cmd_connections() {
         else console.log(x.name + ": not known without a live check; the person connects it in Settings > Connections");
       }
     });' || { say "Kosmos gave an answer we could not read about what is connected."; exit 1; }
+}
+
+# ---- kosmos accounts      (#5359)
+# Which providers' accounts this board has, and whether each is signed in, from GET /api/accounts (most accounts
+# checked live, some from Kosmos's own record), so an agent no longer hand-rolls that authenticated read. The route
+# checks most accounts when asked, so it is for a moment that needs the answer, never a loop. Board token, as
+# connections.
+cmd_accounts() {
+  if ! healthy; then
+    say_not_up "it cannot say which accounts are set up"
+    exit 1
+  fi
+  local _node; _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to read the board's answer."; exit 1; }
+  local _bt; _bt="$(board_token || true)"
+  local body rc=0 code
+  body=$(kosmos_curl "$_bt" "" -sS -m 60 -w $'\n%{http_code}' "$URL/api/accounts" 2>/dev/null) || rc=$?
+  if [ "$rc" -ne 0 ]; then say_unreached "read which accounts are set up" "$rc"; exit 1; fi
+  code="${body##*$'\n'}"
+  body="${body%$'\n'*}"
+  # The words live once, in engine/accountline.js, which the Windows CLI's verbAccounts calls too (#5359).
+  local prc=0
+  printf '%s' "$body" | KOSMOS_HTTP_CODE="$code" KOSMOS_ACCT_INDENT="${KOSMOS_SAY_INDENT:-  }" "$_node" -e '
+    let answer; try { ({ answer } = require(process.argv[1])); } catch { process.exit(4); }   // a partial install: no stack trace, no path
+    let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
+      let j = null; try { j = JSON.parse(s); } catch { j = null; }
+      const r = answer(Number(process.env.KOSMOS_HTTP_CODE), j);
+      if (r.fail) { console.log((process.env.KOSMOS_ACCT_INDENT || "") + r.fail); process.exit(3); }   // the indent say() would use
+      for (const l of r.lines) console.log(l);
+    });' "$(kosmos_engine_module accountline).js" || prc=$?
+  if [ "$prc" -eq 3 ]; then exit 1; fi
+  if [ "$prc" -eq 4 ]; then say "Kosmos could not find its own reader for the board's accounts; this install looks incomplete."; exit 1; fi
+  if [ "$prc" -ne 0 ]; then say "Kosmos gave an answer we could not read about its accounts."; exit 1; fi
 }
 
 # ---- kosmos connect <service>  (#4451), the token on STDIN
@@ -3879,9 +3994,10 @@ kosmos_command_list() {
   printf '  kosmos adopt         give the agents already running here a Kosmos identity, once\n'
   printf '  kosmos whoami        say which agent you are and which account you are on\n'
   printf '  kosmos connections   list the outside services and which are connected\n'
+  printf '  kosmos accounts      list the provider accounts and whether each is signed in\n'
   printf '  kosmos connect       connect an outside service with its token\n\n'
-  printf '  For how to use one: kosmos <command> --help (agents, msg, post, reply, inbox, react, report, room,\n'
-  printf '  feedback, community, task, project, agent and connect show their usage).\n'
+  printf '  For how to use one: kosmos <command> --help (agents, accounts, msg, post, reply, inbox, react, report,\n'
+  printf '  room, feedback, community, task, project, agent and connect show their usage).\n'
 }
 
 # kosmos#1674: -h / --help must never SEND.
@@ -3926,6 +4042,10 @@ if [ "$_kosmos_help" = 1 ]; then
       _hrc=0; ( "$SELF" "$1" ) || _hrc=$?
       [ "$_hrc" -eq 2 ] && exit 0
       exit "$_hrc" ;;
+    accounts)
+      # #5359: not with the read-only group below. Run bare it checks every account live, which --help must not do.
+      printf 'Usage: kosmos accounts   (the provider accounts this board has, and whether each is signed in, as Settings > AI Models shows it; most are checked when you ask, so not for a loop)\n'
+      exit 0 ;;
     agents)
       # #4891 N9: it fell to the general list below. It takes no arguments and only reads.
       printf 'Usage: kosmos agents   (list the agent sessions running on this computer, as Kosmos'"'"'s own tmux sees them)\n'
@@ -4129,6 +4249,7 @@ cmd_task() {
       say "  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)"
       say "  kosmos task unhold <project-id> <task-number>                 take it off hold"
       say "  kosmos task repeat <project-id> <task-number> <hourly|daily|weekly>  a job you run on a schedule: the board shows when it runs"
+      say "  kosmos task repeat <project-id> <task-number> --reviewer <agent|none>  who is told when a run is missed"
       say "      --at <HH:MM>  (hourly: --at :MM)   --on <mon|tue|...> (weekly)   --clear  stop it repeating"
       say "  kosmos task ran <project-id> <task-number> [\"what this run found\"]  record that a repeating task's job just ran"
       say "  (project ids are in your instructions' Your projects section.)"
@@ -4219,20 +4340,23 @@ cmd_task() {
     repeat)
       # kosmos#4787: <project> <task-number> <hourly|daily|weekly> [--at HH:MM|:MM] [--on <day>], or --clear. Checked before
       # the board, as built is; the rule itself is checked whole by the board (taskrepeat.repeatProblem).
-      local _rusage="Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly> [--at HH:MM] [--on mon]   (or --clear)"
+      local _rusage="Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly> [--at HH:MM] [--on mon] [--reviewer <agent|none>]   (or --clear)"
       { [ -n "${1:-}" ] && [ -n "${2:-}" ] && [ -n "${3:-}" ]; } || { say "$_rusage"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
       local _r _rwant=""
       for _r in "${@:3}"; do
         if [ -n "$_rwant" ]; then _rwant=""; continue; fi
         case "$_r" in
-          --at|--on) _rwant=1 ;;
+          --at|--on|--reviewer) _rwant=1 ;;   # slice 3: --reviewer names who is told when a run is missed
           --clear|hour|hourly|day|daily|week|weekly) ;;
           --*) _refuse_option "task repeat" "$_rusage" "$_r" ;;
           *) say "Say how often: hourly, daily or weekly. $_rusage"; exit 2 ;;
         esac
       done
-      [ -z "$_rwant" ] || { say "--at and --on each need a value. $_rusage"; exit 2; } ;;
+      [ -z "$_rwant" ] || { say "--at, --on and --reviewer each need a value. $_rusage"; exit 2; }
+      # slice 3 review 2: --at and --on belong to a frequency; without one they would be dropped without a word.
+      case " ${*:3} " in *" hourly "*|*" hour "*|*" daily "*|*" day "*|*" weekly "*|*" week "*|*" --clear "*) ;;
+        *" --at "*|*" --on "*) say "--at and --on go with how often: hourly, daily or weekly. $_rusage"; exit 2 ;; esac ;;
     ran)
       local _ranusage="Usage: kosmos task ran <project-id> <task-number> [\"what this run found\"]   (or --note \"...\")"
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "$_ranusage"; exit 2; }
@@ -4471,12 +4595,12 @@ cmd_task() {
     repeat|ran)
       # kosmos#4787: a repeating task's rule (repeat) and its runs (ran). The agent token names who ran it (the pane is the
       # fallback, as for built); the board refuses a caller it cannot name.
-      local project num every="" at="" on="" clear=false note="" _w _wnext="" _rpast=0
+      local project num every="" at="" on="" clear=false note="" reviewer="" _w _wnext="" _rpast=0
       project="${1:-}"; num="${2:-}"; shift 2 2>/dev/null || true
       for _w in "$@"; do
-        case "$_wnext" in at) at="$_w"; _wnext=""; continue ;; on) on="$_w"; _wnext=""; continue ;; esac
+        case "$_wnext" in at) at="$_w"; _wnext=""; continue ;; on) on="$_w"; _wnext=""; continue ;; reviewer) reviewer="$_w"; _wnext=""; continue ;; esac
         if [ "$sub" = repeat ]; then
-          case "$_w" in --at) _wnext=at ;; --on) _wnext=on ;; --clear) clear=true ;; *) every="$_w" ;; esac
+          case "$_w" in --at) _wnext=at ;; --on) _wnext=on ;; --reviewer) _wnext=reviewer ;; --clear) clear=true ;; *) every="$_w" ;; esac
         else
           case "$_wnext" in note) note="${note:+$note }$_w"; _wnext=""; continue ;; esac
           if [ "$_w" = "--note" ] && [ "${_rpast:-0}" = 0 ]; then _wnext=note; continue; fi
@@ -4490,9 +4614,13 @@ cmd_task() {
       case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
       local data
       if [ "$sub" = repeat ]; then
-        data="{\"every\":\"$(_jesc "$every")\",\"at\":\"$(_jesc "$at")\",\"on\":\"$(_jesc "$on")\",\"clear\":$clear,\"from_pane\":\"$esc_pane\"}"
-        [ -n "$at" ] || data=$(printf '%s' "$data" | sed 's/"at":"",//')
-        [ -n "$on" ] || data=$(printf '%s' "$data" | sed 's/"on":"",//')
+        # Each field only when given (slice 3: no frequency leaves the rule as it is, so --reviewer can change alone).
+        data="{"
+        [ -z "$every" ] || data="$data\"every\":\"$(_jesc "$every")\","
+        [ -z "$at" ] || data="$data\"at\":\"$(_jesc "$at")\","
+        [ -z "$on" ] || data="$data\"on\":\"$(_jesc "$on")\","
+        [ -z "$reviewer" ] || data="$data\"reviewer\":\"$(_jesc "$reviewer")\","
+        data="$data\"clear\":$clear,\"from_pane\":\"$esc_pane\"}"
       else
         data="{\"note\":\"$(_jesc "$note")\",\"from_pane\":\"$esc_pane\"}"
       fi
@@ -4507,7 +4635,9 @@ cmd_task() {
             case "$body" in *'"duplicate":true'*) say "That run of task $num on ${project:-the project} was already recorded a moment ago, so it was not recorded twice." ;;
               *) say "Recorded a run of task $num on ${project:-the project}." ;; esac
           elif [ "$clear" = true ]; then say "Task $num on ${project:-the project} no longer repeats."
-          else say "Task $num on ${project:-the project} now repeats ${words:-on that schedule}. Each time its job runs, record it with: kosmos task ran $project $num"; fi ;;
+          elif [ -z "$every" ] && [ "$reviewer" = none ]; then say "Nobody is told now when task $num on ${project:-the project} misses a run."
+          elif [ -z "$every" ]; then say "$reviewer will be told when task $num on ${project:-the project} misses a run."
+          else say "Task $num on ${project:-the project} now repeats ${words:-on that schedule}.$( [ -z "$reviewer" ] || [ "$reviewer" = none ] || printf ' %s will be told when it misses a run.' "$reviewer") Each time its job runs, record it with: kosmos task ran $project $num"; fi ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos could not change that task: ${because:-it did not say why}."; exit 1 ;;
@@ -4945,6 +5075,7 @@ case "${1:-}" in
   whoami)  shift; cmd_whoami "$@" ;;
   inbox)   shift; cmd_inbox "$@" ;;
   connections) cmd_connections ;;
+  accounts) cmd_accounts ;;
   connect) shift; cmd_connect "$@" ;;
   room)    shift; cmd_room "$@" ;;
   feedback) shift; cmd_feedback "$@" ;;

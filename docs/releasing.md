@@ -176,6 +176,65 @@ failed cut is not clean: it may have written into the site checkout before it
 died, and the next attempt trips on the leftovers with a message that describes
 a different problem.
 
+**First: did it actually fail? (#5471)** A cut that stopped at step 8 may have shipped. `vercel deploy`
+has exited non-zero ("Error: fetch failed") after uploading everything while Vercel finished the build
+and went live a minute later (0.7.26, 0.7.27). Step 8 now checks for that itself. On a non-zero exit it
+compares the served `dist/kosmos-<V>-arm64.tar.gz.sha256` with the one the cut wrote, up to
+`KOSMOS_DEPLOY_LANDED_TRIES` times (default 24, a whole number from 1 to 9999), `KOSMOS_DEPLOY_LANDED_WAIT_S`
+apart (default 15 s, 0 to 9999; step 1 refuses a bad value before anything is built or pushed). It prints this
+cut's sha before it starts waiting:
+- **It matched:** the log says `THE DEPLOY LANDED although vercel deploy exited N` and the cut carries on
+  as a success.
+- **It never matched:** the cut fails. Compare the sha it printed with the served one before you revert
+  anything or re-cut (a re-cut rebuilds a cache-immutable tarball name with different bytes):
+
+  ```
+  curl -fsS "https://installkosmos.com/dist/kosmos-<V>-arm64.tar.gz.sha256?t=$(date +%s)"
+  ```
+  The same sha means this cut landed late; a different one means another build of `<V>` is served.
+  **If it landed late, the release shipped: do not revert and do not re-cut.** Step 7b had already
+  pushed the site commit before deploying, so the site repo matches what is served. Steps 9 onward did
+  not run: 9 (what users receive), 9b (the served bundle is the frozen tree), 9c (the served `.pkg`), 9d
+  (the manifest), 9e (the outside audit) and the steps after them. Step 9's checks can be run by hand
+  (`KOSMOS_VERIFY_POINTER=latest-staging.json KOSMOS_VERIFY_SETUP=setup-staging SITE=<site> REPO=<repo> bash tools/verify-served.sh`
+  on a staging cut, `latest.json` and `setup` on a `KOSMOS_CUT_CHANNEL=prod` cut, with `<repo>` a checkout
+  at the cut's version: it reads the version from `package.json` and hashes `install/setup.sh`); the
+  others stay unverified unless you repeat them, so say so where you record the release. On a staging
+  cut, confirm prod's `latest.json` and `/setup` did not move.
+
+  **Before any promote, put the site checkout back to what is served, in this order.**
+  1. **The tracked files, from origin.** Step 7b and the trap leave the checkout behind origin's main:
+     its local `dist/latest-staging.json` (or `latest.json`) still names the PREVIOUS version, and
+     `tools/promote-channel.sh` reads that local pointer. Fast-forward to origin's main (on 0.7.27 the
+     only local change was `versions.html`, identical to origin's, so it was discarded first). That also
+     brings back the tracked manifest and installer files.
+  2. **The tarball pair, from the served host.** The trap deleted the untracked
+     `dist/kosmos-<V>-arm64.tar.gz` and `.sha256` if this cut created them, and a refresh cannot bring back
+     gitignored files, so promote-channel.sh would refuse on a missing artifact:
+
+     ```
+     cd <site>/dist
+     curl -fsS -O "https://installkosmos.com/dist/kosmos-<V>-arm64.tar.gz"
+     curl -fsS -O "https://installkosmos.com/dist/kosmos-<V>-arm64.tar.gz.sha256"
+     shasum -a 256 -c "kosmos-<V>-arm64.tar.gz.sha256"
+     ```
+     The sha must also equal the one the cut printed.
+  3. **The unversioned pair** (`kosmos-arm64.tar.gz` and `.sha256`, also gitignored) needs nothing on a
+     staging cut: it is prod's build, and a staging cut serves it unchanged (measured on 0.7.27: served
+     and local both 0.7.25's). On a `KOSMOS_CUT_CHANNEL=prod` cut the trap put back the PREVIOUS release's
+     pair, so fetch the served one the same way, or the next deploy from this checkout serves the old
+     pair again.
+
+  The cut's own record still shows it failing, with the CLI's exit code.
+
+The cut prints this sha before it deploys, so it is in the log however the cut ends. Keep the log: once a
+failed cut ends, its trap deletes the local `.sha256` (if this cut created it), and that log line is then
+the only record of it. A terminal Ctrl-C usually ends the whole cut through its own trap. A deploy stopped
+by an interrupt or terminate that reached vercel alone (exit 130 or 143), or a cut whose own
+`.sha256` cannot be read (it printed `<unreadable>`), fails at once without waiting. Any other failure,
+including one before anything was uploaded (not authorized, no project link), waits the full time first;
+Ctrl-C ends that wait safely.
+
 1. **The versions entry's stamp.** **Two shapes, and the second removes the guess.**
 
    **(a) Leave it as a FILE and let the cut stamp it (#1455, preferred).** Write the

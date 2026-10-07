@@ -96,7 +96,13 @@ else
   bad "installed: the --mcp-config file is missing or wrong: $cfg"
 fi
 nxt="$(grep -A2 -x -- '--mcp-config' "$A" | sed -n 3p)"
-if [ "$nxt" = "--dangerously-skip-permissions" ]; then ok "installed: a flag follows the config path, so the variadic list ends there"; else bad "installed: after the config path came '$nxt'"; fi
+# #5406: the permission settings come next (a flag, so the variadic list ends there), as a file that exists, and then
+# the autonomy flag: the supervisor really passes it, measured in the launch it records.
+if [ "$nxt" = "--settings" ]; then ok "installed: --settings follows the config path, so the variadic list ends there"; else bad "installed: after the config path came '$nxt'"; fi
+perm="$(grep -A1 -x -- '--settings' "$A" | sed -n 2p)"
+if [ -f "$perm" ] && grep -q PermissionRequest "$perm"; then ok "#5406: --settings names the permission file, which exists and holds the hook"; else bad "#5406: --settings named '$perm'"; fi
+aft="$(grep -A2 -x -- '--settings' "$A" | sed -n 3p)"
+if [ "$aft" = "--dangerously-skip-permissions" ]; then ok "#5406: the autonomy flag follows the permission file"; else bad "#5406: after the permission file came '$aft'"; fi
 
 # --- Arm 2: not installed -> no flag ------------------------------------------
 SB2="$(mktemp -d)"; make_sandbox "$SB2"
@@ -128,9 +134,9 @@ SB5="$(mktemp -d)"; make_sandbox "$SB5"
 fake_install "$SB5" || bad "arm 5: the fake install failed"
 MODEL_ARG=sonnet run_claude "$SB5"
 A="$SB5/new-session.args"
-got="$(grep -A4 -x -- '--mcp-config' "$A" | tr '\n' ' ')"
+got="$(grep -A6 -x -- '--mcp-config' "$A" | tr '\n' ' ')"
 case "$got" in
-  "--mcp-config /"*" --dangerously-skip-permissions --model sonnet "*) ok "with a model: --mcp-config <file> --dangerously-skip-permissions --model sonnet" ;;
+  "--mcp-config /"*" --settings /"*" --dangerously-skip-permissions --model sonnet "*) ok "with a model: --mcp-config <file> --settings <file> --dangerously-skip-permissions --model sonnet" ;;
   *) bad "with a model: the launch was: $(tr '\n' ' ' < "$A" 2>/dev/null)" ;;
 esac
 

@@ -10995,7 +10995,7 @@ test('attachments: a file is uploaded to an agent, rides the message, reaches th
 
   // The pane was told where the file is, in the bracketed line.
   const wire = pastedMessages(typed).find((x) => typeof x === 'string' && x.includes('here is the lease')) || '';
-  assert.match(wire, /here is the lease \[attached file: \/.+\/lease notes\.txt\]$/, wire);
+  assert.match(wire, /here is the lease \[attached file: \/.+\/lease notes\.txt \(text\/plain, \d+ bytes?\)\]$/, wire);
   const rec = attachmentsEngine.read(attachment.id);
   assert.ok(wire.includes(rec.file), 'the path in the wire is not the stored file');
 
@@ -11110,7 +11110,7 @@ test('attachments: a room post carries a project attachment to every member and 
   });
   assert.equal(post.status, 200, post.body);
   const wire = pastedMessages(typed).find((x) => typeof x === 'string' && x.includes('read the brief')) || '';
-  assert.match(wire, /read the brief \[attached file: \/.+\/brief\.txt\]$/, wire);
+  assert.match(wire, /read the brief \[attached file: \/.+\/brief\.txt \(text\/plain, \d+ bytes?\)\]$/, wire);
   const rows = JSON.parse((await req('/api/project/' + pr.id + '/room')).body).rows;
   const row = rows.find((r) => r.kind === 'post' && r.text === 'read the brief');
   assert.ok(row && row.attachment, 'the room row carries no attachment: ' + JSON.stringify(row));
@@ -11325,7 +11325,7 @@ test('attachments: a message carries several files, in order, with every path in
   assert.equal(row.attachments[0].id, a.id); assert.equal(row.attachments[1].id, b.id);
   assert.equal(row.attachment.id, a.id, 'the first file is not also `attachment`, which the card drawn against one file reads');
   const wire = pastedMessages(typed).find((x) => typeof x === 'string' && x.includes('both of these')) || '';
-  assert.match(wire, /both of these \[attached file: \/.+\/one\.txt\] \[attached file: \/.+\/two\.txt\]$/, wire);
+  assert.match(wire, /both of these \[attached file: \/.+\/one\.txt \(text\/plain, \d+ bytes?\)\] \[attached file: \/.+\/two\.txt \(text\/plain, \d+ bytes?\)\]$/, wire);
   // A bad id anywhere in the list refuses the whole send; nothing is recorded.
   const bad = await req('/api/agent/' + name + '/thread', {
     method: 'POST', headers: { 'content-type': 'application/json' },
@@ -11356,7 +11356,7 @@ test('attachments: a message carries several files, in order, with every path in
   assert.ok(roomRow && roomRow.attachments && roomRow.attachments.length === 2, 'the room row does not carry both: ' + JSON.stringify(roomRow));
   assert.equal(roomRow.attachment.id, pa.id);
   const roomWire = pastedMessages(typed).find((x) => typeof x === 'string' && x.includes('plan.txt, budget.txt')) || '';
-  assert.match(roomWire, /\[attached file: \/.+\/plan\.txt\] \[attached file: \/.+\/budget\.txt\]$/, roomWire);
+  assert.match(roomWire, /\[attached file: \/.+\/plan\.txt \(text\/plain, \d+ bytes?\)\] \[attached file: \/.+\/budget\.txt \(text\/plain, \d+ bytes?\)\]$/, roomWire);
 });
 
 test('putting a running agent on a project types one line into its pane, once, and only when membership moves (#141/#143/#304/#305)', async () => {

@@ -3135,6 +3135,9 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
    Agent names keep the ellipsis and carry a title. */
 .usage-agents .tv-mrow.muted .tv-mnl { color: var(--k-ink-2); font-weight: 500; white-space: normal; overflow: visible; text-overflow: clip; }
 #usage-history { margin-top: 12px; border: 1px solid var(--k-rule); border-radius: 12px; max-height: 520px; overflow-y: auto; }
+/* #5444 (Mona Lisa): empty (a first read still loading, a failed read, or no usage yet), the bordered box drew as two
+   stacked hairlines; the heading and its hint stay. */
+#usage-history:empty { display: none; }
 .uhrow { display: grid; grid-template-columns: 1.1fr 1.3fr 1fr 1fr; gap: 10px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--k-rule); font-size: .84rem; }
 .uhrow:first-child { border-top: none; }
 .uhrow.uhhead { position: sticky; top: 0; background: var(--k-bg); font-size: .7rem; text-transform: uppercase; letter-spacing: .07em; color: var(--k-ink-2); font-weight: 600; z-index: 1; }
@@ -6368,8 +6371,8 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tk-repeat-when { display: inline-flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .tk-repeat-actions { display: flex; justify-content: flex-end; margin: 4px 0 0; }
 .tk-repeat-actions .btn[disabled] { opacity: .5; cursor: default; }
-#tk-repeat-every, #tk-repeat-day { background-color: var(--field-fill); }   /* render-fields: a field never wears its column's own white */
-@media (hover: none) { .tk-repeat-in, #tk-repeat-every, #tk-repeat-day, #tk-repeat-save { min-height: 44px; } }   /* review 1: one touch size */
+#tk-repeat-every, #tk-repeat-day, #tk-review-who { background-color: var(--field-fill); }   /* render-fields: a field never wears its column's own white (slice 3: the reviewer choice too) */
+@media (hover: none) { .tk-repeat-in, #tk-repeat-every, #tk-repeat-day, #tk-repeat-save, #tk-review-who { min-height: 44px; } }   /* review 1: one touch size */
 .tk-due-input { font: inherit; text-align: right; color: inherit; background: transparent;
                 border: 1px solid var(--k-rule); border-radius: 6px; padding: 2px 6px; }
 .tk-due-input:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
@@ -16681,6 +16684,12 @@ window.kosmosMeasureScrollbarWidth();
         <div class="tk-repeat-actions"><button class="btn" id="tk-repeat-save" type="button" aria-label="Save how this task repeats" disabled>Save</button></div>
         <p class="fmsg" id="tk-repeat-msg" aria-live="polite" style="margin:2px 0 0;"></p>
         <p class="dhint" id="tk-repeat-line" style="margin:4px 0 0;" hidden></p>
+        <!-- kosmos#4787 slice 3: who is told when a run is missed (once per missed run): nobody, the person (the task then
+             waits in Needs Your Decision), or an agent on the project (one line in its session). Saved on change. -->
+        <div class="tmeta" id="tk-review-row" hidden><span>If missed, tell</span>
+          <select id="tk-review-who" class="tsk-sel" aria-label="Who is told if a run is missed"></select>
+        </div>
+        <p class="fmsg" id="tk-review-msg" aria-live="polite" style="margin:2px 0 0;"></p>
         <p class="dhint" style="margin:12px 0 0;">Anything written here is part of the task, so an agent picking it up later reads the whole thing rather than just the title.</p>
       </aside>
     </div>
@@ -19213,6 +19222,15 @@ function servedPlatform() {
 function onWindows(platform) {
   const known = typeof platform === 'string' && platform ? platform : servedPlatform();
   return known === 'win32';
+}
+/* #5449: the Linux companion to onWindows. The stuck Connect card's "way out" was
+   binary (Windows PowerShell, else a Mac "open Terminal"), and the Mac arm caught a
+   headless Linux server, which has no Terminal app and is reached over SSH. This names
+   the Linux case so that one arm can speak to it. An explicit platform wins; otherwise
+   the served meta answers; an unstamped page is not Linux. */
+function onLinux(platform) {
+  const known = typeof platform === 'string' && platform ? platform : servedPlatform();
+  return known === 'linux';
 }
 function windowsCopyTable() {
   const restartKosmos = 'restart Kosmos by double-clicking Kosmos.exe in your Kosmos folder, or by signing out of Windows and signing back in.';
@@ -59068,7 +59086,7 @@ const TSK_GROUPS = [
   { k: 'decision', l: 'Needs Your Decision', c: 'var(--tsk-decision)',
     /* Not "your go-ahead" (review round 11): a trust wait never reaches the tasks route's roster today (the
        status route builds those rows offline), the same gap projects.js names; the rule covers it if it does. */
-    why: 'The agent on these needs you: a question about its project, or a connection Kosmos could not restore.' },
+    why: 'The agent on these needs you: a question about its project, or a connection Kosmos could not restore. Also a repeating task you review that missed a run.' },
   { k: 'working', l: 'In progress', c: 'var(--tsk-working)',
     why: 'The agent’s own report names these as what it is working on.' },
   { k: 'assigned', l: 'Assigned but not started', c: 'var(--tsk-assigned)',
@@ -60124,6 +60142,15 @@ function tkActPhrase(ev, p) {
     case 'repeat-set': return ev.words ? 'Set to repeat ' + ev.words : 'Set to repeat';
     case 'repeat-cleared': return 'No longer repeats';
     case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.late ? ', late' : '') + (ev.note ? ': ' + ev.note : ''); }
+    /* kosmos#4787 slice 3 (review 5): who reviews it, and a missed run with who was told. */
+    case 'reviewer-set': return ev.person ? 'You will be told if a run is missed' : (nameOf(ev.who) || 'An agent') + ' will be told if a run is missed';
+    case 'reviewer-cleared': return 'Nobody is told now if a run is missed';
+    case 'missed': {
+      const runs = ev.more === true ? 'More than ' + ev.count + ' runs missed' : Number(ev.count) > 1 ? ev.count + ' runs missed' : 'A run was missed';
+      if (ev.person) return runs + '; you review it';
+      const who = nameOf(ev.told) || 'its reviewer';
+      return runs + (ev.reached === false ? '; Kosmos could not reach ' + who : '; ' + who + ' was told');
+    }
     // #768: a free-text message recorded via the composer. `who` is optional (a
     // message typed on the board carries none today; the field is honoured now so
     // an authored message reads correctly when two-way delivery lands later). The
@@ -60652,7 +60679,7 @@ function tkPaintRepeat(p, t) {
   const msg = document.getElementById('tk-repeat-msg');
   const key = p.id + '#' + t.number;
   if (msg && msg.dataset.task !== key) msg.textContent = '';
-  if (done) { if (msg) { msg.textContent = ''; delete msg.dataset.needsTime; } return; }   // review 2: nothing sticks on a finished task
+  if (done) { if (msg) { msg.textContent = ''; delete msg.dataset.needsTime; } tkPaintReviewer(p, t); return; }   // review 2: nothing sticks on a finished task (slice 3 review 6: the reviewer row hides too)
   document.getElementById('tk-repeat-row').hidden = false;
   const every = document.getElementById('tk-repeat-every');
   const stored = JSON.stringify(tkRepeatStoredChoice(t));
@@ -60680,7 +60707,69 @@ function tkPaintRepeat(p, t) {
   if (line.textContent !== said) line.textContent = said;
   line.classList.toggle('missed', !!(t.repeat && tskRepeatMissed(t)));   // slice 2: red while a run is missed
   line.hidden = !said;
+  tkPaintReviewer(p, t);
 }
+/* kosmos#4787 slice 3: the reviewer choice, shown only for a task that repeats (stored, not merely chosen). The options
+   are Nobody, Me and the project's agents; a stored reviewer who has left the project stays listed, so the select never
+   shows a choice that is not stored. Not repainted while a save is in flight, nor under the person's own focus. */
+function tkReviewerOf(t) { return t && t.repeatReviewerPerson === true ? 'me' : (t && t.repeatReviewer) || 'none'; }
+function tkPaintReviewer(p, t, force) {
+  const row = document.getElementById('tk-review-row');
+  const sel = document.getElementById('tk-review-who');
+  const msg = document.getElementById('tk-review-msg');
+  if (!row || !sel) return;
+  const key = p.id + '#' + t.number;
+  if (msg && msg.dataset.task !== key) msg.textContent = '';
+  row.hidden = !t.repeat || TK_ACT === 'reopen';
+  if (row.hidden) { if (msg) msg.textContent = ''; return; }   // review 7: its answer goes with it
+  const stored = tkReviewerOf(t);
+  const agents = (Array.isArray(p.agents) ? p.agents : []).slice();
+  if (stored !== 'none' && stored !== 'me' && !agents.includes(stored)) agents.push(stored);
+  /* Review 12: a reviewer no longer on the project stays listed (so the select shows what is stored) and says so. */
+  const onProject = new Set(Array.isArray(p.agents) ? p.agents : []);
+  const opts = [['none', 'Nobody'], ['me', 'Me']].concat(agents.map((a) => [a, tskAgentName(a) + (onProject.has(a) ? '' : ' (left the project)')]));
+  const sig = key + '|' + JSON.stringify(opts) + '|' + stored;
+  if (sel.dataset.busy === '1' || (!force && document.activeElement === sel && sel.dataset.task === key)) return;
+  if (sel.dataset.sig === sig) return;
+  sel.textContent = '';
+  for (const [v, l] of opts) { const o = document.createElement('option'); o.value = v; o.textContent = l; sel.appendChild(o); }
+  sel.value = stored;
+  sel.dataset.sig = sig;
+  sel.dataset.task = key;
+}
+document.getElementById('tk-review-who').addEventListener('change', async () => {
+  const [p, t] = tkOpenTask();
+  if (!p || !t) return;
+  const sel = document.getElementById('tk-review-who');
+  const msg = document.getElementById('tk-review-msg');
+  const key = p.id + '#' + t.number;
+  const want = sel.value;
+  const before = tkReviewerOf(t);
+  if (want === before) return;
+  sel.dataset.busy = '1';
+  sel.disabled = true;
+  if (msg) { msg.textContent = ''; msg.dataset.task = key; }
+  const still = () => PJ_CURRENT === p.id && String(TK_OPEN) === String(t.number);
+  let said = '';
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + encodeURIComponent(t.number) + '/repeat', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reviewer: want }),
+    });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) said = (out && out.error) || 'we could not change who is told';
+    else { await pjReload(); paintTaskActivity(TK_OPEN); said = 'Saved.'; }
+  } catch { said = 'we could not reach Kosmos to change who is told'; }
+  delete sel.dataset.busy;
+  sel.disabled = false;
+  delete sel.dataset.sig;   // repaint from what is stored now (a refusal puts the stored choice back)
+  const [p2, t2] = tkOpenTask();
+  // Review 1: repaint whatever task is open now (its own answer, under the person's focus; or the task they moved to).
+  if (p2 && t2) tkPaintReviewer(p2, t2, true);
+  if (still()) {
+    if (msg) msg.textContent = said;
+    sel.focus();   // review 1: disabling it while saving dropped focus; it goes back, as the Repeats Save does
+  }
+});
 function tkOpenTask() {
   const p = pjById(PJ_CURRENT);
   if (!p || TK_OPEN === null) return [null, null];
@@ -73308,11 +73397,20 @@ function frPaintConnect(st) {
         + '<div class="fr-cmd-row"><pre class="fr-cmd">' + esc(windowsSigninLine) + '</pre>'
         + '<button class="btn-quiet fr-copy" type="button" data-copy-command>' + windowsCopy('copyLabel') + '</button></div>'
         + windowsCopy('claudeSigninHatchEnd')
-      : ((st && st.canRunClaude && !onWindows(st && st.platform))
-        ? '<details class="fr-hatch"><summary>Already use Terminal?</summary>'
-          + 'You can sign in to Claude outside Kosmos: open Terminal, type <b>claude</b>, '
-          + 'and follow its sign-in. Then come back and press Try again.</details>'
-        : ''))
+      /* #5449: Linux first. A headless Linux server reached from a browser has no Terminal
+         app to open; the way in is a shell on the server itself (over SSH), then `claude`.
+         Linux is matched before the Mac `!onWindows` arm below, which it would otherwise
+         fall into. Mac and Windows copy are unchanged. */
+      : ((st && st.canRunClaude && onLinux(st && st.platform))
+        ? '<details class="fr-hatch"><summary>Have a shell on the server?</summary>'
+          + 'You can sign in to Claude on the computer running Kosmos. Open a terminal there '
+          + '(on a headless server, connect over SSH), type <b>claude</b>, and follow its sign-in. '
+          + 'Then come back and press Try again.</details>'
+        : ((st && st.canRunClaude && !onWindows(st && st.platform))
+          ? '<details class="fr-hatch"><summary>Already use Terminal?</summary>'
+            + 'You can sign in to Claude outside Kosmos: open Terminal, type <b>claude</b>, '
+            + 'and follow its sign-in. Then come back and press Try again.</details>'
+          : '')))
     + '</div>';
     frActions({ label: 'Try again', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(frStepAfter(5)) });
     return;
