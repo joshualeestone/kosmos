@@ -243,3 +243,51 @@ test('#5460 review 2: the person switching OFF closes an open window at once', a
   cs.endOnPeriodNow();                                 // what the OFF route calls
   assert.equal(typeof readState().endedUnreadable[0].until, 'string');
 });
+
+test('#5460 review 3: a period a post route starts closes the window, so a later OFF still reads "switched off"', async () => {
+  fresh();
+  position = { on: true, ok: true };
+  startPeriod();
+  await tick();
+  position = { on: false, ok: false };
+  await cs.sweep();                                    // window open
+  await tick();
+  position = { on: true, ok: true };
+  assert.equal(cs.willSend('dee').sends, true, 'a route reads it ON and starts a period, before any sweep');
+  const start = readState().since;
+  assert.equal(readState().endedUnreadable[0].until, start, 'the window ends where the new period starts');
+  await tick();
+  post('dee', 'Made in the new period');
+  await tick();
+  position = { on: false, ok: true };
+  cs.endOnPeriodNow();                                 // the person's OFF
+  assert.equal(stateOfTitle('dee', 'Made in the new period'), 'before_on', 'the window reached into the new period');
+});
+
+test('#5460 review 3: a brief failure soon after one that recovered is still retried', () => {
+  fresh();
+  fs.mkdirSync(path.dirname(sw.FILE), { recursive: true });
+  fs.writeFileSync(sw.FILE, JSON.stringify({ on: true }) + '\n');
+  const real = fs.readFileSync;
+  const plan = ['EBUSY', null, 'EBUSY', null];          // fail, recover; fail again at once, recover
+  let calls = 0;
+  fs.readFileSync = function (file, ...rest) {
+    if (file !== sw.FILE) return real.call(this, file, ...rest);
+    const e = plan[calls++];
+    if (e) { const err = new Error(e); err.code = e; throw err; }
+    return real.call(this, file, ...rest);
+  };
+  sw._setPause(() => {});                              // once, before both reads: nothing resets the gap between them
+  try {
+    assert.deepEqual(sw.read(), { on: true, ok: true });
+    assert.deepEqual(sw.read(), { on: true, ok: true }, 'a recovered round started the gap, so this failure was not retried');
+    assert.equal(calls, 4);
+    // CONTROL: a round that FAILED does start the gap.
+    fs.writeFileSync(sw.FILE, '{"on": t');
+    sw.read();                                         // fails every read: sets the gap
+    fs.writeFileSync(sw.FILE, '{"on": tr');            // changed, so not the remembered failure
+    calls = 0;
+    sw.read();
+    assert.equal(calls, 1, 'CONTROL: inside the gap of a failed round there is no second round');
+  } finally { fs.readFileSync = real; sw._setPause(null); }
+});

@@ -40,15 +40,15 @@ function read() {
   if (failureKey(r) === lastFailed) return { on: r.on, ok: r.ok };
   // Review 2: a file that keeps changing (a slow writer) is a new failure every time, so retry rounds are spaced at
   // least RETRY_GAP_MS apart: a reader never waits on more than one round in that span.
-  const now = Date.now();
-  if (now - lastRound < RETRY_GAP_MS) return { on: r.on, ok: r.ok };
-  lastRound = now;
+  // Review 3: only a round that ended in failure starts the gap, so a brief failure after one that recovered is retried.
+  if (Date.now() - lastRound < RETRY_GAP_MS) return { on: r.on, ok: r.ok };
   for (let attempt = 0; attempt < RETRIES; attempt++) {
     pause(RETRY_MS);
     r = readOnce();
     if (r.ok) { lastFailed = null; return { on: r.on, ok: true }; }
     if (!r.retry) break;
   }
+  lastRound = Date.now();
   lastFailed = failureKey(r);
   return { on: r.on, ok: r.ok };
 }
@@ -64,7 +64,8 @@ function failureKey(r) {
 /* #5460: an unreadable switch ends the ON period for every agent (communitysend's sweep), so one brief failure must not
    count. A read error that usually passes (a Windows scanner holding the file: EBUSY, EPERM, EACCES; too many open
    files; EIO; EAGAIN) and a file that does not parse (caught mid-write by a writer that is not ours) are read again,
-   RETRIES more times RETRY_MS apart, before the switch reads as unreadable. Other errors are not retried. */
+   RETRIES more times RETRY_MS apart, before the switch reads as unreadable. Other errors are not retried. The pause is
+   synchronous, so it holds the whole board process (every request), not only this reader: hence the bounds below. */
 const RETRIES = 3;
 const RETRY_MS = 50;
 const TRANSIENT = new Set(['EBUSY', 'EPERM', 'EACCES', 'EMFILE', 'ENFILE', 'EIO', 'EAGAIN']);
