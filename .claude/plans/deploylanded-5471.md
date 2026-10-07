@@ -10,11 +10,15 @@ did not run, and the operator had to verify by hand while resisting a revert or 
 
 ## Decided
 - **The served host decides, not the CLI.** On a non-zero exit, step 8 runs `site_deploy_landed`
-  (tools/lib/site-deploy.sh) around the SAME verifier step 9 uses (tools/verify-served.sh with this cut's
-  pointer and installer). Only this deploy can make the channel pointer name `$V`, so a pass means this
-  deploy landed. Default 24 checks, 15 s apart (6 min), overridable via KOSMOS_DEPLOY_LANDED_TRIES / _WAIT_S.
+  (tools/lib/site-deploy.sh) around `_deploy_landed_check`, which needs BOTH:
+  1. `site_deploy_serves_this_build`: the served kosmos-$V-arm64.tar.gz.sha256 equals the one this cut
+     wrote. Only this cut's upload can serve it; an earlier attempt at the same version passes a pointer
+     check but not this (review 1). Checked first, because it is one small fetch.
+  2. step 9's verifier, tools/verify-served.sh, with this cut's pointer and installer.
+  Default 24 checks, 15 s apart (at least 6 min, plus each check's own fetches), overridable via
+  KOSMOS_DEPLOY_LANDED_TRIES / _WAIT_S; a non-positive or non-numeric count is refused.
 - **Landed:** say so, and continue as a successful deploy (DEPLOYED=1, steps 9+ run as normal).
-- **Not landed:** exit with the CLI's own code. DEPLOYED stays unset, so the trap restores the site and
+- **Not seen landing:** exit with the CLI's own code, and say it may still land and how to measure before any revert or re-cut (review 1). DEPLOYED stays unset, so the trap restores the site and
   removes the never-served tarball, exactly as before.
 - **CLI success:** unchanged; step 9 verifies as it always did.
 
@@ -25,8 +29,9 @@ did not run, and the operator had to verify by hand while resisting a revert or 
 - Retrying `vercel deploy`: a second production deploy of the same export, racing the first.
 
 ## Weakest premise
-That a pointer naming `$V` can only come from this deploy. A deploy from another checkout of the same
-version could also produce it; release.sh's version uniqueness and the cut claim make that a non-case.
+That a build which lands after the last check (beyond about 6 min) is rare. It is not handled automatically:
+the cut fails as before, and its message tells the operator to measure before acting. Raising the
+defaults trades a slower failure report on a real failure.
 
 ## Tests
 `tools/test-deploy-landed-5471.sh`, in test:shell: the helper (passes on the 3rd check, never, at once),

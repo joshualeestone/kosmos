@@ -1596,17 +1596,22 @@ fi
 _vdep_rc=0
 ( cd "$_site_export" && vercel deploy --prod --yes ) || _vdep_rc=$?
 if [ "$_vdep_rc" != 0 ]; then
-  # #5471: the CLI's own failure is not the answer; what is served is. Ask the same verifier
-  # step 9 uses (this cut's pointer naming $V, and every artifact a user receives), for up to
-  # KOSMOS_DEPLOY_LANDED_TRIES x KOSMOS_DEPLOY_LANDED_WAIT_S (default 24 x 15 s = 6 min).
-  # DEPLOYED stays unset until it passes, so a deploy that never landed still gets the trap's
-  # restore and its never-served tarball cleanup, exactly as before.
+  # #5471: the CLI's own failure is not the answer; what is served is. Landed means BOTH: the served
+  # kosmos-$V-arm64.tar.gz.sha256 is the one this cut wrote (only this cut's upload can serve it, where an
+  # earlier attempt at $V would pass a pointer check alone), and step 9's verifier passes (this cut's
+  # pointer names $V, and every artifact a user receives checks out). Asked up to
+  # KOSMOS_DEPLOY_LANDED_TRIES times, KOSMOS_DEPLOY_LANDED_WAIT_S apart (default 24 x 15 s: at least
+  # 6 min, plus each check's own fetches). DEPLOYED stays unset until it passes, so a deploy that is
+  # not seen landing still gets the trap's restore and tarball cleanup, exactly as before.
   echo "   vercel deploy exited $_vdep_rc; checking whether the deploy landed anyway before calling it a failure (#5471)"
-  if site_deploy_landed "${KOSMOS_DEPLOY_LANDED_TRIES:-24}" "${KOSMOS_DEPLOY_LANDED_WAIT_S:-15}" \
-       env KOSMOS_VERIFY_POINTER="$POINTER_FILE" KOSMOS_VERIFY_SETUP="$SETUP_FILE" SITE="$SITE" REPO="$REPO" bash "$REPO/tools/verify-served.sh"; then
-    echo "   THE DEPLOY LANDED although vercel deploy exited $_vdep_rc: the served host carries $V. Continuing as a successful deploy (#5471)."
+  _deploy_landed_check() {
+    site_deploy_serves_this_build "${HOST:-https://installkosmos.com}" "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256" "kosmos-$V-arm64.tar.gz" \
+      && env KOSMOS_VERIFY_POINTER="$POINTER_FILE" KOSMOS_VERIFY_SETUP="$SETUP_FILE" SITE="$SITE" REPO="$REPO" bash "$REPO/tools/verify-served.sh"
+  }
+  if site_deploy_landed "${KOSMOS_DEPLOY_LANDED_TRIES:-24}" "${KOSMOS_DEPLOY_LANDED_WAIT_S:-15}" _deploy_landed_check; then
+    echo "   THE DEPLOY LANDED although vercel deploy exited $_vdep_rc: the served host carries this cut's $V build. Continuing as a successful deploy (#5471)."
   else
-    echo "vercel deploy exited $_vdep_rc and $V was never served; nothing this cut built is live"
+    echo "vercel deploy exited $_vdep_rc and this cut's $V build was not seen served after ${KOSMOS_DEPLOY_LANDED_TRIES:-24} checks. It may still land: before any revert or re-cut, read the served dist/$POINTER_FILE and re-hash dist/kosmos-$V-arm64.tar.gz against it."
     exit "$_vdep_rc"
   fi
 fi

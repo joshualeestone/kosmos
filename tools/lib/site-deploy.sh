@@ -235,9 +235,23 @@ _site_left_behind() {
 site_deploy_landed() {   # <tries> <wait_s> <verify command...>
   local tries="$1" wait_s="$2" i
   shift 2
+  case "$tries" in ''|*[!0-9]*|0) echo "   site_deploy_landed: tries must be a positive whole number, got '$tries'" >&2; return 1 ;; esac
+  case "$wait_s" in ''|*[!0-9]*) echo "   site_deploy_landed: wait_s must be a whole number of seconds, got '$wait_s'" >&2; return 1 ;; esac
   for i in $(seq 1 "$tries"); do
     if "$@"; then return 0; fi
     [ "$i" -lt "$tries" ] && { echo "   (#5471: not served yet, check $i of $tries; waiting ${wait_s}s)"; sleep "$wait_s"; }
   done
   return 1
+}
+
+# #5471: is the served <name> THIS cut's build? A pointer naming the version proves only that SOME deploy of
+# it landed; an earlier attempt at the same version would pass that too. The served <name>.sha256 equal to
+# the one this cut wrote beside its own tarball (<local .sha256>) can only come from this cut's upload.
+# Returns 0 only when both are read and equal; an unreadable side is "not this build".
+site_deploy_serves_this_build() {   # <host> <local .sha256 file> <name>
+  local host="$1" local_file="$2" name="$3" mine served
+  mine="$(awk 'NR==1 {print $1}' "$local_file" 2>/dev/null)"
+  [ -n "$mine" ] || return 1
+  served="$(curl -fsS -m 30 -H 'Cache-Control: no-cache' "$host/dist/$name.sha256" 2>/dev/null | awk 'NR==1 {print $1}')"
+  [ -n "$served" ] && [ "$served" = "$mine" ]
 }
