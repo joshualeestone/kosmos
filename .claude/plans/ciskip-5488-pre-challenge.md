@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: ciskip-5488
-diff_hash: 628ad5542516e3ed1e7a0272a22d5f6727d68e4d0a98cc3852aa4ceb4f728d68
-validation: pending (this PR's GitHub CI, which runs the full node and shell suites on macOS, is the validation; the Mortals queue is jammed, two sibling runs gave up at 09:16. Run by hand on this head: tools/test-ci-plans-only-reuse-5488.sh 0 failures (24 decision arms, YAML wiring, the real test and decide step bodies), tools.shell-shard-4317.test.js 12/12, ci.main-runs-finish-4021.test.js pass, tools/test-ci-gate-armed-2518.sh pass. Note: this PR adds the decider, so origin/main has no copy and its own CI always runs the suite, by design)
+diff_hash: ea6f8ab8ad8f2fd94afc51e6e2165745e144ee0dfe39955956cffb21644f2fe9
+validation: passed (FULL LOCAL SUITE on Agent1s at d0fde2308, the head rebased onto main: tools/run-tests.sh rc=0, node 16503 tests 0 fail 0 cancelled, then the whole shell part ran (its last test is this PR's test-ci-plans-only-reuse-5488: 0 failures), 16:58-17:27 CDT 10-07, run as a queued-heavy turn. GitHub's hosted macOS jobs for this PR sat QUEUED from 10:18 CDT, the backlog this card is about; ubuntu scope, linux-setup and windows checks were green. Rebased again onto main: package.json union only (one test:shell entry), code unchanged, focused tests re-run: reuse 35 ok, shell-shard + main-runs-finish 24/24, ci-gate-armed pass)
 subdir_audit: passed
-timestamp: 2026-10-07T15:20:00Z
+timestamp: 2026-10-07T22:36:00Z
 iterations: 6
 converged: true
 ---
