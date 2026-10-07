@@ -117,8 +117,8 @@ function stageZip() {
 /* The runner's own environment with no policy variable in it, so every arm's policy is the one it states. And no
    PSModulePath: the CI step runs under PowerShell 7, whose module path, inherited, stops Windows PowerShell 5.1 loading
    Microsoft.PowerShell.Security (measured on the runner 10-06: Set-ExecutionPolicy "could not be loaded"). With none,
-   5.1 uses its own default, which is what a board started by Explorer or its logon task passes on. NOT MODELLED: a
-   board started from a PowerShell 7 terminal, which would pass pwsh 7's path to its agents (#5385). */
+   5.1 uses its own default, which is what a board started by Explorer or its logon task passes on. A board started from
+   a PowerShell 7 terminal would pass pwsh 7's path on; childEnv now drops it (#5385), measured by the last arm below. */
 function baseEnv() {
   const env = { ...process.env };
   for (const k of [...keysOf(env, 'PSExecutionPolicyPreference'), ...keysOf(env, 'PSModulePath')]) delete env[k];
@@ -183,5 +183,29 @@ test('#5358 Windows: under a Restricted policy, kosmos.ps1 is found on PATH and 
         process.stderr.write('#5358: COULD NOT RESTORE the CurrentUser script policy to ' + was + '; later reds in this job may be this.\n' + said(back) + '\n');
         if (!failed) assert.fail('could not restore the CurrentUser script policy: ' + said(back));
       }
+    }
+  });
+
+test('#5385 Windows: a board started from PowerShell 7 does not break its agents\' 5.1 PowerShell (childEnv drops PSModulePath)',
+  { timeout: 120000, skip: !onWindows ? 'Windows only' : !onCi ? 'needs the CI step\'s PowerShell 7 module path' : false }, () => {
+    // The CI step runs under PowerShell 7, so this process carries pwsh 7's PSModulePath, exactly what a board started
+    // from a pwsh 7 terminal would hand its agents.
+    const inherited = keysOf(process.env, 'PSModulePath');
+    assert.ok(inherited.length > 0, 'control: this step passed no PSModulePath, so the arm cannot show the break (is the step still PowerShell 7?)');
+    const ps = (env, command) => run(POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', command], env);
+    const probe = 'Get-ExecutionPolicy -List | Out-String';
+    // CONTROL: an agent env that KEEPS the inherited path (what childEnv did before #5385) cannot load the Security module.
+    const kept = { ...launcher.childEnv({ ...process.env }, null, null, null, 'codex') };
+    for (const k of inherited) kept[k] = process.env[k];
+    const broken = ps(kept, probe);
+    assert.match(String(broken.stderr) + String(broken.stdout), /could not be loaded|is not recognized/i,
+      'control: 5.1 with pwsh 7\'s module path loaded the Security module anyway, so this arm proves nothing: ' + said(broken));
+    // FIX: what childEnv gives every runner now.
+    for (const runner of ['claude', 'codex', 'gemini', 'grok', 'antigravity']) {
+      const env = launcher.childEnv({ ...process.env }, null, null, null, runner);
+      assert.equal(keysOf(env, 'PSModulePath').length, 0, runner + ': childEnv kept a PSModulePath');
+      const ok = ps(env, probe);
+      assert.equal(ok.status, 0, runner + ': 5.1 could not list its execution policies: ' + said(ok));
+      assert.match(String(ok.stdout), /MachinePolicy/, runner + ': no policy list: ' + said(ok));
     }
   });
