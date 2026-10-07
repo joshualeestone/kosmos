@@ -63,6 +63,11 @@ Plus: an explicit mode is still exact over the umask; each writer still writes t
 missing mode throws without `umaskDefault`; in a
 config folder only the written file's own dead temps are reaped (fails without `ownTempsOnly`).
 
+## Known, not new
+On Windows `stat` reports a read-only file as 0444, so an existing read-only settings file gives a
+read-only temp, and if its rename fails the temp's unlink can fail with EPERM and leave it behind. Main's
+pid-named temp had the same mode, so this is not new; the Windows job does not exercise a read-only file.
+
 ## Weakest premises
 1. That nothing relied on the old `<file>.kosmos.<pid>.new` temp name (a cleanup or an ignore rule). A
    grep of engine/, install/ and tools/ found no reader of that name besides these three writers.
