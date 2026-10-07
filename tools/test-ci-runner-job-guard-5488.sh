@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # #5488 part b: tools/ci-runner-job-guard.sh, the self-hosted Mac's job-started hook, allows only this repo's
-# own code and refuses everything else, failing closed. Real JSON payloads, read by the real guard, at the
-# runner's fixed event path (KOSMOS_CI_EVENT_FILE points it into a scratch dir here).
+# own code and refuses everything else, failing closed. Real JSON payloads, read by the real guard, installed
+# in a scratch home laid out as on the Mac (<home>/.kosmos-ci/job-guard.sh beside <home>/actions-runner/_work),
+# because the guard derives the runner's event path from where it is installed, never from a variable.
 set -u
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 GUARD="$HERE/ci-runner-job-guard.sh"
@@ -12,13 +13,14 @@ fail() { printf 'FAIL %s\n' "$1"; fails=$((fails + 1)); }
 
 if [ ! -x /usr/bin/plutil ]; then echo "skip test-ci-runner-job-guard-5488: no /usr/bin/plutil (not macOS; the guard runs only on the Mac)"; exit 0; fi
 
-mkdir -p "$T/_temp/_github_workflow" "$T/elsewhere"
-EV="$T/_temp/_github_workflow/event.json"     # the runner's own file
+mkdir -p "$T/home/.kosmos-ci" "$T/home/actions-runner/_work/_temp/_github_workflow" "$T/elsewhere"
+cp "$GUARD" "$T/home/.kosmos-ci/job-guard.sh"; GUARD="$T/home/.kosmos-ci/job-guard.sh"
+EV="$T/home/actions-runner/_work/_temp/_github_workflow/event.json"     # the runner's own file
 put() { printf '%s' "$1" > "$EV"; }           # what the runner wrote for this job
 REPOJ='"repository":{"full_name":"owner/kosmos"}'
 run() { # <event> [repo] [payload path]
-  GITHUB_EVENT_NAME="$1" GITHUB_REPOSITORY="${2-owner/kosmos}" GITHUB_EVENT_PATH="${3-$EV}" KOSMOS_CI_EVENT_FILE="$EV" \
-    bash "$GUARD" >/dev/null 2>&1
+  GITHUB_EVENT_NAME="$1" GITHUB_REPOSITORY="${2-owner/kosmos}" GITHUB_EVENT_PATH="${3-$EV}" HOME="$T/elsewhere" \
+    "$GUARD" >/dev/null 2>&1
 }
 allow() { if run "${@:2}"; then pass "allowed: $1"; else fail "must allow: $1"; fi; }
 deny() { if run "${@:2}"; then fail "must REFUSE: $1"; else pass "refused: $1"; fi; }
@@ -49,7 +51,9 @@ deny "a payload that is not JSON" push
 printf '%s' "{$REPOJ}" > "$T/elsewhere/event.json"
 put "{$REPOJ}"
 deny "GITHUB_EVENT_PATH pointing at another (even honest) file" push owner/kosmos "$T/elsewhere/event.json"
-deny "a missing payload file" push owner/kosmos "$T/_temp/_github_workflow/nope.json"
+deny "a missing payload file" push owner/kosmos "$T/home/actions-runner/_work/_temp/_github_workflow/nope.json"
+ln -s "$T/elsewhere/event.json" "$T/home/actions-runner/_work/_temp/_github_workflow/link.json"
+deny "a symlink in the runner's folder pointing at another file" push owner/kosmos "$T/home/actions-runner/_work/_temp/_github_workflow/link.json"
 deny "no payload path" push owner/kosmos ""
 
 if [ "$fails" -eq 0 ]; then echo "test-ci-runner-job-guard-5488: 0 failures"; exit 0; fi
