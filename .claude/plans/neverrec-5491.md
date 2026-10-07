@@ -13,3 +13,5 @@ Also (review 1): the line under the card about changing the model ("Changing the
 Weakest premise: the explainer is always shown for a never-recorded agent (it is set from the same flag, a.neverRecorded), so hiding the block never leaves the person with no reason at all.
 
 Checks: web.made-before.test.js (pins: the block is hidden for neverRec; the old refusal is absent; the "no control to re-record" sentence is now on one surface). render-made-before.js: Rick and the stopped agent show no model block and the way in once; CONTROL Bob (recorded) shows his block after Rick. With main's page the three new arms go red and the control stays green.
+
+Review 3 found web.runs-on-990.test.js went red: it took the FIRST `go.disabled =` in paintModelPicker, which became this branch's literal `go.disabled = true`. Fixed in the test, not by moving code: it now checks EVERY computed gate in the function compares against the current model (a literal true cannot arm the button), which is stronger; proven red by removing the compare from the Claude gate. Every web.*.test.js run: 2522 pass, 0 fail.

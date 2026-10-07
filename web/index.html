@@ -48680,9 +48680,8 @@ async function paintModelPicker(a) {
      write and cannot rewrite, and the engine refuses it — so the control says so
      by being unavailable rather than by failing after a click. */
   const ours = !!(a && a.isNamedOurs);
-  /* #149/#150: an agent with no launch file has nothing for setModel to
-     rewrite, and the engine would refuse the click. The control says so
-     before the click, in the state's own words, not the stranger's. */
+  /* #149/#150: an agent with no launch file has nothing for setModel to rewrite. Since #5491 that agent returns at
+     the top and never reaches here; the neverRecorded clause stays only as a backstop if that return is ever loosened. */
   const usable = ours && !(a && a.neverRecorded === true);
   sel.disabled = !usable;
   /* kosmos#990: the SAME compare as the change handler, and it has to be here

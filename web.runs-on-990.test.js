@@ -40,10 +40,14 @@ function fnBody(startsWith) {
 
 test('the paint path cannot arm Switch & Restart on arrival', () => {
   const body = fnBody('async function paintModelPicker(a) {');
-  const gate = (body.match(/go\.disabled = [^\n;]+/) || [])[0];
-  assert.ok(gate, 'paintModelPicker no longer gates the button at all');
-  assert.match(gate, /dataset\.current/,
-    'the paint gate does not compare against the current model, so opening an agent arms Switch & Restart: ' + gate);
+  /* Every COMPUTED gate in the function, not just the first: a literal `go.disabled = true` cannot arm the button
+     (#5491 puts one first, for a never-recorded agent), and taking only the first match would then check nothing. */
+  const gates = (body.match(/go\.disabled = [^\n;]+/g) || []).filter((g) => !/^go\.disabled = true$/.test(g));
+  assert.ok(gates.length > 0, 'paintModelPicker no longer gates the button at all');
+  for (const gate of gates) {
+    assert.match(gate, /dataset\.current/,
+      'a paint gate does not compare against the current model, so opening an agent arms Switch & Restart: ' + gate);
+  }
 });
 
 test('the change path cannot arm Switch & Restart on the model already running', () => {
