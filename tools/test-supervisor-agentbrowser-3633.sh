@@ -96,7 +96,8 @@ else
   bad "installed: the --mcp-config file is missing or wrong: $cfg"
 fi
 nxt="$(grep -A2 -x -- '--mcp-config' "$A" | sed -n 3p)"
-if [ "$nxt" = "--dangerously-skip-permissions" ]; then ok "installed: a flag follows the config path, so the variadic list ends there"; else bad "installed: after the config path came '$nxt'"; fi
+# #5406: the next word may be --settings (the permission file) or the autonomy flag; any flag ends the list.
+case "$nxt" in --*) ok "installed: a flag ($nxt) follows the config path, so the variadic list ends there" ;; *) bad "installed: after the config path came '$nxt'" ;; esac
 
 # --- Arm 2: not installed -> no flag ------------------------------------------
 SB2="$(mktemp -d)"; make_sandbox "$SB2"
@@ -128,7 +129,7 @@ SB5="$(mktemp -d)"; make_sandbox "$SB5"
 fake_install "$SB5" || bad "arm 5: the fake install failed"
 MODEL_ARG=sonnet run_claude "$SB5"
 A="$SB5/new-session.args"
-got="$(grep -A4 -x -- '--mcp-config' "$A" | tr '\n' ' ')"
+got="$(grep -A6 -x -- '--mcp-config' "$A" | tr '\n' ' ')"
 case "$got" in
   "--mcp-config /"*" --dangerously-skip-permissions --model sonnet "*) ok "with a model: --mcp-config <file> --dangerously-skip-permissions --model sonnet" ;;
   *) bad "with a model: the launch was: $(tr '\n' ' ' < "$A" 2>/dev/null)" ;;
