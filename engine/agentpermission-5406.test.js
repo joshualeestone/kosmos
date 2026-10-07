@@ -39,12 +39,16 @@ test('#5406 the hook stays silent for a protected place (.claude, .claude.json, 
   const r = (tool, input) => hook.decide(JSON.stringify({ hook_event_name: 'PermissionRequest', tool_name: tool, tool_input: input }));
   for (const [tool, input] of [['Write', { file_path: '/p/.claude/settings.json' }], ['Edit', { file_path: '/Users/x/.claude.json' }],
     ['Bash', { command: 'cat x > .git/hooks/pre-commit' }], ['Bash', { command: 'echo y >> ~/.claude/settings.json' }],
-    ['NotebookEdit', { notebook_path: '/p/.claude/n.ipynb' }]]) {
+    ['NotebookEdit', { notebook_path: '/p/.claude/n.ipynb' }],
+    ['Write', { file_path: 'C:\\proj\\.claude\\settings.json' }], ['Edit', { file_path: 'C:\\proj\\.git\\config' }],
+    ['Write', { file_path: '/p/.CLAUDE/settings.json' }], ['Bash', { command: 'cat>.git/hooks/x' }],
+    ['Bash', { command: 'ls .claude;echo' }], ['Bash', { command: 'cd .git&&ls' }]]) {
     assert.equal(r(tool, input), null, tool + ' ' + JSON.stringify(input));
   }
   // CONTROL: names that only contain the words are not protected places.
   for (const [tool, input] of [['Bash', { command: 'rm photo.jpg' }], ['Write', { file_path: '/p/claude-notes.md' }],
-    ['Bash', { command: 'git status' }], ['Write', { file_path: '/p/my.github/x' }], ['ExitPlanMode', {}]]) {
+    ['Bash', { command: 'git status' }], ['Write', { file_path: '/p/my.github/x' }], ['ExitPlanMode', {}],
+    ['Bash', { command: 'ls .github' }], ['Write', { file_path: '/p/repo.git/readme' }], ['Write', { file_path: '/p/.claude-notes' }]]) {
     assert.ok(r(tool, input), tool + ' ' + JSON.stringify(input));
   }
 });
@@ -81,7 +85,7 @@ test('#5406 ensureSettings writes the file under Kosmos\'s own data folder, once
   const first = fs.statSync(p).mtimeMs;
   assert.equal(ap.ensureSettings(), p);
   assert.equal(fs.statSync(p).mtimeMs, first, 'unchanged content is not rewritten');
-  assert.equal((fs.statSync(p).mode & 0o777).toString(8), '600');
+  if (process.platform !== 'win32') assert.equal((fs.statSync(p).mode & 0o777).toString(8), '600');   // Windows has no POSIX modes
   assert.equal(ap.ensureSettings({ platform: 'darwin', node: '/odd"path/node' }), null, 'refused paths: none (the agent launches as before)');
 });
 
