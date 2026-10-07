@@ -50,6 +50,8 @@ LIB_CHECKOUT="${QUEUED_HEAVY_LIB:-$HOME/work/kosmos-bc-main-4610}"
 # clone, or a run with QUEUED_HEAVY_LIB set, can still bring another lib generation; the line below names the folder
 # and its commit so that is visible. A copy outside any repo (the installed one under ~/.cache), a bare-repo worktree
 # or a submodule has no such checkout and still exits 3 as before, as does a QUEUED_HEAVY_LIB that is set and wrong.
+# The main checkout is not guaranteed to be on main, so the line names its branch too. --path-format needs git 2.31 or
+# newer; an older git skips the fallback and keeps the old exit 3 (every fleet Mac runs a newer one).
 # heavy-gate.sh's BUSY hint looks for this marker before it names a main checkout's copy: #5446-lib-fallback
 QH_LIB_FALLBACK=""
 QH_MAIN_TRIED=""
@@ -57,7 +59,7 @@ if [ -z "${QUEUED_HEAVY_LIB:-}" ] && [ ! -f "$LIB_CHECKOUT/tools/lib/cut-guard.s
   _qh_common="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR git -C "$(dirname "$0")" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || _qh_common=""
   case "$_qh_common" in
     */.git) if [ -f "${_qh_common%/.git}/tools/lib/cut-guard.sh" ]; then
-              echo "QUEUED-HEAVY: $LIB_CHECKOUT has no tools/lib/cut-guard.sh; using this repo's main checkout ${_qh_common%/.git} at $(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR git -C "${_qh_common%/.git}" rev-parse --short HEAD 2>/dev/null || echo '?') for the queue's guards (set QUEUED_HEAVY_LIB to choose)" >&2
+              echo "QUEUED-HEAVY: $LIB_CHECKOUT has no tools/lib/cut-guard.sh; using this repo's main checkout ${_qh_common%/.git} at $(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR git -C "${_qh_common%/.git}" rev-parse --short HEAD 2>/dev/null || echo '?') on $(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR git -C "${_qh_common%/.git}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?') for the queue's guards (set QUEUED_HEAVY_LIB to choose)" >&2
               LIB_CHECKOUT="${_qh_common%/.git}"; QH_LIB_FALLBACK=1
             else QH_MAIN_TRIED="${_qh_common%/.git}"
             fi ;;

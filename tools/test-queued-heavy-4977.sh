@@ -210,7 +210,7 @@ qh_repo() {   # qh_repo <dir> <with lib: 1|0>
 }
 qh_repo $S/fbrepo 1; qh_repo $S/fbnolib 0
 o=$(env -u QUEUED_HEAVY_LIB HOME=$S/fbrepo/h KOSMOS_RUN_MARKER_DIR=$S/mfb perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/fbrepo/tools/queued-heavy.sh "fallback" touch $S/fb-ran 2>&1); rc=$?
-ok "#5446: no QUEUED_HEAVY_LIB and no default folder: the repo's main checkout supplies the guards, it says so, and runs" '[ "$rc" = 0 ] && [ -e $S/fb-ran ] && [[ "$o" =~ main\ checkout\ [^\ ]*/fbrepo\ at\ [0-9a-f]{7,}\ for\ the\ queue ]] && [[ "$o" != *"No such file"* ]]'
+ok "#5446: no QUEUED_HEAVY_LIB and no default folder: the repo's main checkout supplies the guards, it says so, and runs" '[ "$rc" = 0 ] && [ -e $S/fb-ran ] && [[ "$o" =~ main\ checkout\ [^\ ]*/fbrepo\ at\ [0-9a-f]{7,}\ on\ [^\ ]+\ for\ the\ queue ]] && [[ "$o" != *"No such file"* ]]'
 o=$(env -u QUEUED_HEAVY_LIB HOME=$S/fbnolib/h KOSMOS_RUN_MARKER_DIR=$S/mfbn perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/fbnolib/tools/queued-heavy.sh "fallback-nolib" touch $S/fbn-ran 2>&1); rc=$?
 ok "#5446 CONTROL: the same with no cut-guard.sh in that checkout still exits 3 and runs nothing" '[ "$rc" = 3 ] && [ ! -e $S/fbn-ran ] && [[ "$o" == *"could not load cut-guard.sh"* ]]'
 qh_repo $S/fbold 1; echo 'unset -f kosmos_release_machine' >> $S/fbold/tools/lib/cut-guard.sh
