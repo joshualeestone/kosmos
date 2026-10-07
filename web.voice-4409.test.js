@@ -408,3 +408,38 @@ test('#4409 slice 3 review 25: on the Mac, a press while Finishing is one more s
   assert.equal(posted.at(-1).op, 'stop', 'a press while Finishing on the Mac sent ' + JSON.stringify(posted.at(-1)) + ', which throws away the final words');
   assert.equal(h.VOICE.btn, btn, 'the Mac session ended at once instead of waiting for its final words');
 });
+
+test('#5481: on the Mac app a denied mic offers ONE Settings button; the click asks for that pane; "allowed" starts the same mic', () => {
+  const { h, posted, mkBtn, mkBox, doc } = voiceHarness();
+  const made = [];
+  doc.createElement = () => ({ className: '', textContent: '', type: '', handlers: {}, addEventListener(e, f) { this.handlers[e] = f; }, remove() { const i = made.indexOf(this); if (i >= 0) made.splice(i, 1); } });
+  doc.querySelectorAll = (sel) => (sel === '.voice-settings' ? made.slice() : []);
+  doc.body = { contains: () => true };
+  doc.boxes['d-say-msg'] = { id: 'd-say-msg', textContent: '', insertAdjacentElement(_where, el) { made.push(el); } };
+  doc.boxes['d-say'] = mkBox('d-say');
+  const btn = mkBtn(); btn.attrs['data-voice-for'] = 'd-say'; btn.attrs['data-voice-msg'] = 'd-say-msg';
+  h.set(CARD('april'), null);
+  h.voiceToggle(btn);
+  const first = posted.at(-1);
+  assert.equal(first.op, 'start', 'fixture: the mic did not start');
+  h.voiceOnEvent({ kind: 'error', reason: 'speech-denied', id: first.id });
+  h.voiceOnEvent({ kind: 'stopped', id: first.id });
+  assert.equal(made.length, 1, 'not exactly one Settings button');
+  assert.equal(made[0].textContent, 'Turn on in Settings');
+  made[0].handlers.click();
+  const ask = posted.at(-1);
+  assert.deepEqual([ask.op, ask.pane], ['settings', 'speech'], 'the click did not ask for the Speech Recognition pane');
+  h.voiceOnEvent({ kind: 'allowed', id: 'not-this-visit' });
+  assert.equal(made.length, 1, 'an "allowed" for another visit took the button away');
+  h.voiceOnEvent({ kind: 'allowed', id: ask.id });
+  assert.equal(made.length, 0, 'the button stayed after both were allowed');
+  assert.equal(posted.at(-1).op, 'start', 'the mic did not start again by itself');
+  // CONTROL: a mic refusal asks for the Microphone pane, and an error that is not a denial offers no button.
+  h.voiceOnEvent({ kind: 'error', reason: 'mic-denied', id: posted.at(-1).id });
+  made[0].handlers.click();
+  assert.equal(posted.at(-1).pane, 'mic');
+  h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
+  h.voiceToggle(btn);
+  h.voiceOnEvent({ kind: 'error', reason: 'speech-unanswered', id: posted.at(-1).id });
+  assert.equal(made.length, 0, 'speech-unanswered (the prompt is still open) offered a Settings button');
+});
