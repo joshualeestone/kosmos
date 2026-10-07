@@ -3,8 +3,8 @@
 # CI runs (it used to live only in ~/.cache, covered by a dry harness run by hand). Seeded from PigeonPete's #4911 dry
 # harness (74 arms). Every run of the wrapper goes through a shim that REFUSES unless KOSMOS_RUN_MARKER_DIR is inside
 # this test's own temp dir: a reviewer's sandbox once lost that variable and three copies waited in the real queue.
-# (The two #5446 arms run a copy inside a throwaway git repo instead, with the same two protections set by hand: an
-# in-test KOSMOS_RUN_MARKER_DIR and the perl deadline.)
+# (The four #5446 arms run a copy in a throwaway git repo or outside any repo instead, with the same two protections set
+# by hand, an in-test KOSMOS_RUN_MARKER_DIR and the perl deadline, plus the probe stubs and fake PATH exported above.)
 # Processes this test starts are stopped by exact match on a sleep length unique to this run (never a broad pattern).
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
@@ -203,9 +203,9 @@ ok "#4977: a lib with the side gate but no kosmos_release_light_side exits 3 and
 # the shim's two protections (a marker dir inside this test, a deadline). Control: the same repo without cut-guard.sh
 # still exits 3 and runs nothing.
 qh_repo() {   # qh_repo <dir> <with lib: 1|0>
-  mkdir -p "$1/tools/lib" "$1/h" && git -C "$1" init -q && cp "$REAL_QH" "$1/tools/queued-heavy.sh"
+  mkdir -p "$1/tools/lib" "$1/h" && env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR git -C "$1" init -q && cp "$REAL_QH" "$1/tools/queued-heavy.sh"
   [ "$2" = 1 ] && cp "$ROOT"/tools/lib/*.sh "$1/tools/lib/"
-  git -C "$1" add -A && git -C "$1" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -qm fixture   # a commit, so the line can name it
+  env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR git -C "$1" add -A && env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR git -C "$1" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -qm fixture   # a commit, so the line can name it
   return 0
 }
 qh_repo $S/fbrepo 1; qh_repo $S/fbnolib 0

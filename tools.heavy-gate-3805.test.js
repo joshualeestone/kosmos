@@ -601,3 +601,31 @@ test('#5446: BUSY names the queue (queued-heavy.sh, --light) on stderr; CLEAR an
   assert.equal(quiet.code, 1);
   assert.doesNotMatch(quiet.stderr, /queued-heavy/, '--quiet printed the queue hint');
 });
+
+test('#5446: the hint names the main checkout\'s queue only when that copy has the fallback, else the worktree\'s own', () => {
+  const { execFileSync } = require('node:child_process');
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'hg5446-'));
+  try {
+    const main = path.join(base, 'main');
+    const wt = path.join(base, 'wt');
+    const genv = { ...process.env };
+    for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR']) delete genv[k];
+    const git = (...a) => execFileSync('git', a, { env: genv, stdio: 'pipe' });
+    fs.mkdirSync(path.join(main, 'tools', 'lib'), { recursive: true });
+    for (const f of ['tools/heavy-gate.sh', 'tools/queued-heavy.sh', 'tools/lib/process-fixture.sh']) fs.copyFileSync(path.join(__dirname, f), path.join(main, f));
+    git('-C', main, 'init', '-q');
+    git('-C', main, 'add', '-A');
+    git('-C', main, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture');
+    git('-C', main, 'worktree', 'add', '-q', wt);
+    const hint = () => {
+      const r = spawnSync('bash', [path.join(wt, 'tools', 'heavy-gate.sh')], { encoding: 'utf8', env: { ...process.env, KOSMOS_HG_SNAPSHOT: '/dev/null', KOSMOS_HG_CLAIM: '1 a release holds it', KOSMOS_HG_TWICE_SECONDS: '0' } });
+      assert.equal(r.status, 1, r.stdout + r.stderr);
+      return (r.stderr.match(/bash '([^']+queued-heavy\.sh)'/) || [])[1];
+    };
+    const real = (p) => fs.realpathSync(p);
+    assert.equal(real(hint()), real(path.join(main, 'tools', 'queued-heavy.sh')), 'with the marker, the main checkout\'s copy');
+    const q = path.join(main, 'tools', 'queued-heavy.sh');
+    fs.writeFileSync(q, fs.readFileSync(q, 'utf8').replace(/#5446-lib-fallback/g, ''));   // an older copy, as a stale main has
+    assert.equal(real(hint()), real(path.join(wt, 'tools', 'queued-heavy.sh')), 'without the marker, the worktree\'s own copy');
+  } finally { fs.rmSync(base, { recursive: true, force: true }); }
+});

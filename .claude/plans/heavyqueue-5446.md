@@ -29,5 +29,8 @@ one command that fixes it, so a stale checkout is loud rather than a silent spli
 
 ## Tests
 - tools.heavy-gate-3805.test.js: BUSY names the queue on stderr with an existing path; CLEAR and --quiet do not.
-- tools/test-queued-heavy-4977.sh: two arms in a throwaway git repo: fallback joins and runs (and says so); without
-  cut-guard.sh it still exits 3 and runs nothing; with an old lib it exits 3 and names the pull.
+- tools/test-queued-heavy-4977.sh: four arms: in a throwaway git repo, the fallback joins and runs and names the
+  folder and commit; without cut-guard.sh it still exits 3 and runs nothing; with an old lib it exits 3 and names the
+  pull; a copy outside any repo (the installed one) still exits 3.
+- tools.heavy-gate-3805.test.js: in a throwaway clone plus worktree, the hint names the main checkout's queue only when
+  that copy carries the #5446-lib-fallback marker, else the worktree's own.
