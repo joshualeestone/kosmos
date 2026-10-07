@@ -153,8 +153,9 @@ Fourth post-rebase review (sonnet), all fixed:
 Fifth post-rebase review (opus), fixed:
 - apply checks the target's real folder (still the recorded one, and not protected) BEFORE anything is written or
   saved aside, and again right before the rename (review 6 moved the first check ahead of the temp write, so no
-  restored bytes are written into a guarded folder). The reason reaches the person as 'protected', 'cannot-check' or
-  'moved'. A test swaps the folder for a link into a token-only agent's .claude at exactly that point (a tests-only
+  restored bytes are written into a guarded folder). The reason is in the API answer as 'protected', 'cannot-check' or
+  'moved' (and on the page for a reason found while planning; a refusal during the undo itself shows on the page only
+  as part of "N files were left as they were"). A test swaps the folder for a link into a token-only agent's .claude at exactly that point (a tests-only
   hook) and goes red with both checks removed. Residual, named: the window between the last check and the rename
   syscall itself. Narrow; the next board start's guard refresh rewrites the settings.
 - A garbled token-only list (or any failure to work out the set) stops every undo copy: the board log says so when it
@@ -163,3 +164,8 @@ Fifth post-rebase review (opus), fixed:
   built first, so an exact path cannot pass them); plan flags cannot-check and apply leaves the file alone.
 - The person's word for 'protected' is now "a protected settings or key file". Every agent (not only token-only ones)
   loses undo copies of ~/.claude and ~/.claude-*/settings*.json: accepted, those are the person's own settings.
+Seventh post-rebase review (opus), fixed: the check right before the rename is pinned on its own (a second tests-only
+hook point after the temp is written) and move-aside is tested; undo's own stores are in the protected folders, so a
+record cannot move or replace undo's own files; a temp is removed by its real path. Residuals, named: a folder RENAMED
+while the temp is in it takes the temp along (it stays in the agent's own folder, holding the agent's own earlier
+content); move-aside across disks (copy, then unlink by path) has a wider window than a rename.
