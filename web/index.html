@@ -19209,6 +19209,15 @@ function onWindows(platform) {
   const known = typeof platform === 'string' && platform ? platform : servedPlatform();
   return known === 'win32';
 }
+/* #5449: the Linux companion to onWindows. The stuck Connect card's "way out" was
+   binary (Windows PowerShell, else a Mac "open Terminal"), and the Mac arm caught a
+   headless Linux server, which has no Terminal app and is reached over SSH. This names
+   the Linux case so that one arm can speak to it. An explicit platform wins; otherwise
+   the served meta answers; an unstamped page is not Linux. */
+function onLinux(platform) {
+  const known = typeof platform === 'string' && platform ? platform : servedPlatform();
+  return known === 'linux';
+}
 function windowsCopyTable() {
   const restartKosmos = 'restart Kosmos by double-clicking Kosmos.exe in your Kosmos folder, or by signing out of Windows and signing back in.';
   return {
@@ -73293,11 +73302,20 @@ function frPaintConnect(st) {
         + '<div class="fr-cmd-row"><pre class="fr-cmd">' + esc(windowsSigninLine) + '</pre>'
         + '<button class="btn-quiet fr-copy" type="button" data-copy-command>' + windowsCopy('copyLabel') + '</button></div>'
         + windowsCopy('claudeSigninHatchEnd')
-      : ((st && st.canRunClaude && !onWindows(st && st.platform))
-        ? '<details class="fr-hatch"><summary>Already use Terminal?</summary>'
-          + 'You can sign in to Claude outside Kosmos: open Terminal, type <b>claude</b>, '
-          + 'and follow its sign-in. Then come back and press Try again.</details>'
-        : ''))
+      /* #5449: Linux first. A headless Linux server reached from a browser has no Terminal
+         app to open; the way in is a shell on the server itself (over SSH), then `claude`.
+         Linux is matched before the Mac `!onWindows` arm below, which it would otherwise
+         fall into. Mac and Windows copy are unchanged. */
+      : ((st && st.canRunClaude && onLinux(st && st.platform))
+        ? '<details class="fr-hatch"><summary>Have a shell on the server?</summary>'
+          + 'You can sign in to Claude on the computer running Kosmos. Open a terminal there '
+          + '(on a headless server, connect over SSH), type <b>claude</b>, and follow its sign-in. '
+          + 'Then come back and press Try again.</details>'
+        : ((st && st.canRunClaude && !onWindows(st && st.platform))
+          ? '<details class="fr-hatch"><summary>Already use Terminal?</summary>'
+            + 'You can sign in to Claude outside Kosmos: open Terminal, type <b>claude</b>, '
+            + 'and follow its sign-in. Then come back and press Try again.</details>'
+          : '')))
     + '</div>';
     frActions({ label: 'Try again', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(frStepAfter(5)) });
     return;
