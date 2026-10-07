@@ -4,7 +4,8 @@
 #
 # setup.sh is served as a single curl|sh file and sources nothing, so this extracts the REAL pause block
 # (from the FRESH_INSTALL=no guard to its closing fi) and runs it in a harness: a throwaway KOSMOS_HOME, a
-# stub `kosmos` whose verbs do nothing (as #4636's stop does in a sandbox), except that start fails when STUBSTART=fail, and a node stub listener as the board.
+# stub `kosmos` whose verbs do nothing
+# (as #4636's stop does in a sandbox), except that start fails when STUBSTART=fail, and a node stub listener as the board.
 # "Passed the pause" is the line the harness prints if the block lets the update go on to replace files.
 #
 # Three seatbelt profiles, measured on a Mac (2026-09-30):
