@@ -255,7 +255,8 @@ const SCREENS = [
       await route.fulfill({ response: res, body: JSON.stringify(d), headers: { ...res.headers(), 'content-type': 'application/json' } });
     });
     await at(page, '');
-    await openTab(page, 'agents');
+    // The default board view already shows the .acard agents grid (like the agents-list and
+    // allow-card screens, which use .acard with no tab switch), so no openTab here.
     await page.waitForSelector('.acard .acommunity', { state: 'visible', timeout: 12000 });
   }, after: async (page) => { await page.unroute('**/api/status').catch(() => {}); },
   verify: async (page) => {
