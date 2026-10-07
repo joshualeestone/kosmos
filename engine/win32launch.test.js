@@ -609,6 +609,16 @@ test('#3380 a codex child gets PSExecutionPolicyPreference=Bypass so its kosmos.
   assert.equal(env.PSExecutionPolicyPreference, 'Bypass');
 });
 
+test('#5385 every runner\'s child drops an inherited PSModulePath, in any spelling of its name', () => {
+  for (const runner of ['claude', 'codex', 'gemini', 'grok', 'antigravity', undefined]) {
+    for (const key of ['PSModulePath', 'PSMODULEPATH', 'psmodulepath']) {
+      const env = launcher.childEnv({ [key]: 'C:\\Program Files\\PowerShell\\7\\Modules', Other: 'kept' }, 't', null, null, runner);
+      assert.ok(!Object.keys(env).some((k) => k.toUpperCase() === 'PSMODULEPATH'), (runner || 'no runner') + ' kept ' + key);
+      assert.equal(env.Other, 'kept', 'CONTROL: other variables are untouched');
+    }
+  }
+});
+
 test('#3380 the claude path is byte-identical: no execution-policy variable is added', () => {
   /* Claude Code runs its `kosmos` through Git Bash\'s extensionless shim, which
      never consults an execution policy, so the claude child must be untouched. */

@@ -55,6 +55,7 @@ const win32create = require('./win32create');
 const trust = require('./trust');
 const runners = require('./runners');
 const { accountEnvVar } = require('./accountenv');
+const { envDelete, envSet } = require('./win32env');   // #5358: one key per name, whatever its case
 
 /* Every marker that makes a spawned session a CHILD of this one. Stripped, not
    overwritten: Claude Code reads presence, so an empty string is not the same as
@@ -100,7 +101,7 @@ function agentCliDir(root, exists) {
  */
 function childEnv(baseEnv, token, configDir, cliDir, runner) {
   const env = Object.assign({}, baseEnv || {});
-  for (const k of INHERITED_MARKERS) delete env[k];
+  for (const k of INHERITED_MARKERS) envDelete(env, k);
   /* #570: the agent's `kosmos` command. Every instruction and every message the
      board delivers teaches a bare `kosmos reply` / `kosmos msg` / `kosmos post`,
      and the Windows zip's command lives in its own `bin` folder, so that folder
@@ -112,8 +113,8 @@ function childEnv(baseEnv, token, configDir, cliDir, runner) {
     const pathKey = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') || 'PATH';
     env[pathKey] = env[pathKey] ? String(cliDir) + path.win32.delimiter + env[pathKey] : String(cliDir);
   }
-  if (token) env.KOSMOS_AGENT_TOKEN = token;
-  else delete env.KOSMOS_AGENT_TOKEN;   // never inherit somebody else's credential
+  if (token) envSet(env, 'KOSMOS_AGENT_TOKEN', token);
+  else envDelete(env, 'KOSMOS_AGENT_TOKEN');   // never inherit somebody else's credential
   /* 🔑 THE ACCOUNT, THE WAY THIS PLATFORM CARRIES IT. On the Mac a non-default
      account rides in the plist's EnvironmentVariables as CLAUDE_CONFIG_DIR;
      there is no plist here, so it rides in the child's environment instead --
@@ -126,8 +127,8 @@ function childEnv(baseEnv, token, configDir, cliDir, runner) {
      card about that leaking: an agent meant for the DEFAULT account would
      silently inherit the engine's account instead. A default-account agent must
      start with no CLAUDE_CONFIG_DIR at all. */
-  if (configDir) env.CLAUDE_CONFIG_DIR = String(configDir);
-  else delete env.CLAUDE_CONFIG_DIR;
+  if (configDir) envSet(env, 'CLAUDE_CONFIG_DIR', String(configDir));
+  else envDelete(env, 'CLAUDE_CONFIG_DIR');
   /* 🔑 A CODEX AGENT'S ACCOUNT IS ITS CODEX_HOME (round 1 BUG). A Mac job writes the
      account directory under the runner's own variable (accountenv.accountEnvVar,
      the key create.plistFor uses). Here only CLAUDE_CONFIG_DIR was ever set, so a
@@ -137,7 +138,7 @@ function childEnv(baseEnv, token, configDir, cliDir, runner) {
      written, so it keeps inheriting exactly what it did before. The
      CLAUDE_CONFIG_DIR handling above is unchanged for every runner. */
   const accountKey = accountEnvVar(runner);
-  if (accountKey !== 'CLAUDE_CONFIG_DIR' && configDir) env[accountKey] = String(configDir);
+  if (accountKey !== 'CLAUDE_CONFIG_DIR' && configDir) envSet(env, accountKey, String(configDir));
   /* 🛑 A CODEX AGENT REPLIES THROUGH POWERSHELL, AND THE DEFAULT POLICY BLOCKS IT
      (#3380 round 2). Measured on the box 2026-09-22: codex 0.149.1 runs every shell
      command as `powershell.exe -Command '<cmd>'`, and PowerShell resolves a bare
@@ -161,7 +162,17 @@ function childEnv(baseEnv, token, configDir, cliDir, runner) {
      (gemini 0.61.0's getShellConfiguration picks powershell.exe; grok 1.0.41 ships a
      PowerShell shell), so their `kosmos reply` meets the same policy. */
   /* #3568: Antigravity too; its shell tool on Windows is PowerShell's (UNPROVEN until a real turn). */
-  if (runner === 'codex' || runner === 'gemini' || runner === 'grok' || runner === 'antigravity') env.PSExecutionPolicyPreference = 'Bypass';
+  if (runner === 'codex' || runner === 'gemini' || runner === 'grok' || runner === 'antigravity') {
+    envSet(env, 'PSExecutionPolicyPreference', 'Bypass');   // one key, whatever case it arrived in (#5358)
+  }
+  /* #5385: the PowerShell runners (codex, gemini, grok, antigravity) run Windows PowerShell 5.1 (powershell.exe). Claude
+     Code's PowerShell tool being 5.1 too is a premise from #570, not measured here; the delete is harmless either way,
+     since pwsh 7 also rebuilds its own path when the variable is unset. A board started from a PowerShell 7 terminal inherits pwsh 7's
+     PSModulePath, and a 5.1 shell given it cannot load Microsoft.PowerShell.Security (execution policy, Get-Acl, the
+     Cert: drive) or Get-FileHash (measured on the Windows CI runner, run 37541077642). Deleted, not set: unset, 5.1
+     rebuilds its own default from the machine and user values; what is lost is only a module path added in the
+     launching shell's session and nowhere else. */
+  envDelete(env, 'PSModulePath');
   return env;
 }
 
