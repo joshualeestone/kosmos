@@ -199,7 +199,7 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     // sentence below the input. The label asks the app for the Microphone pane; X puts the plain mic back.
     const micAt = await page.locator('#d-mic').boundingBox();
     await page.click('#d-mic');
-    await page.evaluate(() => { window.kosmosVoiceEvent({ kind: 'error', reason: 'mic-denied', settings: true }); window.kosmosVoiceEvent({ kind: 'stopped' }); });
+    await page.evaluate(() => { window.kosmosVoiceEvent({ kind: 'error', reason: 'mic-denied', canOpenSettings: true }); window.kosmosVoiceEvent({ kind: 'stopped' }); });
     const pill = await page.evaluate(() => {
       const p = document.querySelector('.voice-pill');
       const r = p && p.getBoundingClientRect();
@@ -220,7 +220,7 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     // V6d (Splinter 08:33): a window under 480 px shows [X  Settings], the same button; and the composer's placeholder
     // stays one line ending in an ellipsis at any width.
     await page.click('#d-mic');
-    await page.evaluate(() => { window.kosmosVoiceEvent({ kind: 'error', reason: 'speech-denied', settings: true }); window.kosmosVoiceEvent({ kind: 'stopped' }); });
+    await page.evaluate(() => { window.kosmosVoiceEvent({ kind: 'error', reason: 'speech-denied', canOpenSettings: true }); window.kosmosVoiceEvent({ kind: 'stopped' }); });
     await page.setViewportSize({ width: 420, height: 800 });
     const narrow = await page.evaluate(() => {
       const go = document.querySelector('.voice-pill .vp-go');
@@ -359,7 +359,7 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     chk(JSON.stringify(v14.ops) === '["start","cancel"]' && v14.desc === 'first words' && v14.pressed === 'false',
       'V14 focus moving to another field stops listening and keeps the words heard so far', JSON.stringify(v14));
     // V6e (#5481 review 1): in a field the pill is the short [X  Settings] and the box makes room, so it covers no text.
-    await page.evaluate(() => { document.querySelector('.fieldmic[data-voice-for="pj-add-desc"]').click(); window.kosmosVoiceEvent({ kind: 'error', reason: 'speech-denied', settings: true }); window.kosmosVoiceEvent({ kind: 'stopped' }); });
+    await page.evaluate(() => { document.querySelector('.fieldmic[data-voice-for="pj-add-desc"]').click(); window.kosmosVoiceEvent({ kind: 'error', reason: 'speech-denied', canOpenSettings: true }); window.kosmosVoiceEvent({ kind: 'stopped' }); });
     const v6e = await page.evaluate(() => {
       const ta = document.getElementById('pj-add-desc'), pill = document.querySelector('.micwrap > .voice-pill');
       if (!pill) return { pill: false };

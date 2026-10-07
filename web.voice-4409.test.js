@@ -432,7 +432,7 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   h.voiceToggle(btn);
   const first = posted.at(-1);
   assert.equal(first.op, 'start', 'fixture: the mic did not start');
-  h.voiceOnEvent({ kind: 'error', reason: 'speech-denied', settings: true, id: first.id });
+  h.voiceOnEvent({ kind: 'error', reason: 'speech-denied', canOpenSettings: true, id: first.id });
   h.voiceOnEvent({ kind: 'stopped', id: first.id });
   assert.equal(pills.length, 1, 'not exactly one pill');
   assert.ok(btn.classList.contains('has-pill'), 'the mic still shows beside the pill instead of being replaced by it');
@@ -468,7 +468,7 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   assert.ok(!btn.classList.contains('has-pill'), 'the mic did not come back');
   assert.equal(posted.at(-1).op, 'start', 'the mic did not start again by itself');
   // X: dismissed, the plain mic is back and nothing is asked of the app.
-  h.voiceOnEvent({ kind: 'error', reason: 'mic-denied', settings: true, id: posted.at(-1).id });
+  h.voiceOnEvent({ kind: 'error', reason: 'mic-denied', canOpenSettings: true, id: posted.at(-1).id });
   h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
   const n = posted.length;
   x().handlers.click();
@@ -478,7 +478,7 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   assert.equal(posted.length, n, 'X asked the app for something');
   // the Microphone pane for a mic refusal
   h.voiceToggle(btn);
-  h.voiceOnEvent({ kind: 'error', reason: 'mic-denied', settings: true, id: posted.at(-1).id });
+  h.voiceOnEvent({ kind: 'error', reason: 'mic-denied', canOpenSettings: true, id: posted.at(-1).id });
   go().handlers.click();
   assert.equal(posted.at(-1).pane, 'mic');
   // review 2: "allowed" after the person moved to another agent clears the pill but does not start the mic there.
@@ -496,7 +496,7 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   // review 3: the place is where the person PRESSED Settings. Offered in one chat, pressed in another (the DM's mic is
   // shared), "allowed" restarts the mic in the chat it was pressed from.
   h.voiceToggle(btn);
-  h.voiceOnEvent({ kind: 'error', reason: 'mic-denied', settings: true, id: posted.at(-1).id });
+  h.voiceOnEvent({ kind: 'error', reason: 'mic-denied', canOpenSettings: true, id: posted.at(-1).id });
   h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
   h.set(CARD('casey'), null);
   go().handlers.click();
@@ -507,14 +507,27 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   // review 5: back with the mic restricted, the pill gives way to the restricted sentence.
   h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
   h.voiceToggle(btn);
-  h.voiceOnEvent({ kind: 'error', reason: 'speech-denied', settings: true, id: posted.at(-1).id });
+  h.voiceOnEvent({ kind: 'error', reason: 'speech-denied', canOpenSettings: true, id: posted.at(-1).id });
   h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
   go().handlers.click();
   h.voiceOnEvent({ kind: 'refused', reason: 'mic-restricted', id: posted.at(-1).id });
   assert.equal(pills.length, 0, 'a restricted mic left the Settings pill up');
   assert.equal(msg.textContent, '(mic restricted)', 'a restricted mic was not said');
   msg.textContent = '';
-  // An older app still running after an update cannot open Settings (no `settings` on its refusal): the sentence, no pill.
+  // A new start retires the pill; a late "allowed" for its visit then matches nothing and starts nothing.
+  h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
+  h.voiceToggle(btn);
+  h.voiceOnEvent({ kind: 'error', reason: 'mic-denied', canOpenSettings: true, id: posted.at(-1).id });
+  h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
+  go().handlers.click();
+  const retired = posted.at(-1).id;
+  h.voiceToggle(btn);
+  assert.equal(pills.length, 0, 'a new start left the pill up');
+  const late = posted.length;
+  h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
+  h.voiceOnEvent({ kind: 'allowed', id: retired });
+  assert.equal(posted.length, late, 'a late allowed for a retired visit started the mic');
+  // An older app still running after an update cannot open Settings (no `canOpenSettings` on its refusal): the sentence, no pill.
   h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
   h.voiceToggle(btn);
   h.voiceOnEvent({ kind: 'error', reason: 'mic-denied', id: posted.at(-1).id });
@@ -526,7 +539,7 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
     h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
     h.voiceToggle(btn);
     assert.equal(pills.length, 0, 'a new start left the pill up');
-    h.voiceOnEvent({ kind: 'error', reason, settings: true, id: posted.at(-1).id });   // an app that can open Settings
+    h.voiceOnEvent({ kind: 'error', reason, canOpenSettings: true, id: posted.at(-1).id });   // an app that can open Settings
     assert.equal(pills.length, 0, reason + ' offered a Settings pill');
     assert.ok(!btn.classList.contains('has-pill'), reason + ' hid the mic');
   }

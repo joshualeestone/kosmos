@@ -65522,7 +65522,7 @@ function voiceSettingsOffer(btn, pane, said) {
   VOICE.seq += 1;
   /* ONE visit id per pill, minted here, not per press: the app re-opens Settings at most once a second, and it always
      records the id of the latest press, so the page and the app hold the same id. Offered only when the app says it can
-     open Settings (`settings` on its refusal): an older app still running after an update would ignore the press. */
+     open Settings (`canOpenSettings` on its refusal): an older app still running after an update would ignore the press. */
   const visitId = 'set' + VOICE.seq;
   VOICE_SETTINGS.pane = pane;
   const pill = document.createElement('span');
@@ -65634,7 +65634,7 @@ function voiceOnEvent(ev) {
     const b = voiceBridge();
     const key = b && b.phone && ev.reason === 'speech-denied' && voicePhoneWho() === 'Apple' ? 'speech-denied-apple' : ev.reason;
     const said = (b && b.phone && VOICE_SAYS_PHONE[key]) || VOICE_SAYS[ev.reason] || VOICE_SAYS.recognizer;
-    if (b && !b.phone && ev.settings === true && VOICE_SETTINGS_PANE[ev.reason]) voiceSettingsOffer(btn, VOICE_SETTINGS_PANE[ev.reason], said);   // #5481: the pill, no sentence
+    if (b && !b.phone && ev.canOpenSettings === true && VOICE_SETTINGS_PANE[ev.reason]) voiceSettingsOffer(btn, VOICE_SETTINGS_PANE[ev.reason], said);   // #5481: the pill, no sentence
     else voiceSay(btn, said);
     return;
   }

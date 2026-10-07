@@ -19,7 +19,7 @@ Card: joshualeestone/kosmos#5481 (Josh, 2026-10-07; scope updated by Josh 08:16 
     nothing changed keeps it open; older than 10 minutes, nothing.
   - restricted is told apart from denied (`speech-restricted`, `mic-restricted`).
   - Each permission answer is logged with its duration, so a refusal without a prompt shows as a few milliseconds.
-- Every native refusal carries `settings: true`. The page offers the pill only then: an older app still running after
+- Every native refusal carries `canOpenSettings: true` (a capability, not a request for the pill). The page offers the pill only then: an older app still running after
   an update (the binary is replaced, the process keeps old code) cannot open Settings, so it keeps the sentence.
 - web/index.html: on a desktop-bridge `mic-denied` or `speech-denied`, the mic gets class `has-pill` (hidden) and a
   `.voice-pill` is inserted after it, with ONE visit id minted for the pill. The label posts `{op:'settings', pane, id}`; `allowed` with that id clears the pill

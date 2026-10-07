@@ -1620,10 +1620,10 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
     private func refuse(_ reason: String) {
         pending = false
         logLine("voice: not listening (" + reason + ")")
-        // #5481: `settings` says this app can open the System Settings pane, so the page may offer its pill. A page newer
+        // #5481: `canOpenSettings` says this app can open the System Settings pane, so the page may offer its pill. A page newer
         // than a still-running older app (an update replaces the binary, the running process keeps the old code) sees
-        // no `settings` and keeps the sentence with the directions instead of a button that does nothing.
-        emit(["kind": "error", "reason": reason, "settings": true])
+        // no `canOpenSettings` and keeps the sentence with the directions instead of a button that does nothing.
+        emit(["kind": "error", "reason": reason, "canOpenSettings": true])   // a capability, on every refusal; the page decides which reasons get the pill
         emit(["kind": "stopped"])
     }
 
