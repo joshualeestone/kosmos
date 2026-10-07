@@ -163,6 +163,7 @@ function chk(ok, label, extra) {
     chk(/To bring it in: add it from Found agents/.test(gone.why) && !/stop it/.test(gone.why),
       'the stopped explainer names the way in without telling anyone to stop a stopped agent', gone.why);
     chk(gone.modelBlock === false && gone.msg === '', '#5491 the stopped never-recorded agent shows no model block either', JSON.stringify({ block: gone.modelBlock, msg: gone.msg }));
+    chk(gone.restartHint === false, '#5491 nor the line about changing its model', String(gone.restartHint));
     await page.click('#d-nav button[data-go="model"]');   // #2916: Memory now folded under the Model and Memory pill
     await page.waitForTimeout(300);
     const mem = await page.evaluate(() => { const el = document.getElementById('d-memory'); return el.getBoundingClientRect().height > 0 ? el.innerText : ''; });
