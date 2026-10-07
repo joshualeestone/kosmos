@@ -4774,7 +4774,8 @@ test('the removed list gives the browser only what it draws', async () => {
     // ⚠️ CONTROL: the stored record really does carry the fields being excluded,
     // or "they are absent from the response" is true of nothing.
     const stored = removal.removedAgents().find((r) => r.name === name);
-    /* #5500: on Linux the record keeps the unit's name as its label and no plist (remove.js keeps plist null there). */
+    /* #5500: on Linux the record keeps the unit's name as its label and no plist (remove.js keeps plist null there), so
+       on Linux this control proves only the label half: there is no path in the record to withhold. */
     assert.ok(linuxHost() ? stored.label === require('./engine/linuxjob').unitName(name) && stored.plist === null : stored.label && stored.plist,
       'the fixture has no machine detail to withhold');
 
