@@ -239,6 +239,45 @@ jobs:
           systemctl --user disable kosmos-board.service 2>/dev/null || true
           rm -f "$UNIT"; systemctl --user daemon-reload
 
+      - name: An update over an install made by main's setup.sh (0.7.27's shell unit) lands on B's unit
+        # The path the KillMode fix, the held-changed restart and installBoard's rewrite exist for, end to end: install
+        # with main's own setup.sh (shell-written unit, Restart=always, no KillMode), hand the board to that unit as a
+        # reboot would, then run this branch's setup.sh as an update.
+        run: |
+          set -e
+          KOSMOS_HOME="$HOME/.local/share/kosmos"
+          UNIT="$HOME/.config/systemd/user/kosmos-board.service"
+          git fetch --depth=1 origin main
+          git show FETCH_HEAD:install/setup.sh > "$RUNNER_TEMP/old-setup.sh"
+          grep -q 'Restart=always' "$RUNNER_TEMP/old-setup.sh"   # it really is the shell-unit release
+          sh "$RUNNER_TEMP/old-setup.sh"
+          grep -qx 'Restart=always' "$UNIT"
+          if grep -qx 'KillMode=process' "$UNIT"; then echo "SETUP WRONG: the old unit already has KillMode" >&2; exit 1; fi
+          # As after a reboot: systemd runs the board from the old unit (main's kosmos knows no systemd, so stop it
+          # by hand, clear its marker, start the unit).
+          "$KOSMOS_HOME/bin/kosmos" stop --force || true
+          rm -f "$KOSMOS_HOME/board.stopped"
+          systemctl --user start kosmos-board.service
+          sleep 3
+          test "$(systemctl --user is-active kosmos-board.service)" = active
+          # The update.
+          sh install/setup.sh
+          cat "$UNIT"
+          grep -qxF "KillMode=process" "$UNIT"
+          grep -qxF "Restart=on-failure" "$UNIT"
+          if grep -qxF "Restart=always" "$UNIT"; then echo "FAIL: the update left the old Restart=always unit" >&2; exit 1; fi
+          test "$(systemctl --user is-active kosmos-board.service)" = active
+          curl -fsS -m 5 http://127.0.0.1:16180/ >/dev/null
+          # And it stays up without a restart loop.
+          N1="$(systemctl --user show -p NRestarts --value kosmos-board.service)"
+          sleep 12
+          N2="$(systemctl --user show -p NRestarts --value kosmos-board.service)"
+          echo "after the update: NRestarts $N1 -> $N2"
+          test -n "$N1" && test "$N1" = "$N2"
+          curl -fsS -m 5 http://127.0.0.1:16180/ >/dev/null
+          sh install/setup.sh --uninstall
+          test ! -f "$UNIT"
+
       - name: Test custom KOSMOS_HOME unit derivation
         run: |
           CUSTOM_HOME="$HOME/custom-kosmos"
