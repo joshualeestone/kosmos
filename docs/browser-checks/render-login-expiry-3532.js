@@ -303,10 +303,12 @@ const CASES = [
     await pg.close();
   }
 
-  /* #5443 (Mona Lisa): notice cards showing at once read as one column. The update-abort card (long, it wraps at the
-     stack's cap) and a short login card sit in different slots; both take the width of the wider, at desktop and on a
-     phone, and the login card's Refresh login and close X stay at its right edge. The update chip is a pill and stays
-     one, centred under the column. Each layout claim has a control in the same page that undoes the rule under test. */
+  /* #5443 (Mona Lisa): notice cards showing at once read as one column. The update-abort card and a short login card
+     sit in different slots, and whichever is narrower takes the width of the wider: on desktop that is the login card
+     (the abort card's long line wraps at the stack's cap); at 375 the abort card's second line is hidden, so it is the
+     abort card. The login card's Refresh login and close X stay at its right edge (measured on desktop). The update chip
+     is a pill and stays one, centred under the column (measured on desktop). Each layout claim has a control in the
+     same page that undoes the rule under test. */
   {
     let feed = { abort: { count: 2 }, update: null };
     const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
@@ -346,17 +348,18 @@ const CASES = [
     const now = await edges();
     chk(!!now, '5443: precondition: the update-abort and login cards both render', JSON.stringify(now));
     chk(lined(now), '5443: on desktop the two cards share both edges (one column)', JSON.stringify(now));
-    // The login card is the narrower one, so it is the one stretched: its close X keeps its own 8px padding from the
+    // On desktop the login card is the narrower one, so it is the one stretched: its close X keeps its own 8px padding from the
     // right edge, and Refresh login sits just before the X, not where the words end.
     chk(!!now && now.xGap <= 12 && now.goToX !== null && now.goToX >= 0 && now.goToX <= 16,
       '5443: the stretched login card keeps Refresh login and its close X at its right edge', JSON.stringify(now));
     const box = await pg.$('#topnotes');
     if (box) await box.screenshot({ path: path.join(OUT, 'login-expiry-two-notices-5443.png') });
-    // CONTROL for the line-up: centred instead, the same two cards are different widths (if they were not, there would
-    // be nothing to line up and the assertion above would pass on the text alone).
+    // CONTROL for the line-up, and the fixture's precondition: centred instead, the two cards are at least 8px apart in
+    // width. If a runner's fonts made the login card fill the column, the line-up above would pass on the text alone;
+    // this red then names the fixture, not the rule.
     const centred = await centredSpare();
     chk(!!centred && centred.spare >= 8,
-      '5443: CONTROL: centred instead, the same two cards are different widths (so the line-up above is the rule, not the text)', JSON.stringify(centred));
+      '5443: CONTROL / precondition: centred instead, the two cards differ by 8px or more (else this fixture cannot show a line-up: check the fonts before the rule)', JSON.stringify(centred));
     // CONTROL for the right edge: stretched, but the words not taking the spare width, the X moves in by that spare width.
     const unGrow = await pg.addStyleTag({ content: '#login-adv-slot .utoast .utxt { flex: 0 1 auto !important; }' });
     const packed = await edges();
@@ -366,7 +369,8 @@ const CASES = [
     const restored = await edges();
     chk(lined(restored) && restored.xGap <= 12, '5443: the control style is gone, so the X is back at the right edge before the next arm', JSON.stringify(restored));
 
-    // On a phone the stack is capped at the header's width; the same two cards still share both edges.
+    // On a phone the stack is capped at the header's width; the same two cards still share both edges (here the abort
+    // card, its second line hidden under 720px, is the narrower one and is stretched).
     await pg.setViewportSize({ width: 375, height: 812 });
     await pg.waitForTimeout(300);
     const phone = await edges();
