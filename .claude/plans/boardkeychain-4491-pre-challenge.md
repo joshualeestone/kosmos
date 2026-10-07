@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: boardkeychain-4491
-diff_hash: 0bde79819bc3eaff1811045ee8e55221473d20c0a7dea07f7977d8aad068f559
+diff_hash: 9a6f97964ac445ee3347e9e10a79ce5ddb5d503ddd657cee244c7899dd2ca5d9
 validation: passed (Mortals full suite at a3d4699db, 08:35 CDT 2026-10-04: 15036 tests, 14812 pass, 0 fail, 224 skipped; hash 28628ddc726d; full suite passed on Mortals)
 subdir_audit: passed
 timestamp: 2026-10-04T13:50:43Z
@@ -117,3 +117,4 @@ board.token for a token-only agent. Fixed (undo.keep refuses the board's credent
 stores); the refusal test goes red with the fix switched off. 300 token/auth/undo/guard tests plus 43 undo-route and
 setup-assistant tests pass. A further blind review of the fix runs before merge.
 Second post-rebase review (sonnet): 4 WARNINGs in the undo fix, all fixed (one-open keep, case and identity, undo stores write-denied, restore refuses protected paths); 301 + 43 + 16 tests pass. A further blind review runs before merge.
+Third post-rebase review (opus): 5 WARNINGs (protected set derived from the guard, real-folder check, repo .claude not refused, identity at restore, write-deny asserted), all fixed; 302 + 44 + 16 tests pass.
