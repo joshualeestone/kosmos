@@ -71,15 +71,15 @@ test('#5450: a fresh mark from `kosmos start` says a person started it, and is L
   assert.deepEqual(await boardRun(String(Math.floor(Date.now() / 1000))), { by: 'person', markLeft: true, code: 0 });
 });
 
-test('#5450: a stale, unparsable, future or oversized mark is not a person, and board-run leaves it (review 4)', async () => {
-  // Review 4: board-run deleting a stale mark could delete a person's fresh one written in between; the board and
-  // `kosmos stop` delete marks, and a stale one is simply not read as a person.
+test('#5450: a stale mark is the supervisor\'s; one that cannot be judged is unknown (the timer decides); board-run leaves both', async () => {
+  // Review 4: board-run deletes no mark (deleting a stale one could delete a person's fresh one written in between).
+  // Review 5: a mark that is there but cannot be judged is evidence of a person of unknown age, so not the supervisor.
   const now = Math.floor(Date.now() / 1000);
   assert.deepEqual(await boardRun(String(now - 3600)), { by: 'supervisor', markLeft: true, code: 0 }, 'an hour-old mark');
-  assert.deepEqual(await boardRun('not a time'), { by: 'supervisor', markLeft: true, code: 0 }, 'a mark that is not a time');
-  assert.deepEqual(await boardRun(String(now + 86400)), { by: 'supervisor', markLeft: true, code: 0 }, 'a mark from the future (a clock set back)');
-  assert.deepEqual(await boardRun('0999999999'), { by: 'supervisor', markLeft: true, code: 0 }, 'a leading zero (bash read it as octal and stopped)');
-  assert.deepEqual(await boardRun('9'.repeat(23)), { by: 'supervisor', markLeft: true, code: 0 }, 'a number too big for bash');
+  assert.deepEqual(await boardRun('not a time'), { by: 'unknown', markLeft: true, code: 0 }, 'a mark that is not a time');
+  assert.deepEqual(await boardRun(String(now + 86400)), { by: 'unknown', markLeft: true, code: 0 }, 'a mark from the future (a clock set back)');
+  assert.deepEqual(await boardRun('0999999999'), { by: 'supervisor', markLeft: true, code: 0 }, 'a leading zero, read as base 10: a stale time');
+  assert.deepEqual(await boardRun('9'.repeat(23)), { by: 'unknown', markLeft: true, code: 0 }, 'a number too big for bash');
 });
 
 test('#5450 review 4: with no clock to judge it by, a mark that is there reads as a person (no note), and board-run still starts', async () => {
@@ -92,7 +92,7 @@ test('#5450 review 1: an unreadable mark never stops board-run (set -e): the boa
   if (process.getuid && process.getuid() === 0) { t.skip('root reads a mode-000 file'); return; }
   const r = await boardRun(String(Math.floor(Date.now() / 1000)), { mode: 0o000 });
   assert.equal(r.code, 0);
-  assert.equal(r.by, 'supervisor');
+  assert.equal(r.by, 'unknown', 'a mark that is there but unreadable must not switch the timer off');
 });
 
 test('#5450: `kosmos start` marks a person\'s start, the watchdog\'s says supervisor, and stop clears the mark (source pins)', () => {
@@ -106,11 +106,12 @@ test('#5450: `kosmos start` marks a person\'s start, the watchdog\'s says superv
   assert.ok(markAt < stopGone, 'the mark is written after the stop marker goes, so launchd\'s relaunch can read the start as the supervisor\'s');
   assert.match(start.slice(0, markAt + 40), /if \[ "\$\{KOSMOS_START_BY:-\}" != supervisor \]; then\n    \{ date \+%s > "\$PERSON_START_FILE\.\$\$"/, 'the mark is not limited to a person\'s start');
   assert.match(src, /\[ "\$\{KOSMOS_START_BY:-\}" = supervisor \] && _start_by=supervisor/, 'the direct start ignores the watchdog');
-  assert.match(src, /KOSMOS_BOARD_STARTED_BY="\$_start_by" nohup "\$NODE" "\$APP"/);
 
   // Review 2: the watchdog's word never reaches the board (nor, through it, any pane a person later starts Kosmos from).
   assert.match(src, /-u KOSMOS_START_BY PORT="\$PORT" KOSMOS_BOARD_STARTED_BY="\$_started_by"/, 'board-run passes KOSMOS_START_BY to the board');
-  assert.match(src, /-u KOSMOS_START_BY -u KOSMOS_BOARD_PERSON_MARK PORT="\$PORT" KOSMOS_BOARD_STARTED_BY="\$_start_by" nohup/, 'the direct start passes KOSMOS_START_BY or a mark path to the board');
+  assert.match(src, /-u KOSMOS_START_BY PORT="\$PORT" KOSMOS_BOARD_STARTED_BY="\$_start_by" KOSMOS_BOARD_PERSON_MARK="\$PERSON_START_FILE" nohup/, 'the direct start passes KOSMOS_START_BY, or not the mark path, to the board');
+  // Review 5: a direct start is a person's unless the watchdog says otherwise (flipping this default left every test green).
+  assert.match(src, /local _start_by=person; \[ "\$\{KOSMOS_START_BY:-\}" = supervisor \] && _start_by=supervisor/, 'the direct start does not default to a person');
   // Review 1: the watchdog brings back a board nobody stopped: both of its starts say supervisor.
   const wd = fs.readFileSync(path.join(__dirname, 'bin', 'board-watchdog.sh'), 'utf8');
   const starts = wd.split('\n').filter((l) => /bash "\$KOSMOS_BIN" start --force/.test(l));

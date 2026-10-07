@@ -143,7 +143,7 @@ PIDFILE="$KOSMOS_HOME/board.pid"
 STOP_MARKER="$KOSMOS_HOME/board.stopped"
 # #5450: left by a person's `kosmos start` (first thing, before the stop marker goes), so board-run can tell a person's
 # start from the login item's or a crash relaunch's. The board removes it once it has used it (engine/restartnote.js
-# atStart); board-run removes only a stale, unreadable or future one; older than PERSON_START_MAX_S it is stale.
+# atStart) and `kosmos stop` removes it; board-run removes none. Older than PERSON_START_MAX_S it is stale.
 PERSON_START_FILE="$KOSMOS_HOME/board.person-start"
 PERSON_START_MAX_S=120
 LOG_DIR="$KOSMOS_HOME/logs"
@@ -1136,7 +1136,8 @@ cmd_start() {
   # supervisor's (a false "came back by itself"). The watchdog's start says supervisor (KOSMOS_START_BY).
   # Written whole (temp, then rename), so board-run never reads a half-written mark.
   if [ "${KOSMOS_START_BY:-}" != supervisor ]; then
-    { date +%s > "$PERSON_START_FILE.$$" && mv -f "$PERSON_START_FILE.$$" "$PERSON_START_FILE"; } 2>/dev/null || true
+    { date +%s > "$PERSON_START_FILE.$$" && mv -f "$PERSON_START_FILE.$$" "$PERSON_START_FILE"; } 2>/dev/null \
+      || rm -f "$PERSON_START_FILE.$$" 2>/dev/null || true
   fi
   rm -f "$STOP_MARKER" 2>/dev/null || true
   if healthy; then
@@ -1282,7 +1283,7 @@ cmd_start() {
   # #5450: a direct start is a person's, unless the watchdog (KOSMOS_START_BY=supervisor) is bringing back a board
   # nobody stopped.
   local _start_by=person; [ "${KOSMOS_START_BY:-}" = supervisor ] && _start_by=supervisor
-  env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE -u KOSMOS_START_BY -u KOSMOS_BOARD_PERSON_MARK PORT="$PORT" KOSMOS_BOARD_STARTED_BY="$_start_by" nohup "$NODE" "$APP" </dev/null >> "$BOARD_LOG" 2>&1 3>&- &
+  env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE -u KOSMOS_START_BY PORT="$PORT" KOSMOS_BOARD_STARTED_BY="$_start_by" KOSMOS_BOARD_PERSON_MARK="$PERSON_START_FILE" nohup "$NODE" "$APP" </dev/null >> "$BOARD_LOG" 2>&1 3>&- &
   set +m
   printf '%s' "$!" > "$PIDFILE"
   # ⚠️ WAIT FOR THE BOARD TO ANSWER, NOT FOR THE PROCESS TO EXIST. A pid that
@@ -1390,7 +1391,9 @@ cmd_board_run() {
       *) case "$_ps_at" in ''|*[!0-9]*) ;; *)
            if [ "${#_ps_at}" -le 12 ] && [ "${#_ps_now}" -le 12 ]; then _ps_age=$(( 10#$_ps_now - 10#$_ps_at )); fi ;;
          esac
-         if [ "$_ps_age" -ge 0 ] && [ "$_ps_age" -le "$PERSON_START_MAX_S" ]; then _started_by=person; fi ;;
+         if [ "$_ps_age" -ge 0 ] && [ "$_ps_age" -le "$PERSON_START_MAX_S" ]; then _started_by=person
+         elif [ "$_ps_age" -lt 0 ]; then _started_by=unknown   # review 5: there but not judgeable (unreadable, not a
+         fi ;;                                                # time, from the future): the timer decides, as before
     esac
   fi
   exec env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE -u KOSMOS_START_BY PORT="$PORT" KOSMOS_BOARD_STARTED_BY="$_started_by" KOSMOS_BOARD_PERSON_MARK="$PERSON_START_FILE" "$NODE" "$APP"

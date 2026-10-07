@@ -12,8 +12,9 @@ though the login item did bring Kosmos back by itself.
 ## The change (Mac; Windows is Homer's, specified on the card)
 - install/kosmos: `board-run` (the supervised entry: launchd's login item and its crash relaunches) execs the board with
   `KOSMOS_BOARD_STARTED_BY=supervisor`, unless `kosmos start` left a fresh mark (board.person-start, at most 120 s old)
-  just before it kickstarted the supervised board: then `person`. The mark is consumed either way; a stale or
-  unreadable one is not a person. The direct (nohup) start always says `person`.
+  (written first in `kosmos start`, review 3): then `person`. The board consumes the mark in atStart; board-run deletes
+  none (review 4). A stale one is the supervisor's; one that cannot be judged (unreadable, not a time, from the future)
+  is `unknown`, so the timer decides (review 5). The direct (nohup) start says `person`.
 - server.js takes the variables out of the environment as it loads (no agent inherits them) and passes them to
   engine/restartnote.js atStart, which removes a used person's mark. noteFor: `person` makes no note; `supervisor`
   replaces the after-boot timer; anything else keeps the timer.
@@ -92,3 +93,11 @@ though the login item did bring Kosmos back by itself.
   `kosmos stop` removes the mark when no board is running. Mutations red.
 - Checked: the Mac app is not a login item (no SMAppService or login-item registration in native-app or setup.sh), so
   its `kosmos start` is a person opening it, as assumed.
+
+## Review 5
+- FIXED: a mark that is there but cannot be judged read as the supervisor's, switching the timer off on an ambiguous
+  input (the one branch that could make a false note). It is now `unknown` (the timer decides, as before #5450),
+  consistent with the no-clock branch leaning away from a false note. A valid stale mark stays the supervisor's.
+- FIXED: the direct start's default (person) was unpinned (flipping it left every test green); now pinned.
+- FIXED: a temp mark left by a failed write is removed; the direct start passes the mark path, so the board consumes
+  the mark on both paths; stale comments here and in install/kosmos.
