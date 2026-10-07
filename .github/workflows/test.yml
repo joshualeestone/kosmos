@@ -93,6 +93,7 @@ jobs:
       actions: read
     outputs:
       reuse: ${{ steps.decide.outputs.reuse }}
+      mac_runner: ${{ steps.decide.outputs.mac_runner }}
     steps:
       # Full history without PAST file contents (only the checked-out tree's files download): the
       # decider diffs trees (--raw needs no blobs), and the one blob `git show` reads is fetched on
@@ -112,6 +113,9 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_REF: ${{ github.head_ref }}
           BASE_REF: ${{ github.base_ref }}
+          CI_RUNNER: ${{ vars.KOSMOS_CI_RUNNER }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          THIS_REPO: ${{ github.repository }}
         # The decider runs from the BASE branch, never from this PR's checkout, so a PR's own mistake
         # in the decider cannot skip that PR's suite. (Not a security boundary: a PR can edit this
         # workflow too.) No copy on the base (the PR that adds it, or a fetch problem) means nothing
@@ -125,6 +129,16 @@ jobs:
           fi
           case "$reuse" in ''|*[!0-9]*) reuse="" ;; esac
           echo "reuse=$reuse" >> "$GITHUB_OUTPUT"
+          # #5488 part b: where the macOS suite runs. The self-hosted Mac (label kosmos-ci) ONLY when the repo
+          # variable KOSMOS_CI_RUNNER is `on` AND the code is this repo's own (a push to main, or a PR whose head
+          # is this repo). A fork's code never reaches that machine, approved or not. Anything else, including
+          # the variable unset, is GitHub's macos-latest. The variable is the kill switch: GitHub has no fallback
+          # between runner kinds, so a mini that is off would hold every run until someone turns it `off`.
+          mac='"macos-latest"'
+          if [ "$CI_RUNNER" = on ] && { [ "$EVENT_NAME" = push ] || { [ "$EVENT_NAME" = pull_request ] && [ -n "$HEAD_REPO" ] && [ "$HEAD_REPO" = "$THIS_REPO" ]; }; }; then
+            mac='["self-hosted","macOS","arm64","kosmos-ci"]'
+          fi
+          echo "mac_runner=$mac" >> "$GITHUB_OUTPUT"
 
   # #4317: the suite runs as parallel jobs, so no one job sits near its limit. On main the one job
   # took 24-28 min (the node part 517 s and test:shell 1,021 s when timed apart on this runner,
@@ -158,7 +172,8 @@ jobs:
     # the fix is the runner, not the tests. macos-latest matches the developer Macs,
     # where the suite is green. (A first attempt on ubuntu-latest went red on exactly
     # these platform tests; recorded so nobody re-picks ubuntu for this suite.)
-    runs-on: macos-latest
+    # #5488 part b: scope's choice (see there); macos-latest whenever scope gave none (it failed or timed out).
+    runs-on: ${{ fromJSON(needs.scope.outputs.mac_runner || '"macos-latest"') }}
     # run-tests.sh boots boards and servers; bound a hung run rather than let it
     # sit on the 360-minute default. The suite now runs ~14m (#3499; it has grown well
     # past the old "~2-3 min"), so 15 left almost no margin -- a single slow run could
@@ -190,7 +205,8 @@ jobs:
       # macos-latest ships no tmux, so without this that test cannot start a server.
       # (The no-server path is covered in engine/status.test.js.)
       - name: install tmux (#1794)
-        run: brew install tmux
+        # #5488 part b: the self-hosted Mac has tmux installed once (its runner user may not own Homebrew).
+        run: command -v tmux || brew install tmux
       # PIN THE NODE. Nothing else here declares a version at all (fixed by the
       # .nvmrc and the engines field this branch adds), and the version is not
       # cosmetic. A related repo (#1462, kosmos-relay) was bitten by an OUTPUT
