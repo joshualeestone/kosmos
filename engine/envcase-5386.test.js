@@ -7,7 +7,8 @@
  *
  * The scan covers EVERY non-test module in engine/, so a new site cannot hide by not being on a list. It is a regex
  * scanner, not a parser. What it cannot see: a name built at runtime (env[name]); code after a `/*` or `//` that sits
- * inside a string (comment stripping blanks it). What it over-flags: any object's property of these names
+ * inside a string (comment stripping blanks it); a nested receiver (opts.env.CODEX_HOME = x); a spread or
+ * Object.assign of anything but process.env, or one split across lines. What it over-flags: any object's property of these names
  * (opts.CODEX_HOME = x), which here is always an env; rename the property if that ever stops being true.
  *
  *   node --test engine/envcase-5386.test.js
@@ -19,7 +20,9 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
 const NAMES = ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'GROK_HOME', 'XAI_API_KEY', 'KOSMOS_AGENT_TOKEN', 'KOSMOS_BOARD_TOKEN_FILE',
-  'GEMINI_API_KEY', 'GEMINI_CLI_HOME'];
+  'GEMINI_API_KEY', 'GEMINI_CLI_HOME',
+  // #1704's world bleed: the world, its marker and the three roots (engine/worlds.js WORLD_ROOT_ENV_VARS)
+  'KOSMOS_WORLD', 'KOSMOS_PRE_WORLD_ROOTS', 'AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_PROJECTS', 'AGENT_WORKFORCE_WORKERS'];
 const N = NAMES.join('|');
 const PATTERNS = [
   ['a plain delete', new RegExp(`\\bdelete\\s+(?!process\\.env\\b)[\\w$.]+(\\.(${N})\\b|\\[\\s*['"](${N})['"]\\s*\\])`)],
@@ -53,6 +56,7 @@ test('#5386: each pattern form is caught, and a comment or a process.env read is
   assert.equal(caught("  delete out['XAI_API_KEY'];"), 1);
   assert.equal(caught('  if (dir) env.CODEX_HOME = String(dir);'), 1);
   assert.equal(caught("  env['CLAUDE_CONFIG_DIR'] = dir;"), 1);
+  assert.equal(caught('  const env = { ...process.env }; delete env.KOSMOS_WORLD;'), 1, 'the #1704 world bleed');
   assert.equal(caught("  if (env['CODEX_HOME'] === x) return;"), 0, 'a bracket comparison is a read');
   assert.equal(caught('  const env = { ...process.env, GROK_HOME: spot.dir };'), 1);
   assert.equal(caught('  Object.assign({}, process.env, o.h ? { CODEX_HOME: o.h } : {});'), 1);
@@ -102,4 +106,15 @@ test('#5386: applyAgentWorldEnv reads an oddly spelled world marker on a copy, a
   assert.deepEqual(Object.keys(env).filter((k) => k.toUpperCase() === 'AGENT_WORKFORCE_DATA'), ['AGENT_WORKFORCE_DATA']);
   assert.equal(env.AGENT_WORKFORCE_DATA, '/pre/data', 'the other world\'s root was kept');
   assert.equal(Object.keys(env).filter((k) => k.toUpperCase() === 'KOSMOS_PRE_WORLD_ROOTS').length, 0);
+});
+
+test('#5386: a named world applied to a copy derives from, records and restores an oddly spelled data root', () => {
+  const worlds = require('./worlds');
+  const env = { KOSMOS_WORLD: 'w2', Agent_Workforce_Data: '/sandbox/data', AGENT_WORKFORCE_HOME: '/h', PATH: '/bin' };
+  worlds.applyAgentWorldEnv(env);
+  const data = Object.keys(env).filter((k) => k.toUpperCase() === 'AGENT_WORKFORCE_DATA');
+  assert.deepEqual(data, ['AGENT_WORKFORCE_DATA'], 'one data root key: ' + data.join(','));
+  assert.ok(env.AGENT_WORKFORCE_DATA.startsWith('/sandbox/data'), 'the world hangs off the sandbox root: ' + env.AGENT_WORKFORCE_DATA);
+  assert.equal(JSON.parse(env.KOSMOS_PRE_WORLD_ROOTS).roots.AGENT_WORKFORCE_DATA, '/sandbox/data', 'the marker recorded the root');
+  assert.equal(worlds.preWorldEnv(env).AGENT_WORKFORCE_DATA, '/sandbox/data', 'leaving the world gives the root back');
 });

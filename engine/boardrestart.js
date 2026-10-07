@@ -42,6 +42,7 @@
  * dies on the port. So the same conservative rule holds, on a different proof.
  */
 const fs = require('node:fs');
+const { envDelete } = require('./win32env');   // #5386: env copies keep names as spelled; on Windows any spelling counts
 const path = require('node:path');
 const { execFileSync, spawn } = require('node:child_process');
 const { installedKosmosCli } = require('./clipath');
@@ -290,8 +291,7 @@ function win32CanRestart() {
  * @returns {{ok:boolean, because?:string}}
  */
 function kosmosRestart(cli) {
-  const env = { ...process.env };
-  const { envDelete } = require('./win32env');   // #5386: every spelling of each name
+  const env = { ...process.env };   // #5386: names below go through envDelete, every spelling of each
   for (const k of worlds.WORLD_ROOT_ENV_VARS) envDelete(env, k);
   /* #1704: and the world itself. A fresh board that inherited KOSMOS_WORLD or the
      pre-world marker would hand the OLD world to every agent it launches, the same

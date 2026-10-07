@@ -1,22 +1,30 @@
 # #5386: env deletes and sets outside childEnv match every spelling
 
-Stacked on PR #5384 (winpolicy-5358), which adds engine/win32env.js (envDelete, envSet). Rebase onto main (this
-branch's own commits) once #5384 merges; review loop and proof run on a diff of only these files.
+Was stacked on PR #5384 (which added engine/win32env.js); moved onto main after it merged. THIS TOP SECTION IS THE
+CURRENT STATE; the dated sections below record how it got here.
 
-## Call
-- The six sites a reviewer of #5384 listed copy process.env for a child and delete or set a name by its exact
-  spelling: subscription.checkLive, orgchartfile (the Claude read), codexsigninlive, grokaccounts (sign-in), create
-  (the claude probe), boardrestart (kosmosRestart). Each now goes through envDelete / envSet.
-- Reads of process.env itself are left alone: on Windows process.env looks names up case-insensitively; only a
-  COPY keeps them as spelled.
-- On a Mac (case-sensitive), removing other spellings of a name the child reads in one spelling changes nothing it
-  reads; setting writes the usual spelling, as before.
+## Call (current)
+- Every engine module that copies process.env for a child deletes and sets the account-scoped and world names through
+  envDelete / envSet / envCanon: subscription.checkLive, orgchartfile, codexsigninlive, grokaccounts, create (the claude
+  probe), boardrestart (kosmosRestart), win32codex (fallback), openaiaccounts (both Codex sign-ins), orgchartcodex
+  (HOME, USERPROFILE, CODEX_HOME), remote (board token file), worlds (preWorldEnv, applyAgentWorldEnv on a copy,
+  restorePreWorldRoots).
+- process.env itself keeps plain access: on Windows Node already matches its names in any case; on a Mac a differently
+  spelled name is a different variable the live process must keep. worlds.js applies the helpers only to copies.
+- On a Mac or Linux the helpers do remove a differently cased variable from a COPY (a lowercase codex_home, say), so a
+  child's environment can differ from before; harmless for these names, which nothing uses in another case.
+- Not changed, with reasons: sandbox.js (TMUX, no tmux on Windows); win32channel, runners, update (Kosmos-only names
+  Windows never supplies); win32signin (already every spelling); connect.installEnvFor (fresh object); connect run()
+  (spreads opts.env over process.env with HOME/USERPROFILE: relies on Windows spelling USERPROFILE exactly, as it
+  does by default); devicedoor (env[spec.configVar], a runtime-built name, sandbox-only).
 
-## Tests
-- engine/subscription.test.js: an oddly spelled Claude_Config_Dir does not reach a default-account check; a named one
-  is one key.
-- engine/envcase-5386.test.js: no plain `delete env.` / `delete env[` in the modules that build a child's env, with a
-  control that the scan can fail.
+## Tests (current)
+- engine/envcase-5386.test.js: a scan of EVERY non-test engine module for a plain delete, an assignment, a bracket
+  assignment, a spread-literal set or an Object.assign set of the account-scoped and world names; controls for each
+  form, for comments, reads and process.env; pinned lines from before this card stay flagged. Behaviour tests for
+  preWorldEnv, applyAgentWorldEnv (default world, and a named world with an oddly spelled sandbox root), each red on
+  the earlier code.
+- engine/subscription.test.js and engine/win32codex.test.js: oddly spelled inherited names, one key after.
 
 ## Weakest premise
 How often a real Windows environment carries a non-canonical spelling of these names.
@@ -56,3 +64,9 @@ How often a real Windows environment carries a non-canonical spelling of these n
 - subscription.test.js's oddly spelled process.env name only discriminates on a case-sensitive host; the source scan is
   the host-neutral guard for that site.
 - Inline require('./win32env') calls hoisted to one top-level require per module.
+
+## Review 3 (opus), 2026-10-07
+- applyAgentWorldEnv on a copy now canonicalises every name it and applyWorldEnv touch (world, marker, three roots,
+  AGENT_WORKFORCE_HOME): a named world on a copy with Agent_Workforce_Data now derives from, records and restores that
+  root (test; red with only the world and marker canonicalised). Production callers pass process.env today.
+- The guard covers the world names too (#1704's bleed), with a control. boardrestart's require hoisted.

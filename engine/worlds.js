@@ -256,9 +256,13 @@ function applyWorldEnv(env, base, world) {
  */
 function applyAgentWorldEnv(env) {
   const e = env || process.env;
-  /* #5386: a copy carrying the world or its marker in another spelling is read by the usual one (process.env needs no
-     help on Windows, and on a Mac must not have its variables renamed). */
-  if (e !== process.env) { envCanon(e, launchidentity.WORLD_ENV_VAR); envCanon(e, PRE_WORLD_ROOTS_ENV_VAR); }
+  /* #5386: on a copy, every name this function and applyWorldEnv read or write (the world, its marker, the three roots,
+     and AGENT_WORKFORCE_HOME, which baseRoot reads) is moved to its usual spelling first, so the exact-spelling reads
+     and writes below see the one key. process.env needs no help on Windows, and on a Mac must not have its variables
+     renamed. */
+  if (e !== process.env) {
+    for (const k of [launchidentity.WORLD_ENV_VAR, PRE_WORLD_ROOTS_ENV_VAR, ...WORLD_ROOT_ENV_VARS, 'AGENT_WORKFORCE_HOME']) envCanon(e, k);
+  }
   const id = launchidentity.currentWorldId(e);
   const recorded = readWorldMarker(e);
   if (recorded && recorded.world === id) return {};   // inherited, already applied for this world
