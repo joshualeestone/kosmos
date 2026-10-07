@@ -24,7 +24,9 @@ reached through the platform and runner seams), and the Linux lane (linux.yml) s
    mask under /run, which leaves the file ordinary; that case reads as switched off through disabledJobsResult
    (masked-runtime). The link case is a hand-made mask or one made after the file was deleted.
 3. `linuxRun` passes the live-execution gate's refusal through as a throw (live-execution now tags it with a code),
-   so a test that forgot its seam fails loudly instead of reading as an ordinary { ok:false }.
+   so a test that forgot its seam fails loudly instead of reading as an ordinary { ok:false }. The two fleet polls
+   (disabledJobsResult, runningJobs) still fail soft on it, as their Mac arms do (review 4): a board poll that throws
+   would take the page down for a forgotten seam, where could-not-look is the honest answer.
 4. Wording:
    - The "already loaded" sentence on Linux says when linger is off (it then starts only while the person is logged in).
    - `SELF_STARTS` becomes the default of `selfStarts(platform, lingering)`; on Linux with linger off it says it starts

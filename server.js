@@ -5562,12 +5562,12 @@ const server = http.createServer(async (req, res) => {
                      has no reason to have heard "tmux"). */
                   ? 'something is off about this agent: this computer says its background job is running, but no session for it is visible from here, so Kosmos cannot show or reach whatever that job started'
                   : (!create.jobMissing(k.name) && switchedOff.has(k.name))
-                    ? (process.platform === 'linux'
+                    ? (create.probePlatform() === 'linux'   // the platform the switched-off set was read for
                       /* #5445: Linux had no switched-off set before (launchctl failed there), so this Mac sentence never
                          reached it; System Settings is not where a systemd unit is switched off. */
                       ? (require('./engine/linuxjob').masked(k.name)
                         ? 'this agent is not running because ' + require('./engine/linuxjob').maskedSentence(k.name)
-                        : 'this agent is not running because its background job was switched off in systemd, this computer\'s service manager. Switch it back on there and it can start again')
+                        : 'this agent is not running because its background job was switched off (or masked) in systemd, this computer\'s service manager. Switch it back on there and it can start again')
                       : 'this agent is not running because its background job was switched off, probably in System Settings under Login Items. Switch it back on there and it can start again')
                     : !create.jobMissing(k.name)
                     /* #671: the one offline cause whose sentence ended at the
