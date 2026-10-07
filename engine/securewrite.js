@@ -294,9 +294,11 @@ function syncDir(dir) {
  *
  * Throws on failure. On the fallback path a failure leaves the previous contents
  * in place where it can, because the alternative is destroying what it failed to
- * replace. #5434: the new contents are flushed to disk before they replace the old;
- * if the disk refuses the flush (EIO, ENOSPC, EDQUOT) it throws at once and the old
- * file is left exactly as it was (no retry, no fallback).
+ * replace. #5434: the new contents are flushed to disk before they replace the old.
+ * On the atomic path, a refused flush (EIO, ENOSPC, EDQUOT) throws at once and the
+ * old file is left as it was (no retry, no fallback; securewrite.fsync-5434.test.js).
+ * On the in-place fallback a refused flush comes after the truncate, so the old
+ * contents survive only through that path's best-effort restore.
  */
 function writeSecret(file, data, mode) {
   /* #1793: sweep this target's directory of orphan temps a prior death left behind,
@@ -382,9 +384,9 @@ function writeSecret(file, data, mode) {
          the chmod or the rename. */
       if (created) { try { fs.unlinkSync(tmp); } catch { /* nothing to clean */ } }
       // #5434: the disk refused the flush; keep the old file (see flushOrThrow).
-      if (err && err.flushFailed) {
-        if (earlierAtomicError && !err.cause) { try { err.cause = earlierAtomicError; } catch { /* frozen */ } }
-        throw err;
+      if (flushError) {   // the same condition the close above used, so the two cannot disagree
+        if (earlierAtomicError && flushError && typeof flushError === 'object' && !flushError.cause) { try { flushError.cause = earlierAtomicError; } catch { /* frozen */ } }
+        throw flushError;
       }
     }
   }
