@@ -2073,6 +2073,23 @@ test('kosmos#5422: a key id noted while the file was readable survives a later r
   remote.setOn(false);
 });
 
+test('kosmos#5422: on a damaged file, an older tunnel after a key reuses the opaque id this process holds', async () => {
+  fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: 'old-opaque-id' }));
+  process.env.FAKE_TUNNEL_MODE = 'devkey';
+  try { assert.equal((await remote.signinStart('her@example.com')).ok, true); } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  fs.writeFileSync(remote.FILE, '{"on": true, "relay": "rel');
+  fs.rmSync(RECORD, { force: true });
+  await remote.signinStart('her@example.com');   // the tunnel is now an older one
+  const start = recorded().find((c) => c[1] === 'start');
+  assert.equal(start[start.indexOf('--device-id') + 1], 'old-opaque-id', 'a second "this computer" was minted');
+});
+
+test('kosmos#5422: an invalid id in use is replaced by the kept opaque id at once', async () => {
+  fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: 'has spaces', past_device_ids: ['old-opaque-id'] }));
+  assert.equal((await remote.signinStart('down@example.com')).ok, false, 'precondition: not taken');
+  assert.equal(remote.read().device_id, 'old-opaque-id', 'the self-grant kept an invalid id');
+});
+
 test('kosmos#5422: a cancel while start asks the tunnel sends no start', async () => {
   process.env.FAKE_TUNNEL_MODE = 'devkey';
   try {

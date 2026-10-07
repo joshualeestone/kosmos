@@ -1678,19 +1678,21 @@ function useDeviceId(id) {
 function signinDeviceId() {
   if (mintedDeviceId && LEGACY_ID.test(mintedDeviceId)) return mintedDeviceId;
   const r = read();
+  // When remote.json cannot be read, what this process holds stands in for it (a key's sign-in may have moved the
+  // opaque id there), or an older tunnel would mint another "this computer" (#3149).
+  const held = r.ok === false && heldIdentity ? heldIdentity : null;
+  const inUse = held ? held.device_id : r.device_id;
   // kosmos#5422: after a key, the opaque id is among the past ones (an older tunnel signs in with it again).
-  const kept = [r.device_id, ...r.past_device_ids].find((x) => typeof x === 'string' && LEGACY_ID.test(x));
-  if (kept) { mintedDeviceId = kept; return kept; }
-  const id = crypto.randomUUID();
+  const pool = [r.device_id, ...r.past_device_ids, ...(held ? [held.device_id, ...held.past_device_ids] : [])];
+  const kept = pool.find((x) => typeof x === 'string' && LEGACY_ID.test(x));
+  const id = kept || crypto.randomUUID();
   mintedDeviceId = id;      // hold it even if the persist below fails
-  /* Kept at once, so a restart signs in with it again. With no id in use it is the id; with one in use (a key's id,
-     under an older tunnel) it waits among the ids before, and becomes the id in use only when a sign-in with it is
-     taken (the callers record it), so the self-grant never moves to an id the coordinator has not seen. */
-  // In use: the file's id, or, when the file cannot be read, the one this process holds. An id that could never have
-  // been valid (a hand edit) is replaced at once, as before kosmos#5422.
-  const inUse = r.ok === false && heldIdentity ? heldIdentity.device_id : r.device_id;
+  /* Kept at once, so a restart signs in with it again. With no valid id in use (a fresh install, a hand edit) it is the
+     id in use at once; with one in use (a key's id, under an older tunnel) it waits among the ids before, and becomes
+     the id in use only when a sign-in with it is taken (the callers record it), so the self-grant never moves to an id
+     the coordinator has not seen. */
   if (!inUse || !DEVICE_ID.test(inUse)) useDeviceId(id);
-  else addPastId(id);
+  else if (!kept) addPastId(id);
   return id;
 }
 
