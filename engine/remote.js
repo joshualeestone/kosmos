@@ -1690,8 +1690,7 @@ function signinDeviceId() {
   // been valid (a hand edit) is replaced at once, as before kosmos#5422.
   const inUse = r.ok === false && heldIdentity ? heldIdentity.device_id : r.device_id;
   if (!inUse || !DEVICE_ID.test(inUse)) useDeviceId(id);
-  else if (r.ok === false) heldIdentity = { device_id: heldIdentity.device_id, past_device_ids: [id, ...heldIdentity.past_device_ids.filter((x) => x !== id)] };
-  else write({ past_device_ids: [id, ...r.past_device_ids.filter((x) => x !== id)] });
+  else addPastId(id);
   return id;
 }
 
@@ -1743,12 +1742,16 @@ const keyedIdIn = (asked) => {
    a sign-in with it is taken (the self-grant follows that one). */
 function noteOwnId(id) {
   if (ownDeviceIds().includes(id)) return;
+  addPastId(id);
+}
+/* An id joins the ids before: in remote.json when it can be read, and in what this process holds whenever it holds
+   anything (a repair of a damaged file rebuilds from that, so an id written only to the file would be lost there). */
+function addPastId(id) {
   const cur = read();
-  if (cur.ok === false) {
-    heldIdentity = { device_id: heldIdentity ? heldIdentity.device_id : '', past_device_ids: [id, ...(heldIdentity ? heldIdentity.past_device_ids : [])] };
-    return;
+  if (cur.ok === false || heldIdentity) {
+    heldIdentity = { device_id: heldIdentity ? heldIdentity.device_id : '', past_device_ids: [id, ...(heldIdentity ? heldIdentity.past_device_ids : []).filter((x) => x !== id)] };
   }
-  write({ past_device_ids: [id, ...cur.past_device_ids] });
+  if (cur.ok !== false) write({ past_device_ids: [id, ...cur.past_device_ids.filter((x) => x !== id)] });
 }
 /* One at a time: two starts at once (a double click, two tabs) must not both remove a corrupt key, the second
    removing the good one the first just made, so the two name different devices. */

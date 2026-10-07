@@ -2056,6 +2056,23 @@ test('kosmos#5422: a tunnel program that cannot be started is said in fixed word
   assert.equal(r.because, 'the tunnel program could not be started');
 });
 
+test('kosmos#5422: a key id noted while the file was readable survives a later repair from memory', async () => {
+  fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: 'old-opaque-id' }));
+  const keyFile = nodePath.join(process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote'), 'signin-device.key');
+  process.env.FAKE_TUNNEL_MODE = 'devkey devkey-random';
+  try {
+    assert.equal((await remote.signinStart('her@example.com')).ok, true);   // taken: this process now holds an identity
+    fs.writeFileSync(keyFile, 'corrupt');   // the key goes bad; the next start makes another, and is not taken
+    assert.equal((await remote.signinStart('down@example.com')).ok, false);
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  const second = 'k1.' + require('node:crypto').createHash('sha256').update(fs.readFileSync(keyFile)).digest('base64url').slice(0, 32);
+  assert.ok(remote.read().past_device_ids.includes(second), 'precondition: noted in the file');
+  fs.writeFileSync(remote.FILE, '{"on": true, "relay": "rel');
+  assert.equal(remote.setOn(true).ok, true);   // the repair, from what this process holds
+  assert.ok(remote.read().past_device_ids.includes(second), 'the repair dropped a key id the coordinator may hold');
+  remote.setOn(false);
+});
+
 test('kosmos#5422: a cancel while start asks the tunnel sends no start', async () => {
   process.env.FAKE_TUNNEL_MODE = 'devkey';
   try {

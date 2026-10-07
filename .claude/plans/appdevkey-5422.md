@@ -14,10 +14,10 @@ and makes the page on a computer's own address sign in with a `k1.` id. This bra
    subcommand 'device-id'"): the opaque `--device-id`, as before. Anything else refuses the sign-in in words: a
    fallback would sign in as another device, and a `k1.` id is never sent without its key. The key file is
    deterministic, so a start and its verify name one device, across a restart too.
-3. remote.json: `device_id` is the id of the last start or verify the coordinator took (either kind of id is recorded only then; a freshly minted opaque id is kept among the past ids meanwhile, so a restart reuses it); the
+3. remote.json: `device_id` is the id of the last start or verify the coordinator took (either kind of id is recorded only then; a freshly minted opaque id is kept among the past ids meanwhile, so a restart reuses it; the exception: with no valid id in use at all, a fresh install or a hand-edited id, the minted one is the id in use at once); the
    ids before it are kept, newest first and never trimmed, in `past_device_ids`. The pending list hides all of them (#4610: this computer's earlier rows stay pending at the
    coordinator). An older tunnel after a key uses the kept opaque id, never the key id without its proof.
-4. The device key survives clearing an unfinished earlier sign-in (moved aside across the wipe), and Forget waits for a
+4. The device key survives clearing an unfinished earlier sign-in (the folder is emptied around it; the key file is never moved or rewritten), and Forget waits for a
    device-key ask in flight (it may be making the key in the folder Forget empties).
 5. Start and verify take the cancel epoch before anything is awaited and check it, and busy(), after the device
    arguments come back.
@@ -42,6 +42,6 @@ This merges first; #297 is held until it does (comment on #297).
 - damaged remote.json: the repair keeps the key id and the ids before; key gone still says start again.
 - verify with the key file gone sends nothing; a cancel during the ask sends no start.
 - Forget waits for the ask and for a keyed start (bounded; a start that never returns cannot hold it).
-- the folder is owner-only from the first ask; the key survives clearing an unfinished sign-in, 0600.
+- the folder is owner-only from the first ask; the key survives clearing an unfinished sign-in (same content, same file).
 - the pending list and server.test.js's allowed list hide every own id; allow accepts exactly the k1 shape.
 - remote-unreadable-4308.test.js and server.test.js fakes act as older tunnels for device-id.
