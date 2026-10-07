@@ -105,10 +105,16 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
+        # The decider runs from the BASE branch, never from this PR's checkout: a PR that edits the
+        # decider must not be judged by its own edited copy. No copy on the base (the PR that adds it,
+        # or a fetch problem) means nothing to run, and the suite runs.
         run: |
           reuse=""
-          if [ "$EVENT_NAME" = pull_request ]; then
-            reuse="$(bash tools/ci-plans-only-reuse.sh "$HEAD_SHA" "$HEAD_REF")" || reuse=""
+          if [ "$EVENT_NAME" = pull_request ] &&
+             git show "origin/$BASE_REF:tools/ci-plans-only-reuse.sh" > "$RUNNER_TEMP/decide.sh" 2>/dev/null &&
+             [ -s "$RUNNER_TEMP/decide.sh" ]; then
+            reuse="$(bash "$RUNNER_TEMP/decide.sh" "$HEAD_SHA" "$HEAD_REF")" || reuse=""
           fi
           case "$reuse" in ''|*[!0-9]*) reuse="" ;; esac
           echo "reuse=$reuse" >> "$GITHUB_OUTPUT"
@@ -255,12 +261,13 @@ jobs:
       - name: every suite job passed
         env:
           SUITE_RESULT: ${{ needs.suite.result }}
+          SCOPE_RESULT: ${{ needs.scope.result }}
           REUSE: ${{ needs.scope.outputs.reuse }}
           RUN_BASE: ${{ github.server_url }}/${{ github.repository }}/actions/runs
         run: |
           echo "suite: $SUITE_RESULT"
           # #5488: skipped ONLY because scope named a green run (a number) to reuse; any other skip stays red.
-          if [ "$SUITE_RESULT" = skipped ] && [[ "$REUSE" =~ ^[0-9]+$ ]]; then
+          if [ "$SUITE_RESULT" = skipped ] && [ "$SCOPE_RESULT" = success ] && [[ "$REUSE" =~ ^[0-9]+$ ]]; then
             echo "only plan files changed since green run $REUSE; reusing its verdict:"
             echo "  $RUN_BASE/$REUSE"
             exit 0
