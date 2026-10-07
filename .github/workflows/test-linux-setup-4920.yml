@@ -239,7 +239,7 @@ jobs:
           systemctl --user disable kosmos-board.service 2>/dev/null || true
           rm -f "$UNIT"; systemctl --user daemon-reload
 
-      - name: An update over an install made by main's setup.sh (0.7.27's shell unit) lands on B's unit
+      - name: An update over an install made by 0.7.27's setup.sh (its shell unit) lands on B's unit
         # The path the KillMode fix, the held-changed restart and installBoard's rewrite exist for, end to end: install
         # with main's own setup.sh (shell-written unit, Restart=always, no KillMode), hand the board to that unit as a
         # reboot would, then run this branch's setup.sh as an update.
@@ -247,9 +247,11 @@ jobs:
           set -e
           KOSMOS_HOME="$HOME/.local/share/kosmos"
           UNIT="$HOME/.config/systemd/user/kosmos-board.service"
-          git fetch --depth=1 origin main
+          # Pinned to the commit that shipped the shell unit (#4985 on main, in 0.7.27), not to main, which stops
+          # writing it once this change lands.
+          git fetch --depth=1 origin 28c352bc0cba518f4343952911746d10b9490263
           git show FETCH_HEAD:install/setup.sh > "$RUNNER_TEMP/old-setup.sh"
-          grep -q 'Restart=always' "$RUNNER_TEMP/old-setup.sh"   # it really is the shell-unit release
+          grep -qx 'Restart=always' "$RUNNER_TEMP/old-setup.sh"   # a unit heredoc line, not a comment
           sh "$RUNNER_TEMP/old-setup.sh"
           grep -qx 'Restart=always' "$UNIT"
           if grep -qx 'KillMode=process' "$UNIT"; then echo "SETUP WRONG: the old unit already has KillMode" >&2; exit 1; fi

@@ -437,3 +437,17 @@ test('#4920 uninstall: when the node step cannot even load linuxboard, the unit 
   assert.match(r.stdout, /its unit file was removed by name instead/);
   assert.ok(!fs.existsSync(path.join(w.unitDir, name)), 'a unit left after a failed node step loops on the deleted folder');
 });
+
+test('#4920 the KillMode fix replaces another KillMode= line rather than adding a second', () => {
+  const w = world({});
+  for (const tool of ['grep', 'awk', 'mv']) { const src = ['/usr/bin/' + tool, '/bin/' + tool].find((f) => fs.existsSync(f)); if (src && !fs.existsSync(path.join(w.bin, tool))) fs.symlinkSync(src, path.join(w.bin, tool)); }
+  fs.writeFileSync(path.join(w.bin, 'uname'), '#!/bin/sh\necho Linux\n'); fs.chmodSync(path.join(w.bin, 'uname'), 0o755);
+  const unitName = 'kosmos-board.' + require('node:crypto').createHash('sha256').update(w.home).digest('hex').slice(0, 8) + '.service';
+  const file = path.join(w.unitDir, unitName);
+  fs.writeFileSync(file, '[Unit]\nDescription=Kosmos Board\n\n[Service]\nKillMode=control-group\nRestart=always\n');
+  const r = runBlock('_kosmos_linux_unit_killmode\n', w);
+  assert.equal(r.status, 0, r.stderr);
+  const after = fs.readFileSync(file, 'utf8');
+  assert.equal((after.match(/^KillMode=/gm) || []).length, 1, 'more than one KillMode line: ' + after);
+  assert.match(after, /^KillMode=process$/m);
+});

@@ -209,7 +209,8 @@ _kosmos_linux_unit_killmode() {
   [ -f "$_lk_file" ] || return 0
   grep -qx 'KillMode=process' "$_lk_file" && return 0
   _lk_tmp="$_lk_dir/.kosmos-killmode.$$"
-  if awk '{ print } /^\[Service\]$/ { print "KillMode=process" }' "$_lk_file" > "$_lk_tmp" && mv "$_lk_tmp" "$_lk_file"; then
+  # Any other KillMode= line is dropped: systemd takes the last one, so a second line would make this do nothing.
+  if awk '/^KillMode=/ { next } { print } /^\[Service\]$/ { print "KillMode=process" }' "$_lk_file" > "$_lk_tmp" && mv "$_lk_tmp" "$_lk_file"; then
     systemctl --user daemon-reload 2>/dev/null || true
   else
     rm -f "$_lk_tmp"
@@ -4198,8 +4199,9 @@ BOARDEOF
       # run whose own hand-off failed is still handed over now. Not on a computer set not to run a board (a restart
       # would clear board.stopped). Best-effort: the unit is enabled either way and starts at the next login or boot.
       _kosmos_board_decide
-      # Only with linger on: without it the unit dies at logout, while the board setup.sh started survives it (logind
-      # keeps user processes by default), so handing over would make a no-linger server less available, not more.
+      # The first hand-over (loose) only with linger on: without it the unit dies at logout, while the board setup.sh
+      # started survives it (logind keeps user processes by default), so handing over would make a no-linger server less
+      # available. A board systemd already runs (held-changed) is restarted either way: it is the unit's already.
       # And once more for a board systemd already runs when this update changed its unit text: Environment= (PATH, the
       # port, the tmux entry) reaches a running unit only at its next start, which daemon-reload does not do.
       case "$_lb_out" in
