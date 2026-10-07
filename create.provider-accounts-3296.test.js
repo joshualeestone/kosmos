@@ -96,6 +96,8 @@ test('plist round-trip (grok): GROK_HOME = account dir verbatim, readJob reads i
 });
 
 test('a DEFAULT-account gemini/grok agent writes NO account-env line (absent means the default)', () => {
+  // #5432: this runs on Linux too, where jobFor is the unit text: there it checks only that no account line is written
+  // (the unit writer would name GEMINI_CLI_HOME / GROK_HOME if it did); the present-case round trip is #5500.
   const g = jobfix.jobFor('gd', '/bin/gemini', '/bin/tmux', 'gemini-2.5-flash', null, 'gemini');
   assert.ok(!g.includes('GEMINI_CLI_HOME'), 'a default gemini agent carries no GEMINI_CLI_HOME');
   const x = jobfix.jobFor('xd', '/bin/grok', '/bin/tmux', 'grok-4.6', null, 'grok');
