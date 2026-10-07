@@ -5061,8 +5061,8 @@ function createAgentInner(opts) {
   let win32Launched = null;
   let linuxLingering = null;   // #4918 review 2: whether systemd keeps the agent running with nobody logged in
   let linuxStartWhy = '';      // #4918 review 8: systemd's own reason when the start failed
-  let linuxNeverLoaded = false;
-  let linuxUnitRefusal = '';     // #4918 review 35: unitSafe/model refusal, said to the person  // #4918 review 27: the reload failed, so systemd never read the unit file
+  let linuxNeverLoaded = false;  // #4918 review 27: the reload failed, so systemd never read the unit file
+  let linuxUnitRefusal = '';     // #4918 review 35: unitSafe/model refusal, said to the person
 
   function rollBack({ unload = false } = {}) {
     /* ⚠️ `unload` is for a failed START, and only then.

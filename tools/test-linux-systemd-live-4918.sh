@@ -13,6 +13,7 @@ set -euo pipefail
 [ -n "${CI:-}" ] && [ -n "${GITHUB_ACTIONS:-}" ] || { echo "refusing: this test changes the real user systemd and uses sudo; it runs on GitHub Actions only (CI and GITHUB_ACTIONS set)" >&2; exit 2; }
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO" || exit 1   # review 36: every node -e requires ./engine/..., relative to here
 fails=0
 ok()  { echo "PASS  $1"; }
 bad() { echo "FAIL  $1"; fails=1; }
