@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: sandboxpause-4651
-diff_hash: 5ec98e25deeea2b20da0617695af3a3a69227f987e2a6949d9277f37c3f5f2a5
-validation: passed (Mortals full suite at 77e1827bf, this branch's head, finished 2026-10-07 00:14 CDT, 0 failures, hash 5ec98e25deee = this diff_hash. Run under the branch name sandboxpause-4651-rb because a stale Mortals worktree holds sandboxpause-4651; the local skip log is per branch name, so run_or_skip here does not see that entry and was stopped rather than re-run the suite on this Mac. The four scripts this change owns, in that run: test-setup-pause-sandbox-4651 0 failures, test-update-putback-4818 33/33, test-pause-foreign-board-964 12/12, test-update-abort-2055 10/10)
+diff_hash: 462bdfcba3b8933728074455ea5c0480296f296592e671047b1b8538c736846e
+validation: passed (PR #5462's GitHub CI at b0dc99707, the rebased head this proof covers, all six jobs SUCCESS: suite (node), suite (shell 1/2), suite (shell 2/2), test, test-linux-setup, windows. Earlier, Mortals full suite at 77e1827bf before the rebase onto #5067's merge: 0 failures. On the rebased tree by hand: test-setup-pause-sandbox-4651 0 failures, test-update-putback-4818 33/33, test-pause-foreign-board-964 12/12, test-update-abort-2055 10/10, test-install-static 23/23)
 subdir_audit: passed
-timestamp: 2026-10-07T05:18:39Z
+timestamp: 2026-10-07T14:09:00Z
 iterations: 16
 converged: true
 ---
@@ -16,9 +16,9 @@ converged: true
 **Converged:** Yes (pass 11 after the rebase found no new BLOCKER, WARNING or CONVENTION)
 **Fixed:** every actionable finding, each in a commit that names its pass | **Deferred:** see below | **Asked:** 0
 
-**Stacked on #5067** (Angel's sandbox-4636, head 5d809dbf0, still open). The diff against main therefore includes
-#4636's 7 files; this card's own change is 4 files (install/setup.sh, tools/test-setup-pause-sandbox-4651.sh,
-package.json's test:shell line, the plan). Merge AFTER #5067, then rebase, and this proof is regenerated.
+**Rebased onto main after #5067 merged** (3ec876aa3): the diff is this card's own files only (install/setup.sh,
+tools/test-setup-pause-sandbox-4651.sh, package.json's test:shell line, the plan; one package.json conflict resolved as a
+union with main's 4592 script). This proof was regenerated for that diff.
 
 ### Per-Iteration Breakdown
 
