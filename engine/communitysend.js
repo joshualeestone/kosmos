@@ -102,15 +102,24 @@ function commentDeletesFile() { return path.join(dir(), 'comment-deletes.json');
 // #4922: this install's community group id, one per endpoint like the keys (another server never sees it).
 function installGroupFile() { return path.join(endpointDir(), 'install-group.json'); }
 
-/* #5431: the temp file is flushed to disk before the rename. Without that, a crash or power loss can leave the renamed
+/* #5431: the temp file is flushed (fsync) before the rename. Without that, a crash or power loss can leave the renamed
    file at its full length with zeroed contents (seen on a Windows box: sent.json was 3 NUL bytes), which loadJson
    rightly cannot read, so sending paused with no end. The folder is not flushed: that protects only the rename itself
    (a crash could then keep the previous, whole file), Windows cannot do it, and it doubled the cost of every save. */
 function saveJson(file, data) {
   const body = JSON.stringify(data, null, 2) + '\n';
-  // The same bytes already on disk need no write and no flush: measured, 869 of 1407 sent.json saves in this module's
-  // tests rewrote what was there, and each flush costs about 4 ms on a Mac.
-  try { if (fs.readFileSync(file, 'utf8') === body) return; } catch { /* missing or unreadable: write it */ }
+  // The same bytes already on disk, at this file's own permissions, need no write and no flush: measured, 869 of 1407
+  // sent.json saves in this module's tests rewrote what was there, and each flush cost about 4 ms on a Mac. The mode
+  // is checked too (review 9): every save used to put keys.json back to owner-only, and a copy restored at 0644 must
+  // still get that on its next save. Windows has no such mode.
+  try {
+    const fd0 = fs.openSync(file, 'r');
+    try {
+      const st = fs.fstatSync(fd0);
+      const modeOk = process.platform === 'win32' || (st.mode & 0o777) === FILE_MODE;
+      if (modeOk && st.size === Buffer.byteLength(body) && fs.readFileSync(fd0).equals(Buffer.from(body))) return;
+    } finally { fs.closeSync(fd0); }
+  } catch { /* missing or unreadable: write it */ }
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const tmp = `${file}.${crypto.randomBytes(6).toString('hex')}.tmp`;
   try {
@@ -202,7 +211,7 @@ function corrupt(file, why) {
     // name, since the retirement pass reads other services' folders too.
     const keep = Object.prototype.hasOwnProperty.call(DO_NOT_REMOVE, path.basename(file)) ? DO_NOT_REMOVE[path.basename(file)] : null;
     // Review 8: say what a repair is, since writing {} to it is the same as removing it.
-    const fix = keep ? `repaired from a backup of it (do NOT remove it or write {} to it: ${keep})`
+    const fix = keep ? `repaired from a backup of it, or by whoever supports this board (do NOT remove it or write {} to it: ${keep})`
       : 'repaired or removed';
     log(`${path.basename(file)} cannot be read (${why || 'unknown'}); sending is paused until it is ${fix}`);
   }
@@ -2258,6 +2267,7 @@ module.exports = {
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL, endpointAllowed, KOSMOS_BUGS_SLUG,
   CHANNELS, channelChoice, leadingChannelWord, // kosmos#5171
   _paths: { dir, retireDir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile, installGroupFile },
+  _saveJsonForTest: saveJson,   // #5431: an unchanged save is otherwise hard to drive on its own
   namesInstallGroup,   // #4922: for its contract test against the service's real answer shapes
   _registration: (agentKey) => registration(agentKey),   // #4922: for its test of what registration carries
   REGISTER_429_WAIT_MAX_S, _registerRetryAt: (k) => registerRetryAt.get(k),   // #4940: read-only, for its test

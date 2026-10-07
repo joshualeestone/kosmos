@@ -820,6 +820,19 @@ test('#5431: a save of the bytes already on disk writes nothing (each flush cost
   assert.notEqual(fs.readFileSync(cs._paths.sentFile(), 'utf8'), before, 'control: a new send changed sent.json');
 });
 
+test('#5431: an unchanged save still puts keys.json back to owner-only (a restored copy at 0644)', { skip: process.platform === 'win32' && 'no POSIX modes' }, async () => {
+  fresh();
+  await on();
+  agentPost('mod', { topic: 'm', body: 'n' });
+  await cs.sweep();
+  const kf = cs._paths.keysFile();
+  fs.chmodSync(kf, 0o644);                                   // as a copy restored from a backup often comes back
+  assert.equal(fs.statSync(kf).mode & 0o777, 0o644, 'control: the copy is readable to others');
+  // A save of exactly the bytes already there, which must still put the mode back.
+  cs._saveJsonForTest(kf, JSON.parse(fs.readFileSync(kf, 'utf8')));
+  assert.equal(fs.statSync(kf).mode & 0o777, 0o600, 'an unchanged save left keys.json readable to others');
+});
+
 test('#5431: every record is flushed to disk before it is renamed into place', async () => {
   fresh();
   await on();

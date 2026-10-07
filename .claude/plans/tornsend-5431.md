@@ -11,7 +11,8 @@ returned `skipped: 'unreadable'` from 2026-10-01 on, while status told the agent
 ## The fix
 
 1. `saveJson` flushes the temp file (fsync) before the rename. It skips the write entirely when the file already
-   holds the same bytes. A failed write removes its temp file. A file system that does not support a flush at all still saves: EINVAL and
+   holds the same bytes at its own owner-only mode (review 9: every save used to put keys.json back to 0600, and a
+   copy restored at 0644 must still get that). A failed write removes its temp file. A file system that does not support a flush at all still saves: EINVAL and
    ENOTSUP (some network or FUSE mounts), EISDIR (libuv's name for Windows' ERROR_INVALID_FUNCTION), ENOSYS (some
    FUSE mounts). Any other flush error (EIO, ENOSPC) fails the save as before.
 2. `repairTornRecords`, run at the start of every exclusive section (before the pending retirements land, and unable
@@ -67,16 +68,17 @@ key that had sent.
 
 ## Verification
 
-- engine/communitysend.test.js, twelve #5431 tests: the repair with no keys (sent.json and comments-sent.json at 3
+- engine/communitysend.test.js, thirteen #5431 tests: the repair with no keys (sent.json and comments-sent.json at 3
   NUL bytes); no reset once a key exists, for sent.json and for comments-sent.json; no reset with a keys.json
   holding only a retired account; a torn keys.json never reset; no reset of a zero-filled record of any other
   length (5000, 5, 4 and 0 bytes; at 5 and 0, keys.json removed after a sweep that sent); a corrupt keys.json,
   sent.json or deletes.json is advised "do NOT remove it"; a zero-filled keys.json is too, told to restore from a
   backup and never to write `{}`; a save on a file system that refuses flushes (EINVAL, ENOTSUP, EISDIR, ENOSYS)
-  still goes; a save of the bytes already on disk writes nothing; a failed sent.json flush leaves no temp file;
+  still goes; a save of the bytes already on disk writes nothing; an unchanged save still puts a 0644 keys.json back
+  to 0600; a failed sent.json flush leaves no temp file;
   every record flushed before its rename.
 - Mutations, each red: the repair call removed; the keys check removed; the keys check applied to sent.json only;
   an unreadable keys.json read as empty; retired entries ignored; the size limit removed; 0 bytes admitted; the old
   keys.json advice; the sent.json advice removed; the fsync removed; an unsupported-flush code removed; the
-  identical-save skip removed; the temp-file cleanup removed.
+  identical-save skip removed; the mode ignored by that skip; the temp-file cleanup removed.
 - Every community test file: the count and result are in the proof.
