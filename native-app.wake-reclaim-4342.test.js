@@ -144,7 +144,7 @@ test('#4342: the wake handler reclaims ONLY a sustained wedge, re-checking the g
   assert.match(body, /case \.down:[\s\S]*?launchd relaunches it/, 'a down (refused) board is not left to launchd');
   // The wedge path CONFIRMS with a second probe after a settle, re-checking the gate, before any kill.
   assert.match(body, /case \.wedged:/, 'no wedged case');
-  assert.match(body, /asyncAfter\(deadline: \.now\(\) \+ 4\)/, 'the wedge path does not settle before a confirm probe (so wake-thrash could false-reclaim a healthy board)');
+  assert.match(body, /asyncAfter\(deadline: \.now\(\) \+ Self\.wakeSettleBeforeConfirm\)/, 'the wedge path does not settle (wakeSettleBeforeConfirm) before a confirm probe (so wake-thrash could false-reclaim a healthy board)');
   assert.match(body, /guard confirm == \.wedged else \{[\s\S]*?return\n\s+\}/, 'the reclaim fires on a confirm result other than a second wedge');
   // Two probes (first + confirm), and the kill happens exactly once, only on the confirmed wedge.
   assert.equal((body.match(/probeBoardHealth\(port: port, timeout:/g) || []).length, 2, 'the handler does not probe twice (first + confirm)');
