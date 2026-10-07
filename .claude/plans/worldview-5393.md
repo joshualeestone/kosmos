@@ -15,11 +15,12 @@ Kosmos one.
     - An absent file is a real zero.
     - An unreadable file, or one that is not a list, is reported on its row. It is never counted as zero.
   - `overview({ base, runningId, cards })`: one row per world from `worlds.listWorlds`.
-    - The running world gets per-provider state from its live cards: `not_paused`, or paused, with `until`
-      only when a card states one.
+    - The running world gets per-provider rows from its live cards (state `not_paused`, `some_paused`,
+      `paused` or `stopped`, with `agents`, `stopped`, `paused`, `signInFailed` and `until`; see the
+      provider-rows note below), plus `agentsWithoutProvider` for live paneless cards, which carry no runner.
     - Other worlds: provider state is known only while that Kosmos is open.
 - `server.js`: `GET /api/worlds/overview`, token-gated like `GET /api/worlds`.
-  - Removed agents are filtered by `sessionName`, as `/api/status` does.
+  - Removed agents are filtered inside `safeRoster()` (by `sessionName`, as `/api/status` does), not by the route.
   - Cards that cannot be read become `cards: null`, reported on the row and never shown as an empty list.
 - Tests:
   - `engine/worldview-5393.test.js`
@@ -49,9 +50,11 @@ limited, and an idle or unknown agent also counts as not paused.
 - Then /challenge-loop.
 
 - **Provider rows (reviews 3 and 4):** `until` is null unless every paused agent on the provider states a time, and
-  null when the latest stated time has already passed (it is only ever in the future). Each row carries
+  an agent whose only stated time has passed counts as stating none (review 5), so `until` is only ever in the future. Each row carries
   `signInFailed` (auth_failed cards) and `stopped` (stopped cards, which are not counted in `agents`); a provider
   with only stopped agents reads 'stopped'. No screen reads the route yet (slice 2 does), so the shape changes break
   nothing.
+- **Agents with no known provider (review 5):** paneless cards (Windows and remote agents) carry no runner, so they
+  cannot sit in a provider row; the running world's row counts the live ones in `agentsWithoutProvider`.
 - **Whose worlds (review 4):** worldBase() is worlds.baseRoot(process.env), which is store.dataRootFor on this
   account's own environment, so the route lists this account's worlds only, as /api/worlds/list does.

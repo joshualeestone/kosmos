@@ -23,7 +23,12 @@
  * today only Antigravity sets), and only when EVERY paused agent on it states one: one agent with no stated time
  * makes `until` null, meaning "paused, reset time not known", because a provider-wide time would be wrong for it.
  *
- * A time already past is not a resume time either: `until` is only ever in the future.
+ * A time already past is not a resume time either: an agent whose only stated time has passed counts as stating
+ * none, so `until` is only ever in the future and only ever true for every paused agent.
+ *
+ * ⚠️ AN AGENT WITH NO KNOWN PROVIDER IS SAID, NOT DROPPED. A paneless card (every Windows and remote agent) carries
+ * no runner, so it cannot go in a provider row; `agentsWithoutProvider` on the running world's row counts the ones
+ * not stopped, so a fleet of them never reads as "no providers, nothing paused".
  *
  * ⚠️ A DEAD SIGN-IN IS NOT A PAUSE. `signInFailed` counts the agents whose card reads auth_failed, so a provider
  * whose every agent lost its sign-in still says so beside 'not_paused'. A STOPPED AGENT IS NOT ON THE PROVIDER:
@@ -88,7 +93,7 @@ function providersFrom(cards, now = Date.now()) {
       row.paused += 1;
       let stated = false;
       for (const at of [c.quotaUntil, c.poolUntil]) {
-        if (typeof at !== 'string' || !Number.isFinite(Date.parse(at))) continue;
+        if (typeof at !== 'string' || !Number.isFinite(Date.parse(at)) || Date.parse(at) <= now) continue;
         stated = true;
         if (row.until === null || Date.parse(at) > Date.parse(row.until)) row.until = at;
       }
@@ -97,9 +102,19 @@ function providersFrom(cards, now = Date.now()) {
     by.set(c.runner, row);
   }
   return [...by.values()]
-    .map(({ untimed, ...r }) => ({ ...r, until: untimed > 0 || r.until === null || Date.parse(r.until) <= now ? null : r.until,
+    .map(({ untimed, ...r }) => ({ ...r, until: untimed > 0 ? null : r.until,
       state: r.agents === 0 ? 'stopped' : r.paused === 0 ? 'not_paused' : r.paused === r.agents ? 'paused' : 'some_paused' }))
     .sort((a, b) => (a.provider < b.provider ? -1 : a.provider > b.provider ? 1 : 0));
+}
+
+/* How many live (not stopped) cards carry no runner, so cannot be placed under a provider. Pure. */
+function withoutProvider(cards) {
+  let n = 0;
+  for (const c of Array.isArray(cards) ? cards : []) {
+    if (!c || c.state === 'stopped') continue;
+    if (c.paneless === true || typeof c.runner !== 'string' || !c.runner) n += 1;
+  }
+  return n;
 }
 
 /* The whole view. `base` is the registry base (server.js worldBase()), `runningId` the world this board booted
@@ -124,10 +139,11 @@ function overview({ base, runningId, cards, now }) {
       unassigned: count,
       unassignedBecause: because,
       providers: running && Array.isArray(cards) ? providersFrom(cards, now === undefined ? Date.now() : now) : null,
+      agentsWithoutProvider: running && Array.isArray(cards) ? withoutProvider(cards) : null,
       providersBecause: !running ? 'known only while this Kosmos is open'
         : Array.isArray(cards) ? null : 'we cannot read the agents in this Kosmos right now',
     };
   });
 }
 
-module.exports = { unassignedIn, readProjectsAt, providersFrom, overview, PROJECTS_FILE };
+module.exports = { unassignedIn, readProjectsAt, providersFrom, overview, PROJECTS_FILE, withoutProvider };

@@ -80,6 +80,9 @@ test('#5393 providersFrom groups the cards by runner; paused only from rate_limi
     { runner: 'codex', state: 'stopped' },          // stopped: not on the provider
     { runner: 'mistral', state: 'stopped' },        // only stopped agents: the provider reads 'stopped'
     { runner: 'qwen', state: 'rate_limited', poolUntil: '2026-10-06T13:00:00.000Z' },   // a time already past
+    { runner: 'xai', state: 'rate_limited', quotaUntil: '2026-10-06T13:00:00.000Z' },   // past for this one...
+    { runner: 'xai', state: 'rate_limited', poolUntil: '2026-10-06T16:30:00.000Z' },    // ...so this one's time is no provider time
+    { runner: 'zai', state: 'rate_limited', quotaUntil: '2026-10-06T15:00:00.000Z', poolUntil: '2026-10-06T17:00:00.000Z' },   // both on one card: the later
     { paneless: true, state: 'stopped' },          // no runner: left out
     { runner: '', state: 'idle' },                 // no runner: left out
   ], NOW);
@@ -94,8 +97,10 @@ test('#5393 providersFrom groups the cards by runner; paused only from rate_limi
     { provider: 'mistral', agents: 0, stopped: 1, paused: 0, signInFailed: 0, until: null, state: 'stopped' },
     // qwen's only stated time is already past, so no time is claimed.
     { provider: 'qwen', agents: 1, stopped: 0, paused: 1, signInFailed: 0, until: null, state: 'paused' },
+    { provider: 'xai', agents: 2, stopped: 0, paused: 2, signInFailed: 0, until: null, state: 'paused' },
+    { provider: 'zai', agents: 1, stopped: 0, paused: 1, signInFailed: 0, until: '2026-10-06T17:00:00.000Z', state: 'paused' },
   ]);
-  for (const r of rows) assert.ok(!('quota' in r) && !('remaining' in r) && !('untimed' in r), 'no quota figure, and no working field, is ever reported');
+  for (const r of rows) assert.ok(!('quota' in r) && !('remaining' in r) && !('untimed' in r), 'no quota figure, and no internal field (untimed), is ever reported');
 });
 
 test('#5393 overview: the running world has providers, the others say why not; a bad world never stops the rest', () => {
@@ -107,7 +112,11 @@ test('#5393 overview: the running world has providers, the others say why not; a
   fs.writeFileSync(path.join(worlds.worldStoreRoot(base, second), worldview.PROJECTS_FILE), JSON.stringify([{ id: 's', tasks: [open(1, { onHold: true })] }]));
   fs.writeFileSync(path.join(worlds.worldStoreRoot(base, third), worldview.PROJECTS_FILE), 'garbage');
 
-  const view = worldview.overview({ base, runningId: second.id, cards: [{ runner: 'codex', state: 'rate_limited' }] });
+  const view = worldview.overview({ base, runningId: second.id, cards: [
+    { runner: 'codex', state: 'rate_limited' },
+    { paneless: true, runner: null, state: 'rate_limited' },   // a Windows agent: no runner, still said
+    { paneless: true, runner: null, state: 'stopped' },        // stopped: not counted
+  ] });
   const by = Object.fromEntries(view.map((w) => [w.name, w]));
   assert.equal(view.length, 3);
 
@@ -115,6 +124,8 @@ test('#5393 overview: the running world has providers, the others say why not; a
   assert.equal(by.Second.running, true);
   assert.deepEqual(by.Second.providers.map((p) => [p.provider, p.state]), [['codex', 'paused']]);
   assert.equal(by.Second.providersBecause, null);
+  assert.equal(by.Second.agentsWithoutProvider, 1, 'a live agent with no known provider is counted, not dropped');
+  assert.equal(by.Third.agentsWithoutProvider, null, 'not the running world: not known');
 
   const def = view.find((w) => w.id === worlds.DEFAULT_ID);
   assert.deepEqual(def.unassigned, { waiting: 2, held: 0 }, 'the default world reads the base root');
