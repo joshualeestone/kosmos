@@ -4101,7 +4101,11 @@ BOARDEOF
       # Only with linger on: without it the unit dies at logout, while the board setup.sh started survives it (logind
       # keeps user processes by default), so handing over would make a no-linger server less available, not more.
       case "$_lb_out" in
-        "loose lingering") [ "$_kosmos_board_off" = yes ] || "$KOSMOS_HOME/bin/kosmos" restart --force >/dev/null 2>&1 || true ;;
+        "loose lingering")
+          if [ "$_kosmos_board_off" != yes ] && ! "$KOSMOS_HOME/bin/kosmos" restart --force >/dev/null 2>&1; then
+            # The board setup.sh started was stopped and systemd did not bring it back: say so, never a quiet success.
+            info "Kosmos is set to start with systemd, but it did not come back when handed over just now. Start it with: kosmos start"
+          fi ;;
       esac
       _lb_out="${_lb_out#* }"
     fi
