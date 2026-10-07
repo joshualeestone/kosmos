@@ -274,7 +274,7 @@ function actSucceeded(act) {
  * Both answer for THIS Kosmos only: `disabledJobs` names this world's agents, and the
  * task name is this world's key.
  */
-function switchedOffOnMac(platform) { return platform === 'win32' ? null : create.disabledJobsResult(); }
+function switchedOffOnMac(platform) { return platform === 'win32' || platform === 'linux' ? null : create.disabledJobsResult(); }
 function jobSwitchState(name, platform, macOff) {
   if (platform === 'win32') {
     /* The task's own definition, not the LIST text (win32-agent-job-read round 2):
@@ -283,6 +283,14 @@ function jobSwitchState(name, platform, macOff) {
     const st = win32job.taskEnabled(name);
     if (st.known === false) return 'unknown';
     return (st.registered === true && st.enabled === false) ? 'off' : 'on';
+  }
+  if (platform === 'linux') {
+    // #4918 review 5: systemd answers this directly; a launchctl question has no answer on Linux.
+    // Through create's run seam (setRunner, dry run), never linuxjob's own runner (review 10).
+    const lj = require('./linuxjob');
+    const st = require('./create').linuxRun(() => lj.enabledState(name));
+    if (!st.known) return 'unknown';
+    return st.enabled ? 'on' : 'off';
   }
   if (!macOff || macOff.ok === false) return 'unknown';
   return macOff.jobs.has(name) ? 'off' : 'on';
@@ -547,6 +555,12 @@ function firstStartOfImport(entry, platform) {
     return `we could not set ${entry.name} up to start (${String((err && err.message) || err)})`;
   }
   if (!out || !out.ok) return `we could not set ${entry.name} up to start: ${(out && out.because) || 'no reason was given'}`;
+  // #4918 review 15: on Linux a refused enable leaves nothing to start it at login, so the promise is not made.
+  /* #4918 review 39: a running agent is started, not held (null, as register.repair counts it); one running whose
+     enable systemd refused gets its own sentence rather than "could not start ... (it is running now ...)". */
+  if (out.alreadyRunning) return null;
+  if (out.runningButNotEnabled) return `${entry.name} is running now on its old settings, but systemd would not take the new ones, so it will not start again on its own`;
+  if (out.started === false && out.atLogin === false) return `we could not start ${entry.name}, and it is not set to start at login either (${out.because})`;
   if (out.started === false) return `we could not start ${entry.name} now; it starts at your next login`;
   return null;
 }
@@ -684,6 +698,8 @@ function drainAtBoot(opts) {
 
 module.exports = {
   AGENT_CHOICES,
+  jobSwitchState,   // #4918 review 5: exported so the Linux arm is tested directly
+  firstStartOfImport,   // #4918 review 39: its sentences are tested directly
   DEFAULT_AGENT_CHOICE,
   RECORD_FILE,
   recordFileIn,

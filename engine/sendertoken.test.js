@@ -647,7 +647,8 @@ test('#1761: the directory is already tight WHEN the token is written, and the t
   fs.openSync = function (target, flags, ...rest) {
     /* EVERY open under DIR, whatever the flags: filtering on 'wx' here would make
        the flags assertion below tautological. */
-    if (typeof target === 'string' && target.startsWith(sendertoken.DIR)) {
+    /* #5434: below DIR, not DIR itself, which securewrite now opens to flush the rename. */
+    if (typeof target === 'string' && target.startsWith(sendertoken.DIR + path.sep)) {
       if (seen.dirMode === null) seen.dirMode = fs.statSync(sendertoken.DIR).mode & 0o777;
       seen.names.push(path.basename(target));
       seen.flags.push(flags);

@@ -6362,8 +6362,8 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tk-repeat-when { display: inline-flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .tk-repeat-actions { display: flex; justify-content: flex-end; margin: 4px 0 0; }
 .tk-repeat-actions .btn[disabled] { opacity: .5; cursor: default; }
-#tk-repeat-every, #tk-repeat-day { background-color: var(--field-fill); }   /* render-fields: a field never wears its column's own white */
-@media (hover: none) { .tk-repeat-in, #tk-repeat-every, #tk-repeat-day, #tk-repeat-save { min-height: 44px; } }   /* review 1: one touch size */
+#tk-repeat-every, #tk-repeat-day, #tk-review-who { background-color: var(--field-fill); }   /* render-fields: a field never wears its column's own white (slice 3: the reviewer choice too) */
+@media (hover: none) { .tk-repeat-in, #tk-repeat-every, #tk-repeat-day, #tk-repeat-save, #tk-review-who { min-height: 44px; } }   /* review 1: one touch size */
 .tk-due-input { font: inherit; text-align: right; color: inherit; background: transparent;
                 border: 1px solid var(--k-rule); border-radius: 6px; padding: 2px 6px; }
 .tk-due-input:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
@@ -12932,6 +12932,14 @@ window.kosmosMeasureScrollbarWidth();
            can see, and a label that rewords the button breaks them. -->
       <button class="btn" id="d-instr-save" type="button" aria-label="Save instructions" disabled>Save</button>
     </div>
+    <!-- kosmos#5293 (design: Mona Lisa): an addition another agent proposed for these instructions, waiting for the
+         person. The community's held row, reused; nothing shows when nothing is pending. Apply, Dismiss and Undo go
+         to person-only routes (an agent token is refused there). After Apply the row becomes one quiet line with
+         Undo; the running-stale note below still offers the restart. -->
+    <div id="d-instr-add" hidden>
+      <h4 class="dlab" id="d-instr-add-head" style="margin:14px 0 4px;">Waiting for you</h4>
+      <ul class="community-mine" id="d-instr-add-list" aria-labelledby="d-instr-add-head"></ul>
+    </div>
     <!-- Announced: this is the only channel for every outcome of the most
          powerful write in the product, including each refusal and the reason a
          file cannot be edited. The staleness note beside it is already a live
@@ -16662,6 +16670,12 @@ window.kosmosMeasureScrollbarWidth();
         <div class="tk-repeat-actions"><button class="btn" id="tk-repeat-save" type="button" aria-label="Save how this task repeats" disabled>Save</button></div>
         <p class="fmsg" id="tk-repeat-msg" aria-live="polite" style="margin:2px 0 0;"></p>
         <p class="dhint" id="tk-repeat-line" style="margin:4px 0 0;" hidden></p>
+        <!-- kosmos#4787 slice 3: who is told when a run is missed (once per missed run): nobody, the person (the task then
+             waits in Needs Your Decision), or an agent on the project (one line in its session). Saved on change. -->
+        <div class="tmeta" id="tk-review-row" hidden><span>If missed, tell</span>
+          <select id="tk-review-who" class="tsk-sel" aria-label="Who is told if a run is missed"></select>
+        </div>
+        <p class="fmsg" id="tk-review-msg" aria-live="polite" style="margin:2px 0 0;"></p>
         <p class="dhint" style="margin:12px 0 0;">Anything written here is part of the task, so an agent picking it up later reads the whole thing rather than just the title.</p>
       </aside>
     </div>
@@ -40873,7 +40887,7 @@ function setWritesOffered(a, tied) {
     INSTR_READY = false;
     INSTR_BANNER = false;   // not our card: nothing here is about the agent on screen
     INSTR_VERSION = null;
-    for (const id of ['d-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev', 'd-instr-updating', 'd-instr-loading', 'd-instr-retry-row', 'd-instr-personal']) {
+    for (const id of ['d-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev', 'd-instr-updating', 'd-instr-loading', 'd-instr-retry-row', 'd-instr-personal', 'd-instr-add']) {
       const el = document.getElementById(id);
       if (el) el.hidden = true;
     }
@@ -41013,6 +41027,182 @@ function paintPersonalInstr(personal) {
     : '';
   el.hidden = !tool;
 }
+/* kosmos#5293 (design: Mona Lisa, on the card): an addition another agent PROPOSED for these instructions, waiting for
+   the person. The community's held row, reused: bold title, the text clamped to four lines with Read all only when it
+   is cut, a meta line, then Apply and Dismiss. Apply / Dismiss / Undo go to person-only routes (server.js refuses an
+   agent token and wants a browser's headers, which this page's fetch sends by itself). After Apply the row becomes one
+   quiet line with Undo, shown while Undo can still work or for a day after; the running-stale note below keeps its
+   own restart. An unsaved edit in the box is never replaced: the "file has changed" note is shown instead. */
+let INSTR_ADD_LOAD = 0;
+let INSTR_ADD_UNDONE = null;   // the agent whose addition was just undone, for the one sentence that says so
+const INSTR_ADD_LAST_SHOWN_MS = 24 * 60 * 60 * 1000;
+function instrAddWhen(iso) {
+  const d = new Date(iso);
+  return isNaN(d) ? '' : d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+async function loadInstrAdd(sessionName) {
+  const mine = ++INSTR_ADD_LOAD;
+  let data = null;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/instruction-add?t=' + Date.now(), { cache: 'no-store' });
+    data = res.ok ? await res.json() : null;
+  } catch { data = null; }
+  if (mine !== INSTR_ADD_LOAD || !CURRENT || CURRENT.sessionName !== sessionName) return;
+  instrAddPaint(sessionName, data);
+}
+function instrAddPaint(sessionName, data) {
+  const wrap = document.getElementById('d-instr-add');
+  const list = document.getElementById('d-instr-add-list');
+  list.textContent = '';
+  const p = data && data.pending;
+  const last = data && data.last;
+  /* Review 18: the "taken out" sentence is said by the first paint after an Undo, whatever that paint shows, and only
+     while the file itself says the addition is gone; the flag never waits for a later paint (a later Apply). */
+  const justUndone = INSTR_ADD_UNDONE === sessionName && !!(last && last.undone);
+  INSTR_ADD_UNDONE = null;
+  const li = document.createElement('li');
+  li.className = 'community-mine-row community-held-row';
+  if (data && (data.unreadable || data.busy)) {
+    /* Never a silent empty block (review 2). Busy: a passing read error, nothing moved. Unreadable: the file is corrupt;
+       the next change to it keeps it aside under its own name and starts a new one (review 3: said as what happens). */
+    const line = document.createElement('p');
+    line.className = 'dhint';
+    line.style.margin = '0';
+    line.textContent = data.busy
+      ? 'Kosmos could not read the additions waiting for you just now. Open this agent again in a moment.'
+      : 'Kosmos could not read the file that holds additions waiting for you, so none can be shown here. It is kept as it is, and Kosmos starts a new one the next time anything here changes.';
+    li.append(line);
+  } else if (p) {
+    const who = p.askedBy || 'another agent';
+    const text = document.createElement('div');
+    const title = document.createElement('b');
+    title.textContent = 'An addition to these instructions';
+    const body = document.createElement('p');
+    body.className = 'dhint community-held-body';
+    body.style.webkitLineClamp = String(COMMUNITY_HELD_CLAMP_LINES);
+    body.textContent = typeof p.text === 'string' ? p.text : '';
+    const meta = document.createElement('p');
+    meta.className = 'dhint';
+    meta.style.margin = '2px 0 0';
+    meta.textContent = 'Asked by ' + who + ' \u00b7 ' + instrAddWhen(p.askedAt)
+      + '. Apply adds it at the end of these instructions, under a line saying who asked and when.';
+    text.append(title, body);
+    /* Review 1: a trailing newline is not a fifth line (a file ends with one), so it is not counted. */
+    if (body.textContent.length > COMMUNITY_HELD_READ_ALL_CHARS || body.textContent.replace(/\n+$/, '').split('\n').length > COMMUNITY_HELD_CLAMP_LINES) {
+      const more = document.createElement('button');
+      more.className = 'linkish community-held-more';
+      more.type = 'button';
+      more.textContent = 'Read all';
+      more.setAttribute('aria-expanded', 'false');
+      more.addEventListener('click', () => {
+        const open = body.classList.toggle('open');
+        more.textContent = open ? 'Read less' : 'Read all';
+        more.setAttribute('aria-expanded', String(open));
+      });
+      text.append(more);
+    }
+    const note = document.createElement('p');
+    note.className = 'dhint';
+    note.style.margin = '2px 0 0';
+    note.setAttribute('role', 'status');
+    note.hidden = true;
+    text.append(meta, note);
+    const acts = document.createElement('div');
+    acts.className = 'community-held-acts';
+    const apply = document.createElement('button');
+    apply.className = 'btn';
+    apply.type = 'button';
+    apply.textContent = 'Apply';
+    apply.setAttribute('aria-label', 'Apply the addition ' + who + ' asked for');
+    const dismiss = document.createElement('button');
+    dismiss.className = 'btn danger-btn';
+    dismiss.type = 'button';
+    dismiss.textContent = 'Dismiss';
+    dismiss.setAttribute('aria-label', 'Dismiss the addition ' + who + ' asked for');
+    apply.addEventListener('click', () => instrAddAct(sessionName, 'apply', note, [apply, dismiss]));
+    dismiss.addEventListener('click', () => instrAddAct(sessionName, 'dismiss', note, [apply, dismiss]));
+    acts.append(apply, dismiss);
+    li.append(text, acts);
+  } else if (justUndone) {
+    const line = document.createElement('p');
+    line.className = 'dhint';
+    line.style.margin = '0';
+    /* Review 9: Undo keeps edits made elsewhere and Kosmos's own block, so only the addition is said to be gone. */
+    line.textContent = 'The addition was taken out. The rest of these instructions is as it was.';
+    li.append(line);
+    // said once (the flag was consumed above); the line goes on the next load
+  } else if (last && !last.undone && (last.undoable || Date.now() - new Date(last.appliedAt).getTime() < INSTR_ADD_LAST_SHOWN_MS)) {
+    const line = document.createElement('p');
+    line.className = 'dhint';
+    line.style.margin = '0';
+    line.textContent = 'Added on ' + instrAddWhen(last.appliedAt) + ', asked by ' + (last.askedBy || 'another agent') + '.'
+      /* Review 3: the real reason, never "edited" when nobody did. */
+      + (last.undoable ? ''
+        : last.blocked === 'edited' ? ' This addition can no longer be undone here, because it was changed or copied after it was added. Edit the instructions above instead.'
+        : last.blocked === 'short' ? ' This addition cannot be undone here, because what would be left is too short to keep. Edit the instructions above instead.'
+        : ' This addition cannot be undone right now, because these instructions could not be read.');
+    li.append(line);
+    if (last.undoable) {
+      const note = document.createElement('p');
+      note.className = 'dhint';
+      note.style.margin = '2px 0 0';
+      note.setAttribute('role', 'status');
+      note.hidden = true;
+      const undo = document.createElement('button');
+      undo.className = 'linkish';
+      undo.type = 'button';
+      undo.textContent = 'Undo this addition';
+      undo.addEventListener('click', () => instrAddAct(sessionName, 'undo', note, [undo]));
+      li.append(undo, note);
+    }
+  } else if (!(data && data.movedAside && data.movedAt && Date.now() - new Date(data.movedAt).getTime() < INSTR_ADD_LAST_SHOWN_MS)) {
+    wrap.hidden = true;
+    return;
+  }
+  /* Review 3: for a day after a corrupt file was set aside, name the kept file, so earlier additions are not lost silently. */
+  if (data && data.movedAside && data.movedAt && Date.now() - new Date(data.movedAt).getTime() < INSTR_ADD_LAST_SHOWN_MS) {
+    const kept = document.createElement('p');
+    kept.className = 'dhint';
+    kept.style.margin = '6px 0 0';
+    kept.textContent = 'An earlier file of waiting additions could not be read, so Kosmos started a new one. The old file is kept, as ' + data.movedAside + ', in the Kosmos data folder.';
+    li.append(kept);
+  }
+  list.append(li);
+  wrap.hidden = false;
+}
+async function instrAddAct(sessionName, act, note, buttons) {
+  buttons.forEach((b) => { b.disabled = true; });
+  note.hidden = false;
+  note.textContent = act === 'apply' ? 'Adding\u2026' : act === 'dismiss' ? 'Dismissing\u2026' : 'Taking it out\u2026';
+  let out = null; let ok = false;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/instruction-add/' + act, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+    });
+    out = await res.json().catch(() => null);
+    ok = res.ok && out && out.ok === true;
+  } catch { ok = false; }
+  if (!CURRENT || CURRENT.sessionName !== sessionName) return;
+  if (!ok) {
+    /* Review 1: the addition is already gone (applied or dismissed elsewhere): show where it stands now. */
+    if (out && out.code === 'none') { loadInstrAdd(sessionName); return; }
+    /* Review 3: written but not recorded: the box shows the addition, and the row keeps Apply to finish (never adds twice). */
+    if (out && out.code === 'unrecorded') document.getElementById('d-instr-outdated').hidden = false;   // the box is behind the file now
+    buttons.forEach((b) => { b.disabled = false; });
+    note.textContent = (out && (out.because || out.error)) || 'That did not work. Try again.';
+    return;
+  }
+  INSTR_ADD_UNDONE = act === 'undo' ? sessionName : null;   // review 18: any other act clears it
+  if (act === 'dismiss') { loadInstrAdd(sessionName); return; }
+  /* Apply and Undo changed the file. An unsaved edit in the box is never replaced: show the note that offers Update. */
+  const box = document.getElementById('d-instr');
+  if (box && box.value !== INSTR_LOADED_TEXT) {
+    document.getElementById('d-instr-outdated').hidden = false;
+    loadInstrAdd(sessionName);
+    return;
+  }
+  loadInstructions(sessionName);
+}
 async function loadInstructions(sessionName) {
   const mine = ++INSTR_LOAD;
   INSTR_EPOCH += 1;
@@ -41024,6 +41214,7 @@ async function loadInstructions(sessionName) {
   const msg = document.getElementById('d-instr-msg');
   box.value = '';
   msg.textContent = '';
+  document.getElementById('d-instr-add').hidden = true;   // #5293: another agent's waiting addition never shows here
   // Re-enabled on every load: a previous agent whose file could not be edited
   // left both of these disabled.
   // ⚠️ Disabled and hidden UNTIL the answer lands, not from the moment the
@@ -41090,6 +41281,7 @@ async function loadInstructions(sessionName) {
     document.getElementById('d-instr-outdated').hidden = true;
     INSTR_READY = true;
     INSTR_BANNER = true;
+    loadInstrAdd(sessionName);   // #5293: an addition another agent proposed, waiting for the person
     // Now that there is something real in the box, the controls may match it.
     box.disabled = false;
     saveBtn.disabled = false;
@@ -58790,7 +58982,7 @@ const TSK_GROUPS = [
   { k: 'decision', l: 'Needs Your Decision', c: 'var(--tsk-decision)',
     /* Not "your go-ahead" (review round 11): a trust wait never reaches the tasks route's roster today (the
        status route builds those rows offline), the same gap projects.js names; the rule covers it if it does. */
-    why: 'The agent on these needs you: a question about its project, or a connection Kosmos could not restore.' },
+    why: 'The agent on these needs you: a question about its project, or a connection Kosmos could not restore. Also a repeating task you review that missed a run.' },
   { k: 'working', l: 'In progress', c: 'var(--tsk-working)',
     why: 'The agent’s own report names these as what it is working on.' },
   { k: 'assigned', l: 'Assigned but not started', c: 'var(--tsk-assigned)',
@@ -59846,6 +60038,15 @@ function tkActPhrase(ev, p) {
     case 'repeat-set': return ev.words ? 'Set to repeat ' + ev.words : 'Set to repeat';
     case 'repeat-cleared': return 'No longer repeats';
     case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.late ? ', late' : '') + (ev.note ? ': ' + ev.note : ''); }
+    /* kosmos#4787 slice 3 (review 5): who reviews it, and a missed run with who was told. */
+    case 'reviewer-set': return ev.person ? 'You will be told if a run is missed' : (nameOf(ev.who) || 'An agent') + ' will be told if a run is missed';
+    case 'reviewer-cleared': return 'Nobody is told now if a run is missed';
+    case 'missed': {
+      const runs = ev.more === true ? 'More than ' + ev.count + ' runs missed' : Number(ev.count) > 1 ? ev.count + ' runs missed' : 'A run was missed';
+      if (ev.person) return runs + '; you review it';
+      const who = nameOf(ev.told) || 'its reviewer';
+      return runs + (ev.reached === false ? '; Kosmos could not reach ' + who : '; ' + who + ' was told');
+    }
     // #768: a free-text message recorded via the composer. `who` is optional (a
     // message typed on the board carries none today; the field is honoured now so
     // an authored message reads correctly when two-way delivery lands later). The
@@ -60374,7 +60575,7 @@ function tkPaintRepeat(p, t) {
   const msg = document.getElementById('tk-repeat-msg');
   const key = p.id + '#' + t.number;
   if (msg && msg.dataset.task !== key) msg.textContent = '';
-  if (done) { if (msg) { msg.textContent = ''; delete msg.dataset.needsTime; } return; }   // review 2: nothing sticks on a finished task
+  if (done) { if (msg) { msg.textContent = ''; delete msg.dataset.needsTime; } tkPaintReviewer(p, t); return; }   // review 2: nothing sticks on a finished task (slice 3 review 6: the reviewer row hides too)
   document.getElementById('tk-repeat-row').hidden = false;
   const every = document.getElementById('tk-repeat-every');
   const stored = JSON.stringify(tkRepeatStoredChoice(t));
@@ -60402,7 +60603,69 @@ function tkPaintRepeat(p, t) {
   if (line.textContent !== said) line.textContent = said;
   line.classList.toggle('missed', !!(t.repeat && tskRepeatMissed(t)));   // slice 2: red while a run is missed
   line.hidden = !said;
+  tkPaintReviewer(p, t);
 }
+/* kosmos#4787 slice 3: the reviewer choice, shown only for a task that repeats (stored, not merely chosen). The options
+   are Nobody, Me and the project's agents; a stored reviewer who has left the project stays listed, so the select never
+   shows a choice that is not stored. Not repainted while a save is in flight, nor under the person's own focus. */
+function tkReviewerOf(t) { return t && t.repeatReviewerPerson === true ? 'me' : (t && t.repeatReviewer) || 'none'; }
+function tkPaintReviewer(p, t, force) {
+  const row = document.getElementById('tk-review-row');
+  const sel = document.getElementById('tk-review-who');
+  const msg = document.getElementById('tk-review-msg');
+  if (!row || !sel) return;
+  const key = p.id + '#' + t.number;
+  if (msg && msg.dataset.task !== key) msg.textContent = '';
+  row.hidden = !t.repeat || TK_ACT === 'reopen';
+  if (row.hidden) { if (msg) msg.textContent = ''; return; }   // review 7: its answer goes with it
+  const stored = tkReviewerOf(t);
+  const agents = (Array.isArray(p.agents) ? p.agents : []).slice();
+  if (stored !== 'none' && stored !== 'me' && !agents.includes(stored)) agents.push(stored);
+  /* Review 12: a reviewer no longer on the project stays listed (so the select shows what is stored) and says so. */
+  const onProject = new Set(Array.isArray(p.agents) ? p.agents : []);
+  const opts = [['none', 'Nobody'], ['me', 'Me']].concat(agents.map((a) => [a, tskAgentName(a) + (onProject.has(a) ? '' : ' (left the project)')]));
+  const sig = key + '|' + JSON.stringify(opts) + '|' + stored;
+  if (sel.dataset.busy === '1' || (!force && document.activeElement === sel && sel.dataset.task === key)) return;
+  if (sel.dataset.sig === sig) return;
+  sel.textContent = '';
+  for (const [v, l] of opts) { const o = document.createElement('option'); o.value = v; o.textContent = l; sel.appendChild(o); }
+  sel.value = stored;
+  sel.dataset.sig = sig;
+  sel.dataset.task = key;
+}
+document.getElementById('tk-review-who').addEventListener('change', async () => {
+  const [p, t] = tkOpenTask();
+  if (!p || !t) return;
+  const sel = document.getElementById('tk-review-who');
+  const msg = document.getElementById('tk-review-msg');
+  const key = p.id + '#' + t.number;
+  const want = sel.value;
+  const before = tkReviewerOf(t);
+  if (want === before) return;
+  sel.dataset.busy = '1';
+  sel.disabled = true;
+  if (msg) { msg.textContent = ''; msg.dataset.task = key; }
+  const still = () => PJ_CURRENT === p.id && String(TK_OPEN) === String(t.number);
+  let said = '';
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + encodeURIComponent(t.number) + '/repeat', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reviewer: want }),
+    });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) said = (out && out.error) || 'we could not change who is told';
+    else { await pjReload(); paintTaskActivity(TK_OPEN); said = 'Saved.'; }
+  } catch { said = 'we could not reach Kosmos to change who is told'; }
+  delete sel.dataset.busy;
+  sel.disabled = false;
+  delete sel.dataset.sig;   // repaint from what is stored now (a refusal puts the stored choice back)
+  const [p2, t2] = tkOpenTask();
+  // Review 1: repaint whatever task is open now (its own answer, under the person's focus; or the task they moved to).
+  if (p2 && t2) tkPaintReviewer(p2, t2, true);
+  if (still()) {
+    if (msg) msg.textContent = said;
+    sel.focus();   // review 1: disabling it while saving dropped focus; it goes back, as the Repeats Save does
+  }
+});
 function tkOpenTask() {
   const p = pjById(PJ_CURRENT);
   if (!p || TK_OPEN === null) return [null, null];

@@ -1940,7 +1940,7 @@ function folderPathFor(name) {
 /**
  * The path a screen may SHOW for this name: folderPathFor, with the same
  * one-segment case correction makeFolder will apply when the button is
- * pressed. Read-only (trueChildName only lists the parent; nothing is made).
+ * pressed. Read-only (trueChildName lists the parent and stats the child; nothing is made).
  *
  * ⚠️ Without this, the preview and the act can disagree in case: on macOS's
  * case-insensitive volume, typing `lease` beside an existing `Lease` shows
@@ -2026,9 +2026,10 @@ function makeFolder(name) {
    * So: the parent is left exactly as it was (it comes from the person's home
    * directory, which they recognise), and only the last segment — the part
    * derived from their typed name — is corrected against the parent's own
-   * listing. That is the same instrument `create.test.js` uses for the identical
-   * volume lesson, and it is exact on both kinds of volume: on a case-sensitive
-   * one, `Lease` and `lease` are two entries and each matches itself.
+   * listing, the same listing `create.test.js` uses for the identical volume
+   * lesson, plus a stat. It takes an exact entry first and adopts another spelling only
+   * when the typed name opens it, so on a case-sensitive volume a typed `lease`
+   * beside `Lease` stays `lease`, in the preview as here (#5424).
    */
   return path.join(path.dirname(dest), trueChildName(path.dirname(dest), path.basename(dest)));
 }
@@ -2036,13 +2037,20 @@ function makeFolder(name) {
 /**
  * How this directory really spells a child of this name.
  *
- * Answers the asked-for name unchanged when the listing cannot be read, or when
- * it does not hold exactly one case-insensitive match — an ambiguous answer is
- * not one to act on, and inventing a spelling is worse than keeping theirs.
+ * Answers the asked-for name unchanged when the listing cannot be read, when the
+ * listing holds that exact name, when the name does not open anything (#5424: on a
+ * case-sensitive disk `lease` is not `Lease`), or when the listing does not hold
+ * exactly one case-insensitive match: an ambiguous answer is not one to act on, and
+ * inventing a spelling is worse than keeping theirs.
  */
 function trueChildName(parent, name) {
   let entries;
   try { entries = fs.readdirSync(parent); } catch { return name; }
+  // #5424: another spelling is adopted only when this name really opens it (a case-insensitive disk). On a
+  // case-sensitive one `Lease` is not `lease`: makeFolder makes `lease` beside it, so the preview must name
+  // `lease` too. The exact-entry return is a shortcut that saves the stat; the filter below would keep it too.
+  if (entries.includes(name)) return name;
+  try { fs.statSync(path.join(parent, name)); } catch { return name; }
   const wanted = name.toLowerCase();
   const matches = entries.filter((entry) => entry.toLowerCase() === wanted);
   return matches.length === 1 ? matches[0] : name;

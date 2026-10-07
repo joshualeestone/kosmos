@@ -2913,7 +2913,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
         { printf 'count=%s\nreason=board-would-not-pause\nport=%s\nts=%s\n' \
             "$_abortn" "$PORT" "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)" \
             > "$_abortf"; } 2>/dev/null || true
-        die "A Kosmos board is still running on port $PORT and could not be paused for the update. Stop it first ('kosmos stop', or quit whatever started it), then paste the install line again."
+        die "A Kosmos board is still running on port $PORT and could not be paused for the update. Stop it first ('kosmos stop', or quit whatever started it), then paste the install line again. If this is an agent's shell, do both from a normal Terminal."
       else
         # #964: our own board is not running, so a DIFFERENT Kosmos is holding this
         # port. "kosmos stop" would do nothing (ours is already stopped), so name the
@@ -3988,7 +3988,7 @@ else
   # has just stopped the old one; a fresh install never had one), so a Kosmos that holds the port without
   # answering is a stale build, not a busy one (the #3079 reclaim frees it, as it did before #4466).
   # kosmos#2600: no Keychain note here; this direct-path board is handed to launchd a few steps below.
-  KOSMOS_SAY_INDENT="     " KOSMOS_NO_KEYCHAIN_NOTE=1 KOSMOS_RECLAIM_BUSY=1 "$KOSMOS_HOME/bin/kosmos" start --force || die "Kosmos installed but would not start. What it said is above; it is safe to paste the install line again."
+  KOSMOS_SAY_INDENT="     " KOSMOS_NO_KEYCHAIN_NOTE=1 KOSMOS_RECLAIM_BUSY=1 "$KOSMOS_HOME/bin/kosmos" start --force || die "Kosmos installed but would not start. What it said is above; it is safe to paste the install line again (from a normal Terminal, if this is an agent's or a sandboxed shell)."
   _kosmos_paused_board=no   # #4818: the new board started, so a later failure restarts nothing
 fi
 ok

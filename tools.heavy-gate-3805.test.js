@@ -583,3 +583,69 @@ test('the cut starts after 160 characters: 160 print whole, 161 are cut', () => 
   assert.ok(run([['601', WORK, at, 'zsh']]).stdout.includes('(' + at + ')\n'));
   assert.ok(run([['602', WORK, over, 'zsh']]).stdout.includes('(' + over.slice(0, 160) + '...)\n'));
 });
+
+/* #5446: polling holds no place in line, so the BUSY answer names the queue that gives a turn. */
+test('#5446: BUSY names the queue (queued-heavy.sh, --light) on stderr; CLEAR and --quiet do not', () => {
+  const busy = run([realRun()], { env: { KOSMOS_HG_INSTALLED_QH: '/nonexistent/queued-heavy.sh' } });   // the same on any Mac
+  assert.equal(busy.code, 1, busy.out);
+  assert.match(busy.stderr, /holds no place in line/);
+  assert.match(busy.stderr, /\/queued-heavy\.sh' "<what>" <command>/);   // the installed copy or a repo copy
+  assert.match(busy.stderr, /--light/);
+  assert.equal(busy.stdout.trim().split('\n').filter((l) => /^heavy-gate: (BUSY|CLEAR)/.test(l)).length, 1, 'the stdout verdict is still one line');
+  const named = (busy.stderr.match(/bash '([^']+queued-heavy\.sh)'/) || [])[1];
+  assert.ok(named && fs.existsSync(named), 'the named queue script does not exist: ' + named);
+  const clear = run([]);
+  assert.equal(clear.code, 0, clear.out);
+  assert.doesNotMatch(clear.out, /queued-heavy/, 'CLEAR pointed at the queue');
+  const quiet = run([realRun()], { args: ['--quiet'] });
+  assert.equal(quiet.code, 1);
+  assert.doesNotMatch(quiet.stderr, /queued-heavy/, '--quiet printed the queue hint');
+});
+
+test('#5446: in a repo with a worktree, the hint names the main checkout\'s queue only when that copy has the fallback, else the worktree\'s own', () => {
+  const { execFileSync } = require('node:child_process');
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'hg5446-'));
+  try {
+    const main = path.join(base, 'main');
+    const wt = path.join(base, 'wt');
+    const genv = { ...process.env };
+    for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR']) delete genv[k];
+    const git = (...a) => execFileSync('git', a, { env: genv, stdio: 'pipe' });
+    fs.mkdirSync(path.join(main, 'tools', 'lib'), { recursive: true });
+    for (const f of ['tools/heavy-gate.sh', 'tools/queued-heavy.sh', 'tools/lib/process-fixture.sh', 'tools/lib/cut-guard.sh']) fs.copyFileSync(path.join(__dirname, f), path.join(main, f));
+    git('-C', main, 'init', '-q');
+    git('-C', main, 'add', '-A');
+    git('-C', main, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture');
+    git('-C', main, 'worktree', 'add', '-q', wt);
+    const noInstalled = path.join(base, 'no-installed-copy.sh');   // this Mac may have the real installed copy
+    // QUEUED_HEAVY_LIB unset, as the fallback needs; HOME decides whether the installed copy's default lib folder exists.
+    const homeNoLib = path.join(base, 'home-nolib');
+    const homeLib = path.join(base, 'home-lib');
+    fs.mkdirSync(path.join(homeLib, 'work', 'kosmos-bc-main-4610', 'tools', 'lib'), { recursive: true });
+    fs.writeFileSync(path.join(homeLib, 'work', 'kosmos-bc-main-4610', 'tools', 'lib', 'cut-guard.sh'), '');
+    const hintRun = (installed, home, extra = {}) => {
+      const env = { ...process.env, HOME: home, KOSMOS_HG_SNAPSHOT: '/dev/null', KOSMOS_HG_CLAIM: '1 a release holds it', KOSMOS_HG_TWICE_SECONDS: '0', KOSMOS_HG_INSTALLED_QH: installed, ...extra };
+      delete env.QUEUED_HEAVY_LIB;
+      Object.assign(env, extra);
+      const r = spawnSync('bash', [path.join(wt, 'tools', 'heavy-gate.sh')], { encoding: 'utf8', env });
+      assert.equal(r.status, 1, r.stdout + r.stderr);
+      return r;
+    };
+    const hint = (installed = noInstalled, home = homeNoLib) => (hintRun(installed, home).stderr.match(/bash '([^']+queued-heavy\.sh)'/) || [])[1];
+    const real = (p) => fs.realpathSync(p);
+    assert.equal(real(hint()), real(path.join(main, 'tools', 'queued-heavy.sh')), 'with the marker, the main checkout\'s copy');
+    const inst = path.join(base, 'installed-queued-heavy.sh');
+    fs.writeFileSync(inst, '#!/bin/bash\n');
+    assert.equal(real(hint(inst, homeLib)), real(inst), 'an installed copy with its default lib wins over both repo copies');
+    assert.equal(real(hint(inst, homeNoLib)), real(path.join(main, 'tools', 'queued-heavy.sh')), 'an installed copy without its lib is not named');
+    const wrong = hintRun(noInstalled, homeNoLib, { QUEUED_HEAVY_LIB: path.join(base, 'no-lib') });
+    assert.match(wrong.stderr, /QUEUED_HEAVY_LIB=\S+no-lib has no tools\/lib\/cut-guard\.sh, so the queue will refuse/, 'a set-but-wrong QUEUED_HEAVY_LIB is named');
+    assert.doesNotMatch(hintRun(noInstalled, homeNoLib).stderr, /will refuse/, 'CONTROL: unset, no such warning');
+    const q = path.join(main, 'tools', 'queued-heavy.sh');
+    fs.writeFileSync(q, fs.readFileSync(q, 'utf8').replace(/#5446-lib-fallback/g, ''));   // an older copy, as a stale main has
+    assert.equal(real(hint()), real(path.join(wt, 'tools', 'queued-heavy.sh')), 'without the marker, the worktree\'s own copy');
+    fs.writeFileSync(q, fs.readFileSync(path.join(__dirname, 'tools', 'queued-heavy.sh'), 'utf8'));   // the marker back,
+    fs.rmSync(path.join(main, 'tools', 'lib', 'cut-guard.sh'));                                      // but no lib there
+    assert.equal(real(hint()), real(path.join(wt, 'tools', 'queued-heavy.sh')), 'a marked copy in a checkout with no lib is not named');
+  } finally { fs.rmSync(base, { recursive: true, force: true }); }
+});
