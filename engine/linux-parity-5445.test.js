@@ -160,7 +160,7 @@ test('#5445 a masked unit reads as masked, not as a broken unit', () => {
   const v = create.readJobVerdict('maskedbot', undefined, 'linux');
   assert.equal(v.job, null);
   assert.equal(v.masked, true);
-  assert.match(v.because, /masked it in systemd.*systemctl --user unmask/);
+  assert.match(v.because, /it is masked in systemd.*systemctl --user unmask/);
   // CONTROL: an ordinary unit is read as a job.
   unit('plainbot', myWorld());
   assert.ok(create.readJobVerdict('plainbot', undefined, 'linux').job, 'the ordinary unit was not read');
@@ -277,6 +277,18 @@ test('#5445 the board says where a switched-off agent was switched off, per plat
   assert.equal(create.switchedOffSentence('onrow', off, 'linux'), null);
   // A masked unit is read from the disk, so it is said even when systemctl gave no switched-off set.
   fs.symlinkSync('/dev/null', linuxjob.unitPath('maskrow2'));
-  assert.match(create.switchedOffSentence('maskrow2', new Set(), 'linux'), /masked it in systemd.*unmask/);
+  assert.match(create.switchedOffSentence('maskrow2', new Set(), 'linux'), /it is masked in systemd.*unmask/);
   assert.equal(create.switchedOffSentence('maskrow2', new Set(), 'darwin'), null, 'CONTROL: the Mac never reads units');
+});
+
+test('#5445 the folder-trust step says a masked agent is masked, not that it has no job', () => {
+  clearUnits();
+  fs.symlinkSync('/dev/null', linuxjob.unitPath('trustmask'));
+  const r = create.trustAgentFolder('trustmask', { platform: 'linux' });
+  assert.equal(r.wrote, false);
+  assert.match(r.because, /it is masked in systemd/);
+  assert.doesNotMatch(r.because, /no Kosmos launch job/);
+  fs.rmSync(linuxjob.unitPath('trustmask'));
+  // CONTROL: with no unit at all it is still "no launch job".
+  assert.match(create.trustAgentFolder('trustmask', { platform: 'linux' }).because, /no Kosmos launch job/);
 });

@@ -162,7 +162,8 @@ function masked(name, worldId) {
 function maskedSentence(name, worldId) {
   /* Quoted: a named Kosmos's unit name carries a \x2b escape, which an unquoted shell word loses (review 2). Unmasking
      removes the link and leaves no unit file, so the agent is set up again afterwards (review 2). */
-  return `you masked it in systemd, so it does not start; to undo that, run systemctl --user unmask '${unitName(name, worldId)}', then set the agent up again in Kosmos (unmasking leaves it with no unit to start)`;
+  // "it is masked", not "you masked it": a package or an administrator can mask a unit too (review 6).
+  return `it is masked in systemd, so it does not start. To undo that, run systemctl --user unmask '${unitName(name, worldId)}', then set the agent up again in Kosmos, because unmasking leaves it with no unit to start`;
 }
 
 function unitPath(name, worldId) {

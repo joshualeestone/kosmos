@@ -1232,7 +1232,7 @@ function noJobRefusal(clean, spoken, verdict, macSentence) {
       outcome: OUTCOME.REFUSED,
       because: verdict.absent
         ? `${spoken} has no startup unit in systemd (${task}), so there is nothing to change and we have not changed it.`
-        : verdict.masked ? `${spoken} is not changed: ${verdict.because}.`   // #5445: read and found masked, not unreadable
+        : verdict.masked ? `${spoken} is not changed because ${verdict.because}.`   // #5445: read and found masked, not unreadable
         : `we could not read ${spoken}'s startup unit in systemd (${verdict.because}), so we have not changed it.`,
     };
   }
@@ -1372,6 +1372,8 @@ function trustAgentFolder(name, opts) {
   catch (err) { verdict = { job: null, win32: false, because: String((err && err.message) || err) }; }
   const job = verdict.job;
   if (!job) {
+    // #5445: a masked Linux unit is still the agent's job; it is masked, not missing (review 6).
+    if (verdict.masked) return { wrote: false, because: `${verdict.because}, so we did not write the folder trust` };
     if (!verdict.win32) return { wrote: false, because: 'this agent has no Kosmos launch job, so there was no folder to trust' };
     return {
       wrote: false,
