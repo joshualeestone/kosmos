@@ -131,35 +131,46 @@ function readIndex() {
 const NOFOLLOW = fs.constants.O_NOFOLLOW;
 const NONBLOCK = fs.constants.O_NONBLOCK;
 
-/* #4491 (post-rebase review): the board reads (keep) and writes (restore) files for an agent, so it must refuse
-   what the token-only guard protects (setup-assistant.boardCredentialPaths): a copy of a credential would hand it to
-   an agent whose shell cannot read it, and a restore of a guarded file could roll the guard back. Refused by name
+/* #4491 (post-rebase review): the board reads (keep) and writes (restore) files for an agent, so it must refuse what
+   the token-only guard protects (setup-assistant.boardCredentialPaths): a copy of a credential would hand it to an
+   agent whose shell cannot read it, and a restore of a guarded file could roll the guard back. 'protected' by name
    (board.token and its temp names, any case), by place (inside a protected folder, judged on the REAL folder, so a
-   link with another name does not get past), and by identity on disk (the same device and inode as a protected file:
-   a hard link under another name). Paths are compared without case (macOS and Windows disks ignore it; on Linux that
-   only refuses more). A drive that reports inode 0 gives no identity, so only name and place apply there. Fails
-   closed: a check that cannot run refuses. */
-function isCredential(abs, st) {
+   link with another name does not get past; a registry temp or lock name, or an account home's settings file, made
+   later), or by identity on disk (the same device and inode as a protected file: a hard link under another name).
+   'unknown' when the protected set cannot be worked out: the caller says it could not check (never "protected", which
+   would mislabel ordinary files). Otherwise null. Case is ignored in comparisons (macOS and Windows disks ignore it; on
+   Linux that refuses a name differing only in case). A drive reporting inode 0 gets name and place checks only.
+   `cred` is the set worked out once by a caller that checks many paths (plan, apply). */
+function credentialVerdict(abs, st, cred) {
   try {
-    if (/^\.?board\.token(\..*)?$/i.test(path.basename(abs))) return true;
-    const cred = require('./setup-assistant').boardCredentialPaths();
+    if (/^\.?board\.token(\..*)?$/i.test(path.basename(abs))) return 'protected';
+    let c = cred;
+    if (!c) { try { c = require('./setup-assistant').boardCredentialPaths(); } catch { return 'unknown'; } }
     const realOf = (q) => { try { return fs.realpathSync.native(q); } catch { return null; } };
     const lc = (q) => String(q).toLowerCase();
     const parentReal = realOf(path.dirname(abs));
     const real = parentReal ? path.join(parentReal, path.basename(abs)) : abs;
-    const files = cred.files.slice();
-    for (const d of cred.dirs) {
+    const base = path.basename(abs);
+    const same = (a, b) => a !== null && b !== null && lc(a) === lc(b);
+    if (c.regDir && c.regBase && lc(base).startsWith(lc('.' + c.regBase + '.')) && (same(parentReal, realOf(c.regDir)) || same(path.dirname(abs), c.regDir))) return 'protected';
+    if (/^settings(\.local)?\.json$/i.test(base) && /^\.claude(-.*)?$/i.test(path.basename(path.dirname(real)))
+      && (same(realOf(path.dirname(path.dirname(real))), realOf(c.home)) || same(path.dirname(path.dirname(abs)), c.home))) return 'protected';
+    const files = c.files.slice();
+    for (const d of c.dirs) {
       const dr = realOf(d) || d;
-      for (const [x, y] of [[real, dr], [abs, d]]) if (lc(x) === lc(y) || lc(x).startsWith(lc(y) + path.sep)) return true;
+      for (const [x, y] of [[real, dr], [abs, d]]) if (lc(x) === lc(y) || lc(x).startsWith(lc(y) + path.sep)) return 'protected';
       try { for (const n of fs.readdirSync(d)) files.push(path.join(d, n)); } catch { /* no such folder */ }
     }
     for (const f of files) {
-      if (lc(abs) === lc(f) || lc(real) === lc(f) || lc(real) === lc(realOf(f) || f)) return true;
-      if (st && st.ino) { try { const c = fs.statSync(f); if (c.ino && c.dev === st.dev && c.ino === st.ino) return true; } catch { /* absent */ } }
+      if (lc(abs) === lc(f) || lc(real) === lc(f) || lc(real) === lc(realOf(f) || f)) return 'protected';
+      if (st && st.ino) { try { const x = fs.statSync(f); if (x.ino && x.dev === st.dev && x.ino === st.ino) return 'protected'; } catch { /* absent */ } }
     }
-    return false;
-  } catch { return true; }
+    return null;
+  } catch { return 'unknown'; }
 }
+function isCredential(abs, st, cred) { return credentialVerdict(abs, st, cred) !== null; }
+/* Worked out once for a caller that checks many paths; null when it cannot be (each check then says 'unknown'). */
+function credentialSet() { try { return require('./setup-assistant').boardCredentialPaths(); } catch { return null; } }
 
 /**
  * Keep a copy of `file` as it is now, just before an edit. Never throws. { kept, because? }. A missing file is
@@ -201,7 +212,8 @@ function keep(file, { cwd = '', session = '', now = Date.now(), onlyFor = null }
     }
     try {
       if (fd !== null) st = fs.fstatSync(fd);
-      if (isCredential(abs, st)) return { kept: false, because: 'credential' };
+      const verdict = credentialVerdict(abs, st);
+      if (verdict) return { kept: false, because: verdict === 'unknown' ? 'cannot-check' : 'credential' };
       if (st && !st.isFile()) return { kept: false, because: 'not-a-file' };
       if (st && st.size > MAX_BYTES) return { kept: false, because: 'too-large' };
       return keepOpen(abs, fd, st, { cwd, session, now, who });
@@ -292,7 +304,8 @@ const CHOOSABLE = new Set(['shared', 'other-task', 'incomplete']);
  * action: 'restore'|'move-aside', copyId, ok, why? }] }. `ok` false says why: not choosable ('not-a-file', 'moved',
  * 'gone', 'changed-since', 'copy-missing'), or choosable with care (CHOOSABLE). Reading only.
  */
-function plan(projectId, task, { now = Date.now() } = {}) {
+function plan(projectId, task, { now = Date.now(), cred } = {}) {
+  const protectedSet = cred !== undefined ? cred : credentialSet();   // once per plan, not per file
   const receipt = require('./receipt');
   const closedIso = receipt.closedAtOf(task);
   const closedAt = Date.parse(closedIso);
@@ -330,7 +343,8 @@ function plan(projectId, task, { now = Date.now() } = {}) {
     try { dirReal = fs.realpathSync(path.dirname(p)); } catch { dirReal = ''; }
     const flag = (why) => { if (entry.ok) { entry.ok = false; entry.why = why; } };
     // #4491 review: a credential or a Claude settings file is never restored or moved, whatever its record says.
-    if (isCredential(p, cur.st || null)) flag('protected');
+    const verdict = protectedSet ? credentialVerdict(p, cur.st || null, protectedSet) : 'unknown';
+    if (verdict) flag(verdict === 'unknown' ? 'cannot-check' : 'protected');
     else if (cur.kind === 'other') flag('not-a-file');
     /* No folder recorded (the file was created in a folder that did not exist yet): its folder must still be exactly
        the path it was named by, not a link to somewhere else (review 2). */
@@ -367,7 +381,8 @@ function moveAside(from, to) {
  */
 function apply(projectId, task, paths, { now = Date.now() } = {}) {
   if (!read().on) return { done: [], skipped: [], because: 'off' };
-  const p = plan(projectId, task, { now });
+  const protectedSet = credentialSet();   // once per undo, not per file
+  const p = plan(projectId, task, { now, cred: protectedSet });
   if (!p.ready) return { done: [], skipped: [], because: p.because };
   const chosen = new Set(Array.isArray(paths) ? paths : []);
   const byId = new Map(readIndex().map((r) => [r.id, r]));
@@ -380,7 +395,8 @@ function apply(projectId, task, paths, { now = Date.now() } = {}) {
     if (!f.ok && !CHOOSABLE.has(f.why)) { skipped.push({ path: f.path, why: f.why }); continue; }
     let atWrite = null;
     try { atWrite = fs.lstatSync(f.path); } catch { atWrite = null; }
-    if (isCredential(f.path, atWrite)) { skipped.push({ path: f.path, why: 'protected' }); continue; }   // again, with its identity now
+    const verdictNow = protectedSet ? credentialVerdict(f.path, atWrite, protectedSet) : 'unknown';   // again, with its identity now
+    if (verdictNow) { skipped.push({ path: f.path, why: verdictNow === 'unknown' ? 'cannot-check' : 'protected' }); continue; }
     const rec = byId.get(f.copyId);
     const cur = nowIs(f.path);
     if (!rec || cur.kind === 'other') { skipped.push({ path: f.path, why: 'not-a-file' }); continue; }
@@ -420,4 +436,4 @@ function apply(projectId, task, paths, { now = Date.now() } = {}) {
 }
 
 module.exports = {
-  isCredential, read, setOn, keep, plan, apply, sweep, resetForTests, moveAside, MAX_BYTES, KEEP_DAYS, CHOOSABLE };
+  isCredential, credentialVerdict, read, setOn, keep, plan, apply, sweep, resetForTests, moveAside, MAX_BYTES, KEEP_DAYS, CHOOSABLE };
