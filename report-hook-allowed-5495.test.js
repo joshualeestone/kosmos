@@ -71,6 +71,9 @@ test('#5495 shell: a missing or broken allow hook reads as not allowed (needs-yo
   const notNode = { ...KOSMOS_ENV, [ap.ENV_NODE]: '/usr/bin/false' };
   assert.match(runShell(bash, { env: notNode }), /^report\|needs_you\|/);
   assert.match(runShell(bash, { env: { [ap.ENV_NODE]: process.execPath } }), /^report\|needs_you\|/, 'only one of the two names');
+  const other = path.join(SANDBOX, 'not-the-allow-hook.js');
+  fs.copyFileSync(ap.HOOK_SCRIPT, other);   // the same code under another name: refused by name
+  assert.match(runShell(bash, { env: { ...KOSMOS_ENV, [ap.ENV_SCRIPT]: other } }), /^report\|needs_you\|/, 'not the allow hook by name');
 });
 
 /** Run the node hook; return the state and text it POSTed. */
@@ -89,6 +92,10 @@ test('#5495 node hook (Windows): allowed requests report working, the rest needs
   }
   for (const [tool, input] of LEFT_ALONE) assert.match(await runNode(req(tool, input), KOSMOS_ENV), /^needs_you\|/);
   assert.equal(nodeHook.kosmosAllows('not json', KOSMOS_ENV), false, 'unreadable input: not allowed');
+  const bash = req('Bash', { command: 'ls' });
+  assert.equal(nodeHook.kosmosAllows(bash, KOSMOS_ENV), true, 'control: both names, allowed');
+  assert.equal(nodeHook.kosmosAllows(bash, { [ap.ENV_SCRIPT]: ap.HOOK_SCRIPT }), false, 'only one of the two names');
+  assert.equal(nodeHook.kosmosAllows(bash, { [ap.ENV_NODE]: process.execPath }), false, 'only the other name');
 });
 
 test('#5495 shell: an allow hook that hangs is stopped by the clock bound and reads as not allowed', { skip: process.platform === 'win32' }, () => {
@@ -102,7 +109,7 @@ test('#5495 shell: an allow hook that hangs is stopped by the clock bound and re
 });
 
 test('#5495 the shell cases above really ran', { skip: process.platform === 'win32' }, () => {
-  assert.equal(n, 16, 'shell runs (update this when a shell case is added or removed)');
+  assert.equal(n, 17, 'shell runs (update this when a shell case is added or removed)');
 });
 
 test('#5495 node hook: an allowed request starts a heartbeat window, so the next tool call sends no second working line', async () => {
