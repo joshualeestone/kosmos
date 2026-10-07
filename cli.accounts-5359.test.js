@@ -68,7 +68,11 @@ function cli(port, args) {
 }
 
 const ACCOUNTS = { accounts: [
-  { provider: 'anthropic', providerName: 'Anthropic / Claude', email: 'a@example.com', authMode: 'subscription', connection: { state: 'connected' } },
+  { provider: 'anthropic', providerName: 'Anthropic / Claude', email: 'a@example.com', authMode: 'subscription', connection: { state: 'connected', badge: 'working' } },
+  // Review 1 (BLOCKER): a credential on disk is state "connected" even when its last request was refused (#874).
+  { provider: 'anthropic', providerName: 'Anthropic / Claude', email: 'r@example.com', authMode: 'subscription', connection: { state: 'connected', badge: 'rejected' } },
+  { provider: 'anthropic', providerName: 'Anthropic / Claude', email: 'u@example.com', connection: { state: 'connected', badge: 'signed_in_unverified' } },
+  { provider: 'anthropic', providerName: 'Anthropic / Claude', email: 's@example.com', connection: { state: 'connected', badge: 'working', loginStopsAt: Date.now() + 3 * 3600 * 1000 } },
   { provider: 'openai', providerName: 'OpenAI', email: 'b@example.com', authMode: 'chatgpt', connection: { state: 'unknown', liveCheckPending: true } },
   { provider: 'google', providerName: 'Google Gemini', authMode: 'apikey', connection: { state: 'none', because: 'the key was refused' } },
   { provider: 'xai', providerName: 'xAI Grok', email: 'c@example.com', connection: { state: 'unknown', because: 'we could not check this account just now' } },
@@ -78,7 +82,10 @@ test('#5359: kosmos accounts reads /api/accounts with the board token, and says 
   const r = await cli(port, ['accounts']);
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /^Anthropic \/ Claude: a@example\.com \(subscription\): signed in$/m);
-  assert.match(r.out, /^OpenAI: b@example\.com \(chatgpt\): being checked now; ask again in a few seconds$/m);
+  assert.match(r.out, /^Anthropic \/ Claude: r@example\.com \(subscription\): not signed in: its last request was refused\./m, 'a refused login read as signed in');
+  assert.match(r.out, /^Anthropic \/ Claude: u@example\.com: signed in by Kosmos's record, not yet confirmed by a real request$/m);
+  assert.match(r.out, /^Anthropic \/ Claude: s@example\.com: its sign-in has run out; its agents keep working until .+, then stop\./m);
+  assert.match(r.out, /^OpenAI: b@example\.com \(chatgpt\): being checked now; it is known on the next read$/m);
   assert.match(r.out, /^Google Gemini: an account with no email on record \(apikey\): not signed in: the key was refused$/m);
   assert.match(r.out, /^xAI Grok: c@example\.com: could not be checked just now: we could not check this account just now$/m);
   const q = seen.find((x) => x.url === '/api/accounts');
@@ -96,6 +103,13 @@ test('#5359: kosmos accounts says when there are none, when the board refuses, a
     const r = await cli(port, ['accounts']);
     assert.equal(r.code, 1, r.out);
     assert.match(r.out, /Kosmos refused that request: that needs the board token\./);
+  });
+  // Review 1: a fault on the board is not a refusal, and is not told as one.
+  await withStub({ 'GET /api/accounts': { status: 500, json: { error: 'we could not read the accounts on this computer' } } }, async (port) => {
+    const r = await cli(port, ['accounts']);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /Kosmos could not read its accounts just now: we could not read the accounts on this computer\. Try again in a minute\./);
+    assert.doesNotMatch(r.out, /refused/);
   });
   await withStub({ 'GET /api/accounts': { json: { something: 'else' } } }, async (port) => {
     const r = await cli(port, ['accounts']);

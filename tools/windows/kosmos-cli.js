@@ -145,7 +145,7 @@ const USAGE = {
     '       kosmos community endorse <agent-name> <1-5> <review>   (or pipe the review in)    kosmos community unendorse <agent-name>',
   ].join('\n'),
   connections: 'Usage: kosmos connections   (what is connected in Settings > Connections, from what Kosmos has stored; it never checks with each service)',
-  accounts: 'Usage: kosmos accounts   (the provider accounts this board has, and whether each is signed in, checked live; not for a loop)',
+  accounts: 'Usage: kosmos accounts   (the provider accounts this board has, and whether each is signed in, as Settings > AI Models shows it; most are checked when you ask, so not for a loop)',
   connect: 'Usage: kosmos connect <service>   (the token on stdin, never as an argument, e.g. printf \'%s\' "$TOKEN" | kosmos connect brave-search; kosmos connections lists the services)\n       (in PowerShell, text piped into kosmos does not reach it: run it from Git Bash)',
 };
 
@@ -1593,25 +1593,39 @@ async function verbConnections(ctx) {
 /* #5359, as install/kosmos cmd_accounts: which providers' accounts this board has and whether each is signed in, from
    GET /api/accounts (each account checked live, so a moment that needs it, never a loop). Board token, as connections. */
 const ACCOUNTS_TIMEOUT_MS = 60000;
+/* One account's line, the same words as install/kosmos cmd_accounts: the badge first, as the board's Settings > AI
+   Models row reads it (a credential on disk is state "connected" even when its login was refused, #874). */
+function accountLine(a, now = Date.now()) {
+  const who = typeof a.email === 'string' && a.email ? a.email : 'an account with no email on record';
+  const how = typeof a.authMode === 'string' && a.authMode ? ' (' + a.authMode + ')' : '';
+  const c = a.connection && typeof a.connection === 'object' ? a.connection : {};
+  const why = typeof c.because === 'string' && c.because ? ': ' + c.because : '';
+  const stops = Number.isFinite(c.loginStopsAt) && c.loginStopsAt > now ? c.loginStopsAt : null;
+  const when = (t) => new Date(t).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  const state = stops ? 'its sign-in has run out; its agents keep working until ' + when(stops) + ', then stop. The person signs in again in Settings > AI Models'
+    : c.badge === 'working' ? 'signed in'
+    : c.badge === 'signed_in_unverified' ? 'signed in by Kosmos\'s record, not yet confirmed by a real request'
+    : c.badge === 'rejected' ? 'not signed in: its last request was refused. The person signs in again in Settings > AI Models'
+    : c.badge === 'signed_out' ? 'not signed in' + why
+    : c.badge === 'unchecked' ? 'could not be checked just now' + why
+    : c.liveCheckPending === true ? 'being checked now; it is known on the next read'
+    : c.state === 'connected' ? 'signed in'
+    : c.state === 'none' ? 'not signed in' + why
+    : 'could not be checked just now' + why;
+  return (typeof a.providerName === 'string' && a.providerName ? a.providerName : (a.provider || 'a provider')) + ': ' + who + how + ': ' + state;
+}
 async function verbAccounts(ctx) {
   const r = await ctx.call('GET', '/api/accounts', undefined, { agent: false, timeoutMs: ACCOUNTS_TIMEOUT_MS });
   if (!r.reached) return ctx.unreachable('read which accounts are set up');
-  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); return 1; }
+  // A fault on the board (5xx) is not a refusal and is not told as one; ctx.refusedBy reads any error answer.
+  const err = r.json && typeof r.json.error === 'string' ? r.json.error.replace(/[.\s]+$/, '') : '';
+  if (r.status >= 500) { ctx.err('Kosmos could not read its accounts just now' + (err ? ': ' + err : '') + '. Try again in a minute.'); return 1; }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); tokenRefusedHint(ctx, r); return 1; }   // #5333
+  if (r.status >= 400) { ctx.err('Kosmos could not read its accounts just now' + (err ? ': ' + err : '') + '. Try again in a minute.'); return 1; }
   const accounts = r.json && Array.isArray(r.json.accounts) ? r.json.accounts : null;
-  if (r.status >= 400 || !accounts) { ctx.err('Kosmos gave an answer we could not read about its accounts.'); return 1; }
+  if (!accounts) { ctx.err('Kosmos gave an answer we could not read about its accounts.'); return 1; }
   if (!accounts.length) { ctx.out('No provider accounts are set up on this board yet. The person adds one in Settings > AI Models.'); return 0; }
-  for (const a of accounts) {
-    if (!a || typeof a !== 'object') continue;
-    const who = typeof a.email === 'string' && a.email ? a.email : 'an account with no email on record';
-    const how = typeof a.authMode === 'string' && a.authMode ? ' (' + a.authMode + ')' : '';
-    const c = a.connection && typeof a.connection === 'object' ? a.connection : {};
-    const why = typeof c.because === 'string' && c.because ? ': ' + c.because : '';
-    const state = c.liveCheckPending === true ? 'being checked now; ask again in a few seconds'
-      : c.state === 'connected' ? 'signed in'
-      : c.state === 'none' ? 'not signed in' + why
-      : 'could not be checked just now' + why;
-    ctx.out((typeof a.providerName === 'string' && a.providerName ? a.providerName : (a.provider || 'a provider')) + ': ' + who + how + ': ' + state);
-  }
+  for (const a of accounts) if (a && typeof a === 'object') ctx.out(accountLine(a));
   return 0;
 }
 
