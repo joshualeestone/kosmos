@@ -3949,7 +3949,7 @@ test('an agent Kosmos launched but that has never spoken says so, and one we did
     // --- ours, launched, nothing written yet: Ava ---------------------------
     mk('avafresh');
     fs.mkdirSync(agentsDir, { recursive: true });
-    fs.writeFileSync(nodePath.join(agentsDir, 'com.kosmos.agent.avafresh.plist'), '<plist/>', 'utf8');
+    fs.writeFileSync(require('../test-support/jobfixture').jobPathIn(agentsDir, 'avafresh'), '<plist/>', 'utf8');   // #5432: the job file where this platform keeps it
     const ava = show('avafresh');
     assert.ok(ava, 'the fixture did not produce a card at all');
     assert.equal(ava.context.notYet, true,
@@ -3981,7 +3981,7 @@ test('an agent Kosmos launched but that has never spoken says so, and one we did
     /* And ours WITH transcripts that do not match is a fault, not a fresh
        agent: something was written and we cannot use it. */
     const dir = mk('brokenish');
-    fs.writeFileSync(nodePath.join(agentsDir, 'com.kosmos.agent.brokenish.plist'), '<plist/>', 'utf8');
+    fs.writeFileSync(require('../test-support/jobfixture').jobPathIn(agentsDir, 'brokenish'), '<plist/>', 'utf8');   // #5432: where this platform keeps it
     const projects = nodePath.join(root, 'projects', dir.replace(/[^A-Za-z0-9]/g, '-'));
     fs.mkdirSync(projects, { recursive: true });
     fs.writeFileSync(nodePath.join(projects, 'sess-broken.jsonl'),
