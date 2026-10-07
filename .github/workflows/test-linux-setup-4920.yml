@@ -137,22 +137,32 @@ jobs:
           MARK="$RUNNER_TEMP/looptest.stopped"
           loop_arm() {
             rm -f "$MARK"
-            printf '[Unit]\nConditionPathExists=!%s\n\n[Service]\nExecStart=/bin/sh -c "[ -e %s ] && exit 0; exec sleep 1000"\nRestart=%s\nSuccessExitStatus=143\nRestartSec=1\n' "$MARK" "$MARK" "$1" > "$LOOP_UNIT"
+            # StartLimitIntervalSec=0: the always arm restarts fast enough to hit systemd's start limit, which would refuse
+            # the next arm's start (measured: run 37602008378).
+            printf '[Unit]\nConditionPathExists=!%s\nStartLimitIntervalSec=0\n\n[Service]\nExecStart=/bin/sh -c "[ -e %s ] && exit 0; exec sleep 1000"\nRestart=%s\nSuccessExitStatus=143\nRestartSec=1\n' "$MARK" "$MARK" "$1" > "$LOOP_UNIT"
             systemctl --user daemon-reload
-            systemctl --user start kosmos-looptest.service
+            systemctl --user reset-failed kosmos-looptest.service 2>/dev/null || true
+            systemctl --user start kosmos-looptest.service || return 2
             sleep 1
             B="$(systemctl --user show -p NRestarts --value kosmos-looptest.service)"
             touch "$MARK"
-            kill -TERM "$(systemctl --user show -p MainPID --value kosmos-looptest.service)"
+            # Never kill a pid that is not a real one: MainPID reads 0 when the unit is not running, and kill 0 signals
+            # this whole process group, the job itself (measured: run 37602008378 was cancelled that way).
+            PID="$(systemctl --user show -p MainPID --value kosmos-looptest.service)"
+            case "$PID" in ''|0|*[!0-9]*) echo "no main pid to signal ($PID)" >&2; return 2 ;; esac
+            kill -TERM "$PID"
             sleep 6
             A="$(systemctl --user show -p NRestarts --value kosmos-looptest.service)"
             systemctl --user stop kosmos-looptest.service 2>/dev/null || true
-            test -n "$B" && test -n "$A"
+            # errexit is off inside a function called from || : every failure returns explicitly.
+            [ -n "$B" ] && [ -n "$A" ] || { echo "no NRestarts reported" >&2; return 2; }
             echo "$1: NRestarts $B -> $A"
             [ "$A" != "$B" ]
           }
-          if ! loop_arm always; then echo "CONTROL FAILED: Restart=always did not move NRestarts, so the check below proves nothing" >&2; exit 1; fi
-          if loop_arm on-failure; then echo "CONTROL FAILED: Restart=on-failure moved NRestarts" >&2; exit 1; fi
+          rc=0; loop_arm always || rc=$?
+          [ "$rc" -eq 0 ] || { echo "CONTROL FAILED: Restart=always did not move NRestarts (rc $rc), so the check below proves nothing" >&2; exit 1; }
+          rc=0; loop_arm on-failure || rc=$?
+          [ "$rc" -eq 1 ] || { echo "CONTROL FAILED: Restart=on-failure arm rc $rc (0 = it moved NRestarts, 2 = it could not run)" >&2; exit 1; }
           rm -f "$LOOP_UNIT" "$MARK"; systemctl --user daemon-reload
           # The #4918 loop, reproduced: with board.stopped present the board's own exit is clean, and Restart=always
           # restarted it every RestartSec (board-run then exited 0 at once, forever). kosmos stop cannot show this: its
@@ -161,7 +171,7 @@ jobs:
           # (SuccessExitStatus=143), so this fails on Restart=always (any exit restarts), the regression it names.
           KOSMOS_HOME="$HOME/.local/share/kosmos"
           PID="$(systemctl --user show -p MainPID --value kosmos-board.service)"
-          test -n "$PID" && test "$PID" != 0
+          case "$PID" in ''|0|*[!0-9]*) echo "FAIL: no main pid for the board ($PID)" >&2; exit 1 ;; esac
           BEFORE="$(systemctl --user show -p NRestarts --value kosmos-board.service)"
           touch "$KOSMOS_HOME/board.stopped"
           kill -TERM "$PID"
