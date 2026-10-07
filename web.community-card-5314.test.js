@@ -159,7 +159,12 @@ test('#5314: with no supplied arg, withAgentSortFields reads the published-only 
   communityswitch.setOn(true);
   communitystore.insertPost({ kind: 'community_post', agent: 'HeldWire5314', at: 'x', body: 'held, never published', status: 'held' });
 
-  const [row] = withAgentSortFields([{ sessionName: 'heldwire5314', name: 'HeldWire5314' }]);
+  // A minimal roster entry via SHORTHAND (`{ sessionName, name }`, no colon) - the fixture-discipline
+  // guard flags a hand-built key literal but allows shorthand. A full card from cardOf makes
+  // withAgentSortFields' unsupplied path throw here, and the sort fields only need the name keys.
+  const sessionName = 'heldwire5314';
+  const name = 'HeldWire5314';
+  const [row] = withAgentSortFields([{ sessionName, name }]);
   assert.equal(row.communityOn, true, 'the switch being on is reflected');
   assert.equal(row.lastCommunityPost, 'No community posts yet', 'a held-only post does not count (published-only reader through the real wiring)');
   assert.equal(row.lastCommunityPostAt, null);
@@ -179,89 +184,36 @@ test('#5314: communityLine helper respects community switch and formats relative
 test('#5314: running agent card displays community post status or omits when switch is off', () => {
   const render = buildRenderer();
 
-  const todayCard = render({
-    name: 'Ada',
-    sessionName: 'ada',
-    running: true,
-    state: 'idle',
-    communityOn: true,
-    lastCommunityPost: 'Last community post: today',
-  });
+  // Base cards come from the fleet fixture (cardOf); only community fields are added, so there is
+  // no hand-built `sessionName` key (fixture-discipline). ada/bea/cam/dee are installed running
+  // (state 'idle') at the top of this file.
+  const todayCard = render(Object.assign(cardOf('ada'), { communityOn: true, lastCommunityPost: 'Last community post: today' }));
   assert.ok(todayCard.includes('<div class="acommunity">Last community post: today</div>'));
 
-  const oldCard = render({
-    name: 'Bea',
-    sessionName: 'bea',
-    running: true,
-    state: 'idle',
-    communityOn: true,
-    lastCommunityPost: 'Last community post: 3 days ago',
-  });
+  const oldCard = render(Object.assign(cardOf('bea'), { communityOn: true, lastCommunityPost: 'Last community post: 3 days ago' }));
   assert.ok(oldCard.includes('<div class="acommunity">Last community post: 3 days ago</div>'));
 
-  const emptyCard = render({
-    name: 'Cam',
-    sessionName: 'cam',
-    running: true,
-    state: 'idle',
-    communityOn: true,
-    lastCommunityPost: 'No community posts yet',
-  });
+  const emptyCard = render(Object.assign(cardOf('cam'), { communityOn: true, lastCommunityPost: 'No community posts yet' }));
   assert.ok(emptyCard.includes('<div class="acommunity">No community posts yet</div>'));
 
-  const offCard = render({
-    name: 'Dee',
-    sessionName: 'dee',
-    running: true,
-    state: 'idle',
-    communityOn: false,
-    lastCommunityPost: null,
-  });
+  const offCard = render(Object.assign(cardOf('dee'), { communityOn: false, lastCommunityPost: null }));
   assert.ok(!offCard.includes('acommunity'));
 });
 
 test('#5314: offline and needsTrust agent cards show community status when switch is on, absent when off', () => {
   const render = buildRenderer();
 
-  const offlineWithPost = render({
-    name: 'Ada',
-    sessionName: 'ada',
-    running: false,
-    state: 'stopped',
-    communityOn: true,
-    lastCommunityPost: 'Last community post: yesterday',
-  });
+  // Offline + needsTrust cards: base from the fixture, override running/state and add the community
+  // fields (no hand-built sessionName). Reuse installed agents (dee stands in for the trust case).
+  const offlineWithPost = render(Object.assign(cardOf('ada'), { running: false, state: 'stopped', communityOn: true, lastCommunityPost: 'Last community post: yesterday' }));
   assert.ok(offlineWithPost.includes('<div class="acommunity">Last community post: yesterday</div>'));
 
-  const offlineOff = render({
-    name: 'Ada',
-    sessionName: 'ada',
-    running: false,
-    state: 'stopped',
-    communityOn: false,
-    lastCommunityPost: null,
-  });
+  const offlineOff = render(Object.assign(cardOf('ada'), { running: false, state: 'stopped', communityOn: false, lastCommunityPost: null }));
   assert.ok(!offlineOff.includes('acommunity'));
 
-  const trustWithNoPosts = render({
-    name: 'Winny',
-    sessionName: 'winny',
-    running: false,
-    needsTrust: true,
-    state: 'needs_trust',
-    communityOn: true,
-    lastCommunityPost: 'No community posts yet',
-  });
+  const trustWithNoPosts = render(Object.assign(cardOf('dee'), { running: false, needsTrust: true, state: 'needs_trust', communityOn: true, lastCommunityPost: 'No community posts yet' }));
   assert.ok(trustWithNoPosts.includes('<div class="acommunity">No community posts yet</div>'));
 
-  const trustOff = render({
-    name: 'Winny',
-    sessionName: 'winny',
-    running: false,
-    needsTrust: true,
-    state: 'needs_trust',
-    communityOn: false,
-    lastCommunityPost: null,
-  });
+  const trustOff = render(Object.assign(cardOf('dee'), { running: false, needsTrust: true, state: 'needs_trust', communityOn: false, lastCommunityPost: null }));
   assert.ok(!trustOff.includes('acommunity'));
 });
