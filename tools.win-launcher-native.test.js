@@ -457,6 +457,9 @@ const WEBVIEW2_SLOTS = {
   /* #4381: whether a connect computer's Kosmos Plus sign-in loaded. */
   ICoreWebView2NavigationCompletedEventHandler: ['d33a35bf-1c49-4f98-93ab-006e0533fe1c', ['Invoke']],
   ICoreWebView2NavigationCompletedEventArgs: ['30d68b7d-20d9-4752-a9ca-ec8448fbb5c1', ['get_IsSuccess', 'get_WebErrorStatus', 'get_NavigationId']],
+  /* #5483: when a connect window's page commits (the Mac's didCommit). */
+  ICoreWebView2ContentLoadingEventHandler: ['364471e7-f2be-4910-bdba-d72077d51c4b', ['Invoke']],
+  ICoreWebView2ContentLoadingEventArgs: ['0c8a1275-9b6b-4901-87ad-70df25bafa6e', ['get_IsErrorPage', 'get_NavigationId']],
 };
 
 test('#1118: every WebView2 interface the launcher declares has WebView2.h\'s id and slot order', () => {
