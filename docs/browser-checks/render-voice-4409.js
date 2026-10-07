@@ -204,14 +204,14 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
       const p = document.querySelector('.voice-pill');
       const r = p && p.getBoundingClientRect();
       return { n: document.querySelectorAll('.voice-pill').length, words: p ? p.textContent : '', micShown: getComputedStyle(document.getElementById('d-mic')).display !== 'none',
-        said: document.getElementById('d-say-msg').textContent, right: r ? r.right : 0, top: r ? r.top : 0, bottom: r ? r.bottom : 0, w: r ? r.width : 0 };
+        hidden: (() => { const m = document.getElementById('d-say-msg'); const mr = m.getBoundingClientRect(); return m.classList.contains('vh') && /not allowed/.test(m.textContent) && mr.width <= 1 && getComputedStyle(m).clipPath !== 'none'; })(), right: r ? r.right : 0, top: r ? r.top : 0, bottom: r ? r.bottom : 0, w: r ? r.width : 0 };
     });
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'voice-dm-settings-pill.png') });
     const pillRowOk = micAt && pill.top <= micAt.y + micAt.height && pill.bottom >= micAt.y && Math.abs(pill.right - (micAt.x + micAt.width)) <= 2;
     const nAsk = await page.evaluate(() => window.__voice.length);
     await page.click('.voice-pill .vp-go');
     const askSet = await page.evaluate((n) => window.__voice.slice(n), nAsk);
-    chk(pill.n === 1 && !pill.micShown && /^\u00d7\s*Turn on in\s+Settings$/.test(pill.words) && pill.said === '' && pillRowOk
+    chk(pill.n === 1 && !pill.micShown && /^\u00d7\s*Turn on in\s+Settings$/.test(pill.words) && pill.hidden && pillRowOk
         && askSet.length === 1 && askSet[0].op === 'settings' && askSet[0].pane === 'mic',
       'V6 a refused microphone becomes one [X   Turn on in Settings] pill where the mic was, no sentence, and the label asks for the Microphone pane', JSON.stringify({ pill, micAt, askSet }));
     await page.click('.voice-pill .vp-x');
@@ -358,6 +358,16 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     const v14 = await page.evaluate((n) => ({ ops: window.__voice.slice(n).map((m) => m.op), desc: document.getElementById('pj-add-desc').value, pressed: document.querySelector('.fieldmic[data-voice-for="pj-add-desc"]').getAttribute('aria-pressed') }), n5);
     chk(JSON.stringify(v14.ops) === '["start","cancel"]' && v14.desc === 'first words' && v14.pressed === 'false',
       'V14 focus moving to another field stops listening and keeps the words heard so far', JSON.stringify(v14));
+    // V6e (#5481 review 1): in a field the pill is the short [X  Settings] and the box makes room, so it covers no text.
+    await page.evaluate(() => { document.querySelector('.fieldmic[data-voice-for="pj-add-desc"]').click(); window.kosmosVoiceEvent({ kind: 'error', reason: 'speech-denied' }); window.kosmosVoiceEvent({ kind: 'stopped' }); });
+    const v6e = await page.evaluate(() => {
+      const ta = document.getElementById('pj-add-desc'), pill = document.querySelector('.micwrap > .voice-pill');
+      if (!pill) return { pill: false };
+      const r = ta.getBoundingClientRect(), pr = pill.getBoundingClientRect();
+      return { pill: true, seen: pill.querySelector('.vp-go').innerText.trim(), textEnds: Math.round(r.right - parseFloat(getComputedStyle(ta).paddingRight)), pillStarts: Math.round(pr.left) };
+    });
+    await page.evaluate(() => { const x = document.querySelector('.voice-pill .vp-x'); if (x) x.click(); });
+    chk(v6e.pill && v6e.seen === 'Settings' && v6e.textEnds <= v6e.pillStarts, 'V6e a field\'s pill is the short [X  Settings] and its text box ends before the pill begins', JSON.stringify(v6e));
     // V15: a dialog button while listening stops it.
     const n6 = await page.evaluate(() => window.__voice.length);
     await page.evaluate(() => { document.querySelector('.fieldmic[data-voice-for="pj-add-done"]').click(); window.kosmosVoiceEvent({ kind: 'listening' }); });

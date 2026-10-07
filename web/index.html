@@ -7742,6 +7742,10 @@ html.has-voice .micbtn.has-pill { display: none; }
 .asp-in .voice-pill, .micwrap > .voice-pill { height: 28px; }
 .micwrap > .voice-pill { position: absolute; right: calc(8px + var(--scrollbar-width, 0px)); top: 6px; z-index: 1; }   /* where the field's mic sat */
 .micwrap.line > .voice-pill { top: 50%; right: 8px; transform: translateY(-50%); }
+/* review 1: in a field the pill sits over the text box, so it is always the short [X  Settings] there and the box
+   makes room for it (the box's own mic padding rules are more specific, hence !important while the pill shows). */
+.micwrap > .voice-pill .vp-pre { display: none; }
+html.has-voice .micwrap:has(> .voice-pill) > textarea, html.has-voice .micwrap:has(> .voice-pill) > input { padding-right: calc(124px + var(--scrollbar-width, 0px)) !important; }
 @media (max-width: 479px) { .voice-pill .vp-pre { display: none; } }   /* Splinter 08:33: [X  Settings] when narrow, same pane */
 /* #4409: read aloud, in a message's hover bar beside Reply (html.has-speak: the page has speechSynthesis). */
 .rxn-speak { display: none; align-items: center; justify-content: center; font: inherit; font-size: .75rem; border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); border-radius: 999px; padding: 1px 8px; margin-left: 4px; cursor: pointer; min-height: 24px; }
@@ -65503,20 +65507,25 @@ function voiceCancel() {
    Settings pane (the app opens only the two panes it knows, never a URL from the page); X puts the plain mic back.
    When the person comes back with both allowed, the app says "allowed" and the same mic starts listening. */
 const VOICE_SETTINGS_PANE = { 'mic-denied': 'mic', 'speech-denied': 'speech' };
-const VOICE_SETTINGS = { btn: null, id: '' };
+const VOICE_SETTINGS = { btn: null, id: '', msg: null, said: '' };
 function voiceSettingsClear() {
   document.querySelectorAll('.voice-pill').forEach((el) => el.remove());
   document.querySelectorAll('.micbtn.has-pill').forEach((b) => b.classList.remove('has-pill'));
-  VOICE_SETTINGS.btn = null; VOICE_SETTINGS.id = '';
+  const m = VOICE_SETTINGS.msg;
+  if (m) { m.classList.remove('vh'); if (m.textContent === VOICE_SETTINGS.said) m.textContent = ''; }   // never shown, so never left behind
+  Object.assign(VOICE_SETTINGS, { btn: null, id: '', msg: null, said: '' });
 }
 function voiceSettingsOffer(btn, pane, said) {
   if (!btn || !btn.parentNode) return;
   voiceSettingsClear();
   const hadFocus = document.activeElement === btn;
+  /* review 1: the refusal is still SAID (the mic's live line, role=alert, so a screen reader hears it even though a
+     click in the app does not move focus), but hidden from sight while the pill shows: no sentence below the input. */
+  voiceSay(btn, said);
+  const m = voiceMsgEl(btn);
+  if (m) { m.classList.add('vh'); VOICE_SETTINGS.msg = m; VOICE_SETTINGS.said = m.textContent; }
   const pill = document.createElement('span');
   pill.className = 'voice-pill';
-  pill.setAttribute('role', 'group');
-  pill.setAttribute('aria-label', said);   // the refusal is heard here, since no sentence is shown
   const x = document.createElement('button');
   x.type = 'button'; x.className = 'vp-x'; x.textContent = '\u00d7';
   x.title = 'Dismiss'; x.setAttribute('aria-label', 'Dismiss, back to the microphone');

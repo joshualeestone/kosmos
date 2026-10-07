@@ -146,7 +146,7 @@ function voiceHarness() {
   // eslint-disable-next-line no-new-func
   const timers = [];
   const make = new Function('window', 'document', 'posted', 'setInterval', 'clearInterval',
-    'let CURRENT = null; let PJ_CURRENT = null; const VOICE_SAYS = {}; const VOICE_SAYS_PHONE = {};\n'
+    'let CURRENT = null; let PJ_CURRENT = null; const VOICE_SAYS = { \'speech-denied\': \'(speech refused)\', \'mic-denied\': \'(mic refused)\' }; const VOICE_SAYS_PHONE = {};\n'
     + ['const VOICE = {', 'const SPEAK = {', 'let VOICE_WATCH =', 'const VOICE_LISTENING =', 'let VOICE_PHONE =', 'const VOICE_SETTINGS_PANE =', 'const VOICE_SETTINGS ='].map(pageLine).join('\n') + '\n'   // the page's own state, not a copy
     + ['viewKey', 'shownNow', 'voiceWhere', 'voiceBridge', 'voicePhoneWho', 'voicePhoneBridge', 'voiceListeningLine', 'voiceSplice', 'voicePaint', 'voiceSay', 'voiceMsgEl', 'voiceMsgEmpty', 'voiceUnsayOwn', 'voiceUnsay', 'voiceSettingsClear', 'voiceSettingsOffer', 'voiceWho', 'voiceStop', 'voiceToggle', 'voiceCancel', 'voiceOnEvent', 'voiceSpeakWatch', 'speakStop', 'speakPaint', 'speakSameText', 'speakFollow', 'speechTidy', 'speechTextOfRow'].map(fn).join('\n')
     + '\nreturn { VOICE, SPEAK, voiceWhere, voiceToggle, voiceOnEvent, speakFollow, viewKey, watching() { return VOICE_WATCH; }, set(card, room) { CURRENT = card || null; PJ_CURRENT = room; } };');
@@ -420,7 +420,7 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   const btn = Object.assign(mkBtn(), { classList: cls(), parentNode: {}, focus() { doc.activeElement = this; }, insertAdjacentElement(where, e) { assert.equal(where, 'afterend', 'the pill is not where the mic is'); pills.push(e); } });
   doc.querySelectorAll = (sel) => (sel === '.voice-pill' ? pills.slice() : sel === '.micbtn.has-pill' ? (btn.classList.contains('has-pill') ? [btn] : []) : []);
   doc.body = { contains: () => true };
-  doc.boxes['d-say-msg'] = { id: 'd-say-msg', textContent: '' };
+  doc.boxes['d-say-msg'] = { id: 'd-say-msg', textContent: '', classList: cls() };
   doc.boxes['d-say'] = mkBox('d-say');
   btn.attrs['data-voice-for'] = 'd-say'; btn.attrs['data-voice-msg'] = 'd-say-msg';
   const go = () => pills[0].kids.find((k) => k.className === 'vp-go');
@@ -437,7 +437,8 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   assert.deepEqual(pills[0].kids.map((k) => k.className), ['vp-x', 'vp-go'], 'the pill is not [X   Turn on in Settings]');
   assert.equal(go().attrs['aria-label'], 'Turn on in Settings');
   assert.match(go().innerHTML, /^<span class="vp-pre">Turn on in&nbsp;<\/span>Settings$/, 'the narrow label is not [X  Settings]');
-  assert.equal(doc.boxes['d-say-msg'].textContent, '', 'a sentence was said below the input');
+  const msg = doc.boxes['d-say-msg'];
+  assert.ok(msg.textContent === '(speech refused)' && msg.classList.contains('vh'), 'the refusal is not said to a screen reader, or it shows as a sentence below the input');
   assert.equal(doc.activeElement, go(), 'the keyboard focus was lost with the mic it replaced');
   go().handlers.click();
   const ask = posted.at(-1);
@@ -455,6 +456,7 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   x().handlers.click();
   assert.equal(pills.length, 0, 'X did not dismiss the pill');
   assert.ok(!btn.classList.contains('has-pill'), 'X did not put the mic back');
+  assert.ok(msg.textContent === '' && !msg.classList.contains('vh'), 'X left the hidden refusal behind, to show as a sentence');
   assert.equal(doc.activeElement, btn, 'X left the focus nowhere');
   assert.equal(posted.length, n, 'X asked the app for something');
   // the Microphone pane for a mic refusal

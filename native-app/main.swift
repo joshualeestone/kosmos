@@ -1450,6 +1450,7 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
     /// #5481: the page asked to open a privacy pane after a denial; when the app comes back to the front, look again and
     /// say "allowed" if both permissions are now on, so the page starts listening without another click.
     private var awaitingAllow = false
+    private var settingsId = ""   // the Settings visit's own id, apart from the listening session's pageId
     private var activeObserver: NSObjectProtocol?
     init(_ owner: AppDelegate) {
         self.owner = owner
@@ -1498,14 +1499,17 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         @unknown default: return "unknown"
         }
     }
-    static func bothAllowed(speech: SFSpeechRecognizerAuthorizationStatus, mic: AVAuthorizationStatus) -> Bool {
-        return speech == .authorized && mic == .authorized
+    /// #5481 review 1: ready means a fresh start can only succeed or prompt. Speech is asked FIRST, so after a speech
+    /// refusal the mic has usually never been asked; requiring it "authorized" here would leave the pill up forever (the
+    /// Microphone pane does not list an app that never asked). Not asked is fine: the next start shows its prompt.
+    static func readyToStart(speech: SFSpeechRecognizerAuthorizationStatus, mic: AVAuthorizationStatus) -> Bool {
+        return speech == .authorized && (mic == .authorized || mic == .notDetermined)
     }
     private func recheckAfterSettings() {
         guard awaitingAllow else { return }
-        guard Self.bothAllowed(speech: SFSpeechRecognizer.authorizationStatus(), mic: AVCaptureDevice.authorizationStatus(for: .audio)) else { return }
+        guard Self.readyToStart(speech: SFSpeechRecognizer.authorizationStatus(), mic: AVCaptureDevice.authorizationStatus(for: .audio)) else { return }
         awaitingAllow = false
-        emit(["kind": "allowed"])
+        emit(["kind": "allowed", "id": settingsId])
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -1516,13 +1520,14 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         switch op {
         case "start":
             pageId = (body["id"] as? String) ?? ""
+            awaitingAllow = false   // a fresh start retires any Settings visit
             start()
         case "stop": stop()
         case "cancel": cancel()
         case "settings":
             // #5481: open the exact pane for a denied permission (only the two named panes, never a URL from the page).
             guard let pane = body["pane"] as? String, let url = Self.settingsURL(pane: pane) else { return }
-            pageId = (body["id"] as? String) ?? pageId
+            settingsId = (body["id"] as? String) ?? ""
             awaitingAllow = true
             NSWorkspace.shared.open(url)
         default: return
@@ -1561,7 +1566,7 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
 
     private func emit(_ event: [String: Any]) {
         var event = event
-        event["id"] = pageId   // read NOW: a cancel's "stopped" carries the id of the session it ended
+        if event["id"] == nil { event["id"] = pageId }   // read NOW: a cancel's "stopped" carries the id of the session it ended
         guard let web = webView,
               let data = try? JSONSerialization.data(withJSONObject: event),
               let json = String(data: data, encoding: .utf8) else { return }
@@ -6523,12 +6528,13 @@ if CommandLine.arguments.contains("--kosmos-app-voice-selftest") {
     row(VoiceBridge.settingsURL(pane: "speech")?.absoluteString == "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition", "#5481: speech opens the Speech Recognition pane")
     row(VoiceBridge.settingsURL(pane: "mic")?.absoluteString == "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone", "#5481: mic opens the Microphone pane")
     row(VoiceBridge.settingsURL(pane: "https://example.com") == nil && VoiceBridge.settingsURL(pane: "") == nil, "#5481: anything else opens nothing")
-    row(VoiceBridge.bothAllowed(speech: .authorized, mic: .authorized), "#5481: both allowed starts again")
-    row(!VoiceBridge.bothAllowed(speech: .authorized, mic: .denied) && !VoiceBridge.bothAllowed(speech: .denied, mic: .authorized), "#5481: either still off does not")
+    row(VoiceBridge.readyToStart(speech: .authorized, mic: .authorized), "#5481: both allowed starts again")
+    row(VoiceBridge.readyToStart(speech: .authorized, mic: .notDetermined), "#5481 review 1: speech allowed and the mic never asked starts again (its prompt comes next)")
+    row(!VoiceBridge.readyToStart(speech: .authorized, mic: .denied) && !VoiceBridge.readyToStart(speech: .denied, mic: .authorized) && !VoiceBridge.readyToStart(speech: .notDetermined, mic: .authorized) && !VoiceBridge.readyToStart(speech: .authorized, mic: .restricted), "#5481: either still off does not")
     row(VoiceBridge.speechRefusal(.restricted) == "speech-restricted" && VoiceBridge.micRefusal(.restricted) == "mic-restricted", "#5481: restricted is said as restricted")
     row(VoiceBridge.speechRefusal(.denied) == "speech-denied" && VoiceBridge.micRefusal(.denied) == "mic-denied", "#5481 CONTROL: denied stays denied")
     row(VoiceBridge.speechRefusal(.notDetermined) == "speech-unanswered", "#5481: no answer stays unanswered")
-    let expected = 24   // #5311: + Dictation off, + its control; #5481: + 8
+    let expected = 25   // #5311: + Dictation off, + its control; #5481: + 9
     if ran != expected { print("\nvoice-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
     if bad > 0 { print("\nvoice-check: \(bad) row(s) wrong"); exit(1) }
     print("\nvoice-check: all good (\(ran) rows)")

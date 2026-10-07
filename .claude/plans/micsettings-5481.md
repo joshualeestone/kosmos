@@ -26,7 +26,7 @@ both got the system prompt on macOS 26.7.1, so that is not the cause there. Re-s
 the identity existing grants are keyed on.
 
 ## Tests
-- `--kosmos-app-voice-selftest`: 24 rows, including pane mapping, bothAllowed, and the restricted split.
+- `--kosmos-app-voice-selftest`: 25 rows, including pane mapping, readyToStart (speech allowed with the mic never asked counts as ready), and the restricted split.
 - web.voice-4409.test.js: the pill, the X, `allowed`, and the controls.
 - docs/browser-checks/render-voice-4409.js: V6, V6b, V6c and V6d.
 - design shots: the screen agent-chat-mic-settings.
