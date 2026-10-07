@@ -25,12 +25,12 @@ unanchored `pgrep -f` stays exposed.
   script being a queued-heavy.sh in any directory, so tools/ or the installed copy agents actually run,
   ~/.cache/claude-handoffs/queued-heavy.sh, including a lead that ps split at a space; a queued-heavy.sh
   that is only an argument, after a script or after a wrapper with no .sh suffix, is not; a lead counts as
-  split at a space only when it is an absolute path with no .sh ending yet, and the piece that ends in
+  split at one or more spaces only when it is an absolute path with no .sh ending yet, and the piece that ends in
   queued-heavy.sh carries at least two directory segments; a contrived `/wrapper x/tools/queued-heavy.sh`
   argument would still read as a waiter, which nothing runs), because the
   waiter starts the real run as its own process when its turn comes, and that run counts. The window between
   is covered by queued-heavy.sh's machine claim, taken before it starts the run (tools/queued-heavy.sh
-  steps 2-3), which heavy-gate already reads as busy.
+  steps 2-3; a light side turn holds a side claim instead), which heavy-gate reads as busy either way.
 - The per-cut wrapper (outside the repo, mortals:~/.cut-07NN.sh) sources the Mortals main checkout's
   cut-guard.sh, so 0.7.28's wrapper calls `kosmos_running_lines tools/browser-checks.sh` and treats rc 2
   as "still running". MERGED IS NOT IN EFFECT: the wrapper reads mortals:~/work/agent-workforce (main),
@@ -61,7 +61,9 @@ options group, so an optioned fixture can only be dropped by ancestry or cwd: mo
   `bash -o pipefail tools/<script>` ARE runs; a failing pgrep or no script gives 2. Each spawned pid is
   awaited in pgrep (up to ~5 s), not a fixed sleep. Shapes that cannot be held open (bash -n exits at
   once) are read through a stubbed pgrep: -n, -xn and -lc are not runs; -eo NAME, +x, -- and --rcfile ARE. Measured red: anchor removed gives 3 failures.
-- tools.heavy-gate-3805.test.js gains a #5470 case: a waiter line (also under a spaced checkout path) does
+- tools.heavy-gate-3805.test.js gains a #5470 case (waiters: plain 111, one-space checkout 114, two-space
+  checkout 120, installed copy 116, ./ 117 by exit code; arguments that must NOT hide a run: after a .sh
+  script 115, after a non-.sh wrapper 118 and 119): a waiter line (also under a spaced checkout path) does
   not count, nor one using the installed ~/.cache/claude-handoffs/queued-heavy.sh or ./queued-heavy.sh;
   the run the waiter starts (with the waiter as its ancestor) does; a queued-heavy.sh that is
   only an argument after another script does not stop that script's heavy path counting. Its sh -c parent is a
