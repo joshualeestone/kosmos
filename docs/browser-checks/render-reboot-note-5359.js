@@ -42,7 +42,7 @@ const noteAt = (bootAgo, upAgo) => ({ lastAliveAt: new Date(NOON - bootAgo - MIN
 const T = '\\d{1,2}:\\d{2}\\s?[AP]M';
 const CASES = [
   { key: 'today', note: noteAt(7 * MIN, 0), head: new RegExp('^This computer restarted at ' + T + '$'), line: new RegExp('^Kosmos was running and started again by itself at ' + T + '\\.$') },
-  { key: 'yesterday', note: noteAt(DAY, DAY - 7 * MIN), head: new RegExp('^This computer restarted yesterday at ' + T + '$'), line: /started again by itself (yesterday )?at / },
+  { key: 'yesterday', note: noteAt(DAY, DAY - 7 * MIN), head: new RegExp('^This computer restarted yesterday at ' + T + '$'), line: new RegExp('^Kosmos was running and started again by itself yesterday at ' + T + '\\.$') },
   { key: 'older', note: noteAt(3 * DAY, 3 * DAY - 7 * MIN), head: new RegExp('^This computer restarted on [A-Z][a-z]{2} \\d{1,2} at ' + T + '$'), line: /started again by itself on / },
   { key: 'none', note: null },
 ];
@@ -152,6 +152,19 @@ const CASES = [
       }
     }
     say(errs.length === 0, c.key + ': no page errors', errs.join(' | '));
+    await pg.close();
+  }
+  /* Review 7: on a phone the note keeps its line (phones hide every notice's small line except the login notice's and
+     this one's). Control: the same page at desktop width shows it too, so a hidden line here is the phone rule. */
+  {
+    const pg = await b.newPage({ viewport: { width: 390, height: 844 } });
+    await pg.clock.setFixedTime(new Date(NOON));
+    await pg.route('**/api/board/restart-note', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ note: noteAt(7 * MIN, 0) }) }).catch(() => {}));
+    await pg.goto(URL, { waitUntil: 'networkidle' });
+    if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+    await pg.waitForFunction(() => document.querySelector('#reboot-slot .utoast.reboot'), null, { timeout: 12000 }).catch(() => {});
+    const phone = await pg.evaluate(() => { const sm = document.querySelector('#reboot-slot .utxt small'); return sm ? { display: getComputedStyle(sm).display, h: sm.getBoundingClientRect().height, text: sm.textContent } : null; });
+    say(Boolean(phone) && phone.display !== 'none' && phone.h > 0 && /started again by itself/.test(phone.text), 'phone: the note keeps its line at 390px', JSON.stringify(phone));
     await pg.close();
   }
   /* Review 4: a board that starts again under an open page is asked again for its note. The page loads with no note;

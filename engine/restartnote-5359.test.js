@@ -90,3 +90,19 @@ test('#5359 review 5: the beat rewrites the last-alive record once a minute', (t
   t.mock.timers.tick(rn.BEAT_MS);
   assert.equal(JSON.parse(fs.readFileSync(rn._files.aliveFile(), 'utf8')).at, new Date(NOW + 2 * rn.BEAT_MS).toISOString(), 'the second minute did not move it');
 });
+
+test('#5359 review 7: both windows hold at exactly WINDOW_MS and close one millisecond past it', () => {
+  const W = rn.WINDOW_MS;
+  const boot = NOW - 5 * 60 * 1000;   // the computer came up five minutes before this start
+  const upSec = (now, bootAt) => (now - bootAt) / 1000;
+  // Alive exactly WINDOW_MS before the boot: a note. One millisecond earlier: none.
+  assert.ok(rn.noteFor({ now: NOW, uptimeSec: upSec(NOW, boot), lastAliveAt: boot - W }), 'no note at exactly the window before boot');
+  assert.equal(rn.noteFor({ now: NOW, uptimeSec: upSec(NOW, boot), lastAliveAt: boot - W - 1 }), null, 'a note one millisecond past the window before boot');
+  // Started exactly WINDOW_MS after the boot: a note. One millisecond later: none.
+  const boot2 = NOW - W;
+  assert.ok(rn.noteFor({ now: NOW, uptimeSec: upSec(NOW, boot2), lastAliveAt: boot2 - MIN }), 'no note at exactly the window after boot');
+  const boot3 = NOW - W - 1;
+  assert.equal(rn.noteFor({ now: NOW, uptimeSec: upSec(NOW, boot3), lastAliveAt: boot3 - MIN }), null, 'a note one millisecond past the window after boot');
+  // The window is the 15 minutes the words and the plan promise.
+  assert.equal(W, 15 * 60 * 1000);
+});

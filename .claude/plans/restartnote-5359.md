@@ -18,7 +18,7 @@
 - No "your agents are running again": not measured (Mona: never say it unmeasured).
 
 ## Verification
-- engine/restartnote-5359.test.js 7/7 (every rule arm with a control; read-before-write; a day; dismiss; clock slack;
+- engine/restartnote-5359.test.js 7/7 (every rule arm with a control, both window edges to the millisecond; read-before-write; a day; dismiss; clock slack;
   the beat under mocked timers and its rate against the window), server.restartnote-5359.test.js (routes, the start
   write, the beat armed), cli.restartnote-stop-5359.test.js 3/3, install.uninstall-remembered-1531.test.js 5/5, and
   the repo guards: 56/56 together.
@@ -100,3 +100,9 @@
 - For Mona, with the failure line: the close button is labelled "Dismiss" alone, where the login notice says
   "Close: <its headline>". Left as her design says; raised to her.
 - Left: a temp file from a kill mid-write is not swept by uninstall (exact names; accepted in review 3).
+
+## Review 7
+- FIXED: the window edges are pinned to the millisecond on both sides (and the window to 15 minutes); `>` to `>=` or a
+  one-second widening now reddens. The phone rule that keeps the note's line is asserted at 390px. The "yesterday"
+  case requires "yesterday at" in the line. Each mutation-proven.
+- Left: `cmd_stop` with the real clear end to end (its arms replace the clear; the third arm runs the real clear).
