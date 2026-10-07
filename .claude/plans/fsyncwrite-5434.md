@@ -22,7 +22,10 @@ this change) is skipped, so the write takes its usual path. Any other error (EIO
 mount that reports a failed write late, this is where it shows) fails the write AT ONCE: the temp is
 removed and writeSecret throws, with no retry (a space or quota error would only recur) and no in-place
 fallback (the one path that truncates the live file). If the close then fails too (NFS often repeats the
-EIO there), the flush error still stands. The old file stays as it was. The restore of the old contents on
+EIO there), the flush error still stands. This covers errors the FLUSH reports; the same errors reported by
+a write or a close keep main's behaviour (retries, then the in-place fallback), which is a later slice of
+#5434. The fallback flushes the file but not its folder, so a fallback that CREATED the file is not made
+durable as a new folder entry (the fallback is reached only after three failed atomic attempts). The old file stays as it was. The restore of the old contents on
 the fallback and the folder flush stay best effort for every error (syncDir is guarded so it cannot throw,
 which is why it can stay inside the atomic try).
 
@@ -46,5 +49,7 @@ the flushes. macOS's fsync is a full drive-cache flush (F_FULLFSYNC). The caller
 mint, a secret, an outbox entry, a long-message spill), not in a loop, so about 8 ms each is accepted.
 
 ## Weakest premise
-That no caller writes through this in a loop. If one ever does (messages.js is the busiest), move that
+That no caller writes through this in a loop, and that the cost elsewhere is like this Mac's: it was
+measured only on APFS on an SSD. On Windows with a slow or spinning disk FlushFileBuffers can take far
+longer, on the board's event loop, and that is not measured. If one ever does (messages.js is the busiest), move that
 caller to a batched writer rather than dropping the flush.
