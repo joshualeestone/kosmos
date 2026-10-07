@@ -84,10 +84,6 @@ fs.writeFileSync(nodePath.join(SIGNIN, 'auth.json'),
 
 const create = require('./create');
 const store = require('./store');
-/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that seeds, reads or drives the job as a
-   launchd plist cannot run unchanged there. Skipped on Linux only; its reason says whether a Linux test covers it, or
-   that it is not tested on Linux yet (#5500). macOS and Windows unchanged. */
-const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS launchd fixture on a Linux host (#5432): the test seeds or reads the agent's job as a macOS plist, or its runner stub answers launchctl only. What it asserts is platform-neutral and is tested on macOS, but NOT yet on Linux: #5500 ports it." } : {};
 
 /* Seeded DIRECTLY rather than through `createAgent`, which calls the REAL
    /bin/launchctl and loads live services on the developer's Mac. Same seam as
@@ -274,7 +270,7 @@ test('#2811: WHICH of the four writes can abort the switch, asserted rather than
   assert.equal(fs.existsSync(nodePath.join(dir, 'CLAUDE.md')), true, 'the brief was renamed despite the refusal');
 });
 
-test('#2811: the PLIST write is the second gate, and the trust write has already landed when it fires', LINUX_PLIST_5432, (t) => {
+test('#2811: the PLIST write is the second gate, and the trust write has already landed when it fires', (t) => {
   /* 🛑 WHY THIS ARM EXISTS. The header names TWO gates and round 25 converted only
      ONE of them, so "the plist rewrite ... Also gating" was a true sentence with
      nothing holding it. Measured before writing this: no test anywhere drove
@@ -314,7 +310,8 @@ test('#2811: the PLIST write is the second gate, and the trust write has already
 
   assert.equal(sw.outcome, create.OUTCOME.REFUSED,
     'a failing PLIST write no longer aborts the switch: setProvider reported ' + sw.outcome);
-  assert.match(String(sw.because), /startup file/,
+  /* #5500: on Linux the startup file is the systemd unit, and the refusal says so (create.rewriteAgentJob's Linux arm). */
+  assert.match(String(sw.because), process.platform === 'linux' ? /could not rewrite systemd unit for setprov-2811-plistgate/ : /startup file/,
     'the refusal no longer names the startup file as the reason');
 
   /* ⇒ AND THE ORDER IS PINNED BY THE SAME MEASUREMENT, which is why this asserts a

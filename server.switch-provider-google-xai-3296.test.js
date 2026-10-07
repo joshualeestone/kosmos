@@ -21,10 +21,6 @@
  */
 
 const test = require('node:test');
-/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that seeds, reads or drives the job as a
-   launchd plist cannot run unchanged there. Skipped on Linux only; its reason says whether a Linux test covers it, or
-   that it is not tested on Linux yet (#5500). macOS and Windows unchanged. */
-const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS launchd fixture on a Linux host (#5432): the test seeds or reads the agent's job as a macOS plist, or its runner stub answers launchctl only. What it asserts is platform-neutral and is tested on macOS, but NOT yet on Linux: #5500 ports it." } : {};
 const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -99,7 +95,9 @@ function born(name, model) {
   return name;
 }
 
-const fakeRun = (_file, args) => (Array.isArray(args) && args[0] === 'has-session'
+// #5500: and systemctl, as systemd answers it, for the Linux job (on a Mac it answers nothing and falls through).
+const systemd = jobfix.systemdStub();
+const fakeRun = (file, args) => systemd(file, args) || (Array.isArray(args) && args[0] === 'has-session'
   ? { ok: false, code: 1 }
   : { ok: true, stdout: '' });
 create.setRunner(fakeRun);
@@ -127,7 +125,7 @@ async function switchTo(name, body) {
   return { status: res.status, body: await res.json() };
 }
 
-test('#3296 route: a claude -> google switch is labelled Gemini and names the Gemini account', LINUX_PLIST_5432, async () => {
+test('#3296 route: a claude -> google switch is labelled Gemini and names the Gemini account', async () => {
   const name = born('srv-gx-to-gemini');
   const r = await switchTo(name, { provider: 'google' });
   assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -140,7 +138,7 @@ test('#3296 route: a claude -> google switch is labelled Gemini and names the Ge
   assert.doesNotMatch(r.body.because, /Kosmos cannot live-check/, 'the OpenAI signInNote leaked onto a Gemini switch: ' + r.body.because);
 });
 
-test('#3391 route: a claude -> xai switch is labelled Grok and names the Grok account', LINUX_PLIST_5432, async () => {
+test('#3391 route: a claude -> xai switch is labelled Grok and names the Grok account', async () => {
   const name = born('srv-gx-to-grok');
   const r = await switchTo(name, { provider: 'xai' });
   assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -150,7 +148,7 @@ test('#3391 route: a claude -> xai switch is labelled Grok and names the Grok ac
   assert.match(r.body.because, /It runs on your Grok account\./, 'the account sentence was not generalized to Grok: ' + r.body.because);
 });
 
-test('#3296 route: a PICKED named Gemini account is named back with its key tail and the you-picked wording', LINUX_PLIST_5432, async () => {
+test('#3296 route: a PICKED named Gemini account is named back with its key tail and the you-picked wording', async () => {
   const name = born('srv-gx-named-gemini');
   const r = await switchTo(name, { provider: 'google', account: GEMINI_ALPHA, picked: true });
   assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -161,7 +159,7 @@ test('#3296 route: a PICKED named Gemini account is named back with its key tail
     'a picked named Gemini account did not get the you-picked wording + key tail: ' + r.body.because);
 });
 
-test('#3296 route: an UNPICKED named Gemini account travels but does NOT claim the person chose it', LINUX_PLIST_5432, async () => {
+test('#3296 route: an UNPICKED named Gemini account travels but does NOT claim the person chose it', async () => {
   const name = born('srv-gx-named-gemini-unpicked');
   // account sent (as a repainted page does on every switch) but picked omitted -> chosen false.
   const r = await switchTo(name, { provider: 'google', account: GEMINI_ALPHA });
@@ -171,7 +169,7 @@ test('#3296 route: an UNPICKED named Gemini account travels but does NOT claim t
   assert.doesNotMatch(r.body.because, /you picked/, 'the route claimed a pick nobody made: ' + r.body.because);
 });
 
-test('#3296 route: the dropped-choice sentence is generalized (previous model does not cross)', LINUX_PLIST_5432, async () => {
+test('#3296 route: the dropped-choice sentence is generalized (previous model does not cross)', async () => {
   // Born WITH a model, so wrote.dropped.model is truthy and the dropped sentence renders.
   const name = born('srv-gx-dropped', 'claude-opus-5-5');
   const r = await switchTo(name, { provider: 'google' });
@@ -182,7 +180,7 @@ test('#3296 route: the dropped-choice sentence is generalized (previous model do
     'the dropped-model sentence was not generalized to the target provider: ' + r.body.because);
 });
 
-test('#3296 route: switching BACK to Claude keeps the anthropic-branch sentence', LINUX_PLIST_5432, async () => {
+test('#3296 route: switching BACK to Claude keeps the anthropic-branch sentence', async () => {
   // Seed a gemini agent directly, then switch it to anthropic.
   const name = 'srv-gx-back-to-claude';
   fs.mkdirSync(create.workerDir(name), { recursive: true });
@@ -202,7 +200,7 @@ test('#3296 route: switching BACK to Claude keeps the anthropic-branch sentence'
 
 /* #5145: the route answers with the account dir it landed on, so the page can name it in "Right now" when the person
    sent none. The dir is the engine's own choice (the provider's default), never one the request invented. */
-test('#5145 route: a switch with NO account sent answers accountDir = the account it landed on (Gemini default)', LINUX_PLIST_5432, async () => {
+test('#5145 route: a switch with NO account sent answers accountDir = the account it landed on (Gemini default)', async () => {
   const name = born('srv-gx-5145-default');
   const r = await switchTo(name, { provider: 'google' });
   assert.equal(r.status, 200, JSON.stringify(r.body));

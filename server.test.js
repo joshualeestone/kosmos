@@ -67,11 +67,19 @@
 //      asymmetry is worth knowing before adding a test that writes.
 require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const os = require('node:os');
-/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that seeds, reads or drives the job as a
-   launchd plist cannot run unchanged there. Skipped on Linux only; its reason says whether a Linux test covers it, or
-   that it is not tested on Linux yet (#5500). macOS and Windows unchanged. */
-const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS launchd fixture on a Linux host (#5432): the test seeds or reads the agent's job as a macOS plist, or its runner stub answers launchctl only. What it asserts is platform-neutral and is tested on macOS, but NOT yet on Linux: #5500 ports it." } : {};
 const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
+/* #5500: the job reads and runner answers a test checks, as THIS platform has them: the plist and launchctl on a Mac
+   (each exactly the read or filter it replaced), the systemd unit and systemctl on Linux. create is required lazily:
+   it resolves its roots at load, after the sandbox below is set. */
+const linuxHost = () => process.platform === 'linux';
+/* The model the job starts on: plannedModelArg reads the plist; on Linux readJob reads the same slot out of the unit. */
+const plannedModel = (name) => {
+  const create = require('./engine/create');
+  return linuxHost() ? ((create.readJob(name) || {}).model || null) : create.plannedModelArg(name);
+};
+/* A command that STARTS the job (launchd's bootstrap, systemd's start), and one that re-enables it. */
+const startsJob = (file, a) => Array.isArray(a) && (a[0] === 'bootstrap' || (/systemctl$/.test(String(file)) && a[1] === 'start'));
+const enablesJob = (file, a) => Array.isArray(a) && (linuxHost() ? (/systemctl$/.test(String(file)) && a[1] === 'enable') : a[0] === 'enable');
 const fs = require('node:fs');
 const nodePath = require('node:path');
 const { mkTemp } = require('./test-support/tmpdir.js');
@@ -1914,7 +1922,7 @@ test('a session that merely borrows an agent name cannot rewrite its instruction
   }
 });
 
-test('an untied card carries no commitments and no boot-file hash of the name it borrowed', LINUX_PLIST_5432, async () => {
+test('an untied card carries no commitments and no boot-file hash of the name it borrowed', async () => {
   // ⚠️ The snapshot closed this leak and `/api/status` reopened it one layer up.
   // Both enrichments are keyed on the NAME, so an untied stranger's card came
   // back carrying the real agent's commitment TEXT, its boot-file hash, and a
@@ -1943,7 +1951,7 @@ test('an untied card carries no commitments and no boot-file hash of the name it
   // the name is, only that a pane borrowed it.
   fs.writeFileSync(jobfix.jobPath('fixtureborrowed'),
     jobfix.jobFor('fixtureborrowed', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-opus-5'), 'utf8');
-  assert.equal(create.plannedModelArg('fixtureborrowed'), 'claude-opus-5',
+  assert.equal(plannedModel('fixtureborrowed'), 'claude-opus-5',
     'the fixture job does not carry a model, so the gate assertion below would '
     + 'pass whether or not the gate exists');
   status.setPaneSource(() => fleet.line({ session: 'fixtureborrowed', title: 'stranger' }));
@@ -3050,7 +3058,7 @@ test('a write another website could send is refused, whatever route it names', a
   }
 });
 
-test('the create route answers a real creation with the record the screen is built on', LINUX_PLIST_5432, async () => {
+test('the create route answers a real creation with the record the screen is built on', async () => {
   // ⚠️ The route test beside this one is named "makes an agent" and never makes
   // one — both its cases assert 400. So the 200 answer, which is the ENTIRE
   // contract the creation screen consumes (`outcome`, the ordered `steps` list
@@ -3099,7 +3107,7 @@ test('the create route answers a real creation with the record the screen is bui
     // ⚠️ The route must NOT let a caller choose the programs. `claudeBin` in the
     // body above is ignored: honouring it would let any local page name any
     // executable to be launched under launchd forever.
-    const started = calls.find((c) => /launchctl$/.test(c[0]));
+    const started = calls.find((c) => (linuxHost() ? startsJob(c[0], c[1]) : /launchctl$/.test(c[0])));
     assert.ok(started, 'the job was never loaded, so nothing would start');
 
     // And the files are really there, in the sandbox this file sets up.
@@ -4360,7 +4368,7 @@ test('the open-sleep-settings route: guard-inherited, honest 409, and the engine
   }
 });
 
-test('the removal routes ask, remove, and put back, over the wire', LINUX_PLIST_5432, async () => {
+test('the removal routes ask, remove, and put back, over the wire', async () => {
   // ⚠️ The engine was well covered and the surface a browser talks to was not.
   // These routes are how the fleet is managed, and the restore route is what
   // makes the removal safe to offer.
@@ -4535,7 +4543,7 @@ test('the removal routes ask, remove, and put back, over the wire', LINUX_PLIST_
     });
     assert.equal(back.status, 200, 'restore was refused: ' + back.body);
     assert.equal(JSON.parse(back.body).outcome, 'restored');
-    assert.ok(seenRemoved.some(([, a]) => a && a[0] === 'enable'),
+    assert.ok(seenRemoved.some(([f, a]) => enablesJob(f, a)),
       'nothing was re-enabled, so the agent is "restored" but will not start again');
     const after = JSON.parse((await req('/api/status')).body).agents.map((a) => a.name);
     assert.ok(after.includes('route-removable'), 'a restored agent never came back to the board');
@@ -4731,7 +4739,7 @@ test('#2615 the removed list reports a gone account folder as gone', async () =>
   }
 });
 
-test('the removed list gives the browser only what it draws', LINUX_PLIST_5432, async () => {
+test('the removed list gives the browser only what it draws', async () => {
   /**
    * ⚠️ Pins an ALLOWLIST, which is the only shape that can catch the regression
    * that matters. The stored record carries the launchd label, the absolute
@@ -4766,7 +4774,9 @@ test('the removed list gives the browser only what it draws', LINUX_PLIST_5432, 
     // ⚠️ CONTROL: the stored record really does carry the fields being excluded,
     // or "they are absent from the response" is true of nothing.
     const stored = removal.removedAgents().find((r) => r.name === name);
-    assert.ok(stored.label && stored.plist, 'the fixture has no machine detail to withhold');
+    /* #5500: on Linux the record keeps the unit's name as its label and no plist (remove.js keeps plist null there). */
+    assert.ok(linuxHost() ? stored.label === require('./engine/linuxjob').unitName(name) && stored.plist === null : stored.label && stored.plist,
+      'the fixture has no machine detail to withhold');
 
     const res = await req('/api/removed');
     const row = JSON.parse(res.body).agents.find((a) => a.name === name);
@@ -5359,7 +5369,7 @@ test('a half-removed agent is on the removed list AND still on the board', async
 });
 
 
-test('a job that is disabled but will not unload is recorded, not reported as untouched', LINUX_PLIST_5432, async () => {
+test('a job that is disabled but will not unload is recorded, not reported as untouched', async () => {
   /**
    * ⚠️ THE WORST STATE THIS MODULE CAN REACH, and it used to be invisible.
    *
@@ -5388,6 +5398,7 @@ test('a job that is disabled but will not unload is recorded, not reported as un
   removal.setRunner((f, a) => {
     const cmd = a && a[0];
     if (cmd === 'bootout') return { ok: false, code: 9 };   // the failure under test
+    if (/systemctl$/.test(String(f)) && a[1] === 'stop') return { ok: false, code: 9 };   // #5500: the same, on Linux
     if (cmd === 'has-session') return { ok: false, code: 1 };
     return { ok: true, stdout: '' };
   });
@@ -10304,7 +10315,7 @@ test('the footer answers only a question that was asked, and never sits on news'
     'a failure stayed silent until it was asked for');
 });
 
-test('the model route writes the choice AND restarts, because either alone is a lie', LINUX_PLIST_5432, async () => {
+test('the model route writes the choice AND restarts, because either alone is a lie', async () => {
   /**
    * 🛑 TWO WRITES AND THE SECOND IS NOT OPTIONAL. `setModel` rewrites the
    * startup file; the restart is what makes launchd read it. Ship the first
@@ -10319,8 +10330,10 @@ test('the model route writes the choice AND restarts, because either alone is a 
   const removal = require('./engine/remove');
   const statusEngine = require('./engine/status');
   const name = 'routeswitch';
+  // #5500: systemd's answers for the Linux job (on a Mac it answers nothing and each runner answers as before).
+  const systemd = jobfix.systemdStub();
 
-  create.setRunner(() => ({ ok: true, stdout: '' }));
+  create.setRunner((f, a) => systemd(f, a) || { ok: true, stdout: '' });
   create.setDryRun(false);
   statusEngine.setPaneSource(() => '');
   const made = create.createAgent({ claudeBin: '/bin/echo', tmuxBin: '/bin/echo', name, role: 'pm', model: 'opus' });
@@ -10333,7 +10346,7 @@ test('the model route writes the choice AND restarts, because either alone is a 
   removal.setRunner((f, a) => {
     calls.push([f, a]);
     if (a && a[0] === 'has-session') return { ok: false, code: 1 };   // the kill worked
-    return { ok: true, stdout: '' };
+    return systemd(f, a) || { ok: true, stdout: '' };
   });
   removal.setDryRun(false);
   try {
@@ -10346,11 +10359,11 @@ test('the model route writes the choice AND restarts, because either alone is a 
     const out = JSON.parse(r.body);
     assert.equal(out.outcome, 'changed', out.because);
 
-    assert.equal(create.plannedModelArg(name), 'claude-haiku-4-5-20251001',
+    assert.equal(plannedModel(name), 'claude-haiku-4-5-20251001',
       'the startup file still names the old model');
     assert.ok(calls.some((c) => c[1][0] === 'kill-session'),
       'nothing closed the window, so the supervisor would adopt an agent still on the old model');
-    assert.ok(calls.some((c) => c[1][0] === 'bootstrap'),
+    assert.ok(calls.some((c) => startsJob(c[0], c[1])),
       'launchd was never re-bootstrapped, so it keeps the arguments it already had');
 
     /* A model nobody offers is refused before anything is written. */
@@ -10360,7 +10373,7 @@ test('the model route writes the choice AND restarts, because either alone is a 
       body: JSON.stringify({ model: 'gpt-9' }),
     });
     assert.equal(bad.status, 400);
-    assert.equal(create.plannedModelArg(name), 'claude-haiku-4-5-20251001',
+    assert.equal(plannedModel(name), 'claude-haiku-4-5-20251001',
       'a refused choice still rewrote the file');
 
     /* And the plain restart route answers on its own. */
@@ -10375,7 +10388,7 @@ test('the model route writes the choice AND restarts, because either alone is a 
   }
 });
 
-test('#2019: the restart route threads an optional cause, and a bodyless POST stays backward-compatible', LINUX_PLIST_5432, async () => {
+test('#2019: the restart route threads an optional cause, and a bodyless POST stays backward-compatible', async () => {
   /* The route was rewritten from a synchronous handler to an async readBody so
      the stale-instructions notice can send {cause:'instructions'} and the board
      can name WHY the agent went quiet. A bodyless POST (a plain Restart click)
@@ -10387,8 +10400,10 @@ test('#2019: the restart route threads an optional cause, and a bodyless POST st
   const statusEngine = require('./engine/status');
   const disruption = require('./engine/disruption');
   const name = 'routecause';
+  // #5500: systemd's answers for the Linux job (on a Mac it answers nothing and each runner answers as before).
+  const systemd = jobfix.systemdStub();
 
-  create.setRunner(() => ({ ok: true, stdout: '' }));
+  create.setRunner((f, a) => systemd(f, a) || { ok: true, stdout: '' });
   create.setDryRun(false);
   statusEngine.setPaneSource(() => '');
   const made = create.createAgent({ claudeBin: '/bin/echo', tmuxBin: '/bin/echo', name, role: 'pm' });
@@ -10396,7 +10411,7 @@ test('#2019: the restart route threads an optional cause, and a bodyless POST st
   create.setRunner(null);
 
   statusEngine.setPaneSource(() => fleet.line({ session: name, claim: name, title: '✳ Claude Code' }));
-  removal.setRunner((f, a) => (a && a[0] === 'has-session' ? { ok: false, code: 1 } : { ok: true, stdout: '' }));
+  removal.setRunner((f, a) => (a && a[0] === 'has-session' ? { ok: false, code: 1 } : systemd(f, a) || { ok: true, stdout: '' }));
   removal.setDryRun(false);
   try {
     disruption.clear(name);
