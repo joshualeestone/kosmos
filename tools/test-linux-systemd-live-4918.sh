@@ -218,7 +218,7 @@ fi
 # systemctl through create's own run() (which THROWS on a non-zero exit; is-active answers 3 for "inactive"), then
 # remove.restart and remove.remove through remove.js's run(). A wiring regression there breaks this, not a fake.
 LIVE_AGENT=livecreate4918
-if node -e '
+node -e '
   require("./engine/live-execution").allowLiveExecution();
   const create = require("./engine/create");
   const remove = require("./engine/remove");
@@ -227,12 +227,24 @@ if node -e '
   if (c.outcome !== create.OUTCOME.CREATED) { console.error("create:", JSON.stringify(c)); process.exit(3); }
   // startIfDead: with the mock runner the board has no pane it recognises as running, so a plain restart refuses
   // ("not running"); this drives the restart path (stop, start, confirm loaded) through the run() in remove.js regardless.
+  // review 26: restart a unit that is actually RUNNING, and prove the supervisor was replaced (MainPID changes and
+  // the unit is active again). With KillMode=process a stop leaves the tmux session, so only this can see the swap.
+  const { execFileSync } = require("child_process");
+  const unit = require("./engine/linuxjob").unitName(name);
+  const sh = (args) => { try { return String(execFileSync("systemctl", ["--user", ...args], { encoding: "utf8" })).trim(); } catch (e) { return String((e && e.stdout) || "").trim(); } };
+  const waitActive = () => { for (let i = 0; i < 30; i++) { if (sh(["is-active", unit]) === "active" && sh(["show", "-p", "MainPID", "--value", unit]) !== "0") return true; execFileSync("sleep", ["1"]); } return false; };
+  if (!waitActive()) { console.error("the created unit never became active:", sh(["status", unit, "--no-pager"])); process.exit(6); }
+  const before = sh(["show", "-p", "MainPID", "--value", unit]);
   const r = remove.restart(name, "live check", { platform: "linux", startIfDead: true });
   if (r.outcome !== remove.OUTCOME.RESTARTED) { console.error("restart:", JSON.stringify(r)); process.exit(4); }
+  if (!waitActive()) { console.error("after restart the unit is not active"); process.exit(7); }
+  const after = sh(["show", "-p", "MainPID", "--value", unit]);
+  if (after === before) { console.error("restart reported RESTARTED but the supervisor pid did not change (" + before + ")"); process.exit(8); }
+  console.log("restart replaced the supervisor: pid " + before + " -> " + after);
   const d = remove.remove(name, { platform: "linux" });
   if (!d || d.outcome !== remove.OUTCOME.REMOVED) { console.error("remove:", JSON.stringify(d)); process.exit(5); }
-' "$LIVE_AGENT" "$MOCK_RUNNER" "$TMUX_BIN"; then
-  ok "createAgent, restart and remove run end to end against real systemd"
+' "$LIVE_AGENT" "$MOCK_RUNNER" "$TMUX_BIN"; LIVE_RC=$?; if [ "$LIVE_RC" = 0 ]; then
+  ok "createAgent, restart of a RUNNING agent (new supervisor pid) and remove run end to end against real systemd"
   # review 15: and systemd agrees the removed agent is stopped and switched off, not only the outcome word.
   LIVE_UNIT="$(node -e 'console.log(require("./engine/linuxjob").unitName(process.argv[1]))' "$LIVE_AGENT")"
   if ! systemctl --user is-active "$LIVE_UNIT" >/dev/null 2>&1 && [ "$(systemctl --user is-enabled "$LIVE_UNIT" 2>/dev/null)" != "enabled" ]; then
@@ -241,7 +253,7 @@ if node -e '
     bad "the removed agent's unit is still running or enabled ($LIVE_UNIT)"
   fi
 else
-  bad "the create/restart/remove wiring failed against real systemd (exit $?)"
+  bad "the create/restart/remove wiring failed against real systemd (exit $LIVE_RC)"
 fi
 "$TMUX_BIN" kill-server 2>/dev/null || true
 
