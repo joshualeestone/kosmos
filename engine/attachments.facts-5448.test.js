@@ -59,7 +59,7 @@ test('#5448 controls: wrong magic, a cut header, HEIC and text named .png answer
   assert.equal(attachments.imageFacts(Buffer.from('<h1>log in again</h1> not a picture at all')), null);
   assert.equal(attachments.imageFacts(bytesOf('a.png').subarray(0, 20)), null, 'a PNG cut inside IHDR');
   const jpg = bytesOf('a.jpg');
-  /* sips writes a frame header of its choosing (baseline C0 or progressive C2); find whichever it is. */
+  /* a.jpg is progressive (asserted above), so its frame header is C2; C0 is looked for too in case the fixture is ever remade. */
   const sof = [0xc0, 0xc2].map((m) => jpg.indexOf(Buffer.from([0xff, m]))).filter((i) => i > 2).sort((x, y) => x - y)[0];
   assert.ok(sof > 2, 'the fixture has a frame header');
   assert.equal(attachments.imageFacts(jpg.subarray(0, sof)), null, 'a JPEG cut before its frame header');
@@ -72,6 +72,7 @@ test('#5448: sizes are said the way a person says them', () => {
   assert.equal(attachments.sizeWords(905), '905 bytes');
   assert.equal(attachments.sizeWords(312 * 1024 + 100), '312 KB');
   assert.equal(attachments.sizeWords(4.2 * 1024 * 1024), '4.2 MB');
+  assert.equal(attachments.sizeWords(1024 * 1024 - 1), '1 MB', 'never "1024 KB"');
 });
 
 test('#5448: an attached image reaches the agent with type, dimensions and size beside its path', () => {
@@ -83,6 +84,17 @@ test('#5448: an attached image reaches the agent with type, dimensions and size 
 test('#5448: the type an image is reported as is the one its bytes prove, not the uploader\'s', () => {
   const rec = attachments.save('agent', 'april', { name: 'photo.png', type: 'image/png', bytes: bytesOf('a.jpg') });
   assert.match(attachments.wireNote(attachments.read(rec.id)), /\/photo\.png \(image\/jpeg, 13x7, /);
+});
+
+test('#5448: a file named and typed as a PNG whose bytes are not one is not called a PNG', () => {
+  const rec = attachments.save('agent', 'april', { name: 'lie.png', type: 'image/png', bytes: Buffer.from('<h1>log in again</h1>') });
+  assert.match(attachments.wireNote(attachments.read(rec.id)), /\/lie\.png \(unknown type, 21 bytes\)\]$/);
+});
+
+test('#5448: a JPEG with stray padding between segments is still read', () => {
+  const jpg = bytesOf('base.jpg');
+  const padded = Buffer.concat([jpg.subarray(0, 2), Buffer.from([0x00, 0x00]), jpg.subarray(2)]);
+  assert.deepEqual(attachments.imageFacts(padded), { type: 'image/jpeg', width: 13, height: 7 });
 });
 
 test('#5448: a file that is not an image carries type and size, no dimensions', () => {

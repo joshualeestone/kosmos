@@ -1459,7 +1459,10 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
    * wrote"; only this one had no bound of its own.
    */
   const text = cleanMessage(raw);
-  /* `trailer` (#358) is the attached file's path, appended AFTER the checks:
+  /* `trailer` (#358) is the attached file's path and its facts (#5448: type,
+     an image's pixel size, size; attachments.wireNote holds the uploader's
+     type to plain media-type characters so it cannot trip the refusal below),
+     appended AFTER the checks:
      the cap is measured against the person's words alone (the envelope
      comment above), and `cleanMessage` must not collapse the spaces in a
      file name into a path that does not exist. A trailer with a newline or a
