@@ -1,28 +1,23 @@
 {
-  "version": "0.7.26",
+  "version": "0.7.27",
   "highlights": [
     {
-      "icon": "tasks",
-      "title": "Tasks that repeat",
-      "line": "Set a task to repeat hourly, daily or weekly from its own page. When due, it is open work again. A missed run shows in red."
-    },
-    {
       "icon": "list",
-      "title": "Token Usage opens in seconds",
-      "line": "Token Usage no longer re-reads your whole history each time, so on a long history it opens in seconds, not minutes."
+      "title": "Move a project's folder",
+      "line": "If you moved a project's folder, its settings now ask where it is, and Kosmos uses it from there."
     },
     {
-      "icon": "swarm",
-      "title": "Org charts with a ChatGPT subscription",
-      "line": "When you build your team, Kosmos can now read a picture of your org chart using your ChatGPT subscription.",
-      "platforms": [
-        "mac"
-      ]
+      "icon": "spark",
+      "title": "A steadier top bar",
+      "line": "On a computer that always shows scrollbars, the top bar no longer jumps when you switch views."
     },
     {
       "icon": "shield",
-      "title": "A cap for Gemini subscription agents",
-      "line": "Settings > Automation can now cap how many Gemini subscription agents Kosmos sends work to at once."
+      "title": "Codex agents in their own space",
+      "line": "Codex agents now run with their own settings, so plugins and settings in your own Codex app no longer affect them.",
+      "platforms": [
+        "mac"
+      ]
     }
   ]
 }
