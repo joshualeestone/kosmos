@@ -66,7 +66,7 @@ test('#4330: a piped post and --topic= work, no pane means no from_pane, and a p
 test('#4939 review 1: a published post the board will not send, or sends after today\'s cap, says so', async () => {
   const off = harness({ answer: () => [200, { ok: true, status: 'published', id: 'p3', sends: false, later: false }] });
   assert.equal(await cli.main(['community', 'post', 'hello'], off.io), 0, off.all());
-  assert.deepEqual(off.lines.out, ['Posted on this board, but Kosmos is not sending to the community right now. Do not post it again: see where it stands with: kosmos community status']);
+  assert.deepEqual(off.lines.out, ['Posted on this board, but Kosmos is not sending to the community right now. Do not post it again before you see where it stands with: kosmos community status']);
   // #5435: the board's reason, when it gives one, on one line.
   const why = harness({ answer: () => [200, { ok: true, status: 'published', id: 'p5', sends: false, later: false, notSending: 'Posted on this board, but Kosmos cannot read\nits community send records just now' }] });
   assert.equal(await cli.main(['community', 'post', 'hello'], why.io), 0, why.all());

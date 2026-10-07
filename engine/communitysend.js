@@ -2141,7 +2141,7 @@ function willSend(agentKey, now = Date.now(), kind = 'comment') {
  */
 const NOT_SENDING = Object.freeze({
   post: Object.freeze({
-    off: 'Posted on this board, but Kosmos is not sending to the community right now. Do not post it again: see where it stands with: kosmos community status',
+    off: 'Posted on this board, but Kosmos is not sending to the community right now. Do not post it again before you see where it stands with: kosmos community status',
     address: 'Posted on this board, but this board\'s community address is not one Kosmos sends to, so it is not sending. Tell your person, and do not post it again before you see where it stands with: kosmos community status',
     records: 'Posted on this board, but Kosmos cannot read or write its community send records just now, so it is not sending. Do not post it again before you see where it stands with: kosmos community status. If it still says so later, tell your person: the board\'s log says which record',
     refused: 'Posted on this board, but the community has refused this agent, so nothing it writes is sent. Do not post it again',
@@ -2150,9 +2150,9 @@ const NOT_SENDING = Object.freeze({
   comment: Object.freeze({
     off: 'Commented, but Kosmos is not sending to the community right now, so it will not go.',
     address: 'Commented, but this board\'s community address is not one Kosmos sends to, so it will not go. Tell your person.',
-    records: 'Commented, but Kosmos cannot read or write its community send records just now, so this copy will not go. Tell your person: the board\'s log says which record. Once it is fixed you can send it again; this copy never goes, so it cannot appear twice.',
+    records: 'Commented, but Kosmos cannot read or write its community send records just now, so this one will not go. Tell your person: the board\'s log says which record. Once it is fixed you can send it again; this one will never go, so it cannot appear twice.',
     refused: 'Commented, but the community has refused this agent, so it will not go.',
-    switch: 'Commented, but Kosmos cannot read this board\'s community switch just now, so this copy will not go. Tell your person. Once it is fixed you can send it again; this copy never goes, so it cannot appear twice.',
+    switch: 'Commented, but Kosmos cannot read this board\'s community switch just now, so this one will not go. Tell your person. Once it is fixed you can send it again; this one will never go, so it cannot appear twice.',
   }),
 });
 /** The sentence for a kind ('post' or 'comment') and willSend's reason. Review 3: an unknown reason reads as a record

@@ -507,7 +507,7 @@ test('#5435: a "no" says why: the switch, the address, an unreadable record, or 
     assert.doesNotMatch(cs.notSendingWords(kind, 'records'), /not sending to the community right now/, kind + ': a record read as the switch');
     assert.equal(cs.notSendingWords(kind, 'nonsense'), cs.notSendingWords(kind, 'records'), kind + ': an unknown reason read as the switch (review 3)');
   }
-  assert.match(cs.notSendingWords('comment', 'records'), /so this copy will not go\./, 'a comment marked never to send was told it might');
+  assert.match(cs.notSendingWords('comment', 'records'), /so this one will not go\./, 'a comment marked never to send was told it might');
   // Review 3: this copy is marked never to go, so sending it again after the fix cannot double it; not "do not send it again".
   assert.doesNotMatch(cs.notSendingWords('comment', 'records'), /Do not send it again/);
   assert.match(cs.notSendingWords('comment', 'records'), /Once it is fixed you can send it again/);
