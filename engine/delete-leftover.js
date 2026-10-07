@@ -585,4 +585,4 @@ function del(name, opts) {
   };
 }
 
-module.exports = { OUTCOME, plan, del, setRunner, resetForTests, run, measure, TRASH };
+module.exports = { OUTCOME, plan, del, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo };   // writeTrashInfo for its #5445 test

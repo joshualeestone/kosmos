@@ -73,13 +73,20 @@ test('#5445 the created roster lists a stopped Linux agent from its unit, and on
 });
 
 test('#5445 the created roster fails closed when the unit folder cannot be read', () => {
-  const src = createdroster.make({
+  fs.mkdirSync(create.workerDir('listedbot'), { recursive: true });
+  clearUnits();
+  unit('listedbot', myWorld());
+  const make = (listUnits) => createdroster.make({
     platform: 'linux',
-    linuxjob: { listUnits: () => { const e = new Error('EACCES'); e.code = 'EACCES'; throw e; } },
+    linuxjob: { listUnits },
     remove: { removedNames: () => ({ ok: true, names: [] }) },
     status: { sandboxIsInconsistent: () => false },
+    store: { safeKey: (n) => String(n).toLowerCase() },
+    create: Object.assign(Object.create(create), { readJob: (n) => create.readJob(n, undefined, 'linux') }),
   });
-  assert.deepEqual(src(), []);
+  // CONTROL: the injected listing is what the roster reads (so the empty answer below is the refusal, not a miss).
+  assert.deepEqual(make(() => [{ name: 'listedbot', worldId: myWorld() }])(), ['listedbot']);
+  assert.deepEqual(make(() => { const e = new Error('EACCES'); e.code = 'EACCES'; throw e; })(), []);
 });
 
 test('#5445 the stray sweep reads Linux units, not plists', () => {
@@ -168,7 +175,7 @@ test('#5445 "already loaded" says it stops at logout when linger is off', () => 
   assert.doesNotMatch(on.because, /log out/, 'CONTROL: linger on says nothing about logging out');
 });
 
-test('#5445 a Linux delete moves the folder to the desktop Trash, with its put-back record', () => {
+test('#5445 the Linux Trash is the desktop one, and a trashed folder gets its put-back record', () => {
   const dl = require('./delete-leftover');
   const savedTrash = process.env.AGENT_WORKFORCE_TRASH;
   delete process.env.AGENT_WORKFORCE_TRASH;
@@ -178,6 +185,13 @@ test('#5445 a Linux delete moves the folder to the desktop Trash, with its put-b
     // XDG_DATA_HOME is the person's real folder: a sandboxed home ignores it.
     process.env.XDG_DATA_HOME = '/nowhere-real';
     assert.equal(dl.TRASH('linux'), path.join(SANDBOX, '.local', 'share', 'Trash', 'files'));
+    delete process.env.XDG_DATA_HOME;
+    // The put-back record a Linux file manager needs: where it came from (URL-encoded) and when.
+    const from = path.join(SANDBOX, 'workers', 'old bot');
+    const to = path.join(dl.TRASH('linux'), 'old bot (Kosmos 2026-10-07T03-00-00)');
+    dl.writeTrashInfo(from, to);
+    const info = fs.readFileSync(path.join(SANDBOX, '.local', 'share', 'Trash', 'info', path.basename(to) + '.trashinfo'), 'utf8');
+    assert.match(info, /^\[Trash Info\]\nPath=\/.*\/workers\/old%20bot\nDeletionDate=\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\n$/);
   } finally {
     delete process.env.XDG_DATA_HOME;
     if (savedTrash !== undefined) process.env.AGENT_WORKFORCE_TRASH = savedTrash;
