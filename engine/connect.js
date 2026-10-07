@@ -686,18 +686,11 @@ function publicView(s, platform = process.platform) {
      * the process lives, so there is nothing to record and no stale record to
      * serve. That also means it is right on every phase, not just STUCK. */
     platform,
-    canInstallClaude: platformGate.canDownloadClaude(platform) && !linuxInstallWouldRefuse(platform),
+    /* #5419: the gate's answer only. Hiding the offer on a Linux box with no tmux (tried, then reverted) left a screen
+       with no button and no reason, and walked the filesystem on every poll; download() instead refuses before any
+       bytes move, in a sentence the screen shows. */
+    canInstallClaude: platformGate.canDownloadClaude(platform),
   };
-}
-
-/* #5419 review 8: the facts download() would refuse on that this machine already knows, so the screen does not offer
-   an install that is certain to fail: an arch Anthropic does not build for Linux, or no tmux for sign-in. Asked only
-   on a real Linux host (a test drives platform 'linux' from a Mac), or through the tmux seam. */
-function linuxInstallWouldRefuse(platform) {
-  if (platform !== 'linux') return false;
-  if (!tmuxCheckOverride && process.platform !== 'linux') return false;
-  if (process.platform === 'linux' && !['x64', 'arm64'].includes(os.arch())) return true;
-  return tmuxCheckOverride ? tmuxCheckOverride() : tmuxMissingOnLinux();
 }
 
 /* ── the download ────────────────────────────────────────────────────────── */

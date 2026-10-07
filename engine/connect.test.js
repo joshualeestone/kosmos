@@ -3019,12 +3019,3 @@ test('#5419 review 6: download refuses a Linux host with no tmux before any requ
   await assert.rejects(() => connect.download(() => {}, undefined, 'linux'), (e) => !/needs tmux/.test(e.message), 'CONTROL: with tmux present it goes on to the service');
   assert.ok(requests > 0, 'CONTROL: with tmux present the service is asked');
 });
-
-test('#5419 review 8: the screen does not offer a Linux install the board would refuse (no tmux)', (t) => {
-  t.after(() => connect.setTmuxCheckForTests(null));
-  connect.setTmuxCheckForTests(() => true);
-  assert.equal(connect.publicView({ phase: 'idle' }, 'linux').canInstallClaude, false, 'offered with no tmux');
-  connect.setTmuxCheckForTests(() => false);
-  assert.equal(connect.publicView({ phase: 'idle' }, 'linux').canInstallClaude, true, 'CONTROL: offered with tmux');
-  assert.equal(connect.publicView({ phase: 'idle' }, 'darwin').canInstallClaude, true, 'CONTROL: the Mac is unaffected by the Linux check');
-});
