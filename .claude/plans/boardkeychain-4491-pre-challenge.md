@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: boardkeychain-4491
-diff_hash: f462d37c28fe5054a0596176575c349cad06ef96d866e285d282b9908284aad6
+diff_hash: 3d90af8d3e0a5579e0b488c7343c22dc09cd1e79e6fea4112e5bdb994ebd92c5
 validation: passed (Mortals full suite at a3d4699db, 08:35 CDT 2026-10-04: 15036 tests, 14812 pass, 0 fail, 224 skipped; hash 28628ddc726d; full suite passed on Mortals)
 subdir_audit: passed
 timestamp: 2026-10-04T13:50:43Z
@@ -125,3 +125,4 @@ Seventh post-rebase review (opus): 2 WARNINGs (pre-rename check and move-aside u
 Eighth post-rebase review (sonnet): no way around the guard found; 2 WARNINGs (undo-store protection untested, a growing stat cost) fixed; 307 + 49 + 16 tests pass.
 Ninth review (opus, whole branch): 3 WARNINGs; 2 fixed (planted guard-undoing keys dropped, parse-site claim), 1 deferred to a follow-up card (other config read at start); 308 + 50 + 27 tests pass.
 Tenth review (sonnet): 3 WARNINGs; dropped keys now logged, kept keys named as a #5516 residual; 308 + 50 + 27 tests pass.
+Eleventh review (opus): 1 BLOCKER (refresh created folders for listed names) and 1 WARNING (settings.local.json) fixed; 310 + 52 + 27 tests pass.
