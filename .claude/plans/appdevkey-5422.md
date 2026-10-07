@@ -7,7 +7,8 @@ and makes the page on a computer's own address sign in with a `k1.` id. This bra
 1. DEVICE_ID accepts exactly `k1.` + 32 base64url as well as the older opaque shape. Without it a keyed browser's
    request is dropped from the Mac's pending list and allow/deny refuse it (the tunnel and coordinator accept it).
    Exactly that shape: a dot never lets `../x` through.
-2. Sign-in device arguments, asked of the tunnel on EVERY start and verify (`signin device-id --device-key
+2. Sign-in device arguments, asked of the tunnel on every start, and on every verify whose key file exists (a verify
+   with the key file gone never asks, since the ask would make a key) (`signin device-id --device-key
    <state dir>/signin-device.key`), with no memo (a Forget removes the key file; a passing failure must not stick).
    A `k1.` answer: `--device-key`. Exit 2 with clap's unknown-subcommand words ( measured on two older builds: "unrecognized
    subcommand 'device-id'"): the opaque `--device-id`, as before. Anything else refuses the sign-in in words: a

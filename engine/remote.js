@@ -1702,6 +1702,8 @@ async function signinDeviceArgs(forVerify) {
     return { args: ['--device-id', opaque], id: opaque };
   }
   // Bounded: a hung tunnel must not hold the sign-in forever (a cancel cannot free a call that never returns).
+  // The tunnel would make a missing folder with default permissions; the key's folder is owner-only from the first ask.
+  secureStateDir();
   const asking = setupRun(['signin', 'device-id', '--device-key', DEVICE_KEY_FILE()], null, DEVICE_ID_ASK_MS);
   // A Forget waits for this (it may be making the key in the folder the Forget empties).
   deviceIdInFlight.add(asking);
@@ -1920,8 +1922,9 @@ async function signinStart(email, deviceName) {
     '--email', email, ...dev.args];
   pushDeviceName(args, deviceName);
   const r = parseSaid(await setupRun(args));
-  // kosmos#5422: the id (a key's or the opaque one) becomes this computer's once the coordinator has taken a start with it.
-  if (r.ok && dev.id) useDeviceId(dev.id);
+  // kosmos#5422: the id (a key's or the opaque one) becomes this computer's once the coordinator has taken a start with
+  // it; not after a cancel or a Forget meanwhile (the Forget emptied the folder that held the key).
+  if (r.ok && dev.id && epoch === signinEpoch && !forgetting) useDeviceId(dev.id);
   // Deliberately does NOT persist the email. The setup flow writes it because
   // setupComplete reads it back; sign-in carries the email explicitly through
   // verify, so nothing here needs it. Writing it would also make status()'s
@@ -2181,14 +2184,14 @@ async function clearHalfIdentity() {
   }
   if (!r.ok) process.stderr.write('remote: an unfinished earlier sign-in could not be retired at Kosmos+ (' + r.because + '); its address may show on the account page until it is removed there\n');
   /* kosmos#5422: the sign-in's device key lives in this folder too and is not part of the half identity: it is the
-     device the person just signed in as. Moved aside across the wipe and put back, so finishing a sign-in does not
-     make this computer another device next time. */
-  const keyAside = path.join(path.dirname(STATE_DIR()), '.signin-device.key.' + process.pid + '.' + crypto.randomBytes(4).toString('hex'));
-  let keyMoved = false;
-  try { fs.renameSync(DEVICE_KEY_FILE(), keyAside); keyMoved = true; } catch { /* no key (an older tunnel), or not ours to move */ }
+     device the person just signed in as. Held in memory across the wipe and written back owner-only, so finishing a
+     sign-in does not make this computer another device next time. In memory, not moved aside on disk: a crash in
+     between loses the key (a new device, once) rather than leaving a private key outside the folder Forget empties. */
+  let keyBytes = null;
+  try { keyBytes = fs.readFileSync(DEVICE_KEY_FILE()); } catch { /* no key (an older tunnel) */ }
   try { fs.rmSync(STATE_DIR(), { recursive: true, force: true }); } catch { /* the register writes it again */ }
   secureStateDir();
-  if (keyMoved) { try { fs.renameSync(keyAside, DEVICE_KEY_FILE()); } catch { /* a new key is made next time: a new device, once */ } }
+  if (keyBytes) { try { fs.writeFileSync(DEVICE_KEY_FILE(), keyBytes, { mode: 0o600, flag: 'wx' }); } catch { /* a new key is made next time: a new device, once */ } }
   return r.ok ? null : { stranded: retireReason(r) };
 }
 /* The register's answer when a half identity was kept for a retry. */
