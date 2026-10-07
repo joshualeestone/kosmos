@@ -409,6 +409,7 @@ source "${CLI}"
   case " $* " in *" -i4TCP:"*) printf '%s' "$LSOF_OUT" ;; *) printf 'p999\\ncnode\\nn*:%s\\n' "$PORT" ;; esac
 }
 _lsof_present() { return 0; }
+_lsof_cmd() { printf '/usr/sbin/lsof'; }   # #5432: name the stub; Linux keeps lsof at /usr/bin, which the lookup would pick
 if o="$(_ipv4_listener)"; then echo "found=[$o]"; else echo "none"; fi
 `;
   // exit code not read (#3628): asserts stdout / stderr output of bash script, not its exit code

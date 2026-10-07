@@ -83,7 +83,7 @@ const codexHomeOf = (name) => {
 const store = require('./store');
 /* #5432: on a Linux host an agent's job is a systemd user unit, so a test that asserts the launchd plist itself
    measures nothing there. Skipped on Linux only, naming where Linux covers it; macOS and Windows unchanged. */
-const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS plist test on a Linux host (#5432): it reads the account home from the plist's environment; on Linux it is the unit's Environment= line: linuxjob.test.js (readUnitJob, rewriteAgentJob on Linux)" } : {};
+const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS launchd fixture on a Linux host (#5432): the test seeds or reads the agent's job as a macOS plist, or its runner stub answers launchctl only. What it asserts is platform-neutral and is tested on macOS and Windows, but NOT yet on Linux: #5500 ports it." } : {};
 /**
  * An agent seeded DIRECTLY: its launch job and its profile, which is all
  * `setProvider` reads.
