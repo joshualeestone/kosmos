@@ -1229,6 +1229,10 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
    not an alarm; warn (<3d) is amber; urgent (<1d or expired) earns the red. */
 .utoast.login-adv.notice { --utone: var(--label-2); }
 .utoast.login-adv.notice .utxt b { color: var(--label); }
+/* #5359: the computer restarted under a running Kosmos and it came back by itself. A fact, not a warning: the
+   neutral tone of .login-adv.notice, restated in each theme block below as that one is (Mona Lisa). */
+.utoast.reboot { --utone: var(--label-2); }
+.utoast.reboot .utxt b { color: var(--label); }
 .utoast.login-adv.warn { --utone: var(--warn-ink); }
 .utoast.login-adv.urgent { --utone: #b3261e; }
 /* #5018: the notices float over the page, centred on the header (under the navigation), instead of growing it (Josh). The
@@ -2049,7 +2053,7 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 @media (max-width: 959.98px) { .userpop-row-view { display: none; } }
 .headleft { display: flex; align-items: center; gap: var(--space-5); }
 /* An empty slot is a flex item and would spend one trailing gap. */
-#utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #uoffline-slot:empty { display: none; }
+#utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #reboot-slot:empty, #uoffline-slot:empty { display: none; }
 .klink { border: 0; background: none; padding: 0; cursor: pointer; display: block; line-height: 0; }
 /* #1704 slice-3: the multiple-Kosmos switcher beside the K mark. A disclosure
    button showing the active world's name, opening a menu of the person's worlds
@@ -8886,6 +8890,7 @@ svg { display: block; }
      escalation in dark. notice stays neutral, warn uses the theme-aware --warn-ink, urgent
      keeps the dark danger salmon. */
   :root:not([data-theme="light"]) .utoast.login-adv.notice { --utone: var(--label-2); }
+  :root:not([data-theme="light"]) .utoast.reboot { --utone: var(--label-2); }
   :root:not([data-theme="light"]) .utoast.login-adv.warn { --utone: var(--warn-ink); }
   :root:not([data-theme="light"]) .utoast.login-adv.urgent { --utone: #ff8c82; }
 }
@@ -10958,6 +10963,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
      escalation in dark. notice stays neutral, warn uses the theme-aware --warn-ink, urgent
      keeps the dark danger salmon. */
 :root[data-theme="dark"] .utoast.login-adv.notice { --utone: var(--label-2); }
+:root[data-theme="dark"] .utoast.reboot { --utone: var(--label-2); }
 :root[data-theme="dark"] .utoast.login-adv.warn { --utone: var(--warn-ink); }
 :root[data-theme="dark"] .utoast.login-adv.urgent { --utone: #ff8c82; }
 
@@ -11114,7 +11120,7 @@ body.plus-active {
    ⚠️ In dark mode the dark :root .utoast rules (0,3,0 and up) outrank these, and paint the same values: keep the
    two sets equal, or dark + Plus drifts from light + Plus with nothing to catch it. */
 body.plus-active .utoast { --utone: #ff8c82; }
-body.plus-active .utoast.stale, body.plus-active .utoast.login-adv.notice { --utone: var(--label-2); }
+body.plus-active .utoast.stale, body.plus-active .utoast.login-adv.notice, body.plus-active .utoast.reboot { --utone: var(--label-2); }
 body.plus-active .utoast.login-adv.warn { --utone: var(--warn-ink); }
 body.plus-active .utoast.login-adv.urgent { --utone: #ff8c82; }
 /* #3692: the cards and warnings that lost their left bar are marked by a hairline and a tint, and
@@ -11867,6 +11873,9 @@ window.kosmosMeasureScrollbarWidth();
          the update/offline notices rather than overwriting them; role=status per
          the pack; renders only when data.loginAdvisories is non-empty. -->
     <div id="login-adv-slot"></div>
+    <!-- #5359: the computer restarted while Kosmos was running and Kosmos came back by itself. A fact, so it sits
+         below the notices that need action (update, login); its own slot so it co-occurs with them (Mona Lisa). -->
+    <div id="reboot-slot"></div>
     <!-- ⚠️ ITS OWN SLOT, and the reason is a state that really happens: a person
          updates and then loses the server. Both are true at once (Mona Lisa, #269);
          since #3955 the post-update message is the "Kosmos has been updated" window,
@@ -21916,6 +21925,45 @@ function paintLoginAdvisories(advs) {
       || ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
     if (next) next.focus();
   }));
+}
+/* #5359: "This computer restarted at 7:15 PM", read once when the page opens (engine/restartnote.js decides when there
+   is one; the board keeps it a day or until dismissed). The same .utoast as the login notice, its words role=status. */
+function rebootWhen(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const today = new Date();
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) return 'at ' + time;
+  if (d.toDateString() === yesterday.toDateString()) return 'yesterday at ' + time;
+  return 'on ' + d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' at ' + time;
+}
+function paintRebootNote(note) {
+  const slot = document.getElementById('reboot-slot');
+  if (!slot) return;
+  const down = note && rebootWhen(note.bootAt);
+  const up = note && rebootWhen(note.upAt);
+  if (!down || !up) { slot.innerHTML = ''; return; }
+  const head = 'This computer restarted ' + down;
+  slot.innerHTML = '<div class="utoast reboot">'
+    + '<span class="udot" aria-hidden="true"></span>'
+    + '<div class="utxt" role="status"><b>' + esc(head) + '</b><small>' + esc('Kosmos was running and started again by itself ' + up + '.') + '</small></div>'
+    + '<button type="button" class="ux" aria-label="Dismiss">&times;</button>'
+    + '</div>';
+  const btn = slot.querySelector('.ux');
+  btn.addEventListener('click', () => {
+    slot.innerHTML = '';
+    fetch('/api/board/restart-note/dismiss', { method: 'POST' }).then((r) => r.text()).catch(() => { /* shown again next open */ });
+    const next = ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
+    if (next) next.focus();
+  });
+}
+async function rebootNoteCheck() {
+  try {
+    const res = await fetch('/api/board/restart-note', { cache: 'no-store' });
+    const got = await res.json().catch(() => null);   // read the body either way (an unread one holds the connection open)
+    paintRebootNote(res.ok && got ? got.note : null);
+  } catch { /* the note is a courtesy */ }
 }
 /* #5018: the floating notice stack's height, as --topnotes-h on <html>, so scroll-padding-top clears a showing
    notice (a focused element scrolled into view must not land under it). 0 when nothing shows. */
@@ -40314,6 +40362,7 @@ async function whatsNewCheck() {
   }
 }
 whatsNewCheck();
+rebootNoteCheck();   // #5359
 
 async function paintConnLive() {
   const el = document.getElementById('conn-live');

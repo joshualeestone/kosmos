@@ -15880,6 +15880,21 @@ const server = http.createServer(async (req, res) => {
      across restarts and browsers. First sight of a machine records the
      current version silently; the line only ever describes a CHANGE. Since #4928 it also holds which
      highlights were dismissed (highlightsFor), so the same words are not opened twice. */
+  /* #5359: the note that this computer restarted while Kosmos was running and Kosmos came back by itself
+     (engine/restartnote.js says when one is made). Read once by the page; dismissed by the person. */
+  if (pathname === '/api/board/restart-note' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let note = null;
+    try { note = require('./engine/restartnote').current(); } catch { note = null; }
+    sendJson(res, 200, { note });
+    return;
+  }
+  if (pathname === '/api/board/restart-note/dismiss' && req.method === 'POST') {
+    let ok = false;
+    try { ok = require('./engine/restartnote').dismiss(); } catch { ok = false; }
+    if (!ok) { sendJson(res, 500, { error: 'we could not record that the note was dismissed' }); return; }
+    sendJson(res, 200, { dismissed: true });
+    return;
+  }
   if (pathname === '/api/whats-new' && (req.method === 'GET' || req.method === 'HEAD')) {
     let seen = null;
     // ⚠️ `store.ROOT` ALONE, #891: `store.ROOT` already resolves
@@ -20287,6 +20302,9 @@ function federateOut(projectId, delivery, operator) {
 
 function start(port = PORT) {
   snapshotWorlds();   // #5247: the worlds the gate may accept, as of now
+  /* #5359: read when this board was last alive BEFORE it says it is alive now, so a restart of the computer under a
+     running Kosmos is noticed; then say so once a minute. Best effort: a courtesy, never a reason not to start. */
+  try { const rn = require('./engine/restartnote'); rn.atStart(); rn.startBeating(); } catch { /* best effort */ }
   /* #5254: cached first pages whose PDF, project or agent is gone are removed now and hourly (engine/filepreview.js). */
   try { filepreview.sweep(); } catch { /* best effort */ }
   setInterval(() => { try { filepreview.sweep(); } catch { /* best effort */ } }, 60 * 60 * 1000).unref();

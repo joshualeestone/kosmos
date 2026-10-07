@@ -29,6 +29,7 @@ render-orgchart-import-1280
 render-permission-slider-2620
 render-push-718
 render-pwa-installable-718
+render-reboot-note-5359
 render-reload-toast
 render-rename-say
 render-restart-timedout-2019
