@@ -179,21 +179,18 @@ function apiKeyHelperCommand(dir) {
   return 'cat ' + shSingleQuote(keyFile(dir));
 }
 
-/* #5434: write settings.json through the shared writer, so it is flushed to disk before the rename
-   makes it the file, and keep the mode the file already had. It was written at whatever the umask gave
-   a fresh temp, so a 0600 file became 0644 on the next save. A new one is 0600: only this user (the
-   agent's Claude Code) reads it, and writeSecret sets the mode exactly, so a looser default would
-   override a tighter umask. Accepted with it: after three failed atomic attempts writeSecret rewrites
-   the file in place (main threw there), and refuses a symlinked settings.json on that path
-   (ERR_KOSMOS_SYMLINK). Every caller (two in server.js, one in accounts.js) catches any throw. A symlinked settings.json
-   on the atomic path is replaced by a regular file at the mode of the file it pointed to, as
-   main's rename replaced it too. */
+/* #5434: save settings.json through the shared writer, so it is flushed to disk before the rename
+   makes it the file.
+   Mode: writeSecret sets it exactly (no umask), so it is chosen here. An existing file keeps its mode,
+   always readable and writable by its owner and never writable by others (the file holds
+   apiKeyHelper, a command Claude Code runs). A new file is 0600. On main every save took the umask
+   default, so a 0600 file became 0644.
+   Accepted: after three failed atomic attempts writeSecret rewrites in place (main threw there) and
+   refuses a symlink on that path (ERR_KOSMOS_SYMLINK); every caller (two in server.js, one in
+   accounts.js) catches a throw. On the atomic path a symlink is replaced by a regular file, as on main. */
 function writeSettings(settingsPath, obj) {
   let mode = 0o600;
-  // Never group- or world-writable: the file holds apiKeyHelper, a command Claude Code runs. writeSecret
-  // sets the mode exactly (no umask), so a 0666 file would otherwise stay 0666; main's fresh temp went
-  // through the umask and came back 0644.
-  try { mode = fs.statSync(settingsPath).mode & 0o644; } catch { /* absent: a new file */ }
+  try { mode = (fs.statSync(settingsPath).mode & 0o644) | 0o600; } catch { /* absent: a new file */ }
   securewrite.writeSecret(settingsPath, JSON.stringify(obj, null, 2) + '\n', mode);
 }
 
