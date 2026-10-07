@@ -35,6 +35,9 @@ export COUNT="$T/c3" PASS_ON=1
 out="$(site_deploy_landed 4 0 "$T/verify")"; rc=$?
 [ "$rc" = 0 ] && [ "$(calls)" = 1 ] && [ -z "$out" ] && ok "served at once: one call, no waiting line" || bad "at once: rc=$rc calls=$(calls) out=$out"
 
+for bad_wait in x "" 12345; do
+  site_deploy_landed_args_ok 3 "$bad_wait" 2>/dev/null && bad "wait '$bad_wait' was accepted" || ok "wait '$bad_wait' is refused (not a whole number from 0 to 9999)"
+done
 for bad_tries in 0 00 "" x3 12345; do
   site_deploy_landed "$bad_tries" 0 true 2>/dev/null && bad "tries '$bad_tries' was accepted" || ok "tries '$bad_tries' is refused (not a whole number from 1 to 9999; 0 would make BSD seq count down and run the check twice)"
 done
@@ -102,7 +105,7 @@ case "$out" in *"DEPLOYED="*) bad "earlier attempt: DEPLOYED was reached" ;; *) 
 out="$(run_step8 1 none)"; rc=$?
 [ "$rc" = 1 ] && ok "CLI failed and nothing served: exits with the CLI's code (1)" || bad "never served: rc=$rc"
 case "$out" in *"DEPLOYED="*) bad "never served: DEPLOYED was reached, so the trap would not restore the site" ;; *) ok "never served: DEPLOYED is never set, so the trap still restores and removes the tarball" ;; esac
-case "$out" in *"may still land"*"re-hash"*"not seen served"*) ok "never served: the message says it may still land, how to measure, and how to read the trap's 'never served'" ;; *) bad "never served: message incomplete (out=$out)" ;; esac
+case "$out" in *"may still land"*"THIS cut's build is sha256 aaa111"*"https://stub.example/dist/kosmos-9.9.9-arm64.tar.gz.sha256"*"not seen served"*) ok "never served: the message says it may still land, records this cut's sha, names the served URL to compare, and how to read the trap's 'never served'" ;; *) bad "never served: message incomplete (out=$out)" ;; esac
 [ "$(fetches)" = 3 ] && ok "never served: asked exactly KOSMOS_DEPLOY_LANDED_TRIES (3) times" || bad "never served: asked $(fetches) times"
 
 out="$(run_step8 7 none)"; rc=$?
@@ -113,6 +116,7 @@ out="$(run_step8 1 aaa111 0 x3)"; rc=$?
 
 out="$(run_step8 0 none)"; rc=$?
 case "$out" in *"DEPLOYED=1") : ;; *) bad "CLI success: did not reach DEPLOYED=1 (out=$out)" ;; esac
+[ -f "$T/vercel.called" ] || bad "CLI success: the vercel stub was never called, so this arm proves nothing"
 [ "$rc" = 0 ] && [ "$(fetches)" = 0 ] && ok "CONTROL: the CLI succeeded, so step 8 asks the served host nothing (step 9 verifies)" || bad "CLI success: rc=$rc fetches=$(fetches)"
 
 echo "test-deploy-landed-5471: $FAILS failure(s)"
