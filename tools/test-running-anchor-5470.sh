@@ -44,7 +44,7 @@ out="$(kosmos_running_lines "$SCRIPT")"; rc=$?
 [ "$rc" = 1 ] && ok "a queued waiter, its sh -c parent, a mention and a -c string are NOT runs (rc 1)" || bad "non-runs matched: rc=$rc pids=$(pids_of "$out") (waiter $WAITER, parent $PARENT, mention $MENTION, -c $CSTRING)"
 
 # The shapes that ARE runs: relative and absolute script paths, bash and an absolute interpreter.
-( cd "$T" && start bash "$SCRIPT"; echo "$PIDS" > "$T/rel.pid" ); REL=$(cat "$T/rel.pid" | awk '{print $NF}'); PIDS="$PIDS $REL"
+( cd "$T" && start bash "$SCRIPT"; echo "$PIDS" > "$T/rel.pid" ); REL=$(awk '{print $NF}' "$T/rel.pid"); PIDS="$PIDS $REL"
 start /bin/bash "$T/$SCRIPT"; ABS=$!
 ( cd "$T" && start bash -x "$SCRIPT"; echo "$PIDS" > "$T/opt.pid" ); OPT=$(awk '{print $NF}' "$T/opt.pid"); PIDS="$PIDS $OPT"
 ( cd "$T" && start bash -o pipefail "$SCRIPT"; echo "$PIDS" > "$T/optv.pid" ); OPTV=$(awk '{print $NF}' "$T/optv.pid"); PIDS="$PIDS $OPTV"
@@ -58,6 +58,22 @@ case " $got " in *" $OPT "*) ok "bash -x tools/<script> (a shell option before t
 case " $got " in *" $OPTV "*) ok "bash -o pipefail tools/<script> (an option that takes a value) is a run" ;; *) bad "value-option run $OPTV missing from: $got" ;; esac
 leaked=""; for p in $WAITER $PARENT $MENTION $CSTRING; do case " $got " in *" $p "*) leaked="$leaked $p" ;; esac; done
 [ -z "$leaked" ] && ok "with real runs present, the waiter, its parent, the mention and the -c string are still not listed" || bad "non-runs listed beside the real runs:$leaked"
+
+# Shapes that cannot be held open as live processes (bash -n exits at once), read through a stubbed pgrep
+# that prints fixed lines: which are runs, which are not.
+shape() { # <expect run|not> <command line>
+  local want="$1" line="$2" out rc
+  out="$(pgrep() { printf '4242 %s\n' "$line"; }; kosmos_running_lines "$SCRIPT")"; rc=$?
+  if [ "$want" = run ]; then [ "$rc" = 0 ] && ok "a run: $line" || bad "should be a run: $line (rc $rc)"
+  else [ "$rc" = 1 ] && ok "not a run: $line" || bad "should not be a run: $line (rc $rc)"; fi
+}
+shape not "bash -n $SCRIPT"
+shape not "bash -xn $SCRIPT"
+shape not "bash -lc $SCRIPT"
+shape run  "bash -eo pipefail $SCRIPT"
+shape run  "bash +x $SCRIPT"
+shape run  "bash -- $SCRIPT"
+shape run  "bash --rcfile /x/rc $SCRIPT"
 
 # A pgrep that fails is "could not tell" (2), never "nothing running" (1).
 out="$(pgrep() { return 3; }; kosmos_running_lines "$SCRIPT")"; rc=$?

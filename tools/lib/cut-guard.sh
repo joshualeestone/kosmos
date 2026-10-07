@@ -20,9 +20,13 @@ unset _kosmos_cut_guard_lib_dir
 # started that waiter, and any command that only names it. On the 0.7.27 cut a wait written that way
 # held the machine for a waiter that was waiting for the same machine (#5467). A run's command line
 # STARTS with the interpreter and the script: `[path/](ba)sh [options] [path/]<script>[ args]`, where the
-# options are flags like -x, -e or --norc, the value-taking -o/-O NAME (also as the end of a cluster like
-# -eo NAME) and --rcfile/--init-file FILE, as tools/heavy-gate.sh reads them, but never a cluster holding
-# c (a command string, which only mentions the script) or n (a syntax check, which never runs it). This prints the
+# options are flags like -x, +x, -e or --norc, a bare --, the value-taking -o/-O NAME (also as the end of
+# a cluster like -eo NAME) and --rcfile/--init-file FILE, but never a cluster holding c (a command string,
+# which only mentions the script) or n (a syntax check, which never runs it). A few shapes that are not
+# runs also match (`bash -s <script>`, a script given as an option's value): all fail toward busy.
+# NOT SEEN: a run whose script path contains a space, because pgrep prints it split at the space (the
+# guards this replaced had the same gap; tools/heavy-gate.sh does count it). Every checkout this fleet
+# cuts or tests from has a space-free path. This prints the
 # "<pid> <command>" lines of exactly those, from `pgrep -fl`, and returns 0 when there is one, 1 when
 # there is none, 2 when pgrep itself failed (so a caller can tell "nothing" from "could not tell").
 # <script> is a path like tools/browser-checks.sh (letters, digits, . _ / - only; anything else returns 2);
@@ -34,7 +38,7 @@ kosmos_running_lines() {   # <script path>
   re="${script//./\\.}"
   raw="$(pgrep -fl "$re" 2>/dev/null)"; rc=$?
   [ "$rc" -ge 2 ] && return 2
-  lines="$(printf '%s\n' "$raw" | grep -E "^[0-9]+ +([^ ]*/)?(ba)?sh( +([-+][A-Za-bd-mo-z]*[oO] +[A-Za-z_]+|--(rcfile|init-file) +[^ ]+|-[A-Za-bd-mo-z]+|--[a-z][a-z-]*))* +([^ ]*/)?${re}( |$)" || true)"
+  lines="$(printf '%s\n' "$raw" | grep -E "^[0-9]+ +([^ ]*/)?(ba)?sh( +([-+][A-Za-bd-mo-z]*[oO] +[A-Za-z_]+|--(rcfile|init-file) +[^ ]+|[-+][A-Za-bd-mo-z]+|--[a-z][a-z-]*|--))* +([^ ]*/)?${re}( |$)" || true)"
   [ -n "$lines" ] || return 1
   printf '%s\n' "$lines"
 }
