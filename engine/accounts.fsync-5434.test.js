@@ -119,6 +119,9 @@ test('#5434: settings.json keeps the mode it had, never writable by others; a ne
   fs.chmodSync(settings, 0o666);
   claude.unwireApiKeyHelper(settings);
   assert.equal(fs.statSync(settings).mode & 0o777, 0o644, 'a world-writable settings.json stayed writable by others');
+  fs.chmodSync(settings, 0o440);
+  claude.wireApiKeyHelper(settings, root);
+  assert.equal(fs.statSync(settings).mode & 0o777, 0o640, 'group read was not kept, or owner write not added');
   fs.chmodSync(settings, 0o400);
   claude.wireApiKeyHelper(settings, root);
   assert.equal(fs.statSync(settings).mode & 0o777, 0o600, 'an owner-unwritable settings.json stayed that way');
@@ -127,4 +130,32 @@ test('#5434: settings.json keeps the mode it had, never writable by others; a ne
   const prev = process.umask(0o022);
   try { claude.wireApiKeyHelper(fresh, root); } finally { process.umask(prev); }
   assert.equal(fs.statSync(fresh).mode & 0o777, 0o600);
+});
+
+test('#5434: when every atomic attempt fails, a settings save throws and leaves settings.json as it was', (t) => {
+  const root = scratch(t);
+  const settings = path.join(root, 'settings.json');
+  const before = JSON.stringify({ theme: 'dark', model: 'x' }) + '\n';
+  fs.writeFileSync(settings, before);
+  const realOpen = fs.openSync;
+  fs.openSync = (target, flags, ...rest) => {
+    if (flags === 'wx') throw Object.assign(new Error('planted'), { code: 'EEXIST' });   // every atomic attempt fails
+    return realOpen.call(fs, target, flags, ...rest);
+  };
+  try {
+    assert.throws(() => claude.wireApiKeyHelper(settings, root), (e) => e.code === 'EEXIST');
+  } finally { fs.openSync = realOpen; }
+  assert.equal(fs.readFileSync(settings, 'utf8'), before, 'settings.json was rewritten in place');
+});
+
+test('#5434: CONTROL, a key save under the same failure still takes the in-place fallback', (t) => {
+  const dir = path.join(scratch(t), 'acct');
+  fs.mkdirSync(dir);
+  const realOpen = fs.openSync;
+  fs.openSync = (target, flags, ...rest) => {
+    if (flags === 'wx') throw Object.assign(new Error('planted'), { code: 'EEXIST' });
+    return realOpen.call(fs, target, flags, ...rest);
+  };
+  try { claude.storeKey(dir, 'sk-fallback'); } finally { fs.openSync = realOpen; }
+  assert.equal(fs.readFileSync(claude.keyFile(dir), 'utf8'), 'sk-fallback');
 });

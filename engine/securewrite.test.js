@@ -795,13 +795,14 @@ test('#5434: reapDeadTempsOf takes a dead writer\'s and a prior run\'s temp of t
     otherThreadOfUs: `token.kosmos-${process.pid}-t7-1-1.tmp`,        // may be a live sibling thread
     otherFileDead: `other.kosmos-${DEAD}-t0-1-1.tmp`,                 // a different file's temp
     notATemp: 'token.tmp',
+    siblingNamedLikeATemp: `token.kosmos-x.kosmos-${DEAD}-t0-1-1.tmp`,   // a temp of the file "token.kosmos-x"
   };
   for (const n of Object.values(names)) fs.writeFileSync(path.join(dir, n), 'x');
   fs.writeFileSync(file, 'secret');
   securewrite.reapDeadTempsOf(file);
   const left = new Set(fs.readdirSync(dir));
   for (const k of ['deadForeign', 'priorRunOfUs', 'oldFormatDead']) assert.equal(left.has(names[k]), false, k + ' was left');
-  for (const k of ['liveForeign', 'otherThreadOfUs', 'otherFileDead', 'notATemp']) assert.equal(left.has(names[k]), true, k + ' was taken');
+  for (const k of ['liveForeign', 'otherThreadOfUs', 'otherFileDead', 'notATemp', 'siblingNamedLikeATemp']) assert.equal(left.has(names[k]), true, k + ' was taken');
   assert.equal(fs.readFileSync(file, 'utf8'), 'secret', 'the file itself was touched');
   // Every call, not once per folder: a second dead temp after the first reap is still taken.
   fs.writeFileSync(path.join(dir, names.deadForeign), 'x');

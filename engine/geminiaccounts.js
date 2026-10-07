@@ -268,7 +268,7 @@ function forgetKey(dir) {
   let ok = false;
   try { fs.rmSync(keyFile(dir), { force: true }); ok = true; } catch { ok = false; }
   try { fs.rmSync(keyFile(dir) + '.tmp', { force: true }); } catch { /* best effort */ }
-  securewrite.reapDeadTempsOf(keyFile(dir));
+  securewrite.reapDeadTempsOf(keyFile(dir));   // #5434: a dead writer's temp holding the key (see claudeaccounts.forgetKey)
   return ok;
 }
 
