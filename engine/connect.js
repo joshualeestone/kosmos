@@ -207,7 +207,8 @@ function tmuxBinPath(platform = process.platform, env = process.env, runnable) {
   // create's Linux picker (#4917: PATH plus /usr/local/bin, /usr/bin, ...), one derivation, so a board under a
   // minimal PATH still finds /usr/bin/tmux. Required at call time: create requires this module.
   /* #5419: the sign-in driver asks on every tick (700 ms), so the real pick (default env and runnable check) is held
-     for 30 s, keyed on the launcher's value, rather than walking PATH every tick. */
+     for 30 s, keyed on the launcher's value, rather than walking PATH every tick. Only callers that pass no runnable
+     (the driver's tmuxBinPath()) use it; the once-per-flow checks pass one and always search. */
   const real = env === process.env && !runnable;
   // A held pick is re-checked on every hit (one stat), so a tmux removed within the 30 s is not handed back.
   if (real && linuxTmuxMemo && linuxTmuxMemo.key === (env.AGENT_WORKFORCE_TMUX_BIN || '') && Date.now() - linuxTmuxMemo.at < 30000
@@ -1136,7 +1137,7 @@ function setMuslDetectForTests(fn) { isMuslFn = typeof fn === 'function' ? fn : 
 /* #5419 review 24: Claude Code's musl build loads libstdc++ and libgcc_s, which a stock Alpine does not have; without
    them the 200MB download verifies and then fails at `claude install` with a loader error shown only as a log tail.
    Asked before any bytes move, only on a real musl Linux host (a test drives it through the seam). */
-const MUSL_LIBS_MISSING = 'This computer uses musl (Alpine, for example), and Claude Code needs libstdc++ and libgcc there, which are not installed';
+const MUSL_LIBS_MISSING = 'This computer uses musl (Alpine, for example), and Claude Code needs libstdc++ and libgcc there, which Kosmos could not find in /usr/lib, /lib or /usr/local/lib';
 const MUSL_LIBS_HINT = 'Install them (for example apk add libstdc++ libgcc) and try again';
 function muslLibsPresent(exists = fs.existsSync) {
   const has = (name) => ['/usr/lib', '/lib', '/usr/local/lib'].some((d) => exists(path.join(d, name)));
