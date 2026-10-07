@@ -627,5 +627,8 @@ test('#5446: in a repo with a worktree, the hint names the main checkout\'s queu
     const q = path.join(main, 'tools', 'queued-heavy.sh');
     fs.writeFileSync(q, fs.readFileSync(q, 'utf8').replace(/#5446-lib-fallback/g, ''));   // an older copy, as a stale main has
     assert.equal(real(hint()), real(path.join(wt, 'tools', 'queued-heavy.sh')), 'without the marker, the worktree\'s own copy');
+    fs.writeFileSync(q, fs.readFileSync(path.join(__dirname, 'tools', 'queued-heavy.sh'), 'utf8'));   // the marker back,
+    fs.rmSync(path.join(main, 'tools', 'lib', 'cut-guard.sh'));                                      // but no lib there
+    assert.equal(real(hint()), real(path.join(wt, 'tools', 'queued-heavy.sh')), 'a marked copy in a checkout with no lib is not named');
   } finally { fs.rmSync(base, { recursive: true, force: true }); }
 });
