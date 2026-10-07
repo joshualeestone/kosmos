@@ -6,7 +6,7 @@ Preparation only. Nothing in this packet has been uploaded to Google Play, and n
 
 - [ ] Confirm the app name, short description, and full description below.
 - [ ] Upload the 512 by 512 app icon and 1024 by 500 feature graphic listed below.
-- [ ] Upload the two 800 by 1600 phone screenshots in filename order and paste their matching alt text.
+- [ ] Upload the five 1080 by 1920 phone screenshots in filename order and paste their matching alt text.
 - [ ] Complete Data safety with the answers below, then make the two owner attestations called out in that section.
 - [ ] Complete the content rating questionnaire and target audience section with the answers below.
 - [ ] Enter `https://installkosmos.com/privacy` as the privacy policy URL.
@@ -63,27 +63,23 @@ All paths are relative to this repository.
 
 | Play field | File | Dimensions | SHA-256 |
 | --- | --- | ---: | --- |
-| App icon | `docs/play-listing/app-icon-512.png` | 512 by 512 | `ebdb8a279528f4ca496ce8e36ec194a904cb026c5f32104909b00a55f2bde124` |
-| Feature graphic | `docs/play-listing/feature-graphic-1024x500.png` | 1024 by 500 | `8241672b646400f0468c7b48595e8ffdad56dcac17a66ea98cb39b667d50648c` |
-| Phone screenshot 1 | `docs/play-listing/phone/01-team-overview.png` | 1080 by 2160 | `9d31fbe6edb1a5f966189c3531e9372337e3d3eb8194d0db133caa93a843c838` |
-| Phone screenshot 2 | `docs/play-listing/phone/02-agent-needs-you.png` | 1080 by 2160 | `6f53014442ebb1cd8957733252025a0786b441eefc284cfcf27676e975bc82e7` |
-| Phone screenshot 3 | `docs/play-listing/phone/03-agent-workspace.png` | 1080 by 2160 | `bf28ba22244897f71bc21ed7e96723247a3bf5e682f25cfd87e12b23d0739240` |
-| Phone screenshot 4 | `docs/play-listing/phone/04-project-room.png` | 1080 by 2160 | `ba223812c53fd26974acdc56baad705838a787e207a20d25e9ef65704ea923ad` |
-| Phone screenshot 5 | `docs/play-listing/phone/05-sign-in.png` | 800 by 1600 | `1d4d0f72def45dc259bf9dd015de802301898f0ca930b950f4be1f1baea1db63` |
-| Phone screenshot 6 | `docs/play-listing/phone/06-offline-retry.png` | 800 by 1600 | `b0298a786479d2da600ee7a94e116d23a169d576a366fd7744c1c1da5f517ad0` |
+| App icon | `docs/play-listing/app-icon-512.png` | 512 by 512 | `4e139a7461dfe43fc5fa19c9f7d6121c49aef7f9611a039fa1de0dfc428e71df` |
+| Feature graphic | `docs/play-listing/feature-graphic-1024x500.png` | 1024 by 500 | `0e22abd4cb0a2f3edf9b92dffc8e7bd1c07fdb471e95886c89c54521535dfcc3` |
+| Phone screenshot 1 | `docs/play-listing/phone/01-home.png` | 1080 by 1920 | `ed68c191348770fc7989933698aac00b8509bce04c1a53bb22b10435694cda40` |
+| Phone screenshot 2 | `docs/play-listing/phone/02-agent-chat.png` | 1080 by 1920 | `65968b5875418d8f855983459443ae063523fae5ca668d01ed8bd2076e846177` |
+| Phone screenshot 3 | `docs/play-listing/phone/03-push-landing.png` | 1080 by 1920 | `b84888de98bf1dc78989fa311d11e971e9b4db1a512c423d247b2290592dc270` |
+| Phone screenshot 4 | `docs/play-listing/phone/04-project-room.png` | 1080 by 1920 | `eb71c7bdce18bae29c076774d0356a1f100c68c9cf55f8abd353a361491b0d90` |
+| Phone screenshot 5 | `docs/play-listing/phone/05-agents-list.png` | 1080 by 1920 | `6a1d17745fae4a0578af0ec8b9d8ee008bd905184d1f51f1572bbb9e215a7125` |
 
-Screenshots 1 through 4 are current board renders from the sanctioned isolated screenshot harness at a 412 by 915 CSS-pixel Android viewport. They were regenerated from this branch after the mobile control-height changes in #4108. They contain an invented demo fleet, projects, and conversations, not a real account or real work. Each full render is scaled and padded to 1080 by 2160 without cropping the interface. Screenshots 5 and 6 are real API 35 Moto-profile AVD captures from version 0.1.1, versionCode 2. Their original 720 by 1600 pixels are unchanged. Forty pixels of neutral background were added to each side to meet the 2:1 Play aspect-ratio limit without cropping or stretching the interface. No account data appears in any screenshot.
+The five phone screenshots are Mona Lisa's store graphics (2026-10-07). They are board renders from the app code that shipped as 0.7.27 (tag `archive/0.7.27-app-commit`), the Android app being a full-screen shell around the person's board. They were shot with Kosmos's own sanctioned screenshot tool (a throwaway board, a clean store sample fleet, leak guard passed) in Chromium, each a full 1080 by 1920 (9:16) render with no cropping. They show an invented demo fleet, projects, and conversations, not a real account or real work, and no account data appears in any screenshot. The app icon is the Android launcher icon (a white dot-matrix K on Kosmos gold); the feature graphic follows the installkosmos.com look and carries the words from Josh's own social card verbatim.
 
 Paste the alt text that matches each image:
 
-1. `Kosmos team overview with four demo agents, including two working and Cleo waiting for an answer.`
-2. `Cleo's demo conversation asking which of two printer quotes to accept for the catalogue.`
-3. `Dana's demo conversation reporting progress on the spring catalogue copy and photography.`
-4. `Spring catalogue project room with demo updates from Cleo, Eli, and Dana.`
-5. `Kosmos+ sign-in on Android, asking for an email address to send a six-digit code.`
-6. `Kosmos Android offline page with a connection message and a large Retry button.`
-
-The handed-over AVD retained an isolated test sign-in, but its local coordinator was unavailable. The board screenshots therefore use the repository's leak-guarded demo-data harness rather than inventing a successful live coordinator state.
+1. `The Kosmos board on a phone, titled "Every agent, at a glance": a New agent button and a view switcher above counts of 4 Agents, 2 Working, 1 Idle, and 1 Issue, with a card for Dana the Writer shown as Working on Claude Sonnet.`
+2. `A direct message with Dana the Writer, titled "Message any agent": Dana says pages 9 to 12 need Thursday's photos and the full draft will follow Friday, the person replies "Perfect, thank you," and a "Dana is working" line sits above the message box.`
+3. `A direct message with Cleo the Project manager, titled "Answer when an agent asks": Cleo, marked with a Question badge, asks whether to accept the cheaper of two printer quotes for the catalogue, above the message box.`
+4. `The "Launch the spring catalogue" project room, titled "Follow a project as it happens": a note that two competitors undercut the linen range by about 8 percent, with a fire reaction, and Dana reporting pages 1 to 8 done while 9 to 12 wait on Thursday's photos.`
+5. `The Kosmos board in list view, titled "See who is working": the same counts of 4 Agents, 2 Working, 1 Idle, and 1 Issue above an agent list, with Dana the Writer and Cleo the Project manager each showing a not-yet-read reply and Cleo offering an Answer link.`
 
 ## Data safety
 
