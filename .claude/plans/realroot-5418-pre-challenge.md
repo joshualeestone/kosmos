@@ -34,28 +34,62 @@ post-convergence fix, which found nothing new.
 ITER_COMMITS: abbba0b26 43c8e9590 e7dd4e960 800b89351 d936ac58c 2e2f9e840 527053552 6847b760e 06b8cc6d5
 035bc6f13 1146c9611 aff4c274c 9dd92277a f62f2297f bf7038512 7c58642f8 3f9ceb454
 
-### Per-iteration outline (the plan file records the design changes each round drove)
-1 (opus): lazyroot control broke; temp homes per env change; dead pid guard; HOME test could not fail;
-  Windows APPDATA; stale run-tests comment --> FIXED
-2 (sonnet): exporting AGENT_WORKFORCE_HOME moved other seams and overrode a later HOME --> FIXED
-  (store-only throwaway); migration skipped for it
-3 (opus): BLOCKER create.supportDir / worlds.baseRoot / silence monitor bypassed the rule --> FIXED (one
-  guarded resolver); "inside" not only "equals"; pid-named sweep
-4 (sonnet): scope of protection --> documented; shell side filed as #5428 (later closed by measurement:
-  not live)
-5 (opus): named-world agents would fail every unsandboxed test --> FIXED (no refusal, throwaway);
-  boardauth legacy token routed; sweep test
-6 (sonnet): stale comment; KOSMOS_TEST_RUN reach --> FIXED / measured
-7 (opus): Windows sweep (moved into the store); Windows job runs the test; one "real root" definition
-8 (sonnet): ALLOW must not migrate; sweep hardening (lstat, uid); tests use the product's definition
-9 (opus): --test-isolation=none sets no NODE_TEST_CONTEXT --> FIXED (execArgv); symlink probe
-10 (sonnet): inherited marker documented
-11 (opus): win32anchor off Windows routed; reuse inTestProcess; reuse realish
-12 (sonnet): ALLOW migration skip narrowed to the real root; sweep marker (pid, host)
-13 (opus): KOSMOS_TEST_RUN bound to the run's temp folder; both leaves; host platform only
-14-16: documentation and measured counts (38 captures in 35 files)
-17 (opus): NITs only --> CONVERGED
-18 (sonnet, on 3f9ceb454): nothing new
+### Per-Iteration Breakdown
+
+#### Iteration 1 (opus)
+- [BLOCKER] engine/store.lazyroot-1443.test.js CONTROL read the real root under the throwaway --> FIXED (allow flag)
+- [WARNING] engine/store.js a new temp home per env change --> FIXED (one per process)
+- [WARNING] engine/store.real-root-5418.test.js HOME-elsewhere arm could not fail --> FIXED
+
+#### Iteration 2 (sonnet)
+- [WARNING] engine/store.js exporting AGENT_WORKFORCE_HOME moved other seams and overrode a later HOME --> FIXED (store-only throwaway)
+
+#### Iteration 3 (opus)
+- [BLOCKER] engine/create.js, engine/worlds.js, tools/selfreport-silence-monitor.js bypassed the rule --> FIXED (resolveDataRoot)
+- [WARNING] engine/store.js named world inside the real root not caught --> FIXED ("inside")
+
+#### Iteration 4 (sonnet)
+- [WARNING] scope of protection --> DEFERRED, documented; shell side filed as #5428 (closed later by measurement)
+
+#### Iteration 5 (opus)
+- [WARNING] engine/store.js a named-world agent would fail every unsandboxed test --> FIXED (no refusal)
+- [WARNING] engine/boardauth.js legacy token read the real legacy leaf --> FIXED
+
+#### Iteration 6 (sonnet)
+- [WARNING] tools/run-tests.sh stale "refused" comment --> FIXED
+
+#### Iteration 7 (opus)
+- [WARNING] sweep never ran on Windows --> FIXED (moved into the store)
+- [CONVENTION] two definitions of the real root --> FIXED (one)
+
+#### Iteration 8 (sonnet)
+- [WARNING] engine/store.js KOSMOS_ALLOW_REAL_ROOT could migrate the real store --> FIXED
+
+#### Iteration 9 (opus)
+- [WARNING] engine/store.js --test-isolation=none not recognised --> FIXED (execArgv)
+
+#### Iteration 10 (sonnet)
+- [WARNING] inherited marker reaches non-test processes --> DEFERRED, documented
+
+#### Iteration 11 (opus)
+- [WARNING] engine/win32anchor.js anchor inside the data root off Windows --> FIXED
+- [CONVENTION] engine/store.js duplicated test-process check --> FIXED (reuse)
+
+#### Iteration 12 (sonnet)
+- [WARNING] engine/store.js allow-flag migration skip too broad --> FIXED; sweep marker added
+
+#### Iteration 13 (opus)
+- [WARNING] tools/run-tests.sh a stray KOSMOS_TEST_RUN could make a real board a test --> FIXED (bound to the run's temp folder)
+
+#### Iterations 14 to 16
+- [WARNING] stale prose and unmeasured counts --> FIXED (measured: 38 captures in 35 files)
+
+#### Iteration 17 (opus)
+- [NIT] only --> CONVERGED
+
+#### Iteration 18 (sonnet, on 3f9ceb454)
+- [WARNING] tools/run-tests.sh fallback marker vs os.tmpdir() --> DEFERRED: measured false (os.tmpdir() is /tmp when TMPDIR is unset)
+- [STRENGTH] tools/check-frozen-roots.js exits 0; one guarded resolver for every caller
 
 ### Deferred, with reasons (all in the plan)
 - A stderr line when a throwaway is minted: tests in this repo assert empty child stderr.
