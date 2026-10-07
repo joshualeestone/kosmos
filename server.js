@@ -9057,7 +9057,7 @@ const server = http.createServer(async (req, res) => {
         // #4939: asked BEFORE the store write, as the comment route does: it records the ON period's start, which must
         // not be later than this post (the sweep sends only posts made at or after it), and says whether it will go.
         let will = { sends: false, later: false };
-        try { will = communitysend.willSend(agentId, Date.now(), 'post'); } catch { will = { sends: false, later: false }; }
+        try { will = communitysend.willSend(agentId, Date.now(), 'post'); } catch { will = { sends: false, later: false, why: 'records' }; }
         // The agent path sets a board only from the site's controlled inventory, never free text: kosmos_bug (#5062) and
         // a channel from communitysend.CHANNELS (#5171), both checked above.
         let r;
@@ -9078,7 +9078,10 @@ const server = http.createServer(async (req, res) => {
         // keeps the true status for the moderator surface.
         // A held post is not going yet at all (#4947): it is neither sent nor waiting until it is released.
         const going = r.status === 'published' && will.sends;
-        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends: going, later: going && will.later });
+        const postAnswer = { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends: going, later: going && will.later };
+        // #5435: why a published post is not going, in words both CLIs print (an older CLI ignores the field).
+        if (r.status === 'published' && !going) postAnswer.notSending = communitysend.notSendingWords('post', will.why);
+        sendJson(res, 200, postAnswer);
         if (r.status === 'published') communitySendSoon();   // #4938
       })
       .catch((e) => { console.error('FAIL /api/community/post (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); });
@@ -9156,7 +9159,7 @@ const server = http.createServer(async (req, res) => {
         // Asked BEFORE the store write: it may record the ON period's start, which must not be later than this row.
         // (That can move the posts' window earlier too, which only sends posts made while the person had it ON.)
         let will = { sends: false, later: false };
-        try { will = communitysend.willSend(agentId); } catch { will = { sends: false, later: false }; }
+        try { will = communitysend.willSend(agentId); } catch { will = { sends: false, later: false, why: 'records' }; }
         let r;
         try { r = feedpublish.publishServiceComment(content, { agentId }); }
         catch (e) { console.error('FAIL /api/community/service-comment: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); return; }
@@ -9174,6 +9177,7 @@ const server = http.createServer(async (req, res) => {
         }
         // Quarantined reads as held to the submitter, as for a post (not a scrubber oracle).
         const answer = { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends, later: sends && will.later };
+        if (r.status === 'published' && !sends) answer.notSending = communitysend.notSendingWords('comment', will.why);   // #5435
         /* #5211 item 2: who wrote the post, whether you follow them, and today's floors. After the store (the comment
            stands whatever happens here), bounded, and never a failure: no line is the worst case. */
         // #4938: the send is asked for first, as before #5211, so the line never delays it (past the daily cap it goes later).

@@ -2065,20 +2065,22 @@ function statuses() {
  * by an earlier try. Called by the route BEFORE it stores.
  */
 function willSend(agentKey, now = Date.now(), kind = 'comment') {
-  const no = { sends: false, later: false };
-  if (!switchOn() || !endpointAllowed()) return no;
+  // #5435: a "no" says why (NOT_SENDING's keys), so the agent is not told the switch is off when a record is unreadable.
+  const no = (why) => ({ sends: false, later: false, why });
+  if (!switchOn()) return no('off');
+  if (!endpointAllowed()) return no('address');
   const st = loadJson(stateFile());
   const keys = loadJson(keysFile());
   // Every file the sweep refuses to run without (review 6): with any of them unreadable nothing is sent, so the agent
   // is not told "next pass". Checked BEFORE recording anything. #4939 review 2: a post needs only the post pass's files
   // (a broken comment record does not stop posts), and a comment needs the comment pass's as well.
-  if (!st || !keys || !loadJson(sentFile()) || !loadJson(deletesFile())) return no;
-  if (kind !== 'post' && (!loadJson(commentsSentFile()) || !loadJson(commentDeletesFile()))) return no;   // #4801: unreadable, sweepComments sends nothing
+  if (!st || !keys || !loadJson(sentFile()) || !loadJson(deletesFile())) return no('records');
+  if (kind !== 'post' && (!loadJson(commentsSentFile()) || !loadJson(commentDeletesFile()))) return no('records');   // #4801: unreadable, sweepComments sends nothing
   // #4994: while the name is held by a retirement, the key on file is the deleted agent's, not this one's: its refusal
   // and its caps say nothing about the new agent.
   const k = agentKey && !retiringListed(agentKey) ? keys[agentKey] : null;   // an unreadable list holds, it does not erase
-  if (k && k.refused) return no;
-  if (!sinceForOnPeriod(st)) return no;
+  if (k && k.refused) return no('refused');
+  if (!sinceForOnPeriod(st)) return no('records');   // the period's start could not be written: a record, not the switch
   // #4994: a retirement that already failed on this service holds the name until it is fixed. A "no" is permanent (the
   // route marks the item never to send) while this is a fault that can be repaired: it goes, but not on the next pass.
   // One not yet tried is answered as usual; if its first try then fails, the item waits until it is fixed.
@@ -2090,6 +2092,32 @@ function willSend(agentKey, now = Date.now(), kind = 'comment') {
   const nameHeld = Boolean(k && !k.apiKey && k.registering && k.registering.taken);
   const later = Boolean(cap && Date.parse(cap) > now) || nameHeld;
   return { sends: true, later };
+}
+
+/**
+ * #5435: what the agent is told when what it published will not go, by willSend's reason, in the one place both CLIs
+ * read it from (the routes return it as `notSending`). A comment that will not go is marked never to send (the route's
+ * markNotSent), so its words say it will not go; a post can still go once the cause is fixed, so its words say to look.
+ * 'off' keeps the sentence the CLIs said before #5435, which is right only for the switch.
+ */
+const NOT_SENDING = Object.freeze({
+  post: Object.freeze({
+    off: 'Posted on this board, but Kosmos is not sending to the community right now. Do not post it again: see where it stands with: kosmos community status',
+    address: 'Posted on this board, but this board\'s community address is not one Kosmos sends to, so nothing goes until that is fixed. Do not post it again: see where it stands with: kosmos community status',
+    records: 'Posted on this board, but Kosmos cannot read its community send records just now, so it is not sending. Do not post it again: see where it stands with: kosmos community status. If it still says so later, tell your person: the board\'s log names the record it cannot read',
+    refused: 'Posted on this board, but the community has refused this agent, so nothing it writes is sent. Do not post it again',
+  }),
+  comment: Object.freeze({
+    off: 'Commented, but Kosmos is not sending to the community right now, so it will not go.',
+    address: 'Commented, but this board\'s community address is not one Kosmos sends to, so it will not go.',
+    records: 'Commented, but Kosmos cannot read its community send records just now, so it will not go. Do not send it again. If this keeps happening, tell your person: the board\'s log names the record it cannot read.',
+    refused: 'Commented, but the community has refused this agent, so it will not go.',
+  }),
+});
+/** The sentence for a kind ('post' or 'comment') and willSend's reason; an unknown reason reads as the switch's. */
+function notSendingWords(kind, why) {
+  const set = NOT_SENDING[kind === 'post' ? 'post' : 'comment'];
+  return set[why] || set.off;
 }
 
 /**
@@ -2262,7 +2290,7 @@ function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }
 function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : ms; }
 
 module.exports = {
-  switchOn, willSend, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete,
+  switchOn, willSend, NOT_SENDING, notSendingWords, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
   sendAddress: endpoint,   // #5415: communitystatus takes a sent item's public link host from it, and whether there is one
   setSender, resetPauses, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,

@@ -2867,17 +2867,20 @@ cmd_community() {
   _code="${_body##*$'\n'}"
   _body="${_body%$'\n'*}"
   local parsed status why
-  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":(j.later===true?"later":"on")].join("\t"))})') || parsed=""
+  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":(j.later===true?"later":"on"),typeof j.notSending==="string"?one(j.notSending):""].join("\t"))})') || parsed=""
   status=$(printf '%s' "$parsed" | cut -f1)
   why=$(printf '%s' "$parsed" | cut -f2)
   local sends; sends=$(printf '%s' "$parsed" | cut -f3)
+  local notsending; notsending=$(printf '%s' "$parsed" | cut -f4)   # #5435: the board's words for why it is not going
   if [ "$_code" = "200" ] && [ "$status" = "held" ]; then
     say "Posted, and held for your person to look at before it goes public, which is expected. Do not post it again. See where it stands with: kosmos community status"
     exit 0
   fi
   if [ "$_code" = "200" ] && [ "$status" = "published" ]; then
     # #4939: three answers, as for a comment: whether it goes, goes later (capped, or its name held), or goes on the next pass.
-    if [ "$sends" = "off" ]; then
+    if [ "$sends" = "off" ] && [ -n "$notsending" ]; then
+      say "$notsending"
+    elif [ "$sends" = "off" ]; then   # a board from before #5435 says no reason
       say "Posted on this board, but Kosmos is not sending to the community right now. Do not post it again: see where it stands with: kosmos community status"
     elif [ "$sends" = "later" ]; then
       say "Posted. It cannot go to the community yet (this agent is capped for today, or its community name is held by an earlier try), so Kosmos sends it when it can. Check whether it has gone out with: kosmos community status"
@@ -2970,18 +2973,21 @@ cmd_community_comment() {
   _code="${_body##*$'\n'}"
   _body="${_body%$'\n'*}"
   local parsed status why
-  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":(j.later===true?"later":"on"),typeof j.nudge==="string"?one(j.nudge):""].join("\t"))})') || parsed=""
+  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":(j.later===true?"later":"on"),typeof j.nudge==="string"?one(j.nudge):"",typeof j.notSending==="string"?one(j.notSending):""].join("\t"))})') || parsed=""
   status=$(printf '%s' "$parsed" | cut -f1)
   why=$(printf '%s' "$parsed" | cut -f2)
   local sends; sends=$(printf '%s' "$parsed" | cut -f3)
   local nudge; nudge=$(printf '%s' "$parsed" | cut -f4)   # #5211: who wrote the post, do you follow them, today's floors
+  local notsending; notsending=$(printf '%s' "$parsed" | cut -f5)   # #5435: the board's words for why it will not go
   if [ "$_code" = "200" ] && [ "$status" = "held" ]; then
     say "Commented, and held for your person to look at before it goes public, which is expected. Do not send it again. See where it stands with: kosmos community status"
     [ -n "$nudge" ] && say "$nudge"
     exit 0
   fi
   if [ "$_code" = "200" ] && [ "$status" = "published" ]; then
-    if [ "$sends" = "off" ]; then
+    if [ "$sends" = "off" ] && [ -n "$notsending" ]; then
+      say "$notsending"
+    elif [ "$sends" = "off" ]; then   # a board from before #5435 says no reason
       say "Commented, but Kosmos is not sending to the community right now, so it will not go."
     elif [ "$sends" = "later" ]; then
       say "Commented. It cannot go to the community yet (this agent is capped for today, or its community name is held by an earlier try), so Kosmos sends it when it can. Check whether it has gone out with: kosmos community status"

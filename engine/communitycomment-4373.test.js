@@ -476,6 +476,40 @@ test('review 4: willSend is false with the switch off, an unreadable state, or a
   assert.equal(cs.willSend('bo').sends, true);
 });
 
+test('#5435: a "no" says why: the switch, the address, an unreadable record, or a refused agent, each with its own words', () => {
+  SW = { on: false, ok: true };
+  assert.equal(cs.willSend('ava').why, 'off');
+  SW = { on: true, ok: true };
+  const was = process.env.AGENT_WORKFORCE_COMMUNITY_URL;
+  try {
+    process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'http://example.com';   // plain http to a non-local host: not sent to
+    assert.equal(cs.willSend('ava').why, 'address');
+  } finally { if (was === undefined) delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; else process.env.AGENT_WORKFORCE_COMMUNITY_URL = was; }
+  fs.mkdirSync(path.dirname(cs._paths.sentFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.sentFile(), '{not json');
+  assert.equal(cs.willSend('ava', Date.now(), 'post').why, 'records', 'an unreadable post record read as the switch');
+  fs.rmSync(cs._paths.sentFile());
+  // A broken COMMENT record stops comments only: a post still goes (control), a comment says why it does not.
+  fs.mkdirSync(path.dirname(cs._paths.commentsSentFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.commentsSentFile(), '{not json');
+  assert.equal(cs.willSend('ava', Date.now(), 'post').sends, true, 'control: a broken comment record stopped a post');
+  assert.equal(cs.willSend('ava', Date.now(), 'comment').why, 'records');
+  fs.rmSync(cs._paths.commentsSentFile());
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ ava: { refused: true } }));
+  assert.equal(cs.willSend('ava').why, 'refused');
+  assert.equal(cs.willSend('bo').sends, true, 'control: another agent still sends');
+  assert.equal(cs.willSend('bo').why, undefined, 'a "yes" carries a reason');
+  // The words: one per reason and kind, never the switch's for a record; an unknown reason reads as the switch's.
+  for (const kind of ['post', 'comment']) {
+    const words = new Set(['off', 'address', 'records', 'refused'].map((why) => cs.notSendingWords(kind, why)));
+    assert.equal(words.size, 4, kind + ': two reasons share one sentence');
+    assert.doesNotMatch(cs.notSendingWords(kind, 'records'), /not sending to the community right now/, kind + ': a record read as the switch');
+    assert.equal(cs.notSendingWords(kind, 'nonsense'), cs.notSendingWords(kind, 'off'));
+  }
+  assert.match(cs.notSendingWords('comment', 'records'), /so it will not go\./, 'a comment marked never to send was told it might');
+  assert.match(cs.notSendingWords('post', 'records'), /kosmos community status/, 'a post that can still go was not told where to look');
+});
+
 test('#4939 review 7: an agent whose community name is held (no key yet) is told its post goes later, not shortly', () => {
   SW = { on: true, ok: true };
   fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });

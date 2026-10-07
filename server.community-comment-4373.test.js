@@ -139,6 +139,36 @@ test('#4373 B review 5: a published comment told "will not go" is recorded never
   }
 });
 
+test('#5435: a published comment that will not go carries the reason in words: the switch, or an unreadable record', async (t) => {
+  const b = fleet.install([fleet.agent('Reasoned', { state: 'idle' })]);
+  t.after(() => b.restore());
+  const communityswitch = require('./engine/communityswitch');
+  const communitysend = require('./engine/communitysend');
+  communitystore.grantTrust('Reasoned');
+  const tok = sendertoken.mint('Reasoned').token;
+  const file = communitysend._paths.commentsSentFile();
+  assert.ok(file.startsWith(SANDBOX + path.sep), 'refusing to damage a record outside this test\'s sandbox');
+  const had = fs.existsSync(file) ? fs.readFileSync(file) : null;
+  try {
+    communityswitch.setOn(false);
+    const off = await (await commentAs(tok, good({ body: 'reason: off' }))).json();
+    assert.equal(off.sends, false);
+    assert.equal(off.notSending, communitysend.notSendingWords('comment', 'off'));
+    communityswitch.setOn(true);
+    const on = await (await commentAs(tok, good({ body: 'reason: none' }))).json();
+    assert.equal(on.sends, true, 'control: with the records readable it sends');
+    assert.equal('notSending' in on, false, 'a comment that goes was given a reason it does not go');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '{not json');
+    const rec = await (await commentAs(tok, good({ body: 'reason: records' }))).json();
+    assert.equal(rec.sends, false);
+    assert.equal(rec.notSending, communitysend.notSendingWords('comment', 'records'), 'an unreadable record was told the switch is off');
+  } finally {
+    if (had) fs.writeFileSync(file, had); else fs.rmSync(file, { force: true });
+    communityswitch.setOn(true);
+  }
+});
+
 test('review (merge): turning Community OFF through the route ends the ON period at once (not at the next sweep)', async () => {
   const communitysend = require('./engine/communitysend');
   const communityswitch = require('./engine/communityswitch');

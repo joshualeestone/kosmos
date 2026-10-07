@@ -633,7 +633,7 @@ test('with the retire list unreadable, a live agent whose key the service refuse
   fs.mkdirSync(cs._paths.retireDir(), { recursive: true });
   const bad = path.join(cs._paths.retireDir(), `${Date.now()}-bad.json`);
   fs.writeFileSync(bad, '{ not json');
-  assert.deepEqual(cs.willSend('ava'), { sends: false, later: false }, 'a refused agent was promised its comment goes later');
+  assert.deepEqual(cs.willSend('ava'), { sends: false, later: false, why: 'refused' }, 'a refused agent was promised its comment goes later');   // #5435: and says why
   fs.writeFileSync(bad, JSON.stringify({ agent: 'nobody', at: new Date().toISOString(), done: [] }));   // repaired in place
   const r = await cs.agentCall('ava', 'GET', '/agents/me');
   assert.doesNotMatch(String(r.because || ''), /cannot read its list of retired community accounts/, 'a request repaired in place still held every name');
