@@ -76,6 +76,8 @@ shape run  "bash -eo pipefail $SCRIPT"
 shape run  "bash +x $SCRIPT"
 shape run  "bash -- $SCRIPT"
 shape run  "bash --rcfile /x/rc $SCRIPT"
+shape not  "bash -e -c : $SCRIPT"      # a bare -c as its own word is still a command string
+shape run  "bash --norc $SCRIPT"
 shape not  "bash ${SCRIPT%.sh}Xsh"   # the dot is literal: a name that differs only there is not this script
 
 # A pgrep that fails is "could not tell" (2), never "nothing running" (1).

@@ -17,6 +17,9 @@
 # not count. A shell script that takes the path as an ARGUMENT does count (bash watch.sh
 # .../tools/release.sh), because a path with a space arrives split and cannot be told apart from
 # it: that errs toward busy. These do not count either:
+#   - a queued-heavy.sh WAITER (#5470): its lead script is a queued-heavy.sh in any directory, and it
+#     carries its command only as arguments until its turn; that run counts once started, and the
+#     machine or side claim queued-heavy.sh takes first reads busy meanwhile;
 #   - a process with a `node --test` ancestor (a unit test's fixture);
 #   - a process whose cwd or script sits in a kt<digits> folder under a folder named T or tmp, or
 #     directly under this shell's $TMPDIR
@@ -181,7 +184,10 @@ script_of() (
         case "$w" in */queued-heavy.sh|queued-heavy.sh) exit 0 ;; esac
       else
         # The tail of a split path carries the rest of the directory chain ("Work/kosmos/tools/...", "Name/
-        # .cache/claude-handoffs/..."); a bare relative argument like tools/queued-heavy.sh does not.
+        # .cache/claude-handoffs/..."); a bare relative argument like tools/queued-heavy.sh does not. Text
+        # cannot settle every shape: a wrapper given a/b/queued-heavy.sh reads as a waiter, and a split path
+        # with one segment before queued-heavy.sh reads as a run. Both are accepted in the plan; nothing
+        # in the fleet runs either, and each tightening only trades one for the other.
         case "$w" in */*/queued-heavy.sh) exit 0 ;; esac
       fi
       case "$w" in *.sh) inlead=0 ;; esac   # the lead script is complete; later words are its arguments

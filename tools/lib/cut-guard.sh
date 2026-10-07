@@ -107,7 +107,9 @@ _kosmos_drop_self_subtree() {
 # and cwd cannot be read stays in the list unless its script path is in the sandbox, which preserves
 # the guard's refuse-rather-than-guess posture.
 # (#5470: this reads a fixture's script WITHOUT kosmos_running_lines's options group, so a fixture started
-# with a shell option is dropped only by its ancestry or cwd: more refusals, never fewer.)
+# with a shell option is dropped only by its ancestry or cwd: more refusals, never fewer. That is a new
+# refusal path: such a fixture whose ancestry or cwd cannot be read now refuses where before it never
+# matched at all. Nothing in the repo starts a fixture with a shell option.)
 _kosmos_drop_test_fixtures() {
   # The interpreter is ([^ ]*/)?(ba)?sh, as wide as _kosmos_suite_candidates's, so a fixture started by
   # a Homebrew bash is dropped by its script path too (#4410 review 13).
