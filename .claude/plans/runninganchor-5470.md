@@ -20,11 +20,11 @@ unanchored `pgrep -f` stays exposed.
   (browser-checks.sh). Before, five hand-written copies used two different interpreter patterns; the
   helper takes the wider `([^ ]*/)?`, which only ever adds candidates (a Homebrew bash), failing toward busy.
 - tools/heavy-gate.sh (what cutters run for a quiet box) classifies a command whose lead script is
-  tools/queued-heavy.sh as a waiter, not a run. It keeps its deliberate rule that a script taking a heavy
-  path as an argument counts (fail toward busy); only the queue's own waiter is carved out (the FIRST word
-  ending in .sh being a queued-heavy.sh in any directory: tools/, or the installed copy agents actually
-  run, ~/.cache/claude-handoffs/queued-heavy.sh; this also covers a lead that ps split at a space; a
-  queued-heavy.sh after the lead script is just an argument), because the
+  a queued-heavy.sh as a waiter, not a run. It keeps its deliberate rule that a script taking a heavy
+  path as an argument counts (fail toward busy); only the queue's own waiter is carved out (the LEAD
+  script being a queued-heavy.sh in any directory, so tools/ or the installed copy agents actually run,
+  ~/.cache/claude-handoffs/queued-heavy.sh, including a lead that ps split at a space; a queued-heavy.sh
+  that is only an argument, after a script or after a wrapper with no .sh suffix, is not), because the
   waiter starts the real run as its own process when its turn comes, and that run counts.
 - The per-cut wrapper (outside the repo, mortals:~/.cut-07NN.sh) sources the Mortals main checkout's
   cut-guard.sh, so 0.7.28's wrapper calls `kosmos_running_lines tools/browser-checks.sh` and treats rc 2
@@ -52,7 +52,7 @@ options group, so an optioned fixture can only be dropped by ancestry or cwd: mo
 - `tools/test-running-anchor-5470.sh`, in test:shell, real processes and a unique script name per run:
   nothing running gives 1; a queued-heavy-shaped waiter, its `sh -c` parent, a mention kept on a command
   line and a `-c` string naming the script are NOT runs (with a control that the unanchored pgrep DOES
-  match all four); `bash tools/<script>`, `/bin/bash /abs/tools/<script>` and `bash -x tools/<script>`
+  match all four); `bash tools/<script>`, `/bin/bash /abs/tools/<script>` and `bash -x tools/<script>` and
   `bash -o pipefail tools/<script>` ARE runs; a failing pgrep or no script gives 2. Each spawned pid is
   awaited in pgrep (up to ~5 s), not a fixed sleep. Shapes that cannot be held open (bash -n exits at
   once) are read through a stubbed pgrep: -n, -xn and -lc are not runs; -eo NAME, +x, -- and --rcfile ARE. Measured red: anchor removed gives 3 failures.

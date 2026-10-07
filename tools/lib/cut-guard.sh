@@ -105,6 +105,8 @@ _kosmos_drop_self_subtree() {
 # a cwd or script in the run-tests.sh sandbox (the same path rule heavy-gate uses). A pid whose ancestry
 # and cwd cannot be read stays in the list unless its script path is in the sandbox, which preserves
 # the guard's refuse-rather-than-guess posture.
+# (#5470: this reads a fixture's script WITHOUT kosmos_running_lines's options group, so a fixture started
+# with a shell option is dropped only by its ancestry or cwd: more refusals, never fewer.)
 _kosmos_drop_test_fixtures() {
   # The interpreter is ([^ ]*/)?(ba)?sh, as wide as _kosmos_suite_candidates's, so a fixture started by
   # a Homebrew bash is dropped by its script path too (#4410 review 13).
