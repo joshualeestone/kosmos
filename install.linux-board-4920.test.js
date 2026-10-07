@@ -81,3 +81,115 @@ test('#4920 CONTROL: the real linuxboard exports what the snippets call', () => 
   assert.equal(typeof real.installBoard, 'function');
   assert.equal(typeof real.removeBoard, 'function');
 });
+
+/* The shell around the snippets: which sentence the person reads, and whether the board is handed to systemd. The two
+   blocks are cut from setup.sh and run under its own option line with stand-ins: a fake node that answers as told,
+   a fake kosmos that records a restart, and a PATH holding only what the test puts there (so a Linux runner's real
+   systemctl is never found). */
+const OPTS = SETUP.match(/^set -eu\n\[ -n "\$\{BASH_VERSION:-\}" \] && set -o pipefail \|\| true\n/m)[0];
+function cut(start, end) {
+  const i = SETUP.indexOf(start);
+  assert.ok(i >= 0, 'block start not found: ' + start.slice(0, 60));
+  const j = SETUP.indexOf(end, i);
+  assert.ok(j > i, 'block end not found');
+  return SETUP.slice(i, j + end.length);
+}
+const INSTALL_BLOCK = cut('  if ! command -v systemctl >/dev/null 2>&1; then\n    info "note: systemctl not available', '\n  fi\n  ok\nelse\n').replace(/\n  ok\nelse\n$/, '\n');
+const UNINSTALL_BLOCK = cut('    if [ -f "$KOSMOS_HOME/app/engine/linuxboard.js" ] && [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ -x "$KOSMOS_HOME/runtime/bin/node" ] && command -v systemctl', '\n      done\n    fi\n');
+
+function world({ systemctl = true, app = true, nodeOut = '', nodeRc = 0, units = [] } = {}) {
+  const root = fs.mkdtempSync(path.join(WORK, 'w-'));
+  const home = path.join(root, 'kosmos');
+  const bin = path.join(root, 'stubs');
+  fs.mkdirSync(bin, { recursive: true });
+  fs.symlinkSync('/usr/bin/id', path.join(bin, 'id'));
+  if (systemctl) { fs.writeFileSync(path.join(bin, 'systemctl'), '#!/bin/sh\nexit 0\n'); fs.chmodSync(path.join(bin, 'systemctl'), 0o755); }
+  fs.mkdirSync(path.join(home, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(home, 'bin', 'kosmos'), '#!/bin/sh\necho "$@" >> "' + path.join(root, 'kosmos.log') + '"\n');
+  fs.chmodSync(path.join(home, 'bin', 'kosmos'), 0o755);
+  if (app) {
+    fs.mkdirSync(path.join(home, 'runtime', 'bin'), { recursive: true });
+    fs.mkdirSync(path.join(home, 'app', 'engine'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'app', 'engine', 'linuxboard.js'), '');
+    fs.writeFileSync(path.join(home, 'runtime', 'bin', 'node'), '#!/bin/sh\ncat >/dev/null\nprintf "%s" ' + JSON.stringify(nodeOut) + '\nexit ' + nodeRc + '\n');
+    fs.chmodSync(path.join(home, 'runtime', 'bin', 'node'), 0o755);
+  }
+  const unitDir = path.join(root, 'units');
+  fs.mkdirSync(unitDir, { recursive: true });
+  for (const u of units) fs.writeFileSync(path.join(unitDir, u), '');
+  return { root, home, bin, unitDir, restarts: () => { try { return fs.readFileSync(path.join(root, 'kosmos.log'), 'utf8'); } catch { return ''; } } };
+}
+function runBlock(block, w, { off = 'no' } = {}) {
+  const script = OPTS + 'info() { printf "INFO %s\\n" "$*"; }\n_kosmos_off_why() { printf "(set off)"; }\n'
+    + '_kosmos_board_decide() { :; }\n_kosmos_board_off=' + off + '\nPORT=16180\n' + block;
+  return spawnSync('/bin/sh', ['-c', script], { encoding: 'utf8', env: { PATH: w.bin, HOME: w.root, KOSMOS_HOME: w.home, AGENT_WORKFORCE_SYSTEMD_DIR: w.unitDir } });
+}
+
+test('#4920 install: linger on hands the board to systemd and says it starts with the computer', () => {
+  const w = world({ nodeOut: 'lingering' });
+  const r = runBlock(INSTALL_BLOCK, w);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /INFO Kosmos will start itself when this computer starts/);
+  assert.match(w.restarts(), /^restart --force$/m, 'the running board was not handed to systemd');
+});
+
+test('#4920 install: linger off says it stops at logout and names the loginctl line', () => {
+  const w = world({ nodeOut: 'not lingering' });
+  const r = runBlock(INSTALL_BLOCK, w);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /stops when you log out: linger is off/);
+  assert.match(r.stdout, /loginctl enable-linger /);
+  assert.doesNotMatch(r.stdout, /starts when this computer starts/);
+});
+
+test('#4920 install: a board set to stay off is not restarted and says why', () => {
+  const w = world({ nodeOut: 'lingering' });
+  const r = runBlock(INSTALL_BLOCK, w, { off: 'yes' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /will not start itself at login \(set off\)/);
+  assert.equal(w.restarts(), '', 'a board set off was restarted (that clears board.stopped)');
+});
+
+test('#4920 install: a refusal gives systemd\'s reason, an empty failure says the step did not run; neither restarts', () => {
+  let w = world({ nodeOut: 'refused: systemd did not reload its user units: no bus', nodeRc: 3 });
+  let r = runBlock(INSTALL_BLOCK, w);
+  assert.equal(r.status, 0, 'a refusal must not stop the install: ' + r.stderr);
+  assert.match(r.stdout, /could not set itself to start with systemd: systemd did not reload its user units: no bus/);
+  assert.doesNotMatch(r.stdout, /refused:/, 'the internal prefix leaked into the sentence');
+  assert.equal(w.restarts(), '');
+  w = world({ nodeOut: '', nodeRc: 1 });
+  r = runBlock(INSTALL_BLOCK, w);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /its setup step did not run/);
+  assert.equal(w.restarts(), '');
+});
+
+test('#4920 install: no systemctl says so and does nothing else', () => {
+  const w = world({ systemctl: false, nodeOut: 'lingering' });
+  const r = runBlock(INSTALL_BLOCK, w);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /systemctl not available/);
+  assert.equal(w.restarts(), '');
+});
+
+test('#4920 uninstall: each case names its real cause', () => {
+  let w = world({ nodeOut: '' });
+  let r = runBlock(UNINSTALL_BLOCK, w);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /removing the systemd service for the board/);
+  assert.doesNotMatch(r.stdout, /not fully removed/);
+  w = world({ nodeOut: 'systemd could not stop the board: x', nodeRc: 3 });
+  r = runBlock(UNINSTALL_BLOCK, w);
+  assert.match(r.stdout, /not fully removed: systemd could not stop the board: x/);
+  w = world({ nodeOut: '', nodeRc: 1 });
+  r = runBlock(UNINSTALL_BLOCK, w);
+  assert.match(r.stdout, /not fully removed: its removal step did not run/);
+  w = world({ systemctl: false, units: ['kosmos-board.service'] });
+  r = runBlock(UNINSTALL_BLOCK, w);
+  assert.match(r.stdout, /systemctl is not available/);
+  assert.doesNotMatch(r.stdout, /app folder is gone/, 'blamed a missing app folder that is there');
+  w = world({ app: false, units: ['kosmos-board.service', 'kosmos-board.abcd1234.service'] });
+  r = runBlock(UNINSTALL_BLOCK, w);
+  assert.equal((r.stdout.match(/app folder is gone/g) || []).length, 2, 'each leftover unit is named: ' + r.stdout);
+  assert.match(r.stdout, /may be this install's or another Kosmos's/);
+});

@@ -1419,7 +1419,11 @@ try { r = require(process.argv[2]).removeBoard(process.argv[3]); } catch (e) { r
 if (!r || !r.ok) { process.stdout.write((r && r.because) || 'no reason given'); process.exit(3); }
 BOARDEOF
 )" || _lb_rc=$?
-      [ "$_lb_rc" -eq 0 ] || info "the board's systemd service was not fully removed: $_lb_out"
+      [ "$_lb_rc" -eq 0 ] || info "the board's systemd service was not fully removed: ${_lb_out:-its removal step did not run ($KOSMOS_HOME/runtime/bin/node)}"
+    elif [ -f "$KOSMOS_HOME/app/engine/linuxboard.js" ] && [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ -x "$KOSMOS_HOME/runtime/bin/node" ]; then
+      # The app is here but systemctl is not: nothing can stop or disable a unit, and there is no user manager to have
+      # loaded one. Say so rather than blaming a missing app folder.
+      info "systemctl is not available, so no board service was removed (none can be running without it)"
     else
       # Without the app's own code there is no second copy of the name rule here, so name what is there instead. Each
       # KOSMOS_HOME has its own unit (the name carries a hash of it), so a file here may be another install's.
@@ -4058,8 +4062,19 @@ if (!r || !r.ok) { process.stdout.write('refused: ' + ((r && r.because) || 'no r
 process.stdout.write(r.lingering ? 'lingering' : 'not lingering');
 BOARDEOF
 )" || _lb_rc=$?
-    if [ "$_lb_rc" -ne 0 ]; then
+    if [ "$_lb_rc" -ne 0 ] && [ -z "$_lb_out" ]; then
+      info "Kosmos could not set itself to start with systemd: its setup step did not run ($KOSMOS_HOME/runtime/bin/node with $KOSMOS_HOME/app/engine/linuxboard.js)"
+    elif [ "$_lb_rc" -ne 0 ]; then
       info "Kosmos could not set itself to start with systemd: ${_lb_out#refused: }"
+    else
+      # As on the Mac: the board running now was started before the unit existed, so hand it to systemd (kosmos
+      # restart retires it and starts the unit's), unless this computer is set not to run a board (a restart would
+      # clear board.stopped). Best-effort: the unit is enabled either way and starts at the next login or boot.
+      _kosmos_board_decide
+      [ "$_kosmos_board_off" = yes ] || "$KOSMOS_HOME/bin/kosmos" restart --force >/dev/null 2>&1 || true
+    fi
+    if [ "$_lb_rc" -ne 0 ]; then
+      :
     elif [ "$_kosmos_board_off" = yes ]; then
       info "Kosmos will not start itself at login $(_kosmos_off_why)"
     elif [ "$_lb_out" = lingering ]; then
