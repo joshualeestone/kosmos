@@ -25,7 +25,7 @@ unset _kosmos_cut_guard_lib_dir
 # which only mentions the script) or n (a syntax check, which never runs it). A few shapes that are not
 # runs also match (`bash -s <script>`, `bash --rcfile <script>`, a script given as an option's value): all
 # fail toward busy.
-# LC_ALL=C on that grep as well, belt and braces (the option letters are spelled out, see _KOSMOS_SH_OPTS). A queued-heavy waiter needs no rule of its own here: its
+# LC_ALL=C on the grep inside kosmos_running_lines as well, belt and braces (the option letters are spelled out, see _KOSMOS_SH_OPTS). A queued-heavy waiter needs no rule of its own here: its
 # command starts with tools/queued-heavy.sh, not with <script>, so it never matches.
 # CALL IT INSIDE `if` OR AFTER `||`: 1 is the ordinary "nothing running" answer, and as a bare statement
 # under `set -e` (release.sh, test-install.sh) it would end the caller silently.
@@ -109,8 +109,8 @@ _kosmos_drop_self_subtree() {
 # a cwd or script in the run-tests.sh sandbox (the same path rule heavy-gate uses). A pid whose ancestry
 # and cwd cannot be read stays in the list unless its script path is in the sandbox, which preserves
 # the guard's refuse-rather-than-guess posture.
-# (#5470: this reads a fixture's script WITHOUT kosmos_running_lines's options group, so a fixture started
-# with a shell option is read with the same _KOSMOS_SH_OPTS as kosmos_running_lines, so the two agree.)
+# (#5470: it reads a fixture's script with the same _KOSMOS_SH_OPTS as kosmos_running_lines, so the two
+# agree on an option-bearing command line.)
 _kosmos_drop_test_fixtures() {
   # The interpreter is ([^ ]*/)?(ba)?sh, as wide as _kosmos_suite_candidates's, so a fixture started by
   # a Homebrew bash is dropped by its script path too (#4410 review 13).

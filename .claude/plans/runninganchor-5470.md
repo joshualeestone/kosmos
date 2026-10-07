@@ -74,6 +74,10 @@ _KOSMOS_SH_OPTS group, spelled-out letters so `[[ =~ ]]` is locale-proof. macOS 
   the run the waiter starts (with the waiter as its ancestor) does; a queued-heavy.sh that is
   only an argument after another script does not stop that script's heavy path counting. Its sh -c parent is a
   command string, which heavy-gate already never counted.
+- The REAL _kosmos_drop_test_fixtures, with its fixture check stubbed to record the script it receives, reads
+  the script from three lines (two option-bearing); measured red with the group index put back to 3.
+- tools/test-cut-guard.sh's three "is a real harness live" skip predicates now ask kosmos_running_lines, so
+  they cannot drift from the guard they skip around.
 - Existing guards pass: test-cut-guard, test-browser-run-guard (and its real-path control,
   KOSMOS_BC_REALPATH=1), test-browser-gate-cut-claim-1398, test-machine-claim-1962, test-light-side-4911,
   tools.heavy-gate-3805.test.js.

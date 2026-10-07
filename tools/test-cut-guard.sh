@@ -279,7 +279,7 @@ SH
 chmod +x "$E2E/tools/cut-start-plain.sh"
 # #4410: fixtures dropped, so another agent's sandboxed stand-in (this same test, running in their
 # suite) neither skips this section nor reaches the plain guard calls below.
-live_harness="$(pgrep -fl 'test-install\.sh' 2>/dev/null | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/test-install\.sh( |$)' | _kosmos_drop_test_fixtures || true)"
+live_harness="$({ kosmos_running_lines tools/test-install.sh || true; } | _kosmos_drop_test_fixtures || true)"
 if [ -n "$live_harness" ]; then
   _fh="${live_harness%%$'\n'*}"
   echo "SKIP  harness end-to-end: a real harness is live on this Mac, so this arm cannot answer"
@@ -328,7 +328,7 @@ else
   # close it (an 8 s harness can still appear in the gap), and re-running alone is
   # what settles a genuine red -- but it removes the DESIGNED-IN case where our
   # own paired step 7 is another run's live harness.
-  _foreign_harness="$(pgrep -fl 'test-install\.sh' 2>/dev/null | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/test-install\.sh( |$)' | _kosmos_drop_test_fixtures || true)"
+  _foreign_harness="$({ kosmos_running_lines tools/test-install.sh || true; } | _kosmos_drop_test_fixtures || true)"
   if [ -n "$_foreign_harness" ]; then
     _fh5="${_foreign_harness%%$'\n'*}"
     echo "SKIP  a mere MENTION does not count: a real harness is live (a concurrent run), so this arm cannot answer"
@@ -357,7 +357,7 @@ else
       || fail "a live harness was not detected: rc=$rc ours='$ours' out=$out"
     # A REAL harness another agent started after the pre-flight would refuse the plain caller too;
     # re-check it (fixtures dropped, as the mention arm does) so that reads as a SKIP, not a FAIL.
-    _late_harness="$(pgrep -fl 'test-install\.sh' 2>/dev/null | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/test-install\.sh( |$)' | _kosmos_drop_test_fixtures || true)"
+    _late_harness="$({ kosmos_running_lines tools/test-install.sh || true; } | _kosmos_drop_test_fixtures || true)"
     if [ -n "$_late_harness" ] && [ "$rc_plain" -ne 0 ]; then
       echo "SKIP  the plain-caller arm: a real harness started meanwhile, so it cannot answer (${_late_harness:0:60})"
     else
