@@ -631,6 +631,225 @@ test('an unreadable sent, keys or deletes file pauses sending and is left for re
   assert.equal(fs.readFileSync(cs._paths.deletesFile(), 'utf8'), '{ not json');
 });
 
+test('#5431: a torn sent.json or comments-sent.json (3 NUL bytes) is reset when no agent has a key, and the post goes', async () => {
+  // Measured on a Windows box: sent.json was 3 NUL bytes after a crash, and every sweep refused to run from then on.
+  for (const [which, bytes] of [['sentFile', Buffer.alloc(3)], ['commentsSentFile', Buffer.alloc(3)]]) {
+    fresh();
+    await on();
+    assert.equal(fs.existsSync(cs._paths.keysFile()), false, 'control: no agent has registered yet');
+    const file = cs._paths[which]();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, bytes);
+    const r = agentPost('tor', { topic: 'torn', body: 'after a crash' });
+    const res = await cs.sweep();
+    assert.notDeepEqual(res, { skipped: 'unreadable' }, `${which} (${bytes.length} bytes): still paused`);
+    assert.equal(cs.statuses()[r.id].state, 'sent', `${which}: the post did not go`);
+    assert.equal(typeof JSON.parse(fs.readFileSync(file, 'utf8')), 'object', `${which}: left torn`);
+  }
+});
+
+test('#5431: once an agent has a key, a torn sent.json is NOT reset (it may hide what was sent), and nothing goes', async () => {
+  fresh();
+  await on();
+  const r = agentPost('kee', { topic: 'first', body: 'sent before the crash' });
+  await cs.sweep();
+  assert.equal(cs.statuses()[r.id].state, 'sent', 'control: the agent registered and sent');
+  const file = cs._paths.sentFile();
+  fs.writeFileSync(file, Buffer.alloc(3));
+  agentPost('kee', { topic: 'second', body: 'after the crash' });
+  const before = posts().length;
+  assert.deepEqual(await cs.sweep(), { skipped: 'unreadable' });
+  assert.equal(posts().length, before, 'sent while sent.json was torn and a key existed');
+  assert.deepEqual([...fs.readFileSync(file)], [0, 0, 0], 'the torn file was overwritten although a key existed');
+});
+
+test('#5431: a keys.json holding only a retired account still blocks the reset (its posts are in sent.json)', async () => {
+  fresh();
+  await on();
+  const kf = cs._paths.keysFile();
+  fs.mkdirSync(path.dirname(kf), { recursive: true });
+  // What #4994 leaves behind: no agent name, but an account that posted.
+  fs.writeFileSync(kf, JSON.stringify({ 'retired:old:2026-10-01T00:00:00.000Z': { apiKey: 'k', name: 'old' } }));
+  fs.writeFileSync(cs._paths.sentFile(), Buffer.alloc(3));
+  agentPost('ret', { topic: 'x', body: 'y' });
+  assert.deepEqual(await cs.sweep(), { skipped: 'unreadable' });
+  assert.deepEqual([...fs.readFileSync(cs._paths.sentFile())], [0, 0, 0], 'reset behind a retired account\'s sent posts');
+});
+
+test('#5431: a torn keys.json is never reset, whatever else holds', async () => {
+  fresh();
+  await on();
+  const file = cs._paths.keysFile();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, Buffer.alloc(3));
+  fs.writeFileSync(cs._paths.sentFile(), Buffer.alloc(3));
+  agentPost('kez', { topic: 'x', body: 'y' });
+  const before = posts().length;
+  assert.deepEqual(await cs.sweep(), { skipped: 'unreadable' });
+  assert.equal(posts().length, before);
+  assert.deepEqual([...fs.readFileSync(file)], [0, 0, 0], 'keys.json was reset: every agent would get a second public name');
+  assert.deepEqual([...fs.readFileSync(cs._paths.sentFile())], [0, 0, 0], 'sent.json was reset while keys.json could not be read');
+});
+
+test('#5431: a save that fails at the flush leaves no temp file behind', async () => {
+  fresh();
+  await on();
+  agentPost('tmq', { topic: 't', body: 'u' });
+  // Aimed at a sent.json save (the record the card is about), not whichever save flushes first.
+  const realSync = fs.fsyncSync, realOpen = fs.openSync;
+  const opened = new Map();
+  let failed = 0;
+  fs.openSync = (p, ...rest) => { const fd = realOpen(p, ...rest); opened.set(fd, String(p)); return fd; };
+  fs.fsyncSync = (fd) => {
+    if (!failed && /sent\.json\.[0-9a-f]+\.tmp$/.test(opened.get(fd) || '')) { failed += 1; const e = new Error('EIO: i/o error, fsync'); e.code = 'EIO'; throw e; }
+    return realSync(fd);
+  };
+  try { await cs.sweep(); } finally { fs.fsyncSync = realSync; fs.openSync = realOpen; }
+  assert.equal(failed, 1, 'control: a sent.json flush failed');
+  const tmps = [];
+  const walk = (d) => { for (const n of fs.readdirSync(d)) { const p = path.join(d, n); if (fs.statSync(p).isDirectory()) walk(p); else if (n.endsWith('.tmp')) tmps.push(p); } };
+  walk(path.dirname(cs._paths.stateFile()));
+  assert.deepEqual(tmps, [], 'a failed save left its temp file');
+});
+
+test('#5431: a file system that does not support a flush (EINVAL, ENOTSUP, EISDIR, ENOSYS) still saves, and the post goes', async () => {
+  for (const code of ['EINVAL', 'ENOTSUP', 'EISDIR', 'ENOSYS']) {
+    fresh();
+    await on();
+    const r = agentPost('nfs', { topic: code, body: 'no flush here' });
+    const realSync = fs.fsyncSync;
+    let refused = 0;
+    fs.fsyncSync = () => { refused += 1; const e = new Error(code); e.code = code; throw e; };
+    try { await cs.sweep(); } finally { fs.fsyncSync = realSync; }
+    assert.ok(refused > 0, `control (${code}): flushes were refused`);
+    assert.equal(cs.statuses()[r.id].state, 'sent', `${code}: an unsupported flush stopped the save`);
+  }
+});
+
+test('#5431: only a record exactly the length of an empty one ({}\\n) is reset; a longer or 0-byte one stays', async () => {
+  // A torn file keeps the length of the write that was cut off. Review 3: if a crash tore keys.json and sent.json
+  // together and a person then removed keys.json, a reset of a sent.json that held rows would send every post again.
+  // Review 7: and an empty (0-byte) one, which some file systems leave after a crash whatever the file held.
+  for (const [bytes, keysGone] of [[Buffer.alloc(5000), false], [Buffer.alloc(5), true], [Buffer.alloc(4), false], [Buffer.alloc(0), true]]) {
+    fresh();
+    await on();
+    if (keysGone) {
+      agentPost('rm', { topic: 'before', body: 'sent, then the crash' });
+      await cs.sweep();
+      fs.rmSync(cs._paths.keysFile());
+    }
+    assert.equal(fs.existsSync(cs._paths.keysFile()), false, 'control: no keys.json');
+    fs.mkdirSync(path.dirname(cs._paths.sentFile()), { recursive: true });
+    fs.writeFileSync(cs._paths.sentFile(), bytes);
+    const before = posts().length;
+    assert.deepEqual(await cs.sweep(), { skipped: 'unreadable' }, `${bytes.length} bytes: the sweep ran`);
+    assert.equal(posts().length, before, `${bytes.length} bytes: sent while a record that held rows was torn`);
+    assert.ok(fs.readFileSync(cs._paths.sentFile()).equals(bytes), `${bytes.length} bytes: a record longer than an empty one was reset`);
+  }
+});
+
+test('#5431: once an agent has a key, a torn comments-sent.json is not reset either', async () => {
+  fresh();
+  await on();
+  agentPost('cmk', { topic: 'x', body: 'registers the agent' });
+  await cs.sweep();
+  assert.ok(Object.keys(JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'))).length, 'control: a key exists');
+  fs.writeFileSync(cs._paths.commentsSentFile(), Buffer.alloc(3));
+  await cs.sweep();
+  assert.deepEqual([...fs.readFileSync(cs._paths.commentsSentFile())], [0, 0, 0], 'reset although a key exists');
+});
+
+test('#5431: an unreadable keys.json, sent.json or deletes.json is never advised to be removed', async () => {
+  // Removing any of them sends again (a second public name, every post already sent, a post the owner removed).
+  for (const which of ['keysFile', 'sentFile', 'deletesFile']) {
+    fresh();
+    await on();
+    const file = cs._paths[which]();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    // A file is reported once until it reads again, so read a good copy first: an earlier test may have reported it.
+    fs.writeFileSync(file, '{}\n');
+    await cs.sweep();
+    fs.writeFileSync(file, '{ not json');
+    const said = []; const realError = console.error;
+    console.error = (...a) => { said.push(a.join(' ')); };
+    try { await cs.sweep(); } finally { console.error = realError; }
+    const line = said.find((l) => l.includes(`${path.basename(file)} cannot be read`));
+    assert.ok(line, `control: the corrupt ${path.basename(file)} was reported`);
+    assert.match(line, /do NOT remove it/, path.basename(file));
+    assert.doesNotMatch(line, /or removed/, path.basename(file));
+  }
+});
+
+test('#5431: a zero-filled keys.json is still told not to be removed (resetting it beside an empty sent.json sends again)', async () => {
+  // Review 7: advice to write {} to it would empty the keys check while sent.json is torn, and the repair would then
+  // reset sent.json and send every post in the window again.
+  fresh();
+  await on();
+  fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.keysFile(), '{}\n');
+  await cs.sweep();                                   // read a good copy first, so the report below is not suppressed
+  fs.writeFileSync(cs._paths.keysFile(), Buffer.alloc(3));
+  const said = []; const realError = console.error;
+  console.error = (...a) => { said.push(a.join(' ')); };
+  try { await cs.sweep(); } finally { console.error = realError; }
+  const line = said.find((l) => l.includes('keys.json cannot be read'));
+  assert.ok(line, 'control: the torn keys.json was reported');
+  assert.match(line, /do NOT remove it or write \{\} to it/, 'it must forbid {} as a way out, not offer it');
+  assert.match(line, /from a backup/);
+  assert.deepEqual([...fs.readFileSync(cs._paths.keysFile())], [0, 0, 0], 'the engine reset keys.json itself');
+});
+
+test('#5431: a save of the bytes already on disk writes nothing (each flush costs about 4 ms on a Mac)', async () => {
+  fresh();
+  await on();
+  agentPost('idm', { topic: 'i', body: 'j' });
+  await cs.sweep();
+  const realRename = fs.renameSync;
+  const same = [];
+  fs.renameSync = (from, to) => {
+    let before = null; try { before = fs.readFileSync(to); } catch { /* new file */ }
+    if (before && before.equals(fs.readFileSync(from))) same.push(path.basename(String(to)));
+    return realRename(from, to);
+  };
+  try { for (let i = 0; i < 3; i += 1) await cs.sweep(); } finally { fs.renameSync = realRename; }
+  assert.deepEqual(same, [], 'a save rewrote the same bytes');
+  // Control: a change still writes.
+  agentPost('idm', { topic: 'k', body: 'l' });
+  const before = fs.readFileSync(cs._paths.sentFile(), 'utf8');
+  await cs.sweep();
+  assert.notEqual(fs.readFileSync(cs._paths.sentFile(), 'utf8'), before, 'control: a new send changed sent.json');
+});
+
+test('#5431: an unchanged save still puts keys.json back to owner-only (a restored copy at 0644)', { skip: process.platform === 'win32' && 'no POSIX modes' }, async () => {
+  fresh();
+  await on();
+  agentPost('mod', { topic: 'm', body: 'n' });
+  await cs.sweep();
+  const kf = cs._paths.keysFile();
+  fs.chmodSync(kf, 0o644);                                   // as a copy restored from a backup often comes back
+  assert.equal(fs.statSync(kf).mode & 0o777, 0o644, 'control: the copy is readable to others');
+  // A save of exactly the bytes already there, which must still put the mode back.
+  cs._saveJsonForTest(kf, JSON.parse(fs.readFileSync(kf, 'utf8')));
+  assert.equal(fs.statSync(kf).mode & 0o777, 0o600, 'an unchanged save left keys.json readable to others');
+});
+
+test('#5431: every record is flushed to disk before it is renamed into place', async () => {
+  fresh();
+  await on();
+  const synced = new Set(); const opened = new Map(); const order = [];
+  const realOpen = fs.openSync, realSync = fs.fsyncSync, realRename = fs.renameSync;
+  fs.openSync = (p, ...rest) => { const fd = realOpen(p, ...rest); opened.set(fd, String(p)); return fd; };
+  fs.fsyncSync = (fd) => { synced.add(opened.get(fd)); return realSync(fd); };
+  fs.renameSync = (from, to) => { order.push([String(from), synced.has(String(from))]); return realRename(from, to); };
+  try {
+    agentPost('fsy', { topic: 'f', body: 'g' });
+    await cs.sweep();
+  } finally { fs.openSync = realOpen; fs.fsyncSync = realSync; fs.renameSync = realRename; }
+  const mine = order.filter(([from]) => from.startsWith(path.dirname(cs._paths.stateFile())));
+  assert.ok(mine.length >= 2, `control: the sweep saved records (${mine.length} renames)`);
+  for (const [from, wasSynced] of mine) assert.equal(wasSynced, true, `${path.basename(from)} was renamed before it was flushed`);
+});
+
 test('a post whose send answer was lost, then deleted by the owner, is found on the server and deleted there', async () => {
   await on();
   const r = agentPost('xia', { topic: 'lost', body: 'answer lost' });

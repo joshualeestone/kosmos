@@ -116,3 +116,10 @@
 - FIXED: server.restartnote-5359.test.js loads tmpscope, so its temp folders are removed.
 - Left: a board started outside launchd can write board-alive.json back after uninstall's rm (uninstall stops only
   the launchd job); the same is true of the folder's other residue.
+
+## Full validation at 2384b039d
+- FULL browser checks PASSED at 2384b039d (all page checks passed, 03:19).
+- The Mortals full suite FAILED on one source pin: server.preview-sweep-5254.test.js wants filepreview.sweep() within
+  400 characters of `function start(port = PORT) {`, and the restart-note block at the top of start() pushed it out.
+  The block now sits just below the file-preview sweep lines (the two are independent); both start() pin files and the
+  restart-note tests green. Only server.js moved; the browser checks' pages are unaffected.

@@ -202,10 +202,15 @@ test('reauth is offered on subscription rows (Claude AND OpenAI chatgpt), never 
      remove-and-re-add). A Claude subscription row (apiKey present-and-false) still gets it. */
   const claudeAt = row.indexOf('data-reauth="');
   assert.ok(claudeAt > -1, 'the Claude reauth button is gone');
-  const claudeBit = row.slice(claudeAt - 300, claudeAt + 200);
-  assert.match(claudeBit, /a\.apiKey \? ''/, 'the Claude reauth is not withheld from api-key rows');
-  assert.doesNotMatch(claudeBit, /connection/,
-    'the Claude reauth is gated on connection state, which hides the very #874 case');
+  /* #5407: the button is built once (reauthBtn) and drawn in ONE of two places: first and gold when the login needs
+     signing in again soon (signInFirst), else the plain link in its usual place. Connection state may MOVE it, never
+     remove it: the two arms are exact complements, so every Claude subscription row has exactly one (the browser
+     check render-refreshlogin-5407 counts it). Still withheld from api-key rows, in both arms. */
+  assert.match(row, /const claudeSignIn = !isKeyed && !a\.apiKey;/, 'the Claude reauth is not withheld from api-key rows');
+  assert.match(row, /const signInFirst = claudeSignIn && \(/, 'the main arm is not limited to Claude subscription rows');
+  assert.match(row, /\(signInFirst \? reauthBtn\(true\) : ''\)/, 'the main arm is gone');
+  assert.match(row, /\(a\.apiKey \|\| signInFirst \? '' : reauthBtn\(false\)\)/,
+    'the plain arm is not the exact complement of the main arm, so connection state could hide the #874 remedy');
   assert.match(row, /data-reauth="' \+ esc\(a\.dir\)/, 'the Claude reauth button does not carry the account it means');
 
   /* #2584 gave the OpenAI ChatGPT-subscription row a real reauth-in-place, so it now

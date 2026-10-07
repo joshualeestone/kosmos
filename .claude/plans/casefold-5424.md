@@ -1,0 +1,46 @@
+# #5424: on a case-sensitive disk the new-project preview names one folder and Kosmos makes another
+
+**Branch:** `casefold-5424` · **Card:** kosmos#5424 (found by the #4919 Linux lane)
+
+## The defect, reproduced on this Mac
+
+`trueChildName` adopted the one case-insensitive match in the listing without asking whether the typed
+name really opens it. A case-sensitive APFS image mounted in scratch reproduced it with main's code:
+preview `Lease` (exists: true), makeFolder made `lease`, both now on disk. On this Mac's own
+case-insensitive disk both say `Lease`, which is why no Mac run saw it.
+
+## The fix
+
+`trueChildName` returns an exact entry when the listing has one, and adopts another spelling only when a
+stat of the typed name succeeds (a case-insensitive disk opening the same folder). Probe after the fix:
+case-sensitive image: preview `lease`, exists false, made `lease`; this Mac's disk: `Lease` throughout.
+
+Two tests carried the case-insensitive assumption (`exists: true` for `lease` beside `Lease`): the engine test
+in engine/projects.test.js and its route twin in server.projects.test.js (found by blind review 1). Both now ask
+the disk before the act whether `lease` opens `Lease`, and require the preview's `exists` and the made
+folder's name to match that answer.
+
+## Decided, not missed
+
+- No committed test mounts a case-sensitive image: hdiutil is Mac-only and a mount left behind by a killed
+  run is worse than the gap. The Linux lane runs both tests on a case-sensitive disk; the engine test was
+  red there before this change (card #5424, run 37531000100).
+- On this Mac's own disk the two volume-portable tests pass with or without the fix (measured by hand: with
+  TMPDIR on a case-sensitive APFS image, both fail against main's engine and pass with the fix). So a third
+  test, `#5424 on a case-sensitive disk...`, makes the projects folder answer as a case-sensitive disk does
+  (stubbed `fs.readdirSync`, `fs.statSync` and `fs.mkdirSync` for that one folder), and runs on every machine.
+  It fails against main's engine on this Mac and passes with the fix (blind review 3 asked for a guard that
+  does not depend on #4919 merging).
+- Not changed, and not new: a name stored in NFD (common on macOS) and typed in NFC opens the same folder,
+  but the lower-case comparison does not match the two forms, so the typed spelling is kept. Preview and
+  act still agree (both use the same stat), which is this card's property; normalising is its own change.
+- Not changed here: three other tests in engine/projects.test.js (`"Lease" and "lease" are ONE project...`,
+  `an adopted folder is stored under the spelling...`, `the same folder reached by two spellings of a MIDDLE
+  segment...`) assume a case-insensitive disk by their own names. #4919 (merged since this branch began) skips them
+  off case-insensitive disks with its `caseInsensitiveFS()` probe, which is right for what they test.
+- Rebased onto main after #4919 merged (2026-10-06 20:3x). #4919 had rewritten the engine case test to compare
+  `exists` with its own probe and skipped the route test off case-insensitive disks. The engine test keeps this
+  branch's version (it asks the disk whether `lease` opens `Lease`, and also checks the made folder's name), and
+  the route test's skip is removed, since it is now right on either disk (its now-unused probe went with it).
+  Measured after the rebase on a case-sensitive APFS image: the engine, route and stubbed-fs tests all ran (none
+  skipped) and passed.

@@ -307,3 +307,19 @@ test('severityFor thresholds', () => {
   assert.equal(le.severityFor(1), 'urgent');
   assert.equal(le.severityFor(0), 'urgent');
 });
+
+/* #5407: one count of days left, shared by the notice and Settings > AI Models. */
+test('#5407: daysLeftInWindow counts the way the notice does, and only inside its window', () => {
+  const le = require('./loginexpiry');
+  const now = 1_000_000_000_000;
+  assert.equal(le.daysLeftInWindow(now + 2 * le.DAY_MS + 1000, now), 2);
+  assert.equal(le.daysLeftInWindow(now + 1000, now), 0, 'later today is 0');
+  assert.equal(le.daysLeftInWindow(now + le.WARN_WITHIN_DAYS * le.DAY_MS + 1000, now), le.WARN_WITHIN_DAYS, 'the window\'s last day is in');
+  assert.equal(le.daysLeftInWindow(now + (le.WARN_WITHIN_DAYS + 1) * le.DAY_MS + 1000, now), null, 'CONTROL: a day past the window is out');
+  assert.equal(le.daysLeftInWindow(null, now), null);
+  assert.equal(le.daysLeftInWindow(NaN, now), null);
+  // The notice's own advisory for the same login says the same number.
+  const adv = le.advisoriesFor({ accounts: [{ ccd: '/x', agents: ['a'] }], now,
+    readCred: () => JSON.stringify({ claudeAiOauth: { refreshTokenExpiresAt: now + 3 * le.DAY_MS + 5 } }) });
+  assert.equal(adv[0].daysLeft, le.daysLeftInWindow(now + 3 * le.DAY_MS + 5, now));
+});

@@ -1228,7 +1228,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
      needed here, unlike the post path. */
   const cleaned = chat.cleanMessage(text);
   const sameMsg = recentSameSend(log, at, (r) => r.kind === 'message' && r.from === from && r.to === toName && r.text === cleaned && (r.in_reply_to || null) === replyTo);
-  if (sameMsg && quietSince(log, sameMsg, (r) => r.kind === 'message' && ((r.from === toName && r.to === from) || (r.from === from && r.to === toName)))) return { state: sameMsg.state, because: sameMsg.state === chat.DELIVERY.UNCONFIRMED ? FOLDED_UNCONFIRMED : null, id: sameMsg.id, at: sameMsg.at, duplicate: true };
+  if (sameMsg && quietSince(log, sameMsg, (r) => r.kind === 'message' && ((r.from === toName && r.to === from) || (r.from === from && r.to === toName)))) return { state: sameMsg.state, because: sameMsg.state === chat.DELIVERY.UNCONFIRMED ? FOLDED_UNCONFIRMED : null, id: sameMsg.id, at: sameMsg.at, duplicate: true, ...(sameMsg.queued === true ? { queued: true } : {}) };
   const msgKey = sendKey('message', from, toName + '\u0000' + (replyTo || ''), cleaned);
   // Only the async path waits on an in-flight twin: a synchronous caller (send) expects a receipt, not a promise.
   const msgTwin = deliverToPane !== chat.deliver ? inFlightTwin(msgKey) : null;
@@ -1315,8 +1315,9 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
      on the side of "this may have been read"). The five
      fields are the screens' contract; kind and state ride along so a
      conversation view can mark the unconfirmed case honestly. */
-    appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, at, state: sent.state });
-    return { state: sent.state, because: sent.because || null, id, at };
+    const isQueued = sent.queued === true;
+    appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, at, state: sent.state, ...(isQueued ? { queued: true } : {}) });
+    return { state: sent.state, ...(isQueued ? { queued: true } : {}), ...(sent.paneNote ? { paneNote: sent.paneNote } : {}), because: sent.because || null, id, at };
   };
   const sent = deliverToPane(toName, envelope, roster);
   return sent && typeof sent.then === 'function' ? trackInFlight(msgKey, sent.then(finish)) : finish(sent);

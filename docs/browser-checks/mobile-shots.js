@@ -282,6 +282,32 @@ const SCREENS = [
     await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
     await page.evaluate(() => { const r = document.querySelector('#pj-room'); if (r) r.scrollIntoView({ block: 'start' }); });
   } },
+  /* kosmos#5391 (Mona Lisa): the project page header with Pause / Resume, and a paused project (header, Paused line,
+     and the list card's badge). Paused through the page's own call, as the header button makes it, then reloaded. */
+  { name: 'project-head', owner: 'Mona Lisa', go: async (page, data) => {
+    // Not paused, whatever an earlier pass of project-paused left (the board lives across themes and sizes).
+    await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: false }) }), data.projectId);
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForFunction(() => { const b = document.querySelector('#pj-head-pause'); return b && !b.hidden && /Pause/.test(b.textContent); }, null, { timeout: 8000 });
+  } },
+  { name: 'project-paused', owner: 'Mona Lisa', go: async (page, data) => {
+    await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: true }) }), data.projectId);
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-paused', { state: 'visible', timeout: 8000 });
+  }, after: async (page, data) => {   // review 1: put the project back, so no later screen shoots it paused
+    const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: false }) }).then((r) => r.status), data.projectId);
+    if (st !== 200) throw new Error('could not unpause the project after the shot (' + st + ')');
+  } },
+  { name: 'projects-paused', owner: 'Mona Lisa', go: async (page, data) => {
+    await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: true }) }), data.projectId);
+    await openTab(page, 'projects');
+    await page.waitForSelector(`#pj-list .pj-row[data-project="${data.projectId}"] .pjpill.paused`, { timeout: 8000 });
+  }, after: async (page, data) => {   // review 1: put the project back, so no later screen shoots it paused
+    const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: false }) }).then((r) => r.status), data.projectId);
+    if (st !== 200) throw new Error('could not unpause the project after the shot (' + st + ')');
+  } },
   { name: 'ask-waiting', owner: 'Kano', go: async (page, data) => {
     // The board re-renders cards on its tick, so scroll inside the page.
     await page.waitForSelector(`.acard[data-agent="${data.askAgent}"]`, { timeout: 5000 });
@@ -411,6 +437,33 @@ const SCREENS = [
   { name: 'settings-accounts', owner: 'Sonya', go: async (page) => {
     await at(page, '?tab=settings&sec=accounts');
     await page.waitForSelector('#s-sec-accounts', { state: 'visible', timeout: 5000 });
+  } },
+  /* #5407: AI Models with a login inside the notice's window (warning edge, its line, Sign in again as the gold main
+     action), an ended one, and a good one (green, the control), as the server sends them; only the account list is
+     stubbed, with example.com accounts. */
+  { name: 'settings-accounts-expiring', owner: 'Renet Tilley', go: async (page) => {
+    const DAY = 86400000;
+    const row = (email, dir, conn) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', email, label: email, dir,
+      organization: null, isDefault: false, keyTail: null, memoryShared: true, offerable: true, apiKey: false,
+      connection: { state: 'connected', badge: 'working', checkedLive: true, plan: null, ...conn } });
+    const accounts = [
+      row('soon@example.com', '/home/.claude-soon', { observedFrom: 'agent', observedAgeMs: 30000, loginExpiresInDays: 2, loginExpiresAt: Date.now() + 2 * DAY + 3600000 }),
+      row('ended@example.com', '/home/.claude-ended', { badge: 'signed_in_unverified', loginEnded: true }),
+      row('fine@example.com', '/home/.claude-fine', { observedFrom: 'login', loginValidUntil: Date.now() + 20 * DAY }),
+    ];
+    await page.route((u) => new URL(u).pathname === '/api/accounts', (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ accounts }) }));
+    await at(page, '?tab=settings&sec=accounts');
+    await page.waitForSelector('#set-accounts .acct-box.acct-expiring', { state: 'visible', timeout: 12000 });
+    if (page.__landOnSoon) {   // settings-accounts-landed: arrive the way Refresh login does, ringing that row
+      await page.evaluate(() => loginAdvGo('/home/.claude-soon'));
+      await page.waitForSelector('#set-accounts .acct-box.acct-land', { state: 'visible', timeout: 5000 });
+    }
+  } },
+  /* #5407 (Mona Lisa asked for one shot of it): the same list, arrived at from the notice's Refresh login. */
+  { name: 'settings-accounts-landed', owner: 'Renet Tilley', go: async (page, data) => {
+    page.__landOnSoon = true;
+    await SCREENS.find((s) => s.name === 'settings-accounts-expiring').go(page, data);
   } },
   /* #4545: Settings > Automation with the Recommender ON, so its guards list shows, scrolled to
      that box. Turning it on is stored on this run's throwaway board (so asking twice is fine).

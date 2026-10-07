@@ -1240,6 +1240,7 @@ function connectionsHeld() {
 
 const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
+const instructionadds = require('./engine/instructionadds'); // #5293: an agent proposes an addition, the person applies it
 const personalinstr = require('./engine/personalinstr'); // #4446: a personal instructions file the agent's CLI also loads
 const projects = require('./engine/projects');
 const autoretell = require('./engine/autoretell');
@@ -4301,7 +4302,9 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
    givePart, so the parts valve and the paging allowance apply. The part route (.../part/<m>/who) stays out. */
 /* #5300: `kosmos project role` (POST .../role) joins: its handler names the caller (processCaller), sets that member's
    own role here only, and refuses an agent that is not on the project (projects.setRoleHere). */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
+/* #5293 review 1: POST /api/agent/<name>/instruction-add joins: it only HOLDS a proposal the person applies on the page,
+   and its handler names the caller with resolveAgentSender, header token first. */
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/agent\/[^/]+\/instruction-add$/, /^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a pane row (`paneless`, on the result or its card): the
@@ -8242,9 +8245,31 @@ const server = http.createServer(async (req, res) => {
     const name = decodeSegment(prov[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     readBody(req)
-      .then((raw) => {
+      .then(async (raw) => {
         let body = null;
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        /* kosmos#5429 (Josh, 2026-10-06): a switch can carry the MODEL too, so provider, account and model change in ONE
+           restart (it used to start on the default model, and picking the model was a second restart). Checked BEFORE
+           anything is written, so a refused model leaves the agent as it was: Claude against create.js's MODELS; OpenAI
+           against the chosen account's runnable list, as the model route does (fail open when it cannot be read, #1916).
+           Empty or absent: no model is set, exactly as before (the target's own default). */
+        const wantModel = body && typeof body.model === 'string' ? body.model.trim() : '';
+        if (wantModel) {
+          const target = body && body.provider;
+          if (target === 'anthropic') {
+            const m = create.MODELS.find((x) => x.key === wantModel && x.provider === 'anthropic');
+            if (!m) { sendJson(res, 400, { outcome: 'refused', because: `${wantModel} is not a Claude model we can start, so nothing was changed` }); return; }
+          } else if (target === 'openai') {
+            const dir = (body && typeof body.account === 'string' && body.account) || openaiAccounts.defaultDir();
+            try {
+              const allowed = openaiAccounts.runnableAllowlist(await openaiAccounts.accountModels(dir));
+              if (allowed && !allowed.includes(wantModel)) { sendJson(res, 400, { outcome: 'refused', because: `${wantModel} is not a model that account can run, so nothing was changed; pick one from the list` }); return; }
+            } catch { /* not checkable: fail open, setModel bounds the id (#1916) */ }
+          } else {
+            sendJson(res, 400, { outcome: 'refused', because: 'that provider picks its own model, so one cannot be chosen with the switch; nothing was changed' });
+            return;
+          }
+        }
         /* #1373: the account the person picked rides through. Absent, the
            engine states a default and names it, exactly as before. */
         const wrote = create.setProvider(name, body && body.provider, {
@@ -8259,6 +8284,14 @@ const server = http.createServer(async (req, res) => {
         if (wrote.outcome === create.OUTCOME.REFUSED) {
           sendJson(res, 400, { outcome: 'refused', because: wrote.because });
           return;
+        }
+        /* #5429: the model, written to the job the switch just wrote, BEFORE the one restart. */
+        let pickedModel = null;
+        let modelMiss = '';
+        if (wantModel) {
+          const m = create.setModel(name, wantModel);
+          if (m.outcome === create.OUTCOME.REFUSED) modelMiss = m.because || 'the model could not be set';
+          else pickedModel = m.model || null;
         }
         let back;
         try { back = removal.restart(name, 'provider'); }
@@ -8281,11 +8314,17 @@ const server = http.createServer(async (req, res) => {
            "previous" rather than "Claude" because the old provider need not be claude. */
         /* #5091: a switch to Claude can now carry a picked Claude account; then only the model default is said here
            (the account is named by landedOn), and "your main Claude account" stays for a switch nobody picked for. */
+        /* #5429: a model picked with the switch is named; only an unpicked one is the default. */
+        const claudeModelWords = pickedModel && pickedModel.label ? 'it starts on ' + pickedModel.label : 'it starts on Claude’s own default model until you change it';
         const dropped = wrote.provider === 'anthropic'
-          ? [wrote.account ? 'it starts on Claude’s own default model until you change it'
-            : 'it starts on your main Claude account and Claude’s own default model until you change them']
-          : [wrote.dropped.model ? `its previous model choice does not cross (${label} picks its own)` : '',
+          ? [wrote.account ? claudeModelWords
+            : (pickedModel && pickedModel.label ? 'it starts on your main Claude account and ' + pickedModel.label : 'it starts on your main Claude account and Claude’s own default model until you change them')]
+          : [pickedModel && pickedModel.label ? 'it starts on ' + pickedModel.label   // #5429: picked with the switch
+            : wrote.dropped.model ? `its previous model choice does not cross (${label} picks its own)` : '',
             wrote.dropped.account ? 'and it leaves its previous account behind' : ''];
+        /* #5429: a model that could not be set after the switch was written (checked first, so this is rare): said, and
+           the agent starts on the default. */
+        const modelMissWords = modelMiss ? ` The model you picked could not be set (${modelMiss}), so it starts on the default; change it on this card.` : '';
         const droppedWords = dropped.filter(Boolean).join(' ');
         /* WHICH OpenAI sign-in it landed on (#1211). Josh switched an agent,
            read "API key ending WWUA" elsewhere on the screen, and could not
@@ -8374,7 +8413,8 @@ const server = http.createServer(async (req, res) => {
             outcome: 'partial',
             provider: wrote.provider,
             restarted: ok,   // #5091: the page repaints Runs on from this, not from a sentence
-            because: wrote.because + ' ' + (ok ? 'It is starting again now.' : `It could not start again yet: ${back.because} It is still running as before until it restarts.`),
+            ...(pickedModel ? { model: pickedModel } : {}),   // #5429 review 2: the model was still written; say so
+            because: wrote.because + (pickedModel && pickedModel.label ? ' It runs on ' + pickedModel.label + '.' : '') + modelMissWords + ' ' + (ok ? 'It is starting again now.' : `It could not start again yet: ${back.because} It is still running as before until it restarts.`),
             steps: back.steps || [],
           });
           return;
@@ -8382,6 +8422,7 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, {
           outcome: ok ? 'changed' : 'partial',
           provider: wrote.provider,
+          ...(pickedModel ? { model: pickedModel } : {}),   // #5429: what Runs on can say it moved to
           /* #5145: the dir of the account the switch landed on (the same `acct` the sentence names), resolved so it
              compares with the listed rows. Null when the engine named none (a Claude switch with no account sent,
              Antigravity, a dry-run). The engine-partial answer above sends none; the restart-failed partial here
@@ -8394,6 +8435,7 @@ const server = http.createServer(async (req, res) => {
               + 'It is starting again now, and it will look idle until you say something to it.'
               + landedOn
               + signInNote
+              + modelMissWords
             : `We saved the switch to ${label}, but could not start it again: ${back.because} `
               + 'It is still running as before until it restarts.'
               /* ⚠️ FUTURE TENSE HERE, NOT `landedOn`'S PRESENT. The plist already
@@ -9950,6 +9992,20 @@ const server = http.createServer(async (req, res) => {
             connection: { ...(a.connection || {}), badge: loginGreen ? 'working' : v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
               ...(obs && v.observedAt != null ? { observedFrom: obs === checkObs ? 'check' : 'agent' } : {}),   // a stale one decided nothing (#4139 follow-up)
               ...(loginOk ? { loginValidUntil: loginArgs.until } : {}),
+              /* #5407: the login notice's window, from the login date alone (review 1: NOT from loginOk, which needs an
+                 idle row, so an account whose agents were working, the very one the notice is about, never got it).
+                 Not over a rejection or a sign-out, which say more already. Inside the window: loginExpiresInDays (and
+                 the date, for the title). Past its date: loginEnded, unless loginStopsAt (below) says the agents still
+                 work for a while, which the row says instead. */
+              ...((() => {
+                const until = loginUntil.get(a);
+                if (!Number.isFinite(until) || v.badge === 'rejected' || v.badge === 'signed_out') return {};
+                const d = require('./engine/loginexpiry').daysLeftInWindow(until, nowMs);
+                if (d === null) return {};
+                if (until > nowMs) return { loginExpiresInDays: Math.max(0, d), loginExpiresAt: until };
+                // Review 4: never beside loginStopsAt (agents still working until then say that instead).
+                return claudeloginlive.worksUntil(a, nowMs) ? {} : { loginEnded: true };
+              })()),
               ...(loginGreen ? { observedFrom: 'login' } : {}),
               /* #5168: the login has ended but its agents still work on the access token they hold, until this time.
                  Not over a rejection or a sign-out, which say more than this does. worksUntil reads ONLY the cache that
@@ -16429,6 +16485,50 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* kosmos#5293: an agent PROPOSES an addition to another agent's instructions; the PERSON applies it on that agent's
+     page. The propose route is an agent's (it names the asker the way /api/msg names a sender: the agent token, else
+     the caller's pane, never a name the caller types). Apply, Dismiss and Undo are the person's: they refuse an agent
+     token and want a browser's headers (isViaScreen, the check community release uses). As there, a speed bump, not
+     a wall, until #4491 keeps the board token out of agents' reach. One pending per target: a second is refused. */
+  const instrAdd = pathname.match(/^\/api\/agent\/([^/]+)\/instruction-add(?:\/(apply|dismiss|undo))?$/);
+  if (instrAdd) {
+    const asked = decodeSegment(instrAdd[1]);
+    const act = instrAdd[2] || null;
+    if (asked === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    if (!knownAgent(asked)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
+    /* Review 1 (BLOCKER): resolve the spelling to the ONE agent and key everything by its session name, which is what
+       the page reads by. A case or punctuation variant the gate accepts was stored apart: shown nowhere, and a second
+       "one pending" beside the first. */
+    const card = claimantFor(asked);
+    if (!card || typeof card.sessionName !== 'string' || !card.sessionName) { sendJson(res, 404, { error: 'no agent by that name' }); return; }   // review 2: never the raw spelling
+    const name = card.sessionName;
+    if (!act && (req.method === 'GET' || req.method === 'HEAD')) {
+      try { sendJson(res, 200, instructionadds.state(name)); } catch { sendJson(res, 500, { error: 'the waiting addition could not be read' }); }
+      return;
+    }
+    if (req.method !== 'POST') { sendJson(res, 405, { error: 'that is not something this route does' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = null; }
+        if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'send it as JSON, like {"text": "..."}' }); return; }
+        if (!act) {
+          const roster = safeRoster();
+          if (roster === null) { sendJson(res, 200, { ok: false, because: 'we could not check which agents are running, so nothing was held' }); return; }
+          const who = resolveAgentSender(req, body, roster);
+          if (!who || !who.ok) { sendJson(res, 200, { ok: false, because: (who && who.because) || 'we could not tell which agent is asking' }); return; }
+          const askedBy = (who.card && (who.card.name || who.card.sessionName)) || '';
+          sendJson(res, 200, instructionadds.propose(name, body.text, askedBy));
+          return;
+        }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can do this, from the agent’s page' }); return; }
+        const out = act === 'apply' ? instructionadds.apply(name) : act === 'dismiss' ? instructionadds.dismiss(name) : instructionadds.undo(name);
+        sendJson(res, out.ok ? 200 : 409, out);
+      })
+      .catch(() => { if (!res.headersSent) sendJson(res, 500, { error: 'that could not be done' }); });
+    return;
+  }
+
   if (instr && req.method === 'PUT') {
     const name = decodeSegment(instr[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
@@ -16747,8 +16847,8 @@ const server = http.createServer(async (req, res) => {
     try { asked = new URL(req.url, ROUTING_BASE).searchParams.get('name') || ''; } catch { asked = ''; }
     const problem = projects.folderNameProblem(asked);
     if (problem) { sendJson(res, 200, { path: null, problem }); return; }
-    // ⚠️ `folderPathPreview`, which does NOT create anything (it only lists
-    // the parent). Somebody typing into a name box must not leave a trail of
+    // ⚠️ `folderPathPreview`, which does NOT create anything (it lists the
+    // parent and stats the path). Somebody typing into a name box must not leave a trail of
     // empty directories behind them; the folder is made once, by `create`,
     // when they press the button. The preview carries makeFolder's own
     // case correction, so the path shown is the path the act produces.
@@ -20310,12 +20410,12 @@ function federateOut(projectId, delivery, operator) {
 
 function start(port = PORT) {
   snapshotWorlds();   // #5247: the worlds the gate may accept, as of now
-  /* #5359: read when this board was last alive BEFORE it says it is alive now, so a restart of the computer under a
-     running Kosmos is noticed; then say so once a minute. Best effort: a courtesy, never a reason not to start. */
-  try { const rn = require('./engine/restartnote'); rn.atStart({ startedBy: BOARD_STARTED_BY, personMark: BOARD_PERSON_MARK }); rn.startBeating(); } catch { /* best effort */ }
   /* #5254: cached first pages whose PDF, project or agent is gone are removed now and hourly (engine/filepreview.js). */
   try { filepreview.sweep(); } catch { /* best effort */ }
   setInterval(() => { try { filepreview.sweep(); } catch { /* best effort */ } }, 60 * 60 * 1000).unref();
+  /* #5359: read when this board was last alive BEFORE it says it is alive now, so a restart of the computer under a
+     running Kosmos is noticed; then say so once a minute. Best effort: a courtesy, never a reason not to start. */
+  try { const rn = require('./engine/restartnote'); rn.atStart({ startedBy: BOARD_STARTED_BY, personMark: BOARD_PERSON_MARK }); rn.startBeating(); } catch { /* best effort */ }
   /* #4408: what this board is running, taken now, before anything can edit the app folder under it. The
      restart module is loaded first: it is otherwise required lazily, and the button depends on it. */
   try { require('./engine/boardrestart'); } catch { /* the restart route reports its own failure */ }

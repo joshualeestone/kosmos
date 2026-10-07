@@ -771,6 +771,7 @@ function recordRemoval(clean, job, stopped, shownAs, leftRunningByChoice) {
   /* #4006: and its disruption record, so a failed restart does not outlive the agent onto a new one of that name. */
   try { disruption.clear(clean); } catch { /* best-effort, like the revoke */ }
   try { require('./crashloop').forget(clean); } catch { /* #5154 review 1: a removed agent's runs go with it */ }
+  try { require('./instructionadds').forget(clean); } catch { /* #5293 review 1: and its waiting addition and Undo record */ }
   try { revoked = sendertoken.revoke(clean); } catch (e) { revoked = { ok: false, because: (e && e.message) || 'threw' }; }
   if (!revoked || revoked.ok !== true) {
     console.error('#2323: removed ' + clean + ' but could NOT revoke its sender token'
