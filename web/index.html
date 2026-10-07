@@ -15402,7 +15402,9 @@ window.kosmosMeasureScrollbarWidth();
           <button class="btn uprime" type="button" id="team-seeded-go" disabled>Create this team</button>
         </div>
       </div>
-      <p class="rolelimit" id="team-seeded-msg" role="status" aria-live="polite" hidden></p>
+      <!-- #5444 (Mona Lisa, 0.7.26 design pass): a plain line, not .rolelimit's bordered box, which read as a field to type in
+           ("Ready-made teams are coming soon."). The gold Upload an org chart is the one thing to do here. -->
+      <p class="dhint" id="team-seeded-msg" role="status" aria-live="polite" style="margin:18px 0 0;" hidden></p>
     </div>
     <p class="rolelimit" id="team-orgchart-msg" role="status" aria-live="polite" hidden></p>
     <div class="nak-team-opt" id="team-orgchart-opt" hidden>
