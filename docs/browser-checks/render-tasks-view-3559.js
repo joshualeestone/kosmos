@@ -99,7 +99,7 @@ function chk(ok, label, extra) {
   const old = projects.create({ name: 'Old catalog' });
   tasks.create(old.id, { sentence: 'Archived away task' });
   projects.setArchived(old.id, true);
-  const EXPECT = { decision: 1, working: 1, assigned: 2, nobody: 2, built: 1, held: 1, closed: 1 };
+  const EXPECT = { decision: 1, working: 1, assigned: 2, nobody: 2, built: 1, scheduled: 0, held: 1, closed: 1 };   // #5456: no repeating task here (render-onhold-4771 counts one)
 
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
@@ -793,7 +793,7 @@ function chk(ok, label, extra) {
         });
         const hs = new Set(c2.map((x) => x.h));
         const dec = c2.find((x) => x.k === 'decision');
-        chk(c2.length === 7 && c2.every((x) => x.badgeFirst && x.badge && x.badge[0] === 36 && x.badge[1] === 36 && x.round === '50%'
+        chk(c2.length === 8 && c2.every((x) => x.badgeFirst && x.badge && x.badge[0] === 36 && x.badge[1] === 36 && x.round === '50%'
             && x.icon && x.icon[0] === 19 && x.icon[1] === 19 && x.paths >= 2 && x.hidden === 'true' && x.tinted
             && x.pad === '16px 16px 15px' && x.h >= 108 && x.gap === 10) && hs.size === 1,
           `${tag} each tile has its 36px tinted badge with a 19px icon before the number, 16px padding, a 10px gap and one shared height (#4053)`, JSON.stringify(c2));
