@@ -163,7 +163,7 @@ function masked(name, worldId) {
    is a sentence of its own. "it is masked", not "you masked it": a package or an administrator can mask a unit too
    (review 6). Quoted: a named Kosmos's unit name carries a \x2b escape, which an unquoted shell word loses (review 2).
    Unmasking removes the link and leaves no unit file, so the agent is set up again afterwards (review 2). */
-function maskedFact() { return 'it is masked in systemd, so it does not start'; }
+function maskedFact(subject) { return `${subject || 'it'} is masked in systemd, so it does not start`; }   // subject: review 9
 function maskedRemedy(name, worldId) {
   return `To undo that, run systemctl --user unmask '${unitName(name, worldId)}' and then set the agent up again in Kosmos (unmasking leaves it with no unit to start).`;
 }

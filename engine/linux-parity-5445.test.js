@@ -59,6 +59,7 @@ test('#5445 the created roster lists a stopped Linux agent from its unit, and on
   unit('linus', myWorld());
   unit('other', 'elsewhere');                                   // another Kosmos's agent
   fs.mkdirSync(create.workerDir('linus'), { recursive: true });
+  fs.mkdirSync(create.workerDir('other'), { recursive: true });   // review 9: with a folder, so only the world filter drops it
   const harness = (platform) => createdroster.make({
     platform,
     remove: { removedNames: () => ({ ok: true, names: [] }) },
@@ -68,6 +69,16 @@ test('#5445 the created roster lists a stopped Linux agent from its unit, and on
     create: Object.assign(Object.create(create), { readJob: (n) => create.readJob(n, undefined, platform) }),
   });
   assert.deepEqual(harness('linux')(), ['linus']);
+  // Review 9: the world filter alone drops another Kosmos's agent. A readJob that answers for ANY name (a job read for
+  // this world would also drop it, so it could hide a missing filter) and both folders present: only the filter is left.
+  const anyJob = createdroster.make({
+    platform: 'linux',
+    remove: { removedNames: () => ({ ok: true, names: [] }) },
+    status: { sandboxIsInconsistent: () => false },
+    store: { safeKey: (n) => String(n).toLowerCase() },
+    create: Object.assign(Object.create(create), { readJob: () => ({ runner: 'claude' }) }),
+  });
+  assert.deepEqual(anyJob(), ['linus'], 'another Kosmos\'s unit is not on this board');
   // CONTROL: the Mac arm reads the LaunchAgents folder, not the units: a plist for another agent is listed there, the
   // unit's agent is not (and the plist's agent is not listed on Linux, above).
   fs.mkdirSync(create.workerDir('macbot'), { recursive: true });
@@ -291,7 +302,7 @@ test('#5445 the folder-trust step says a masked agent is masked, not that it has
   fs.symlinkSync('/dev/null', linuxjob.unitPath('trustmask'));
   const r = create.trustAgentFolder('trustmask', { platform: 'linux' });
   assert.equal(r.wrote, false);
-  assert.match(r.because, /^we did not write the folder trust because it is masked in systemd, so it does not start\. To undo that, run systemctl --user unmask '[^']+' and then set the agent up again in Kosmos/, 'the reason comes first: ' + r.because);
+  assert.match(r.because, /^we did not write the folder trust because this agent's startup unit is masked in systemd, so it does not start\. To undo that, run systemctl --user unmask '[^']+' and then set the agent up again in Kosmos/, 'the reason comes first: ' + r.because);
   assert.doesNotMatch(r.because, /no Kosmos launch job/);
   fs.rmSync(linuxjob.unitPath('trustmask'));
   // CONTROL: with no unit at all it is still "no launch job".
