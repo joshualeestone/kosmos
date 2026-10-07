@@ -113,6 +113,14 @@ const CODEX_OUT_OF_CREDITS = [
     chk(curBox === null, '#5091: and they take no space on screen', JSON.stringify(curBox));
 
     await page.selectOption('#d-provider-account', ACCOUNTS[1].dir);
+    /* kosmos#5429 (Josh, 2026-10-06): the switch picks the model in the same step. The Claude list shows beside the
+       account, on Claude's default (the create form's); a model picked here is named in the dialog and sent with the
+       switch, so it is one restart. */
+    await page.waitForFunction(() => { const m = document.getElementById('d-provider-model'); return m && !m.hidden && m.options.length > 1; }, null, { timeout: 8000 }).catch(() => {});
+    const mdl = await page.evaluate(() => { const m = document.getElementById('d-provider-model'); return { hidden: m.hidden, sel: m.value, keys: [...m.options].map((o) => o.value), def: (CREATE_MODELS.find((x) => x.default) || {}).key }; });
+    chk(!mdl.hidden && mdl.keys.includes('opus55') && mdl.sel === mdl.def && !!mdl.def,
+      '#5429: switching to Claude shows its models beside the account, on the default', JSON.stringify(mdl));
+    await page.selectOption('#d-provider-model', 'opus55');
     // Round 4: the open agent carries its OLD model's name, as a real Codex agent does; the switch must not keep it.
     await page.evaluate(() => { CURRENT.modelName = 'GPT 5.6 Sol'; CURRENT.plannedModelName = 'GPT 5.6 Sol'; });
     await page.click('#d-provider-go');
@@ -120,10 +128,12 @@ const CODEX_OUT_OF_CREDITS = [
     const said = await page.$eval('#chg-small', (e) => e.textContent);
     chk(/b@example\.com/.test(said) && !/your main Claude account/.test(said),
       '#5091: the confirm dialog names the picked Claude account, not "your main Claude account"', said.slice(-160));
+    chk(/on Claude Opus 5\.5\./.test(said) && !/default model/.test(said), '#5429: and the model picked with it, never "the default model"', said.slice(-160));
     await page.click('#chg-go');
     for (let i = 0; i < 40 && !posted; i++) await page.waitForTimeout(150);
     chk(!!posted && posted.provider === 'anthropic' && posted.account === ACCOUNTS[1].dir && posted.picked === true,
       '#5091: Switch & Restart sends the Claude account the person picked, as a pick', JSON.stringify(posted));
+    chk(!!posted && posted.model === 'opus55', '#5429: and the model, in the same request (one restart)', JSON.stringify(posted));
     // Round 1: after the switch, the menu is reset ('') and the rows must come back, not stay hidden.
     await page.waitForTimeout(1500);
     const after = await page.evaluate(() => { const c = document.getElementById('d-current-rows'); return { current: !!c && !c.hidden, menu: document.getElementById('d-provider').value }; });

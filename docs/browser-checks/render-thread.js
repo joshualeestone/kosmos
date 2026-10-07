@@ -754,6 +754,47 @@ async function main() {
     check(overflow.screen === true,
       'the terminal box scrolls its own content sideways, rather than stretching the page');
 
+    /* ── 3b. #5257: a Windows agent has NO screen, and the block says so ─── */
+    /* #5249 (#5223) made the project page's screen block say "No screen to show" and state the engine's reason as a
+       sentence, without the "We cannot see its screen right now." lead, when the thread's viewport carries
+       `noWindow: true`. Its arm in render-projects.js could not fetch a thread in that fixture and was dropped; this
+       fixture drives a real thread, so the engine's answer is patched into the real response here (everything else is
+       the route's). */
+    {
+      const NOWIN = 'on Windows an agent runs without a window, so there is no screen to show here; its replies are in your messages with it';
+      let patched = 0;
+      const THREAD = '**/api/project/*/thread/*';
+      await page.route(THREAD, async (route) => {
+        if (route.request().method() !== 'GET') return route.continue();
+        const res = await route.fetch();
+        const body = await res.json();
+        body.viewport = { text: null, noWindow: true, because: NOWIN };
+        patched += 1;
+        await route.fulfill({ response: res, json: body });
+      });
+      const nw = await page.evaluate(async () => {
+        await loadThread();
+        return { label: document.getElementById('pj-screen-label').textContent,
+          hint: document.getElementById('pj-screen-hint').textContent,
+          screenHidden: document.getElementById('pj-screen').hidden };
+      });
+      await page.unroute(THREAD);
+      check(patched > 0, `#5257: the thread was really fetched and patched (${patched}), so the no-window arm measured something`);
+      check(nw.label === 'No screen to show', `#5257: a Windows agent's block is headed "No screen to show": "${nw.label}"`);
+      check(/^On Windows an agent runs without a window/.test(nw.hint), `#5257: it states the no-window fact as a sentence: "${nw.hint}"`);
+      check(!/right now/.test(nw.hint), `#5257: no "right now" lead over a lasting fact: "${nw.hint}"`);
+      check(/\.$/.test(nw.hint), `#5257: the sentence keeps its full stop: "${nw.hint}"`);
+      check(nw.screenHidden === true, '#5257: and no empty screen box is shown for it');
+      // CONTROL: unpatched, the next read paints the route's own answer, never the Windows wording.
+      const back = await page.evaluate(async () => {
+        await loadThread();
+        return { label: document.getElementById('pj-screen-label').textContent,
+          hint: document.getElementById('pj-screen-hint').textContent };
+      });
+      check(!/On Windows/.test(back.hint) && back.label !== 'No screen to show',
+        `#5257 CONTROL: unpatched, the Windows wording is gone ("${back.label}" / "${back.hint.slice(0, 60)}")`);
+    }
+
     /* ── 4. sending ─────────────────────────────────────────────────────── */
     // #3419: the body is PASTED (set-buffer chunks -> paste-buffer), then a
     // SEPARATE send-keys Enter submits it. So the shape is: one-or-more chunks

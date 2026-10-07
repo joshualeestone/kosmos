@@ -144,3 +144,21 @@ test('#5018: the email comes from the config file the agent reads: unset reads ~
   assert.equal(by('cleo').email, null, 'no record: no email, never a guess');
   assert.deepEqual(by('cleo').names, ['cleo'], 'no identity in the sandbox: the system name, never blank');
 });
+
+test('#5407: each advisory names its account row\'s folder only when that row reads the same login (review 5)', () => {
+  const now = 1_000_000_000_000;
+  const home = require('./accounts').homeDir();
+  const panes = [paneOf({ session: 'roo-discord', pane: '0.0' }), paneOf({ session: 'cleo-discord', pane: '0.1' }),
+    paneOf({ session: 'pixel-discord', pane: '0.2' }), paneOf({ session: 'ivy-discord', pane: '0.3' })];
+  const ccdByName = { roo: '/acct/one', cleo: null, pixel: '/acct/two/', ivy: nodePath.join(home, '.claude') };
+  const readCcd = (a) => ccdByName[a.name];
+  const readCred = () => JSON.stringify({ claudeAiOauth: { refreshTokenExpiresAt: now + 2 * DAY } });
+  const out = status.computeLoginAdvisories(panes, now, { readCcd, readCred, emailOf: () => null, cache: { at: 0, value: [] } });
+  const dirFor = (agent) => (out.find((a) => a.agents.includes(agent)) || {}).dir;
+  assert.equal(dirFor('roo'), '/acct/one', 'a labelled folder names its row');
+  assert.equal(dirFor('cleo'), nodePath.join(home, '.claude'), 'unset names the default row (the same spelling accounts.list gives)');
+  // The two that READ ANOTHER LOGIN than the row of that folder: no row is named, so nothing wrong is ringed or hidden.
+  assert.equal(dirFor('ivy'), null, 'an explicit ~/.claude reads its own keychain entry, not the default row\'s');
+  assert.equal(dirFor('pixel'), null, 'a trailing slash reads its own keychain entry, not the row\'s');
+  assert.notEqual(dirFor('ivy'), dirFor('cleo'), 'CONTROL: the two default spellings are told apart');
+});
