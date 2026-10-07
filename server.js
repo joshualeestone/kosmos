@@ -3798,7 +3798,9 @@ function withAgentSortFields(list, supplied) {
     try { births = create.createdLog(); } catch { births = null; }
     try { communityOn = communitysend.switchOn(); } catch { communityOn = false; }
     if (communityOn) {
-      try { communityTimes = communitystore.postTimesAll(); } catch { communityTimes = null; }
+      // #5314: PUBLISHED posts only (the card counts posts sent, not held/quarantined ones);
+      // the community nudge keeps postTimesAll (all statuses). See communitystore.
+      try { communityTimes = communitystore.publishedPostTimesAll(); } catch { communityTimes = null; }
     }
   }
   const at = (value) => { const n = Date.parse(value || ''); return Number.isFinite(n) ? n : null; };
