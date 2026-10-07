@@ -29,7 +29,7 @@ did not run, and the operator had to verify by hand while resisting a revert or 
 
 ## Rejected
 - Polling `vercel inspect`: another CLI call that can fail the same way, and "Ready" is not "served at the
-  edge". verify-served.sh measures what a user receives.
+  edge".
 - Parsing the error text: the CLI's wording is not a contract.
 - Retrying `vercel deploy`: a second production deploy of the same export, racing the first.
 
@@ -39,8 +39,8 @@ the cut fails as before, and its message tells the operator to measure before ac
 defaults trades a slower failure report on a real failure.
 
 ## Tests
-`tools/test-deploy-landed-5471.sh`, in test:shell, 25 checks:
-- the helper: passes on the 3rd check, never, at once; a count of 0, 00, empty or x3 refused
+`tools/test-deploy-landed-5471.sh`, in test:shell, 27 checks (counted from its output):
+- the helper: passes on the 3rd check, never, at once; a count of 0, 00, empty, x3 or 12345 refused
 - the own-build check: same sha, an earlier attempt's sha, nothing served, no local file; the URL it fetches
 - release.sh's real step-8 block (override check to DEPLOYED=1), cut out of the file and run with `vercel`
   and `curl` stubbed: served from the 2nd check continues to DEPLOYED=1 after exactly 2 fetches of HOST's
