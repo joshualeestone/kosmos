@@ -262,7 +262,10 @@ test('#5418: a sandbox variable aimed into the real LEGACY folder gets the throw
 
 test('#5418: asking about another platform never throws and never gets a throwaway (it cannot be this machine\'s root)', () => {
   const other = process.platform === 'win32' ? 'darwin' : 'win32';
-  const got = runJs('process.stdout.write(JSON.stringify({ r: s.resolveDataRoot(' + JSON.stringify(other) + ', require("node:os").userInfo().homedir, {}) }))', { NODE_TEST_CONTEXT: 'child-v8' });
+  // A home valid for the platform asked about (a Windows home is not an absolute macOS path, and dataRootFor
+  // refuses that on its own); off Windows the account's own home is used, as a real caller would.
+  const home = other === 'darwin' ? '/Users/' + path.basename(os.userInfo().homedir) : os.userInfo().homedir;
+  const got = runJs('process.stdout.write(JSON.stringify({ r: s.resolveDataRoot(' + JSON.stringify(other) + ', ' + JSON.stringify(home) + ', {}) }))', { NODE_TEST_CONTEXT: 'child-v8' });
   assert.ok(!got.r.includes(require('./store').TEST_HOME_PREFIX), got.r);
 });
 
