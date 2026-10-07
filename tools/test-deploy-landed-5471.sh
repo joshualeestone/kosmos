@@ -1,13 +1,11 @@
 #!/bin/bash
 # #5471: step 8 does not call a deploy failed while it is landing. `vercel deploy` exited
 # non-zero ("Error: fetch failed") on 0.7.26 and 0.7.27 after uploading everything, and both
-# went live a minute later. Step 8 now asks the served host (verify-served.sh) before failing.
+# went live a minute later.
 #
-# Two layers:
-#  - site_deploy_landed itself (tools/lib/site-deploy.sh): retries, gives up, stops on a pass.
-#  - release.sh's REAL step-8 block, cut out of the file (not a copy), run with `vercel` and
-#    verify-served.sh stubbed: a CLI failure that lands continues to DEPLOYED=1; one that never
-#    lands exits with the CLI's code and never reaches DEPLOYED=1; a CLI success never asks.
+# Covers site_deploy_landed, site_deploy_landed_args_ok and site_deploy_serves_this_build
+# (tools/lib/site-deploy.sh), and release.sh's step-8 block cut out of the file, run with `vercel`
+# and `curl` stubbed.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 REPO_ROOT="$PWD"
@@ -20,7 +18,6 @@ T="$(mktemp -d "${TMPDIR:-/tmp}/deploy-landed-5471.XXXXXX")"; trap 'rm -rf "$T"'
 cat > "$T/verify" <<'EOS'
 #!/bin/bash
 n=$(( $(cat "$COUNT" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$COUNT"
-echo "${KOSMOS_VERIFY_POINTER:-} ${KOSMOS_VERIFY_SETUP:-} ${HOST:-}" > "$COUNT.env"
 [ "$PASS_ON" != 0 ] && [ "$n" -ge "$PASS_ON" ]
 EOS
 chmod +x "$T/verify"
@@ -80,6 +77,8 @@ run_step8() {
     curl() { local a n; for a in "$@"; do :; done; printf '%s\n' "${a%%\?*}" >> "$T/curl.urls"; n=$(wc -l < "$T/curl.urls")
              [ "$n" -gt "$LATE" ] && [ -f "$T/served.sha256" ] && cat "$T/served.sha256" || return 22; }
     VERCEL_RC="$1"; vercel() { : > "$T/vercel.called"; return "$VERCEL_RC"; }
+    # and a failing vercel first on PATH, so no spelling of the call can reach the real CLI (--prod --yes)
+    mkdir -p "$T/bin"; printf '#!/bin/sh\necho "the real vercel was reached" >&2; exit 99\n' > "$T/bin/vercel"; chmod +x "$T/bin/vercel"; PATH="$T/bin:$PATH"
     REPO="$FR"; SITE="$T/site"; V=9.9.9; POINTER_FILE=latest-staging.json; SETUP_FILE=setup-staging
     _site_export="$T/export"; DEPLOYED=0
     export KOSMOS_DEPLOY_LANDED_TRIES="${4:-3}" KOSMOS_DEPLOY_LANDED_WAIT_S=0

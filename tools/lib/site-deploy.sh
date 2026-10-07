@@ -238,7 +238,7 @@ _site_left_behind() {
 site_deploy_landed_args_ok() {   # <tries> <wait_s>
   case "$1" in ''|*[!0-9]*|?????*) echo "   KOSMOS_DEPLOY_LANDED_TRIES must be a whole number from 1 to 9999, got '$1'" >&2; return 1 ;; esac
   [ "$((10#$1))" -ge 1 ] || { echo "   KOSMOS_DEPLOY_LANDED_TRIES must be a whole number of at least 1, got '$1'" >&2; return 1; }
-  case "$2" in ''|*[!0-9]*|?????*) echo "   KOSMOS_DEPLOY_LANDED_WAIT_S must be a whole number of seconds, got '$2'" >&2; return 1 ;; esac
+  case "$2" in ''|*[!0-9]*|?????*) echo "   KOSMOS_DEPLOY_LANDED_WAIT_S must be a whole number of seconds from 0 to 9999, got '$2'" >&2; return 1 ;; esac
   return 0
 }
 site_deploy_landed() {   # <tries> <wait_s> <verify command...>
