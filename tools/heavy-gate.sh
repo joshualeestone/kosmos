@@ -144,8 +144,8 @@ live_snapshot() {
 # bare release.sh. A command string (-c, or c inside combined flags like -lc) is not a script
 # run (it only mentions the name), and neither is -n, a syntax check: prints nothing.
 # #5470: nor is a queued-heavy.sh waiter (its lead script is a queued-heavy.sh, in any directory): prints
-# nothing. Its run counts once started, and queued-heavy.sh holds the machine claim (which reads busy)
-# from before it starts the run until it ends. Runs in a subshell with globbing off,
+# nothing. Its run counts once started, and queued-heavy.sh holds the machine claim (or, on a light side
+# turn, a side claim), which reads busy either way, from before it starts the run until it ends. Runs in a subshell with globbing off,
 # so a `*` in a command line stays one literal word.
 script_of() (
   set -f
@@ -163,12 +163,12 @@ script_of() (
       esac
       lead="$w"; inlead=1
     elif [ "$inlead" = 1 ]; then
-      # Still the lead only if ps split it at a space: that needs an ABSOLUTE lead with no .sh ending yet
-      # ("/Users/x/My" then "Work/kosmos/tools/x.sh"), and a piece that holds a / but does not start with
-      # one. Anything else (a wrapper's argument like tools/queued-heavy.sh) is an argument.
+      # Still the lead only if ps split it at one or more spaces: that needs an ABSOLUTE lead with no .sh
+      # ending yet ("/Users/x/My" "Big" "Work/kosmos/tools/x.sh"), and pieces that do not start with / or -.
+      # Whether a piece can make the line a waiter is decided below (it must carry two directory segments).
       case "$lead" in /*) : ;; *) inlead=0 ;; esac
       case "$lead" in *.sh) inlead=0 ;; esac
-      [ "$inlead" = 1 ] && case "$w" in /*|-*) inlead=0 ;; */*) : ;; *) inlead=0 ;; esac
+      [ "$inlead" = 1 ] && case "$w" in /*|-*) inlead=0 ;; esac
     fi
     # #5470: a queued-heavy.sh WAITER (in any directory: agents run the installed copy,
     # ~/.cache/claude-handoffs/queued-heavy.sh) carries its wrapped command as arguments while it waits for

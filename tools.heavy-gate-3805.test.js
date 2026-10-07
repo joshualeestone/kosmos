@@ -205,6 +205,9 @@ test('#5470: a tools/queued-heavy.sh waiter is not a run, also under a spaced ch
   assert.equal(spaced.code, 0, spaced.out);
   assert.doesNotMatch(spaced.out, /COUNTS 114/);
   // The copy agents actually run is the installed one (queued-heavy.sh's own header), not tools/.
+  const spaced2 = run([['120', '/Users/a/My Big Work/kosmos', 'bash /Users/a/My Big Work/kosmos/tools/queued-heavy.sh x bash tools/release.sh', 'zsh']]);
+  assert.equal(spaced2.code, 0, spaced2.out);   // a checkout path with two spaces: still a waiter
+  assert.doesNotMatch(spaced2.out, /COUNTS 120/);
   const installed = run([['116', WORK, '/bin/bash /Users/someone/.cache/claude-handoffs/queued-heavy.sh renet restartnote-5359: FULL browser-checks bash tools/browser-checks.sh', 'zsh']]);
   assert.equal(installed.code, 0, installed.out);
   assert.doesNotMatch(installed.out, /COUNTS 116/);
