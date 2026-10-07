@@ -210,10 +210,11 @@ const WIN_LAUNCHD = onWin('reads or drives the launchd job (plist, launchctl, th
   + 'and create.win32-launch-570.test.js');
 /* #4919: a few #4279 leftover-job tests build their temp-plist fixtures from macOS's temp folder and its /private
    spelling, so on Linux they cannot reach the case they test: tempRoots() lists only /private/tmp and
-   /private/var/folders. Linux agent jobs are #4918's work, not yet on main. Skipped only on a Linux host; macOS and
+   /private/var/folders. The leftover sweep looks only there, so the case does not exist on Linux (a Linux agent's job is
+   a systemd unit, #4918). Skipped only on a Linux host; macOS and
    Windows are unchanged. */
 const LINUX_LAUNCHD_TEMP = process.platform === 'linux'
-  ? { skip: 'macOS launchd leftover-job fixture: tempRoots() lists only macOS /private temp folders; Linux agent jobs are #4918, not yet on main' } : {};
+  ? { skip: 'macOS launchd leftover-job fixture: tempRoots() lists only macOS /private temp folders, so the case does not exist on Linux (its job is a systemd unit, #4918)' } : {};
 /* #4919: two #4279 tests need our plist folder to have a second spelling (a symlink on its path, as macOS's /var ->
    /private/var gives the sandbox). Keyed on that premise, not on the platform: where the folder has one spelling
    (Linux, or a Mac sandbox off /var) they cannot reach the case they test. */
@@ -245,6 +246,10 @@ const WIN_AGY_STANDIN = onWin('the Antigravity stand-in is a #!/bin/sh script (n
    there), each naming where Linux covers the same behaviour. macOS and Windows are unchanged. */
 const onLinux = (why) => (process.platform === 'linux' ? { skip: 'macOS launchd test on a Linux host (#5432): ' + why } : {});
 const LX = (win, why) => Object.assign({}, win, onLinux(why));
+/* #5432: what a refused create may still do on Linux: ask systemd whether the name is running (systemctl --user
+   is-active, a read that changes nothing). Anything else counts as having run something. A Mac never makes that call,
+   so there this is the old a[0] !== 'print' filter exactly. */
+const notARead = ([, a]) => a && a[0] !== 'print' && !a.includes('is-active');
 const LINUX_LAUNCHD_WHY = 'it reads or drives the launchd job (plist, launchctl, the launchd runner seam); Linux runs a systemd user unit: '
   + 'create.linux-4918.test.js (create, already-loaded, orphan unit), linuxjob.test.js (unit text, lifecycle) and linuxwiring-4918.test.js';
 const LINUX_LAUNCHD_FAIL_WHY = 'it simulates a failed start or write through launchctl answers; Linux failed starts and roll backs: '
@@ -814,7 +819,7 @@ test('the instructions name the agent, and carry no template language', () => {
 // The name has to be free on the BOARD, not only on disk
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('a name a live session already answers to is refused, even with no folder', onLinux('its name check first asks systemd whether the name is still running (systemctl is-active, a read), which this test counts as a command; Linux name refusals: create.linux-4918.test.js (review 7, review 27)'), () => {
+test('a name a live session already answers to is refused, even with no folder', () => {
   const calls = recorder();
 
   // ⚠️ The session is `casey-discord`; the board calls that agent `casey`,
@@ -831,7 +836,7 @@ test('a name a live session already answers to is refused, even with no folder',
 
   assert.equal(taken.outcome, create.OUTCOME.REFUSED, 'a name already on the board was accepted');
   assert.match(taken.because, /something called casey is already running/);
-  assert.equal(calls.filter(([, a]) => a && a[0] !== 'print').length, 0,
+  assert.equal(calls.filter(notARead).length, 0,
     'a refused name still started a session');
   assert.ok(!fs.existsSync(create.workerDir('casey')), 'a refused name still made a folder');
 
@@ -1250,7 +1255,7 @@ test('the board can read the identity the creation writes, for every role', WIN_
   assert.ok(calls.length >= roles.ROLES.length, 'no agent was actually created, so this proves nothing');
 });
 
-test('an agent is refused when the programs it is made of are not on this machine', onLinux('its name check first asks systemd whether the name is still running (systemctl is-active, a read), which this test counts as a command; Linux name refusals: create.linux-4918.test.js (review 7, review 27)'), () => {
+test('an agent is refused when the programs it is made of are not on this machine', () => {
   // ⚠️ Without this, creation reported CREATED, the screen waited thirty
   // seconds and then said it did not know why, and launchd was left respawning
   // an instantly-failing job every thirty seconds for as long as the machine
@@ -1267,7 +1272,7 @@ test('an agent is refused when the programs it is made of are not on this machin
     assert.equal(r.outcome, create.OUTCOME.REFUSED, `${what} missing: created anyway`);
     assert.match(r.because, /could not find/);
     assert.ok(!fs.existsSync(create.workerDir('no-binary')), `${what} missing: made a folder anyway`);
-    assert.equal(calls.filter(([, a]) => a && a[0] !== 'print').length, 0,
+    assert.equal(calls.filter(notARead).length, 0,
       `${what} missing: ran a command anyway`);
   }
 
@@ -1976,7 +1981,7 @@ test('a folder left behind on its own is refused, and says so', () => {
   assert.ok(!calls.some(([, a]) => a && a[0] === 'bootstrap'), 'it started an agent over an existing folder');
 });
 
-test('a name that shares a KEY with a live session is refused, not just an identical one', onLinux('its name check first asks systemd whether the name is still running (systemctl is-active, a read), which this test counts as a command; Linux name refusals: create.linux-4918.test.js (review 7, review 27)'), () => {
+test('a name that shares a KEY with a live session is refused, not just an identical one', () => {
   // ⚠️ Every name-keyed route resolves through `store.safeKey`, so `my.bot` and
   // `mybot` are two names and ONE key: one instruction file, one avatar, one
   // profile, one commitment record. Comparing raw session names let this create
@@ -1994,7 +1999,7 @@ test('a name that shares a KEY with a live session is refused, not just an ident
   assert.match(r.because, /already running/);
   assert.match(r.because, /my\.bot-discord/,
     'the refusal does not say which session it collides with, so the person cannot act on it');
-  assert.equal(calls.filter(([, a]) => a && a[0] !== 'print').length, 0, 'it started something anyway');
+  assert.equal(calls.filter(notARead).length, 0, 'it started something anyway');
 
   // THE CONTROL: a name that shares no key goes through.
   status.setPaneSource(() => fleet.line({ session: 'my.bot-discord', title: 'idle' }));

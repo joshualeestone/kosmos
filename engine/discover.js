@@ -2169,7 +2169,10 @@ function disconnect(name) {
      (remove stopped and disabled it), then systemd is told the file is gone (best effort, through create's seam). */
   if (stopped && job && job.ours && job.unit) {
     try { fs.rmSync(job.unit, { force: true }); } catch { /* best effort, as above */ }
-    try { const lj = require('./linuxjob'); create.linuxRun(() => lj.daemonReload()); } catch { /* the file is gone; a reload only tidies */ }
+    try { const lj = require('./linuxjob'); create.linuxRun(() => lj.daemonReload()); } catch (err) {
+      if (err && err.code === 'LIVE_EXECUTION_REFUSED') throw err;   // a test that forgot its seam fails loudly (#5445)
+      /* otherwise the file is gone; a reload only tidies */
+    }
   }
 
   /* 🛑 AND THE REMOVAL RECORD GOES TOO. `remove` files one, and the board hides

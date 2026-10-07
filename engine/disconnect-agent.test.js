@@ -15,7 +15,6 @@
  * which files survive, and a mode that writes no files cannot test it.
  */
 const test = require('node:test');
-const jobfix = require('../test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -164,5 +163,51 @@ test('a name that could escape its own folder is refused', () => {
   for (const bad of ['../elsewhere', 'a/b', '', '.']) {
     const out = discover.disconnect(bad);
     assert.equal(out.ok, false, `${JSON.stringify(bad)} was accepted`);
+  }
+});
+
+/* #5432: on Linux the agent's job is a systemd user unit (job.unit, job.plist null), and the undo used to leave it, so
+   the row could not be added again. This runs on every platform: remove's teardown and create's systemd seam are stubbed,
+   so what is measured is disconnect's own rule (the unit goes only after the teardown fully landed, and systemd is told). */
+test('#5432 an undo on Linux removes the agent\'s systemd unit, only after the teardown landed', () => {
+  const discover = require('./discover');
+  const removal = require('./remove');
+  const create = require('./create');
+  const store = require('./store');
+  const name = 'unitundo';
+  const folder = path.join(SB, 'unitundo-folder');
+  const unit = path.join(process.env.AGENT_WORKFORCE_SYSTEMD_DIR, 'kosmos-agent-unitundo.service');
+  const saved = { jobFor: removal.jobFor, remove: removal.remove, forget: removal.forget, linuxRun: create.linuxRun };
+  let reloads = 0;
+  let outcome;
+  try {
+    removal.jobFor = () => ({ label: 'kosmos-agent-unitundo.service', unit, plist: null, ours: true });
+    removal.remove = () => ({ outcome });
+    removal.forget = () => true;
+    create.linuxRun = () => { reloads += 1; };
+    const undo = (o) => {
+      outcome = o;
+      fs.mkdirSync(folder, { recursive: true });
+      fs.mkdirSync(path.dirname(unit), { recursive: true });
+      fs.writeFileSync(unit, '[Service]\n');
+      store.writeProfile(name, { dir: folder });
+      return discover.disconnect(name);
+    };
+
+    // CONTROL: a teardown that did not fully land keeps the unit (deleting it under a live job is worse).
+    assert.equal(undo(removal.OUTCOME.PARTIAL).ok, true);
+    assert.ok(fs.existsSync(unit), 'a partial teardown deleted the unit');
+    assert.equal(reloads, 0, 'systemd was told about a unit that is still there');
+
+    assert.equal(undo(removal.OUTCOME.REMOVED).ok, true);
+    assert.ok(!fs.existsSync(unit), 'the undo left the systemd unit, so the row cannot be added again');
+    assert.equal(reloads, 1, 'systemd was not told the unit is gone');
+
+    // A test that forgot its systemd seam fails loudly here, not silently (#5445).
+    create.linuxRun = () => { const e = new Error('refused'); e.code = 'LIVE_EXECUTION_REFUSED'; throw e; };
+    assert.throws(() => undo(removal.OUTCOME.REMOVED), { code: 'LIVE_EXECUTION_REFUSED' });
+  } finally {
+    Object.assign(removal, { jobFor: saved.jobFor, remove: saved.remove, forget: saved.forget });
+    create.linuxRun = saved.linuxRun;
   }
 });
