@@ -24,7 +24,8 @@ returned `skipped: 'unreadable'` from 2026-10-01 on, while status told the agent
    person if it stays, and that the board's log names the record.
 4. A corrupt `keys.json`, `sent.json` or `deletes.json` is no longer advised "repaired or removed": removing one can
    send again (every agent under a second public name, posts already sent, or a post the owner removed). Each now
-   says "repaired from a backup of it (do NOT remove it or write {} to it)", as comments-sent.json and
+   says "repaired from a backup of it, or by whoever supports this board (do NOT remove it or write {} to
+   it)", as comments-sent.json and
    comment-deletes.json already said not to remove theirs, in any service's
    folder (matched by file name: the retirement pass reads other services' folders). The advice for state.json and
    the retire files is unchanged; what removing those does was not examined here.
@@ -81,6 +82,10 @@ key that had sent.
   an unreadable keys.json read as empty; retired entries ignored; the size limit removed; 0 bytes admitted; the old
   keys.json advice; the sent.json advice removed; the fsync removed; an unsupported-flush code removed; the
   identical-save skip removed; the mode ignored by that skip; the temp-file cleanup removed.
+- engine/win32-communitysend-5431.test.js (selected for the Windows CI job by its name): the real save, the
+  unchanged-bytes skip and the torn-record repair on the disk the run is on, so the Windows job measures them on
+  NTFS (review 11: the Mac suite only simulates the Windows error codes). Not covered there: a redirector that
+  answers EISDIR to a flush, which only a real redirected folder can show.
 - Every community test file: the count and result are in the proof.
 - Two repo guards the community files do not include, found by the first full validation (Mortals, at 15167672d):
   engine.reachable.test.js (the `_saveJsonForTest` seam is excused by name with its reason, as `_paths` is) and
