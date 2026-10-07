@@ -542,6 +542,25 @@ function readUsage(page) {
     const failed = await spinState();
     ok(failed.spin === false && failed.text === 'We could not read token usage just now.',
       `a failed read leaves no spinner beside the error (got ${JSON.stringify(failed)})`);
+    /* #5444 (Mona Lisa): an empty usage history draws nothing. Its bordered box with no rows was two hairlines stacked
+       over the method footnote's own, which read as broken for the minute a first read takes (and after a failed read).
+       First load held open, then a failed read: the box is not drawn. Control: once the read answers, it is. */
+    const histDrawn = () => p.evaluate(() => { const h = document.getElementById('usage-history'); return { drawn: !!(h && h.getClientRects().length), rows: h ? h.querySelectorAll('.uhrow').length : -1 }; });
+    ok((await histDrawn()).drawn === false, `after a failed read the empty usage history draws no box (got ${JSON.stringify(await histDrawn())})`);
+    let release2;
+    const held2 = new Promise((r) => { release2 = r; });
+    await p.unroute('**/api/usage*');
+    await p.route('**/api/usage*', async (r) => { await held2; await r.fulfill({ json: USAGE }); });
+    await p.reload({ waitUntil: 'domcontentloaded' });
+    await p.evaluate(() => showTab('settings'));
+    await p.click('#s-nav button[data-go="usage"]');
+    await p.waitForFunction(() => USAGE_BUSY === true);
+    const firstLoad = await histDrawn();
+    ok(firstLoad.drawn === false && firstLoad.rows === 0, `while a first read loads, the empty usage history draws no box (got ${JSON.stringify(firstLoad)})`);
+    release2();
+    await p.waitForSelector('#usage-history .uhrow');
+    const loaded = await histDrawn();
+    ok(loaded.drawn === true && loaded.rows >= 1, `CONTROL: once the read answers, the usage history is drawn with its rows (got ${JSON.stringify(loaded)})`);
     await ctx.close();
   } finally {
     await browser.close();
