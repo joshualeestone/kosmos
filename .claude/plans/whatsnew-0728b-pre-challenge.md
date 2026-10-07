@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: whatsnew-0728b
-diff_hash: ff9eb7d3db66b35cae66ab99d1d87c80ec57531506bf9c26334abb51cdae9343
+diff_hash: c0adfc4880f4091708aa15d96fd9d261baf522994e5c85f02488a5bdd5f89875
 validation: passed (release notes only: web/whats-new.json and the plan. node tools/whats-new-check.js 0.7.28 passes, 3 highlights, mac 3, windows 3. Entry 3's feature (#5498) is merged on main after the 0.7.27 pin. Copy is Mona's final wording, 14:20 CDT. The same 465 whats-new readers passed on the parent What's New, #5503)
 subdir_audit: passed
 timestamp: 2026-10-07T19:22:08Z
