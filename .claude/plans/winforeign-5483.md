@@ -4,8 +4,11 @@
 - `tools/windows/KosmosLauncher.cs` `ConnectLinkDecision(address, clicked, fromKosmosPlusPage)`: an https address
   that is not Kosmos Plus returns `(clicked || fromKosmosPlusPage) ? Browser : Block` (was `Browser` either way),
   exactly the Mac's rule. `fromKosmosPlusPage` is `IsKosmosPlusSiteAddress(page)` (the Mac's isKosmosPlusSiteURL:
-  the coordinator or its apex, NOT a computer's board), where `page` is `ICoreWebView2.get_Source` read during
-  NavigationStarting (the page the nav leaves; slot 2, previously declared unused). The SITE hands off to checkout by
+  the coordinator or its apex, NOT a computer's board), where `page` is the address of the last in-window navigation
+  that COMPLETED successfully (`committedPage`, the Mac's committedPageURL), tracked by WebView2 NavigationId. And
+  "clicked" is `IsUserInitiated && !IsRedirected`: WebView2 counts its own `Navigate` as user-initiated, but a redirect
+  is never a click (WebKit calls it `.other`). Iteration 3 found both: reading `get_Source` mid-navigation and taking
+  `IsUserInitiated` alone could each let a first-load redirect through, unlike the Mac. The SITE hands off to checkout by
   script (signin.html -> checkout.stripe.com): without the exception Buy and Billing silently do nothing (found in
   review iteration 1; the Mac's "#5169 MERGE GATE" row). So on a connect computer a REDIRECT or a SCRIPT navigation to
   another site is refused, nothing opens; a CLICKED foreign link still opens in the person's browser. This is the
@@ -47,7 +50,12 @@ On #5482 (runboth-nav-5169, open), which adds MAC_ONLY_WHYS. After it merges: re
   (review iteration 2). Now a first load the connect rules refused counts as failed: the "could not reach Kosmos
   Plus" box shows and Reopen loads it again. Before this change the redirect opened in the browser instead.
 
+- The refused-first-load flag is set and consumed only for the first load's OWN navigation (its NavigationId, which
+  WebView2 keeps across that navigation's redirects), so another navigation refused or completed while it is pending
+  is never taken for it (iteration 3).
+
 ## Weakest premise
-`get_Source` during NavigationStarting returns the page being left (WebView2 documents Source as the current top-level
-document; it changes at SourceChanged, after commit). Only the Windows CI probe and a real Windows run can confirm the
-whole chain; the probe pins the decision, not the COM read.
+WebView2 raises NavigationStarting again for a server redirect with the SAME NavigationId and IsRedirected true (its
+documented behavior; the header carries no prose). The slots are read from WebView2.h 1.0.4191.47 itself (NuGet
+package, build/native/include): NavigationStarting args slot 7 and NavigationCompleted args slot 3 are
+`get_NavigationId(UINT64*)`. The probe pins the decision function; only a real Windows run exercises the COM path.

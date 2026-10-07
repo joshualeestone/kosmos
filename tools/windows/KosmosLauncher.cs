@@ -2890,6 +2890,15 @@ class BoardWindowForm : System.Windows.Forms.Form
     // Plus, e.g. a captive portal). WebView2 reports it as a cancel, which is not a failure, so without this
     // the window would sit blank with no box and no way to retry.
     bool connectLoadRefused;
+    // #5483: which navigation is that first load (WebView2 keeps one NavigationId across its redirects), so
+    // a refusal or a completion of some OTHER navigation while it is pending is never taken for it.
+    ulong connectLoadNavId;
+    bool connectLoadNavKnown;
+    // #5483: the page the window last COMMITTED in a connect window, as the Mac's committedPageURL: the
+    // address of the last in-window navigation that completed successfully (null before the first). Only
+    // the Kosmos Plus SITE may send the window to another site by script (its checkout hand-off).
+    string committedPage;
+    readonly Dictionary<ulong, string> connectInWindow = new Dictionary<ulong, string>();
     bool runAgentsItemShown;
     // The system menu's ids. WM_SYSCOMMAND keeps its low four bits for Windows, so both end in 0.
     internal const int RunAgentsMenuId = 0x4380;
@@ -3004,6 +3013,8 @@ class BoardWindowForm : System.Windows.Forms.Form
         if (webView == null) return;
         connectLoadPending = true;
         connectLoadRefused = false;
+        connectLoadNavKnown = false;
+        committedPage = null;
         webView.Navigate(KosmosLauncher.KosmosPlusSignIn);
     }
 
@@ -3076,13 +3087,17 @@ class BoardWindowForm : System.Windows.Forms.Form
         {
             int userInitiated;
             args.get_IsUserInitiated(out userInitiated);
-            // #5483: the page the nav leaves, as the Mac's committedPageURL: only the Kosmos Plus SITE may
-            // send the window to another site by script. Unreadable means not the site (refused).
-            string page = null;
-            try { webView.get_Source(out page); } catch (Exception) { page = null; }
-            KosmosLauncher.ConnectLink decided = KosmosLauncher.ConnectLinkDecision(uri, userInitiated != 0, KosmosLauncher.IsKosmosPlusSiteAddress(page));
-            if (decided == KosmosLauncher.ConnectLink.InApp) return;
-            if (decided == KosmosLauncher.ConnectLink.Block && connectLoadPending) connectLoadRefused = true;
+            int redirected;
+            args.get_IsRedirected(out redirected);
+            ulong navId;
+            args.get_NavigationId(out navId);
+            if (connectLoadPending && !connectLoadNavKnown) { connectLoadNavId = navId; connectLoadNavKnown = true; }
+            // #5483, as the Mac: a redirect is never a click (WebKit calls it .other, however the navigation
+            // began; WebView2 counts its own Navigate as user-initiated), and only a committed Kosmos Plus
+            // SITE page may send the window to another site by script.
+            KosmosLauncher.ConnectLink decided = KosmosLauncher.ConnectLinkDecision(uri, userInitiated != 0 && redirected == 0, KosmosLauncher.IsKosmosPlusSiteAddress(committedPage));
+            if (decided == KosmosLauncher.ConnectLink.InApp) { connectInWindow[navId] = uri; return; }
+            if (decided == KosmosLauncher.ConnectLink.Block && connectLoadPending && connectLoadNavKnown && navId == connectLoadNavId) connectLoadRefused = true;
             args.put_Cancel(1);
             if (decided == KosmosLauncher.ConnectLink.Browser) BeginInvoke(new Action(() => KosmosLauncher.OpenInPersonsBrowser(uri, true)));
             return;
@@ -3122,10 +3137,19 @@ class BoardWindowForm : System.Windows.Forms.Form
     // never reached Kosmos Plus, so the box shows and Reopen (SignInAgain) loads it again.
     internal void OnNavigationCompleted(ICoreWebView2NavigationCompletedEventArgs args)
     {
-        if (mode != KosmosLauncher.ComputerMode.Connect || !connectLoadPending) return;
-        connectLoadPending = false;
+        if (mode != KosmosLauncher.ComputerMode.Connect) return;
+        ulong navId;
+        args.get_NavigationId(out navId);
         int success;
         args.get_IsSuccess(out success);
+        string inWindow;
+        if (connectInWindow.TryGetValue(navId, out inWindow))
+        {
+            connectInWindow.Remove(navId);
+            if (success != 0) committedPage = inWindow;
+        }
+        if (!connectLoadPending || !connectLoadNavKnown || navId != connectLoadNavId) return;
+        connectLoadPending = false;
         int status;
         args.get_WebErrorStatus(out status);
         connectLoadFailed = (success == 0 && status != COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED) || connectLoadRefused;
@@ -3928,8 +3952,7 @@ public interface ICoreWebView2Controller
 public interface ICoreWebView2
 {
     void get_Settings(out ICoreWebView2Settings settings);
-    // #5483: the page showing now (during NavigationStarting, still the page the nav leaves).
-    void get_Source([MarshalAs(UnmanagedType.LPWStr)] out string uri);
+    void _unused_get_Source();
     void Navigate([MarshalAs(UnmanagedType.LPWStr)] string uri);
     void NavigateToString([MarshalAs(UnmanagedType.LPWStr)] string htmlContent);
     void add_NavigationStarting(ICoreWebView2NavigationStartingEventHandler eventHandler, out long token);
@@ -3990,10 +4013,11 @@ public interface ICoreWebView2NavigationStartingEventArgs
 {
     void get_Uri([MarshalAs(UnmanagedType.LPWStr)] out string uri);
     void get_IsUserInitiated(out int isUserInitiated);
-    void _unused_get_IsRedirected();
+    void get_IsRedirected(out int isRedirected);
     void _unused_get_RequestHeaders();
     void _unused_get_Cancel();
     void put_Cancel(int cancel);
+    void get_NavigationId(out ulong navigationId);
 }
 
 [ComImport, Guid("34acb11c-fc37-4418-9132-f9c21d1eafb9"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -4010,6 +4034,7 @@ public interface ICoreWebView2NavigationCompletedEventArgs
 {
     void get_IsSuccess(out int isSuccess);
     void get_WebErrorStatus(out int webErrorStatus);
+    void get_NavigationId(out ulong navigationId);
 }
 
 [ComImport, Guid("8155a9a4-1474-4a86-8cae-151b0fa6b8ca"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
