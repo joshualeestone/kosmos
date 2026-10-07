@@ -62,16 +62,18 @@ test('#5434: off Windows the folder is flushed after the rename too', { skip: pr
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('#5434: a file system that refuses fsync still gets the atomic write, not the in-place fallback', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw5434-ref-'));
-  try {
-    const file = path.join(dir, 'tokens.json');
-    fs.writeFileSync(file, 'old');
-    const events = recording(() => securewrite.writeSecret(file, 'new', 0o600), { fsyncThrows: true });
-    assert.ok(events.some((e) => e[0] === 'rename' && e[1] === file), 'the write left the atomic path: ' + JSON.stringify(events));
-    assert.equal(fs.readFileSync(file, 'utf8'), 'new');
-    assert.deepEqual(fs.readdirSync(dir), ['tokens.json'], 'a temp was left behind');
-  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+test('#5434: a file system that cannot flush (each skipped code) still gets the atomic write, not the in-place fallback', () => {
+  for (const code of ['EINVAL', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EPERM']) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw5434-ref-'));
+    try {
+      const file = path.join(dir, 'tokens.json');
+      fs.writeFileSync(file, 'old');
+      const events = recording(() => securewrite.writeSecret(file, 'new', 0o600), { fsyncThrows: code });
+      assert.ok(events.some((e) => e[0] === 'rename' && e[1] === file), code + ': the write left the atomic path: ' + JSON.stringify(events));
+      assert.equal(fs.readFileSync(file, 'utf8'), 'new', code);
+      assert.deepEqual(fs.readdirSync(dir), ['tokens.json'], code + ': a temp was left behind');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
 });
 
 test('#5434: the in-place fallback flushes what it wrote too', () => {
@@ -94,10 +96,11 @@ test('#5434: a real flush error (EIO) fails the write and keeps the old file, as
     const file = path.join(dir, 'tokens.json');
     fs.writeFileSync(file, 'old');
     let threw = null;
-    recording(() => { try { securewrite.writeSecret(file, 'new', 0o600); } catch (e) { threw = e; } }, { fsyncThrows: 'EIO' });
+    const events = recording(() => { try { securewrite.writeSecret(file, 'new', 0o600); } catch (e) { threw = e; } }, { fsyncThrows: 'EIO' });
     assert.ok(threw, 'a write whose bytes may never have reached the disk was reported as a success');
+    assert.equal(events.filter((e) => e[0] === 'open' && e[2] === 'wx').length, 1, 'it retried after the disk refused: ' + JSON.stringify(events));
+    assert.ok(!events.some((e) => e[0] === 'open' && e[1] === file && typeof e[2] === 'number'), 'it went on to the in-place fallback, which truncates the live file: ' + JSON.stringify(events));
     assert.equal(fs.readFileSync(file, 'utf8'), 'old', 'the old file was replaced by bytes the disk refused');
     assert.deepEqual(fs.readdirSync(dir), ['tokens.json'], 'a temp was left behind');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
-

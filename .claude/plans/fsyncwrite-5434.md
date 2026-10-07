@@ -16,14 +16,14 @@ instructions.js imports only refuseSymlinkTarget). It now:
   own flush, FlushFileBuffers there, is the part #5431 needs);
 - flushes on the in-place fallback too (reached only after three failed atomic attempts; it truncates
   then writes, so it is the path most exposed to a zero-filled file).
-Which flush errors count (review 3): a file system that cannot flush at all (EINVAL, ENOTSUP, EOPNOTSUPP,
-ENOSYS) is skipped, so the write takes its usual path. Any other error (EIO, ENOSPC, EDQUOT; on a mount that
-reports a failed write late, this is where it shows) fails the write exactly as a failed close did before
-this change: on the atomic path the temp is removed and the old file kept; on the fallback the old contents
-are restored. Swallowing those, as the first version did, would have renamed bytes the disk refused over a
-good secret. The restore of the old contents and the folder flush stay best effort for every error (the
-first is on a path already failing; syncDir is guarded so it cannot throw, which is why it can stay inside
-the atomic try).
+Which flush errors count: a file system that cannot flush at all (EINVAL, ENOTSUP, EOPNOTSUPP, ENOSYS, and
+EPERM, which some Windows handles and mounts return; those writes worked before this change) is skipped, so
+the write takes its usual path. Any other error (EIO, ENOSPC, EDQUOT; on a mount that reports a failed write
+late, this is where it shows) fails the write AT ONCE: the temp is removed and writeSecret throws, with no
+retry (a retried fsync after EIO can falsely succeed on Linux) and no in-place fallback (the one path that
+truncates the live file). The old file stays as it was. The restore of the old contents on the fallback and
+the folder flush stay best effort for every error (syncDir is guarded so it cannot throw, which is why it
+can stay inside the atomic try).
 
 ## Not in this slice
 - communitysend.js: Renet's tornsend-5431 changes it (#5431); not touched here.

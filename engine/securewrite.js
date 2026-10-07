@@ -264,12 +264,19 @@ function secureDir(dir, mode) {
 
 /* #5434: flush `fd` to disk. A file system that cannot flush at all (EINVAL, ENOTSUP, EOPNOTSUPP,
    ENOSYS) is skipped, so the write still takes its usual path. Any other error (EIO, ENOSPC, EDQUOT:
-   on a mount that reports a failed write late, this is where it shows) is thrown, so the write is
-   treated as failed exactly as a failed close was before: the old file is kept, not replaced by
-   bytes that never reached the disk. */
-const FLUSH_UNSUPPORTED = new Set(['EINVAL', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS']);
+   on a mount that reports a failed write late, this is where it shows) fails the write, and the
+   old file is kept rather than replaced by bytes that never reached the disk. */
+/* EPERM too: on Windows some handles and mounts refuse the flush that way, and those writes
+   succeeded before #5434. A thrown flush error is marked, so the atomic path below stops at once:
+   no retry (a retried fsync after EIO can falsely succeed on Linux) and no in-place fallback (the
+   one path that truncates the live file); the old file stays as it was. */
+const FLUSH_UNSUPPORTED = new Set(['EINVAL', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EPERM']);
 function flushOrThrow(fd) {
-  try { fs.fsyncSync(fd); } catch (e) { if (!(e && FLUSH_UNSUPPORTED.has(e.code))) throw e; }
+  try { fs.fsyncSync(fd); } catch (e) {
+    if (e && FLUSH_UNSUPPORTED.has(e.code)) return;
+    if (e && typeof e === 'object') { try { e.flushFailed = true; } catch { /* frozen */ } }
+    throw e;
+  }
 }
 
 /* #5434: flush a directory so a rename into it survives a crash. Not on Windows, where Node
@@ -368,6 +375,8 @@ function writeSecret(file, data, mode) {
          `err.code !== 'EEXIST'` test is a PROXY for it and misses an EEXIST from
          the chmod or the rename. */
       if (created) { try { fs.unlinkSync(tmp); } catch { /* nothing to clean */ } }
+      // #5434: the disk refused the flush; keep the old file (see flushOrThrow).
+      if (err && err.flushFailed) throw err;
     }
   }
 
