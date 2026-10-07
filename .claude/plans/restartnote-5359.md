@@ -58,3 +58,18 @@
 - Left as consistent with the login notice: the status region is inserted with its words (the login notice does the
   same); REBOOT_SEEN_START's position (tick() runs after the script body); a temp file left by a kill mid-write
   (one write a minute, harmless); a dismiss racing a new note (a courtesy note).
+
+## Review 4
+- Decided, filed as #5450: "started again by itself" is decided by the board starting within WINDOW_MS of the boot, a
+  stand-in for the supervisor starting it. Weakest premise: Kosmos starts at login and people log in within 15 minutes
+  of a boot (a person opening Kosmos quickly gets a false note; a machine waiting at a login screen longer gets none).
+  The fix is a marker from the supervisor; its Windows half is supervisor code for Homer, and a Mac-only marker would
+  make the platforms differ, so it is not in this PR.
+- FIXED: the browser check now asserts the neutral tone in dark by media query, forced dark and Kosmos+ (measured
+  against the toast's own --label-2, which Kosmos+ redefines on body). Removing the three dark lines reddens all three.
+- FIXED: the re-check when the board's start time moves under an open page is pinned (a control with the same start
+  time first). Removing it reddens the arm.
+- FIXED: a dismiss the board refuses keeps the note and says "Kosmos could not record that just now. Try again in a
+  moment." in its status words. Pinned with a 500 from the route. This is a new line in the note's failure state only.
+- FIXED: the dated cases run at a pinned noon; a refused or failed re-check leaves a showing note alone; a note is still
+  shown with the clock up to a minute behind it (engine test, mutation red).

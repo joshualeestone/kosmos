@@ -86,7 +86,7 @@ function current(now = Date.now()) {
   const n = readJson(noteFile());
   if (!n || n.dismissed === true) return null;
   const up = ms(n.upAt);
-  if (up == null || now - up > SHOW_MS || now < up) return null;
+  if (up == null || now - up > SHOW_MS || now < up - 60 * 1000) return null;   // a minute of slack for a clock set back a little
   if (ms(n.lastAliveAt) == null || ms(n.bootAt) == null) return null;
   return { lastAliveAt: n.lastAliveAt, bootAt: n.bootAt, upAt: n.upAt };
 }

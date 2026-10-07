@@ -21964,7 +21964,12 @@ function paintRebootNote(note) {
        note still there, never a dead button. */
     let ok = false;
     try { const r = await fetch('/api/board/restart-note/dismiss', { method: 'POST' }); await r.text(); ok = r.ok; } catch { ok = false; }
-    if (!ok) return;
+    if (!ok) {
+      /* Said in the status words, so a refused or failed dismiss is never a button that silently does nothing. */
+      const words = slot.querySelector('.utxt');
+      if (words && !words.querySelector('.rerr')) words.insertAdjacentHTML('beforeend', '<small class="rerr">Kosmos could not record that just now. Try again in a moment.</small>');
+      return;
+    }
     slot.innerHTML = '';
     delete slot.dataset.shown;
     const next = ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
@@ -21976,7 +21981,7 @@ async function rebootNoteCheck() {
   try {
     const res = await fetch('/api/board/restart-note', { cache: 'no-store' });
     const got = await res.json().catch(() => null);   // read the body either way (an unread one holds the connection open)
-    paintRebootNote(res.ok && got ? got.note : null);
+    if (res.ok && got) paintRebootNote(got.note);   // a refused or failed re-check leaves a showing note alone
   } catch { /* the note is a courtesy */ }
 }
 /* #5018: the floating notice stack's height, as --topnotes-h on <html>, so scroll-padding-top clears a showing

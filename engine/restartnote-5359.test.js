@@ -62,6 +62,9 @@ test('#5359: the note shows for a day, and not after it is dismissed', () => {
   fs.writeFileSync(rn._files.aliveFile(), JSON.stringify({ at: at(8 * MIN) }));
   rn.atStart({ now: () => NOW, uptime: () => up(6) });
   assert.ok(rn.current(NOW + rn.SHOW_MS - MIN), 'control: shown just inside a day');
+  // Review 4: a clock set back a little after the note was made still shows it; one set back further does not.
+  assert.ok(rn.current(NOW - 30 * 1000), 'hidden by a clock 30 seconds behind');
+  assert.equal(rn.current(NOW - 2 * MIN), null, 'shown although the clock is two minutes before the note');
   assert.equal(rn.current(NOW + rn.SHOW_MS + MIN), null, 'still shown after a day');
   assert.equal(rn.dismiss(), true);
   assert.equal(rn.current(NOW + MIN), null, 'shown after it was dismissed');

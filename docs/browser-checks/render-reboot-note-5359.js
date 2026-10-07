@@ -30,7 +30,10 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
 
 const MIN = 60000;
 const DAY = 24 * 3600000;
-const noteAt = (bootAgo, upAgo) => ({ lastAliveAt: new Date(Date.now() - bootAgo - MIN).toISOString(), bootAt: new Date(Date.now() - bootAgo).toISOString(), upAt: new Date(Date.now() - upAgo).toISOString() });
+/* Review 4: every dated case runs at a pinned noon, so "at" / "yesterday at" do not depend on when the check runs (just
+   after midnight, or on a day the clocks change). */
+const NOON = (() => { const d = new Date(); d.setHours(12, 0, 0, 0); return d.getTime(); })();
+const noteAt = (bootAgo, upAgo) => ({ lastAliveAt: new Date(NOON - bootAgo - MIN).toISOString(), bootAt: new Date(NOON - bootAgo).toISOString(), upAt: new Date(NOON - upAgo).toISOString() });
 const T = '\\d{1,2}:\\d{2}\\s?[AP]M';
 const CASES = [
   { key: 'today', note: noteAt(7 * MIN, 0), head: new RegExp('^This computer restarted at ' + T + '$'), line: new RegExp('^Kosmos was running and started again by itself at ' + T + '\\.$') },
@@ -46,9 +49,11 @@ const CASES = [
     const errs = [];
     pg.on('pageerror', (e) => errs.push(e.message));
     const dismissed = [];
+    await pg.clock.setFixedTime(new Date(NOON));
     let served = c.note;   // what the route answers; the repaint arm below changes it
     await pg.route('**/api/board/restart-note', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ note: served }) }).catch(() => {}));
-    await pg.route('**/api/board/restart-note/dismiss', (route) => { dismissed.push(route.request().method()); return route.fulfill({ status: 200, contentType: 'application/json', body: '{"dismissed":true}' }).catch(() => {}); });
+    let dismissStatus = 200;   // the failed-dismiss arm below sets 500
+    await pg.route('**/api/board/restart-note/dismiss', (route) => { dismissed.push(route.request().method()); return route.fulfill({ status: dismissStatus, contentType: 'application/json', body: dismissStatus === 200 ? '{"dismissed":true}' : '{"error":"we could not record that the note was dismissed"}' }).catch(() => {}); });
     await pg.goto(URL, { waitUntil: 'networkidle' });
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
     await pg.waitForTimeout(300);
@@ -98,6 +103,27 @@ const CASES = [
         });
         say(changed.replaced, 'repaint (control): a different note is painted again', JSON.stringify(changed));
         served = c.note;
+        /* Review 4: the tone is the neutral one in every dark spelling too (the light one is checked above). */
+        const tones = await pg.evaluate(() => {
+          const t = () => document.querySelector('#reboot-slot .utoast.reboot');
+          // --label-2 as the toast itself inherits it: Kosmos+ redefines it on body, not on the root.
+          const read = () => ({ tone: getComputedStyle(t()).getPropertyValue('--utone').trim(), label2: getComputedStyle(t()).getPropertyValue('--label-2').trim() });
+          const out = {};
+          document.documentElement.setAttribute('data-theme', 'dark'); out.forced = read(); document.documentElement.removeAttribute('data-theme');
+          document.body.classList.add('plus-active'); out.plus = read(); document.body.classList.remove('plus-active');
+          return out;
+        });
+        await pg.emulateMedia({ colorScheme: 'dark' });
+        tones.media = await pg.evaluate(() => { const el = document.querySelector('#reboot-slot .utoast.reboot'); return { tone: getComputedStyle(el).getPropertyValue('--utone').trim(), label2: getComputedStyle(el).getPropertyValue('--label-2').trim() }; });
+        await pg.emulateMedia({ colorScheme: 'light' });
+        for (const k of ['media', 'forced', 'plus']) say(tones[k].tone !== '' && tones[k].tone === tones[k].label2, 'tone (' + k + ' dark): neutral, not amber or red', tones[k].tone + ' vs ' + tones[k].label2);
+        /* Review 4: a dismiss the board refuses keeps the note and says so in its words. */
+        dismissStatus = 500;
+        await pg.click('#reboot-slot .ux');
+        await pg.waitForTimeout(300);
+        const refused = await pg.evaluate(() => { const t = document.querySelector('#reboot-slot .utoast.reboot'); return { kept: Boolean(t), said: t ? ((t.querySelector('.utxt .rerr') || {}).textContent || '') : '' }; });
+        say(refused.kept && /could not record that just now/.test(refused.said), 'dismiss refused: the note stays and says it could not record it', JSON.stringify(refused));
+        dismissStatus = 200;
         await pg.click('#reboot-slot .ux');
         await pg.waitForTimeout(300);
         const after = await pg.evaluate(() => document.getElementById('reboot-slot').innerHTML.trim());
@@ -106,6 +132,34 @@ const CASES = [
       }
     }
     say(errs.length === 0, c.key + ': no page errors', errs.join(' | '));
+    await pg.close();
+  }
+  /* Review 4: a board that starts again under an open page is asked again for its note. The page loads with no note;
+     the note then appears on the route. Control: the same start time, no re-check, nothing painted. Then the start time
+     moves and the note must be painted within a few of the page's 5-second polls. */
+  {
+    const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
+    const errs = [];
+    pg.on('pageerror', (e) => errs.push(e.message));
+    let note = null;
+    let startedAt = null;   // null: pass the board's own value through
+    await pg.route('**/api/board/restart-note', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ note }) }).catch(() => {}));
+    await pg.route('**/api/status', async (route) => {
+      let res, data;
+      try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+      if (startedAt && data && data.engine) data.engine.startedAt = startedAt;
+      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+    });
+    await pg.goto(URL, { waitUntil: 'networkidle' });
+    if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+    note = noteAt(7 * MIN, 0);
+    await pg.waitForTimeout(11000);   // two polls with the same start time
+    const quiet = await pg.$eval('#reboot-slot', (el) => el.innerHTML.trim()).catch(() => 'x');
+    say(quiet === '', 'board restart (control): the same start time asks nothing again', JSON.stringify(quiet.slice(0, 80)));
+    startedAt = new Date().toISOString();
+    const painted = await pg.waitForFunction(() => document.querySelector('#reboot-slot .utoast.reboot'), null, { timeout: 20000 }).then(() => true, () => false);
+    say(painted, 'board restart: a new start time under the open page brings the note');
+    say(errs.length === 0, 'board restart: no page errors', errs.join(' | '));
     await pg.close();
   }
   /* Review 3: the same note repaints when its words change across midnight. The page's clock is pinned at 23:30 with a
