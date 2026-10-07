@@ -44,6 +44,7 @@ const BOARD_STARTED_BY = process.env.KOSMOS_BOARD_STARTED_BY;
 const BOARD_PERSON_MARK = process.env.KOSMOS_BOARD_PERSON_MARK;
 delete process.env.KOSMOS_BOARD_STARTED_BY;
 delete process.env.KOSMOS_BOARD_PERSON_MARK;
+delete process.env.KOSMOS_START_BY;   // the watchdog's word to `kosmos start`; the launchers strip it, this is the backstop
 /* #4199: next, right after the world bootstrap above (which must stay the FIRST engine require: see
    server.worldenv-order.test.js): when this file IS the board (not required by a test), every line it writes into
    board.log starts with a UTC time, so a restart can be matched to what an agent was doing. Only when stdout/stderr is

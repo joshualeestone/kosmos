@@ -50,9 +50,11 @@ async function boardRun(mark, { mode } = {}) {
     const env = { ...process.env, KOSMOS_PORT: String(port), KOSMOS_NO_LEGACY_MIGRATION: '1', KOSMOS_HOME: home,
       AGENT_WORKFORCE_DATA: path.join(home, 'data'), AGENT_WORKFORCE_WORKERS: path.join(home, 'workers') };
     delete env.KOSMOS_AGENT_SESSION; delete env.KOSMOS_AGENT_TOKEN; delete env.TMUX_PANE; delete env.KOSMOS_BOARD_STARTED_BY;
+    env.KOSMOS_START_BY = 'supervisor';   // review 2: as if inherited; it must not reach the board
     const out = await bash(`source "${CLI}"; NODE="${node}"; APP="${app}"; cmd_board_run`, env);
     const got = fs.existsSync(path.join(home, 'board-env.txt')) ? fs.readFileSync(path.join(home, 'board-env.txt'), 'utf8') : '';
     assert.ok(got, 'board-run must launch the stub board, or the arm measures nothing: ' + out.stdout + out.stderr);
+    assert.doesNotMatch(got, /^KOSMOS_START_BY=/m, 'KOSMOS_START_BY reached the board');
     const by = (got.match(/^KOSMOS_BOARD_STARTED_BY=(.*)$/m) || [])[1];
     const markPath = (got.match(/^KOSMOS_BOARD_PERSON_MARK=(.*)$/m) || [])[1];
     assert.equal(markPath, markFile, 'the board is not told where the mark is, so it cannot consume it');
@@ -93,7 +95,11 @@ test('#5450: `kosmos start` marks a person\'s start, the watchdog\'s says superv
   assert.match(before, /if \[ "\$\{KOSMOS_START_BY:-\}" != supervisor \]; then date \+%s > "\$PERSON_START_FILE"/, 'the mark is not written (only for a person) before the kickstart');
   assert.match(src, /\[ "\$\{KOSMOS_START_BY:-\}" = supervisor \] && _start_by=supervisor/, 'the direct start ignores the watchdog');
   assert.match(src, /KOSMOS_BOARD_STARTED_BY="\$_start_by" nohup "\$NODE" "\$APP"/);
-  assert.match(src, /rm -f "\$PERSON_START_FILE" 2>\/dev\/null \|\| true   # #5450: a start's mark does not outlive a deliberate stop/);
+  const stop = src.slice(src.indexOf('cmd_stop() {'), src.indexOf('cmd_stop() {') + 200);
+  assert.match(stop, /rm -f "\$PERSON_START_FILE"/, 'a stop leaves a start\'s mark on some branch');
+  // Review 2: the watchdog's word never reaches the board (nor, through it, any pane a person later starts Kosmos from).
+  assert.match(src, /-u KOSMOS_START_BY PORT="\$PORT" KOSMOS_BOARD_STARTED_BY="\$_started_by"/, 'board-run passes KOSMOS_START_BY to the board');
+  assert.match(src, /-u KOSMOS_START_BY PORT="\$PORT" KOSMOS_BOARD_STARTED_BY="\$_start_by" nohup/, 'the direct start passes KOSMOS_START_BY to the board');
   // Review 1: the watchdog brings back a board nobody stopped: both of its starts say supervisor.
   const wd = fs.readFileSync(path.join(__dirname, 'bin', 'board-watchdog.sh'), 'utf8');
   const starts = wd.split('\n').filter((l) => /bash "\$KOSMOS_BIN" start --force/.test(l));

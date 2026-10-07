@@ -1386,7 +1386,7 @@ cmd_board_run() {
     else rm -f "$PERSON_START_FILE" 2>/dev/null || true   # stale, unreadable or from the future: not a person
     fi
   fi
-  exec env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE PORT="$PORT" KOSMOS_BOARD_STARTED_BY="$_started_by" KOSMOS_BOARD_PERSON_MARK="$PERSON_START_FILE" "$NODE" "$APP"
+  exec env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE -u KOSMOS_START_BY PORT="$PORT" KOSMOS_BOARD_STARTED_BY="$_started_by" KOSMOS_BOARD_PERSON_MARK="$PERSON_START_FILE" "$NODE" "$APP"
 }
 
 # #5359: remove the board's last-alive record (engine/restartnote.js), best effort, from the same data root
@@ -1401,6 +1401,7 @@ _kosmos_clear_board_alive() {
 }
 cmd_stop() {
   local pid
+  rm -f "$PERSON_START_FILE" 2>/dev/null || true   # #5450: a start's mark does not outlive a stop, on any branch below
   if pid="$(running_pid)"; then
     # #2955: write the deliberate-stop marker BEFORE the kill, so the board's own
     # port-going-dead moment does not trip the watchdog into treating this stop as
@@ -1455,7 +1456,6 @@ cmd_stop() {
       exit 1
     fi
     rm -f "$PIDFILE"
-    rm -f "$PERSON_START_FILE" 2>/dev/null || true   # #5450: a start's mark does not outlive a deliberate stop
     # #5359: a deliberate stop is not a restart under a running Kosmos, so the board's last-alive record goes too;
     # otherwise stopping, restarting the computer and starting Kosmos within minutes would say it came back by itself.
     # Only here, once the board is gone: before the kill its once-a-minute beat could write the record back, and a stop

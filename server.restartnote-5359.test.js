@@ -36,8 +36,9 @@ rn.startBeating = (...a) => { beatsArmed++; const t = realStartBeating(...a); if
 // #5450: the launcher's word is taken out of the environment when server.js loads, before anything could inherit it.
 process.env.KOSMOS_BOARD_STARTED_BY = 'supervisor';
 process.env.KOSMOS_BOARD_PERSON_MARK = '/nonexistent/board.person-start';
+process.env.KOSMOS_START_BY = 'supervisor';
 const { start, server } = require('./server');
-const STARTED_BY_LEFT = 'KOSMOS_BOARD_STARTED_BY' in process.env || 'KOSMOS_BOARD_PERSON_MARK' in process.env;
+const STARTED_BY_LEFT = 'KOSMOS_BOARD_STARTED_BY' in process.env || 'KOSMOS_BOARD_PERSON_MARK' in process.env || 'KOSMOS_START_BY' in process.env;
 
 test('#5359: the board serves the restart note, records a dismiss, and says it is alive at start', async (t) => {
   await start(0);

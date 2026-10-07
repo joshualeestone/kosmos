@@ -55,3 +55,12 @@ though the login item did bring Kosmos back by itself.
 - Mutations: the guarded cat, the age check, the watchdog's word, server.js's delete and atStart's consume each
   reddens. (board-run deleting a person's mark is guarded by the "LEFT for the board" arm; the mutation that would put
   a deletion back was blocked by the harness's rm safety check, so it was not run.)
+
+## Review 2
+- FIXED: KOSMOS_START_BY (the watchdog's word to `kosmos start`) could reach the board and, through it, every pane a
+  person later started Kosmos from, making their start read as the supervisor's. Both launchers strip it and server.js
+  deletes it as a backstop; pinned behaviourally (an inherited value never reaches the stub board) and by source.
+- FIXED: `kosmos stop` removes a start's mark on every branch, not only when it killed a running board.
+- Left: a supervisor-started board deletes a mark written in the instant after board-run read it (benign; that start's
+  own board-run reads its own mark), and the watchdog's kickstart escalation reads a person's mark if one is under 120 s
+  old (vanishingly rare, and fails toward no note).
