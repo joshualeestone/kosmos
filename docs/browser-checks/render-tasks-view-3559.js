@@ -638,6 +638,18 @@ function chk(ok, label, extra) {
           && missed.missed && missed.color === missed.danger
           && /^Missed (the run due|\d+ runs, the latest due) (today|yesterday|last \w+day|\w{3} \d+) at 9am\. Repeats every day at 9am\. Last run .+ by Rex: two bounced, both removed\. Next (today|tomorrow) at 9am\.$/.test(missed.line || ''),
           `${tag} #4787 slice 2 a missed run leads the repeat line, in the error red (control: the same row before it was missed)`, JSON.stringify({ before, missed }));
+        /* kosmos#5444: the same miss on a task that has never run says the miss once: no "No run reported yet" after it.
+           Its last run is taken out of the store; the rule set three days back stays, so the slots are still missed. */
+        projects.mutate(news.id, (p) => ({ ...p, tasks: (p.tasks || []).map((t) => {
+          if (t.number !== 1) return t;
+          const { lastRunAt, lastRunBy, lastRunByPerson, lastRunNote, lastRunLate, ...rest } = t;
+          return rest; }) }));
+        await page.evaluate(() => tskLoad());
+        await page.waitForTimeout(300);
+        const never = await red();
+        chk(never.missed && /^Missed (the run due|\d+ runs, the latest due) .+ at 9am\. Repeats every day at 9am\. Next (today|tomorrow) at 9am\.$/.test(never.line || '')
+          && !/No run reported yet/.test(never.line || ''),
+          `${tag} #5444 a missed run on a task never run says the miss once, not "No run reported yet" after it`, JSON.stringify(never));
         tasks.setRepeat(news.id, 1, null);
         await page.evaluate(() => tskLoad());
         await page.waitForTimeout(300);
