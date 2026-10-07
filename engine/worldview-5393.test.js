@@ -64,6 +64,7 @@ test('#5393 readProjectsAt: absent is a real zero, unreadable and damaged are sa
 });
 
 test('#5393 providersFrom groups the cards by runner; paused only from rate_limited, until only when stated', () => {
+  const NOW = Date.parse('2026-10-06T14:00:00.000Z');   // before every stated time below except the expired one
   const rows = worldview.providersFrom([
     { runner: 'claude', state: 'working' },
     { runner: 'claude', state: 'idle' },
@@ -76,17 +77,23 @@ test('#5393 providersFrom groups the cards by runner; paused only from rate_limi
     { runner: 'antigravity', state: 'rate_limited', quotaUntil: 'not a time' },
     { runner: 'gemini', state: 'rate_limited' },
     { runner: 'gemini', state: 'working' },
+    { runner: 'codex', state: 'stopped' },          // stopped: not on the provider
+    { runner: 'mistral', state: 'stopped' },        // only stopped agents: the provider reads 'stopped'
+    { runner: 'qwen', state: 'rate_limited', poolUntil: '2026-10-06T13:00:00.000Z' },   // a time already past
     { paneless: true, state: 'stopped' },          // no runner: left out
     { runner: '', state: 'idle' },                 // no runner: left out
-  ]);
+  ], NOW);
   assert.deepEqual(rows, [
     // One of antigravity's three paused agents states no time, so no provider-wide time is claimed.
-    { provider: 'antigravity', agents: 3, paused: 3, signInFailed: 0, until: null, state: 'paused' },
-    { provider: 'claude', agents: 3, paused: 0, signInFailed: 1, until: null, state: 'not_paused' },
-    { provider: 'codex', agents: 1, paused: 1, signInFailed: 0, until: null, state: 'paused' },
-    { provider: 'gemini', agents: 2, paused: 1, signInFailed: 0, until: null, state: 'some_paused' },
+    { provider: 'antigravity', agents: 3, stopped: 0, paused: 3, signInFailed: 0, until: null, state: 'paused' },
+    { provider: 'claude', agents: 3, stopped: 0, paused: 0, signInFailed: 1, until: null, state: 'not_paused' },
+    { provider: 'codex', agents: 1, stopped: 1, paused: 1, signInFailed: 0, until: null, state: 'paused' },
+    { provider: 'gemini', agents: 2, stopped: 0, paused: 1, signInFailed: 0, until: null, state: 'some_paused' },
     // Every paused agent states a time: the latest of them.
-    { provider: 'grok', agents: 2, paused: 2, signInFailed: 0, until: '2026-10-06T16:30:00.000Z', state: 'paused' },
+    { provider: 'grok', agents: 2, stopped: 0, paused: 2, signInFailed: 0, until: '2026-10-06T16:30:00.000Z', state: 'paused' },
+    { provider: 'mistral', agents: 0, stopped: 1, paused: 0, signInFailed: 0, until: null, state: 'stopped' },
+    // qwen's only stated time is already past, so no time is claimed.
+    { provider: 'qwen', agents: 1, stopped: 0, paused: 1, signInFailed: 0, until: null, state: 'paused' },
   ]);
   for (const r of rows) assert.ok(!('quota' in r) && !('remaining' in r) && !('untimed' in r), 'no quota figure, and no working field, is ever reported');
 });

@@ -23,8 +23,12 @@
  * today only Antigravity sets), and only when EVERY paused agent on it states one: one agent with no stated time
  * makes `until` null, meaning "paused, reset time not known", because a provider-wide time would be wrong for it.
  *
+ * A time already past is not a resume time either: `until` is only ever in the future.
+ *
  * ⚠️ A DEAD SIGN-IN IS NOT A PAUSE. `signInFailed` counts the agents whose card reads auth_failed, so a provider
- * whose every agent lost its sign-in is not shown only as 'not_paused'.
+ * whose every agent lost its sign-in still says so beside 'not_paused'. A STOPPED AGENT IS NOT ON THE PROVIDER:
+ * stopped cards are counted in `stopped`, never in `agents`, and a provider with only stopped agents reads
+ * 'stopped'.
  */
 
 const fs = require('node:fs');
@@ -72,11 +76,12 @@ function readProjectsAt(root) {
    counts the agents that are. `until` is the latest stated resume time among its paused agents, and null when
    any paused agent states none. 'not_paused' says only that no card on it reads rate limited, never that its
    agents are working: an idle, unknown or signed-out card counts too, which is why `signInFailed` is beside it. */
-function providersFrom(cards) {
+function providersFrom(cards, now = Date.now()) {
   const by = new Map();
   for (const c of Array.isArray(cards) ? cards : []) {
     if (!c || c.paneless === true || typeof c.runner !== 'string' || !c.runner) continue;
-    const row = by.get(c.runner) || { provider: c.runner, agents: 0, paused: 0, signInFailed: 0, until: null, untimed: 0 };
+    const row = by.get(c.runner) || { provider: c.runner, agents: 0, stopped: 0, paused: 0, signInFailed: 0, until: null, untimed: 0 };
+    if (c.state === 'stopped') { row.stopped += 1; by.set(c.runner, row); continue; }
     row.agents += 1;
     if (c.state === 'auth_failed') row.signInFailed += 1;
     if (c.state === 'rate_limited') {
@@ -92,13 +97,14 @@ function providersFrom(cards) {
     by.set(c.runner, row);
   }
   return [...by.values()]
-    .map(({ untimed, ...r }) => ({ ...r, until: untimed > 0 ? null : r.until, state: r.paused === 0 ? 'not_paused' : r.paused === r.agents ? 'paused' : 'some_paused' }))
+    .map(({ untimed, ...r }) => ({ ...r, until: untimed > 0 || r.until === null || Date.parse(r.until) <= now ? null : r.until,
+      state: r.agents === 0 ? 'stopped' : r.paused === 0 ? 'not_paused' : r.paused === r.agents ? 'paused' : 'some_paused' }))
     .sort((a, b) => (a.provider < b.provider ? -1 : a.provider > b.provider ? 1 : 0));
 }
 
 /* The whole view. `base` is the registry base (server.js worldBase()), `runningId` the world this board booted
    into, `cards` its live cards (null when they could not be read, which is said, never shown as no providers). */
-function overview({ base, runningId, cards }) {
+function overview({ base, runningId, cards, now }) {
   return worlds.listWorlds(base).map((w) => {
     let count = null;
     let because = null;
@@ -117,7 +123,7 @@ function overview({ base, runningId, cards }) {
       running,
       unassigned: count,
       unassignedBecause: because,
-      providers: running && Array.isArray(cards) ? providersFrom(cards) : null,
+      providers: running && Array.isArray(cards) ? providersFrom(cards, now === undefined ? Date.now() : now) : null,
       providersBecause: !running ? 'known only while this Kosmos is open'
         : Array.isArray(cards) ? null : 'we cannot read the agents in this Kosmos right now',
     };

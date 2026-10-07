@@ -48,7 +48,10 @@ limited, and an idle or unknown agent also counts as not paused.
 - The full suite once, through the queue.
 - Then /challenge-loop.
 
-- **Review 3 (after the leak fix):** `until` is now null when any paused agent on a provider states no time (a
-  provider-wide time would be wrong for that agent), and each row carries `signInFailed` (auth_failed cards), so a
-  provider whose agents all lost their sign-in no longer reads only as 'not_paused'. No screen reads the route yet
-  (slice 2 does), so the shape change breaks nothing.
+- **Provider rows (reviews 3 and 4):** `until` is null unless every paused agent on the provider states a time, and
+  null when the latest stated time has already passed (it is only ever in the future). Each row carries
+  `signInFailed` (auth_failed cards) and `stopped` (stopped cards, which are not counted in `agents`); a provider
+  with only stopped agents reads 'stopped'. No screen reads the route yet (slice 2 does), so the shape changes break
+  nothing.
+- **Whose worlds (review 4):** worldBase() is worlds.baseRoot(process.env), which is store.dataRootFor on this
+  account's own environment, so the route lists this account's worlds only, as /api/worlds/list does.
