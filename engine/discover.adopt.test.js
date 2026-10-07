@@ -8,7 +8,6 @@
 const test = require('node:test');
 /* #5432: on a Linux host an agent's job is a systemd user unit, so a test that asserts the launchd plist itself
    measures nothing there. Skipped on Linux only, naming where Linux covers it; macOS and Windows unchanged. */
-const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS plist test on a Linux host (#5432): it reads the plist the adopt wrote; a Linux adopt writes a systemd unit through the same installJob: create.linux-4918.test.js (installJob, already-loaded)" } : {};
 const jobfix = require('../test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -188,8 +187,6 @@ const agentFolder = (name, file, text) => {
   fs.writeFileSync(path.join(d, file), text);
   return d;
 };
-const plistOf = (name) =>
-  fs.readFileSync(path.join(SANDBOX, 'LaunchAgents', `com.kosmos.agent.${name}.plist`), 'utf8');
 const codexState = () => ({
   version: JSON.parse(fs.readFileSync(path.join(SANDBOX, 'home/.codex/version.json'), 'utf8')),
   toml: (() => { try { return fs.readFileSync(path.join(SANDBOX, 'home/.codex/config.toml'), 'utf8'); } catch { return ''; } })(),
@@ -227,14 +224,15 @@ test('#1159: a discovered Codex agent can be ADOPTED, and gets a codex job', () 
   assert.equal(job.runner, 'codex', 'the adopted agent was written as a Claude job');
 });
 
-test('#1159 CONTROL: a Claude agent is still adopted as Claude', LINUX_PLIST_5432, () => {
+test('#1159 CONTROL: a Claude agent is still adopted as Claude', () => {
   /* Without this the assertion above is satisfied by a change that makes
      EVERYTHING a codex job, which would be a far worse bug. */
   const dir = agentFolder('scoutclaude', 'CLAUDE.md', '# You are Scout Claude\n');
   const r = discover.connect(dir);
   assert.equal(r.ok, true, r.because);
-  const p = plistOf('scoutclaude');
-  assert.doesNotMatch(p, /<string>codex<\/string>/, 'a Claude agent was adopted as a Codex one');
+  /* #5432: the runner read from the platform's own job (a plist on macOS, a unit on Linux), so the control runs on
+     Linux too, where its positive arms above already run. */
+  assert.equal(create.readJob('scoutclaude').runner, 'claude', 'a Claude agent was adopted as a Codex one');
   /* 🛑 AND THE BINARY, WHICH THE LABEL CHECK ABOVE CANNOT SEE. This test's own
      comment says it stops "a change that makes EVERYTHING a codex job" - true of
      the label assertion it was written for, and NOT true of the binary assertion
@@ -247,14 +245,14 @@ test('#1159 CONTROL: a Claude agent is still adopted as Claude', LINUX_PLIST_543
     'a Claude agent’s job does not point at the claude binary');
 });
 
-test('#1159: CLAUDE.md wins when a folder has both', LINUX_PLIST_5432, () => {
+test('#1159: CLAUDE.md wins when a folder has both', () => {
   /* A person with both has a Claude agent that also carries codex notes.
      Starting the runner named after this product is the safer read. */
   const dir = agentFolder('scoutboth', 'CLAUDE.md', '# You are Scout Both\n');
   fs.writeFileSync(path.join(dir, 'AGENTS.md'), '# You are Scout Both\n');
   const r = discover.connect(dir);
   assert.equal(r.ok, true, r.because);
-  assert.doesNotMatch(plistOf('scoutboth'), /<string>codex<\/string>/);
+  assert.equal(create.readJob('scoutboth').runner, 'claude');
 });
 
 /* #3519: adopting a Gemini agent. foundGemini already OFFERS a GEMINI.md folder as
@@ -365,11 +363,11 @@ test('#3519 CONTROL: an AGENTS.md folder with no hint stays codex/openai', () =>
    folder. briefFilename('grok') === 'AGENTS.md' !== 'CLAUDE.md', so the guard must ignore
    the hint and keep the folder claude -- otherwise a hint could start a codex/grok runner
    in a Claude agent's own folder. Without this, the guard's CLAUDE.md arm is unexercised. */
-test('#3519 CONTROL: a non-claude provider hint on a CLAUDE.md folder is ignored (stays claude)', LINUX_PLIST_5432, () => {
+test('#3519 CONTROL: a non-claude provider hint on a CLAUDE.md folder is ignored (stays claude)', () => {
   const dir = agentFolder('scoutclaudehint', 'CLAUDE.md', '# You are Scout ClaudeHint\n');
   const r = discover.connect(dir, { provider: 'xai' });
   assert.equal(r.ok, true, r.because);
-  assert.doesNotMatch(plistOf('scoutclaudehint'), /<string>codex<\/string>/,
+  assert.equal(create.readJob('scoutclaudehint').runner, 'claude',
     'a CLAUDE.md folder was hinted into a non-claude runner');
   assert.equal(create.readJob('scoutclaudehint').claude, path.join(SANDBOX, 'bin', 'claude'),
     'the claude folder did not get the claude binary');
