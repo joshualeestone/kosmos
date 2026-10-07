@@ -149,6 +149,22 @@ test('#5314: withAgentSortFields matches agent names case-insensitively and hand
   assert.equal(row.lastCommunityPost, 'Last community post: today');
 });
 
+test('#5314: with no supplied arg, withAgentSortFields reads the published-only store through the switch', () => {
+  // The REAL wiring (no `supplied`): withAgentSortFields calls communitysend.switchOn() and
+  // communitystore.publishedPostTimesAll() against the sandboxed store. Seed ONLY a held post for
+  // the agent - it was never published, so the card must read "No community posts yet". A swap back
+  // to postTimesAll would count the held post and wrongly show "Last community post: today".
+  const communityswitch = require('./engine/communityswitch');
+  const communitystore = require('./engine/communitystore');
+  communityswitch.setOn(true);
+  communitystore.insertPost({ kind: 'community_post', agent: 'HeldWire5314', at: 'x', body: 'held, never published', status: 'held' });
+
+  const [row] = withAgentSortFields([{ sessionName: 'heldwire5314', name: 'HeldWire5314' }]);
+  assert.equal(row.communityOn, true, 'the switch being on is reflected');
+  assert.equal(row.lastCommunityPost, 'No community posts yet', 'a held-only post does not count (published-only reader through the real wiring)');
+  assert.equal(row.lastCommunityPostAt, null);
+});
+
 test('#5314: communityLine helper respects community switch and formats relative time', () => {
   const line = buildCommunityLine();
   assert.equal(line(null), '');

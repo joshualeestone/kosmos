@@ -232,11 +232,13 @@ const SCREENS = [
     await page.waitForSelector('button.vt[data-layout="list"][aria-pressed="true"][aria-label="Show agents as a list"]', { timeout: 5000 });
   } },
   /* #5314: the "Last community post" line on agent cards, which the throwaway board cannot show on
-     its own (the community switch is off, so every card is the switch-off case). Stubbed onto this
-     screen's own /api/status reads (gone with it, via `after`): the switch ON for a few agents, with
-     the four states the card renders - a post today, one days ago, one that never posted, and a
-     held-only agent, which the published-only reader (communitystore.publishedPostTimesAll) renders
-     as "No community posts yet" because a held post never went out. */
+     its own (the community switch is off, so every card is the switch-off case). This screen STUBS
+     /api/status (gone with it, via `after`) to set the rendered fields directly on a few agents, so
+     it shows how the line LOOKS at desktop and phone; it does NOT exercise the server reader (the
+     unit tests cover that). Seeds the four states the card shows: a post today, one days ago, one
+     that never posted, and a held-only agent, which shows "No community posts yet" (the string the
+     published-only reader produces, since a held post is not published). The held-only and
+     never-posted seeds are the same rendered string by design. */
   { name: 'community-card-5314', owner: 'Kano', noServiceWorker: true, go: async (page) => {
     const now = Date.now();
     const iso = (d) => new Date(now - d * 86400000).toISOString();
