@@ -345,11 +345,21 @@ report() { [ -n "$KOSMOS" ] && ( "$KOSMOS" report "$@" >/dev/null 2>&1 </dev/nul
 # that same settings file has Claude run as the allow hook, so running them here trusts nothing new; a path relative to
 # this hook would not do, because copies of this hook are deployed elsewhere (#1467). Anything missing or failing is
 # false, so the report says needs-you as before #5495. The grep matches decide()'s compact JSON.stringify output.
+# Bounded to 5 s (macOS has no `timeout`): this hook's own entry is capped at 15 s, and a run that stalls past it
+# would send no report at all. A run still going at 5 s is stopped by the pid this function started, and reads false.
 kosmos_allows() {
   [ -n "${KOSMOS_PERMISSION_ALLOW_NODE:-}" ] && [ -n "${KOSMOS_PERMISSION_ALLOW_SCRIPT:-}" ] || return 1
   [ -x "$KOSMOS_PERMISSION_ALLOW_NODE" ] && [ -f "$KOSMOS_PERMISSION_ALLOW_SCRIPT" ] || return 1
-  printf '%s' "$INPUT" | "$KOSMOS_PERMISSION_ALLOW_NODE" "$KOSMOS_PERMISSION_ALLOW_SCRIPT" 2>/dev/null \
-    | grep -q '"behavior":"allow"'
+  local out p i=0 r
+  out=$(mktemp "${TMPDIR:-/tmp}/kosmos-allow.XXXXXX" 2>/dev/null) || return 1
+  printf '%s' "$INPUT" | "$KOSMOS_PERMISSION_ALLOW_NODE" "$KOSMOS_PERMISSION_ALLOW_SCRIPT" > "$out" 2>/dev/null &
+  p=$!
+  while kill -0 "$p" 2>/dev/null && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+  if kill -0 "$p" 2>/dev/null; then kill "$p" 2>/dev/null; rm -f "$out" 2>/dev/null; return 1; fi
+  wait "$p" 2>/dev/null
+  grep -q '"behavior":"allow"' "$out" 2>/dev/null; r=$?
+  rm -f "$out" 2>/dev/null
+  return "$r"
 }
 
 heartbeat_due() {
