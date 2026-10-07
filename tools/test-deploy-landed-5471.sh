@@ -107,7 +107,7 @@ case "$out" in *"DEPLOYED="*) bad "earlier attempt: DEPLOYED was reached" ;; *) 
 out="$(run_step8 1 none)"; rc=$?
 [ "$rc" = 1 ] && ok "CLI failed and nothing served: exits with the CLI's code (1)" || bad "never served: rc=$rc"
 case "$out" in *"DEPLOYED="*) bad "never served: DEPLOYED was reached, so the trap would not restore the site" ;; *) ok "never served: DEPLOYED is never set, so the trap still restores and removes the tarball" ;; esac
-case "$out" in *"THIS cut's build is sha256 aaa111; the served copy is https://stub.example/dist/kosmos-9.9.9-arm64.tar.gz.sha256"*"not served anyway"*) bad "the sha line came after polling" ;; *"THIS cut's build is sha256 aaa111; the served copy is https://stub.example/dist/kosmos-9.9.9-arm64.tar.gz.sha256"*"(#5471: not served yet, check 1"*) ok "this cut's sha and the URL to compare are printed BEFORE the poll (an interrupted wait still leaves the record)" ;; *) bad "sha record missing or after the poll (out=$out)" ;; esac
+case "$out" in *"THIS cut's build is sha256 aaa111; the served copy is https://stub.example/dist/kosmos-9.9.9-arm64.tar.gz.sha256"*"(#5471: not served yet, check 1"*) ok "this cut's sha and the URL to compare are printed BEFORE the poll (an interrupted wait still leaves the record)" ;; *) bad "sha record missing or after the poll (out=$out)" ;; esac
 case "$out" in *"may still land"*"compare the served .sha256 with this cut's sha"*"aaa111"*"not seen served"*) ok "never served: the message says it may still land, points at the recorded sha, and how to read the trap's 'never served'" ;; *) bad "never served: message incomplete (out=$out)" ;; esac
 [ "$(fetches)" = 3 ] && ok "never served: asked exactly KOSMOS_DEPLOY_LANDED_TRIES (3) times" || bad "never served: asked $(fetches) times"
 
@@ -115,7 +115,13 @@ out="$(run_step8 7 none)"; rc=$?
 [ "$rc" = 7 ] && ok "the CLI's own exit code is kept (7), not flattened to 1" || bad "exit code: rc=$rc"
 
 out="$(run_step8 143 aaa111)"; rc=$?
-[ "$rc" = 143 ] && [ "$(fetches)" = 0 ] && ok "a deploy killed by a signal (143) fails at once, without polling" || bad "signal: rc=$rc fetches=$(fetches)"
+[ "$rc" = 143 ] && [ "$(fetches)" = 0 ] && ok "a deploy stopped by a signal (143) fails at once, without polling" || bad "signal: rc=$rc fetches=$(fetches)"
+case "$out" in *"THIS cut's build is sha256 aaa111"*"stopped by a signal"*) ok "a signal still leaves this cut's sha and the URL to compare" ;; *) bad "signal: no sha record (out=$out)" ;; esac
+
+mv "$T/site/dist/kosmos-9.9.9-arm64.tar.gz.sha256" "$T/sha.aside"
+out="$(run_step8 1 aaa111)"; rc=$?
+mv "$T/sha.aside" "$T/site/dist/kosmos-9.9.9-arm64.tar.gz.sha256"
+[ "$rc" = 1 ] && [ "$(fetches)" = 0 ] && ok "this cut's own .sha256 unreadable: fails at once rather than polling for minutes with nothing to compare" || bad "unreadable local sha: rc=$rc fetches=$(fetches)"
 
 out="$(run_step8 1 aaa111 0 x3 2>&1)"; rc=$?
 case "$out" in *"KOSMOS_DEPLOY_LANDED_TRIES must be a whole number from 1 to 9999, got 'x3'"*"nothing was deployed"*) ok "the refusal names the variable, the allowed range and that nothing was deployed" ;; *) bad "bad override message: $out" ;; esac

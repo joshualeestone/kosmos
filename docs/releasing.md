@@ -185,11 +185,16 @@ apart (default 15 s, 0 to 9999; a bad value stops the cut before anything is dep
 cut's sha before it starts waiting:
 - **It matched:** the log says `THE DEPLOY LANDED although vercel deploy exited N` and the cut carries on
   as a success.
-- **It never matched:** the cut fails. Compare the sha it printed with the served
-  `.sha256` before you revert anything or re-cut. A re-cut rebuilds a cache-immutable tarball name with
-  different bytes.
+- **It never matched:** the cut fails. Compare the sha it printed with the served one before you revert
+  anything or re-cut (a re-cut rebuilds a cache-immutable tarball name with different bytes):
 
-A deploy killed by a signal (exit 130, 137 or 143) fails at once without this check.
+  ```
+  curl -fsS "https://installkosmos.com/dist/kosmos-<V>-arm64.tar.gz.sha256?t=$(date +%s)"
+  ```
+  The same sha means this cut landed late; a different one means another build of `<V>` is served.
+
+A deploy stopped by a signal (exit 130, 137 or 143), or a cut whose own `.sha256` cannot be read, fails at
+once without waiting; it still prints the sha first.
 
 1. **The versions entry's stamp.** **Two shapes, and the second removes the guess.**
 
