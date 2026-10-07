@@ -74,6 +74,7 @@ test('#5419: the gates let Linux through for Codex, Gemini and Grok; Claude\'s l
 test('#5419: tar on Linux is /usr/bin/tar where /usr is merged and /bin/tar where it is not; the Mac is unchanged', () => {
   assert.equal(runners.tarBin('linux', {}, (p) => p === '/usr/bin/tar'), '/usr/bin/tar');
   assert.equal(runners.tarBin('linux', {}, (p) => p === '/bin/tar'), '/bin/tar', 'an unmerged /usr (or busybox) has tar only in /bin');
+  assert.equal(runners.tarBin('linux', {}, () => false), 'tar', 'neither (Nix, a minimal container): tar from PATH');
   assert.equal(runners.tarBin('darwin', {}, () => false), '/usr/bin/tar', 'CONTROL: the Mac path is the same as before');
 });
 

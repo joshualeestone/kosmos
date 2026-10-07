@@ -283,8 +283,9 @@ const GROK_WIN32 = Object.freeze(Object.assign(Object.create(null), {
  * as the Mac and Windows entries: each is the npm registry's own tarball with its own registry sha512. MEASURED
  * 2026-10-06 (each tarball streamed, its sha512 matched the registry, the byte count is the real size, the paths
  * read from the tarball's listing). Codex's Linux builds are static musl, so one build per CPU serves glibc and
- * Alpine alike. Grok's Linux builds are statically linked too (measured: the x64 binary is static-pie, the arm64 one
- * static, neither names a program loader), so they need no libc check either. Grok's layout is the Mac one: ONE
+ * Alpine alike. Grok's Linux builds are statically linked too (measured from the binaries: the x64 one is static-pie,
+ * the arm64 one static, neither names a program loader), so no libc check is made; none of these has yet been run on a
+ * real Linux box, and the prove step (--version) is the backstop if one does not run there. Grok's layout is the Mac one: ONE
  * compressed `bin/grok.br`, expanded to `bin/grok-native`.
  */
 const CODEX_LINUX = Object.freeze(Object.assign(Object.create(null), {
@@ -1136,7 +1137,9 @@ function download(url, file, job, redirectsLeft, getter) {
 function tarBin(platform = process.platform, env = process.env, exists = fs.existsSync) {
   /* #5419 slice 2: Linux keeps tar at /usr/bin/tar only where /usr was merged; Debian 10, Ubuntu 18.04, an unmerged
      upgrade and stock Alpine (busybox) have it at /bin/tar. The Mac's path is unchanged. */
-  if (platform === 'linux') return ['/usr/bin/tar', '/bin/tar'].find((p) => { try { return exists(p); } catch { return false; } }) || '/usr/bin/tar';
+  // Neither (Nix, a minimal container): the bare name, so execFile finds tar on PATH (the reason Windows avoids a bare
+  // name, GNU tar reading C:\ as a host, does not apply here).
+  if (platform === 'linux') return ['/usr/bin/tar', '/bin/tar'].find((p) => { try { return exists(p); } catch { return false; } }) || 'tar';
   if (platform !== 'win32') return '/usr/bin/tar';
   return path.win32.join(env.SystemRoot || env.windir || 'C:\\Windows', 'System32', 'tar.exe');
 }
