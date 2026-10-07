@@ -213,9 +213,9 @@ function ensurePrepared(hookFilePath, bridgePath, opts) {
     /* #5434: through securewrite.writeSecret (unique temp per process, thread, start and write, so two
        concurrent writers never share one; the reason this was pid-suffixed). Flushed before the rename.
        An existing file keeps its mode where the file system allows a chmod; a new one takes the umask
-       default (null). atomicOnly: a failed save leaves the file as it was. ownTempsOnly: in a folder
+       default (null, umaskDefault). atomicOnly: a failed save leaves the file as it was. ownTempsOnly: in a folder
        Kosmos does not own, only this file's own dead temps are reaped. See the slice-3 plan. */
-    securewrite.writeSecret(target, wantText, prevMode, { atomicOnly: true, ownTempsOnly: true });
+    securewrite.writeSecret(target, wantText, prevMode, { atomicOnly: true, ownTempsOnly: true, umaskDefault: true });
   } catch {
     return { prepared: false, because: 'we could not save the hook file' };
   }

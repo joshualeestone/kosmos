@@ -13,8 +13,12 @@ and moved the account stores onto it. This slice moves three settings writers th
   rule is NOT tightened here (unlike slice 2's Kosmos-owned account settings):
   - an existing file keeps its exact mode (`prevMode`, as before);
   - a new file takes the process umask default, as `writeFileSync` without a mode did. writeSecret
-    gains this: `mode` null or undefined means create at 0666 less the umask and set no mode. An
-    explicit mode is still set exactly (control arm).
+    gains this, opt-in only: a null mode WITH `opts.umaskDefault` means create at 0666 less the umask
+    and set no mode. A missing mode without the option throws, so a secret caller cannot land loose by
+    a slip. An explicit mode is still set exactly (control arm).
+  - the Claude settings.json now has two writers with different mode rules: slice 2's
+    `claudeaccounts` (Kosmos-owned account settings: never writable by others) and this reporthook
+    path (a person's own file: exact mode kept). Aligning them is a later item on the card.
   - reporthook still writes through a symlink (its caller resolves the realpath first), as before.
 - **atomicOnly**, as slice 2: when every atomic attempt fails the save fails (the callers already turn
   that into "we could not save the settings file") and the file is left as it was. Before, a failure
@@ -49,13 +53,14 @@ Not in this slice, so these are NOT yet flushed (each a later slice on the card)
   and the other files the card lists.
 
 ## Tests
-`engine/settingswrite.fsync-5434.test.js`, 12 arms, in `tools/windows-tests.js` ALSO. For each writer:
+`engine/settingswrite.fsync-5434.test.js`, 15 arms, in `tools/windows-tests.js` ALSO. For each writer:
 - it flushes the exact temp it renames into the file (fails on main);
 - an existing 0600/0640/0664 file keeps its mode after a real rewrite, a new file is 0644 under umask
   022 and 0600 under 077 (guards: pass on main; fail under a mutant that ignores the umask);
 - with every atomic attempt failing, the writer reports failure and the file is unchanged, after a
   control save on the same file succeeds (fails without atomicOnly).
-Plus: an explicit mode is still exact over the umask; reporthook still writes through a symlink; in a
+Plus: an explicit mode is still exact over the umask; each writer still writes through a symlink; a
+missing mode throws without `umaskDefault`; in a
 config folder only the written file's own dead temps are reaped (fails without `ownTempsOnly`).
 
 ## Weakest premises

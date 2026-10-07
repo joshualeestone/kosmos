@@ -117,16 +117,30 @@ test('#5434: CONTROL, securewrite.writeSecret with an explicit mode still sets i
   assert.equal(fs.statSync(file).mode & 0o777, 0o640, 'an explicit mode was cut by the umask');
 });
 
-test('#5434: reporthook writes THROUGH a symlinked settings file (to its target), as before', { skip: process.platform === 'win32' && 'symlinks need privilege on Windows' }, (t) => {
-  const dir = scratch(t);
-  const real = path.join(dir, 'dotfiles-settings.json');
-  fs.writeFileSync(real, '{}\n');
-  const link = path.join(dir, 'settings.json');
-  fs.symlinkSync(real, link);
-  const read = reporthook.readSettings(link);
-  assert.equal(reporthook.writeSettings(read.target, { a: 1 }, read.prevMode), true);
-  assert.equal(fs.lstatSync(link).isSymbolicLink(), true, 'the link was replaced');
-  assert.deepEqual(JSON.parse(fs.readFileSync(real, 'utf8')), { a: 1 });
+for (const [name, write] of WRITERS) {
+  test('#5434: ' + name + ' writes THROUGH a symlinked settings file (to its target), as before', { skip: process.platform === 'win32' && 'symlinks need privilege on Windows' }, (t) => {
+    const dir = scratch(t);
+    const real = path.join(dir, 'dotfiles-settings.json');
+    assert.equal(write(real), true, 'seed');
+    const before = fs.readFileSync(real, 'utf8');
+    const link = path.join(dir, 'settings.json');
+    fs.symlinkSync(real, link);
+    // reporthook's callers resolve the realpath first (readSettings); the provider writers do it themselves.
+    const target = name.startsWith('reporthook') ? reporthook.readSettings(link).target : link;
+    assert.equal(write(target), true);
+    assert.equal(fs.lstatSync(link).isSymbolicLink(), true, 'the link was replaced');
+    assert.notEqual(fs.readFileSync(real, 'utf8'), before, 'the target was not written');
+  });
+}
+
+test('#5434: writeSecret refuses a missing mode unless the caller opts into the umask default', (t) => {
+  const file = path.join(scratch(t), 'f');
+  const securewrite = require('./securewrite');
+  assert.throws(() => securewrite.writeSecret(file, 'x'), TypeError);
+  assert.throws(() => securewrite.writeSecret(file, 'x', null), TypeError);
+  assert.equal(fs.existsSync(file), false, 'a refused write left a file');
+  securewrite.writeSecret(file, 'x', null, { umaskDefault: true });
+  assert.equal(fs.readFileSync(file, 'utf8'), 'x');
 });
 
 test('#5434: in a config folder only the written file\'s own dead temps are reaped, never another file\'s', (t) => {
