@@ -206,7 +206,7 @@ _kosmos_linux_unit_killmode() {
   _lk_file="$_lk_dir/$(_kosmos_linux_unit_name)"
   [ -f "$_lk_file" ] || return 0
   grep -qx 'KillMode=process' "$_lk_file" && return 0
-  _lk_tmp="$_lk_dir/.kosmos-killmode.$"
+  _lk_tmp="$_lk_dir/.kosmos-killmode.$$"
   if awk '{ print } /^\[Service\]$/ { print "KillMode=process" }' "$_lk_file" > "$_lk_tmp" && mv "$_lk_tmp" "$_lk_file"; then
     systemctl --user daemon-reload 2>/dev/null || true
   else
@@ -1487,8 +1487,8 @@ BOARDEOF
         rm -f "$_lb_dir/$_lb_name" "$_lb_dir/default.target.wants/$_lb_name"
         systemctl --user daemon-reload 2>/dev/null || true
       fi
-    elif [ -f "$KOSMOS_HOME/app/engine/linuxboard.js" ] && [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ -x "$KOSMOS_HOME/runtime/bin/node" ]; then
-      # The app is here but systemctl is not: nothing can stop or disable a unit, and there is no user manager to have
+    elif [ -f "$KOSMOS_HOME/app/server.js" ]; then
+      # The app is here (this release or an older one) but systemctl is not: nothing can stop or disable a unit, and there is no user manager to have
       # loaded one. Say so rather than blaming a missing app folder.
       info "systemctl is not available, so no board service was removed (none can be running without it)"
     else
@@ -4153,7 +4153,7 @@ BOARDEOF
     if [ "$_lb_rc" -ne 0 ] && case "$_lb_out" in *"sandboxed board does not manage"*) true ;; *) false ;; esac; then
       # A sandboxed run (AGENT_WORKFORCE_LAUNCH without a systemd folder of its own) never touches real systemd, by
       # design; said as what it is, not as a failure.
-      info "sandboxed run: the systemd step was skipped on purpose"
+      info "sandboxed run: systemd itself was not asked, on purpose (the unit file stays in the sandbox)"
     elif [ "$_lb_rc" -ne 0 ] && [ -z "$_lb_out" ]; then
       info "Kosmos could not set itself to start with systemd: its setup step did not run ($KOSMOS_HOME/runtime/bin/node with $KOSMOS_HOME/app/engine/linuxboard.js)"
     elif [ "$_lb_rc" -ne 0 ]; then

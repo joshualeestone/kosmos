@@ -124,6 +124,7 @@ function world({ systemctl = true, app = true, legacy = false, nodeOut = '', nod
   if (systemctl) { fs.writeFileSync(path.join(bin, 'systemctl'), '#!/bin/sh\necho "$@" >> "' + path.join(root, 'systemctl.log') + '"\nexit 0\n'); fs.chmodSync(path.join(bin, 'systemctl'), 0o755); }
   for (const tool of ['rm', 'cut', 'sha256sum', 'shasum']) { const src = ['/bin/' + tool, '/usr/bin/' + tool].find((f) => fs.existsSync(f)); if (src) fs.symlinkSync(src, path.join(bin, tool)); }
   if (legacy) { fs.mkdirSync(path.join(home, 'app'), { recursive: true }); fs.writeFileSync(path.join(home, 'app', 'server.js'), ''); }
+  if (app) { fs.mkdirSync(path.join(home, 'app'), { recursive: true }); fs.writeFileSync(path.join(home, 'app', 'server.js'), ''); }
   fs.mkdirSync(path.join(home, 'bin'), { recursive: true });
   fs.writeFileSync(path.join(home, 'bin', 'kosmos'), '#!/bin/sh\necho "$@" >> "' + path.join(root, 'kosmos.log') + '"\nexit ' + restartRc + '\n');
   fs.chmodSync(path.join(home, 'bin', 'kosmos'), 0o755);
@@ -292,7 +293,7 @@ test('#4920 install: a sandboxed run says the systemd step was skipped on purpos
   const w = world({ nodeOut: 'refused: systemd did not reload its user units: a sandboxed board does not manage real systemd units', nodeRc: 3 });
   const r = runBlock(INSTALL_BLOCK, w);
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /sandboxed run: the systemd step was skipped on purpose/);
+  assert.match(r.stdout, /sandboxed run: systemd itself was not asked, on purpose/);
   assert.doesNotMatch(r.stdout, /could not set itself/);
 });
 
@@ -343,4 +344,32 @@ test('#4920 the update pause runs the KillMode fix before it stops the board', (
   const i = SETUP.indexOf('  _kosmos_linux_unit_killmode   # #4920: before the stop');
   const j = SETUP.indexOf('"$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true', i);
   assert.ok(i > 0 && j > i && j - i < 200, 'the KillMode fix is not right before the update pause');
+});
+
+test('#4920 the sandbox sentence matches what the real installBoard says in a sandbox', () => {
+  /* setup.sh recognises a sandboxed run by linuxboard's own refusal text; this ties the two files, so a reworded
+     refusal cannot turn a sandboxed install into "could not set itself to start with systemd". */
+  const lb = require('./engine/linuxboard');
+  const savedLaunch = process.env.AGENT_WORKFORCE_LAUNCH, savedDir = process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
+  const sb = fs.mkdtempSync(path.join(WORK, 'sb-'));
+  process.env.AGENT_WORKFORCE_LAUNCH = sb; delete process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
+  let r;
+  try { r = lb.installBoard(path.join(sb, 'kosmos'), 16180); }
+  catch (e) { r = { ok: false, because: String(e && e.message) }; }
+  finally {
+    if (savedLaunch === undefined) delete process.env.AGENT_WORKFORCE_LAUNCH; else process.env.AGENT_WORKFORCE_LAUNCH = savedLaunch;
+    if (savedDir === undefined) delete process.env.AGENT_WORKFORCE_SYSTEMD_DIR; else process.env.AGENT_WORKFORCE_SYSTEMD_DIR = savedDir;
+  }
+  assert.equal(r.ok, false, 'a sandboxed installBoard did not refuse');
+  const phrase = (SETUP.match(/\*"(sandboxed board does not manage)"\*/) || [])[1];
+  assert.ok(phrase, 'setup.sh no longer matches a sandbox phrase');
+  assert.ok(String(r.because).includes(phrase), 'linuxboard says "' + r.because + '", which setup.sh does not recognise as a sandbox');
+});
+
+test('#4920 uninstall: an older install on a box without systemctl says systemctl is missing, not that the app is', () => {
+  const w = world({ app: false, legacy: true, systemctl: false, units: ['kosmos-board.service'] });
+  const r = runBlock(UNINSTALL_BLOCK, w);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /systemctl is not available/);
+  assert.doesNotMatch(r.stdout, /app code or runtime is missing/);
 });
