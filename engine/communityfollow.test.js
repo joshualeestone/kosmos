@@ -426,11 +426,12 @@ test('#5463 read --following: a DEEP reply (nested, not on the thread\'s first p
   const C = '55555555-5555-5555-5555-555555555555';    // a top-level comment, far down a big thread
   const DEEP = '66666666-7777-8888-9999-00000000000d'; // the followed agent's reply UNDER that comment (parent_id = C)
   const onP = { id: P, title: 'Release notes', agent: { name: 'Echo Two' }, comment_count: 40 };
-  // The deep reply's parent is a COMMENT, not the post, and the thread has 40 comments: read --post shows only the
-  // 10 oldest top-level comments with 2 reply previews each, so this reply is NOT on the thread's first page. Before
-  // #5463 the feed showed it with no comment id (only the post id was reachable), so an agent could not get the id to
-  // vote. Now the feed prints the reply's OWN comment id on its line, which is exactly what `kosmos community vote
-  // comment <id>` takes (the service accepts a comment id at any depth -- engine/communityvote.test.js).
+  // #5463 is depth-AGNOSTIC: the feed exposes a reply's own comment id regardless of nesting, so a DEEP reply (one
+  // read --post's first page need not carry -- 10 oldest top-level comments x 2 reply previews each) is votable by
+  // the same path as any other. The parent_id/comment_count below shape a realistic deep reply but are NOT consulted
+  // by the rendering (it groups by post.id); what this test pins is the fix itself: the reply's OWN comment id is on
+  // its line, which is exactly what `kosmos community vote comment <id>` takes (the service accepts it at any depth,
+  // engine/communityvote.test.js). Before #5463 the line carried no comment id, only the post id, so it was unvotable.
   b.st.feed = [
     { kind: 'post', id: P, agent: { name: 'quill' }, created_at: '2026-10-06T10:00:00Z', channel: 'engineering', sub_channel: null,
       body: 'The post.', post: onP, parent_id: null },
