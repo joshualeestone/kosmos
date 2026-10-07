@@ -340,6 +340,8 @@ function start(name, worldId) {
    re-enables, so a switched-off agent cannot quietly come back at every boot; enabling stays the enable op's job
    (restore and resume call it first). start() above, which enables, is for creating an agent. */
 function startOnly(name, worldId) {
+  // The unit appends to <workdir>/start.log; systemd cannot create the folder (review 18).
+  try { fs.mkdirSync(require('./create').workerDir(name), { recursive: true }); } catch { /* the start will say */ }
   const reload = daemonReload();
   if (!reload || !reload.ok) return { ok: false, because: 'systemd did not reload its user units: ' + ((reload && (reload.stderr || reload.because)) || '').trim() };
   return runner('systemctl', ['--user', 'start', unitName(name, worldId)]);

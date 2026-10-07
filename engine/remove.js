@@ -2171,7 +2171,7 @@ function restartInner(name, cause, platform, startIfDead) {
      Josh's Grok agent (2026-09-26) was the second #3418-class case: a restart whose job did not
      reload, while a bootstrap by hand minutes later worked at once. Only when the file is still
      there (a missing one cannot be bootstrapped at all). */
-  if (!loaded && !ops.win32 && !ops.startableGone(clean, job)) {   // the Mac's bootout/bootstrap race only
+  if (!loaded && !ops.win32 && !ops.startableGone(clean, job)) {   // the Mac's bootout/bootstrap race; on Linux a second start is harmless
     retryWait();
     const again = step('asked it to start once more', () => {
       /* #4964: and again before the second bootstrap, unless the first one loaded a new job: then launchd holds OURS
