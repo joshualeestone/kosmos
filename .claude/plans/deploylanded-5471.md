@@ -42,23 +42,32 @@ did not run, and the operator had to verify by hand while resisting a revert or 
    that reused a previously built tarball without rebuilding would make an earlier attempt's served .sha256
    equal this cut's, and a failed deploy would read as landed. Step 9 then verifies the same served state,
    so the harm is bounded, but the "landed" line would be wrong.
+
+## Also decided
 - Before deploying, the cut prints this cut's sha and the .sha256 URL it will be served at, so the record
-  is in the log however the cut ends (a Ctrl-C reaches release.sh's own INT trap too, and the trap deletes
-  the local copy). On a non-zero exit, a deploy stopped by an interrupt or terminate that reached vercel alone (130, 143)
-  fails at once; a KILL (137, often out of memory) after the upload is the card's own case and is polled. A cut whose own .sha256 cannot be read fails at once.
-- docs/releasing.md says what to do when it landed late: no revert, no re-cut, run step 9's checks by
-  hand (step 7b had pushed the site commit), refresh the local site checkout.
+  is in the log however the cut ends (a Ctrl-C reaches release.sh's own INT trap too, and a failed cut's
+  trap deletes the local copy). On a non-zero exit, a deploy stopped by an interrupt or terminate that
+  reached vercel alone (130, 143) fails at once; a KILL (137, often out of memory) after the upload is
+  the card's own case and is polled. A cut whose own .sha256 cannot be read fails at once.
+- docs/releasing.md says what to do when it landed late: no revert or re-cut; run step 9's checks by hand
+  from a checkout at the cut's version; FETCH THE SERVED TARBALL PAIR BACK into the site's dist/ (the
+  trap deleted it, and promote-channel.sh refuses without it); refresh the tracked site files.
 - docs/staging-channel.md's manual promote recipe has its own `vercel deploy` under `set -e`; it is a
   different path (an operator watching it), left as is.
 
 ## Tests
 `tools/test-deploy-landed-5471.sh`, in test:shell:
-- the helper: passes on the 3rd check, never, at once; a count of 0, 00, empty, x3 or 12345 refused, and a wait of x, empty or 12345
-- the own-build check: same sha, an earlier attempt's sha, nothing served, no local file; the URL it fetches
-- release.sh's real step-8 block (override check to DEPLOYED=1), cut out of the file and run with `vercel`
-  and `curl` stubbed: served from the 2nd check continues to DEPLOYED=1 after exactly 2 fetches of HOST's
-  .sha256 and never runs the full verifier; an earlier attempt's build fails; nothing served exits with
-  the CLI's code (7 kept), never sets DEPLOYED, asks exactly 3 times and says it may still land; a
-  mistyped override is refused before vercel runs; CLI success asks nothing.
+- the helper: passes on the 3rd check, never, at once; a count of 0, 00, empty, x3 or 12345 refused, and a
+  wait of x, empty or 12345
+- the own-build check: same sha, an earlier attempt's sha, nothing served, no local file; the URL it
+  fetches, with -f, -m 30 and the cache buster
+- step 1 holds the override check before its fetch (a source-presence guard)
+- release.sh's real step-8 block (step 8's override check to DEPLOYED=1), cut out of the file and run with
+  `vercel` and `curl` stubbed (and a failing vercel first on PATH): the sha and URL are printed before
+  vercel runs; served from the 2nd check continues to DEPLOYED=1 after exactly 2 fetches and never runs
+  the full verifier; an earlier attempt's build fails; nothing served exits with the CLI's code (7 kept),
+  never sets DEPLOYED, asks exactly 3 times and says it may still land; 130 and 143 fail without polling;
+  137 is polled and a landed build continues; an unreadable own .sha256 fails without polling; a mistyped
+  override is refused before vercel runs, naming the variable and range; CLI success asks nothing.
 Measured red: the landed check disabled gives 4 failures; the own-build check accepting any served
 .sha256 gives 3 (the earlier-attempt arms).

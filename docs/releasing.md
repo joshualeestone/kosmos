@@ -197,16 +197,30 @@ cut's sha before it starts waiting:
   not run: 9 (what users receive), 9b (the served bundle is the frozen tree), 9c (the served `.pkg`), 9d
   (the manifest), 9e (the outside audit) and the steps after them. Step 9's checks can be run by hand
   (`KOSMOS_VERIFY_POINTER=latest-staging.json KOSMOS_VERIFY_SETUP=setup-staging SITE=<site> REPO=<repo> bash tools/verify-served.sh`
-  on a staging cut, `latest.json` and `setup` on a `KOSMOS_CUT_CHANNEL=prod` cut); the others stay
-  unverified unless you repeat them, so say so where you record the release. On a staging cut, confirm
-  prod's `latest.json` and `/setup` did not move. Refresh the local site checkout
-  from origin before the next cut (the trap restored it to the pre-cut state). The cut's own record still
-  shows it failing, with the CLI's exit code.
+  on a staging cut, `latest.json` and `setup` on a `KOSMOS_CUT_CHANNEL=prod` cut, with `<repo>` a checkout
+  at the cut's version: it reads the version from `package.json` and hashes `install/setup.sh`); the
+  others stay unverified unless you repeat them, so say so where you record the release. On a staging
+  cut, confirm prod's `latest.json` and `/setup` did not move.
 
-The cut prints this sha before it deploys, so it is in the log however the cut ends. Keep the log: once
-the cut ends, the trap deletes the local `.sha256`, and that log line is then the only record of it. A deploy stopped by
-an interrupt or terminate that reached vercel alone (exit 130 or 143), or a cut whose own `.sha256` cannot be read (it printed
-`<unreadable>`), fails at once without waiting.
+  **Put back the tarball pair before any promote.** The failed cut's trap deleted the untracked
+  `dist/kosmos-<V>-arm64.tar.gz` and `.sha256` from the site checkout, and a refresh from origin cannot
+  bring back gitignored files, so `tools/promote-channel.sh` would refuse on a missing artifact. Fetch
+  the served pair into the site's `dist/` and check it:
+
+  ```
+  cd <site>/dist
+  curl -fsS -O "https://installkosmos.com/dist/kosmos-<V>-arm64.tar.gz"
+  curl -fsS -O "https://installkosmos.com/dist/kosmos-<V>-arm64.tar.gz.sha256"
+  shasum -a 256 -c "kosmos-<V>-arm64.tar.gz.sha256"
+  ```
+  The sha must also equal the one the cut printed. Then refresh the tracked files of the site checkout
+  from origin before the next cut (the trap restored them to the pre-cut state). The cut's own record
+  still shows it failing, with the CLI's exit code.
+
+The cut prints this sha before it deploys, so it is in the log however the cut ends. Keep the log: once a
+failed cut ends, its trap deletes the local `.sha256`, and that log line is then the only record of it. A
+deploy stopped by an interrupt or terminate that reached vercel alone (exit 130 or 143), or a cut whose own
+`.sha256` cannot be read (it printed `<unreadable>`), fails at once without waiting.
 
 1. **The versions entry's stamp.** **Two shapes, and the second removes the guess.**
 

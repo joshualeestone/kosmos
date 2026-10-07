@@ -58,6 +58,7 @@ grep -q -- '-f' "$T/curl.args" && grep -q -- '-m 30' "$T/curl.args" && grep -q '
 [ "$(sort -u "$T/curl.urls")" = "https://h/dist/kosmos-9.9.9-arm64.tar.gz.sha256" ] && ok "it fetches <host>/dist/<name>.sha256 and nothing else" || bad "fetched: $(sort -u "$T/curl.urls" | tr '\n' ' ')"
 
 # ---- step 1 checks the overrides before anything is built -----------------------------
+# A source-presence guard (the exact line, inside step 1 before its fetch), not a run of step 1.
 s1="$(awk '/^step "== 1\. /{f=1} f && /^git -C "\$REPO" fetch origin -q$/ {exit} f {print}' tools/release.sh)"
 case "$s1" in *'site_deploy_landed_args_ok "${KOSMOS_DEPLOY_LANDED_TRIES:-24}" "${KOSMOS_DEPLOY_LANDED_WAIT_S:-15}" || { echo "nothing was built"; exit 1; }'*) ok "step 1 refuses a bad landed-check override before anything is built or pushed" ;; *) bad "step 1 does not check the overrides" ;; esac
 
