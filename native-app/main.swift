@@ -608,19 +608,20 @@ enum StartResult {
     case failed(String) // stderr, the die() message, same wording a terminal user would see
 }
 
-// onSpawn hands the just-launched Process to the caller so the caller's
-// watchdog can terminate a hung start (#965). Terminating a hung CHILD
-// closes its stderr and unblocks the drain below via EOF; it cannot reach a
-// GRANDCHILD holding an inherited fd (see the drain comment), where the
-// caller's re-arm is the only guarantee. Called on the caller's queue,
-// immediately after a successful run().
 // #4342: PURE, so --kosmos-app-wake-reclaim-selftest can drive the build gate without a window
-// server. What a wake liveness probe of /api/health means for recovery. Any HTTP answer at all
-// (even a refusal or a 404 from an older board) is .alive. A TIMEOUT is .wedged: the board holds
-// the port but never replied -- the frozen-board case launchd's KeepAlive cannot fix (the process
-// has not exited) and a plain `kosmos start` refuses (the port is held), so a reclaim is warranted.
-// Any OTHER failure (connection refused, host unreachable) is .down: the board EXITED, its port is
-// free, and launchd is already relaunching it, so the wake path must NOT race that with a reclaim.
+// server. What a wake liveness probe of /api/health means for recovery:
+//  - .alive: ANY HTTP answer at all, even a refusal or a 404 from an older board -- the board's
+//    event loop is running, so nothing to do.
+//  - .wedged: a TIMEOUT -- the board accepted the connection but never replied, the frozen-board
+//    case launchd's KeepAlive cannot fix (the process has not exited) and a plain `kosmos start`
+//    refuses (the port is held). This is the ONE case the fast wake reclaim acts on.
+//  - .down: any OTHER failure (connection refused, host unreachable, reset). The common one is a
+//    clean exit -- the port is then free and launchd's KeepAlive is already relaunching it, so the
+//    wake path must NOT race that with a reclaim. A rarer non-refused error (e.g. a reset on a
+//    process that did NOT exit) is left here too, on purpose: widening .wedged to cover it would
+//    risk a fast reclaim on transient post-wake network noise, the #4466 false-kill. Those are
+//    recovered by the watchdog's slower `kosmos status` path instead, which is the deliberate
+//    trade -- this path only ever acts on the unambiguous timeout wedge.
 enum WakeProbeOutcome: String { case alive, wedged, down }
 func wakeProbeOutcome(hasHTTPResponse: Bool, errorCode: Int) -> WakeProbeOutcome {
     if hasHTTPResponse { return .alive }
@@ -628,6 +629,12 @@ func wakeProbeOutcome(hasHTTPResponse: Bool, errorCode: Int) -> WakeProbeOutcome
     return .down
 }
 
+// onSpawn hands the just-launched Process to the caller so the caller's
+// watchdog can terminate a hung start (#965). Terminating a hung CHILD
+// closes its stderr and unblocks the drain below via EOF; it cannot reach a
+// GRANDCHILD holding an inherited fd (see the drain comment), where the
+// caller's re-arm is the only guarantee. Called on the caller's queue,
+// immediately after a successful run().
 func startBoard(kosmosHome: String, port: Int, reclaim: Bool = false, onSpawn: ((Process) -> Void)? = nil) -> StartResult {
     let kosmosBin = kosmosHome + "/bin/kosmos"
     guard FileManager.default.isExecutableFile(atPath: kosmosBin) else {
@@ -2741,6 +2748,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// person quit and reopened. This one checks the local board on wake and reclaim-restarts
     /// it when it is not answering. nil when not installed.
     private var boardWakeObserver: NSObjectProtocol?
+    /// Serializes overlapping wake-recovery chains. boardStartInFlight is false for the whole
+    /// probe+settle+confirm window (~14s), so a second didWake (or a wake mid-settle) could start a
+    /// second chain and, once the first chain's reclaim finished, kill the freshly-restarted board on
+    /// a confirm probe that was already in flight. Each chain captures this generation at entry and
+    /// drops out at its next continuation if a newer wake has bumped it -- latest wake wins, and only
+    /// one chain can ever reach the reclaim. Monotonic, so (unlike a boolean) it cannot latch.
+    private var wakeRecoveryGeneration = 0
     /// A version the installer finished while nobody asked (updates are on). The new app waits for the
     /// person's Restart, so words being typed on the page are never lost to a restart nobody chose.
     private var installedUpdate: String?
@@ -2830,9 +2844,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             return
         }
         guard wakeRecoveryGateOpen(home: home) else { return }   // logs its own reason
+        // Capture this chain's generation. A later wake bumps it; every continuation below drops out
+        // if a newer chain has superseded this one, so overlapping chains never both reach the kill.
+        wakeRecoveryGeneration += 1
+        let gen = wakeRecoveryGeneration
         logLine("#4342: woke on a run computer; checking whether the board answers on \(port)")
         probeBoardHealth(port: port) { [weak self] outcome in
-            guard let self, self.computerMode != .connect else { return }
+            guard let self, self.wakeRecoveryGeneration == gen, self.computerMode != .connect else { return }
             switch outcome {
             case .alive:
                 logLine("#4342: board answered after wake; no restart needed")
@@ -2841,10 +2859,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             case .wedged:
                 logLine("#4342: board did not answer after wake; confirming with a second probe before any restart")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
-                    guard let self, self.computerMode != .connect else { return }
+                    guard let self, self.wakeRecoveryGeneration == gen, self.computerMode != .connect else { return }
                     guard self.wakeRecoveryGateOpen(home: home) else { return }
                     self.probeBoardHealth(port: port) { [weak self] confirm in
-                        guard let self, self.computerMode != .connect else { return }
+                        guard let self, self.wakeRecoveryGeneration == gen, self.computerMode != .connect else { return }
                         guard confirm == .wedged else {
                             logLine("#4342: board answered (or went down) on the confirm probe; no restart")
                             return
