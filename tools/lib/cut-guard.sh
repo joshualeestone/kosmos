@@ -23,7 +23,8 @@ unset _kosmos_cut_guard_lib_dir
 # options are flags like -x, +x, -e or --norc, a bare --, the value-taking -o/-O NAME (also as the end of
 # a cluster like -eo NAME) and --rcfile/--init-file FILE, but never a cluster holding c (a command string,
 # which only mentions the script) or n (a syntax check, which never runs it). A few shapes that are not
-# runs also match (`bash -s <script>`, a script given as an option's value): all fail toward busy.
+# runs also match (`bash -s <script>`, `bash --rcfile <script>`, a script given as an option's value): all
+# fail toward busy.
 # LC_ALL=C on that grep: the option class is written as letter RANGES (any letter but c and n), and ranges
 # are collation-dependent outside the C locale. A queued-heavy waiter needs no rule of its own here: its
 # command starts with tools/queued-heavy.sh, not with <script>, so it never matches.

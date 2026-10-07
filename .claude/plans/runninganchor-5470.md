@@ -24,8 +24,13 @@ unanchored `pgrep -f` stays exposed.
   path as an argument counts (fail toward busy); only the queue's own waiter is carved out (the LEAD
   script being a queued-heavy.sh in any directory, so tools/ or the installed copy agents actually run,
   ~/.cache/claude-handoffs/queued-heavy.sh, including a lead that ps split at a space; a queued-heavy.sh
-  that is only an argument, after a script or after a wrapper with no .sh suffix, is not), because the
-  waiter starts the real run as its own process when its turn comes, and that run counts.
+  that is only an argument, after a script or after a wrapper with no .sh suffix, is not; a lead counts as
+  split at a space only when it is an absolute path with no .sh ending yet, and the piece that ends in
+  queued-heavy.sh carries at least two directory segments; a contrived `/wrapper x/tools/queued-heavy.sh`
+  argument would still read as a waiter, which nothing runs), because the
+  waiter starts the real run as its own process when its turn comes, and that run counts. The window between
+  is covered by queued-heavy.sh's machine claim, taken before it starts the run (tools/queued-heavy.sh
+  steps 2-3), which heavy-gate already reads as busy.
 - The per-cut wrapper (outside the repo, mortals:~/.cut-07NN.sh) sources the Mortals main checkout's
   cut-guard.sh, so 0.7.28's wrapper calls `kosmos_running_lines tools/browser-checks.sh` and treats rc 2
   as "still running". MERGED IS NOT IN EFFECT: the wrapper reads mortals:~/work/agent-workforce (main),
