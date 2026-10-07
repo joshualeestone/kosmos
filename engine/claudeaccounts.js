@@ -151,7 +151,8 @@ function storeKey(dir, key) {
 function forgetKey(dir) {
   // Remove the key file AND any leftover temp, or a plaintext key lingers: an older version's
   // <keyfile>.tmp, and (#5434) a writeSecret temp a process that died between create and rename
-  // left (reapDeadTempsOf removes only one whose writer is provably gone).
+  // left. reapDeadTempsOf removes only one whose writer is provably gone, so a temp whose dead
+  // writer's pid now belongs to a live process is still left (securewrite errs toward litter).
   let ok = false;
   try { fs.rmSync(keyFile(dir), { force: true }); ok = true; } catch { ok = false; }
   try { fs.rmSync(keyFile(dir) + '.tmp', { force: true }); } catch { /* best effort */ }
@@ -185,7 +186,9 @@ function apiKeyHelperCommand(dir) {
    agent's Claude Code) reads it, and writeSecret sets the mode exactly, so a looser default would
    override a tighter umask. Accepted with it: after three failed atomic attempts writeSecret rewrites
    the file in place (main threw there), and refuses a symlinked settings.json on that path
-   (ERR_KOSMOS_SYMLINK). Both callers in server.js catch any throw. */
+   (ERR_KOSMOS_SYMLINK). Both callers in server.js catch any throw. A symlinked settings.json
+   on the atomic path is replaced by a regular file at the mode of the file it pointed to, as
+   main's rename replaced it too. */
 function writeSettings(settingsPath, obj) {
   let mode = 0o600;
   // Never group- or world-writable: the file holds apiKeyHelper, a command Claude Code runs. writeSecret

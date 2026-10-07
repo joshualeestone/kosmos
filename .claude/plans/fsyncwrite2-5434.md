@@ -28,22 +28,21 @@ writes, not renames), and the other files the card lists.
     the fallback every other secret already has, and a refused flush never reaches it.
   - `settings.json` keeps its existing mode, minus group and other write: it holds `apiKeyHelper`, a
     command Claude Code runs, and writeSecret sets a mode exactly (no umask), so a 0666 file would
-    otherwise have stayed 0666 where main's fresh temp brought it back to 0644.
-    Before: It was written through a fresh temp at the umask default,
-    so a 0600 file became 0644 on the next save, though the docblock already said "mode-preserving".
-    A new one is 0600: writeSecret sets the mode exactly, so a fixed looser default would override a
+    otherwise have stayed 0666 where main's fresh temp brought it back to 0644. On main every save
+    went through a fresh temp at the umask default, so a 0600 file became 0644, though the docblock
+    already said "mode-preserving". A new one is 0600: writeSecret sets the mode exactly, so a fixed looser default would override a
     tighter umask, and only this user's Claude Code reads it.
 - **Cost:** about 8 ms per save on this Mac (slice 1's measurement). These saves happen once per key
   entered or account wired, not in a loop.
 
 ## Tests
-`engine/accounts.fsync-5434.test.js`, 11 arms, also in `tools/windows-tests.js` ALSO:
+`engine/accounts.fsync-5434.test.js`, 11 arms, also listed in `tools/windows-tests.js` (ALSO):
 - each `storeKey` flushes the temp it renames into the key file (fails on main), the key reads back
   trimmed, and the mode is 0600;
 - each `storeKey` still removes a stale `<keyfile>.tmp` (a guard: passes on main; fails when the
   cleanup is removed, checked by mutation);
-- each `forgetKey` removes a dead writer's writeSecret temp and leaves a live one (fails when the
-  reap call is removed);
+- each `forgetKey` removes a dead writer's writeSecret temp and leaves a live one (a child process
+  the test starts and keeps alive); fails when the reap call is removed;
 - wire and unwire flush settings.json before its rename (fails on main);
 - settings.json keeps 0600 and 0644, a 0666 one comes back 0644 (fails with the mask removed), other
   settings are kept, and a new one is 0600 under umask 022 (fails on main).
