@@ -65550,7 +65550,7 @@ function voiceOnEvent(ev) {
   // #5481: "allowed" comes after the mic stopped (VOICE.btn is gone), so it is matched to the Settings visit itself.
   if (ev && ev.kind === 'allowed') {
     const btn = VOICE_SETTINGS.btn;
-    if (!btn || (ev.id != null && ev.id !== VOICE_SETTINGS.id)) return;
+    if (!btn || ev.id !== VOICE_SETTINGS.id) return;   // review 4: the app always sends the visit's id; none is not a match
     const box = document.getElementById(btn.getAttribute('data-voice-for') || '');
     const still = !!box && voiceWhere(box) === VOICE_SETTINGS.where;   // review 2: another agent, room or a closed dialog
     voiceSettingsClear();

@@ -13,8 +13,9 @@ Card: joshualeestone/kosmos#5481 (Josh, 2026-10-07; scope updated by Josh 08:16 
 ## Design
 - native-app/main.swift VoiceBridge:
   - op `settings` with `pane` (`speech` or `mic` only; anything else opens nothing) opens the pane and marks a
-    Settings visit with the page's id. The visit ends on the FIRST didBecomeActive, ready or not; then allowedEvent
-    says `allowed` (speech on, mic on or never asked) or `settings-next` with pane `mic` (speech on, mic refused).
+    Settings visit with the page's id (at most once a second). On each didBecomeActive, visitOnReturn: within 10
+    minutes of the press, allowedEvent says `allowed` (speech on, mic on or never asked) or `settings-next` with pane
+    `mic` (speech on, mic refused) and closes the visit; nothing changed keeps it open; older than 10 minutes, nothing.
   - restricted is told apart from denied (`speech-restricted`, `mic-restricted`).
   - Each permission answer is logged with its duration, so a refusal without a prompt shows as a few milliseconds.
 - web/index.html: on a desktop-bridge `mic-denied` or `speech-denied`, the mic gets class `has-pill` (hidden) and a
@@ -29,7 +30,7 @@ both got the system prompt on macOS 26.7.1, so that is not the cause there. Re-s
 the identity existing grants are keyed on.
 
 ## Tests
-- `--kosmos-app-voice-selftest`: 29 rows, including pane mapping, allowedEvent (allowed, settings-next, nothing) (the event and its Settings-visit id), readyToStart (speech allowed with the mic never asked counts as ready), and the restricted split.
+- `--kosmos-app-voice-selftest`: 33 rows, including visitOnReturn (open, ready, too late), the once-a-second Settings limit, pane mapping, allowedEvent (allowed, settings-next, nothing) (the event and its Settings-visit id), readyToStart (speech allowed with the mic never asked counts as ready), and the restricted split.
 - web.voice-4409.test.js: the pill, the X, `allowed`, and the controls.
 - docs/browser-checks/render-voice-4409.js: V6, V6b, V6c, V6d and V6e.
 - design shots: the screen agent-chat-mic-settings.

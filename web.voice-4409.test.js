@@ -454,7 +454,8 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   const ask2 = posted.at(-1);
   assert.deepEqual([ask2.op, ask2.pane], ['settings', 'mic'], 'after speech was turned on the pill still opens the Speech pane');
   h.voiceOnEvent({ kind: 'allowed', id: 'not-this-visit' });
-  assert.equal(pills.length, 1, 'an "allowed" for another visit took the pill away');
+  h.voiceOnEvent({ kind: 'allowed' });
+  assert.equal(pills.length, 1, 'an "allowed" for another visit, or with no visit id, took the pill away');
   h.voiceOnEvent({ kind: 'allowed', id: ask2.id });
   assert.equal(pills.length, 0, 'the pill stayed after both were allowed');
   assert.ok(!btn.classList.contains('has-pill'), 'the mic did not come back');

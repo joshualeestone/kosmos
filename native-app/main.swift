@@ -1451,6 +1451,7 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
     /// say "allowed" if both permissions are now on, so the page starts listening without another click.
     private var awaitingAllow = false
     private var settingsId = ""   // the Settings visit's own id, apart from the listening session's pageId
+    private var settingsAt: Date?   // when the visit was opened (bounds how long it may start the mic by itself)
     private var activeObserver: NSObjectProtocol?
     init(_ owner: AppDelegate) {
         self.owner = owner
@@ -1514,14 +1515,25 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         if speech == .authorized && mic == .denied { return ["kind": "settings-next", "pane": "mic", "id": settingsId] }
         return nil
     }
+    /// Review 3 and 4: how long a Settings visit may still start the mic by itself. Not "the first return": the app also
+    /// comes back for a Dock click or a password sheet before the switch is flipped. Not forever: a return hours later,
+    /// the permission turned on some other way, must not start the mic without a press.
+    static let settingsVisitSeconds: TimeInterval = 600
+    /// Review 4: what one return to the app does with an open visit: the event to send, and whether the visit stays open
+    /// (only while nothing has changed and it is not too old). PURE, selftested.
+    static func visitOnReturn(ageSeconds: TimeInterval, speech: SFSpeechRecognizerAuthorizationStatus, mic: AVAuthorizationStatus, settingsId: String) -> (event: [String: String]?, keepOpen: Bool) {
+        guard ageSeconds >= 0, ageSeconds <= settingsVisitSeconds else { return (nil, false) }
+        if let event = allowedEvent(awaiting: true, speech: speech, mic: mic, settingsId: settingsId) { return (event, false) }
+        return (nil, true)
+    }
+    /// Review 4: the page may name a pane, never a URL; it also may not open Settings over and over.
+    static func settingsOpenAllowed(sinceLast: TimeInterval?) -> Bool { sinceLast.map { $0 < 0 || $0 >= 1 } ?? true }
     private func recheckAfterSettings() {
-        guard awaitingAllow else { return }
-        // Review 3: a visit lasts until the first return to the app, ready or not. A later return (hours on, the
-        // permission turned on some other way) must not start the mic without a press.
-        awaitingAllow = false
-        guard let event = Self.allowedEvent(awaiting: true, speech: SFSpeechRecognizer.authorizationStatus(),
-                                            mic: AVCaptureDevice.authorizationStatus(for: .audio), settingsId: settingsId) else { return }
-        emit(event)
+        guard awaitingAllow, let at = settingsAt else { return }
+        let outcome = Self.visitOnReturn(ageSeconds: Date().timeIntervalSince(at), speech: SFSpeechRecognizer.authorizationStatus(),
+                                         mic: AVCaptureDevice.authorizationStatus(for: .audio), settingsId: settingsId)
+        awaitingAllow = outcome.keepOpen
+        if let event = outcome.event { emit(event) }
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -1539,7 +1551,9 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         case "settings":
             // #5481: open the exact pane for a denied permission (only the two named panes, never a URL from the page).
             guard let pane = body["pane"] as? String, let url = Self.settingsURL(pane: pane) else { return }
+            guard Self.settingsOpenAllowed(sinceLast: settingsAt.map { Date().timeIntervalSince($0) }) else { return }
             settingsId = (body["id"] as? String) ?? ""
+            settingsAt = Date()
             awaitingAllow = true
             NSWorkspace.shared.open(url)
         default: return
@@ -6550,7 +6564,14 @@ if CommandLine.arguments.contains("--kosmos-app-voice-selftest") {
     row(VoiceBridge.allowedEvent(awaiting: false, speech: .authorized, mic: .authorized, settingsId: "set7") == nil, "#5481 review 2: no Settings visit, no allowed")
     row(VoiceBridge.allowedEvent(awaiting: true, speech: .denied, mic: .authorized, settingsId: "set7") == nil, "#5481 review 2 CONTROL: still off says nothing")
     row(VoiceBridge.allowedEvent(awaiting: true, speech: .authorized, mic: .denied, settingsId: "set7") == ["kind": "settings-next", "pane": "mic", "id": "set7"], "#5481 review 3: speech now on, the mic still refused: the next pane is the Microphone one")
-    let expected = 29   // #5311: + Dictation off, + its control; #5481: + 13
+    let still = VoiceBridge.visitOnReturn(ageSeconds: 5, speech: .denied, mic: .notDetermined, settingsId: "set7")
+    row(still.event == nil && still.keepOpen, "#5481 review 4: back before the switch is flipped (a Dock click) keeps the visit open")
+    let ready = VoiceBridge.visitOnReturn(ageSeconds: 5, speech: .authorized, mic: .notDetermined, settingsId: "set7")
+    row(ready.event == ["kind": "allowed", "id": "set7"] && !ready.keepOpen, "#5481 review 4: back ready says allowed and closes the visit")
+    let late = VoiceBridge.visitOnReturn(ageSeconds: VoiceBridge.settingsVisitSeconds + 1, speech: .authorized, mic: .authorized, settingsId: "set7")
+    row(late.event == nil && !late.keepOpen, "#5481 review 3: a return after the visit's time starts nothing, even with both allowed")
+    row(!VoiceBridge.settingsOpenAllowed(sinceLast: 0.2) && VoiceBridge.settingsOpenAllowed(sinceLast: 1.5) && VoiceBridge.settingsOpenAllowed(sinceLast: nil), "#5481 review 4: Settings opens at most once a second")
+    let expected = 33   // #5311: + Dictation off, + its control; #5481: + 17
     if ran != expected { print("\nvoice-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
     if bad > 0 { print("\nvoice-check: \(bad) row(s) wrong"); exit(1) }
     print("\nvoice-check: all good (\(ran) rows)")
