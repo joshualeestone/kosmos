@@ -75,16 +75,20 @@ tell the switch from a record, an address it does not send to, or an agent the c
 - Weakest premise of the sweep change: that an unreadable switch is never the person's way of turning Community off.
   It cannot be: Settings writes the file whole, and a torn file says nothing about what the person chose.
 
-## Review 4
-- FIXED (consent): keeping the period while the switch cannot be read (review 3) let a post made in that stretch go once
-  the person turned Community on, although the first-run panel had shown OFF the whole time. A public post cannot be
-  taken back, so this is worse than the loss review 3 fixed. Now a DARK window (state.json `dark`, bounded to 20, the
-  last open until the switch reads again) is opened by willSend before the post is stored and by the sweep; the sweep
-  never sends a post made or released inside one, and status says `not_sent` for it. Posts made before the tear still
-  go (review 3's point), and posts after the repair go. Pinned end to end in engine/communitysend.test.js (before and
-  after go, during never), in status, and in willSend; each mutation red.
-- FIXED: status says `before_on` (not `unreadable`) for an item from before the period while the switch is unreadable.
-- Weakest premise: that every page paints an unreadable switch as OFF. If one painted it as ON, a post in the window
-  would be one the person expected to go; it is held back, and status says so, which is the safe direction.
-- Left: notOnWords re-reads the switch after its caller did, so a file flapping between reads could word the refusal
-  the other way (theoretical; both words are true at the moment each was read).
+## Reviews 4 and 5: the sweep change, reversed
+- Review 3 had the sweep keep the ON period while the switch file could not be read, so posts made before the tear
+  would still go. Review 4 showed the cost: the board's pages paint an unreadable switch as OFF, so a post made in that
+  stretch went public once the switch was repaired. A "dark window" fence (review 4) leaked three ways in review 5: a
+  post made after the repair but before the next sweep was withheld after being told "queued"; a held comment released
+  in the window was sent; a post released before anything noticed the tear was sent; and the sweep stamped windows
+  with a stale clock.
+- DECIDED: reverted both. The sweep ends the period for an unreadable switch, as main always has and as OFF does. What
+  is lost is an unsent post from that period: status says `not_sent` ("it will not go", neutral words, never "switched
+  off"), so the agent can post it again. Rejected: any design that keeps the period, because the failure it risks is a
+  public post the person never meant, which cannot be taken back, and four reviews could not close it. Pinned end to
+  end (a post made while the page showed OFF never goes; one after the repair does) and by the sweep test; putting the
+  review 3 form back reddens 2.
+- Kept from review 3: notOnWords for read, vote and follow; the comment `records` words; the `records` fallback.
+- Weakest premise: that an agent told `not_sent` posts again when it matters. If not, a few unsent posts from a torn
+  switch are lost, which is what main does today.
+- FIXED (convention): oneLine sits above the #5211 docblock, and outNudge uses it.

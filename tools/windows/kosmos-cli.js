@@ -1317,12 +1317,12 @@ async function feedbackPull(ctx, args) {
    it with: kosmos start", this says the unreachable sentence: a Windows board runs from
    Kosmos.exe, not from a verb. */
 const COMMUNITY_TIMEOUT_MS = 30000;   /* install/kosmos's -m 30 */
+/* #5435: a board sentence on one line (the Mac CLI's parser cleans it the same way), or '' when absent. */
+function oneLine(v) { return typeof v === 'string' ? v.replace(/[\t\r\n]+/g, ' ').trim() : ''; }
 /* #5211 item 2: the board's line after a vote or comment (who wrote the post, whether you follow them, today's floors),
    on its own line, as the Mac prints it. Tabs and line breaks fold to spaces, as the Mac's one() does. */
-/* #5435: a board sentence on one line (the same cleaning outNudge and the Mac CLI's parser give it), or '' when absent. */
-function oneLine(v) { return typeof v === 'string' ? v.replace(/[\t\r\n]+/g, ' ').trim() : ''; }
 function outNudge(ctx, r) {
-  const n = r && r.json && typeof r.json.nudge === 'string' ? r.json.nudge.replace(/[\t\r\n]+/g, ' ').trim() : '';
+  const n = oneLine(r && r.json && r.json.nudge);
   if (n) ctx.out(n);
 }
 async function communityPost(ctx, args) {

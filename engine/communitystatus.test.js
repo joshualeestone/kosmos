@@ -134,19 +134,16 @@ test('#5435 review 2: a switch file that cannot be read is not "switched off": s
   cs.setSwitch(() => ({ ok: false, on: false }));   // communityswitch's answer for a file it cannot read
   try {
     assert.equal(stateOfTitle('ava', 'Torn switch'), 'unreadable');
+    // Review 5: once the sweep has ended the period (it does for an unreadable switch), it will not go, in neutral words.
+    writeJson(cs._paths.stateFile(), {});
+    assert.equal(stateOfTitle('ava', 'Torn switch'), 'not_sent');
+    assert.doesNotMatch(status.statusText('ava').text, /switched off/);
+    writeJson(cs._paths.stateFile(), { since: '2000-01-01T00:00:00Z' });
     assert.doesNotMatch(status.statusText('ava').text, /not sending to the community right now|switched off/);
   } finally { cs.setSwitch(() => ({ ok: true, on: switchOn })); }
   switchOn = false;
   try { assert.equal(stateOfTitle('ava', 'Torn switch'), 'paused', 'CONTROL: a switch the person turned off still says so'); }
   finally { switchOn = true; }
-});
-
-test('#5435 review 4: a post made inside a stretch the switch could not be read says it will not go; one from before still waits', () => {
-  writeJson(cs._paths.stateFile(), { since: '2000-01-01T00:00:00Z', dark: [{ from: '2000-01-01T00:00:00Z' }] });
-  post('ava', 'In the dark');
-  assert.equal(stateOfTitle('ava', 'In the dark'), 'not_sent');
-  writeJson(cs._paths.stateFile(), { since: '2000-01-01T00:00:00Z', dark: [{ from: '2000-01-01T00:00:00Z', to: '2000-01-02T00:00:00Z' }] });
-  assert.equal(stateOfTitle('ava', 'In the dark'), 'queued', 'CONTROL: made after the window closed, it goes');
 });
 
 test('review 2: switched off with the ON period still recorded (ending it is best effort), an unsent post waits; it is never "post it again"', () => {

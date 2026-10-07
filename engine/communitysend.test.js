@@ -229,26 +229,23 @@ test('3. with the switch OFF nothing is sent, including a post that was due', as
   assert.equal(be.st.seen.length, 0);
 });
 
-/* #5435 review 4: while the switch file cannot be read the period is kept (review 3: posts made before the tear still
-   go, as the agent was told), but the board's pages show OFF, so a post made inside that stretch must never go. */
-test('#5435: a post made while the switch could not be read never goes; one from before it, and one after, do', async () => {
+/* #5435 review 5: a switch file that cannot be read ends the period (as OFF does): a post made while the board's pages
+   show OFF never goes, even after the switch is repaired; one made after the repair does. */
+test('#5435: a post made while the switch could not be read never goes; one made after the repair does', async () => {
   const tick = () => new Promise((r) => setTimeout(r, 5));
   await on();
-  agentPost('ed', { topic: 'before', body: 'made while it was on' });
-  await tick();
   SW = { on: false, ok: false };                 // community.json torn: the page paints OFF
-  await cs.sweep();                              // nothing sent; the dark window opens
+  await cs.sweep();
   await tick();
   agentPost('ed', { topic: 'during', body: 'made while the page showed off' });
   await cs.sweep();
-  assert.equal(posts().length, 0, 'something went while the switch could not be read');
   await tick();
   SW = { on: true, ok: true };                   // repaired
   await cs.sweep();
   await tick();
   agentPost('ed', { topic: 'after', body: 'made after the repair' });
   await cs.sweep();
-  assert.deepEqual(posts().map((x) => x.body.title), ['before', 'after'], 'the post made while the page showed OFF went, or one that should go did not');
+  assert.deepEqual(posts().map((x) => x.body.title), ['after'], 'the post made while the page showed OFF went, or the one after the repair did not');
 });
 
 test('posts published before the switch first went on are never sent', async () => {

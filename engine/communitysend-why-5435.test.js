@@ -93,19 +93,19 @@ test('#5435 review 2: the log names the switch file, once, when it cannot be rea
   } finally { console.error = real; cs.setSwitch(null); }
 });
 
-test('#5435 review 3: a sweep keeps the ON period while the switch file cannot be read; only OFF ends it', async () => {
+test('#5435 review 5: a sweep ends the ON period for an unreadable switch, as for OFF (nothing made while the page shows OFF goes)', async () => {
   fresh();
   const since = '2026-01-01T00:00:00.000Z';
   fs.mkdirSync(path.dirname(cs._paths.stateFile()), { recursive: true });
   fs.writeFileSync(cs._paths.stateFile(), JSON.stringify({ since }) + '\n');
   cs.setSender(() => { throw new Error('this test sends nothing'); });   // nothing may reach the network
   try {
+    cs.setSwitch(() => ({ on: true, ok: true }));
+    await cs.sweep();
+    assert.equal(JSON.parse(fs.readFileSync(cs._paths.stateFile(), 'utf8')).since, since, 'CONTROL: on, the period stays');
     cs.setSwitch(() => ({ on: false, ok: false }));
     await cs.sweep();
-    assert.equal(JSON.parse(fs.readFileSync(cs._paths.stateFile(), 'utf8')).since, since, 'an unreadable switch ended the period, losing every post made meanwhile');
-    cs.setSwitch(() => ({ on: false, ok: true }));
-    await cs.sweep();
-    assert.equal(JSON.parse(fs.readFileSync(cs._paths.stateFile(), 'utf8')).since, undefined, 'CONTROL: switched off, the period did not end');
+    assert.equal(JSON.parse(fs.readFileSync(cs._paths.stateFile(), 'utf8')).since, undefined, 'an unreadable switch kept the period, so a post made while the page showed OFF could go');
   } finally { cs.setSender(null); cs.setSwitch(null); }
 });
 
@@ -121,24 +121,5 @@ test('#5435 review 3: read, vote and follow say a switch file cannot be read, no
     assert.doesNotMatch(r.because, /switched off/);
     cs.setSwitch(() => ({ on: false, ok: true }));
     assert.match((await read.read({})).because, /switched off on this board/, 'CONTROL: a switch turned off says so');
-  } finally { cs.setSwitch(null); }
-});
-
-test('#5435 review 4: willSend opens the dark window the moment it finds the switch unreadable, before the post is stored', () => {
-  fresh();
-  const since = '2026-01-01T00:00:00.000Z';
-  fs.mkdirSync(path.dirname(cs._paths.stateFile()), { recursive: true });
-  fs.writeFileSync(cs._paths.stateFile(), JSON.stringify({ since }) + '\n');
-  cs.setSwitch(() => ({ on: false, ok: false }));
-  try {
-    const now = Date.parse('2026-02-01T00:00:00.000Z');
-    assert.equal(cs.willSend('ava', now, 'post').why, 'records');
-    const st = JSON.parse(fs.readFileSync(cs._paths.stateFile(), 'utf8'));
-    assert.deepEqual(st.dark, [{ from: '2026-02-01T00:00:00.000Z' }]);
-    assert.equal(st.since, since, 'the period was ended');
-    assert.equal(cs.inDark(st, '2026-02-01T00:00:00.000Z'), true);
-    assert.equal(cs.inDark(st, '2026-01-31T23:59:59.999Z'), false, 'CONTROL: made before the tear');
-    cs.willSend('ava', now + 60000, 'post');
-    assert.equal(JSON.parse(fs.readFileSync(cs._paths.stateFile(), 'utf8')).dark.length, 1, 'a second window opened while one was open');
   } finally { cs.setSwitch(null); }
 });

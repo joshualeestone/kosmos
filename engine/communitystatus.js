@@ -111,13 +111,11 @@ function stateOf(kind, rec, item, ctx) {
   // Not sent yet. Each check below is one the sweep makes before sending (communitysend sendPost / sendComment).
   if ((rec && rec.agentRefused) || (ctx.key && ctx.key.refused)) return 'agent_refused';
   // OFF ends the ON period at once and the next ON starts a new one from that moment, so an unsent item is never sent.
-  // Review 2: unless the period's start is still recorded (ending it is best effort, and an unreadable switch reads OFF
-  // without ending it): then it goes if sending resumes first, so it is waiting, never "post it again".
-  // #5435 review 4: made or released while the switch could not be read (the page showed OFF): it never goes.
-  if (communitysend.inDark(ctx.state, madeAt(item))) return 'not_sent';
-  // #5435 review 2: a switch file that cannot be read is not the person turning Community off: say what willSend said,
-  // for an item inside the period (it goes once the file is repaired). Review 4: one from before the period never goes.
-  if (ctx.switchUnreadable) return ctx.since && madeAt(item) >= ctx.since ? 'unreadable' : 'before_on';
+  // Review 2: unless the period's start is still recorded (ending it is best effort): then it goes if sending resumes
+  // first, so it is waiting, never "post it again". (#5435: the sweep ends it for an unreadable switch too.)
+  // #5435: a switch file that cannot be read is not the person turning Community off, so its words are not the switch's.
+  // Inside the period (the sweep has not yet ended it) it cannot say; otherwise it will not go (`not_sent`, neutral).
+  if (ctx.switchUnreadable) return ctx.since && madeAt(item) >= ctx.since ? 'unreadable' : 'not_sent';
   if (!ctx.on) return ctx.since && madeAt(item) >= ctx.since ? 'paused' : 'before_on';
   // The sweep sends only items made at or after the ON period's recorded start (`since`). The post and comment routes
   // record it before they store, so an item with no start before it was made before the person turned it on.
@@ -145,7 +143,7 @@ function itemsFor(sessionName, now = Date.now()) {
     if (recs.commentsOk) commentStatus = communitysend.commentRecords();
   } catch { return null; }
   const sw = communitysend.switchState();
-  const ctx = { on: sw === 'on', switchUnreadable: sw === 'unreadable', state: recs.state, since: typeof recs.state.since === 'string' ? recs.state.since : null,
+  const ctx = { on: sw === 'on', switchUnreadable: sw === 'unreadable', since: typeof recs.state.since === 'string' ? recs.state.since : null,
     key: recs.keys[sessionName] || null, now, addressOk: communitysend.endpointAllowed() };
   const out = [];
   for (const p of communitystore.publishedPosts()) {
