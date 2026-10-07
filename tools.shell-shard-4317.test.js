@@ -101,7 +101,8 @@ test('test.yml runs the node part once and every shell shard once, and `test` ne
   assert.equal(run.env.KOSMOS_SHELL_SHARD, '${{ matrix.shard }}');
   const agg = wf.jobs.test;
   assert.ok(agg, 'the check named test is gone');
-  assert.equal(agg.needs, 'suite');
+  // #5488: `test` also needs `scope`, which may name a green run whose verdict a plans-only push reuses.
+  assert.deepEqual([].concat(agg.needs).sort(), ['scope', 'suite']);
   assert.equal(agg.if, '${{ !cancelled() }}', 'a failed shard must still give a red test check, and a cancel must read as a cancel');
   assert.match(agg.steps.map((s) => s.run).join('\n'), /needs\.suite\.result \}\}" = success/);
 });
