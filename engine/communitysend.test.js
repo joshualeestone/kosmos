@@ -712,8 +712,8 @@ test('#5431: a save that fails at the flush leaves no temp file behind', async (
   assert.deepEqual(tmps, [], 'a failed save left its temp file');
 });
 
-test('#5431: a file system that does not support a flush (EINVAL, ENOTSUP, EISDIR) still saves, and the post goes', async () => {
-  for (const code of ['EINVAL', 'ENOTSUP', 'EISDIR']) {
+test('#5431: a file system that does not support a flush (EINVAL, ENOTSUP, EISDIR, ENOSYS) still saves, and the post goes', async () => {
+  for (const code of ['EINVAL', 'ENOTSUP', 'EISDIR', 'ENOSYS']) {
     fresh();
     await on();
     const r = agentPost('nfs', { topic: code, body: 'no flush here' });
@@ -777,6 +777,46 @@ test('#5431: an unreadable keys.json, sent.json or deletes.json is never advised
     assert.match(line, /do NOT remove it/, path.basename(file));
     assert.doesNotMatch(line, /or removed/, path.basename(file));
   }
+});
+
+test('#5431: a folder that cannot be flushed does not fail the save, and is said once (off Windows)', { skip: process.platform === 'win32' && 'Windows ignores it' }, async () => {
+  fresh();
+  await on();
+  const dirs = new Set([path.dirname(cs._paths.stateFile()), path.dirname(cs._paths.sentFile())]);
+  const realSync = fs.fsyncSync, realOpen = fs.openSync, realError = console.error;
+  const opened = new Map(); const said = []; let refused = 0;
+  fs.openSync = (p, ...rest) => { const fd = realOpen(p, ...rest); opened.set(fd, String(p)); return fd; };
+  fs.fsyncSync = (fd) => { if (dirs.has(opened.get(fd))) { refused += 1; const e = new Error('EIO'); e.code = 'EIO'; throw e; } return realSync(fd); };
+  console.error = (...a) => { said.push(a.join(' ')); };
+  try {
+    const r1 = agentPost('dsy', { topic: 'one', body: 'a' });
+    await cs.sweep();
+    const r2 = agentPost('dsy', { topic: 'two', body: 'b' });
+    await cs.sweep();
+    assert.ok(refused >= 2, `control: folder flushes were refused (${refused})`);
+    assert.deepEqual([cs.statuses()[r1.id].state, cs.statuses()[r2.id].state], ['sent', 'sent'], 'a folder flush failure failed a save');
+  } finally { fs.fsyncSync = realSync; fs.openSync = realOpen; console.error = realError; }
+  const lines = said.filter((l) => l.includes('could not be flushed'));
+  assert.ok(lines.length >= 1, 'the folder flush failure was not said');
+  assert.equal(new Set(lines).size, lines.length, 'the same folder\'s failure was said more than once');
+});
+
+test('#5431: a zero-filled keys.json is not told to be repaired: its keys are gone, and resetting it costs a new name', async () => {
+  fresh();
+  await on();
+  fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.keysFile(), '{}\n');
+  await cs.sweep();                                   // read a good copy first, so the report below is not suppressed
+  fs.writeFileSync(cs._paths.keysFile(), Buffer.alloc(3));
+  const said = []; const realError = console.error;
+  console.error = (...a) => { said.push(a.join(' ')); };
+  try { await cs.sweep(); } finally { console.error = realError; }
+  const line = said.find((l) => l.includes('keys.json cannot be read'));
+  assert.ok(line, 'control: the torn keys.json was reported');
+  assert.match(line, /zero-filled/);
+  assert.match(line, /second public name/);
+  assert.doesNotMatch(line, /do NOT remove it/);
+  assert.deepEqual([...fs.readFileSync(cs._paths.keysFile())], [0, 0, 0], 'the engine reset keys.json itself');
 });
 
 test('#5431: every record is flushed to disk before it is renamed into place', async () => {

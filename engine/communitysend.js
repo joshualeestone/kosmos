@@ -114,9 +114,9 @@ function saveJson(file, data) {
     try {
       fs.writeFileSync(fd, JSON.stringify(data, null, 2) + '\n');
       // A file system that does not support a flush at all (some network or FUSE mounts) is not a failed save.
-      // EISDIR is how libuv reports Windows' ERROR_INVALID_FUNCTION (a redirector without a flush); a regular file's
-      // flush gives it nowhere else.
-      try { fs.fsyncSync(fd); } catch (e) { if (!e || !['EINVAL', 'ENOTSUP', 'EISDIR'].includes(e.code)) throw e; }
+      // EISDIR is how libuv reports Windows' ERROR_INVALID_FUNCTION (a redirector without a flush); ENOSYS is what some
+      // FUSE mounts answer.
+      try { fs.fsyncSync(fd); } catch (e) { if (!e || !['EINVAL', 'ENOTSUP', 'EISDIR', 'ENOSYS'].includes(e.code)) throw e; }
     } finally { fs.closeSync(fd); }
     fs.renameSync(tmp, file);
   } catch (e) { try { fs.unlinkSync(tmp); } catch { /* already gone */ } throw e; }
@@ -141,9 +141,9 @@ function torn(file) {
   let fd;
   try { fd = fs.openSync(file, 'r'); } catch { return false; }
   try {
-    // Only a file no longer than an EMPTY record can be reset. On NTFS (measured, #5431) a torn file keeps the length
-    // of the write that was cut off, so a sent.json that held rows is longer and stays. Other file systems can leave
-    // 0 bytes whatever the file held; there the keys check below is the only guard.
+    // Only a file no longer than an EMPTY record can be reset. #5431 observed one torn file on NTFS: 3 NUL bytes for a
+    // 3-byte write. If NTFS keeps a longer write's length too, a sent.json that held rows is longer and stays. Other
+    // file systems can leave 0 bytes whatever the file held; there the keys check below is the only guard.
     const size = fs.fstatSync(fd).size;
     if (size > EMPTY_RECORD_BYTES) return false;
     const bytes = Buffer.alloc(size);
@@ -190,6 +190,9 @@ function loadJson(file) {
   } catch { /* falls through */ }
   return corrupt(file, 'not a JSON object');
 }
+function zeroFilled(file) {
+  try { const b = fs.readFileSync(file); return b.every((x) => x === 0); } catch { return false; }
+}
 const DO_NOT_REMOVE = Object.freeze({
   'comments-sent.json': 'that would send every comment again',
   'comment-deletes.json': 'a comment the owner removed would be sent',
@@ -204,7 +207,10 @@ function corrupt(file, why) {
     // #4801: nor comment-deletes.json: without it a comment the owner removed before it went out would be sent.
     // #5431: nor keys.json, sent.json or deletes.json (removing one sends again), in any service's folder: matched by
     // name, since the retirement pass reads other services' folders too.
-    const fix = DO_NOT_REMOVE[path.basename(file)] ? `repaired (do NOT remove it: ${DO_NOT_REMOVE[path.basename(file)]})`
+    // A zero-filled or empty file holds nothing to repair: say what is lost and what resetting it costs (review 6).
+    const fix = DO_NOT_REMOVE[path.basename(file)] && zeroFilled(file)
+      ? `reset by a person: it is empty or zero-filled (a write cut off by a crash), so what it held is gone. Writing {} to it lets sending go on, but then ${DO_NOT_REMOVE[path.basename(file)]}`
+      : DO_NOT_REMOVE[path.basename(file)] ? `repaired (do NOT remove it: ${DO_NOT_REMOVE[path.basename(file)]})`
       : 'repaired or removed';
     log(`${path.basename(file)} cannot be read (${why || 'unknown'}); sending is paused until it is ${fix}`);
   }
@@ -1528,7 +1534,7 @@ function sendSoon() {
 let keysChain = Promise.resolve();
 function exclusive(fn) {
   // #4994: a pending retirement lands before anything acts. #5431: a torn record that is safe to reset goes first.
-  const run = () => { repairTornRecords(); applyRetirements(); return fn(); };
+  const run = () => { try { repairTornRecords(); } catch { /* a repair must never stop the section */ } applyRetirements(); return fn(); };
   const p = keysChain.then(run, run);
   keysChain = p.catch(() => {});
   return p;
