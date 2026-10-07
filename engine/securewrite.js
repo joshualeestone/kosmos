@@ -262,6 +262,16 @@ function secureDir(dir, mode) {
   try { fs.chmodSync(dir, mode); } catch { /* see above */ }
 }
 
+/* #5434: flush `fd` to disk. A file system that cannot flush at all (EINVAL, ENOTSUP, EOPNOTSUPP,
+   ENOSYS) is skipped, so the write still takes its usual path. Any other error (EIO, ENOSPC, EDQUOT:
+   on a mount that reports a failed write late, this is where it shows) is thrown, so the write is
+   treated as failed exactly as a failed close was before: the old file is kept, not replaced by
+   bytes that never reached the disk. */
+const FLUSH_UNSUPPORTED = new Set(['EINVAL', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS']);
+function flushOrThrow(fd) {
+  try { fs.fsyncSync(fd); } catch (e) { if (!(e && FLUSH_UNSUPPORTED.has(e.code))) throw e; }
+}
+
 /* #5434: flush a directory so a rename into it survives a crash. Not on Windows, where Node
    cannot flush a directory (the file's own flush, FlushFileBuffers there, is the part #5431
    needs). Best effort everywhere: it never throws. */
@@ -330,10 +340,8 @@ function writeSecret(file, data, mode) {
         }
         /* #5434: the bytes reach the disk BEFORE the rename makes them the file. Without this a
            crash can leave the renamed file at full length with zeroed contents (found on a
-           Windows box after repeated crashes, #5431). Best effort, and deliberately so for EVERY
-           error, a real EIO or ENOSPC included, not only "fsync unsupported": failing here would
-           retry and then land on the in-place fallback below, which is less durable, not more. */
-        try { fs.fsyncSync(tfd); } catch { /* best effort, see above */ }
+           Windows box after repeated crashes, #5431). See flushOrThrow for which errors count. */
+        flushOrThrow(tfd);
       } finally {
         fs.closeSync(tfd);
       }
@@ -403,7 +411,7 @@ function writeSecret(file, data, mode) {
        loose would read as a promise. Pre-existing on main, carried, not hidden. */
     try { fs.fchmodSync(fd, mode); } catch { /* best effort, cost named above */ }
     fs.writeFileSync(fd, data);
-    try { fs.fsyncSync(fd); } catch { /* #5434: best effort, as on the atomic path */ }
+    flushOrThrow(fd);   // #5434: a real flush error lands in the restore below, as a failed write does
     wrote = true;
   } catch (err) {
     /* The fallback failed too. Attach why the ATOMIC path was abandoned, so a
@@ -458,6 +466,7 @@ function writeSecret(file, data, mode) {
             if (!(n > 0)) break;
             off += n;
           }
+          try { fs.fsyncSync(fd); } catch { /* #5434: best effort; this path is already failing */ }
         } catch { /* the restore failed too; the caller still gets the real error */ }
       }
       try { fs.closeSync(fd); } catch { /* already closed */ }

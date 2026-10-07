@@ -16,7 +16,7 @@ const securewrite = require('./securewrite');
 /* Record opens (with the fd each returned), fsyncs and renames, in order, while `fn` runs; put fs
    back afterwards. `wxFails` makes every 'wx' create fail with EEXIST, which sends writeSecret to
    its in-place fallback after three attempts. */
-function recording(fn, { fsyncThrows = false, wxFails = false } = {}) {
+function recording(fn, { fsyncThrows = false, wxFails = false } = {}) {   // fsyncThrows: false, or an error code
   const events = [];
   const realOpen = fs.openSync;
   const realFsync = fs.fsyncSync;
@@ -27,7 +27,7 @@ function recording(fn, { fsyncThrows = false, wxFails = false } = {}) {
     events.push(['open', target, flags, fd]);
     return fd;
   };
-  fs.fsyncSync = (fd) => { events.push(['fsync', fd]); if (fsyncThrows) throw Object.assign(new Error('fsync refused'), { code: 'EINVAL' }); return realFsync(fd); };
+  fs.fsyncSync = (fd) => { events.push(['fsync', fd]); if (fsyncThrows) throw Object.assign(new Error('fsync failed'), { code: fsyncThrows === true ? 'EINVAL' : fsyncThrows }); return realFsync(fd); };
   fs.renameSync = (a, b) => { events.push(['rename', b]); return realRename(a, b); };
   try { fn(); } finally { fs.openSync = realOpen; fs.fsyncSync = realFsync; fs.renameSync = realRename; }
   return events;
@@ -80,10 +80,24 @@ test('#5434: the in-place fallback flushes what it wrote too', () => {
     const file = path.join(dir, 'tokens.json');
     fs.writeFileSync(file, 'old');
     const events = recording(() => securewrite.writeSecret(file, 'new', 0o600), { wxFails: true });
-    const fbOpen = events.find((e) => e[0] === 'open' && e[1] === file);
+    // The fallback's own open: numeric O_* flags (the read that captures the old contents opens with 'r').
+    const fbOpen = events.find((e) => e[0] === 'open' && e[1] === file && typeof e[2] === 'number');
     assert.ok(fbOpen, 'the fallback did not open the file in place: ' + JSON.stringify(events));
     assert.ok(events.some((e) => e[0] === 'fsync' && e[1] === fbOpen[3]), 'the fallback did not flush: ' + JSON.stringify(events));
     assert.equal(fs.readFileSync(file, 'utf8'), 'new');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#5434: a real flush error (EIO) fails the write and keeps the old file, as a failed close did before', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw5434-eio-'));
+  try {
+    const file = path.join(dir, 'tokens.json');
+    fs.writeFileSync(file, 'old');
+    let threw = null;
+    recording(() => { try { securewrite.writeSecret(file, 'new', 0o600); } catch (e) { threw = e; } }, { fsyncThrows: 'EIO' });
+    assert.ok(threw, 'a write whose bytes may never have reached the disk was reported as a success');
+    assert.equal(fs.readFileSync(file, 'utf8'), 'old', 'the old file was replaced by bytes the disk refused');
+    assert.deepEqual(fs.readdirSync(dir), ['tokens.json'], 'a temp was left behind');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
