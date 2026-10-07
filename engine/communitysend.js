@@ -130,8 +130,8 @@ function saveJson(file, data) {
   }
 }
 
-/* #5431: a record that is empty, or zero-filled at the length of an empty record ({}\n), is a write torn by a crash,
-   not a record someone damaged. sent.json and comments-sent.json in that state are reset to {} when this service's
+/* #5431: a record zero-filled at exactly the length of an empty record ({}\n) is a write torn by a crash, not a
+   record someone damaged. sent.json and comments-sent.json in that state are reset to {} when this service's
    keys.json holds no agent at all: with no key nothing can have been posted or commented, so an empty record is the
    truth and nothing is sent twice. Any other torn file (keys.json above all: resetting it would give every agent a
    second public name) stays unreadable, and sending stays paused until a person repairs it. Called at the start of
@@ -141,13 +141,13 @@ function torn(file) {
   let fd;
   try { fd = fs.openSync(file, 'r'); } catch { return false; }
   try {
-    // Only a file no longer than an EMPTY record can be reset. #5431 observed one torn file on NTFS: 3 NUL bytes for a
-    // 3-byte write. If NTFS keeps a longer write's length too, a sent.json that held rows is longer and stays. Other
-    // file systems can leave 0 bytes whatever the file held; there the keys check below is the only guard.
+    // Only the shape #5431 observed is reset: exactly the length of an EMPTY record, all NUL (on NTFS, 3 NUL bytes
+    // for the 3-byte write of {}\n). A sent.json that held rows was a longer write. An empty (0-byte) file is left for
+    // a person: some file systems leave 0 bytes after a crash whatever the file held.
     const size = fs.fstatSync(fd).size;
-    if (size > EMPTY_RECORD_BYTES) return false;
+    if (size !== EMPTY_RECORD_BYTES) return false;
     const bytes = Buffer.alloc(size);
-    if (size && fs.readSync(fd, bytes, 0, size, 0) !== size) return false;
+    if (fs.readSync(fd, bytes, 0, size, 0) !== size) return false;
     return bytes.every((b) => b === 0);
   } catch { return false; } finally { fs.closeSync(fd); }
 }
@@ -190,14 +190,11 @@ function loadJson(file) {
   } catch { /* falls through */ }
   return corrupt(file, 'not a JSON object');
 }
-function zeroFilled(file) {
-  try { const b = fs.readFileSync(file); return b.every((x) => x === 0); } catch { return false; }
-}
 const DO_NOT_REMOVE = Object.freeze({
   'comments-sent.json': 'that would send every comment again',
   'comment-deletes.json': 'a comment the owner removed would be sent',
   'keys.json': 'every agent would register again under a second public name',
-  'sent.json': 'every post already sent would be sent again',
+  'sent.json': 'posts already sent could be sent again',
   'deletes.json': 'a post the owner removed would be sent',
 });
 function corrupt(file, why) {
@@ -207,10 +204,7 @@ function corrupt(file, why) {
     // #4801: nor comment-deletes.json: without it a comment the owner removed before it went out would be sent.
     // #5431: nor keys.json, sent.json or deletes.json (removing one sends again), in any service's folder: matched by
     // name, since the retirement pass reads other services' folders too.
-    // A zero-filled or empty file holds nothing to repair: say what is lost and what resetting it costs (review 6).
-    const fix = DO_NOT_REMOVE[path.basename(file)] && zeroFilled(file)
-      ? `reset by a person: it is empty or zero-filled (a write cut off by a crash), so what it held is gone. Writing {} to it lets sending go on, but then ${DO_NOT_REMOVE[path.basename(file)]}`
-      : DO_NOT_REMOVE[path.basename(file)] ? `repaired (do NOT remove it: ${DO_NOT_REMOVE[path.basename(file)]})`
+    const fix = DO_NOT_REMOVE[path.basename(file)] ? `repaired (do NOT remove it: ${DO_NOT_REMOVE[path.basename(file)]})`
       : 'repaired or removed';
     log(`${path.basename(file)} cannot be read (${why || 'unknown'}); sending is paused until it is ${fix}`);
   }

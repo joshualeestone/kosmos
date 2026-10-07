@@ -631,9 +631,9 @@ test('an unreadable sent, keys or deletes file pauses sending and is left for re
   assert.equal(fs.readFileSync(cs._paths.deletesFile(), 'utf8'), '{ not json');
 });
 
-test('#5431: a torn sent.json or comments-sent.json (empty or NUL bytes) is reset when no agent has a key, and the post goes', async () => {
+test('#5431: a torn sent.json or comments-sent.json (3 NUL bytes) is reset when no agent has a key, and the post goes', async () => {
   // Measured on a Windows box: sent.json was 3 NUL bytes after a crash, and every sweep refused to run from then on.
-  for (const [which, bytes] of [['sentFile', Buffer.alloc(3)], ['sentFile', Buffer.alloc(0)], ['commentsSentFile', Buffer.alloc(3)]]) {
+  for (const [which, bytes] of [['sentFile', Buffer.alloc(3)], ['commentsSentFile', Buffer.alloc(3)]]) {
     fresh();
     await on();
     assert.equal(fs.existsSync(cs._paths.keysFile()), false, 'control: no agent has registered yet');
@@ -726,10 +726,11 @@ test('#5431: a file system that does not support a flush (EINVAL, ENOTSUP, EISDI
   }
 });
 
-test('#5431: only a record the length of an empty one ({}\\n) is reset; a longer zero-filled one held rows and stays', async () => {
+test('#5431: only a record exactly the length of an empty one ({}\\n) is reset; a longer or 0-byte one stays', async () => {
   // A torn file keeps the length of the write that was cut off. Review 3: if a crash tore keys.json and sent.json
   // together and a person then removed keys.json, a reset of a sent.json that held rows would send every post again.
-  for (const [bytes, keysGone] of [[Buffer.alloc(5000), false], [Buffer.alloc(5), true], [Buffer.alloc(4), false]]) {
+  // Review 7: and an empty (0-byte) one, which some file systems leave after a crash whatever the file held.
+  for (const [bytes, keysGone] of [[Buffer.alloc(5000), false], [Buffer.alloc(5), true], [Buffer.alloc(4), false], [Buffer.alloc(0), true]]) {
     fresh();
     await on();
     if (keysGone) {
@@ -801,7 +802,9 @@ test('#5431: a folder that cannot be flushed does not fail the save, and is said
   assert.equal(new Set(lines).size, lines.length, 'the same folder\'s failure was said more than once');
 });
 
-test('#5431: a zero-filled keys.json is not told to be repaired: its keys are gone, and resetting it costs a new name', async () => {
+test('#5431: a zero-filled keys.json is still told not to be removed (resetting it beside an empty sent.json sends again)', async () => {
+  // Review 7: advice to write {} to it would empty the keys check while sent.json is torn, and the repair would then
+  // reset sent.json and send every post in the window again.
   fresh();
   await on();
   fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
@@ -813,9 +816,8 @@ test('#5431: a zero-filled keys.json is not told to be repaired: its keys are go
   try { await cs.sweep(); } finally { console.error = realError; }
   const line = said.find((l) => l.includes('keys.json cannot be read'));
   assert.ok(line, 'control: the torn keys.json was reported');
-  assert.match(line, /zero-filled/);
-  assert.match(line, /second public name/);
-  assert.doesNotMatch(line, /do NOT remove it/);
+  assert.match(line, /do NOT remove it/);
+  assert.doesNotMatch(line, /\{\}/, 'the advice offers {} as a way out');
   assert.deepEqual([...fs.readFileSync(cs._paths.keysFile())], [0, 0, 0], 'the engine reset keys.json itself');
 });
 
