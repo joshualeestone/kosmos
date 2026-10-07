@@ -176,6 +176,19 @@ failed cut is not clean: it may have written into the site checkout before it
 died, and the next attempt trips on the leftovers with a message that describes
 a different problem.
 
+**First: did it actually fail? (#5471)** A cut that stopped at step 8 may have shipped. `vercel deploy`
+has exited non-zero ("Error: fetch failed") after uploading everything while Vercel finished the build
+and went live a minute later (0.7.26, 0.7.27). Step 8 now checks for that itself. On a non-zero exit it
+compares the served `dist/kosmos-<V>-arm64.tar.gz.sha256` with the one the cut wrote, up to
+`KOSMOS_DEPLOY_LANDED_TRIES` times (default 24), `KOSMOS_DEPLOY_LANDED_WAIT_S` apart (default 15 s):
+- **It matched:** the log says `THE DEPLOY LANDED although vercel deploy exited N` and the cut carries on
+  as a success.
+- **It never matched:** the log prints this cut's sha, then fails. Compare that sha with the served
+  `.sha256` before you revert anything or re-cut. A re-cut rebuilds a cache-immutable tarball name with
+  different bytes.
+
+A deploy killed by a signal (exit 130, 137 or 143) fails at once without this check.
+
 1. **The versions entry's stamp.** **Two shapes, and the second removes the guess.**
 
    **(a) Leave it as a FILE and let the cut stamp it (#1455, preferred).** Write the
