@@ -70,11 +70,19 @@ test('#4491: the undo copier never keeps a copy of the board token or a sender t
   fs.mkdirSync(own, { recursive: true });
   fs.writeFileSync(path.join(own, 'settings.json'), '{}');
   assert.equal(undo.keep(path.join(own, 'settings.json'), { cwd: me }).because, 'credential', 'a token-only agent settings file is kept (and could be restored over its guard)');
-  // An account home made later (not yet in the list): its settings file is refused by name and place.
+  // Review 5: an account home and a registry temp name made AFTER the set was worked out (plan and apply work it out
+  // once) are refused by name and place, not only by an exact path in the set.
+  const set = require('./setup-assistant').boardCredentialPaths();
   const later = path.join(SB, '.claude-later');
   fs.mkdirSync(later, { recursive: true });
   fs.writeFileSync(path.join(later, 'settings.json'), '{}');
-  assert.equal(undo.keep(path.join(later, 'settings.json'), { cwd: me }).because, 'credential', 'an account home settings file was kept');
+  assert.ok(!set.files.includes(path.join(later, 'settings.json')), 'CONTROL: the new home is not in the set built before it');
+  assert.equal(undo.credentialVerdict(path.join(later, 'settings.json'), null, set), 'protected', 'an account home made later was not caught by name and place');
+  const regDir = path.join(SB, 'worldsbase');
+  fs.mkdirSync(regDir, { recursive: true });
+  const fakeSet = { files: [], dirs: [], home: SB, regDir, regBase: 'worlds.json' };
+  assert.equal(undo.credentialVerdict(path.join(regDir, '.worlds.json.lock'), null, fakeSet), 'protected', 'a registry lock name was not caught');
+  assert.equal(undo.credentialVerdict(path.join(regDir, 'notes.json'), null, fakeSet), null, 'CONTROL: another file beside the registry');
   assert.equal(undo.keep(path.join(store.ROOT, 'board.token.gone'), { cwd: me }).because, 'credential', 'a not-yet-existing token name was recorded');
   assert.equal(storeHolds(SECRET), false, 'the undo store holds the token bytes');
   assert.equal(storeHolds(secretHash), false, 'the undo store names the token blob');
@@ -172,4 +180,29 @@ test('#4491 review 4: when the protected set cannot be worked out, keep and plan
   assert.equal(undo.credentialVerdict(f, null), 'unknown');
   fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: [] }));
   assert.deepEqual(undo.keep(f, { cwd: me }), { kept: true }, 'CONTROL: with a readable list the same file is kept');
+});
+
+test('#4491 review 5: when the set cannot be worked out, plan flags cannot-check and apply leaves the file alone', () => {
+  undo.setOn(true, ms('08:00'));
+  fs.mkdirSync(path.dirname(sendertoken.tokenOnlyFile()), { recursive: true });
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: [] }));
+  const me = worker('ud-plancheck');
+  const f = path.join(me, 'work.txt');
+  fs.writeFileSync(f, 'before'); const t9 = new Date(ms('09:00')); fs.utimesSync(f, t9, t9);
+  const file = taskchat.taskChatFile('pc', 1);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, [{ at: T('10:00'), kind: 'created', who: 'ud-plancheck' }, { at: T('11:00'), kind: 'closed' }].map((r) => JSON.stringify(r)).join('\n') + '\n');
+  assert.deepEqual(undo.keep(f, { cwd: me, session: 's', now: ms('10:10') }), { kept: true });
+  fs.writeFileSync(f, 'after'); const t10 = new Date(ms('10:11')); fs.utimesSync(f, t10, t10);
+  const ok = undo.plan('pc', { number: 1, closedAt: T('11:00') });
+  const okRow = ok.files.find((x) => x.path === f) || {};
+  // 'incomplete' (undo was switched on after the agent began, by an earlier test) is choosable: the person can still undo it.
+  assert.ok(okRow.ok === true || okRow.why === 'incomplete', 'CONTROL: with a readable list the file can be undone: ' + JSON.stringify(okRow));
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), '{not json');   // the set can no longer be worked out
+  const row = undo.plan('pc', { number: 1, closedAt: T('11:00') }).files.find((x) => x.path === f);
+  assert.deepEqual([row.ok, row.why], [false, 'cannot-check']);
+  const r = undo.apply('pc', { number: 1, closedAt: T('11:00') }, [f], { now: ms('12:00') });
+  assert.ok(!r.done.includes(f), 'a file was undone while Kosmos could not check it');
+  assert.equal(fs.readFileSync(f, 'utf8'), 'after');
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: [] }));
 });

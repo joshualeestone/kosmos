@@ -125,7 +125,7 @@ function readIndex() {
 }
 
 /* Undefined on win32 (#1732 fs-const-platform-flag): captured here and ORed in undefined-safe. keep's lstat link refusal
-   before the open, and isCredential's identity check on the OPENED file (device and inode against every credential
+   before the open, and credentialVerdict's identity check on the OPENED file (device and inode against every credential
    file), refuse a swapped link or another file on every platform; the kernel flags are a second guard where they
    exist (O_NOFOLLOW closes the swap between that lstat and the open). */
 const NOFOLLOW = fs.constants.O_NOFOLLOW;
@@ -168,6 +168,7 @@ function credentialVerdict(abs, st, cred) {
     return null;
   } catch { return 'unknown'; }
 }
+let loggedCannotCheck = false;
 function isCredential(abs, st, cred) { return credentialVerdict(abs, st, cred) !== null; }
 /* Worked out once for a caller that checks many paths; null when it cannot be (each check then says 'unknown'). */
 function credentialSet() { try { return require('./setup-assistant').boardCredentialPaths(); } catch { return null; } }
@@ -213,6 +214,10 @@ function keep(file, { cwd = '', session = '', now = Date.now(), onlyFor = null }
     try {
       if (fd !== null) st = fs.fstatSync(fd);
       const verdict = credentialVerdict(abs, st);
+      if (verdict === 'unknown' && !loggedCannotCheck) {
+        loggedCannotCheck = true;   // once per board start: a garbled token-only list stops every undo copy, so say so
+        console.error('undo: Kosmos could not work out which files it must not copy (the token-only agent list could not be read), so no undo copies are being kept until it can');
+      }
       if (verdict) return { kept: false, because: verdict === 'unknown' ? 'cannot-check' : 'credential' };
       if (st && !st.isFile()) return { kept: false, because: 'not-a-file' };
       if (st && st.size > MAX_BYTES) return { kept: false, because: 'too-large' };
@@ -419,6 +424,14 @@ function apply(projectId, task, paths, { now = Date.now() } = {}) {
         try {
           fs.copyFileSync(blobPath, tmp, fs.constants.COPYFILE_EXCL);
           if (rec.mode != null) { try { fs.chmodSync(tmp, rec.mode); } catch { /* the content is what matters */ } }
+          /* #4491 review 5: the folder must still be the one recorded, and not a protected one, right before the rename:
+             a folder swapped for a link since plan() would otherwise land the file in a guarded place. What is left is
+             the window between this check and the rename itself (named in the plan). */
+          let dirNow = '';
+          try { dirNow = fs.realpathSync(path.dirname(tmp)); } catch { dirNow = ''; }
+          if ((rec.dirReal && dirNow !== rec.dirReal) || credentialVerdict(path.join(dirNow || path.dirname(f.path), path.basename(f.path)), null, protectedSet || undefined)) {
+            throw Object.assign(new Error('the folder changed before the write'), { undoWhy: 'moved' });
+          }
           fs.renameSync(tmp, f.path);                      // replaces the entry itself: never writes through a link
         } catch (err) {
           try { fs.unlinkSync(tmp); } catch { /* not made */ }   // never leave the old content beside the file (review 2)
@@ -427,8 +440,8 @@ function apply(projectId, task, paths, { now = Date.now() } = {}) {
       }
       fs.writeFileSync(keepAs + '.json', JSON.stringify({ path: f.path, action: f.action, project: projectId, task: task.number }), { mode: 0o600 });
       done.push(f.path);
-    } catch {
-      skipped.push({ path: f.path, why: 'failed' });
+    } catch (err) {
+      skipped.push({ path: f.path, why: (err && err.undoWhy) || 'failed' });
     }
   }
   if (done.length) taskchat.record(projectId, task.number, { kind: 'undone', files: done.length });

@@ -150,3 +150,13 @@ Fourth post-rebase review (sonnet), all fixed:
 - A registry temp or lock name, or an account home's settings file, made after the list was built is caught by name
   and place. The comment no longer claims the two sets are equal: undo also refuses the sender tokens (never undo
   material), which the guard does not read-deny.
+Fifth post-rebase review (opus), fixed:
+- apply re-checks the target's real folder (still the recorded one, and not protected) right before the rename; a
+  mismatch leaves the file alone as 'moved'. Residual, named: the window between that check and the rename syscall
+  itself (a folder swapped for a link into a token-only agent's .claude in that instant). Narrow; the next board
+  start's guard refresh rewrites the settings.
+- A garbled token-only list stops every undo copy (keep cannot check): the board log now says so, once per start.
+- Tests: an account home and a registry temp name made AFTER the set was built are caught by name and place (the set
+  built first, so an exact path cannot pass them); plan flags cannot-check and apply leaves the file alone.
+- The person's word for 'protected' is now "a protected settings or key file". Every agent (not only token-only ones)
+  loses undo copies of ~/.claude and ~/.claude-*/settings*.json: accepted, those are the person's own settings.
