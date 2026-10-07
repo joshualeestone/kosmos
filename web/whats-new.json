@@ -2,6 +2,16 @@
   "version": "0.7.27",
   "highlights": [
     {
+      "icon": "tasks",
+      "title": "Pause a project in one click",
+      "line": "A Pause button now sits beside each project's name. A paused project says so on its page and on its card."
+    },
+    {
+      "icon": "swarm",
+      "title": "Pick the model when you switch provider",
+      "line": "Switching an agent to Claude or OpenAI now lets you pick its model in the same step, with one restart."
+    },
+    {
       "icon": "list",
       "title": "Move a project's folder",
       "line": "If you moved a project's folder, its settings now ask where it is, and Kosmos uses it from there."
