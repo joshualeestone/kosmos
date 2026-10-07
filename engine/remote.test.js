@@ -78,6 +78,7 @@ if (args[0] === 'signin') {
     // An older tunnel: clap's usage error, exit 2 (measured on two 0.7.25-era builds).
     if (!mode.includes('devkey')) { process.stderr.write("error: unrecognized subcommand 'device-id'\\n\\nUsage: kosmos-tunnel signin <COMMAND>\\n"); process.exit(2); }
     if (mode.includes('devkey-broken')) { process.stderr.write('the device key file is not a key this program made\\n'); process.exit(1); }
+    if (mode.includes('devkey-usage')) { process.stderr.write("error: unexpected argument '--device-key' found\\n"); process.exit(2); }
     fs.mkdirSync(path.dirname(flag('--device-key')), { recursive: true });
     fs.writeFileSync(flag('--device-key'), 'fake key');
     console.log(JSON.stringify({ device_id: mode.includes('devkey-rotated') ? 'k1.' + 'R'.repeat(32) : 'k1.' + 'A'.repeat(31) + 'Q' }));
@@ -1762,6 +1763,38 @@ test('kosmos#5422: a new key (a Forget, a restore) keeps the older key id as thi
   try { await remote.signinStart('her@example.com'); } finally { delete process.env.FAKE_TUNNEL_MODE; }
   assert.equal(remote.read().device_id, 'k1.' + 'R'.repeat(32), 'the new key was not learnt');
   assert.deepEqual(remote.read().past_device_ids, [first, 'old-opaque-id']);
+});
+
+test('kosmos#5422: on a damaged remote.json, the repair keeps the key id and the ids before it', async () => {
+  fs.writeFileSync(remote.FILE, '{"on": true, "relay": "rel');
+  process.env.FAKE_TUNNEL_MODE = 'devkey';
+  try { assert.equal((await remote.signinStart('her@example.com')).ok, true); } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  assert.ok(recorded().some((c) => c[0] === 'signin' && c[1] === 'start' && c.includes('--device-key')), 'precondition: keyed');
+  assert.equal(remote.setOn(true).ok, true);   // the person's repair
+  assert.equal(remote.read().device_id, 'k1.' + 'A'.repeat(31) + 'Q', 'the repair dropped the key id (#4610 again)');
+  remote.setOn(false);
+});
+
+test('kosmos#5422: a verify whose key file is gone says so and sends nothing; it never makes a new key', async () => {
+  process.env.FAKE_TUNNEL_MODE = 'devkey';
+  try {
+    assert.equal((await remote.signinStart('her@example.com')).ok, true);
+    const keyFile = recorded().find((c) => c[1] === 'start');
+    fs.rmSync(keyFile[keyFile.indexOf('--device-key') + 1]);   // a Forget between start and verify
+    fs.rmSync(RECORD, { force: true });
+    const r = await remote.signinVerify('her@example.com', '123456');
+    assert.match(r.because || '', /sign-in key is gone; start the sign-in again/);
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  assert.equal(recorded().length, 0, 'the verify asked the tunnel anyway (and so made a key)');
+});
+
+test('kosmos#5422: an exit 2 that is not the unknown-verb error is not read as an older tunnel', async () => {
+  fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: 'old-opaque-id' }));
+  process.env.FAKE_TUNNEL_MODE = 'devkey-usage';
+  let r;
+  try { r = await remote.signinStart('her@example.com'); } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  assert.equal(r.ok, false, 'it signed in on the opaque id');
+  assert.ok(!recorded().some((c) => c[1] === 'start'));
 });
 
 test('kosmos#5422: a cancel while start asks the tunnel sends no start', async () => {

@@ -548,9 +548,12 @@ function write(patch, opts) {
   /* A repair starts from the defaults (the damaged file could not be read), so it would drop this computer's sign-in
      device id. If this process already minted one (signinDeviceId holds it in memory when its own write is refused
      on the damaged file), keep it: otherwise a sign-in on a damaged file repairs the file with no id, and the next
-     start mints another, a second "this computer" in the account's device list (#3149, review of #4308). */
-  if (current.ok === false && !next.device_id && typeof mintedDeviceId === 'string' && DEVICE_ID.test(mintedDeviceId)) {
-    next.device_id = mintedDeviceId;
+     start mints another, a second "this computer" in the account's device list (#3149, review of #4308).
+     kosmos#5422: whatever kind of id it is (a key's id too), and the ids before it, so those rows stay this
+     computer's own after the repair. */
+  if (current.ok === false && !next.device_id && heldIdentity && DEVICE_ID.test(heldIdentity.device_id)) {
+    next.device_id = heldIdentity.device_id;
+    if (!(next.past_device_ids || []).length) next.past_device_ids = heldIdentity.past_device_ids;
   }
   /* Atomic (#4308): the new content goes to a temporary file of its own in the same folder, is fsynced, and only
      then renamed over the old one. An interrupted write leaves the previous file whole, and the bytes are handed to
@@ -1636,14 +1639,18 @@ let signinSession = null;
     sign-in flow always runs in one board process. A fresh process re-reads the
     file, or mints again if the write never landed. */
 let mintedDeviceId = null;
+/* kosmos#5422: the id this process last signed in with and the ids before it, held in memory so a repair of a damaged
+   remote.json (whose own write of them was refused) puts them back (see write()). */
+let heldIdentity = null;
 const PAST_IDS = 8;
 /* kosmos#5422: record that this computer now signs in as `id`. The id it used before moves to past_device_ids, so
    its row (still pending at the coordinator) stays this computer's own. Best-effort, like the mint below. */
 function useDeviceId(id) {
   const cur = read();
-  if (cur.device_id === id) return;
-  const past = [cur.device_id, ...cur.past_device_ids].filter((x, i, all) => x && x !== id && DEVICE_ID.test(x) && all.indexOf(x) === i);
-  write({ device_id: id, past_device_ids: past.slice(0, PAST_IDS) });
+  const past = cur.device_id === id ? cur.past_device_ids
+    : [cur.device_id, ...cur.past_device_ids].filter((x, i, all) => x && x !== id && DEVICE_ID.test(x) && all.indexOf(x) === i).slice(0, PAST_IDS);
+  heldIdentity = { device_id: id, past_device_ids: past };
+  if (cur.device_id !== id) write({ device_id: id, past_device_ids: past });
 }
 function signinDeviceId() {
   if (mintedDeviceId && LEGACY_ID.test(mintedDeviceId)) { useDeviceId(mintedDeviceId); return mintedDeviceId; }
@@ -1665,9 +1672,22 @@ function signinDeviceId() {
    refuses the sign-in in words: falling back would sign in as another device, and a k1 id is never sent without its
    key. The key file is deterministic, so a start and its verify name one device. */
 const DEVICE_KEY_FILE = () => path.join(STATE_DIR(), 'signin-device.key');
-async function signinDeviceArgs() {
+async function signinDeviceArgs(forVerify) {
+  /* A verify never makes a key (the tunnel's own rule): one made now could not answer a code sent for the key that is
+     gone (a Forget between the start and the verify). If this computer signs in with a key and the file is gone, say
+     so; with no key file and no key id, this is an older tunnel's sign-in and the opaque id carries on. */
+  if (forVerify && !fs.existsSync(DEVICE_KEY_FILE())) {
+    if (KEYED_ID.test(read().device_id)) return { failed: { ok: false, because: "this computer's sign-in key is gone; start the sign-in again" } };
+    return { args: ['--device-id', signinDeviceId()] };
+  }
   const asked = await setupRun(['signin', 'device-id', '--device-key', DEVICE_KEY_FILE()]);
-  if (!asked.ok && asked.code === 2) return { args: ['--device-id', signinDeviceId()] };
+  // clap prints "error: unrecognized subcommand 'device-id'" first and the usage after it (exit 2); match it as the
+  // other verbs here do, so no other failure is read as an older tunnel.
+  if (!asked.ok && asked.code === 2 && /unrecognized subcommand|invalid subcommand/i.test(String(asked.stderr || '') + '\n' + String(asked.because || ''))) {
+    return { args: ['--device-id', signinDeviceId()] };
+  }
+  // The program itself did not run or answer (missing, not startable, timed out): its own words, not the key's.
+  if (!asked.ok && typeof asked.code !== 'number') return { failed: { ok: false, because: asked.because || 'the tunnel program did not answer' } };
   const r = parseSaid(asked);
   const id = r.ok && r.data && typeof r.data.device_id === 'string' && KEYED_ID.test(r.data.device_id) ? r.data.device_id : '';
   if (!id) return { failed: { ok: false, because: "this computer's sign-in key could not be opened (" + (r.because || 'no id came back') + ')' } };
@@ -1895,7 +1915,7 @@ async function signinVerify(email, code, deviceName) {
   // Taken before anything is awaited (kosmos#5422: the device arguments may ask the tunnel), so a cancel made while
   // this verify waits is seen.
   const epoch = signinEpoch;
-  const dev = await signinDeviceArgs();
+  const dev = await signinDeviceArgs(true);
   if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
   { const b = busy(); if (b) return b; }
   if (dev.failed) return dev.failed;
@@ -2417,7 +2437,7 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
   cancelledAfterForTests: cancelledAfter,   // kosmos#4743: tests only
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
-  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
+  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */
   bundledConnector,
