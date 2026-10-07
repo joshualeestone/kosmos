@@ -105,12 +105,15 @@ function chk(ok, label, extra) {
         whyText: shown(document.getElementById('d-runson-why')),
         whyH: document.getElementById('d-runson-why').getBoundingClientRect().height,
         msg: shown(document.getElementById('d-model-msg')),
-        disabled: document.getElementById('d-model').disabled,
+        modelBlock: document.getElementById('d-model-row').closest('.mstep').getClientRects().length > 0,
+        said: (document.getElementById('d-sec-model') || document.body).innerText.split('from Found agents in Settings').length - 1,
       };
     });
     chk(rick.whyH > 0 && /To bring it in/.test(rick.whyText), 'the explainer is on screen and names the way in', rick.whyText);
-    chk(rick.disabled === true, 'the picker is refused before any click');
-    chk(/its model cannot change here/.test(rick.msg), 'the refusal says why in the state’s own words', rick.msg);
+    /* #5491: the model block said the state and the way in again under the explainer; for a never-recorded agent it is
+       not shown, so the card says it once. Bob below is the control: his block is shown. */
+    chk(rick.modelBlock === false && rick.msg === '', '#5491 the model block is not shown for a never-recorded agent (no second telling)', JSON.stringify({ block: rick.modelBlock, msg: rick.msg }));
+    chk(rick.said === 1, '#5491 the Runs on card says the way in once', String(rick.said));
     await page.screenshot({ path: path.join(OUT, 'made-before-rick.png'), fullPage: false });
 
     // The regression the review caught: switch to Bob, nothing lingers.
@@ -125,10 +128,12 @@ function chk(ok, label, extra) {
       // A control for absence: DOM text is the stricter read, hidden text included.
       msg: document.getElementById('d-model-msg').textContent,
       disabled: document.getElementById('d-model').disabled,
+      modelBlock: document.getElementById('d-model-row').closest('.mstep').getClientRects().length > 0,
     }));
     chk(bob.whyH === 0, 'CONTROL: the explainer is off Bob’s screen', String(bob.whyH));
     chk(bob.msg === '', 'CONTROL: Rick’s refusal did not linger on Bob’s panel', bob.msg);
     chk(bob.disabled === false, 'CONTROL: the with-plist picker is usable');
+    chk(bob.modelBlock === true, 'CONTROL #5491: a recorded agent still shows its model block (it came back after Rick)', String(bob.modelBlock));
     await page.screenshot({ path: path.join(OUT, 'made-before-bob-control.png'), fullPage: false });
 
     // The stopped never-recorded agent: the panel OPENS (this used to throw
@@ -147,12 +152,12 @@ function chk(ok, label, extra) {
       return {
         why: shown(document.getElementById('d-runson-why')),
         msg: shown(document.getElementById('d-model-msg')),
+        modelBlock: document.getElementById('d-model-row').closest('.mstep').getClientRects().length > 0,
       };
     });
     chk(/To bring it in: add it from Found agents/.test(gone.why) && !/stop it/.test(gone.why),
       'the stopped explainer names the way in without telling anyone to stop a stopped agent', gone.why);
-    chk(/Add it from Found agents/.test(gone.msg) && !/Stop it/.test(gone.msg),
-      'the stopped picker refusal matches', gone.msg);
+    chk(gone.modelBlock === false && gone.msg === '', '#5491 the stopped never-recorded agent shows no model block either', JSON.stringify({ block: gone.modelBlock, msg: gone.msg }));
     await page.click('#d-nav button[data-go="model"]');   // #2916: Memory now folded under the Model and Memory pill
     await page.waitForTimeout(300);
     const mem = await page.evaluate(() => { const el = document.getElementById('d-memory'); return el.getBoundingClientRect().height > 0 ? el.innerText : ''; });
