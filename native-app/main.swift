@@ -293,19 +293,33 @@ func isKosmosPlusURL(_ url: URL) -> Bool {
     }
 }
 
-/// PURE, for --kosmos-app-mode-selftest. A connect computer's main-frame navigations, as the iOS
-/// app decides them: Kosmos Plus and the person's computers in the window; any other https site in
-/// the browser; plain http only from a click, and then in the browser; mail, phone and text links
-/// only from a click; about:blank for the page's own use; every other scheme refused. So another
-/// site can never REPLACE the window's page with a fake Kosmos screen. This decides main-frame
-/// navigations only: a frame inside a Kosmos Plus page is that page's to choose (as on iOS, which
-/// adds an https-only rule for frames; not ported here).
-func connectLinkDecision(for url: URL, clicked: Bool) -> ConnectLink {
+/// PURE, for --kosmos-app-mode-selftest. The main-frame navigation policy for EVERY computer that has
+/// chosen a mode -- connect, run AND both (#5169: a run/both computer runs its own board in this window
+/// too, and before this its main frame allowed every navigation, so a foreign link or redirect could
+/// replace the board). Kosmos Plus and the person's computers stay in the window; this computer's own
+/// local board (`board`, the host:port it serves) stays in the window; any other https site opens in the
+/// browser ONLY from a click, and an UNCLICKED foreign navigation (a redirect or script nav) is refused
+/// outright; plain http only from a click, and then in the browser; mail, phone and text links only from
+/// a click; about:blank for the page's own use; every other scheme refused. So another site can never
+/// REPLACE the window's page with a fake Kosmos screen. This decides main-frame navigations only: a frame
+/// inside a Kosmos Plus page is that page's to choose (as on iOS, which adds an https-only rule for frames;
+/// not ported here).
+func connectLinkDecision(for url: URL, clicked: Bool, board: (host: String, port: Int)? = nil) -> ConnectLink {
+    // #5169: a run/both computer runs its OWN board at a local host:port (badgeOrigin). That host is not a
+    // Kosmos+ one, so without this it would fall to the rules below and be refused or opened in the browser --
+    // the board replacing itself in its own window. A connect computer's board is a kosmosplus.com host, kept
+    // in-app by isKosmosPlusURL below, so this only ever ADDS the local-board case; it never changes connect.
+    if let board = board, url.user == nil, url.password == nil,
+       let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+       let host = url.host?.lowercased(),
+       host == board.host.lowercased(), (url.port ?? (scheme == "https" ? 443 : 80)) == board.port {
+        return .inApp
+    }
     switch url.scheme?.lowercased() ?? "" {
     case "https":
         if isKosmosPlusURL(url) { return .inApp }
         guard let host = url.host, !host.isEmpty else { return .block }
-        return .browser
+        return clicked ? .browser : .block   // #5169: an UNCLICKED foreign https (a redirect or script nav) is refused, not opened in the browser
     case "http":
         guard let host = url.host, !host.isEmpty else { return .block }
         return clicked ? .browser : .block
@@ -2938,10 +2952,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             decisionHandler(.cancel)
             return
         }
-        guard computerMode == .connect, let url = navigationAction.request.url,
+        // #5169: run and both computers get the SAME main-frame policy as connect, so a foreign link or a
+        // redirect cannot replace the board in the window. badgeOrigin keeps this computer's own local board
+        // in-app (a connect board is a kosmosplus.com host, already kept in-app by connectLinkDecision).
+        guard computerMode == .connect || computerMode == .run || computerMode == .both,
+              let url = navigationAction.request.url,
               let frame = navigationAction.targetFrame, frame.isMainFrame
         else { decisionHandler(.allow); return }
-        switch connectLinkDecision(for: url, clicked: navigationAction.navigationType == .linkActivated) {
+        switch connectLinkDecision(for: url, clicked: navigationAction.navigationType == .linkActivated, board: badgeOrigin) {
         case .inApp:
             decisionHandler(.allow)
         case .browser:
