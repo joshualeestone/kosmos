@@ -2,8 +2,9 @@
 
 ## Finished looks like
 - `tools/heavy-gate.sh` answering BUSY also says, on stderr (not with --quiet), that polling holds no place in line,
-  and names the queue command with its absolute path: `bash <repo>/tools/queued-heavy.sh "<what>" <command>`, and
-  `--light` for one browser check or one test file. The stdout verdict stays one line.
+  and names a queue command that can run (which copy: see the bullet on the hint's order below), with `--light`
+  for one browser check or one test file. When QUEUED_HEAVY_LIB is set and has no lib, it also says the queue will
+  refuse until that is fixed or unset. The stdout verdict stays one line.
 - `tools/queued-heavy.sh` run with QUEUED_HEAVY_LIB unset on a machine without `~/work/kosmos-bc-main-4610` uses
   the MAIN checkout of the repo it lives in (git common dir's parent; GIT_DIR, GIT_WORK_TREE and GIT_COMMON_DIR ignored), says so on stderr
   with that checkout's commit and branch (it is not guaranteed to be on main), and joins the queue. Every worktree of one clone resolves the same folder; a second clone
@@ -33,7 +34,8 @@ one command that fixes it, so a stale checkout is loud rather than a silent spli
 script running against a main-checkout lib that has the same function names but different behaviour (the same risk
 the default folder carries today); the stderr line naming the folder and commit is what makes that visible.
 - The hint names the main checkout's copy only when that copy has the marker AND that checkout has cut-guard.sh; it
-  relies on the two files coming from one commit there.
+  relies on the two files coming from one commit there. The installed copy is chosen on its lib being present, not new
+  enough; an old default folder still makes it exit 3 (the #4977 case, unchanged).
 
 ## Tests
 - tools.heavy-gate-3805.test.js: BUSY names the queue on stderr with an existing path; CLEAR and --quiet do not.

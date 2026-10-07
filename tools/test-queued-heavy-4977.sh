@@ -220,7 +220,7 @@ mkdir -p $S/fbout && cp "$REAL_QH" $S/fbout/queued-heavy.sh   # a copy outside a
 o=$(env -u QUEUED_HEAVY_LIB HOME=$S/fbout KOSMOS_RUN_MARKER_DIR=$S/mfbx perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/fbout/queued-heavy.sh "outside" touch $S/fbx-ran 2>&1); rc=$?
 ok "#5446: a copy outside any git repo (the installed one) has no fallback and still exits 3" '[ "$rc" = 3 ] && [ ! -e $S/fbx-ran ] && [[ "$o" == *"could not load cut-guard.sh"* ]] && [[ "$o" != *"main checkout"* ]]'
 GE="env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR"
-$GE git -C $S/fbrepo worktree add -q $S/fbwt 2>/dev/null; echo '# a worktree edit: if this lib were used the run would still pass, so the line is what we check' >> $S/fbwt/tools/queued-heavy.sh
+$GE git -C $S/fbrepo worktree add -q $S/fbwt 2>/dev/null
 o=$(env -u QUEUED_HEAVY_LIB HOME=$S/fbrepo/h KOSMOS_RUN_MARKER_DIR=$S/mfbw perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/fbwt/tools/queued-heavy.sh "fallback-wt" touch $S/fbw-ran 2>&1); rc=$?
 ok "#5446: a worktree's copy falls back to its MAIN checkout, not its own tree" '[ "$rc" = 0 ] && [ -e $S/fbw-ran ] && [[ "$o" =~ main\ checkout\ [^\ ]*/fbrepo\ at ]] && [[ "$o" != *"/fbwt at"* ]]'
 qh_repo $S/fbnone 0; mkdir -p $S/fbnone/x && cp "$REAL_QH" $S/fbnone/x/queued-heavy.sh
