@@ -16,6 +16,14 @@ cat > "$T/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 [ -n "${STUB_GH_FAIL:-}" ] && exit 1
 a=" $* "
+if [ "$1 $2" = "run view" ]; then
+  # Suite job conclusions for run $3: "skipped" for ids in STUB_REUSED_IDS (a run that itself reused a
+  # verdict), a failure for STUB_VIEW_FAIL, else three successes.
+  [ -n "${STUB_VIEW_FAIL:-}" ] && exit 1
+  case " ${STUB_REUSED_IDS:-} " in *" $3 "*) printf 'skipped\nskipped\nskipped\n'; exit 0 ;; esac
+  case "$a" in *" --json jobs "*) ;; *) echo "gh stub: run view without --json jobs: $*" >&2; exit 3 ;; esac
+  printf 'success\nsuccess\nsuccess\n'; exit 0
+fi
 for want in " run list " " --workflow test.yml " " --branch br " " --event pull_request " " --status success " "createdAt"; do
   case "$a" in *"$want"*) ;; *) echo "gh stub: missing '$want' in: $*" >&2; exit 3 ;; esac
 done
@@ -72,6 +80,24 @@ expect_run "a plan name with a colon (fixture-discipline rejects 'foo:' segments
 # A MOVE of a code file into plans: plain `git diff` would list only the new path (rename detection).
 g checkout -q -B mv "$BASE"; g mv tools/x.sh .claude/plans/x.md; g commit -qm move
 expect_run "a code file MOVED into .claude/plans/ (both sides of the rename count)" "$(git -C "$R" rev-parse HEAD)" "77 $BASE 60"
+
+# A chain of reuses must not reset the age cap: run 88 reused a verdict (its suite was skipped), so it is
+# no source; the real run 77 behind it is used, and only if IT is within the cap.
+H="$(commit_change .claude/plans/b-pre-challenge.md)"
+out="$(cd "$R" && PATH="$T/bin:$PATH" STUB_GH_OUT="88 $BASE 60
+77 $BASE 600" STUB_REUSED_IDS=88 bash "$SUBJECT" "$H" br 2>/dev/null)"
+[ "$out" = 77 ] && pass "a run that itself reused a verdict is skipped; the real green run behind it (77) is used" || fail "chain: must use 77, got '$out'"
+out="$(cd "$R" && PATH="$T/bin:$PATH" STUB_GH_OUT="88 $BASE 60
+77 $BASE 30000" STUB_REUSED_IDS=88 bash "$SUBJECT" "$H" br 2>/dev/null)"
+[ -z "$out" ] && pass "a fresh reuse in front of a real run past the cap: the suite runs (no chaining past six hours)" || fail "chain past the cap must run the suite, got '$out'"
+out="$(cd "$R" && PATH="$T/bin:$PATH" STUB_GH_OUT="77 $BASE 60" STUB_VIEW_FAIL=1 bash "$SUBJECT" "$H" br 2>/dev/null)"
+[ -z "$out" ] && pass "the run's jobs cannot be read: the suite runs" || fail "unreadable jobs must run the suite, got '$out'"
+
+# A plan file whose MODE changes is not a plan change: a symlink, or an executable bit.
+g checkout -q -B lnk "$BASE"; ln -s ../../tools/x.sh "$R/.claude/plans/l.md"; g add -A; g commit -qm link
+expect_run "a symlink added under .claude/plans/" "$(git -C "$R" rev-parse HEAD)" "77 $BASE 60"
+g checkout -q -B xbit "$BASE"; chmod +x "$R/.claude/plans/b-pre-challenge.md"; g add -A; g commit -qm xbit
+expect_run "an executable bit on a plan file" "$(git -C "$R" rev-parse HEAD)" "77 $BASE 60"
 
 g checkout -q -B empty "$BASE"; g commit -q --allow-empty -m empty
 expect_run "nothing changed since the green run (a deliberate re-run)" "$(git -C "$R" rev-parse HEAD)" "77 $BASE 60"

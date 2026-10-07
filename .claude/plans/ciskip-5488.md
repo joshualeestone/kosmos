@@ -54,6 +54,13 @@ commit on a PR that changes code still matches, so `paths-ignore: .claude/plans/
   six-hour cap bounds it; the window itself is not new (a PR already merges with main moved since its last run); and
   the main push run after merging tests the merged tree. Rejected: requiring the same base sha, which on a main that
   takes a merge every few minutes would reuse almost never, and so save almost nothing.
+- Reuse never chains: a run that itself reused a verdict concludes success with a fresh createdAt, so only a
+  run whose `suite (...)` jobs RAN and all concluded success (`gh run view --json jobs`) is a source. Without that,
+  each plans-only push would reset the six-hour clock (found in review iteration 2).
+- Both sides of every changed path must be a plain file (mode 100644, or absent): a symlink or an executable bit
+  under plans is not "a plan" (`git diff --raw`).
+- `gh run list` once (of seven identical calls) returned two older runs at 10:05 CDT on 10-07; not reproducible.
+  If it recurs it is safe: an older source means an older sha, a wider diff, and the suite runs.
 - No check is required on main (no branch protection, no rulesets, measured). If `test` is ever made required, a
   skipped `suite` is still fine: `test` itself reports success with the reused run named.
 - `gh run list --branch` matches the head branch NAME; a fork PR with the same branch name as another PR could match
