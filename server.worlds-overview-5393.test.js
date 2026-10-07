@@ -7,6 +7,7 @@
  *
  * Sandbox env is set ONCE at module load and the board started ONCE, as every server-route test does.
  */
+require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const { test, before, after } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
