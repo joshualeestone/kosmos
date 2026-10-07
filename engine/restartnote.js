@@ -73,14 +73,16 @@ function noteFor({ now, uptimeSec, lastAliveAt, startedBy }) {
 function atStart(deps = {}) {
   const now = deps.now ? deps.now() : Date.now();
   const uptimeSec = deps.uptime ? deps.uptime() : os.uptime();
-  // #5450: the launcher's word (install/kosmos board-run and start), read once and removed, so no agent started from
-  // this board inherits it. Anything else is unknown, and the timer decides.
-  const env = deps.env || process.env;
-  const said = env.KOSMOS_BOARD_STARTED_BY;
-  delete env.KOSMOS_BOARD_STARTED_BY;
-  const startedBy = said === 'person' || said === 'supervisor' ? said : undefined;
+  // #5450: the launcher's word (install/kosmos board-run and start). server.js takes it out of the environment at load
+  // and passes it here; noteFor treats anything but 'person' or 'supervisor' as unknown (the timer decides).
+  const startedBy = deps.startedBy;
   const prev = readJson(aliveFile());
   const note = noteFor({ now, uptimeSec, lastAliveAt: prev && prev.at, startedBy });
+  // The person's mark is consumed only now that it has been used, so a board that died before this point was
+  // relaunched still knowing a person started it (review 1). Only the launcher's own mark file, by its name.
+  if (typeof deps.personMark === 'string' && path.basename(deps.personMark) === 'board.person-start') {
+    try { fs.unlinkSync(deps.personMark); } catch { /* not there, or already gone */ }
+  }
   if (note) writeJson(noteFile(), { ...note, dismissed: false });
   beat(now);
   return note;

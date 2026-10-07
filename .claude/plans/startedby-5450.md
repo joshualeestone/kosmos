@@ -35,3 +35,23 @@ though the login item did bring Kosmos back by itself.
 - engine/restartnote-5359: the supervisor makes a note 40 minutes after the boot (control: unknown does not); a person
   never does (control: unknown and quick does); the other rules hold; atStart removes the variable and ignores an
   unknown value. Mutations: each of the four parts reddens.
+
+## Review 1
+- FIXED (blocker): board-run could stop before starting the board under set -e (an unreadable mark, or "0999999999"
+  read as octal), leaving launchd to crash-loop on the same mark. Every read is now guarded, the numbers are base 10
+  and bounded to 12 digits, and a mark from the future (a clock set back) is not a person. Pinned with a mode-000
+  mark, a leading zero, a future mark and a 23-digit one.
+- FIXED (blocker): the watchdog brings a dead board back with `kosmos start --force`, which read as a person's start,
+  so the reboot case the note exists for lost its note. The watchdog's two starts now say KOSMOS_START_BY=supervisor,
+  which `kosmos start` honours (no mark on the supervised path; supervisor on the direct path). Pinned on both lines.
+  Installs and updates still read as a person's: a person ran them.
+- FIXED: board-run no longer deletes a person's mark; the board deletes it in atStart once it has used it, by its own
+  name only (KOSMOS_BOARD_PERSON_MARK). A board that died before then is relaunched still knowing a person started it,
+  instead of making a false note.
+- FIXED: server.js takes KOSMOS_BOARD_STARTED_BY and the mark path out of the environment as it loads, before anything
+  could start a process that inherits them, and passes them to atStart. Pinned by a server test.
+- `kosmos stop` removes a start's mark. The allow-list in atStart is gone (noteFor already treats any other value as
+  unknown, so the arm could never fail).
+- Mutations: the guarded cat, the age check, the watchdog's word, server.js's delete and atStart's consume each
+  reddens. (board-run deleting a person's mark is guarded by the "LEFT for the board" arm; the mutation that would put
+  a deletion back was blocked by the harness's rm safety check, so it was not run.)

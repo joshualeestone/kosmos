@@ -121,15 +121,22 @@ test('#5450: who started the board decides it when the launcher says so; the tim
   assert.equal(rn.noteFor({ now: NOW, uptimeSec: up(40), lastAliveAt: at(40 * MIN + rn.WINDOW_MS + MIN), startedBy: 'supervisor' }), null, 'not running when it went down');
 });
 
-test('#5450: atStart reads the launcher\'s word once and removes it, so no agent the board starts inherits it', () => {
+test('#5450: atStart uses the launcher\'s word it is given, and consumes the person\'s mark only after using it', () => {
   fs.rmSync(path.dirname(rn._files.aliveFile()), { recursive: true, force: true });
   fs.mkdirSync(path.dirname(rn._files.aliveFile()), { recursive: true });
   fs.writeFileSync(rn._files.aliveFile(), JSON.stringify({ at: at(41 * MIN) }));
-  const env = { KOSMOS_BOARD_STARTED_BY: 'supervisor', OTHER: 'kept' };
-  assert.ok(rn.atStart({ now: () => NOW, uptime: () => up(40), env }), 'the supervisor\'s late start made no note');
-  assert.equal('KOSMOS_BOARD_STARTED_BY' in env, false, 'the variable reached what the board starts');
-  assert.equal(env.OTHER, 'kept');
-  // An unrecognised value is unknown: the timer decides, so a late start makes no note.
-  fs.writeFileSync(rn._files.aliveFile(), JSON.stringify({ at: at(41 * MIN) }));
-  assert.equal(rn.atStart({ now: () => NOW, uptime: () => up(40), env: { KOSMOS_BOARD_STARTED_BY: 'launchd' } }), null);
+  assert.ok(rn.atStart({ now: () => NOW, uptime: () => up(40), startedBy: 'supervisor' }), 'the supervisor\'s late start made no note');
+  // A person's start: no note, and the mark it left is removed now that it has been read (review 1).
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'kosmos-5450-mark-'));
+  const mark = path.join(dir, 'board.person-start');
+  fs.writeFileSync(mark, '1');
+  fs.writeFileSync(rn._files.aliveFile(), JSON.stringify({ at: at(6 * MIN) }));
+  assert.equal(rn.atStart({ now: () => NOW, uptime: () => up(5), startedBy: 'person', personMark: mark }), null);
+  assert.equal(fs.existsSync(mark), false, 'the mark was left, so the next start would read as a person\'s too');
+  // Only the launcher's own mark file, by its name: a stray path is never deleted.
+  const other = path.join(dir, 'something-else');
+  fs.writeFileSync(other, 'x');
+  rn.atStart({ now: () => NOW, uptime: () => up(5), startedBy: 'person', personMark: other });
+  assert.equal(fs.existsSync(other), true, 'a file that is not the mark was deleted');
+  fs.rmSync(dir, { recursive: true, force: true });
 });

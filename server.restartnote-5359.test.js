@@ -33,7 +33,11 @@ fs.writeFileSync(rn._files.noteFile(), JSON.stringify({
 let beatsArmed = 0;
 const realStartBeating = rn.startBeating;
 rn.startBeating = (...a) => { beatsArmed++; const t = realStartBeating(...a); if (t && t.unref) t.unref(); return t; };
+// #5450: the launcher's word is taken out of the environment when server.js loads, before anything could inherit it.
+process.env.KOSMOS_BOARD_STARTED_BY = 'supervisor';
+process.env.KOSMOS_BOARD_PERSON_MARK = '/nonexistent/board.person-start';
 const { start, server } = require('./server');
+const STARTED_BY_LEFT = 'KOSMOS_BOARD_STARTED_BY' in process.env || 'KOSMOS_BOARD_PERSON_MARK' in process.env;
 
 test('#5359: the board serves the restart note, records a dismiss, and says it is alive at start', async (t) => {
   await start(0);
@@ -54,4 +58,8 @@ test('#5359: the board serves the restart note, records a dismiss, and says it i
 
   const after = await (await fetch(`${base}/api/board/restart-note`)).json();
   assert.equal(after.note, null, 'the note was served after it was dismissed');
+});
+
+test('#5450: loading server.js removes the launcher\'s word from the environment (no agent it starts inherits it)', () => {
+  assert.equal(STARTED_BY_LEFT, false);
 });

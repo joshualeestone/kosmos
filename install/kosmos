@@ -1243,8 +1243,9 @@ cmd_start() {
     _mark_board_started
     local _sup_label _sup_uid
     _sup_label="$(_kosmos_board_label)"; _sup_uid="$(/usr/bin/id -u)"
-    # #5450: this start is a person's; board-run reads it so the restart note never says the board came back by itself.
-    date +%s > "$PERSON_START_FILE" 2>/dev/null || true
+    # #5450: this start is a person's (unless the watchdog says it is the supervisor's: KOSMOS_START_BY); board-run reads
+    # it so the restart note never says the board came back by itself.
+    if [ "${KOSMOS_START_BY:-}" != supervisor ]; then date +%s > "$PERSON_START_FILE" 2>/dev/null || true; fi
     "$LAUNCHCTL" kickstart -k "gui/$_sup_uid/$_sup_label" >/dev/null 2>&1 || true
     _await_board_up && return 0
     die "Kosmos did not come up under launchd. What it said is in $BOARD_LOG"
@@ -1273,8 +1274,10 @@ cmd_start() {
   # starts the child with SIGINT/SIGQUIT ignored; the board handles SIGINT itself, and in its own group a
   # Ctrl-C in the terminal cannot reach it anyway.
   set -m
-  # #5450: a direct start is always a person's (the supervised paths go through board-run).
-  env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE PORT="$PORT" KOSMOS_BOARD_STARTED_BY=person nohup "$NODE" "$APP" </dev/null >> "$BOARD_LOG" 2>&1 3>&- &
+  # #5450: a direct start is a person's, unless the watchdog (KOSMOS_START_BY=supervisor) is bringing back a board
+  # nobody stopped.
+  local _start_by=person; [ "${KOSMOS_START_BY:-}" = supervisor ] && _start_by=supervisor
+  env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE -u KOSMOS_START_BY PORT="$PORT" KOSMOS_BOARD_STARTED_BY="$_start_by" nohup "$NODE" "$APP" </dev/null >> "$BOARD_LOG" 2>&1 3>&- &
   set +m
   printf '%s' "$!" > "$PIDFILE"
   # ⚠️ WAIT FOR THE BOARD TO ANSWER, NOT FOR THE PROCESS TO EXIST. A pid that
@@ -1369,13 +1372,21 @@ cmd_board_run() {
   # the board an agent's markers (every later kosmos call from it would read as an agent). exec env keeps the pid.
   # #5450: who started this board, for the restart note (engine/restartnote.js): the supervisor (the login item, or a
   # crash relaunch), unless `kosmos start` left its fresh mark just before kickstarting. The mark is consumed either way.
-  local _started_by=supervisor _ps_at _ps_now
+  # Review 1: nothing here may stop the board (set -e): every read is guarded, the numbers are base 10 and bounded, and
+  # a mark from the future is not a person. The mark is NOT deleted here: the board deletes it once it has used it
+  # (KOSMOS_BOARD_PERSON_MARK), so a board that dies before then is relaunched still knowing a person started it.
+  local _started_by=supervisor _ps_at="" _ps_now=0 _ps_age=-1
   if [ -f "$PERSON_START_FILE" ]; then
-    _ps_at="$(cat "$PERSON_START_FILE" 2>/dev/null)"; _ps_now="$(date +%s)"
-    case "$_ps_at" in ''|*[!0-9]*) ;; *) [ $((_ps_now - _ps_at)) -le "$PERSON_START_MAX_S" ] && _started_by=person ;; esac
-    rm -f "$PERSON_START_FILE" 2>/dev/null || true
+    _ps_at="$(cat "$PERSON_START_FILE" 2>/dev/null)" || _ps_at=""
+    _ps_now="$(date +%s 2>/dev/null)" || _ps_now=0
+    case "$_ps_at" in ''|*[!0-9]*) ;; *)
+      if [ "${#_ps_at}" -le 12 ] && [ "${#_ps_now}" -le 12 ]; then _ps_age=$(( 10#$_ps_now - 10#$_ps_at )); fi ;;
+    esac
+    if [ "$_ps_age" -ge 0 ] && [ "$_ps_age" -le "$PERSON_START_MAX_S" ]; then _started_by=person
+    else rm -f "$PERSON_START_FILE" 2>/dev/null || true   # stale, unreadable or from the future: not a person
+    fi
   fi
-  exec env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE PORT="$PORT" KOSMOS_BOARD_STARTED_BY="$_started_by" "$NODE" "$APP"
+  exec env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE PORT="$PORT" KOSMOS_BOARD_STARTED_BY="$_started_by" KOSMOS_BOARD_PERSON_MARK="$PERSON_START_FILE" "$NODE" "$APP"
 }
 
 # #5359: remove the board's last-alive record (engine/restartnote.js), best effort, from the same data root
@@ -1444,6 +1455,7 @@ cmd_stop() {
       exit 1
     fi
     rm -f "$PIDFILE"
+    rm -f "$PERSON_START_FILE" 2>/dev/null || true   # #5450: a start's mark does not outlive a deliberate stop
     # #5359: a deliberate stop is not a restart under a running Kosmos, so the board's last-alive record goes too;
     # otherwise stopping, restarting the computer and starting Kosmos within minutes would say it came back by itself.
     # Only here, once the board is gone: before the kill its once-a-minute beat could write the record back, and a stop
