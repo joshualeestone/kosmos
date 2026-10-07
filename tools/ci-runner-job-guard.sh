@@ -30,6 +30,8 @@ field() { /usr/bin/plutil -extract "$1" raw -o - "$PAYLOAD" 2>/dev/null; }
 resolved() { local d; d="$(cd "$(/usr/bin/dirname "$1")" 2>/dev/null && pwd -P)" || return 1; printf '%s/%s' "$d" "$(/usr/bin/basename "$1")"; }
 
 self_dir="$(cd "$(/usr/bin/dirname "$0")" 2>/dev/null && pwd -P)" || refuse "cannot tell where the guard is installed"
+# The runner is configured with `--work _work` in ~/actions-runner (ci-mini-setup.sh). If that ever changes,
+# every job is REFUSED here (the file is not found), never allowed: change this line with it.
 EXPECTED="$self_dir/../actions-runner/_work/_temp/_github_workflow/event.json"
 
 [ -n "$EVENT" ] && [ -n "$REPO" ] || refuse "no event name or repository in the job's environment"
