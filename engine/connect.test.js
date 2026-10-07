@@ -2964,7 +2964,7 @@ test('#5419 review 2-4: on Linux the tmux for sign-in is create\'s picker (PATH,
   assert.equal(connect.tmuxBinPath('linux', { PATH: '/opt/custom/bin' }, runnable), onPath, 'the tmux on PATH comes first');
   assert.equal(connect.tmuxBinPath('linux', { PATH: '/nowhere' }, runnable), '/usr/bin/tmux', 'then /usr/bin, under a minimal PATH');
   assert.equal(connect.tmuxBinPath('linux', { PATH: '/nowhere' }, () => false), 'tmux', 'none found: the bare name');
-  assert.equal(connect.tmuxBinPath('linux', { AGENT_WORKFORCE_TMUX_BIN: '/x/tmux', PATH: '/opt/custom/bin' }, runnable), '/x/tmux', 'the launcher\'s pick wins');
+  assert.equal(connect.tmuxBinPath('linux', { AGENT_WORKFORCE_TMUX_BIN: '/x/tmux', PATH: '/opt/custom/bin' }, (f) => f === '/x/tmux' || runnable(f)), '/x/tmux', 'a runnable launcher pick wins');
   assert.equal(connect.tmuxBinPath('darwin', {}), '/opt/homebrew/bin/tmux', 'CONTROL: the Mac default is unchanged');
 });
 
@@ -2987,4 +2987,32 @@ test('#5419 review 5: on Linux a missing tmux is caught before a download, not a
   assert.equal(connect.tmuxMissingOnLinux({ AGENT_WORKFORCE_TMUX_BIN: '/k/tmux/bin/tmux', PATH: '/nowhere' }, none), true, 'the launcher named a tmux that is not there (a bundle with no Linux tmux): missing');
   assert.equal(connect.tmuxMissingOnLinux({ PATH: '/nowhere' }, (f) => f === '/usr/bin/tmux'), false, 'CONTROL: /usr/bin/tmux is found');
   assert.equal(connect.tmuxMissingOnLinux({ AGENT_WORKFORCE_TMUX_BIN: '/k/tmux', PATH: '/nowhere' }, (f) => f === '/k/tmux'), false, 'CONTROL: the launcher\'s runnable pick');
+});
+
+test('#5419 review 6: on Linux a launcher tmux pick that is not there falls through to the real picker', () => {
+  const runnable = (f) => f === '/usr/bin/tmux';
+  const env = { AGENT_WORKFORCE_TMUX_BIN: '/home/u/.local/share/kosmos/tmux/bin/tmux', PATH: '/nowhere' };
+  assert.equal(connect.tmuxBinPath('linux', env, runnable), '/usr/bin/tmux', 'a missing bundle path won over an installed tmux');
+  assert.equal(connect.tmuxMissingOnLinux(env, runnable), false, 'an installed tmux was reported missing');
+  assert.equal(connect.tmuxBinPath('darwin', env, runnable), env.AGENT_WORKFORCE_TMUX_BIN, 'CONTROL: on a Mac the launcher pick is used as before');
+});
+
+test('#5419 review 6: download refuses a Linux host with no tmux before any request is made', async (t) => {
+  let requests = 0;
+  const http = require('node:http');
+  const server = http.createServer((req, res) => { requests += 1; res.writeHead(404); res.end(); });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const prev = process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = `http://127.0.0.1:${server.address().port}`;
+  connect.setTmuxCheckForTests(() => true);
+  t.after(() => {
+    connect.setTmuxCheckForTests(null);
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; else process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = prev;
+    server.close();
+  });
+  await assert.rejects(() => connect.download(() => {}, undefined, 'linux'), /needs tmux on this computer/);
+  assert.equal(requests, 0, 'the download service was asked before the tmux check');
+  connect.setTmuxCheckForTests(() => false);
+  await assert.rejects(() => connect.download(() => {}, undefined, 'linux'), (e) => !/needs tmux/.test(e.message), 'CONTROL: with tmux present it goes on to the service');
+  assert.ok(requests > 0, 'CONTROL: with tmux present the service is asked');
 });

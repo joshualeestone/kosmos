@@ -175,10 +175,17 @@ function tmuxMissingOnLinux(env = process.env, runnable = (f) => require('./runn
   const t = tmuxBinPath('linux', env, runnable);
   return t === 'tmux' || !runnable(t);
 }
+/* review 6: a seam, so the guard as wired into download() is tested on any platform (not only on a real Linux host). */
+let tmuxCheckOverride = null;
+function setTmuxCheckForTests(fn) { tmuxCheckOverride = typeof fn === 'function' ? fn : null; }
 function tmuxBinPath(platform = process.platform, env = process.env, runnable) {
-  /* #5419 review 2: the launcher (install/kosmos) exports its tmux pick, so this default is for a board started some
-     other way. Homebrew's path is the Mac's; elsewhere the tmux on PATH (run() resolves a bare name). */
-  if (env.AGENT_WORKFORCE_TMUX_BIN) return env.AGENT_WORKFORCE_TMUX_BIN;
+  /* #5419 review 2: the launcher (install/kosmos) exports its tmux pick. Review 6: on Linux that pick is not reliable:
+     with tmux installed but no tmux server running yet, the launcher falls back to the bundle path, which a Linux box
+     may not have. So on Linux the pick is used only when it is runnable, and otherwise create's picker decides. */
+  if (env.AGENT_WORKFORCE_TMUX_BIN) {
+    const can = runnable || ((f) => require('./runners').isRunnable(f));
+    if (platform !== 'linux' || can(env.AGENT_WORKFORCE_TMUX_BIN)) return env.AGENT_WORKFORCE_TMUX_BIN;
+  }
   if (platform === 'darwin') return '/opt/homebrew/bin/tmux';
   // review 3: create's Linux picker (#4917: PATH plus /usr/local/bin, /usr/bin, ...), one derivation, so a board under a
   // minimal PATH still finds /usr/bin/tmux. Required at call time: create requires this module.
@@ -1179,7 +1186,7 @@ async function download(onProgress, track, platform = process.platform) {
     throw new Error('this platform (' + platform + ') has no published Claude Code build, so it was not downloaded');
   }
   // review 5: only on a real Linux host (a test drives platform 'linux' from a Mac); asked before any bytes move.
-  if (platform === 'linux' && process.platform === 'linux' && tmuxMissingOnLinux()) {
+  if (platform === 'linux' && (tmuxCheckOverride ? tmuxCheckOverride() : (process.platform === 'linux' && tmuxMissingOnLinux()))) {
     throw new Error('Kosmos needs tmux on this computer to sign Claude in and run agents, and none was found, so Claude was not downloaded. Install tmux (for example: sudo apt install tmux) and try again');
   }
   const base = downloadBase();
@@ -3592,7 +3599,7 @@ function resetForTests() {
 module.exports = {
   setMuslDetectForTests,
   detectMusl,   // #5419 review 1: pure, so each branch is tested
-  readReportQuietly, tmuxBinPath, tmuxMissingOnLinux,   // #5419 reviews 2 and 5: tested directly
+  readReportQuietly, tmuxBinPath, tmuxMissingOnLinux, setTmuxCheckForTests,   // #5419 reviews 2, 5, 6: tested directly
   setRefreshExpiryReader, // #3326 test seam
   PHASE, SESSION, ACTIVE_PHASES,
   state, publicView, start, submitCode, cancel,
