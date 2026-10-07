@@ -228,15 +228,24 @@ _site_left_behind() {
 # "Error: fetch failed" while polling it, and Vercel finished the build itself a minute later.
 # A cut that calls that a failure invites a revert of what is live, or a re-cut that rebuilds a
 # cache-immutable tarball name with different bytes. So step 8 asks the served host instead:
-# run <verify command...> (release.sh passes verify-served.sh for this cut's pointer, which
-# only this deploy can make name this version) up to <tries> times, <wait_s> apart. Returns 0
+# run <check command...> (release.sh passes site_deploy_serves_this_build for this cut's tarball .sha256,
+# which only this deploy can serve) up to <tries> times, <wait_s> apart. Returns 0
 # on the first pass, 1 if none passes. It decides nothing about WHY the CLI failed: a failed
 # upload simply never verifies, and the cut fails as before.
+# <tries> must be a whole number of at least 1 (numerically, so "00" is refused: BSD seq counts 1 down to 0
+# and would run the check twice), <wait_s> a whole number. release.sh checks its overrides with this
+# BEFORE deploying, so a typo is refused while nothing has been deployed.
+site_deploy_landed_args_ok() {   # <tries> <wait_s>
+  case "$1" in ''|*[!0-9]*) echo "   KOSMOS_DEPLOY_LANDED_TRIES must be a whole number of at least 1, got '$1'" >&2; return 1 ;; esac
+  [ "$((10#$1))" -ge 1 ] || { echo "   KOSMOS_DEPLOY_LANDED_TRIES must be a whole number of at least 1, got '$1'" >&2; return 1; }
+  case "$2" in ''|*[!0-9]*) echo "   KOSMOS_DEPLOY_LANDED_WAIT_S must be a whole number of seconds, got '$2'" >&2; return 1 ;; esac
+  return 0
+}
 site_deploy_landed() {   # <tries> <wait_s> <verify command...>
   local tries="$1" wait_s="$2" i
   shift 2
-  case "$tries" in ''|*[!0-9]*|0) echo "   site_deploy_landed: tries must be a positive whole number, got '$tries'" >&2; return 1 ;; esac
-  case "$wait_s" in ''|*[!0-9]*) echo "   site_deploy_landed: wait_s must be a whole number of seconds, got '$wait_s'" >&2; return 1 ;; esac
+  site_deploy_landed_args_ok "$tries" "$wait_s" || return 1
+  tries=$((10#$tries))
   for i in $(seq 1 "$tries"); do
     if "$@"; then return 0; fi
     if [ "$i" -lt "$tries" ]; then echo "   (#5471: not served yet, check $i of $tries; waiting ${wait_s}s)"; sleep "$wait_s"; fi
