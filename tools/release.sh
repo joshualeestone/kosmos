@@ -1609,7 +1609,9 @@ if [ "$_vdep_rc" != 0 ]; then
   # #5471: the CLI's own failure is not the answer; what is served is. LANDED means the served
   # kosmos-$V-arm64.tar.gz.sha256 is the one this cut wrote. Only a deploy carrying this cut's files can serve it: an
   # earlier attempt at $V passes a pointer check but not this, because no two bundles share bytes (see
-  # site_deploy_serves_this_build). That is the same position as a CLI success, so DEPLOYED=1 follows and
+  # site_deploy_serves_this_build). One Vercel deploy goes live as a whole (pages, pointer, installer and
+  # artifacts together), so this cut's .sha256 being served means its deploy is live. That is the same
+  # position as a CLI success, so DEPLOYED=1 follows and
   # step 9 verifies everything a user receives, with its own retries. One host serves every channel (a
   # staging cut differs only in its pointer file), so this reads the HOST step 9 reads. Asked up to
   # KOSMOS_DEPLOY_LANDED_TRIES times, KOSMOS_DEPLOY_LANDED_WAIT_S apart (default 24 x 15 s: about 6 min,
@@ -1624,7 +1626,7 @@ if [ "$_vdep_rc" != 0 ]; then
     130|143) echo "vercel deploy was stopped by a signal (exit $_vdep_rc); not waiting to see whether it landed"; exit "$_vdep_rc" ;;
   esac
   [ -n "$_my_sha" ] || { echo "this cut's own kosmos-$V-arm64.tar.gz.sha256 cannot be read, so whether it landed cannot be checked"; exit "$_vdep_rc"; }
-  echo "   checking whether this cut's build is served anyway before calling it a failure (up to about $((10#${KOSMOS_DEPLOY_LANDED_TRIES:-24} * 10#${KOSMOS_DEPLOY_LANDED_WAIT_S:-15} / 60)) min; a failure before any upload waits too, and Ctrl-C ends the wait safely: the trap restores as on any failure)"
+  echo "   checking whether this cut's build is served anyway before calling it a failure (up to about $((10#${KOSMOS_DEPLOY_LANDED_TRIES:-24} * 10#${KOSMOS_DEPLOY_LANDED_WAIT_S:-15}))s of waiting plus each check's fetch; a failure before any upload waits too, and Ctrl-C ends the wait safely: the trap restores as on any failure)"
   if site_deploy_landed "${KOSMOS_DEPLOY_LANDED_TRIES:-24}" "${KOSMOS_DEPLOY_LANDED_WAIT_S:-15}" \
        site_deploy_serves_this_build "${HOST:-https://installkosmos.com}" "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256" "kosmos-$V-arm64.tar.gz"; then
     echo "   THE DEPLOY LANDED although vercel deploy exited $_vdep_rc: the served kosmos-$V-arm64.tar.gz.sha256 is this cut's. Continuing as a successful deploy; step 9 verifies the rest (#5471)."
