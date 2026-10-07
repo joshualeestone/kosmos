@@ -6,8 +6,8 @@
 // that name" -- the launch directory had been resolved once, to the real one.
 // Same warning create.test.js opens with, learned again the hard way.
 const test = require('node:test');
-/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that asserts the launchd plist itself
-   measures nothing there. Skipped on Linux only, naming where Linux covers it; macOS and Windows unchanged. */
+/* #5432: on a Linux host an agent's job is a systemd user unit. These tests read the job with create.readJob, which
+   reads either, so they run on Linux too. */
 const jobfix = require('../test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
