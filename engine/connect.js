@@ -184,7 +184,9 @@ let tmuxCheckOverride = null;
    before the tmux host runs, for a tmux that went away during a long download. Only on a real Linux host, or through
    the seam. */
 const LINUX_NO_TMUX = 'Kosmos needs tmux on this computer to sign Claude in, and none was found';
-const LINUX_TMUX_HINT = 'Install tmux with your system\'s package manager (for example sudo apt install tmux, sudo dnf install tmux, or apk add tmux) and try again';
+/* Review 23: the search covers PATH and the usual system folders, so a tmux kept elsewhere (Nix, ~/.local/bin) under a
+   minimal service PATH reads as missing; the hint says that case too, rather than only "install it". */
+const LINUX_TMUX_HINT = 'Install tmux with your system\'s package manager (for example sudo apt install tmux, sudo dnf install tmux, or apk add tmux) and try again. If tmux is already installed, Kosmos could not find it in the usual places (/usr/bin, /usr/local/bin, /bin, /snap/bin): link it into /usr/local/bin and try again';
 function tmuxMissingForSignin(platform) {
   if (platform !== 'linux') return false;
   return tmuxCheckOverride ? Boolean(tmuxCheckOverride()) : (process.platform === 'linux' && tmuxMissingOnLinux());
