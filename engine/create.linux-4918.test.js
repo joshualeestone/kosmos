@@ -112,6 +112,7 @@ test('#4918 review 23: an install over a unit that is already active is not "sta
   systemd = (cmd, args) => ((cmd === 'systemctl' && args[1] === 'is-active') ? { ok: true, stdout: 'active\n' } : lingerIs(true)(cmd, args));
   const r = create.installJob('activebot', { ...BINS, platform: 'linux' });
   assert.equal(r.started, false, 'a start of an active unit (a no-op) was reported as started: ' + JSON.stringify(r));
+  assert.match(r.because, /already running/, 'an agent that is running was told it could not start (review 25)');
   systemd = lingerIs(true);
   fs.mkdirSync(create.workerDir('activebot2'), { recursive: true });
   const c = create.installJob('activebot2', { ...BINS, platform: 'linux' });

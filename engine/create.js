@@ -3734,6 +3734,7 @@ function installJob(name, opts) {
       try { dismissCodexUpdateNotice(configDir, !configDir); } catch { /* same */ }
     }
     let started = false;
+    let alreadyRunning = false;   // review 25: an active unit keeps running on its old settings; that is not a failure
     let lingering = true;
     let atLogin = true;   // #4918 review 15: false when systemd refused the reload or enable (nothing brings it back)
     if (DRY_RUN) {
@@ -3744,6 +3745,7 @@ function installJob(name, opts) {
         /* review 23: a start of an already-active unit does nothing and exits 0, leaving the old ExecStart running.
            As the Mac's bootstrap of a loaded job, that is "next start", not "started now". */
         const wasActive = Boolean(linuxRun(() => lj.loaded(clean)));
+        alreadyRunning = wasActive;
         const r = linuxRun(() => lj.start(clean));
         started = !wasActive && Boolean(r && r.ok === true);
         if (!started && /did not (enable|reload)/.test(String((r && r.because) || ''))) atLogin = false;
@@ -3752,13 +3754,16 @@ function installJob(name, opts) {
     return {
       ok: true,
       started,
+      alreadyRunning,
       atLogin,
       model: modelArg,
       guessed: {
         model: modelArg ? null : 'we do not know which model it was set to run on, so it will start on the default',
         account: (configDir || isNonClaudeRunner(wantRunner)) ? null : 'it will run on your main Claude account',
       },
-      because: !started
+      because: alreadyRunning
+        ? 'set up; it is already running, and the new settings take effect at its next restart'
+        : !started
         ? 'set up, but systemd could not start it just now'
         : lingering
           ? 'set up and started now, and it keeps running with nobody logged in'

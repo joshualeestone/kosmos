@@ -556,6 +556,7 @@ function firstStartOfImport(entry, platform) {
   }
   if (!out || !out.ok) return `we could not set ${entry.name} up to start: ${(out && out.because) || 'no reason was given'}`;
   // #4918 review 15: on Linux a refused enable leaves nothing to start it at login, so the promise is not made.
+  if (out.alreadyRunning) return `${entry.name} is already running; its new settings take effect at its next restart`;   // #4918 review 25
   if (out.started === false && out.atLogin === false) return `we could not start ${entry.name}, and it is not set to start at login either (${out.because})`;
   if (out.started === false) return `we could not start ${entry.name} now; it starts at your next login`;
   return null;
