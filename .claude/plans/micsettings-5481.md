@@ -51,6 +51,9 @@ plain sentence and no pill: no Privacy pane lists an app that never asked. The p
 X does not tell the app: its visit stays open up to 10 minutes and any later answer carries the old visit id, which
 the page drops (tested). An op only to close it would add surface and change nothing the person sees.
 
+Looked: a WebKit design shot (iPhone 15, light) shows the composer placeholder on one line ending in an ellipsis
+beside [X  Settings]; Playwright's WebKit approximates the app's WKWebView, it is not Safari.
+
 ## Tests
 - `--kosmos-app-voice-selftest`: 43 rows, including micRefusal (never asked is mic-unanswered), pageGone (only a reloaded or crashed page drops the visit), settingsAccepted (Settings only after a denial), stampId, visitOnReturn (open, ready, too late), the once-a-second Settings limit, pane mapping, allowedEvent (allowed, settings-next, nothing) (the event and its Settings-visit id), readyToStart (speech allowed with the mic never asked counts as ready), and the restricted split.
 - web.voice-4409.test.js: the pill, the X, `allowed`, and the controls.
