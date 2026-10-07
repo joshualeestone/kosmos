@@ -13,7 +13,7 @@ and makes the page on a computer's own address sign in with a `k1.` id. This bra
    subcommand 'device-id'"): the opaque `--device-id`, as before. Anything else refuses the sign-in in words: a
    fallback would sign in as another device, and a `k1.` id is never sent without its key. The key file is
    deterministic, so a start and its verify name one device, across a restart too.
-3. remote.json: `device_id` is the id of the last start the coordinator took (a key's id is recorded only then); the
+3. remote.json: `device_id` is the id of the last start or verify the coordinator took (a key's id is recorded only then); the
    ids before it are kept, newest first and never trimmed, in `past_device_ids`. The pending list hides all of them (#4610: this computer's earlier rows stay pending at the
    coordinator). An older tunnel after a key uses the kept opaque id, never the key id without its proof.
 4. Start and verify take the cancel epoch before anything is awaited and check it, and busy(), after the device

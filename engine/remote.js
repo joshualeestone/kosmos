@@ -1947,6 +1947,9 @@ async function signinVerify(email, code, deviceName) {
   // clearing lives in absorbSession. So "unsuccessful verify" is not "slot
   // cleared"; "unusable answer" is.
   if (!r.ok) return r;
+  // kosmos#5422: a verify the coordinator took is a sign-in as the key's id, even when its start was never recorded
+  // (the start's answer was lost, or the board restarted while the person fetched the code).
+  if (dev.keyedId) useDeviceId(dev.keyedId);
   return absorbSession(r.data);
 }
 

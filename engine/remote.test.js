@@ -1831,6 +1831,20 @@ test('kosmos#5422: a start the coordinator does not take leaves this computer\'s
   assert.match(remote.read().device_id, /^k1\./);
 });
 
+test('kosmos#5422: a verify the coordinator takes records the key id even when its start was not recorded', async () => {
+  fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: 'old-opaque-id' }));
+  process.env.FAKE_TUNNEL_MODE = 'devkey';
+  try {
+    // The start's answer is lost (here: refused), so nothing was recorded; the key file exists all the same.
+    assert.equal((await remote.signinStart('down@example.com')).ok, false);
+    assert.equal(remote.read().device_id, 'old-opaque-id', 'precondition: the start recorded nothing');
+    remote.resetForTests();   // the board restarts while the person fetches the code
+    assert.equal((await remote.signinVerify('her@example.com', '123456')).ok, true);
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  assert.match(remote.read().device_id, /^k1\./, 'the session\'s own id is not this computer\'s (#4610 again)');
+  assert.deepEqual(remote.read().past_device_ids, ['old-opaque-id']);
+});
+
 test('kosmos#5422: a cancel while start asks the tunnel sends no start', async () => {
   process.env.FAKE_TUNNEL_MODE = 'devkey';
   try {
