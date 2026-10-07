@@ -2981,18 +2981,17 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
     done
     # Not recorded in #2055's update-abort streak: the board shows that streak as "Kosmos was busy, quit and
     # reopen it", which is not the remedy for the stops below (#4675).
-    # #4651 x #4818: the put-back is armed before the two stops below, but whether this run really paused the board
-    # is read from the marker its stop writes: in a sandboxed shell `kosmos stop` changes nothing (#4636), so the
-    # board is still running, and the put-back's start from this shell would fail and say "could not be started
-    # again" about a board that never stopped. With no marker, nothing was paused: the put-back stands down and the
-    # stop's own words are the whole story. With the marker, the stop did happen, and the put-back runs as before.
-    _kosmos_blocked_shell_handback() {
-      [ -e "$KOSMOS_HOME/board.stopped" ] || _kosmos_paused_board=no
-    }
+    # #4651 x #4818/#5033: the put-back is armed before the two stops below, which are for a shell that cannot see or
+    # reach the board. From there it cannot tell whether the stop stopped anything (an installed kosmos older than
+    # #4636 writes board.stopped in a sandbox without stopping the board), and its start would fail the same way and
+    # report a pause that may not have happened. So the put-back stands down and the marker this run wrote is taken
+    # back instead (#5033): a board that did stop is run again by what supervises it, one that did not is untouched.
+    # The stop's words say what to do if it is not running.
+    _kosmos_blocked_shell_handback() { _kosmos_marker_ours="$_kosmos_paused_board"; _kosmos_paused_board=no; }
     if [ -z "$_pids" ] && [ -n "$_lsofbad" ]; then
       _kosmos_blocked_shell_handback
       _lsofsaid="$(printf '%s\n' "$_lsofout" | sed -n '/./{p;q;}')"
-      die "This shell could not check whether Kosmos is still running on port $PORT (the port check failed${_lsofsaid:+: $_lsofsaid}), so the update stopped before replacing any files. If you ran the install line in an agent's shell or another sandboxed tool, paste it into a normal Terminal window instead. If this already is a normal Terminal, run 'kosmos stop' and paste the install line again; if this message comes back, the port check itself is failing on this computer, so please send us this message."
+      die "This shell could not check whether Kosmos is still running on port $PORT (the port check failed${_lsofsaid:+: $_lsofsaid}), so the update stopped before replacing any files. If you ran the install line in an agent's shell or another sandboxed tool, paste it into a normal Terminal window instead. If this already is a normal Terminal, run 'kosmos stop' and paste the install line again; if this message comes back, the port check itself is failing on this computer, so please send us this message. If Kosmos is not running afterwards, open the Kosmos app."
     fi
     if [ -n "$_pids" ]; then
       _pids="$(printf '%s' "$_pids" | tr '\n' ' ' | sed 's/ *$//')"
@@ -3003,7 +3002,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
       case "$_pauserc" in
         0|1|22|28|52|56) ;;
         *) _kosmos_blocked_shell_handback
-           die "Something is still holding port $PORT (pid $_pids), and this shell's check of it failed, so the update stopped before replacing any files. If you ran the install line in an agent's shell or another sandboxed tool, paste it into a normal Terminal window instead. If this already is a normal Terminal, quit the app with pid $_pids, then paste the install line again." ;;
+           die "Something is still holding port $PORT (pid $_pids), and this shell's check of it failed, so the update stopped before replacing any files. If you ran the install line in an agent's shell or another sandboxed tool, paste it into a normal Terminal window instead. If this already is a normal Terminal, quit the app with pid $_pids, then paste the install line again. If Kosmos is not running afterwards, open the Kosmos app." ;;
       esac
       die "A process is still holding port $PORT after the pause (pid $_pids). Quit it (or run 'kill $_pids'), then paste the install line again."
     fi
