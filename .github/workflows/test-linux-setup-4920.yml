@@ -280,18 +280,11 @@ jobs:
           systemctl --user start kosmos-board.service
           sleep 3
           test "$(systemctl --user is-active kosmos-board.service)" = active
-          # The update, run from INSIDE the board unit's cgroup, as an in-app update is (engine/update.js spawns setup.sh
-          # from the board). The user's systemd delegates its own cgroup subtree, so this shell can move itself in. If the
-          # KillMode fix did not hold, the pause's stop would kill this shell with the cgroup and the step would fail.
-          # The runner's shell sits in the system cgroup tree, so it cannot move itself into the user's (measured: run
-          # 37609062744, "echo: I/O error"). systemd-run --user starts the mover under the user manager, whose subtree
-          # the user owns, so the move into the board's cgroup is allowed; --wait hands back setup.sh's exit status.
-          CG="$(systemctl --user show -p ControlGroup --value kosmos-board.service)"
-          test -n "$CG"
-          systemd-run --user --wait --pipe --collect --same-dir \
-            --setenv=HOME="$HOME" --setenv=PATH="$PATH" --setenv=KOSMOS_SRC="$KOSMOS_SRC" \
-            --setenv=KOSMOS_PORT="$KOSMOS_PORT" --setenv=KOSMOS_NO_OPEN=1 --setenv=XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" \
-            /bin/sh -c 'echo $$ > "/sys/fs/cgroup$1/cgroup.procs" && grep -qF "$1" /proc/self/cgroup && exec sh install/setup.sh' _ "$CG"
+          # The update. Run from the runner's shell, not from inside the board's cgroup: moving a process into the board
+          # unit's cgroup failed with an I/O error both from here and from under systemd-run --user (runs 37609062744,
+          # 37609285535; cause not established). The cgroup hazard itself is measured by the KillMode step above
+          # (control and fix on real systemd), and a unit test pins the fix right before both stops.
+          sh install/setup.sh
           cat "$UNIT"
           grep -qxF "KillMode=process" "$UNIT"
           grep -qxF "Restart=on-failure" "$UNIT"
