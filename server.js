@@ -8089,7 +8089,7 @@ const server = http.createServer(async (req, res) => {
     if (!session) { sendJson(res, 409, { error: 'this agent is not running, so there is no session to write a handoff' }); return; }
     const snap = handoffFileSnap(session);
     let delivery;
-    try { delivery = await chat.deliverAsync(name, handoffRestart.handoffForRestartPrompt(snap.path), safeRoster(), undefined, undefined); }
+    try { delivery = await chat.deliverAsync(name, handoffRestart.handoffForRestartPrompt(snap.path), safeRoster(), undefined, undefined, { movedNote: false }); }   // #5400 review 3: the note rides the restarted session's pickup line
     catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
     sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, {
       delivery,
@@ -20878,6 +20878,30 @@ function start(port = PORT) {
          (and in what state); written back only when it changes. */
       let assignerPrev = assigner.loadMemory(Date.now());
       const FAILOVER_TELL_SEEN = new Set();   // #5382: cards idle at the previous tell sweep (engine/failovertell.js)
+      /* #5400: and on whatever Kosmos next types into an owed agent (a person's message at the reset, a room post),
+         so it is told before it can carry on with a moved part; marked told once that line may have reached it. */
+      /* Review 1 NIT: the records are read at most once every few seconds, not once per line typed (a room post to N
+         members), and anyOwed answers the common case (nothing owed anywhere) first; a told() drops the cached read. */
+      const movedRecs = { at: 0, recs: null, roster: null };
+      const movedRecords = () => {
+        if (!movedRecs.recs || Date.now() - movedRecs.at > 5000) { movedRecs.recs = projects.readAll(); movedRecs.roster = null; movedRecs.at = Date.now(); }
+        return movedRecs.recs;
+      };
+      /* #5382 review 3 x #5400 (rebase): the note names the agent now holding the part as the board shows it, so it needs
+         the roster; read only when something is owed, and cached with the records. */
+      const movedRoster = () => {
+        if (!movedRecs.roster) { try { movedRecs.roster = safeRoster(); } catch { movedRecs.roster = []; } }
+        return movedRecs.roster;
+      };
+      chat.setMovedTell({
+        owed: (session) => {
+          const ft = require('./engine/failovertell');
+          const recs = movedRecords();
+          return ft.anyOwed(recs) ? ft.owedFor(session, recs, movedRoster()) : [];
+        },
+        note: (items) => require('./engine/failovertell').noteFor(items),
+        told: (session, items) => { movedRecs.recs = null; require('./engine/failovertell').markAll(session, items, tasks.markMoveTold); },
+      });
       let assignerSaved = null;
       const assignerSweep = setInterval(() => {
         if (!liveExecution.liveExecutionAllowed()) return; // inert under test / before opt-in
