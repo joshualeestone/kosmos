@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: boardkeychain-4491
-diff_hash: e093725e1151fa177f66812cc2d58a0ef9bd98e623ed816e43f4e62afe467af1
+diff_hash: 8fc63156edc1fc0cbec55f088357d8fe50fbbda6073ceaff44180e04fe96434a
 validation: passed (Mortals full suite at a3d4699db, 08:35 CDT 2026-10-04: 15036 tests, 14812 pass, 0 fail, 224 skipped; hash 28628ddc726d; full suite passed on Mortals)
 subdir_audit: passed
 timestamp: 2026-10-04T13:50:43Z
@@ -112,3 +112,7 @@ Rebased 986 commits forward. One conflict, engine/sendertoken.js's export list: 
 (#5333), this branch added tokenOnlyList; both kept. 280 tests pass on the rebased head (the #4491 tests, every
 sendertoken, boardauth and token CLI test, and the file-scanning guards). A blind review of what main added since
 10-04 against the guard runs before merge; GitHub CI runs the full suites.
+Post-rebase blind review (opus) found one BLOCKER: the undo copier route added on main after approval could copy
+board.token for a token-only agent. Fixed (undo.keep refuses the board's credentials; the guard read-denies the undo
+stores); the refusal test goes red with the fix switched off. 300 token/auth/undo/guard tests plus 43 undo-route and
+setup-assistant tests pass. A further blind review of the fix runs before merge.
