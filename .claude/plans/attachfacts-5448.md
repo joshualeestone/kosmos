@@ -18,7 +18,10 @@ in `attachments.wireNote` covers both.
 - **For an image, the type shown is the one its bytes' signature proves** (PNG, GIF, JPEG, WebP),
   with dimensions when the header could be read; a real JPEG whose frame header is past 256 KB keeps
   its type without dimensions. A stored png/gif/jpeg/webp type whose bytes carry no such signature
-  says "unknown type" (review 1: the uploader's claim is not repeated as fact). Otherwise the stored
+  says "unknown type" (review 1: for those four the bytes can contradict the claim, so a
+  contradicted claim is not repeated). A non-image file's stored type is NOT verified (an executable
+  uploaded as application/pdf says application/pdf): proving a PDF's or a ZIP's type is beyond this
+  card, and it is the same type the board already shows on the attachment card (review 4). Otherwise the stored
   type, kept only if it is a plain media type (`a/b` of [a-z0-9.+-]), else "unknown type". The
   uploader chose it and the line is typed into a terminal (chat.js refuses control characters, and
   a `]` would read as a second bracket).
