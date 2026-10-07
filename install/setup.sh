@@ -4074,16 +4074,24 @@ if [ "$(uname -s)" = "Linux" ]; then
     _lb_out="$("$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME/app/engine/linuxboard.js" "$KOSMOS_HOME" "$PORT" <<'BOARDEOF' 2>/dev/null
 let r;
 let held = false;
+let changed = false;
 try {
   const lb = require(process.argv[2]);
+  const fs = require('fs');
+  const read = () => { try { return fs.readFileSync(lb.boardUnitPath(process.argv[3]), 'utf8'); } catch (e0) { return null; } };
+  const before = read();
   // A tmux the launcher picked, marked by KOSMOS_TMUX_BIN_PICKED, is a choice for this run, not one to write into the
   // unit, where it would read as a person choice forever. The unit PATH already holds the Kosmos tmux folder.
   if (process.env.KOSMOS_TMUX_BIN_PICKED === '1') delete process.env.AGENT_WORKFORCE_TMUX_BIN;
   r = lb.installBoard(process.argv[3], Number(process.argv[4]));
-  if (r && r.ok) { const j = lb.loadedBoardJob(process.argv[3]); held = Boolean(j && j.ok && j.active); }   // is systemd running it now
+  if (r && r.ok) {
+    const j = lb.loadedBoardJob(process.argv[3]);
+    held = Boolean(j && j.ok && j.active);   // is systemd running it now
+    changed = before !== null && before !== read();   // an update that rewrote the unit text
+  }
 } catch (e) { r = { ok: false, because: String((e && e.message) || e).split('\n')[0] }; }
 if (!r || !r.ok) { process.stdout.write('refused: ' + String((r && r.because) || 'no reason given').split('\n')[0]); process.exit(3); }
-process.stdout.write((held ? 'held ' : 'loose ') + (r.lingering ? 'lingering' : 'not lingering'));
+process.stdout.write((held ? (changed ? 'held-changed ' : 'held ') : 'loose ') + (r.lingering ? 'lingering' : 'not lingering'));
 BOARDEOF
 )" || _lb_rc=$?
     if [ "$_lb_rc" -ne 0 ] && [ -z "$_lb_out" ]; then
@@ -4100,11 +4108,13 @@ BOARDEOF
       _kosmos_board_decide
       # Only with linger on: without it the unit dies at logout, while the board setup.sh started survives it (logind
       # keeps user processes by default), so handing over would make a no-linger server less available, not more.
+      # And once more for a board systemd already runs when this update changed its unit text: Environment= (PATH, the
+      # port, the tmux entry) reaches a running unit only at its next start, which daemon-reload does not do.
       case "$_lb_out" in
-        "loose lingering")
+        "loose lingering"|held-changed\ *)
           if [ "$_kosmos_board_off" != yes ] && ! "$KOSMOS_HOME/bin/kosmos" restart --force >/dev/null 2>&1; then
-            # The board setup.sh started was stopped and systemd did not bring it back: say so, never a quiet success.
-            info "Kosmos is set to start with systemd, but it did not come back when handed over just now. Start it with: kosmos start"
+            # restart fails when the old board would not stop, or the new one was slow to answer: never a quiet success.
+            info "Kosmos is set to start with systemd, but the hand-over just now did not confirm it is running. Check with: kosmos status, and if it is not running: kosmos start"
           fi ;;
       esac
       _lb_out="${_lb_out#* }"
@@ -4116,7 +4126,7 @@ BOARDEOF
     elif [ "$_lb_out" = lingering ]; then
       info "Kosmos will start itself when this computer starts"
     else
-      info "Kosmos will start itself when you log in, but stops when you log out: linger is off for $(id -un 2>/dev/null || echo "this user"). To keep it running, an administrator can run: loginctl enable-linger $(id -un 2>/dev/null || echo "<user>")"
+      info "Kosmos is running now and will start itself when you log in, but not at boot: linger is off for $(id -un 2>/dev/null || echo "this user"), so after a restart it stops when you log out. To keep it running, an administrator can run: loginctl enable-linger $(id -un 2>/dev/null || echo "<user>")"
     fi
   fi
   ok
