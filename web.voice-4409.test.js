@@ -146,7 +146,7 @@ function voiceHarness() {
   // eslint-disable-next-line no-new-func
   const timers = [];
   const make = new Function('window', 'document', 'posted', 'setInterval', 'clearInterval',
-    'let CURRENT = null; let PJ_CURRENT = null; const VOICE_SAYS = { \'speech-denied\': \'(speech refused)\', \'mic-denied\': \'(mic refused)\' }; const VOICE_SAYS_PHONE = {};\n'
+    'let CURRENT = null; let PJ_CURRENT = null; const VOICE_SAYS = { \'speech-denied\': \'(speech refused)\', \'mic-denied\': \'(mic refused)\', \'mic-restricted\': \'(mic restricted)\' }; const VOICE_SAYS_PHONE = {};\n'
     + ['const VOICE = {', 'const SPEAK = {', 'let VOICE_WATCH =', 'const VOICE_LISTENING =', 'let VOICE_PHONE =', 'const VOICE_SETTINGS_PANE =', 'const VOICE_SETTINGS ='].map(pageLine).join('\n') + '\n'   // the page's own state, not a copy
     + ['viewKey', 'shownNow', 'voiceWhere', 'voiceBridge', 'voicePhoneWho', 'voicePhoneBridge', 'voiceListeningLine', 'voiceSplice', 'voicePaint', 'voiceSay', 'voiceMsgEl', 'voiceMsgEmpty', 'voiceUnsayOwn', 'voiceUnsay', 'voiceSettingsClear', 'voiceSettingsOffer', 'voiceWho', 'voiceStop', 'voiceToggle', 'voiceCancel', 'voiceOnEvent', 'voiceSpeakWatch', 'speakStop', 'speakPaint', 'speakSameText', 'speakFollow', 'speechTidy', 'speechTextOfRow'].map(fn).join('\n')
     + '\nreturn { VOICE, SPEAK, voiceWhere, voiceToggle, voiceOnEvent, speakFollow, viewKey, watching() { return VOICE_WATCH; }, set(card, room) { CURRENT = card || null; PJ_CURRENT = room; } };');
@@ -456,7 +456,10 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   h.voiceOnEvent({ kind: 'allowed', id: 'not-this-visit' });
   h.voiceOnEvent({ kind: 'allowed' });
   assert.equal(pills.length, 1, 'an "allowed" for another visit, or with no visit id, took the pill away');
+  assert.equal(ask2.id, ask.id, 'a second press minted a new visit id the app never saw (it ignores a press within a second)');
+  doc.hidden = true;   // review 5: the page can still read hidden at the instant the app comes back from Settings
   h.voiceOnEvent({ kind: 'allowed', id: ask2.id });
+  doc.hidden = false;
   assert.equal(pills.length, 0, 'the pill stayed after both were allowed');
   assert.ok(!btn.classList.contains('has-pill'), 'the mic did not come back');
   assert.equal(posted.at(-1).op, 'start', 'the mic did not start again by itself');
@@ -495,6 +498,16 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   h.voiceOnEvent({ kind: 'allowed', id: pressed });
   assert.equal(posted.at(-1).op, 'start', 'the mic did not restart in the chat Settings was pressed from');
   h.set(CARD('april'), null);
+  // review 5: back with the mic restricted, the pill gives way to the restricted sentence.
+  h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
+  h.voiceToggle(btn);
+  h.voiceOnEvent({ kind: 'error', reason: 'speech-denied', id: posted.at(-1).id });
+  h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
+  go().handlers.click();
+  h.voiceOnEvent({ kind: 'refused', reason: 'mic-restricted', id: posted.at(-1).id });
+  assert.equal(pills.length, 0, 'a restricted mic left the Settings pill up');
+  assert.equal(msg.textContent, '(mic restricted)', 'a restricted mic was not said');
+  msg.textContent = '';
   // CONTROL: not a denial, or restricted (Settings cannot undo it), offers no pill and says a sentence instead.
   for (const reason of ['speech-unanswered', 'speech-restricted', 'mic-restricted']) {
     h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });

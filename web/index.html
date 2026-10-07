@@ -65516,6 +65516,10 @@ function voiceSettingsClear() {
 function voiceSettingsOffer(btn, pane, said) {
   if (!btn || !btn.parentNode) return;
   voiceSettingsClear();
+  VOICE.seq += 1;
+  /* Review 5: ONE visit id per pill, minted here, not per press: the app ignores a second press within a second and
+     keeps the first id, and a page that minted a new one would then refuse the app's "allowed". */
+  const visitId = 'set' + VOICE.seq;
   VOICE_SETTINGS.pane = pane;
   const pill = document.createElement('span');
   pill.className = 'voice-pill';
@@ -65535,11 +65539,10 @@ function voiceSettingsOffer(btn, pane, said) {
   go.addEventListener('click', () => {
     const h = voiceBridge();
     if (!h || h.phone) return;
-    VOICE.seq += 1;
     const box = document.getElementById(btn.getAttribute('data-voice-for') || '');
     /* Review 3: where the person is when they press it (the DM's mic is shared by every agent's chat), so "allowed"
        restarts the mic only if they are still there when they come back. */
-    Object.assign(VOICE_SETTINGS, { btn, id: 'set' + VOICE.seq, where: box ? voiceWhere(box) : '' });
+    Object.assign(VOICE_SETTINGS, { btn, id: visitId, where: box ? voiceWhere(box) : '' });
     h.postMessage({ op: 'settings', pane: VOICE_SETTINGS.pane, id: VOICE_SETTINGS.id });
   });
   pill.append(alert, x, go);
@@ -65552,12 +65555,23 @@ function voiceOnEvent(ev) {
     const btn = VOICE_SETTINGS.btn;
     if (!btn || ev.id !== VOICE_SETTINGS.id) return;   // review 4: the app always sends the visit's id; none is not a match
     const box = document.getElementById(btn.getAttribute('data-voice-for') || '');
-    const still = !!box && voiceWhere(box) === VOICE_SETTINGS.where;   // review 2: another agent, room or a closed dialog
+    /* Review 2: another agent, room or a closed dialog. Review 5: compared without voiceWhere's page-hidden part, which
+       can still read hidden at the instant the app comes back from Settings; the box's own layout says shown. */
+    const place = (w) => { const f = String(w).split('|'); f.splice(f.length - 2, 1); return f.join('|'); };   // drop shown|hidden (the view key has its own '|')
+    const still = !!box && shownNow(box) && place(voiceWhere(box)) === place(VOICE_SETTINGS.where);
     voiceSettingsClear();
     if (still && document.body.contains(btn) && !VOICE.btn) voiceToggle(btn);
     return;
   }
   // Review 3: speech is now on but the mic is still refused (both were off); the same pill now opens the Microphone pane.
+  // Review 5: back from Settings with the mic restricted (Screen Time or a profile): no pane can undo it, so say so.
+  if (ev && ev.kind === 'refused') {
+    const btn = VOICE_SETTINGS.btn;
+    if (!btn || ev.id !== VOICE_SETTINGS.id || !VOICE_SAYS[ev.reason]) return;
+    voiceSettingsClear();
+    voiceSay(btn, VOICE_SAYS[ev.reason]);
+    return;
+  }
   if (ev && ev.kind === 'settings-next') {
     if (!VOICE_SETTINGS.btn || ev.id !== VOICE_SETTINGS.id || !['speech', 'mic'].includes(ev.pane)) return;
     VOICE_SETTINGS.pane = ev.pane;
