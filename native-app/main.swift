@@ -614,15 +614,24 @@ enum StartResult {
 // GRANDCHILD holding an inherited fd (see the drain comment), where the
 // caller's re-arm is the only guarantee. Called on the caller's queue,
 // immediately after a successful run().
-func startBoard(kosmosHome: String, port: Int, onSpawn: ((Process) -> Void)? = nil) -> StartResult {
+func startBoard(kosmosHome: String, port: Int, reclaim: Bool = false, onSpawn: ((Process) -> Void)? = nil) -> StartResult {
     let kosmosBin = kosmosHome + "/bin/kosmos"
     guard FileManager.default.isExecutableFile(atPath: kosmosBin) else {
         return .failed("Kosmos looks incomplete: \(kosmosBin) is missing.")
     }
     let process = Process()
     process.executableURL = URL(fileURLWithPath: kosmosBin)
-    process.arguments = ["start"]
+    // #4342: the plain start (reclaim == false) REFUSES a port held by a board
+    // that is up but not answering -- it reads it as "already running" and does
+    // nothing, which is the whole reason a wedged board survives a wake. The
+    // reclaim form is the exact one board-watchdog.sh runs for its own busy/wedged
+    // case: `KOSMOS_RECLAIM_BUSY=1 kosmos start --force` authorises the #3079
+    // reclaim (a kill) of THIS user's own Kosmos holding 16180 before starting a
+    // fresh board. --force also clears the #4466 agent-guard, which must not refuse
+    // a start the app (not an agent) is driving. It only ever kills our own board.
+    process.arguments = reclaim ? ["start", "--force"] : ["start"]
     var env = ProcessInfo.processInfo.environment
+    if reclaim { env["KOSMOS_RECLAIM_BUSY"] = "1" }
     env["KOSMOS_PORT"] = String(port)
     // install/kosmos self-resolves KOSMOS_HOME from its own script location
     // when this is unset, so it is not strictly required for the real
@@ -1975,6 +1984,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             // #1 / #2189: notice a webview grant-button's prompt request and fire the real
             // macOS prompt under tmux on demand. Best-effort, non-fatal.
             startPromptRequestWatcher()
+            // #4342: from here on, a wake that leaves the board wedged recovers on its own.
+            startBoardWakeWatch()
         }
         // #965 test seam, same testing-only contract as KOSMOS_APP_TEST_HOME:
         // fire reloadBoard() once after N seconds, so a harness can drive the
@@ -2638,6 +2649,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         committedPageURL = nil
         a11yTimer?.invalidate(); a11yTimer = nil
         promptRequestTimer?.invalidate(); promptRequestTimer = nil
+        stopBoardWakeWatch()   // #4342: no board of its own here any more; nothing to recover on wake
         NSApp.dockTile.badgeLabel = nil
         updateRunAgentsItem()
         let port = modePort   // read here, on the main thread, not from the queue below
@@ -2681,6 +2693,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         loadBoard()
         startA11yTrustChecks()
         startPromptRequestWatcher()
+        startBoardWakeWatch()   // #4342: this computer now hosts a board; watch wakes for a wedged one
     }
 
     private func updateRunAgentsItem() {
@@ -2708,6 +2721,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private var updateLookIsRetry = false
     private var updateRetry: DispatchWorkItem?
     private var updateWakeObserver: NSObjectProtocol?
+    /// #4342: the run-computer wake observer. The update observer above is a CONNECT-computer
+    /// thing (it only looks for an app update on wake); a run computer, which hosts the board,
+    /// had no wake observer at all, so a board left wedged by sleep stayed wedged until the
+    /// person quit and reopened. This one checks the local board on wake and reclaim-restarts
+    /// it when it is not answering. nil when not installed.
+    private var boardWakeObserver: NSObjectProtocol?
+    /// A board reclaim started from the wake check is in flight; guards against a second wake
+    /// (or a Cmd-R) starting a second reclaim over the first. Separate from boardStartInFlight
+    /// only so the read-and-set stays on the main thread; it is cleared when the reclaim resolves.
+    private var boardWakeReclaimInFlight = false
     /// A version the installer finished while nobody asked (updates are on). The new app waits for the
     /// person's Restart, so words being typed on the page are never lost to a restart nobody chose.
     private var installedUpdate: String?
@@ -2747,6 +2770,114 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if let o = updateWakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(o); updateWakeObserver = nil }
         installedUpdate = nil
         showUpdateOffer(nil)
+    }
+
+    // MARK: #4342 -- the board comes back on its own after the Mac wakes
+
+    /// #4342: the run-computer analog of startUpdateLooks's wake observer. A Mac that slept with the
+    /// board running can wake with the board process alive but no longer answering on 16180 (the
+    /// "frozen board" of #4543/#4562, which still accepts the connection but never replies). launchd's
+    /// KeepAlive cannot help -- the process has not exited -- and a plain `kosmos start` refuses the
+    /// held port, so nothing recovers it and the window sits on "not answering" until the person quits
+    /// and reopens. This is macOS's missing equivalent of the Windows launcher's ReplaceBoardIfStuck
+    /// (#4543). On wake it checks the board and, only when it is genuinely not answering, runs the
+    /// authorised reclaim-restart. The page heals itself from there: its own /api/status poll clears
+    /// the offline note and the restart screen on the first answer, so the window reconnects with no
+    /// quit. Registered once per run session; the handler re-checks the mode, so it no-ops if the
+    /// computer later becomes a connect one.
+    private func startBoardWakeWatch() {
+        guard computerMode != .connect, boardWakeObserver == nil else { return }
+        boardWakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self, self.computerMode != .connect else { return }
+            self.recoverStuckBoardAfterWake()
+        }
+    }
+
+    private func stopBoardWakeWatch() {
+        if let o = boardWakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(o); boardWakeObserver = nil }
+    }
+
+    /// Fired on wake on a run computer. Probes the local board and, if it is not answering, reclaim-
+    /// restarts it. Deliberately gated so it never kills a board that is fine or one that is down on
+    /// purpose:
+    ///  - a reclaim (or any board start) already in flight -> leave it; a second would race it;
+    ///  - the person stopped the board (board.stopped marker) -> stay out, as the watchdog does;
+    ///  - an update is under way -> its own restart owns the board; do not fight it.
+    /// The probe keys on whether ANY HTTP answer comes back within the project's 10s "stuck" window
+    /// (STATUS_POLL_TIMEOUT_MS / the Windows launcher's StuckAfterMs, #4543/#4562): a refusal status
+    /// still counts as answering (the board is alive), only no answer at all is "stuck". A wake is why
+    /// the 300s busy-grace the watchdog gives a steady-state busy board is bypassed here: right after
+    /// wake the agents were asleep too, so a board that cannot answer in 10s is wedged, not busy.
+    private func recoverStuckBoardAfterWake() {
+        guard !boardWakeReclaimInFlight, !boardStartInFlight else {
+            logLine("#4342: woke; a board start/reclaim is already in flight, leaving it")
+            return
+        }
+        guard let home = modeHome, let port = resolvedPort ?? modePort else {
+            logLine("#4342: woke but no resolved board home/port yet; nothing to check")
+            return
+        }
+        if FileManager.default.fileExists(atPath: home + "/board.stopped") {
+            logLine("#4342: woke but the board is stopped on purpose (board.stopped); staying out")
+            return
+        }
+        if Self.installUnderWay(kosmosHome: home) {
+            logLine("#4342: woke mid-update; the update's own restart owns the board, staying out")
+            return
+        }
+        guard let url = URL(string: "http://127.0.0.1:\(port)/api/status") else { return }
+        var req = URLRequest(url: url)
+        // Any HTTP answer, even a refusal, means the board is alive -- this is only liveness, so it
+        // carries no token (a 403 from a token-gated board is still an answer). #4562's 10s stuck limit.
+        req.timeoutInterval = 10
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        logLine("#4342: woke on a run computer; checking whether the board answers on \(port)")
+        URLSession.shared.dataTask(with: req) { [weak self] _, response, _ in
+            DispatchQueue.main.async {
+                guard let self, self.computerMode != .connect else { return }
+                if response != nil {
+                    logLine("#4342: board answered after wake; no restart needed")
+                    return
+                }
+                logLine("#4342: board did not answer within 10s after wake; reclaim-restarting it")
+                self.reclaimStuckBoard(home: home, port: port)
+            }
+        }.resume()
+    }
+
+    /// The reclaim start, run off the main thread and guarded like ensureBoardRunning's start so a
+    /// Cmd-R meanwhile does not race it. On success the page's own poll reconnects; a failure is said
+    /// quietly to the log (the watchdog remains the backstop, and the person can still Cmd-R).
+    private func reclaimStuckBoard(home: String, port: Int) {
+        guard !boardWakeReclaimInFlight, !boardStartInFlight else { return }
+        boardWakeReclaimInFlight = true
+        boardStartInFlight = true
+        boardStartGeneration += 1
+        let generation = boardStartGeneration
+        // The same 300s re-arm loadBoard/ensureBoardRunning have, so a reclaim that never returns
+        // does not leave every later Cmd-R a silent no-op (#965).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 300) { [weak self] in
+            guard let self, self.boardStartInFlight, self.boardStartGeneration == generation else { return }
+            logLine("#4342: wake reclaim gen \(generation) unresolved after 300s; re-arming")
+            self.boardWakeReclaimInFlight = false
+            self.boardStartInFlight = false
+            self.boardStartGeneration += 1
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = startBoard(kosmosHome: home, port: port, reclaim: true)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.boardStartGeneration == generation else { return }
+                self.boardWakeReclaimInFlight = false
+                self.boardStartInFlight = false
+                switch result {
+                case .alreadyRunningOrStarted:
+                    logLine("#4342: wake reclaim restarted the board; the page will reconnect on its next poll")
+                case .failed(let why):
+                    logLine("#4342: wake reclaim could not restart the board: \(why)")
+                }
+            }
+        }
     }
 
     /// #4382: whether the version on disk is one to restart into: strictly newer than the running app.
