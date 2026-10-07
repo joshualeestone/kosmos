@@ -13,7 +13,8 @@
  *   none       -> the slot is EMPTY (the control: the note shows only when there is one)
  *   dismiss    -> the X empties the slot and POSTs /api/board/restart-note/dismiss
  *   repaint    -> a re-check of the same note keeps Dismiss and its focus; a different note is painted again (control)
- *   tones      -> neutral in light, dark by media query, forced dark, and Kosmos+ in dark
+ *   tones      -> neutral in light, dark by media query, forced dark, and Kosmos+ in light and in dark
+ *   phone      -> at 390px the note keeps its line (phones hide other notices' small lines)
  *   refused    -> a dismiss the board refuses keeps the note and says so; a keyboard dismiss moves focus to the K mark
  *   restart    -> a new board start time under an open page brings the note (control: the same start time does not)
  *   midnight   -> with the page clock pinned at 23:30 then 00:10, the same note says "yesterday at"
@@ -110,7 +111,16 @@ const CASES = [
           return { replaced: Boolean(now) && now !== before };
         });
         say(changed.replaced, 'repaint (control): a different note is painted again', JSON.stringify(changed));
+        /* Review 8: a repaint under a focused Dismiss keeps focus on the new Dismiss; a removal under it moves focus to
+           the K mark. Neither drops it to the page. */
+        served = { ...c.note, upAt: new Date(Date.parse(c.note.upAt) + 2 * 60000).toISOString() };
+        const kept = await pg.evaluate(async () => { document.querySelector('#reboot-slot .ux').focus(); await rebootNoteCheck(); const a = document.activeElement; return a && a.matches('#reboot-slot .ux'); });
+        say(kept, 'repaint under focus: the new Dismiss has the focus');
+        served = null;
+        const away = await pg.evaluate(async () => { document.querySelector('#reboot-slot .ux').focus(); await rebootNoteCheck(); const a = document.activeElement; return a ? (a.id || a.tagName) : null; });
+        say(away === 'klink', 'removed under focus: focus moves to the K mark', JSON.stringify(away));
         served = c.note;
+        await pg.evaluate(async () => { await rebootNoteCheck(); });   // the note back for the arms below
         /* Review 4: the tone is the neutral one in every dark spelling too (the light one is checked above). */
         const tones = await pg.evaluate(() => {
           const t = () => document.querySelector('#reboot-slot .utoast.reboot');
@@ -118,15 +128,16 @@ const CASES = [
           const read = () => ({ tone: getComputedStyle(t()).getPropertyValue('--utone').trim(), label2: getComputedStyle(t()).getPropertyValue('--label-2').trim() });
           const out = {};
           document.documentElement.setAttribute('data-theme', 'dark'); out.forced = read(); document.documentElement.removeAttribute('data-theme');
-          document.documentElement.setAttribute('data-theme', 'dark'); document.body.classList.add('plus-active');
-          out.plus = read();
+          // Kosmos+ in light AND in dark: in dark the dark rule alone keeps it neutral, so only light tests the Kosmos+ rule.
+          document.body.classList.add('plus-active'); out['plus light'] = read();
+          document.documentElement.setAttribute('data-theme', 'dark'); out['plus dark'] = read();
           document.body.classList.remove('plus-active'); document.documentElement.removeAttribute('data-theme');
           return out;
         });
         await pg.emulateMedia({ colorScheme: 'dark' });
         tones.media = await pg.evaluate(() => { const el = document.querySelector('#reboot-slot .utoast.reboot'); return { tone: getComputedStyle(el).getPropertyValue('--utone').trim(), label2: getComputedStyle(el).getPropertyValue('--label-2').trim() }; });
         await pg.emulateMedia({ colorScheme: 'light' });
-        for (const k of ['media', 'forced', 'plus']) say(tones[k].tone !== '' && tones[k].tone === tones[k].label2, 'tone (' + k + ' dark): neutral, not amber or red', tones[k].tone + ' vs ' + tones[k].label2);
+        for (const k of ['media', 'forced', 'plus light', 'plus dark']) say(tones[k].tone !== '' && tones[k].tone === tones[k].label2, 'tone (' + (k.startsWith('plus') ? 'Kosmos+ ' + k.slice(5) : k + ' dark') + '): neutral, not amber or red', tones[k].tone + ' vs ' + tones[k].label2);
         /* Review 4: a dismiss the board refuses keeps the note and says so in its words. */
         dismissStatus = 500;
         await pg.click('#reboot-slot .ux');
@@ -138,6 +149,8 @@ const CASES = [
         await pg.waitForTimeout(300);
         const again = await pg.evaluate((prev) => { const all = document.querySelectorAll('#reboot-slot .rerr'); return { count: all.length, renewed: all.length === 1 && all[0] !== prev }; }, firstErr);
         say(again.count === 1 && again.renewed, 'dismiss refused twice: one line, said again (a new node, so it is announced)', JSON.stringify(again));
+        const cleared = await pg.evaluate(async () => { await rebootNoteCheck(); return { note: Boolean(document.querySelector('#reboot-slot .utoast.reboot')), err: Boolean(document.querySelector('#reboot-slot .rerr')) }; });
+        say(cleared.note && !cleared.err, 'dismiss refused: a later re-check the board answers clears the stale line, keeps the note', JSON.stringify(cleared));
         dismissStatus = 200;
         dismissed.length = 0;   // the refused click above posted too; this arm must see its own
         /* Review 6: dismissed from the keyboard, focus goes to the K mark (as after the login notice), never lost. */

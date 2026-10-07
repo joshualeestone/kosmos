@@ -21940,18 +21940,29 @@ function rebootWhen(iso) {
   if (d.toDateString() === yesterday.toDateString()) return 'yesterday at ' + time;
   return 'on ' + d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' at ' + time;
 }
+/* Where focus goes when the note leaves under it: the K mark, as after the login notice. */
+function rebootFocusAway() {
+  const next = ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
+  if (next) next.focus();
+}
 function paintRebootNote(note) {
   const slot = document.getElementById('reboot-slot');
   if (!slot) return;
   const down = note && rebootWhen(note.bootAt);
   const up = note && rebootWhen(note.upAt);
-  if (!down || !up) { slot.innerHTML = ''; delete slot.dataset.shown; return; }
+  const held = slot.contains(document.activeElement);   // a re-check that removes or repaints it must not drop focus to the page
+  if (!down || !up) { slot.innerHTML = ''; delete slot.dataset.shown; if (held) rebootFocusAway(); return; }
   const head = 'This computer restarted ' + down;
   const line = 'Kosmos was running and started again by itself ' + up + '.';
   /* The ten-minute re-check repaints only when the WORDS change (a new note, or "at 11:30 PM" becoming "yesterday at
      11:30 PM" after midnight): repainting the same words would take focus off Dismiss and re-announce the status. */
   const key = head + '|' + line;
-  if (slot.dataset.shown === key && slot.firstElementChild) return;
+  if (slot.dataset.shown === key && slot.firstElementChild) {
+    /* The board answered this re-check, so a "could not record that just now" from an earlier dismiss is stale. */
+    const stale = slot.querySelector('.rerr');
+    if (stale) stale.remove();
+    return;
+  }
   slot.dataset.shown = key;
   slot.innerHTML = '<div class="utoast reboot">'
     + '<span class="udot" aria-hidden="true"></span>'
@@ -21959,6 +21970,7 @@ function paintRebootNote(note) {
     + '<button type="button" class="ux" aria-label="Dismiss">&times;</button>'
     + '</div>';
   const btn = slot.querySelector('.ux');
+  if (held) btn.focus();
   btn.addEventListener('click', async () => {
     /* Emptied only once the board has recorded it, as the login notice repaints: an X that did not stick shows the
        note still there, never a dead button. */
@@ -21976,8 +21988,7 @@ function paintRebootNote(note) {
     }
     slot.innerHTML = '';
     delete slot.dataset.shown;
-    const next = ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
-    if (next) next.focus();
+    rebootFocusAway();
   });
 }
 let REBOOT_SEEN_START = null;

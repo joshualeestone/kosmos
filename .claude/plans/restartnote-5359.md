@@ -106,3 +106,13 @@
   one-second widening now reddens. The phone rule that keeps the note's line is asserted at 390px. The "yesterday"
   case requires "yesterday at" in the line. Each mutation-proven.
 - Left: `cmd_stop` with the real clear end to end (its arms replace the clear; the third arm runs the real clear).
+
+## Review 8
+- FIXED (my review 6 change had weakened it): Kosmos+ is now tested in light as well as dark. In dark the dark rule
+  alone keeps the tone, so only light tests the Kosmos+ rule; removing `.reboot` from that rule reddens it.
+- FIXED: a re-check that repaints the note under a focused Dismiss keeps focus on the new Dismiss; one that removes it
+  moves focus to the K mark. A later re-check the board answers clears a stale "could not record that just now".
+  Each pinned and mutation-proven. The phone arm is listed in the check's header and README row.
+- FIXED: server.restartnote-5359.test.js loads tmpscope, so its temp folders are removed.
+- Left: a board started outside launchd can write board-alive.json back after uninstall's rm (uninstall stops only
+  the launchd job); the same is true of the folder's other residue.

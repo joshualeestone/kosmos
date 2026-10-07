@@ -1,6 +1,7 @@
 'use strict';
 /* #5359 part 1: the board's restart-note routes, and the start-up call that writes when the board was last alive.
    engine/restartnote-5359.test.js covers the rule; this covers the wiring a page and a restart depend on. */
+require('./test-support/tmpscope');   // #4273: first, so every temp dir this file makes is contained and removed
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
