@@ -80,6 +80,14 @@ shape not  "bash -e -c : $SCRIPT"      # a bare -c as its own word is still a co
 shape run  "bash --norc $SCRIPT"
 shape not  "bash ${SCRIPT%.sh}Xsh"   # the dot is literal: a name that differs only there is not this script
 
+# _kosmos_drop_test_fixtures reads the script out of an optioned line with the same option group (group 6).
+re="^[0-9]+ +([^ ]*/)?(ba)?sh${_KOSMOS_SH_OPTS} +(([^ ]*/)?tools/(release|browser-checks|test-install|run-tests)\.sh)( |$)"
+for fl in "4242 bash -x tools/release.sh" "4242 /bin/bash -eo pipefail tools/run-tests.sh x" "4242 bash tools/browser-checks.sh"; do
+  want="$(printf '%s' "$fl" | awk '{print $NF}')"; case "$fl" in *run-tests*) want=tools/run-tests.sh ;; esac
+  if [[ "$fl" =~ $re ]] && [ "${BASH_REMATCH[6]}" = "$want" ]; then ok "the fixture filter reads the script from: $fl"; else bad "fixture filter missed the script in: $fl (got '${BASH_REMATCH[6]:-}')"; fi
+done
+LC_ALL=en_US.UTF-8 bash -c '. tools/lib/cut-guard.sh; re="^4 bash${_KOSMOS_SH_OPTS} +x\.sh$"; [[ "4 bash -lc x.sh" =~ $re ]]' && bad "a -lc cluster matched as an option under en_US.UTF-8" || ok "the spelled-out option letters exclude c under en_US.UTF-8 too"
+
 # A pgrep that fails is "could not tell" (2), never "nothing running" (1).
 out="$(pgrep() { return 3; }; kosmos_running_lines "$SCRIPT")"; rc=$?
 [ "$rc" = 2 ] && ok "a failing pgrep returns 2 (could not tell), not 1" || bad "failing pgrep: rc=$rc"

@@ -25,8 +25,7 @@ unset _kosmos_cut_guard_lib_dir
 # which only mentions the script) or n (a syntax check, which never runs it). A few shapes that are not
 # runs also match (`bash -s <script>`, `bash --rcfile <script>`, a script given as an option's value): all
 # fail toward busy.
-# LC_ALL=C on that grep: the option class is written as letter RANGES (any letter but c and n), and ranges
-# are collation-dependent outside the C locale. A queued-heavy waiter needs no rule of its own here: its
+# LC_ALL=C on that grep as well, belt and braces (the option letters are spelled out, see _KOSMOS_SH_OPTS). A queued-heavy waiter needs no rule of its own here: its
 # command starts with tools/queued-heavy.sh, not with <script>, so it never matches.
 # CALL IT INSIDE `if` OR AFTER `||`: 1 is the ordinary "nothing running" answer, and as a bare statement
 # under `set -e` (release.sh, test-install.sh) it would end the caller silently.
@@ -40,13 +39,17 @@ unset _kosmos_cut_guard_lib_dir
 # <script> is a path like tools/browser-checks.sh (letters, digits, . _ / - only; anything else returns 2);
 # its dots are matched literally. macOS only: there `pgrep -fl` prints the whole command line, where Linux
 # prints only the process name, so on Linux this finds nothing (as the guards it replaced did).
+# The shell options a run may carry before its script (shared with _kosmos_drop_test_fixtures so the two
+# read the same command shapes). Letters are SPELLED OUT, not ranged (every letter but c, a command string,
+# and n, a syntax check): ranges are collation-dependent, and `[[ =~ ]]` runs in the caller's locale.
+_KOSMOS_SH_OPTS='( +([-+][ABCDEFGHIJKLMNOPQRSTUVWXYZabdefghijklmopqrstuvwxyz]*[oO] +[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_]+|--(rcfile|init-file) +[^ ]+|[-+][ABCDEFGHIJKLMNOPQRSTUVWXYZabdefghijklmopqrstuvwxyz]+|--[abcdefghijklmnopqrstuvwxyz][abcdefghijklmnopqrstuvwxyz-]*|--))*'
 kosmos_running_lines() {   # <script path>
   local script="${1:-}" raw rc re lines
   case "$script" in ''|*[!A-Za-z0-9._/-]*) return 2 ;; esac   # a path, nothing a regex would read as syntax
   re="${script//./\\.}"
   raw="$(pgrep -fl "$re" 2>/dev/null)"; rc=$?
   [ "$rc" -ge 2 ] && return 2
-  lines="$(printf '%s\n' "$raw" | LC_ALL=C grep -E "^[0-9]+ +([^ ]*/)?(ba)?sh( +([-+][A-Za-bd-mo-z]*[oO] +[A-Za-z_]+|--(rcfile|init-file) +[^ ]+|[-+][A-Za-bd-mo-z]+|--[a-z][a-z-]*|--))* +([^ ]*/)?${re}( |$)" || true)"
+  lines="$(printf '%s\n' "$raw" | LC_ALL=C grep -E "^[0-9]+ +([^ ]*/)?(ba)?sh${_KOSMOS_SH_OPTS} +([^ ]*/)?${re}( |$)" || true)"
   [ -n "$lines" ] || return 1
   printf '%s\n' "$lines"
 }
@@ -107,18 +110,16 @@ _kosmos_drop_self_subtree() {
 # and cwd cannot be read stays in the list unless its script path is in the sandbox, which preserves
 # the guard's refuse-rather-than-guess posture.
 # (#5470: this reads a fixture's script WITHOUT kosmos_running_lines's options group, so a fixture started
-# with a shell option is dropped only by its ancestry or cwd: more refusals, never fewer. That is a new
-# refusal path: such a fixture whose ancestry or cwd cannot be read now refuses where before it never
-# matched at all. Nothing in the repo starts a fixture with a shell option.)
+# with a shell option is read with the same _KOSMOS_SH_OPTS as kosmos_running_lines, so the two agree.)
 _kosmos_drop_test_fixtures() {
   # The interpreter is ([^ ]*/)?(ba)?sh, as wide as _kosmos_suite_candidates's, so a fixture started by
   # a Homebrew bash is dropped by its script path too (#4410 review 13).
-  local line pid script re='^[0-9]+ +([^ ]*/)?(ba)?sh +(([^ ]*/)?tools/(release|browser-checks|test-install|run-tests)\.sh)( |$)'
+  local line pid script re="^[0-9]+ +([^ ]*/)?(ba)?sh${_KOSMOS_SH_OPTS} +(([^ ]*/)?tools/(release|browser-checks|test-install|run-tests)\.sh)( |$)"
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     pid="${line%% *}"
     script=""
-    [[ "$line" =~ $re ]] && script="${BASH_REMATCH[3]}"
+    [[ "$line" =~ $re ]] && script="${BASH_REMATCH[6]}"   # groups 3-5 are _KOSMOS_SH_OPTS
     _kosmos_pid_is_test_fixture "$pid" "$script" && continue
     printf '%s\n' "$line"
   done
