@@ -2383,10 +2383,12 @@ cmd_accounts() {
   printf '%s' "$body" | KOSMOS_HTTP_CODE="$code" "$_node" -e '
     const code = Number(process.env.KOSMOS_HTTP_CODE);
     let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
-      let j; try { j = JSON.parse(s); } catch { process.exit(1); }
+      let j = null; try { j = JSON.parse(s); } catch { if (code < 400) process.exit(1); }
       const err = j && typeof j.error === "string" ? j.error.replace(/[.\s]+$/, "") : "";
-      if (code >= 500) { console.log("  Kosmos could not read its accounts just now" + (err ? ": " + err : "") + ". Try again in a minute."); process.exit(3); }
-      if (code >= 400) { console.log("  Kosmos refused that request" + (err ? ": " + err : "") + "."); process.exit(3); }
+      // The same classes as tools/windows/kosmos-cli.js verbAccounts: a fault on the board (5xx) is never a refusal,
+      // and a 4xx is a refusal only when the board said why.
+      if (code >= 500 || (code >= 400 && !err)) { console.log("  Kosmos could not read its accounts just now" + (err ? ": " + err : "") + ". Try again in a minute."); process.exit(3); }
+      if (code >= 400) { console.log("  Kosmos refused that request: " + err + "."); process.exit(3); }
       if (!j || !Array.isArray(j.accounts)) process.exit(1);
       if (!j.accounts.length) { console.log("No provider accounts are set up on this board yet. The person adds one in Settings > AI Models."); return; }
       const when = (t) => new Date(t).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });

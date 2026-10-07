@@ -76,6 +76,11 @@ const ACCOUNTS = { accounts: [
   { provider: 'openai', providerName: 'OpenAI', email: 'b@example.com', authMode: 'chatgpt', connection: { state: 'unknown', liveCheckPending: true } },
   { provider: 'google', providerName: 'Google Gemini', authMode: 'apikey', connection: { state: 'none', because: 'the key was refused' } },
   { provider: 'xai', providerName: 'xAI Grok', email: 'c@example.com', connection: { state: 'unknown', because: 'we could not check this account just now' } },
+  // Review 2: a key row with no badge (state alone), a stop time already past (falls through to the badge), and a
+  // refused login whose stop time is ahead (the stop notice comes first, as on the board).
+  { provider: 'google', providerName: 'Google Gemini', email: 'k@example.com', authMode: 'apikey', connection: { state: 'connected' } },
+  { provider: 'anthropic', providerName: 'Anthropic / Claude', email: 'p@example.com', connection: { state: 'connected', badge: 'working', loginStopsAt: Date.now() - 3600 * 1000 } },
+  { provider: 'anthropic', providerName: 'Anthropic / Claude', email: 'x@example.com', connection: { state: 'connected', badge: 'rejected', loginStopsAt: Date.now() + 3600 * 1000 } },
 ] };
 
 test('#5359: kosmos accounts reads /api/accounts with the board token, and says each account\'s state in words', () => withStub({ 'GET /api/accounts': { json: ACCOUNTS } }, async (port, seen) => {
@@ -86,6 +91,9 @@ test('#5359: kosmos accounts reads /api/accounts with the board token, and says 
   assert.match(r.out, /^Anthropic \/ Claude: u@example\.com: signed in by Kosmos's record, not yet confirmed by a real request$/m);
   assert.match(r.out, /^Anthropic \/ Claude: s@example\.com: its sign-in has run out; its agents keep working until .+, then stop\./m);
   assert.match(r.out, /^OpenAI: b@example\.com \(chatgpt\): being checked now; it is known on the next read$/m);
+  assert.match(r.out, /^Google Gemini: k@example\.com \(apikey\): signed in$/m, 'a row with no badge lost its state');
+  assert.match(r.out, /^Anthropic \/ Claude: p@example\.com: signed in$/m, 'a stop time already past still said they stop');
+  assert.match(r.out, /^Anthropic \/ Claude: x@example\.com: its sign-in has run out; its agents keep working until /m, 'the stop notice did not come first');
   assert.match(r.out, /^Google Gemini: an account with no email on record \(apikey\): not signed in: the key was refused$/m);
   assert.match(r.out, /^xAI Grok: c@example\.com: could not be checked just now: we could not check this account just now$/m);
   const q = seen.find((x) => x.url === '/api/accounts');
@@ -109,6 +117,13 @@ test('#5359: kosmos accounts says when there are none, when the board refuses, a
     const r = await cli(port, ['accounts']);
     assert.equal(r.code, 1, r.out);
     assert.match(r.out, /Kosmos could not read its accounts just now: we could not read the accounts on this computer\. Try again in a minute\./);
+    assert.doesNotMatch(r.out, /refused/);
+  });
+  // A 4xx that gives no reason is not called a refusal (the same class on both CLIs).
+  await withStub({ 'GET /api/accounts': { status: 403, json: {} } }, async (port) => {
+    const r = await cli(port, ['accounts']);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /Kosmos could not read its accounts just now\. Try again in a minute\./);
     assert.doesNotMatch(r.out, /refused/);
   });
   await withStub({ 'GET /api/accounts': { json: { something: 'else' } } }, async (port) => {

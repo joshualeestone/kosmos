@@ -1620,7 +1620,8 @@ async function verbAccounts(ctx) {
   // A fault on the board (5xx) is not a refusal and is not told as one; ctx.refusedBy reads any error answer.
   const err = r.json && typeof r.json.error === 'string' ? r.json.error.replace(/[.\s]+$/, '') : '';
   if (r.status >= 500) { ctx.err('Kosmos could not read its accounts just now' + (err ? ': ' + err : '') + '. Try again in a minute.'); return 1; }
-  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); tokenRefusedHint(ctx, r); return 1; }   // #5333
+  // No token hint (#5333) here: this verb sends the board token only, never an agent's, so it cannot be about one.
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); return 1; }
   if (r.status >= 400) { ctx.err('Kosmos could not read its accounts just now' + (err ? ': ' + err : '') + '. Try again in a minute.'); return 1; }
   const accounts = r.json && Array.isArray(r.json.accounts) ? r.json.accounts : null;
   if (!accounts) { ctx.err('Kosmos gave an answer we could not read about its accounts.'); return 1; }

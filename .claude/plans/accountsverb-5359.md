@@ -16,8 +16,14 @@ accounts, so it is a direct read of the route", with the port, the board token a
   alone printed "signed in" for a refused login). In words: a sign-in that has run out says when its agents stop
   (#5168); working is signed in; signed_in_unverified is signed in by Kosmos's record, not yet confirmed; rejected
   and signed_out are not signed in; unchecked could not be checked; with no badge, the state as before.
-- No accounts, a refusal (4xx), a fault on the board (5xx, told as a fault, never as a refusal), an unreachable
-  board and an unreadable answer each get their own sentence. Windows adds the token hint after a refusal (#5333).
+- One class rule on both CLIs: a fault on the board (5xx, JSON or not) is told as a fault, never a refusal; a 4xx is
+  a refusal only when the board says why, and otherwise "could not read, try again". No accounts, an unreachable
+  board and an unreadable answer each get their own sentence.
+- Each CLI keeps its own stream convention for a failure sentence, as its `connections` does: the Mac's `say` writes
+  to stdout, the Windows `ctx.err` to stderr (review 2 asked for one stream; changing either CLI's convention for
+  one verb would make that verb the odd one out on its own platform).
+- No token hint after a refusal (#5333 adds one to verbs that send an agent token): this verb sends the board token
+  only, so the hint could never be about it.
 - It reads `GET /api/accounts` with the board token, as `kosmos connections` reads its route. The route checks
   most accounts live (some rows are Kosmos's own record), so the usage and the instructions say: when you need
   it, never in a loop. `--help` prints the usage and never runs the check.
