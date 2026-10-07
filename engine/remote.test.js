@@ -392,6 +392,9 @@ async function until(check, what, ms = 5000) {
   }
   assert.fail('timed out waiting for ' + what);
 }
+// kosmos#5422: a test run alone (--test-name-pattern) must find the data folder an earlier test would have made, or a
+// mutant run of it fails on ENOENT and reads as a red it never earned.
+test.beforeEach(() => { fs.mkdirSync(nodePath.dirname(remote.FILE), { recursive: true }); });
 test.afterEach(() => {
   remote.resetForTests();
   delete process.env.FAKE_TUNNEL_MODE;
@@ -1751,17 +1754,22 @@ test('kosmos#5422: with a tunnel that keeps a device key, sign-in passes the key
   assert.deepEqual(remote.read().past_device_ids, ['old-opaque-id']);
 });
 
-test('kosmos#5422: a key that cannot be read refuses the sign-in in the tunnel\'s words, keeps the file, never falls back', async () => {
+test('kosmos#5422: a key that cannot be read refuses the sign-in in the tunnel\'s words, keeps the file, never falls back', async (t) => {
+  fs.mkdirSync(nodePath.dirname(remote.FILE), { recursive: true });   // also when this test runs alone
   fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: 'old-opaque-id' }));
-  const keyFile = nodePath.join(process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote'), 'signin-device.key');
+  // A state folder with spaces in it, as macOS's Application Support has: no pattern on the path may leak part of it.
+  const prevState = process.env.AGENT_WORKFORCE_TUNNEL_STATE;
+  process.env.AGENT_WORKFORCE_TUNNEL_STATE = nodePath.join(SANDBOX, 'Application Support', 'Jane Doe', 'remote');
+  t.after(() => { if (prevState === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_STATE; else process.env.AGENT_WORKFORCE_TUNNEL_STATE = prevState; });
+  const keyFile = nodePath.join(process.env.AGENT_WORKFORCE_TUNNEL_STATE, 'signin-device.key');
   fs.mkdirSync(nodePath.dirname(keyFile), { recursive: true });
   fs.writeFileSync(keyFile, 'a real key nobody can read');
   process.env.FAKE_TUNNEL_MODE = 'devkey-unreadable';
   let r;
   try { r = await remote.signinStart('her@example.com'); } finally { delete process.env.FAKE_TUNNEL_MODE; }
   assert.equal(r.ok, false);
-  assert.match(r.because, /sign-in key could not be opened: reading the device key$/);
-  assert.ok(!r.because.includes('/'), 'the key path reached the person: ' + r.because);
+  assert.equal(r.because, "this computer's sign-in key could not be opened: reading the device key (Permission denied (os error 13))");
+  for (const leak of ['/', 'Support', 'Jane', 'Doe', 'signin-device']) assert.ok(!r.because.includes(leak), 'the key path reached the person: ' + r.because);
   assert.ok(fs.existsSync(keyFile), 'a key that could not be READ was removed');
   assert.ok(!recorded().some((c) => c[0] === 'signin' && c[1] === 'start'), 'a start went out without the key');
   // CONTROL: the same computer on an older tunnel (exit 2) signs in on its opaque id.
@@ -1979,6 +1987,23 @@ test('kosmos#5422: a key id the tunnel answers is this computer\'s own at once, 
   try { await remote.signinStart('down@example.com'); } finally { delete process.env.FAKE_TUNNEL_MODE; }
   assert.equal(remote.read().device_id, 'old-opaque-id', 'precondition: the start was not taken');
   assert.ok(remote.ownDeviceIds().includes('k1.' + 'A'.repeat(31) + 'Q'), 'a row the coordinator may hold is not hidden');
+});
+
+test('kosmos#5422: a Forget on a damaged remote.json keeps this computer\'s ids (its old rows stay its own)', async () => {
+  fs.mkdirSync(nodePath.dirname(remote.FILE), { recursive: true });   // also when this test runs alone
+  fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: 'old-opaque-id' }));
+  process.env.FAKE_TUNNEL_MODE = 'devkey';
+  try { assert.equal((await remote.signinStart('her@example.com')).ok, true); } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  fs.writeFileSync(remote.FILE, '{"on": true, "relay": "rel');
+  await remote.forget();
+  assert.equal(remote.read().device_id, 'k1.' + 'A'.repeat(31) + 'Q', 'the Forget dropped the id in use');
+  assert.deepEqual(remote.read().past_device_ids, ['old-opaque-id'], 'the Forget dropped the ids before');
+});
+
+test('kosmos#5422: a stored id that could never be valid is replaced at once, even if the start is not taken', async () => {
+  fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: 'has spaces and / slashes' }));
+  assert.equal((await remote.signinStart('down@example.com')).ok, false, 'precondition: not taken');
+  assert.match(remote.read().device_id, /^[A-Za-z0-9_-]{1,128}$/, 'the self-grant kept a malformed id');
 });
 
 test('kosmos#5422: a cancel while start asks the tunnel sends no start', async () => {

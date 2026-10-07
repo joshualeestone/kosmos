@@ -1131,8 +1131,6 @@ async function forget() {
 let forgetInFlight = null;
 
 async function forgetNow() {
-  // kosmos#5422: what this process held is the forgotten identity's; remote.json keeps the ids for hiding own rows.
-  heldIdentity = null;
   const was = { enrolled: enrolled(), address: address() };
   // A register killed mid-certificate (or any partial one) has registered the Mac
   // at the coordinator and left its key and id here, without the certificate
@@ -1159,6 +1157,9 @@ async function forgetNow() {
      of a member-only feature to a non-member. A real sign-in re-caches the new
      account's standing; until then, unknown -> not a member. */
   write({ ...r, on: false, standing: '' }, { repair: true });
+  // kosmos#5422: only now, after the repairs above put this process's ids back into remote.json (which keeps them, so
+  // the old rows stay this computer's own), is what this process held let go.
+  heldIdentity = null;
   // Anything started during the retire wait (it can be minutes) goes too.
   stopChild();
   return {
@@ -1709,6 +1710,19 @@ const KEY_CALL_WAIT_MS = 60000;
 const keyCallWaitMs = () => Number(process.env.AGENT_WORKFORCE_KEY_CALL_WAIT_MS) || KEY_CALL_WAIT_MS;   // test seam
 const deviceIdInFlight = new Set();
 function trackKeyCall(p) { deviceIdInFlight.add(p); const done = () => deviceIdInFlight.delete(p); p.then(done, done); return p; }
+/* What the tunnel said, for a person: its "Error: " line (anyhow's shape) and the innermost "Caused by" line (the
+   system's reason: permission, disk full), with the state folder's path taken out wherever it appears (it holds the
+   person's home folder, often with spaces in it, so no pattern on the path itself is safe). */
+function tunnelWords(asked) {
+  const lines = String(asked.stderr || '').split('\n');
+  const scrub = (l) => l.split(STATE_DIR() + path.sep).join('').split(STATE_DIR()).join('')
+    .replace(/\s*\bsignin-device\.key[^\s;:,)]*/g, '').replace(/\s+/g, ' ').trim();
+  const head = lines.find((l) => /^Error: /.test(l));
+  const causes = lines.slice(lines.findIndex((l) => /^Caused by:/.test(l)) + 1).map((l) => l.replace(/^\s*(\d+:\s*)?/, '')).filter(Boolean);
+  if (!head) return scrub(parseSaid(asked).because || 'no id came back');
+  const cause = lines.some((l) => /^Caused by:/.test(l)) && causes.length ? causes[causes.length - 1] : '';
+  return scrub(head.slice(7)) + (cause ? ' (' + scrub(cause) + ')' : '');
+}
 async function askDeviceKey() {
   // Bounded: a hung tunnel must not hold the sign-in forever (a cancel cannot free a call that never returns).
   // The tunnel would make a missing folder with default permissions; the key's folder is owner-only from the first ask.
@@ -1762,14 +1776,13 @@ async function signinDeviceArgs(forVerify) {
   if (!id && /is not a P-256 key/.test(String(asked.stderr || ''))) {
     try { fs.rmSync(DEVICE_KEY_FILE(), { force: true }); } catch { /* the next ask says so again */ }
     if (forVerify) return { failed: { ok: false, because: "this computer's sign-in key could not be used and was removed; start the sign-in again (this computer will be a new device, allowed once)" } };
+    // A Forget that began during the first ask must not be outrun by a second one making a key in its folder.
+    { const b = busy(); if (b) return { failed: b }; }
     asked = await askDeviceKey();
     id = keyedIdIn(asked);
   }
   if (!id) {
-    // The tunnel says what is wrong on its "Error: " line (anyhow's shape; the last line is only the innermost cause).
-    const said = String(asked.stderr || '').split('\n').find((l) => /^Error: /.test(l));
-    const why = said ? said.slice(7).replace(/(the device key) \S+/, '$1').trim() : (parseSaid(asked).because || 'no id came back');
-    return { failed: { ok: false, because: "this computer's sign-in key could not be opened: " + why } };
+    return { failed: { ok: false, because: "this computer's sign-in key could not be opened: " + tunnelWords(asked) } };
   }
   noteOwnId(id);
   // Recorded by the caller once the coordinator has taken a start or verify with it, not here: a cancelled or refused start
