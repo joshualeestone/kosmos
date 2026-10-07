@@ -182,6 +182,7 @@ test('a sandboxed shell: status exits 5 and says running but unreachable; start 
     assert.equal(r.died, false, r.out);
     assert.equal(r.code, 0, r.out);
     assert.match(r.out, /this shell cannot connect to it/);
+    if (extra.KOSMOS_AGENT_SESSION) assert.match(r.out, /nothing to start/, 'the agent guard\'s own answer did not run');
     assert.doesNotMatch(r.out, /another app|stale/i);
   }
   const post = await withBoard('ok', (p) => run(CLI, ['post', 'proj', 'hello'], env(p, { TMUX_PANE: '%42' }), true));
