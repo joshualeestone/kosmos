@@ -210,10 +210,16 @@ function readWorldMarker(env) {
    case, and on a Mac a differently spelled name is a different variable this process must not lose. */
 const delVar = (env, k) => { if (env === process.env) delete env[k]; else envDelete(env, k); };
 const setVar = (env, k, v) => { if (env === process.env) env[k] = v; else envSet(env, k, v); };
-/* On a copy, move every world name (the world, its marker, the three roots, and AGENT_WORKFORCE_HOME, which baseRoot
-   reads) to its usual spelling, so the exact-spelling reads and writes after it see one key. A no-op on process.env. */
+/* On a Windows copy, move every world name (the world, its marker, the three roots, and AGENT_WORKFORCE_HOME, which
+   baseRoot reads) to its usual spelling, so the exact-spelling reads and writes after it see one key. A no-op on
+   process.env, and on a Mac or Linux. */
+let caseFoldPlatform = null;   // test seam: null = process.platform
+function setWorldCaseFoldPlatformForTests(p) { caseFoldPlatform = p || null; }
 function canonWorldNames(env) {
   if (!env || env === process.env) return env;
+  /* Windows only: there two spellings ARE one variable. On a Mac or Linux a lowercase agent_workforce_home is a
+     different variable that store and baseRoot ignore; promoting it would move the store (review 7). */
+  if ((caseFoldPlatform || process.platform) !== 'win32') return env;
   for (const k of [launchidentity.WORLD_ENV_VAR, PRE_WORLD_ROOTS_ENV_VAR, ...WORLD_ROOT_ENV_VARS, 'AGENT_WORKFORCE_HOME']) envCanon(env, k);
   return env;
 }
@@ -240,9 +246,9 @@ function applyWorldEnv(env, base, world) {
     roots = {};
     for (const k of WORLD_ROOT_ENV_VARS) roots[k] = env[k] === undefined ? null : env[k];
   }
-  env[PRE_WORLD_ROOTS_ENV_VAR] = JSON.stringify({ world: world.id, roots });
-  for (const k of Object.keys(overrides)) env[k] = overrides[k];
-  env[launchidentity.WORLD_ENV_VAR] = world.id;
+  setVar(env, PRE_WORLD_ROOTS_ENV_VAR, JSON.stringify({ world: world.id, roots }));
+  for (const k of Object.keys(overrides)) setVar(env, k, overrides[k]);
+  setVar(env, launchidentity.WORLD_ENV_VAR, world.id);
   return overrides;
 }
 
@@ -608,6 +614,7 @@ module.exports = {
   setActiveWorld,
   applyActiveWorldEnv,
   worldStoreRoot,
+  setWorldCaseFoldPlatformForTests,
   worldProfilesDir,
   worldAvatarsDir,
   worldWorkersDir,

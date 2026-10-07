@@ -31,6 +31,8 @@ const N = NAMES.join('|');
 const PATTERNS = [
   ['a plain delete', new RegExp(`\\bdelete\\s+(?!process\\.env\\b)[\\w$.]+(\\.(${N})\\b|\\[\\s*['"](${N})['"]\\s*\\])`)],
   ['a set by assignment', new RegExp(`(?<![\\w$.])(?!process\\b)[A-Za-z_$][\\w$]*\\.(${N})\\s*=(?!=)`)],
+  ['a compound assignment', new RegExp(`(?<![\\w$.])(?!process\\b)[A-Za-z_$][\\w$]*\\.(${N})\\s*(\\|\\||\\?\\?|&&)=`)],
+  ['a world name by constant key', /\b(delete\s+(?!process\.env\b)[\w$.]+\[\s*([\w$]+\.)?(PRE_WORLD_ROOTS_ENV_VAR|WORLD_ENV_VAR)\s*\]|(?<![\w$.])(?!process\b)[A-Za-z_$][\w$]*\[\s*([\w$]+\.)?(PRE_WORLD_ROOTS_ENV_VAR|WORLD_ENV_VAR)\s*\]\s*=(?!=))/],
   ['a set by bracket', new RegExp(`(?<![\\w$.])(?!process\\b)[A-Za-z_$][\\w$]*\\[\\s*['"](${N})['"]\\s*\\]\\s*=(?!=)`)],
   ['a set beside a spread', new RegExp(`\\.\\.\\.process\\.env\\s*,[^}]*\\b(${N})\\s*:`)],
   ['a set by Object.assign', new RegExp(`Object\\.assign\\(\\s*\\{\\s*\\}\\s*,\\s*process\\.env\\s*,[^)]*\\b(${N})\\s*:`)],
@@ -60,6 +62,9 @@ test('#5386: each pattern form is caught, and a comment or a process.env read is
   assert.equal(caught("  delete out['XAI_API_KEY'];"), 1);
   assert.equal(caught('  if (dir) env.CODEX_HOME = String(dir);'), 1);
   assert.equal(caught("  env['CLAUDE_CONFIG_DIR'] = dir;"), 1);
+  assert.equal(caught('  env.CODEX_HOME ??= dir;'), 1, 'a compound assignment');
+  assert.equal(caught('  delete env[worlds.PRE_WORLD_ROOTS_ENV_VAR];'), 1, 'a world name by constant key');
+  assert.equal(caught('  env[launchidentity.WORLD_ENV_VAR] = id;'), 1);
   assert.equal(caught('  const env = { ...process.env }; delete env.KOSMOS_WORLD;'), 1, 'the #1704 world bleed');
   assert.equal(caught("  if (env['CODEX_HOME'] === x) return;"), 0, 'a bracket comparison is a read');
   assert.equal(caught('  const env = { ...process.env, GROK_HOME: spot.dir };'), 1);
@@ -90,7 +95,27 @@ test('#5386: every site this card fixed, as it stood before, is flagged (control
   assert.deepEqual(missed, [], 'the scan no longer sees a site it was written for');
 });
 
-test('#5386: preWorldEnv drops the world and restores the roots whatever the inherited spelling', () => {
+/* The world tests drive the Windows arm (where two spellings are one variable) from any host. */
+function worldTest(name, fn) {
+  test(name, (t) => {
+    const worlds = require('./worlds');
+    worlds.setWorldCaseFoldPlatformForTests('win32');
+    try { return fn(t); } finally { worlds.setWorldCaseFoldPlatformForTests(null); }
+  });
+}
+
+test('#5386: on a Mac or Linux a differently spelled world name in a copy is a different variable, left alone', () => {
+  const worlds = require('./worlds');
+  worlds.setWorldCaseFoldPlatformForTests('darwin');
+  try {
+    const out = worlds.preWorldEnv({ agent_workforce_home: '/x', kosmos_pre_world_roots: '{"roots":{}}', PATH: '/bin' });
+    assert.equal(out.AGENT_WORKFORCE_HOME, undefined, 'a lowercase variable was promoted into the store home');
+    assert.equal(out.agent_workforce_home, '/x');
+    assert.equal(out.kosmos_pre_world_roots, '{"roots":{}}', 'a lowercase variable was read as the marker');
+  } finally { worlds.setWorldCaseFoldPlatformForTests(null); }
+});
+
+worldTest('#5386: preWorldEnv drops the world and restores the roots whatever the inherited spelling', () => {
   const worlds = require('./worlds');
   const marker = JSON.stringify({ roots: { AGENT_WORKFORCE_DATA: '/pre/data' } });
   const out = worlds.preWorldEnv({ Kosmos_World: 'w2', kosmos_pre_world_roots: marker, Agent_Workforce_Data: '/w2/data', PATH: '/bin' });
@@ -102,7 +127,7 @@ test('#5386: preWorldEnv drops the world and restores the roots whatever the inh
   assert.equal(out.PATH, '/bin');
 });
 
-test('#5386: applyAgentWorldEnv reads an oddly spelled world marker on a copy, and restores the roots', () => {
+worldTest('#5386: applyAgentWorldEnv reads an oddly spelled world marker on a copy, and restores the roots', () => {
   const worlds = require('./worlds');
   const marker = JSON.stringify({ world: 'other', roots: { AGENT_WORKFORCE_DATA: '/pre/data' } });
   const env = { kosmos_pre_world_roots: marker, Agent_Workforce_Data: '/other/data', PATH: '/bin' };
@@ -112,7 +137,7 @@ test('#5386: applyAgentWorldEnv reads an oddly spelled world marker on a copy, a
   assert.equal(Object.keys(env).filter((k) => k.toUpperCase() === 'KOSMOS_PRE_WORLD_ROOTS').length, 0);
 });
 
-test('#5386: a named world applied to a copy derives from, records and restores an oddly spelled data root', () => {
+worldTest('#5386: a named world applied to a copy derives from, records and restores an oddly spelled data root', () => {
   const worlds = require('./worlds');
   const env = { KOSMOS_WORLD: 'w2', Agent_Workforce_Data: '/sandbox/data', AGENT_WORKFORCE_HOME: '/h', PATH: '/bin' };
   worlds.applyAgentWorldEnv(env);
@@ -123,7 +148,7 @@ test('#5386: a named world applied to a copy derives from, records and restores 
   assert.equal(worlds.preWorldEnv(env).AGENT_WORKFORCE_DATA, '/sandbox/data', 'leaving the world gives the root back');
 });
 
-test('#5386: preWorldEnv with no marker leaves one spelling of each root', () => {
+worldTest('#5386: preWorldEnv with no marker leaves one spelling of each root', () => {
   const worlds = require('./worlds');
   const out = worlds.preWorldEnv({ Agent_Workforce_Data: 'C:\\a', PATH: '/bin' });
   assert.deepEqual(Object.keys(out).filter((k) => k.toUpperCase() === 'AGENT_WORKFORCE_DATA'), ['AGENT_WORKFORCE_DATA']);
@@ -131,7 +156,7 @@ test('#5386: preWorldEnv with no marker leaves one spelling of each root', () =>
   assert.deepEqual(Object.keys(over).filter((k) => k.toUpperCase() === 'AGENT_WORKFORCE_DATA'), ['AGENT_WORKFORCE_DATA'], 'two spellings after an override');
 });
 
-test('#5386: applyActiveWorldEnv given a copy (straight into applyWorldEnv) keeps one spelling and records the root', () => {
+worldTest('#5386: applyActiveWorldEnv given a copy (straight into applyWorldEnv) keeps one spelling and records the root', () => {
   const os = require('node:os');
   const worlds = require('./worlds');
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'envcase-5386-'));

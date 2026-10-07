@@ -11,8 +11,10 @@ CURRENT STATE; the dated sections below record how it got here.
   restorePreWorldRoots).
 - process.env itself keeps plain access: on Windows Node already matches its names in any case; on a Mac a differently
   spelled name is a different variable the live process must keep. worlds.js applies the helpers only to copies.
-- On a Mac or Linux the helpers do remove a differently cased variable from a COPY (a lowercase codex_home, say), so a
-  child's environment can differ from before; harmless for these names, which nothing uses in another case.
+- On a Mac or Linux envDelete/envSet do remove a differently cased variable from a COPY (a lowercase codex_home, say),
+  so a child's environment can differ from before; harmless for these names, which nothing uses in another case. The
+  world-name canonicalisation (canonWorldNames, which PROMOTES an odd spelling into the usual name) runs on Windows
+  only: on a Mac a lowercase agent_workforce_home is a different variable and must not move the store (review 7).
 - Not changed, with reasons: sandbox.js (TMUX, no tmux on Windows); win32channel, runners, update (Kosmos-only names
   Windows never supplies); win32signin (already every spelling); connect.installEnvFor (fresh object); connect run()
   (spreads opts.env over process.env with HOME/USERPROFILE: relies on Windows spelling USERPROFILE exactly, as it
@@ -95,3 +97,12 @@ How often a real Windows environment carries a non-canonical spelling of these n
   0 (const/let/var, a bare call, a multi-line destructure's closing line), keeps .json names, and skips indented
   (lazy) and commented ones; a control pins each form. Packaging confirmed: the bundle copies every non-test engine/*.js.
 - boardrestart's "three deletes above" comment updated to the envDeletes.
+
+## Review 7 (opus), 2026-10-07
+- canonWorldNames is Windows-only (seam setWorldCaseFoldPlatformForTests, excused in engine.reachable.test.js); a Mac
+  test shows a lowercase agent_workforce_home and marker left alone (red without the gate). The world behaviour tests
+  drive the win32 arm through the seam.
+- applyWorldEnv's marker, overrides and world id go through setVar, so they hold one spelling on a copy without
+  depending on the canonicalisation having run first.
+- Scan: compound assignment (??=, ||=, &&=) and a world name by constant key (env[X.PRE_WORLD_ROOTS_ENV_VAR]) with
+  controls. Require reader: only same-folder './x' modules, stated.

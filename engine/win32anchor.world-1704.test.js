@@ -53,7 +53,8 @@ test('#1704 a world applied OVER a sandbox anchors in the sandbox, not the world
 });
 
 /* The seed modules plus everything they require at load time, followed through: a require('./x') (either quote) on a
-   line that starts at column 0 (const/let/var, a bare call, or the closing line of a multi-line destructure). Derived
+   line that starts at column 0 (const/let/var, a bare call, or the closing line of a multi-line destructure). Only
+   same-folder modules ('./x'): a './sub/x' or '../x' load-time require would need this extended. Derived
    rather than listed, so a new top-level require in worlds.js (#5386 added ./win32env) cannot leave the stand-in short
    of a module and fail this file for a reason that has nothing to do with #1704. A require inside a function is lazy
    and only runs on a path this file never takes, so it is not followed. */
