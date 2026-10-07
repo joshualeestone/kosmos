@@ -392,10 +392,10 @@ const CASES = [
       '5443: the update chip stays a one-line pill, centred under the login card', JSON.stringify(ch));
     if (box) await box.screenshot({ path: path.join(OUT, 'login-expiry-chip-and-card-5443.png') });
     // CONTROL: without the centring the stretched slot leaves the chip at the column's left edge.
-    await pg.evaluate(() => { const c = document.querySelector('#utoast-slot .uchip'); if (c) { c.style.display = 'inline-flex'; c.style.marginInline = '0'; } });
+    const unCentre = await pg.addStyleTag({ content: '#utoast-slot > .uchip { display: inline-flex !important; margin-inline: 0 !important; }' });
     const left = await chip();
     chk(!!left && Math.abs(left.chipMid - left.cardMid) >= 20, '5443: CONTROL: not centred, the chip sits off the column centre', JSON.stringify(left));
-    await pg.evaluate(() => { const c = document.querySelector('#utoast-slot .uchip'); if (c) c.removeAttribute('style'); });
+    await unCentre.evaluate((el) => el.remove());
     chk(errs.length === 0, '5443: no console errors', errs.join(' | '));
     await pg.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
     await pg.close();
