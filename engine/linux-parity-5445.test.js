@@ -143,9 +143,9 @@ test('#5445 disabledJobsResult on Linux: disabled and masked units are off, and 
 test('#5445 runningJobs on Linux reads the active agent units', () => {
   const w = myWorld();
   systemd = (cmd, args) => (args[1] === 'list-units'
-    ? { ok: true, stdout: `${linuxjob.unitName('runbot', w)} loaded active running Kosmos agent runbot\nother.service loaded active running x\n` }
+    ? { ok: true, stdout: `${linuxjob.unitName('runbot', w)} loaded active running Kosmos agent runbot\n● ${linuxjob.unitName('gonebot', w)} not-found active running x\nother.service loaded active running x\n` }
     : { ok: true, stdout: '' });
-  assert.deepEqual([...create.runningJobs('linux')], ['runbot']);
+  assert.deepEqual([...create.runningJobs('linux')].sort(), ['gonebot', 'runbot'], 'a unit systemd marks with a bullet (its file gone) still counts as running');
   systemd = () => ({ ok: false, code: 1, stderr: 'bus' });
   assert.deepEqual([...create.runningJobs('linux')], [], 'fail-soft to empty, as the Mac arm');
 });

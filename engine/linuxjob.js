@@ -462,7 +462,7 @@ function activeUnits() {
   if (!r || r.ok === false) return { ok: false };
   const units = [];
   for (const line of String(r.stdout || '').split('\n')) {
-    const unit = line.trim().split(/\s+/)[0];
+    const unit = line.trim().replace(/^●\s*/, '').split(/\s+/)[0];   // review 11: systemd marks a unit whose file is gone with a bullet
     if (unit && unit.startsWith('kosmos-agent-')) units.push(unit);
   }
   return { ok: true, units };
