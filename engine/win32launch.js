@@ -236,15 +236,15 @@ function argvFor(prepared, opts) {
   return argv.concat(prepared.launchArgs);
 }
 
-/* The browser config for one launch: the spec may carry a path, or a function
-   asked at EVERY launch so a supervisor's relaunch picks up an install that
-   finished after it started. Never throws; a failed answer is no browser. */
 /* #5406: the permission settings path for one launch (a path or a function asked per launch); never throws. */
 function permissionSettingsFor(s) {
   try { return typeof s.permissionSettings === 'function' ? (s.permissionSettings() || null) : (s.permissionSettings || null); }
   catch { return null; }
 }
 
+/* The browser config for one launch: the spec may carry a path, or a function
+   asked at EVERY launch so a supervisor's relaunch picks up an install that
+   finished after it started. Never throws; a failed answer is no browser. */
 function mcpConfigFor(s) {
   try { return typeof s.mcpConfig === 'function' ? (s.mcpConfig() || null) : (s.mcpConfig || null); }
   catch { return null; }
