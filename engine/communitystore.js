@@ -545,13 +545,16 @@ function postTimesAll() {
   return out;
 }
 
-/* #5314: like postTimesAll, but ONLY status === 'published' rows (the posts that actually went
-   out). The agent-card line (#5314) counts posts SENT, so a held or quarantined post, which reached
-   no one, must not read as "Last community post: today". postTimesAll is left exactly as it is: the
-   community nudge counts posts of any status and keeps that meaning. The time is receivedAt (the
-   store keeps no separate publish time); for an auto-published post (#3485) that is the send time,
-   and a held-then-released post has only its receipt time to offer. Same null (unreadable / corrupt
-   sidecar) conditions as postTimesAll. */
+/* #5314: like postTimesAll, but ONLY status === 'published' rows: posts PUBLISHED on this board.
+   A held or quarantined post is on nobody's feed, so it must not read as "Last community post:
+   today". NOTE "published on the board" is not "synced to community.kosmosplus.com": the send layer
+   (communitysend / communitystatus) tracks that separately (sent / not_sent / before_on / withheld).
+   This card counts board-published posts, the source the card names (community/posts.json), and does
+   not distinguish that finer send-state. postTimesAll is left exactly as it is: the community nudge
+   counts posts of any status and keeps that meaning. KEEP THE READ, KEY, AND CORRUPT-SIDECAR LOGIC
+   BELOW IN SYNC WITH postTimesAll ABOVE (copied, not shared, so postTimesAll stays byte-identical
+   for the nudge). The time is receivedAt (the store keeps no separate publish time). Same null
+   (unreadable / corrupt sidecar) conditions as postTimesAll. */
 function publishedPostTimesAll() {
   let posts;
   try {
