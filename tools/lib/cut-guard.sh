@@ -27,7 +27,11 @@ unset _kosmos_cut_guard_lib_dir
 # LC_ALL=C on that grep: the option class is written as letter RANGES (any letter but c and n), and ranges
 # are collation-dependent outside the C locale. A queued-heavy waiter needs no rule of its own here: its
 # command starts with tools/queued-heavy.sh, not with <script>, so it never matches.
-# NOT SEEN: a run whose script path contains a space, because pgrep prints it split at the space (the
+# CALL IT INSIDE `if` OR AFTER `||`: 1 is the ordinary "nothing running" answer, and as a bare statement
+# under `set -e` (release.sh, test-install.sh) it would end the caller silently.
+# NOT SEEN: a run started from inside tools/ (`cd tools && bash release.sh`, `bash ./browser-checks.sh`),
+# because the match needs the tools/ path (tools/heavy-gate.sh counts those, by a cwd ending in /tools;
+# the cut and the page layer are always started as tools/...). NOT SEEN either: a run whose script path contains a space, because pgrep prints it split at the space (the
 # guards this replaced had the same gap; tools/heavy-gate.sh does count it). Every checkout this fleet
 # cuts or tests from has a space-free path. This prints the
 # "<pid> <command>" lines of exactly those, from `pgrep -fl`, and returns 0 when there is one, 1 when
