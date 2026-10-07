@@ -44,9 +44,13 @@ The round trip on a real Mac (press the pill, flip the switch in System Settings
 person to click the switch, which a headless run cannot. Unmeasured: that authorizationStatus changes inside the
 running process without a relaunch, and the order of didBecomeActive against the page becoming visible (the page
 waits for visibilitychange either way). Words shipped and mechanism built; the behaviour is to be seen on first use.
+If Josh's no-prompt refusal turns out to be the never-asked case (speech-unanswered or mic-unanswered), he gets a
+plain sentence and no pill: no Privacy pane lists an app that never asked. The permission log lines will say which.
+X does not tell the app: its visit stays open up to 10 minutes and any later answer carries the old visit id, which
+the page drops (tested). An op only to close it would add surface and change nothing the person sees.
 
 ## Tests
-- `--kosmos-app-voice-selftest`: 42 rows, including pageGone (only a reloaded or crashed page drops the visit), settingsAccepted (Settings only after a denial), stampId, visitOnReturn (open, ready, too late), the once-a-second Settings limit, pane mapping, allowedEvent (allowed, settings-next, nothing) (the event and its Settings-visit id), readyToStart (speech allowed with the mic never asked counts as ready), and the restricted split.
+- `--kosmos-app-voice-selftest`: 43 rows, including micRefusal (never asked is mic-unanswered), pageGone (only a reloaded or crashed page drops the visit), settingsAccepted (Settings only after a denial), stampId, visitOnReturn (open, ready, too late), the once-a-second Settings limit, pane mapping, allowedEvent (allowed, settings-next, nothing) (the event and its Settings-visit id), readyToStart (speech allowed with the mic never asked counts as ready), and the restricted split.
 - web.voice-4409.test.js: the pill, the X, `allowed`, and the controls.
 - docs/browser-checks/render-voice-4409.js: V6, V6b, V6c, V6d and V6e.
 - design shots: the screen agent-chat-mic-settings.

@@ -65570,9 +65570,9 @@ function voiceSettingsOffer(btn, pane, said) {
   const offeredAt = home ? voiceWhere(home, true) : '';
   VOICE_SETTINGS.watch = setInterval(() => {
     if (!home || !document.body.contains(btn) || voiceWhere(home, true) !== offeredAt) {
-      const hadFocus = VOICE_SETTINGS.keys.includes(document.activeElement);
+      const pillHadFocus = VOICE_SETTINGS.keys.includes(document.activeElement);
       voiceSettingsClear();
-      if (hadFocus && document.body.contains(btn)) btn.focus();   // back to the mic, never the page
+      if (pillHadFocus && document.body.contains(btn)) btn.focus();   // back to the mic, never the page
     }
   }, 500);
   btn.classList.add('has-pill');
