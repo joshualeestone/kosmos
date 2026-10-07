@@ -30,14 +30,31 @@ const FILE = path.join(store.ROOT, 'community.json');
  * see, and what it gates is posts leaving the machine (the feedbacksend split, #2037).
  */
 function read() {
+  for (let attempt = 0; ; attempt++) {
+    const r = readOnce();
+    if (r.ok || !r.retry || attempt >= RETRIES) return { on: r.on, ok: r.ok };
+    pause(RETRY_MS);
+  }
+}
+
+/* #5460: an unreadable switch ends the ON period for every agent (communitysend's sweep), so one brief failure must not
+   count. A read error that usually passes (a Windows scanner holding the file: EBUSY, EPERM, EACCES; too many open
+   files; EIO; EAGAIN) and a file that does not parse (caught mid-write by a writer that is not ours) are read again,
+   RETRIES more times RETRY_MS apart, before the switch reads as unreadable. Other errors are not retried. */
+const RETRIES = 3;
+const RETRY_MS = 50;
+const TRANSIENT = new Set(['EBUSY', 'EPERM', 'EACCES', 'EMFILE', 'ENFILE', 'EIO', 'EAGAIN']);
+let pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+function readOnce() {
   let raw;
   try { raw = fs.readFileSync(FILE, 'utf8'); }
   catch (err) {
     if (err && err.code === 'ENOENT') return { on: true, ok: true };
-    return { on: false, ok: false };
+    return { on: false, ok: false, retry: Boolean(err && TRANSIENT.has(err.code)) };
   }
   let parsed;
-  try { parsed = JSON.parse(raw); } catch { return { on: false, ok: false }; }
+  try { parsed = JSON.parse(raw); } catch { return { on: false, ok: false, retry: true }; }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { on: false, ok: false };
   return { on: parsed.on === true, ok: true };
 }
@@ -80,4 +97,7 @@ function participating() {
   return r.ok === true && r.on === true;
 }
 
-module.exports = { read, setOn, participating, migrate, FILE };
+/* Tests only: replace the pause between retries, and the reader of the file, so a transient error can be staged. */
+function _setPause(f) { pause = f; }
+
+module.exports = { read, setOn, participating, migrate, FILE, RETRIES, _setPause };
