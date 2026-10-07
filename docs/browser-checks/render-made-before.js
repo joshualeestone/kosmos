@@ -106,7 +106,7 @@ function chk(ok, label, extra) {
         whyH: document.getElementById('d-runson-why').getBoundingClientRect().height,
         msg: shown(document.getElementById('d-model-msg')),
         modelBlock: (() => { const st = document.getElementById('d-model-row').closest('.mstep'); return !st.hidden && st.getClientRects().length > 0; })(),
-        restartHint: document.getElementById('d-model-restart-hint').getClientRects().length > 0,
+        restartHint: (() => { const h = document.getElementById('d-model-restart-hint'); return h ? h.getClientRects().length > 0 : null; })(),
         said: (document.getElementById('d-sec-model') || document.body).innerText.split('from Found agents in Settings').length - 1,
       };
     });
@@ -131,7 +131,7 @@ function chk(ok, label, extra) {
       msg: document.getElementById('d-model-msg').textContent,
       disabled: document.getElementById('d-model').disabled,
       modelBlock: (() => { const st = document.getElementById('d-model-row').closest('.mstep'); return !st.hidden && st.getClientRects().length > 0; })(),
-        restartHint: document.getElementById('d-model-restart-hint').getClientRects().length > 0,
+        restartHint: (() => { const h = document.getElementById('d-model-restart-hint'); return h ? h.getClientRects().length > 0 : null; })(),
     }));
     chk(bob.whyH === 0, 'CONTROL: the explainer is off Bob’s screen', String(bob.whyH));
     chk(bob.msg === '', 'CONTROL: Rick’s refusal did not linger on Bob’s panel', bob.msg);
@@ -157,7 +157,7 @@ function chk(ok, label, extra) {
         why: shown(document.getElementById('d-runson-why')),
         msg: shown(document.getElementById('d-model-msg')),
         modelBlock: (() => { const st = document.getElementById('d-model-row').closest('.mstep'); return !st.hidden && st.getClientRects().length > 0; })(),
-        restartHint: document.getElementById('d-model-restart-hint').getClientRects().length > 0,
+        restartHint: (() => { const h = document.getElementById('d-model-restart-hint'); return h ? h.getClientRects().length > 0 : null; })(),
       };
     });
     chk(/To bring it in: add it from Found agents/.test(gone.why) && !/stop it/.test(gone.why),
