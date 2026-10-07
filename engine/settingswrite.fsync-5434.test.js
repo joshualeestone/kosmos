@@ -95,7 +95,9 @@ for (const [name, write] of WRITERS) {
     const before = fs.readFileSync(file, 'utf8');
     const realOpen = fs.openSync;
     fs.openSync = (target, flags, ...rest) => {
-      if (flags === 'wx') throw Object.assign(new Error('planted'), { code: 'EEXIST' });   // every atomic attempt fails
+      // every atomic attempt fails: 'wx' is the flag writeSecret opens its temp with (securewrite.js, the
+      // atomic loop). If that flag ever changes, this stub stops matching and the arm fails loudly on `wrote`.
+      if (flags === 'wx') throw Object.assign(new Error('planted'), { code: 'EEXIST' });
       return realOpen.call(fs, target, flags, ...rest);
     };
     let wrote;
