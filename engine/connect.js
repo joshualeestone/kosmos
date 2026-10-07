@@ -1108,13 +1108,17 @@ function detectMusl({ platform, report, exists }) {
   if (platform !== 'linux') return false;
   let r = null;
   try { r = typeof report === 'function' ? report() : report; } catch { r = null; }
-  const muslLoader = () => ['/lib/ld-musl-x86_64.so.1', '/lib/ld-musl-aarch64.so.1'].some((f) => { try { return exists(f); } catch { return false; } });
+  const any = (files) => files.some((f) => { try { return exists(f); } catch { return false; } });
+  const muslLoader = () => any(['/lib/ld-musl-x86_64.so.1', '/lib/ld-musl-aarch64.so.1']);
+  // Review 28: Debian's musl package puts musl's loader on a glibc system, so with no report to read, glibc's own
+  // loader present means glibc, whatever else is installed beside it.
+  const glibcLoader = () => any(['/lib64/ld-linux-x86-64.so.2', '/lib/ld-linux-aarch64.so.1', '/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2', '/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1']);
   if (r && r.header && r.header.glibcVersionRuntime) return false;
   // no glibc in the report is musl only when musl's own loader is there too (an unusual or static Node build
   // can omit the field); without either, glibc, the common case. A wrong guess is NOT caught by the checksum,
   // which proves the file is intact, not that it fits this machine: it surfaces as a failed `claude install`. Only the
   // x86_64 and aarch64 loaders are looked for because those are the only two arches Anthropic builds for Linux.
-  return muslLoader();
+  return muslLoader() && !glibcLoader();
 }
 /* without excludeNetwork a report walks every network handle (reverse DNS included), synchronously, inside
    the board mid-download. The C library is all this reads. */

@@ -2980,6 +2980,14 @@ test('#5419: on Linux the tmux for sign-in is create\'s picker (PATH, then the u
   assert.equal(connect.tmuxBinPath('win32', {}, () => false), '/opt/homebrew/bin/tmux', 'the Windows default is unchanged too');
 });
 
+test('#5419: with no report, a glibc box that also has musl installed (Debian musl package) is glibc', () => {
+  const at = (...files) => (f) => files.includes(f);
+  assert.equal(connect.detectMusl({ platform: 'linux', report: null, exists: at('/lib/ld-musl-x86_64.so.1', '/lib64/ld-linux-x86-64.so.2') }), false, 'x64 glibc + musl pkg');
+  assert.equal(connect.detectMusl({ platform: 'linux', report: null, exists: at('/lib/ld-musl-aarch64.so.1', '/lib/ld-linux-aarch64.so.1') }), false, 'arm64 glibc + musl pkg');
+  assert.equal(connect.detectMusl({ platform: 'linux', report: null, exists: at('/lib/ld-musl-x86_64.so.1', '/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2') }), false, 'multiarch glibc loader');
+  assert.equal(connect.detectMusl({ platform: 'linux', report: null, exists: at('/lib/ld-musl-x86_64.so.1') }), true, 'CONTROL: musl loader alone (Alpine) is musl');
+});
+
 test('#5419: the C-library report is read with network handles excluded, and the setting is put back', () => {
   if (!process.report) return;   // a Node built without report support has nothing to read
   const prevGet = process.report.getReport;
@@ -3118,6 +3126,7 @@ test('#5419: a "no tmux found" answer is not held, so a tmux installed after a r
     found = '/usr/bin/tmux';   // the person installs tmux and tries again within 30 s
     assert.equal(connect.tmuxBinPath('linux'), '/usr/bin/tmux', 'the cached "not found" hid a tmux installed since');
   } finally {
+    connect.resetForTests();   // the held /usr/bin/tmux must not reach a later test
     create.linuxTmuxBin = orig;
     if (saved === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = saved;
   }
