@@ -22,6 +22,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
+const securewrite = require('./securewrite');
 
 /* The auth pre-seed: gemini reads security.auth.selectedType and, when it is the
    `gemini-api-key` constant AND GEMINI_API_KEY is in the env, boots straight to
@@ -220,14 +221,12 @@ function ensurePrepared(settingsPath, bridgePath, opts) {
   if (!changed) return { prepared: true, changed: false };
   try {
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    /* Pid-suffixed staging like reporthook.js: a concurrent birth writing the
-       same shared default-home settings file must not share a temp name. The
-       rename stays atomic; this keeps two writers from clobbering each other's
-       staging file mid-write. */
-    const tmp = target + '.kosmos.' + process.pid + '.new';
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', prevMode !== null ? { mode: prevMode } : {});
-    if (prevMode !== null) fs.chmodSync(tmp, prevMode);
-    fs.renameSync(tmp, target);
+    /* #5434: through securewrite.writeSecret. Its temp name is unique per process, thread, start and
+       write, so two concurrent writers of this file never share a staging file (the reason this was
+       pid-suffixed). The temp is flushed before the rename; an existing file keeps its mode, a new one
+       takes the umask default (null); never rewritten in place (atomicOnly), so a failed save leaves
+       the file as it was. */
+    securewrite.writeSecret(target, JSON.stringify(data, null, 2) + '\n', prevMode, { atomicOnly: true });
   } catch {
     return { prepared: false, because: 'we could not save the settings file' };
   }

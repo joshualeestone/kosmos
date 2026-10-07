@@ -344,8 +344,15 @@ function syncDir(dir) {
  * attempts fail, throw the last attempt's error and leave the file as it was. For a file that
  * is not a secret and holds other content a failed write must never empty (an account's Claude
  * settings.json), where failing the save beats rewriting it in place.
+ *
+ * `mode` null or undefined (#5434 slice 3): create at the process umask default (0666 less the
+ * umask) and set no mode, exactly as a plain writeFileSync would. For callers that write a
+ * person's own config file, keep an existing file's mode by passing it, and must not choose a
+ * mode for a new one.
  */
 function writeSecret(file, data, mode, opts) {
+  const exactMode = mode !== null && mode !== undefined;
+  const createMode = exactMode ? mode : 0o666;
   /* #1793: sweep this target's directory of orphan temps a prior death left behind,
      once per directory per process, before we add our own. Best-effort: it never
      throws, and it deletes only a temp it can prove is dead (see reapOrphanTemps),
@@ -374,7 +381,7 @@ function writeSecret(file, data, mode, opts) {
          "needs death in the window" claim was false until this: no death needed.
          The flag flips the instant the inode exists, which is the only moment
          "we created it" is a fact rather than a proxy. */
-      const tfd = fs.openSync(tmp, 'wx', mode);
+      const tfd = fs.openSync(tmp, 'wx', createMode);
       created = true;
       try {
         /* 🛑 BEST EFFORT, AND IT MUST NOT BE FATAL. A chmod failure here (NFS
@@ -386,7 +393,7 @@ function writeSecret(file, data, mode, opts) {
            cleared. Measured, four umasks with `flag:'wx', mode:0600`:
            0000 -> 600, 0022 -> 600, 0077 -> 600, and 0600 -> 0. The last case is
            the real job. On the fd now, so there is no path to swap under it. */
-        try { fs.fchmodSync(tfd, mode); } catch { /* best effort, see above */ }
+        if (exactMode) { try { fs.fchmodSync(tfd, mode); } catch { /* best effort, see above */ } }
         const buf = Buffer.isBuffer(data) ? data : Buffer.from(String(data));
         let off = 0;
         while (off < buf.length) {
@@ -465,7 +472,7 @@ function writeSecret(file, data, mode, opts) {
   let wrote = false;
   try {
     fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_CREAT
-      | fs.constants.O_TRUNC | (NOFOLLOW || 0), mode);
+      | fs.constants.O_TRUNC | (NOFOLLOW || 0), createMode);
     /* 🛑 TIGHTEN BEFORE THE BYTES LAND, NOT AFTER. This is the window the whole
        module exists for, and `fchmodSync` on the SAME fd has no TOCTOU, so there
        is no reason to do it second.
@@ -478,7 +485,7 @@ function writeSecret(file, data, mode, opts) {
        to connect at all on such a mount, which is worse than loose-on-a-mount-they-
        chose. No arm pins it, deliberately: an arm that asserts a secret may land
        loose would read as a promise. Pre-existing on main, carried, not hidden. */
-    try { fs.fchmodSync(fd, mode); } catch { /* best effort, cost named above */ }
+    if (exactMode) { try { fs.fchmodSync(fd, mode); } catch { /* best effort, cost named above */ } }
     fs.writeFileSync(fd, data);
     flushOrThrow(fd);   // #5434: a real flush error lands in the restore below, as a failed write does
     wrote = true;
