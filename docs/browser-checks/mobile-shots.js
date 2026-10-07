@@ -10,21 +10,23 @@
  *
  *   NODE_PATH=$HOME/work/pw-runtime/node_modules \
  *     node docs/browser-checks/mobile-shots.js [--out DIR] [--screens a,b]
- *       [--sizes se,iphone15,promax,android,desktop] [--themes light,dark]
+ *       [--sizes se,iphone15,promax,android,android360,desktop] [--themes light,dark]
  *       [--engines chromium,webkit] [--strict] [--list] [--keep]
  *       [--data sample|store] [--scale css|device] [--remote]
  *
  * Output: DIR/<screen>--<size>--<theme>--<engine>.png plus DIR/report.md (every
  * shot, and every overflow found). Default DIR is a new temp folder, printed at
+ * the end. --strict exits 1 when anything overflows. --list prints the screens.
+ * --keep leaves the throwaway board running afterwards (address printed) so you
+ * can explore it by hand; Ctrl-C stops it and deletes its data.
  * --remote opens the board as the phone apps do, over Kosmos+ (kosmos#5510): at an address that is not this
  * computer's, so the board takes its remote phone layout (html.kremote: the Kosmos+ bar and its menu, agents
  * as a list of cards). The Android app ALWAYS shows that layout (it opens <computer>.kosmosplus.com), so
  * shots of the Android app need --remote; without it you get the board as it looks at the computer itself.
  * The address is a made-up host served from the throwaway board through the browser's own router, so nothing
- * leaves this computer.
- * the end. --strict exits 1 when anything overflows. --list prints the screens.
- * --keep leaves the throwaway board running afterwards (address printed) so you
- * can explore it by hand; Ctrl-C stops it and deletes its data.
+ * leaves this computer. Two differences from a real phone, neither shown by any screen today: a board redirect is
+ * followed by the router (the page never sees the 3xx), and the made-up http host is not a secure context, so no
+ * service worker registers.
  * --data store seeds a clean fleet for App Store and Play screenshots instead
  * of the stress-test sample (no stopped agent, no overlong names, no code
  * block); --scale device saves at the device's pixels, not CSS pixels. The
@@ -1646,7 +1648,7 @@ async function run() {
                  byte still comes from this board. Registered FIRST so the stubs below, registered after it, win
                  (Playwright tries the newest route first); they fetch through fetchBoard, which points back at the board. */
               if (args.remote) {
-                await ctx.route(REMOTE_BASE + '/**', async (r) => r.fulfill({ response: await fetchBoard(r) }));
+                await ctx.route(REMOTE_BASE + '/**', (r) => fetchBoard(r).then((res) => r.fulfill({ response: res }), () => r.abort()));   // board gone: fail now, not at the screen's timeout
               }
               if (DATA.connected) {
                 await ctx.route('**/api/status', async (r) => {
