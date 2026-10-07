@@ -434,18 +434,28 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   h.voiceOnEvent({ kind: 'stopped', id: first.id });
   assert.equal(pills.length, 1, 'not exactly one pill');
   assert.ok(btn.classList.contains('has-pill'), 'the mic still shows beside the pill instead of being replaced by it');
-  assert.deepEqual(pills[0].kids.map((k) => k.className), ['vp-x', 'vp-go'], 'the pill is not [X   Turn on in Settings]');
+  assert.deepEqual(pills[0].kids.map((k) => k.className), ['vh', 'vp-x', 'vp-go'], 'the pill is not [X   Turn on in Settings] with its hidden alert');
   assert.equal(go().attrs['aria-label'], 'Turn on in Settings');
   assert.match(go().innerHTML, /^<span class="vp-pre">Turn on in&nbsp;<\/span>Settings$/, 'the narrow label is not [X  Settings]');
   const msg = doc.boxes['d-say-msg'];
-  assert.ok(msg.textContent === '(speech refused)' && msg.classList.contains('vh'), 'the refusal is not said to a screen reader, or it shows as a sentence below the input');
-  assert.equal(doc.activeElement, go(), 'the keyboard focus was lost with the mic it replaced');
+  const alert = pills[0].kids[0];
+  assert.ok(alert.attrs.role === 'alert' && alert.textContent === '(speech refused)', 'the refusal is not said to a screen reader');
+  assert.equal(msg.textContent, '', 'a sentence was said below the input (and that line is shared with other messages)');
   go().handlers.click();
   const ask = posted.at(-1);
   assert.deepEqual([ask.op, ask.pane], ['settings', 'speech'], 'the label did not ask for the Speech Recognition pane');
+  // review 3: both were off. Back with speech on and the mic still refused, the same pill opens the Microphone pane.
+  h.voiceOnEvent({ kind: 'settings-next', pane: 'mic', id: 'not-this-visit' });
+  h.voiceOnEvent({ kind: 'settings-next', pane: 'https://example.com', id: ask.id });
+  go().handlers.click();
+  assert.equal(posted.at(-1).pane, 'speech', 'a next pane from another visit, or one that is not a pane, was taken');
+  h.voiceOnEvent({ kind: 'settings-next', pane: 'mic', id: posted.at(-1).id });
+  go().handlers.click();
+  const ask2 = posted.at(-1);
+  assert.deepEqual([ask2.op, ask2.pane], ['settings', 'mic'], 'after speech was turned on the pill still opens the Speech pane');
   h.voiceOnEvent({ kind: 'allowed', id: 'not-this-visit' });
   assert.equal(pills.length, 1, 'an "allowed" for another visit took the pill away');
-  h.voiceOnEvent({ kind: 'allowed', id: ask.id });
+  h.voiceOnEvent({ kind: 'allowed', id: ask2.id });
   assert.equal(pills.length, 0, 'the pill stayed after both were allowed');
   assert.ok(!btn.classList.contains('has-pill'), 'the mic did not come back');
   assert.equal(posted.at(-1).op, 'start', 'the mic did not start again by itself');
@@ -456,7 +466,6 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   x().handlers.click();
   assert.equal(pills.length, 0, 'X did not dismiss the pill');
   assert.ok(!btn.classList.contains('has-pill'), 'X did not put the mic back');
-  assert.ok(msg.textContent === '' && !msg.classList.contains('vh'), 'X left the hidden refusal behind, to show as a sentence');
   assert.equal(doc.activeElement, btn, 'X left the focus nowhere');
   assert.equal(posted.length, n, 'X asked the app for something');
   // the Microphone pane for a mic refusal
@@ -473,6 +482,17 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   h.voiceOnEvent({ kind: 'allowed', id: visit });
   assert.equal(pills.length, 0, 'the pill stayed after allowed in another view');
   assert.equal(posted.length, before, 'the mic started in a view the person had left: ' + JSON.stringify(posted.slice(before)));
+  h.set(CARD('april'), null);
+  // review 3: the place is where the person PRESSED Settings. Offered in one chat, pressed in another (the DM's mic is
+  // shared), "allowed" restarts the mic in the chat it was pressed from.
+  h.voiceToggle(btn);
+  h.voiceOnEvent({ kind: 'error', reason: 'mic-denied', id: posted.at(-1).id });
+  h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
+  h.set(CARD('casey'), null);
+  go().handlers.click();
+  const pressed = posted.at(-1).id;
+  h.voiceOnEvent({ kind: 'allowed', id: pressed });
+  assert.equal(posted.at(-1).op, 'start', 'the mic did not restart in the chat Settings was pressed from');
   h.set(CARD('april'), null);
   // CONTROL: not a denial, or restricted (Settings cannot undo it), offers no pill and says a sentence instead.
   for (const reason of ['speech-unanswered', 'speech-restricted', 'mic-restricted']) {

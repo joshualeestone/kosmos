@@ -204,14 +204,14 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
       const p = document.querySelector('.voice-pill');
       const r = p && p.getBoundingClientRect();
       return { n: document.querySelectorAll('.voice-pill').length, words: p ? p.textContent : '', micShown: getComputedStyle(document.getElementById('d-mic')).display !== 'none',
-        hidden: (() => { const m = document.getElementById('d-say-msg'); const mr = m.getBoundingClientRect(); return m.classList.contains('vh') && /not allowed/.test(m.textContent) && mr.width <= 1 && getComputedStyle(m).clipPath !== 'none'; })(), right: r ? r.right : 0, top: r ? r.top : 0, bottom: r ? r.bottom : 0, w: r ? r.width : 0 };
+        hidden: (() => { const a = p && p.querySelector('[role="alert"]'); if (!a) return false; const ar = a.getBoundingClientRect(); return /not allowed/.test(a.textContent) && ar.width <= 1 && getComputedStyle(a).clipPath !== 'none' && document.getElementById('d-say-msg').textContent === ''; })(), right: r ? r.right : 0, top: r ? r.top : 0, bottom: r ? r.bottom : 0, w: r ? r.width : 0 };
     });
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'voice-dm-settings-pill.png') });
     const pillRowOk = micAt && pill.top <= micAt.y + micAt.height && pill.bottom >= micAt.y && Math.abs(pill.right - (micAt.x + micAt.width)) <= 2;
     const nAsk = await page.evaluate(() => window.__voice.length);
     await page.click('.voice-pill .vp-go');
     const askSet = await page.evaluate((n) => window.__voice.slice(n), nAsk);
-    chk(pill.n === 1 && !pill.micShown && /^\u00d7\s*Turn on in\s+Settings$/.test(pill.words) && pill.hidden && pillRowOk
+    chk(pill.n === 1 && !pill.micShown && /Kosmos is not allowed[^\u00d7]*\u00d7\s*Turn on in\s+Settings$/.test(pill.words) && pill.hidden && pillRowOk
         && askSet.length === 1 && askSet[0].op === 'settings' && askSet[0].pane === 'mic',
       'V6 a refused microphone becomes one [X   Turn on in Settings] pill where the mic was, no sentence, and the label asks for the Microphone pane', JSON.stringify({ pill, micAt, askSet }));
     await page.click('.voice-pill .vp-x');

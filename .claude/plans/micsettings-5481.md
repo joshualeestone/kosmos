@@ -13,14 +13,15 @@ Card: joshualeestone/kosmos#5481 (Josh, 2026-10-07; scope updated by Josh 08:16 
 ## Design
 - native-app/main.swift VoiceBridge:
   - op `settings` with `pane` (`speech` or `mic` only; anything else opens nothing) opens the pane and marks a
-    Settings visit. On didBecomeActive, if both permissions are now authorized, emit `{kind:'allowed'}` once.
+    Settings visit with the page's id. The visit ends on the FIRST didBecomeActive, ready or not; then allowedEvent
+    says `allowed` (speech on, mic on or never asked) or `settings-next` with pane `mic` (speech on, mic refused).
   - restricted is told apart from denied (`speech-restricted`, `mic-restricted`).
   - Each permission answer is logged with its duration, so a refusal without a prompt shows as a few milliseconds.
 - web/index.html: on a desktop-bridge `mic-denied` or `speech-denied`, the mic gets class `has-pill` (hidden) and a
   `.voice-pill` is inserted after it. The label posts `{op:'settings', pane, id}`; `allowed` with that id clears the pill
-  and calls voiceToggle on the same mic, but only if the box is where it was when the pill was offered (voiceWhere: same
-  agent or room, shown, open); X clears it and focuses the mic. The refusal stays in the mic's live line, visually hidden
-  (.vh) while the pill shows. Other refusals keep their sentence.
+  and calls voiceToggle on the same mic, but only if the box is where it was when Settings was PRESSED (voiceWhere: same
+  agent or room, shown, open); X clears it and focuses the mic. The refusal is said by the pill's own hidden role=alert span, never the shared message line.
+  `settings-next` repoints the same pill to the Microphone pane. Other refusals keep their sentence.
 
 ## Measured (not built)
 The shipped binary is signed alone (identifier kosmos-app, Info.plist not bound). Two throwaway apps, signed both ways,
@@ -28,7 +29,7 @@ both got the system prompt on macOS 26.7.1, so that is not the cause there. Re-s
 the identity existing grants are keyed on.
 
 ## Tests
-- `--kosmos-app-voice-selftest`: 28 rows, including pane mapping, allowedEvent (the event and its Settings-visit id), readyToStart (speech allowed with the mic never asked counts as ready), and the restricted split.
+- `--kosmos-app-voice-selftest`: 29 rows, including pane mapping, allowedEvent (allowed, settings-next, nothing) (the event and its Settings-visit id), readyToStart (speech allowed with the mic never asked counts as ready), and the restricted split.
 - web.voice-4409.test.js: the pill, the X, `allowed`, and the controls.
-- docs/browser-checks/render-voice-4409.js: V6, V6b, V6c and V6d.
+- docs/browser-checks/render-voice-4409.js: V6, V6b, V6c, V6d and V6e.
 - design shots: the screen agent-chat-mic-settings.

@@ -65507,27 +65507,23 @@ function voiceCancel() {
    Settings pane (the app opens only the two panes it knows, never a URL from the page); X puts the plain mic back.
    When the person comes back with both allowed, the app says "allowed" and the same mic starts listening. */
 const VOICE_SETTINGS_PANE = { 'mic-denied': 'mic', 'speech-denied': 'speech' };
-const VOICE_SETTINGS = { btn: null, id: '', msg: null, said: '', where: '' };
+const VOICE_SETTINGS = { btn: null, id: '', pane: '', where: '' };
 function voiceSettingsClear() {
   document.querySelectorAll('.voice-pill').forEach((el) => el.remove());
   document.querySelectorAll('.micbtn.has-pill').forEach((b) => b.classList.remove('has-pill'));
-  const m = VOICE_SETTINGS.msg;
-  if (m) { m.classList.remove('vh'); if (m.textContent === VOICE_SETTINGS.said) m.textContent = ''; }   // never shown, so never left behind
-  Object.assign(VOICE_SETTINGS, { btn: null, id: '', msg: null, said: '', where: '' });
+  Object.assign(VOICE_SETTINGS, { btn: null, id: '', pane: '', where: '' });
 }
 function voiceSettingsOffer(btn, pane, said) {
   if (!btn || !btn.parentNode) return;
   voiceSettingsClear();
-  const hadFocus = document.activeElement === btn;
-  /* review 1: the refusal is still SAID (the mic's live line, role=alert, so a screen reader hears it even though a
-     click in the app does not move focus), but hidden from sight while the pill shows: no sentence below the input. */
-  voiceSay(btn, said);
-  const m = voiceMsgEl(btn);
-  if (m) { m.classList.add('vh'); VOICE_SETTINGS.msg = m; VOICE_SETTINGS.said = m.textContent; }
-  const box = document.getElementById(btn.getAttribute('data-voice-for') || '');
-  VOICE_SETTINGS.where = box ? voiceWhere(box) : '';   // review 2: "allowed" restarts only if the person is still here
+  VOICE_SETTINGS.pane = pane;
   const pill = document.createElement('span');
   pill.className = 'voice-pill';
+  /* Review 3: the refusal is said by the pill's own alert, hidden from sight (no sentence below the input), so a screen
+     reader hears it even though a click in the app moves no focus. Not the mic's message line: other messages share
+     that line (a send that is still going, a Create refusal), and hiding it would hide them too. */
+  const alert = document.createElement('span');
+  alert.className = 'vh'; alert.setAttribute('role', 'alert'); alert.textContent = said || '';
   const x = document.createElement('button');
   x.type = 'button'; x.className = 'vp-x'; x.textContent = '\u00d7';
   x.title = 'Dismiss'; x.setAttribute('aria-label', 'Dismiss, back to the microphone');
@@ -65540,13 +65536,15 @@ function voiceSettingsOffer(btn, pane, said) {
     const h = voiceBridge();
     if (!h || h.phone) return;
     VOICE.seq += 1;
-    VOICE_SETTINGS.btn = btn; VOICE_SETTINGS.id = 'set' + VOICE.seq;
-    h.postMessage({ op: 'settings', pane, id: VOICE_SETTINGS.id });
+    const box = document.getElementById(btn.getAttribute('data-voice-for') || '');
+    /* Review 3: where the person is when they press it (the DM's mic is shared by every agent's chat), so "allowed"
+       restarts the mic only if they are still there when they come back. */
+    Object.assign(VOICE_SETTINGS, { btn, id: 'set' + VOICE.seq, where: box ? voiceWhere(box) : '' });
+    h.postMessage({ op: 'settings', pane: VOICE_SETTINGS.pane, id: VOICE_SETTINGS.id });
   });
-  pill.append(x, go);
+  pill.append(alert, x, go);
   btn.classList.add('has-pill');
   btn.insertAdjacentElement('afterend', pill);
-  if (hadFocus) go.focus();   // the mic it replaced had focus; keep the keyboard where the person was
 }
 function voiceOnEvent(ev) {
   // #5481: "allowed" comes after the mic stopped (VOICE.btn is gone), so it is matched to the Settings visit itself.
@@ -65557,6 +65555,12 @@ function voiceOnEvent(ev) {
     const still = !!box && voiceWhere(box) === VOICE_SETTINGS.where;   // review 2: another agent, room or a closed dialog
     voiceSettingsClear();
     if (still && document.body.contains(btn) && !VOICE.btn) voiceToggle(btn);
+    return;
+  }
+  // Review 3: speech is now on but the mic is still refused (both were off); the same pill now opens the Microphone pane.
+  if (ev && ev.kind === 'settings-next') {
+    if (!VOICE_SETTINGS.btn || ev.id !== VOICE_SETTINGS.id || !['speech', 'mic'].includes(ev.pane)) return;
+    VOICE_SETTINGS.pane = ev.pane;
     return;
   }
   if (!ev || !VOICE.btn) return;   // a late word after a cancel goes nowhere

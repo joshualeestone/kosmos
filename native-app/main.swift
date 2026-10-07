@@ -1505,15 +1505,22 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         return speech == .authorized && (mic == .authorized || mic == .notDetermined)
     }
     /// #5481 review 2: the whole decision on coming back from Settings, PURE so the selftest pins the event and its
-    /// id (the page matches "allowed" to the Settings visit by that id, never to the listening session's).
+    /// id (the page matches it to the Settings visit by that id, never to the listening session's). Review 3: with
+    /// speech now on but the mic still refused (both were off; speech is asked first), it names the next pane, so the
+    /// pill does not keep opening the Speech pane.
     static func allowedEvent(awaiting: Bool, speech: SFSpeechRecognizerAuthorizationStatus, mic: AVAuthorizationStatus, settingsId: String) -> [String: String]? {
-        guard awaiting, readyToStart(speech: speech, mic: mic) else { return nil }
-        return ["kind": "allowed", "id": settingsId]
+        guard awaiting else { return nil }
+        if readyToStart(speech: speech, mic: mic) { return ["kind": "allowed", "id": settingsId] }
+        if speech == .authorized && mic == .denied { return ["kind": "settings-next", "pane": "mic", "id": settingsId] }
+        return nil
     }
     private func recheckAfterSettings() {
-        guard let event = Self.allowedEvent(awaiting: awaitingAllow, speech: SFSpeechRecognizer.authorizationStatus(),
-                                            mic: AVCaptureDevice.authorizationStatus(for: .audio), settingsId: settingsId) else { return }
+        guard awaitingAllow else { return }
+        // Review 3: a visit lasts until the first return to the app, ready or not. A later return (hours on, the
+        // permission turned on some other way) must not start the mic without a press.
         awaitingAllow = false
+        guard let event = Self.allowedEvent(awaiting: true, speech: SFSpeechRecognizer.authorizationStatus(),
+                                            mic: AVCaptureDevice.authorizationStatus(for: .audio), settingsId: settingsId) else { return }
         emit(event)
     }
 
@@ -6542,7 +6549,8 @@ if CommandLine.arguments.contains("--kosmos-app-voice-selftest") {
     row(VoiceBridge.allowedEvent(awaiting: true, speech: .authorized, mic: .notDetermined, settingsId: "set7") == ["kind": "allowed", "id": "set7"], "#5481 review 2: coming back ready says allowed with the Settings visit's own id")
     row(VoiceBridge.allowedEvent(awaiting: false, speech: .authorized, mic: .authorized, settingsId: "set7") == nil, "#5481 review 2: no Settings visit, no allowed")
     row(VoiceBridge.allowedEvent(awaiting: true, speech: .denied, mic: .authorized, settingsId: "set7") == nil, "#5481 review 2 CONTROL: still off says nothing")
-    let expected = 28   // #5311: + Dictation off, + its control; #5481: + 12
+    row(VoiceBridge.allowedEvent(awaiting: true, speech: .authorized, mic: .denied, settingsId: "set7") == ["kind": "settings-next", "pane": "mic", "id": "set7"], "#5481 review 3: speech now on, the mic still refused: the next pane is the Microphone one")
+    let expected = 29   // #5311: + Dictation off, + its control; #5481: + 13
     if ran != expected { print("\nvoice-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
     if bad > 0 { print("\nvoice-check: \(bad) row(s) wrong"); exit(1) }
     print("\nvoice-check: all good (\(ran) rows)")
