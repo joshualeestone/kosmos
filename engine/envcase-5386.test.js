@@ -112,6 +112,9 @@ test('#5386: on a Mac or Linux a differently spelled world name in a copy is a d
     assert.equal(out.AGENT_WORKFORCE_HOME, undefined, 'a lowercase variable was promoted into the store home');
     assert.equal(out.agent_workforce_home, '/x');
     assert.equal(out.kosmos_pre_world_roots, '{"roots":{}}', 'a lowercase variable was read as the marker');
+    const del = worlds.preWorldEnv({ kosmos_world: 'mine', KOSMOS_WORLD: 'w2', PATH: '/bin' });
+    assert.equal(del.kosmos_world, 'mine', 'a lowercase variable was deleted with the world');
+    assert.equal(del.KOSMOS_WORLD, undefined);
   } finally { worlds.setWorldCaseFoldPlatformForTests(null); }
 });
 

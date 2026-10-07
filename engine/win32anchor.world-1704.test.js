@@ -58,6 +58,7 @@ test('#1704 a world applied OVER a sandbox anchors in the sandbox, not the world
    rather than listed, so a new top-level require in worlds.js (#5386 added ./win32env) cannot leave the stand-in short
    of a module and fail this file for a reason that has nothing to do with #1704. A require inside a function is lazy
    and only runs on a path this file never takes, so it is not followed. */
+const LOAD_TIME_REQUIRE = /^(?:[^\s/][^\n]*?)?require\(['"]\.\/([\w.-]+)['"]\)/gm;
 function withTopLevelDeps(seeds) {
   const out = []; const todo = seeds.slice();
   while (todo.length) {
@@ -66,7 +67,7 @@ function withTopLevelDeps(seeds) {
     out.push(f);
     const src = fs.readFileSync(nodePath.join(__dirname, f), 'utf8');
     const code = src.replace(/\/\*[\s\S]*?\*\//g, '');
-    for (const m of code.matchAll(/^(?:[^\s/][^\n]*?)?require\(['"]\.\/([\w.-]+)['"]\)/gm)) todo.push(/\.(js|json)$/.test(m[1]) ? m[1] : m[1] + '.js');
+    for (const m of code.matchAll(LOAD_TIME_REQUIRE)) todo.push(/\.(js|json)$/.test(m[1]) ? m[1] : m[1] + '.js');
   }
   return out;
 }
@@ -168,7 +169,7 @@ test('#5386: the stand-in engine carries every module worlds.js loads at load ti
 });
 
 test('#5386: the load-time require reader follows every top-level form and skips indented ones (control)', () => {
-  const re = /^(?:[^\s/][^\n]*?)?require\(['"]\.\/([\w.-]+)['"]\)/gm;
+  const re = LOAD_TIME_REQUIRE;
   const src = "const a = require('./a');\nlet b = require(\"./b\");\nconst {\n  c1,\n} = require('./c');\nrequire('./d');\nconst e = require('./e.json');\nfunction f() {\n  return require('./lazy');\n}\n// require('./commented')\n";
   assert.deepEqual([...src.matchAll(re)].map((m) => m[1]), ['a', 'b', 'c', 'd', 'e.json']);
 });

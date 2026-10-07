@@ -106,3 +106,10 @@ How often a real Windows environment carries a non-canonical spelling of these n
   depending on the canonicalisation having run first.
 - Scan: compound assignment (??=, ||=, &&=) and a world name by constant key (env[X.PRE_WORLD_ROOTS_ENV_VAR]) with
   controls. Require reader: only same-folder './x' modules, stated.
+
+## Review 8 (sonnet), 2026-10-07
+- delVar/setVar now share canonWorldNames's platform check (foldsCase): on a Mac or Linux the world code treats a copy
+  exactly as main did (plain access), so a lowercase kosmos_world or agent_workforce_data is neither promoted nor
+  deleted. The Mac test asserts the delete half too (red when delVar folds everywhere). The account-name sites outside
+  worlds.js still fold on every platform, as stated above.
+- win32anchor's require reader and its control share one regex constant.

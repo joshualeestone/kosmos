@@ -205,21 +205,23 @@ function readWorldMarker(env) {
   } catch { return null; }
 }
 
-/* #5386: on a COPY of the environment every spelling of a name is the same variable on Windows, so sets and deletes
+/* #5386: on a Windows COPY of the environment every spelling of a name is the same variable, so sets and deletes
    go through win32env. process.env itself is left to plain access: on Windows Node already matches its names in any
    case, and on a Mac a differently spelled name is a different variable this process must not lose. */
-const delVar = (env, k) => { if (env === process.env) delete env[k]; else envDelete(env, k); };
-const setVar = (env, k, v) => { if (env === process.env) env[k] = v; else envSet(env, k, v); };
+let caseFoldPlatform = null;   // test seam: null = process.platform
+function setWorldCaseFoldPlatformForTests(p) { caseFoldPlatform = p || null; }
+/* Two spellings are one variable only on Windows; on a Mac or Linux they are two, and a copy keeps both. */
+const foldsCase = () => (caseFoldPlatform || process.platform) === 'win32';
+const delVar = (env, k) => { if (env === process.env || !foldsCase()) delete env[k]; else envDelete(env, k); };
+const setVar = (env, k, v) => { if (env === process.env || !foldsCase()) env[k] = v; else envSet(env, k, v); };
 /* On a Windows copy, move every world name (the world, its marker, the three roots, and AGENT_WORKFORCE_HOME, which
    baseRoot reads) to its usual spelling, so the exact-spelling reads and writes after it see one key. A no-op on
    process.env, and on a Mac or Linux. */
-let caseFoldPlatform = null;   // test seam: null = process.platform
-function setWorldCaseFoldPlatformForTests(p) { caseFoldPlatform = p || null; }
 function canonWorldNames(env) {
   if (!env || env === process.env) return env;
   /* Windows only: there two spellings ARE one variable. On a Mac or Linux a lowercase agent_workforce_home is a
      different variable that store and baseRoot ignore; promoting it would move the store (review 7). */
-  if ((caseFoldPlatform || process.platform) !== 'win32') return env;
+  if (!foldsCase()) return env;
   for (const k of [launchidentity.WORLD_ENV_VAR, PRE_WORLD_ROOTS_ENV_VAR, ...WORLD_ROOT_ENV_VARS, 'AGENT_WORKFORCE_HOME']) envCanon(env, k);
   return env;
 }
