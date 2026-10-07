@@ -1,4 +1,4 @@
-// Browser-check-surface: topnotes uabort-slot login-adv-slot
+// Browser-check-surface: topnotes uabort-slot login-adv-slot utoast-slot uchip utxt
 'use strict';
 
 /**
@@ -334,6 +334,15 @@ const CASES = [
       return { abort: [ra.left, ra.right], login: [rl.left, rl.right], xGap: rl.right - x.right, goToX: rg ? x.left - rg.right : null };
     }).then((e) => e && { abort: e.abort.map(r1), login: e.login.map(r1), xGap: Math.round(e.xGap), goToX: e.goToX === null ? null : Math.round(e.goToX) });
     const lined = (e) => !!e && Math.abs(e.abort[0] - e.login[0]) < 1 && Math.abs(e.abort[1] - e.login[1]) < 1;
+    const wide = (e, k) => e[k][1] - e[k][0];
+    // Centred (the old rule), the two cards' own widths: how much spare width the narrower one has. Every control below
+    // is measured against this, not against a number fitted to one machine's fonts.
+    const centredSpare = async () => {
+      await pg.evaluate(() => { document.getElementById('topnotes').style.alignItems = 'center'; });
+      const e = await edges();
+      await pg.evaluate(() => { document.getElementById('topnotes').style.alignItems = ''; });
+      return e ? { e, spare: Math.abs(wide(e, 'abort') - wide(e, 'login')) } : null;
+    };
     const now = await edges();
     chk(!!now, '5443: precondition: the update-abort and login cards both render', JSON.stringify(now));
     chk(lined(now), '5443: on desktop the two cards share both edges (one column)', JSON.stringify(now));
@@ -343,17 +352,16 @@ const CASES = [
       '5443: the stretched login card keeps Refresh login and its close X at its right edge', JSON.stringify(now));
     const box = await pg.$('#topnotes');
     if (box) await box.screenshot({ path: path.join(OUT, 'login-expiry-two-notices-5443.png') });
-    // CONTROL for the line-up: centred instead (the old rule), the same two cards are different widths.
-    await pg.evaluate(() => { document.getElementById('topnotes').style.alignItems = 'center'; });
-    const centred = await edges();
-    chk(!!centred && Math.abs((centred.abort[1] - centred.abort[0]) - (centred.login[1] - centred.login[0])) >= 8,
+    // CONTROL for the line-up: centred instead, the same two cards are different widths (if they were not, there would
+    // be nothing to line up and the assertion above would pass on the text alone).
+    const centred = await centredSpare();
+    chk(!!centred && centred.spare >= 8,
       '5443: CONTROL: centred instead, the same two cards are different widths (so the line-up above is the rule, not the text)', JSON.stringify(centred));
-    await pg.evaluate(() => { document.getElementById('topnotes').style.alignItems = ''; });
-    // CONTROL for the right edge: stretched, but the words not taking the spare width, the X moves in by the card's
-    // spare width (since #5407 the login card carries Refresh login, so it is only about 20px narrower than the column).
+    // CONTROL for the right edge: stretched, but the words not taking the spare width, the X moves in by that spare width.
     const unGrow = await pg.addStyleTag({ content: '#login-adv-slot .utoast .utxt { flex: 0 1 auto !important; }' });
     const packed = await edges();
-    chk(!!packed && !!now && packed.xGap >= now.xGap + 15, '5443: CONTROL: stretched with the words not growing, the X moves in from the right edge', JSON.stringify(packed));
+    chk(!!packed && !!now && !!centred && packed.xGap >= now.xGap + centred.spare - 2,
+      '5443: CONTROL: stretched with the words not growing, the X moves in from the right edge by the spare width', JSON.stringify({ packed, spare: centred && centred.spare }));
     await unGrow.evaluate((el) => el.remove());
     const restored = await edges();
     chk(lined(restored) && restored.xGap <= 12, '5443: the control style is gone, so the X is back at the right edge before the next arm', JSON.stringify(restored));
@@ -363,6 +371,8 @@ const CASES = [
     await pg.waitForTimeout(300);
     const phone = await edges();
     chk(lined(phone) && phone.login[0] >= 0 && phone.login[1] <= 375, '5443: at 375 the two cards share both edges and stay on screen', JSON.stringify(phone));
+    const phoneCentred = await centredSpare();
+    chk(!!phoneCentred && phoneCentred.spare >= 8, '5443: CONTROL: at 375, centred instead, the same two cards are different widths', JSON.stringify(phoneCentred));
     await pg.setViewportSize({ width: 1400, height: 800 });
     await pg.waitForTimeout(300);
 
@@ -385,6 +395,7 @@ const CASES = [
     await pg.evaluate(() => { const c = document.querySelector('#utoast-slot .uchip'); if (c) { c.style.display = 'inline-flex'; c.style.marginInline = '0'; } });
     const left = await chip();
     chk(!!left && Math.abs(left.chipMid - left.cardMid) >= 20, '5443: CONTROL: not centred, the chip sits off the column centre', JSON.stringify(left));
+    await pg.evaluate(() => { const c = document.querySelector('#utoast-slot .uchip'); if (c) c.removeAttribute('style'); });
     chk(errs.length === 0, '5443: no console errors', errs.join(' | '));
     await pg.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
     await pg.close();
