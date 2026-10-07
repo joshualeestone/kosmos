@@ -99,3 +99,31 @@ test('#5382: taking the part back failing outright still frees the slot, and say
     assert.equal(q.CAP_STARTS.has('fcr5'), false, 'the slot is still held after the take-back failed');
   } finally { tasks.assignPart = real; s.board.restore(); }
 });
+
+test('#5382: a failover the task refuses (its part finished since it was picked) frees the slot it took', () => {
+  const s = setup('fch6', 'fcr6');
+  try {
+    assert.ok(tasks.setPartClosed(s.pid, s.n, 1, new Date().toISOString()).ok !== false);
+    const roster = [{ sessionName: 'fch6', name: 'fch6', runner: 'claude', state: 'rate_limited' }, agy('fcr6', 'idle')];
+    const g = withDeliver(chat.DELIVERY.PLACED, () => givePart(s.pid, s.n, 1, 'fcr6', { assigner: true, roster, from: 'fch6' }));
+    assert.equal(g.ok, false, 'a finished part was moved');
+    assert.equal(s.partOf().who, 'fch6');
+    assert.equal(q.CAP_STARTS.has('fcr6'), false, 'the slot is still held although nothing was moved');
+  } finally { s.board.restore(); }
+});
+
+test('#5382: a task marked built while an unreached failover was in flight stays built; the part goes to nobody', () => {
+  const s = setup('fch7', 'fcr7');
+  const real = chat.deliver;
+  try {
+    const roster = [{ sessionName: 'fch7', name: 'fch7', runner: 'claude', state: 'rate_limited' }, agy('fcr7', 'idle')];
+    // The person marks the task built while the line to the receiver is being typed, and the line does not land.
+    chat.deliver = () => { tasks.setBuilt(s.pid, s.n, { person: true, note: 'done by hand' }); return { state: chat.DELIVERY.COULD_NOT, because: null }; };
+    const g = givePart(s.pid, s.n, 1, 'fcr7', { assigner: true, roster, from: 'fch7' });
+    assert.equal(g.ok, false);
+    const t = tasks.byNumber(projects.readAll().find((x) => x.id === s.pid), s.n);
+    assert.ok(t.builtAt, 'taking the part back un-built the task');
+    assert.equal(s.partOf().who, null, 'the part should go to nobody rather than back onto a built task');
+    assert.equal(q.CAP_STARTS.has('fcr7'), false);
+  } finally { chat.deliver = real; s.board.restore(); }
+});

@@ -516,6 +516,9 @@ function assignPart(projectId, n, partId, who, made) {
       /* #5382: a failover move (the Assigner taking a rate-limited agent's part) is refused if the part was finished, or
          its task built, put on hold or its project paused, since it was picked. */
       if (made && made.failover === true && (x.closedAt || t.closedAt || t.builtAt || isOnHold(t) || projects.isPaused(p))) { taken = true; stopped = true; return x; }
+      /* #5382 (post-merge review 2): a failover's take-back to the agent it came from is a move to a named agent, which
+         would drop a built mark set while the line was in flight; `keepBuilt` refuses it so the caller gives it to nobody. */
+      if (made && made.keepBuilt === true && whoKey && t.builtAt) { taken = true; stopped = true; return x; }
       moved = (x.who || null) !== whoKey;
       givenOpen = moved && !!whoKey && !x.closedAt;
       if (moved && whoKey && !(p.agents || []).includes(whoKey)) {

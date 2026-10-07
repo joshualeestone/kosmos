@@ -519,8 +519,9 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
       // since), the part goes to nobody, as an ordinary give's does, rather than staying on an agent never told.
       // Nothing reached the pane, so the slot is free again FIRST: a take-back that throws must not keep it (merge review).
       require('./engine/agyquota').releaseCapStart(capSlot);
+      // keepBuilt: a task marked built meanwhile is not un-built by moving the part back; it goes to nobody instead.
       const takeBack = (to) => {
-        try { return tasks.assignPart(projectId, n, partId, to, { via: 'assigner', onlyIfWho: who }); }
+        try { return tasks.assignPart(projectId, n, partId, to, { via: 'assigner', onlyIfWho: who, keepBuilt: true }); }
         catch (err) { return { ok: false, because: String((err && err.message) || err) }; }
       };
       let back = takeBack(failoverFrom);

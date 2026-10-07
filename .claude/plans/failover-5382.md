@@ -170,3 +170,9 @@ well have been a 5-hour limit. What would widen it: a reset time read from Codex
   full (with a working Gemini colleague, so it can fail), kept when reached, freed when unreached (back to its source,
   or to nobody when the source has left), and freed when the take-back fails. Mutations: the old order reddens 1,
   skipping the release on a failover reddens 3. 311 related tests and guards green.
+- Post-merge review 2: (1) the slot freed when the failover write itself is refused was untested: ADDED (a part
+  finished since it was picked; removing the release reddens it). (2) the take-back to the agent the part came from is
+  a move to a named agent, which drops a built mark set while the line was in flight: FIXED with `keepBuilt` on
+  assignPart (refuses that move on a built task, so the take-back falls through to nobody, which keeps the mark);
+  pinned, mutation red. Left as decided: heardBy throwing after the failover write leaves the part on the receiver,
+  as an ordinary give does (the catch is defensive; heardBy turns failures into verdicts today).
