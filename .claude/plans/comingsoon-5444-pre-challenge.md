@@ -22,3 +22,7 @@ What the blind reviewer checked:
 - every caller of teamSaySeeded: all are coming-soon notes, none an error that needed the caution box;
 - hidden handling: the global [hidden] { display: none !important } (web/index.html:571) keeps the empty line out of the layout;
 - the look: the new line matches the intro hint above it in light, dark and Kosmos+.
+- what else goes through teamSaySeeded: only '' (clear), 'Ready-made teams are coming soon.' and 'Creating a ready-made team is coming soon. You can upload an org chart now.' (the second is effectively unreachable); org-chart errors use #team-orgchart-msg, which stays .rolelimit and is untouched;
+- the inline margin keeps the old 18px top, so the vertical gap is unchanged; --k-ink-2 is defined for light, auto dark, forced dark and the Kosmos+ skin;
+- the diff has no non-ASCII characters and no em dash in any spelling.
+Observation, not a defect: two plain grey hint lines now sit 34px apart above the gold button; the plan records that gap as a decision.
