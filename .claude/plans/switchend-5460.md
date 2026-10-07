@@ -47,3 +47,10 @@ in the minute before that sweep can read switch_unreadable rather than before_on
   with staged errors; each case has a control (person's OFF reads before_on; ENOTDIR and a wrong shape not retried).
   Perturbation: disabling the status change and the retry turns 2 tests red.
 - All 55 community test files and the file-scanning guards: 993 tests, 0 fail.
+
+## Review 2
+- Retry rounds are spaced at least 2 s apart (RETRY_GAP_MS), so a file that keeps changing (a slow writer) costs a
+  reader at most one 150 ms round per 2 s, not one per read.
+- The person's OFF (endOnPeriodNow) also closes any open window, since the switch was just read.
+- Accepted: lastFailed is one module-wide key, so a second separate scanner lock on an UNCHANGED file, with no good
+  read between, is not retried. That is the price of not stalling every reader on a lasting failure.

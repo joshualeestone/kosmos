@@ -74,7 +74,7 @@ test('#5460: after an unreadable switch is repaired, an item that period left un
   const repaired = readState();
   assert.equal(typeof repaired.since, 'string', 'the repaired switch starts a new period');
   assert.equal(typeof repaired.endedUnreadable[0].until, 'string', 'the first sweep that reads it again closes the window');
-  assert.equal(stateOfTitle('ava', 'Made while on'), 'switch_unreadable', 'after the repair it read "switched off before it went out"');
+  assert.equal(stateOfTitle('ava', 'Made while on'), 'switch_unreadable', 'after the repair it must still say the switch could not be read, not "switched off"');
   assert.equal(stateOfTitle('ava', 'Made while unreadable'), 'switch_unreadable', 'an item made while still unreadable');
   await tick();
   post('ava', 'Made after the repair');
@@ -200,10 +200,46 @@ test('#5460 review 1: a file that stays corrupt is read again once, not on every
     assert.deepEqual(sw.read(), { on: false, ok: false });
     assert.equal(calls, 1, 'the same corrupt file made every reader wait again');
     fs.writeFileSync(sw.FILE, '{"on": tru');           // a writer changed it (size differs)
+    sw._endRetryGap();                                 // and the retry gap has passed; the failure is still remembered
     calls = 0;
     sw.read();
     assert.equal(calls, sw.RETRIES + 1, 'CONTROL: a file that changed is a new failure, retried');
+    sw._endRetryGap();
+    calls = 0;
+    sw.read();
+    assert.equal(calls, 1, 'CONTROL: unchanged since, so not retried even after the gap');
     fs.writeFileSync(sw.FILE, JSON.stringify({ on: true }) + '\n');
     assert.deepEqual(sw.read(), { on: true, ok: true }, 'repaired');
   } finally { fs.readFileSync = real; sw._setPause(null); }
+});
+
+test('#5460 review 2: a file that keeps changing does not stall every read: retry rounds are spaced apart', () => {
+  fresh();
+  fs.mkdirSync(path.dirname(sw.FILE), { recursive: true });
+  const real = fs.readFileSync;
+  let calls = 0;
+  let n = 0;
+  fs.readFileSync = function (file, ...rest) { if (file === sw.FILE) calls++; return real.call(this, file, ...rest); };
+  sw._setPause(() => {});
+  try {
+    fs.writeFileSync(sw.FILE, '{"on": ' + 'x'.repeat(++n));   // a new half-written file for each read
+    sw.read();
+    assert.equal(calls, sw.RETRIES + 1, 'the first failure is retried');
+    fs.writeFileSync(sw.FILE, '{"on": ' + 'x'.repeat(++n));
+    calls = 0;
+    sw.read();
+    assert.equal(calls, 1, 'a second round inside the gap stalled the reader again');
+  } finally { fs.readFileSync = real; sw._setPause(null); }
+});
+
+test('#5460 review 2: the person switching OFF closes an open window at once', async () => {
+  fresh();
+  position = { on: true, ok: true };
+  startPeriod();
+  await tick();
+  position = { on: false, ok: false };
+  await cs.sweep();                                    // window open
+  assert.equal(typeof readState().endedUnreadable[0].until, 'undefined');
+  cs.endOnPeriodNow();                                 // what the OFF route calls
+  assert.equal(typeof readState().endedUnreadable[0].until, 'string');
 });

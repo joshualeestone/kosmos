@@ -277,8 +277,9 @@ function sinceForOnPeriod(st) {
 // A sweep that finds the switch OFF ends the ON period, so posts published while OFF
 // are not due when it comes back ON.
 // #5460: when it ends because the switch could not be READ (not the person switching it off), the period is kept in
-// `endedUnreadable` ({ since, at, until }), so `kosmos community status` still says why its unsent items did not go after
-// the switch is repaired and a new period starts. The newest ENDED_UNREADABLE_KEEP are kept.
+// `endedUnreadable` ({ since, at, until }; `at`, when the sweep ended it, is kept for the log reader and read by no
+// code), so `kosmos community status` still says why its unsent items did not go after the switch is repaired and a
+// new period starts. The newest ENDED_UNREADABLE_KEEP are kept.
 const ENDED_UNREADABLE_KEEP = 20;
 function endOnPeriod(st, why) {
   if (typeof st.since !== 'string') return;
@@ -306,7 +307,9 @@ function closeUnreadableWindow(st) {
    Best effort; the sweep still ends it too. */
 function endOnPeriodNow() {
   const st = loadJson(stateFile());
-  if (st) endOnPeriod(st);
+  if (!st) return;
+  endOnPeriod(st);
+  closeUnreadableWindow(st);   // #5460 review 2: the switch was just read (to turn it OFF), so an open window ends here
 }
 
 /** 🛑 A TEST RUN MUST NEVER PHONE HOME: node's test runner sets this, and nothing else does. */
