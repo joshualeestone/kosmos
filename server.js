@@ -3798,7 +3798,7 @@ function withAgentSortFields(list, supplied) {
     try { births = create.createdLog(); } catch { births = null; }
     try { communityOn = communitysend.switchOn(); } catch { communityOn = false; }
     if (communityOn) {
-      // #5314: PUBLISHED posts only (the card counts posts sent, not held/quarantined ones);
+      // #5314: PUBLISHED posts only (the card counts posts published on the board, not held/quarantined ones);
       // the community nudge keeps postTimesAll (all statuses). See communitystore.
       try { communityTimes = communitystore.publishedPostTimesAll(); } catch { communityTimes = null; }
     }
