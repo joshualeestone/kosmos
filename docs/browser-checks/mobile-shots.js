@@ -196,6 +196,24 @@ async function stubRebootNote(page) {
   const note = { lastAliveAt: new Date(now - 9 * 60000).toISOString(), bootAt: new Date(now - 7 * 60000).toISOString(), upAt: new Date(now - 60000).toISOString() };
   await page.route('**/api/board/restart-note', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ note }) }).catch(() => {}));
 }
+/* #5444: the projects read with one project changed by `edit(proj)`, so a screen can show a state the throwaway board
+   cannot reach on its own. Only the read is faked; the board is not changed, so no `after` is needed. */
+async function editProjects(page, projectId, edit) {
+  await page.route('**/api/projects', async (route) => {
+    if (route.request().method() !== 'GET') return route.continue();
+    let res, body;
+    try { res = await route.fetch(); body = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+    for (const proj of body.projects || []) if (proj.id === projectId) edit(proj);
+    await route.fulfill({ response: res, body: JSON.stringify(body), headers: { ...res.headers(), 'content-type': 'application/json' } });
+  });
+}
+/* #5444: open the seed's project, then its task 1's page. */
+async function openTaskOne(page, projectId) {
+  await openTab(page, 'projects');
+  await page.click(`#pj-list .pj-row[data-project="${projectId}"]`);
+  await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+  await page.evaluate(async () => { await pjReload(); openTaskPage(1); });
+}
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
   { name: 'home', owner: 'Raiden', go: async () => {} },
@@ -691,6 +709,47 @@ const SCREENS = [
   }, after: async (page, data) => {   // put the task back to a one-off, so no later screen shows the rule
     const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id) + '/task/1/repeat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clear: true }) }).then((r) => r.status), data.projectId);
     if (st !== 200) throw new Error('could not clear the repeat rule after the shot (' + st + ')');
+  } },
+  /* #5444: Token Usage while it reads (the #5362 spinner beside the reading line). The usage read is held open, so
+     the shot is the loading state and never the figures. */
+  { name: 'usage-loading', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
+    await page.route('**/api/usage*', () => {});   // never answered: the page stays on its reading line
+    await at(page, '?tab=settings&sec=usage');
+    await page.waitForSelector('#usage-msg .spin', { state: 'visible', timeout: 8000 });
+  }, verify: async (page) => {
+    const t = await page.evaluate(() => document.getElementById('usage-msg').innerText);
+    if (!/Reading the transcripts/.test(t)) throw new Error('Token Usage is not on its reading line: ' + JSON.stringify(t));
+  } },
+  /* #5444 (#4787 slice 2): a daily task whose rule was set three days ago and has never run, so its line leads with
+     the missed runs in red. The fields come from the engine's own taskrepeat.fieldsOf, so the words are the board's. */
+  { name: 'task-missed', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
+    const taskrepeat = require(path.join(REPO, 'engine', 'taskrepeat'));
+    await editProjects(page, data.projectId, (proj) => {
+      for (const t of proj.tasks || []) {
+        if (t.number !== 1) continue;
+        t.repeat = taskrepeat.normalise({ every: 'day', at: '09:00' });
+        t.repeatSetAt = new Date(Date.now() - 3 * 864e5).toISOString();
+        Object.assign(t, taskrepeat.fieldsOf(t));
+      }
+    });
+    await openTaskOne(page, data.projectId);
+    await page.waitForSelector('#tk-repeat-line.missed:not([hidden])', { timeout: 8000 });
+    await page.evaluate(() => document.getElementById('tk-repeat-row').scrollIntoView({ block: 'center' }));
+  }, verify: async (page) => {
+    const t = await page.evaluate(() => document.getElementById('tk-repeat-line').innerText);
+    if (!/^Missed /.test(t)) throw new Error('the repeat line does not lead with a missed run: ' + JSON.stringify(t));
+  } },
+  /* #5444 (#5287): a joined project's header, with who shared it and what they wrote. The owner name is invented. */
+  { name: 'project-shared', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
+    await editProjects(page, data.projectId, (proj) => {
+      proj.shared = { owner: 'harbourstudio', description: 'Our spring range, from first sketches to the shop pages.' };
+    });
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-shared:not([hidden])', { state: 'visible', timeout: 8000 });
+  }, verify: async (page) => {
+    const t = await page.evaluate(() => document.getElementById('pj-one-shared').innerText);
+    if (!t.includes('Shared by harbourstudio.kosmosplus.com.')) throw new Error('the project header does not say who shared it: ' + JSON.stringify(t));
   } },
   /* #4470: the Tasks view in the new look, for the side by side with 'tasks'. */
   { name: 'nl-tasks', owner: 'Mona Lisa', go: async (page) => {
