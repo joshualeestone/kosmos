@@ -589,7 +589,7 @@ test('#5446: BUSY names the queue (queued-heavy.sh, --light) on stderr; CLEAR an
   const busy = run([realRun()]);
   assert.equal(busy.code, 1, busy.out);
   assert.match(busy.stderr, /holds no place in line/);
-  assert.match(busy.stderr, /\/tools\/queued-heavy\.sh' "<what>" <command>/);
+  assert.match(busy.stderr, /\/queued-heavy\.sh' "<what>" <command>/);   // the installed copy or a repo copy
   assert.match(busy.stderr, /--light/);
   assert.equal(busy.stdout.trim().split('\n').filter((l) => /^heavy-gate: (BUSY|CLEAR)/.test(l)).length, 1, 'the stdout verdict is still one line');
   const named = (busy.stderr.match(/bash '([^']+queued-heavy\.sh)'/) || [])[1];
@@ -617,13 +617,17 @@ test('#5446: in a repo with a worktree, the hint names the main checkout\'s queu
     git('-C', main, 'add', '-A');
     git('-C', main, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture');
     git('-C', main, 'worktree', 'add', '-q', wt);
-    const hint = () => {
-      const r = spawnSync('bash', [path.join(wt, 'tools', 'heavy-gate.sh')], { encoding: 'utf8', env: { ...process.env, KOSMOS_HG_SNAPSHOT: '/dev/null', KOSMOS_HG_CLAIM: '1 a release holds it', KOSMOS_HG_TWICE_SECONDS: '0' } });
+    const noInstalled = path.join(base, 'no-installed-copy.sh');   // this Mac may have the real installed copy
+    const hint = (installed = noInstalled) => {
+      const r = spawnSync('bash', [path.join(wt, 'tools', 'heavy-gate.sh')], { encoding: 'utf8', env: { ...process.env, KOSMOS_HG_SNAPSHOT: '/dev/null', KOSMOS_HG_CLAIM: '1 a release holds it', KOSMOS_HG_TWICE_SECONDS: '0', KOSMOS_HG_INSTALLED_QH: installed } });
       assert.equal(r.status, 1, r.stdout + r.stderr);
       return (r.stderr.match(/bash '([^']+queued-heavy\.sh)'/) || [])[1];
     };
     const real = (p) => fs.realpathSync(p);
     assert.equal(real(hint()), real(path.join(main, 'tools', 'queued-heavy.sh')), 'with the marker, the main checkout\'s copy');
+    const inst = path.join(base, 'installed-queued-heavy.sh');
+    fs.writeFileSync(inst, '#!/bin/bash\n');
+    assert.equal(real(hint(inst)), real(inst), 'an installed copy, where it exists, wins over both repo copies');
     const q = path.join(main, 'tools', 'queued-heavy.sh');
     fs.writeFileSync(q, fs.readFileSync(q, 'utf8').replace(/#5446-lib-fallback/g, ''));   // an older copy, as a stale main has
     assert.equal(real(hint()), real(path.join(wt, 'tools', 'queued-heavy.sh')), 'without the marker, the worktree\'s own copy');
