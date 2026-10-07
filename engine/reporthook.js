@@ -294,7 +294,8 @@ function writeSettings(target, data, prevMode) {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     /* #5434: through securewrite.writeSecret. Its temp name is unique per process, thread, start and
        write, so two concurrent writers of this file never share a staging file (the reason this was
-       pid-suffixed). The temp is flushed before the rename; an existing file keeps its mode, a new one
+       pid-suffixed). The temp is flushed before the rename; an existing file keeps its mode (where the
+       file system lets it be set; see the plan), a new one
        takes the umask default (null); never rewritten in place (atomicOnly), so a failed save leaves
        the file as it was. */
     securewrite.writeSecret(target, JSON.stringify(data, null, 2) + '\n', prevMode, { atomicOnly: true });
