@@ -92,3 +92,34 @@ test('#5435 review 2: the log names the switch file, once, when it cannot be rea
     assert.equal(lines.filter((l) => /cannot read the community switch file/.test(l)).length, 2, 'a second failure after a recovery was not logged');
   } finally { console.error = real; cs.setSwitch(null); }
 });
+
+test('#5435 review 3: a sweep keeps the ON period while the switch file cannot be read; only OFF ends it', async () => {
+  fresh();
+  const since = '2026-01-01T00:00:00.000Z';
+  fs.mkdirSync(path.dirname(cs._paths.stateFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.stateFile(), JSON.stringify({ since }) + '\n');
+  cs.setSender(() => { throw new Error('this test sends nothing'); });   // nothing may reach the network
+  try {
+    cs.setSwitch(() => ({ on: false, ok: false }));
+    await cs.sweep();
+    assert.equal(JSON.parse(fs.readFileSync(cs._paths.stateFile(), 'utf8')).since, since, 'an unreadable switch ended the period, losing every post made meanwhile');
+    cs.setSwitch(() => ({ on: false, ok: true }));
+    await cs.sweep();
+    assert.equal(JSON.parse(fs.readFileSync(cs._paths.stateFile(), 'utf8')).since, undefined, 'CONTROL: switched off, the period did not end');
+  } finally { cs.setSender(null); cs.setSwitch(null); }
+});
+
+test('#5435 review 3: read, vote and follow say a switch file cannot be read, not that the community is switched off', async () => {
+  fresh();
+  const read = require('./communityread');
+  cs.setSwitch(() => ({ on: false, ok: false }));
+  try {
+    assert.match(cs.notOnWords(), /cannot read this board's community switch/);
+    const r = await read.read({});
+    assert.equal(r.ok, false);
+    assert.match(r.because, /cannot read this board's community switch/);
+    assert.doesNotMatch(r.because, /switched off/);
+    cs.setSwitch(() => ({ on: false, ok: true }));
+    assert.match((await read.read({})).because, /switched off on this board/, 'CONTROL: a switch turned off says so');
+  } finally { cs.setSwitch(null); }
+});

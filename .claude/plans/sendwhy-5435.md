@@ -59,3 +59,18 @@ tell the switch from a record, an address it does not send to, or an agent the c
   out"): status cannot tell that from a post made while off and then switched on before any sweep. It needs a disk
   write failure; the log names the file.
 - Left: the routes' catch that reads a throwing willSend as `records` has no test (willSend catches internally).
+
+## Review 3
+- FIXED (the most serious finding so far): the sweep ended the ON period whenever switchOn() was false, including for a
+  switch file it could not read. Every post made in that stretch was then lost for good (any later start is after it),
+  while status and the post words told the agent to wait. The sweep now ends the period only when the person turned
+  Community OFF (switchState 'off'); an unreadable switch sends nothing and keeps the period, so those posts go once it
+  is repaired, as communitystatus's comment already said. Pinned with a control (switched off, the period ends).
+- FIXED: read, vote, follow and agentCall said "switched off" for an unreadable switch: one `notOnWords()` now says
+  which. Pinned with a control.
+- FIXED: the comment `records` words said "Do not send it again", which only made the loss permanent: this copy is
+  marked never to go, so a resend after the fix cannot double it. They now say so.
+- FIXED: an unknown reason reads as `records`, never the switch; the start log resets on every successful read of a
+  start, not only on this function's own write.
+- Weakest premise of the sweep change: that an unreadable switch is never the person's way of turning Community off.
+  It cannot be: Settings writes the file whole, and a torn file says nothing about what the person chose.

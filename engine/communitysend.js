@@ -241,6 +241,13 @@ function switchState() {
   else loggedOnce.delete('switch');
   return state;
 }
+/* #5435 review 3: why the community is not on, for the commands that refuse while it is not (read, vote, follow, and
+   agentCall): a switch file that cannot be read is not the person switching it off. */
+function notOnWords() {
+  return switchState() === 'unreadable'
+    ? 'Kosmos cannot read this board\'s community switch just now, so the Kosmos+ community is not on; tell your person, who turns it on again in Settings'
+    : 'the Kosmos+ community is switched off on this board';
+}
 const loggedOnce = new Set();
 function logOnce(key, line) { if (!loggedOnce.has(key)) { loggedOnce.add(key); console.error(line); } }
 function switchFileName() { try { return require('./communityswitch').FILE; } catch { return 'community.json'; } }
@@ -252,7 +259,7 @@ function sinceForOnPeriod(st) {
   // copy of the state across a network wait. Read the file again: a start already there is the period's start, and
   // overwriting it with a later one would drop every comment made in between.
   const fresh = loadJson(stateFile());
-  if (fresh && typeof fresh.since === 'string') { st.since = fresh.since; return fresh.since; }
+  if (fresh && typeof fresh.since === 'string') { st.since = fresh.since; loggedOnce.delete('start'); return fresh.since; }
   const now = new Date().toISOString();
   try { saveJson(stateFile(), { ...(fresh || st), since: now }); }
   catch (err) {
@@ -1421,11 +1428,15 @@ async function sweepAvatars(keys, on, { removals }) {
 
 async function sweepOnce(now) {
   if (!sender && underTest()) return { skipped: 'test' };
-  const on = switchOn();
+  const sw = switchState();
+  const on = sw === 'on';
   // An unreadable state.json is left for repair like the other files: no post is sent
   // (its `since` is unknown), while deletes and take-down reads still run.
   const st = loadJson(stateFile());
-  if (!on && st) endOnPeriod(st);
+  // #5435 review 3: only the person turning it OFF ends the period. A switch file that cannot be read sends nothing,
+  // but ending the period then lost every post made meanwhile for good (a later start is after them), while the agent
+  // was told to wait; kept, they go once the file is repaired, as communitystatus already said they would.
+  if (sw === 'off' && st) endOnPeriod(st);
   if (!endpointAllowed()) {
     if (!reportedCorrupt.has('insecure:' + endpoint())) {
       reportedCorrupt.add('insecure:' + endpoint());
@@ -1932,7 +1943,7 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
   const local = (because) => ({ ok: false, local: true, because });
   const ctx = { cap: RESPONSE_CAP, deadline };
   const budget = () => ({ remainingMs: deadline == null ? Infinity : deadline - Date.now(), requestMs: timeoutMs });
-  if (!switchOn()) return local('the Kosmos+ community is switched off on this board');
+  if (!switchOn()) return local(notOnWords());
   if (!endpointAllowed()) return local('the community address is not https, so nothing is sent to it');
   if (!sender && underTest()) return local('no network in tests');
   const publicGet = async (p) => { const r = await request('GET', p, ctx); return { status: r.status, json: r.json }; };
@@ -2132,14 +2143,15 @@ const NOT_SENDING = Object.freeze({
   comment: Object.freeze({
     off: 'Commented, but Kosmos is not sending to the community right now, so it will not go.',
     address: 'Commented, but this board\'s community address is not one Kosmos sends to, so it will not go. Tell your person.',
-    records: 'Commented, but Kosmos cannot read or write its community send records just now, so it will not go. Do not send it again. If this keeps happening, tell your person: the board\'s log says which record.',
+    records: 'Commented, but Kosmos cannot read or write its community send records just now, so this copy will not go. Tell your person: the board\'s log says which record. Once it is fixed you can send it again; this copy never goes, so it cannot appear twice.',
     refused: 'Commented, but the community has refused this agent, so it will not go.',
   }),
 });
-/** The sentence for a kind ('post' or 'comment') and willSend's reason; an unknown reason reads as the switch's. */
+/** The sentence for a kind ('post' or 'comment') and willSend's reason. Review 3: an unknown reason reads as a record
+ * fault, never as the switch's, so a future "no" without a reason cannot bring back the misreading #5435 fixed. */
 function notSendingWords(kind, why) {
   const set = NOT_SENDING[kind === 'post' ? 'post' : 'comment'];
-  return set[why] || set.off;
+  return set[why] || set.records;
 }
 
 /**
@@ -2312,7 +2324,7 @@ function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }
 function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : ms; }
 
 module.exports = {
-  switchOn, switchState, willSend, NOT_SENDING, notSendingWords, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete,
+  switchOn, switchState, notOnWords, willSend, NOT_SENDING, notSendingWords, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
   sendAddress: endpoint,   // #5415: communitystatus takes a sent item's public link host from it, and whether there is one
   setSender, resetPauses, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
