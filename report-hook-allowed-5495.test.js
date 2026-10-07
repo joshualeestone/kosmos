@@ -91,13 +91,14 @@ test('#5495 node hook (Windows): allowed requests report working, the rest needs
   assert.equal(nodeHook.kosmosAllows('not json', KOSMOS_ENV), false, 'unreadable input: not allowed');
 });
 
-test('#5495 shell: an allow hook that hangs is stopped at 5 s and reads as not allowed', { skip: process.platform === 'win32' }, () => {
+test('#5495 shell: an allow hook that hangs is stopped by the clock bound and reads as not allowed', { skip: process.platform === 'win32' }, () => {
   const hang = path.join(SANDBOX, 'hanging-node');
   fs.writeFileSync(hang, '#!/bin/sh\nexec sleep 30\n', { mode: 0o755 });
   const t0 = Date.now();
   assert.match(runShell(req('Bash', { command: 'ls' }), { env: { ...KOSMOS_ENV, [ap.ENV_NODE]: hang } }), /^report\|needs_you\|/);
   const took = Date.now() - t0;
-  assert.ok(took >= 4500 && took < 12000, 'stopped by the 5 s bound, not by the hang ending: ' + took + ' ms');
+  // At least 5 whole seconds of $SECONDS; well under the hang's 30 s and the hook entry's own 15 s cap.
+  assert.ok(took >= 4500 && took < 14000, 'stopped by the clock bound, not by the hang ending: ' + took + ' ms');
 });
 
 test('#5495 the shell cases above really ran', { skip: process.platform === 'win32' }, () => {

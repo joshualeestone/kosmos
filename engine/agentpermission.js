@@ -9,7 +9,8 @@
  *   - E, plus a PreToolUse hook answering "allow": did NOT run (a PreToolUse allow does not beat an ask rule), though the
  *     hook fired.
  *   - F, plus a PermissionRequest hook answering { behavior: "allow" }: the rm RAN, no prompt.
- * So Kosmos gives its own Claude agents (and only them) a settings file with one PermissionRequest hook, passed at launch
+ * So Kosmos gives its own Claude agents (and only them) a settings file with one PermissionRequest hook (and, since
+ * #5495, two env names the report hook reads), passed at launch
  * with `--settings <file>` (bin/agent-supervisor.sh on macOS and Linux, win32launch on Windows). Claude Code merges it
  * with the person's own settings, so everything else they set (their other rules, connectors, hooks) still applies, and
  * the person's own ~/.claude/settings.json is never written. A deny rule still blocks: it never reaches a prompt.
