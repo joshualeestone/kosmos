@@ -1,7 +1,7 @@
 'use strict';
 /**
  * #5450: board-run tells the board who started it, for the restart note (engine/restartnote.js): the supervisor (the
- * login item, or a crash relaunch) unless `kosmos start` left its fresh mark just before kickstarting the supervised
+ * login item, or a crash relaunch) unless a person's `kosmos start` left its fresh mark (written first, before the stop marker goes, for) the supervised
  * board, and a direct start always says person. Harness as cli.busy-health-4466.test.js's board-run arm: a fake node
  * that writes its environment.
  *
@@ -94,7 +94,7 @@ test('#5450 review 4: with no clock to judge it by, a mark that is there reads a
   assert.equal(r.by, 'person');
 });
 
-test('#5450 review 1: an unreadable mark never stops board-run (set -e): the board still starts, as the supervisor\'s', async (t) => {
+test('#5450 review 1: an unreadable mark never stops board-run (set -e): the board still starts, as unknown (review 5)', async (t) => {
   if (process.getuid && process.getuid() === 0) { t.skip('root reads a mode-000 file'); return; }
   const r = await boardRun(String(Math.floor(Date.now() / 1000)), { mode: 0o000 });
   assert.equal(r.code, 0);

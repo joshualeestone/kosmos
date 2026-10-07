@@ -17,7 +17,8 @@
  * A deliberate stop: on a Mac, `kosmos stop` removes the last-alive record once the board is gone (install/kosmos).
  * Every other stop (quitting the app, Windows, which has no stop verb, and switching to another Kosmos, which stops
  * this one's board) leaves it, so stopping Kosmos, restarting the computer and starting it again within the window
- * still makes a note. #5450 is the fix for that: the supervisor saying it started the board. Clearing on SIGTERM in the board was
+ * still makes a note. #5450 fixed that on a Mac (a person's start never makes a note there); Windows waits for its
+ * launcher to say who started the board. Clearing on SIGTERM in the board was
  * rejected: an ordinary shutdown sends SIGTERM to every process too, so a Mac would lose the note for every restart.
  *
  * Kept for SHOW_MS or until dismissed. Every read and write is best effort: this is a courtesy, never a gate.
@@ -78,13 +79,15 @@ function atStart(deps = {}) {
   const startedBy = deps.startedBy;
   const prev = readJson(aliveFile());
   const note = noteFor({ now, uptimeSec, lastAliveAt: prev && prev.at, startedBy });
+  if (note) writeJson(noteFile(), { ...note, dismissed: false });
+  beat(now);
   // The person's mark is consumed only now that it has been used, so a board that died before this point was
-  // relaunched still knowing a person started it (review 1). Only the launcher's own mark file, by its name.
+  // relaunched still knowing a person started it (review 1). Review 9: and only AFTER the beat: a board killed between
+  // the two would otherwise leave no mark and an alive record from before the boot, a false note on the next start.
+  // Only the launcher's own mark file, by its name.
   if (typeof deps.personMark === 'string' && path.basename(deps.personMark) === 'board.person-start') {
     try { fs.unlinkSync(deps.personMark); } catch { /* not there, or already gone */ }
   }
-  if (note) writeJson(noteFile(), { ...note, dismissed: false });
-  beat(now);
   return note;
 }
 

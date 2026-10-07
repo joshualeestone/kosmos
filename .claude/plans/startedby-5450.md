@@ -33,11 +33,14 @@ though the login item did bring Kosmos back by itself.
   reads it, so the note is not made. Telling a system relaunch from a person's open needs the app (Swift) to pass
   KOSMOS_START_BY=supervisor on that launch: recorded on #5450 for whoever takes the app's half.
 ## Verification
-- cli.startedby-5450: board-run with no mark says supervisor; a fresh mark says person and is consumed; a stale or
-  unreadable mark is not a person and is consumed; source pins for the mark before the kickstart and the direct start.
-- engine/restartnote-5359: the supervisor makes a note 40 minutes after the boot (control: unknown does not); a person
-  never does (control: unknown and quick does); the other rules hold; atStart removes the variable and ignores an
-  unknown value. Mutations: each of the four parts reddens.
+- cli.startedby-5450: board-run with no mark says supervisor; a fresh mark says person and is LEFT for the board; a
+  stale mark says supervisor, one that cannot be judged (unreadable, not a time, future, oversized) says unknown, and
+  board-run deletes neither; both sides of the 120 s bound; no clock reads a present mark as a person's; `kosmos start`
+  writes the mark first (also when the board is already running) and the watchdog's does not; `kosmos stop` removes
+  the mark and a killed start's temp; the launchers strip KOSMOS_START_BY; source pins for each.
+- engine/restartnote-5359: the supervisor makes a note late after the boot (controls: unknown and 'unknown' do not); a
+  person never does; atStart removes the mark whoever started the board, only by its name, and only after its beat.
+- server.restartnote-5359: server.js removes the three variables at load and hands the launcher's word to atStart.
 
 ## Review 1
 - FIXED (blocker): board-run could stop before starting the board under set -e (an unreadable mark, or "0999999999"
@@ -124,3 +127,17 @@ though the login item did bring Kosmos back by itself.
 - A start that finds the board running leaves a mark that goes stale in 120 s; anything that later restarts the board
   without board-run or `kosmos start` leaves it there, stale, which reads as the supervisor's: the real starter.
 - Comment in the reclaim path brought up to date (the person's mark comes first).
+
+## Review 9
+- FIXED (dangerous direction, narrow): atStart removed the person's mark before it wrote its alive record; a board
+  killed between the two (a reclaim kill, kickstart -k) left no mark and an alive record from before the boot, so the
+  next board-run read the supervisor's and a false note followed. The beat now comes first; pinned (the alive record is
+  this start's at the moment the mark is removed); the old order reddens.
+- REJECTED (recorded): judging the mark by "written after this boot" instead of "at most 120 s old". It would close the
+  review 3 crash-loop limit and the false negative of a mark left just before a reboot, but not the review 8 clock-jump
+  limit it was also offered for (the boot time is now minus uptime, so a forward jump moves it past the mark too). For
+  two narrow cases it is not worth reworking a converged design. What would change it: a report of either case.
+- Left, decided: the Mac app's `kosmos stop` racing a person's `kosmos start` can remove the fresh mark (stop removes
+  it first thing); the start then reads as the supervisor's. Two near-simultaneous commands from the person.
+- Stale text fixed: board-run's header, the test file's header and one test title, this plan's Verification section,
+  and restartnote.js's header (a person's start makes no note on a Mac now; Windows still waits).

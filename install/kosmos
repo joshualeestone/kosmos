@@ -1317,7 +1317,7 @@ cmd_board_run() {
   # keyed (PathState) on this SAME #2955 marker, so the supervisor will not
   # relaunch us while it exists; this guard only covers the one-shot RunAtLoad at
   # load, which fires regardless of PathState. `kosmos start` clears the marker
-  # (cmd_start, at the very top) and kickstarts us.
+  # (cmd_start, near the top, just after the #5450 person's mark) and kickstarts us.
   if [ -f "$STOP_MARKER" ]; then
     say "Kosmos was deliberately stopped; not starting. Resume with: kosmos start"
     exit 0

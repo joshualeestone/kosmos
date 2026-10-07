@@ -143,6 +143,15 @@ test('#5450: atStart uses the launcher\'s word it is given, and consumes the per
       rn.atStart({ now: () => NOW, uptime: () => up(5), startedBy: who, personMark: mark });
       assert.equal(fs.existsSync(mark), false, 'the mark was left after a start by ' + who);
     }
+    // Review 9: the mark goes only AFTER this start's beat, so a kill in between never leaves no mark AND an old alive
+    // record (a false note on the next start).
+    fs.writeFileSync(mark, '1');
+    fs.writeFileSync(rn._files.aliveFile(), JSON.stringify({ at: at(6 * MIN) }));
+    const realUnlink = fs.unlinkSync;
+    let aliveAtUnlink = null;
+    fs.unlinkSync = (p) => { if (p === mark) aliveAtUnlink = JSON.parse(fs.readFileSync(rn._files.aliveFile(), 'utf8')).at; return realUnlink(p); };
+    try { rn.atStart({ now: () => NOW, uptime: () => up(5), startedBy: 'person', personMark: mark }); } finally { fs.unlinkSync = realUnlink; }
+    assert.equal(aliveAtUnlink, new Date(NOW).toISOString(), 'the mark was removed before this start wrote its alive record');
     // Only the launcher's own mark file, by its name: a stray path is never deleted.
     const other = path.join(dir, 'something-else');
     fs.writeFileSync(other, 'x');
