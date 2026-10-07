@@ -1623,7 +1623,7 @@ if [ "$_vdep_rc" != 0 ]; then
   else
     echo "vercel deploy exited $_vdep_rc and this cut's $V build was not seen served after $((10#${KOSMOS_DEPLOY_LANDED_TRIES:-24})) checks. It may still land."
     echo "   Before any revert or re-cut: compare the served .sha256 with this cut's sha, printed above ($_my_sha). The local copy is about to be removed."
-    echo "   This cut now restores the site checkout and removes its local tarball, as on any failure before step 8 finished; where a line below says \"never served\", read \"not seen served\"."
+    echo "   This cut now restores the site checkout and removes its local tarball, as on any failure before step 8 finished; its \"removed: ... (this cut created it and never served it ...)\" lines mean \"not seen served\"."
     exit "$_vdep_rc"
   fi
 fi

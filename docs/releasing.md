@@ -193,13 +193,17 @@ cut's sha before it starts waiting:
   ```
   The same sha means this cut landed late; a different one means another build of `<V>` is served.
   **If it landed late, the release shipped: do not revert and do not re-cut.** Step 7b had already
-  pushed the site commit before deploying, so the site repo matches what is served. What did not run is
-  steps 9 onward, so run their checks by hand
+  pushed the site commit before deploying, so the site repo matches what is served. Steps 9 onward did
+  not run: 9 (what users receive), 9b (the served bundle is the frozen tree), 9c (the served `.pkg`), 9d
+  (the manifest), 9e (the outside audit) and the steps after them. Step 9's checks can be run by hand
   (`KOSMOS_VERIFY_POINTER=latest-staging.json KOSMOS_VERIFY_SETUP=setup-staging SITE=<site> REPO=<repo> bash tools/verify-served.sh`
-  on a staging cut), confirm prod's `latest.json` and `/setup` did not move, and refresh the local site
-  checkout from origin before the next cut (the trap restored it to the pre-cut state).
+  on a staging cut); the others stay unverified unless you repeat them, so say so where you record the
+  release. Confirm prod's `latest.json` and `/setup` did not move, and refresh the local site checkout
+  from origin before the next cut (the trap restored it to the pre-cut state). The cut's own record still
+  shows it failing, with the CLI's exit code.
 
-The cut prints this sha before it deploys, so it is in the log however the cut ends. A deploy stopped by
+The cut prints this sha before it deploys, so it is in the log however the cut ends. Keep the log: once
+the cut ends, the trap deletes the local `.sha256`, and that log line is then the only record of it. A deploy stopped by
 a signal (exit 130, 137 or 143), or a cut whose own `.sha256` cannot be read (it printed
 `<unreadable>`), fails at once without waiting.
 
