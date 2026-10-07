@@ -48,25 +48,25 @@ test('#4920 setup.sh writes no systemd unit of its own (one unit: piece B\'s)', 
 });
 
 test('#4920 the install snippet passes KOSMOS_HOME and the port, and says lingering or not', () => {
-  const lb = standIn(`exports.boardUnitPath = (home) => home + '/unit-file'; exports.installBoard = (home, port) => { require('fs').writeFileSync(${JSON.stringify(path.join(WORK, 'args'))}, JSON.stringify([home, port])); return { ok: true, lingering: home.endsWith('L') }; };`);
+  const lb = standIn(`exports.loadedBoardJob = (home) => ({ ok: true, active: require('fs').existsSync(home + '/active') }); exports.installBoard = (home, port) => { require('fs').writeFileSync(${JSON.stringify(path.join(WORK, 'args'))}, JSON.stringify([home, port])); return { ok: true, lingering: home.endsWith('L') }; };`);
   let r = run(installSnippet, [lb, '/home/u/kosmosL', '16180']);
   assert.equal(r.status, 0);
-  assert.equal(r.stdout, 'new lingering', 'no unit file before: a new unit');
+  assert.equal(r.stdout, 'loose lingering', 'systemd not running it: loose');
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(WORK, 'args'), 'utf8')), ['/home/u/kosmosL', 16180], 'port arrives as a number');
   r = run(installSnippet, [lb, '/home/u/kosmos', '16180']);
   assert.equal(r.status, 0);
-  assert.equal(r.stdout, 'new not lingering');
-  const had = fs.mkdtempSync(path.join(WORK, 'had-'));
-  fs.writeFileSync(path.join(had, 'unit-file'), '');
-  r = run(installSnippet, [lb, had, '16180']);
-  assert.equal(r.stdout, 'had not lingering', 'the unit file was there before: an update');
+  assert.equal(r.stdout, 'loose not lingering');
+  const held = fs.mkdtempSync(path.join(WORK, 'held-'));
+  fs.writeFileSync(path.join(held, 'active'), '');
+  r = run(installSnippet, [lb, held, '16180']);
+  assert.equal(r.stdout, 'held not lingering', 'systemd already running it: held');
 });
 
 test('#4920 the install snippet exits non-zero with systemd\'s reason, for a refusal and for a throw', () => {
-  let r = run(installSnippet, [standIn(`exports.boardUnitPath = () => '/nonexistent/u'; exports.installBoard = () => ({ ok: false, because: 'systemd did not enable the board: no bus' });`), '/h', '1']);
+  let r = run(installSnippet, [standIn(`exports.installBoard = () => ({ ok: false, because: 'systemd did not enable the board: no bus' });`), '/h', '1']);
   assert.equal(r.status, 3);
   assert.equal(r.stdout, 'refused: systemd did not enable the board: no bus');
-  r = run(installSnippet, [standIn(`exports.boardUnitPath = () => '/nonexistent/u'; exports.installBoard = () => { throw new Error('the board port is not a port number\\n    at somewhere'); };`), '/h', 'x']);
+  r = run(installSnippet, [standIn(`exports.installBoard = () => { throw new Error('the board port is not a port number\\n    at somewhere'); };`), '/h', 'x']);
   assert.equal(r.status, 3);
   assert.equal(r.stdout, 'refused: the board port is not a port number', 'one line of the error, never a stack');
 });
@@ -107,6 +107,7 @@ function world({ systemctl = true, app = true, nodeOut = '', nodeRc = 0, units =
   const bin = path.join(root, 'stubs');
   fs.mkdirSync(bin, { recursive: true });
   fs.symlinkSync('/usr/bin/id', path.join(bin, 'id'));
+  fs.symlinkSync('/bin/cat', path.join(bin, 'cat'));   // the fake node reads its heredoc
   if (systemctl) { fs.writeFileSync(path.join(bin, 'systemctl'), '#!/bin/sh\nexit 0\n'); fs.chmodSync(path.join(bin, 'systemctl'), 0o755); }
   fs.mkdirSync(path.join(home, 'bin'), { recursive: true });
   fs.writeFileSync(path.join(home, 'bin', 'kosmos'), '#!/bin/sh\necho "$@" >> "' + path.join(root, 'kosmos.log') + '"\n');
@@ -130,7 +131,7 @@ function runBlock(block, w, { off = 'no' } = {}) {
 }
 
 test('#4920 install: linger on hands the board to systemd and says it starts with the computer', () => {
-  const w = world({ nodeOut: 'new lingering' });
+  const w = world({ nodeOut: 'loose lingering' });
   const r = runBlock(INSTALL_BLOCK, w);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /INFO Kosmos will start itself when this computer starts/);
@@ -138,7 +139,7 @@ test('#4920 install: linger on hands the board to systemd and says it starts wit
 });
 
 test('#4920 install: linger off says it stops at logout and names the loginctl line', () => {
-  const w = world({ nodeOut: 'new not lingering' });
+  const w = world({ nodeOut: 'loose not lingering' });
   const r = runBlock(INSTALL_BLOCK, w);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /stops when you log out: linger is off/);
@@ -147,7 +148,7 @@ test('#4920 install: linger off says it stops at logout and names the loginctl l
 });
 
 test('#4920 install: a board set to stay off is not restarted and says why', () => {
-  const w = world({ nodeOut: 'new lingering' });
+  const w = world({ nodeOut: 'loose lingering' });
   const r = runBlock(INSTALL_BLOCK, w, { off: 'yes' });
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /will not start itself at login \(set off\)/);
@@ -169,7 +170,7 @@ test('#4920 install: a refusal gives systemd\'s reason, an empty failure says th
 });
 
 test('#4920 install: no systemctl says so and does nothing else', () => {
-  const w = world({ systemctl: false, nodeOut: 'new lingering' });
+  const w = world({ systemctl: false, nodeOut: 'loose lingering' });
   const r = runBlock(INSTALL_BLOCK, w);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /systemctl not available/);
@@ -191,15 +192,15 @@ test('#4920 uninstall: each case names its real cause', () => {
   w = world({ systemctl: false, units: ['kosmos-board.service'] });
   r = runBlock(UNINSTALL_BLOCK, w);
   assert.match(r.stdout, /systemctl is not available/);
-  assert.doesNotMatch(r.stdout, /app folder is gone/, 'blamed a missing app folder that is there');
+  assert.doesNotMatch(r.stdout, /app code or runtime is missing/, 'blamed a missing app that is there');
   w = world({ app: false, units: ['kosmos-board.service', 'kosmos-board.abcd1234.service'] });
   r = runBlock(UNINSTALL_BLOCK, w);
-  assert.equal((r.stdout.match(/app folder is gone/g) || []).length, 2, 'each leftover unit is named: ' + r.stdout);
+  assert.equal((r.stdout.match(/app code or runtime is missing/g) || []).length, 2, 'each leftover unit is named: ' + r.stdout);
   assert.match(r.stdout, /may be this install's or another Kosmos's/);
 });
 
-test('#4920 install: on an update (the unit was already there) the board is not bounced a second time', () => {
-  const w = world({ nodeOut: 'had lingering' });
+test('#4920 install: a board systemd already runs (an update) is not bounced a second time', () => {
+  const w = world({ nodeOut: 'held lingering' });
   const r = runBlock(INSTALL_BLOCK, w);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /INFO Kosmos will start itself when this computer starts/, 'the linger sentence reads the second word');
