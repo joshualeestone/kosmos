@@ -14,6 +14,7 @@
  *   node --test create.provider-accounts-3296.test.js
  */
 const test = require('node:test');
+const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -41,6 +42,9 @@ const create = require('./engine/create');
 const accountenv = require('./engine/accountenv');
 const geminiAccounts = require('./engine/geminiaccounts');
 const grokAccounts = require('./engine/grokaccounts');
+/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that asserts the launchd plist itself
+   measures nothing there. Skipped on Linux only, naming where Linux covers it; macOS and Windows unchanged. */
+const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS plist test on a Linux host (#5432): it asserts the plist's environment text; on Linux the account folder is the unit's Environment= line: linuxjob.test.js (readUnitJob round-trips configDir)" } : {};
 
 // DRY_RUN for the whole file: createAgent must never spawn a real agent here. The
 // engine refuses to leave dry-run without an injected runner (setDryRun(false)
@@ -63,11 +67,11 @@ test('geminiStorageHome: a per-account dir gets .gemini appended; the default (n
   assert.equal(create.geminiStorageHome(null), create.defaultAgentGeminiHome(), 'the default account keeps ~/.gemini directly');
 });
 
-test('plist round-trip (gemini): plistFor writes GEMINI_CLI_HOME = account dir VERBATIM, readJob reads it back', () => {
+test('plist round-trip (gemini): plistFor writes GEMINI_CLI_HOME = account dir VERBATIM, readJob reads it back', LINUX_PLIST_5432, () => {
   const acct = nodePath.join(SANDBOX, '.gemini-rt');
-  const xml = create.plistFor('grt', '/bin/gemini', '/bin/tmux', 'gemini-2.5-flash', acct, 'gemini');
+  const xml = jobfix.jobFor('grt', '/bin/gemini', '/bin/tmux', 'gemini-2.5-flash', acct, 'gemini');
   assert.match(xml, new RegExp('<key>GEMINI_CLI_HOME</key><string>' + acct.replace(/[.]/g, '\\.') + '</string>'), 'GEMINI_CLI_HOME is the account dir with NO .gemini transform in the plist');
-  const pp = create.plistPath('grt');
+  const pp = jobfix.jobPath('grt');
   fs.mkdirSync(nodePath.dirname(pp), { recursive: true });
   fs.writeFileSync(pp, xml);
   const job = create.readJob('grt');
@@ -78,11 +82,11 @@ test('plist round-trip (gemini): plistFor writes GEMINI_CLI_HOME = account dir V
   assert.equal(create.geminiStorageHome(job.configDir), nodePath.join(acct, '.gemini'));
 });
 
-test('plist round-trip (grok): GROK_HOME = account dir verbatim, readJob reads it back', () => {
+test('plist round-trip (grok): GROK_HOME = account dir verbatim, readJob reads it back', LINUX_PLIST_5432, () => {
   const acct = nodePath.join(SANDBOX, '.grok-rt');
-  const xml = create.plistFor('xrt', '/bin/grok', '/bin/tmux', 'grok-4.6', acct, 'grok');
+  const xml = jobfix.jobFor('xrt', '/bin/grok', '/bin/tmux', 'grok-4.6', acct, 'grok');
   assert.match(xml, new RegExp('<key>GROK_HOME</key><string>' + acct.replace(/[.]/g, '\\.') + '</string>'));
-  const pp = create.plistPath('xrt');
+  const pp = jobfix.jobPath('xrt');
   fs.mkdirSync(nodePath.dirname(pp), { recursive: true });
   fs.writeFileSync(pp, xml);
   const job = create.readJob('xrt');
@@ -91,9 +95,9 @@ test('plist round-trip (grok): GROK_HOME = account dir verbatim, readJob reads i
 });
 
 test('a DEFAULT-account gemini/grok agent writes NO account-env line (absent means the default)', () => {
-  const g = create.plistFor('gd', '/bin/gemini', '/bin/tmux', 'gemini-2.5-flash', null, 'gemini');
+  const g = jobfix.jobFor('gd', '/bin/gemini', '/bin/tmux', 'gemini-2.5-flash', null, 'gemini');
   assert.ok(!g.includes('GEMINI_CLI_HOME'), 'a default gemini agent carries no GEMINI_CLI_HOME');
-  const x = create.plistFor('xd', '/bin/grok', '/bin/tmux', 'grok-4.6', null, 'grok');
+  const x = jobfix.jobFor('xd', '/bin/grok', '/bin/tmux', 'grok-4.6', null, 'grok');
   assert.ok(!x.includes('GROK_HOME'), 'a default grok agent carries no GROK_HOME');
 });
 

@@ -32,6 +32,7 @@
  */
 
 const test = require('node:test');
+const jobfix = require('../test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -83,6 +84,9 @@ fs.writeFileSync(nodePath.join(SIGNIN, 'auth.json'),
 
 const create = require('./create');
 const store = require('./store');
+/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that asserts the launchd plist itself
+   measures nothing there. Skipped on Linux only, naming where Linux covers it; macOS and Windows unchanged. */
+const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS plist test on a Linux host (#5432): it fails the plist write by name; Linux writes a unit (a refused unit write: linux-parity-5445.test.js, a masked unit refuses the write)" } : {};
 
 /* Seeded DIRECTLY rather than through `createAgent`, which calls the REAL
    /bin/launchctl and loads live services on the developer's Mac. Same seam as
@@ -90,8 +94,8 @@ const store = require('./store');
 function born(name) {
   fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
   fs.mkdirSync(create.workerDir(name), { recursive: true });
-  fs.writeFileSync(create.plistPath(name),
-    create.plistFor(name, CLAUDE_BIN, TMUX_BIN, null, null, 'claude'), 'utf8');
+  fs.writeFileSync(jobfix.jobPath(name),
+    jobfix.jobFor(name, CLAUDE_BIN, TMUX_BIN, null, null, 'claude'), 'utf8');
   store.writeProfile(name, { provider: 'anthropic' });
   fs.writeFileSync(nodePath.join(create.workerDir(name), 'CLAUDE.md'), '# brief\n', 'utf8');
   return name;
@@ -152,7 +156,7 @@ test('#2811: the EXACT SET of paths setProvider writes, enumerated by measuremen
     `CREATED ${rel(nodePath.join(SIGNIN, 'config.toml'))}`,
     `CREATED ${rel(nodePath.join(dir, 'AGENTS.md'))}`,
     `DELETED ${rel(nodePath.join(dir, 'CLAUDE.md'))}`,
-    `MODIFIED ${rel(create.plistPath(name))}`,
+    `MODIFIED ${rel(jobfix.jobPath(name))}`,
     `MODIFIED ${rel(PROFILE_FILE(name))}`,
   ].sort(), 'setProvider wrote a different set of paths than this test documents');
 
@@ -269,7 +273,7 @@ test('#2811: WHICH of the four writes can abort the switch, asserted rather than
   assert.equal(fs.existsSync(nodePath.join(dir, 'CLAUDE.md')), true, 'the brief was renamed despite the refusal');
 });
 
-test('#2811: the PLIST write is the second gate, and the trust write has already landed when it fires', (t) => {
+test('#2811: the PLIST write is the second gate, and the trust write has already landed when it fires', LINUX_PLIST_5432, (t) => {
   /* 🛑 WHY THIS ARM EXISTS. The header names TWO gates and round 25 converted only
      ONE of them, so "the plist rewrite ... Also gating" was a true sentence with
      nothing holding it. Measured before writing this: no test anywhere drove
@@ -302,10 +306,10 @@ test('#2811: the PLIST write is the second gate, and the trust write has already
   if (!fs.existsSync(cfg)) fs.writeFileSync(cfg, '', 'utf8');
   const before = snapshot(SANDBOX);
 
-  fs.chmodSync(create.plistPath(name), 0o400);
+  fs.chmodSync(jobfix.jobPath(name), 0o400);
   let sw;
   try { sw = create.setProvider(name, 'openai', { ...BINS, codexBin: CODEX_BIN }); }
-  finally { fs.chmodSync(create.plistPath(name), 0o600); }
+  finally { fs.chmodSync(jobfix.jobPath(name), 0o600); }
 
   assert.equal(sw.outcome, create.OUTCOME.REFUSED,
     'a failing PLIST write no longer aborts the switch: setProvider reported ' + sw.outcome);

@@ -6,6 +6,10 @@
 // that name" -- the launch directory had been resolved once, to the real one.
 // Same warning create.test.js opens with, learned again the hard way.
 const test = require('node:test');
+/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that asserts the launchd plist itself
+   measures nothing there. Skipped on Linux only, naming where Linux covers it; macOS and Windows unchanged. */
+const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS plist test on a Linux host (#5432): it reads the plist the adopt wrote; a Linux adopt writes a systemd unit through the same installJob: create.linux-4918.test.js (installJob, already-loaded)" } : {};
+const jobfix = require('../test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -138,7 +142,7 @@ const store = require('./store');
    variable is doing the work. */
 const outsideSandbox = [
   ['AGENT_WORKFORCE_DATA (engine/store.js)', store.ROOT],
-  ['AGENT_WORKFORCE_LAUNCH (engine/create.js)', create.plistPath('sandboxprobe')],
+  ['AGENT_WORKFORCE_LAUNCH (engine/create.js)', jobfix.jobPath('sandboxprobe')],
   ['AGENT_WORKFORCE_CODEX_BIN (engine/runners.js)', require('./runners').resolveBin('openai').bin],
   ['AGENT_WORKFORCE_CLAUDE_BIN (engine/runners.js)', require('./runners').resolveBin('claude').bin],
   // #3519: the gemini and grok runner binaries, same guard as codex above.
@@ -223,7 +227,7 @@ test('#1159: a discovered Codex agent can be ADOPTED, and gets a codex job', () 
   assert.equal(job.runner, 'codex', 'the adopted agent was written as a Claude job');
 });
 
-test('#1159 CONTROL: a Claude agent is still adopted as Claude', () => {
+test('#1159 CONTROL: a Claude agent is still adopted as Claude', LINUX_PLIST_5432, () => {
   /* Without this the assertion above is satisfied by a change that makes
      EVERYTHING a codex job, which would be a far worse bug. */
   const dir = agentFolder('scoutclaude', 'CLAUDE.md', '# You are Scout Claude\n');
@@ -243,7 +247,7 @@ test('#1159 CONTROL: a Claude agent is still adopted as Claude', () => {
     'a Claude agent’s job does not point at the claude binary');
 });
 
-test('#1159: CLAUDE.md wins when a folder has both', () => {
+test('#1159: CLAUDE.md wins when a folder has both', LINUX_PLIST_5432, () => {
   /* A person with both has a Claude agent that also carries codex notes.
      Starting the runner named after this product is the safer read. */
   const dir = agentFolder('scoutboth', 'CLAUDE.md', '# You are Scout Both\n');
@@ -361,7 +365,7 @@ test('#3519 CONTROL: an AGENTS.md folder with no hint stays codex/openai', () =>
    folder. briefFilename('grok') === 'AGENTS.md' !== 'CLAUDE.md', so the guard must ignore
    the hint and keep the folder claude -- otherwise a hint could start a codex/grok runner
    in a Claude agent's own folder. Without this, the guard's CLAUDE.md arm is unexercised. */
-test('#3519 CONTROL: a non-claude provider hint on a CLAUDE.md folder is ignored (stays claude)', () => {
+test('#3519 CONTROL: a non-claude provider hint on a CLAUDE.md folder is ignored (stays claude)', LINUX_PLIST_5432, () => {
   const dir = agentFolder('scoutclaudehint', 'CLAUDE.md', '# You are Scout ClaudeHint\n');
   const r = discover.connect(dir, { provider: 'xai' });
   assert.equal(r.ok, true, r.because);
@@ -489,7 +493,7 @@ test('#1159 CONTROL: a CODEX agent is refused when Codex is missing, and nothing
     const dir = agentFolder('scoutneedscodex', 'AGENTS.md', '# You are Scout NeedsCodex\n');
     const r = discover.connect(dir);
     assert.equal(r.ok, false, 'a Codex agent was adopted with no Codex on the machine');
-    assert.equal(fs.existsSync(create.plistPath('scoutneedscodex')), false,
+    assert.equal(fs.existsSync(jobfix.jobPath('scoutneedscodex')), false,
       'a job was written pointing at a binary that is not there, so launchd would respawn it forever');
     const left = store.readProfile('scoutneedscodex');
     assert.ok(!left || !left.dir, 'a refused codex adoption left a profile behind');
