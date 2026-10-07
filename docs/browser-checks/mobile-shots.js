@@ -626,6 +626,25 @@ const SCREENS = [
     await at(page, '?tab=tasks');
     await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
   } },
+  /* #5456: the Tasks view with a repeating task nobody is named on, under On a schedule (not Unassigned). The task is made
+     and given its rule here, and the rule is cleared after the shot. */
+  { name: 'tasks-scheduled', owner: 'Angel', go: async (page, data) => {
+    const n = await page.evaluate(async (id) => {
+      const r = await fetch('/api/project/' + encodeURIComponent(id) + '/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sentence: 'Check the price list every morning' }) });
+      const j = await r.json().catch(() => ({}));
+      return r.status === 200 ? ((j.task && j.task.number) || j.number || null) : 'status ' + r.status;
+    }, data.projectId);
+    if (typeof n !== 'number') throw new Error('could not add the task (' + n + ')');
+    const st = await page.evaluate(([id, num]) => fetch('/api/project/' + encodeURIComponent(id) + '/task/' + num + '/repeat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ every: 'day', at: '09:00' }) }).then((r) => r.status), [data.projectId, n]);
+    if (st !== 200) throw new Error('could not set the repeat rule (' + st + ')');
+    data.scheduledTask = n;
+    await at(page, '?tab=tasks');
+    await page.waitForSelector('#tsk-tiles [data-tile="scheduled"]', { state: 'visible', timeout: 8000 });
+  }, after: async (page, data) => {
+    if (typeof data.scheduledTask !== 'number') return;
+    const st = await page.evaluate(([id, num]) => fetch('/api/project/' + encodeURIComponent(id) + '/task/' + num + '/repeat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clear: true }) }).then((r) => r.status), [data.projectId, data.scheduledTask]);
+    if (st !== 200) throw new Error('could not clear the repeat rule after the shot (' + st + ')');
+  } },
   /* #5053: one project's Tasks view, with its back chevron beside the title. The built-in seed's project name is long
      enough to wrap on a phone, so the shot shows the title wrapping beside the chevron (a store data set's may not). */
   { name: 'project-tasks', owner: 'PigeonPete', go: async (page, data) => {
