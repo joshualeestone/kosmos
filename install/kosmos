@@ -1188,7 +1188,7 @@ cmd_start() {
       # A launchd-supervised holder would be relaunched the instant we kill it. The stop
       # marker makes board-run decline to relaunch (cmd_board_run honors it BEFORE binding,
       # and the job's PathState KeepAlive is keyed on it) -- the same mechanism cmd_stop
-      # uses. cmd_start cleared the marker at the top ("starting means I want it running"),
+      # uses. cmd_start cleared the marker near the top, just after the #5450 person's mark ("starting means I want it running"),
       # so set it for the kill window, then clear it again before we start ours below.
       : > "$STOP_MARKER" 2>/dev/null || true
       kill "$_lpid" 2>/dev/null || true

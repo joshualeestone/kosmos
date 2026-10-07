@@ -114,3 +114,13 @@ though the login item did bring Kosmos back by itself.
 - PINNED: the board removes the mark whoever started it (supervisor, unknown), not only for a person; limiting it
   would leave an unjudgeable mark in place and bring the timer back on every later relaunch.
 - Plan text brought up to date (the mark is written first since review 3); the app reopened at login is named above.
+
+## Review 8
+- Left, decided: the mark's age is judged by the same clock that wrote it, so only the clock jumping forward by more
+  than 120 s between a person's start and board-run reading the mark (a time sync landing in those seconds, just after a
+  boot) makes a fresh person's start read as stale, and so as the supervisor's; with the alive record from before the
+  boot, that would be a false note. Rejected: judging by the file's mtime (the same clock) or a boot-time stamp (more
+  moving parts for a seconds-wide window). A Mac keeps its time across a restart and syncs early.
+- A start that finds the board running leaves a mark that goes stale in 120 s; anything that later restarts the board
+  without board-run or `kosmos start` leaves it there, stale, which reads as the supervisor's: the real starter.
+- Comment in the reclaim path brought up to date (the person's mark comes first).
