@@ -102,7 +102,7 @@ test('#5495 shell: an allow hook that hangs is stopped by the clock bound and re
 });
 
 test('#5495 the shell cases above really ran', { skip: process.platform === 'win32' }, () => {
-  assert.equal(n, 16, 'shell runs');
+  assert.equal(n, 16, 'shell runs (update this when a shell case is added or removed)');
 });
 
 test('#5495 node hook: an allowed request starts a heartbeat window, so the next tool call sends no second working line', async () => {
