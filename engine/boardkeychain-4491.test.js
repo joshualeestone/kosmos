@@ -206,7 +206,7 @@ test('no em dash in a settings file this test writes', () => {
   assert.ok(!raw.includes('\u2014'), 'an em dash reached a written settings file');
 });
 
-test('sendertoken.tokenOnlyList is the one parse site and tokenOnlyFor reads it', () => {
+test('sendertoken.tokenOnlyList is the parse site membership and the refresh use, and tokenOnlyFor reads it', () => {
   fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['a', 'b', 42, ''] }) + '\n');
   assert.deepEqual(sendertoken.tokenOnlyList(), ['a', 'b'], 'non-string/empty entries were not filtered');
   assert.equal(sendertoken.tokenOnlyFor('a'), true);
@@ -356,4 +356,19 @@ test('#4491 post-rebase review: the undo copy store is read- and write-denied in
     assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(d)}/**)`), leaf + ' is not Edit-denied');
     assert.ok(s.sandbox.filesystem.denyWrite.includes(realOrLeaf(d)), leaf + ' is not in the sandbox denyWrite');
   }
+});
+
+test('#4491 whole-branch review: keys that undo the guard are dropped at every write (excludedCommands, allowRead, allowWrite)', () => {
+  const dir = agentDir('pilot-planted');
+  const file = path.join(dir, '.claude', 'settings.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ sandbox: { excludedCommands: ['cat'], network: { allowUnixSockets: ['/tmp/y.sock'] },
+    filesystem: { allowRead: [tokenAbs()], allowWrite: [store.ROOT], denyRead: ['/kept/secret'] } } }) + '\n');
+  setup.guardTokenOnlyFolder(dir, 'pilot-planted', DEPS);
+  const sb = readSettings(dir).sandbox;
+  assert.equal(sb.excludedCommands, undefined, 'a planted excludedCommands survived the guard');
+  assert.equal(sb.filesystem.allowRead, undefined, 'a planted allowRead survived the guard');
+  assert.equal(sb.filesystem.allowWrite, undefined, 'a planted allowWrite survived the guard');
+  assert.ok(sb.filesystem.denyRead.includes('/kept/secret'), 'CONTROL: an ordinary denyRead entry was dropped too');
+  assert.deepEqual(sb.network.allowUnixSockets, ['/tmp/y.sock'], 'CONTROL: allowUnixSockets is kept');
 });

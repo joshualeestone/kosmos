@@ -630,7 +630,9 @@ function tokenOnlyFile() { return path.join(store.ROOT, 'agent-token-only.json')
 /* #4491: the token-only roster, parsed in ONE place so membership-check (tokenOnlyFor) and the
    board-start refresh (setup-assistant.refreshTokenOnlyGuards) do not each re-derive the {agents:[...]}
    shape. Anything unreadable or wrong-shaped is an empty list -- the switch only ever narrows an agent,
-   so failing toward an empty roster fails toward today's behaviour. */
+   so failing toward an empty roster fails toward today's behaviour. One deliberate second reader:
+   setup-assistant.boardCredentialPaths parses the file itself, because the undo copier must tell an ABSENT list (no
+   token-only agents) from an UNREADABLE one (it cannot say what to protect), which an empty list here cannot. */
 function tokenOnlyList() {
   let j;
   try { j = JSON.parse(fs.readFileSync(tokenOnlyFile(), 'utf8')); } catch { return []; }

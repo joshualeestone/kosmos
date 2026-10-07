@@ -729,7 +729,8 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   // Permission-layer Edit denies: the concrete homes above, plus a ~/.claude-* glob for a home made later.
   const editTargets = [...settingsFiles.map((p) => ({ f: p })), { f: path.join(home, '.claude-*', 'settings.json') }, { f: path.join(home, '.claude-*', 'settings.local.json') }];
   // #4491 review: the token paths, their temp copy and the token-only list are write-denied as well as
-  // read-denied (Claude Code's Edit rule covers every file-writing tool), and in the sandbox denyWrite below.
+  // read-denied (Claude Code's Edit rule covers every file-writing tool), and in the sandbox denyWrite below (the
+  // registry's own path there; its temp and lock names by the permission-layer .* glob only).
   const listFile = require('./sendertoken').tokenOnlyFile();
   // #4491 re-review (Ice Cream Kitty): the gate's list of worlds comes from the worlds registry, so the
   // registry (and its temp and lock names) is write-denied too, and every world's store gets a glob, so a world
@@ -834,11 +835,17 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
       // NEVER add an allowWrite for the Kosmos store, the worlds base or the home here (Kitty's re-review): the
       // shell's write scope is what covers a world created mid-session until the agent's next start, so a fix
       // for 'the sandbox limits normal work' must widen it somewhere else, never to those.
+      /* #4491 whole-branch review: keys already in this file survive the merge, and some undo the guard: commands that
+         run outside the sandbox (excludedCommands) and paths re-opened inside a deny (filesystem allowRead / allowWrite).
+         A token-only agent's settings are Kosmos's, so those are dropped here, at every refresh. allowUnixSockets is
+         kept (pinned by a test; a socket is not a file read). */
+      const { excludedCommands: _dropExcluded, ...sbKept } = sb;
+      const { allowRead: _dropAllowRead, allowWrite: _dropAllowWrite, ...fsbKept } = fsb;
       next.sandbox = {
-        ...sb, enabled: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false,
+        ...sbKept, enabled: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false,
         network: { ...net, allowLocalBinding: true },
         filesystem: {
-          ...fsb,
+          ...fsbKept,
           denyRead: [...new Set([...dr, ...denyReadPaths])],
           denyWrite: [...new Set([...dw, ...denyWritePaths])],
         },

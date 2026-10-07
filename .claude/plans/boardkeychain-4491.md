@@ -174,3 +174,11 @@ only (never listed, so the cost does not grow with undo-saved) and a test pins t
 when building the identity list. Residual wording corrected: the window between apply's last check and its copy
 allows any link swap (hard or symbolic), not only a hard link; either way the bytes land in undo-saved, which the agent
 cannot read or write.
+Ninth review (opus, the whole branch), decided:
+- Fixed: settings keys already in a token-only agent's file that undo the guard (sandbox.excludedCommands, and
+  filesystem allowRead / allowWrite) are dropped at every write and refresh; a test plants them. allowUnixSockets is
+  kept (a socket is not a file read; pinned by a test).
+- Fixed: the "one parse site" claim (boardCredentialPaths is a deliberate second reader of the token-only list).
+- Residual, filed as a follow-up card: other agent-writable configuration Claude Code reads at the next start, which
+  can start processes outside the sandbox. Not denied here: denying it needs measuring what that breaks in Claude
+  Code itself, and main has no guard at all today, so shipping this is still strictly better.

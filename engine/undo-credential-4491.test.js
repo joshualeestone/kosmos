@@ -95,7 +95,8 @@ test('#4491: the undo copier never keeps a copy of the board token or a sender t
 });
 
 /* A record in the undo store naming a credential (written there by something other than keep, which refuses it) is
-   never restored or moved: plan flags it and apply refuses it again at the write. */
+   never restored or moved: plan flags it and apply refuses it again at the write. Its target is named board.token, so
+   the name check refuses it first; the place and identity checks are pinned by the other tests in this file. */
 const taskchat = require('./taskchat');
 const T = (hhmm) => `2026-10-01T${hhmm}:00.000Z`;
 const ms = (hhmm) => Date.parse(T(hhmm));
