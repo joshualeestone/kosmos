@@ -1683,12 +1683,14 @@ function ownDeviceIds(settings = read()) {
    mint below. */
 function useDeviceId(id) {
   const cur = read();
-  // A file that cannot be read says nothing about the ids before: the ones this process holds stand in for it.
-  const base = cur.ok === false && heldIdentity ? heldIdentity : cur;
-  const past = base.device_id === id ? base.past_device_ids
-    : [base.device_id, ...base.past_device_ids].filter((x, i, all) => x && x !== id && DEVICE_ID.test(x) && all.indexOf(x) === i);
+  /* The ids before, from what this process holds (never older than the file; it may hold ids a failed save never got
+     into it) and from the file when it can be read. */
+  const fromFile = cur.ok === false ? [] : [cur.device_id, ...cur.past_device_ids];
+  const fromHeld = heldIdentity ? [heldIdentity.device_id, ...heldIdentity.past_device_ids] : [];
+  const all = [...fromHeld, ...fromFile];
+  const past = all.filter((x, i) => x && x !== id && DEVICE_ID.test(x) && all.indexOf(x) === i);
   heldIdentity = { device_id: id, past_device_ids: past };
-  if (cur.device_id !== id) write({ device_id: id, past_device_ids: past });
+  if (cur.device_id !== id || JSON.stringify(cur.past_device_ids) !== JSON.stringify(past)) write({ device_id: id, past_device_ids: past });
 }
 function signinDeviceId() {
   if (mintedDeviceId && LEGACY_ID.test(mintedDeviceId)) return mintedDeviceId;
@@ -1746,7 +1748,8 @@ function tunnelWords(asked) {
 }
 async function askDeviceKey() {
   // Bounded: a hung tunnel must not hold the sign-in forever (a cancel cannot free a call that never returns).
-  // The tunnel would make a missing folder with default permissions; the key's folder is owner-only from the first ask.
+  // The tunnel would make a missing folder with default permissions; on macOS and Linux the key's folder is owner-only
+  // from the first ask. (On Windows mode bits do nothing: the key file is protected by the tunnel's own ACL.)
   secureStateDir();
   // A Forget waits for this (it may be making the key in the folder the Forget empties).
   return trackKeyCall(setupRun(['signin', 'device-id', '--device-key', DEVICE_KEY_FILE()], null, DEVICE_ID_ASK_MS));
@@ -1766,9 +1769,9 @@ function noteOwnId(id) {
    anything (a repair of a damaged file rebuilds from that, so an id written only to the file would be lost there). */
 function addPastId(id) {
   const cur = read();
-  if (cur.ok === false || heldIdentity) {
-    heldIdentity = { device_id: heldIdentity ? heldIdentity.device_id : '', past_device_ids: [id, ...(heldIdentity ? heldIdentity.past_device_ids : []).filter((x) => x !== id)] };
-  }
+  // Always in memory too (a save of it may fail), starting from the file's ids when this process holds none yet.
+  const base = heldIdentity || { device_id: cur.ok === false ? '' : cur.device_id, past_device_ids: cur.ok === false ? [] : cur.past_device_ids };
+  heldIdentity = { device_id: base.device_id, past_device_ids: [id, ...base.past_device_ids.filter((x) => x !== id)] };
   if (cur.ok !== false) write({ past_device_ids: [id, ...cur.past_device_ids.filter((x) => x !== id)] });
 }
 /* One at a time: two starts at once (a double click, two tabs) must not both remove a corrupt key, the second
@@ -1818,6 +1821,7 @@ async function signinDeviceArgsNow(forVerify) {
     asked = await askDeviceKey();
     id = keyedIdIn(asked);
   }
+  if (!id && asked.ok) return { failed: { ok: false, because: 'the tunnel program answered with a device id this version of Kosmos does not know' } };
   if (!id) {
     return { failed: { ok: false, because: "this computer's sign-in key could not be opened: " + tunnelWords(asked) } };
   }

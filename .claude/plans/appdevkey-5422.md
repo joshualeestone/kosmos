@@ -33,6 +33,12 @@ This merges first; #297 is held until it does (comment on #297).
   process that never signed in has none to put back.
 - A verify never makes a key: with the key file gone it says start again (a Forget between start and verify).
 
+- A verify after Forget, when the keyed start's answer was lost (so the id in use is still the opaque one), sends the
+  opaque id and gets the code refusal, not "start again": with the key file gone the app cannot tell this from an older
+  tunnel after a key without asking the tunnel, and asking would make a key. The person asks for a new code.
+- An opaque id the self-grant allowed before the move to a key stays allowed and hidden (#4610: this computer's own
+  rows are never displayed); it is this computer's own old session, so it opens nothing new.
+
 ## Tests (engine/remote.test.js unless named; names carry kosmos#5422)
 - devkey tunnel: start and verify pass the same key file in the state dir and no id; remote.json moves the ids.
 - older tunnel (exit 2 + clap's words): opaque id, no key file; an exit 2 without the words refuses.
@@ -42,6 +48,6 @@ This merges first; #297 is held until it does (comment on #297).
 - damaged remote.json: the repair keeps the key id and the ids before; key gone still says start again.
 - verify with the key file gone sends nothing; a cancel during the ask sends no start.
 - Forget waits for the ask and for a keyed start (bounded; a start that never returns cannot hold it).
-- the folder is owner-only from the first ask; the key survives clearing an unfinished sign-in (same content, same file).
+- the folder is owner-only from the first ask (macOS and Linux; on Windows the key file's own ACL); the key survives clearing an unfinished sign-in (same content, same file).
 - the pending list and server.test.js's allowed list hide every own id; allow accepts exactly the k1 shape.
 - remote-unreadable-4308.test.js and server.test.js fakes act as older tunnels for device-id.

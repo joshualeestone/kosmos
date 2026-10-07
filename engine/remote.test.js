@@ -87,6 +87,7 @@ if (args[0] === 'signin') {
     if (mode.includes('devkey-unreadable')) { process.stderr.write('Error: reading the device key ' + flag('--device-key') + '\\n\\nCaused by:\\n    Permission denied (os error 13)\\n'); process.exit(1); }
     // A file that is not a key: the real tunnel refuses it with these words (devkey.rs), whatever else the mode says.
     if (fs.existsSync(flag('--device-key')) && fs.readFileSync(flag('--device-key'), 'utf8') === 'corrupt') { process.stderr.write('Error: the device key ' + flag('--device-key') + ' is not a P-256 key; remove it to make a new one (this device must then be allowed again)\\n\\nCaused by:\\n    ASN.1 error: unexpected end\\n'); process.exit(1); }
+    if (mode.includes('devkey-k2')) { console.log(JSON.stringify({ device_id: 'k2.' + 'Z'.repeat(32) })); process.exit(0); }
     if (mode.includes('devkey-usage')) { process.stderr.write("error: unexpected argument '--device-key' found\\n"); process.exit(2); }
     // Whole mode words: 'devkey-slow' must not also match 'devkey-slow-start'.
     if (mode.split(/[ ,]+/).includes('devkey-slow')) { const until = Date.now() + 800; while (Date.now() < until) { /* making the key */ } }
@@ -2125,6 +2126,31 @@ test('kosmos#5422: ids a failed save kept only in memory reach the file with the
   assert.deepEqual(remote.read().past_device_ids, ['old-opaque-id']);
   await remote.forget();
   assert.ok(remote.ownDeviceIds().includes(FAKE_KEYED), 'a Forget dropped an own id the file never had');
+});
+
+test('kosmos#5422: with saves failing, a second key keeps the first key id among this computer\'s own', async () => {
+  const dataDir = nodePath.dirname(remote.FILE);
+  const keyFile = nodePath.join(process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote'), 'signin-device.key');
+  fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: 'old-opaque-id' }));
+  fs.mkdirSync(nodePath.dirname(keyFile), { recursive: true });
+  process.env.FAKE_TUNNEL_MODE = 'devkey devkey-random';
+  fs.chmodSync(dataDir, 0o500);   // reads work, saves fail
+  let first;
+  try {
+    assert.equal((await remote.signinStart('her@example.com')).ok, true);
+    first = 'k1.' + require('node:crypto').createHash('sha256').update(fs.readFileSync(keyFile)).digest('base64url').slice(0, 32);
+    fs.writeFileSync(keyFile, 'corrupt');   // the key goes bad; the next start makes another and is taken
+    assert.equal((await remote.signinStart('her@example.com')).ok, true);
+  } finally { fs.chmodSync(dataDir, 0o700); delete process.env.FAKE_TUNNEL_MODE; }
+  assert.ok(remote.ownDeviceIds().includes(first), 'the first key id was dropped (its row would ask to be allowed)');
+  assert.ok(remote.ownDeviceIds().includes('old-opaque-id'));
+});
+
+test('kosmos#5422: a device id of a shape this version does not know is said so, not as a key that could not open', async () => {
+  process.env.FAKE_TUNNEL_MODE = 'devkey devkey-k2';
+  let r;
+  try { r = await remote.signinStart('her@example.com'); } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  assert.equal(r.because, 'the tunnel program answered with a device id this version of Kosmos does not know');
 });
 
 test('kosmos#5422: a cancel while start asks the tunnel sends no start', async () => {
