@@ -159,3 +159,18 @@ test('#5434: CONTROL, a key save under the same failure still takes the in-place
   try { claude.storeKey(dir, 'sk-fallback'); } finally { fs.openSync = realOpen; }
   assert.equal(fs.readFileSync(claude.keyFile(dir), 'utf8'), 'sk-fallback');
 });
+
+test('#5434: a symlinked settings.json is replaced by a regular file, target untouched (as on main), at the mode the link pointed at (new)', { skip: process.platform === 'win32' && 'symlinks need privilege on Windows' }, (t) => {
+  const root = scratch(t);
+  const target = path.join(root, 'shared-settings.json');
+  const before = JSON.stringify({ theme: 'dark' }) + '\n';
+  fs.writeFileSync(target, before);
+  fs.chmodSync(target, 0o640);
+  const settings = path.join(root, 'settings.json');
+  fs.symlinkSync(target, settings);
+  claude.wireApiKeyHelper(settings, root);
+  assert.equal(fs.lstatSync(settings).isSymbolicLink(), false, 'settings.json is still a link');
+  assert.equal(fs.lstatSync(settings).mode & 0o777, 0o640, 'the new file did not take the mode the link pointed at');
+  assert.equal(JSON.parse(fs.readFileSync(settings, 'utf8')).theme, 'dark');
+  assert.equal(fs.readFileSync(target, 'utf8'), before, 'the shared file the link pointed at was written');
+});

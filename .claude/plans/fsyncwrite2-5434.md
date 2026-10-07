@@ -41,7 +41,7 @@ writes, not renames), and the other files the card lists.
   entered or account wired, not in a loop.
 
 ## Tests
-`engine/accounts.fsync-5434.test.js`, 13 arms, also listed in `tools/windows-tests.js` (ALSO):
+`engine/accounts.fsync-5434.test.js`, 14 arms, also listed in `tools/windows-tests.js` (ALSO):
 - each `storeKey` flushes the temp it renames into the key file (fails on main), the key reads back
   trimmed, and the mode is 0600;
 - each `storeKey` still removes a stale `<keyfile>.tmp` (a guard: passes on main; fails when the
@@ -53,6 +53,8 @@ writes, not renames), and the other files the card lists.
   0440 one comes back 0640, a 0400 one comes back 0600 (fails without the owner bits), other settings are kept, and a new one is 0600 under umask 022 (fails on main).
 - a settings save whose every atomic attempt fails throws and leaves the file as it was (fails
   without `atomicOnly`), with a control that a key save under the same failure still falls back;
+- a symlinked settings.json is replaced by a regular file with the target untouched (as on main) at the
+  target's mode (main: the umask default; this arm fails on main for that reason only);
 - `securewrite.test.js`: direct `reapDeadTempsOf` arms, including a sibling named like a temp.
 Locally: 153 files (the account and securewrite tests plus every repo-wide meta test), 4105 tests, 0 fail.
 
