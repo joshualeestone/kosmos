@@ -113,3 +113,10 @@ How often a real Windows environment carries a non-canonical spelling of these n
   deleted. The Mac test asserts the delete half too (red when delVar folds everywhere). The account-name sites outside
   worlds.js still fold on every platform, as stated above.
 - win32anchor's require reader and its control share one regex constant.
+
+## Review 9 (opus), 2026-10-07: NITs only, CONVERGED
+- boardrestart.kosmosRestart folds the world names on every platform (envDelete), unlike worlds.js. Kept on purpose:
+  a restarted board must start in no world, and on a Mac the only loss is a lowercase look-alike nothing reads.
+- The scan covers engine/ only; server.js, bin/ and tools/ were swept by hand and hold no env copy of these names.
+- The stand-in's reader can over-include a column-0 lazy require (const f = () => require('./x')); that only copies an
+  extra module into the stand-in.
