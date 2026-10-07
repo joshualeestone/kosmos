@@ -78,6 +78,8 @@ jobs:
           grep -qxF "KillMode=process" "$UNIT_FILE"
           if grep -qxF "Restart=always" "$UNIT_FILE"; then echo "FAIL: Restart=always restarts a stopped board" >&2; exit 1; fi
           systemctl --user is-enabled kosmos-board.service
+          # setup.sh hands the running board to systemd (kosmos restart after installBoard), as the Mac does to launchd.
+          test "$(systemctl --user is-active kosmos-board.service)" = active
 
       - name: Verify board responsiveness
         run: |
@@ -96,7 +98,7 @@ jobs:
           test "$(systemctl --user is-active kosmos-board.service)" = active
           # Now stop it, and it must STAY stopped past RestartSec=5 (#4918: Restart=always brought it back).
           "$KOSMOS_HOME/bin/kosmos" stop
-          sleep 12
+          sleep 12   # RestartSec=5 in B's unit (engine/linuxboard.js), so two restart windows
           if curl -fsS -m 2 http://127.0.0.1:16180/ >/dev/null 2>&1; then
             echo "FAIL: board responding 12 s after stop" >&2
             exit 1
