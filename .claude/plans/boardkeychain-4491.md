@@ -194,3 +194,10 @@ Eleventh review (opus), fixed:
 - settings.local.json (higher precedence than settings.json) gets the same guard-undoing keys removed (sandbox switched
   off, unsandboxed commands, excludedCommands, allowRead/allowWrite), logged; a file that does not parse is left alone.
 - create.js: a throw from tokenOnlyFor now fails closed (it tries to guard) instead of creating unguarded.
+Twelfth review (sonnet), no security hole; fixed: the protected set is reused for 2 s (keyed on the token-only list's
+size, time and inode, so a list change is seen at once; a failure is never cached); a listed name with no folder is a
+note, not a guard failure; the create catch is described as defensive only (tokenOnlyFor never throws today);
+cleanLocalSettings failing makes the guard report not ok on purpose. Residuals named: any file named like board.token
+(any case) is refused by undo, an over-refusal kept for safety; keep's reasons let a token-only agent learn that a path
+is a protected file (existence only, never content). The create wiring is checked by source text, not by a behavioural
+create (a real create needs a full sandboxed agent; noted, not built).
