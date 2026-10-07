@@ -58883,7 +58883,8 @@ function paintProjectTasks(p) {
     let who;
     if (!assigned.length) {
       /* #5456: a repeating task with nobody on it reads as the Tasks view says it, not as ownerless work. */
-      who = '<span class="tkcard-who"><span class="tkcard-who-b">' + (t.repeat ? 'On a schedule' : 'Nobody yet') + '</span></span>';
+      // Held (the task, or its paused project) wins, as in the Tasks view (tasks.taskState).
+      who = '<span class="tkcard-who"><span class="tkcard-who-b">' + (t.repeat && t.onHold !== true && t.projectPaused !== true ? 'On a schedule' : 'Nobody yet') + '</span></span>';
     } else if (parts.length > 1) {
       /* #761 item 8: "Multiple assignees, as the pack drew." One face+name
          row per part -- including an unassigned one, "Nobody yet" per part

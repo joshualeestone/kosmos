@@ -700,6 +700,8 @@ test('#5456 goalProject: a lone scheduled task does not stop the goal ask, and i
   const sched = a.goalProject('s5456g', [{ ...rec, tasks: [{ number: 1, sentence: 'Check prices', repeat: rule }] }], goals, new Map(), T0);
   assert.ok(sched, 'a scheduled task switched the goal ask off');
   assert.equal(sched.waitingHooks, undefined, 'the scheduled task was counted as a webhook task');
+  const both = a.goalProject('s5456g', [{ ...rec, tasks: [{ number: 1, sentence: 'Hook and repeat', addedVia: 'webhook', repeat: rule }, { number: 2, sentence: 'Plain hook', addedVia: 'webhook' }] }], goals, new Map(), T0);
+  assert.equal(both && both.waitingHooks, 1, 'a webhook task that repeats is scheduled, not counted as waiting for a person (the plain one is, the control)');
   assert.equal(a.goalProject('s5456g', [{ ...rec, tasks: [{ number: 1, sentence: 'Check prices' }] }], goals, new Map(), T0), null,
     'CONTROL: the same task without its rule (ordinary open work) stops the ask');
 });
