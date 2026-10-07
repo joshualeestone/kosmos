@@ -34,7 +34,12 @@ function setSystemdDirForTests(fn) {
 
 let runnerFn = (cmd, args) => require('./linuxjob').realRunner(cmd, args);
 
+/* review 22: the same sandbox refusal as linuxjob.runner. A sandboxed board's unit sits where systemd never reads it,
+   and systemctl would name the person's REAL kosmos-board unit. */
 function runner(cmd, args) {
+  if (process.env.AGENT_WORKFORCE_LAUNCH && !process.env.AGENT_WORKFORCE_SYSTEMD_DIR && !systemdDirOverridden) {
+    return { ok: false, code: 1, stdout: '', stderr: '', because: 'a sandboxed board does not manage real systemd units' };
+  }
   return runnerFn(cmd, args);
 }
 

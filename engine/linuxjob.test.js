@@ -196,6 +196,7 @@ test('lifecycle commands execute correct systemctl arguments', () => {
     const lingerCalls = calls.filter((c) => c.cmd === 'loginctl');
     assert.equal(lingerCalls[lingerCalls.length - 2].args[0], 'enable-linger');
     assert.equal(lingerCalls[lingerCalls.length - 1].args[0], 'show-user', 'linger is read back, not assumed (#4918 review 1)');
+    assert.equal(lingerCalls[lingerCalls.length - 2].args[1], String(process.getuid()), 'linger names the uid, not agent1 (#4918 review 22)');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
