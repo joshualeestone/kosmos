@@ -250,19 +250,11 @@ const LX = (win, why) => Object.assign({}, win, onLinux(why));
    is-active, a read that changes nothing). Anything else counts as having run something. A Mac never makes that call,
    so there this is the old a[0] !== 'print' filter exactly. */
 const notARead = ([, a]) => a && a[0] !== 'print' && !a.includes('is-active');
-/* #5432 review 3: these assert the launchd job itself, and the Linux unit's equivalent is NOT tested yet (no Linux
-   test checks it). #5500's later slice. */
-const LINUX_UNIT_UNTESTED_WHY = 'it asserts the launchd job itself; the systemd unit\'s equivalent (the same value carried, or '
-  + 'the same refusal) is NOT tested on Linux yet: #5500';
 /* #5432 review 4: the #4279 leftover-job rules read launchctl print output and plist paths (macOS temp folders, the
    printed first-level path). A Linux create has no such sweep, so these have no Linux equivalent to test. */
 const LINUX_NO_EQUIVALENT_WHY = 'the #4279 leftover-job rules read launchctl print output and plist paths (boot out a temp '
   + 'leftover, never our own); a Linux create has no such sweep, it refuses an already-loaded or orphan unit instead '
   + '(create.linux-4918.test.js reviews 7 and 27)';
-const LINUX_LAUNCHD_WHY = 'it reads or drives the launchd job itself (plist, launchctl, the launchd runner seam); this behaviour is NOT '
-  + 'tested on Linux yet: #5500 (the Linux job in general is tested in create.linux-4918, linuxjob and linuxwiring-4918)';
-const LINUX_TASK_STUB_WHY = 'it switches an agent by rewriting its launchd job; the switch is NOT tested on Linux yet: #5500 '
-  + '(linuxjob.test.js tests rewriteAgentJob on Linux in general)';
 
 /* #5500: the agent's startup job as THIS platform keeps it (test-support/jobfixture): the launchd plist on macOS, the
    systemd user unit on Linux. A test whose assertion is platform-neutral reads and drives the job through these, so it
@@ -291,6 +283,17 @@ function jobEnv(name, key) {
     ? jobText(name).match(new RegExp(`^Environment="${key}=([^"\\n]*)"$`, 'm'))
     : jobText(name).match(new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`));
   return m ? m[1] : undefined;
+}
+/* #5500: the job's argument vector (the plist's ProgramArguments, the unit's ExecStart); the positions are the same on
+   both. A declaration, so tests above its first use can call it. */
+function jobArgv(name) {
+  const text = jobText(name);
+  if (linuxHost()) {
+    const line = text.match(/^ExecStart=(.*)$/m);
+    return [...line[1].matchAll(/"([^"]*)"|(\S+)/g)].map((t) => (t[1] !== undefined ? t[1] : t[2]));
+  }
+  const block = text.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/);
+  return [...block[1].matchAll(/<string>([\s\S]*?)<\/string>/g)].map((m) => m[1]);
 }
 /* The model the job starts on. plannedModelArg is the plist's reader; on Linux the same slot (argument 7) is read back
    out of the unit by readJob. */
@@ -608,7 +611,7 @@ test('the session is claimed for Kosmos, and claimed as ITSELF, at every start',
   assert.ok(fs.statSync(create.supervisorPath()).mode & 0o100, 'the supervisor is not executable');
 });
 
-test('the agent is started the same way it will be started every time after', LX(WIN_LAUNCHD, LINUX_LAUNCHD_WHY), () => {
+test('the agent is started the same way it will be started every time after', WIN_LAUNCHD, () => {
   // ⚠️ ONE PATH. The previous version ran tmux itself and left the launchd job
   // on disk unloaded: the agent ran now and was gone after a reboot, and the
   // session a person got at creation was set up by different code from the one
@@ -619,6 +622,23 @@ test('the agent is started the same way it will be started every time after', LX
   const r = create.createAgent({ ...BINS, name: 'one-path', role: 'pm' });
 
   assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
+  if (linuxHost()) {
+    /* #5500: systemd's equivalent (linuxjob.start): enable the unit (it starts at every boot), then start it. The one
+       command that starts anything is that start, of this agent's own unit. */
+    const unit = jobLabel('one-path');
+    const starting = calls.filter(notAReadOrPrep);
+    assert.equal(starting.length, 1, 'creation ran more than the one command that starts the agent');
+    const enableAt = calls.findIndex(([f, a]) => /systemctl$/.test(String(f)) && a && a[1] === 'enable');
+    const startAt = calls.findIndex(([f, a]) => startsJob(f, a));
+    assert.ok(enableAt !== -1, 'the unit was never enabled, so the agent will not start again at boot');
+    assert.ok(enableAt < startAt, 'the unit was started before it was enabled');
+    assert.equal(calls[enableAt][1][2], unit, 'a different unit was enabled');
+    const [file, args] = starting[0];
+    assert.match(file, /systemctl$/, 'the agent was started by something other than its own unit');
+    assert.deepEqual(args, ['--user', 'start', unit], 'a different unit was started');
+    assert.ok(fs.existsSync(jobfixture.jobPath('one-path')), 'the unit that started it is not on disk');
+    return;
+  }
   // ⚠️ Exactly ONE command STARTS anything. The other call is the read-only
   // `launchctl print` probe that asks whether this name already has a service
   // loaded, so it is excluded by name rather than by count -- counting alone
@@ -2821,11 +2841,24 @@ test('a chosen label lands in the profile only on a completed creation', () => {
     'the label the person chose is not what the board will read');
 });
 
-test('the model choice writes a sixth supervisor argument, and no choice writes the five every existing agent runs', LX(WIN_LAUNCHD, LINUX_LAUNCHD_WHY), () => {
+test('the model choice writes a sixth supervisor argument, and no choice writes the five every existing agent runs', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const chosen = create.createAgent({ ...BINS, name: 'modelled', role: 'pm', model: 'haiku' });
   assert.equal(chosen.outcome, create.OUTCOME.CREATED, chosen.because);
+  if (linuxHost()) {
+    // #5500: on Linux the model is ExecStart's eighth word (linuxjob.unitFor); no choice leaves the seven.
+    const withModel = jobArgv('modelled');
+    assert.equal(withModel[7], 'claude-haiku-4-5-20251001',
+      'the chosen model never reached the job, so the agent runs on the default while the menu claims otherwise');
+    const plain = create.createAgent({ ...BINS, name: 'unmodelled', role: 'pm' });
+    assert.equal(plain.outcome, create.OUTCOME.CREATED, plain.because);
+    assert.ok(!/--model|claude-haiku|claude-sonnet/.test(jobText('unmodelled')),
+      'an agent created without a choice carries a model flag anyway');
+    assert.equal(jobArgv('unmodelled').length, withModel.length - 1,
+      'the shape every existing agent runs did not survive');
+    return;
+  }
   const plist = fs.readFileSync(create.plistPath('modelled'), 'utf8');
   assert.match(plist, /claude-haiku-4-5-20251001/,
     'the chosen model never reached the job, so the agent runs on the default while the menu claims otherwise');
@@ -3781,7 +3814,7 @@ test('a successful undo adds no step, so the failure step means something', WIN_
 });
 
 
-test('setModel rewrites the startup file and keeps everything else about the job', LX(WIN_LAUNCHD, LINUX_UNIT_UNTESTED_WHY), () => {
+test('setModel rewrites the startup file and keeps everything else about the job', WIN_LAUNCHD, () => {
   /**
    * 🔑 THE MODEL WAS ALWAYS WRITTEN INTO THE JOB and always parsed back out;
    * what was missing was the ability to change it. Josh, 2026-08-21, with an
@@ -3799,6 +3832,33 @@ test('setModel rewrites the startup file and keeps everything else about the job
   create.setDryRun(false);
   const made = create.createAgent({ ...BINS, name, role: 'pm', model: 'opus' });
   assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  if (linuxHost()) {
+    // #5500: the same rewrite of the systemd unit (create.rewriteAgentJob's Linux arm, through linuxjob.unitFor).
+    const was = jobArgv(name);
+    const otherLines = () => jobText(name).split('\n').filter((l) => !l.startsWith('ExecStart='));
+    const restBefore = otherLines();
+    const out = create.setModel(name, 'haiku');
+    assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
+    assert.equal(out.model.arg, 'claude-haiku-4-5-20251001');
+    const now = jobArgv(name);
+    assert.equal(now[7], 'claude-haiku-4-5-20251001', 'the new model was not written into ExecStart');
+    assert.equal(plannedModel(name), 'claude-haiku-4-5-20251001',
+      'the reader beside the writer does not agree with what was written');
+    assert.equal(now[4], was[4], 'the claude path was not preserved across the rewrite');
+    assert.equal(now[5], was[5], 'the tmux path was not preserved across the rewrite');
+    assert.equal(now[2], name, 'the job stopped being about this agent');
+    assert.deepEqual(otherLines(), restBefore, 'the rewrite changed something about the unit besides its model');
+    const bad = create.setModel(name, 'gpt-9');
+    assert.equal(bad.outcome, create.OUTCOME.REFUSED);
+    assert.match(bad.because, /pick a model/);
+    assert.equal(plannedModel(name), 'claude-haiku-4-5-20251001', 'a refused change still altered the file');
+    // An agent with no unit is refused in Linux's words (create.noJobRefusal), not regenerated.
+    const nobody = create.setModel('neverexisted', 'opus');
+    assert.equal(nobody.outcome, create.OUTCOME.REFUSED);
+    assert.match(nobody.because, /has no startup unit in systemd \(kosmos-agent-neverexisted\.service\)/);
+    assert.equal(fs.existsSync(jobfixture.jobPath('neverexisted')), false, 'a refused change wrote a unit');
+    return;
+  }
   const before = fs.readFileSync(create.plistPath(name), 'utf8');
   const argsOf = (text) => [...text.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/)[1]
     .matchAll(/<string>([\s\S]*?)<\/string>/g)].map((m) => m[1]);
@@ -3862,7 +3922,7 @@ const cfgOf = (name) => {
   return v === undefined ? null : v;
 };
 
-test('a job made by a server on another port carries KOSMOS_PORT, so the agent answers the board that made it (#577)', LX(WIN_LAUNCHD, LINUX_UNIT_UNTESTED_WHY), () => {
+test('a job made by a server on another port carries KOSMOS_PORT, so the agent answers the board that made it (#577)', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const before = process.env.PORT;
@@ -3873,9 +3933,15 @@ test('a job made by a server on another port carries KOSMOS_PORT, so the agent a
   } finally {
     if (before === undefined) delete process.env.PORT; else process.env.PORT = before;
   }
-  const plist = fs.readFileSync(create.plistPath('sandboxed'), 'utf8');
-  assert.match(plist, /<key>KOSMOS_PORT<\/key><string>16245<\/string>/,
-    'the job does not tell the agent which board made it, so its replies go to :16180');
+  if (linuxHost()) {
+    // #5500: the unit's Environment= line (linuxjob.unitFor).
+    assert.equal(jobEnv('sandboxed', 'KOSMOS_PORT'), '16245',
+      'the job does not tell the agent which board made it, so its replies go to :16180');
+  } else {
+    const plist = fs.readFileSync(create.plistPath('sandboxed'), 'utf8');
+    assert.match(plist, /<key>KOSMOS_PORT<\/key><string>16245<\/string>/,
+      'the job does not tell the agent which board made it, so its replies go to :16180');
+  }
   // And the supervisor hands it INTO the pane: tmux gives a session made on
   // a running server the server\'s environment, not the client\'s, so the
   // launchd environment alone never reaches the agent.
@@ -3908,7 +3974,7 @@ test('a job made by a server on another port carries KOSMOS_PORT, so the agent a
   // build that contained the line, whatever the loop did (#587).
 });
 
-test('a job made by the default board carries no KOSMOS_PORT: absent means the default, so old plists do not change (#577)', LX(WIN_LAUNCHD, LINUX_UNIT_UNTESTED_WHY), () => {
+test('a job made by the default board carries no KOSMOS_PORT: absent means the default, so old plists do not change (#577)', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const before = process.env.PORT;
@@ -3919,11 +3985,18 @@ test('a job made by the default board carries no KOSMOS_PORT: absent means the d
   } finally {
     if (before !== undefined) process.env.PORT = before;
   }
+  if (linuxHost()) {
+    // #5500: the unit, whose environment is read whole (CONTROL: it has one, so the absence below is not an empty read).
+    const unit = jobText('ordinary');
+    assert.match(unit, /^Environment="HOME=/m, 'CONTROL: the unit carries no environment at all');
+    assert.doesNotMatch(unit, /KOSMOS_PORT/);
+    return;
+  }
   const plist = fs.readFileSync(create.plistPath('ordinary'), 'utf8');
   assert.doesNotMatch(plist, /KOSMOS_PORT/);
 });
 
-test('a job made by a server with TMUX_TMPDIR set carries it, so its sessions land where the board looks (#668)', LX(WIN_LAUNCHD, LINUX_UNIT_UNTESTED_WHY), () => {
+test('a job made by a server with TMUX_TMPDIR set carries it, so its sessions land where the board looks (#668)', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const before = process.env.TMUX_TMPDIR;
@@ -3934,6 +4007,12 @@ test('a job made by a server with TMUX_TMPDIR set carries it, so its sessions la
   } finally {
     if (before === undefined) delete process.env.TMUX_TMPDIR; else process.env.TMUX_TMPDIR = before;
   }
+  if (linuxHost()) {
+    // #5500: the unit's Environment= line (linuxjob.unitFor), the value whole.
+    assert.equal(jobEnv('pinned', 'TMUX_TMPDIR'), '/socket/dir & <odd>',
+      'the job does not carry the creating server\'s socket directory (#668)');
+    return;
+  }
   const plist = fs.readFileSync(create.plistPath('pinned'), 'utf8');
   assert.match(plist, /<key>TMUX_TMPDIR<\/key><string>\/socket\/dir &amp; &lt;odd&gt;<\/string>/,
     'the job does not carry the creating server\'s socket directory, so the supervisor '
@@ -3941,7 +4020,7 @@ test('a job made by a server with TMUX_TMPDIR set carries it, so its sessions la
     + 'creation says "started it" and the board says "Not running" forever (#668)');
 });
 
-test('a job made with no TMUX_TMPDIR carries none: absent means the default socket, so old plists do not change (#668)', LX(WIN_LAUNCHD, LINUX_UNIT_UNTESTED_WHY), () => {
+test('a job made with no TMUX_TMPDIR carries none: absent means the default socket, so old plists do not change (#668)', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const before = process.env.TMUX_TMPDIR;
@@ -3951,6 +4030,13 @@ test('a job made with no TMUX_TMPDIR carries none: absent means the default sock
     assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
   } finally {
     if (before !== undefined) process.env.TMUX_TMPDIR = before;
+  }
+  if (linuxHost()) {
+    // #5500: the unit, whose environment is read whole (CONTROL: it has one, so the absence below is not an empty read).
+    const unit = jobText('unpinned');
+    assert.match(unit, /^Environment="HOME=/m, 'CONTROL: the unit carries no environment at all');
+    assert.doesNotMatch(unit, /TMUX_TMPDIR/);
+    return;
   }
   const plist = fs.readFileSync(create.plistPath('unpinned'), 'utf8');
   assert.doesNotMatch(plist, /TMUX_TMPDIR/);
@@ -4701,17 +4787,8 @@ test('an existing agent is backfilled on first write, and a restored profile is 
 
 /* ── the OpenAI provider (#245) ──────────────────────────────────────────── */
 
-/* #5500: the job's argument vector on either platform (the plist's ProgramArguments, the unit's ExecStart); the
-   positions are the same on both. */
-const plistArgs = (name) => {
-  const text = jobText(name);
-  if (linuxHost()) {
-    const line = text.match(/^ExecStart=(.*)$/m);
-    return [...line[1].matchAll(/"([^"]*)"|(\S+)/g)].map((t) => (t[1] !== undefined ? t[1] : t[2]));
-  }
-  const block = text.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/);
-  return [...block[1].matchAll(/<string>([\s\S]*?)<\/string>/g)].map((m) => m[1]);
-};
+/* #5500: the job's argument vector on either platform (jobArgv, at the top). */
+const plistArgs = jobArgv;
 
 test('#245: an OpenAI agent is created on the codex runner, recorded everywhere, with the right launch vector', WIN_CODEX_POSIX_KEY, () => {
   recorder();
@@ -4857,7 +4934,7 @@ test('#3296 accounts slice: a Gemini create on a KNOWN account routes to that pe
   assert.match(bad.because, /do not know that Gemini account/);
 });
 
-test('#3296: installJob backfills a gemini agent as a GEMINI job on Mac (not claude), the runner read from its profile', LX(WIN_LAUNCHD, LINUX_UNIT_UNTESTED_WHY), () => {
+test('#3296: installJob backfills a gemini agent as a GEMINI job on Mac (not claude), the runner read from its profile', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const made = create.createAgent({ ...BINS, geminiBin: GEMINI_BIN, name: 'g-backfill', role: 'pm', provider: 'google' });
@@ -4865,10 +4942,10 @@ test('#3296: installJob backfills a gemini agent as a GEMINI job on Mac (not cla
   // Simulate the missing-job state installJob (backfill/repair) exists for: remove the
   // plist so jobPresence is 'no' and the backfill path is reached. recordedRunner then
   // falls to profile.provider=google, so the agent's TRUE runner is gemini.
-  fs.rmSync(create.plistPath('g-backfill'), { force: true });
+  fs.rmSync(jobfixture.jobPath('g-backfill'), { force: true });   // #5500: the plist, or the unit on Linux
   const r = create.installJob('g-backfill', { ...BINS, geminiBin: GEMINI_BIN });
   assert.equal(r.ok, true, 'installJob must backfill a gemini agent on Mac: ' + r.because);
-  assert.ok(fs.existsSync(create.plistPath('g-backfill')), 'installJob did not write the backfilled job');
+  assert.ok(fs.existsSync(jobfixture.jobPath('g-backfill')), 'installJob did not write the backfilled job');
   // THE anti-mis-launch assertion: the plist names gemini, NOT claude (writing a claude
   // job for a gemini agent was the exact bug the old root refusal guarded against).
   assert.equal(create.readJob('g-backfill').runner, 'gemini', 'installJob backfilled a gemini agent as the WRONG runner');
@@ -5221,15 +5298,15 @@ test('#3391 accounts slice: a Grok create on a KNOWN account routes to that per-
   assert.match(bad.because, /do not know that Grok account/);
 });
 
-test('#3391: installJob backfills a grok agent as a GROK job on Mac (not claude), the runner read from its profile', LX(WIN_LAUNCHD, LINUX_UNIT_UNTESTED_WHY), () => {
+test('#3391: installJob backfills a grok agent as a GROK job on Mac (not claude), the runner read from its profile', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const made = create.createAgent({ ...BINS, grokBin: GROK_BIN, name: 'gk-backfill', role: 'pm', provider: 'xai' });
   assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
-  fs.rmSync(create.plistPath('gk-backfill'), { force: true });
+  fs.rmSync(jobfixture.jobPath('gk-backfill'), { force: true });   // #5500: the plist, or the unit on Linux
   const r = create.installJob('gk-backfill', { ...BINS, grokBin: GROK_BIN });
   assert.equal(r.ok, true, 'installJob must backfill a grok agent on Mac: ' + r.because);
-  assert.ok(fs.existsSync(create.plistPath('gk-backfill')), 'installJob did not write the backfilled job');
+  assert.ok(fs.existsSync(jobfixture.jobPath('gk-backfill')), 'installJob did not write the backfilled job');
   assert.equal(create.readJob('gk-backfill').runner, 'grok', 'installJob backfilled a grok agent as the WRONG runner');
 });
 
@@ -5477,7 +5554,7 @@ test('#2245: a provider switch MOVES the brief to the file the new runner boots 
   }
 });
 
-test('#246: the switch rewrites only the launch, both directions, and drops what cannot cross', LX(WIN_TASK_STUB, LINUX_TASK_STUB_WHY), () => {
+test('#246: the switch rewrites only the launch, both directions, and drops what cannot cross', WIN_TASK_STUB, () => {
   recorder();
   create.setDryRun(false);
   const codexHome = mkTemp('codex-home-sw-');
@@ -5651,7 +5728,7 @@ test('#548: an OpenAI-only Mac creates an OpenAI agent; Claude\'s absence is not
   assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
 });
 
-test('#245: a claude agent\'s launch vector is untouched by the runner feature', LX(WIN_LAUNCHD, LINUX_LAUNCHD_WHY), () => {
+test('#245: a claude agent\'s launch vector is untouched by the runner feature', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const name = 'claude-classic';
@@ -5666,12 +5743,29 @@ test('#245: a claude agent\'s launch vector is untouched by the runner feature',
   assert.equal(store.readProfile(name).provider, 'anthropic');
 });
 
-test('jobMissing counts only a proven absence: EACCES answers false, never "never recorded" (#149/#150)', LX(WIN_LAUNCHD, LINUX_UNIT_UNTESTED_WHY), () => {
+test('jobMissing counts only a proven absence: EACCES answers false, never "never recorded" (#149/#150)', WIN_LAUNCHD, () => {
   /* The function's whole reason to exist over !hasJob(): existsSync swallows
      EACCES into false, so the negation would stamp a provenance claim on
      every agent the moment LaunchAgents cannot be read. Forced here with a
      chmod-000 directory; a "simplification" back to !hasJob goes red on the
      EACCES leg while every fixture-state test stays green. */
+  if (linuxHost()) {
+    // #5500: the same rule on Linux (create.jobPresence's unit arm): only ENOENT on the unit file is an absence.
+    const udir = process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
+    assert.ok(udir && udir.startsWith(SANDBOX), 'this test chmods the unit dir and must never aim at the real one');
+    fs.writeFileSync(jobfixture.jobPath('jmhere'), '[Service]\n', 'utf8');
+    assert.equal(create.jobMissing('jmhere'), false, 'a present unit read as missing');
+    assert.equal(create.jobMissing('jmgone'), true, 'a proven absence was not counted');
+    fs.chmodSync(udir, 0o000);
+    try {
+      assert.equal(create.jobMissing('jmgone'), false,
+        'an unreadable unit folder was reported as "never recorded", the provenance claim the ENOENT rule exists to prevent');
+    } finally {
+      fs.chmodSync(udir, 0o700);
+      fs.rmSync(jobfixture.jobPath('jmhere'), { force: true });
+    }
+    return;
+  }
   const dir = process.env.AGENT_WORKFORCE_LAUNCH;
   assert.ok(dir && dir !== require('node:os').homedir() + '/Library/LaunchAgents',
     'this test chmods the launch dir and must never aim at the real one');
