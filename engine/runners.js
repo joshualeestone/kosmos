@@ -279,6 +279,44 @@ const GROK_WIN32 = Object.freeze(Object.assign(Object.create(null), {
 }));
 
 /**
+ * #5419 slice 2: the LINUX builds of the same pinned releases, keyed by process.arch. Same source and trust anchor
+ * as the Mac and Windows entries: each is the npm registry's own tarball with its own registry sha512. MEASURED
+ * 2026-10-06 (each tarball streamed, its sha512 matched the registry, the byte count is the real size, the paths
+ * read from the tarball's listing). Codex's Linux builds are static musl, so one build per CPU serves glibc and
+ * Alpine alike. Grok's layout is the Mac one: ONE compressed `bin/grok.br`, expanded to `bin/grok`.
+ */
+const CODEX_LINUX = Object.freeze(Object.assign(Object.create(null), {
+  x64: Object.freeze({
+    arch: 'x64',
+    url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-linux-x64.tgz',
+    integrity: 'sha512-Of5fGYgr7tAMsyj6vhXb4/RM/UoA3Zq8BLegUBDC09UNy1XTLGYP/2XD+UX8z3qh0NDwxYdCjFIWdDNijKZggQ==',
+    binInPackage: 'vendor/x86_64-unknown-linux-musl/bin/codex',
+    downloadBytes: 125550959,
+  }),
+  arm64: Object.freeze({
+    arch: 'arm64',
+    url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-linux-arm64.tgz',
+    integrity: 'sha512-OqxUfZ1TVvHd18zHPKK/8ZRlpk8Vy11mg5CMHaLxNWldTbwVImDKtSLWT+m8m4NM5Sz4PbjtZMrVT/RfpBW/mQ==',
+    binInPackage: 'vendor/aarch64-unknown-linux-musl/bin/codex',
+    downloadBytes: 118078094,
+  }),
+}));
+const GROK_LINUX = Object.freeze(Object.assign(Object.create(null), {
+  x64: Object.freeze({
+    arch: 'x64',
+    url: 'https://registry.npmjs.org/@xai-official/grok-linux-x64/-/grok-linux-x64-1.0.41.tgz',
+    integrity: 'sha512-5KS0AMeGYQh3++0EEZPKVjAcalFQma8K5SKMhBu1k1OVNpA/lO+fRgecS1/kOsLaGaPDPfQm611Z+a5J9dLfAg==',
+    downloadBytes: 49179836,
+  }),
+  arm64: Object.freeze({
+    arch: 'arm64',
+    url: 'https://registry.npmjs.org/@xai-official/grok-linux-arm64/-/grok-linux-arm64-1.0.41.tgz',
+    integrity: 'sha512-6g8fHFwKb/jdo3XTGXMiA5FrzzUi6q5nKtT3+eXNbNKGtMOmN4t7NNh+IK3S6FlWcG+slL1Po2YDaNgMZ6swqg==',
+    downloadBytes: 44233139,
+  }),
+}));
+
+/**
  * The manifest entry for `provider` ON A GIVEN PLATFORM AND CPU. Everything that
  * installs or resolves a runner asks this rather than reading MANIFEST directly,
  * so the Mac and Windows answers can never drift into two resolvers again.
@@ -309,6 +347,15 @@ function manifestFor(provider, platform = process.platform, arch = process.arch)
   }
   if (provider === 'gemini' && platform === 'win32') {
     return Object.freeze({ ...base, binName: 'gemini.cmd' });
+  }
+  /* #5419 slice 2: Linux takes its own Codex and Grok builds (a CPU with none gets x64, refused by name by the arch
+     guard, as on Windows); the Mac's POSIX install path, stable symlink and node launcher serve it unchanged, and
+     Gemini's bundle is the same tarball everywhere. */
+  if (provider === 'openai' && platform === 'linux') {
+    return Object.freeze({ ...base, ...(CODEX_LINUX[arch] || CODEX_LINUX.x64) });
+  }
+  if (provider === 'grok' && platform === 'linux') {
+    return Object.freeze({ ...base, ...(GROK_LINUX[arch] || GROK_LINUX.x64) });
   }
   return base;
 }

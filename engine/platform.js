@@ -96,13 +96,13 @@ const CLAUDE_DOWNLOADS = Object.freeze(['darwin', 'win32', 'linux']);
  * 📌 Found by the founder on a clean Windows 11 laptop (prod 0.6.72): the first-run
  * GPT card refused on this gate and the screen said only "We could not start that
  * install." */
-const CODEX_DOWNLOADS = Object.freeze(['darwin', 'win32']);
+const CODEX_DOWNLOADS = Object.freeze(['darwin', 'win32', 'linux']);   // #5419 slice 2: linux pinned in runners.js (CODEX_LINUX)
 
 /* The Gemini CLI and the Grok CLI (#3713), the same shape as CODEX_DOWNLOADS and for the same
  * reason: Kosmos pins a Windows build of each (Grok's own win32-x64/arm64 tarballs; Gemini's
  * bundle is one tarball run by Kosmos's own node), measured on a Windows 11 box on 2026-09-25,
  * so a Windows install fetches a build that runs there. RUNNER_DOWNLOADS stays darwin-only. */
-const KEYED_RUNNER_DOWNLOADS = Object.freeze(['darwin', 'win32']);
+const KEYED_RUNNER_DOWNLOADS = Object.freeze(['darwin', 'win32', 'linux']);   // #5419 slice 2: GROK_LINUX; Gemini's bundle is one tarball
 
 /* 🛑 AND THE THIRD QUESTION, WHICH NOTHING ASKED UNTIL #570 WENT LOOKING FOR IT.
  * `engine/update.js` is the SELF-updater. On the Mac it answers "install the new
