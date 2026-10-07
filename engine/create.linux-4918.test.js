@@ -32,7 +32,7 @@ const linuxjob = require('./linuxjob');
    { ok:false } for a failure is the shape that hid a crash on the first agent of every Linux board. */
 let systemd = () => ({ ok: true, stdout: '' });
 const calls = [];
-create.setRunner((file, args) => {
+const fakeRunner = (file, args) => {
   if (file !== 'systemctl' && file !== 'loginctl') return { ok: true, stdout: '' };
   calls.push([file, ...args]);
   const r = systemd(file, args);
@@ -40,7 +40,8 @@ create.setRunner((file, args) => {
   const err = new Error('Command failed: ' + file + ' ' + args.join(' '));
   err.status = r.code == null ? 1 : r.code; err.stdout = r.stdout || ''; err.stderr = r.stderr || '';
   throw err;
-});
+};
+create.setRunner(fakeRunner);
 create.setDryRun(false);
 linuxjob.setRunnerForTests(() => { throw new Error('create went around its own runner to linuxjob\'s'); });
 
@@ -93,4 +94,26 @@ test('#4918 review 7: a name systemd still runs with no unit file left gets the 
   const r = create.createAgent({ ...BINS, name: 'ghostbot', role: 'pm', platform: 'linux' });
   assert.equal(r.outcome, create.OUTCOME.REFUSED, JSON.stringify(r));
   assert.match(r.because, /systemctl --user stop 'kosmos-agent-ghostbot\.service'/, 'the unit is quoted so a pasted \\x2b survives the shell');
+});
+
+test('#4918 review 23: a dry-run Linux board creates; create\'s name check reads a dry run as not running', () => {
+  systemd = lingerIs(true);
+  // The real dry-run shape: no runner (run() checks the runner first, so a fake would hide it).
+  create.setRunner(null);
+  create.setDryRun(true);
+  try {
+    const r = create.createAgent({ ...BINS, name: 'drybot', role: 'pm', platform: 'linux' });
+    assert.notEqual(r.outcome, create.OUTCOME.REFUSED, 'a dry run refused the name as still running: ' + JSON.stringify(r));
+  } finally { create.setRunner(fakeRunner); create.setDryRun(false); }
+});
+
+test('#4918 review 23: an install over a unit that is already active is not "started now"', () => {
+  fs.mkdirSync(create.workerDir('activebot'), { recursive: true });
+  systemd = (cmd, args) => ((cmd === 'systemctl' && args[1] === 'is-active') ? { ok: true, stdout: 'active\n' } : lingerIs(true)(cmd, args));
+  const r = create.installJob('activebot', { ...BINS, platform: 'linux' });
+  assert.equal(r.started, false, 'a start of an active unit (a no-op) was reported as started: ' + JSON.stringify(r));
+  systemd = lingerIs(true);
+  fs.mkdirSync(create.workerDir('activebot2'), { recursive: true });
+  const c = create.installJob('activebot2', { ...BINS, platform: 'linux' });
+  assert.equal(c.started, true, 'CONTROL: a fresh install starts: ' + JSON.stringify(c));
 });

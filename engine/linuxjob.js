@@ -385,7 +385,6 @@ function enabledState(name, worldId) {
 function loaded(name, worldId) {
   const u = unitName(name, worldId);
   const r = runner('systemctl', ['--user', 'is-active', u]);
-  if (r && r.dryRun) return true;   // a dry run answers as loaded, as the Mac's ok-means-loaded does (review 21)
   const out = String((r && r.stdout) || '').trim();   // a runner may return no stdout on failure
   return Boolean(r && ((r.ok && out === 'active') || out === 'activating'));
 }

@@ -550,7 +550,9 @@ function jobOps(platform) {
       stopNow: (name, job) => via(() => lj.stoppedOrNotLoaded(lj.stop(name, wid(job)))),
       enable: (name, job) => via(() => Boolean(lj.enable(name, wid(job)).ok)),
       startNow: (name, job) => via(() => Boolean(lj.startOnly(name, wid(job)).ok)),   // never re-enables (review 9)
-      loaded: (name, job) => via(() => Boolean(lj.loaded(name, wid(job)))),
+      // A dry run answers as loaded, as the Mac's ok-means-loaded does (review 21). Here only: create's name check
+      // must read a dry run as NOT loaded, or every dry-run creation is refused (review 23).
+      loaded: (name, job) => DRY_RUN || via(() => Boolean(lj.loaded(name, wid(job)))),
       startableGone: (name, job) => !fs.existsSync(lj.unitPath(name, wid(job))),
       diagnose: (name, job) => {
         const u = lj.unitPath(name, wid(job));
