@@ -6108,6 +6108,23 @@ function selfStarts(platform, lingering) {
   if ((platform || process.platform) === 'linux' && lingering === false) return 'it starts itself while you are logged in to this computer and it is not removed';
   return SELF_STARTS;
 }
+/* #5445: the board's offline-row sentence for an agent whose job is switched off, or null when it is not. `switchedOff`
+   is disabledJobs()'s set, read for probePlatform(). On the Mac: launchd's override, switched off in System Settings.
+   On Linux: systemd; a masked unit (a link to /dev/null, read from the disk, so it is said even when systemctl could not
+   be asked) gets the unmask sentence. Linux had no switched-off set before #5445 (launchctl failed there), so the
+   Mac sentence, which points at System Settings, never reached it. */
+function switchedOffSentence(name, switchedOff, platform) {
+  const plat = probePlatform(platform);
+  if (plat === 'linux') {
+    let masked = false;
+    try { masked = require('./linuxjob').masked(name); } catch { masked = false; }
+    if (masked) return 'this agent is not running because ' + require('./linuxjob').maskedSentence(name);
+    if (!(switchedOff && switchedOff.has(name))) return null;
+    return 'this agent is not running because its background job was switched off (or masked) in systemd, this computer\'s service manager. Switch it back on there and it can start again';
+  }
+  if (!(switchedOff && switchedOff.has(name))) return null;
+  return 'this agent is not running because its background job was switched off, probably in System Settings under Login Items. Switch it back on there and it can start again';
+}
 function selfStartsSentence(platform) {
   const plat = platform || process.platform;
   let lingering;
@@ -6161,6 +6178,7 @@ module.exports = {
   modelFor,
   SELF_STARTS,
   selfStarts,
+  switchedOffSentence,
   setProbePlatformForTests,
   probePlatform,
   selfStartsSentence,

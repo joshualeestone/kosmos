@@ -57,11 +57,18 @@ arm on the Linux runner. Direct callers in tests (create.test.js, world-guard-li
 machine.agentAutostartCheck passes the platform it was asked about; board tests on a launchctl fake
 (server.world-offline-rows-1704, server.world-switch-agents-1704, server.offline-nextmove, server.socket-split) pin
 'darwin' with create.setProbePlatformForTests (found by a sweep for every test faking launchctl list/print-disabled).
+The pin only keeps their two fleet probes off systemctl; it does not make those files pass on Linux (their roster,
+survey and jobMissing still follow the host, and they fail the same tests on B's head, measured with the platform
+forced to linux). Making them run on Linux is #5432's work.
 The lane run of this branch is compared, file by file, with the lane run of B's head (6a819cbde).
 - Review 3: worldstarts passes its platform to the disabled probe; createdroster.test.js's harness pins 'darwin'. The
   class is now MEASURED, not swept: every engine test file that loads a changed module is run with process.platform
   forced to 'linux', on B's head and on this branch, and the failing tests compared; the Linux lane run of each head is
   compared by failing file (B's head: 446 failing tests in 63 files on 2026-10-07).
+- create.switchedOffSentence words the offline row's switched-off cause (tested per platform); a masked unit is read
+  from the disk, so it is said even when systemctl could not be asked. agyrefresh's board-start hook refresh now sees
+  running Linux agents (runningJobs was always empty there); it only rewrites hooks for agents it finds running.
+- An unreadable linger record keeps the default self-starts sentence: unknown is not evidence for the weaker claim.
 - The board's offline row on Linux: switched off says systemd (not System Settings), a masked agent says masked with
   the unmask command, and the self-starts clause uses selfStartsSentence. lingerFileOn reads only a proven absence as
   off (an unreadable record is unknown) and never reads the host's record in a test process.

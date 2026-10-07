@@ -263,3 +263,20 @@ test('#5445 the two fleet polls fail soft on a refused runner, as the Mac arm do
     assert.throws(() => create.linuxRun(() => linuxjob.start('anybot')), /refused for real/, 'CONTROL: an act still fails loudly');
   } finally { create.setRunner(fakeRunner); }
 });
+
+test('#5445 the board says where a switched-off agent was switched off, per platform, and a masked one says masked', () => {
+  clearUnits();
+  const off = new Set(['offrow']);
+  // Mac: unchanged, System Settings.
+  assert.match(create.switchedOffSentence('offrow', off, 'darwin'), /System Settings under Login Items/);
+  assert.equal(create.switchedOffSentence('onrow', off, 'darwin'), null, 'CONTROL: not switched off, no sentence');
+  // Linux: systemd, never System Settings.
+  const lin = create.switchedOffSentence('offrow', off, 'linux');
+  assert.match(lin, /switched off \(or masked\) in systemd/);
+  assert.doesNotMatch(lin, /System Settings/);
+  assert.equal(create.switchedOffSentence('onrow', off, 'linux'), null);
+  // A masked unit is read from the disk, so it is said even when systemctl gave no switched-off set.
+  fs.symlinkSync('/dev/null', linuxjob.unitPath('maskrow2'));
+  assert.match(create.switchedOffSentence('maskrow2', new Set(), 'linux'), /masked it in systemd.*unmask/);
+  assert.equal(create.switchedOffSentence('maskrow2', new Set(), 'darwin'), null, 'CONTROL: the Mac never reads units');
+});
