@@ -310,7 +310,7 @@ function goalProject(session, projects, goals, asked, now, askedSig) {
     // Webhook tasks waiting for a person do not stop the ask (blocksGoalAsk), but the ask must not
     // then say the project has none: it says how many wait, and that they are not the agent's.
     // #5456: only the webhook ones; a repeating task with nobody on it is not one, and its schedule needs nothing from the agent.
-    const waitingHooks = (Array.isArray(p.tasks) ? p.tasks : []).filter((t) => !tasks.progressOf(t).closed && t.addedVia === 'webhook' && !tasks.whoOf(t).length).length;
+    const waitingHooks = (Array.isArray(p.tasks) ? p.tasks : []).filter((t) => !tasks.progressOf(t).closed && t.addedVia === 'webhook' && !t.repeat && !tasks.whoOf(t).length).length;
     const item = { projectId: p.id, projectName: typeof p.name === 'string' && p.name ? p.name : p.id, goal, sig, ...(waitingHooks ? { waitingHooks } : {}) };
     // The pane's own check, not a copy of it: a line it would refuse is never asked.
     if (chat.messageProblem(askText(item))) continue;

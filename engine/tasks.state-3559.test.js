@@ -192,4 +192,7 @@ test('#5456 taskState: a repeating task with nobody on it is scheduled; with an 
   const rows = joined(projects.readAll().find((x) => x.id === p.id));
   assert.ok(rows[0].repeat && rows[1].repeat && !rows[2].repeat, 'fixture: the repeat rules are not where the test put them');
   assert.deepEqual(rows.map((t) => tasks.taskState(t)), ['scheduled', 'assigned', 'nobody']);
+  tasks.setOnHold(p.id, 1, true);   // held wins over scheduled, as over every open state
+  const held = joined(projects.readAll().find((x) => x.id === p.id));
+  assert.equal(tasks.taskState(held[0]), 'held', 'a held repeating task with nobody on it read as scheduled');
 });
