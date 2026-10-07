@@ -35,6 +35,7 @@ const connect = require('./connect');
 // #5419: download() and sign-in refuse on a real Linux host with no tmux; pinned to "present" so a Linux box without
 // tmux still runs these tests for what they name.
 connect.setTmuxCheckForTests(() => false);
+connect.setMuslLibsCheckForTests(() => false);   // #5419: nor the host's musl libraries
 const subscription = require('./subscription');
 
 const PAID_FILE = { oauthAccount: { organizationType: 'claude_max' } };

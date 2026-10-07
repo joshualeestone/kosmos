@@ -3232,6 +3232,25 @@ driverTest('#5419: with Claude installed and no tmux at the start, the flow stop
   }
 });
 
+driverTest('#5419: with Claude installed, a musl host missing its libraries still signs in (they matter to a download only)', async () => {
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  connect.setSigninPlatformForTests('linux');
+  connect.setTmuxCheckForTests(() => false);
+  connect.setMuslLibsCheckForTests(() => true);
+  try {
+    await connect.start();
+    await until(() => term.made > 0 || connect.state().phase === connect.PHASE.STUCK, 5000);
+    assert.doesNotMatch(String(connect.state().because || ''), /libstdc/, 'an installed Claude was refused over download-only libraries');
+    assert.ok(term.made > 0, 'CONTROL: the flow reached sign-in: ' + JSON.stringify(connect.state()));
+  } finally {
+    connect.setSigninPlatformForTests('darwin');
+    connect.setTmuxCheckForTests(TMUX_PRESENT);
+    connect.setMuslLibsCheckForTests(null);
+  }
+});
+
 test('#5419: the real (unseamed) no-tmux check: true on a Linux host with no tmux, false off Linux', (t) => {
   const create = require('./create');
   const runners = require('./runners');

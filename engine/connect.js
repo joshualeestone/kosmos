@@ -186,7 +186,7 @@ let tmuxCheckOverride = null;
 const LINUX_NO_TMUX = 'Kosmos needs tmux on this computer to sign Claude in, and none was found';
 /* Review 23: the search covers PATH and the usual system folders, so a tmux kept elsewhere (Nix, ~/.local/bin) under a
    minimal service PATH reads as missing; the hint says that case too, rather than only "install it". */
-const LINUX_TMUX_HINT = 'Install tmux with your system\'s package manager (for example sudo apt install tmux, sudo dnf install tmux, or apk add tmux) and try again. If tmux is already installed, Kosmos could not find it in the usual places (/usr/bin, /usr/local/bin, /bin, /snap/bin): link it into /usr/local/bin and try again';
+const LINUX_TMUX_HINT = 'Install tmux with your system\'s package manager (for example sudo apt install tmux, sudo dnf install tmux, or apk add tmux) and try again. If tmux is already installed, Kosmos could not find it on its PATH or in the usual places (/usr/local/bin, /usr/bin, /bin, /snap/bin, Linuxbrew): link it into /usr/local/bin and try again';
 function tmuxMissingForSignin(platform) {
   if (platform !== 'linux') return false;
   return tmuxCheckOverride ? Boolean(tmuxCheckOverride()) : (process.platform === 'linux' && tmuxMissingOnLinux());
@@ -1156,7 +1156,7 @@ function muslLibsMissing(platform) {
    canDownloadClaude() allows (darwin, win32, linux); any other platform falls through to darwin, but the gate never lets
    it through.
    ONE derivation of this key.
-   On Linux an arch Anthropic does not build (armv7l, riscv64, ppc64, s390x, ia32) keeps its own name, a key no
+   On Linux an arch Anthropic does not build (arm, riscv64, ppc64, s390x, ia32) keeps its own name, a key no
    manifest carries, so download refuses with "no build for this kind of computer" rather than placing an x64 binary
    that fails with "exec format error" (#5419). */
 function platformKey(platform = process.platform, rawArch = os.arch()) {
