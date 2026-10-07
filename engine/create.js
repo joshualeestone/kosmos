@@ -3343,13 +3343,19 @@ function nameInThisWorld(key) {
    execFileSync on a non-zero exit) AND for a runner/gate result that carries
    `ok:false` (the live-execution-refused path, and the test seam), so the unknown
    state is seen the same way in both. */
+/* #5445: the platform the two fleet probes below ask (disabledJobsResult, runningJobs) when the caller names none.
+   A test that drives the board on a launchctl fake pins 'darwin' here, as worldstarts.setPlatformForTests does, so a
+   Linux CI runner does not send its fake systemctl questions. */
+let probePlatformOverride = null;
+function setProbePlatformForTests(platform) { probePlatformOverride = platform || null; }
+function probePlatform(platform) { return platform || probePlatformOverride || process.platform; }
 function disabledJobsResult(runner, platform) {   // #5445: platform injectable, as readJob's is
   // #3182: an optional injected runner so machine.agentAutostartCheck can read the
   // same disabled set through the SAME seam boardAutostartCheck uses (a fake
   // launchctl in a suite, never the operator's real one). Absent, it is the
   // module `run` -- every existing caller (disabledJobs) is unchanged.
   const r = (typeof runner === 'function') ? runner : run;
-  if ((platform || process.platform) === 'linux') return linuxDisabledJobsResult(r);
+  if (probePlatform(platform) === 'linux') return linuxDisabledJobsResult(r);
   try {
     const out = r('/bin/launchctl', ['print-disabled', `gui/${process.getuid()}`]);
     if (out && out.ok === false) return { ok: false };
@@ -3398,7 +3404,7 @@ function disabledJobs(platform) {
    disabledJobs above; fail-soft to an empty set, because "we could not look"
    must never dress a stopped agent in "running unseen". */
 function runningJobs(platform) {
-  if ((platform || process.platform) === 'linux') {
+  if (probePlatform(platform) === 'linux') {
     // #5445 (display parity): the agent units systemd has active; fail-soft to an empty set, as below.
     const lj = require('./linuxjob');
     try {
@@ -6152,6 +6158,7 @@ module.exports = {
   modelFor,
   SELF_STARTS,
   selfStarts,
+  setProbePlatformForTests,
   selfStartsSentence,
   createdLog, createdLogFile, createdCount, disabledJobs, disabledJobsResult, runningJobs,
 

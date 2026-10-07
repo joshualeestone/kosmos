@@ -242,3 +242,15 @@ test('#5445 a missing Linux Trash still takes the folder (the move makes it)', (
     assert.equal(p.toTrash, true, JSON.stringify(p));
   } finally { if (savedTrash !== undefined) process.env.AGENT_WORKFORCE_TRASH = savedTrash; }
 });
+
+test('#5445 a board test can pin the fleet probes to the Mac arm on any runner', () => {
+  const w = myWorld();
+  systemd = (cmd, args) => (args[1] === 'list-units' ? { ok: true, stdout: `${linuxjob.unitName('pinbot', w)} loaded active running x\n` } : { ok: true, stdout: '' });
+  try {
+    create.setProbePlatformForTests('linux');
+    assert.deepEqual([...create.runningJobs()], ['pinbot'], 'pinned to linux: the systemctl arm, with no platform passed');
+    create.setProbePlatformForTests('darwin');
+    assert.deepEqual([...create.runningJobs()], [], 'pinned to darwin: the launchctl arm (the fake answers launchctl with nothing)');
+    assert.deepEqual([...create.runningJobs('linux')], ['pinbot'], 'a platform the caller names still wins');
+  } finally { create.setProbePlatformForTests(null); }
+});
