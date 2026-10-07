@@ -42,5 +42,5 @@ absolute and the parenthetical is separated by a space and a paren; a file whose
   progressive and baseline JPEG, three WebP chunk kinds, HEIC), a JPEG behind 130 KB of APP1,
   controls (wrong magic, cut PNG, JPEG cut before its frame header, HEIC -> null), the trailer for an
   image, a mislabelled image, a PDF, text, HEIC, a hostile type, and two files in order.
-  Red on main's attachments.js: 9 of 9 fail.
+  Every test in it fails against main's attachments.js (measured at each review round's commit).
 - Updated the five assertions that pinned the old trailer end (attachments.test.js, server.test.js x4).
