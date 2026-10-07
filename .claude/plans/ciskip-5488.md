@@ -26,24 +26,34 @@ commit on a PR that changes code still matches, so `paths-ignore: .claude/plans/
 - `test-launchagent-leak-guard-3011` excludes `.claude/plans/`.
 - `render-talk-goldencard-2519` reads `.claude/plans/goldencard-2519-*.md` (not the proof) and `docs/browser-checks/`.
   So a goldencard-2519 plan is carved back in: it runs the suite.
-- Every other `.claude/plans` mention in a test is a comment citation (checked line by line).
+- Tests that walk EVERY tracked file (a string grep for `.claude/plans` cannot see these; found in review):
+  `fixture-discipline.test.js` checks each tracked PATH for segments like `undefined` or `foo:`, and
+  `tools.no-phone-home-4253.test.js` reads every tracked `*.test.js`. So reuse is limited to plain Markdown files
+  directly under `.claude/plans/` whose names are letters, digits, `.`, `_` and `-` only (no subdirectory, no colon,
+  no `.test.js`). The brand and name scans exclude plans; `bundle.execbit-4134` reads named paths only.
 
 ## The change
 - `tools/ci-plans-only-reuse.sh <head-sha> <branch>`: prints the id of the newest green `test.yml` pull_request run
-  for the branch at another sha, ONLY when every file changed since that sha is under `.claude/plans/` (and is not a
-  goldencard-2519 plan). Prints nothing on any doubt: no green run, sha not in the clone (force-push), diff fails, gh
+  for the branch at another sha, at most six hours old (`KOSMOS_REUSE_MAX_AGE_S`), ONLY when every path changed since
+  that sha, BOTH sides of a rename (`--no-renames`; a code file moved into plans must not read as a plan change), is a
+  plain plan file as above and not a goldencard-2519 plan. Prints nothing on any doubt: no green run, sha not in the clone (force-push), diff fails, gh
   fails, nothing changed (a deliberate re-run), missing arguments. Always exits 0.
-- `test.yml`: a `scope` job (ubuntu, `actions: read`) runs it on pull_request only. `suite` runs when
+- `test.yml`: a `scope` job (ubuntu, `actions: read`) runs it on pull_request only, with the branch name and sha
+  passed through `env:` (a branch name can hold shell syntax), and keeps only a numeric answer. `suite` runs when
   `!cancelled() && needs.scope.outputs.reuse == ''`, so a failed scope job still runs the suite. `test` passes a
-  skipped suite ONLY with a named run to reuse, and prints that run's URL.
+  skipped suite ONLY with a numeric run id to reuse, and prints that run's URL.
 - `tools.shell-shard-4317.test.js`: `test` now needs `[scope, suite]`.
-- `tools/test-ci-plans-only-reuse-5488.sh` (in test:shell): real git repo, stubbed gh, 11 decision arms and 4
-  wiring pins. Measured red: with the non-plans arm loosened, 2 failures (code, docs).
+- `tools/test-ci-plans-only-reuse-5488.sh` (in test:shell): real git repo; the gh stub refuses unless asked
+  for green pull_request test.yml runs of the branch with their age; 20 decision arms; the wiring parsed as YAML.
+  Measured red: non-plans arm loosened, 2 failures; `--no-renames` dropped, 1 (the move); `--status success` dropped,
+  2 (the stub refuses, so the reuse controls fail).
 
 ## Weakest premises
 - A pull_request run tests the merge with main AS IT WAS. Reusing it skips re-testing this head against a main that
-  has moved. The main push run after merging still tests the merged tree, and a rebased PR is never plans-only
-  (main's changes are in the diff), so it always runs.
+  has moved, and proof commits come last, just before merge, when main has moved most. Decided, not missed: the
+  six-hour cap bounds it; the window itself is not new (a PR already merges with main moved since its last run); and
+  the main push run after merging tests the merged tree. Rejected: requiring the same base sha, which on a main that
+  takes a merge every few minutes would reuse almost never, and so save almost nothing.
 - No check is required on main (no branch protection, no rulesets, measured). If `test` is ever made required, a
   skipped `suite` is still fine: `test` itself reports success with the reused run named.
 - `gh run list --branch` matches the head branch NAME; a fork PR with the same branch name as another PR could match
