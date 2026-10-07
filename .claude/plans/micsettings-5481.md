@@ -26,7 +26,7 @@ Card: joshualeestone/kosmos#5481 (Josh, 2026-10-07; scope updated by Josh 08:16 
   and calls voiceToggle on the same mic, but only if the box is where it was when Settings was PRESSED (voiceWhere(box, true),
   steady: same agent or room, the box laid out, open, without the page-hidden part), and only once the page is
   visible (a start while it reads hidden would be cancelled by the watcher's first look); that wait lasts a minute at most and
-  is dropped by a new start or X; X clears it and focuses the mic. The refusal is said by the pill's own hidden role=alert span, never the shared message line.
+  is dropped by a new start; X clears it and focuses the mic. The refusal is said by the pill's own hidden role=alert span, never the shared message line.
   The pill belongs to the place it was offered: a view change (another agent or room, the box closing) clears it
   and puts the plain mic back (a 500 ms watch while it shows).
   `settings-next` repoints the same pill to the Microphone pane and says so again (a fresh alert); `refused` swaps it for the restricted sentence. Other refusals keep their sentence.

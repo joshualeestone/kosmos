@@ -65517,7 +65517,7 @@ function voiceCancel() {
 const VOICE_SETTINGS_PANE = { 'mic-denied': 'mic', 'speech-denied': 'speech' };
 const VOICE_SETTINGS = { btn: null, id: '', pane: '', where: '', alert: null, keys: [], watch: 0 };
 /* A restart waiting for the page to show (see voiceOnEvent's "allowed"): bounded, because the app's own visit is, and
-   dropped by anything that clears the pill (a new start, X). */
+   dropped by a new start (the pill, and its X, are already gone by then). */
 const VOICE_SETTINGS_WAIT = { once: null };
 const VOICE_SETTINGS_WAIT_MS = 60000;
 function voiceSettingsClear() {
@@ -65530,7 +65530,6 @@ function voiceSettingsClear() {
 function voiceSettingsOffer(btn, pane, said) {
   if (!btn || !btn.parentNode) return;
   voiceSettingsClear();
-  const hadFocus = document.activeElement === btn;   // the pill hides the mic; a keyboard user on it must not drop to the page
   VOICE.seq += 1;
   /* ONE visit id per pill, minted here, not per press: the app re-opens Settings at most once a second, and it always
      records the id of the latest press, so the page and the app hold the same id. Offered only when the app says it can
@@ -65548,7 +65547,11 @@ function voiceSettingsOffer(btn, pane, said) {
   const x = document.createElement('button');
   x.type = 'button'; x.className = 'vp-x'; x.textContent = '\u00d7';
   x.title = 'Dismiss'; x.setAttribute('aria-label', 'Dismiss, back to the microphone');
-  x.addEventListener('click', () => { voiceSettingsClear(); btn.focus(); });
+  x.addEventListener('click', () => {
+    const onPill = [x, go].includes(document.activeElement);   // a keyboard press; a mouse click in the app focuses nothing
+    voiceSettingsClear();
+    if (onPill) btn.focus();
+  });
   const go = document.createElement('button');
   go.type = 'button'; go.className = 'vp-go';
   go.innerHTML = '<span class="vp-pre">Turn on in&nbsp;</span>Settings';   // fixed words; narrow windows show only Settings
@@ -65578,7 +65581,7 @@ function voiceSettingsOffer(btn, pane, said) {
   btn.classList.add('has-pill');
   btn.insertAdjacentElement('afterend', pill);
   setTimeout(() => { if (VOICE_SETTINGS.alert === alert) alert.textContent = said || ''; }, 0);
-  if (hadFocus) go.focus();
+  // No focus move: a start puts the caret in the box (voiceToggle), and that is where it stays when the pill appears.
 }
 function voiceOnEvent(ev) {
   // #5481: "allowed" comes after the mic stopped (VOICE.btn is gone), so it is matched to the Settings visit itself.

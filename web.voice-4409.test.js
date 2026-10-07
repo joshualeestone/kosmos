@@ -442,6 +442,7 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   doc.body = { contains: () => true };
   doc.boxes['d-say-msg'] = { id: 'd-say-msg', textContent: '', classList: cls() };
   doc.boxes['d-say'] = mkBox('d-say');
+  doc.boxes['d-say'].focus = function () { this.focused += 1; doc.activeElement = this; };   // as the page's box does: a start puts the caret here
   btn.attrs['data-voice-for'] = 'd-say'; btn.attrs['data-voice-msg'] = 'd-say-msg';
   const go = () => pills[0].kids.find((k) => k.className === 'vp-go');
   const x = () => pills[0].kids.find((k) => k.className === 'vp-x');
@@ -457,7 +458,7 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   assert.deepEqual(pills[0].kids.map((k) => k.className), ['vh', 'vp-x', 'vp-go'], 'the pill is not [X   Turn on in Settings] with its hidden alert');
   assert.equal(go().attrs['aria-label'], 'Turn on in Settings');
   assert.match(go().innerHTML, /^<span class="vp-pre">Turn on in&nbsp;<\/span>Settings$/, 'the narrow label is not [X  Settings]');
-  assert.equal(doc.activeElement, go(), 'a mic that had focus handed it to nothing when the pill replaced it');
+  assert.equal(doc.activeElement, doc.boxes['d-say'], 'the pill moved the caret out of the box the start put it in');
   const msg = doc.boxes['d-say-msg'];
   const alert = pills[0].kids[0];
   assert.ok(alert.attrs.role === 'alert' && alert.textContent === '', 'the alert was born with its text, which is not announced');
@@ -505,11 +506,18 @@ test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [
   h.voiceOnEvent({ kind: 'error', reason: 'mic-denied', canOpenSettings: true, id: posted.at(-1).id });
   h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
   const n = posted.length;
+  go().focus();   // a keyboard user on the pill
   x().handlers.click();
   assert.equal(pills.length, 0, 'X did not dismiss the pill');
   assert.ok(!btn.classList.contains('has-pill'), 'X did not put the mic back');
-  assert.equal(doc.activeElement, btn, 'X left the focus nowhere');
+  assert.equal(doc.activeElement, btn, 'X pressed from the keyboard left the focus nowhere');
   assert.equal(posted.length, n, 'X asked the app for something');
+  // A mouse click on X (it focuses nothing in the app) leaves the caret in the box.
+  h.voiceToggle(btn);
+  h.voiceOnEvent({ kind: 'error', reason: 'mic-denied', canOpenSettings: true, id: posted.at(-1).id });
+  h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
+  x().handlers.click();
+  assert.equal(doc.activeElement, doc.boxes['d-say'], 'a mouse click on X took the caret out of the box');
   // the Microphone pane for a mic refusal
   h.voiceToggle(btn);
   h.voiceOnEvent({ kind: 'error', reason: 'mic-denied', canOpenSettings: true, id: posted.at(-1).id });

@@ -1554,6 +1554,9 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         let outcome = Self.visitOnReturn(ageSeconds: Date().timeIntervalSince(at), pane: settingsPane, speech: SFSpeechRecognizer.authorizationStatus(),
                                          mic: AVCaptureDevice.authorizationStatus(for: .audio), settingsId: settingsId)
         awaitingAllow = outcome.keepOpen
+        // Says on the first real use whether the switch was seen without a relaunch (unmeasured until then).
+        logLine("voice: back from Settings (" + settingsPane + ", \(Int(Date().timeIntervalSince(at))) s): speech " + Self.statusName(SFSpeechRecognizer.authorizationStatus())
+                + ", microphone " + Self.statusName(AVCaptureDevice.authorizationStatus(for: .audio)) + " -> " + (outcome.event?["kind"] ?? (outcome.keepOpen ? "still open" : "closed")))
         if let event = outcome.event { emit(event) }
     }
 
