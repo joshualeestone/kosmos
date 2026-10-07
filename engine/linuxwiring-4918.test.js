@@ -526,3 +526,21 @@ test('#4918 review 39: an import whose agent is running is started; one running 
     assert.match(String(worldstarts.firstStartOfImport({ name: 'importlin' }, 'linux')), /could not start/, 'CONTROL: a real failure still says so');
   } finally { create.installJob = origInstall; trust.trustFolder = origTrust; }
 });
+
+test('#4918 review 40: a unit-only leftover systemd will not remove keeps its records too', () => {
+  const del = require('./delete-leftover');
+  const removeMod = require('./remove');
+  const name = 'leftoverbus3';
+  fs.writeFileSync(linuxjob.unitPath(name), '[Service]\n');
+  const origForget = removeMod.forget;
+  let forgot = 0;
+  removeMod.forget = (...a) => { forgot += 1; return origForget(...a); };
+  del.setRunner((file, args) => (file === 'systemctl' && args[1] === 'stop' ? { ok: false, stderr: 'Failed to connect to bus: No such file or directory' } : { ok: true, stdout: '' }));
+  try {
+    const p = del.plan(name, { platform: 'linux' });
+    const r = del.del(name, { platform: 'linux', typed: p.typeToConfirm || name });
+    assert.equal(r.outcome, del.OUTCOME.REFUSED, JSON.stringify(r));
+    assert.equal(forgot, 0, 'the removal record was dropped while systemd still holds the unit');
+    assert.doesNotMatch(r.because, /folder was kept/, 'a unit-only leftover has no folder to keep');
+  } finally { removeMod.forget = origForget; del.setRunner(null); fs.rmSync(linuxjob.unitPath(name), { force: true }); }
+});

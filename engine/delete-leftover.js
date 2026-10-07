@@ -469,15 +469,18 @@ function del(name, opts) {
      would be deleted for good: losing the files while the unit stays is the worst of both. Into the Trash it can go. */
   /* review 32: kept whether or not there is a Trash: the folder is what shows the leftover on the board, and moving it
      while the unit still holds the name would leave nothing to look at. */
-  if (p.folder && p.job && p.job.unit && stuck.includes('its startup job')) {   // review 33: Linux units only; Windows unchanged
-    stuck.push('its folder');
-    steps.push({ step: 'its folder', ok: false, because: 'kept, because its startup job could not be removed' });
+  // review 40: with or without a folder; a unit systemd still holds keeps every record, as review 35 decided.
+  if (p.job && p.job.unit && stuck.includes('its startup job')) {   // review 33: Linux units only; Windows unchanged
+    if (p.folder) {
+      stuck.push('its folder');
+      steps.push({ step: 'its folder', ok: false, because: 'kept, because its startup job could not be removed' });
+    }
     /* review 35: stop here. Nothing was deleted, so the removal record, the tokens and the crash history stay: dropping
        them would bring the agent back as an ordinary one with dead tokens and nothing on screen to retry from. */
     return {
       outcome: OUTCOME.REFUSED,
       // review 37: the community standing reset (#5000) has already run and cannot be undone, so the sentence says so.
-      because: `systemd would not remove ${p.shown}'s startup job, so its folder was kept too. The name stays taken; try again once this computer's user services are reachable. Its standing in the community was reset, so if it comes back it starts at the beginning.`,
+      because: `systemd would not remove ${p.shown}'s startup job${p.folder ? ', so its folder was kept too' : ''}. The name stays taken; try again once this computer's user services are reachable. Its standing in the community was reset, so if it comes back it starts at the beginning.`,
       steps,
     };
   } else if (p.folder) move(p.folder.path, 'its folder');

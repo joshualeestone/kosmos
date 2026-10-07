@@ -38,7 +38,9 @@ if ! systemctl --user is-system-running >/dev/null 2>&1; then
   done
 fi
 
-if ! systemctl --user is-system-running >/dev/null 2>&1; then
+# review 40: "degraded" (one failed user unit somewhere) still runs units; only no manager at all is fatal.
+_um_state="$(systemctl --user is-system-running 2>/dev/null || true)"
+if [ "$_um_state" != "running" ] && [ "$_um_state" != "degraded" ]; then
   echo "systemctl --user status: $(systemctl --user is-system-running 2>&1 || true)"
   echo "WARN: systemd user bus is not running. Live tests require a functioning systemd user session."
   exit 1
