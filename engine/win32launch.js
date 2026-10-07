@@ -230,12 +230,21 @@ function argvFor(prepared, opts) {
    */
   const runner = String(o.runner || prepared.runner || 'claude');
   if (o.mcpConfig && runner === 'claude') argv.push('--mcp-config', String(o.mcpConfig));
+  /* #5406: the Kosmos-owned settings file (one PermissionRequest hook answering allow), so the agent does not stop on a
+     prompt the person's own ask rules raise. A flag, so it also ends --mcp-config's list. Claude only. */
+  if (o.permissionSettings && runner === 'claude') argv.push('--settings', String(o.permissionSettings));
   return argv.concat(prepared.launchArgs);
 }
 
 /* The browser config for one launch: the spec may carry a path, or a function
    asked at EVERY launch so a supervisor's relaunch picks up an install that
    finished after it started. Never throws; a failed answer is no browser. */
+/* #5406: the permission settings path for one launch (a path or a function asked per launch); never throws. */
+function permissionSettingsFor(s) {
+  try { return typeof s.permissionSettings === 'function' ? (s.permissionSettings() || null) : (s.permissionSettings || null); }
+  catch { return null; }
+}
+
 function mcpConfigFor(s) {
   try { return typeof s.mcpConfig === 'function' ? (s.mcpConfig() || null) : (s.mcpConfig || null); }
   catch { return null; }
@@ -381,7 +390,7 @@ function launch(spec) {
         console off the screen. The empty string after `start` is the WINDOW TITLE
         argument -- omitting it makes `start` treat a quoted program path as the
         title and launch nothing, which is a genuinely baffling failure to debug. */
-  const argv = argvFor(prepared, { ...s, mcpConfig: mcpConfigFor(s) });
+  const argv = argvFor(prepared, { ...s, mcpConfig: mcpConfigFor(s), permissionSettings: permissionSettingsFor(s) });
   const bin = binFor(s);
   let child;
   try {
@@ -526,7 +535,7 @@ function launchStreaming(spec) {
     if (!prepared.ok) return { ok: false, because: prepared.because };
   }
 
-  const argv = streamArgvFor(prepared, { ...s, mcpConfig: mcpConfigFor(s) });
+  const argv = streamArgvFor(prepared, { ...s, mcpConfig: mcpConfigFor(s), permissionSettings: permissionSettingsFor(s) });
   const bin = binFor(s);
   let child;
   try {

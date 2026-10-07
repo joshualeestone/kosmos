@@ -1314,10 +1314,20 @@ if [ -z "$adopt" ]; then
       case "$_mcp" in /*) if [ -f "$_mcp" ]; then MCP_ARGS=(--mcp-config "$_mcp"); fi ;; esac
       unset _mcp
     fi
+    # #5406 (Josh 2026-10-07): the agent does not stop on a prompt the person's own ask rules raise. A Kosmos-owned
+    # settings file with one PermissionRequest hook that answers allow (engine/agentpermission.js), passed with
+    # --settings and merged with the person's own settings, which are never written. Only a path to an existing file
+    # is passed on (a missing --settings file stops claude); none means the agent launches as before.
+    PERM_ARGS=()
+    if [ -n "${_eng:-}" ] && [ -f "$_eng/agent-permission-config.js" ] && [ -n "${NODE_BIN:-}" ]; then
+      _perm="$("$NODE_BIN" "$_eng/agent-permission-config.js" 2>/dev/null || true)"
+      case "$_perm" in /*) if [ -f "$_perm" ]; then PERM_ARGS=(--settings "$_perm"); fi ;; esac
+      unset _perm
+    fi
     if [ -n "$MODEL" ]; then
-      launch_pane "$CLAUDE" ${MCP_ARGS[@]+"${MCP_ARGS[@]}"} --dangerously-skip-permissions --model "$MODEL" || exit 1
+      launch_pane "$CLAUDE" ${MCP_ARGS[@]+"${MCP_ARGS[@]}"} ${PERM_ARGS[@]+"${PERM_ARGS[@]}"} --dangerously-skip-permissions --model "$MODEL" || exit 1
     else
-      launch_pane "$CLAUDE" ${MCP_ARGS[@]+"${MCP_ARGS[@]}"} --dangerously-skip-permissions || exit 1
+      launch_pane "$CLAUDE" ${MCP_ARGS[@]+"${MCP_ARGS[@]}"} ${PERM_ARGS[@]+"${PERM_ARGS[@]}"} --dangerously-skip-permissions || exit 1
     fi
   fi
 fi
