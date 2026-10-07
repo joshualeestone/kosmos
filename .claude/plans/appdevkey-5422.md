@@ -7,24 +7,30 @@ and makes the page on a computer's own address sign in with a `k1.` id. This bra
 1. DEVICE_ID accepts exactly `k1.` + 32 base64url as well as the older opaque shape. Without it a keyed browser's
    request is dropped from the Mac's pending list and allow/deny refuse it (the tunnel and coordinator accept it).
    Exactly that shape: a dot never lets `../x` through.
-2. Sign-in device arguments: ask the tunnel once per process (`signin device-id --device-key
-   <state dir>/signin-device.key`). A `k1.` answer: start and verify pass `--device-key`. Anything else (an older
-   tunnel refuses the verb): the opaque `--device-id`, as before. The release bundles whichever tunnel is in dist and
-   nothing pins the pair, so the app must work with both.
-3. remote.json: `device_id` becomes the key's id; the opaque id moves to `legacy_device_id`. The pending list hides
-   both (#4610: this computer's old sign-in row stays pending at the coordinator and must not ask to be allowed).
-   A fallback after a key uses the opaque id, never the key id without its proof.
-4. signinVerify takes its cancel epoch before anything is awaited (the probe made the arguments async).
+2. Sign-in device arguments, asked of the tunnel on EVERY start and verify (`signin device-id --device-key
+   <state dir>/signin-device.key`), with no memo (a Forget removes the key file; a passing failure must not stick).
+   A `k1.` answer: `--device-key`. Exit 2 (clap's usage error, measured on two older builds: "unrecognized
+   subcommand 'device-id'"): the opaque `--device-id`, as before. Anything else refuses the sign-in in words: a
+   fallback would sign in as another device, and a `k1.` id is never sent without its key. The key file is
+   deterministic, so a start and its verify name one device, across a restart too.
+3. remote.json: `device_id` is the id the last sign-in used; the ids before it are kept, newest first (at most 8), in
+   `past_device_ids`. The pending list hides all of them (#4610: this computer's earlier rows stay pending at the
+   coordinator). An older tunnel after a key uses the kept opaque id, never the key id without its proof.
+4. Start and verify take the cancel epoch before anything is awaited and check it, and busy(), after the device
+   arguments come back.
 
 ## Order with kosmos-relay#297
 This merges first; #297 is held until it does (comment on #297).
 
 ## Known limits
 - Migration: a computer that updates signs in as a new device (its key's id) and is allowed once, as the design accepted.
-- A probe that fails for another reason on a new tunnel (a corrupt key file) falls back to the opaque id for that
-  process, silently. Its self-allow (allowSelfQuietly) then targets the key id, not the session's id.
+- A tunnel replaced between a start and its verify (older to newer, or back) names another device on the verify,
+  which the coordinator refuses; the person asks for a new code.
+- A remote.json repair (an unreadable file) keeps device_id but not past_device_ids.
 
-## Tests (engine/remote.test.js)
+## Tests (engine/remote.test.js, names carry kosmos#5422)
+- a key that cannot be opened refuses in words, sends no start (control: an older tunnel signs in).
+- a new key keeps the older key id among this computer's own; a cancel while start asks the tunnel sends no start.
 - devkey tunnel: start and verify pass the same key file in the state dir, no id; asked once; remote.json moves ids.
 - older tunnel: opaque id, no key file, stored id unchanged.
 - after a key, an older tunnel uses the kept opaque id (control: none kept, one is made, key id stays).
