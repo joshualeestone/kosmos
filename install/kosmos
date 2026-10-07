@@ -8,7 +8,8 @@
 #   kosmos stop      stop it
 #   kosmos status    say whether it is running, in a sentence (exit 0 running,
 #                    1 not, 4 running but too busy to answer: #4466, 5 a listener is there but
-#                    this shell cannot connect to it: #4636, as `open` too; the watchdog reads 4 and 5)
+#                    this shell cannot connect to it, or this shell cannot check at all (a strict sandbox):
+#                    #4636, as `open` too; the watchdog reads 4 and 5)
 #   kosmos open      start if needed, then open the dashboard in the browser
 #   kosmos version   print the app version
 #
@@ -491,7 +492,8 @@ _ipv4_listener() {
   # still in its output (port_listener_owner reads it the same way).
   # stderr joins stdout: -F lines start p/c/f/n, which awk reads; lsof's own messages start "lsof:", which it
   # skips, and the refusal is read from them below.
-  _l="$(/usr/sbin/lsof -S 2 -nP -i4TCP:"$PORT" -sTCP:LISTEN -Fpcn 2>&1)" || true
+  local _lb; _lb="$(_lsof_cmd)" || return 1
+  _l="$("$_lb" -S 2 -nP -i4TCP:"$PORT" -sTCP:LISTEN -Fpcn 2>&1)" || true
   _o="$(/usr/bin/awk -v port="$PORT" '
     /^p/ { p = substr($0, 2); next }
     /^c/ { c = substr($0, 2); next }
