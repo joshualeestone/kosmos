@@ -36,3 +36,7 @@ Weakest premise: Chromium with isMobile is not an Android phone; the real check 
 - [NIT] fixed: addListener fallback for engines without MediaQueryList.addEventListener.
 - [NIT] decided: the sort menu stretches wide on a phone turned sideways (the kremote block covers landscape); the gaps stay even, so it reads as one row. Left.
 Found while testing, out of this card's six screens: Settings at 360 overflows horizontally (with and without --remote). Noted on the card.
+
+## Review 2 (sonnet): no BLOCKER, no WARNING; converged
+Measured by the reviewer: the 8 named tests and 7 more that grep web/index.html pass; the new check passes in Chromium and WebKit; 12 screens at android360 shoot identically with and without --remote (fallback() is continue() for every stub here: three non-GET stubs, one context stub on /api/status, no overlaps); REMOTE is set before any stub can run; the placeholder is set only in the HTML.
+NITs: fixed after convergence (comment and one fail-fast line, measured: mobile-shots tests 12/8/31 and a --remote run clean): the --remote paragraph had split a docblock sentence (moved, and android360 added to the usage line); the comment now names the two ways --remote is not a real phone (redirects followed by the router, no service worker on an http .test host); the proxy aborts when the board is gone instead of hanging to the screen timeout. Decided: the landscape sort-menu stretch (as review 1).
