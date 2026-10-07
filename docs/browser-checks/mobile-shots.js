@@ -251,7 +251,7 @@ const SCREENS = [
       window.webkit = { messageHandlers: { kosmosVoice: { postMessage() {} } } };
       document.documentElement.classList.add('has-voice');
       document.getElementById('d-mic').click();
-      window.kosmosVoiceEvent({ kind: 'error', reason: 'speech-denied' });
+      window.kosmosVoiceEvent({ kind: 'error', reason: 'speech-denied', settings: true });
       window.kosmosVoiceEvent({ kind: 'stopped' });
     });
     await page.waitForSelector('.voice-pill', { state: 'visible', timeout: 5000 });

@@ -19,11 +19,13 @@ Card: joshualeestone/kosmos#5481 (Josh, 2026-10-07; scope updated by Josh 08:16 
     nothing changed keeps it open; older than 10 minutes, nothing.
   - restricted is told apart from denied (`speech-restricted`, `mic-restricted`).
   - Each permission answer is logged with its duration, so a refusal without a prompt shows as a few milliseconds.
+- Every native refusal carries `settings: true`. The page offers the pill only then: an older app still running after
+  an update (the binary is replaced, the process keeps old code) cannot open Settings, so it keeps the sentence.
 - web/index.html: on a desktop-bridge `mic-denied` or `speech-denied`, the mic gets class `has-pill` (hidden) and a
   `.voice-pill` is inserted after it, with ONE visit id minted for the pill. The label posts `{op:'settings', pane, id}`; `allowed` with that id clears the pill
   and calls voiceToggle on the same mic, but only if the box is where it was when Settings was PRESSED (voiceWhere without its
   page-hidden part, which can lag the app's return: same agent or room, the box laid out, open); X clears it and focuses the mic. The refusal is said by the pill's own hidden role=alert span, never the shared message line.
-  `settings-next` repoints the same pill to the Microphone pane; `refused` swaps it for the restricted sentence. Other refusals keep their sentence.
+  `settings-next` repoints the same pill to the Microphone pane and says so again (a fresh alert); `refused` swaps it for the restricted sentence. Other refusals keep their sentence.
 
 ## Measured (not built)
 Ask 1 is NOT REPRODUCED, not fixed. Measured with two throwaway apps of my own bundle ids, built from one probe
@@ -34,7 +36,7 @@ both got the system prompt on macOS 26.7.1, so that is not the cause there. Re-s
 the identity existing grants are keyed on.
 
 ## Tests
-- `--kosmos-app-voice-selftest`: 37 rows, including stampId, visitOnReturn (open, ready, too late), the once-a-second Settings limit, pane mapping, allowedEvent (allowed, settings-next, nothing) (the event and its Settings-visit id), readyToStart (speech allowed with the mic never asked counts as ready), and the restricted split.
+- `--kosmos-app-voice-selftest`: 38 rows, including stampId, visitOnReturn (open, ready, too late), the once-a-second Settings limit, pane mapping, allowedEvent (allowed, settings-next, nothing) (the event and its Settings-visit id), readyToStart (speech allowed with the mic never asked counts as ready), and the restricted split.
 - web.voice-4409.test.js: the pill, the X, `allowed`, and the controls.
 - docs/browser-checks/render-voice-4409.js: V6, V6b, V6c, V6d and V6e.
 - design shots: the screen agent-chat-mic-settings.

@@ -1517,6 +1517,7 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
     static func allowedEvent(awaiting: Bool, pane: String, speech: SFSpeechRecognizerAuthorizationStatus, mic: AVAuthorizationStatus, settingsId: String) -> [String: String]? {
         guard awaiting else { return nil }
         if readyToStart(speech: speech, mic: mic) { return ["kind": "allowed", "id": settingsId] }
+        if speech == .restricted { return ["kind": "refused", "reason": "speech-restricted", "id": settingsId] }
         if speech == .authorized && mic == .restricted { return ["kind": "refused", "reason": "mic-restricted", "id": settingsId] }
         if speech == .authorized && mic == .denied && pane == "speech" { return ["kind": "settings-next", "pane": "mic", "id": settingsId] }
         return nil
@@ -1560,7 +1561,7 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
             guard let pane = body["pane"] as? String, let url = Self.settingsURL(pane: pane) else { return }
             // The visit is always the page's latest (its id, pane and time), so "allowed" carries the id the page now
             // holds; only re-opening the pane is limited to once a second.
-            settingsId = (body["id"] as? String) ?? ""
+            settingsId = String(((body["id"] as? String) ?? "").prefix(64))
             settingsAt = Date()
             settingsPane = pane
             awaitingAllow = true
@@ -1619,7 +1620,10 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
     private func refuse(_ reason: String) {
         pending = false
         logLine("voice: not listening (" + reason + ")")
-        emit(["kind": "error", "reason": reason])
+        // #5481: `settings` says this app can open the System Settings pane, so the page may offer its pill. A page newer
+        // than a still-running older app (an update replaces the binary, the running process keeps the old code) sees
+        // no `settings` and keeps the sentence with the directions instead of a button that does nothing.
+        emit(["kind": "error", "reason": reason, "settings": true])
         emit(["kind": "stopped"])
     }
 
@@ -6587,13 +6591,14 @@ if CommandLine.arguments.contains("--kosmos-app-voice-selftest") {
     row(ready.event == ["kind": "allowed", "id": "set7"] && !ready.keepOpen, "#5481 review 4: back ready says allowed and closes the visit")
     let late = VoiceBridge.visitOnReturn(ageSeconds: VoiceBridge.settingsVisitSeconds + 1, pane: "mic", speech: .authorized, mic: .authorized, settingsId: "set7")
     row(late.event == nil && !late.keepOpen, "#5481 review 3: a return after the visit's time starts nothing, even with both allowed")
-    row(!VoiceBridge.settingsOpenAllowed(sinceLast: 0.2) && VoiceBridge.settingsOpenAllowed(sinceLast: 1.5) && VoiceBridge.settingsOpenAllowed(sinceLast: nil), "#5481 review 4: Settings opens at most once a second")
+    row(!VoiceBridge.settingsOpenAllowed(sinceLast: 0.2) && VoiceBridge.settingsOpenAllowed(sinceLast: 1.5) && VoiceBridge.settingsOpenAllowed(sinceLast: nil) && VoiceBridge.settingsOpenAllowed(sinceLast: -5), "#5481 review 4: Settings opens at most once a second (a clock moved back allows one more)")
     let micStill = VoiceBridge.visitOnReturn(ageSeconds: 5, pane: "mic", speech: .authorized, mic: .denied, settingsId: "set7")
     row(micStill.event == nil && micStill.keepOpen, "#5481 review 5: back from the Microphone pane before the switch is flipped keeps the visit open")
     row(VoiceBridge.allowedEvent(awaiting: true, pane: "speech", speech: .authorized, mic: .restricted, settingsId: "set7") == ["kind": "refused", "reason": "mic-restricted", "id": "set7"], "#5481 review 5: a restricted mic is said as that, not left on a pill")
     row(VoiceBridge.stampId(["kind": "allowed", "id": "set7"], pageId: "s3")["id"] as? String == "set7", "#5481: a Settings visit's event keeps its own id")
     row(VoiceBridge.stampId(["kind": "stopped"], pageId: "s3")["id"] as? String == "s3", "#5481 CONTROL: any other event carries the listening session's id")
-    let expected = 37   // #5311: + Dictation off, + its control; #5481: + 21
+    row(VoiceBridge.allowedEvent(awaiting: true, pane: "speech", speech: .restricted, mic: .notDetermined, settingsId: "set7") == ["kind": "refused", "reason": "speech-restricted", "id": "set7"], "#5481 review 7: speech restricted is said as that, not left on a pill")
+    let expected = 38   // #5311: + Dictation off, + its control; #5481: + 22
     if ran != expected { print("\nvoice-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
     if bad > 0 { print("\nvoice-check: \(bad) row(s) wrong"); exit(1) }
     print("\nvoice-check: all good (\(ran) rows)")

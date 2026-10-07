@@ -7745,6 +7745,8 @@ html.has-voice .micbtn.has-pill { display: none; }
 /* review 1: in a field the pill sits over the text box, so it is always the short [X  Settings] there and the box
    makes room for it (the box's own mic padding rules are more specific, hence !important while the pill shows). */
 .micwrap > .voice-pill .vp-pre { display: none; }
+/* 124px = the short pill's width plus its 8px offset and a margin; render-voice-4409.js V6e measures that the text ends
+   before the pill begins, so a font change that outgrows it reds there. */
 html.has-voice .micwrap:has(> .voice-pill) > textarea, html.has-voice .micwrap:has(> .voice-pill) > input { padding-right: calc(124px + var(--scrollbar-width, 0px)) !important; }
 @media (max-width: 479px) { .voice-pill .vp-pre { display: none; } }   /* Splinter 08:33: [X  Settings] when narrow, same pane */
 /* #4409: read aloud, in a message's hover bar beside Reply (html.has-speak: the page has speechSynthesis). */
@@ -65507,11 +65509,11 @@ function voiceCancel() {
    Settings pane (the app opens only the two panes it knows, never a URL from the page); X puts the plain mic back.
    When the person comes back with both allowed, the app says "allowed" and the same mic starts listening. */
 const VOICE_SETTINGS_PANE = { 'mic-denied': 'mic', 'speech-denied': 'speech' };
-const VOICE_SETTINGS = { btn: null, id: '', pane: '', where: '' };
+const VOICE_SETTINGS = { btn: null, id: '', pane: '', where: '', alert: null, keys: [] };
 function voiceSettingsClear() {
   document.querySelectorAll('.voice-pill').forEach((el) => el.remove());
   document.querySelectorAll('.micbtn.has-pill').forEach((b) => b.classList.remove('has-pill'));
-  Object.assign(VOICE_SETTINGS, { btn: null, id: '', pane: '', where: '' });
+  Object.assign(VOICE_SETTINGS, { btn: null, id: '', pane: '', where: '', alert: null, keys: [] });
 }
 function voiceSettingsOffer(btn, pane, said) {
   if (!btn || !btn.parentNode) return;
@@ -65519,7 +65521,8 @@ function voiceSettingsOffer(btn, pane, said) {
   const hadFocus = document.activeElement === btn;   // the pill hides the mic; a keyboard user on it must not drop to the page
   VOICE.seq += 1;
   /* ONE visit id per pill, minted here, not per press: the app re-opens Settings at most once a second, and it always
-     records the id of the latest press, so the page and the app hold the same id. */
+     records the id of the latest press, so the page and the app hold the same id. Offered only when the app says it can
+     open Settings (`settings` on its refusal): an older app still running after an update would ignore the press. */
   const visitId = 'set' + VOICE.seq;
   VOICE_SETTINGS.pane = pane;
   const pill = document.createElement('span');
@@ -65547,6 +65550,7 @@ function voiceSettingsOffer(btn, pane, said) {
     h.postMessage({ op: 'settings', pane: VOICE_SETTINGS.pane, id: VOICE_SETTINGS.id });
   });
   pill.append(alert, x, go);
+  VOICE_SETTINGS.alert = alert; VOICE_SETTINGS.keys = [x, go];
   btn.classList.add('has-pill');
   btn.insertAdjacentElement('afterend', pill);
   if (hadFocus) go.focus();
@@ -65561,8 +65565,10 @@ function voiceOnEvent(ev) {
        can still read hidden at the instant the app comes back from Settings; the box's own layout says shown. */
     const place = (w) => { const f = String(w).split('|'); f.splice(f.length - 2, 1); return f.join('|'); };   // drop shown|hidden (the view key has its own '|')
     const still = !!box && shownNow(box) && place(voiceWhere(box)) === place(VOICE_SETTINGS.where);
+    const hadFocus = VOICE_SETTINGS.keys.includes(document.activeElement);
     voiceSettingsClear();
     if (still && document.body.contains(btn) && !VOICE.btn) voiceToggle(btn);
+    else if (hadFocus) btn.focus();   // the pill had focus and nothing else takes it: back to the mic, never the page
     return;
   }
   // Review 3: speech is now on but the mic is still refused (both were off); the same pill now opens the Microphone pane.
@@ -65570,13 +65576,24 @@ function voiceOnEvent(ev) {
   if (ev && ev.kind === 'refused') {
     const btn = VOICE_SETTINGS.btn;
     if (!btn || ev.id !== VOICE_SETTINGS.id || !VOICE_SAYS[ev.reason]) return;
+    const hadFocus = VOICE_SETTINGS.keys.includes(document.activeElement);
     voiceSettingsClear();
     voiceSay(btn, VOICE_SAYS[ev.reason]);
+    if (hadFocus) btn.focus();
     return;
   }
   if (ev && ev.kind === 'settings-next') {
     if (!VOICE_SETTINGS.btn || ev.id !== VOICE_SETTINGS.id || !['speech', 'mic'].includes(ev.pane)) return;
     VOICE_SETTINGS.pane = ev.pane;
+    /* Said again: the same button now opens another pane, and a screen reader must hear why. A fresh alert node, since
+       changing an alert's text in place is not reliably announced. */
+    const was = VOICE_SETTINGS.alert;
+    if (was && was.parentNode) {
+      const now = document.createElement('span');
+      now.className = 'vh'; now.setAttribute('role', 'alert'); now.textContent = VOICE_SAYS[ev.pane === 'mic' ? 'mic-denied' : 'speech-denied'] || '';
+      was.parentNode.replaceChild(now, was);
+      VOICE_SETTINGS.alert = now;
+    }
     return;
   }
   if (!ev || !VOICE.btn) return;   // a late word after a cancel goes nowhere
@@ -65617,7 +65634,7 @@ function voiceOnEvent(ev) {
     const b = voiceBridge();
     const key = b && b.phone && ev.reason === 'speech-denied' && voicePhoneWho() === 'Apple' ? 'speech-denied-apple' : ev.reason;
     const said = (b && b.phone && VOICE_SAYS_PHONE[key]) || VOICE_SAYS[ev.reason] || VOICE_SAYS.recognizer;
-    if (b && !b.phone && VOICE_SETTINGS_PANE[ev.reason]) voiceSettingsOffer(btn, VOICE_SETTINGS_PANE[ev.reason], said);   // #5481: the pill, no sentence
+    if (b && !b.phone && ev.settings === true && VOICE_SETTINGS_PANE[ev.reason]) voiceSettingsOffer(btn, VOICE_SETTINGS_PANE[ev.reason], said);   // #5481: the pill, no sentence
     else voiceSay(btn, said);
     return;
   }
