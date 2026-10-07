@@ -28,7 +28,7 @@
 const test = require('node:test');
 /* #5432: on a Linux host an agent's job is a systemd user unit, so a test that asserts the launchd plist itself
    measures nothing there. Skipped on Linux only, naming where Linux covers it; macOS and Windows unchanged. */
-const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS plist test on a Linux host (#5432): its runner answers launchctl only, so on Linux the restart after the switch cannot confirm a running unit and the answer is partial; Linux switch and restart: linuxjob.test.js (rewriteAgentJob on Linux) and linuxwiring-4918.test.js (review 8, a Linux restart)" } : {};
+const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS launchd fixture on a Linux host (#5432): the test seeds or reads the agent's job as a macOS plist, or its runner stub answers launchctl only. What it asserts is platform-neutral and is tested on macOS and Windows, but NOT yet on Linux: #5500 ports it." } : {};
 const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

@@ -69,7 +69,7 @@ require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, remov
 const os = require('node:os');
 /* #5432: on a Linux host an agent's job is a systemd user unit, so a test that asserts the launchd plist itself
    measures nothing there. Skipped on Linux only, naming where Linux covers it; macOS and Windows unchanged. */
-const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS plist test on a Linux host (#5432): it asserts what launchctl was asked (load, enable, bootout, kickstart) or the plist's own fields; Linux create, remove, restore and restart: create.linux-4918.test.js and linuxwiring-4918.test.js (reviews 8, 33, 34), and linux-parity-5445.test.js" } : {};
+const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS launchd fixture on a Linux host (#5432): the test seeds or reads the agent's job as a macOS plist, or its runner stub answers launchctl only. What it asserts is platform-neutral and is tested on macOS and Windows, but NOT yet on Linux: #5500 ports it." } : {};
 const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const fs = require('node:fs');
 const nodePath = require('node:path');

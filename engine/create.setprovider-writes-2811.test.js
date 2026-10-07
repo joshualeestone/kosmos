@@ -86,7 +86,7 @@ const create = require('./create');
 const store = require('./store');
 /* #5432: on a Linux host an agent's job is a systemd user unit, so a test that asserts the launchd plist itself
    measures nothing there. Skipped on Linux only, naming where Linux covers it; macOS and Windows unchanged. */
-const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS plist test on a Linux host (#5432): it fails the plist write by name; Linux writes a unit (a refused unit write: linux-parity-5445.test.js, a masked unit refuses the write)" } : {};
+const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS launchd fixture on a Linux host (#5432): the test seeds or reads the agent's job as a macOS plist, or its runner stub answers launchctl only. What it asserts is platform-neutral and is tested on macOS and Windows, but NOT yet on Linux: #5500 ports it." } : {};
 
 /* Seeded DIRECTLY rather than through `createAgent`, which calls the REAL
    /bin/launchctl and loads live services on the developer's Mac. Same seam as
