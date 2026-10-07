@@ -185,8 +185,9 @@ _kosmos_home_default="${_kosmos_home_default%/}"
 
 # #4920: the board unit's file name as the shell rule before linuxboard.js wrote it (the default home gives
 # kosmos-board.service, any other the sha256 of KOSMOS_HOME, first 8 hex). setup.sh normalizes KOSMOS_HOME above and
-# refuses a relative one, so this equals linuxboard.boardUnitName for every home setup.sh accepts. Used only for units
-# an earlier release wrote: the uninstall of such an install, and the KillMode fix before an update pause.
+# refuses a relative one, so this equals linuxboard.boardUnitName for every home setup.sh accepts. Used where
+# linuxboard cannot run: the KillMode fix before a stop, and the uninstall branches for an older release, a node that is
+# gone or cannot load linuxboard, and an app folder that is gone.
 _kosmos_linux_unit_name() {
   if [ "$KOSMOS_HOME" = "$_kosmos_home_default" ]; then
     printf '%s' "kosmos-board.service"

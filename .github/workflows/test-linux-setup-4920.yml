@@ -291,6 +291,13 @@ jobs:
           if grep -qxF "Restart=always" "$UNIT"; then echo "FAIL: the update left the old Restart=always unit" >&2; exit 1; fi
           test "$(systemctl --user is-active kosmos-board.service)" = active
           curl -fsS -m 5 http://127.0.0.1:16180/ >/dev/null
+          # The held-changed restart happened: the running process started after installBoard rewrote the unit (the start
+          # step's earlier restart ran under the OLD unit text, before the rewrite).
+          STARTED="$(systemctl --user show -p ExecMainStartTimestampMonotonic --value kosmos-board.service)"
+          UNIT_MTIME_S="$(stat -c %Y "$UNIT")"; BOOT_S="$(awk '{print int($1)}' /proc/uptime)"; NOW_S="$(date +%s)"
+          UNIT_MONO_US=$(( (UNIT_MTIME_S - (NOW_S - BOOT_S)) * 1000000 ))
+          echo "board started at monotonic $STARTED us; unit rewritten at about $UNIT_MONO_US us"
+          test -n "$STARTED" && [ "$STARTED" -gt "$UNIT_MONO_US" ] || { echo "FAIL: the board was not restarted after its unit was rewritten" >&2; exit 1; }
           # And it stays up without a restart loop.
           N1="$(systemctl --user show -p NRestarts --value kosmos-board.service)"
           sleep 12
