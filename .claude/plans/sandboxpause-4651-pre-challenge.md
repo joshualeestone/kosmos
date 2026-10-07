@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: sandboxpause-4651
-diff_hash: 462bdfcba3b8933728074455ea5c0480296f296592e671047b1b8538c736846e
-validation: passed (PR #5462's GitHub CI at b0dc99707, the rebased head this proof covers, all six jobs SUCCESS: suite (node), suite (shell 1/2), suite (shell 2/2), test, test-linux-setup, windows. Earlier, Mortals full suite at 77e1827bf before the rebase onto #5067's merge: 0 failures. On the rebased tree by hand: test-setup-pause-sandbox-4651 0 failures, test-update-putback-4818 33/33, test-pause-foreign-board-964 12/12, test-update-abort-2055 10/10, test-install-static 23/23)
+diff_hash: 940f870b732330bf0018ba7de67f0f32f3f0938545bc48a4a158806f10f363c5
+validation: passed (rebased again 09:09 onto main after #4918's test:shell lines; package.json union-resolved, no code change; on that tree by hand: the five checks below pass again. PR #5462's GitHub CI at b0dc99707, the rebased head this proof covers, all six jobs SUCCESS: suite (node), suite (shell 1/2), suite (shell 2/2), test, test-linux-setup, windows. Earlier, Mortals full suite at 77e1827bf before the rebase onto #5067's merge: 0 failures. On the rebased tree by hand: test-setup-pause-sandbox-4651 0 failures, test-update-putback-4818 33/33, test-pause-foreign-board-964 12/12, test-update-abort-2055 10/10, test-install-static 23/23)
 subdir_audit: passed
 timestamp: 2026-10-07T14:09:00Z
 iterations: 16
