@@ -1410,7 +1410,10 @@ uninstall() {
   if [ "$(uname -s)" = "Linux" ]; then
     # #4920: piece B's removeBoard (stop, disable, delete, reload), the same derivation of the unit's name and path as
     # installBoard. Run before the app folder is deleted, since it is the app's own code.
-    if [ -f "$KOSMOS_HOME/app/engine/linuxboard.js" ] && [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ -x "$KOSMOS_HOME/runtime/bin/node" ] && command -v systemctl >/dev/null 2>&1; then
+    if [ -n "${AGENT_WORKFORCE_LAUNCH:-}" ] && [ -z "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ]; then
+      # A sandboxed run never touches real systemd (linuxboard refuses it by design): said as what it is.
+      info "sandboxed run: the systemd step was skipped on purpose"
+    elif [ -f "$KOSMOS_HOME/app/engine/linuxboard.js" ] && [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ -x "$KOSMOS_HOME/runtime/bin/node" ] && command -v systemctl >/dev/null 2>&1; then
       info "removing the systemd service for the board"
       _lb_rc=0
       _lb_out="$("$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME/app/engine/linuxboard.js" "$KOSMOS_HOME" <<'BOARDEOF' 2>/dev/null
@@ -1436,6 +1439,23 @@ if (!r || !r.ok) {
 BOARDEOF
 )" || _lb_rc=$?
       [ "$_lb_rc" -eq 0 ] || info "the board's systemd service was not fully removed: ${_lb_out:-its removal step did not run ($KOSMOS_HOME/runtime/bin/node)}"
+    elif [ -f "$KOSMOS_HOME/app/server.js" ] && [ ! -f "$KOSMOS_HOME/app/engine/linuxboard.js" ] && command -v systemctl >/dev/null 2>&1; then
+      # An install from a release before linuxboard.js (#4918) has the shell-written unit that release made, named by
+      # its own rule: the default home gives kosmos-board.service, any other the sha256 of KOSMOS_HOME as typed, first
+      # 8 hex. That rule is what wrote those files, so it is the one that removes them; without this, the app folder is
+      # deleted below and that unit (Restart=always) retries a missing folder every 5 seconds, at every boot.
+      _lb_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
+      _lb_name="kosmos-board.service"
+      if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
+        _lb_name="kosmos-board.$(printf '%s' "$KOSMOS_HOME" | (sha256sum 2>/dev/null || shasum -a 256 2>/dev/null) | cut -c1-8).service"
+      fi
+      if [ -f "$_lb_dir/$_lb_name" ]; then
+        info "removing the systemd service an earlier Kosmos made for the board"
+        systemctl --user stop "$_lb_name" 2>/dev/null || true
+        systemctl --user disable "$_lb_name" 2>/dev/null || true
+        rm -f "$_lb_dir/$_lb_name" "$_lb_dir/default.target.wants/$_lb_name"
+        systemctl --user daemon-reload 2>/dev/null || true
+      fi
     elif [ -f "$KOSMOS_HOME/app/engine/linuxboard.js" ] && [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ -x "$KOSMOS_HOME/runtime/bin/node" ]; then
       # The app is here but systemctl is not: nothing can stop or disable a unit, and there is no user manager to have
       # loaded one. Say so rather than blaming a missing app folder.
@@ -4068,7 +4088,11 @@ if [ "$(uname -s)" = "Linux" ]; then
   # unit and turns on linger, reading it back. The board-off case needs nothing extra: the unit's
   # ConditionPathExists=!board.stopped keeps it from starting.
   if ! command -v systemctl >/dev/null 2>&1; then
-    info "note: systemctl not available; Kosmos was started in background and will not start itself after a restart"
+    if [ "$_kosmos_board_off" = yes ]; then
+      info "note: systemctl not available, so Kosmos cannot be set to start itself; it stays off $(_kosmos_off_why)"
+    else
+      info "note: systemctl not available; Kosmos was started in background and will not start itself after a restart"
+    fi
   else
     _lb_rc=0
     _lb_handoff=ok
@@ -4119,7 +4143,7 @@ BOARDEOF
         "loose lingering"|held-changed\ *)
           if [ "$_kosmos_board_off" != yes ] && ! "$KOSMOS_HOME/bin/kosmos" restart --force >/dev/null 2>&1; then
             # restart fails when the old board would not stop, or the new one was slow to answer: never a quiet success.
-            info "Kosmos is set to start with systemd, but the hand-over just now did not confirm it is running. Check with: kosmos status, and if it is not running: kosmos start"
+            info "Kosmos is set to start with systemd, but the hand-over just now did not confirm it is running. Check with: kosmos status, and if it is not running: kosmos start (what it said is in $KOSMOS_HOME/logs/board.log)"
             _lb_handoff=failed
           fi ;;
       esac
@@ -4133,7 +4157,8 @@ BOARDEOF
       # Not after a failed hand-off: the line above already said to check; a success-shaped close would contradict it.
       [ "$_lb_handoff" = failed ] || info "Kosmos will start itself when this computer starts"
     else
-      info "Kosmos is running now and will start itself when you log in, but not at boot: linger is off for $(id -un 2>/dev/null || echo "this user"), so after a restart it stops when you log out. To keep it running, an administrator can run: loginctl enable-linger $(id -un 2>/dev/null || echo "<user>")"
+      if [ "$_lb_handoff" = failed ]; then _lb_now="Kosmos"; else _lb_now="Kosmos is running now and"; fi
+      info "$_lb_now will start itself when you log in, but not at boot: linger is off for $(id -un 2>/dev/null || echo "this user"), so after a restart it stops when you log out. To keep it running, an administrator can run: loginctl enable-linger $(id -un 2>/dev/null || echo "<user>")"
     fi
   fi
   ok
