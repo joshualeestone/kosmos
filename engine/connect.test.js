@@ -3097,6 +3097,7 @@ test('#5419: the real Linux tmux pick is held between sign-in ticks, and a new l
     connect.tmuxBinPath('linux');
     assert.equal(asked, 2, 'a changed launcher value reused the old answer');
   } finally {
+    connect.resetForTests();   // and none left for a later test
     create.linuxTmuxBin = orig;
     runners.isRunnable = origRunnable;
     if (saved === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = saved;
@@ -3233,6 +3234,7 @@ test('#5419: a held tmux pick that has since gone away is not handed back', () =
     present = false;   // tmux removed within 30 s
     assert.equal(connect.tmuxBinPath('linux'), 'tmux', 'a tmux that is gone was handed back from the cache');
   } finally {
+    connect.resetForTests();   // and none left for a later test
     create.linuxTmuxBin = origPick; runners.isRunnable = origRunnable;
     if (saved === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = saved;
   }
