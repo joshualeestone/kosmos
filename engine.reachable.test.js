@@ -47,7 +47,7 @@ const EXCUSED = {
   setClaudeProbe: 'test seam: injects the claude -p liveness probe so tests do not spawn a real claude (#1916)',
   setChatgptBrowserOpener: 'test seam (0.6.96 OpenAI sign-in): engine/openaiaccounts.js records the device page it would open, so a suite never starts a real browser and a Mac can drive the win32 arm',
   resetForTests: 'test seam',
-  setMuslDetectForTests: 'test seam (#5419): engine/connect.js detects musl from process.report and musl\'s own loader file on Linux; tests answer glibc or musl from any host (connect.test.js). Production uses detectMusl.',
+  setMuslDetectForTests: 'test seam (#5419): engine/connect.js detects musl from process.report, musl\'s own loader file and, with no report, a glibc loader, on Linux; tests answer glibc or musl from any host (connect.test.js). Production uses detectMusl.',
   setMuslLibsCheckForTests: 'test seam (#5419 review 24): engine/connect.js asks whether a musl Linux host lacks libstdc++/libgcc before a Claude download; tests answer from any host (connect.test.js). Production checks the usual library folders.',
   setTmuxCheckForTests: 'test seam (#5419): engine/connect.js asks whether tmux is missing on Linux before a Claude sign-in; tests answer from any host (connect.test.js and the connect.* files that pin it). Production uses the launcher\'s AGENT_WORKFORCE_TMUX_BIN when it is runnable, else create.linuxTmuxBin.',
   resetUnloadWaitsForTests: 'test seam (#4964): engine/remove.js empties the restart unload-wait burst ledger, so one test\'s waits do not spend the next test\'s allowance. Production never resets it.',

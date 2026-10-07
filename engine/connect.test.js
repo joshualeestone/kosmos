@@ -2996,6 +2996,23 @@ test('#5419: a readable report naming no glibc is musl even beside a glibc-named
   assert.equal(connect.detectMusl({ platform: 'linux', report: { header: { glibcVersionRuntime: '2.39' } }, exists: at('/lib/ld-musl-x86_64.so.1') }), false, 'CONTROL: a report naming glibc is glibc');
 });
 
+test('#5419: on a real glibc Linux host the real detection picks the glibc build and asks for no musl libraries', (t) => {
+  // Every other key test replaces detection with the seam, and the test servers build their key with platformKey itself,
+  // so only this catches a regression that makes a glibc host read as musl. It runs on the Linux lane (ubuntu-latest,
+  // glibc); a musl Linux host would need the opposite answer, so it is skipped there.
+  if (process.platform !== 'linux') { t.skip('needs a real Linux host (the Linux lane)'); return; }
+  if (['/lib/ld-musl-x86_64.so.1', '/lib/ld-musl-aarch64.so.1'].some((f) => fs.existsSync(f)) && !(process.report && process.report.getReport().header.glibcVersionRuntime)) { t.skip('a musl host'); return; }
+  connect.setMuslDetectForTests(null);
+  connect.setMuslLibsCheckForTests(null);
+  try {
+    assert.equal(connect.platformKey('linux'), 'linux-' + require('node:os').arch(), 'a glibc host read as musl');
+    assert.equal(connect.muslLibsMissing('linux'), false, 'a glibc host was asked for musl libraries');
+  } finally {
+    connect.setMuslDetectForTests(null);
+    connect.setMuslLibsCheckForTests(MUSL_LIBS_PRESENT);
+  }
+});
+
 test('#5419: the C-library report is read with network handles excluded, and the setting is put back', () => {
   if (!process.report) return;   // a Node built without report support has nothing to read
   const prevGet = process.report.getReport;
