@@ -258,12 +258,16 @@ const LINUX_UNPORTED_WHY = 'launchd is only this test\'s fixture (a plist, launc
    test checks it); #5500 lists them beside the fixture-only ones. */
 const LINUX_UNIT_UNTESTED_WHY = 'it asserts the launchd job itself; the systemd unit\'s equivalent (the same value carried, or '
   + 'the same refusal) is NOT tested on Linux yet: #5500';
+/* #5432 review 4: the #4279 leftover-job rules read launchctl print output and plist paths (macOS temp folders, the
+   printed first-level path). A Linux create has no such sweep, so these have no Linux equivalent to test. */
+const LINUX_NO_EQUIVALENT_WHY = 'the #4279 leftover-job rules read launchctl print output and plist paths; a Linux create has no '
+  + 'such sweep (it refuses an already-loaded or orphan unit instead), so there is no Linux equivalent to test';
 const LINUX_LAUNCHD_WHY = 'it reads or drives the launchd job (plist, launchctl, the launchd runner seam); Linux runs a systemd user unit: '
-  + 'create.linux-4918.test.js (create, already-loaded, orphan unit), linuxjob.test.js (unit text, lifecycle) and linuxwiring-4918.test.js';
+  + 'create.linux-4918.test.js (create, already-loaded, orphan unit), linuxjob.test.js (unit text, lifecycle) and linuxwiring-4918.test.js. Those test the Linux side in general, NOT this test one for one; Linux ports are tracked on #5500';
 const LINUX_LAUNCHD_FAIL_WHY = 'it simulates a failed start or write through launchctl answers; Linux failed starts and roll backs: '
-  + 'create.linux-4918.test.js (a refused start, bus unreachable, a value a unit cannot hold) and linuxjob.test.js (failed reload or enable)';
+  + 'create.linux-4918.test.js (a refused start, bus unreachable, a value a unit cannot hold) and linuxjob.test.js (failed reload or enable). Those test the Linux side in general, NOT this test one for one; Linux ports are tracked on #5500';
 const LINUX_TASK_STUB_WHY = 'it switches an agent by rewriting its launchd job; Linux rewrites the unit: linuxjob.test.js '
-  + '(rewriteAgentJob on Linux) and linux-parity-5445.test.js (a masked unit refuses the switch in a sentence)';
+  + '(rewriteAgentJob on Linux) and linux-parity-5445.test.js (a masked unit refuses the switch in a sentence). Those test the Linux side in general, NOT this test one for one; Linux ports are tracked on #5500';
 const LINUX_BASH_SUPERVISOR_WHY = 'it reads the bash supervisor from the plist\'s ProgramArguments; on Linux the same supervisor is the unit\'s '
   + 'ExecStart: linuxjob.test.js (unitFor, readUnitJob round trip)';
 
@@ -931,14 +935,14 @@ test('#4279: a leftover job loaded from a TEMP plist is booted out and the agent
   assert.ok(r.steps.some((s) => /removed a leftover startup entry/.test(s.label) && s.ok && s.label.includes(leaked)), 'the removal is not reported as a step naming the file it removed');
 });
 
-test('#4279: a leftover job whose plist is GONE is booted out and the agent is created', LX(WIN_LAUNCHD, LINUX_LAUNCHD_WHY), () => {
+test('#4279: a leftover job whose plist is GONE is booted out and the agent is created', LX(WIN_LAUNCHD, LINUX_NO_EQUIVALENT_WHY), () => {
   const calls = leftoverRunner(nodePath.join(os.homedir(), 'nowhere-4279', 'com.kosmos.agent.leftover-gone.plist'));
   const r = create.createAgent({ ...BINS, name: 'leftover-gone', role: 'pm' });
   assert.equal(r.outcome, create.OUTCOME.CREATED, r.because || '');
   assert.ok(bootedOut(calls));
 });
 
-test('#4279: a job loaded from THIS board\'s own plist path is still refused, never booted out', LX(WIN_LAUNCHD, LINUX_LAUNCHD_WHY), () => {
+test('#4279: a job loaded from THIS board\'s own plist path is still refused, never booted out', LX(WIN_LAUNCHD, LINUX_NO_EQUIVALENT_WHY), () => {
   const calls = leftoverRunner(create.plistPath('leftover-ours'));
   const r = create.createAgent({ ...BINS, name: 'leftover-ours', role: 'pm' });
   assert.equal(r.outcome, create.OUTCOME.REFUSED);
@@ -965,7 +969,7 @@ test('#4279: isOurs and leftoverJob treat our own EXISTING plist under its real 
   } finally { fs.rmSync(own, { force: true }); }
 });
 
-test('#4279: our own ABSENT plist printed by its real folder path is never booted out as gone', { ...LX(WIN_LAUNCHD, LINUX_LAUNCHD_WHY), ...NO_SECOND_SPELLING }, () => {
+test('#4279: our own ABSENT plist printed by its real folder path is never booted out as gone', { ...LX(WIN_LAUNCHD, LINUX_NO_EQUIVALENT_WHY), ...NO_SECOND_SPELLING }, () => {
   const own = create.plistPath('leftover-ownabsent');
   fs.mkdirSync(nodePath.dirname(own), { recursive: true });
   const printed = nodePath.join(fs.realpathSync.native(nodePath.dirname(own)), nodePath.basename(own));
@@ -976,7 +980,7 @@ test('#4279: our own ABSENT plist printed by its real folder path is never boote
   assert.ok(!bootedOut(calls), 'it unloaded our own job because its /private spelling read as gone');
 });
 
-test('#4279: a job whose plist EXISTS outside a temp folder is still refused, never booted out', LX(WIN_LAUNCHD, LINUX_LAUNCHD_WHY), () => {
+test('#4279: a job whose plist EXISTS outside a temp folder is still refused, never booted out', LX(WIN_LAUNCHD, LINUX_NO_EQUIVALENT_WHY), () => {
   // A file present on every Mac and never in a temp root, wherever the checkout sits.
   const calls = leftoverRunner('/etc/hosts');
   const r = create.createAgent({ ...BINS, name: 'leftover-live', role: 'pm' });
@@ -1007,7 +1011,7 @@ test('#4279: a bootout that does not take is still a refusal, not a creation', {
   assert.match(r.because, /removing it did not work/, 'the refusal does not say the cleanup was tried');
 });
 
-test('#4279: OUR OWN plist, present but unreadable, is never called a file Kosmos did not make', LX(WIN_LAUNCHD, LINUX_LAUNCHD_WHY), () => {
+test('#4279: OUR OWN plist, present but unreadable, is never called a file Kosmos did not make', LX(WIN_LAUNCHD, LINUX_NO_EQUIVALENT_WHY), () => {
   const own = create.plistPath('leftover-ownlocked');
   fs.mkdirSync(nodePath.dirname(own), { recursive: true });
   fs.writeFileSync(own, '<plist/>');
@@ -1023,7 +1027,7 @@ test('#4279: OUR OWN plist, present but unreadable, is never called a file Kosmo
   assert.doesNotMatch(r.because, /did not make/, 'our own unreadable plist was called a file Kosmos did not make');
 });
 
-test('#4279: a NON-own plist that exists but cannot be read is refused, and named, never called gone', LX(WIN_LAUNCHD, LINUX_LAUNCHD_WHY), () => {
+test('#4279: a NON-own plist that exists but cannot be read is refused, and named, never called gone', LX(WIN_LAUNCHD, LINUX_NO_EQUIVALENT_WHY), () => {
   const locked = homeFixture('.kosmos-4279-foreign-');
   const foreign = nodePath.join(locked, 'com.kosmos.agent.leftover-foreign.plist');
   fs.writeFileSync(foreign, '<plist/>');
@@ -1039,7 +1043,7 @@ test('#4279: a NON-own plist that exists but cannot be read is refused, and name
   assert.ok(r.because.includes(foreign), 'the refusal does not name the file');
 });
 
-test('#4279: a RELATIVE printed path is refused with the generic message and never booted out', LX(WIN_LAUNCHD, LINUX_LAUNCHD_WHY), () => {
+test('#4279: a RELATIVE printed path is refused with the generic message and never booted out', LX(WIN_LAUNCHD, LINUX_NO_EQUIVALENT_WHY), () => {
   // A relative path that DOES resolve against the cwd, so only the isAbsolute guard keeps it from
   // being stat'd and named as a file Kosmos did not make.
   const real = nodePath.join(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'rel-4279-')), 'com.kosmos.agent.leftover-relative.plist');
@@ -1065,7 +1069,7 @@ test('#4279: a verify that throws for any OTHER reason is not proof the job left
   assert.ok(!calls.some(([, a]) => a && a[0] === 'bootstrap'));
 });
 
-test('#4279: a job loaded from a PRESENT plist outside temp is refused, and the refusal names that file', LX(WIN_LAUNCHD, LINUX_LAUNCHD_WHY), () => {
+test('#4279: a job loaded from a PRESENT plist outside temp is refused, and the refusal names that file', LX(WIN_LAUNCHD, LINUX_NO_EQUIVALENT_WHY), () => {
   leftoverRunner('/etc/hosts');
   const r = create.createAgent({ ...BINS, name: 'leftover-named', role: 'pm' });
   assert.equal(r.outcome, create.OUTCOME.REFUSED);
@@ -1447,7 +1451,7 @@ test('a name ending in -discord is refused before anything runs', () => {
   assert.equal(calls.length, 0, 'a refused name still ran a command');
 });
 
-test('the refusals that protect a name are each reachable and each tested (the leftover launchd job)', onLinux(LINUX_LAUNCHD_WHY), () => {
+test('the refusals that protect a name are each reachable and each tested (the leftover launchd job)', onLinux('it writes an orphan plist; the Linux equivalent, an orphan unit, is refused in create.linux-4918.test.js (review 27)'), () => {
   // ⚠️ Two of these could have been DELETED with the whole suite green, which
   // is the same as not having them. A guard nothing exercises is a comment.
   const calls = recorder();
@@ -6506,7 +6510,7 @@ test('#2250 CONTROL: a NAME_RE-failing name with no provider stays claude (fail-
   assert.ok(create.instructionFile(name).endsWith('CLAUDE.md'));
 });
 
-test('#2250 CONTROL: a live plist stays authoritative over a contradictory profile fallback', LX(WIN_LAUNCHD, LINUX_LAUNCHD_WHY), () => {
+test('#2250 CONTROL: a live plist stays authoritative over a contradictory profile fallback', LX(WIN_LAUNCHD, LINUX_UNPORTED_WHY), () => {
   const store = require('./store');
   // A codex plist with a silent profile: the plist decides.
   rrWritePlist('rr-codexjob', { runner: 'codex' });
