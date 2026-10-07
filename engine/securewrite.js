@@ -301,7 +301,10 @@ function syncDir(dir) {
  * On the atomic path, a refused flush (EIO, ENOSPC, EDQUOT) throws at once and the
  * old file is left as it was (no retry, no fallback; securewrite.fsync-5434.test.js).
  * On the in-place fallback a refused flush comes after the truncate, so the old
- * contents survive only through that path's best-effort restore.
+ * contents survive only through that path's best-effort restore; with no old
+ * contents to restore (no file, or one that could not be read) the new, unflushed
+ * contents stay, as a failed write on that path always left them. Not unlinked: an
+ * unreadable old file looks the same, and unlinking would delete it.
  */
 function writeSecret(file, data, mode) {
   /* #1793: sweep this target's directory of orphan temps a prior death left behind,

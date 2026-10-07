@@ -24,7 +24,9 @@ removed and writeSecret throws, with no retry (a space or quota error would only
 fallback (the one path that truncates the live file). If the close then fails too (NFS often repeats the
 EIO there), the flush error still stands. This covers errors the FLUSH reports; the same errors reported by
 a write or a close keep main's behaviour (retries, then the in-place fallback), which is a later slice of
-#5434. The fallback flushes the file but not its folder, so a fallback that CREATED the file is not made
+#5434. On the fallback with no old contents to restore (no file, or one that could not be read), a refused
+flush leaves the new unflushed contents, as a failed write there always did; they are not unlinked, because
+an unreadable old file looks the same. The fallback flushes the file but not its folder, so a fallback that CREATED the file is not made
 durable as a new folder entry (the fallback is reached only after three failed atomic attempts). The old file stays as it was. The restore of the old contents on
 the fallback and the folder flush stay best effort for every error (syncDir is guarded so it cannot throw,
 which is why it can stay inside the atomic try).
@@ -51,5 +53,6 @@ mint, a secret, an outbox entry, a long-message spill), not in a loop, so about 
 ## Weakest premise
 That no caller writes through this in a loop, and that the cost elsewhere is like this Mac's: it was
 measured only on APFS on an SSD. On Windows with a slow or spinning disk FlushFileBuffers can take far
-longer, on the board's event loop, and that is not measured. If one ever does (messages.js is the busiest), move that
+longer, on the board's event loop, and that is not measured. And on a mount that cannot flush at all (the
+skipped codes), this change adds no durability and no signal: those writes behave exactly as before. If one ever does (messages.js is the busiest), move that
 caller to a batched writer rather than dropping the flush.
