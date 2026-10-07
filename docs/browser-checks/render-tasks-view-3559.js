@@ -386,8 +386,8 @@ function chk(ok, label, extra) {
       chk(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), `${tag} the full-width band adds no sideways scroll`);
       /* #3949/#3951 (Josh): single-label tiles in his order; #4771's On hold sits after his open groups, before
          Completed, which is a tile and still the fold below. */
-      chk(JSON.stringify(a.tiles.map((t) => t.k)) === JSON.stringify(['decision', 'working', 'assigned', 'nobody', 'built', 'held', 'closed']), `${tag} the tiles are Josh's groups in his order, then On hold, each from a recorded state`, JSON.stringify(a.tiles.map((t) => t.k)));
-      chk(JSON.stringify(a.tiles.map((t) => t.label)) === JSON.stringify(['Needs Your Decision', 'In progress', 'Assigned but not started', 'Unassigned', 'Built but waiting', 'On hold', 'Completed']), `${tag} each tile is one label`, JSON.stringify(a.tiles.map((t) => t.label)));
+      chk(JSON.stringify(a.tiles.map((t) => t.k)) === JSON.stringify(['decision', 'working', 'assigned', 'nobody', 'built', 'scheduled', 'held', 'closed']), `${tag} the tiles are Josh's groups in his order, then On a schedule (#5456) and On hold, each from a recorded state`, JSON.stringify(a.tiles.map((t) => t.k)));
+      chk(JSON.stringify(a.tiles.map((t) => t.label)) === JSON.stringify(['Needs Your Decision', 'In progress', 'Assigned but not started', 'Unassigned', 'Built but waiting', 'On a schedule', 'On hold', 'Completed']), `${tag} each tile is one label`, JSON.stringify(a.tiles.map((t) => t.label)));
       chk(a.tiles.every((t) => t.bylines === 0), `${tag} no tile carries a byline`);
       chk(a.tiles[0].color === a.danger && a.tiles.slice(1).every((t) => t.color !== a.danger), `${tag} Needs Your Decision, and only it, is red`, JSON.stringify(a.tiles.map((t) => t.color).concat(a.danger)));
       chk(a.fold, `${tag} Completed stays the folded list`);
@@ -938,7 +938,7 @@ function chk(ok, label, extra) {
           dropdown: document.getElementById('tsk-projsel').getClientRects().length > 0,
         };
       });
-      chk(got.shown && got.tiles === 7, '[consolidated] it opens the Tasks view', JSON.stringify(got));
+      chk(got.shown && got.tiles === 8, '[consolidated] it opens the Tasks view', JSON.stringify(got));   // #5456: On a schedule is the 8th
       chk(got.stillCons && got.inColumn, '[consolidated] it stays in the consolidated view, in the display column (#2842)', JSON.stringify(got));
       chk(got.noRail && got.dropdown, '[consolidated] no project column of its own; the project dropdown is there', JSON.stringify(got));
       /* Mona's look review of #3701, in the column too: the gap above the title is about halved. */
