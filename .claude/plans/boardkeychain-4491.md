@@ -97,3 +97,17 @@ logger.
   base or the home (a note sits by the sandbox block).
 - Gate-side hardening (accept other worlds' tokens only from the board's start-time snapshot, or refuse them for
   agent-marked requests) is a follow-up card: 5247.
+
+## Post-rebase review, 2026-10-07 (after rebasing 986 commits onto main)
+A board-side route added to main after this was approved (#5153 slice 4, the undo copier: an agent-token route that
+reads a path the caller names and stores a copy in <store>/undo) could copy board.token to a readable place.
+Fixed both ways: undo.keep refuses the board's credentials (board.token by name and temp names, a hard link to it by
+device and inode, the sender tokens folder, the token-only list), from one list shared with this guard
+(setup-assistant.boardCredentialPaths), failing closed; and the guard read-denies <root>/undo and <root>/undo-saved in
+the permission layer and the sandbox. Tested: refused with no bytes or blob name left in the store, with an
+ordinary-file control; the guard test asserts both layers.
+**The class, named so the next route is checked:** any route in AGENT_TOKEN_ROUTES or its patterns that reads a path
+the caller supplies is a way around this guard. A new such route must refuse boardCredentialPaths() (or the guard must
+read-deny where it writes). Nothing ties the two together automatically yet.
+Residuals: the relay sign-in key (#5422, signin-device.key) is a person-held secret this guard does not deny; it does
+not reach this board as the person. #5247 (the gate's start-time world-token snapshot) has landed on main.
