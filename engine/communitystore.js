@@ -545,6 +545,38 @@ function postTimesAll() {
   return out;
 }
 
+/* #5314: like postTimesAll, but ONLY status === 'published' rows — the posts that actually went
+   out. The agent-card line (#5314) counts posts SENT, so a held or quarantined post, which reached
+   no one, must not read as "Last community post: today". postTimesAll is left exactly as it is: the
+   community nudge counts posts of any status and keeps that meaning. The time is receivedAt (the
+   store keeps no separate publish time); for an auto-published post (#3485) that is the send time,
+   and a held-then-released post has only its receipt time to offer. Same null (unreadable / corrupt
+   sidecar) conditions as postTimesAll. */
+function publishedPostTimesAll() {
+  let posts;
+  try {
+    posts = JSON.parse(fs.readFileSync(postsFile(), 'utf8'));
+  } catch (e) {
+    if (!e || e.code !== 'ENOENT') return null;
+    posts = [];
+  }
+  if (!Array.isArray(posts)) return null;
+  try {
+    const base = path.basename(postsFile()) + '.corrupt-';
+    if (fs.readdirSync(dir()).some((f) => f.startsWith(base))) return null;
+  } catch { /* no folder at all: nothing was ever posted */ }
+  const out = new Map();
+  for (const p of posts) {
+    if (!p || typeof p !== 'object' || p.status !== 'published' || (p.author && p.author.type === 'user') || typeof p.receivedAt !== 'string') continue;
+    const who = (typeof p.agent === 'string' && p.agent ? p.agent
+      : (p.author && p.author.type === 'agent' && typeof p.author.name === 'string' ? p.author.name : '')).trim().toLowerCase();
+    if (!who) continue;
+    if (!out.has(who)) out.set(who, []);
+    out.get(who).push(p.receivedAt);
+  }
+  return out;
+}
+
 // #4287: a post's status and author type, or null when there is no such post.
 /**
  * #5574: which agent a board post or comment belongs to (its `agent`, the session name the board stored it under), ''
@@ -809,7 +841,7 @@ module.exports = {
   moderationQueue,
   toPublic,
   publishedPosts,
-  postedBy, postTimesAll,
+  postedBy, postTimesAll, publishedPostTimesAll,
   postMeta,
   // trust
   trustState,

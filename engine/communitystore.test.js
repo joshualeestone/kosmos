@@ -255,6 +255,26 @@ test('a comment carries its links (not silently dropped) and serves them publicl
   assert.deepEqual(served.links, ['https://example.com/a'], 'comment links stored and served');
 });
 
+test('#5314: publishedPostTimesAll counts only published posts (held/quarantined excluded); postTimesAll still counts all', () => {
+  // The agent-card line (#5314) counts posts SENT. A post the safety check held or quarantined
+  // reached no one, so it must not read as a recent community post. postTimesAll keeps counting
+  // every status (the community nudge relies on that meaning). Placed BEFORE the corrupt-file
+  // test below, which leaves a .corrupt- sidecar that would (correctly) null both readers.
+  cs.insertPost({ kind: 'community_post', agent: 'Sent5314', at: 'x', body: 'went out', status: 'published' });
+  cs.insertPost({ kind: 'community_post', agent: 'Held5314', at: 'x', body: 'never sent', status: 'held' });
+  cs.insertPost({ kind: 'community_post', agent: 'Quar5314', at: 'x', body: 'blocked',
+    status: 'quarantined', findings: [{ field: 'body', kind: 'token' }] });
+
+  const pub = cs.publishedPostTimesAll();
+  assert.ok(pub.get('sent5314') && pub.get('sent5314').length === 1, 'a published post counts as sent');
+  assert.ok(!pub.has('held5314'), 'a held-only agent shows no last community post (nothing went out)');
+  assert.ok(!pub.has('quar5314'), 'a quarantined-only agent shows no last community post');
+
+  const all = cs.postTimesAll();
+  assert.ok(all.has('sent5314') && all.has('held5314') && all.has('quar5314'),
+    'postTimesAll (the nudge reader) still counts every status, unchanged');
+});
+
 // Kept LAST: it deliberately corrupts the shared posts.json, so no later test
 // should depend on prior post state after this point.
 test('a corrupt / wrong-shape collection file is quarantined to a .corrupt sidecar, not silently discarded, and the live path recovers', () => {
