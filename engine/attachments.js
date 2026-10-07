@@ -12,8 +12,9 @@
  *
  * 🔑 HOW AN AGENT READS ONE. The message delivered to the agent's pane ends
  * with the absolute path of the stored file in the bracketed line, so `cat`
- * or `open` works on the spot, followed by the file's facts in brackets
- * (type, an image's pixel size, size on disk; #5448) so the agent can tell a
+ * or `open` works on the spot, followed inside the same bracket by the
+ * file's facts in parentheses (type, an image's pixel size, size on disk;
+ * #5448) so the agent can tell a
  * screenshot from a contract before deciding to open it. Nothing else tells the agent where the
  * folder is (Mona Lisa, 2026-08-23: the who-you-work-for block is about the
  * person; finding attachments it was not sent is a later card).
@@ -218,7 +219,7 @@ function imageFacts(buf) {
   if (buf[0] === 0xff && buf[1] === 0xd8) {
     let i = 2;
     while (i + 9 < buf.length) {
-      if (buf[i] !== 0xff) return null;
+      if (buf[i] !== 0xff) { i += 1; continue; }   // stray padding some encoders leave between segments
       const marker = buf[i + 1];
       if (marker === 0xff) { i += 1; continue; }   // fill byte
       if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { i += 2; continue; }   // no length
@@ -249,7 +250,7 @@ function imageFacts(buf) {
   return null;
 }
 
-/* How much of a file is read to find its size: enough for a JPEG whose
+/* How much of a file is read to find its pixel size: enough for a JPEG whose
    frame header sits behind a camera's metadata (one APP segment is at most
    64 KB; a phone photo can carry two or three). Past this, no dimensions. */
 const HEAD_BYTES = 256 * 1024;
@@ -257,7 +258,7 @@ function headOf(file) {
   let fd = null;
   try {
     fd = fs.openSync(file, 'r');
-    const buf = Buffer.alloc(HEAD_BYTES);
+    const buf = Buffer.allocUnsafe(HEAD_BYTES);   // only the n bytes read are returned
     const n = fs.readSync(fd, buf, 0, HEAD_BYTES, 0);
     return buf.subarray(0, n);
   } catch { return null; } finally { if (fd !== null) try { fs.closeSync(fd); } catch { /* closed */ } }
@@ -269,20 +270,26 @@ function sizeWords(n) {
   const b = Number(n);
   if (!Number.isFinite(b) || b < 0) return null;
   if (b < 1024) return b + (b === 1 ? ' byte' : ' bytes');
-  if (b < 1024 * 1024) return Math.round(b / 1024) + ' KB';
+  if (Math.round(b / 1024) < 1024) return Math.round(b / 1024) + ' KB';
   return (Math.round(b / (1024 * 1024) * 10) / 10) + ' MB';
 }
 
 /** The facts typed after a file's path (#5448): type, then for an image its
     pixel size, then its size on disk. The type is the one the bytes prove
-    for an image this module can read, else the stored type, kept to the
-    plain characters a media type has (the uploader chose it, and this line
-    is typed into a terminal). Size is read from the disk, not the record. */
+    for an image this module can read. A stored type naming one of those
+    formats whose bytes did not prove it is not repeated ("unknown type"):
+    the uploader claimed it and the reader just failed to confirm it.
+    Otherwise the stored type is used, kept to the plain characters a media
+    type has (the uploader chose it, and this line is typed into a terminal;
+    chat.js refuses a trailer with control characters). Size is read from the
+    disk, not the record. */
 function factsOf(r) {
   const head = r.kind === 'image' ? headOf(r.file) : null;
   const img = head ? imageFacts(head) : null;
   const stored = String(r.type || '').toLowerCase();
-  const type = img ? img.type : (/^[a-z0-9][a-z0-9.+-]*\/[a-z0-9][a-z0-9.+-]*$/.test(stored) ? stored : null);
+  const PROVABLE = ['image/png', 'image/gif', 'image/jpeg', 'image/jpg', 'image/webp'];
+  const plain = /^[a-z0-9][a-z0-9.+-]*\/[a-z0-9][a-z0-9.+-]*$/.test(stored) && !PROVABLE.includes(stored);
+  const type = img ? img.type : (plain ? stored : null);
   let bytes = r.size;
   try { bytes = fs.statSync(r.file).size; } catch { /* the record's own count */ }
   const parts = [type || 'unknown type'];
