@@ -25,10 +25,10 @@ and moved the account stores onto it. This slice moves three settings writers th
   An old-format `<file>.kosmos.<pid>.new` an earlier release left is NOT reaped (it does not match the
   reaper's shape); nothing removed those before either.
 - **Two visible changes, accepted:**
-  - writeSecret sweeps the target's folder once per process for ITS OWN dead temps (the #1793 reaper),
-    so it now runs in the person's config folders too (`~/.claude`, the Grok and Gemini homes, or where
-    a symlinked settings file resolves). It deletes only names of writeSecret's anchored
-    `.kosmos-<pid>-...tmp` shape whose writer is provably dead, never anything else.
+  - before writing, writeSecret reaps dead temps. These callers pass `ownTempsOnly`, so in the person's
+    config folders (`~/.claude`, the Grok and Gemini homes, or where a symlinked settings file resolves)
+    it removes only THIS file's own writeSecret temps whose writer is provably dead, never a folder-wide
+    sweep and never anything else.
   - a flush the disk refuses (EIO, ENOSPC, EDQUOT) now fails the save, which the callers already report
     as "we could not save the settings file"; before, that error was never seen and the rename could
     publish bytes the disk had refused. Failing is the point of the slice.
@@ -49,20 +49,19 @@ Not in this slice, so these are NOT yet flushed (each a later slice on the card)
   and the other files the card lists.
 
 ## Tests
-`engine/settingswrite.fsync-5434.test.js`, 11 arms, in `tools/windows-tests.js` ALSO. For each writer:
+`engine/settingswrite.fsync-5434.test.js`, 12 arms, in `tools/windows-tests.js` ALSO. For each writer:
 - it flushes the exact temp it renames into the file (fails on main);
 - an existing 0600/0640/0664 file keeps its mode after a real rewrite, a new file is 0644 under umask
   022 and 0600 under 077 (guards: pass on main; fail under a mutant that ignores the umask);
 - with every atomic attempt failing, the writer reports failure and the file is unchanged, after a
   control save on the same file succeeds (fails without atomicOnly).
-Plus: an explicit mode is still exact over the umask; reporthook still writes through a symlink.
+Plus: an explicit mode is still exact over the umask; reporthook still writes through a symlink; in a
+config folder only the written file's own dead temps are reaped (fails without `ownTempsOnly`).
 
-## Weakest premise
-Also: a symlinked settings file that resolves into a folder synced between two Macs (Dropbox, iCloud). A
-live writer's temp on the OTHER Mac has a pid that does not exist here, so the reaper would take it and
-the deletion syncs back; the worst case is that writer's rename failing once and retrying under a new
-name (three attempts, then the save reports failure). Small, stated rather than fixed.
-
-
-That nothing relied on the old `<file>.kosmos.<pid>.new` temp name (a cleanup or an ignore rule). A grep
-of engine/, install/ and tools/ found no reader of that name besides these three writers.
+## Weakest premises
+1. That nothing relied on the old `<file>.kosmos.<pid>.new` temp name (a cleanup or an ignore rule). A
+   grep of engine/, install/ and tools/ found no reader of that name besides these three writers.
+2. A symlinked settings file that resolves into a folder synced between two Macs (Dropbox, iCloud). A
+   live writer's temp of THIS file on the other Mac has a pid that does not exist here, so the reaper
+   would take it and the deletion syncs back; the worst case is that writer's rename failing and
+   retrying under a new name (three attempts, then the save reports failure). Small, stated, not fixed.
