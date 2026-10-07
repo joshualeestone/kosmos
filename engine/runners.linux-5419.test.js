@@ -32,6 +32,10 @@ test('#5419: Linux Codex is the linux build for the CPU, pinned to the registry 
   assert.equal(arm.url, 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-linux-arm64.tgz');
   assert.equal(arm.binInPackage, 'vendor/aarch64-unknown-linux-musl/bin/codex');
   assert.equal(arm.arch, 'arm64');
+  // Every pin as a literal, so a typo in any of them fails here, not as a checksum refusal on a real box.
+  assert.equal(arm.integrity, 'sha512-OqxUfZ1TVvHd18zHPKK/8ZRlpk8Vy11mg5CMHaLxNWldTbwVImDKtSLWT+m8m4NM5Sz4PbjtZMrVT/RfpBW/mQ==');
+  assert.equal(x64.downloadBytes, 125550959);
+  assert.equal(arm.downloadBytes, 118078094);
   assert.equal(x64.version, '0.149.1', 'the pinned release (literal, not read off the Mac entry)');
 });
 
@@ -45,6 +49,9 @@ test('#5419: Linux Grok is the linux build for the CPU, laid out as the Mac one 
   const arm = runners.manifestFor('grok', 'linux', 'arm64');
   assert.equal(arm.url, 'https://registry.npmjs.org/@xai-official/grok-linux-arm64/-/grok-linux-arm64-1.0.41.tgz');
   assert.equal(arm.arch, 'arm64');
+  assert.equal(arm.integrity, 'sha512-6g8fHFwKb/jdo3XTGXMiA5FrzzUi6q5nKtT3+eXNbNKGtMOmN4t7NNh+IK3S6FlWcG+slL1Po2YDaNgMZ6swqg==');
+  assert.equal(x64.downloadBytes, 49179836);
+  assert.equal(arm.downloadBytes, 44233139);
 });
 
 test('#5419: Linux Gemini is the one bundle every platform gets, reached by the POSIX launcher', () => {
@@ -78,7 +85,7 @@ test('#5419: tar on Linux is /usr/bin/tar where /usr is merged and /bin/tar wher
   assert.equal(runners.tarBin('darwin', {}, () => false), '/usr/bin/tar', 'CONTROL: the Mac path is the same as before');
 });
 
-test('#5419: Grok\'s Linux builds are static, so a musl host is not refused: the download is asked for', async (t) => {
+test('#5419: install() does not consult the musl detector for Grok on Linux (its builds were measured static)', async (t) => {
   // Measured 2026-10-06: the x64 binary is static-pie and the arm64 one static (neither names a program loader).
   // Limit: this catches a refusal that reads connect's musl detector; a refusal on some other signal would need its own
   // test. Grep says install() has no musl branch at all today.
@@ -90,4 +97,5 @@ test('#5419: Grok\'s Linux builds are static, so a musl host is not refused: the
   await job.settled;
   assert.equal(asked, true, 'a musl host was refused a build that is statically linked');
   assert.doesNotMatch(String(job.because || ''), /musl/);
+  runners.resetForTests();   // no failed grok job left for a test added after this one
 });

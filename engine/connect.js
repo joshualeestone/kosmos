@@ -1232,7 +1232,7 @@ async function download(onProgress, track, platform = process.platform) {
      CLAUDE Code specifically, which now publishes a `win32-${arch}` build with its
      own manifest sha256 (see platformKey + engine/platform.js CLAUDE_DOWNLOADS), so
      win32 (and, #5419, linux) is a real, checksum-verifiable download here (codex has its own list,
-     canDownloadCodex, in runners.js). The artifact fetched IS the
+     canDownloadCodex, in engine/platform.js). The artifact fetched IS the
      platform's own build (darwin-* on a Mac, win32-* on Windows, linux-* on Linux), so this is no
      longer the "download a macOS binary onto the wrong OS" hazard the darwin-only
      gate guarded; the checksum is verified BEFORE the binary is ever executed

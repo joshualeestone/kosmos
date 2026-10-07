@@ -805,6 +805,7 @@ function resolveBin(provider, opts) {
     if (isRunnable(managed) && launcherHasNode(managed) && (plat !== 'win32' || isVerified(mf, plat, 'gemini'))) {
       return { bin: managed, present: true, managed: true, overridden: false };
     }
+    // The Mac's npm-global copy; on Linux a person's own npm copy is not looked for yet (#5419 plan: deferred).
     const legacy = (opts && opts.legacyBin) || '/opt/homebrew/bin/gemini';
     if (isRunnable(legacy)) return { bin: legacy, present: true, managed: false, overridden: false };
     return { bin: managed, present: false, managed: true, overridden: false };
