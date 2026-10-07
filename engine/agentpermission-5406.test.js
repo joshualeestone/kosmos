@@ -35,6 +35,20 @@ test('#5406 the hook stays silent for a question to the person and for anything 
   assert.equal(hook.decide(JSON.stringify({ hook_event_name: 'PermissionRequest' })), null, 'no tool name');
 });
 
+test('#5406 the hook stays silent for a protected place (.claude, .claude.json, .git), and only there', () => {
+  const r = (tool, input) => hook.decide(JSON.stringify({ hook_event_name: 'PermissionRequest', tool_name: tool, tool_input: input }));
+  for (const [tool, input] of [['Write', { file_path: '/p/.claude/settings.json' }], ['Edit', { file_path: '/Users/x/.claude.json' }],
+    ['Bash', { command: 'cat x > .git/hooks/pre-commit' }], ['Bash', { command: 'echo y >> ~/.claude/settings.json' }],
+    ['NotebookEdit', { notebook_path: '/p/.claude/n.ipynb' }]]) {
+    assert.equal(r(tool, input), null, tool + ' ' + JSON.stringify(input));
+  }
+  // CONTROL: names that only contain the words are not protected places.
+  for (const [tool, input] of [['Bash', { command: 'rm photo.jpg' }], ['Write', { file_path: '/p/claude-notes.md' }],
+    ['Bash', { command: 'git status' }], ['Write', { file_path: '/p/my.github/x' }], ['ExitPlanMode', {}]]) {
+    assert.ok(r(tool, input), tool + ' ' + JSON.stringify(input));
+  }
+});
+
 test('#5406 the hook script itself answers on stdout and always exits 0', () => {
   const run = (input) => spawnSync(process.execPath, [ap.HOOK_SCRIPT], { input, encoding: 'utf8', timeout: 20000 });
   const yes = run(req('Bash'));
