@@ -13,6 +13,9 @@ name: linux-setup
 
 on:
   pull_request:
+  # Run by hand on a branch (gh workflow run test-linux-setup-4920.yml --ref <branch>) without opening a PR, so the
+  # real-systemd check does not also queue the Mac suite.
+  workflow_dispatch:
 
 permissions:
   contents: read
