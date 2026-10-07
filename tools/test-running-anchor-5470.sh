@@ -80,11 +80,13 @@ shape not  "bash -e -c : $SCRIPT"      # a bare -c as its own word is still a co
 shape run  "bash --norc $SCRIPT"
 shape not  "bash ${SCRIPT%.sh}Xsh"   # the dot is literal: a name that differs only there is not this script
 
-# _kosmos_drop_test_fixtures reads the script out of an optioned line with the same option group (group 6).
-re="^[0-9]+ +([^ ]*/)?(ba)?sh${_KOSMOS_SH_OPTS} +(([^ ]*/)?tools/(release|browser-checks|test-install|run-tests)\.sh)( |$)"
+# _kosmos_drop_test_fixtures, the REAL function, reads the script out of an optioned line: its fixture
+# check is stubbed to record the script it was handed (and to say "not a fixture", so the line passes).
 for fl in "4242 bash -x tools/release.sh" "4242 /bin/bash -eo pipefail tools/run-tests.sh x" "4242 bash tools/browser-checks.sh"; do
-  want="$(printf '%s' "$fl" | awk '{print $NF}')"; case "$fl" in *run-tests*) want=tools/run-tests.sh ;; esac
-  if [[ "$fl" =~ $re ]] && [ "${BASH_REMATCH[6]}" = "$want" ]; then ok "the fixture filter reads the script from: $fl"; else bad "fixture filter missed the script in: $fl (got '${BASH_REMATCH[6]:-}')"; fi
+  want="tools/release.sh"; case "$fl" in *run-tests*) want=tools/run-tests.sh ;; *browser-checks*) want=tools/browser-checks.sh ;; esac
+  got="$( _kosmos_pid_is_test_fixture() { printf '%s' "$2" > "$T/fixture.script"; return 1; }; printf '%s\n' "$fl" | _kosmos_drop_test_fixtures >/dev/null; cat "$T/fixture.script" 2>/dev/null )"
+  rm -f "$T/fixture.script"
+  [ "$got" = "$want" ] && ok "_kosmos_drop_test_fixtures hands the fixture check the script from: $fl" || bad "fixture filter handed '$got' for: $fl (want $want)"
 done
 LC_ALL=en_US.UTF-8 bash -c '. tools/lib/cut-guard.sh; re="^4 bash${_KOSMOS_SH_OPTS} +x\.sh$"; [[ "4 bash -lc x.sh" =~ $re ]]' && bad "a -lc cluster matched as an option under en_US.UTF-8" || ok "the spelled-out option letters exclude c under en_US.UTF-8 too"
 
