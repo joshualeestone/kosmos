@@ -22,10 +22,14 @@ returned `skipped: 'unreadable'` from 2026-10-01 on, while status told the agent
    review 3): a torn file keeps the length of the write that was cut off, so a `sent.json` that held rows is longer
    and is never reset, even if a person removed `keys.json` after a crash tore both. The check and the write are
    synchronous, so nothing else in this process runs between them.
-4. A corrupt `keys.json` is no longer advised as "repaired or removed": removing it registers every agent again
-   under a second public name. It now says "repaired (do NOT remove it)", as comments-sent.json already did.
 3. `kosmos community status` no longer says "look again shortly" for an unreadable record; it says to tell the
    person if it stays, and that the board's log names the record.
+
+4. A corrupt `keys.json`, `sent.json` or `deletes.json` is no longer advised "repaired or removed": removing one
+   sends again (every agent under a second public name, every post already sent, or a post the owner removed).
+   Each now says "repaired (do NOT remove it)", as comments-sent.json and comment-deletes.json already did, in any
+   service's folder (matched by file name: the retirement pass reads other services' folders).
+   The advice for state.json and the retire files is unchanged; what removing those does was not examined here.
 
 ## Decided, not missed
 

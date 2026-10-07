@@ -105,6 +105,7 @@ function installGroupFile() { return path.join(endpointDir(), 'install-group.jso
 /* #5431: the temp file is flushed to disk before the rename, and the folder after it where the system allows. Without
    that, a crash or power loss can leave the renamed file at its full length with zeroed contents (measured on a Windows
    box: sent.json was 3 NUL bytes), which loadJson rightly cannot read, so sending paused with no end. */
+const reportedDirSync = new Set();   // folders whose flush failure was already said
 function saveJson(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const tmp = `${file}.${crypto.randomBytes(6).toString('hex')}.tmp`;
@@ -120,8 +121,8 @@ function saveJson(file, data) {
   // Windows cannot flush a folder (the call fails); there the rename is what NTFS journals. Elsewhere a failure is said.
   try { const d = fs.openSync(path.dirname(file), 'r'); try { fs.fsyncSync(d); } finally { fs.closeSync(d); } }
   catch (e) {
-    if (process.platform !== 'win32' && !reportedCorrupt.has('dirsync:' + path.dirname(file))) {
-      reportedCorrupt.add('dirsync:' + path.dirname(file));
+    if (process.platform !== 'win32' && !reportedDirSync.has(path.dirname(file))) {
+      reportedDirSync.add(path.dirname(file));
       log(`the folder holding ${path.basename(file)} could not be flushed to disk (${e && e.code ? e.code : 'unknown'}); a crash could lose its last change`);
     }
   }
@@ -186,16 +187,21 @@ function loadJson(file) {
   } catch { /* falls through */ }
   return corrupt(file, 'not a JSON object');
 }
+const DO_NOT_REMOVE = Object.freeze({
+  'comments-sent.json': 'that would send every comment again',
+  'comment-deletes.json': 'a comment the owner removed would be sent',
+  'keys.json': 'every agent would register again under a second public name',
+  'sent.json': 'every post already sent would be sent again',
+  'deletes.json': 'a post the owner removed would be sent',
+});
 function corrupt(file, why) {
   if (!reportedCorrupt.has(file)) {
     reportedCorrupt.add(file);
     // comments-sent.json must never be REMOVED: without it every comment already sent would go again, in public.
     // #4801: nor comment-deletes.json: without it a comment the owner removed before it went out would be sent.
-    const fix = file === commentsSentFile() ? 'repaired (do NOT remove it: that would send every comment again)'
-      : file === commentDeletesFile() ? 'repaired (do NOT remove it: a comment the owner removed would be sent)'
-      // #5431: nor keys.json: without it every agent registers again under a second public name, and a torn sent.json
-      // beside it would read as nothing ever sent.
-      : file === keysFile() ? 'repaired (do NOT remove it: every agent would register again under a second public name)'
+    // #5431: nor keys.json, sent.json or deletes.json (removing one sends again), in any service's folder: matched by
+    // name, since the retirement pass reads other services' folders too.
+    const fix = DO_NOT_REMOVE[path.basename(file)] ? `repaired (do NOT remove it: ${DO_NOT_REMOVE[path.basename(file)]})`
       : 'repaired or removed';
     log(`${path.basename(file)} cannot be read (${why || 'unknown'}); sending is paused until it is ${fix}`);
   }

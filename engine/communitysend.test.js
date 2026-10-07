@@ -758,18 +758,25 @@ test('#5431: once an agent has a key, a torn comments-sent.json is not reset eit
   assert.deepEqual([...fs.readFileSync(cs._paths.commentsSentFile())], [0, 0, 0], 'reset although a key exists');
 });
 
-test('#5431: an unreadable keys.json is never advised to be removed', async () => {
-  fresh();
-  await on();
-  fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
-  fs.writeFileSync(cs._paths.keysFile(), '{ not json');
-  const said = []; const realError = console.error;
-  console.error = (...a) => { said.push(a.join(' ')); };
-  try { await cs.sweep(); } finally { console.error = realError; }
-  const line = said.find((l) => l.includes('keys.json cannot be read'));
-  assert.ok(line, 'control: the corrupt keys.json was reported');
-  assert.match(line, /do NOT remove it/);
-  assert.doesNotMatch(line, /or removed/);
+test('#5431: an unreadable keys.json, sent.json or deletes.json is never advised to be removed', async () => {
+  // Removing any of them sends again (a second public name, every post already sent, a post the owner removed).
+  for (const which of ['keysFile', 'sentFile', 'deletesFile']) {
+    fresh();
+    await on();
+    const file = cs._paths[which]();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    // A file is reported once until it reads again, so read a good copy first: an earlier test may have reported it.
+    fs.writeFileSync(file, '{}\n');
+    await cs.sweep();
+    fs.writeFileSync(file, '{ not json');
+    const said = []; const realError = console.error;
+    console.error = (...a) => { said.push(a.join(' ')); };
+    try { await cs.sweep(); } finally { console.error = realError; }
+    const line = said.find((l) => l.includes(`${path.basename(file)} cannot be read`));
+    assert.ok(line, `control: the corrupt ${path.basename(file)} was reported`);
+    assert.match(line, /do NOT remove it/, path.basename(file));
+    assert.doesNotMatch(line, /or removed/, path.basename(file));
+  }
 });
 
 test('#5431: every record is flushed to disk before it is renamed into place', async () => {
