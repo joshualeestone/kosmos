@@ -273,6 +273,10 @@ function main(argv, deps) {
   if (!perTurn) {
     const browser = d.agentBrowser || (() => require('./agentbrowser').launchConfig());
     spec.mcpConfig = () => browser();
+    /* #5406: the agent does not stop on a prompt the person's own ask rules raise (a Kosmos-owned settings file with
+       one PermissionRequest hook, engine/agentpermission.js). Asked per launch, like the browser; never throws. */
+    const permission = d.agentPermission || (() => require('./agentpermission').ensureSettings());
+    spec.permissionSettings = () => permission();
   }
   /* Gemini and Grok are per-turn on Windows too (engine/win32keyed.js), so they take the
      codex loop, which picks their turn by `spec.runner`. */
@@ -786,6 +790,7 @@ function superviseStreaming(spec, opts) {
       configDir: s.configDir, model: s.model, platform: s.platform || 'win32',
       /* The agent's own browser: main() sets it, as a function asked per launch. */
       mcpConfig: s.mcpConfig,
+      permissionSettings: s.permissionSettings,   // #5406, asked per launch like mcpConfig
       /* 🔑 THE RETURN, NOT A BIRTH. Once we know the id, every later start is a
          resume: same conversation, same id, and NOTHING new recorded. A start
          that minted a fresh id each time would file a second ownership row per
