@@ -135,7 +135,7 @@ async function checkLive(dir) {
  * Write the raw key to the account's mode-600 file. Atomic (temp + rename, through
  * securewrite.writeSecret, which flushes before the rename and sets 0600 before the
  * bytes land) and WITHOUT a trailing newline, so `apiKeyHelper` (which cats it) hands
- * Claude Code exactly the key. The chmod after it is belt and braces.
+ * Claude Code exactly the key.
  */
 function storeKey(dir, key) {
   const file = keyFile(dir);
@@ -145,7 +145,6 @@ function storeKey(dir, key) {
   try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
   // #5434: through the shared writer, so the key is flushed to disk before the rename makes it the file.
   securewrite.writeSecret(file, String(key || '').trim(), 0o600);
-  try { fs.chmodSync(file, 0o600); } catch { /* best effort; create mode already set */ }
 }
 
 function forgetKey(dir) {
@@ -186,7 +185,7 @@ function apiKeyHelperCommand(dir) {
    agent's Claude Code) reads it, and writeSecret sets the mode exactly, so a looser default would
    override a tighter umask. Accepted with it: after three failed atomic attempts writeSecret rewrites
    the file in place (main threw there), and refuses a symlinked settings.json on that path
-   (ERR_KOSMOS_SYMLINK). Both callers in server.js catch any throw. A symlinked settings.json
+   (ERR_KOSMOS_SYMLINK). Every caller (two in server.js, one in accounts.js) catches any throw. A symlinked settings.json
    on the atomic path is replaced by a regular file at the mode of the file it pointed to, as
    main's rename replaced it too. */
 function writeSettings(settingsPath, obj) {
@@ -194,14 +193,18 @@ function writeSettings(settingsPath, obj) {
   // Never group- or world-writable: the file holds apiKeyHelper, a command Claude Code runs. writeSecret
   // sets the mode exactly (no umask), so a 0666 file would otherwise stay 0666; main's fresh temp went
   // through the umask and came back 0644.
-  try { mode = fs.statSync(settingsPath).mode & 0o755; } catch { /* absent: a new file */ }
+  try { mode = fs.statSync(settingsPath).mode & 0o644; } catch { /* absent: a new file */ }
   securewrite.writeSecret(settingsPath, JSON.stringify(obj, null, 2) + '\n', mode);
 }
 
 /**
  * Merge `apiKeyHelper` into the account's settings.json, never clobbering the
- * other settings (the same read-merge-write, atomic, mode-preserving discipline
- * engine/reporthook.js's ensureWired keeps). Returns {wired:true} on success.
+ * other settings (read-merge-write, atomic, through writeSettings above).
+ * ⚠️ engine/reporthook.js's ensureWired writes this same file and does NOT yet go
+ * through writeSecret (a later slice of #5434): it does not flush, keeps a group- or
+ * world-writable mode as it is, creates at the umask default and follows a symlink.
+ * So until that slice, "flushed" and "never writable by others" hold for this
+ * writer's saves, not for every save of the file. Returns {wired:true} on success.
  * A settings.json that is not a JSON object is replaced with a fresh one carrying
  * only apiKeyHelper -- the file was unusable to Claude Code anyway.
  */
