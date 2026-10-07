@@ -132,10 +132,10 @@ async function checkLive(dir) {
 }
 
 /**
- * Write the raw key to the account's mode-600 file. Atomic (temp + rename) and
- * WITHOUT a trailing newline, so `apiKeyHelper` (which cats it) hands Claude Code
- * exactly the key. 0600 at create, and re-chmod'd on an overwrite in case an
- * earlier write left it looser.
+ * Write the raw key to the account's mode-600 file. Atomic (temp + rename, through
+ * securewrite.writeSecret, which flushes before the rename and sets 0600 before the
+ * bytes land) and WITHOUT a trailing newline, so `apiKeyHelper` (which cats it) hands
+ * Claude Code exactly the key. The chmod after it is belt and braces.
  */
 function storeKey(dir, key) {
   const file = keyFile(dir);
@@ -149,12 +149,13 @@ function storeKey(dir, key) {
 }
 
 function forgetKey(dir) {
-  // Remove the key file AND any leftover temp: a storeKey whose writeFileSync or
-  // renameSync failed part-way can leave <keyfile>.tmp holding the raw key (mode
-  // 0600), so the failed-store cleanup must take back BOTH or a plaintext key lingers.
+  // Remove the key file AND any leftover temp, or a plaintext key lingers: an older version's
+  // <keyfile>.tmp, and (#5434) a writeSecret temp a process that died between create and rename
+  // left (reapDeadTempsOf removes only one whose writer is provably gone).
   let ok = false;
   try { fs.rmSync(keyFile(dir), { force: true }); ok = true; } catch { ok = false; }
   try { fs.rmSync(keyFile(dir) + '.tmp', { force: true }); } catch { /* best effort */ }
+  securewrite.reapDeadTempsOf(keyFile(dir));
   return ok;
 }
 
@@ -182,10 +183,15 @@ function apiKeyHelperCommand(dir) {
    makes it the file, and keep the mode the file already had. It was written at whatever the umask gave
    a fresh temp, so a 0600 file became 0644 on the next save. A new one is 0600: only this user (the
    agent's Claude Code) reads it, and writeSecret sets the mode exactly, so a looser default would
-   override a tighter umask. */
+   override a tighter umask. Accepted with it: after three failed atomic attempts writeSecret rewrites
+   the file in place (main threw there), and refuses a symlinked settings.json on that path
+   (ERR_KOSMOS_SYMLINK). Both callers in server.js catch any throw. */
 function writeSettings(settingsPath, obj) {
   let mode = 0o600;
-  try { mode = fs.statSync(settingsPath).mode & 0o777; } catch { /* absent: a new file */ }
+  // Never group- or world-writable: the file holds apiKeyHelper, a command Claude Code runs. writeSecret
+  // sets the mode exactly (no umask), so a 0666 file would otherwise stay 0666; main's fresh temp went
+  // through the umask and came back 0644.
+  try { mode = fs.statSync(settingsPath).mode & 0o755; } catch { /* absent: a new file */ }
   securewrite.writeSecret(settingsPath, JSON.stringify(obj, null, 2) + '\n', mode);
 }
 

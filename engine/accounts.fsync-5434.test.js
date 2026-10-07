@@ -40,6 +40,10 @@ function flushedBeforeRename(events, target) {
     'the temp renamed into ' + path.basename(target) + ' was never flushed before the rename: ' + JSON.stringify(events));
 }
 
+/* A pid with no process: the highest pid the OS hands out is far below this. Checked, not assumed. */
+const DEAD_PID = 2147483646;
+assert.throws(() => process.kill(DEAD_PID, 0), (e) => e.code === 'ESRCH');
+
 function scratch(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'acct5434-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -55,6 +59,21 @@ for (const [name, mod] of [['claude', claude], ['grok', grok], ['gemini', gemini
     flushedBeforeRename(events, file);
     assert.equal(fs.readFileSync(file, 'utf8'), 'sk-test-5434-' + name);
     if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  });
+
+  test('#5434: ' + name + ' forgetKey removes a writeSecret temp a dead writer left, and leaves a live one', (t) => {
+    const dir = path.join(scratch(t), 'acct');
+    fs.mkdirSync(dir);
+    mod.storeKey(dir, 'sk-kept');
+    const base = mod.keyFile(dir) + '.kosmos-';
+    const dead = base + DEAD_PID + '-t0-1-1.tmp';      // a writer that died between create and rename
+    const live = base + process.ppid + '-t0-1-1.tmp';  // a live foreign writer (our parent): never taken
+    fs.writeFileSync(dead, 'raw-key', { mode: 0o600 });
+    fs.writeFileSync(live, 'raw-key', { mode: 0o600 });
+    assert.equal(mod.forgetKey(dir), true);
+    assert.equal(fs.existsSync(mod.keyFile(dir)), false);
+    assert.equal(fs.existsSync(dead), false, 'a dead writer\'s temp holding the key outlived forgetKey');
+    assert.equal(fs.existsSync(live), true, 'a live writer\'s temp was deleted');
   });
 
   test('#5434: ' + name + ' storeKey still removes a stale <keyfile>.tmp an older version left', (t) => {
@@ -79,7 +98,7 @@ test('#5434: claude wireApiKeyHelper and unwireApiKeyHelper flush settings.json 
   assert.equal('apiKeyHelper' in JSON.parse(fs.readFileSync(settings, 'utf8')), false);
 });
 
-test('#5434: settings.json keeps the mode it had; a new one is 0600 whatever the umask', { skip: process.platform === 'win32' && 'POSIX modes' }, (t) => {
+test('#5434: settings.json keeps the mode it had, never writable by others; a new one is 0600 whatever the umask', { skip: process.platform === 'win32' && 'POSIX modes' }, (t) => {
   const root = scratch(t);
   const settings = path.join(root, 'settings.json');
   fs.writeFileSync(settings, JSON.stringify({ theme: 'dark' }) + '\n');
@@ -89,6 +108,12 @@ test('#5434: settings.json keeps the mode it had; a new one is 0600 whatever the
   assert.equal(JSON.parse(fs.readFileSync(settings, 'utf8')).theme, 'dark', 'another setting was lost');
   claude.unwireApiKeyHelper(settings);
   assert.equal(fs.statSync(settings).mode & 0o777, 0o600);
+  fs.chmodSync(settings, 0o644);
+  claude.wireApiKeyHelper(settings, root);
+  assert.equal(fs.statSync(settings).mode & 0o777, 0o644, 'a 0644 settings.json did not keep its mode');
+  fs.chmodSync(settings, 0o666);
+  claude.unwireApiKeyHelper(settings);
+  assert.equal(fs.statSync(settings).mode & 0o777, 0o644, 'a world-writable settings.json stayed writable by others');
   const fresh = path.join(root, 'fresh', 'settings.json');
   const prev = process.umask(0o022);
   try { claude.wireApiKeyHelper(fresh, root); } finally { process.umask(prev); }

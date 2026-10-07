@@ -269,6 +269,7 @@ function forgetKey(dir) {
   let ok = false;
   try { fs.rmSync(keyFile(dir), { force: true }); ok = true; } catch { ok = false; }
   try { fs.rmSync(keyFile(dir) + '.tmp', { force: true }); } catch { /* best effort */ }
+  securewrite.reapDeadTempsOf(keyFile(dir));
   return ok;
 }
 
