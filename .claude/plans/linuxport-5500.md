@@ -44,7 +44,7 @@ fake. Where a sentence differs by platform the macOS assertion is unchanged and 
 sentence would follow the host machine. Removed assertions 11, added 11, one for one.
 Residual: systemdStub reports a failure by returning { ok:false }, as these files' fakes do; create's real runner
 throws instead. Both reach the same result inside create's systemd wrapper.
-Not this slice: create.test.js's LINUX_UNIT_UNTESTED_WHY and LINUX_TASK_STUB_WHY skips (the card's comments).
+Not this slice: create.test.js's remaining #5500 skips (the card's comments); slice 3 below.
 Review 2 (accepted gap): systemdStub answers start/stop/enable/disable ok for a unit with no file (real systemctl
 exits 5) and says "disabled" for an unknown unit (real systemd: empty, enabledState known:false), so tests using it
 never reach linuxjob's not-loaded or unknown-enabled paths. Those are tested in engine/linuxjob.test.js.
@@ -58,3 +58,15 @@ systemd lists every unit file in the folder; no current test relies on an untouc
 write-fails control on Linux now also checks that its one remaining call is the start.
 Review 6 (same accepted gap): the stub also answers linger on (Linger=yes) always, so no stub-driven test reaches the
 linger-off sentences; those are tested in create.linux-4918, linuxjob, linuxwiring-4918 and linux-parity-5445.
+
+## Slice 3 (branch linuxport-5500c, stacked on linuxport-5500): the job's own values on Linux
+The 12 create.test.js tests skipped on Linux because they assert the launchd job itself (LINUX_UNIT_UNTESTED_WHY 8,
+LINUX_LAUNCHD_WHY 3, LINUX_TASK_STUB_WHY 1) now assert the systemd unit's equivalent on Linux, beside the unchanged
+macOS assertion: enable then start of its own unit (linuxjob.js 409-412); the model as ExecStart word 7 (243-245);
+setModel's rewrite keeps every other line byte for byte and refuses a bad model or a missing unit (create.js
+1234, 1275-1279); KOSMOS_PORT and TMUX_TMPDIR Environment lines present or absent (268-275); backfill writes the
+runner (create.js 3776); jobMissing treats only ENOENT as absent (create.js 782-788). The three reason constants are
+deleted. Each Linux arm was shown to fail: the matching linuxjob export or fs call was broken in a scratch COPY of the
+test (no production edit) and the test went red with its own message (14 red runs, each with a passing control run).
+Forced Linux: 223 tests, 203 pass, 0 fail, 20 skipped (the 9 #4279 no-equivalent skips and the bare onLinux ones);
+macOS 223 pass. jobArgv replaces the identical plistArgs (kept as an alias).
