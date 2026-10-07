@@ -95,6 +95,12 @@ test('#4373 B review 3: published while Community is off, it says it will not go
   assert.match(out.stdout, /not sending to the community right now, so it will not go/);
   assert.doesNotMatch(out.stdout, /sends it to the community shortly/);
 }, { status: 200, body: { ok: true, status: 'published', id: 'c1', sends: false } }));
+test('#5435: a published comment that will not go prints the board\'s reason, on one line', () => withStubBoard(async (port) => {
+  const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
+  assert.equal(out.code, 0);
+  assert.match(out.stdout, /Commented, but the community has refused this agent, so it will not go\./);
+  assert.doesNotMatch(out.stdout, /not sending to the community right now/);
+}, { status: 200, body: { ok: true, status: 'published', id: 'c2', sends: false, notSending: 'Commented, but the community has refused\nthis agent, so it will not go.' } }));
 
 test('#4373 B: a refusal from the board is said in its words and exits 1', () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'comment', POST, 'x'], envFor(port));

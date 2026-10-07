@@ -80,6 +80,14 @@ test('#3485 CONTROL: a LEAK in a verified agent\'s comment is still quarantined,
   const j = await (await commentAs(sendertoken.mint('Leaky').token, good({ body: 'mail me at leaky@example.com' }))).json();
   assert.equal(j.status, 'held', 'the submitter sees held, never quarantined');
   assert.equal(rows().find((x) => x.id === j.id).status, 'quarantined');
+  // #5435 review 8: held while it would not go anyway (Community off): held says it waits for the person, never a reason.
+  const communityswitch = require('./engine/communityswitch');
+  communityswitch.setOn(false);
+  try {
+    const off = await (await commentAs(sendertoken.mint('Leaky').token, good({ body: 'mail me at leaky@example.com again' }))).json();
+    assert.equal(off.status, 'held');
+    assert.equal('notSending' in off, false, 'a held comment was given a reason it is not going');
+  } finally { communityswitch.setOn(true); }
 });
 
 test('#4373 B: a local post id is not a service post id, and a bad id or an over-long comment is refused plainly', async (t) => {
@@ -137,6 +145,59 @@ test('#4373 B review 5: a published comment told "will not go" is recorded never
   } finally {
     communityswitch.setOn(true);
   }
+});
+
+test('#5435: a published comment that will not go carries the reason in words: the switch, or an unreadable record', async (t) => {
+  const b = fleet.install([fleet.agent('Reasoned', { state: 'idle' })]);
+  t.after(() => b.restore());
+  const communityswitch = require('./engine/communityswitch');
+  const communitysend = require('./engine/communitysend');
+  communitystore.grantTrust('Reasoned');
+  const tok = sendertoken.mint('Reasoned').token;
+  const file = communitysend._paths.commentsSentFile();
+  assert.ok(file.startsWith(SANDBOX + path.sep), 'refusing to damage a record outside this test\'s sandbox');
+  const had = fs.existsSync(file) ? fs.readFileSync(file) : null;
+  try {
+    communityswitch.setOn(false);
+    const off = await (await commentAs(tok, good({ body: 'reason: off' }))).json();
+    assert.equal(off.sends, false);
+    assert.equal(off.notSending, communitysend.notSendingWords('comment', 'off'));
+    communityswitch.setOn(true);
+    const on = await (await commentAs(tok, good({ body: 'reason: none' }))).json();
+    assert.equal(on.sends, true, 'control: with the records readable it sends');
+    assert.equal('notSending' in on, false, 'a comment that goes was given a reason it does not go');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '{not json');
+    const rec = await (await commentAs(tok, good({ body: 'reason: records' }))).json();
+    assert.equal(rec.sends, false);
+    assert.equal(rec.notSending, communitysend.notSendingWords('comment', 'records'), 'an unreadable record was told the switch is off');
+  } finally {
+    if (had) fs.writeFileSync(file, had); else fs.rmSync(file, { force: true });
+    communityswitch.setOn(true);
+  }
+});
+
+test('#5435 review 8: a refused agent\'s comment is told the community refused it, and status then says the same', async (t) => {
+  const b = fleet.install([fleet.agent('Refusee', { state: 'idle' })]);
+  t.after(() => b.restore());
+  const communityswitch = require('./engine/communityswitch');
+  const communitysend = require('./engine/communitysend');
+  const communitystatus = require('./engine/communitystatus');
+  communitystore.grantTrust('Refusee');
+  communityswitch.setOn(true);
+  const keys = communitysend._paths.keysFile();
+  assert.ok(keys.startsWith(SANDBOX + path.sep), 'refusing to write keys outside this test\'s sandbox');
+  const had = fs.existsSync(keys) ? fs.readFileSync(keys) : null;
+  try {
+    const cur = had ? JSON.parse(had) : {};
+    fs.mkdirSync(path.dirname(keys), { recursive: true });
+    fs.writeFileSync(keys, JSON.stringify({ ...cur, Refusee: { refused: true } }));
+    const j = await (await commentAs(sendertoken.mint('Refusee').token, good({ body: 'refused agent comment' }))).json();
+    assert.equal(j.sends, false);
+    assert.equal(j.notSending, communitysend.notSendingWords('comment', 'refused'));
+    const item = communitystatus.itemsFor('Refusee').find((x) => x.id === j.id);
+    assert.equal(item && item.state, 'agent_refused', 'status said a different cause than the command: ' + JSON.stringify(item));
+  } finally { if (had) fs.writeFileSync(keys, had); else fs.rmSync(keys, { force: true }); }
 });
 
 test('review (merge): turning Community OFF through the route ends the ON period at once (not at the next sweep)', async () => {
