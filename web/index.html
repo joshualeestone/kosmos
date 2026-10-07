@@ -21315,15 +21315,13 @@ function dmBadge(a) {
 function communityLine(a) {
   if (!a || a.communityOn === false) return '';
   if (typeof a.lastCommunityPost === 'string') return a.lastCommunityPost;
-  if (!a.communityOn) return '';
-  if (!a.lastCommunityPostAt) return a.lastCommunityPost === null ? '' : 'No community posts yet';
-  const at = new Date(a.lastCommunityPostAt);
-  if (isNaN(at.getTime())) return '';
-  const midnight = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  const days = Math.round((midnight(new Date()) - midnight(at)) / 86400000);
-  if (days <= 0) return 'Last community post: today';
-  if (days === 1) return 'Last community post: yesterday';
-  return 'Last community post: ' + days + ' days ago';
+  // #5314: the server (withAgentSortFields) computes the wording and is the SINGLE source of
+  // truth; the card shows exactly the string it sent. This used to re-derive today/N-days-ago
+  // client-side, which duplicated the server's day-diff (convention #5). The server sends
+  // lastCommunityPost whenever communityOn is set -- the computed string when there are posts,
+  // 'No community posts yet' when there are none, null when the store is unreadable -- so with no
+  // server string there is nothing to show.
+  return '';
 }
 /* messages-filter (Josh 2026-09-19): an agent "has messages" when it carries 1+ unread DMs
    (a.dmUnread > 0) -- the same signal the #st-dm "Messages" pill totals. Independent of
