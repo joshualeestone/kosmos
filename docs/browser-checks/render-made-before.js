@@ -104,7 +104,7 @@ function chk(ok, label, extra) {
       return {
         whyText: shown(document.getElementById('d-runson-why')),
         whyH: document.getElementById('d-runson-why').getBoundingClientRect().height,
-        msg: shown(document.getElementById('d-model-msg')),
+        msg: document.getElementById('d-model-msg').textContent,   // #5491: the text itself, not what shows (a hidden block shows nothing either way)
         modelBlock: (() => { const st = document.getElementById('d-model-row').closest('.mstep'); return !st.hidden && st.getClientRects().length > 0; })(),
         restartHint: (() => { const h = document.getElementById('d-model-restart-hint'); return h ? h.getClientRects().length > 0 : null; })(),
         said: (document.getElementById('d-sec-model') || document.body).innerText.split('from Found agents in Settings').length - 1,
@@ -155,7 +155,7 @@ function chk(ok, label, extra) {
       const shown = (el) => (el && el.getBoundingClientRect().height > 0 ? el.innerText : ''); // rendered text (#687)
       return {
         why: shown(document.getElementById('d-runson-why')),
-        msg: shown(document.getElementById('d-model-msg')),
+        msg: document.getElementById('d-model-msg').textContent,   // #5491: the text itself, not what shows (a hidden block shows nothing either way)
         modelBlock: (() => { const st = document.getElementById('d-model-row').closest('.mstep'); return !st.hidden && st.getClientRects().length > 0; })(),
         restartHint: (() => { const h = document.getElementById('d-model-restart-hint'); return h ? h.getClientRects().length > 0 : null; })(),
       };
