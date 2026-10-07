@@ -63,7 +63,9 @@ leaked=""; for p in $WAITER $PARENT $MENTION $CSTRING; do case " $got " in *" $p
 # that prints fixed lines: which are runs, which are not.
 shape() { # <expect run|not> <command line>
   local want="$1" line="$2" out rc
-  out="$(pgrep() { printf '4242 %s\n' "$line"; }; kosmos_running_lines "$SCRIPT")"; rc=$?
+  rm -f "$T/stub.called"
+  out="$(pgrep() { : > "$T/stub.called"; printf '4242 %s\n' "$line"; }; kosmos_running_lines "$SCRIPT")"; rc=$?
+  [ -f "$T/stub.called" ] || { bad "the pgrep stub was not called for: $line (the helper no longer calls pgrep by name?)"; return; }
   if [ "$want" = run ]; then [ "$rc" = 0 ] && ok "a run: $line" || bad "should be a run: $line (rc $rc)"
   else [ "$rc" = 1 ] && ok "not a run: $line" || bad "should not be a run: $line (rc $rc)"; fi
 }

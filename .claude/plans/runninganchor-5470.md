@@ -27,7 +27,10 @@ unanchored `pgrep -f` stays exposed.
   that is only an argument, after a script or after a wrapper with no .sh suffix, is not; a lead counts as
   split at one or more spaces only when it is an absolute path with no .sh ending yet, and the piece that ends in
   queued-heavy.sh carries at least two directory segments; a contrived `/wrapper x/tools/queued-heavy.sh`
-  argument would still read as a waiter, which nothing runs), because the
+  argument would still read as a waiter, and a waiter under a split path with only ONE directory segment
+  before queued-heavy.sh (`/Users/a/My Work/queued-heavy.sh`) still reads as a run; from text alone a split
+  path's tail cannot be told from a relative argument, every tightening trades one unusual shape for
+  another, and nothing in the fleet runs either), because the
   waiter starts the real run as its own process when its turn comes, and that run counts. The window between
   is covered by queued-heavy.sh's machine claim, taken before it starts the run (tools/queued-heavy.sh
   steps 2-3; a light side turn holds a side claim instead), which heavy-gate reads as busy either way.
