@@ -36,7 +36,11 @@ folder's name to match that answer.
   act still agree (both use the same stat), which is this card's property; normalising is its own change.
 - Not changed here: three other tests in engine/projects.test.js (`"Lease" and "lease" are ONE project...`,
   `an adopted folder is stored under the spelling...`, `the same folder reached by two spellings of a MIDDLE
-  segment...`) assume a case-insensitive disk by their own names and fail on a case-sensitive one (blind
-  review 2, measured on the image). The #4919 Linux lane already skips them off case-insensitive disks with
-  its `caseInsensitiveFS()` probe; adding a second skip here would duplicate that and collide when #4919
-  merges. Weakest premise: that #4919 merges with those skips intact.
+  segment...`) assume a case-insensitive disk by their own names. #4919 (merged since this branch began) skips them
+  off case-insensitive disks with its `caseInsensitiveFS()` probe, which is right for what they test.
+- Rebased onto main after #4919 merged (2026-10-06 20:3x). #4919 had rewritten the engine case test to compare
+  `exists` with its own probe and skipped the route test off case-insensitive disks. The engine test keeps this
+  branch's version (it asks the disk whether `lease` opens `Lease`, and also checks the made folder's name), and
+  the route test's skip is removed, since it is now right on either disk (its now-unused probe went with it).
+  Measured after the rebase on a case-sensitive APFS image: the engine, route and stubbed-fs tests all ran (none
+  skipped) and passed.
