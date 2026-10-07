@@ -206,3 +206,39 @@ test('#4491 review 5: when the set cannot be worked out, plan flags cannot-check
   assert.equal(fs.readFileSync(f, 'utf8'), 'after');
   fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: [] }));
 });
+
+test('#4491 review 6: a folder swapped for a link into a token-only agent .claude at the write is refused, and nothing lands there', () => {
+  undo.setOn(true, ms('08:00'));
+  const me = worker('ud-swap');
+  fs.mkdirSync(path.dirname(sendertoken.tokenOnlyFile()), { recursive: true });
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['ud-swap'] }));
+  const guard = path.join(me, '.claude');
+  fs.mkdirSync(guard, { recursive: true });
+  fs.writeFileSync(path.join(guard, 'settings.json'), '{"guard":true}');
+  const sub = path.join(me, 'sub');
+  fs.mkdirSync(sub, { recursive: true });
+  const f = path.join(sub, 'settings.json');   // the same name as the guard file
+  fs.writeFileSync(f, '{"sandbox":false}'); const t9 = new Date(ms('09:00')); fs.utimesSync(f, t9, t9);
+  const file = taskchat.taskChatFile('sw', 1);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, [{ at: T('10:00'), kind: 'created', who: 'ud-swap' }, { at: T('11:00'), kind: 'closed' }].map((r) => JSON.stringify(r)).join('\n') + '\n');
+  assert.deepEqual(undo.keep(f, { cwd: me, session: 's', now: ms('10:10') }), { kept: true });
+  fs.writeFileSync(f, '{"edited":1}'); const t10 = new Date(ms('10:11')); fs.utimesSync(f, t10, t10);
+  const row = undo.plan('sw', { number: 1, closedAt: T('11:00') }).files.find((x) => x.path === f) || {};
+  assert.ok(row.ok === true || row.why === 'incomplete', 'CONTROL: before the swap the file can be undone: ' + JSON.stringify(row));
+  // At the write: sub becomes a link to the agent's own .claude.
+  undo._setBeforeWriteForTests(() => { fs.renameSync(sub, sub + '.was'); fs.symlinkSync(guard, sub); });
+  let r;
+  try { r = undo.apply('sw', { number: 1, closedAt: T('11:00') }, [f], { now: ms('12:00') }); } finally { undo._setBeforeWriteForTests(null); }
+  assert.ok(!r.done.includes(f), 'the restore went through the link');
+  assert.deepEqual(r.skipped.find((x) => x.path === f), { path: f, why: 'protected' }, 'the refusal does not say why');
+  assert.equal(fs.readFileSync(path.join(guard, 'settings.json'), 'utf8'), '{"guard":true}', 'the guard settings were rewritten');
+  assert.deepEqual(fs.readdirSync(guard).filter((n) => n.startsWith('.kosmos-undo-')), [], 'restored bytes were written into the guarded folder');
+  // CONTROL: the same swap to an ordinary folder is refused as moved (not protected, not done).
+  fs.unlinkSync(sub); fs.renameSync(sub + '.was', sub);
+  const elsewhere = path.join(me, 'elsewhere'); fs.mkdirSync(elsewhere, { recursive: true });
+  undo._setBeforeWriteForTests(() => { fs.renameSync(sub, sub + '.was2'); fs.symlinkSync(elsewhere, sub); });
+  try { r = undo.apply('sw', { number: 1, closedAt: T('11:00') }, [f], { now: ms('12:01') }); } finally { undo._setBeforeWriteForTests(null); }
+  assert.deepEqual(r.skipped.find((x) => x.path === f), { path: f, why: 'moved' });
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: [] }));
+});

@@ -168,7 +168,23 @@ function credentialVerdict(abs, st, cred) {
     return null;
   } catch { return 'unknown'; }
 }
-let loggedCannotCheck = false;
+/* #4491 reviews 5 and 6: at the write, the target's folder must still be the one recorded (or, with none recorded, the
+   folder it is named by) and the target must not be protected: a folder swapped for a link into a guarded folder since
+   plan() would otherwise land the file there. Throws with the reason the person sees: 'protected', 'cannot-check', or
+   'moved'. apply calls it before anything is written and again right before the rename; what is left is the window
+   between the last check and the rename itself (named in the plan). */
+function folderStillSafe(target, rec, protectedSet) {
+  let dirNow = '';
+  try { dirNow = fs.realpathSync(path.dirname(target)); } catch { dirNow = ''; }
+  const verdict = protectedSet ? credentialVerdict(path.join(dirNow || path.dirname(target), path.basename(target)), null, protectedSet) : 'unknown';
+  if (verdict) throw Object.assign(new Error('refused at the write'), { undoWhy: verdict === 'unknown' ? 'cannot-check' : 'protected' });
+  const expected = rec && rec.dirReal ? rec.dirReal : path.dirname(target);
+  if (!dirNow || dirNow !== expected) throw Object.assign(new Error('the folder changed before the write'), { undoWhy: 'moved' });
+}
+let beforeWrite = () => {};
+function _setBeforeWriteForTests(f) { beforeWrite = typeof f === 'function' ? f : () => {}; }
+
+let cannotCheckNow = false;   // the last keep's state, so the log says when it starts AND when it ends
 function isCredential(abs, st, cred) { return credentialVerdict(abs, st, cred) !== null; }
 /* Worked out once for a caller that checks many paths; null when it cannot be (each check then says 'unknown'). */
 function credentialSet() { try { return require('./setup-assistant').boardCredentialPaths(); } catch { return null; } }
@@ -214,9 +230,12 @@ function keep(file, { cwd = '', session = '', now = Date.now(), onlyFor = null }
     try {
       if (fd !== null) st = fs.fstatSync(fd);
       const verdict = credentialVerdict(abs, st);
-      if (verdict === 'unknown' && !loggedCannotCheck) {
-        loggedCannotCheck = true;   // once per board start: a garbled token-only list stops every undo copy, so say so
-        console.error('undo: Kosmos could not work out which files it must not copy (the token-only agent list could not be read), so no undo copies are being kept until it can');
+      /* Review 6: a failure here stops every undo copy, so the log says when it starts and when it ends. */
+      if ((verdict === 'unknown') !== cannotCheckNow) {
+        cannotCheckNow = verdict === 'unknown';
+        console.error(cannotCheckNow
+          ? 'undo: Kosmos could not work out which files it must not copy (a protected-file list or folder could not be read), so no undo copies are kept until it can'
+          : 'undo: Kosmos can check again which files it must not copy; undo copies are being kept again');
       }
       if (verdict) return { kept: false, because: verdict === 'unknown' ? 'cannot-check' : 'credential' };
       if (st && !st.isFile()) return { kept: false, because: 'not-a-file' };
@@ -406,6 +425,8 @@ function apply(projectId, task, paths, { now = Date.now() } = {}) {
     const cur = nowIs(f.path);
     if (!rec || cur.kind === 'other') { skipped.push({ path: f.path, why: 'not-a-file' }); continue; }
     try {
+      beforeWrite(f.path);                                 // tests only: change the world at exactly this point
+      folderStillSafe(f.path, rec, protectedSet);          // before anything is written or saved aside (review 6)
       mkdirPrivate(savedIn);
       const keepAs = path.join(savedIn, sha(Buffer.from(f.path)).slice(0, 16) + '-' + path.basename(f.path));
       if (f.action === 'move-aside') {
@@ -424,14 +445,7 @@ function apply(projectId, task, paths, { now = Date.now() } = {}) {
         try {
           fs.copyFileSync(blobPath, tmp, fs.constants.COPYFILE_EXCL);
           if (rec.mode != null) { try { fs.chmodSync(tmp, rec.mode); } catch { /* the content is what matters */ } }
-          /* #4491 review 5: the folder must still be the one recorded, and not a protected one, right before the rename:
-             a folder swapped for a link since plan() would otherwise land the file in a guarded place. What is left is
-             the window between this check and the rename itself (named in the plan). */
-          let dirNow = '';
-          try { dirNow = fs.realpathSync(path.dirname(tmp)); } catch { dirNow = ''; }
-          if ((rec.dirReal && dirNow !== rec.dirReal) || credentialVerdict(path.join(dirNow || path.dirname(f.path), path.basename(f.path)), null, protectedSet || undefined)) {
-            throw Object.assign(new Error('the folder changed before the write'), { undoWhy: 'moved' });
-          }
+          folderStillSafe(f.path, rec, protectedSet);       // again right before the rename (review 6)
           fs.renameSync(tmp, f.path);                      // replaces the entry itself: never writes through a link
         } catch (err) {
           try { fs.unlinkSync(tmp); } catch { /* not made */ }   // never leave the old content beside the file (review 2)
@@ -449,4 +463,4 @@ function apply(projectId, task, paths, { now = Date.now() } = {}) {
 }
 
 module.exports = {
-  isCredential, credentialVerdict, read, setOn, keep, plan, apply, sweep, resetForTests, moveAside, MAX_BYTES, KEEP_DAYS, CHOOSABLE };
+  isCredential, credentialVerdict, _setBeforeWriteForTests, read, setOn, keep, plan, apply, sweep, resetForTests, moveAside, MAX_BYTES, KEEP_DAYS, CHOOSABLE };
