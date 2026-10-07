@@ -4176,7 +4176,7 @@ BOARDEOF
         "loose lingering"|held-changed\ *)
           if [ "$_kosmos_board_off" != yes ] && ! "$KOSMOS_HOME/bin/kosmos" restart --force >/dev/null 2>&1; then
             # restart fails when the old board would not stop, or the new one was slow to answer: never a quiet success.
-            info "Kosmos is set to start with systemd, but the hand-over just now did not confirm it is running. Check with: kosmos status, and if it is not running: kosmos start (what it said is in $KOSMOS_HOME/logs/board.log)"
+            info "Kosmos is set to start with systemd, but the hand-over just now did not confirm it is running (it may still be running on its previous settings). Check with: kosmos status, and if it is not running: kosmos start (what it said is in $KOSMOS_HOME/logs/board.log)"
             _lb_handoff=failed
           fi ;;
       esac

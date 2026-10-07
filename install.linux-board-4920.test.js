@@ -248,7 +248,7 @@ test('#4920 install: a hand-off that does not bring the board back is said, with
   let w = world({ nodeOut: 'loose lingering', restartRc: 1 });
   let r = runBlock(INSTALL_BLOCK, w);
   assert.equal(r.status, 0, 'a failed hand-off must not stop the install: ' + r.stderr);
-  assert.match(r.stdout, /did not confirm it is running\. Check with: kosmos status, and if it is not running: kosmos start/);
+  assert.match(r.stdout, /did not confirm it is running \(it may still be running on its previous settings\)\. Check with: kosmos status, and if it is not running: kosmos start/);
   assert.doesNotMatch(r.stdout, /will start itself when this computer starts/, 'a success-shaped line followed a failed hand-off');
   w = world({ nodeOut: 'loose lingering' });
   r = runBlock(INSTALL_BLOCK, w);

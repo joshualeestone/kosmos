@@ -55,6 +55,8 @@ jobs:
           echo "KOSMOS_NO_OPEN=1" >> "$GITHUB_ENV"
 
       - name: Stage this checkout as the bundle setup.sh installs
+        # ⚠️ A hand copy of tools/build-kosmos-bundle.sh's file list (that script is Mac-only). If the bundle gains a
+        # file the app needs, add it here too, or this run tests less than a release ships.
         # The published bundle is the LAST release, so it does not carry this branch's engine (setup.sh's Linux step
         # requires app/engine/linuxboard.js, measured: run 37592812752 said "Cannot find module"). Stage the same file
         # list tools/build-kosmos-bundle.sh packs (that script is Mac-only: codesign, lipo, the native app), and
@@ -155,6 +157,52 @@ jobs:
           test ! -f "$UNIT_FILE"
           # The enable link is what a failed disable leaves behind (the file is deleted either way).
           test ! -e "$HOME/.config/systemd/user/default.target.wants/kosmos-board.service"
+
+      - name: An update keeps an old unit's other processes alive (KillMode fix, measured both ways)
+        # 0.7.27's shell-written unit has no KillMode=, so stopping it kills its whole cgroup, which on an in-app update
+        # holds setup.sh and the agents' tmux server. setup.sh's _kosmos_linux_unit_killmode adds KillMode=process and
+        # reloads before the update pauses the board. CONTROL first (the old unit kills its child), then the fix (the
+        # child survives): the control is what proves this step can fail.
+        run: |
+          set -e
+          UNITS="$HOME/.config/systemd/user"
+          UNIT="$UNITS/kosmos-board.service"
+          cat > "$RUNNER_TEMP/kb-service.sh" <<'SVC'
+          #!/bin/sh
+          sleep 1000 &
+          echo $! > "$1"
+          wait
+          SVC
+          chmod +x "$RUNNER_TEMP/kb-service.sh"
+          write_old_unit() {
+            printf '[Unit]\nDescription=Kosmos Board\n\n[Service]\nExecStart=/bin/sh %s %s\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=default.target\n' \
+              "$RUNNER_TEMP/kb-service.sh" "$RUNNER_TEMP/kb-child.pid" > "$UNIT"
+            systemctl --user daemon-reload
+          }
+          start_and_child() {
+            rm -f "$RUNNER_TEMP/kb-child.pid"
+            systemctl --user start kosmos-board.service
+            for i in 1 2 3 4 5 6 7 8 9 10; do [ -s "$RUNNER_TEMP/kb-child.pid" ] && break; sleep 0.5; done
+            cat "$RUNNER_TEMP/kb-child.pid"
+          }
+          # CONTROL: the old unit, stopped, takes its child with it.
+          write_old_unit
+          CHILD="$(start_and_child)"; kill -0 "$CHILD"
+          systemctl --user stop kosmos-board.service; sleep 1
+          if kill -0 "$CHILD" 2>/dev/null; then echo "CONTROL FAILED: the old unit did not kill its child, so this step proves nothing" >&2; kill "$CHILD"; exit 1; fi
+          echo "control: the old unit killed its child (cgroup kill), as expected"
+          # FIX: the same old unit, running; setup.sh's own function adds KillMode=process and reloads; the stop spares the child.
+          write_old_unit
+          CHILD="$(start_and_child)"; kill -0 "$CHILD"
+          sed -n '/^_kosmos_linux_unit_name() {/,/^}/p; /^_kosmos_linux_unit_killmode() {/,/^}/p' install/setup.sh > "$RUNNER_TEMP/kb-fns.sh"
+          KOSMOS_HOME="$HOME/.local/share/kosmos" _kosmos_home_default="$HOME/.local/share/kosmos" sh -c ". \"$RUNNER_TEMP/kb-fns.sh\"; _kosmos_linux_unit_killmode"
+          grep -qx 'KillMode=process' "$UNIT"
+          systemctl --user stop kosmos-board.service; sleep 1
+          if ! kill -0 "$CHILD" 2>/dev/null; then echo "FAIL: with KillMode=process the stop still killed the child" >&2; exit 1; fi
+          echo "fix: the child survived the stop"
+          kill "$CHILD"
+          systemctl --user disable kosmos-board.service 2>/dev/null || true
+          rm -f "$UNIT"; systemctl --user daemon-reload
 
       - name: Test custom KOSMOS_HOME unit derivation
         run: |
