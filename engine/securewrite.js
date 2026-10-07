@@ -266,6 +266,9 @@ function secureDir(dir, mode) {
    takes its usual path: EINVAL, ENOTSUP, EOPNOTSUPP, ENOSYS everywhere, and on Windows only EPERM
    and EISDIR (some Windows handles and volumes refuse the flush that way; libuv reports
    ERROR_INVALID_FUNCTION from FlushFileBuffers as EISDIR; those writes worked before #5434).
+   Premise, not measured: that on these writable handles a Windows EPERM means "cannot flush"
+   rather than a real refusal (antivirus, a sharing violation). If it is a refusal, skipping it
+   leaves that write exactly as durable as before #5434, never less.
    Any other error, for example EIO, ENOSPC or EDQUOT (on a mount that reports a failed write
    late, this is where it shows), is thrown (marked `flushFailed`, for callers and tests); the atomic path below
    records it in its local `flushError` and stops at once, so the old file stays as it was: no
