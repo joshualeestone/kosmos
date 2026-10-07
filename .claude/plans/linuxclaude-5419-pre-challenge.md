@@ -1,7 +1,7 @@
 ---
 method: challenge-loop
 branch: linuxclaude-5419
-diff_hash: 3edb65f080149eefe0a875c1b6bef719e6e4d9bc57113bf65cc1489e9d29b8b1
+diff_hash: ef80c42ab03c1568a51200c00b33871931fcfc40639450635b176cb5066f4dc2
 timestamp: 2026-10-07T09:38:49Z
 converged: true
 ---
@@ -211,3 +211,5 @@ pass on Linux; runners, server.runners and muserun stay red for slice 2.
 
 #### Iteration (Linux lane findings)
 - [WARNING] engine/connect.test.js:2951 (SELF(it24)): test forcing musl on is host-dependent via the real library check. FIXED: 86df3a487 (file-wide MUSL_LIBS_PRESENT pin; reproduced red/green)
+
+Proof hash refreshed 2026-10-07 after merging origin/main (one test-seam list conflict in engine.reachable.test.js, both sides kept). On the merged tree: main's 68 changed test files plus engine.reachable and engine/connect tests, 2475 tests, 0 fail.
