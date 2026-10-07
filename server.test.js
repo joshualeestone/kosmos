@@ -4902,7 +4902,8 @@ test('a half-finished removal answers 200, because it is a state and not an erro
   fs.writeFileSync(jobfix.jobPath(name), '<plist/>', 'utf8');
   status.setPaneSource(() => fleet.line({ session: name, claim: name, title: '✳ Claude Code' }));
   status.setPaneCapture(() => null);
-  // the stop refuses (bootout on macOS; on Linux the stub's systemctl answer): disabled but not stopped, a partial.
+  // disabled but not stopped, a partial: on macOS bootout refuses; on Linux every systemctl call answers ok and the
+  // unit still reads active, so it does not count as stopped.
   removal.setRunner((file, args) => (args && args[0] === 'bootout'
     ? { ok: false, code: 2 }
     : { ok: true, stdout: '' }));
