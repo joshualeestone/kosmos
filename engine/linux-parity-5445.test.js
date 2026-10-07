@@ -273,6 +273,7 @@ test('#5445 the board says where a switched-off agent was switched off, per plat
   // Linux: systemd, never System Settings.
   const lin = create.switchedOffSentence('offrow', off, 'linux');
   assert.match(lin, /switched off \(or masked\) in systemd/);
+  assert.match(lin, /systemctl --user enable 'kosmos-agent-offrow\.service'/, 'names how to switch it back on, as the Mac names its screen');
   assert.doesNotMatch(lin, /System Settings/);
   assert.equal(create.switchedOffSentence('onrow', off, 'linux'), null);
   // A masked unit is read from the disk, so it is said even when systemctl gave no switched-off set.
@@ -286,7 +287,7 @@ test('#5445 the folder-trust step says a masked agent is masked, not that it has
   fs.symlinkSync('/dev/null', linuxjob.unitPath('trustmask'));
   const r = create.trustAgentFolder('trustmask', { platform: 'linux' });
   assert.equal(r.wrote, false);
-  assert.match(r.because, /it is masked in systemd/);
+  assert.match(r.because, /^we did not write the folder trust, because it is masked in systemd/, 'the reason comes first: ' + r.because);
   assert.doesNotMatch(r.because, /no Kosmos launch job/);
   fs.rmSync(linuxjob.unitPath('trustmask'));
   // CONTROL: with no unit at all it is still "no launch job".
