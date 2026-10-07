@@ -2923,7 +2923,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         boardStartInFlight = true
         boardStartGeneration += 1
         let generation = boardStartGeneration
-        // The same 300s re-arm loadBoard/ensureBoardRunning have, so a reclaim that never returns
+        // The same 300s re-arm mechanism loadBoard/ensureBoardRunning use, so a reclaim that never returns
         // does not leave every later Cmd-R a silent no-op (#965).
         DispatchQueue.main.asyncAfter(deadline: .now() + 300) { [weak self] in
             guard let self, self.boardStartInFlight, self.boardStartGeneration == generation else { return }
