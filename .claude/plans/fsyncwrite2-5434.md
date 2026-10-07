@@ -50,7 +50,10 @@ writes, not renames), and the other files the card lists.
   the test starts and keeps alive); fails when the reap call is removed;
 - wire and unwire flush settings.json before its rename (fails on main);
 - settings.json keeps 0600 and 0644, a 0666 one comes back 0644 (fails with the mask removed), a
-  0400 one comes back 0600 (fails without the owner bits), other settings are kept, and a new one is 0600 under umask 022 (fails on main).
+  0440 one comes back 0640, a 0400 one comes back 0600 (fails without the owner bits), other settings are kept, and a new one is 0600 under umask 022 (fails on main).
+- a settings save whose every atomic attempt fails throws and leaves the file as it was (fails
+  without `atomicOnly`), with a control that a key save under the same failure still falls back;
+- `securewrite.test.js`: direct `reapDeadTempsOf` arms, including a sibling named like a temp.
 Locally: 153 files (the account and securewrite tests plus every repo-wide meta test), 4105 tests, 0 fail.
 
 ## Weakest premise
