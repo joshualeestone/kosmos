@@ -137,9 +137,8 @@ function reportFor(evt, ctx) {
 
 /**
  * #5495: true when this agent runs with Kosmos's own PermissionRequest allow hook (its settings file sets the env name,
- * engine/agentpermission.js) AND that hook's decide() allows this request, so no prompt will show. It calls this
- * install's decide() in-process, which on Windows is the same file the allow hook runs. Any failure reads as false: the
- * report says needs-you, as before #5495.
+ * engine/agentpermission.js) AND this install's decide(), called in-process, allows this request. Any failure reads
+ * as false: the report says needs-you, as before #5495.
  */
 function kosmosAllows(input, env) {
   try {
