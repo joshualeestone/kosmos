@@ -288,7 +288,66 @@ side5331 $S/qh-nojc5331.sh $S/m5331; side5331 $S/qh-old5331.sh $S/m5331c
 r5331="$(cat $S/m5331.r)"; c5331="$(cat $S/m5331c.r)"
 ok "#5331: a capper that is not a group leader and is stopped is KILLed by pid, so the teardown releases at once" '[ "$r5331" = 0 ] && [ ! -e $S/m5331/light-side-claim ] && grep -q "claim released" $S/m5331.log && ! grep -q "did not stop" $S/m5331.log'
 ok "#5331 CONTROL: with the old teardown the same capper holds it (the arm above is not vacuous)" '[ "$c5331" = 1 ] && grep -q "SIDE TURN: running" $S/m5331c.log'
-EXPECTED=93   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms
+# #5467: a WAITING run must not carry its wrapped command in its own command line (a `pgrep -f browser-checks.sh` in a
+# release read a waiter as a running check and waited on it while the waiter waited on the release, 0.7.27). The real
+# run, once its turn comes, IS matched. The control runs a copy without the re-exec: there the waiter is matched, so the
+# first arm can fail. The pattern names this test's own fake script, so nothing outside this run can match it.
+mkdir -p $S/fakebc/tools; printf '#!/bin/bash\nsleep %s\n' $((U+8)) > $S/fakebc/tools/browser-checks.sh; chmod +x $S/fakebc/tools/browser-checks.sh
+sed '/^# #5467: while it waits/,/^fi$/d' "$REAL_QH" > $S/qh-no5467.sh
+hide5467() {   # $1 the wrapper (or a copy), $2 its marker dir: writes "<waiter matched> <run matched> <args file named>" to $2.r
+  local q="$1" m="$2" w wm=n rm=n fm=n
+  mkdir -p "$m"; printf '%s-%s-1 %s %s host queued run (not a cut): fake heavy\n' $H $((NOW-300)) $H $((NOW+1800)) > "$m/machine-claim"
+  ( cd /tmp && KOSMOS_RUN_MARKER_DIR="$m" exec /bin/bash "$q" "w5467" /bin/bash $S/fakebc/tools/browser-checks.sh ) > "$m.log" 2>&1 & w=$!; BG="$BG $w"
+  until_true 30 "[ -e '$m/suitewait.$w' ]" || { kill $w 2>/dev/null; reap $w 40; echo "x x" > "$m.r"; return; }
+  pgrep -f "$S/fakebc/tools/browser-checks.sh" >/dev/null && wm=y
+  case "$(ps -ww -o command= -p $w 2>/dev/null)" in *"--queued-args $TMPDIR/queued-heavy-args."*) fm=y;; esac   # the file was here (presence control)
+  rm -f "$m/machine-claim"
+  until_true 30 '! gone $((U+8))' && pgrep -f "$S/fakebc/tools/browser-checks.sh" >/dev/null && rm=y
+  for p in $(pgrep -f "^sleep $((U+8))$"); do kill -KILL $p; done; reap $w 60
+  echo "$wm $rm $fm" > "$m.r"
+}
+hide5467 "$REAL_QH" $S/m5467; hide5467 $S/qh-no5467.sh $S/m5467c
+r5467="$(cat $S/m5467.r)"; c5467="$(cat $S/m5467c.r)"
+ok "#5467: a waiting run's command line does not carry its command, and the real run's does" '[ "${r5467% *}" = "n y" ]'
+ok "#5467 CONTROL: without the re-exec the waiter IS matched (the arm above is not vacuous)" '[ "${c5467% *}" = "y y" ] && ! grep -q "queued-args" $S/qh-no5467.sh'
+# Review 1: the file is gone once read, and it WAS in this test's TMPDIR (the waiter named it), so "gone" is not "never here".
+ok "#5467: the arguments file was written in TMPDIR and is gone once read" '[ "${r5467##* }" = y ] && [ -z "$(ls "$TMPDIR" | grep queued-heavy-args)" ]'
+# Review 1: a stale TMPDIR (removed since) falls back to /tmp instead of stopping the run before it waits.
+mkdir -p $S/mstale5467; o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mstale5467 TMPDIR=$S/gone-tmpdir /bin/bash $QH "stale-tmpdir" true 2>&1)   # its own marker dir: the fake holder above holds $S/m
+ok "#5467: a stale TMPDIR falls back to /tmp and the run still takes its turn" '[[ "$o" == *"TURN: running stale-tmpdir"* && "$o" == *"END rc=0"* ]]'
+o=$(KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash "$REAL_QH" --queued-args "$TMPDIR/queued-heavy-args.x/../escape" 2>&1); r=$?
+ok "#5467: --queued-args refuses a path that continues past its own file name" '[ "$r" = 2 ] && [[ "$o" == *"is internal"* ]]'
+# Review 3: these refusal arms run the wrapper itself, so each has its own unheld marker dir and a 20 s alarm: a
+# regression that accepted the file would run (or wait) and read BAD, never hang the file.
+mkdir -p $S/mref5467
+# Review 2: and a file that is not there, and one outside TMPDIR and /tmp (each refused before anything runs).
+o=$(KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash "$REAL_QH" --queued-args "$TMPDIR/queued-heavy-args.missing" 2>&1); r=$?
+ok "#5467: --queued-args refuses a file that is not there" '[ "$r" = 2 ] && [[ "$o" == *"missing or not ours"* ]]'
+printf 'x\0true\0' > $S/queued-heavy-args.outside
+o=$(KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash "$REAL_QH" --queued-args "$S/queued-heavy-args.outside" 2>&1); r=$?
+ok "#5467: --queued-args refuses a file outside TMPDIR and /tmp" '[ "$r" = 2 ] && [[ "$o" == *"is internal"* ]] && [ -e $S/queued-heavy-args.outside ]'
+# Review 4: a symlink named like its own file is refused (it could point at any file of ours), the target kept.
+ln -s $S/queued-heavy-args.outside "$TMPDIR/queued-heavy-args.link"
+o=$(KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash "$REAL_QH" --queued-args "$TMPDIR/queued-heavy-args.link" 2>&1); r=$?
+ok "#5467: --queued-args refuses a symlink, and the file it points at is left alone" '[ "$r" = 2 ] && [[ "$o" == *"missing or not ours"* ]] && [ -e $S/queued-heavy-args.outside ]'
+rm -f "$TMPDIR/queued-heavy-args.link"
+# Review 7: nothing after the file name on the command line, and a script fed on stdin (no file to restart from).
+printf 'x\0true\0' > "$TMPDIR/queued-heavy-args.extra"
+o=$(KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash "$REAL_QH" --queued-args "$TMPDIR/queued-heavy-args.extra" more 2>&1); r=$?
+ok "#5467: --queued-args refuses anything after the file name" '[ "$r" = 2 ] && [[ "$o" == *"is internal"* ]] && [ -e "$TMPDIR/queued-heavy-args.extra" ]'
+rm -f "$TMPDIR/queued-heavy-args.extra"
+mkdir -p $S/tmpstdin; o=$(TMPDIR=$S/tmpstdin KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash -s "x" true < "$REAL_QH" 2>&1); r=$?
+ok "#5467: a script fed on stdin refuses (exit 3) and leaves no arguments file" '[ "$r" = 3 ] && [[ "$o" == *"run it as a file"* ]] && [ -z "$(ls $S/tmpstdin)" ]'
+# Review 6: the round trip itself, pinned: awkward arguments, stdin and the exit code reach the command unchanged.
+printf '#!/bin/bash\nfor a in "$@"; do printf "[%%s]" "$a"; done; echo; read -r line; echo "IN=$line"; exit 7\n' > $S/show5467; chmod +x $S/show5467
+mkdir -p $S/mrt5467; o=$(printf 'from-stdin\n' | (cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mrt5467 /bin/bash $QH "rt" $S/show5467 "a b" "" $'x\ny' -n '*' 2>&1)); r=$?
+ok "#5467: arguments (a space, an empty one, a newline, -n, *), stdin and the exit code survive the re-exec" '[[ "$o" == *"[a b][][x"$'"'"'\n'"'"'"y][-n][*]"* && "$o" == *"IN=from-stdin"* && "$o" == *"END rc=7"* ]]'
+# Review 5: a failed re-exec says so, exits 3 and leaves no arguments file (bash clears the EXIT trap while it tries).
+sed 's|  exec /bin/bash "${BASH_SOURCE\[0\]}" --queued-args "$_qh_af"|  exec /nonexistent/bash "${BASH_SOURCE[0]}" --queued-args "$_qh_af"|' "$REAL_QH" > $S/qh-noexec.sh
+mkdir -p $S/tmpx; o=$(TMPDIR=$S/tmpx KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash $S/qh-noexec.sh "noexec" true 2>&1); r=$?
+ok "#5467: a failed re-exec exits 3, says so, and leaves no arguments file" '[ "$r" = 3 ] && [[ "$o" == *"could not restart itself"* ]] && [ -z "$(ls $S/tmpx)" ] && grep -q /nonexistent/bash $S/qh-noexec.sh'
+
+EXPECTED=105   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"

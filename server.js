@@ -394,7 +394,7 @@ function agentRunawayRefusal(times, noun, now = Date.now(), limit = agentRunaway
 // `roster`: the caller's already-fetched snapshot, never a fresh
 // safeRoster() of our own -- snapshot() fans out a real tmux capture-pane
 // per agent, and every call site here already has one in scope.
-function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver) {
+function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver, note = '') {
   const name = typeof who === 'string' && who.trim() ? who.trim() : null;
   if (!name || !t || typeof t.number !== 'number') return undefined;
   /* #3564: a swarm switched off in this project is not told it was given work here. */
@@ -406,7 +406,7 @@ function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver) {
   /* #1307: a webhook task's words are marked and quoted as outside text, here where they reach
      the agent (tasks.forAgent). */
   const line = '[Kosmos: you were given task ' + t.number + ' in "' + String(title).replace(/[\r\n"]/g, ' ') + '": '
-    + tasks.forAgent(t, sentence || '') + '. When you take it up, say "task ' + t.number + ' of ' + String(title).replace(/[\r\n"]/g, ' ')
+    + tasks.forAgent(t, sentence || '') + '. ' + (note ? note + ' ' : '') + 'When you take it up, say "task ' + t.number + ' of ' + String(title).replace(/[\r\n"]/g, ' ')
     + '" in what you report (every project numbers from 1, so the name matters; #779); the room is: kosmos post ' + projectId + ']';
   const answer = (sent) => ({ who: name, state: sent.state, because: sent.because || null });
   const failed = (err2) => answer({ state: chat.DELIVERY.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') });
@@ -447,11 +447,24 @@ function tellEveryoneOn(t, roster) {
      pane line spends the assignee's paging allowance (heardBudgetAllows, per assignee).
    - assigner: the Kosmos Assigner. Its own provenance ('assigner'), so neither the parts
      valve nor the paging allowance is charged (the Assigner has its own hourly caps);
-     the part must still be free at the moment of the write (onlyIfFree); the pane line is
+     the part must still be free at the moment of the write (onlyIfFree), or, for a #5382
+     failover move (`from`), still on that agent (onlyIfWho); the pane line is
      always sent, and if it could not reach the agent at all (COULD_NOT) the assignment is
-     taken back, so nobody is left on a task they were never told about.
+     taken back (to `from` for a failover move), so nobody is left on a task they were never told about.
    Returns the route's body fields plus `ok`/`status`/`because`; never throws for a refusal. */
-function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDelivery, noPage } = {}) {
+/* #5382 (review 8): the runner the failover compares, or null when nothing recorded says. A non-claude value on the
+   card is a recorded or command-read fact; 'claude' there can be a default (status reads an absent marker as claude),
+   so the launch job's runner, else the profile's provider, answers; with neither, null, which the failover never moves
+   from or to. (create.recordedRunner floors at claude, so it is not used here: an unrecorded Antigravity agent read as
+   claude could hand its part to a Gemini CLI agent on the same Google account.) */
+function failoverRunnerOf(card) {
+  if (!card || !card.sessionName) return null;
+  if (card.runner && card.runner !== 'claude') return card.runner;
+  try { const j = create.readJob(card.sessionName); if (j && j.runner) return j.runner; } catch { /* no job */ }
+  try { const prov = store.readProfile(card.sessionName).provider; if (prov) return create.providerRunner(prov); } catch { /* no profile */ }
+  return null;
+}
+function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDelivery, noPage, from } = {}) {
   if (!screen && !assigner) {
     const v = tasks.partValve();
     if (v.refused) return { ok: false, status: 429, because: v.because, retryAfterSecs: v.retryAfterSecs };
@@ -473,8 +486,14 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     // Reserve now, before the part is assigned and told, so the next givePart in this same tick counts it.
     try { capSlot = agyq.noteCapStart(who, r, now); } catch { capSlot = null; }
   }
-  const made = assigner ? { via: 'assigner', onlyIfFree: true } : { via: screen ? 'screen' : 'process' };
-  const out = tasks.assignPart(projectId, n, partId, who, made);
+  /* #5382: a failover move (`from`: the rate-limited agent the Assigner takes the part from) is refused unless the part is
+     still on that agent and still open, not held and not built, at the moment of the write (tasks.assignPart). */
+  const failoverFrom = assigner && typeof from === 'string' && from ? from : null;
+  const made = failoverFrom ? { via: 'assigner', onlyIfWho: failoverFrom, failover: true }
+    : assigner ? { via: 'assigner', onlyIfFree: true } : { via: screen ? 'screen' : 'process' };
+  let out;
+  try { out = tasks.assignPart(projectId, n, partId, who, made); }
+  catch (err) { require('./engine/agyquota').releaseCapStart(capSlot); throw err; }   // a write that threw gave nothing
   if (!out.ok) { require('./engine/agyquota').releaseCapStart(capSlot); return { ok: false, status: 400, because: out.because }; }
   if (!out.changed) require('./engine/agyquota').releaseCapStart(capSlot);   // nothing new was given, so no slot is held
   const r = roster || safeRoster();
@@ -483,7 +502,13 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     heard = undefined;   // #4914: an agent that gave the part to itself is not paged about it
   } else if (out.changed && (screen || assigner || heardBudgetAllows(who, r))) {
     const sentence = (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partId)) || {}).sentence;
-    try { heard = heardBy(projectId, out.task, who, sentence, r, asyncDelivery ? chat.deliverAsync : chat.deliver); }
+    /* #5382: a failover move says where the part came from, so the new agent looks before starting over (review 6). */
+    // Review 15: the source by the name the person sees, not its session key.
+    const fromCard = failoverFrom && Array.isArray(r) ? r.find((c) => c && c.sessionName === failoverFrom) : null;
+    const fromName = String((fromCard && fromCard.name) || failoverFrom).replace(/[\r\n"]/g, ' ');   // the name the page shows, one line
+    const note = failoverFrom ? 'It was moved to you from ' + fromName + ', which hit its provider\'s usage limit and may'
+      + ' already have started it: read the task\'s room and ' + fromName + '\'s work on it before you begin.' : '';
+    try { heard = heardBy(projectId, out.task, who, sentence, r, asyncDelivery ? chat.deliverAsync : chat.deliver, note); }
     catch (err) { require('./engine/agyquota').releaseCapStart(capSlot); throw err; }   // #4588 ask 3: a throw reached nothing
   } else if (out.changed) {
     heard = heardBudgetSkipped(who); // only a process reaches here: screen and assigner always pass
@@ -492,8 +517,17 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     if (heardResult && heardResult.state === chat.DELIVERY.PLACED && !screen && !assigner) heardBudgetRecord(who, r);
     if (assigner && out.changed && !(heardResult && heardResult.state !== chat.DELIVERY.COULD_NOT)) {
       // Only if it is still ours: the pane line took time, and somebody may have taken the part since.
-      const back = tasks.assignPart(projectId, n, partId, null, { via: 'assigner', onlyIfWho: who });
-      require('./engine/agyquota').releaseCapStart(capSlot);   // nothing reached the pane: the slot is free again
+      // #5382: a failover move goes back to the agent it was taken from. If that is refused (it has left the project
+      // since), the part goes to nobody, as an ordinary give's does, rather than staying on an agent never told.
+      // Nothing reached the pane, so the slot is free again FIRST: a take-back that throws must not keep it (merge review).
+      require('./engine/agyquota').releaseCapStart(capSlot);
+      // keepBuilt: a task marked built meanwhile is not un-built by moving the part back; it goes to nobody instead.
+      const takeBack = (to) => {
+        try { return tasks.assignPart(projectId, n, partId, to, { via: 'assigner', onlyIfWho: who, keepBuilt: true }); }
+        catch (err) { return { ok: false, because: String((err && err.message) || err) }; }
+      };
+      let back = takeBack(failoverFrom);
+      if (failoverFrom && !back.ok) back = takeBack(null);
       return { ok: false, status: 409, because: 'we could not reach ' + who + ', so the task was not given' + (back.ok ? '' : ' (and taking it back failed: ' + back.because + ')'), heard: heardResult };
     }
     return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r), heard: heardResult };
@@ -9736,7 +9770,7 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/assigner-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
       const r = assignerSetting.read();
-      sendJson(res, 200, { on: r.on, ok: r.ok });
+      sendJson(res, 200, { on: r.on, failover: r.failover === true, ok: r.ok });
     } catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
     return;
   }
@@ -9750,11 +9784,16 @@ const server = http.createServer(async (req, res) => {
            Recommender, refuse a caller isViaScreen reads as a process. ADVISORY (a local process
            can send the header); it stops the default CLI path only. */
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
-        if (typeof body.on !== 'boolean') { sendJson(res, 400, { error: 'that has to be on or off' }); return; }
-        const saved = assignerSetting.setOn(body.on);
+        /* #5382: one change per PUT, `on` or `failover`, as the Recommender's guards are. */
+        if (typeof body.on === 'boolean' && typeof body.failover === 'boolean') {
+          sendJson(res, 400, { error: 'change one setting at a time' }); return;   // review 6: never drop one silently
+        }
+        const field = typeof body.on === 'boolean' ? 'on' : typeof body.failover === 'boolean' ? 'failover' : null;
+        if (!field) { sendJson(res, 400, { error: 'that has to be on or off' }); return; }
+        const saved = field === 'on' ? assignerSetting.setOn(body.on) : assignerSetting.setFailover(body.failover);
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         const r = assignerSetting.read();
-        sendJson(res, 200, { on: r.on, ok: r.ok });
+        sendJson(res, 200, { on: r.on, failover: r.failover === true, ok: r.ok });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
@@ -20692,6 +20731,9 @@ function start(port = PORT) {
         roster: () => safeRoster(),
         book: AGY_QUOTA_BOOK,
         deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
+        // #5382 (review 8): the parts the failover gave away that this agent was not yet told about, marked once told.
+        movedAway: (session, roster) => require('./engine/failovertell').owedFor(session, projects.readAll(), roster),
+        movedTold: (session, items) => require('./engine/failovertell').markAll(session, items, tasks.markMoveTold),
         DELIVERY: chat.DELIVERY,
         log: (r) => process.stdout.write(`agy-quota-resume: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}${r.waiting ? '; ' + r.waiting + ' more waiting' : ''}\n`),
       });
@@ -20795,6 +20837,7 @@ function start(port = PORT) {
       /* #5161: the goal-ask memory is read back from disk, so a restart does not forget which projects were asked about
          (and in what state); written back only when it changes. */
       let assignerPrev = assigner.loadMemory(Date.now());
+      const FAILOVER_TELL_SEEN = new Set();   // #5382: cards idle at the previous tell sweep (engine/failovertell.js)
       let assignerSaved = null;
       const assignerSweep = setInterval(() => {
         if (!liveExecution.liveExecutionAllowed()) return; // inert under test / before opt-in
@@ -20805,14 +20848,32 @@ function start(port = PORT) {
             readRoster: () => safeRoster(),
             readRecords: () => projects.readAll(),
             readCommitment: (session) => commitments.read(session),
+            readRunner: (card) => failoverRunnerOf(card),   // #5382: the runner the failover compares (null: unknown)
             readGoal: (project) => brief.readGoal(project && project.folder),
-            give: (projectId, n, partId, who, roster) => givePart(projectId, n, partId, who, { assigner: true, roster }),
+            give: (projectId, n, partId, who, roster, from) => givePart(projectId, n, partId, who, { assigner: true, roster, from }),
             ask: (session, text, roster) => chat.deliverAutomatic(session, text, roster),
             DELIVERY: chat.DELIVERY,
           });
           assignerPrev = out.next;
+          /* #5382 (review 8): tell each idle agent which of its parts the failover gave away (the record is on the part,
+             engine/failovertell.js), whatever the failover setting says now: the parts were already moved. */
+          try {
+            const ft = require('./engine/failovertell');
+            const records = projects.readAll();
+            // Review 9: on almost every board nothing is owed, and then no roster is read at all.
+            const owed = ft.anyOwed(records);
+            if (!owed) FAILOVER_TELL_SEEN.clear();   // review 11: no stale "idle last pass" outlives a quiet spell
+            const told = !owed ? [] : ft.sweepOnce({ roster: safeRoster(), records, DELIVERY: chat.DELIVERY,
+              isIdle: (c) => c.state === 'idle', seenIdle: FAILOVER_TELL_SEEN, markTold: tasks.markMoveTold,
+              /* An Antigravity agent whose quota resume is still due is left to agyquota's carry-on line, which names the
+                 same parts (review 11); once that is not pending (sent, given up, switched off), it is told here plainly. */
+              skip: (c) => failoverRunnerOf(c) === 'antigravity' && agyQuota.resumePending(c.sessionName,
+                { now: Date.now(), env: process.env, allowed: liveExecution.liveExecutionAllowed(), book: AGY_QUOTA_BOOK }),
+              deliver: (session, text, r) => chat.deliverAutomatic(session, text, r) });
+            for (const t of told) process.stdout.write(`assigner: told ${t.session} that ${t.n} of its parts went to another agent while it was limited: ${t.verdict || 'threw'}\n`);
+          } catch { /* best-effort, like the tick */ }
           assignerSaved = assigner.saveMemory(assignerPrev, assignerSaved);
-          for (const a of out.acted) process.stdout.write(`assigner: ${a.name} (${a.session}) task ${a.n} of ${a.projectId}: ${a.ok ? 'given, pane line ' + ((a.heard && a.heard.state) || 'none') : 'not given: ' + a.because}\n`);
+          for (const a of out.acted) process.stdout.write(`assigner: ${a.name} (${a.session}) task ${a.n} of ${a.projectId}${a.from ? ' (moved from ' + a.from + ', rate-limited)' : ''}: ${a.ok ? 'given, pane line ' + ((a.heard && a.heard.state) || 'none') : 'not given: ' + a.because}\n`);
           for (const a of out.asks) process.stdout.write(`assigner: asked ${a.name} (${a.session}) to draft tasks toward ${a.projectId}'s goal: ${a.verdict || 'threw'}\n`);
         } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_ASSIGNER_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_ASSIGNER_MS) : 60 * 1000); // the env is the test seam only

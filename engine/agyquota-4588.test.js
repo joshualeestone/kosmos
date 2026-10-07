@@ -133,3 +133,55 @@ test('#4588: the tick runs only with live execution allowed and the brake off', 
   assert.equal(w.sent.length, 0);
   assert.equal(q.makeTick(deps(true, {}))().results.length, 1, 'CONTROL: allowed and no brake, it runs');
 });
+
+test('#5382: nudgeText is exactly NUDGE_TEXT with nothing owed, and names an owed part with "leave it to them"', () => {
+  assert.equal(q.nudgeText(), q.NUDGE_TEXT, 'no list');
+  assert.equal(q.nudgeText([]), q.NUDGE_TEXT, 'an empty list');
+  assert.equal(q.nudgeText([{ phrase: '' }, null]), q.NUDGE_TEXT, 'items with nothing to say');
+  const one = q.nudgeText([{ projectId: 'docs', n: 3, partId: 1, phrase: 'task 3 in "Docs" (now gem-1\'s)' }]);
+  assert.ok(one.startsWith(q.NUDGE_TEXT + ' '), 'the carry-on line is not first: ' + one);
+  assert.ok(one.includes('task 3 in "Docs" (now gem-1\'s)'), 'the moved part is not named: ' + one);
+  assert.ok(one.includes('leave it to them'), one);
+  const two = q.nudgeText(['task 3 in "Docs"', 'task 4 in "Docs"']);
+  assert.ok(two.includes('task 3 in "Docs", task 4 in "Docs"') && two.includes('leave those to them'), two);
+});
+
+test('#5382: sweepOnce passes o.movedAway through to the line it delivers (control: without it, the plain line)', () => {
+  const t0 = AT + q.GRACE_MS;
+  const w = world({ 'agy-a': paused() });
+  const told = [];
+  const item = { projectId: 'ops', n: 7, partId: 1, phrase: 'task 7 in "Ops" (now gem-2\'s)' };
+  q.sweepOnce({ roster: w.roster, book: w.book, now: t0, readReport: w.readReport, deliver: w.deliver, DELIVERY: D,
+    movedAway: (s) => (s === 'agy-a' ? [item] : []), movedTold: (s, items) => told.push([s, items]) });
+  assert.equal(w.sent.length, 1, 'fixture: nothing was delivered');
+  assert.ok(w.sent[0].text.includes('task 7 in "Ops"') && w.sent[0].text.includes('leave it to them'), w.sent[0].text);
+  assert.deepEqual(told, [['agy-a', [item]]], 'what the line named was not marked told');
+  const c = world({ 'agy-a': paused() });
+  sweep(c, t0);
+  assert.equal(c.sent[0].text, q.NUDGE_TEXT, 'control: without movedAway the line is the plain one');
+});
+
+test('#5382 review 8: a carry-on line that reached nothing marks nothing told (the failover sweep tells it later)', () => {
+  const t0 = AT + q.GRACE_MS;
+  const w = world({ 'agy-a': paused() });
+  const told = [];
+  q.sweepOnce({ roster: w.roster, book: w.book, now: t0, readReport: w.readReport, DELIVERY: D,
+    deliver: (s, text) => { w.sent.push({ s, text }); return { state: D.COULD_NOT }; },
+    movedAway: () => [{ projectId: 'ops', n: 7, partId: 1, phrase: 'task 7 in "Ops"' }], movedTold: (s, items) => told.push(s) });
+  assert.equal(w.sent.length, 1, 'fixture: no delivery was tried');
+  assert.deepEqual(told, [], 'marked told although the line reached nothing');
+});
+
+test('#5382 review 11: resumePending is true only while this module will still type its carry-on line for the current pause', () => {
+  const read = (r) => () => r;
+  const base = { allowed: true, env: {}, book: new Map(), now: AT + q.GRACE_MS, memo: q.newPoolMemo() };
+  assert.equal(q.resumePending('agy-a', { ...base, readReport: read(paused()) }), true, 'a due resume read as not pending');
+  assert.equal(q.resumePending('agy-a', { ...base, now: AT, readReport: read(paused()) }), true, 'a resume still waiting for its grace read as not pending');
+  assert.equal(q.resumePending('agy-a', { ...base, env: { AGENT_WORKFORCE_AGY_QUOTA_RESUME_OFF: '1' }, readReport: read(paused()) }), false, 'pending with the operator brake on');
+  assert.equal(q.resumePending('agy-a', { ...base, allowed: false, readReport: read(paused()) }), false, 'pending without live execution');
+  assert.equal(q.resumePending('agy-a', { ...base, readReport: read({ found: true, state: 'working', by: 'self' }) }), false, 'pending for an agent not paused');
+  const book = new Map([['agy-a', { until: paused().until, nudgedAt: AT + q.GRACE_MS }]]);
+  assert.equal(q.resumePending('agy-a', { ...base, book, readReport: read(paused()) }), false, 'pending after the resume was sent');
+  assert.equal(q.resumePending('agy-a', { ...base, now: AT + q.MAX_AGE_MS + q.GRACE_MS + 1, readReport: read(paused()) }), false, 'pending for a reset over six hours old');
+  assert.equal(q.resumePending('agy-a', { ...base, readReport: () => { throw new Error('unreadable'); } }), false, 'a report read that throws read as pending');
+});
