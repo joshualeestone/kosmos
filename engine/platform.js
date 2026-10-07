@@ -95,8 +95,8 @@ const CLAUDE_DOWNLOADS = Object.freeze(['darwin', 'win32', 'linux']);
  * keeps reading canDownloadRunner.
  * 📌 Found by the founder on a clean Windows 11 laptop (prod 0.6.72): the first-run
  * GPT card refused on this gate and the screen said only "We could not start that
- * install." */
-/* #5419 slice 2: and Linux, whose Codex builds are pinned in runners.js too (CODEX_LINUX: static musl, one per CPU). */
+ * install."
+ * #5419 slice 2: and Linux, whose Codex builds are pinned in runners.js too (CODEX_LINUX: static musl, one per CPU). */
 const CODEX_DOWNLOADS = Object.freeze(['darwin', 'win32', 'linux']);
 
 /* The Gemini CLI and the Grok CLI (#3713), the same shape as CODEX_DOWNLOADS and for the same
