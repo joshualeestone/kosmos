@@ -185,3 +185,7 @@ well have been a 5-hour limit. What would widen it: a reset time read from Codex
   to somebody (a built task is already done); a non-boolean `failover` beside a valid `on` is ignored, as the route
   ignores any unknown field; a restored limit start can make a new limit ripe at once after a restart (bounded by the
   dated-reset requirement).
+- Full validation at 699301322 FAILED on one repo guard (fixture-discipline: "no test builds an agent card or a roster
+  row by hand"): the post-merge cap test and the review-3 owedFor test built rows by hand. Both now take real cards
+  from test-support/fleet (the Antigravity agents' state set on a copy of the real card, as
+  engine/agycap-gate-4588.test.js does). The cap mutations still redden (skipping the release on a failover: 4 red).

@@ -522,13 +522,17 @@ const rec9 = (over = {}, part = {}) => [{ id: 'p1', name: 'P', agents: ['ann', '
   tasks: [{ number: 1, sentence: 's', parts: [{ id: 1, sentence: 's', who: 'bob', owedTell: ['ann'], ...part }] }] }];
 
 test('post-merge review 3: owedFor names the agent holding it as the board shows it, not by its session key', () => {
-  const roster = [{ sessionName: 'bob', name: 'Bob Display' }];
+  // A real card from test-support/fleet (fixture-discipline), whose shown name differs from its session key.
+  const board = fleet.install([fleet.agent('bob', { state: 'idle', displayName: 'Bob Display' })]);
+  let roster;
+  try { roster = board.agents.map((c) => ({ ...c })); } finally { board.restore(); }
+  assert.equal(roster[0].name, 'Bob Display', 'fixture: fleet did not give the card its display name');
   assert.match(ft.owedFor('ann', rec9(), roster)[0].phrase, /\(now Bob Display's\)$/);
   assert.match(ft.owedFor('ann', rec9({}, { closedAt: '2026-10-06T00:00:00.000Z' }), roster)[0].phrase, /\(finished by Bob Display\)$/);
   // Control: with no card for it, the session key is all there is.
   assert.match(ft.owedFor('ann', rec9())[0].phrase, /\(now bob's\)$/);
   // A name with a quote or a line break stays on one line inside the quoted phrase.
-  assert.match(ft.owedFor('ann', rec9(), [{ sessionName: 'bob', name: 'Bo"b\nX' }])[0].phrase, /\(now Bo b X's\)$/);
+  assert.match(ft.owedFor('ann', rec9(), [{ ...roster[0], name: 'Bo"b\nX' }])[0].phrase, /\(now Bo b X's\)$/);
 });
 
 test('review 9: owedFor says "given to another agent" only when somebody holds it, in a live project the agent is still on and not switched off in', () => {
