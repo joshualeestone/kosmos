@@ -11563,6 +11563,25 @@ test('the Allow seam (#567): pending is honest-empty off the switch, and the ver
   assert.deepEqual(list.allowed, [], 'an unenrolled Mac lists devices');
 });
 
+test('kosmos#5422: the allowed list hides every id this computer has signed in with, and only those', async () => {
+  const remoteEngine = require('./engine/remote');
+  const orig = { devicesList: remoteEngine.devicesList, pendingDevices: remoteEngine.pendingDevices, ownDeviceIds: remoteEngine.ownDeviceIds };
+  const KEYED = 'k1.' + 'E'.repeat(32);
+  try {
+    remoteEngine.devicesList = async () => ({ ok: true, because: null, data: { devices: [
+      { device_id: KEYED, name: 'This Mac (Kosmos app)' },
+      { device_id: 'old-opaque-id', name: 'This Mac (Kosmos app)' },
+      { device_id: 'dev-phone', name: 'iPhone' },
+    ] } });
+    remoteEngine.pendingDevices = () => ({ devices: [], snapshot: false, email: '' });
+    remoteEngine.ownDeviceIds = () => [KEYED, 'old-opaque-id'];
+    const list = JSON.parse((await req('/api/remote/devices')).body);
+    assert.deepEqual(list.allowed.map((d) => d.device_id), ['dev-phone'], 'this computer\'s own row is offered for removal');
+  } finally {
+    Object.assign(remoteEngine, orig);
+  }
+});
+
 test('#4824: the Remove route hands the page every field of the connector answer, unchanged', async () => {
   /* The page's wording (removedWords) is decided by these fields alone, so a route that dropped or renamed one
      would put every Remove into the wrong sentence. The engine is stubbed at the one function the route calls. */
@@ -11754,6 +11773,8 @@ test('#4756: GET /api/remote/signin-addresses needs the held sign-in, answers th
     // The list through the binary, the session on stdin (recorded, so the test can see where it went).
     "if (a[0] === 'signin' && a[1] === 'addresses' && process.env.FAKE_ADDR_OLD) { process.stderr.write(\"error: unrecognized subcommand 'addresses'\\n\\nUsage: kosmos-tunnel signin <COMMAND>\\n\"); process.exit(2); }",
     "if (a[0] === 'signin' && a[1] === 'addresses') { const t = require('node:fs').readFileSync(0, 'utf8').trim(); require('node:fs').writeFileSync(process.env.FAKE_ADDR_TOKEN, t); console.log(JSON.stringify({ addresses: [{ name: 'first', address: 'first.kosmos.invalid', state: 'in_use' }, { name: 'spare', address: 'spare.kosmos.invalid', state: 'free' }], buy_url: 'https://login.kosmos.invalid/signin#add-computer' })); process.exit(0); }",
+    // kosmos#5422: an older tunnel refuses the device-key verb as a usage error (exit 2), as real ones do.
+    "if (a[0] === 'signin' && a[1] === 'device-id') { process.stderr.write(\"error: unrecognized subcommand 'device-id'\\n\"); process.exit(2); }",
     'process.exit(0);', ''].join('\n'));
   fs.chmodSync(fakeBin, 0o755);
   const seen = [];
@@ -11775,7 +11796,8 @@ test('#4756: GET /api/remote/signin-addresses needs the held sign-in, answers th
     assert.equal(early.status, 400, early.body);
     assert.match(JSON.parse(early.body).error, /finish the code steps first/);
     assert.equal(seen.length, 0, 'called the coordinator with no sign-in');
-    await postJson('/api/remote/signin-start', { email: 'person@example.com' });
+    const signinStarted = await postJson('/api/remote/signin-start', { email: 'person@example.com' });
+    assert.equal(signinStarted.status, 200, 'the start failed: ' + signinStarted.body);
     const v = await postJson('/api/remote/signin-verify', { email: 'person@example.com', code: '123456' });
     assert.equal(JSON.parse(v.body).stage, 'session', v.body);
     const got = await req('/api/remote/signin-addresses');
@@ -11823,6 +11845,8 @@ test('the in-app sign-in runs end to end through the routes, and the session tok
     "const fs = require('node:fs'); const path = require('node:path');",
     'const a = process.argv.slice(2);',
     "const flag = (n) => { const i = a.indexOf(n); return i === -1 ? null : a[i + 1]; };",
+    // kosmos#5422: an older tunnel, which refuses the device-key verb as a usage error (exit 2), as real ones do.
+    "if (a[0] === 'signin' && a[1] === 'device-id') { process.stderr.write(\"error: unrecognized subcommand 'device-id'\\n\"); process.exit(2); }",
     "if (a[0] === 'signin' && a[1] === 'start') { console.log(JSON.stringify({ stage: 'code_sent' })); process.exit(0); }",
     // verify goes straight to a session here (the phone path is covered in the engine suite).
     // #3796: code 242424 answers with a text-message second step, so the route's pass-through is exercised.
@@ -11949,6 +11973,8 @@ test('the in-app enrol flow runs end to end through the routes, and no enrol tok
     '  console.log(JSON.stringify({ stage: "registered", mac_id: "m", name: flag("--name"), address: flag("--name") + ".kosmos.invalid", standing: "good", kept_certificate: false }));',
     '  process.exit(0);',
     '}',
+    // kosmos#5422: an older tunnel refuses the device-key verb as a usage error (exit 2), as real ones do.
+    "if (a[0] === 'signin' && a[1] === 'device-id') { process.stderr.write(\"error: unrecognized subcommand 'device-id'\\n\"); process.exit(2); }",
     'process.exit(0);', ''].join('\n'));
   fs.chmodSync(fakeBin, 0o755);
   const prev = {
@@ -11960,7 +11986,8 @@ test('the in-app enrol flow runs end to end through the routes, and no enrol tok
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = 'relay.test:443';
   process.env.AGENT_WORKFORCE_TUNNEL_STATE = nodePath.join(sb, 'state');
   try {
-    await postJson('/api/remote/signin-start', { email: 'person@example.com' });
+    const signinStarted = await postJson('/api/remote/signin-start', { email: 'person@example.com' });
+    assert.equal(signinStarted.status, 200, 'the start failed: ' + signinStarted.body);
     const verified = await postJson('/api/remote/signin-verify', { email: 'person@example.com', code: '123456' });
     const vbody = JSON.parse(verified.body);
     assert.equal(vbody.stage, 'enrol_second_factor');
