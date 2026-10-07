@@ -3,9 +3,9 @@ pre_challenge: true
 method: challenge-loop
 branch: bfollow-5445
 diff_hash: c148dcead5b154bf9d29d5bfbb71cb64aa21a26c9beed304435d8c3386284c4d
-validation: rebased on origin/main 5847ec2cc (B, #4984, merged) 2026-10-07 05:17 CDT; with tools/run-tests.sh's env, every engine test file that loads a changed module plus the changed server tests and the file-scanning guards: 1898 pass, 0 fail (33 skipped by design). Linux: those engine files forced to process.platform=linux fail the same 230 tests on B's head and here; the real Linux lane (linux.yml) on f6593a0df vs B's head: 445 vs 446 failing, every file equal except server.stray-removable 1 -> 0. Full suite on CI.
+validation: rebased 2026-10-07 09:0x CDT onto main 61caea933 (after #5474, #5446); rebased on origin/main 5847ec2cc (B, #4984, merged) 2026-10-07 05:17 CDT; with tools/run-tests.sh's env, every engine test file that loads a changed module plus the changed server tests and the file-scanning guards: 1898 pass, 0 fail (33 skipped by design). Linux: those engine files forced to process.platform=linux fail the same 230 tests on B's head and here; the real Linux lane (linux.yml) on f6593a0df vs B's head: 445 vs 446 failing, every file equal except server.stray-removable 1 -> 0. Full suite on CI.
 subdir_audit: not run (no subdirectory CLAUDE.md changed)
-timestamp: 2026-10-07T10:19:46Z
+timestamp: 2026-10-07T14:05:14Z
 iterations: 13
 converged: true
 ---
