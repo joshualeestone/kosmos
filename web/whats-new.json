@@ -3,8 +3,8 @@
   "highlights": [
     {
       "icon": "shield",
-      "title": "Refresh a login before it runs out",
-      "line": "The notice that a login is about to expire now has a Refresh login button, and AI Models marks each login that needs it."
+      "title": "Refresh a login from its notice",
+      "line": "The login notice now has a Refresh login button, and AI Models marks each login that needs signing in again."
     },
     {
       "icon": "tasks",
