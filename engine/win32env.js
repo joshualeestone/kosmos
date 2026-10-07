@@ -3,7 +3,8 @@
  * kosmos#5358: an environment name on Windows is case-insensitive, a JS env object is not, and Node on Windows sorts
  * the names it passes a child and keeps the first case-insensitive match. So `delete env.CLAUDE_CONFIG_DIR` leaves an
  * inherited `Claude_Config_Dir` in place, and setting `env.X` beside an inherited `x` gives the child two, of which
- * the sorted-first wins. engine/win32-kosmos-shell-5358.test.js and engine/win32keyed.test.js pin them.
+ * the sorted-first wins (Node's own choice among two spellings is not measured here; envCanon's pick is deterministic,
+ * so these helpers leave ONE key whatever Node would have chosen). win32-kosmos-shell-5358 and win32keyed tests pin them.
  */
 
 /** Remove `name` in every spelling. */
