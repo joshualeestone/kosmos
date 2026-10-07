@@ -1593,7 +1593,23 @@ if [ "$_dep_frc" = 1 ]; then echo "the export has no .vercelignore; nothing was 
 elif [ "$_dep_frc" != 0 ]; then echo "could not evaluate the export's .vercelignore (rc=$_dep_frc); nothing was deployed"; exit 1
 elif [ -n "$_dep_dropped" ]; then echo "the export's .vercelignore would drop $_dep_dropped; nothing was deployed"; exit 1
 fi
-( cd "$_site_export" && vercel deploy --prod --yes )
+_vdep_rc=0
+( cd "$_site_export" && vercel deploy --prod --yes ) || _vdep_rc=$?
+if [ "$_vdep_rc" != 0 ]; then
+  # #5471: the CLI's own failure is not the answer; what is served is. Ask the same verifier
+  # step 9 uses (this cut's pointer naming $V, and every artifact a user receives), for up to
+  # KOSMOS_DEPLOY_LANDED_TRIES x KOSMOS_DEPLOY_LANDED_WAIT_S (default 24 x 15 s = 6 min).
+  # DEPLOYED stays unset until it passes, so a deploy that never landed still gets the trap's
+  # restore and its never-served tarball cleanup, exactly as before.
+  echo "   vercel deploy exited $_vdep_rc; checking whether the deploy landed anyway before calling it a failure (#5471)"
+  if site_deploy_landed "${KOSMOS_DEPLOY_LANDED_TRIES:-24}" "${KOSMOS_DEPLOY_LANDED_WAIT_S:-15}" \
+       env KOSMOS_VERIFY_POINTER="$POINTER_FILE" KOSMOS_VERIFY_SETUP="$SETUP_FILE" SITE="$SITE" REPO="$REPO" bash "$REPO/tools/verify-served.sh"; then
+    echo "   THE DEPLOY LANDED although vercel deploy exited $_vdep_rc: the served host carries $V. Continuing as a successful deploy (#5471)."
+  else
+    echo "vercel deploy exited $_vdep_rc and $V was never served; nothing this cut built is live"
+    exit "$_vdep_rc"
+  fi
+fi
 
 DEPLOYED=1   # step 8 finished: the site checkout now claims what is served, so the trap leaves it
 # #1548: the pre-cut pointer backup lives under BUILD_ROOT, which the EXIT trap removes

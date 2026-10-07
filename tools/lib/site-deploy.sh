@@ -222,3 +222,22 @@ _site_left_behind() {
   [ "$any" = 1 ] || echo "   left behind: nothing (the working tree is the commit plus the named artifacts)"
   return 0
 }
+
+# #5471: did a deploy land although the CLI said it failed? `vercel deploy` has twice (0.7.26,
+# 0.7.27) uploaded everything, started the production build, then exited non-zero with
+# "Error: fetch failed" while polling it, and Vercel finished the build itself a minute later.
+# A cut that calls that a failure invites a revert of what is live, or a re-cut that rebuilds a
+# cache-immutable tarball name with different bytes. So step 8 asks the served host instead:
+# run <verify command...> (release.sh passes verify-served.sh for this cut's pointer, which
+# only this deploy can make name this version) up to <tries> times, <wait_s> apart. Returns 0
+# on the first pass, 1 if none passes. It decides nothing about WHY the CLI failed: a failed
+# upload simply never verifies, and the cut fails as before.
+site_deploy_landed() {   # <tries> <wait_s> <verify command...>
+  local tries="$1" wait_s="$2" i
+  shift 2
+  for i in $(seq 1 "$tries"); do
+    if "$@"; then return 0; fi
+    [ "$i" -lt "$tries" ] && { echo "   (#5471: not served yet, check $i of $tries; waiting ${wait_s}s)"; sleep "$wait_s"; }
+  done
+  return 1
+}
