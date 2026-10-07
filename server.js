@@ -39,7 +39,8 @@ const LAUNCH_ENV_OVERRIDES = Object.fromEntries(Object.entries(process.env)
   .filter(([key]) => key === 'PORT' || key.startsWith('AGENT_WORKFORCE_')));
 const worldRegistryBase = require('./engine/worldenv').bootstrapWorldEnv(process.env);
 /* #5450: who started this board (install/kosmos board-run and start), taken out of the environment before anything
-   can start a process that would inherit it; engine/restartnote.js atStart reads these values. */
+   can start a process that would inherit it; engine/restartnote.js atStart reads these values. (engine/worldenv.js
+   froze a copy of the environment above; its only reader takes paths from it and starts nothing.) */
 const BOARD_STARTED_BY = process.env.KOSMOS_BOARD_STARTED_BY;
 const BOARD_PERSON_MARK = process.env.KOSMOS_BOARD_PERSON_MARK;
 delete process.env.KOSMOS_BOARD_STARTED_BY;

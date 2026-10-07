@@ -141,8 +141,9 @@ PIDFILE="$KOSMOS_HOME/board.pid"
 # stop stays stopped; once any start clears it the watchdog resumes recovering a
 # board that has died. See bin/board-watchdog.sh.
 STOP_MARKER="$KOSMOS_HOME/board.stopped"
-# #5450: left by `kosmos start` just before it kickstarts the supervised board, so board-run can tell a person's start
-# from the login item's or a crash relaunch's. Consumed by board-run; older than PERSON_START_MAX_S it is stale.
+# #5450: left by a person's `kosmos start` (first thing, before the stop marker goes), so board-run can tell a person's
+# start from the login item's or a crash relaunch's. The board removes it once it has used it (engine/restartnote.js
+# atStart); board-run removes only a stale, unreadable or future one; older than PERSON_START_MAX_S it is stale.
 PERSON_START_FILE="$KOSMOS_HOME/board.person-start"
 PERSON_START_MAX_S=120
 LOG_DIR="$KOSMOS_HOME/logs"
@@ -1130,6 +1131,10 @@ cmd_start() {
   # brought the board back. Persistent "stopped means stopped" is the intended
   # semantic (the card's requirement); it does not affect crash recovery, which is
   # marker-ABSENT and still relaunches.
+  # #5450 review 3: a person's start is marked FIRST, before the stop marker goes: removing it lets launchd's KeepAlive
+  # relaunch board-run at once, and a board-run that ran before the mark existed would read this start as the
+  # supervisor's (a false "came back by itself"). The watchdog's start says supervisor (KOSMOS_START_BY).
+  if [ "${KOSMOS_START_BY:-}" != supervisor ]; then date +%s > "$PERSON_START_FILE" 2>/dev/null || true; fi
   rm -f "$STOP_MARKER" 2>/dev/null || true
   if healthy; then
     say "Kosmos is already running at $URL"
@@ -1243,9 +1248,6 @@ cmd_start() {
     _mark_board_started
     local _sup_label _sup_uid
     _sup_label="$(_kosmos_board_label)"; _sup_uid="$(/usr/bin/id -u)"
-    # #5450: this start is a person's (unless the watchdog says it is the supervisor's: KOSMOS_START_BY); board-run reads
-    # it so the restart note never says the board came back by itself.
-    if [ "${KOSMOS_START_BY:-}" != supervisor ]; then date +%s > "$PERSON_START_FILE" 2>/dev/null || true; fi
     "$LAUNCHCTL" kickstart -k "gui/$_sup_uid/$_sup_label" >/dev/null 2>&1 || true
     _await_board_up && return 0
     die "Kosmos did not come up under launchd. What it said is in $BOARD_LOG"
@@ -1371,7 +1373,7 @@ cmd_board_run() {
   # #4466: the same scrub as cmd_start's nohup launch, so a board-run typed in an agent's pane does not hand
   # the board an agent's markers (every later kosmos call from it would read as an agent). exec env keeps the pid.
   # #5450: who started this board, for the restart note (engine/restartnote.js): the supervisor (the login item, or a
-  # crash relaunch), unless `kosmos start` left its fresh mark just before kickstarting. The mark is consumed either way.
+  # crash relaunch), unless a person's `kosmos start` left its fresh mark. The board, not this, removes a used mark.
   # Review 1: nothing here may stop the board (set -e): every read is guarded, the numbers are base 10 and bounded, and
   # a mark from the future is not a person. The mark is NOT deleted here: the board deletes it once it has used it
   # (KOSMOS_BOARD_PERSON_MARK), so a board that dies before then is relaunched still knowing a person started it.

@@ -14,8 +14,9 @@ though the login item did bring Kosmos back by itself.
   `KOSMOS_BOARD_STARTED_BY=supervisor`, unless `kosmos start` left a fresh mark (board.person-start, at most 120 s old)
   just before it kickstarted the supervised board: then `person`. The mark is consumed either way; a stale or
   unreadable one is not a person. The direct (nohup) start always says `person`.
-- engine/restartnote.js: atStart reads the variable once and deletes it from the environment (no agent inherits it).
-  noteFor: `person` makes no note; `supervisor` replaces the after-boot timer; anything else keeps the timer.
+- server.js takes the variables out of the environment as it loads (no agent inherits them) and passes them to
+  engine/restartnote.js atStart, which removes a used person's mark. noteFor: `person` makes no note; `supervisor`
+  replaces the after-boot timer; anything else keeps the timer.
 
 ## Decided
 - A file mark rather than an argument: launchd runs the plist's fixed ProgramArguments, so a kickstart cannot pass
@@ -61,6 +62,21 @@ though the login item did bring Kosmos back by itself.
   person later started Kosmos from, making their start read as the supervisor's. Both launchers strip it and server.js
   deletes it as a backstop; pinned behaviourally (an inherited value never reaches the stub board) and by source.
 - FIXED: `kosmos stop` removes a start's mark on every branch, not only when it killed a running board.
-- Left: a supervisor-started board deletes a mark written in the instant after board-run read it (benign; that start's
-  own board-run reads its own mark), and the watchdog's kickstart escalation reads a person's mark if one is under 120 s
+- Left: a supervisor-started board deleting a person's fresh mark cannot happen in practice: board-run writes the pidfile
+  before exec, so the person's `kosmos start` stops at its running-board check long before that board reaches atStart. And the watchdog's kickstart escalation reads a person's mark if one is under 120 s
   old (vanishingly rare, and fails toward no note).
+
+## Review 3
+- FIXED (dangerous direction, narrow): `kosmos start` removed the stop marker first, which lets launchd's KeepAlive
+  relaunch board-run at once; a board-run that ran before the person's mark existed read the start as the supervisor's
+  and could show a false "came back by itself" (after a stop that left the alive record). The mark is now written
+  first, before the stop marker goes. A start that finds the board already running leaves a mark that goes stale in
+  120 s; within that it can only make a relaunch read as a person's (no note), the safe direction. Pinned (order).
+- FIXED: server.js handing the launcher's word to atStart was unguarded (a bare atStart() left every test green). The
+  server test now records what atStart receives. Mutation red.
+- FIXED: stale comments from before review 1 (who consumes the mark) in install/kosmos and this plan; server.js says
+  why worldenv's frozen copy of the environment is harmless.
+- Left: a person's board that crash-loops at startup for over 120 s before atStart reaches the supervisor's reading
+  on the next relaunch (the mark went stale). It needs a two-minute startup crash loop on the first start after a boot.
+- Windows note for Homer: engine/win32board.js startedByTask already tells a task start from others, though a person's
+  start may also go through the task.

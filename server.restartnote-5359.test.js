@@ -31,6 +31,10 @@ fs.writeFileSync(rn._files.noteFile(), JSON.stringify({
    for hours before the computer died never makes a note. server.js requires this same cached module, so wrapping it
    here records the call without waiting a minute. */
 let beatsArmed = 0;
+// #5450 review 3: and start() passes the launcher's word, taken from the environment at load, to atStart.
+let atStartGot = null;
+const realAtStart = rn.atStart;
+rn.atStart = (deps) => { atStartGot = deps || null; return realAtStart(deps); };
 const realStartBeating = rn.startBeating;
 rn.startBeating = (...a) => { beatsArmed++; const t = realStartBeating(...a); if (t && t.unref) t.unref(); return t; };
 // #5450: the launcher's word is taken out of the environment when server.js loads, before anything could inherit it.
@@ -63,4 +67,8 @@ test('#5359: the board serves the restart note, records a dismiss, and says it i
 
 test('#5450: loading server.js removes the launcher\'s word from the environment (no agent it starts inherits it)', () => {
   assert.equal(STARTED_BY_LEFT, false);
+  // Review 3: and start() handed it to atStart (the first test started the board).
+  assert.ok(atStartGot, 'start() never called atStart');
+  assert.equal(atStartGot.startedBy, 'supervisor', 'atStart was not told who started the board');
+  assert.equal(atStartGot.personMark, '/nonexistent/board.person-start');
 });

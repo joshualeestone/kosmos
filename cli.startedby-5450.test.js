@@ -89,10 +89,14 @@ test('#5450 review 1: an unreadable mark never stops board-run (set -e): the boa
 
 test('#5450: `kosmos start` marks a person\'s start, the watchdog\'s says supervisor, and stop clears the mark (source pins)', () => {
   const src = fs.readFileSync(CLI, 'utf8');
-  const kick = src.indexOf('kickstart -k "gui/$_sup_uid/$_sup_label"');
-  assert.ok(kick > -1, 'the supervised start is not where this pin looks');
-  const before = src.slice(src.lastIndexOf('_mark_board_started', kick), kick);
-  assert.match(before, /if \[ "\$\{KOSMOS_START_BY:-\}" != supervisor \]; then date \+%s > "\$PERSON_START_FILE"/, 'the mark is not written (only for a person) before the kickstart');
+  // Review 3: the mark is written FIRST in cmd_start, before the stop marker goes (launchd relaunches board-run the
+  // moment it is gone).
+  const start = src.slice(src.indexOf('cmd_start() {'));
+  const markAt = start.indexOf('then date +%s > "$PERSON_START_FILE"');
+  const stopGone = start.indexOf('rm -f "$STOP_MARKER"');
+  assert.ok(markAt > -1 && stopGone > -1, 'cmd_start\'s mark or stop-marker removal is not where this pin looks');
+  assert.ok(markAt < stopGone, 'the mark is written after the stop marker goes, so launchd\'s relaunch can read the start as the supervisor\'s');
+  assert.match(start.slice(0, markAt + 40), /if \[ "\$\{KOSMOS_START_BY:-\}" != supervisor \]; then date \+%s > "\$PERSON_START_FILE"/, 'the mark is not limited to a person\'s start');
   assert.match(src, /\[ "\$\{KOSMOS_START_BY:-\}" = supervisor \] && _start_by=supervisor/, 'the direct start ignores the watchdog');
   assert.match(src, /KOSMOS_BOARD_STARTED_BY="\$_start_by" nohup "\$NODE" "\$APP"/);
   const stop = src.slice(src.indexOf('cmd_stop() {'), src.indexOf('cmd_stop() {') + 200);
