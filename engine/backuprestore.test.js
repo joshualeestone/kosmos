@@ -112,25 +112,26 @@ test('#5536 a sink that fails to write aborts the file and does not commit it', 
 
 test('#5536 unsafe paths are refused before anything is fetched (control: a plain path restores)', async () => {
   const bad = ['../escape.md', '..\\escape.md', 'a/../../b', '/etc/x', '\\\\server\\share', 'C:/x', 'a/C:/x', 'file.txt:ads', 'a//b', '.', 'a/./b',
-    'nul\0.md', 'tab\there', 'lone\ud800.md', 'zero\u200bwidth.md', 'CON', 'nul.txt', 'a/com1.log', 'trailing.', 'trailing ', ' ..', ''];
-  const { run, fetched } = handMade((entry) => [...bad.map((p) => entry(p)), entry('ok.md'), entry('.hidden/fine.md')]);
+    'nul\0.md', 'tab\there', 'lone\ud800.md', 'nel\u0085.md', 'line\u2028sep.md', 'exe\u202etxt.md', 'CON', 'nul.txt', 'a/com1.log', 'trailing.', 'trailing ', ' ..', ''];
+  const { run, fetched } = handMade((entry) => [...bad.map((p) => entry(p)), entry('ok.md'), entry('.hidden/fine.md'), entry('family\u{1f469}\u200d\u{1f467}.md'), entry('heart\u2764\ufe0f.md')]);
   const { r, sink } = await run();
-  assert.deepEqual(r.restored, ['ok.md', '.hidden/fine.md'], 'CONTROL: plain relative paths restore');
+  assert.deepEqual(r.restored, ['ok.md', '.hidden/fine.md', 'family\u{1f469}\u200d\u{1f467}.md', 'heart\u2764\ufe0f.md'],
+    'CONTROL: plain relative paths restore, emoji names with a joiner or a variation selector included');
   assert.deepEqual(r.failed.map((f) => f.path), bad);
   assert.ok(r.failed.every((f) => f.why === 'malformed entry or unsafe path'));
-  assert.deepEqual(sink.calls.filter((c) => c.startsWith('begin')), ['begin ok.md', 'begin .hidden/fine.md'], 'no sink is opened for a refused path');
-  assert.equal(fetched.length, 2, 'nothing is fetched for a refused path');
+  assert.equal(sink.calls.filter((c) => c.startsWith('begin')).length, 4, 'no sink is opened for a refused path');
+  assert.equal(fetched.length, 4, 'nothing is fetched for a refused path');
 });
 
 test('#5536 entries that land on the same file or folder are all refused (control: distinct paths restore)', async () => {
   const nfc = 'caf\u00e9.md', nfd = 'cafe\u0301.md';
   const { run } = handMade((entry) => [entry('dup.md'), entry('dup.md'), entry('Readme.md'), entry('README.md'), entry(nfc), entry(nfd),
     entry('x'), entry('X/y.md'), entry('a\\b.md'), entry('a/b.md'), entry('ab\u03c2.md'), entry('AB\u03a3.md'), entry('\u03c3.md'), entry('\u03c2.md'),
-    entry('keep/one.md'), entry('keep/two.md')]);
+    entry('zw.md'), entry('z\u200bw.md'), entry('keep/one.md'), entry('keep/two.md')]);
   const { r } = await run();
   assert.deepEqual(r.restored, ['keep/one.md', 'keep/two.md'], 'CONTROL');
   assert.deepEqual(r.failed.map((f) => f.path).sort(), ['dup.md', 'dup.md', 'Readme.md', 'README.md', nfc, nfd, 'x', 'X/y.md', 'a\\b.md', 'a/b.md',
-    'ab\u03c2.md', 'AB\u03a3.md', '\u03c3.md', '\u03c2.md'].sort(), 'final sigma folds with sigma, as APFS and NTFS fold it');
+    'ab\u03c2.md', 'AB\u03a3.md', '\u03c3.md', '\u03c2.md', 'zw.md', 'z\u200bw.md'].sort(), 'final sigma folds with sigma; an invisible character does not make a name distinct');
   assert.ok(r.failed.every((f) => f.why === 'another entry lands on the same file or folder'));
 });
 
@@ -144,7 +145,8 @@ test('#5536 a malformed chunk name is never handed to fetchChunk', async () => {
 
 test('#5536 a recorded size or hash that does not match the content is refused, and a repeated chunk cannot inflate a file', async () => {
   const { run, data, fetched } = handMade((entry, name) => [entry('wrong-hash.md', { sha256: '0'.repeat(64) }), entry('too-big.md', { size: 10 ** 12 }),
-    entry('too-small.md', { size: 1 }), entry('negative.md', { size: -1 }), entry('repeated.md', { chunks: Array(1000).fill(name) }), entry('ok.md')]);
+    entry('too-small.md', { size: 1 }), entry('negative.md', { size: -1 }), entry('repeated.md', { chunks: Array(3).fill(name), size: 150 }),
+    entry('more-chunks-than-bytes.md', { chunks: Array(1000).fill(name) }), entry('ok.md')]);
   const { r, sink } = await run();
   assert.deepEqual(r.restored, ['ok.md'], 'CONTROL');
   const why = Object.fromEntries(r.failed.map((f) => [f.path, f.why]));
@@ -152,9 +154,10 @@ test('#5536 a recorded size or hash that does not match the content is refused, 
   assert.equal(why['too-big.md'], 'the file does not match the size recorded at upload');
   assert.equal(why['too-small.md'], 'the file does not match the size recorded at upload');
   assert.equal(why['negative.md'], 'malformed entry or unsafe path');
-  assert.equal(why['repeated.md'], 'the file does not match the size recorded at upload', 'stops at the recorded size, not after 1000 chunks');
+  assert.equal(why['repeated.md'], 'the file does not match the size recorded at upload');
+  assert.equal(why['more-chunks-than-bytes.md'], 'malformed entry or unsafe path', 'refused before any fetch');
   assert.equal(sink.calls.filter((c) => c === 'abort repeated.md').length, 1);
-  assert.equal(fetched.length, 6, 'wrong-hash, too-big, too-small and ok fetch once each, negative never, repeated twice');
+  assert.equal(fetched.length, 6, 'wrong-hash, too-big, too-small and ok fetch once each; repeated stops at its second chunk, past its size');
   assert.ok(sink.committed.get('ok.md').equals(data));
 });
 
@@ -194,6 +197,15 @@ test('#5536 skippedAtBackup keeps only well-formed { path, why } entries', async
   assert.deepEqual(r.skippedAtBackup, [{ path: '.env', why: 'environment file' }, { path: 'k', why: 'key' }]);
 });
 
+test('#5536 skippedAtBackup is bounded: at most 10000 entries, each path and reason at most 300 characters', async () => {
+  const many = Array.from({ length: 10005 }, (_, i) => ({ path: i ? `f${i}` : 'p'.repeat(400), why: 'w' }));
+  const { run } = handMade((entry) => [entry('a.md')], { skipped: many });
+  const { r } = await run();
+  assert.equal(r.skippedAtBackup.length, 10000);
+  assert.equal(r.skippedAtBackup[0].path, `${'p'.repeat(300)}...`);
+  assert.deepEqual(r.skippedAtBackup[9999], { path: 'f9999', why: 'w' }, 'CONTROL: short entries pass through unchanged');
+});
+
 test('#5536 the sink is handed / separators; an empty file restores; a refused long path is reported bounded', async () => {
   const long = 'z'.repeat(5000);
   const { run } = handMade((entry) => [entry('dir\\f.md'), entry('empty.md', { chunks: [], size: 0, sha256: sha(Buffer.alloc(0)) }), entry(long)]);
@@ -203,4 +215,20 @@ test('#5536 the sink is handed / separators; an empty file restores; a refused l
   assert.equal(sink.committed.get('empty.md').length, 0);
   assert.equal(r.failed.length, 1);
   assert.equal(r.failed[0].path, `${'z'.repeat(300)}...`);
+});
+
+test('#5536 an empty chunk is refused, and a deep manifest is checked for collisions in linear time', async () => {
+  const k = backup([{ path: 'a.md', data: rand(10) }]);
+  const empty = bf.sealNamedChunk(k.member.pk, k.nk, Buffer.alloc(0));
+  const ctx = { ...k.ctx, snapshot: 's2' };
+  const m = bf.sealManifest(k.member.pk, k.dev.privateKey, ctx, { files: [{ path: 'e.md', size: 1, sha256: sha(Buffer.alloc(0)), chunks: [empty.name] }] });
+  const r = await br.restoreSnapshot({ memberSk: k.member.sk, namingKey: k.nk, devicePubAtSnapshot: k.dev.publicKey, ctx, manifestObject: m, fetchChunk: () => empty.object, sink: memorySink() });
+  assert.deepEqual(r.failed, [{ path: 'e.md', why: 'a chunk did not verify (forged, swapped or damaged)' }]);
+  const deep = Array(2000).fill('a').join('/');
+  const { run } = handMade((entry) => [...Array.from({ length: 400 }, (_, i) => entry(`${deep}${i}`)), entry(`${deep}/x`), entry(deep)]);
+  const t0 = process.hrtime.bigint();
+  const { r: rd } = await run();
+  assert.ok(Number(process.hrtime.bigint() - t0) / 1e6 < 2000, '400 entries of 2000 segments check in well under a quadratic second');
+  assert.deepEqual(rd.failed.map((f) => f.why).sort(), ['another entry lands on the same file or folder', 'another entry lands on the same file or folder'],
+    'CONTROL: the deep folder clash is still found');
 });

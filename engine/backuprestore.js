@@ -20,44 +20,52 @@ const CHUNK_NAME_RE = /^[0-9a-f]{64}$/;
 // A format-1 chunk holds at most CDC.max bytes; sealed and padded it stays well under twice that. A bigger object
 // is refused before it is decrypted.
 const MAX_CHUNK_OBJECT = 2 * CDC.max + 4096;
+const MAX_SKIPPED_REPORTED = 10000;
 // Windows device names, with or without an extension (CON, nul.txt, COM1.log).
 const WIN_RESERVED_RE = /^(con|prn|aux|nul|conin\$|conout\$|com[0-9¹²³]|lpt[0-9¹²³])(\..*)?$/i;
 
 function safeRel(p) {
   if (typeof p !== 'string' || !p || p.length > 4096 || !p.isWellFormed()) return false;  // a lone surrogate encodes as U+FFFD
-  if (/\p{Default_Ignorable_Code_Point}/u.test(p)) return false;  // invisible characters APFS may ignore in a name
-  if (/[\x00-\x1f\x7f:]/.test(p)) return false;  // control characters; ':' is a drive or an NTFS stream
+  // Control characters (C0, DEL, C1, line and paragraph separators), bidi overrides (a name that displays as another
+  // name), and ':' (a drive or an NTFS stream).
+  if (/[\x00-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069:]/.test(p)) return false;
   if (p.startsWith('/') || p.startsWith('\\')) return false;
   // A segment may not be empty or end in a dot or a space: that refuses '.' and '..' too, and the names Windows
   // silently trims to another file's name.
   return p.split(/[\\/]/).every((x) => x !== '' && !/[. ]$/.test(x) && !WIN_RESERVED_RE.test(x));
 }
 
-/* The key two entries collide on: NFC, upper- then lower-cased (so final sigma folds with sigma), NFC again, with
-   '\' read as '/'. An approximation of APFS and NTFS name matching, not their exact folding; see the sink duties. */
-const collisionKey = (p) => toSinkPath(p).normalize('NFC').toUpperCase().toLowerCase().normalize('NFC');
+/* The key two entries collide on: invisible characters dropped, NFC, upper- then lower-cased (so final sigma folds
+   with sigma), NFC again, with '\' read as '/'. An approximation of APFS and NTFS name matching, not their exact
+   folding; see the sink duties. */
+const collisionKey = (p) => toSinkPath(p).replace(/\p{Default_Ignorable_Code_Point}/gu, '')
+  .normalize('NFC').toUpperCase().toLowerCase().normalize('NFC');
 /* safeRel and collisionKey read '\' as a separator, so the sink is handed the same reading. */
 const toSinkPath = (p) => p.replace(/\\/g, '/');
 /* A manifest path as reported back: bounded, since a refused entry's path is not length-checked. */
 const forReport = (p) => (p.length > 300 ? `${p.slice(0, 300)}...` : p);
 
-/** Every manifest path that must not be restored because another entry collides with it (see collisionKey). */
+/** Every manifest path that must not be restored because another entry collides with it (see collisionKey): the
+ *  same key, or a key that is another's folder. A trie of key segments, so the cost is linear in the paths' length. */
 function collidingPaths(entries) {
-  const byKey = new Map();
+  const node = () => ({ kids: new Map(), files: [], below: 0 });
+  const root = node();
   for (const f of entries) {
-    const k = collisionKey(f.path);
-    if (!byKey.has(k)) byKey.set(k, []);
-    byKey.get(k).push(f.path);
-  }
-  const bad = new Set();
-  for (const paths of byKey.values()) if (paths.length > 1) paths.forEach((p) => bad.add(p));
-  for (const [k, paths] of byKey) {
-    const parts = k.split('/');
-    for (let i = 1; i < parts.length; i++) {
-      const parent = byKey.get(parts.slice(0, i).join('/'));
-      if (parent) { parent.forEach((p) => bad.add(p)); paths.forEach((p) => bad.add(p)); }
+    let n = root;
+    for (const seg of collisionKey(f.path).split('/')) {
+      if (!n.kids.has(seg)) n.kids.set(seg, node());
+      n = n.kids.get(seg);
     }
+    n.files.push(f.path);
   }
+  const countBelow = (n) => { for (const k of n.kids.values()) n.below += countBelow(k); return n.below + n.files.length; };
+  countBelow(root);
+  const bad = new Set();
+  const mark = (n, fileAbove) => {
+    if (n.files.length && (n.files.length > 1 || n.below > 0 || fileAbove)) n.files.forEach((p) => bad.add(p));
+    for (const k of n.kids.values()) mark(k, fileAbove || n.files.length > 0);
+  };
+  mark(root, false);
   return bad;
 }
 
@@ -83,7 +91,9 @@ async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, 
   const restored = [], failed = [];
   const wellFormed = [];
   for (const f of manifest.files) {
-    if (!f || !safeRel(f.path) || !Array.isArray(f.chunks) || typeof f.sha256 !== 'string' || !Number.isSafeInteger(f.size) || f.size < 0) {
+    // Every chunk holds at least one byte, so a file has no more chunks than bytes.
+    if (!f || !safeRel(f.path) || !Array.isArray(f.chunks) || typeof f.sha256 !== 'string' || !Number.isSafeInteger(f.size) || f.size < 0
+      || f.chunks.length > f.size) {
       failed.push({ path: f && typeof f.path === 'string' ? forReport(f.path) : '(unnamed)', why: 'malformed entry or unsafe path' });
     } else wellFormed.push(f);
   }
@@ -95,7 +105,8 @@ async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, 
     else restored.push(f.path);
   }
   const skippedAtBackup = (Array.isArray(manifest.skipped) ? manifest.skipped : [])
-    .filter((x) => x && typeof x.path === 'string' && typeof x.why === 'string').map(({ path, why }) => ({ path, why }));
+    .filter((x) => x && typeof x.path === 'string' && typeof x.why === 'string').slice(0, MAX_SKIPPED_REPORTED)
+    .map(({ path, why }) => ({ path: forReport(path), why: forReport(why) }));
   return { restored, failed, skippedAtBackup };
 }
 
@@ -115,7 +126,7 @@ async function restoreFile(f, { memberSk, namingKey, fetchChunk, sink, maxChunkO
       if (obj.length > maxChunkObject) return await abortWith(out, 'a chunk is larger than any real chunk');
       if (!Buffer.isBuffer(obj)) obj = Buffer.from(obj.buffer, obj.byteOffset, obj.length);
       const pt = openVerifiedChunk(memberSk, namingKey, name, obj);
-      if (!pt) return await abortWith(out, 'a chunk did not verify (forged, swapped or damaged)');
+      if (!pt || !pt.length) return await abortWith(out, 'a chunk did not verify (forged, swapped or damaged)');
       size += pt.length;
       if (size > f.size) return await abortWith(out, 'the file does not match the size recorded at upload');
       hash.update(pt);
