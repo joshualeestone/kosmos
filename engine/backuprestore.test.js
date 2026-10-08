@@ -263,3 +263,24 @@ test('#5536 a restore with no byte budget is refused, and a sink that cannot beg
   assert.deepEqual(r.restored, ['b.md'], 'CONTROL');
   assert.deepEqual(sink.aborted, [], 'nothing to abort when begin itself threw');
 });
+
+test('#5536 bytes written for files that then fail count against twice the budget, so late failures cannot churn forever', async () => {
+  const { run, fetched } = handMade((entry) => [...['w1', 'w2', 'w3', 'w4', 'w5'].map((p) => entry(`${p}.md`, { sha256: '0'.repeat(64) })), entry('ok.md')]);
+  const { r } = await run(memorySink(), { maxTotalBytes: 200 });
+  assert.equal(fetched.length, 4, 'four 100-byte failures use the 400-byte work budget; nothing more is fetched');
+  assert.deepEqual(r.failed.slice(4).map((f) => f.why), ['the restore is over its byte budget', 'the restore is over its byte budget']);
+  const before = fetched.length;
+  const { r: big } = await run(memorySink(), { maxTotalBytes: BIG });
+  assert.equal(fetched.length - before, 6, 'CONTROL: with room, every file is tried');
+  assert.deepEqual(big.restored, ['ok.md']);
+});
+
+test('#5536 caller mistakes throw instead of reading as tampering', async () => {
+  const k = backup([{ path: 'a.md', data: rand(100) }]);
+  const args = { memberSk: k.member.sk, namingKey: k.nk, devicePubAtSnapshot: k.dev.publicKey, ctx: k.ctx, manifestObject: k.manifestObject, fetchChunk: (n) => k.store.get(n), sink: memorySink(), maxTotalBytes: BIG };
+  assert.ok(await br.restoreSnapshot(args), 'CONTROL');
+  await assert.rejects(br.restoreSnapshot({ ...args, sink: undefined }), /sink\.begin/);
+  await assert.rejects(br.restoreSnapshot({ ...args, sink: {} }), /sink\.begin/);
+  await assert.rejects(br.restoreSnapshot({ ...args, fetchChunk: undefined }), /fetchChunk/);
+  await assert.rejects(br.restoreSnapshot({ ...args, namingKey: k.nk.subarray(0, 16) }), /namingKey/);
+});

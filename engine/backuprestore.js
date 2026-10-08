@@ -83,8 +83,8 @@ function collidingPaths(entries) {
  * Restore one snapshot. Resolves to { restored: [path], failed: [{ path, why }], skippedAtBackup: [...] }, or null
  * when the manifest itself does not verify and open (wrong device key for the time, wrong context, tampering), or
  * exceeds maxManifestObject bytes or maxFiles entries. maxTotalBytes is REQUIRED (the caller sets it from free disk) and caps the
- * bytes committed: a file that would pass it fails before anything is fetched. Each file's own size is bounded by
- * the size its entry records, so this is what bounds a manifest that records huge sizes.
+ * bytes committed: a file that would pass it fails before anything is fetched. Bytes verified and written count
+ * against twice that whether or not their file commits, so files that fail late are bounded too.
  *
  *   fetchChunk(name) -> Buffer or Uint8Array | null, or a promise of one (null: the chunk is not stored). It should
  *     refuse to download an object larger than maxChunkObject; restore refuses one before decrypting it.
@@ -105,7 +105,11 @@ function collidingPaths(entries) {
  */
 async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, manifestObject, fetchChunk, sink,
   maxChunkObject = MAX_CHUNK_OBJECT, maxManifestObject = MAX_MANIFEST_OBJECT, maxFiles = MAX_FILES, maxTotalBytes }) {
+  // Caller mistakes throw rather than read as tampering in every file.
   if (!Number.isSafeInteger(maxTotalBytes) || maxTotalBytes < 0) throw new Error('backuprestore: maxTotalBytes (a byte budget, from free disk) is required');
+  if (!sink || typeof sink.begin !== 'function') throw new Error('backuprestore: sink.begin is required');
+  if (typeof fetchChunk !== 'function') throw new Error('backuprestore: fetchChunk is required');
+  if (!Buffer.isBuffer(namingKey) || namingKey.length !== 32) throw new Error('backuprestore: namingKey must be a 32-byte Buffer');
   if (!(manifestObject instanceof Uint8Array) || manifestObject.length > maxManifestObject) return null;
   const mo = Buffer.isBuffer(manifestObject) ? manifestObject : Buffer.from(manifestObject.buffer, manifestObject.byteOffset, manifestObject.length);
   const manifest = openManifest(memberSk, devicePubAtSnapshot, ctx, mo);
@@ -120,11 +124,14 @@ async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, 
     } else wellFormed.push(f);
   }
   const clash = collidingPaths(wellFormed);
+  // Two budgets: bytes committed (maxTotalBytes), and bytes verified and written whether or not the file then
+  // commits (twice that), so files that fail late cannot make a restore churn without end.
   let budget = maxTotalBytes;
+  const work = { left: 2 * maxTotalBytes };
   for (const f of wellFormed) {
     if (clash.has(f.path)) { failed.push({ path: forReport(f.path), why: 'another entry lands on the same file or folder' }); continue; }
-    if (f.size > budget) { failed.push({ path: forReport(f.path), why: 'the restore is over its byte budget' }); continue; }
-    const why = await restoreFile(f, { memberSk, namingKey, fetchChunk, sink, maxChunkObject });
+    if (f.size > budget || f.size > work.left) { failed.push({ path: forReport(f.path), why: 'the restore is over its byte budget' }); continue; }
+    const why = await restoreFile(f, { memberSk, namingKey, fetchChunk, sink, maxChunkObject, work });
     if (why) failed.push({ path: forReport(f.path), why });
     else { restored.push(f.path); budget -= f.size; }
   }
@@ -135,7 +142,7 @@ async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, 
 }
 
 /* One file: null when committed, otherwise why it was not. Never leaves a file committed that did not verify. */
-async function restoreFile(f, { memberSk, namingKey, fetchChunk, sink, maxChunkObject }) {
+async function restoreFile(f, { memberSk, namingKey, fetchChunk, sink, maxChunkObject, work }) {
   if (!f.chunks.every((n) => typeof n === 'string' && CHUNK_NAME_RE.test(n))) return 'a chunk name is malformed';
   let out = null;
   try {
@@ -153,6 +160,7 @@ async function restoreFile(f, { memberSk, namingKey, fetchChunk, sink, maxChunkO
       if (!pt || !pt.length) return await abortWith(out, 'a chunk did not verify (forged, swapped or damaged)');
       size += pt.length;
       if (size > f.size) return await abortWith(out, 'the file does not match the size recorded at upload');
+      work.left -= pt.length;  // cannot go negative: the file fit before its first fetch, and stays within f.size
       hash.update(pt);
       await out.write(pt);
     }
