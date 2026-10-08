@@ -55,6 +55,19 @@ rel="${url#"$HOST_URL"/}"
 # NB: not `path=` -- in zsh `path` is tied to PATH, and tools/test-zsh-tied-names.sh
 # statically refuses any shell file that writes it (a file sourced into zsh would clobber PATH).
 served_file="$LIVE_DIR/$rel"
+# #5589: an edge that cannot be reached for one file: <name>.down answers like a failed connection
+# (curl prints 000 for -w and exits 7). <name>.dropafter is served once, then goes down.
+if [ -f "$served_file.down" ]; then
+  if [ -n "$wfmt" ]; then printf '000'; fi
+  exit 7
+fi
+if [ -f "$served_file.dropafter" ] && [ -f "$served_file" ]; then
+  [ -n "$dest" ] && cp "$served_file" "$dest"
+  [ -n "$wfmt" ] && printf '200'
+  [ -n "$dest" ] || [ -n "$wfmt" ] || cat "$served_file"
+  mv "$served_file.dropafter" "$served_file.down"
+  exit 0
+fi
 # An edge that is late (#4819): a file held back as <name>.late answers 404 once, then is served.
 if [ ! -f "$served_file" ] && [ -f "$served_file.late" ]; then
   mv "$served_file.late" "$served_file"
@@ -458,5 +471,21 @@ run_deploy "$S28" "$L28" --promote
   && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L28/dist/latest.json")" = "$OLD" ]; } \
   && pass "#5589: a live pointer moved mid-run (a cut published) is refused before the deploy, LIVE untouched" \
   || bad "#5589 mid-run pointer move (rc=$RC) out=$out"
+# 29) #5589: a live pointer that cannot be read at the START refuses at once, before any fetch.
+read -r S29 L29 <<<"$(make_scenario)"
+: > "$L29/dist/latest-win-staging.json.down"
+run_deploy "$S29" "$L29" --promote
+{ [ "$RC" = 1 ] && has "$out" "could not read the live pointers at the start" && ! has "$out" "fetched and verified" \
+  && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L29/dist/latest.json")" = "$OLD" ]; } \
+  && pass "#5589: an unreadable live pointer at the start refuses before any fetch, LIVE untouched" \
+  || bad "#5589 unreadable at start (rc=$RC) out=$out"
+# 30) #5589: a live pointer readable at the start but not right before the deploy: refused, nothing deployed.
+read -r S30 L30 <<<"$(make_scenario)"
+printf '{"version":"9.9.9"}\n' > "$L30/dist/latest-win-staging.json"; : > "$L30/dist/latest-win-staging.json.dropafter"
+run_deploy "$S30" "$L30" --promote
+{ [ "$RC" = 1 ] && has "$out" "could not re-read the live pointers right before deploying" \
+  && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L30/dist/latest.json")" = "$OLD" ]; } \
+  && pass "#5589: a live pointer unreadable at the re-read refuses with nothing deployed" \
+  || bad "#5589 unreadable at re-read (rc=$RC) out=$out"
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

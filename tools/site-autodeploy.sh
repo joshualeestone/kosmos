@@ -17,8 +17,9 @@
 # 🔑 Why its own checkout. A release cut populates the site checkout's gitignored dist/ and leaves
 # versions.html dirty behind it. A checkout nobody else uses is never the one a cut is writing, and
 # it can sit on main, which deploy-site.sh requires for a publish (#3073). Make it once with
-#   git clone --reference <the cut's site checkout> <site remote> <this checkout>
-# (shares the objects, so it costs no second copy of the site's history), then copy .vercel/ into it.
+#   git clone --reference <the cut's site checkout> --dissociate <site remote> <this checkout>
+# (borrows the objects for the clone and then copies them, so it downloads no history and does not
+# depend on the other checkout afterwards), then copy .vercel/ into it.
 #
 # Skips, retried on the next tick: a release running on this machine, another tick still running.
 # Does NOT retry a sha whose deploy failed: a refusal is a finding, not a blip, and a tick that
@@ -29,7 +30,8 @@
 #   heartbeat      the time of the last tick (a silent stall shows as an old heartbeat)
 #   last-deployed  the site sha this job last published
 #   last-failure   "<sha> rc=<n> <time>" of a deploy that failed, until main moves past it
-#   log            one line per tick that did something, plus each deploy's output
+#   log            one line per tick that did something, plus each deploy's output (trimmed to its
+#                  last 5000 lines once it passes 5 MB)
 #
 # Env: KOSMOS_AUTODEPLOY_SITE (the job's own site checkout, required), KOSMOS_AUTODEPLOY_STATE.
 # Test seams: KOSMOS_AUTODEPLOY_DEPLOY (the deploy command, default this repo's deploy-site.sh
@@ -40,13 +42,18 @@ SITE="${KOSMOS_AUTODEPLOY_SITE:-}"
 STATE="${KOSMOS_AUTODEPLOY_STATE:-$HOME/.kosmos-site-autodeploy}"
 LOG="$STATE/log"
 now() { date '+%Y-%m-%d %H:%M:%S %Z'; }
-say() { printf '%s %s\n' "$(now)" "$*" >> "$LOG"; }
+# Everything a tick says goes to the log AND to stdout, so a run in GitHub Actions shows why it did what it did.
+say() { printf '%s %s\n' "$(now)" "$*" | tee -a "$LOG"; }
 
 [ -n "$SITE" ] || { echo "site-autodeploy: set KOSMOS_AUTODEPLOY_SITE to this job's own site checkout" >&2; exit 2; }
 mkdir -p "$STATE" || { echo "site-autodeploy: cannot make $STATE" >&2; exit 2; }
 now > "$STATE/heartbeat"
+if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 5000000 ]; then tail -n 5000 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"; fi
 
-# One tick at a time. A lock left by a tick that died is taken over once its pid is gone.
+# One tick at a time. The workflow's concurrency group is what serialises ticks in practice; this lock
+# is the backstop for a tick run by hand beside it. A lock left by a tick that died is taken over once
+# its pid is gone (two ticks racing to take over the same dead lock is possible and harmless: each then
+# runs deploy-site.sh, whose own pointer checks refuse the second if the first moved anything).
 LOCK="$STATE/lock"
 if ! mkdir "$LOCK" 2>/dev/null; then
   holder=$(cat "$LOCK/pid" 2>/dev/null || true)
@@ -63,7 +70,9 @@ LAST=$(cat "$STATE/last-deployed" 2>/dev/null || true)
 case "$(cat "$STATE/last-failure" 2>/dev/null || true)" in "$TARGET "*) exit 0 ;; esac
 
 # A release cut publishes the site itself (its step 8) from its own checkout. Do not deploy beside
-# one: wait for it to finish, then publish whatever main holds. The match is anchored on the command
+# one: wait for it to finish, then publish whatever main holds. This sees only cuts on THIS machine,
+# which is where cuts run; a cut on another box is caught, if at all, by deploy-site.sh's pointer
+# re-read (#5589) and its committed-vs-live guards. The match is anchored on the command
 # column (an interpreter, then a path ending in tools/release.sh), so a grep or an editor naming the
 # file does not read as a cut.
 PS_CMD="${KOSMOS_AUTODEPLOY_PS:-ps -axo command=}"
@@ -79,10 +88,11 @@ br=$(git -C "$SITE" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
 git -C "$SITE" merge -q --ff-only origin/main 2>>"$LOG" || { say "FAIL: could not fast-forward $SITE to ${TARGET:0:9} (dirty or diverged)"; printf '%s rc=%s %s\n' "$TARGET" checkout "$(now)" > "$STATE/last-failure"; exit 1; }
 
 say "deploying site main ${TARGET:0:9} (last deployed ${LAST:0:9})"
+# The deploy's output goes to the log and to stdout (PIPESTATUS keeps the deploy's own exit status).
 if [ -n "${KOSMOS_AUTODEPLOY_DEPLOY:-}" ]; then
-  KOSMOS_SITE="$SITE" sh -c "$KOSMOS_AUTODEPLOY_DEPLOY" >> "$LOG" 2>&1; rc=$?
+  KOSMOS_SITE="$SITE" sh -c "$KOSMOS_AUTODEPLOY_DEPLOY" 2>&1 | tee -a "$LOG"; rc=${PIPESTATUS[0]}
 else
-  KOSMOS_SITE="$SITE" bash "$REPO/tools/deploy-site.sh" --publish >> "$LOG" 2>&1; rc=$?
+  KOSMOS_SITE="$SITE" bash "$REPO/tools/deploy-site.sh" --publish 2>&1 | tee -a "$LOG"; rc=${PIPESTATUS[0]}
 fi
 if [ "$rc" = 0 ]; then
   echo "$TARGET" > "$STATE/last-deployed"; rm -f "$STATE/last-failure"

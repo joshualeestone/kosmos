@@ -345,6 +345,27 @@ H=$(git -C "$SITE" rev-parse HEAD 2>/dev/null) || { echo "deploy-site: cannot re
 # mean "the deploy already ran, investigate" whichever code came back, and the library's own stderr
 # line already says "failed at the transport layer" when it was a blip.
 served_verify_host_discriminates "$HOST" || { _svrc=$?; if [ "$_svrc" -eq 2 ]; then echo "deploy-site: refusing BEFORE any deploy -- the served-verify negative control could not RUN against $HOST (transport error, see above), so nothing about this host is proven either way. Nothing has been deployed."; else echo "deploy-site: refusing BEFORE any deploy -- the served-verify negative control FAILED against $HOST (see the reason above): the host answered 200 for a path that cannot exist. Nothing has been deployed."; fi; exit 1; }
+# #5589: the four live pointers a release cut moves, as one comparable line (each: name, HTTP status,
+# sha256 of the body). Taken here, BEFORE any start-of-run comparison of the checkout with live (the
+# latest.json guard below, check_staging_not_stale), and again right before `vercel deploy`. A cut
+# that publishes at any point after this read therefore shows up as a difference, including one that
+# lands between a start-of-run check and the snapshot. A read that does not complete records status
+# 000; a 000 here refuses at once, and a 000 at the second read refuses there.
+case "${KOSMOS_DEPLOY_RETRY_SLEEP:-3}" in ''|*[!0-9]*) _lps_sleep=3 ;; *) _lps_sleep=${KOSMOS_DEPLOY_RETRY_SLEEP:-3} ;; esac
+live_pointer_snapshot() {
+  for _lps in latest.json latest-staging.json latest-win.json latest-win-staging.json; do
+    _lps_tmp=$(mktemp "${TMPDIR:-/tmp}/deploy-site-ptr.XXXXXX") || { printf '%s 000 -;' "$_lps"; continue; }
+    for _lps_try in 1 2 3; do
+      _lps_code=$(curl -sSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' -o "$_lps_tmp" -w '%{http_code}' "$HOST/dist/$_lps" 2>/dev/null) || _lps_code=000
+      case "$_lps_code" in ''|*[!0-9]*) _lps_code=000 ;; esac
+      case "$_lps_code" in 000|429|5[0-9][0-9]) [ "$_lps_try" = 3 ] || sleep "$_lps_sleep" ;; *) break ;; esac
+    done
+    printf '%s %s %s;' "$_lps" "$_lps_code" "$(shasum -a 256 < "$_lps_tmp" | cut -c1-64)"
+    rm -f "$_lps_tmp"
+  done
+}
+LIVE_PTRS_BEFORE=$(live_pointer_snapshot)
+case "$LIVE_PTRS_BEFORE" in *" 000 "*) echo "deploy-site: could not read the live pointers at the start ($LIVE_PTRS_BEFORE) -- refusing; nothing has been deployed (#5589)"; exit 1 ;; esac
 LJ=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json") || { echo "deploy-site: cannot read $HOST/dist/latest.json -- refusing"; exit 1; }
 # The COMMITTED pointer (git archive of $H) is what a deploy actually SERVES, because dist/latest.json
 # is TRACKED. Read it once here for both the site-copy guard and the promote path. A git-show failure
@@ -517,18 +538,6 @@ _csm_read() {  # <url>
 # Seconds between retries of a live read; a value that is not a whole number falls back to 3.
 case "${KOSMOS_DEPLOY_RETRY_SLEEP:-3}" in ''|*[!0-9]*) _CSM_SLEEP=3 ;; *) _CSM_SLEEP=${KOSMOS_DEPLOY_RETRY_SLEEP:-3} ;; esac
 _csm_version() { printf '%s' "$1" | sed -n 's/^kosmos-\(.*\)-arm64\.tar\.gz$/\1/p'; }
-# #5589: the four live pointers a release cut moves, as one comparable line (each: name, HTTP status,
-# sha256 of the body). Taken once before anything is fetched and again right before `vercel deploy`: if a
-# cut published in between, the export holds the pointers as they were and deploying it would move the
-# cut's pointers back. The guards above compare the checkout with live at the START, so they cannot see
-# a cut that lands while this run is fetching and building (minutes). A read that does not complete reads
-# as status 000, which never equals a completed read, so an unreadable host refuses rather than passes.
-live_pointer_snapshot() {
-  for _lps in latest.json latest-staging.json latest-win.json latest-win-staging.json; do
-    _csm_read "$HOST/dist/$_lps"
-    printf '%s %s %s;' "$_lps" "$_CSM_CODE" "$(printf '%s' "$_CSM_BODY" | shasum -a 256 | cut -c1-64)"
-  done
-}
 # The committed pointer's name and sha, checked before either is used in a path, a URL or a
 # comparison. Sets _csm_art, _csm_sha and _csm_show from _csm_ptr; refuses on anything malformed.
 _csm_validate_committed() {
@@ -647,7 +656,6 @@ carry_staged_mac() {
 }
 # <<< staged Mac carry (#4819)
 check_staging_not_stale
-LIVE_PTRS_BEFORE=$(live_pointer_snapshot)   # #5589: compared again right before the deploy
 fetch_verified "$HOST/dist/$ART" "$SITE/dist/$ART"   # the artifact and its .sha256 (#4745)
 verify_sha "$SITE/dist/$ART" "$HOST/dist/$ART.sha256"
 # For a promote, pin the committed pointer's advertised sha to the bytes we just fetched + verified

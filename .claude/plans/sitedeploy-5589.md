@@ -51,9 +51,18 @@ on Mortals: on push to main, every 15 minutes as a backstop, and on demand.
 Mortals has to be up for merges to deploy. If it is down they wait, and the manual
 `deploy-site.sh --publish` still works from Mortals or anywhere with a Vercel login.
 
+**Second premise: a cut that aborts between step 7b and step 8.** 7b pushes the site's release
+files (the moved pointers) to site main, and step 8 deploys them. If the cut dies in between, the next
+tick sees no cut running and tries to publish pointers naming artifacts that were never served. What
+stops it is deploy-site.sh itself: a moved prod latest.json is refused by the committed-vs-live guard
+(test-deploy-site-promote.sh case 2 is that exact refusal under --publish), and a staging pointer
+naming a build that is not live fails its fetch (#4819, test-deploy-site-staged-mac-4819.sh). The
+tick then records the failure and its run goes red once, which is the signal to finish or roll back
+the cut by hand. Reasoned from those tests, not run end to end through site-autodeploy.sh.
+
 ## One-time setup on Mortals (before the site workflow merges)
 
-    git clone --reference ~/work/chaoskosmos-site <site remote> ~/work/chaoskosmos-site-autodeploy
+    git clone --reference ~/work/chaoskosmos-site --dissociate <site remote> ~/work/chaoskosmos-site-autodeploy
     cp -R ~/work/chaoskosmos-site/.vercel ~/work/chaoskosmos-site-autodeploy/
 
 The workflow creates the agent-workforce tools worktree itself on its first run.
