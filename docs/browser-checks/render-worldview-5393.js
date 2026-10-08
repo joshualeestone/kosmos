@@ -86,12 +86,23 @@ const check = (ok, label, got) => results.push({ ok: !!ok, label, got });
         box: [box.left, box.right, box.top, box.bottom], vw: innerWidth, vh: innerHeight,
         // The viewport a fixed inset-0 overlay can cover: without a classic scrollbar (CI's Chromium has one, 15px).
         cw: document.documentElement.clientWidth, ch: document.documentElement.clientHeight, lines,
+        // What the overlay sits in, printed only when the cover arm fails (CI drew it 15px narrow; no local repro).
+        where: (() => {
+          const out = [];
+          for (let e = document.getElementById('wv-modal'); e; e = e.parentElement) {
+            const cs = getComputedStyle(e);
+            const r = e.getBoundingClientRect();
+            out.push([e.id || e.className || e.tagName, Math.round(r.left), Math.round(r.width), e.clientWidth, cs.position,
+              cs.overflowY, cs.scrollbarGutter, cs.transform !== 'none', cs.contain, cs.backdropFilter || '']);
+          }
+          return out;
+        })(),
         menuHidden: document.getElementById('worldsw-menu').hidden, focus: document.activeElement && document.activeElement.id,
         sideways: document.documentElement.scrollWidth > innerWidth };
     });
     check(got.open && got.menuHidden, `@${w}: At a glance opens the sheet and closes the menu`, got);
     check(got.back[0] <= 0 && got.back[1] <= 0 && got.back[2] >= got.cw && got.back[3] >= got.ch,
-      `@${w}: the overlay covers the window from inside the header`, got.back);
+      `@${w}: the overlay covers the window from inside the header`, { back: got.back, cw: got.cw, vw: got.vw, where: got.where });
     check(got.box[0] >= 0 && got.box[1] <= got.vw && !got.sideways, `@${w}: the sheet fits the width, nothing scrolls sideways`, got.box);
     check(got.focus === 'wv-close', `@${w}: focus starts on Close`, got.focus);
     // The sheet is inside the sticky header (its own stacking context): it must still be ON TOP of floating UI, not
