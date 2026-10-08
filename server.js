@@ -9558,6 +9558,35 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 200, { ok: false, because: 'we could not read your computers' }));
     return;
   }
+  /* kosmos#5531 (Enterprise E0.2): this Kosmos joining a company. GET is this world's enrollment as last confirmed
+     (read from its own data root; nothing is sent). preview, enroll and leave are the person's, from the screen: an
+     agent must never join or leave a company for them. engine/orgenroll.js sends nothing on a decline and names this
+     world only by an opaque id. */
+  if (pathname === '/api/org' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const oe = require('./engine/orgenroll');
+      const here = oe.isEnrolledHere();
+      const rec = here ? oe.readEnrollment() : null;   // a record naming another world says nothing here
+      sendJson(res, 200, { enrolled: here, org: rec ? rec.org : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
+    } catch { sendJson(res, 200, { enrolled: false, org: null, role: null, enrolledAt: null }); }
+    return;
+  }
+  if ((pathname === '/api/org/preview' || pathname === '/api/org/enroll' || pathname === '/api/org/leave') && req.method === 'POST') {
+    readBody(req, 4096)
+      .then(async (buf) => {
+        let body = {};
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = {}; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can join or leave a company, from Settings' }); return; }
+        const oe = require('./engine/orgenroll');
+        let r;
+        if (pathname === '/api/org/preview') r = await oe.preview(body.code);
+        else if (pathname === '/api/org/enroll') r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true);
+        else r = await oe.leave();
+        sendJson(res, 200, r);
+      })
+      .catch(() => sendJson(res, 200, { ok: false, because: 'we could not reach your company just now' }));
+    return;
+  }
   /* kosmos#4794 slice 1: this computer joining. GET runs one pairing round and answers the page-safe status; POST
      is the person's "The codes match", with the code this screen showed. */
   if (pathname === '/api/remote/join' && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -20479,6 +20508,13 @@ function federateOut(projectId, delivery, operator) {
   if (sent && hadFiles) messages.roomNote(projectId, 'The words went to ' + fedseats.farSide(projectId) + '; the attached file stayed on this computer.');
 }
 
+function orgEnrollRefresh() {
+  try {
+    const oe = require('./engine/orgenroll');
+    if (!oe.readEnrollment()) return;
+    oe.refresh().catch(() => { /* best effort: an unreachable company changes nothing */ });
+  } catch { /* best effort */ }
+}
 function start(port = PORT) {
   snapshotWorlds();   // #5247: the worlds the gate may accept, as of now
   /* #5254: cached first pages whose PDF, project or agent is gone are removed now and hourly (engine/filepreview.js). */
@@ -20487,6 +20523,10 @@ function start(port = PORT) {
   /* #5359: read when this board was last alive BEFORE it says it is alive now, so a restart of the computer under a
      running Kosmos is noticed; then say so once a minute. Best effort: a courtesy, never a reason not to start. */
   try { const rn = require('./engine/restartnote'); rn.atStart(); rn.startBeating(); } catch { /* best effort */ }
+  /* #5531: an enrolled work Kosmos asks its company on start and daily whether it is still the enrolled world, and
+     stops reporting at once if not. Only a world with an enrollment asks: one that never joined sends nothing. */
+  orgEnrollRefresh();
+  setInterval(orgEnrollRefresh, 24 * 60 * 60 * 1000).unref();
   /* #4408: what this board is running, taken now, before anything can edit the app folder under it. The
      restart module is loaded first: it is otherwise required lazily, and the button depends on it. */
   try { require('./engine/boardrestart'); } catch { /* the restart route reports its own failure */ }
