@@ -20421,7 +20421,11 @@ function stateReason(a, opts) {
   /* #5154 slice C: the same terminal error has stood past its threshold (engine/stuckterminal.js), so the card
      names what is wrong and what to do. Placed before the plain auth_failed / rate_limited rules below so a
      STUCK agent gets this sharper sentence; a brief one still falls through to the ordinary state sentence.
-     Plain words, consistent with the "Keeps stopping" card; Mona can refine later. */
+     Plain words, consistent with the "Keeps stopping" card; Mona can refine later. DELIBERATE: slice C escalates
+     the SENTENCE, the Issue-filter membership (agentNeedsAttention / needsPerson) and one phone push -- not the
+     card's look or pill. auth_failed and rate_limited already render attn:true pills ("Sign-in isn't working" /
+     "Paused"), so a stuck card already reads as an issue; restyling cardStOf/stateCopyOf would recolour those
+     paused states wholesale, which is out of this slice's scope. */
   if (a && a.stuckError && a.stuckError.stuck === true) {
     const mins = Math.max(1, Math.round((Number(a.stuckError.forMs) || 0) / 60000));
     if (a.stuckError.state === 'auth_failed') return 'Kosmos has seen this agent unable to sign in for about ' + mins + ' minutes. It cannot work until you reconnect its account. Open Settings to reconnect it.';
@@ -57517,7 +57521,8 @@ function pjMember(m, suppressTold, withMinus, hideState) {
   /* #5154: the crash loop. The projection carries it (projects.js, from safeRoster); one that never had the field (`in`)
      borrows it from the latest /api/status, so the members row and the card agree. Before liveM, which keeps its shape. */
   if (m && typeof m === 'object' && !('crashLoop' in m) && typeof LAST !== 'undefined' && Array.isArray(LAST)) {
-    m = Object.assign({}, m, { crashLoop: ((LAST.find((a) => a && a.sessionName === m.sessionName)) || {}).crashLoop || null });
+    const lastRow = (LAST.find((a) => a && a.sessionName === m.sessionName)) || {};
+    m = Object.assign({}, m, { crashLoop: lastRow.crashLoop || null, stuckError: lastRow.stuckError || null });   // #5154 slice C: stuckError too
   }
   /* #3410: where the automatic reconnect stands. #3726: the member projection now carries it
      (m.reconnect, from the same /api/projects answer the project's Issue pill counts from), so the

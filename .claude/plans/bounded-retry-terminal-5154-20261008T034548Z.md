@@ -36,6 +36,17 @@ When a Kosmos-run agent is stuck on the **same terminal error repeating** — an
 - If the board card is a rendered surface change → a `docs/browser-checks/` assertion or a `Browser-check:` trailer (repo convention #4).
 - Full local `tools/run-tests.sh` (unset KOSMOS_AGENT_TOKEN) + `/challenge-loop` to convergence, then `/create-pr`.
 
+## SUPERSEDED during the challenge-loop (read this first)
+The two sections below describe an EARLY **in-memory `STUCK_BOOK`** design. The shipped implementation
+moved the anchor **to disk** (`store.ROOT/stuck/<key>.json`), because iteration-1 review found that an
+in-memory Map in server.js cannot be reached by `forget` from engine/create.js, remove.js and
+delete-leftover.js — so a removed-and-recreated agent of the same name would inherit the old episode's
+clock (the chief risk). Disk-backing (mirroring crashloop's run files) makes `forget` cross-module, and
+`dir()` reads `store.ROOT` at call time so convention #2 still holds. `assess(anchor, now)`, `read`/`peek`
+take a key (not a `book` Map), the sweep skips on a failed roster read and prunes departed agents on a good
+one, and writes are atomic (tmp + rename). Treat the two sections below as the original plan of record, not
+the final shape.
+
 ## Implementation approach (grounded on origin/main)
 - **Signal is already on the snapshot:** each agent object `a` carries `a.state` (e.g. `a.state === 'connection_lost'` drives the `reconnect` field; `auth_failed`/`rate_limited` are the terminal values from status.js's classification). So slice C reads the EXISTING classified state — it does not re-derive it (two-derivations caution satisfied). Plug-in point: beside `crashLoop: a.isNamedOurs ? crashloop.read(...)` (server.js ~5330) add `stuckError: a.isNamedOurs ? stuckterminal.read(STUCK_BOOK, a.sessionName, a.state, now) : null`.
 - **"First seen stuck" anchor = in-memory, not disk.** `a.state` is only the CURRENT state, so I must record WHEN the agent entered it. Use a server-side `Map` (`STUCK_BOOK`, mirroring the existing `CONNLOST_BOOK` pattern) updated each poll: if `a.state` is terminal and equals the recorded one, keep the anchor; if it changed (or left the terminal set), reset/clear. No per-poll disk write (cheaper than crashloop's file read, appropriate for the 5s path).
