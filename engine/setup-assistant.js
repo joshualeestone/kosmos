@@ -792,7 +792,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const safeDeny = deny.filter((r) => {
     if (!ruleHasPatternChar(r)) return true;
     process.stderr.write(`#4491: no rule ${r}: its path has a character the rule syntax reads as a pattern\n`);
-    if (/^Read\(/.test(r) && r.includes(tokenFile)) tokenRuleDropped = true;   // review 16: the rule the guard is for
+    tokenRuleDropped = true;   // reviews 16 and 17: ANY dropped rule leaves part of the guard out (a token read, or its own self-protection)
     return false;
   });
   return { deny: safeDeny, tokenRuleDropped, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites, undoDirs, tokenDirs, undoSwitches };
@@ -841,9 +841,10 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) cur = parsed;
     } catch { cur = {}; }
     const rules = tokenOnlySettingsRules(dir, deps);
-    /* Review 16: a board.token Read rule that could not be written leaves the file tools able to read the token, so
-       the guard is NOT in place: say so (create then refuses; the refresh lists the agent as unguarded). */
-    if (rules.tokenRuleDropped) return { ok: false, because: 'a Kosmos folder path has a character the permission rules cannot carry, so the board token cannot be denied' };
+    /* Reviews 16 and 17: a rule that could not be written leaves part of the guard out (the board.token read, or the
+       Edit rules that keep the agent from editing its own guard away), so the guard is NOT in place: say so (create then
+       refuses; the refresh lists the agent as unguarded). Rename or move the folder whose path holds the character. */
+    if (rules.tokenRuleDropped) return { ok: false, because: 'a folder path (the agent, its home or Kosmos) has a character the permission rules cannot carry, so the guard cannot be written whole' };
     // Review 16: off macOS no sandbox block is written: said at create time as well as at board start.
     if ((deps.platform || process.platform) !== 'darwin') process.stderr.write('#4491 note: off macOS ' + agentName + ' gets permission rules only (its shell is not sandboxed)\n');
     const perms = cur.permissions && typeof cur.permissions === 'object' && !Array.isArray(cur.permissions) ? cur.permissions : {};
@@ -960,8 +961,6 @@ function refreshTokenOnlyGuards(deps = {}) {
     process.stderr.write('#4491: ' + failed.length + ' token-only agent(s) NOT guarded from reading the board token: '
       + failed.map((u) => u.name + ' (' + u.because + ')').join('; ') + '\n');
   }
-  /* Review 15: off macOS no sandbox block is written, so the agent's shell itself is not kept from the files; the
-     permission rules bind only its file tools. Said, so "guarded" is not read as more than it is. */
   if (noFolder.length) process.stderr.write('#4491 note: listed as token-only but no agent folder (nothing to guard yet): ' + noFolder.map((u) => u.name).join(', ') + '\n');
   // The managed-belt warning is a macOS-only concern: off darwin no sandbox block is written and
   // managed-settings does not apply, so warning there would be misleading.
