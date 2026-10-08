@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: usageprices-5158
-diff_hash: 2e8fc54c62e78cf6c7b26a9b693ecd8c2d7eaff857520c641062b5042a7ee8df
+diff_hash: 93ed31bf6f12a2435c5732ababade69a461f1c44a86e77a3bba7636071affd35
 validation: passed (Mortals full suite at c5588405e, 2026-10-03 12:37 CDT, hash ce3265e5cb94; rebased on main after #5163 merged (c11ea424c); focused usage tests + guards green on the new base)
 subdir_audit: passed
 timestamp: 2026-10-04T21:06:20Z
@@ -33,3 +33,4 @@ Published prices for gpt-5.6-sol, gemini-3.8-flash and grok-4.6 (fetched 2026-10
 | Iteration | Blockers | Warnings | Fixed |
 |---|---|---|---|
 | 1 | 0 | 0 | 2 (NIT) |
+- Rebased onto origin/main after #5563 (13:22 CDT 2026-10-08): clean, no change to this branch's content. Built main + this branch with git merge-tree: engine.reachable adds nothing (only main's known costOf, #5600). diff_hash recomputed.
