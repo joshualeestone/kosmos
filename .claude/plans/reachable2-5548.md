@@ -26,3 +26,12 @@ each adding commit, card state). Table: kept in the scratchpad and summarised on
 - engine.reachable.test.js: 6 tests (guard; reads every block; triaged covers only its file and is still exported;
   triaged only shrinks; pending-file and self-test). Mutations: bin/ removed -> guard red; an entry removed -> guard red;
   a fake entry for a called name -> shrink-only red.
+
+## Review 1 (sonnet, blind, spot-checked 25 entries): 2 WARNING + 1 NIT
+- [WARNING] ALLOWED_TOOLS, deriveCatalog, offeredTools were "used inside its own module": false, nothing in the module
+  uses them --> FIXED: recategorised as test seams of #5346's capture hardening, with accurate reasons.
+- [WARNING] bin/ callers matched on raw text, so its shell scripts' comment lines could hide an orphan --> FIXED: bin/
+  JS through codeOnly, shell scripts lose full-line comments (not trailing #: JS inside node -e). Test: the comment
+  strip leaves no full-line comment and keeps retireLauncher's real call. Mutation (no strip) -> red.
+- [NIT] labelFor's "OPEN #4375" is an unchecked card state --> checked: #4375 is open.
+Reviewer found no dangerous-direction entry (no real capability hidden as a seam or accessor).
