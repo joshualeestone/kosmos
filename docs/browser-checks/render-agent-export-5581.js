@@ -106,9 +106,32 @@ function readRow(page) {
     chk(dl.status === 200 && /attachment; filename="ezra\.agent\.md"/.test(dl.cd), 'the link answers the file as a download', JSON.stringify({ status: dl.status, cd: dl.cd }));
     chk(/You keep the #5581 archive\./.test(dl.text) && /^---\n/.test(dl.text), 'the file holds the saved instructions under its header', JSON.stringify(dl.text.slice(0, 80)));
 
-    // Review 1: an UNTIED card never loads instructions; the panel is cleared from a list instead. Ezra's link must
-    // not survive onto it (it would download Ezra's file under the stranger's card). Simulated as render-detail-header
-    // does: the untied card's own reset, run with an untied CURRENT.
+    // Review 2: the person's real click downloads the file (the browser's own download, not a fetch).
+    const [download] = await Promise.all([
+      page.waitForEvent('download', { timeout: 8000 }),
+      page.click('#d-instr-export-link'),
+    ]);
+    chk(download.suggestedFilename() === 'ezra.agent.md', 'a click downloads the agent under its file name', download.suggestedFilename());
+    // A refusal the click's look hears is said on the panel (the board's sentence), not left to the browser.
+    await page.route('**/api/agent/ezra/export?check=1', (route) => route.fulfill({ status: 409, json: { ok: false, because: 'that agent\u2019s instructions are empty, so there is nothing to share' } }));
+    await Promise.all([page.waitForEvent('download', { timeout: 8000 }).catch(() => null), page.click('#d-instr-export-link')]);
+    await page.waitForFunction(() => /^Not downloaded:/.test(document.getElementById('d-instr-msg').textContent), null, { timeout: 8000 });
+    const said = await page.evaluate(() => document.getElementById('d-instr-msg').textContent);
+    chk(/nothing to share/.test(said), 'a refused download says why on the panel', JSON.stringify(said));
+    await page.unroute('**/api/agent/ezra/export?check=1');
+
+    // Straight from ezra to an agent with empty instructions: the LOAD's own reset must take ezra's link away.
+    await openInstr(page, 'nell');
+    await page.waitForFunction(() => document.getElementById('d-instr').placeholder !== 'Loading instructions\u2026', null, { timeout: 8000 });
+    await page.waitForTimeout(300);
+    const empty = await readRow(page);
+    chk(empty.hidden === true, 'no export row for an agent with empty instructions', JSON.stringify(empty));
+    chk(empty.href === '#', 'the last agent\'s link does not survive onto this one', JSON.stringify(empty.href));
+
+    // An UNTIED card never loads instructions; the panel is cleared from a list instead (review 1). Back on ezra,
+    // then the untied card's own reset, run with an untied CURRENT as render-detail-header does.
+    await openInstr(page, 'ezra');
+    await page.waitForFunction(() => document.getElementById('d-instr-export').hidden === false, null, { timeout: 8000 });
     const untied = await page.evaluate(() => {
       CURRENT = { ...CURRENT, sessionName: 'someone-untied', isNamedOurs: false };
       setWritesOffered(CURRENT, false);
@@ -116,14 +139,6 @@ function readRow(page) {
       return { hidden: row.hidden, href: document.getElementById('d-instr-export-link').getAttribute('href') };
     });
     chk(untied.hidden === true && untied.href === '#', 'an untied card clears the last agent\'s export row and link', JSON.stringify(untied));
-
-    // An agent whose instructions are empty: nothing to share, so no row (and the last agent's link is gone).
-    await openInstr(page, 'nell');
-    await page.waitForFunction(() => document.getElementById('d-instr').placeholder !== 'Loading instructions…', null, { timeout: 8000 });
-    await page.waitForTimeout(300);
-    const empty = await readRow(page);
-    chk(empty.hidden === true, 'no export row for an agent with empty instructions', JSON.stringify(empty));
-    chk(empty.href === '#', 'the last agent\'s link does not survive onto this one', JSON.stringify(empty.href));
 
     chk(errs.length === 0, 'no page errors', errs.slice(0, 4).join(' | '));
     await page.close();
