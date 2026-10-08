@@ -89,8 +89,13 @@ the cut by hand. Reasoned from those tests, not run end to end through site-auto
 
 ## One-time setup on Mortals (before the site workflow merges)
 
-    git clone --reference ~/work/chaoskosmos-site --dissociate <site remote> ~/work/chaoskosmos-site-autodeploy
+    git clone --reference ~/work/chaoskosmos-site <site remote> ~/work/chaoskosmos-site-autodeploy
     cp -R ~/work/chaoskosmos-site/.vercel ~/work/chaoskosmos-site-autodeploy/
+
+Not `--dissociate` (a round-1 suggestion I first took): it repacks the new clone, and repacking this
+repo's 2.7 GB of gzipped tarball blobs ran 6 to 16 minutes at load 20+ on 2026-08-25 and reclaimed
+nothing. The borrowed objects mean ~/work/chaoskosmos-site must never be gc'd or repacked, which was
+already the rule for it.
 
 The workflow creates the agent-workforce tools worktree itself on its first run.
 
