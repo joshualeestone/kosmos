@@ -24,6 +24,7 @@
 
 require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const test = require('node:test');
+const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const store = require('./engine/store');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -71,14 +72,14 @@ function agentOn(ctx, name, configDir, runner, running) {
   const create = require('./engine/create');
   process.env.AGENT_WORKFORCE_LAUNCH = ctx.launch;
   fs.mkdirSync(nodePath.join(ctx.workers, name), { recursive: true });
-  fs.writeFileSync(create.plistPath(name),
+  fs.writeFileSync(jobfix.jobPath(name),
     /* passed THROUGH, not defaulted: see the header note */
-    create.plistFor(name, '/bin/claude', '/bin/tmux', null, configDir, runner), 'utf8');
+    jobfix.jobFor(name, '/bin/claude', '/bin/tmux', null, configDir, runner), 'utf8');
   profileFor(ctx, name);
   ctx.panesFile = ctx.panesFile || nodePath.join(ctx.sb, 'panes.txt');
   if (running) fs.appendFileSync(ctx.panesFile, fleet.line({ session: name }) + '\n');
   else if (!fs.existsSync(ctx.panesFile)) fs.writeFileSync(ctx.panesFile, '');
-  assert.ok(fs.existsSync(create.plistPath(name)),
+  assert.ok(fs.existsSync(jobfix.jobPath(name)),
     'the seeded launch file is missing, so every assertion below would be right for the wrong reason');
 }
 
@@ -212,7 +213,7 @@ test('#1689 FAIL-CLOSED: an unreadable launch file REFUSES instead of proceeding
     fs.writeFileSync(ctx.panesFile, fleet.line({ session: 'ghost' }) + '\n');
     fs.mkdirSync(nodePath.join(ctx.workers, 'ghost'), { recursive: true });
     /* A DIRECTORY where the plist belongs: readJob throws rather than answering. */
-    fs.mkdirSync(nodePath.join(ctx.launch, 'com.kosmos.agent.ghost.plist'), { recursive: true });
+    fs.mkdirSync(jobfix.jobPathIn(ctx.launch, 'ghost'), { recursive: true });
     return dir;
   });
   assert.equal(r.code, 400, 'it must REFUSE, not proceed. body: ' + JSON.stringify(r.json));

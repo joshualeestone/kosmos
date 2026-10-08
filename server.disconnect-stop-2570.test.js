@@ -32,6 +32,11 @@
  */
 
 const os = require('node:os');
+/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that seeds, reads or drives the job as a
+   launchd plist cannot run unchanged there. Skipped on Linux only; its reason says whether a Linux test covers it, or
+   that it is not tested on Linux yet (#5500). macOS and Windows unchanged. */
+const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS launchd fixture on a Linux host (#5432): the test checks the account-disconnect route's stop through launchctl answers. What it asserts is platform-neutral and is tested on macOS, but NOT yet on Linux: #5500 ports it." } : {};
+const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const fs = require('node:fs');
 const nodePath = require('node:path');
 
@@ -52,6 +57,9 @@ process.env.AGENT_WORKFORCE_HOME = HOME;
 process.env.AGENT_WORKFORCE_DATA = DATA;
 process.env.AGENT_WORKFORCE_WORKERS = WORKERS;
 process.env.AGENT_WORKFORCE_LAUNCH = LAUNCH;
+// #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too (a sandboxed board without it refuses
+// every systemd call, so a create ends partial on a Linux runner). macOS and Windows never read it.
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = require('node:path').join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 process.env.AGENT_WORKFORCE_PROJECTS = nodePath.join(SANDBOX, 'projects');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = nodePath.join(SANDBOX, 'claude-config-dir');
@@ -152,11 +160,11 @@ function codexAccount(label) {
 function agentOn(name, configDir, runner, claim) {
   const fleet = require('./test-support/fleet');
   fs.mkdirSync(nodePath.join(WORKERS, name), { recursive: true });
-  fs.writeFileSync(create.plistPath(name),
-    create.plistFor(name, '/bin/claude', '/bin/tmux', null, configDir, runner), 'utf8');
+  fs.writeFileSync(jobfix.jobPath(name),
+    jobfix.jobFor(name, '/bin/claude', '/bin/tmux', null, configDir, runner), 'utf8');
   fs.appendFileSync(PANES,
     fleet.line({ session: name, claim: claim === undefined ? name : claim }) + '\n');
-  assert.ok(fs.existsSync(create.plistPath(name)),
+  assert.ok(fs.existsSync(jobfix.jobPath(name)),
     'the seeded launch file is missing, so every assertion below would be right for the wrong reason');
 }
 
@@ -165,8 +173,8 @@ function agentOn(name, configDir, runner, claim) {
    does, so they are a real case rather than a convenience. */
 function registeredNotRunning(name, configDir, runner) {
   fs.mkdirSync(nodePath.join(WORKERS, name), { recursive: true });
-  fs.writeFileSync(create.plistPath(name),
-    create.plistFor(name, '/bin/claude', '/bin/tmux', null, configDir, runner), 'utf8');
+  fs.writeFileSync(jobfix.jobPath(name),
+    jobfix.jobFor(name, '/bin/claude', '/bin/tmux', null, configDir, runner), 'utf8');
   const profiles = nodePath.join(DATA, store.APP, 'profiles');
   fs.mkdirSync(profiles, { recursive: true });
   fs.writeFileSync(nodePath.join(profiles, name + '.json'), JSON.stringify({ name }));
@@ -193,7 +201,7 @@ test('#2570 CONTROL: with no stopAgents the route still REFUSES and names the ag
 
 /* ── the feature ─────────────────────────────────────────────────────────── */
 
-test('#2570: with stopAgents the agent is really stopped and the account IS disconnected', async () => {
+test('#2570: with stopAgents the agent is really stopped and the account IS disconnected', LINUX_PLIST_5432, async () => {
   installRunner();
   const dir = claudeAccount('busy2');
   agentOn('spade', dir, 'claude');
@@ -258,7 +266,7 @@ test('#2570 FAIL-CLOSED: an unreadable launch file refuses and stops NOBODY, eve
   fs.mkdirSync(nodePath.join(WORKERS, 'ghost'), { recursive: true });
   // A DIRECTORY where the launch file should be: readJob throws, jobMissing says
   // it is not simply absent, so `complete` goes false.
-  fs.mkdirSync(create.plistPath('ghost'), { recursive: true });
+  fs.mkdirSync(jobfix.jobPath('ghost'), { recursive: true });
   const r = await del('claude', { dir, stopAgents: true });
   assert.equal(r.code, 400, 'it must REFUSE. body: ' + JSON.stringify(r.json));
   assert.match(String(r.json.error), /could not check which agents/,
@@ -270,7 +278,7 @@ test('#2570 FAIL-CLOSED: an unreadable launch file refuses and stops NOBODY, eve
   /* Undo the undiagnosable agent. It is not scoped to this account: `complete`
      is a property of the whole enumeration, so leaving it behind would make
      every later arm answer "could not check" no matter what it was testing. */
-  fs.rmSync(create.plistPath('ghost'), { recursive: true, force: true });
+  fs.rmSync(jobfix.jobPath('ghost'), { recursive: true, force: true });
 });
 
 /* 🛑 A PARTIAL means the launchd job was disabled but the shut-down could not be

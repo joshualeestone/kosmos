@@ -12,6 +12,7 @@
  */
 
 const test = require('node:test');
+const jobfix = require('../test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -27,6 +28,9 @@ process.env.AGENT_WORKFORCE_HOME = HOME;
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'launch');
+// #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too (a sandboxed board without it refuses
+// every systemd call, so a create ends partial on a Linux runner). macOS and Windows never read it.
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = require('node:path').join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 delete process.env.AGENT_WORKFORCE_CODEX_HOME;
 delete process.env.CODEX_HOME;
 delete process.env.CLAUDE_CONFIG_DIR;
@@ -56,16 +60,21 @@ const SOLO = claudeAccount('solo', 'solo@example.com', false);
 const create = require('./create');
 const store = require('./store');
 const accounts = require('./accounts');
+/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that seeds, reads or drives the job as a
+   launchd plist cannot run unchanged there. Skipped on Linux only; its reason says whether a Linux test covers it, or
+   that it is not tested on Linux yet (#5500). macOS and Windows unchanged. */
 
-const plistText = (name) => fs.readFileSync(create.plistPath(name), 'utf8');
-const configDirOf = (name) => { const m = plistText(name).match(/<key>CLAUDE_CONFIG_DIR<\/key>\s*<string>([\s\S]*?)<\/string>/); return m ? m[1] : null; };
+const plistText = (name) => fs.readFileSync(jobfix.jobPath(name), 'utf8');
+// #5432 review 9: read through create.readJob, which reads the plist on macOS and the unit on Linux; a plist regex
+// returned null on Linux, so the 'no pin' assertions below could not fail there.
+const configDirOf = (name) => { const j = create.readJob(name); return j ? j.configDir : null; };
 
 /* Seeded directly on Codex (the job and the profile, all setProvider reads), as #1373's suite does: createAgent would
    call the real launchctl. */
 function bornOnCodex(name) {
   fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
   fs.mkdirSync(create.workerDir(name), { recursive: true });
-  fs.writeFileSync(create.plistPath(name), create.plistFor(name, CODEX_BIN, TMUX_BIN, null, null, 'codex'), 'utf8');
+  fs.writeFileSync(jobfix.jobPath(name), jobfix.jobFor(name, CODEX_BIN, TMUX_BIN, null, null, 'codex'), 'utf8');
   store.writeProfile(name, { provider: 'openai' });
   assert.ok(plistText(name).includes(CODEX_BIN), 'the seed must start on Codex, or "nothing changed" proves nothing');
   return name;

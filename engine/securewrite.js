@@ -192,27 +192,33 @@ function reapDeadTemps(dir, wanted) {
   try { entries = fs.readdirSync(dir); } catch { return; /* dir gone / unreadable: nothing to reap */ }
   for (const name of entries) {
     if (!wanted(name)) continue;
-    const m = TEMP_RE.exec(name);
-    if (!m) continue;
-    const pid = Number(m[1]);
-    /* No `t` segment (a prior release's temp) means the main thread wrote it. */
-    const tid = m[2] === undefined ? 0 : Number(m[2]);
-    const started = Number(m[3]);
-    let stale;
-    if (pid === process.pid) {
-      /* (pid, threadId) names one thread; ours has THIS STARTED. A temp claiming a
-         DIFFERENT thread of our pid may be a live sibling worker, so we leave it.
-         Only our own (pid, threadId) with a different STARTED is a certain prior run. */
-      stale = tid === THREAD && started !== STARTED;
-    } else {
-      /* A foreign pid: stale only if provably dead. `kill(pid,0)` succeeds (alive) or
-         throws EPERM (alive, foreign owner) or ESRCH (no such process). A reused pid
-         reads alive and we leave its temp rather than risk a live writer's. */
-      stale = false;
-      try { process.kill(pid, 0); } catch (e) { stale = e && e.code === 'ESRCH'; }
-    }
-    if (stale) { try { fs.unlinkSync(path.join(dir, name)); } catch { /* best-effort */ } }
+    if (tempWriterGone(name) === true) { try { fs.unlinkSync(path.join(dir, name)); } catch { /* best-effort */ } }
   }
+}
+
+/* Whether the writer of the temp `name` is provably gone: true (gone, the temp is stale), false (alive, or not
+   provable), null (not a temp of this writer's shape). The one rule, shared by reapDeadTemps and the #5418 tool. */
+function tempWriterGone(name) {
+  const m = TEMP_RE.exec(String(name));
+  if (!m) return null;
+  const pid = Number(m[1]);
+  /* No `t` segment (a prior release's temp) means the main thread wrote it. */
+  const tid = m[2] === undefined ? 0 : Number(m[2]);
+  const started = Number(m[3]);
+  let stale;
+  if (pid === process.pid) {
+    /* (pid, threadId) names one thread; ours has THIS STARTED. A temp claiming a
+       DIFFERENT thread of our pid may be a live sibling worker, so we leave it.
+       Only our own (pid, threadId) with a different STARTED is a certain prior run. */
+    stale = tid === THREAD && started !== STARTED;
+  } else {
+    /* A foreign pid: stale only if provably dead. `kill(pid,0)` succeeds (alive) or
+       throws EPERM (alive, foreign owner) or ESRCH (no such process). A reused pid
+       reads alive and we leave its temp rather than risk a live writer's. */
+    stale = false;
+    try { process.kill(pid, 0); } catch (e) { stale = e && e.code === 'ESRCH'; }
+  }
+  return stale;
 }
 
 /**
@@ -541,4 +547,5 @@ function writeSecret(file, data, mode, opts) {
    and `engine/trust.js` keeps its equivalent private for the same reason: a name
    generator is an implementation detail of the writer, and exporting it invites a
    caller to build a temp path the writer will not clean up. */
-module.exports = { writeSecret, secureDir, refuseSymlinkTarget, reapDeadTempsOf };
+// tempWriterGone is a predicate, not a name generator, so it cannot be used to make temps the writer will not clean
+module.exports = { writeSecret, secureDir, refuseSymlinkTarget, reapDeadTempsOf, tempWriterGone };

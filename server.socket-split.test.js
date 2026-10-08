@@ -102,7 +102,15 @@ function boardWithUnseenAgent(launchctlListStdout) {
   return JSON.parse(out);
 }
 
-test('#668: a job launchd says is running with no visible session says so, instead of claiming stopped', () => {
+
+/* #5432: on a Linux host an agent's job is a systemd user unit, so the job-dependent part of these tests (a plist
+   launchctl answers for) does not hold there.
+   Skipped on Linux ONLY for the tests that fail there; macOS and Windows are unchanged. */
+const LINUX_LAUNCHD = process.platform === 'linux'
+  ? { skip: 'macOS launchd test on a Linux host (#5432): ' + 'the job-dependent sentence or flag comes from a macOS plist and launchctl answers. What it asserts is platform-neutral and is tested on macOS, but NOT yet on Linux: #5500 ports it.' }
+  : {};
+
+test('#668: a job launchd says is running with no visible session says so, instead of claiming stopped', LINUX_LAUNCHD, () => {
   const status = boardWithUnseenAgent('PID\tStatus\tLabel\n90870\t0\tcom.kosmos.agent.ghost\n');
   const row = (status.agents || []).find((a) => a.sessionName === 'ghost');
   assert.ok(row, 'the agent fell out of the roster entirely');
@@ -144,7 +152,7 @@ function renderOffline(which, a) {
     (x) => x.role || '', () => '#eee', () => '#111', (n) => n[0], null, null);
 }
 
-test('#668: the card and the row wear the could-not-check pill, not a confident "Not running"', () => {
+test('#668: the card and the row wear the could-not-check pill, not a confident "Not running"', LINUX_LAUNCHD, () => {
   const status = boardWithUnseenAgent('PID\tStatus\tLabel\n90870\t0\tcom.kosmos.agent.ghost\n');
   const row = (status.agents || []).find((a) => a.sessionName === 'ghost');
   assert.ok(row && row.jobRunningUnseen === true, 'no unseen row to render; the route half of this fix regressed');
@@ -165,7 +173,7 @@ test('#668: the card and the row wear the could-not-check pill, not a confident 
   }
 });
 
-test('#668 control: the same agent with a parked job keeps the plain not-running verdict', () => {
+test('#668 control: the same agent with a parked job keeps the plain not-running verdict', LINUX_LAUNCHD, () => {   // #5432: a control for the tests skipped above; alone on Linux it proves nothing
   const status = boardWithUnseenAgent('PID\tStatus\tLabel\n-\t0\tcom.kosmos.agent.ghost\n');
   const row = (status.agents || []).find((a) => a.sessionName === 'ghost');
   assert.ok(row, 'the agent fell out of the roster entirely');

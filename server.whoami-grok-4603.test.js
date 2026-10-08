@@ -10,6 +10,7 @@
  * account list; a Claude agent's answer is unchanged (CONTROL).
  */
 const test = require('node:test');
+const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert');
 const os = require('node:os');
 const path = require('node:path');
@@ -19,6 +20,9 @@ const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-whoami-grok-4603-'));
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+// #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too (a sandboxed board without it refuses
+// every systemd call, so a create ends partial on a Linux runner). macOS and Windows never read it.
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = require('node:path').join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_FAKE_PANES = path.join(SANDBOX, 'panes.txt');
@@ -44,7 +48,7 @@ test.before(async () => { await start(0); base = `http://127.0.0.1:${server.addr
 test.after(() => { setLiveReader(null); try { server.close(); } catch { /* ignore */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
 function job(name, runner, bin) {
-  fs.writeFileSync(create.plistPath(name), create.plistFor(name, bin, '/opt/homebrew/bin/tmux', null, null, runner), 'utf8');
+  fs.writeFileSync(jobfix.jobPath(name), jobfix.jobFor(name, bin, '/opt/homebrew/bin/tmux', null, null, runner), 'utf8');
   assert.equal(create.readJob(name).runner, runner, 'the plist this test wrote does not read back as ' + runner);
 }
 function grokJob(name) { job(name, 'grok', '/opt/homebrew/bin/grok'); }
@@ -60,7 +64,7 @@ test('#4603 the sentence names Grok and Gemini by their product names', () => {
 
 test('#4603 a Grok agent\'s model comes from its card (its session file), not "we cannot tell"', (t) => {
   const board = fleet.install([fleet.agent('rex', { state: 'idle', runner: 'grok', command: 'grok' })]);
-  t.after(() => { board.restore(); try { fs.unlinkSync(create.plistPath('rex')); } catch { /* not written */ } });
+  t.after(() => { board.restore(); try { fs.unlinkSync(jobfix.jobPath('rex')); } catch { /* not written */ } });
   grokJob('rex');
   const real = board.agents.find((a) => a.name === 'rex');
   const before = whoamiFor(real, [], NO_LIVE());
@@ -85,7 +89,7 @@ test('#4603 CONTROL: a Claude agent never takes the card model over its transcri
 test('#4603 through the route: a default-account Grok agent on an xAI key is named by the key\'s last four', async (t) => {
   const board = fleet.install([fleet.agent('rex', { state: 'idle', runner: 'grok', command: 'grok' })]);
   const keyFile = path.join(process.env.AGENT_WORKFORCE_GROK_HOME, '.kosmos-grok-apikey');
-  t.after(() => { board.restore(); try { fs.unlinkSync(create.plistPath('rex')); } catch { /* */ } try { fs.unlinkSync(keyFile); } catch { /* */ } });
+  t.after(() => { board.restore(); try { fs.unlinkSync(jobfix.jobPath('rex')); } catch { /* */ } try { fs.unlinkSync(keyFile); } catch { /* */ } });
   grokJob('rex');
   const tok = sendertoken.mint('rex');
   assert.ok(tok.ok, tok.because);
@@ -102,7 +106,7 @@ test('#4603 through the route: a default-account Grok agent on an xAI key is nam
 
 test('#4603 after a provider switch (job says grok, the running pane is still Claude) the old model is not named', (t) => {
   const board = fleet.install([fleet.agent('swap', { state: 'idle' })]);
-  t.after(() => { board.restore(); try { fs.unlinkSync(create.plistPath('swap')); } catch { /* */ } });
+  t.after(() => { board.restore(); try { fs.unlinkSync(jobfix.jobPath('swap')); } catch { /* */ } });
   grokJob('swap');
   const real = board.agents.find((a) => a.name === 'swap');
   assert.equal(real.runner, 'claude', 'CONTROL: the card still describes the running Claude pane');
@@ -113,7 +117,7 @@ test('#4603 after a provider switch (job says grok, the running pane is still Cl
 
 test('#4603 a Codex agent the live reader missed takes its own card model when the card agrees', (t) => {
   const board = fleet.install([fleet.agent('cody', { state: 'idle', runner: 'codex', command: 'node', screen: '\u203a Ask Codex to do anything' })]);
-  t.after(() => { board.restore(); try { fs.unlinkSync(create.plistPath('cody')); } catch { /* */ } });
+  t.after(() => { board.restore(); try { fs.unlinkSync(jobfix.jobPath('cody')); } catch { /* */ } });
   job('cody', 'codex', '/opt/homebrew/bin/codex');
   const real = board.agents.find((a) => a.name === 'cody');
   const out = whoamiFor(Object.assign({}, real, { model: 'gpt-5.6-sol' }), [], NO_LIVE());
@@ -124,7 +128,7 @@ test('#4603 a Codex agent the live reader missed takes its own card model when t
 test('#4603 through the route: a default-account Gemini agent on a key is named by its last four', async (t) => {
   const board = fleet.install([fleet.agent('gem', { state: 'idle', runner: 'gemini', command: 'node' })]);
   const keyFile = path.join(process.env.AGENT_WORKFORCE_GEMINI_HOME, '.kosmos-gemini-apikey');
-  t.after(() => { board.restore(); try { fs.unlinkSync(create.plistPath('gem')); } catch { /* */ } try { fs.unlinkSync(keyFile); } catch { /* */ } });
+  t.after(() => { board.restore(); try { fs.unlinkSync(jobfix.jobPath('gem')); } catch { /* */ } try { fs.unlinkSync(keyFile); } catch { /* */ } });
   job('gem', 'gemini', '/opt/homebrew/bin/gemini');
   fs.writeFileSync(keyFile, 'gemini-test-key-WXYZ', { mode: 0o600 });
   const tok = sendertoken.mint('gem');
@@ -137,7 +141,7 @@ test('#4603 CONTROL through the route: a Claude agent\'s answer is the same with
   const board = fleet.install([fleet.agent('clem', { state: 'idle' })]);
   const grokKey = path.join(process.env.AGENT_WORKFORCE_GROK_HOME, '.kosmos-grok-apikey');
   const gemKey = path.join(process.env.AGENT_WORKFORCE_GEMINI_HOME, '.kosmos-gemini-apikey');
-  t.after(() => { board.restore(); try { fs.unlinkSync(create.plistPath('clem')); } catch { /* */ } for (const f of [grokKey, gemKey]) { try { fs.unlinkSync(f); } catch { /* */ } } });
+  t.after(() => { board.restore(); try { fs.unlinkSync(jobfix.jobPath('clem')); } catch { /* */ } for (const f of [grokKey, gemKey]) { try { fs.unlinkSync(f); } catch { /* */ } } });
   /* A default-account Claude launch job, so accountForAgent reaches its default arm, the one a keyed default row
      could wrongly match. No Claude account rows exist in this sandbox, so the right answer is no account. */
   job('clem', 'claude', '/opt/homebrew/bin/claude');
@@ -155,7 +159,7 @@ test('#4603 CONTROL through the route: a Claude agent\'s answer is the same with
 
 test('#4603 a Codex agent whose live read answers with no model also takes its card model', (t) => {
   const board = fleet.install([fleet.agent('cody2', { state: 'idle', runner: 'codex', command: 'node', screen: '› Ask Codex to do anything' })]);
-  t.after(() => { board.restore(); try { fs.unlinkSync(create.plistPath('cody2')); } catch { /* */ } });
+  t.after(() => { board.restore(); try { fs.unlinkSync(jobfix.jobPath('cody2')); } catch { /* */ } });
   job('cody2', 'codex', '/opt/homebrew/bin/codex');
   const real = board.agents.find((a) => a.name === 'cody2');
   const out = whoamiFor(Object.assign({}, real, { model: 'gpt-5.6-sol' }), [], { ok: true, runner: 'codex', account: null, model: null, configDir: null });
@@ -166,7 +170,7 @@ test('#4603 a Codex agent whose live read answers with no model also takes its c
 test('#4603 through the route: the model Grok Build wrote to its session file reaches the sentence', async (t) => {
   const board = fleet.install([fleet.agent('rexs', { state: 'idle', runner: 'grok', command: 'grok' })]);
   const sess = path.join(process.env.AGENT_WORKFORCE_GROK_HOME, 'sessions', 'rexs-cwd', 'sess-1');
-  t.after(() => { board.restore(); try { fs.unlinkSync(create.plistPath('rexs')); } catch { /* */ } fs.rmSync(path.join(process.env.AGENT_WORKFORCE_GROK_HOME, 'sessions'), { recursive: true, force: true }); });
+  t.after(() => { board.restore(); try { fs.unlinkSync(jobfix.jobPath('rexs')); } catch { /* */ } fs.rmSync(path.join(process.env.AGENT_WORKFORCE_GROK_HOME, 'sessions'), { recursive: true, force: true }); });
   grokJob('rexs');
   const work = create.workerDir('rexs');
   fs.mkdirSync(work, { recursive: true });
@@ -182,7 +186,7 @@ test('#4603 through the route: the model Grok Build wrote to its session file re
 
 test('#4603 for a non-Claude agent the card model (its session file) outranks the launch argument', (t) => {
   const board = fleet.install([fleet.agent('cody3', { state: 'idle', runner: 'codex', command: 'node', screen: '\u203a Ask Codex to do anything' })]);
-  t.after(() => { board.restore(); try { fs.unlinkSync(create.plistPath('cody3')); } catch { /* */ } });
+  t.after(() => { board.restore(); try { fs.unlinkSync(jobfix.jobPath('cody3')); } catch { /* */ } });
   job('cody3', 'codex', '/opt/homebrew/bin/codex');
   const real = board.agents.find((a) => a.name === 'cody3');
   const out = whoamiFor(Object.assign({}, real, { model: 'gpt-5.6-sol' }), [], { ok: true, runner: 'codex', account: null, model: 'gpt-5-codex', configDir: null });

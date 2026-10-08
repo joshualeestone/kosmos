@@ -36,6 +36,9 @@ const path = require('node:path');
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'runner-dir-1616-'));
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'LaunchAgents');
+// #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too (a sandboxed board without it refuses
+// every systemd call, so a create ends partial on a Linux runner). macOS and Windows never read it.
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = require('node:path').join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 process.env.AGENT_WORKFORCE_HOME = path.join(SANDBOX, 'home');
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'support');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
@@ -47,6 +50,7 @@ process.on('exit', () => {
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 
+const jobfix = require('../test-support/jobfixture');   // #5432: the agent's job where this platform keeps it (plist / unit)
 const create = require('./create');
 const openai = require('./openaiaccounts');
 const runners = require('./runners');
@@ -160,7 +164,7 @@ test('#1616 installJob refuses a directory or a stripped file at the runner path
   const name = 'rd-job';
   fs.mkdirSync(create.workerDir(name), { recursive: true });
   for (const [label, bad] of WRONG) {
-    try { fs.rmSync(create.plistPath(name), { force: true }); } catch { /* none yet */ }
+    try { fs.rmSync(jobfix.jobPath(name), { force: true }); } catch { /* none yet */ }
     const r = create.installJob(name, { claudeBin: bad, tmuxBin: realBin, codexBin: '/nonexistent-codex' });
     assert.equal(r.ok, false, label + ' at the claude path did not refuse the job');
     assert.match(r.because, /could not find Claude on this computer, so a job made now would never start/,
@@ -177,14 +181,14 @@ test('#1185 installJob refuses a directory or a stripped file at the TMUX path t
   const name = 'rd-job-tmux';
   fs.mkdirSync(create.workerDir(name), { recursive: true });
   for (const [label, bad] of WRONG) {
-    try { fs.rmSync(create.plistPath(name), { force: true }); } catch { /* none yet */ }
+    try { fs.rmSync(jobfix.jobPath(name), { force: true }); } catch { /* none yet */ }
     const r = create.installJob(name, { claudeBin: realBin, tmuxBin: bad, codexBin: '/nonexistent-codex' });
     assert.equal(r.ok, false, label + ' at the tmux path did not refuse the job');
     assert.match(r.because, /terminal program Kosmos runs agents in/,
       label + ': wrong refusal from installJob at the tmux path: ' + r.because);
     /* The plist must NOT have been written: a missing tmux is refused BEFORE the
        job file, so a person is not left with a launchd job that can never start. */
-    assert.equal(fs.existsSync(create.plistPath(name)), false,
+    assert.equal(fs.existsSync(jobfix.jobPath(name)), false,
       label + ': a refused-for-tmux adoption still wrote a (doomed) plist');
   }
   /* Control: real tmux reaches the job, so the arms above test the gate, not a wall. */

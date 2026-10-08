@@ -6,6 +6,7 @@
  * (status.js readMuseSession), and whoami takes it as it does for Grok and Gemini (the card's own model).
  */
 const test = require('node:test');
+const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert');
 const os = require('node:os');
 const path = require('node:path');
@@ -15,6 +16,9 @@ const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-whoami-muse-4603-'));
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+// #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too (a sandboxed board without it refuses
+// every systemd call, so a create ends partial on a Linux runner). macOS and Windows never read it.
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = require('node:path').join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_FAKE_PANES = path.join(SANDBOX, 'panes.txt');
@@ -34,9 +38,9 @@ test.before(() => setLiveReader(NO_LIVE));
 test.after(() => { setLiveReader(null); fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
 test('#4603 N12: a Muse agent\'s card and whoami name the model its last turn named; with none kept, nothing is claimed', (t) => {
-  fs.writeFileSync(create.plistPath('mia'), create.plistFor('mia', '/usr/local/bin/node', '/opt/homebrew/bin/tmux', null, null, 'muse'), 'utf8');
+  fs.writeFileSync(jobfix.jobPath('mia'), jobfix.jobFor('mia', '/usr/local/bin/node', '/opt/homebrew/bin/tmux', null, null, 'muse'), 'utf8');
   assert.equal(create.readJob('mia').runner, 'muse', 'fixture: the job does not read back as muse');
-  t.after(() => { try { fs.unlinkSync(create.plistPath('mia')); } catch { /* not written */ } });
+  t.after(() => { try { fs.unlinkSync(jobfix.jobPath('mia')); } catch { /* not written */ } });
   const card = () => {
     const board = fleet.install([fleet.agent('mia', { state: 'unknown', runner: 'muse', command: 'node' })]);
     try { return board.agents.find((a) => a.name === 'mia' || a.sessionName === 'mia'); } finally { board.restore(); }
@@ -62,8 +66,8 @@ test('#4603 N12: a Muse agent\'s card and whoami name the model its last turn na
    A guard, green on origin/main by design (main reads no Muse model at all): it pins against a bare read returning.
    (On a bare read this arm does not fail cleanly: card() blocks and the runner's timeout kills the file.) */
 test('#4603 N12 review 1: a fifo at the model file neither hangs the board nor names a model', (t) => {
-  fs.writeFileSync(create.plistPath('mib'), create.plistFor('mib', '/usr/local/bin/node', '/opt/homebrew/bin/tmux', null, null, 'muse'), 'utf8');
-  t.after(() => { try { fs.unlinkSync(create.plistPath('mib')); } catch { /* not written */ } });
+  fs.writeFileSync(jobfix.jobPath('mib'), jobfix.jobFor('mib', '/usr/local/bin/node', '/opt/homebrew/bin/tmux', null, null, 'muse'), 'utf8');
+  t.after(() => { try { fs.unlinkSync(jobfix.jobPath('mib')); } catch { /* not written */ } });
   assert.equal(create.readJob('mib').runner, 'muse', 'fixture: the job does not read back as muse, so the fifo would never be read');
   const dir = create.workerDir('mib');
   fs.mkdirSync(path.dirname(musefront.modelFile(dir)), { recursive: true });

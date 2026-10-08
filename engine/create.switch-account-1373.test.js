@@ -19,6 +19,7 @@
  */
 
 const test = require('node:test');
+const jobfix = require('../test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -37,6 +38,9 @@ process.env.AGENT_WORKFORCE_HOME = HOME;
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'launch');
+// #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too (a sandboxed board without it refuses
+// every systemd call, so a create ends partial on a Linux runner). macOS and Windows never read it.
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = require('node:path').join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 /* 🛑 MUST STAY UNSET. When AGENT_WORKFORCE_CODEX_HOME names a home the engine
    takes that home ALONE (#1211's ruling, deliberately kept), so the list would
    hold exactly one account and there would be no choice to test. Setting it
@@ -71,12 +75,12 @@ const BETA = signIn('beta', 'BETA');
 
 const create = require('./create');
 
-const codexHomeOf = (name) => {
-  const text = fs.readFileSync(create.plistPath(name), 'utf8');
-  const m = text.match(/<key>CODEX_HOME<\/key><string>([\s\S]*?)<\/string>/);
-  return m ? m[1] : null;
-};
+// #5432 review 9: through create.readJob (plist on macOS, unit on Linux); a plist regex read null on Linux.
+const codexHomeOf = (name) => { const j = create.readJob(name); return j ? j.configDir : null; };
 const store = require('./store');
+/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that seeds, reads or drives the job as a
+   launchd plist cannot run unchanged there. Skipped on Linux only; its reason says whether a Linux test covers it, or
+   that it is not tested on Linux yet (#5500). macOS and Windows unchanged. */
 /**
  * An agent seeded DIRECTLY: its launch job and its profile, which is all
  * `setProvider` reads.
@@ -97,8 +101,8 @@ const store = require('./store');
 function born(name) {
   fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
   fs.mkdirSync(create.workerDir(name), { recursive: true });
-  fs.writeFileSync(create.plistPath(name),
-    create.plistFor(name, CLAUDE_BIN, TMUX_BIN, null, null, 'claude'), 'utf8');
+  fs.writeFileSync(jobfix.jobPath(name),
+    jobfix.jobFor(name, CLAUDE_BIN, TMUX_BIN, null, null, 'claude'), 'utf8');
   store.writeProfile(name, { provider: 'anthropic' });
   /* The fixture's own control: if the seed is not readable as a job, every
      REFUSED below would be right for the wrong reason. */
@@ -265,7 +269,7 @@ test('#1373: an account that is not on this computer is REFUSED, not silently re
      nothing" from "the refusal wrote a Claude job". Assert what the plist DOES
      say, and the arm means something. */
   assert.equal(codexHomeOf(c), null, 'the refusal still wrote a codex home');
-  assert.match(fs.readFileSync(create.plistPath(c), 'utf8'), new RegExp(CLAUDE_BIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+  assert.match(fs.readFileSync(jobfix.jobPath(c), 'utf8'), new RegExp(CLAUDE_BIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
     'the refusal rewrote the job onto a different runner');
   assert.equal(store.readProfile(c).provider, 'anthropic',
     'the refusal still moved the agent off Claude');
