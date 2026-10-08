@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: phonepass-5510
-diff_hash: 0c0ada46e6b99ce2eb893f515521de96ae7992aa8f63aa595fa0dac19ff48c5e
+diff_hash: a6031c188fb975daf369a7491913c0ad635a267a5cad68d823ecfdf105f52e92
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-08T01:34:35Z
+timestamp: 2026-10-08T14:58:25Z
 iterations: 2
 converged: true
 ---
@@ -31,3 +31,8 @@ Final validation on dcc6c7853: validation_log PASSED (full tools/run-tests.sh su
 - [NIT] the --remote paragraph split a docblock sentence. Fixed.
 - [NIT] --remote's two differences from a phone undocumented; the proxy could hang if the board died. Fixed: documented; the proxy aborts.
 - [NIT] landscape sort-menu stretch. Decided, as iteration 1.
+
+## Rebased onto main for #5564 (2026-10-08)
+CI's only red (twice) was #4417's launch-event flake, 1 of 16689 node tests; its fix #5564 merged after this branch
+was cut. Rebased onto main (clean, no conflicts) to carry the fix; no change to this branch's own lines, but the diff's
+context moved, so the hash is re-taken and the pre-push hook re-runs full validation on the new diff.
