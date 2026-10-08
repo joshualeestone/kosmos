@@ -17,7 +17,8 @@
  *    Content-Length (if listed) is the chunk's length, X-Amz-SignedHeaders covers those six headers, If-None-Match is
  *    `*`, the url carries exactly SigV4's six query parameters and a signed time that agrees with expires_at, the url is https and carries the upload's own key, and no url or key
  *    repeats. A coordinator bug cannot make the Mac write something other than what it sealed.
- *  - 412 counts as stored only on a RETRY of that key (an earlier attempt was sent and its answer was lost). The key
+ *  - 412 counts as stored only after an earlier attempt on that key that MAY HAVE WRITTEN it (a lost answer, a failure
+ *    after S3 received the request); not after pre-connect failures or S3's "nothing committed" answers. The key
  *    is random and only this grant's url, whose signature fixes our MD5, can write it, so whatever holds it is our
  *    bytes. (The uploader holds no read grant, so it cannot check the object's ETag as the coordinator's doc
  *    suggests; the url-to-key binding above is what makes the 412 rule sound instead.) A 412 on the FIRST attempt
@@ -66,9 +67,9 @@ const GRANT_WINDOW_MS = 15 * 60 * 1000;                 // the coordinator's gra
 // header checks, so any other parameter refuses the grant.
 const S3_HOST = /^([a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\.)?s3([.-][a-z0-9-]+)?\.amazonaws\.com$/;
 const QUERY_ALLOWED = ['X-Amz-Algorithm', 'X-Amz-Credential', 'X-Amz-Date', 'X-Amz-Expires', 'X-Amz-SignedHeaders', 'X-Amz-Signature'];
-// The lock a grant may set, measured from the grant's own start (expires_at minus its window), never the Mac's clock:
-// the coordinator locks to the end of the week plus 30 days (plus the window), or the next week's end in a week's
-// last day, so 30 to about 38 days. Outside [29, 39] days is a coordinator bug that would lock data for the wrong time.
+// The lock a grant may set, measured from the url's SIGNED time (X-Amz-Date), never the Mac's clock: the coordinator
+// locks to the end of the week plus 30 days plus the window, or the next week's end in a week's last day, so about
+// 31 days 15 minutes to 38 days 15 minutes. Outside [29, 39] days is a coordinator bug that would lock for the wrong time.
 const LOCK_MIN_MS = 29 * 86400 * 1000, LOCK_MAX_MS = 39 * 86400 * 1000;
 // fetch refusing the request itself, before or without the network: no retry fixes these. Any other failure (a
 // network code, known or not: ENETDOWN, EADDRNOTAVAIL under the macOS TIME_WAIT leak, a TLS error) is worth another try.
@@ -142,7 +143,8 @@ function parseGrant(data, objects, seenKeys) {
     if (!(url.protocol === 'https:' || (allowHttp && url.protocol === 'http:'))) return { ok: false, because: `upload ${i} is not https` };
     // The bucket is AWS S3: the Mac sends its bytes only to an S3 endpoint on the default port, whatever host a grant
     // names (a coordinator bug cannot point it at a LAN address or another service). Path-style s3.<region> or
-    // s3-<region>, or virtual-hosted <bucket>.s3.<region>.
+    // s3-<region>, or virtual-hosted <bucket>.s3.<region>. This pins the SERVICE, not the bucket: the Mac holds no
+    // bucket name of its own, so a grant naming another bucket on S3 passes; the payload is sealed either way.
     if (!allowHttp && (url.port || !S3_HOST.test(url.hostname))) return { ok: false, because: `upload ${i}'s host is not an AWS S3 endpoint (${url.host})` };
     let path;
     try { path = decodeURIComponent(url.pathname); } catch { return { ok: false, because: `upload ${i} has an undecodable url path` }; }
@@ -205,14 +207,14 @@ function parseGrant(data, objects, seenKeys) {
 
 /* One PUT. Never thrown; returns { kind, status, code }:
      stored   200: written now
-     present  412 on a retry: an earlier attempt of ours on this key landed (see the header for why that is sound)
+     present  412 after an earlier attempt on this key that may have written it (see the header for why that is sound)
      expired  403 whose S3 body says the request expired: needs a new grant
      refused  412 on a first attempt, a redirect (never followed), any other 4xx or 403, or a LOCAL failure (fetch
               refusing the request itself: a bad header, a length mismatch, a bad url): nothing a retry or a new
               grant would change
      retry    5xx (SlowDown included), 429, 409 (a write to that key still in flight), a network failure or a
               timeout: another try on the SAME url while the grant lasts, never a new grant */
-async function putOne(fetchFn, up, bytes, attempt, timeoutMs) {
+async function putOne(fetchFn, up, bytes, mayHaveLanded, timeoutMs) {
   // (Never thrown: every failure is classified below.)
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), Math.max(1, timeoutMs || putTimeoutFor(bytes.length)));
@@ -225,12 +227,14 @@ async function putOne(fetchFn, up, bytes, attempt, timeoutMs) {
     const code = (/<Code>([A-Za-z]+)<\/Code>/.exec(text) || [])[1] || null;
     const s = r.status;
     if (s === 200) return { kind: 'stored', status: s, code };
-    if (s === 412) return { kind: attempt > 0 ? 'present' : 'refused', status: s, code };
+    // Stored only if an EARLIER attempt on this key may have written it (its answer was lost, or S3 failed after
+    // receiving it); after nothing but pre-connect failures or "nothing committed" answers, a 412 is not ours.
+    if (s === 412) return { kind: mayHaveLanded ? 'present' : 'refused', status: s, code };
     // Only S3's presigned-url expiry ("Request has expired", AccessDenied), not a credential's (ExpiredToken).
     if (s === 403 && code === 'AccessDenied' && /Request has expired/.test(text)) return { kind: 'expired', status: s, code };
     // 400 RequestTimeout (the socket sat idle) and IncompleteBody (fewer bytes than signed arrived): nothing was
     // committed, and a slow link meets both, so the same url is tried again. 501 NotImplemented never changes.
-    if (s === 400 && (code === 'RequestTimeout' || code === 'IncompleteBody')) return { kind: 'retry', status: s, code };
+    if (s === 400 && (code === 'RequestTimeout' || code === 'IncompleteBody')) return { kind: 'retry', status: s, code, nothingCommitted: true };
     if (s === 501) return { kind: 'refused', status: s, code };
     if (s === 429 || s === 409 || s >= 500) return { kind: 'retry', status: s, code };
     return { kind: 'refused', status: s, code };
@@ -341,12 +345,14 @@ async function uploadInner(deps, objects, opts, keys, run) {
         if (remaining <= 0) { if (troubled) stuck.push({ c, key: up.key }); else if (preOnly) unreached.push(c); else left.push(c); return; }
         // NOT capped at the grant's remaining time: S3 checks a presigned url's expiry when the request ARRIVES, so a PUT
         // started in time may finish after it. Aborting it at the deadline would turn a landed write into an unknown.
-        const r = await putOne(fetchFn, up, c.object, attempt, timeoutFor(c.object.length));
+        const r = await putOne(fetchFn, up, c.object, troubled, timeoutFor(c.object.length));
         if (r.kind === 'stored' || r.kind === 'present') { keys.set(c.name, up.key); troubledNow.delete(c.name); stored++; return; }
         // S3 says the grant expired. After trouble that is the same case as above: an earlier attempt may have landed.
         if (r.kind === 'expired') { if (troubled) stuck.push({ c, key: up.key }); else left.push(c); return; }
         if (r.kind === 'refused') { stop = stop || `the bucket refused a chunk (${r.status ? 'HTTP ' + r.status : 'locally'}${r.code ? ' ' + r.code : ''}); a new grant would not change that`; return; }
-        if (r.preconnect) { preOnly = true; } else { troubled = true; troubledNow.set(c.name, { c, key: up.key }); }
+        // troubled: an attempt that may have written this chunk (a lost answer, a failure after S3 got the request).
+        // Not a pre-connect failure, and not S3 saying it committed nothing.
+        if (r.preconnect) { preOnly = true; } else if (!r.nothingCommitted) { troubled = true; troubledNow.set(c.name, { c, key: up.key }); }
         // Jittered, so workers that met the same SlowDown do not retry in lockstep.
         await sleep(Math.min(BACKOFF_MAX_MS, 500 * 2 ** attempt) * (0.5 + Math.random() / 2));
       }
