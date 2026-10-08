@@ -5284,6 +5284,12 @@ test('#3718: the /api/status route adds offline needs_trust rows to the Issue co
   assert.equal(needsPerson({ state: 'stopped' }), false, 'CONTROL: an ordinary offline row is not counted');
   assert.equal(needsPerson({ state: 'connection_lost', reconnect: { phase: 'waiting' } }), false);
   assert.equal(needsPerson(null), false);
+  // #5154 slice C: an agent stuck past the threshold on a terminal error counts; a brief one does not.
+  // Kept aligned with web/index.html agentNeedsAttention.
+  assert.equal(needsPerson({ state: 'auth_failed', stuckError: { stuck: true, state: 'auth_failed' } }), true, 'a STUCK terminal error is an Issue');
+  assert.equal(needsPerson({ state: 'rate_limited', stuckError: { stuck: true, state: 'rate_limited' } }), true);
+  assert.equal(needsPerson({ state: 'auth_failed', stuckError: { stuck: false } }), false, 'CONTROL: a brief terminal error is not counted until it is stuck');
+  assert.equal(needsPerson({ state: 'auth_failed', stuckError: null }), false, 'CONTROL: no stuck escalation yet');
 });
 
 /* #763: a reported needs_you carries the question's project onto the state,

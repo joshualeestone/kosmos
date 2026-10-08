@@ -8599,7 +8599,11 @@ function needsPerson(a) {
   return Boolean(a) && (a.state === STATE.NEEDS_YOU || a.state === 'needs_trust'
     || (a.state === STATE.CONNECTION_LOST && Boolean(a.reconnect) && a.reconnect.phase === 'gave_up')
     // #5154 slice A: an agent Kosmos keeps restarting and that keeps stopping within minutes.
-    || (Boolean(a.crashLoop) && a.crashLoop.looping === true));
+    || (Boolean(a.crashLoop) && a.crashLoop.looping === true)
+    // #5154 slice C: an agent stuck past the threshold on the same terminal error (auth_failed / rate_limited).
+    // Kept byte-for-byte aligned with web/index.html agentNeedsAttention. The stuckError field is attached to
+    // the /api/status rows this runs over (server.js), as crashLoop is.
+    || (Boolean(a.stuckError) && a.stuckError.stuck === true));
 }
 /**
  * The numbers on the summary line, for a given set of cards.
