@@ -220,6 +220,7 @@ test('review 1+2: a post the community refused, or whose agent it refused, is no
 test('review 2: a post whose send got no answer IS taken back: the next sweep settles it and takes it down or holds it', () => {
   const lost = post('ava', 'Lost');
   writeJson(cs._paths.sentFile(), { [lost.id]: { state: 'pending', attempted: true, agent: 'ava' } });
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'kc_key_ra', remoteId: 'ra', name: 'ava' } });
   const r = cs.withdrawFor('ava', 'post', lost.id);
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(r.state, 'unconfirmed');
@@ -258,4 +259,34 @@ test('review 1: a new agent given a removed agent\'s name cannot take back the o
   assert.deepEqual(readJson(cs._paths.commentDeletesFile()), {});
   const mine = comment('ava', 'The new agent\'s own words.');
   assert.equal(cs.withdrawFor('ava', 'comment', mine.id).ok, true, 'CONTROL: its own queued comment is taken back');
+});
+
+test('review 3: with no live registration, neither a sent post nor an unanswered one is "taken back"', () => {
+  const sent = post('ava', 'Sent');
+  const lost = post('ava', 'Lost');
+  writeJson(cs._paths.sentFile(), {
+    [sent.id]: { state: 'sent', agent: 'ava', remoteId: crypto.randomUUID() },
+    [lost.id]: { state: 'pending', attempted: true, agent: 'ava' },
+  });
+  writeJson(cs._paths.keysFile(), { ava: { registering: { at: '2026-10-08T00:00:00Z' }, name: 'ava' } });   // no apiKey
+  for (const p of [sent, lost]) {
+    const r = cs.withdrawFor('ava', 'post', p.id);
+    assert.equal(r.notEligible, true, JSON.stringify(r));
+    assert.match(r.because, /no longer holds the registration/);
+  }
+  writeJson(cs._paths.keysFile(), { ava: { refused: true, name: 'ava' } });
+  assert.match(cs.withdrawFor('ava', 'post', lost.id).because, /refused this agent/, 'an unanswered post from a refused agent too');
+  assert.deepEqual(readJson(cs._paths.deletesFile()), {});
+});
+
+test('review 3: a comment already held back answers as done on a retry, and a moderator-removed post as already down', async () => {
+  await on();
+  const c = comment('ava', 'Queued then taken back.');   // inside the ON period, so the sweep acts on it
+  assert.equal(cs.withdrawFor('ava', 'comment', c.id).state, 'withheld');
+  await cs.sweep();   // records it withheld
+  assert.equal(readJson(cs._paths.commentsSentFile())[c.id].state, 'withheld', 'fixture: the sweep recorded it withheld');
+  assert.deepEqual(cs.withdrawFor('ava', 'comment', c.id), { ok: true, state: 'withheld' }, 'a retry is not "Nothing was taken back"');
+  const p = post('ava', 'Moderated');
+  writeJson(cs._paths.sentFile(), { [p.id]: { state: 'sent', agent: 'ava', remoteId: crypto.randomUUID(), takenDown: true } });
+  assert.deepEqual(cs.withdrawFor('ava', 'post', p.id), { ok: true, state: 'deleted' });
 });
