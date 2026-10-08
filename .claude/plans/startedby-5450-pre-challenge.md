@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: startedby-5450
-diff_hash: 5d1e0359745435c635ef540d97732abc74b538f72f87d96ee6dce4bffa95d886
-validation: passed (Mortals full suite at 0cd505494, hash 7f6c84fab829); no web/ change, so no browser check applies
+diff_hash: 58f6445eba181e7134d5845dbd9aa50fef96f6f4e6ccfea44448abb673f93579
+validation: passed (Mortals full suite at 0cd505494, hash 7f6c84fab829); no web/ change, so no browser check applies (main merged at 1d8169e53 for a start() conflict; changed lines identical, measured)
 subdir_audit: passed
 timestamp: 2026-10-08T01:12:31Z
 iterations: 10
