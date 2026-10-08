@@ -33,10 +33,13 @@ function safeRel(p) {
   return p.split(/[\\/]/).every((x) => x !== '' && !/[. ]$/.test(x) && !WIN_RESERVED_RE.test(x));
 }
 
-/* The key two entries collide on: lower-cased, NFC-normalized, with '\' read as '/'. This approximates how APFS
-   and NTFS match names; it is not their exact folding (nor NTFS short names), so it refuses the common collisions,
-   and the sink must still refuse to overwrite a file it already wrote in this restore. */
-const collisionKey = (p) => p.replace(/\\/g, '/').normalize('NFC').toLowerCase();
+/* The key two entries collide on: NFC, upper- then lower-cased (so final sigma folds with sigma), NFC again, with
+   '\' read as '/'. An approximation of APFS and NTFS name matching, not their exact folding; see the sink duties. */
+const collisionKey = (p) => toSinkPath(p).normalize('NFC').toUpperCase().toLowerCase().normalize('NFC');
+/* safeRel and collisionKey read '\' as a separator, so the sink is handed the same reading. */
+const toSinkPath = (p) => p.replace(/\\/g, '/');
+/* A manifest path as reported back: bounded, since a refused entry's path is not length-checked. */
+const forReport = (p) => (p.length > 300 ? `${p.slice(0, 300)}...` : p);
 
 /** Every manifest path that must not be restored because another entry collides with it (see collisionKey). */
 function collidingPaths(entries) {
@@ -67,7 +70,9 @@ function collidingPaths(entries) {
  *   sink.begin(path) -> { write(buf), commit(), abort() } (each may return a promise). Bytes are written BEFORE the
  *     file is verified, so the sink must write somewhere other than the final path, leave any existing file there
  *     untouched until commit, and publish atomically on commit. abort must be safe at any point, including after
- *     a commit that threw.
+ *     a commit that threw. The sink is handed paths with '/' separators, and must also:
+ *       - refuse to overwrite a file it already committed in this restore (collision refusal here is approximate);
+ *       - refuse a path whose folders resolve outside the restore root, such as through a symlink already there.
  *
  * Paths in failed and skippedAtBackup come from the manifest and may hold any printable text: escape them for
  * display.
@@ -79,7 +84,7 @@ async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, 
   const wellFormed = [];
   for (const f of manifest.files) {
     if (!f || !safeRel(f.path) || !Array.isArray(f.chunks) || typeof f.sha256 !== 'string' || !Number.isSafeInteger(f.size) || f.size < 0) {
-      failed.push({ path: f && typeof f.path === 'string' ? f.path : '(unnamed)', why: 'malformed entry or unsafe path' });
+      failed.push({ path: f && typeof f.path === 'string' ? forReport(f.path) : '(unnamed)', why: 'malformed entry or unsafe path' });
     } else wellFormed.push(f);
   }
   const clash = collidingPaths(wellFormed);
@@ -99,7 +104,7 @@ async function restoreFile(f, { memberSk, namingKey, fetchChunk, sink, maxChunkO
   if (!f.chunks.every((n) => typeof n === 'string' && CHUNK_NAME_RE.test(n))) return 'a chunk name is malformed';
   let out = null;
   try {
-    out = await sink.begin(f.path);
+    out = await sink.begin(toSinkPath(f.path));
     const hash = crypto.createHash('sha256');
     let size = 0;
     for (const name of f.chunks) {
