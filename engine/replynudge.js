@@ -146,7 +146,7 @@ function writePersons(root, sessionName, owed) {
   } catch { return false; }
 }
 /* #5623: the agent's record brought up to date with a count. persons: freshReplies' list (owed now, unanswered). An entry
-   answered since (no longer owed) goes; one a count cannot see any more (out of the read's window) goes after
+   seen answered (in `answered`) goes; one a count cannot see any more (out of the read's window) goes after
    PERSONS_KEPT_MS. Pure: returns { owed (the new record), due (to tell now), unanswered (ids just given up on) }. */
 function personsUpdate(owed0, persons, now, answered) {
   const owed = {};
@@ -276,7 +276,8 @@ async function sweepOnce(o) {
        this pass's lock. */
     const counted = [];
     let capReads = 0;   // review 6
-    let capSkipped = false;   // review 8
+    let capStopped = false;   // review 9: the read limit ended the count
+    let capFullSeen = false;   // review 9: the cap was full at some agent this pass
     let readOne = false;   // review 2: the gap follows EVERY read that asked the service since the last gap, counted or not
     /* Review 8 (Opus): the pass starts AFTER the last agent asked last pass (o.rotation, kept by the caller), so a pass
        that ends early (a refusing service, the hour cap) does not starve the same later agents every time, and an agent
@@ -324,8 +325,8 @@ async function sweepOnce(o) {
       /* Review 8: those few reads take their own turn across passes (rot.personsDone), so the same first agents are not
          the only ones read while the cap stays full; once every agent has had its turn the round starts again. */
       if (capFull) {
-        if (rot) { if (!(rot.personsDone instanceof Set)) rot.personsDone = new Set(); if (rot.personsDone.has(session)) { capSkipped = true; continue; } }
-        capReads += 1; if (capReads > PERSONS_CAPFULL_READS) break;
+        if (rot) { if (!(rot.personsDone instanceof Set)) rot.personsDone = new Set(); if (rot.personsDone.has(session)) { capFullSeen = true; continue; } }
+        capFullSeen = true; capReads += 1; if (capReads > PERSONS_CAPFULL_READS) { capStopped = true; break; }
         if (rot) rot.personsDone.add(session);
       }
       try {
@@ -396,7 +397,9 @@ async function sweepOnce(o) {
         results.push({ session, name: plainWords(card.name || session, 80), act: 'error', because: String((err && err.message) || err) });
       }
     }
-    if (rot && rot.personsDone instanceof Set && capSkipped && capReads === 0) rot.personsDone.clear();   // review 8: a full round done
+    /* Review 9: the round closes on the pass that walks the rest of the roster without the read limit stopping it (so the
+       next pass starts a fresh round, with no idle pass between), and whenever the cap is not full (no stale round). */
+    if (rot && rot.personsDone instanceof Set && (!capStopped || !capFullSeen)) rot.personsDone.clear();
     /* Review 2 (Opus): the lines are SPACED (typeGapMs, default TYPE_GAP_MS), so each agent told has the read lock to
        itself when it reads (two agents' own reads refuse each other, #4833). Review 1: so the card is read AGAIN before
        each line: an agent that started working (or was stood down) meanwhile is left for the next pass (#4624). */
@@ -541,7 +544,9 @@ async function sweepOnce(o) {
         const prev = book.get(session);
         const tries = (prev && prev.key === p.key && Number.isInteger(prev.tries) ? prev.tries : 0) + 1;
         if (mayHaveReached) {
-          book.delete(session);   // review 12: the record was written ahead; nothing is held in memory any more
+          // Review 12: the record was written ahead; nothing is held in memory any more. Review 9 of #5623: the person
+          // line's own book (its fails, its rest, what it said) is kept, so a regular line cannot cut that rest short.
+          { const { personFails, personGivenAt, personSaid } = prev || {}; const keep = { personFails, personGivenAt, personSaid }; for (const k of Object.keys(keep)) if (keep[k] === undefined) delete keep[k]; if (Object.keys(keep).length) book.set(session, keep); else book.delete(session); }
           /* Review 1: when it went, not when the pass began. Review 2: kept in time order (agentnudge prunes from the front,
              assuming that order, and pushes its pass's start time). */
           const at = clock();
@@ -550,7 +555,8 @@ async function sweepOnce(o) {
           sent.splice(i, 0, at);
         } else {
           rollBack();
-          book.set(session, { key: p.key, tries, ...(tries >= MAX_TRIES ? { givenAt: clock() } : {}) });
+          { const { personFails, personGivenAt, personSaid } = prev || {}; const keep = { personFails, personGivenAt, personSaid }; for (const k of Object.keys(keep)) if (keep[k] === undefined) delete keep[k];
+            book.set(session, { ...keep, key: p.key, tries, ...(tries >= MAX_TRIES ? { givenAt: clock() } : {}) }); }   // review 9 of #5623: as above
         }
         results.push({ session, name: display, act: 'nudge', delivered, delivery: state, because: p.because });
         // Review 14 (Opus): the log says which try failed and when it gives up, not "nudge" for a line that reached nothing.

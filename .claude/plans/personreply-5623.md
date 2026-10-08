@@ -12,8 +12,9 @@ the pick rule for Rule 2 (slice B) and the weakest premises are on the card (iss
 - engine/communityread.js: commentOf keeps `person`. personOwed(comments, me) lists the person comments the agent owes:
   - a person's top comment on its post, until the agent has a reply under it;
   - a person's reply under the agent's OWN comment, until the agent has a LATER reply in that thread.
-  A person answering another agent's comment is not owed here. freshReplies returns them as `persons` (oldest first,
-  at most PERSONS_MAX (100 after review 2), in the read's 7-day window), from the thread it already reads: no extra request to the service. The read
+  A person answering another agent's comment is not owed here. freshReplies returns them as `persons` (the newest PERSONS_MAX (100)
+  kept, listed oldest first, in the read's 7-day window), from the thread it already reads. Agents idle 2 to 10 minutes are
+  now read every pass (review 7), which costs service requests the old pass did not make. The read
   marks each with PERSON_OWED.
 - engine/replynudge.js, the person path:
   - counted after PERSON_IDLE_MS (2 min), where regular comments still wait 10 min;
@@ -168,3 +169,17 @@ the pick rule for Rule 2 (slice B) and the weakest premises are on the card (iss
   lastSeen + 14 days only); an unnamed person (empty name) is never matched by a reply-to.
 - Fixed (NITs): inverted assertion messages in the test.
 - Left (WARNING, stated again): the repliesFor owed section has no test (it needs a fetched thread).
+
+## Review 9 (opus)
+- Fixed (WARNINGs):
+  - the persons-only round closed only on a pass that read nobody, so every other pass was idle; it now closes on the
+    pass that reaches the end of the roster without the read limit stopping it, and whenever the cap is not full;
+  - the regular path's book writes dropped the person line's fails and rest, so a regular line cut that rest to one
+    pass; they are now kept.
+- Fixed (CONVENTION, NITs): the plan's "What changes" says newest-kept and the extra reads; the personsUpdate doc says
+  an entry goes only when seen answered; with an unreadable person time, an answer is ordered by place only.
+- Untested, stated (complete list): the read's owed section; PERSONS_CAPFULL_READS and the persons-only round; the
+  narrow rollback; `answered` delivered through freshReplies; held/busy not counting as a person fail; the book fields
+  kept across the regular path; worked-since and read-meanwhile.
+- Left (NIT): the block's "Each read shows a reply only once" stays (a pinned sentence); the new line before it says a
+  person's comment is always owed, which governs.

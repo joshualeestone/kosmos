@@ -482,7 +482,7 @@ function personOwed(comments, me, answered) {
     /* Review 4: later by time, or by place in the thread when the times tie or one is unreadable (the service lists a
        thread's replies oldest first), so an answer in the same second still counts. */
     /* Review 5: and it must ANSWER that person: its reply-to names them (a reply to a reply always carries the name). */
-    const laterMine = (r) => { const at = replies.indexOf(r); return Boolean(r.nameKey) && replies.some((o, i) => mine(o) && o.replyToKey === r.nameKey && (o.ts > r.ts || (i > at && (!o.ts || !r.ts || o.ts === r.ts)))); };
+    const laterMine = (r) => { const at = replies.indexOf(r); return Boolean(r.nameKey) && replies.some((o, i) => mine(o) && o.replyToKey === r.nameKey && ((o.ts > r.ts && r.ts) || (i > at && (!o.ts || !r.ts || o.ts === r.ts)))); };   // review 9: an unreadable person time orders by place only
     // A person's top comment is answered by a reply of the agent's under it that answers the top comment itself (no
     // reply-to, the service's form for a direct reply) or names the person.
     const answersTop = (o) => mine(o) && (!o.replyToKey || (Boolean(c.nameKey) && o.replyToKey === c.nameKey));   // review 8: an unnamed person matches no reply-to
