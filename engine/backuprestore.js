@@ -117,8 +117,9 @@ function collidingPaths(entries) {
  *         turns a fullwidth '．．' into '..').
  *     Paths may name dotfiles (.ssh, .zshrc, .git/hooks): restore into a root the person chose, not over live config.
  *
- * Text in failed and skippedAtBackup comes from the manifest: it is bounded and has control, bidi and lone-surrogate
- * characters written as \u{...}, but it is still another device's words; escape it for HTML. fetchChunk and the
+ * restored, failed and skippedAtBackup all hold manifest text, another device's words: escape all of it for HTML.
+ * restored paths passed pathProblem (no control or bidi characters); failed and skipped text is bounded and has
+ * control, bidi and lone-surrogate characters written as \u{...}. failed is grouped by stage, not in manifest order. fetchChunk and the
  * sink have no timeout here: a call that never settles stalls the restore, so the caller bounds them.
  */
 async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, manifestObject, fetchChunk, sink,

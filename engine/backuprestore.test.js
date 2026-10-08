@@ -229,7 +229,7 @@ test('#5536 the sink is handed / separators; an empty file restores; a refused l
   const { run } = handMade((entry) => [entry('dir\\f.md'), entry('empty.md', { chunks: [], size: 0, sha256: sha(Buffer.alloc(0)) }), entry(long)]);
   const { r, sink } = await run();
   assert.deepEqual(r.restored, ['dir\\f.md', 'empty.md'], 'the report keeps the manifest spelling');
-  assert.ok(sink.committed.has('dir/f.md'), 'the sink sees the separator safeRel and collisionKey read');
+  assert.ok(sink.committed.has('dir/f.md'), 'the sink sees the separator pathProblem and collisionKey read');
   assert.equal(sink.committed.get('empty.md').length, 0);
   assert.equal(r.failed.length, 1);
   assert.equal(r.failed[0].path, `${'z'.repeat(300)}...`);
