@@ -143,6 +143,30 @@ function cleanList(a) {
 }
 /* The hash the COMPANY served with its words (contract v1.4): boards echo it, never recompute it, and the company
    compares the one an enroll sends with the one its rollup expects. Null from a company that serves none. */
+/* #5532 (contract v1.5): the salt the company serves for the computer print, from redeem or status, echoed on enroll.
+   Hex, 16 to 64 whole bytes (engine/computerprint.js checks it again). */
+function servedSalt(d) {
+  const s0 = d && typeof d.computerSalt === 'string' ? d.computerSalt : '';
+  return /^(?:[0-9a-fA-F]{2}){16,64}$/.test(s0) ? s0 : null;
+}
+/* The computer print for one request to the company, as fields to add to its body. `orgId` is the company this
+   board's OWN record names (or, at enroll, the company whose consent the person accepted, which becomes the record's;
+   review 39 refuses an answer naming any other). Never logged: only printFor's `because`, which holds no print or id.
+   The read is synchronous and can block the board for up to five seconds while ioreg hangs; it runs on a join, a
+   leave and the rollup tick, at most once a minute while reads fail and once an hour after giving up (accepted). */
+function printFields(salt, orgId) {
+  if (typeof salt !== 'string' || !salt) return { send: 'none', fields: {} };   // no salt: an older company side; no print, nothing pinned
+  const p = require('./computerprint').printFor(salt, orgId);
+  if (p.send === 'print') return { send: 'print', fields: { computerPrint: p.print } };
+  if (p.send === 'none' || p.send === 'later') return { send: p.send, fields: {} };
+  console.error('orgenroll: no computer print: ' + p.because);
+  return { send: 'error', fields: {} };
+}
+/* The print for the rollup: from this world's record only. */
+function reportPrint(opts) {
+  const rec = readEnrollment(opts);
+  return rec && rec.computerSalt && rec.org ? printFields(rec.computerSalt, rec.org.id) : { send: 'none', fields: {} };
+}
 function servedHash(d) {
   const h = d && typeof d.consentHash === 'string' ? d.consentHash : '';
   if (!/^[0-9a-f]{64}$/.test(h)) return null;
@@ -274,7 +298,7 @@ async function preview(code, opts) {
     const org = d && d.member === true ? cleanOrg(d.org) : null;
     const role = d ? cleanRole(d.role) : null;
     const consent = d ? cleanConsent(d.consent) : null;
-    if (org && role && consent) return { ok: true, move: true, org, role, consent, served: servedHash(d) };
+    if (org && role && consent) return { ok: true, move: true, org, role, consent, served: servedHash(d), salt: servedSalt(d) };
     return { ok: false, code: 'org_already_member', because: SAY.org_already_member };
   }
   if (!r.ok) return { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'The code could not be checked through Kosmos+ just now. Nothing was joined; try again in a minute.', code.trim()) };
@@ -282,7 +306,7 @@ async function preview(code, opts) {
   const role = cleanRole(r.data && r.data.role);
   const consent = cleanConsent(r.data && r.data.consent);
   if (!org || !role || !consent) return { ok: false, because: 'Your company\'s answer was not complete, so nothing was joined.' };
-  return { ok: true, org, role, consent, served: servedHash(r.data) };
+  return { ok: true, org, role, consent, served: servedHash(r.data), salt: servedSalt(r.data) };
 }
 
 /* enroll, leave and refresh read and write the same record: one at a time, so the daily pass can never act on a
@@ -293,7 +317,9 @@ function oneAtATime(fn) { const run = queue.then(fn, fn); queue = run.catch(() =
 /* A first join the company made but this Kosmos will not keep (it cannot record it, or the company did not confirm this
    Kosmos) is undone with a leave, and each says only what happened (reviews 12, 19). */
 async function undoFirstJoin(lead, opts) {
-  const undo = await signed('POST', ROUTES.leave, {}, opts);
+  // The print was pinned with this join's salt (#5532): a leave without it would be refused as a copy (org_device_changed).
+  const pf = printFields(opts && opts.computerSalt, opts && opts.orgId);
+  const undo = pf.send === 'later' || pf.send === 'error' ? { ok: false, because: 'no print yet' } : await signed('POST', ROUTES.leave, pf.fields, opts);
   // org_code_used: the code is spent, so the route keeps no ticket for it and the page goes back to the code field.
   if (undo.ok || codeOf(undo.because) === 'org_not_member') { retireWorldId(opts); return { ok: false, code: 'org_code_used', because: lead + ' Joining was undone, so nothing was joined. That code is used up: ask your company for a new one.' }; }
   setLeavePending(true, opts, null, true, opts && opts.consentHash);   // an undo, retried on the next pass if this file, at least, can be written
@@ -315,6 +341,16 @@ async function enrollNow(code, accepted, opts) {
   if (opts && typeof opts.consentHash === 'string' && /^[0-9a-f]{64}$/.test(opts.consentHash)) body.consentHash = opts.consentHash;
   // The words go on disk before anything is sent, so whichever path later records this hash finds them (#5532).
   if (body.consentHash) rememberConsent(body.consentHash, opts.consent, opts);
+  /* #5532 (v1.5): the computer print, made with the salt the company served and the company being joined. A read that
+     failed and is waiting to retry sends nothing yet (a join without the print would pin none, and a copy could then
+     report); a malformed salt or company is a bug, said and not sent. */
+  const salt = opts && typeof opts.computerSalt === 'string' ? opts.computerSalt : null;
+  if (salt && opts.orgId) {
+    const pf = printFields(salt, opts.orgId);
+    if (pf.send === 'later') return { ok: false, because: 'This Kosmos could not read this computer just now. Nothing was sent; press Join again in a minute.' };
+    if (pf.send === 'error') return { ok: false, because: 'This Kosmos could not make its computer print, so nothing was sent.' };
+    Object.assign(body, pf.fields, { computerSalt: salt });
+  }
   if (code != null) {
     if (typeof code !== 'string' || !CODE.test(code.trim())) return { ok: false, because: 'That is not a join code. Check it and try again.' };
     body.code = code.trim();
@@ -354,7 +390,7 @@ async function enrollNow(code, accepted, opts) {
     if (verdict === 'notHere' && !move && namesThisWorld(d0, world)) return undoFirstJoin('Your company did not confirm this Kosmos, so it is not your work Kosmos.', opts);
     if (verdict !== 'here') {
       const hash = opts && typeof opts.consentHash === 'string' && /^[0-9a-f]{64}$/.test(opts.consentHash) ? opts.consentHash : null;
-      setJoinUnknown({ consentHash: hash, move, orgId: wantOrg }, opts);
+      setJoinUnknown({ consentHash: hash, move, orgId: wantOrg, computerSalt: body.computerSalt || null }, opts);
       return { ok: false, unknown: true, code: 'org_join_unknown', because: 'It is not known yet whether joining went through. This Kosmos will ask your company again in a few minutes; if joining went through, this screen will show it.' };
     }
     r = { ok: true, data: st.data };
@@ -378,6 +414,7 @@ async function enrollNow(code, accepted, opts) {
   const rec = { org, role, world, enrolledAt: new Date().toISOString() };
   // The consent the person was shown, as a hash: what they accepted is then a checkable fact on this side (#5531 review 10).
   if (opts && typeof opts.consentHash === 'string' && /^[0-9a-f]{64}$/.test(opts.consentHash)) rec.consentHash = opts.consentHash;
+  if (body.computerSalt) rec.computerSalt = body.computerSalt;   // the salt the pinned print was made with (#5532): leave and rollup use it
   try { writeEnrollment(rec, opts); } catch {
     try { writeEnrollment(rec, opts); } catch {   // once more: a passing error (a full disk freeing up)
       /* The company now enrolls this world, but this Kosmos cannot record it, so it would never report and never show
@@ -404,7 +441,15 @@ function setLeavePending(on, opts, rec, undo, consentHash) {
   // A rewrite without a hash keeps the one already there (review 33): one unanswered retry must not drop it.
   const given = typeof consentHash === 'string' && /^[0-9a-f]{64}$/.test(consentHash) ? consentHash : null;
   const hash = given || (on && undo === true && pendingUndo(opts) ? pendingConsentHash(opts) : null);   // only an undo's own, carried forward
-  try { if (on) writeWhole(file, JSON.stringify({ at: new Date().toISOString(), rec: rec || null, undo: undo === true, consentHash: hash, world: readWorldId(opts) }) + '\n'); else fs.rmSync(file, { force: true }); } catch { /* best effort */ }
+  /* #5532: where this leave's print comes from: the record's salt and company, else (an undo, with no record) the join's
+     own, else the one this file already holds, so a rewrite never drops it. */
+  const prior = on ? pendingPrintFrom(opts) : null;
+  const printFrom = rec && rec.computerSalt && rec.org ? { salt: rec.computerSalt, orgId: rec.org.id }
+    : opts && typeof opts.computerSalt === 'string' && typeof opts.orgId === 'string' ? { salt: opts.computerSalt, orgId: opts.orgId } : prior;
+  try { if (on) writeWhole(file, JSON.stringify({ at: new Date().toISOString(), rec: rec || null, undo: undo === true, consentHash: hash, world: readWorldId(opts), printFrom: printFrom || null }) + '\n'); else fs.rmSync(file, { force: true }); } catch { /* best effort */ }
+}
+function pendingPrintFrom(opts) {
+  try { const j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_PENDING_FILE), 'utf8')); return j && j.printFrom && typeof j.printFrom.salt === 'string' && j.world === readWorldId(opts) ? j.printFrom : null; } catch { return null; }
 }
 function pendingConsentHash(opts) {
   try { const j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_PENDING_FILE), 'utf8')); return j && j.consentHash && j.world === readWorldId(opts) ? j.consentHash : null; } catch { return null; }
@@ -418,7 +463,7 @@ function setJoinUnknown(info, opts) {
   const file = path.join(storeRoot(opts), JOIN_UNKNOWN_FILE);
   try {
     if (!info) { fs.rmSync(file, { force: true }); return; }
-    writeWhole(file, JSON.stringify({ at: new Date().toISOString(), consentHash: info.consentHash || null, move: info.move === true, orgId: typeof info.orgId === 'string' ? info.orgId : null }) + '\n');
+    writeWhole(file, JSON.stringify({ at: new Date().toISOString(), consentHash: info.consentHash || null, move: info.move === true, orgId: typeof info.orgId === 'string' ? info.orgId : null, computerSalt: typeof info.computerSalt === 'string' ? info.computerSalt : null }) + '\n');
   } catch { /* best effort */ }
 }
 function joinUnknownAge(opts) { const j = joinUnknown(opts); const t = j ? Date.parse(j.at || '') : NaN; return Number.isFinite(t) && t <= Date.now() ? Date.now() - t : null; }
@@ -494,6 +539,7 @@ async function settleUnknownJoin(unsure, opts) {
     if (!org || !role) return { ok: false, enrolled: false, because: "Your company's answer was not complete." };
     const rec = { org, role, world, enrolledAt: new Date().toISOString() };
     if (unsure.consentHash) rec.consentHash = unsure.consentHash;
+    if (unsure.computerSalt) rec.computerSalt = unsure.computerSalt;   // #5532: the salt the join's print was made with
     try { writeEnrollment(rec, opts); } catch { setJoinUnknown(unsure, opts); return { ok: false, enrolled: false, because: "This Kosmos's data folder could not be written." }; }
     setStopped(null, opts);
     setLeavePending(false, opts);   // joined again after an unconfirmed leave: that old leave must never be sent now (review 35)
@@ -575,7 +621,14 @@ async function leaveNow(opts, retry) {
     setLeavePending(true, opts, before, undo);
     return { ok: false, pending: true, because: 'Leaving could not be confirmed yet. This Kosmos has stopped reporting, and it will tell your company again.' };
   }
-  const r = await signed('POST', ROUTES.leave, {}, opts);
+  // #5532: the print the company pinned, or the leave is refused as a copy's. A read still retrying keeps it pending.
+  const from = pendingPrintFrom(opts);
+  const pf = from ? printFields(from.salt, from.orgId) : { send: 'none', fields: {} };
+  if (pf.send === 'later' || pf.send === 'error') {
+    setLeavePending(true, opts, before, undo);
+    return { ok: false, pending: true, because: 'Leaving could not be sent yet. This Kosmos has stopped reporting, and it will tell your company again.' };
+  }
+  const r = await signed('POST', ROUTES.leave, pf.fields, opts);
   const code = r.ok ? null : codeOf(r.because);
   if (r.ok || code === 'org_not_member') {
     setLeavePending(false, opts); setStopped(null, opts);
@@ -657,11 +710,12 @@ async function refreshNow(opts) {
   const rec = { org, role, world, enrolledAt: (before && before.enrolledAt) || new Date().toISOString() };
   // The consent belongs to the world it was shown for: never carried onto a record for another world (review 28).
   if (before && before.consentHash && before.world === world) rec.consentHash = before.consentHash;
+  if (before && before.computerSalt && before.world === world) rec.computerSalt = before.computerSalt;   // #5532
   try { writeEnrollment(rec, opts); } catch { /* keep the old record; the next refresh tries again */ }
   return { ok: true, enrolled: true, member: true, ...rec };
 }
 
 module.exports = {
   ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, codeOf,
-  worldId, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, CONSENT_FILE, acceptedConsent, consentWithdrawn,
+  worldId, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, CONSENT_FILE, acceptedConsent, consentWithdrawn, reportPrint,
 };

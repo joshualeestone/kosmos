@@ -373,7 +373,7 @@ test('#5532 rollup review 8: usage needs its own consent, and a usage key that i
 });
 
 test.todo('#5532 consent follow-up: tick() must refuse unless the accepted report lines cover EVERY field build() sends (rollup reviews 5 and 6), bound to the served consentHash (v1.4); a non-empty list is not enough');
-test.todo('#5532 before any send is enabled: the per-computer fingerprint (contract v1.5), so a copied data folder on another computer cannot report as the work Kosmos (rollup review 6)');
+// The per-computer print (rollup review 6) is wired and pinned in engine/orgenroll-print-5532.test.js.
 
 test('#5532 rollup review 7: a project linked from another Kosmos is never reported; an alias named after a client is not a model', async () => {
   const g = await r.gather(sources({

@@ -349,6 +349,12 @@ async function tick(opts) {
   const changed = !g.partial && st.lastSig && sig !== st.lastSig;
   if (!due && !(changed && now - st.lastAt >= CHANGE_MIN_MS)) return { sent: false, because: 'nothing due' };
   const body = build(Object.assign({ world: rec.world, at: new Date(now).toISOString(), reason: due ? 'daily' : 'change' }, g));
+  /* #5532 (v1.5): the computer print pinned at enroll, made from this world's own record. Once a print is pinned the
+     company refuses a rollup without it (a copy would just leave it out), so a read still retrying waits for the next
+     tick instead of sending; that is not a failure, so it starts no hour of quiet. */
+  const pf = oe.reportPrint(eo);
+  if (pf.send === 'later' || pf.send === 'error') return { sent: false, because: 'this computer could not be read yet' };
+  Object.assign(body, pf.fields);
   /* Again, right before the send: a leave may have landed while gather() read the board (rollup review 3). The person
      has been told this Kosmos stopped reporting; nothing may go after that. */
   const now2 = oe.readEnrollment(eo);

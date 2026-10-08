@@ -129,8 +129,7 @@ usageprice-5532 (the price table). Rebased onto main once both merge.
   documented as a write probe.
 
 ## Not done here
-- Keep the accepted consent `reports` lines with the enrollment (#5531's enroll, from the consent the ticket was issued
-  for), so tick() can send. Until then the rollup is built and tested but sends nothing.
+- (Done 2026-10-08, by hash: see "Carried onto main and wired".)
 - A usage reader scoped to THIS world's agents (their transcripts or launch folders only), so `usage` can be sent.
   Until then the company sees no tokens or cost from this board, and the body says usageWithheld.
 - The per-computer fingerprint (contract v1.5, agreed 2026-10-07): a full copy of the data folder carries the Kosmos+
@@ -144,3 +143,35 @@ usageprice-5532 (the price table). Rebased onto main once both merge.
   field a record carries (task, transcript, folder, description) never reach the body; bounds and the byte cap;
   gather's agent list, project names, partial reads; the sender's gate (a Kosmos that never joined sends nothing),
   timings, quiet hour, and a refusal that makes it ask. Every guard was mutated and reddens.
+
+## Carried onto main and wired (2026-10-08)
+The dormant branch (head 9bf14764f; reviews 1 to 9 above) was re-applied onto follow-up b (consenthash-5531,
+PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wired:
+- **Gate:** tick() runs only when `orgenroll.mayReport()` holds: the work Kosmos, with the company's served consent
+  hash recorded on this computer (b). It is re-checked right before the send, against the same hash.
+- **The accepted words, by hash:** `rememberConsent` writes `org-consent.json` ({consentHash, reports,
+  usageConsented}) from the words the screen showed (the server's ticket), BEFORE the enroll is sent.
+  `acceptedConsent` returns them only for the hash on the record. So the paths that carry only the hash find them
+  without carrying them: a lost answer settled later, an undo refused and rebuilt, the daily refresh. No file, or
+  another hash, sends nothing. The file goes when the world id retires.
+- **Usage:** consented only by accepted words naming token usage (the coordinator's `CONSENT_NAMES_USAGE` rule, keyed on
+  token/usage/cost). Today's words do not, so usage stays withheld. The usage reader (#5571) is not wired into
+  gather() yet: it would be dead code until the words name usage.
+- **Rollup 409 org_consent_changed:** the company holds other words now. `consentWithdrawn` drops the record's hash, so
+  this Kosmos stops reporting and the joined view says it sends nothing. The membership is untouched. Accepting the
+  new words is #5531 follow-up a0 (orgreview-5531).
+- **The computer print (v1.5, #5565), from orgenroll.js only:**
+  - **Join:** `computerPrint` and `computerSalt` (the salt from redeem or status, through the ticket). The company is
+    the one whose consent was accepted (review 39 refuses an answer naming another). The salt is recorded.
+  - **Leave:** the print for the record's salt and company; an undo with no record uses the join's own, kept in the
+    pending-leave file so a retry still has it.
+  - **Rollup:** the print for the record's salt and company.
+  - **Retrying or malformed:** a read still retrying (`later`) or a malformed salt or company (`error`) sends nothing. A
+    join says so; a leave stays pending; the rollup waits for the next tick (not a failure).
+  - **Allowlisted:** orgenroll.js is the print module's first allowed loader, with its two guards in
+    `engine/orgenroll-print-5532.test.js`: nothing logged carries a print, the id or a body with one (captured, plus a
+    source scan); every print is for the record's company. The print's FIRST_CALLER_5532 excuse is gone.
+- **Weakest premise:** a synchronous ioreg read can block the board for up to five seconds on a join, a leave or a
+  rollup tick, at most once a minute while reads fail and once an hour after giving up. Accepted here; an
+  asynchronous read is the alternative if it is measured as a problem.
+

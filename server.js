@@ -9682,7 +9682,8 @@ const server = http.createServer(async (req, res) => {
               // with the enrollment. None served (or a malformed one): nothing is recorded, so mayReport fails closed
               // rather than report on words the company cannot match (consenthash review 2).
               consentHash: r.served || null,
-              consent: r.consent,   // #5532: the words shown, remembered by their hash so the rollup sends only the accepted report lines
+              consent: r.consent,
+              computerSalt: r.salt || null,   // #5532 (v1.5): the salt the join's computer print is made with   // #5532: the words shown, remembered by their hash so the rollup sends only the accepted report lines
               orgId: r.org && typeof r.org.id === 'string' ? r.org.id : null };   // WHICH company they were for (review 37)
             r.ticket = ORG_TICKET.value;
             if (!r.served) console.error('orgenroll: no consent hash to echo (none served, malformed, or for words cleaned before showing); a join records none, and this Kosmos will not report');
@@ -9700,7 +9701,7 @@ const server = http.createServer(async (req, res) => {
           }
           const spent = body.accepted === true ? ORG_TICKET : null;
           if (spent) ORG_TICKET = null;   // one use
-          r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true, spent ? { consentHash: spent.consentHash, consent: spent.consent, orgId: spent.orgId } : undefined);
+          r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true, spent ? { consentHash: spent.consentHash, consent: spent.consent, orgId: spent.orgId, computerSalt: spent.computerSalt } : undefined);
           // Not joined for a passing reason (no public code: unreachable, busy; or org_bad_world, which says "Try again"):
           // the same consent may be accepted again.
           if (spent && r && r.ok === false && (!r.code || r.code === 'org_bad_world') && !r.declined && Date.now() - spent.at <= ORG_TICKET_MS

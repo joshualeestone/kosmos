@@ -1,0 +1,139 @@
+'use strict';
+/**
+ * kosmos#5532 (contract v1.5): engine/orgenroll.js is the first caller of engine/computerprint.js. The print's own
+ * test file (computerprint-5532.test.js) lets a file load it only together with these two guards:
+ *   1. the caller never logs a print, a printFor result or a request body carrying one;
+ *   2. the company in the print comes from this board's OWN enrollment record (at enroll: the company whose consent
+ *      the person accepted, which becomes the record's), never from a coordinator's later answer.
+ * The reader is faked through the print module's tests-only hook, so no real hardware id is read here.
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const cp = require('./computerprint');
+const oe = require('./orgenroll');
+const rollup = require('./orgrollup');
+
+const UUID = '0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9';
+const DUMP = '+-o Mac  <class IOPlatformExpertDevice, id 0x1, registered>\n    {\n      "IOPlatformUUID" = "' + UUID + '"\n    }\n';
+const SALT = 'ab'.repeat(16);
+const HASH = 'cd'.repeat(32);
+const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
+const OTHER = { id: 'org_2', name: 'Other', slug: 'other' };
+const CONSENT = { reports: ['agent names'], backsUp: [], readers: ['you'], never: [] };
+
+function sandbox(t, run) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orgenroll-print-5532-'));
+  t.after(() => { fs.rmSync(root, { recursive: true, force: true }); cp._testRunner(); });
+  cp._testRunner(run || (() => DUMP), { platform: 'darwin' });
+  return root;
+}
+/* A company that binds this world and records every request body; `statusOrg` is what its status answer names. */
+function company(root, statusOrg) {
+  const sent = [];
+  return {
+    sent,
+    macRequest: async (m, route, body) => {
+      sent.push({ route, body: body == null ? null : JSON.parse(JSON.stringify(body)) });
+      if (route === oe.ROUTES.enroll) return { ok: true, data: { ok: true, org: ACME, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } };
+      if (route === oe.ROUTES.status) return { ok: true, data: { member: true, org: statusOrg || ACME, role: 'member', computerSalt: 'ef'.repeat(16), enrolled: { computer: 'c1', world: oe.worldId({ root }), thisComputer: true } } };
+      return { ok: true, data: { ok: true } };
+    },
+  };
+}
+const printOf = (org) => cp._testFingerprint(SALT, org);
+const join = (root, co, extra) => oe.enroll('ACME-JOIN-1234', true, Object.assign({ root, remote: co, consentHash: HASH, consent: CONSENT, orgId: ACME.id, computerSalt: SALT }, extra || {}));
+
+test('#5532 print guard 2: the company in every print is the one on this board\'s record, never a later answer\'s', async (t) => {
+  const root = sandbox(t);
+  // The company's status names ANOTHER company: a coordinator asking for this computer's print under a company it
+  // is not enrolled in. Nothing below may follow it.
+  const co = company(root, OTHER);
+  const r = await join(root, co);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  const en = co.sent.find((x) => x.route === oe.ROUTES.enroll).body;
+  assert.equal(en.computerPrint, printOf(ACME.id), 'the join\'s print was not made for the company being joined');
+  assert.equal(en.computerSalt, SALT, 'the join did not echo the salt its print was made with');
+  assert.equal(oe.readEnrollment({ root }).computerSalt, SALT, 'the salt was not recorded, so leave and rollup could not make the print');
+  assert.notEqual(printOf(ACME.id), printOf(OTHER.id), 'CONTROL: the two companies give different prints');
+  // The rollup: the record's company, whatever status says.
+  fs.writeFileSync(path.join(root, oe.CONSENT_FILE), JSON.stringify({ consentHash: HASH, reports: ['agent names'], usageConsented: false }));
+  const sources = { agents: () => [], offline: () => [], projects: () => [], linkedProject: () => false };
+  const tk = await rollup.tick({ root, remote: co, sources, now: Date.UTC(2026, 9, 8, 12) });
+  assert.equal(tk.sent, true, JSON.stringify(tk));
+  assert.equal(co.sent.find((x) => x.route === rollup.ROUTE).body.computerPrint, printOf(ACME.id), 'the rollup\'s print followed another company');
+  // The leave: the record's company too (status here names OTHER; the leave asks status first).
+  const lv = await oe.leave({ root, remote: company(root, ACME) });
+  assert.equal(lv.ok, true, JSON.stringify(lv));
+});
+
+test('#5532 print guard 2: a leave sends the print for the record\'s company, and a pending undo keeps the join\'s', async (t) => {
+  const root = sandbox(t);
+  const co = company(root);
+  await join(root, co);
+  const leaving = company(root);
+  await oe.leave({ root, remote: leaving });
+  assert.equal(leaving.sent.find((x) => x.route === oe.ROUTES.leave).body.computerPrint, printOf(ACME.id), 'the leave did not carry the pinned print, so the company would refuse it as a copy');
+  // An undo of a first join this Kosmos could not record: there is no record, so the join's own salt and company.
+  const { a } = { a: sandbox(t) };
+  const undoing = { sent: [], macRequest: async (m, route, body) => {
+    undoing.sent.push({ route, body });
+    if (route === oe.ROUTES.enroll) return { ok: true, data: { ok: true, org: ACME, role: 'member', enrolled: { computer: 'c9', world: 'f'.repeat(32), thisComputer: false } } };
+    if (route === oe.ROUTES.leave) return { ok: false, because: 'offline' };
+    return { ok: false, because: 'offline' }; } };
+  const u = await join(a, undoing);
+  assert.equal(u.code, 'org_undo_pending', JSON.stringify(u));
+  assert.equal(undoing.sent.find((x) => x.route === oe.ROUTES.leave).body.computerPrint, printOf(ACME.id), 'the undo went without the print the join pinned');
+  // The retry, from the pending file alone (no record): still the join's print.
+  const retry = company(a);
+  retry.macRequest = (() => { const base = retry.macRequest; return async (m, route, body) => (route === oe.ROUTES.status
+    ? { ok: true, data: { member: true, org: ACME, role: 'member', enrolled: { computer: 'c9', world: oe.worldId({ root: a }), thisComputer: false } } } : base(m, route, body)); })();
+  await oe.refresh({ root: a, remote: retry });
+  const again = retry.sent.find((x) => x.route === oe.ROUTES.leave);
+  assert.ok(again, 'CONTROL: the pending undo was retried');
+  assert.equal(again.body.computerPrint, printOf(ACME.id), 'the retried undo lost the join\'s print');
+});
+
+test('#5532 print guard: a read still retrying sends nothing, on a join, a leave and the rollup', async (t) => {
+  let fail = true;
+  const root = sandbox(t, () => { if (fail) throw new Error('ioreg timed out'); return DUMP; });
+  const co = company(root);
+  const r = await join(root, co);
+  assert.equal(r.ok, false, JSON.stringify(r));
+  assert.match(r.because, /Nothing was sent/);
+  assert.equal(co.sent.length, 0, 'a join went out with no print while the read waits to retry');
+  fail = false;
+  cp._testRunner(() => DUMP, { platform: 'darwin' });
+  assert.equal((await join(root, co)).ok, true, 'CONTROL: the join goes once the computer can be read');
+});
+
+test('#5532 print guard 1: nothing this caller logs carries a print, the hardware id or a body with one', async (t) => {
+  const lines = [];
+  const orig = { error: console.error, log: console.log, warn: console.warn, info: console.info };
+  for (const k of Object.keys(orig)) console[k] = (...a) => { lines.push(a.map(String).join(' ')); };
+  t.after(() => { for (const k of Object.keys(orig)) console[k] = orig[k]; });
+  const root = sandbox(t);
+  const co = company(root);
+  await join(root, co);
+  fs.writeFileSync(path.join(root, oe.CONSENT_FILE), JSON.stringify({ consentHash: HASH, reports: ['agent names'], usageConsented: false }));
+  await rollup.tick({ root, remote: co, sources: { agents: () => [], offline: () => [], projects: () => [], linkedProject: () => false }, now: Date.UTC(2026, 9, 8, 12) });
+  // The one line this caller does log: a malformed salt (printFor's `because`).
+  const bad = sandbox(t);
+  await join(bad, company(bad), { computerSalt: 'not-hex' });
+  await oe.leave({ root, remote: company(root) });
+  assert.ok(lines.some((l) => /no computer print/.test(l)), 'CONTROL: the capture saw the line this caller logs');
+  for (const l of lines) {
+    assert.equal(l.includes(printOf(ACME.id)), false, 'a print was logged: ' + l);
+    assert.equal(l.toUpperCase().includes(UUID), false, 'the hardware id was logged: ' + l);
+    assert.equal(/computerPrint/.test(l), false, 'a body carrying a print was logged: ' + l);
+  }
+  // And by source: no console call in either file names the print or a request body.
+  for (const f of ['orgenroll.js', 'orgrollup.js']) {
+    const src = fs.readFileSync(path.join(__dirname, f), 'utf8');
+    for (const call of src.match(/console\.(log|error|warn|info)\([^\n]*/g) || []) {
+      assert.equal(/computerPrint|\bprint\b|fields|\bbody\b/.test(call.replace(/'[^']*'/g, "''")), false, f + ' logs a print or a body: ' + call);
+    }
+  }
+});

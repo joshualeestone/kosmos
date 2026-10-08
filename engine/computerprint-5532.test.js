@@ -206,7 +206,8 @@ test('#5532 v1.5 review 15: nothing outside the tests loads computerprint until 
      read that hangs blocks the whole board for up to five seconds, a timer or deferred task included (review 22). So
      the caller reads it at start, before the board listens, or accepts that block (at most once a minute while reads
      fail, once an hour after giving up), or makes the read asynchronous first. */
-  const ALLOWED = [];
+  // engine/orgenroll.js: its two guards are engine/orgenroll-print-5532.test.js (no logging; the record's company).
+  const ALLOWED = ['engine/orgenroll.js'];
   // Any way of naming the module (review 19): require or import(), with or without a path or a .js/.cjs/.mjs suffix.
   const LOADS = /(require|import)\s*\(\s*['"`][^'"`]*computerprint(\.[cm]?js)?['"`]\s*\)|from\s+['"][^'"]*computerprint(\.[cm]?js)?['"]/;
   for (const spelling of ["require('./computerprint')", "require('./computerprint.js')", "require('../engine/computerprint.js')", "import('./computerprint')", "import x from './computerprint.mjs'"]) {
