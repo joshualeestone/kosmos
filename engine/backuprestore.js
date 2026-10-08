@@ -36,9 +36,9 @@ const segmentOk = (x) => x !== '' && !/[. ]$/.test(x) && !WIN_RESERVED_RE.test(x
 
 function safeRel(p) {
   if (typeof p !== 'string' || !p || p.length > 4096 || !p.isWellFormed()) return false;  // a lone surrogate encodes as U+FFFD
-  // Control characters (C0, DEL, C1, line and paragraph separators), bidi overrides (a name that displays as another
-  // name), and ':' (a drive or an NTFS stream).
-  if (/[\x00-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069:]/.test(p)) return false;
+  // Control characters (C0, DEL, C1, line and paragraph separators), bidi controls and marks (they reorder how a
+  // name displays), and ':' (a drive or an NTFS stream).
+  if (/[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069:]/.test(p)) return false;
   if (p.startsWith('/') || p.startsWith('\\')) return false;
   return p.split(/[\\/]/).every((x) => segmentOk(x) && segmentOk(x.replace(IGNORABLE_RE, '')));
 }
@@ -92,7 +92,9 @@ function collidingPaths(entries) {
  *     folder), and must also:
  *       - refuse to overwrite a file it already committed in this restore, comparing file identity (inode or file
  *         ID), not path strings (collision refusal here is approximate);
- *       - refuse a path whose folders resolve outside the restore root, such as through a symlink already there.
+ *       - refuse a path whose folders resolve outside the restore root, such as through a symlink already there;
+ *       - use the operating system's Unicode file APIs (on Windows, never an ANSI or best-fit conversion, which
+ *         turns a fullwidth '．．' into '..').
  *
  * Paths in failed and skippedAtBackup come from the manifest and may hold any printable text: escape them for
  * display.
@@ -100,7 +102,8 @@ function collidingPaths(entries) {
 async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, manifestObject, fetchChunk, sink,
   maxChunkObject = MAX_CHUNK_OBJECT, maxManifestObject = MAX_MANIFEST_OBJECT, maxFiles = MAX_FILES }) {
   if (!(manifestObject instanceof Uint8Array) || manifestObject.length > maxManifestObject) return null;
-  const manifest = openManifest(memberSk, devicePubAtSnapshot, ctx, manifestObject);
+  const mo = Buffer.isBuffer(manifestObject) ? manifestObject : Buffer.from(manifestObject.buffer, manifestObject.byteOffset, manifestObject.length);
+  const manifest = openManifest(memberSk, devicePubAtSnapshot, ctx, mo);
   if (!manifest || !Array.isArray(manifest.files) || manifest.files.length > maxFiles) return null;
   const restored = [], failed = [];
   const wellFormed = [];

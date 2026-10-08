@@ -7,7 +7,7 @@ Design v2.1 on #5536 and E0.6's on #5535. `engine/backuprestore.js`, on E0.6's m
 - `shrinkWarning(older, newer)` flags a sudden drop in file count or bytes (E0.6 v2: a person picks the snapshot, warned). It reads the manifests the device wrote, so it is a heuristic against an accidental shrink, not a defence against a device padding its manifest.
 - The sink contract is stated in the JSDoc: bytes land before verification, so the sink writes beside the final path and publishes atomically on commit. A fetched object larger than any format-1 chunk (2 x CDC.max + 4 KiB) is refused before decrypting.
 - The sink also owns two duties stated in the JSDoc: refuse to overwrite a file it already committed in this restore, and refuse a path that resolves outside the restore root (an existing symlink). It is handed '/' separators.
-- Bounded work for a hostile manifest: the manifest object (512 MiB) and its entry count (2,000,000) are bounded before it is opened or walked (both raisable by the caller), collisions are found with a segment trie (linear), a file may not list more chunks than bytes, an empty chunk is refused, and the skipped list is capped (10000 entries, 300 characters each).
+- Bounded work for a hostile manifest: the manifest object is bounded (512 MiB) before it is opened and its entry count (2,000,000) before it is walked (both raisable by the caller), collisions are found with a segment trie (linear), a file may not list more chunks than bytes, an empty chunk is refused, and the skipped list is capped (10000 entries, 300 characters each).
 - Tests (15), each refusal with a control; every new guard mutation-checked red.
 - Both exports are excused in engine.reachable.test.js (caller: E0.7's restore engine, which needs E0.1/E0.2).
 
@@ -24,3 +24,5 @@ Review round 4 (sonnet): quadratic collision check (4.6 s for 400 deep entries; 
 Review round 5 (opus): segment rules ran only on the raw segment (`..` + ZWSP passed), `nul .txt` passed, 8.3 short names could defeat a path-tracking sink. Fixed; the sink contract now says identity is by file ID, and that a Mac name holding `\` comes back as a folder.
 
 Review round 6 (sonnet): the manifest itself had no size or entry bound (a compromised enrolled device could blow up a restore). Fixed; also every reported path bounded, recorded hash shape checked, the Windows device-name variants tested.
+
+Review round 7 (opus): a valid manifest passed as a plain Uint8Array read as tampered. Fixed; also bidi marks refused, a Unicode-API duty for the sink (fullwidth dots), the timing test widened (measured 0.94 s trie vs 22.8 s for the old quadratic check), plan wording corrected.
