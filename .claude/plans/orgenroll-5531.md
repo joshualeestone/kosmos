@@ -291,3 +291,8 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
   once leaves no note. Pinned in the engine, the server (once only) and the page (O12, as text).
 - "Joining was undone" now says the code is used up; a move with no answer that did not land says the work Kosmos did
   not move (not "nothing was joined").
+
+## Review 22
+- A stale record cleared because the world id file is gone now leaves the one-time "stopped" note, as the company's own
+  stop does, so the screen says this Kosmos stopped reporting. Pinned.
+- Kept (decided at reviews 18 and 20): refresh writes the record the company confirms here; one board-wide ticket.

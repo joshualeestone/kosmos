@@ -613,4 +613,5 @@ test('#5531 review 14: a record whose world id file is gone is stale: cleared, a
   assert.equal(r.enrolled, false);
   assert.deepEqual(sent, [], 'a world with no id of its own still contacted the company');
   assert.equal(fs.existsSync(path.join(a, org.ENROLLMENT_FILE)), false, 'the stale record was kept, so every pass would ask again');
+  assert.equal(org.stoppedFor({ root: a }), 'Acme', 'this Kosmos stopped reporting and the screen was never told (review 22)');
 });

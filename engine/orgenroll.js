@@ -422,7 +422,10 @@ async function refreshNow(opts) {
   /* No local world id: nothing can match, so nothing is asked (review 14). A missing id file means the record is stale
      (cleared here, sent nothing); one that exists but cannot be read is left alone, like any unclear answer. */
   if (!readWorldId(opts)) {
-    if (before && !fs.existsSync(path.join(storeRoot(opts), WORLD_ID_FILE))) clearEnrollment(opts);
+    if (before && !fs.existsSync(path.join(storeRoot(opts), WORLD_ID_FILE))) {
+      clearEnrollment(opts);
+      setStopped((before.org && before.org.name) || 'your company', opts);   // the screen says once that it stopped (review 22)
+    }
     return { ok: false, because: 'This Kosmos has no id of its own.', enrolled: false };
   }
   const r = await signed('POST', ROUTES.status, {}, opts);
