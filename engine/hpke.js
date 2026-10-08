@@ -8,8 +8,8 @@
  * give that. The design and its two review rounds are on #5535 (v2, v2.1).
  *
  * Only single-shot use is exported: one seal and one open, each setting up a context and use sequence 0, the
- * shape one backup object needs (a fresh encapsulation per object). The multi-message context and the
- * deterministic setup exist for the RFC 9180 test vectors in hpke.test.js.
+ * shape one backup object needs (a fresh encapsulation per object). The deterministic setup and the
+ * per-sequence nonce and AEAD steps exist only for the RFC 9180 test vectors in hpke.test.js.
  *
  * Every open returns null on ANY failure (wrong key, tampered byte, wrong info or aad, malformed
  * input) and never throws, the same contract as fedseal: input from storage must not take the board down.
@@ -22,8 +22,11 @@ const KEM_ID = 0x0020, KDF_ID = 0x0001, AEAD_ID = 0x0003;
 const N_SECRET = 32, N_ENC = 32, N_PK = 32, N_K = 32, N_N = 12, N_H = 32, N_T = 16;
 const MODE_BASE = 0x00;
 const ZERO32 = Buffer.alloc(32);
+// 2^255 - 19, little-endian: an X25519 u-coordinate at or above it, or with bit 255 set, is not canonical.
+const P25519_LE = Buffer.from('edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f', 'hex');
 
 function i2osp(n, w) {
+  if (!Number.isSafeInteger(n) || n < 0 || n >= 2 ** (8 * w)) throw new Error('hpke: I2OSP value out of range');
   const b = Buffer.alloc(w);
   for (let i = w - 1; i >= 0 && n > 0; i--) { b[i] = n & 0xff; n = Math.floor(n / 256); }
   return b;
@@ -128,12 +131,26 @@ function hpkeVectorSeamsForTests() {
   return { deriveKeyPair, encap, decap, keySchedule, nonceFor, aeadSeal, aeadOpen };
 }
 
+/* A public key must be in canonical form. X25519 itself ignores bit 255 and reduces mod p, but RFC 9180
+   puts the RAW pkR bytes into kem_context while the recipient rebuilds them from its own key in canonical
+   form, so a non-canonical pkR seals fine and can NEVER be opened: a backup that writes and cannot be
+   restored. Refused at seal time instead (review round 2 measured the silent failure). */
+function canonicalPublicKey(pk) {
+  if (pk[31] & 0x80) return false;
+  for (let i = 31; i >= 0; i--) {  // little-endian compare with p: true only when pk < p
+    if (pk[i] < P25519_LE[i]) return true;
+    if (pk[i] > P25519_LE[i]) return false;
+  }
+  return false;  // equal to p
+}
+
 const asBuf = (x) => (Buffer.isBuffer(x) ? x : (x instanceof Uint8Array ? Buffer.from(x) : null));
 
 /** Seal one message to pkR. Returns { enc, ct } (enc: 32 bytes, ct: plaintext + 16), or throws on a bad public key. */
 function hpkeSeal(pkR, info, aad, pt) {
   const pk = asBuf(pkR), i = asBuf(info), a = asBuf(aad), p = asBuf(pt);
   if (!pk || pk.length !== N_PK || !i || !a || !p) throw new Error('hpke: pkR must be 32 bytes and info, aad, pt Buffers');
+  if (!canonicalPublicKey(pk)) throw new Error('hpke: pkR is not a canonical X25519 public key (bit 255 set, or not below 2^255 - 19)');
   const { sharedSecret, enc } = encap(pk);
   const ks = keySchedule(sharedSecret, i);
   return { enc, ct: aeadSeal(ks.key, nonceFor(ks.baseNonce, 0), a, p) };

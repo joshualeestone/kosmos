@@ -7,7 +7,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const hpke = require('./hpke');
-const { deriveKeyPair, encap, decap, keySchedule, nonceFor, aeadSeal, aeadOpen } = hpke.hpkeVectorSeamsForTests();
+// Fetched inside each test, not at load, so a run outside the test runner fails with the guard's own words.
+const seams = () => hpke.hpkeVectorSeamsForTests();
 
 const h = (s) => Buffer.from(s.replace(/\s+/g, ''), 'hex');
 const V = {
@@ -38,6 +39,7 @@ const ENCRYPTIONS = [
 ];
 
 test('#5535 RFC 9180 A.2.1: DeriveKeyPair gives the published sender and recipient keys', () => {
+  const { deriveKeyPair } = seams();
   const e = deriveKeyPair(V.ikmE), r = deriveKeyPair(V.ikmR);
   assert.equal(e.sk.toString('hex'), V.skEm.toString('hex'));
   assert.equal(e.pk.toString('hex'), V.pkEm.toString('hex'));
@@ -46,6 +48,7 @@ test('#5535 RFC 9180 A.2.1: DeriveKeyPair gives the published sender and recipie
 });
 
 test('#5535 RFC 9180 A.2.1: Encap with ikmE and Decap agree on the published shared secret and enc', () => {
+  const { encap, decap } = seams();
   const s = encap(V.pkRm, V.ikmE);
   assert.equal(s.enc.toString('hex'), V.enc.toString('hex'));
   assert.equal(s.sharedSecret.toString('hex'), V.sharedSecret.toString('hex'));
@@ -53,6 +56,7 @@ test('#5535 RFC 9180 A.2.1: Encap with ikmE and Decap agree on the published sha
 });
 
 test('#5535 RFC 9180 A.2.1: the key schedule gives the published context, secret, key, nonce and exporter secret', () => {
+  const { keySchedule } = seams();
   const ks = keySchedule(V.sharedSecret, V.info);
   assert.equal(ks.keyScheduleContext.toString('hex'), V.keyScheduleContext.toString('hex'));
   assert.equal(ks.secret.toString('hex'), V.secret.toString('hex'));
@@ -62,6 +66,7 @@ test('#5535 RFC 9180 A.2.1: the key schedule gives the published context, secret
 });
 
 test('#5535 RFC 9180 A.2.1.1: every published encryption (sequences 0, 1, 2, 4, 255, 256) seals and opens byte for byte', () => {
+  const { nonceFor, aeadSeal, aeadOpen } = seams();
   for (const [seq, aad, nonce, ct] of ENCRYPTIONS) {
     const n = nonceFor(V.baseNonce, seq);
     assert.equal(n.toString('hex'), nonce, `nonce for sequence ${seq}`);
@@ -123,6 +128,30 @@ test('#5535 the vector seams are refused outside a test process', () => {
     assert.throws(() => hpke.hpkeVectorSeamsForTests(), /outside a test/);
   } finally { le.inTestProcess = real; }
   assert.equal(typeof hpke.hpkeVectorSeamsForTests().encap, 'function', 'CONTROL: inside a test they are handed out');
+});
+
+test('#5535 seal refuses a non-canonical public key (it would seal a message nobody can ever open)', () => {
+  const r = hpke.hpkeKeyPair();
+  const info = Buffer.from('i'), aad = Buffer.from('a');
+  const hi = Buffer.from(r.pk); hi[31] |= 0x80;
+  assert.throws(() => hpke.hpkeSeal(hi, info, aad, Buffer.from('x')), /not a canonical/, 'bit 255 set');
+  const p = Buffer.from('edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f', 'hex');
+  assert.throws(() => hpke.hpkeSeal(p, info, aad, Buffer.from('x')), /not a canonical/, 'u equal to p');
+  const pPlus1 = Buffer.from(p); pPlus1[0] += 1;
+  assert.throws(() => hpke.hpkeSeal(pPlus1, info, aad, Buffer.from('x')), /not a canonical/, 'u = p + 1');
+  const { enc, ct } = hpke.hpkeSeal(r.pk, info, aad, Buffer.from('x'));
+  assert.equal(hpke.hpkeOpen(r.sk, enc, info, aad, ct).toString(), 'x', 'CONTROL: the canonical key seals and opens');
+  for (let i = 0; i < 64; i++) {  // every generated key is canonical, so hpkeKeyPair output is always sealable
+    const k = hpke.hpkeKeyPair(); assert.equal(k.pk[31] & 0x80, 0);
+  }
+});
+
+test('#5535 an empty plaintext seals to a bare 16-byte tag and opens to an empty Buffer', () => {
+  const r = hpke.hpkeKeyPair();
+  const { enc, ct } = hpke.hpkeSeal(r.pk, Buffer.from('i'), Buffer.from('a'), Buffer.alloc(0));
+  assert.equal(ct.length, 16);
+  const out = hpke.hpkeOpen(r.sk, enc, Buffer.from('i'), Buffer.from('a'), ct);
+  assert.ok(Buffer.isBuffer(out) && out.length === 0, 'an empty plaintext is not null');
 });
 
 test('#5535 seal refuses a malformed public key loudly (a caller bug, not input from storage)', () => {
