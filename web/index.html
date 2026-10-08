@@ -29250,12 +29250,6 @@ function wvListHtml(body) {
   if (!worlds.length) return '<p class="wv-line wv-muted">No Kosmoses found on this computer.</p>';
   return worlds.map(wvWorldHtml).join('');
 }
-// A reason from the server shown on its own: first letter raised, ends with a full stop.
-function wvSentence(r) {
-  const t = String(r || '').trim();
-  if (!t) return '';
-  return t.charAt(0).toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? '' : '.');
-}
 let wvGen = 0;
 async function wvLoad() {
   const gen = ++wvGen;
@@ -29272,7 +29266,7 @@ async function wvLoad() {
     // The route is token-gated: a board that is not signed in answers 401/403 with `error`, not `because`, and
     // Refresh will not fix that, so it is said as what it is.
     if (res.status === 401 || res.status === 403) said = 'Sign in to this Kosmos to see your Kosmoses at a glance.';
-    else if (!res.ok) said = wvSentence(body && (body.because || body.error)) || 'Kosmos could not read your Kosmoses just now.';
+    else if (!res.ok) said = asSentence(body && (body.because || body.error)) || 'Kosmos could not read your Kosmoses just now.';
     else if (!body || !Array.isArray(body.worlds)) said = 'Kosmos could not read your Kosmoses just now.';
     else if (!body.worlds.length) said = 'No Kosmoses found on this computer.';
     html = res.ok && body && Array.isArray(body.worlds) ? wvListHtml(body) : wvListHtml({ because: said });
