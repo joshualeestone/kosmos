@@ -370,7 +370,7 @@ live_pointer_snapshot() {
   done
 }
 LIVE_PTRS_BEFORE=$(live_pointer_snapshot)
-case "$LIVE_PTRS_BEFORE" in *" 000 "*) echo "deploy-site: could not read the live pointers at the start ($LIVE_PTRS_BEFORE) -- refusing; nothing has been deployed (#5589)"; exit 75 ;; esac
+case "$LIVE_PTRS_BEFORE" in *" 000 "*) echo "deploy-site: could not read the live pointers at the start ($LIVE_PTRS_BEFORE; or a local temp file could not be made) -- refusing; nothing has been deployed (#5589)"; exit 75 ;; esac
 LJ=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json") || { echo "deploy-site: cannot read $HOST/dist/latest.json -- refusing (exit 75: try again later, #5589)"; exit 75; }
 # The COMMITTED pointer (git archive of $H) is what a deploy actually SERVES, because dist/latest.json
 # is TRACKED. Read it once here for both the site-copy guard and the promote path. A git-show failure

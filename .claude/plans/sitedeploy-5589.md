@@ -46,6 +46,21 @@ on Mortals: on push to main, every 15 minutes as a backstop, and on demand.
   site deploy carries no downloads at all. The reader sweep on the card lists the fixes it needs
   first (verify-served.sh and two others do not follow redirects).
 
+## What the pointer guard does not cover
+
+It NARROWS the cut race, it does not close it. Two things stay outside it: a cut publishing in the
+seconds between the second read and Vercel switching the deployment over, and a change to download
+bytes that moves no pointer (a staging cut adds new versioned files and moves latest-staging.json, and
+a prod alias changes only with a latest.json move, so neither happens today). Both are caught after
+the fact by deploy-site.sh's post-deploy served check, which fails loudly. **A post-deploy served-check
+failure while a cut was publishing is a rollback event, not a retry**: redeploy from the site
+checkout that has the cut's release commit.
+
+**Exit codes.** The new refusals exit 75 (try again later). No script runs deploy-site.sh and branches
+on its exit code: release.sh deploys through site-deploy.sh directly, and promote-channel.sh and
+publish-kosmos-windows.sh only print advice to run it. site-autodeploy.sh is the one caller and it
+treats 75 as retry, every other non-zero as a failure.
+
 ## Weakest premise
 
 Mortals has to be up for merges to deploy. If it is down they wait, and the manual
