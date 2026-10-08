@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: settingsfit-5510
-diff_hash: fc06a50cd1820be00395845ffc69e145f53a382fa634617c2a84e1c2932ea3c6
+diff_hash: 0cd5cdfb1b89295b264369a96e46f07692eb40c3b94758e050ffdca8b27b1ff5
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-08T02:07:50Z
+timestamp: 2026-10-08T14:58:25Z
 iterations: 1
 converged: true
 ---
@@ -32,3 +32,8 @@ Final validation on 50a836ac4: validation_log PASSED (full tools/run-tests.sh su
 - Stub timing: a late 404 from refreshIndustry repaints with the remembered list, so the measurement holds.
 - The control catches a stretched select: width:100%, flex:1 min-width:220px, and flex:1 min-width:0 max-width:100% each turn it red.
 - Wiring tests (reason-grep, wired, indexed) pass 19/19.
+
+## Rebased onto main for #5564 (2026-10-08)
+CI's only red (twice) was #4417's launch-event flake, 1 of 16689 node tests; its fix #5564 merged after this branch
+was cut. Rebased onto main (clean, no conflicts) to carry the fix; no change to this branch's own lines, but the diff's
+context moved, so the hash is re-taken and the pre-push hook re-runs full validation on the new diff.
