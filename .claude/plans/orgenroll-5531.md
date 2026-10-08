@@ -125,3 +125,16 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
   per #5532's contract); isViaScreen as the only person check (review 2).
 - DECIDED: a failure's raw line is written to this board's own log, cleaned and bounded. That log stays on this
   computer; nothing in the engine sends it anywhere.
+
+## Review 7 (blind, opus)
+- FIXED: a join that failed for a passing reason (no public code) spent the ticket, so every later Join was refused
+  and the page kept telling the person to try again. The ticket now survives such a failure, and a refused ticket
+  answers `code: 'org_ticket'`, which returns the page to the code field.
+- FIXED: one odd status answer (a field missing) ended the enrollment for good, silently. Refresh now stops only on a
+  CLEAR answer (not a member; a member enrolled nowhere; enrolled as another world; thisComputer false). Any other
+  shape changes nothing, like an unreachable coordinator; the coordinator refuses reports it does not accept
+  (org_not_enrolled). When it does stop, the screen says why, once (`stoppedFor`, browser check O8).
+- FIXED: GET /api/org gives the role and date only to the screen (isViaScreen), not merely to callers without an
+  agent token. Leave is refused unless this is the work Kosmos (or one the company stopped naming, or one with a
+  leave unconfirmed), since leaving ends the whole membership. A confirmed leave retires this world's id, so a later
+  join is not linkable to the old one. The check and README say `{ code, accepted: true, ticket }`.

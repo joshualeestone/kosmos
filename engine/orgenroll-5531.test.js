@@ -330,3 +330,38 @@ test('#5531 review 4: a failure with no public code reaches the page as a fixed 
   const known = await org.preview('ACME-JOIN-1234', { root: a, remote: { macRequest: async () => ({ ok: false, because: '410 {"because":"org_code_used"}' }) } });
   assert.equal(known.code, 'org_code_used'); assert.equal(known.because, org.SAY.org_code_used);
 });
+
+test('#5531 review 7: refresh stops only on a clear answer, and says why; an odd answer changes nothing', async (t) => {
+  const { a } = sandbox(t);
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
+  const world = org.worldId({ root: a });
+  const answer = (data) => ({ macRequest: async () => ({ ok: true, data }) });
+  for (const odd of [
+    { member: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world } },                       // thisComputer missing
+    { member: true, org: ORG, role: 'member', enrolled: {} },                                              // no world
+    { member: true, org: ORG, role: 'member' },                                                            // enrolled missing
+    { org: ORG },                                                                                          // member missing
+  ]) {
+    const r = await org.refresh({ root: a, remote: answer(odd) });
+    assert.equal(org.isEnrolledHere({ root: a }), true, 'an odd answer ended the enrollment: ' + JSON.stringify(odd) + ' -> ' + JSON.stringify(r));
+  }
+  assert.equal(org.stoppedFor({ root: a }), null);
+  await org.refresh({ root: a, remote: answer({ member: true, org: ORG, role: 'member', enrolled: null }) });
+  assert.equal(org.isEnrolledHere({ root: a }), false, 'a member enrolled nowhere still reported');
+  assert.equal(org.stoppedFor({ root: a }), 'Acme', 'the screen was not told why it stopped');
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
+  assert.equal(org.stoppedFor({ root: a }), null, 'a new join kept the old stopped note');
+});
+
+test('#5531 review 7: a confirmed leave retires this world id, so a later join is not linkable to the old one', async (t) => {
+  const { a } = sandbox(t);
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
+  const first = org.worldId({ root: a });
+  assert.equal((await org.leave({ root: a, remote: fakeRemote({}) })).ok, true);
+  const state = {};
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote(state) });
+  assert.notEqual(state.world, first, 'the same world id was sent again after a confirmed leave');
+  const r = await org.leave({ root: a, remote: { macRequest: async () => ({ ok: false, because: '409 {"because":"org_last_admin"}' }) } });
+  assert.equal(r.still, true);
+  assert.equal(org.worldId({ root: a }), state.world, 'a refused leave retired the id of a world still enrolled');
+});

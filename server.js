@@ -9569,11 +9569,12 @@ const server = http.createServer(async (req, res) => {
       const rec = here ? oe.readEnrollment() : null;   // a record naming another world says nothing here
       /* Readable by this board's agents on purpose: an agent on a work Kosmos reports to that company, so which company
          it is is not a secret from it. Only the name and slug go out; the org id and the world id stay in the engine. */
-      if (presentedAgentToken(req, {})) {   // an agent learns which company, and no more: not the role, not when
+      if (!isViaScreen(req, {})) {   // only the screen gets the role and the date; any other caller learns which company, no more
         sendJson(res, 200, { enrolled: here, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug } : null, role: null, enrolledAt: null });
         return;
       }
-      sendJson(res, 200, { enrolled: here, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
+      const stopped = here ? null : oe.stoppedFor();   // the company stopped naming this world: the screen says so
+      sendJson(res, 200, { enrolled: here, stoppedFor: stopped, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
     } catch { sendJson(res, 200, { enrolled: false, org: null, role: null, enrolledAt: null }); }
     return;
   }
@@ -9600,13 +9601,24 @@ const server = http.createServer(async (req, res) => {
             const t = ORG_TICKET;
             const code = body.code == null ? null : String(body.code).trim();
             if (!t || typeof body.ticket !== 'string' || body.ticket !== t.value || Date.now() - t.at > 10 * 60 * 1000 || code !== t.code) {
-              sendJson(res, 200, { ok: false, because: 'Check the code again first, so you can read what your company would see.' });
+              sendJson(res, 200, { ok: false, code: 'org_ticket', because: 'Check the code again first, so you can read what your company would see.' });
               return;
             }
-            ORG_TICKET = null;   // one use
           }
+          const spent = body.accepted === true ? ORG_TICKET : null;
+          if (spent) ORG_TICKET = null;   // one use
           r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true);
-        } else r = await oe.leave();
+          // Not joined for a passing reason (no public code: unreachable, busy): the same consent may be accepted again.
+          if (spent && r && r.ok === false && !r.code && !r.declined && Date.now() - spent.at <= 10 * 60 * 1000) ORG_TICKET = spent;
+        } else {
+          /* Leave is for the whole membership, so only the work Kosmos (or one the company stopped naming, or one with a
+             leave still unconfirmed) may send it; another Kosmos of this person's must not end it. */
+          if (!oe.isEnrolledHere() && !oe.leavePending() && !oe.stoppedFor()) {
+            sendJson(res, 200, { ok: false, because: 'This Kosmos is not your work Kosmos. Leave from your work Kosmos.' });
+            return;
+          }
+          r = await oe.leave();
+        }
         /* The engine's ids stay in the engine: the page gets the company's name and slug, never the world id or org id. */
         if (r && typeof r === 'object') {
           delete r.world;

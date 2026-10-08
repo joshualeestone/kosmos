@@ -34,6 +34,7 @@ const ROUTES = Object.freeze({
 });
 const WORLD_ID_FILE = 'org-world-id';
 const ENROLLMENT_FILE = 'org-enrollment.json';
+const STOPPED_FILE = 'org-stopped.json';   // { at, name }: the company stopped naming this world (the screen says so once)
 const LEAVE_PENDING_FILE = 'org-leave-pending';   // a leave the company has not confirmed yet; retried on start and daily
 const NAME_MAX = 120;      // a company name or slug, as the page shows it
 const LINE_MAX = 300;      // one consent line
@@ -222,6 +223,7 @@ async function enrollNow(code, accepted, opts) {
   const rec = { org, role, world, enrolledAt: new Date().toISOString() };
   try { writeEnrollment(rec, opts); } catch { return { ok: false, because: 'joined, but this Kosmos could not record it; check again' }; }
   setLeavePending(false, opts);   // joined again after an unconfirmed leave: that old leave must never be sent now
+  setStopped(null, opts);
   return { ok: true, ...rec };
 }
 
@@ -233,6 +235,19 @@ function setLeavePending(on, opts, rec) {
 }
 function pendingRecord(opts) {
   try { const j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_PENDING_FILE), 'utf8')); return j && j.rec && j.rec.org ? j.rec : null; } catch { return null; }
+}
+/* Why this world stopped without the person leaving here: the company no longer names it. Shown on the screen, and it
+   lets the person still leave from here. Cleared by a join or a leave. */
+function stoppedFor(opts) {
+  try { const j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), STOPPED_FILE), 'utf8')); return j && typeof j.name === 'string' ? j.name : null; }
+  catch { return null; }
+}
+function setStopped(name, opts) {
+  const file = path.join(storeRoot(opts), STOPPED_FILE);
+  try {
+    if (name == null) { fs.rmSync(file, { force: true }); return; }
+    fs.writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), name }) + '\n', { mode: 0o600 });
+  } catch { /* the screen just does not say it */ }
 }
 function leavePending(opts) { return fs.existsSync(path.join(storeRoot(opts), LEAVE_PENDING_FILE)); }
 
@@ -247,7 +262,12 @@ async function leaveNow(opts) {
   clearEnrollment(opts);
   const r = await signed('POST', ROUTES.leave, {}, opts);
   const code = r.ok ? null : codeOf(r.because);
-  if (r.ok || code === 'org_not_member') { setLeavePending(false, opts); return { ok: true }; }
+  if (r.ok || code === 'org_not_member') {
+    setLeavePending(false, opts); setStopped(null, opts);
+    /* Left for good: retire this world's id, so a later join (to any company) is not linkable to this one. */
+    try { fs.rmSync(path.join(storeRoot(opts), WORLD_ID_FILE), { force: true }); } catch { /* kept; harmless */ }
+    return { ok: true };
+  }
   if (code === 'org_last_admin') {
     if (before) { try { writeEnrollment(before, opts); } catch { /* the next refresh restores it */ } }
     setLeavePending(false, opts);
@@ -271,10 +291,17 @@ async function refreshNow(opts) {
   const r = await signed('POST', ROUTES.status, {}, opts);
   if (!r.ok || !r.data || typeof r.data !== 'object') return { ok: false, because: sayFor(r && r.because, 'not checked'), enrolled: !!before };
   const d = r.data;
-  const world = worldId(opts);
-  const here = d.member === true && d.enrolled && world && d.enrolled.world === world && d.enrolled.thisComputer === true;
+  const world = readWorldId(opts);
+  const e = d.member === true ? d.enrolled : undefined;
+  const here = d.member === true && e && world && e.world === world && e.thisComputer === true;
+  /* Stop only on a CLEAR answer: not a member; a member enrolled nowhere (null); enrolled as another world; or this
+     world's id on another computer (thisComputer false). An answer in any other shape changes nothing, like an
+     unreachable coordinator: one odd reply must not end an enrollment the company still holds, with no way back. */
+  const clear = d.member === false || (d.member === true && (e === null
+    || (e && typeof e === 'object' && typeof e.world === 'string' && (e.world !== world || e.thisComputer === false))));
   if (!here) {
-    if (before) clearEnrollment(opts);
+    if (!clear) return { ok: false, because: 'the answer was not complete', enrolled: !!before };
+    if (before) { clearEnrollment(opts); setStopped((before.org && before.org.name) || 'your company', opts); }
     return { ok: true, enrolled: false, member: d.member === true, stopped: !!before, org: d.member === true ? cleanOrg(d.org) : null };
   }
   const org = cleanOrg(d.org);
@@ -287,5 +314,5 @@ async function refreshNow(opts) {
 
 module.exports = {
   ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, codeOf,
-  worldId, readEnrollment, leavePending, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh,
+  worldId, readEnrollment, leavePending, stoppedFor, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh,
 };

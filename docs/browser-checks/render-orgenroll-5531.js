@@ -8,9 +8,11 @@
  *   O2  Check code shows the company, the role and the four consent lists, drawn as TEXT (a string with markup in it
  *       stays visible text, no element is made), and moves focus to Join.
  *   O3  Not now sends NOTHING more (no enroll request) and says nothing was sent about this Kosmos.
- *   O4  Join sends exactly { code, accepted: true } to /api/org/enroll, and the block then says this is the work Kosmos.
+ *   O4  Join sends exactly { code, accepted: true, ticket } to /api/org/enroll, and the block then says this is the work Kosmos.
  *   O5  Leave asks first; Leave then posts /api/org/leave and the code field returns.
  *   O6  no page errors.
+ *   O7  a member moving here sees the consent as a move, and Join sends no code.
+ *   O8  a Kosmos the company stopped naming says so (stoppedFor from /api/org), as text.
  */
 const path = require('node:path');
 const { chromium } = require('playwright');
@@ -42,7 +44,7 @@ function harness() {
       if (u.endsWith('/api/org/preview')) return enc(Object.assign({ ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent, ticket: 't-' + Date.now() }, window.__move ? { move: true } : {}));
       if (u.endsWith('/api/org/enroll')) return enc({ ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member' });
       if (u.endsWith('/api/org/leave')) return enc({ ok: true });
-      if (u.endsWith('/api/org')) return enc({ enrolled: false, org: null, role: null, enrolledAt: null });
+      if (u.endsWith('/api/org')) return enc({ enrolled: false, stoppedFor: window.__stopped || null, org: null, role: null, enrolledAt: null });
       if (u.endsWith('/api/remote') && !(init && init.method)) return enc({ enrolled: true, on: true });   // a connected computer
       if (u.includes('/api/history')) return enc({ readable: false });   // Settings' history row, in the shape the engine sends when it has none
       return enc({});
@@ -98,7 +100,7 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'orgenroll-joined.png') });
     chk(o4.enroll.length === 1 && o4.enroll[0].body.code === 'ACME-JOIN-1234' && o4.enroll[0].body.accepted === true && /^t-/.test(o4.enroll[0].body.ticket) && Object.keys(o4.enroll[0].body).length === 3
         && /work Kosmos for Acme/.test(o4.say),
-      'O4 Join sends exactly { code, accepted: true }, and the block says this is the work Kosmos', JSON.stringify(o4));
+      'O4 Join sends exactly { code, accepted: true, ticket }, and the block says this is the work Kosmos', JSON.stringify(o4));
 
     await page.click('#plus-org-leave');
     const asked = await shown(page, 'plus-org-leave-ask');
@@ -119,6 +121,13 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     const lastEnroll = await page.evaluate(() => window.__org.filter((r) => r.path === '/api/org/enroll').at(-1));
     chk(/already in Acme\. Make this Kosmos your work Kosmos/.test(askMove) && lastEnroll.body.accepted === true && !('code' in lastEnroll.body) && /^t-/.test(lastEnroll.body.ticket),
       'O7 a member moving here sees the consent as a move, and Join sends no code', JSON.stringify({ askMove, lastEnroll }));
+
+    // O8: the company stopped naming this world. The next /api/org read carries stoppedFor; the block says so.
+    await page.evaluate(() => { window.__stopped = 'Acme <i>Co</i>'; PLUS_ORG.at = 0; document.getElementById('plus-org-msg').textContent = ''; plusOrgMaybe(); });
+    await page.waitForFunction(() => /no longer the work Kosmos/.test(document.getElementById('plus-org-msg').textContent), null, { timeout: 5000 }).catch(() => {});
+    const o8 = await page.evaluate(() => ({ msg: document.getElementById('plus-org-msg').textContent, italics: document.querySelectorAll('#plus-org-msg i').length, out: !document.getElementById('plus-org-out').hidden }));
+    chk(o8.msg === 'This Kosmos is no longer the work Kosmos for Acme <i>Co</i>, so it has stopped reporting.' && o8.italics === 0 && o8.out,
+      'O8 a Kosmos the company stopped naming says so, as text, with the code field back', JSON.stringify(o8));
 
     chk(errs.length === 0, 'O6 no page errors', errs.join(' | '));
   } finally {

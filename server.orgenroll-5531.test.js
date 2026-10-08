@@ -75,17 +75,17 @@ test('#5531: from the screen, a decline sends nothing and records nothing; a pre
 });
 
 test('#5531: GET /api/org reports this world\'s own record, and only one that names this world', async () => {
-  const none = await call('/api/org', { method: 'GET' });
-  assert.deepEqual(none.json, { enrolled: false, org: null, role: null, enrolledAt: null });
+  const none = await call('/api/org', { method: 'GET', headers: SCREEN });
+  assert.deepEqual(none.json, { enrolled: false, stoppedFor: null, org: null, role: null, enrolledAt: null });
   const world = oe.worldId();
   fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', world, enrolledAt: '2026-10-07T00:00:00.000Z' }));
-  const yes = await call('/api/org', { method: 'GET' });
+  const yes = await call('/api/org', { method: 'GET', headers: SCREEN });
   assert.equal(yes.json.enrolled, true);
   assert.equal(yes.json.org.name, 'Acme');
   assert.equal(JSON.stringify(yes.json).includes(world), false, 'the world id was handed to the page');
   assert.equal(JSON.stringify(yes.json).includes('org_1'), false, 'the org id was handed to the page');
   fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', world: 'f'.repeat(32), enrolledAt: '2026-10-07T00:00:00.000Z' }));
-  const other = await call('/api/org', { method: 'GET' });
+  const other = await call('/api/org', { method: 'GET', headers: SCREEN });
   assert.equal(other.json.enrolled, false, 'a record naming another world read as enrolled here');
   assert.equal(other.json.org, null, "another world's company was shown here");
   fs.rmSync(enrollmentFile(), { force: true });
@@ -141,6 +141,37 @@ test('#5531 review 6: an agent reading /api/org learns which company, and not th
   assert.equal(asLeo.json.org.name, 'Acme');
   assert.equal(asLeo.json.role, null, 'an agent read the role: ' + JSON.stringify(asLeo.json));
   assert.equal(asLeo.json.enrolledAt, null, 'an agent read the enrollment date');
-  const screen = await call('/api/org', { method: 'GET' });
+  const screen = await call('/api/org', { method: 'GET', headers: SCREEN });
   assert.equal(screen.json.role, 'admin', 'the screen lost the role');
+});
+
+test('#5531 review 7: a join that fails for a passing reason keeps its ticket; a refused ticket says so with a code; leave only from the work Kosmos', async (t) => {
+  const remote = require('./engine/remote');
+  const orig = remote.macRequest;
+  const CONSENT = { reports: ['agent names'], backsUp: ['agent folders'], readers: ['you'], never: ['keys'] };
+  const sent = [];
+  let up = false;
+  remote.macRequest = async (method, route, body) => {
+    sent.push(route);
+    if (route === oe.ROUTES.redeem) return { ok: true, data: { org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: CONSENT } };
+    if (route === oe.ROUTES.enroll) return up ? { ok: true, data: { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } } : { ok: false, because: 'the tunnel program did not answer in time' };
+    if (route === oe.ROUTES.leave) return { ok: true, data: { ok: true } };
+    return { ok: false, because: 'unexpected ' + route };
+  };
+  t.after(() => { remote.macRequest = orig; fs.rmSync(enrollmentFile(), { force: true }); });
+
+  const notHere = await call('/api/org/leave', { body: {}, headers: SCREEN });
+  assert.equal(notHere.json.ok, false);
+  assert.equal(sent.includes(oe.ROUTES.leave), false, 'a Kosmos that is not the work Kosmos sent a leave');
+
+  const pv = await call('/api/org/preview', { body: { code: 'ACME-JOIN-1234' }, headers: SCREEN });
+  const fail = await call('/api/org/enroll', { body: { code: 'ACME-JOIN-1234', accepted: true, ticket: pv.json.ticket }, headers: SCREEN });
+  assert.equal(fail.json.ok, false);
+  up = true;
+  const retry = await call('/api/org/enroll', { body: { code: 'ACME-JOIN-1234', accepted: true, ticket: pv.json.ticket }, headers: SCREEN });
+  assert.equal(retry.json.ok, true, 'a retry after a passing failure was refused: ' + JSON.stringify(retry.json));
+  const used = await call('/api/org/enroll', { body: { code: 'ACME-JOIN-1234', accepted: true, ticket: pv.json.ticket }, headers: SCREEN });
+  assert.equal(used.json.code, 'org_ticket', 'a refused ticket carried no code, so the page cannot go back: ' + JSON.stringify(used.json));
+  const left = await call('/api/org/leave', { body: {}, headers: SCREEN });
+  assert.equal(left.json.ok, true, 'the work Kosmos could not leave: ' + JSON.stringify(left.json));
 });
