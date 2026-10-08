@@ -272,3 +272,11 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
   route's "not your work Kosmos", the screen check's { error }) keeps the joined view and shows the refusal. Browser
   check O11 pins both; mutating the condition back reddens it.
 - Each engine fix is pinned; each mutation reddens its own assertion.
+
+## Review 20
+- Kept (decided at review 18): refresh re-adopts an enrollment the company names here when no record is local. That is
+  the recovery for a move that could not be written; such a record has no consentHash, so the rollup stays dormant.
+  Only server.js's orgEnrollRefresh calls refresh, and only with a record or a pending leave.
+- Deferred, decided: one consent ticket for the board. A second screen's preview replaces the first's ticket, and the
+  first screen's Join is then refused with org_ticket ("check the code again"): it fails closed with a clear sentence
+  and binds nothing. Keying tickets per screen is a follow-up if a second screen (the remote page) ever holds a consent.
