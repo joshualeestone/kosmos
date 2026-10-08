@@ -35,7 +35,7 @@ function sign(payload, kp = coordinator) {
   const body = 'KST1.' + Buffer.from(JSON.stringify(payload)).toString('base64url');
   return body + '.' + crypto.sign(null, Buffer.from(body, 'ascii'), kp.privateKey).toString('base64url');
 }
-const POLICY = { providers_allowed: ['claude', 'codex'], models_allowed: { claude: ['opus', 'sonnet'] }, backup: { required: true, max_age_hours: 24 },
+const POLICY = { providers_allowed: ['anthropic', 'openai'], models_allowed: { anthropic: ['opus', 'sonnet'] }, backup: { required: true, max_age_hours: 24 },
   telemetry: { required: true }, ai_policy: { name: 'Company', text: 'Be careful with customer data.' } };
 const bundle = (over = {}) => ({ typ: 'org_policy', v: 1, org: 'org-1', version: 1, issued_at: NOW - 10, exp: NOW + 86400, policy: POLICY, ...over });
 
@@ -70,13 +70,13 @@ test('a verified bundle is applied; a tampered one is refused and the last good 
   assert.equal(r.refused, null);
   assert.equal(r.applied.version, 1);
   assert.deepEqual(orgpolicy.current(), POLICY);
-  const good2 = sign(bundle({ version: 2, policy: { ...POLICY, providers_allowed: ['claude'] } }));
+  const good2 = sign(bundle({ version: 2, policy: { ...POLICY, providers_allowed: ['anthropic'] } }));
   const [h, p, s] = good2.split('.');
   place(h + '.' + p.slice(0, -2) + (p.at(-2) === 'A' ? 'B' : 'A') + p.at(-1) + '.' + s);
   r = orgpolicy.refresh({ now: NOW, pinned: PINNED });
   assert.equal(r.refused, 'the signature does not verify');
   assert.equal(r.applied.version, 1, 'a tampered bundle replaced the one in force');
-  assert.deepEqual(orgpolicy.current().providers_allowed, ['claude', 'codex']);
+  assert.deepEqual(orgpolicy.current().providers_allowed, ['anthropic', 'openai']);
   place(good2);
   assert.equal(orgpolicy.refresh({ now: NOW, pinned: PINNED }).applied.version, 2, 'CONTROL: the untampered version 2 applies');
 });
@@ -100,7 +100,7 @@ test('an older version is refused (no rollback by replaying an old bundle); a sa
 
 test('a malformed policy is refused rather than half-applied; no bundle means no policy', () => {
   reset();
-  for (const policy of [null, [], { providers_allowed: 'claude' }, { providers_allowed: ['claude'], models_allowed: { claude: 'opus' } }]) {
+  for (const policy of [null, [], { providers_allowed: 'anthropic' }, { providers_allowed: ['anthropic'], models_allowed: { anthropic: 'opus' } }]) {
     place(sign(bundle({ policy })));
     assert.match(orgpolicy.refresh({ now: NOW, pinned: PINNED }).refused, /not one this Kosmos understands/, JSON.stringify(policy));
   }
@@ -113,9 +113,17 @@ test('a malformed policy is refused rather than half-applied; no bundle means no
 });
 
 test('allows: providers and models outside the policy are refused with a sentence; null lists do not restrict', () => {
-  assert.equal(orgpolicy.allows({ provider: 'claude', model: 'opus' }, POLICY).ok, true, 'CONTROL');
-  assert.match(orgpolicy.allows({ provider: 'gemini' }, POLICY).because, /does not allow gemini/);
-  assert.match(orgpolicy.allows({ provider: 'claude', model: 'haiku' }, POLICY).because, /does not allow the model haiku on claude/);
-  assert.equal(orgpolicy.allows({ provider: 'codex', model: 'anything' }, POLICY).ok, true, 'no model list for codex: any model');
-  assert.equal(orgpolicy.allows({ provider: 'gemini' }, { ...POLICY, providers_allowed: null }).ok, true);
+  assert.equal(orgpolicy.allows({ provider: 'anthropic', model: 'opus' }, POLICY).ok, true, 'CONTROL');
+  assert.match(orgpolicy.allows({ provider: 'google' }, POLICY).because, /does not allow google/);
+  assert.match(orgpolicy.allows({ provider: 'anthropic', model: 'haiku' }, POLICY).because, /does not allow the model haiku on anthropic/);
+  assert.equal(orgpolicy.allows({ provider: 'openai', model: 'anything' }, POLICY).ok, true, 'no model list for openai: any model');
+  assert.equal(orgpolicy.allows({ provider: 'google' }, { ...POLICY, providers_allowed: null }).ok, true);
+});
+
+test('allows: a model given by several names is allowed when any one is listed, refused when none is', () => {
+  const byId = { ...POLICY, models_allowed: { anthropic: ['claude-opus-4-5'] } };
+  assert.equal(orgpolicy.allows({ provider: 'anthropic', model: ['opus', 'claude-opus-4-5'] }, byId).ok, true, 'the full id is listed');
+  assert.equal(orgpolicy.allows({ provider: 'anthropic', model: ['opus', 'claude-opus-4-5'] }, POLICY).ok, true, 'the key is listed');
+  assert.match(orgpolicy.allows({ provider: 'anthropic', model: ['haiku', 'claude-haiku-4-5'] }, byId).because, /does not allow the model haiku/);
+  assert.equal(orgpolicy.allows({ provider: 'anthropic', model: ['', ''] }, POLICY).ok, true, 'no model named: the provider default, not refused');
 });

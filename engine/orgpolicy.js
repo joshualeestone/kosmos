@@ -10,8 +10,12 @@
  *
  * Payload (v1): { typ: 'org_policy', v: 1, org, version, issued_at, exp, policy: { providers_allowed, models_allowed,
  * backup: { required, max_age_hours }, telemetry: { required }, ai_policy: { name, text } } }. A null list means "not
- * restricted". This slice is the board's verify-apply-ask core; wiring into create/launch, policy.js and the report
- * follows once E0.1/E0.2 land.
+ * restricted". Providers are named by the board's own ids (anthropic, openai, google, xai, antigravity, meta), the
+ * ones create.js uses, and models by their Kosmos key or full id (opus or claude-opus-...); either matches.
+ * Enforced when an agent is created, switched to another provider or switched to another model. An agent already
+ * on a provider or model the policy later drops keeps running and keeps relaunching (the card: nothing is
+ * bricked); showing it as out of policy is the console's job (E0.4). Gating on enrollment, reporting the applied
+ * version and the AI policy text follow once E0.2 and E0.3 land.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -102,13 +106,15 @@ function current() {
  */
 function allows({ provider, model } = {}, policy = current()) {
   if (!policy) return { ok: true };
+  // A model may come as several names for one model (its Kosmos key and its full id); any one listed allows it.
+  const names = (Array.isArray(model) ? model : [model]).filter((x) => typeof x === 'string' && x !== '');
   const providers = policy.providers_allowed;
   if (Array.isArray(providers) && !providers.includes(provider)) {
     return { ok: false, because: `your company's policy does not allow ${provider || 'this provider'} for new agents` };
   }
   const models = policy.models_allowed && policy.models_allowed[provider];
-  if (Array.isArray(models) && model && !models.includes(model)) {
-    return { ok: false, because: `your company's policy does not allow the model ${model} on ${provider}` };
+  if (Array.isArray(models) && names.length && !names.some((n) => models.includes(n))) {
+    return { ok: false, because: `your company's policy does not allow the model ${names[0]} on ${provider}` };
   }
   return { ok: true };
 }
