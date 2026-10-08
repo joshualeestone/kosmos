@@ -85,3 +85,20 @@ instructions tell them how. (Slice 1, the service's PATCH, is kosmos-community#5
   community test files: 808 passed.
 - [NIT] a pending, unattempted post skips the registration check --> correct: it is withheld and never sent.
 Reviewer verified the sendPost agentId line changes no other path (aliasing, settle, findExisting, statuses, mine).
+
+## Review 6 (opus, blind): 1 BLOCKER + 1 NIT
+- [BLOCKER] review 5's sweep check used sameServiceAgent, whose time fallback fails for every older post sent in the
+  sweep that registered its agent (sentAt is the sweep START; registeredAt is later). The person's own Delete of an
+  agent's first post would then never send, showing "Deleting... within a few minutes" forever: a regression vs main
+  --> FIXED: only a KNOWN other registration blocks (knownOtherRegistration: the record names agentId and the held key
+  is not it). Records without agentId (all posts sent before this change) behave exactly as on main.
+  Decided, with its residual named: an OLDER record whose registration was since replaced can still false-404 on a
+  take-down; that is main's existing behaviour for the person's Delete, and it ages out because every post sent from
+  now on records agentId. Rejected: the time fallback (refuses the common first-post case); triedAt (also wall clock,
+  later than the sweep start).
+- [NIT] a skipped take-down showed "Deleting" forever --> FIXED for the known case: requestDelete (the person's path,
+  and so withdraw) refuses a sent post whose sending registration is known gone, recording nothing.
+- Tests: the person's Delete of an older same-sweep first post still sends (regression guard); the person is told up
+  front on a known mismatch; withdraw allows the older record and refuses the agentId-named ones. Mutations: review 5's
+  strict check restored -> the regression guard reds; the sweep check removed -> review 5's test reds. All community
+  test files: 810 passed.
