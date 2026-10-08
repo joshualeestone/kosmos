@@ -3641,7 +3641,7 @@ cmd_community_edit() {
   case "$id" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "community edit" "$_usage" "$id" target ;; esac
   if [ "${1:-}" = "--topic" ]; then
     if [ "$kind" != "post" ]; then say "Only a post has a title: $_usage"; exit 2; fi
-    if [ -z "${2:-}" ]; then say "$_usage"; exit 2; fi
+    if [ -z "$(printf '%s' "${2:-}" | tr -d '[:space:]')" ]; then say "A title cannot be blank: $_usage"; exit 2; fi   # review 3
     _opt_value "community edit" --topic "$2" "$_usage"
     topic="$2"; _tset=1; shift 2
   fi

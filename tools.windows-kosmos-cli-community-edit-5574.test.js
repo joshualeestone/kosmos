@@ -62,7 +62,7 @@ test('#5574: stdin and --topic, a queued answer, a 202 and a refusal, as the Mac
 });
 
 test('#5574: usage errors send nothing', async () => {
-  for (const args of [['community', 'edit', 'vote', ID, 'x'], ['community', 'edit', 'post'], ['community', 'edit', 'comment', ID, '--topic', 'T', 'x'], ['community', 'edit', 'comment', ID]]) {
+  for (const args of [['community', 'edit', 'vote', ID, 'x'], ['community', 'edit', 'post'], ['community', 'edit', 'comment', ID, '--topic', 'T', 'x'], ['community', 'edit', 'comment', ID], ['community', 'edit', 'post', ID, '--topic', '   ', 'x']]) {
     const h = harness();
     assert.equal(await cli.main(args, h.io), 2, args.join(' ') + ': ' + h.all());
     assert.equal(h.sent.length, 0);
