@@ -149,7 +149,7 @@ test('#5418: the port and the cutoff are required, never assumed', () => {
 /* A stub board answering GET /api/status with `body`. */
 async function stubBoard(t, status, body, { kosmos = true, seen = [] } = {}) {
   const srv = http.createServer((req, res) => {
-    seen.push({ url: req.url, token: req.headers['x-kosmos-board-token'] || null });
+    seen.push({ url: req.url, token: req.headers[require('./engine/boardauth').HEADER_NAME] || null });
     if (req.url === '/api/health') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(kosmos ? '{"app":"kosmos","ok":true}' : '{"app":"something-else"}'); return; }
     if (req.url === '/api/status') { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); return; }
     res.writeHead(404); res.end();
@@ -555,7 +555,7 @@ test('#5418: a token minted in the same mtime tick is kept (mintedAt is checked 
 
 test('#5418: a redirect on the call that carries the board token is refused, so the token goes nowhere else', async (t) => {
   const elsewhere = [];
-  const sink = http.createServer((req, res) => { elsewhere.push(req.headers['x-kosmos-board-token'] || null); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"app":"kosmos","agents":[]}'); });
+  const sink = http.createServer((req, res) => { elsewhere.push(req.headers[require('./engine/boardauth').HEADER_NAME] || null); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"app":"kosmos","agents":[]}'); });
   await new Promise((ok) => sink.listen(0, '127.0.0.1', ok));
   t.after(() => sink.close());
   // the hop answers the health check as a board, then redirects the call that carries the token
