@@ -239,5 +239,6 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
   first-join words: the page checks the code again, and the preview then shows the move wording.
 - The design-shot fixture no longer repeats "your other Kosmoses" in the company's list, since the board now states
   it itself; PigeonPete is asked to drop it from the coordinator's default list.
-- Not taken: scrubbing company names from the local log (local only, decided in review 6; the log is the board's
-  own file, under this world's KOSMOS_HOME).
+- Not taken: scrubbing company names from the local log (it stays on this computer, decided in review 6). Whether
+  that log file is shared between this person's Kosmoses was not measured; if it is, another Kosmos's agents could
+  read a company name there. Recorded as a known residual.
