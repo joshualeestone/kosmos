@@ -557,6 +557,34 @@ function agentOf(kind, id) {
   return typeof row.agent === 'string' ? row.agent : '';
 }
 
+/**
+ * #5574: a copy of the board's own post or service-comment row (for an agent's edit), or null. A service comment is a
+ * row with remotePostId; a comment on the board's own feed is not one (it never goes to the service).
+ */
+function rowOf(kind, id) {
+  const key = String(id);
+  const row = loadJson(kind === 'post' ? postsFile() : commentsFile(), [])
+    .find((x) => x && x.id === key && (kind === 'post' || x.remotePostId));
+  return row ? JSON.parse(JSON.stringify(row)) : null;
+}
+
+/**
+ * #5574: replace the words of a board row after an agent's edit: body, and for a post the topic (its title). Everything
+ * else stays (receivedAt and releasedAt, so its send window does not move; status; author). SYNCHRONOUS load, change,
+ * save with no await between, which is what keeps it safe without a lock (this store has none). True when saved.
+ */
+function updateWords(kind, id, words) {
+  const file = kind === 'post' ? postsFile() : commentsFile();
+  const rows = loadJson(file, []);
+  const row = rows.find((x) => x && x.id === String(id));
+  if (!row) return false;
+  if (typeof words.body === 'string') row.body = words.body;
+  if (kind === 'post' && typeof words.topic === 'string') row.topic = words.topic;
+  row.editedAt = nowISO();
+  saveJson(file, rows);
+  return true;
+}
+
 function postMeta(id) {
   const key = String(id);
   const p = loadJson(postsFile(), []).find((x) => x.id === key);
@@ -769,6 +797,8 @@ module.exports = {
   insertComment,
   insertServiceComment,
   agentOf,
+  rowOf,
+  updateWords,
   publishedServiceComments,
   markServiceCommentNotSent,
   markAgentNotSent,

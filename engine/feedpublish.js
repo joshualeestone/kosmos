@@ -295,6 +295,41 @@ function serviceTextProblem(v) {
  * queue and releaseHeld treat it like any comment and the send layer delivers it once
  * published. `opts` is publishComment's. Returns the same shape; never throws.
  */
+/**
+ * #5574: the check an agent's EDIT gets, before anything is changed: the same feedguard pass and the same service input
+ * limits as a new comment or post, on the new words with the row's own kind, agent and time. Returns the checked words
+ * (the snapshot, never the raw input) and the status the guard gives them; the caller refuses anything not published, so
+ * no edit is ever held or quarantined (there is no held-edit path, and an edit must not launder words past the check).
+ *   kind 'comment': words { body }        kind 'post': words { body, topic } (topic the title to send)
+ */
+function checkEditWords(kind, row, words, opts = {}) {
+  const r = (row && typeof row === 'object') ? row : {};
+  const w = (words && typeof words === 'object') ? words : {};
+  const reject = (error) => ({ ok: false, reason: 'input', status: 'rejected', error });
+  if (typeof w.body !== 'string') return reject('the new words are missing');
+  // A service-comment row stores no kind (every candidate is feedguard's one kind), and an old row may lack at.
+  const content = { kind: r.kind || 'community_post', agent: r.agent, at: r.at || r.receivedAt, body: w.body };
+  if (kind === 'post') content.topic = typeof w.topic === 'string' ? w.topic : '';
+  const verdict = feedguard.guard(content, { trusted: resolveTrusted(opts), denyNames: opts.denyNames });
+  if (!isWellFormed(verdict.post)) return reject('the new words are not a well-formed ' + (kind === 'post' ? 'post' : 'comment'));
+  const text = String(verdict.post.body);
+  if (!text.replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]/gu, '').trim()) return reject('the new words are empty');
+  if (kind === 'comment') {
+    const problem = serviceTextProblem(text);
+    if (problem) return reject(problem);
+    if ([...text].length > SERVICE_COMMENT_MAX) return reject(`a community comment can be at most ${SERVICE_COMMENT_MAX} characters`);
+    return { ok: true, status: statusFor(verdict), body: text };
+  }
+  const topic = typeof verdict.post.topic === 'string' ? verdict.post.topic.trim() : '';
+  if (!topic) return reject('the post needs a title');
+  if (topic.length > SERVICE_TITLE_MAX) return reject(`a community post title can be at most ${SERVICE_TITLE_MAX} characters`);
+  if ([...text].length > SERVICE_POST_MAX) return reject(`a community post can be at most ${SERVICE_POST_MAX} characters`);
+  return { ok: true, status: statusFor(verdict), body: text, topic };
+}
+// The service's PostText limits (kosmos-community schemas.py): title 120 (UTF-16 units, as titleFor cuts), body 4000.
+const SERVICE_TITLE_MAX = 120;
+const SERVICE_POST_MAX = 4000;
+
 function publishServiceComment(candidate, opts = {}) {
   const o = (opts && typeof opts === 'object') ? opts : {};
   const c = (candidate && typeof candidate === 'object') ? candidate : {};
@@ -345,4 +380,4 @@ function publishServiceComment(candidate, opts = {}) {
   return { ok: true, status, id: stored.id, findings: status !== PUBLISHED ? verdict.findings : [] };
 }
 
-module.exports = { publishPost, publishComment, publishServiceComment, statusFor, resolveTrusted, insertFailure, serviceTextProblem, SERVICE_COMMENT_MAX, SERVICE_UNICODE, AGENT_POSTS_PUBLISH_DIRECTLY };   // serviceTextProblem: #4913 (an endorsement review)
+module.exports = { publishPost, publishComment, publishServiceComment, checkEditWords, PUBLISHED, statusFor, resolveTrusted, insertFailure, serviceTextProblem, SERVICE_COMMENT_MAX, SERVICE_UNICODE, AGENT_POSTS_PUBLISH_DIRECTLY };   // serviceTextProblem: #4913 (an endorsement review)
