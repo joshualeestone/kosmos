@@ -527,7 +527,7 @@ test('#5532 rollup review 11: change sends never push the daily send (the only o
   await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
   accept(root);
   const H = 3600e3;
-  const T0 = Date.UTC(2026, 9, 7, 12);
+  const T0 = Date.UTC(2026, 9, 7, 0, 30);   // early in a UTC day, so every change below falls on the same day
   let projects = [{ id: 'p1', name: 'Launch', agents: ['leo'] }];
   const src = () => sources({ projects: () => projects });
   assert.equal((await r.tick({ root, remote: c, sources: src(), now: T0 })).reason, 'daily', 'CONTROL: the first send is daily');
@@ -566,4 +566,43 @@ test('#5532 rollup review 14: a change send carries no provider either (it diffe
   const a = r.build({ world: 'w', reason: 'change', agents: [{ name: 'Leo', provider: 'anthropic', model: 'claude-opus-5-5', state: 'working' }] }).agents[0];
   assert.equal(a.provider, null);
   assert.equal(r.build({ world: 'w', reason: 'daily', agents: [{ name: 'Leo', provider: 'anthropic', state: 'working' }] }).agents[0].provider, 'anthropic', 'CONTROL: the daily send carries it');
+});
+
+test('#5532 rollup review 15: a clock that was ahead once never silences the rollup; a new UTC day makes the daily due', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root);
+  const now = Date.UTC(2026, 9, 7, 12);
+  // State written while the clock was two days ahead.
+  fs.writeFileSync(path.join(root, r.STATE_FILE), JSON.stringify({ enrolledAs: undefined, failAt: now + 2 * 86400e3, lastAt: now + 2 * 86400e3, dailyAt: now + 2 * 86400e3 }));
+  const rec = oe.readEnrollment({ root });
+  const st = JSON.parse(fs.readFileSync(path.join(root, r.STATE_FILE), 'utf8'));
+  st.enrolledAs = rec.world + '|' + rec.org.id + '|' + rec.enrolledAt;
+  fs.writeFileSync(path.join(root, r.STATE_FILE), JSON.stringify(st));
+  const a = await r.tick({ root, remote: c, sources: sources(), now });
+  assert.equal(a.sent, true, 'times from a clock that was ahead silenced the rollup: ' + JSON.stringify(a));
+  // Sent at 23:50 UTC; ten minutes later is a new UTC day: the daily is due again, not 24 hours later.
+  const late = Date.UTC(2026, 9, 9, 23, 50);
+  assert.equal((await r.tick({ root, remote: c, sources: sources(), now: late })).reason, 'daily');
+  const next = await r.tick({ root, remote: c, sources: sources(), now: late + 15 * 60e3 });
+  assert.equal(next.reason, 'daily', 'a new UTC day did not make the daily due: ' + JSON.stringify(next));
+});
+
+
+test('#5532 rollup review 15: when nothing can go, the board is not read at all', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root);
+  let reads = 0;
+  const counted = () => sources({ snapshot: () => { reads += 1; return { counts: { unreadableLines: 0 }, agents: [] }; } });
+  const T0 = Date.UTC(2026, 9, 7, 1);
+  assert.equal((await r.tick({ root, remote: c, sources: counted(), now: T0 })).sent, true);
+  const before = reads;
+  const r2 = await r.tick({ root, remote: c, sources: counted(), now: T0 + 3 * 60e3 });
+  assert.equal(r2.sent, false);
+  assert.equal(reads, before, 'the board was read on a tick where nothing could be sent');
+  await r.tick({ root, remote: c, sources: counted(), now: T0 + 20 * 60e3 });
+  assert.ok(reads > before, 'CONTROL: once a change could go, the board is read');
 });

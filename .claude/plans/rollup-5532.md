@@ -244,3 +244,17 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
   section names the new files, and the contract is cited as rollup3-5532.md (the file that exists).
 - NITs taken: the undo gates on a salt AND a company, as enroll does; the stale "withheld ... truncated" comment.
 
+
+## Review 15 (blind, Sonnet)
+- FIXED: a saved time after now (a clock that was ahead once) counts as never, so it cannot hold "waiting after a
+  failure" or "nothing due" for days. Test; mutation makes it fail.
+- FIXED: when nothing can go (not due, and too soon after the last send for a change) the board is not read at all
+  (the snapshot is a pane capture per agent, synchronously). Test counts the reads; mutation makes it fail.
+- FIXED: the daily is also due on a new UTC day, since the company takes statuses from the first daily send of each UTC
+  day and a rolling 24 hours drifts past whole days. At most two dailies within minutes around UTC midnight. Test;
+  mutation makes it fail.
+- FIXED: `printPinned` is the company's own enroll answer when it gives one (a print it did not pin must not make every
+  rollup wait), else "a print was sent". Test; mutation makes it fail.
+- NITs kept: the signature covers names and projects, not providers (decided in review 9; the consent wording is the
+  coordinator's to align); the model-id allow-list can pass a made-up but harmless id; "cost" in a report line turns
+  usage consent on (no usage reader exists; the coordinator's flag decides).

@@ -364,17 +364,25 @@ async function tick(opts) {
   const enrolledAs = rec.world + '|' + ((rec.org && rec.org.id) || '') + '|' + (rec.enrolledAt || '');
   let st = readState(root);
   if (st.enrolledAs !== enrolledAs) st = { enrolledAs };
+  /* A time after now (a clock that was wrong once, then corrected) counts as never (rollup review 15): kept, it would hold
+     "waiting after a failure" or "nothing due" until the clock caught up, days of silence with no signal. */
+  for (const k of ['failAt', 'lastAt', 'dailyAt']) if (typeof st[k] === 'number' && st[k] > now) delete st[k];
   if (st.failAt && now - st.failAt < RETRY_AFTER_FAIL_MS) return { sent: false, because: 'waiting after a failure' };
+  /* The daily send has its own clock (rollup review 11): a change send carries no status or model, so it must not push
+     the next daily (the only send that does) further out on a board that changes every day. Older state without it
+     falls back to lastAt once. It is also due on a new UTC day (review 15): the company takes statuses from the first
+     daily send of each UTC day, and a rolling 24 hours would drift past a whole day. */
+  const dailyAt = st.dailyAt || st.lastAt;
+  const utcDay = (t) => new Date(t).toISOString().slice(0, 10);
+  const due = !dailyAt || now - dailyAt >= DAILY_MS || utcDay(dailyAt) !== utcDay(now);
+  /* Nothing can go yet (not due, and too soon after the last send for a change): the board is not read at all
+     (review 15). Reading it takes a pane capture per agent, synchronously, every five minutes. */
+  if (!due && st.lastAt && now - st.lastAt < CHANGE_MIN_MS) return { sent: false, because: 'nothing due' };
   const g = await gather(o.sources);
   /* Usage leaves only under a consent that named it (review 8): a reader added to the sources later cannot turn it on
      by itself. Until the enrollment records `usageConsented` (set by the consent follow-up when the accepted words name
      usage), any usage read is dropped and the body says usageWithheld. */
   if (accepted.usageConsented !== true) { g.usageByDay = {}; g.usageWithheld = true; }
-  /* The daily send has its own clock (rollup review 11): a change send carries no status or model, so it must not push
-     the next daily (the only send that does) further out on a board that changes every day. Older state without it
-     falls back to lastAt once. */
-  const dailyAt = st.dailyAt || st.lastAt;
-  const due = !dailyAt || now - dailyAt >= DAILY_MS;
   // A partial read is never a change (review 5): only the daily send may carry an incomplete body.
   const sig = signature(build(Object.assign({ world: rec.world }, g)));
   const changed = !g.partial && st.lastSig && sig !== st.lastSig;

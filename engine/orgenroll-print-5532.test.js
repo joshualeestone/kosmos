@@ -187,3 +187,18 @@ test('#5532 rollup review 14: once a print is pinned, a reader that gave up make
   fs.writeFileSync(path.join(b, oe.CONSENT_FILE), JSON.stringify({ order: [HASH], byHash: { [HASH]: { reports: ['agent names'], usageConsented: false } } }));
   assert.equal((await rollup.tick({ root: b, remote: co2, sources: src, now: Date.UTC(2026, 9, 8, 12) })).sent, true, 'CONTROL: with nothing pinned, the rollup goes');
 });
+
+test('#5532 rollup review 15: the company\'s own printPinned answer decides, so a print it did not pin never stops reporting', async (t) => {
+  const root = sandbox(t);
+  const co = company(root);
+  const base = co.macRequest;
+  co.macRequest = async (m, route, body) => { const r = await base(m, route, body); if (route === oe.ROUTES.enroll) r.data.printPinned = false; return r; };
+  await join(root, co);
+  assert.equal(oe.readEnrollment({ root }).printPinned, false, 'a print the company said it did not pin was recorded as pinned');
+  const yes = sandbox(t);
+  const co2 = company(yes);
+  const b2 = co2.macRequest;
+  co2.macRequest = async (m, route, body) => { const r = await b2(m, route, body); if (route === oe.ROUTES.enroll) r.data.printPinned = true; return r; };
+  await join(yes, co2);
+  assert.equal(oe.readEnrollment({ root: yes }).printPinned, true, 'CONTROL: pinned when the company says so');
+});

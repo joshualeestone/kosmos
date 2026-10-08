@@ -432,7 +432,10 @@ async function enrollNow(code, accepted, opts) {
   // The consent the person was shown, as a hash: what they accepted is then a checkable fact on this side (#5531 review 10).
   if (opts && typeof opts.consentHash === 'string' && /^[0-9a-f]{64}$/.test(opts.consentHash)) rec.consentHash = opts.consentHash;
   if (body.computerSalt) rec.computerSalt = body.computerSalt;   // the salt the pinned print was made with (#5532): leave and rollup use it
-  rec.printPinned = !!body.computerPrint;   // each enroll pins exactly what it sends (v1.5); a print sent is taken as pinned, the safe direction
+  /* Whether this join pinned a print: the company's own answer when it gives one (review 15: a print made with a salt
+     it does not hold is not pinned, and waiting for one would stop reporting for nothing), else "a print was sent", the
+     safe direction. Each enroll pins exactly what it sends (v1.5). */
+  rec.printPinned = typeof (r.data && r.data.printPinned) === 'boolean' ? (r.data.printPinned && !!body.computerPrint) : !!body.computerPrint;
   try { writeEnrollment(rec, opts); } catch {
     try { writeEnrollment(rec, opts); } catch {   // once more: a passing error (a full disk freeing up)
       /* The company now enrolls this world, but this Kosmos cannot record it, so it would never report and never show
