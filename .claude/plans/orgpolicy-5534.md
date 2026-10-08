@@ -64,3 +64,10 @@ re-verifies the bundle each time it is asked (inForce), so a bundle written sinc
 - NITs fixed: tests for a missing or non-integer exp, Grok's pinned default, the fail-open path; the held mark records the provider and clears only after a successful install (test across a failed then a successful install).
 - NIT left: a switch to the model an agent already runs is refused when the policy now drops it (consistent: only new switches are gated).
 - Mutations: setModel route, exp check, Grok default, fail-open, early clear: each red. Focused: orgpolicy 7, create 226, worldstarts 48, register 23, discover.adopt 29, server.switch-model-5429 9 (00:24 CDT 2026-10-08).
+### Review 5 (opus): 2 WARNINGs (tests), NITs
+- No code defect; no-policy path re-checked clean; every create/switch path gated (grep of every installJob, setProvider, setModel, createAgent, rewriteAgentJob caller). 18 of 20 mutations red.
+- WARNING fixed: the rollback test used two orgs, so either half of the per-org marks passed alone. It crosses three orgs and an old record without marks; each half measured red when removed.
+- WARNING fixed: the switch test switched a Claude agent to Claude (the "already runs on" refusal hid behind the policy check). It starts on OpenAI now and the control asserts the switch is not refused.
+- NITs fixed: comments name Antigravity; kst1 no longer claims the contract's check order.
+- NITs left: refusal order on a same-provider "switch"; the trim in setProvider is an equivalent mutant (policyAllows trims too); a held import of an unrecognized runner records anthropic (the runner floor predates this); a failed rename leaves a .tmp.
+- Focused: orgpolicy 7, create '5534' 3 (00:32 CDT 2026-10-08).
