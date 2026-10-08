@@ -8,14 +8,14 @@
  *      expires_at and retain_until are ISO-8601 UTC strings ("2026-10-08T18:15:00Z").
  *
  * Each upload is a presigned PUT. Its query signature covers content-length, content-md5, host, if-none-match and
- * the lock headers; `headers` lists exactly what to send (Content-Length and Host are the HTTP client's, so they are
+ * the two lock headers (six, all required here); `headers` lists exactly what to send (Content-Length and Host are the HTTP client's, so they are
  * NOT in it). Measured on #5535: a matching body 200, a different body 400 BadDigest, a dropped signed header 403, a
  * second PUT 412. Keys are random per upload (two new ids), and each url's path ends with its key.
  *
  * What this module owns, and what it does not:
  *  - Before a single byte leaves, every grant must bind OUR bytes: the MD5 in its headers is the one we asked for, a
- *    Content-Length (if listed) is the chunk's length, X-Amz-SignedHeaders covers content-length, content-md5, host
- *    and if-none-match, If-None-Match is `*`, the url is https and carries the upload's own key, and no url or key
+ *    Content-Length (if listed) is the chunk's length, X-Amz-SignedHeaders covers those six headers, If-None-Match is
+ *    `*`, the url carries exactly SigV4's six query parameters and a signed time that agrees with expires_at, the url is https and carries the upload's own key, and no url or key
  *    repeats. A coordinator bug cannot make the Mac write something other than what it sealed.
  *  - 412 counts as stored only on a RETRY of that key (an earlier attempt was sent and its answer was lost). The key
  *    is random and only this grant's url, whose signature fixes our MD5, can write it, so whatever holds it is our
@@ -103,8 +103,10 @@ function expiryMs(v) {
 }
 
 /* Check a grant answer against the batch it was asked for. Returns { ok: true, expiresAtMs, uploads } or
-   { ok: false, because }. Every upload must bind exactly the bytes we asked to write. `allowHttp` is a test seam. */
-function parseGrant(data, objects, allowHttp) {
+   { ok: false, because }. Every upload must bind exactly the bytes we asked to write. `allowHttp` is a test seam, and
+   honoured only under the test runner (NODE_TEST_CONTEXT), so a production caller passing it cannot enable http. */
+function parseGrant(data, objects, allowHttpAsked) {
+  const allowHttp = !!allowHttpAsked && !!process.env.NODE_TEST_CONTEXT;
   if (!data || typeof data !== 'object') return { ok: false, because: 'the grant answer is not an object' };
   const expiresAtMs = expiryMs(data.expires_at);
   if (!Number.isFinite(expiresAtMs)) return { ok: false, because: 'the grant answer has no readable expires_at' };
@@ -128,10 +130,17 @@ function parseGrant(data, objects, allowHttp) {
     const qnames = [...url.searchParams.keys()];
     for (const q of qnames) if (!QUERY_ALLOWED.includes(q)) return { ok: false, because: `upload ${i}'s url carries a parameter it may not (${q})` };
     if (new Set(qnames).size !== qnames.length) return { ok: false, because: `upload ${i}'s url repeats a parameter` };
+    for (const q of QUERY_ALLOWED) if (!url.searchParams.get(q)) return { ok: false, because: `upload ${i}'s url has no ${q}` };
+    // The signing time is the one the url's signature covers; expires_at must agree with it, and the lock is measured
+    // from it, so a field outside the signature cannot move the lock.
+    const dm = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(url.searchParams.get('X-Amz-Date'));
+    if (!dm) return { ok: false, because: `upload ${i}'s url has no readable X-Amz-Date` };
+    const signedAtMs = Date.UTC(+dm[1], +dm[2] - 1, +dm[3], +dm[4], +dm[5], +dm[6]);
     const signed = String(url.searchParams.get('X-Amz-SignedHeaders') || '').toLowerCase().split(';');
     // The url itself must not outlive a grant: X-Amz-Expires (seconds) at most the window.
     const xe = Number(url.searchParams.get('X-Amz-Expires'));
     if (!Number.isInteger(xe) || xe <= 0 || xe * 1000 > GRANT_WINDOW_MS) return { ok: false, because: `upload ${i}'s url lasts longer than a grant` };
+    if (Math.abs(signedAtMs + xe * 1000 - expiresAtMs) > 60 * 1000) return { ok: false, because: `upload ${i}'s signed time does not match the grant's expires_at` };
     for (const h of SIGNED_NEEDED) if (!signed.includes(h)) return { ok: false, because: `upload ${i} does not sign ${h}` };
     if (!u.headers || typeof u.headers !== 'object' || Array.isArray(u.headers)) return { ok: false, because: `upload ${i} has no headers` };
     const headers = {};
@@ -154,7 +163,7 @@ function parseGrant(data, objects, allowHttp) {
     // And the lock must be the one the plan says: COMPLIANCE, for 29 to 39 days from the grant's own start.
     if (headerOf(headers, 'x-amz-object-lock-mode') !== 'COMPLIANCE') return { ok: false, because: `upload ${i} is not a COMPLIANCE lock` };
     const retainMs = expiryMs(headerOf(headers, 'x-amz-object-lock-retain-until-date'));
-    const lockFor = retainMs - (expiresAtMs - GRANT_WINDOW_MS);
+    const lockFor = retainMs - signedAtMs;   // from the grant's own (signed) start
     if (!Number.isFinite(retainMs) || lockFor < LOCK_MIN_MS || lockFor > LOCK_MAX_MS) return { ok: false, because: `upload ${i}'s lock is not 29 to 39 days` };
     uploads.push({ key: u.key, url: url.toString(), headers });
   }
@@ -186,6 +195,10 @@ async function putOne(fetchFn, up, bytes, attempt, timeoutMs) {
     if (s === 412) return { kind: attempt > 0 ? 'present' : 'refused', status: s, code };
     // Only S3's presigned-url expiry ("Request has expired", AccessDenied), not a credential's (ExpiredToken).
     if (s === 403 && code === 'AccessDenied' && /Request has expired/.test(text)) return { kind: 'expired', status: s, code };
+    // 400 RequestTimeout (the socket sat idle) and IncompleteBody (fewer bytes than signed arrived): nothing was
+    // committed, and a slow link meets both, so the same url is tried again. 501 NotImplemented never changes.
+    if (s === 400 && (code === 'RequestTimeout' || code === 'IncompleteBody')) return { kind: 'retry', status: s, code };
+    if (s === 501) return { kind: 'refused', status: s, code };
     if (s === 429 || s === 409 || s >= 500) return { kind: 'retry', status: s, code };
     return { kind: 'refused', status: s, code };
   } catch (err) {
@@ -194,7 +207,7 @@ async function putOne(fetchFn, up, bytes, attempt, timeoutMs) {
     const c = err && ((err.cause && err.cause.code) || err.code);
     const local = LOCAL_CODES.has(c) || (err && err.name === 'TypeError' && !err.cause && !ac.signal.aborted);
     if (local) return { kind: 'refused', status: null, code: c || 'local' };
-    return { kind: 'retry', status: null, code: c || (ac.signal.aborted ? 'timeout' : 'network') };
+    return { kind: 'retry', status: null, code: ac.signal.aborted ? 'timeout' : (c || 'network') };
   } finally {
     clearTimeout(t);
   }
@@ -264,8 +277,7 @@ async function uploadInner(deps, objects, opts, keys) {
     // A grant already over when it arrives is not a slow network but a clock ahead of the coordinator's: a new grant
     // would be "expired" too, and each spends allowance. Stop and say so.
     if (now() >= g.expiresAtMs) return { ok: false, because: `this computer's clock reads past the grant's expiry (${new Date(g.expiresAtMs).toISOString()}) as it arrives: check the clock`, keys };
-    // And never far ahead: the lock is checked from the grant's own start, so a coordinator clock far ahead would pass
-    // that check with a lock far in the future. More than the window plus 5 minutes ahead is refused before a byte.
+    // And never far ahead of this Mac's clock (more than the window plus an hour): one of the two clocks is wrong.
     // (An hour of tolerance: a Mac a few minutes slow still backs up; S3 itself refuses a request whose signing time is
     // more than 15 minutes off its own clock.)
     if (g.expiresAtMs - now() > GRANT_WINDOW_MS + 60 * 60 * 1000) return { ok: false, because: `the grant expires ${new Date(g.expiresAtMs).toISOString()}, over an hour further ahead of this computer's clock than a grant lasts: one of the two clocks is wrong (this grant's allowance is spent)`, keys };
@@ -338,11 +350,18 @@ async function askGrant(macRequest, batch, allowHttp) {
   return { ok: false, out: { because: 'the grant request was refused as replayed twice', code: 'replayed' } };
 }
 
-/* Run fn over items with at most n at once. */
+/* Run fn over items with at most n at once. If one throws, no worker starts another item, every worker in flight is
+   awaited, and only then is the first error thrown: nothing keeps uploading after the caller has its result. */
 async function eachLimited(items, n, fn) {
-  let next = 0;
-  const worker = async () => { while (next < items.length) { const i = next++; await fn(items[i]); } };
+  let next = 0, failed = null;
+  const worker = async () => {
+    while (!failed && next < items.length) {
+      const i = next++;
+      try { await fn(items[i]); } catch (err) { failed = failed || { err }; }
+    }
+  };
   await Promise.all(Array.from({ length: Math.max(1, Math.min(n, items.length)) }, worker));
+  if (failed) throw failed.err;
 }
 
 module.exports = { GRANT_ROUTE, MAX_PER_GRANT, MIN_OBJECT, MAX_OBJECT, MAX_REGRANTS, INITIAL_BATCH, BACKOFF_MAX_MS, grantBody, refusalOf, expiryMs, parseGrant, putOne, uploadChunks };

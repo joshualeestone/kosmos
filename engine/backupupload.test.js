@@ -13,6 +13,8 @@ const md5 = (b) => crypto.createHash('md5').update(b).digest('base64');
 const chunk = (n, size) => ({ name: crypto.createHash('sha256').update(`c${n}`).digest('hex'), object: crypto.randomBytes(size || up.MIN_OBJECT + n) });
 const iso = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 const SIGNED = 'content-length;content-md5;host;if-none-match;x-amz-object-lock-mode;x-amz-object-lock-retain-until-date';
+// SigV4's X-Amz-Date for a signing time (ms): YYYYMMDDTHHMMSSZ.
+const amzDate = (ms) => new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
 
 /* A bucket: PUT /bucket/<key> stores once (412 after), checks Content-MD5 against the body (400 BadDigest). `script`
    (key -> [[status, body, delayMs], ...]) is answered first, one entry per PUT of that key. Counts every PUT. */
@@ -51,11 +53,12 @@ function coordinator(b, opts) {
     bodies.push(body);
     assert.strictEqual(method, 'POST'); assert.strictEqual(route, up.GRANT_ROUTE);
     if (o.refuse && o.refuse.length) return { ok: false, because: o.refuse.shift() };
-    const expMs = o.expiresAt || Date.now() + 15 * 60 * 1000;
-    const retain = iso(expMs - 15 * 60 * 1000 + 33 * 86400 * 1000);
+    const expMs = typeof o.expiresAt === 'function' ? o.expiresAt() : (o.expiresAt || Date.now() + 15 * 60 * 1000);
+    const retain = iso(Math.floor(expMs / 1000) * 1000 - 15 * 60 * 1000 + 33 * 86400 * 1000);
     const uploads = body.chunks.map((c) => {
       const key = `org1/acct1/1/2026-W41/${o.tag || ''}k${++n}`;
-      const url = `${b.base}/bucket/${key.split('/').map(encodeURIComponent).join('/')}?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=900&X-Amz-SignedHeaders=${encodeURIComponent(SIGNED)}&X-Amz-Signature=00`;
+      const signedAt = Math.floor(expMs / 1000) * 1000 - 15 * 60 * 1000;
+      const url = `${b.base}/bucket/${key.split('/').map(encodeURIComponent).join('/')}?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIDTEST%2F20261008%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=${amzDate(signedAt)}&X-Amz-Expires=900&X-Amz-SignedHeaders=${encodeURIComponent(SIGNED)}&X-Amz-Signature=00`;
       return { key, url, headers: { 'content-md5': c.md5, 'if-none-match': '*', 'x-amz-object-lock-mode': 'COMPLIANCE', 'x-amz-object-lock-retain-until-date': retain } };
     });
     const data = { epoch: 1, period: '2026-W41', retain_until: retain, expires_at: iso(expMs), uploads };
@@ -113,6 +116,10 @@ test('a grant that does not bind OUR bytes, or does not name its key, is refused
     ['one upload short', (d) => { d.uploads.pop(); }],
     ['a repeated key', (d) => { d.uploads[1].key = d.uploads[0].key; }],
     ['no expiry', (d) => { delete d.expires_at; }],
+    ['no X-Amz-Signature', (d) => { d.uploads[0].url = d.uploads[0].url.replace('&X-Amz-Signature=00', ''); }],
+    ['no X-Amz-Credential', (d) => { d.uploads[0].url = d.uploads[0].url.replace(/&X-Amz-Credential=[^&]*/, ''); }],
+    ['an unreadable X-Amz-Date', (d) => { d.uploads[0].url = d.uploads[0].url.replace(/X-Amz-Date=[^&]*/, 'X-Amz-Date=yesterday'); }],
+    ['expires_at that disagrees with the signed time', (d) => { d.expires_at = iso(Date.parse(d.expires_at) + 10 * 60 * 1000); }],
     ['a legal hold in the url query', (d) => { d.uploads[0].url += '&x-amz-object-lock-legal-hold=ON'; }],
     ['a multipart uploadId in the url query', (d) => { d.uploads[0].url += '&partNumber=1&uploadId=zz'; }],
     ['a repeated query parameter', (d) => { d.uploads[0].url += '&X-Amz-Expires=900'; }],
@@ -155,7 +162,7 @@ test('the coordinator leaves Content-Length out of headers (fetch sets it): that
 
 test('an http (not https) upload url is refused unless the test seam allows it', () => {
   const c = chunk(1);
-  const data = { expires_at: '2030-01-01T00:15:00Z', uploads: [{ key: 'a/k', url: `http://bucket.example/b/a/k?X-Amz-Expires=900&X-Amz-SignedHeaders=${encodeURIComponent(SIGNED)}`, headers: { 'Content-MD5': md5(c.object), 'If-None-Match': '*', 'X-Amz-Object-Lock-Mode': 'COMPLIANCE', 'X-Amz-Object-Lock-Retain-Until-Date': '2030-02-03T00:00:00Z' } }] };
+  const data = { expires_at: '2030-01-01T00:15:00Z', uploads: [{ key: 'a/k', url: `http://bucket.example/b/a/k?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=c&X-Amz-Date=20300101T000000Z&X-Amz-Expires=900&X-Amz-SignedHeaders=${encodeURIComponent(SIGNED)}&X-Amz-Signature=00`, headers: { 'Content-MD5': md5(c.object), 'If-None-Match': '*', 'X-Amz-Object-Lock-Mode': 'COMPLIANCE', 'X-Amz-Object-Lock-Retain-Until-Date': '2030-02-03T00:00:00Z' } }] };
   assert.strictEqual(up.parseGrant(data, [c]).ok, false);
   assert.strictEqual(up.parseGrant(data, [c], true).ok, true);
   data.uploads[0].url = data.uploads[0].url.replace('http:', 'https:');
@@ -347,10 +354,8 @@ test('a slow uplink: a grant that runs out of time shrinks the next to what it c
     const ck = clock();
     // Every PUT costs 4 fake minutes, one at a time: a 15-minute grant carries 3.
     const slow = async (url, init) => { await ck.sleep(4 * 60 * 1000); return fetch(url, init); };
-    const c = coordinator(b, { tag: 's' });
-    // The stub's expiry is taken from the fake clock, as the coordinator's is from its own.
-    const inner = c.macRequest;
-    c.macRequest = async (...a) => { const r = await inner(...a); if (r.ok) r.data.expires_at = iso(ck.now() + 15 * 60 * 1000); return r; };
+    // The stub's grants are signed on the fake clock, as the coordinator's are on its own.
+    const c = coordinator(b, { tag: 's', expiresAt: () => ck.now() + 15 * 60 * 1000 });
     const cs = Array.from({ length: 10 }, (_, i) => chunk(300 + i));
     const r = await up.uploadChunks(deps(c, Object.assign({ fetch: slow }, ck)), cs, { concurrency: 1 });
     assert.strictEqual(r.ok, true, r.because);
@@ -446,6 +451,50 @@ test('an S3 error body is read only up to 8 KB', async () => {
     const r = await up.uploadChunks(deps(coordinator(b)), [chunk(1)]);
     assert.strictEqual(r.ok, false); assert.match(r.because, /HTTP 400 BadDigest/);
   } finally { await b.close(); }
+});
+
+test('S3 400 RequestTimeout and IncompleteBody are retried on the same url (nothing was committed); 501 is refused', async () => {
+  for (const code of ['RequestTimeout', 'IncompleteBody']) {
+    const b = await bucket();
+    try {
+      b.script.set(keyN(1), [[400, `<Error><Code>${code}</Code></Error>`]]);
+      const c = coordinator(b);
+      const r = await up.uploadChunks(deps(c), [chunk(1)]);
+      assert.strictEqual(r.ok, true, `${code}: ${r.because}`);
+      assert.strictEqual(c.bodies.length, 1);
+    } finally { await b.close(); }
+  }
+  const b = await bucket();
+  try {
+    b.script.set(keyN(1), [[501, '<Error><Code>NotImplemented</Code></Error>']]);
+    const r = await up.uploadChunks(deps(coordinator(b)), [chunk(1)]);
+    assert.strictEqual(r.ok, false); assert.ok(!r.retryLater); assert.match(r.because, /HTTP 501/);
+  } finally { await b.close(); }
+});
+
+test('if a worker throws, nothing keeps uploading after the result is returned', async () => {
+  const b = await bucket();
+  try {
+    const cs = [chunk(1), chunk(2)];
+    b.script.set(keyN(1), [[503]]);
+    b.script.set(keyN(2), [[200, '', 300]]);   // chunk 2's PUT is still in flight when chunk 1's worker throws
+    const r = await up.uploadChunks(deps(coordinator(b), { sleep: async () => { throw new Error('sleep broke'); } }), cs, { concurrency: 2 });
+    assert.strictEqual(r.ok, false); assert.match(r.because, /sleep broke/);
+    const at = r.keys.size;
+    await new Promise((res) => setTimeout(res, 500));
+    assert.strictEqual(r.keys.size, at, 'the keys map changed after the result was returned');
+  } finally { await b.close(); }
+});
+
+test('the http test seam does nothing outside the test runner', () => {
+  const c = chunk(1);
+  const data = { expires_at: '2030-01-01T00:15:00Z', uploads: [{ key: 'a/k', url: `http://bucket.example/b/a/k?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=c&X-Amz-Date=20300101T000000Z&X-Amz-Expires=900&X-Amz-SignedHeaders=${encodeURIComponent(SIGNED)}&X-Amz-Signature=00`, headers: { 'content-md5': md5(c.object), 'if-none-match': '*', 'x-amz-object-lock-mode': 'COMPLIANCE', 'x-amz-object-lock-retain-until-date': '2030-02-03T00:00:00Z' } }] };
+  const saved = process.env.NODE_TEST_CONTEXT;
+  try {
+    delete process.env.NODE_TEST_CONTEXT;
+    assert.strictEqual(up.parseGrant(data, [c], true).ok, false);
+  } finally { if (saved !== undefined) process.env.NODE_TEST_CONTEXT = saved; }
+  assert.strictEqual(up.parseGrant(data, [c], true).ok, true);
 });
 
 test('never throws: a throwing injected clock still resolves to ok: false', async () => {
