@@ -34,6 +34,7 @@ test('#4752: on THIS host (meaningful on the Windows job; trivially true elsewhe
   const abs = rules.filter((r) => r.startsWith('Read(//'));
   assert.ok(abs.length > 0, 'no absolute rule was written, so this arm tests nothing');
   for (const r of abs) {
+    if (process.platform === 'win32') assert.match(r, /^Read\(\/\/[a-z]\//, 'a Windows rule is not in the //c/ form: ' + r);
     assert.equal(r.includes('\\'), false, 'a rule keeps a native backslash: ' + r);
     assert.equal(/^Read\(\/\/[A-Za-z]:/.test(r), false, 'a rule keeps a drive colon: ' + r);
   }
@@ -71,7 +72,7 @@ test('#4752: migrating a Windows guide keeps exactly the right rules (pure, so i
     rules: [nf(base + '\\notes.json'), nf(base + '\\board-token'), 'Read(~/.ssh/**)'],
   };
   const had = [
-    'Read(//C:\\Users\\a\\AppData\\Roaming\\Kosmos\\notes.json)',   // old form, made again just now: dropped
+    'Read(//C:\\Users\\a\\AppData\\Roaming\\Kosmos\\notes.json)',   // old form, new form made just now: BOTH kept (unmeasured)
     'Read(//C:\\Users\\a\\AppData\\Roaming\\Kosmos\\gone.log)',     // old form, entry gone from the listed store: dropped
     nf(base + '\\also-gone.log'),                                     // new form, entry gone: dropped (wasEntryRule)
     'Read(//C:\\Users\\a\\Documents\\private)',                        // a person's own old-form rule elsewhere: kept
@@ -79,6 +80,7 @@ test('#4752: migrating a Windows guide keeps exactly the right rules (pure, so i
     'Read(~/.ssh/**)',
   ];
   assert.deepEqual(sa.migrateKept(had, fresh, 'win32'), [
+    'Read(//C:\\Users\\a\\AppData\\Roaming\\Kosmos\\notes.json)',   // its path is still protected: the old form stays too
     'Read(//C:\\Users\\a\\Documents\\private)',
     nf('C:\\Users\\a\\Documents\\other'),
     'Read(~/.ssh/**)',

@@ -15,12 +15,13 @@ so on Windows those rules were at best unverified. The `~/` rules are unaffected
   uses `rulePath`, the exact inverse of `ruleAbs` (it also reads an older native-form rule as it is).
 - Which earlier rules stay is now one pure function, `migrateKept(had, fresh, platform)` (review 3: the migration was
   reachable only on a Windows host; the platform now comes from `deps.platform`, and `wasEntryRule`/`rulePath` take
-  it too). A rule written before this change in the native form (or as `C:/...`) is dropped on Windows ONLY when its
-  exact new-form equivalent was just made, or that equivalent is a per-entry rule for the store just listed in full
-  (the same evidence the new-form per-entry pruning already uses: the entry is gone) (`legacyWinEquivalent`).
-  Review 2: dropping on location alone would leave a path with NO rule if making the new one failed (a listing
-  error, a store mid-move); duplicates are harmless, a gap is not. A person's own rule elsewhere has no equivalent
-  here and stays. `RULE_SYNTAX` is checked on the native path with its separator taken out first, as before.
+  it too). A rule written before this change in the native form (or as `C:/...`) STAYS beside its new-form equivalent
+  (review 4: these are deny rules, and the new form rests on Claude Code's docs, not a Windows measurement; a
+  duplicate deny costs nothing, a removed working one exposes the file). It is dropped only when its equivalent is
+  a per-entry rule for an entry gone from the store just listed in full: nothing is left to protect
+  (`legacyWinEquivalent`). The platform is the process's own, the same one the writers use (review 4: honouring
+  `deps.platform` there made the migration and the writers disagree).
+  A person's own rule elsewhere has no equivalent here and stays. `RULE_SYNTAX` is checked on the native path with its separator taken out first, as before.
 - Not handled, recorded: a UNC store path (rulePath reads its rule back drive-less, so the own-folder check does not
   apply to a store on a network share); a path with a bracket or parenthesis in a home or data-root rule (as before).
 
