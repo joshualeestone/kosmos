@@ -214,3 +214,10 @@ the pick rule for Rule 2 (slice B) and the weakest premises are on the card (iss
 - Stated (NIT): a person comment with no readable time stays in the window, so unanswered it never ages out of /sent.
 - Left (NITs): the sweepOnce header's field list is the existing list (the person fields are in the file header and at
   the injection in server.js); the PERSON_OWED test pins wording only (listed untested above).
+
+## Review 12 (sonnet)
+- Fixed (WARNINGs): an agent whose person line is resting types its regular line, so it takes its slot of the hour
+  again (restingNow, shared by the count and the typing); personOwed's doc says an answer must address the person; the
+  person record's whole-record restore states its premise (the pass is its only writer, deliver is not awaited).
+- Fixed (NIT): a shadowed name in the told-record rollback.
+- Left (NITs): the person record is rewritten each pass for lastSeen (small); the dense person branch (left inline).

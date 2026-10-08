@@ -303,6 +303,8 @@ async function sweepOnce(o) {
       const at = o.roster.findIndex((c) => c && c.sessionName === rot.after);
       if (at >= 0) order = o.roster.slice(at + 1).concat(o.roster.slice(0, at + 1));
     }
+    // Review 12 of #5623: the person line's rest, read where the agent is counted and where it is typed.
+    const restingNow = (s) => { const pm = book.get(s) || {}; return Number.isInteger(pm.personFails) && pm.personFails >= MAX_TRIES && Number.isFinite(pm.personGivenAt) && clock() - pm.personGivenAt < GIVE_UP_FOR_MS; };
     let walked = 0;   // review 10 of #5623: how far the count got, so the persons round closes only on a walk to the end
     for (const card of order) {
       walked += 1;
@@ -405,7 +407,8 @@ async function sweepOnce(o) {
         }
         const regular = untold.length > 0 && !givenUp && regularOk && !capFull;
         // Review 7: an agent with a person due types only the person line this pass, so it takes no slot of the hour either.
-        if (regular || due.length) counted.push({ session, fresh, noSlot: Boolean(memo && memo.writeSaid) || !regular || due.length > 0, countedAt: countStart, due, regular });
+        if (regular || due.length) counted.push({ session, fresh, noSlot: Boolean(memo && memo.writeSaid) || !regular || (due.length > 0 && !restingNow(session)),   // review 12: a resting person line types the regular one, which takes its slot
+           countedAt: countStart, due, regular });
       } catch (err) {
         results.push({ session, name: plainWords(card.name || session, 80), act: 'error', because: String((err && err.message) || err) });
       }
@@ -437,8 +440,7 @@ async function sweepOnce(o) {
            and taken back if the line reached nothing, was held, or met a busy pane. Takes no slot of the hourly limit. */
         /* Review 3: a person line that keeps reaching nothing rests after MAX_TRIES, like the regular batch, so a pane that
            never takes a line cannot hold off this agent's regular line for ever; it is tried again after GIVE_UP_FOR_MS (one try, then it rests again if that one too reaches nothing). */
-        const pm = book.get(session) || {};
-        const personResting = Number.isInteger(pm.personFails) && pm.personFails >= MAX_TRIES && Number.isFinite(pm.personGivenAt) && clock() - pm.personGivenAt < GIVE_UP_FOR_MS;
+        const personResting = restingNow(session);
         if (Array.isArray(due) && due.length && !personResting) {
           if (!(card && require('./agentnudge').nudgeableCard(card))) continue;
           if (stoodDown(session, projects)) continue;
@@ -470,11 +472,13 @@ async function sweepOnce(o) {
           const reached = !held && !paneBusy && ((D.PLACED != null && state === D.PLACED) || (D.UNCONFIRMED != null && state === D.UNCONFIRMED));
           const because = due.length + (due.length === 1 ? ' person is' : ' people are') + ' waiting for an answer';
           if (!reached) {
+            // Review 12: the whole record from before the tell is put back. Nothing else writes it between (deliver is not
+            // awaited and the pass is the record's only writer); if either changes, restore only the told arrays for due.
             let back = false; try { back = o.writePersons(session, rec) === true; } catch { back = false; }
             /* Review 6: only the ids this line added are taken back, read afresh, so a write made meanwhile is kept. */
             if (nudged0 instanceof Set && tops.length) {
               let ok = false;
-              try { const now = o.readNudged(session); if (now instanceof Set) { const back = new Set([...now].filter((id) => !tops.includes(id) || nudged0.has(id))); ok = o.writeNudged(session, back) === true; } } catch { ok = false; }
+              try { const now = o.readNudged(session); if (now instanceof Set) { const kept = new Set([...now].filter((id) => !tops.includes(id) || nudged0.has(id))); ok = o.writeNudged(session, kept) === true; } } catch { ok = false; }
               if (!ok) say({ name: display, session, act: 'missed', because: 'its told record could not be put back for the person line' });
             }
             if (!back) say({ name: display, session, act: 'missed', because: 'its person record could not be put back, so this tell counts' });

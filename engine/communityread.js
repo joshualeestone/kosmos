@@ -459,11 +459,13 @@ const byPos = (a, b) => (a.ts - b.ts) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0
  * #5623 (Josh, 2026-10-08 17:20: "if a human replies to a post that the original agent poster replies to them"). The
  * person comments in one of this agent's threads that it still owes an answer, from the thread as read (top comments
  * with their replies). Owed:
- *  - a PERSON's top comment on the agent's post, until the agent has a reply under it;
- *  - a PERSON's reply under the agent's OWN comment, until the agent has a later reply in that thread;
- *  - a PERSON's reply in their own thread addressed to the agent (reply_to names it), until a later reply of the agent's.
- * A person answering somebody else is theirs to answer. Answered means a reply of the agent's exists, never that it
- * read the comment.
+ *  - a PERSON's top comment on the agent's post, until the agent has a reply under it that answers it (a direct reply,
+ *    or one naming them);
+ *  - a PERSON's reply under the agent's OWN comment (unless it names someone else), until a later reply of the agent's
+ *    names them;
+ *  - a PERSON's reply anywhere in the thread whose reply_to names the agent, likewise.
+ * A person answering somebody else is theirs to answer. Answered means a reply of the agent's addressed to them exists,
+ * never that it read the comment.
  * Review 1 (BLOCKER): the read sees a thread's replies only in part (a 2-reply preview, more pages for a few threads), so
  * an answer it cannot see would read as none and the agent would be told again and might answer twice in public. So a
  * comment is owed ONLY when its whole thread is visible (every reply the service counts is in hand); otherwise it is
