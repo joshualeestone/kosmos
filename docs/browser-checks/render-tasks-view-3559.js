@@ -99,7 +99,7 @@ function chk(ok, label, extra) {
   const old = projects.create({ name: 'Old catalog' });
   tasks.create(old.id, { sentence: 'Archived away task' });
   projects.setArchived(old.id, true);
-  const EXPECT = { decision: 1, working: 1, assigned: 2, nobody: 2, built: 1, held: 1, closed: 1 };
+  const EXPECT = { decision: 1, working: 1, assigned: 2, nobody: 2, built: 1, scheduled: 0, held: 1, closed: 1 };   // #5456: no repeating task here (render-onhold-4771 counts one)
 
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
@@ -386,8 +386,8 @@ function chk(ok, label, extra) {
       chk(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), `${tag} the full-width band adds no sideways scroll`);
       /* #3949/#3951 (Josh): single-label tiles in his order; #4771's On hold sits after his open groups, before
          Completed, which is a tile and still the fold below. */
-      chk(JSON.stringify(a.tiles.map((t) => t.k)) === JSON.stringify(['decision', 'working', 'assigned', 'nobody', 'built', 'held', 'closed']), `${tag} the tiles are Josh's groups in his order, then On hold, each from a recorded state`, JSON.stringify(a.tiles.map((t) => t.k)));
-      chk(JSON.stringify(a.tiles.map((t) => t.label)) === JSON.stringify(['Needs Your Decision', 'In progress', 'Assigned but not started', 'Unassigned', 'Built but waiting', 'On hold', 'Completed']), `${tag} each tile is one label`, JSON.stringify(a.tiles.map((t) => t.label)));
+      chk(JSON.stringify(a.tiles.map((t) => t.k)) === JSON.stringify(['decision', 'working', 'assigned', 'nobody', 'built', 'scheduled', 'held', 'closed']), `${tag} the tiles are Josh's groups in his order, then On a schedule (#5456) and On hold, each from a recorded state`, JSON.stringify(a.tiles.map((t) => t.k)));
+      chk(JSON.stringify(a.tiles.map((t) => t.label)) === JSON.stringify(['Needs Your Decision', 'In progress', 'Assigned but not started', 'Unassigned', 'Built but waiting', 'On a schedule', 'On hold', 'Completed']), `${tag} each tile is one label`, JSON.stringify(a.tiles.map((t) => t.label)));
       chk(a.tiles.every((t) => t.bylines === 0), `${tag} no tile carries a byline`);
       chk(a.tiles[0].color === a.danger && a.tiles.slice(1).every((t) => t.color !== a.danger), `${tag} Needs Your Decision, and only it, is red`, JSON.stringify(a.tiles.map((t) => t.color).concat(a.danger)));
       chk(a.fold, `${tag} Completed stays the folded list`);
@@ -793,7 +793,7 @@ function chk(ok, label, extra) {
         });
         const hs = new Set(c2.map((x) => x.h));
         const dec = c2.find((x) => x.k === 'decision');
-        chk(c2.length === 7 && c2.every((x) => x.badgeFirst && x.badge && x.badge[0] === 36 && x.badge[1] === 36 && x.round === '50%'
+        chk(c2.length === 8 && c2.every((x) => x.badgeFirst && x.badge && x.badge[0] === 36 && x.badge[1] === 36 && x.round === '50%'
             && x.icon && x.icon[0] === 19 && x.icon[1] === 19 && x.paths >= 2 && x.hidden === 'true' && x.tinted
             && x.pad === '16px 16px 15px' && x.h >= 108 && x.gap === 10) && hs.size === 1,
           `${tag} each tile has its 36px tinted badge with a 19px icon before the number, 16px padding, a 10px gap and one shared height (#4053)`, JSON.stringify(c2));
@@ -950,7 +950,7 @@ function chk(ok, label, extra) {
           dropdown: document.getElementById('tsk-projsel').getClientRects().length > 0,
         };
       });
-      chk(got.shown && got.tiles === 7, '[consolidated] it opens the Tasks view', JSON.stringify(got));
+      chk(got.shown && got.tiles === 8, '[consolidated] it opens the Tasks view', JSON.stringify(got));   // #5456: On a schedule is the 8th
       chk(got.stillCons && got.inColumn, '[consolidated] it stays in the consolidated view, in the display column (#2842)', JSON.stringify(got));
       chk(got.noRail && got.dropdown, '[consolidated] no project column of its own; the project dropdown is there', JSON.stringify(got));
       /* Mona's look review of #3701, in the column too: the gap above the title is about halved. */

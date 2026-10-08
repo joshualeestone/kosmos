@@ -27,9 +27,9 @@ test('connect.download REFUSES a platform with no published Claude build, before
   // real download service call); canDownloadClaude('darwin') === true is pinned in
   // platform.test.js, so on macOS the gate is provably skipped.
   await assert.rejects(
-    connect.download(() => {}, undefined, 'linux'),
-    (e) => /no published Claude Code build/.test(e.message) && /linux/.test(e.message),
-    'linux must refuse -- no Claude build is published for it');
+    connect.download(() => {}, undefined, 'freebsd'),
+    (e) => /no published Claude Code build/.test(e.message) && /freebsd/.test(e.message),
+    'freebsd must refuse -- no Claude build is published for it (linux is no longer the example: #5419 publishes it)');
   await assert.rejects(
     connect.download(() => {}, undefined, 'aix'),
     (e) => /no published Claude Code build/.test(e.message) && /aix/.test(e.message),
@@ -52,7 +52,18 @@ test('#3159 connect.download PASSES win32 THROUGH the gate now (Claude publishes
       (e) => /did not answer with a version/.test(e.message)
         && !/no published Claude Code build/.test(e.message),
       'win32 reaches the download service (past the gate), then fails on the bad version');
+    // #5419: linux passes the gate too (Claude publishes linux-x64/arm64 and their musl builds). Review 7: the tmux
+    // check is pinned to "present", so this does not depend on the host having tmux.
+    connect.setTmuxCheckForTests(() => false);
+    connect.setMuslLibsCheckForTests(() => false);
+    await assert.rejects(
+      connect.download(() => {}, undefined, 'linux'),
+      (e) => /did not answer with a version/.test(e.message)
+        && !/no published Claude Code build/.test(e.message),
+      'linux reaches the download service (past the gate), then fails on the bad version');
   } finally {
+    connect.setTmuxCheckForTests(null);   // in the finally, so a failed assertion cannot leak the seam
+    connect.setMuslLibsCheckForTests(null);
     if (prev === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
     else process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = prev;
     server.close();

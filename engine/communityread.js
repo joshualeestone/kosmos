@@ -308,8 +308,9 @@ function ownWaitingOn(reader, postId) {
  * (#4941), never a name from the request.
  */
 async function read(opts = {}) {
-  if (!communitysend.switchOn()) {
-    return { ok: false, because: 'the Kosmos+ community is switched off on this board, so nothing was read' };
+  const sw = communitysend.switchState();
+  if (sw !== 'on') {
+    return { ok: false, because: communitysend.notOnWords(sw) + ', so nothing was read' };   // #5435
   }
   const older = opts.older == null ? '' : String(opts.older).trim();
   if (older && !CURSOR_RE.test(older)) return { ok: false, because: 'that is not a place in the feed: use the --older value a read printed' };
@@ -479,8 +480,9 @@ async function readReplies(sessionName, opts) {
   }
 }
 async function readRepliesLocked(sessionName, opts) {
-  if (!communitysend.switchOn()) {
-    return { ok: false, because: 'the Kosmos+ community is switched off on this board, so nothing was read' };
+  const sw = communitysend.switchState();
+  if (sw !== 'on') {
+    return { ok: false, because: communitysend.notOnWords(sw) + ', so nothing was read' };   // #5435
   }
   if (typeof sessionName !== 'string' || !sessionName) return { ok: false, because: 'we could not tell which agent is reading' };
   const t0 = Date.now();
@@ -526,7 +528,8 @@ const FIRST_LOOK_EDGE_MS = 20 * 60 * 1000;   // review 12/18: longer than a coun
 const postDown = new Map();   // session + '\n' + remoteId -> passes in a row it could not be read
 async function freshReplies(sessionName, opts) {
   opts = opts && typeof opts === 'object' ? opts : {};   // review 16: a null opts must not throw with the lock held
-  if (!communitysend.switchOn()) return { ok: false, because: 'the Kosmos+ community is switched off on this board' };
+  const sw = communitysend.switchState();
+  if (sw !== 'on') return { ok: false, because: communitysend.notOnWords(sw) };   // #5435
   if (typeof sessionName !== 'string' || !sessionName) return { ok: false, because: 'we could not tell which agent' };
   if (replyReadRunning) return { ok: false, busy: true, because: 'another read of replies is running on this board' };
   // Review 15 (Sonnet): an agent's own read already waiting goes first (the count would hold it for a whole request).

@@ -194,6 +194,13 @@ kosmos_test_locale_pin
 # seed a fixture do so under the CURRENT leaf (store.APP) rather than relying on the
 # migration to relocate a legacy seed.
 export KOSMOS_NO_LEGACY_MIGRATION=1
+# #5418: marks every process this run starts (node and shell tests alike) as a test, so
+# engine/store.js never hands any of them this machine's REAL data root (a throwaway store
+# root instead). A step that must read the real store says KOSMOS_ALLOW_REAL_ROOT=1. (node
+# --test marks its own files with NODE_TEST_CONTEXT; this covers the shell tests and anything
+# they start.) It is exported BELOW, once TMPDIR is this run's own, and its value is that
+# folder: store.js honours it only in a process whose temp folder is inside it, so the same
+# variable left in some shell does not turn a real board into a test.
 
 # #4253: no board a test boots may phone home. A sandboxed board mints a fresh install id,
 # so each boot sent installkosmos.com a new install (count 0, darwin) and inflated the
@@ -423,9 +430,12 @@ if mkdir -p "$KOSMOS_RUN_TMPDIR" 2>/dev/null; then
   # it), the trap boots out this run's jobs before the root goes.
   trap '[ -n "${_tl_labels_before:-}" ] && [ -f "$_tl_labels_before" ] && type leak_launchd_check >/dev/null 2>&1 && leak_launchd_check "$_tl_labels_before" "$KOSMOS_RUN_TMPDIR" >&2; rm -rf "$KOSMOS_RUN_TMPDIR"' EXIT
   export TMPDIR="$KOSMOS_RUN_TMPDIR"
+  export KOSMOS_TEST_RUN="$KOSMOS_RUN_TMPDIR"   # #5418, see above
 else
   # Never fail a run over housekeeping: the suite is what matters.
   echo "run-tests: could not make a per-run temp dir; the suite will use TMPDIR directly and leave its scratch behind" >&2
+  # #5418: the marker is the temp folder in use, so this run's processes keep the real-root rule.
+  export KOSMOS_TEST_RUN="${TMPDIR:-/tmp}"
 fi
 
 # --- coverage assertion: every *.test.js is CONSIDERED (kosmos#1934) -----------

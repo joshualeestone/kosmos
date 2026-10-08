@@ -679,3 +679,29 @@ test('after MAX_ASK_FAILS undelivered asks a project is left for the day, and th
     assert.equal(calls[calls.length - 1], ids[1], 'the undeliverable project kept starving the agent\'s other goal project');
   } finally { w.restore(); }
 });
+
+/* #5456: a repeating task with nobody on it is run by a schedule (the board's "On a schedule"), so it is not handed out. */
+test('#5456 pick: a repeating task with nobody on it is not handed out; an ordinary one beside it is (control)', () => {
+  const rule = { every: 'day', at: '09:00' };
+  const proj = (list) => [{ id: 'p5456', agents: ['s5456'], tasks: list }];
+  const both = a.pick('s5456', proj([{ number: 1, sentence: 'Repeats', repeat: rule }, { number: 2, sentence: 'Ordinary' }]), new Set());
+  assert.ok(both, 'CONTROL: the ordinary task was not handed out either');
+  assert.equal(both.n, 2, 'the repeating task was handed out');
+  assert.equal(a.pick('s5456', proj([{ number: 1, sentence: 'Repeats', repeat: rule }]), new Set()), null, 'a lone repeating task was handed out');
+  assert.ok(a.pick('s5456', proj([{ number: 1, sentence: 'Repeats, cleared' }]), new Set()), 'CONTROL: the same task without its rule is handed out');
+});
+
+/* #5456: a project whose only open task repeats with nobody on it still gets the goal ask (pick never hands it out, so
+   counting it would switch the ask off for good, the #1307 trap), and the ask does not call it a webhook task. */
+test('#5456 goalProject: a lone scheduled task does not stop the goal ask, and is not counted as a webhook task', () => {
+  const rule = { every: 'day', at: '09:00' };
+  const rec = { id: 'g5456', name: 'Watch', agents: ['s5456g'] };
+  const goals = new Map([['g5456', 'keep the list current']]);
+  const sched = a.goalProject('s5456g', [{ ...rec, tasks: [{ number: 1, sentence: 'Check prices', repeat: rule }] }], goals, new Map(), T0);
+  assert.ok(sched, 'a scheduled task switched the goal ask off');
+  assert.equal(sched.waitingHooks, undefined, 'the scheduled task was counted as a webhook task');
+  const both = a.goalProject('s5456g', [{ ...rec, tasks: [{ number: 1, sentence: 'Hook and repeat', addedVia: 'webhook', repeat: rule }, { number: 2, sentence: 'Plain hook', addedVia: 'webhook' }] }], goals, new Map(), T0);
+  assert.equal(both && both.waitingHooks, 1, 'a webhook task that repeats is scheduled, not counted as waiting for a person (the plain one is, the control)');
+  assert.equal(a.goalProject('s5456g', [{ ...rec, tasks: [{ number: 1, sentence: 'Check prices' }] }], goals, new Map(), T0), null,
+    'CONTROL: the same task without its rule (ordinary open work) stops the ask');
+});

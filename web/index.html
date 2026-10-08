@@ -4072,11 +4072,13 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    browser check asserts no element here carries a coloured left border.
    The status colours: red (--danger) for Needs Your Decision (#3949), grey for unassigned, gold for
    assigned but not started, the working green for in progress, the mention blue for built but waiting (#3951), a
-   quiet grey for completed -- the app's existing meanings, no new palette. */
+   grey-green for on a schedule (#5456), grey for on hold (#4771), a quiet grey for completed -- the app's existing
+   meanings, no new palette. */
 #panel-tasks { --tsk-c: var(--k-ink-2); --tsk-nobody: var(--k-ink-2); --tsk-assigned: var(--gold-deep); --tsk-working: var(--ok);
   --tsk-decision: var(--danger);
   --tsk-built: var(--pj-mention);
   --tsk-held: var(--k-ink-2);   /* #4771: on hold, set aside by the person */
+  --tsk-scheduled: color-mix(in srgb, var(--ok) 40%, var(--k-ink-2));   /* #5456: on a schedule, a grey-green clearly apart from In progress */
   --tsk-closed: color-mix(in srgb, var(--k-ink-2) 55%, var(--k-rule));
   --tsk-wash: color-mix(in srgb, var(--gold) 14%, var(--k-surface)); color: var(--k-ink);
   --tsk-hover: color-mix(in srgb, var(--k-ink) 5%, transparent); }   /* #4880: a tint OVER the row's own ground, so a cream list stays warm */
@@ -7744,6 +7746,28 @@ html.has-voice .micwrap > #d-instr:not(:disabled), html.has-voice .micwrap > #cr
 @keyframes micpulse { 50% { opacity: .45; } }
 .asp-in .micbtn { width: 28px; height: 28px; background: none; color: var(--k-ink-2); }
 .asp-in .micbtn[aria-pressed="true"] { color: #c62828; background: rgba(198,40,40,.1); }
+/* #5481 (Josh): on the Mac app a denied mic becomes a pill IN ITS PLACE, [X   Turn on in Settings]. The label opens
+   the exact System Settings pane; X puts the plain mic back. No sentence below the input. */
+html.has-voice .micbtn.has-pill { display: none; }
+.voice-pill { display: inline-flex; align-items: stretch; flex: 0 0 auto; height: 34px; border-radius: 999px;
+  background: var(--k-ink); color: var(--k-bg); font: 600 .8125rem/1 var(--font-ui); white-space: nowrap; }
+.voice-pill > button { border: 0; background: none; color: inherit; font: inherit; cursor: pointer; display: inline-flex; align-items: center; }
+.voice-pill > .vp-x { padding: 0 6px 0 12px; border-radius: 999px 0 0 999px; font-size: 1rem; opacity: .75; }
+.voice-pill > .vp-go { padding: 0 14px 0 8px; border-radius: 0 999px 999px 0; }
+.voice-pill > button:hover { opacity: 1; text-decoration: underline; }
+.voice-pill > button:focus-visible { outline: 2px solid var(--k-bg); outline-offset: -4px; }   /* inside the pill, in the page colour: an ink ring would vanish against it */
+.asp-in .voice-pill, .micwrap > .voice-pill { height: 28px; }
+.micwrap > .voice-pill { position: absolute; right: calc(8px + var(--scrollbar-width, 0px)); top: 6px; z-index: 1; }   /* where the field's mic sat */
+.micwrap.line > .voice-pill { top: 50%; right: 8px; transform: translateY(-50%); }
+/* in a field the pill sits over the text box, so it is always the short [X  Settings] there and the box
+   makes room for it (the box's own mic padding rules are more specific, hence !important while the pill shows). */
+.micwrap > .voice-pill .vp-pre, .asp-in .voice-pill .vp-pre { display: none; }   /* a field, and the Guide's narrow panel */
+.micwrap > :disabled ~ .voice-pill { display: none; }   /* like its mic: no pill over a box that takes no words */
+/* 124px = the short pill's width plus its 8px offset and a margin; render-voice-4409.js V6e measures that the text ends
+   before the pill begins, so a font change that outgrows it reds there. */
+html.has-voice .micwrap:has(> .voice-pill) > textarea:not(:disabled), html.has-voice .micwrap:has(> .voice-pill) > input:not(:disabled) { padding-right: 124px !important; }
+html.has-voice .micwrap:not(.line):has(> .voice-pill) > textarea:not(:disabled) { padding-right: calc(124px + var(--scrollbar-width, 0px)) !important; }   /* split as the mic's own rules are */
+@media (max-width: 479px) { .voice-pill .vp-pre { display: none; } }   /* Splinter 08:33: [X  Settings] when narrow, same pane */
 /* #4409: read aloud, in a message's hover bar beside Reply (html.has-speak: the page has speechSynthesis). */
 .rxn-speak { display: none; align-items: center; justify-content: center; font: inherit; font-size: .75rem; border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); border-radius: 999px; padding: 1px 8px; margin-left: 4px; cursor: pointer; min-height: 24px; }
 html.has-speak .rxn-speak { display: inline-flex; }
@@ -7865,6 +7889,9 @@ html.has-speak .asp-speak { display: grid; }
 .cpost-count { text-align: right; padding: 2px 8px 0; font: var(--text-caption) var(--font-ui); color: var(--label-2); }
 .cpost-count.near { color: var(--warn-ink); }
 .cinput::placeholder { color: var(--k-ink-2); }
+/* #5481 (Splinter 08:33): a composer's placeholder is one line ending in an ellipsis at any width, never wrapped, so
+   whatever shares its row (the mic's Settings pill) cannot fold it onto a second line. */
+.cinput::placeholder, #pj-post::placeholder, #asp-say::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* #2922 part 2 (Josh 6.59): the LIVE @-mention highlight in the project-room
    composer. A native <textarea> cannot colour one word, so #pj-post is backed by
    a mirror (#pj-post-mirror) that renders the same text with recognized @agent
@@ -15422,7 +15449,9 @@ window.kosmosMeasureScrollbarWidth();
           <button class="btn uprime" type="button" id="team-seeded-go" disabled>Create this team</button>
         </div>
       </div>
-      <p class="rolelimit" id="team-seeded-msg" role="status" aria-live="polite" hidden></p>
+      <!-- #5444 (Mona Lisa, 0.7.26 design pass): a plain line, not .rolelimit's bordered box, which read as a field to type in
+           ("Ready-made teams are coming soon."). The gold Upload an org chart is the one thing to do here. -->
+      <p class="dhint" id="team-seeded-msg" role="status" aria-live="polite" style="margin:18px 0 0;" hidden></p>
     </div>
     <p class="rolelimit" id="team-orgchart-msg" role="status" aria-live="polite" hidden></p>
     <div class="nak-team-opt" id="team-orgchart-opt" hidden>
@@ -18219,8 +18248,16 @@ window.kosmosMeasureScrollbarWidth();
       <h3 class="dlab">Assigner</h3>
       <div class="setrow" id="asg-row" style="margin-top:14px;">
         <div><b>Turn your goals into assigned work</b>
-          <p class="dhint" style="margin:2px 0 0;">When an agent has had nothing to do for 20 minutes and has not told Kosmos it is still holding work, Kosmos gives it the next task nobody is on in one of its projects, soonest due date first. If a project has no open tasks but its brief states a goal, Kosmos asks the agent to draft a few toward it.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">When an agent has had nothing to do for 20 minutes and has not told Kosmos it is still holding work, Kosmos gives it the next task nobody is on in one of its projects, soonest due date first (not a repeating task, which its schedule runs). If a project has no open tasks but its brief states a goal, Kosmos asks the agent to draft a few toward it.</p></div>
         <button class="toggle" id="asg-toggle" role="switch" aria-label="Turn your goals into assigned work" hidden><i></i></button>
+      </div>
+      <!-- #5382: failover, OFF by default (a moved task bills the other provider's account). A setting OF the Assigner
+           (engine/assigner.js runs it only while the Assigner is on), so the row shows only while the Assigner reads on. -->
+      <div class="setrow" id="asg-fo-row" style="margin-top:14px;" hidden>
+        <div><b>Move work when a provider hits its limit</b>
+          <p class="dhint" style="margin:2px 0 0;">When an agent has been paused for 15 minutes by a usage limit that says when it ends, Kosmos gives its unfinished tasks to an idle teammate on the same project that uses a different provider. They stay with that teammate, and the paused agent is told which ones moved. That teammate's work is billed to its own provider's account.</p>
+          <p class="dhint" style="margin:8px 0 0;">Off by default.</p></div>
+        <button class="toggle" id="asg-fo-toggle" role="switch" aria-label="Move work when a provider hits its limit" hidden><i></i></button>
       </div>
       <p class="dhint" id="asg-msg" role="status" style="margin:8px 0 0;"></p>
     </section>
@@ -25479,14 +25516,24 @@ async function paintAssigner(keepMsg) {
     const r = await res.json();
     if (mine !== ASG_EPOCH) return;
     paintSwitch('asg-toggle', r.on === true);
+    paintFailover(r);
     if (msg && !keepMsg) msg.textContent = ''; // a repaint after a failed save keeps the reason
   } catch {
     if (mine !== ASG_EPOCH) return;
     paintSwitch('asg-toggle', null);
+    paintFailover(null);
     if (msg) msg.textContent = 'We could not read this setting just now.';
   }
 }
-async function saveAssigner(on) {
+/* #5382: the failover row shows only while the Assigner reads on (it runs inside the Assigner), and its switch only from
+   a read that carried the field: an older board's answer has no `failover`, which is unknown, not Off. */
+function paintFailover(r) {
+  const row = document.getElementById('asg-fo-row');
+  const known = !!r && r.on === true && typeof r.failover === 'boolean';
+  if (row) row.hidden = !known;
+  paintSwitch('asg-fo-toggle', known ? r.failover === true : null);
+}
+async function saveAssigner(patch) {
   const msg = document.getElementById('asg-msg');
   if (ASG_SAVING) { if (msg) msg.textContent = 'Still saving the last change. Try again in a moment.'; return; }
   ASG_SAVING = true;
@@ -25494,13 +25541,14 @@ async function saveAssigner(on) {
   let failed = false;
   try {
     const res = await fetch('/api/assigner-setting', {
-      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }),
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch),
     });
     const out = await res.json().catch(() => ({}));
     if (!res.ok) failed = true; // before the epoch check, so a refused save is always repainted
     if (mine !== ASG_EPOCH) return;
     if (!res.ok) { if (msg) msg.textContent = out.error || 'We could not save that setting.'; return; }
     paintSwitch('asg-toggle', out.on === true);
+    paintFailover(out);
     if (msg) msg.textContent = '';
   } catch {
     failed = true;
@@ -25513,9 +25561,15 @@ async function saveAssigner(on) {
 function asgToggleClick() {
   const tog = document.getElementById('asg-toggle');
   if (!tog.hasAttribute('aria-checked')) { paintAssigner(); return; } // not loaded: never write over a stored value
-  saveAssigner(tog.getAttribute('aria-checked') !== 'true');
+  saveAssigner({ on: tog.getAttribute('aria-checked') !== 'true' });
 }
 document.getElementById('asg-toggle') && document.getElementById('asg-toggle').addEventListener('click', asgToggleClick);
+function asgFailoverClick() {
+  const tog = document.getElementById('asg-fo-toggle');
+  if (!tog.hasAttribute('aria-checked')) { paintAssigner(); return; } // not loaded: never write over a stored value
+  saveAssigner({ failover: tog.getAttribute('aria-checked') !== 'true' });
+}
+document.getElementById('asg-fo-toggle') && document.getElementById('asg-fo-toggle').addEventListener('click', asgFailoverClick);
 
 async function paintSettings() {
   paintYouName();
@@ -58990,7 +59044,9 @@ function paintProjectTasks(p) {
     const sayHtml = taskClaimHtml(t.claim);
     let who;
     if (!assigned.length) {
-      who = '<span class="tkcard-who"><span class="tkcard-who-b">Nobody yet</span></span>';
+      /* #5456: a repeating task with nobody on it reads as the Tasks view says it, not as ownerless work. */
+      // Held (the task, or its paused project) wins, as in the Tasks view (tasks.taskState).
+      who = '<span class="tkcard-who"><span class="tkcard-who-b">' + (t.repeat && t.onHold !== true && p.paused !== true ? 'On a schedule' : 'Nobody yet') + '</span></span>';
     } else if (parts.length > 1) {
       /* #761 item 8: "Multiple assignees, as the pack drew." One face+name
          row per part -- including an unassigned one, "Nobody yet" per part
@@ -59103,6 +59159,10 @@ const TSK_GROUPS = [
      live, which clears the mark. */
   { k: 'built', l: 'Built but waiting', c: 'var(--tsk-built)',
     why: 'An agent marked these built. They are waiting to be released or checked; close each one once it is live.' },
+  /* #5456: a repeating task with nobody on it (the engine's `scheduled` state): a schedule runs it, so it is not waiting
+     for anyone and is not counted as unassigned. After Josh's five open groups and before On hold (decided, overridable). */
+  { k: 'scheduled', l: 'On a schedule', c: 'var(--tsk-scheduled)',
+    why: 'Repeating tasks with nobody named on them. If a scheduler of yours runs them, nothing is needed; if an agent should, give one to an agent.' },
   /* #4771: on hold, the task or its whole project (the engine's `held` state): Kosmos neither nudges nor hands these out.
      Placed after Josh's own five open groups and before Completed, so his order is unchanged (decided, overridable). */
   { k: 'held', l: 'On hold', c: 'var(--tsk-held)',
@@ -59118,6 +59178,7 @@ const TSK_ICON = {
   built: '<path d="M3.5 7.5 12 3.3l8.5 4.2v9L12 20.7l-8.5-4.2z"/><path d="M3.5 7.5 12 11.8l8.5-4.3"/><path d="M12 11.8v8.9"/>',
   closed: '<circle cx="12" cy="12" r="8.5"/><path d="m8.3 12.3 2.6 2.6 5-5.2"/>',
   held: '<circle cx="12" cy="12" r="8.5"/><path d="M10 9v6"/><path d="M14 9v6"/>',
+  scheduled: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4h-4"/><path d="M12 8v4l2.5 1.5"/>',
 };
 function tskBadge(k) {
   return '<span class="tsk-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">'
@@ -59333,7 +59394,10 @@ function tskRow(t, at) {
     ? who.map((w) => '<button type="button" class="tsk-who" data-agent="' + esc(w) + '">' + esc(tskAgentName(w)) + '</button>').join('')
     /* Mona's design review of #3949: inside the Unassigned group the heading already says it; a project
        grouping mixes states, so the chip stays there. */
-    : TSK.by !== 'project' && t.state === 'nobody' ? '' : '<span class="tsk-who nobody">Nobody yet</span>';
+    : TSK.by !== 'project' && (t.state === 'nobody' || t.state === 'scheduled') ? ''
+      /* #5456: a repeating task with nobody on it is run by its schedule; its repeat line says when. */
+      : t.state === 'scheduled' ? '<span class="tsk-who nobody">On a schedule</span>'
+      : '<span class="tsk-who nobody">Nobody yet</span>';
   /* The claim could not be read: say WHY on the row, so "Assigned but not started" is never read
      as a fact about a task we simply could not check. */
   /* Mona's look review of #3701: in Josh's words, and short. The field says only that the agent
@@ -65230,18 +65294,25 @@ function shownNow(el) {
 }
 /* The box, the conversation, and whether the box is on screen: a closed Guide hides asp-say, and a hidden window
    hides the page. Any change means the words no longer belong where they would land. */
-function voiceWhere(box) {
+function voiceWhere(box, steady) {
   if (!box) return '';
   const hidden = typeof document !== 'undefined' && document.hidden === true;
   /* #4409 (review 5): a box that stops taking words (the Guide ends a chat with readOnly; an agent going offline
      disables #d-say) is a move too: words must not land where the person cannot type or delete them. */
   const open = !box.disabled && !box.readOnly;
-  return box.id + '|' + viewKey() + '|' + (shownNow(box) && !hidden ? 'shown' : 'hidden') + '|' + (open ? 'open' : 'closed');
+  /* #5481: `steady` leaves the page-hidden part out (only the box's own layout), for a place that must survive the app
+     going to System Settings and back, when the page can still read hidden for a moment. */
+  const seen = steady ? shownNow(box) : shownNow(box) && !hidden;
+  return box.id + '|' + viewKey() + '|' + (seen ? 'shown' : 'hidden') + '|' + (open ? 'open' : 'closed');
 }
 const VOICE_SAYS = {
   'mic-denied': 'Kosmos is not allowed to use the microphone. You can turn it on in System Settings, Privacy & Security, Microphone.',
   'speech-denied': 'Kosmos is not allowed to use speech recognition. You can turn it on in System Settings, Privacy & Security, Speech Recognition.',
+  // #5481: restricted is not a switch the person left off, so no Settings pill is offered for it.
+  'mic-restricted': 'The microphone is blocked on this computer by Screen Time or by a profile your organization installed.',
+  'speech-restricted': 'Speech recognition is blocked on this computer by Screen Time or by a profile your organization installed.',
   'speech-unanswered': 'Speech recognition was not allowed, so nothing was heard.',
+  'mic-unanswered': 'The microphone was not allowed, so nothing was heard.',
   'no-on-device': 'This computer has no on-device speech model for your language, and Kosmos never sends your voice off this computer.',
   'no-mic': 'No microphone was found.',
   'not-set-up': 'This copy of Kosmos is not set up for the microphone yet. Updating Kosmos fixes it.',
@@ -65559,6 +65630,7 @@ function voiceToggle(btn) {
   VOICE.seq += 1;
   Object.assign(VOICE, { btn, box, before: v.slice(0, s0), after: v.slice(s1), selected: v.slice(s0, s1), where: voiceWhere(box), id: 's' + VOICE.seq, last: v, listening: false, stopping: false, heard: false });
   voiceUnsayOwn(btn);   // review 6: clear only the mic's own earlier lines, never another message's (a failed send, a refusal)
+  voiceSettingsClear();   // #5481: a new start retires the Settings button
   voicePaint(btn, 'asking');
   if (h.phone) voiceWho('Starting the microphone. ' + voicePhoneWho() + ' hears this audio to turn it into words. Tap the mic to stop.');   // before a word can be sent
   h.postMessage({ op: 'start', id: VOICE.id });
@@ -65578,7 +65650,139 @@ function voiceCancel() {
   const h = voiceBridge();
   if (h) h.postMessage({ op: 'cancel' });
 }
+/* #5481 (Josh, 2026-10-07): on the Mac app, a denied microphone or speech recognition turns the mic button into a pill
+   in its place, [X   Turn on in Settings], and says no sentence below the input. The label opens the exact System
+   Settings pane (the app opens only the two panes it knows, never a URL from the page); X puts the plain mic back.
+   When the person comes back with both allowed, the app says "allowed" and the same mic starts listening. */
+const VOICE_SETTINGS_PANE = { 'mic-denied': 'mic', 'speech-denied': 'speech' };
+const VOICE_SETTINGS = { btn: null, id: '', pane: '', where: '', alert: null, keys: [], watch: 0 };
+/* A restart waiting for the page to show (see voiceOnEvent's "allowed"): bounded, because the app's own visit is, and
+   dropped by a new start (the pill, and its X, are already gone by then). */
+const VOICE_SETTINGS_WAIT = { once: null, timer: 0 };
+const VOICE_SETTINGS_WAIT_MS = 60000;
+function voiceSettingsClear() {
+  if (VOICE_SETTINGS_WAIT.once) { document.removeEventListener('visibilitychange', VOICE_SETTINGS_WAIT.once); VOICE_SETTINGS_WAIT.once = null; }
+  if (VOICE_SETTINGS_WAIT.timer) { clearTimeout(VOICE_SETTINGS_WAIT.timer); VOICE_SETTINGS_WAIT.timer = 0; }
+  document.querySelectorAll('.voice-pill').forEach((el) => el.remove());
+  document.querySelectorAll('.micbtn.has-pill').forEach((b) => b.classList.remove('has-pill'));
+  if (VOICE_SETTINGS.watch) clearInterval(VOICE_SETTINGS.watch);
+  Object.assign(VOICE_SETTINGS, { btn: null, id: '', pane: '', where: '', alert: null, keys: [], watch: 0 });
+}
+function voiceSettingsOffer(btn, pane, said) {
+  if (!btn || !btn.parentNode) return;
+  voiceSettingsClear();
+  VOICE.seq += 1;
+  /* ONE visit id per pill, minted here, not per press: the app re-opens Settings at most once a second, and it always
+     records the id of the latest press, so the page and the app hold the same id. Offered only when the app says it can
+     open Settings (`canOpenSettings` on its refusal): an older app still running after an update would ignore the press. */
+  const visitId = 'set' + VOICE.seq;
+  VOICE_SETTINGS.pane = pane;
+  const pill = document.createElement('span');
+  pill.className = 'voice-pill';
+  /* the refusal is said by the pill's own alert, hidden from sight (no sentence below the input), so a screen
+     reader hears it even though a click in the app moves no focus. Not the mic's message line: other messages share
+     that line (a send that is still going, a Create refusal), and hiding it would hide them too. */
+  const alert = document.createElement('span');
+  alert.className = 'vh'; alert.setAttribute('role', 'alert');   // filled a moment after it is in the page, like voiceWhoHidden:
+  // a live region born with its text is not announced
+  const x = document.createElement('button');
+  x.type = 'button'; x.className = 'vp-x'; x.textContent = '\u00d7';
+  x.title = 'Dismiss'; x.setAttribute('aria-label', 'Dismiss, back to the microphone');
+  x.addEventListener('click', () => {
+    const onPill = [x, go].includes(document.activeElement);   // a keyboard press; a mouse click in the app focuses nothing
+    voiceSettingsClear();
+    if (onPill) btn.focus();
+  });
+  const go = document.createElement('button');
+  go.type = 'button'; go.className = 'vp-go';
+  go.innerHTML = '<span class="vp-pre">Turn on in&nbsp;</span>Settings';   // fixed words; narrow windows show only Settings
+  go.setAttribute('aria-label', 'Turn on in Settings');
+  go.addEventListener('click', () => {
+    const h = voiceBridge();
+    if (!h || h.phone) return;
+    const box = document.getElementById(btn.getAttribute('data-voice-for') || '');
+    /* where the person is when they press it (the DM's mic is shared by every agent's chat), so "allowed"
+       restarts the mic only if they are still there when they come back. */
+    Object.assign(VOICE_SETTINGS, { btn, id: visitId, where: box ? voiceWhere(box, true) : '' });
+    h.postMessage({ op: 'settings', pane: VOICE_SETTINGS.pane, id: VOICE_SETTINGS.id });
+  });
+  pill.append(alert, x, go);
+  VOICE_SETTINGS.alert = alert; VOICE_SETTINGS.keys = [x, go];
+  /* The pill belongs to the place it was offered. The DM's mic is shared by every agent's chat: switching agent or room
+     (or the box closing) puts the plain mic back, rather than hiding it in a chat that was never refused. */
+  const home = document.getElementById(btn.getAttribute('data-voice-for') || '');
+  const offeredAt = home ? voiceWhere(home, true) : '';
+  VOICE_SETTINGS.watch = setInterval(() => {
+    if (!home || !document.body.contains(btn) || voiceWhere(home, true) !== offeredAt) {
+      const pillHadFocus = VOICE_SETTINGS.keys.includes(document.activeElement);
+      voiceSettingsClear();
+      if (pillHadFocus && document.body.contains(btn)) btn.focus();   // back to the mic, never the page
+    }
+  }, 500);
+  btn.classList.add('has-pill');
+  btn.insertAdjacentElement('afterend', pill);
+  setTimeout(() => { if (VOICE_SETTINGS.alert === alert) alert.textContent = said || ''; }, 0);
+  // No focus move: a start puts the caret in the box (voiceToggle), and that is where it stays when the pill appears.
+}
 function voiceOnEvent(ev) {
+  // #5481: "allowed" comes after the mic stopped (VOICE.btn is gone), so it is matched to the Settings visit itself.
+  if (ev && ev.kind === 'allowed') {
+    const btn = VOICE_SETTINGS.btn;
+    if (!btn || ev.id !== VOICE_SETTINGS.id) return;   // the app always sends the visit's id; none is not a match
+    const box = document.getElementById(btn.getAttribute('data-voice-for') || '');
+    /* Another agent, room or a closed dialog means no restart. Compared steady (without the page-hidden part), which can
+       still read hidden at the instant the app comes back from Settings. */
+    const where = VOICE_SETTINGS.where;
+    const still = !!box && voiceWhere(box, true) === where;
+    const hadFocus = VOICE_SETTINGS.keys.includes(document.activeElement);
+    voiceSettingsClear();
+    if (hadFocus) btn.focus();   // the pill's button is gone: back to the mic, never the page (a start then moves it on)
+    if (!still || !document.body.contains(btn)) return;
+    /* Started only once the page is visible: a start while it still reads hidden records a hidden place, and the
+       watcher's first look after it shows would see a move and cancel the mic it just started. */
+    const begin = () => { if (!VOICE.btn && document.body.contains(btn) && voiceWhere(box, true) === where) voiceToggle(btn); };
+    if (!document.hidden) { begin(); return; }
+    const asked = Date.now();
+    const once = () => {
+      if (document.hidden) return;
+      document.removeEventListener('visibilitychange', once); VOICE_SETTINGS_WAIT.once = null;
+      if (Date.now() - asked <= VOICE_SETTINGS_WAIT_MS) begin();   // shown much later is not "came back from Settings"
+    };
+    VOICE_SETTINGS_WAIT.once = once;
+    document.addEventListener('visibilitychange', once);
+    VOICE_SETTINGS_WAIT.timer = setTimeout(() => {   // a page that never shows again does not keep the wait
+      if (VOICE_SETTINGS_WAIT.once === once) { document.removeEventListener('visibilitychange', once); VOICE_SETTINGS_WAIT.once = null; }
+      VOICE_SETTINGS_WAIT.timer = 0;
+    }, VOICE_SETTINGS_WAIT_MS);
+    return;
+  }
+  // back from Settings with the mic restricted (Screen Time or a profile): no pane can undo it, so say so.
+  if (ev && ev.kind === 'refused') {
+    const btn = VOICE_SETTINGS.btn;
+    if (!btn || ev.id !== VOICE_SETTINGS.id || !['speech-restricted', 'mic-restricted'].includes(ev.reason)) return;
+    const hadFocus = VOICE_SETTINGS.keys.includes(document.activeElement);
+    voiceSettingsClear();
+    voiceSay(btn, VOICE_SAYS[ev.reason]);
+    if (hadFocus) btn.focus();
+    return;
+  }
+  // Speech is now on but the mic is still refused (both were off): the same pill now opens the Microphone pane.
+  if (ev && ev.kind === 'settings-next') {
+    if (!VOICE_SETTINGS.btn || ev.id !== VOICE_SETTINGS.id || !['speech', 'mic'].includes(ev.pane)) return;
+    VOICE_SETTINGS.pane = ev.pane;   // the place is taken again on the next press, so it is not refreshed here
+    /* Said again: the same button now opens another pane, and a screen reader must hear why. A fresh alert node, since
+       changing an alert's text in place is not reliably announced. */
+    const was = VOICE_SETTINGS.alert;
+    if (was && was.parentNode) {
+      const now = document.createElement('span');
+      now.className = 'vh'; now.setAttribute('role', 'alert');
+      was.parentNode.replaceChild(now, was);
+      VOICE_SETTINGS.alert = now;
+      const say = VOICE_SAYS[ev.pane === 'mic' ? 'mic-denied' : 'speech-denied'] || '';
+      setTimeout(() => { if (VOICE_SETTINGS.alert === now) now.textContent = say; }, 0);   // filled once in the page, as above
+    }
+    return;
+  }
   if (!ev || !VOICE.btn) return;   // a late word after a cancel goes nowhere
   /* #4409 (review 2): an event from an EARLIER session (moving from one mic to another is cancel-then-start in one
      turn, and the cancel's "stopped" lands after the new start) must not end the new one. The app echoes the id the
@@ -65616,7 +65820,9 @@ function voiceOnEvent(ev) {
     if (ev.reason === 'nothing-heard' && VOICE.heard) return;
     const b = voiceBridge();
     const key = b && b.phone && ev.reason === 'speech-denied' && voicePhoneWho() === 'Apple' ? 'speech-denied-apple' : ev.reason;
-    voiceSay(btn, (b && b.phone && VOICE_SAYS_PHONE[key]) || VOICE_SAYS[ev.reason] || VOICE_SAYS.recognizer);
+    const said = (b && b.phone && VOICE_SAYS_PHONE[key]) || VOICE_SAYS[ev.reason] || VOICE_SAYS.recognizer;
+    if (b && !b.phone && ev.canOpenSettings === true && Object.prototype.hasOwnProperty.call(VOICE_SETTINGS_PANE, ev.reason)) voiceSettingsOffer(btn, VOICE_SETTINGS_PANE[ev.reason], said);   // #5481: the pill, no sentence
+    else voiceSay(btn, said);
     return;
   }
   if (ev.kind === 'stopped') { VOICE.btn = null; VOICE.box = null; VOICE.where = ''; VOICE.id = ''; voicePaint(btn, 'off'); voiceUnsay(btn); }

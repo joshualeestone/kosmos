@@ -234,6 +234,7 @@ function resetForTests() {
   channel = null;
   DRY_RUN = true;
   deliveryQueues.clear();
+  MOVED_TELL = null;   // #5400
 }
 
 /**
@@ -1694,7 +1695,72 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
   return finishSubmit();
 }
 
-function deliver(sessionName, raw, roster, envelope, trailer) {
+/* #5400: the failover's "your part was moved" notice rides on WHATEVER Kosmos next types into an owed agent. A person
+   usually resumes a Claude agent themselves (a message at the reset), so the agent would carry on with a moved part
+   before the idle sweep (engine/failovertell.js) ever reads it idle. The hook (server.js) answers which parts this
+   session is owed (owed), the words (note) and marks them told (told), only once the line may have reached the pane
+   (the sweep's reading: not COULD_NOT, not held). A part the line already names (the sweep's own line, agyquota's
+   carry-on line) is not added again. In FRONT of the message, so an attached file's path stays with its words. If the
+   note would push the message over the limit, the message goes as it was and the note waits for the next line.
+   Enter pressed on Claude Code's own limit menu reaches no Kosmos line: that stays the idle sweep's.
+   Weakest premise: that the agent reads a bracketed note above a person's message as Kosmos's, not the person's. */
+let MOVED_TELL = null;
+/* Review 1 asked whether a synchronous line in an async line's paste-to-Enter gap could carry the note a second time.
+   It cannot: deliver() refuses an agent whose window still has a line being placed (deliveryQueues, "busy"), so the
+   two never overlap (engine/chat.movedtell-5400.test.js pins the refusal). */
+function setMovedTell(h) {
+  MOVED_TELL = h && typeof h.owed === 'function' && typeof h.note === 'function' && typeof h.told === 'function' ? h : null;
+}
+function movedNoteFor(sessionName, raw, opts, card) {
+  if (!MOVED_TELL || typeof raw !== 'string' || !raw.trim()) return null;
+  /* Review 3: a caller whose line is the agent's LAST in this session (the restart-for-handoff request: write the
+     handoff, stop, the session is restarted) passes { movedNote: false }; the note then rides the fresh session's
+     pickup line, where the agent that acts next reads it. */
+  if (opts && opts.movedNote === false) return null;
+  /* Review 5: never while the card reads capped or needs-you. Claude Code's limit menu ("What do you want to do?")
+     keeps the card capped (status.retireResetLimits), and a line typed there lands in the menu, reads PLACED, and
+     would mark a note told that nobody read. Owed agents are exactly the ones just at their limit. Expected gap: a
+     card reads capped for a minute past its reset (status RESET_GRACE_MS), so a line in that minute goes without the
+     note, and the next line or the idle sweep carries it (review 9). */
+  if (card && (card.state === 'rate_limited' || card.state === 'needs_you')) return null;
+  /* Review 1 BLOCKER: a slash command must start the line (/clear, /compact, a person's /status; a paused swarm's
+     allowed commands match ^/), and a /clear would erase the note anyway. */
+  /* Review 4: and "!", Claude Code's shell mode, which a note in front would turn into a prompt too. Trimmed, because
+     cleanMessage trims what is typed, so " /clear" is a command as typed. */
+  if (/^[/!]/.test(raw.trim())) return null;
+  /* Review 2 BLOCKER: never on a menu answer. The pane takes a bare digit there (Claude Code's limit menu, the moment
+     this agent is owed a note), the rule dmNoteMayRide keeps for the reaction note; widened here to any single short
+     token (a digit, y, n, esc), which is a keystroke answer, not a turn. The note rides the next real line. */
+  if (!/\s/.test(raw.trim()) && raw.trim().length <= 12) return null;
+  let items = [];
+  /* Review 7: asked by the card's own session name, as the records hold it; the caller may have passed another casing
+     (a URL), which resolveCard accepts and owedFor, an exact match, would not. */
+  const key = (card && typeof card.sessionName === 'string' && card.sessionName) || sessionName;
+  try { items = MOVED_TELL.owed(key) || []; } catch { items = []; }
+  items = (Array.isArray(items) ? items : []).filter((i) => i && typeof i.phrase === 'string' && i.phrase && !raw.includes(i.phrase));
+  if (!items.length) return null;
+  let note = '';
+  try { note = String(MOVED_TELL.note(items) || ''); } catch { return null; }
+  if (!note) return null;
+  const text = note + '\n\n' + raw;
+  if (messageProblem(text)) return null;
+  return { text, items, key };
+}
+function movedToldAfter(sessionName, m, v) {
+  if (!m) return v;
+  /* Review 1: told only when the line was PLACED. An UNCONFIRMED verdict includes certain non-submits (the window
+     changed before the Enter; part of it reached the window before the send failed), and a note said twice is
+     harmless where a note lost is not. */
+  const mark = (x) => {
+    if (x && x.state === DELIVERY.PLACED) {
+      try { MOVED_TELL && MOVED_TELL.told(m.key || sessionName, m.items); } catch { /* the next line or the sweep tells again */ }
+    }
+    return x;
+  };
+  return v && typeof v.then === 'function' ? v.then(mark) : mark(v);
+}
+
+function deliver(sessionName, raw, roster, envelope, trailer, opts) {
   const card = resolveCard(roster, sessionName);
   const target = card && card.isNamedOurs === true ? paneTarget(card) : null;
   if (target && deliveryQueues.has(target)) {
@@ -1705,7 +1771,8 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
       busy: true,   // #4951 review 7: the pane was busy, not unreachable; a caller counting tries need not count this one
     };
   }
-  return deliverWithGap(sessionName, raw, roster, envelope, trailer, false);
+  const m = movedNoteFor(sessionName, raw, opts, card);   // #5400 (a card that is not ours is refused before any typing)
+  return movedToldAfter(sessionName, m, deliverWithGap(sessionName, m ? m.text : raw, roster, envelope, trailer, false));
 }
 
 /**
@@ -1764,16 +1831,18 @@ async function deliverAutomaticAsync(sessionName, raw, roster, envelope, trailer
   return v;
 }
 
-async function deliverAsync(sessionName, raw, roster, envelope, trailer) {
+async function deliverAsync(sessionName, raw, roster, envelope, trailer, opts) {
   const card = resolveCard(roster, sessionName);
   if (!card || card.isNamedOurs !== true) {
     return deliverWithGap(sessionName, raw, roster, envelope, trailer, true);
   }
   const target = paneTarget(card);
   const before = deliveryQueues.get(target) || Promise.resolve();
-  const delivery = before.catch(() => {}).then(() => deliverWithGap(
-    sessionName, raw, roster, envelope, trailer, true,
-  ));
+  // #5400: the note is worked out when this line's turn to be typed comes, so two queued lines cannot both carry it.
+  const delivery = before.catch(() => {}).then(() => {
+    const m = movedNoteFor(sessionName, raw, opts, card);
+    return movedToldAfter(sessionName, m, deliverWithGap(sessionName, m ? m.text : raw, roster, envelope, trailer, true));
+  });
   deliveryQueues.set(target, delivery);
   try {
     return await delivery;
@@ -3512,6 +3581,7 @@ function markDmReactionsTold(agent, named) {
 }
 
 module.exports = {
+  setMovedTell,   // #5400
   DELIVERY, DIRECT, dmOwes, noticeStands, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES, STORE_GROWTH, storedWithin, storedProblem,
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,

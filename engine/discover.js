@@ -2164,6 +2164,16 @@ function disconnect(name) {
   if (stopped && job && job.ours && job.plist) {
     try { fs.rmSync(job.plist, { force: true }); } catch { /* best effort: the record and the profile are what matter */ }
   }
+  /* #5432: on Linux the job is a systemd user unit (job.unit; job.plist is null there since #4918 review 32), so the
+     line above left the unit and the row could not be added again. Same rule: only after the teardown fully landed
+     (remove stopped and disabled it), then systemd is told the file is gone (best effort, through create's seam). */
+  if (stopped && job && job.ours && job.unit) {
+    try { fs.rmSync(job.unit, { force: true }); } catch { /* best effort, as above */ }
+    try { const lj = require('./linuxjob'); create.linuxRun(() => lj.daemonReload()); } catch (err) {
+      if (err && err.code === 'LIVE_EXECUTION_REFUSED') throw err;   // a test that forgot its seam fails loudly (#5445)
+      /* otherwise the file is gone; a reload only tidies */
+    }
+  }
 
   /* 🛑 AND THE REMOVAL RECORD GOES TOO. `remove` files one, and the board hides
      every name on that list -- so without this, pressing Undo and then Add again

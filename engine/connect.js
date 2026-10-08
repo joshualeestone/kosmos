@@ -169,8 +169,54 @@ function claudeBinPath() {
   return require('./runners').resolveBin('claude').bin;
 }
 
-function tmuxBinPath() {
-  return process.env.AGENT_WORKFORCE_TMUX_BIN || '/opt/homebrew/bin/tmux';
+/* #5419: Kosmos runs Claude's sign-in, and every agent, in tmux. On Linux with no tmux to be found, a
+   download would fetch 200MB and then fail at sign-in with a bare ENOENT. runFlow asks first (tmuxMissingForSignin),
+   and download() asks again as the second line of defence. */
+function tmuxMissingOnLinux(env = process.env, runnable = (f) => require('./runners').isRunnable(f)) {
+  const t = tmuxBinPath('linux', env, runnable);
+  return t === 'tmux' || !runnable(t);
+}
+/* a seam, so the guard as wired into download() is tested on any platform (not only on a real Linux host). */
+let tmuxCheckOverride = null;
+/* #5419: one answer for "is there no tmux to sign Claude in with". runFlow asks first, before any download, so the
+   headline says it; download() asks again before any bytes move (defence in depth: its one caller is reached after
+   runFlow's check); launchSignin asks once more
+   before the tmux host runs, for a tmux that went away during a long download. Only on a real Linux host, or through
+   the seam. */
+const LINUX_NO_TMUX = 'Kosmos needs tmux on this computer to sign Claude in, and none was found';
+/* Review 23: the search covers PATH and the usual system folders, so a tmux kept elsewhere (Nix, ~/.local/bin) under a
+   minimal service PATH reads as missing; the hint says that case too, rather than only "install it". */
+const LINUX_TMUX_HINT = 'Install tmux with your system\'s package manager (for example sudo apt install tmux, sudo dnf install tmux, or apk add tmux) and try again. If tmux is already installed, Kosmos could not find it on its PATH or in the usual places (/usr/local/bin, /usr/bin, /bin, /snap/bin, Linuxbrew): link it into /usr/local/bin (this needs administrator rights) and try again';
+function tmuxMissingForSignin(platform) {
+  if (platform !== 'linux') return false;
+  return tmuxCheckOverride ? Boolean(tmuxCheckOverride()) : (process.platform === 'linux' && tmuxMissingOnLinux());
+}
+let linuxTmuxMemo = null;
+function setTmuxCheckForTests(fn) { tmuxCheckOverride = typeof fn === 'function' ? fn : null; }
+function tmuxBinPath(platform = process.platform, env = process.env, runnable) {
+  /* #5419: the launcher (install/kosmos) exports its tmux pick. on Linux that pick is not reliable:
+     with tmux installed but no tmux server running yet, the launcher falls back to the bundle path, which a Linux box
+     may not have. So for sign-in on Linux the pick is used only when it is runnable, and otherwise create's
+     linuxTmuxBin decides. (Review 8: agents still take create.binPaths' own pick, which trusts the launcher's; making
+     that pick runnable-checked on Linux is piece D's, #4920.) */
+  if (env.AGENT_WORKFORCE_TMUX_BIN) {
+    const can = runnable || ((f) => require('./runners').isRunnable(f));
+    if (platform !== 'linux' || can(env.AGENT_WORKFORCE_TMUX_BIN)) return env.AGENT_WORKFORCE_TMUX_BIN;
+  }
+  if (platform !== 'linux') return '/opt/homebrew/bin/tmux';   // the Mac and Windows defaults exactly as before
+  // create's Linux picker (#4917: PATH plus /usr/local/bin, /usr/bin, ...), one derivation, so a board under a
+  // minimal PATH still finds /usr/bin/tmux. Required at call time: create requires this module.
+  /* #5419: the sign-in driver asks on every tick (700 ms), so the real pick (default env and runnable check) is held
+     for 30 s, keyed on the launcher's value, rather than walking PATH every tick. Only callers that pass no runnable
+     (the driver's tmuxBinPath()) use it; the once-per-flow checks pass one and always search. */
+  const real = env === process.env && !runnable;
+  // A held pick is re-checked on every hit (one stat), so a tmux removed within the 30 s is not handed back.
+  if (real && linuxTmuxMemo && linuxTmuxMemo.key === (env.AGENT_WORKFORCE_TMUX_BIN || '') && Date.now() - linuxTmuxMemo.at < 30000
+    && require('./runners').isRunnable(linuxTmuxMemo.val)) return linuxTmuxMemo.val;
+  const val = require('./create').linuxTmuxBin('linux', env, runnable) || 'tmux';
+  // A found tmux only: the bare fallback is not held, so a tmux installed after a refusal is found on the next try.
+  if (real && val !== 'tmux') linuxTmuxMemo = { key: env.AGENT_WORKFORCE_TMUX_BIN || '', val, at: Date.now() };
+  return val;
 }
 
 const STATE_FILE = () => path.join(store.ROOT, 'connect.json');
@@ -665,6 +711,9 @@ function publicView(s, platform = process.platform) {
      * the process lives, so there is nothing to record and no stale record to
      * serve. That also means it is right on every phase, not just STUCK. */
     platform,
+    /* #5419: the gate's answer only. Hiding the offer on a Linux box with no tmux (tried, then reverted) left a screen
+       with no button and no reason, and walked the filesystem on every poll; download() instead refuses before any
+       bytes move, in a sentence the screen shows. */
     canInstallClaude: platformGate.canDownloadClaude(platform),
   };
 }
@@ -1051,14 +1100,79 @@ function cleanupSegments(part) {
   } catch { /* nothing to clean */ }
 }
 
-/* The manifest/URL key for the Claude Code build to fetch: `<os>-<arch>`, matching
-   downloads.claude.ai's manifest.platforms keys (darwin-x64/darwin-arm64/win32-x64/
-   win32-arm64). Takes the platform as a parameter (default process.platform), like
-   its callers and platformGate, so a win32 download is testable on a Mac. Only
-   reached for a platform canDownloadClaude() allows (darwin or win32); anything else
-   maps to darwin, but the gate never lets it through. ONE derivation of this key. */
-function platformKey(platform = process.platform) {
-  const arch = os.arch() === 'arm64' ? 'arm64' : 'x64';
+/* #5419: on Linux the build also depends on the C library: Anthropic publishes linux-<arch> (glibc) and
+   linux-<arch>-musl (Alpine and the like). Pure, so every branch is testable. The rule: a report naming glibc is
+   glibc; a readable report naming no glibc (the running Node is a musl build) is musl when musl's own loader file is
+   present; with no readable report at all, musl only when musl's loader is present and no glibc loader is. */
+function detectMusl({ platform, report, exists }) {
+  if (platform !== 'linux') return false;
+  let r = null;
+  try { r = typeof report === 'function' ? report() : report; } catch { r = null; }
+  const any = (files) => files.some((f) => { try { return exists(f); } catch { return false; } });
+  const muslLoader = () => any(['/lib/ld-musl-x86_64.so.1', '/lib/ld-musl-aarch64.so.1']);
+  // Review 28: Debian's musl package puts musl's loader on a glibc system, so with NO report to read, glibc's own
+  // loader present means glibc. Review 29: only then. A readable report without glibc is the running Node saying it is
+  // musl, and Alpine with gcompat has a glibc-named loader too; vetoing there picked the glibc build on Alpine.
+  const glibcLoader = () => any(['/lib64/ld-linux-x86-64.so.2', '/lib/ld-linux-aarch64.so.1', '/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2', '/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1']);
+  if (r && r.header && r.header.glibcVersionRuntime) return false;
+  // no glibc in the report is musl only when musl's own loader is there too (an unusual or static Node build
+  // can omit the field); without either, glibc, the common case. A wrong guess is NOT caught by the checksum,
+  // which proves the file is intact, not that it fits this machine: it surfaces as a failed `claude install`. Only the
+  // x86_64 and aarch64 loaders are looked for because those are the only two arches Anthropic builds for Linux.
+  const readable = Boolean(r && r.header);
+  return readable ? muslLoader() : (muslLoader() && !glibcLoader());
+}
+/* without excludeNetwork a report walks every network handle (reverse DNS included), synchronously, inside
+   the board mid-download. The C library is all this reads. */
+function readReportQuietly() {
+  if (!process.report) return null;
+  const prev = process.report.excludeNetwork;
+  try { process.report.excludeNetwork = true; return process.report.getReport(); } finally { process.report.excludeNetwork = prev; }
+}
+let muslCache = null;   // a report is tens of milliseconds and the C library never changes under a process
+const DEFAULT_IS_MUSL = () => {
+  if (process.platform !== 'linux') return false;   // never caches a non-Linux host's answer
+  if (muslCache === null) {
+    muslCache = detectMusl({ platform: process.platform, report: readReportQuietly, exists: fs.existsSync });
+  }
+  return muslCache;
+};
+let isMuslFn = DEFAULT_IS_MUSL;
+function setMuslDetectForTests(fn) { isMuslFn = typeof fn === 'function' ? fn : DEFAULT_IS_MUSL; muslCache = null; }
+
+/* #5419 review 24: Claude Code's musl build loads libstdc++ and libgcc_s; without them the 200MB download verifies and
+   then fails at `claude install` with a loader error shown only as a log tail. Asked before any bytes move, only on a
+   real musl Linux host (a test drives it through the seam). ⚠️ Review 27: a musl Node (Alpine's nodejs, Node's musl
+   build) loads the same two libraries from the same folders, so on a running board this nearly always passes; it is
+   a defence for a statically linked or bundled Node, not the cover for Alpine. What Alpine can still lack is ripgrep,
+   which nothing here checks; that stays open with piece D's installer (#4920). */
+const MUSL_LIBS_MISSING = 'This computer uses musl (Alpine, for example), and Claude Code needs libstdc++ and libgcc there, which Kosmos could not find in /usr/lib, /lib or /usr/local/lib';
+const MUSL_LIBS_HINT = 'Install them (for example apk add libstdc++ libgcc) and try again';
+function muslLibsPresent(exists = fs.existsSync) {
+  const has = (name) => ['/usr/lib', '/lib', '/usr/local/lib'].some((d) => exists(path.join(d, name)));
+  return has('libstdc++.so.6') && has('libgcc_s.so.1');
+}
+let muslLibsOverride = null;   // a seam: tests answer "missing" or "present" from any host
+function setMuslLibsCheckForTests(fn) { muslLibsOverride = typeof fn === 'function' ? fn : null; }
+function muslLibsMissing(platform) {
+  if (platform !== 'linux') return false;
+  if (muslLibsOverride) return Boolean(muslLibsOverride());
+  return process.platform === 'linux' && isMuslFn() && !muslLibsPresent();
+}
+
+/* The manifest/URL key for the Claude Code build to fetch, matching downloads.claude.ai's manifest.platforms keys:
+   darwin-x64/arm64, win32-x64/arm64, and (#5419) linux-x64/arm64 plus their -musl builds. Takes the platform (and,
+   for tests, the arch) as parameters so another OS's download is testable on a Mac. Only reached for a platform
+   canDownloadClaude() allows (darwin, win32, linux); any other platform falls through to darwin, but the gate never lets
+   it through.
+   ONE derivation of this key.
+   On Linux an arch Anthropic does not build (arm, riscv64, ppc64, s390x, ia32) keeps its own name, a key no
+   manifest carries, so download refuses with "no build for this kind of computer" rather than placing an x64 binary
+   that fails with "exec format error" (#5419). */
+function platformKey(platform = process.platform, rawArch = os.arch()) {
+  /* musl: the libraries that build loads are checked before download (muslLibsMissing, review 24). */
+  if (platform === 'linux') return `linux-${rawArch}${isMuslFn() ? '-musl' : ''}`;
+  const arch = rawArch === 'arm64' ? 'arm64' : 'x64';
   return `${platform === 'win32' ? 'win32' : 'darwin'}-${arch}`;
 }
 
@@ -1074,6 +1188,19 @@ function installEnvFor(installHome, platform = process.platform) {
   const env = { TERM: 'dumb', HOME: installHome };
   if (platform === 'win32') env.USERPROFILE = installHome;
   return env;
+}
+
+/* Streaming sha256 of a file on disk, so verifying a ~281MB reuse candidate
+   does not load the whole file into memory (#875). */
+function sha256File(p) {
+  const hash = crypto.createHash('sha256');
+  const fd = fs.openSync(p, 'r');
+  try {
+    const buf = Buffer.allocUnsafe(1 << 20);
+    let n;
+    while ((n = fs.readSync(fd, buf, 0, buf.length, null)) > 0) hash.update(buf.subarray(0, n));
+  } finally { fs.closeSync(fd); }
+  return hash.digest('hex');
 }
 
 /**
@@ -1100,25 +1227,13 @@ function installEnvFor(installHome, platform = process.platform) {
  * re-downloads rather than installs -- the same guarantee as the post-fetch
  * checksum below, applied to a file that has been sitting on disk.
  */
-/* Streaming sha256 of a file on disk, so verifying a ~281MB reuse candidate
-   does not load the whole file into memory (#875). */
-function sha256File(p) {
-  const hash = crypto.createHash('sha256');
-  const fd = fs.openSync(p, 'r');
-  try {
-    const buf = Buffer.allocUnsafe(1 << 20);
-    let n;
-    while ((n = fs.readSync(fd, buf, 0, buf.length, null)) > 0) hash.update(buf.subarray(0, n));
-  } finally { fs.closeSync(fd); }
-  return hash.digest('hex');
-}
 async function download(onProgress, track, platform = process.platform) {
   /* #3159: `canDownloadClaude`, NOT `canDownloadRunner`. This function fetches
      CLAUDE Code specifically, which now publishes a `win32-${arch}` build with its
      own manifest sha256 (see platformKey + engine/platform.js CLAUDE_DOWNLOADS), so
-     win32 is a real, checksum-verifiable download here -- unlike codex, which stays
+     win32 (and, #5419, linux) is a real, checksum-verifiable download here -- unlike codex, which stays
      darwin-only under the coarser canDownloadRunner. The artifact fetched IS the
-     platform's own build (darwin-* on a Mac, win32-* on Windows), so this is no
+     platform's own build (darwin-* on a Mac, win32-* on Windows, linux-* on Linux), so this is no
      longer the "download a macOS binary onto the wrong OS" hazard the darwin-only
      gate guarded; the checksum is verified BEFORE the binary is ever executed
      (below). `platform` is a parameter (default process.platform) so a win32
@@ -1127,6 +1242,12 @@ async function download(onProgress, track, platform = process.platform) {
   if (!platformGate.canDownloadClaude(platform)) {
     throw new Error('this platform (' + platform + ') has no published Claude Code build, so it was not downloaded');
   }
+  // only on a real Linux host (a test drives platform 'linux' from a Mac); asked before any bytes move.
+  if (tmuxMissingForSignin(platform)) {
+    // sign-in only (the agent path's tmux pick on Linux is piece D's); the hint names no single package manager.
+    throw new Error(`${LINUX_NO_TMUX}, so Claude was not downloaded. ${LINUX_TMUX_HINT}`);
+  }
+  if (muslLibsMissing(platform)) throw new Error(`${MUSL_LIBS_MISSING}, so Claude was not downloaded. ${MUSL_LIBS_HINT}`);
   const base = downloadBase();
   const version = (await fetchText(`${base}/latest`, undefined, track)).trim();
   activeRequest = null; // finished; "set" must keep meaning "in flight"
@@ -1239,7 +1360,7 @@ async function download(onProgress, track, platform = process.platform) {
     throw new Error('the downloaded file did not match its checksum, so it was not kept');
   }
   // chmod is a POSIX no-op on Windows (an .exe is runnable by extension); guard it
-  // off there so the code says what it means. On darwin the launcher must be +x.
+  // off there so the code says what it means. On darwin and Linux the launcher must be +x.
   if (!isWin) fs.chmodSync(part, 0o755);
   fs.renameSync(part, dest);
   cleanupSegments(part);   // #3229: the assembled binary is placed; drop segments
@@ -2331,6 +2452,17 @@ async function installClaudeCode(hooks) {
 }
 
 async function runFlow(owner, haveBinary) {
+  /* #5419: no tmux on Linux is said in the headline, before any download, whether or not Claude is installed (inside
+     the download it would surface only as the log tail under "we could not download Claude"). */
+  if (tmuxMissingForSignin(signinPlatform())) {
+    becomeStuck(owner, `${LINUX_NO_TMUX}. ${LINUX_TMUX_HINT}`, null);
+    return;
+  }
+  // Only when Claude has to be downloaded: the libraries are the download's problem, said in the headline.
+  if (!haveBinary && muslLibsMissing(signinPlatform())) {
+    becomeStuck(owner, `${MUSL_LIBS_MISSING}. ${MUSL_LIBS_HINT}`, null);
+    return;
+  }
   if (!haveBinary) {
     let lastProgressWrite = 0;
     const res = await installClaudeCode({
@@ -2660,6 +2792,12 @@ async function launchSignin(owner) {
   }
   /* The flow keeps the host it launched with, so every tick and the teardown reach
      the same program. */
+  /* #5419: runFlow already asked before the download; asked again here because a tmux can go away while a large
+     download runs, and the same sentence beats a bare ENOENT from tmux. */
+  if (host === tmuxSigninHost && tmuxMissingForSignin(signinPlatform())) {
+    becomeStuck(owner, `${LINUX_NO_TMUX}. ${LINUX_TMUX_HINT}`, null);
+    return;
+  }
   owner.signinHost = host;
   writeState({ phase: PHASE.SIGNIN_LAUNCHING, startedOnce: true });
 
@@ -3516,6 +3654,7 @@ async function cancel() {
 
 /** Tests only: forget everything without touching disk records. */
 function resetForTests() {
+  linuxTmuxMemo = null;   // #5419: the Linux tmux pick is held 30 s; a reset clears it like every other piece of state
   refreshExpiryReader = null; // #3326: a test's fake keychain reader never leaks into the next
   if (driver && driver.timer) clearInterval(driver.timer);
   driver = null;
@@ -3535,6 +3674,10 @@ function resetForTests() {
 }
 
 module.exports = {
+  setMuslDetectForTests,
+  detectMusl,   // #5419: pure, so each branch is tested
+  readReportQuietly, tmuxBinPath, tmuxMissingOnLinux, tmuxMissingForSignin, setTmuxCheckForTests,   // #5419: tested directly
+  muslLibsPresent, muslLibsMissing, setMuslLibsCheckForTests,   // #5419 review 24
   setRefreshExpiryReader, // #3326 test seam
   PHASE, SESSION, ACTIVE_PHASES,
   state, publicView, start, submitCode, cancel,

@@ -62,7 +62,7 @@ const CLEAN_ID = /^[a-z0-9_-]+$/;
  */
 function baseRoot(env, platform, home) {
   const e = env || process.env;
-  return store.dataRootFor(
+  return store.resolveDataRoot(   // #5418: a test process never gets the real root
     platform || process.platform,
     home || e.AGENT_WORKFORCE_HOME || os.homedir(),
     e

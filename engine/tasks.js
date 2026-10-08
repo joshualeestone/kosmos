@@ -1311,6 +1311,9 @@ function allTasks(everyProject) {
  *   'built'    (#3951) open, and marked built (`builtAt`, by `kosmos task built`): Josh's "Built but waiting". After
  *              decision (an agent needing the person is still the one to act on), before nobody, working and
  *              assigned (a built task whose agent was since taken off is still built).
+ *   'scheduled' (#5456) open, nobody named on it, and it REPEATS (`repeat`, #4787): a schedule outside Kosmos runs it
+ *              (Kosmos never starts a repeating job), so it is not waiting for anyone and is not counted as unassigned.
+ *              Checked just before 'nobody'; a repeating task with an agent on it stays working or assigned.
  */
 function taskState(task) {
   if (!task) return 'nobody';
@@ -1319,7 +1322,7 @@ function taskState(task) {
   /* #4771: held by the person (the task, or its paused project): after a decision, which the person still acts on. */
   if (isOnHold(task) || task.projectPaused === true) return 'held';
   if (typeof task.builtAt === 'string' && task.builtAt) return 'built';
-  if (whoOf(task).length === 0) return 'nobody';
+  if (whoOf(task).length === 0) return task.repeat ? 'scheduled' : 'nobody';   // #5456
   return (task.claim && task.claim.claimed === true) ? 'working' : 'assigned';
 }
 

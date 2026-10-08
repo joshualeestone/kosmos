@@ -84,10 +84,14 @@ function owedFor(session, records, roster) {
    all was rejected: an untold agent is the one that later redoes somebody else's part.
    Weakest premise: that the agent obeys "reply with one word". */
 function lineFor(items) {
+  return noteFor(items).replace(/\]$/, ' This needs no work from you: reply with one word and wait for your next instruction.]');
+}
+/* #5400: the same fact, with nothing asked, for riding on a line that is already a turn (a person's message, a room
+   post): engine/chat.js puts it in front of whatever Kosmos next types into an owed agent (setMovedTell). */
+function noteFor(items) {
   const one = items.length === 1;
   return '[Kosmos: while you were at your usage limit, ' + items.map((i) => i.phrase).join(', ') + (one ? ' was' : ' were')
-    + ' given to another agent. Leave ' + (one ? 'it' : 'those') + ' to them; the task\'s room has what they did.'
-    + ' This needs no work from you: reply with one word and wait for your next instruction.]';
+    + ' given to another agent. Leave ' + (one ? 'it' : 'those') + ' to them; the task\'s room has what they did.]';
 }
 
 /* Did a delivery verdict (maybe) reach the pane? Anything but COULD_NOT, and never a held line (the quota or the Gemini
@@ -141,4 +145,4 @@ function sweepOnce(o) {
   return out;
 }
 
-module.exports = { MAX_PER_PASS, owes, anyOwed, owedFor, lineFor, reached, markAll, sweepOnce };
+module.exports = { MAX_PER_PASS, owes, anyOwed, owedFor, lineFor, noteFor, reached, markAll, sweepOnce };

@@ -46,14 +46,14 @@ test('#3159 win32 CAN be sent a Claude Code download (its own list), while codex
   assert.equal(platform.canDownloadClaude('win32'), true, 'Claude publishes a win32 build');
   assert.equal(platform.canDownloadRunner('win32'), false, 'codex does not -- still darwin-only');
   assert.equal(platform.canDownloadClaude('darwin'), true, 'and the Mac keeps its own');
-  assert.equal(platform.canDownloadClaude('linux'), false, 'no linux Claude build is published');
+  assert.equal(platform.canDownloadClaude('linux'), true, '#5419: Anthropic publishes linux-x64/arm64 (and -musl) builds with a manifest checksum');
   for (const p of ['aix', 'sunos', '', null]) {
     assert.equal(platform.canDownloadClaude(p), false, String(p) + ' fails closed, never open');
   }
   assert.equal(platform.canDownloadClaude(undefined), platform.CLAUDE_DOWNLOADS.includes(process.platform),
     'no-argument form reads this process');
-  assert.deepEqual(platform.CLAUDE_DOWNLOADS, ['darwin', 'win32'],
-    'win32 is here because a checksum-verifiable Windows Claude build is published');
+  assert.deepEqual(platform.CLAUDE_DOWNLOADS, ['darwin', 'win32', 'linux'],
+    'win32 and (#5419) linux are here because checksum-verifiable Claude builds are published for them');
   assert.ok(Object.isFrozen(platform.CLAUDE_DOWNLOADS), 'frozen so it cannot be widened at runtime');
 });
 
@@ -82,7 +82,7 @@ test('describe() returns machine facts only -- no user-facing copy', () => {
   assert.deepEqual(platform.describe('darwin'),
     { platform: 'darwin', supported: true, runnerDownloads: true, claudeDownloads: true });
   assert.deepEqual(platform.describe('linux'),
-    { platform: 'linux', supported: true, runnerDownloads: false, claudeDownloads: false });
+    { platform: 'linux', supported: true, runnerDownloads: false, claudeDownloads: true });
   const d = platform.describe();
   assert.equal(d.platform, process.platform, 'describe() defaults to this process');
   assert.equal(d.supported, platform.isSupported());

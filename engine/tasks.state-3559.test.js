@@ -180,3 +180,19 @@ test('#3949 taskState: decision comes from waitingOnPerson, ahead of working and
   assert.equal(tasks.taskState({ number: 1, who: null, waitingOnPerson: true }), 'nobody', 'nobody to wait');
   assert.equal(tasks.taskState({ number: 1, who: 'a', claim: { claimed: true }, waitingOnPerson: 'yes' }), 'working', 'only a real true counts');
 });
+
+/* #5456: a repeating task with nobody on it is run by a schedule, so it is 'scheduled', never 'nobody'. */
+test('#5456 taskState: a repeating task with nobody on it is scheduled; with an agent it is not; without a repeat it is nobody', () => {
+  const p = freshProject('Sched5456');
+  projects.addAgent(p.id, 'schedagent', null);
+  tasks.create(p.id, { sentence: 'Repeats, nobody on it' });
+  tasks.create(p.id, { sentence: 'Repeats, an agent on it', who: 'schedagent' });
+  tasks.create(p.id, { sentence: 'No repeat, nobody on it' });
+  for (const n of [1, 2]) tasks.setRepeat(p.id, n, { every: 'day', at: '09:00' });   // throws on a problem
+  const rows = joined(projects.readAll().find((x) => x.id === p.id));
+  assert.ok(rows[0].repeat && rows[1].repeat && !rows[2].repeat, 'fixture: the repeat rules are not where the test put them');
+  assert.deepEqual(rows.map((t) => tasks.taskState(t)), ['scheduled', 'assigned', 'nobody']);
+  tasks.setOnHold(p.id, 1, true);   // held wins over scheduled, as over every open state
+  const held = joined(projects.readAll().find((x) => x.id === p.id));
+  assert.equal(tasks.taskState(held[0]), 'held', 'a held repeating task with nobody on it read as scheduled');
+});

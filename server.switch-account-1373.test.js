@@ -30,6 +30,11 @@
  */
 
 const test = require('node:test');
+/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that seeds, reads or drives the job as a
+   launchd plist cannot run unchanged there. Skipped on Linux only; its reason says whether a Linux test covers it, or
+   that it is not tested on Linux yet (#5500). macOS and Windows unchanged. */
+const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS launchd fixture on a Linux host (#5432): the test seeds or reads the agent's job as a macOS plist, or its runner stub answers launchctl only. What it asserts is platform-neutral and is tested on macOS, but NOT yet on Linux: #5500 ports it." } : {};
+const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -49,6 +54,9 @@ process.env.AGENT_WORKFORCE_HOME = HOME;
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'launch');
+// #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too (a sandboxed board without it refuses
+// every systemd call, so a create ends partial on a Linux runner). macOS and Windows never read it.
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = require('node:path').join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 process.env.AGENT_WORKFORCE_PROJECTS = nodePath.join(SANDBOX, 'projects');
 /* 🛑 ALL THREE ROOTS, NOT ONE. `defaultHome()` reads
    `AGENT_WORKFORCE_CODEX_HOME || CODEX_HOME || AGENT_WORKFORCE_HOME/.codex`, so
@@ -112,8 +120,8 @@ const GAMMA_SIGNIN = seedChatgpt('gamma', 'david.pickrell@example.com');
 function born(name) {
   fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
   fs.mkdirSync(create.workerDir(name), { recursive: true });
-  fs.writeFileSync(create.plistPath(name),
-    create.plistFor(name, CLAUDE_BIN, TMUX_BIN, null, null, 'claude'), 'utf8');
+  fs.writeFileSync(jobfix.jobPath(name),
+    jobfix.jobFor(name, CLAUDE_BIN, TMUX_BIN, null, null, 'claude'), 'utf8');
   store.writeProfile(name, { provider: 'anthropic' });
   /* Make it read as RUNNING, or the route answers on its partial branch and the
      sentence this file exists to pin is never produced. */
@@ -221,7 +229,7 @@ test('#1373 route: the PARTIAL branch names the account in the future tense', as
     'control: the partial branch no longer says what it used to, so the tense assertion above is not about the sentence it was written for: ' + r.body.because);
 });
 
-test('#1373 route: a PICKED account is named back, and the sentence says the person chose it', async () => {
+test('#1373 route: a PICKED account is named back, and the sentence says the person chose it', LINUX_PLIST_5432, async () => {
   const name = born('route-1373-picked');
   const r = await switchTo(name, { provider: 'openai', account: BETA, picked: true });
   assert.equal(r.status, 200, 'the route refused a switch it should have made: ' + JSON.stringify(r.body));
@@ -234,12 +242,12 @@ test('#1373 route: a PICKED account is named back, and the sentence says the per
   assert.match(r.body.because, /API key ending BETA/,
     'the answer names no account, so the person cannot tell which sign-in they got: ' + r.body.because);
   /* And what the route SAYS must equal what the launch job GOT. */
-  const plist = fs.readFileSync(create.plistPath(name), 'utf8');
+  const plist = fs.readFileSync(jobfix.jobPath(name), 'utf8');
   assert.ok(plist.includes(BETA),
     'the launch job did not get the account the answer named, so the sentence and the agent disagree');
 });
 
-test('#1373 route: an UNPICKED account still travels, and the sentence does NOT claim a choice', async () => {
+test('#1373 route: an UNPICKED account still travels, and the sentence does NOT claim a choice', LINUX_PLIST_5432, async () => {
   const name = born('route-1373-unpicked');
   const r = await switchTo(name, { provider: 'openai', account: ALPHA, picked: false });
   assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -247,7 +255,7 @@ test('#1373 route: an UNPICKED account still travels, and the sentence does NOT 
     'the unpicked sentence is missing: ' + r.body.because);
   assert.doesNotMatch(r.body.because, /you picked/,
     'the route claims the person picked an account they never touched: ' + r.body.because);
-  const plist = fs.readFileSync(create.plistPath(name), 'utf8');
+  const plist = fs.readFileSync(jobfix.jobPath(name), 'utf8');
   assert.ok(plist.includes(ALPHA),
     'the visible row was not the row used, which is the wrong-account bug this card exists to fix');
 });
@@ -283,7 +291,7 @@ test('#1373 route: an account that is not on this computer is REFUSED, not silen
     'the refusal does not say WHY, so a person cannot act on it: ' + JSON.stringify(r.body));
   /* The control that makes the refusal mean something: the job must be UNCHANGED,
      not merely missing a codex home. A Claude plist has no CODEX_HOME either. */
-  const plist = fs.readFileSync(create.plistPath(name), 'utf8');
+  const plist = fs.readFileSync(jobfix.jobPath(name), 'utf8');
   assert.ok(plist.includes(CLAUDE_BIN),
     'the refusal still rewrote the launch job, so "nothing was changed" is false');
   assert.equal(store.readProfile(name).provider, 'anthropic',
@@ -294,7 +302,7 @@ test('#1373 route: an account that is not on this computer is REFUSED, not silen
    sign-in Kosmos can never live-check, then sit idle with no red. The route now
    says so in the sentence that names the account, so the person is not left
    staring at a grey "not checked live" badge with no idea why or what to do. */
-test('#2790 route (OK branch): a ChatGPT sign-in landing warns it cannot be verified', async () => {
+test('#2790 route (OK branch): a ChatGPT sign-in landing warns it cannot be verified', LINUX_PLIST_5432, async () => {
   const name = born('route-2790-signin');
   const r = await switchTo(name, { provider: 'openai', account: GAMMA_SIGNIN, picked: true });
   assert.equal(r.status, 200, 'the route refused a switch it should have made: ' + JSON.stringify(r.body));
@@ -314,7 +322,7 @@ test('#2790 route (OK branch): a ChatGPT sign-in landing warns it cannot be veri
 /* The control that gives the assertion above its meaning: an API-KEY account IS
    live-checkable, so it must get NO warning. Without this, a note that fired for
    every OpenAI account would pass the arm above for the wrong reason. */
-test('#2790 route (OK branch, control): an API-key landing does NOT warn', async () => {
+test('#2790 route (OK branch, control): an API-key landing does NOT warn', LINUX_PLIST_5432, async () => {
   const name = born('route-2790-apikey-control');
   const r = await switchTo(name, { provider: 'openai', account: BETA, picked: true });
   assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -372,7 +380,7 @@ test('#2790 coupling: the note predicate matches checkLive treating a sign-in as
    the `runsOn` sentence whose wording DOES branch on `chosen` -- so an unpicked
    arm proves the note attaches to the "your OpenAI sign-in" (default) wording as
    well as the "you picked" wording, not just by reading the code. */
-test('#2790 route (OK branch, UNPICKED default): a sign-in still warns', async () => {
+test('#2790 route (OK branch, UNPICKED default): a sign-in still warns', LINUX_PLIST_5432, async () => {
   const name = born('route-2790-signin-unpicked');
   const r = await switchTo(name, { provider: 'openai', account: GAMMA_SIGNIN, picked: false });
   assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -386,7 +394,7 @@ test('#2790 route (OK branch, UNPICKED default): a sign-in still warns', async (
 });
 
 /* #5145: the route answers the OpenAI sign-in it landed on (openaiAccount's dir), resolved. */
-test('#5145 route: an OpenAI switch answers accountDir = the sign-in it landed on', async () => {
+test('#5145 route: an OpenAI switch answers accountDir = the sign-in it landed on', LINUX_PLIST_5432, async () => {
   const name = born('route-5145-openai');
   const r = await switchTo(name, { provider: 'openai', account: BETA, picked: true });
   assert.equal(r.status, 200, JSON.stringify(r.body));

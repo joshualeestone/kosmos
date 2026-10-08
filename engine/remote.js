@@ -194,17 +194,17 @@ function secureStateDir() {
 function read() {
   let raw;
   try { raw = fs.readFileSync(FILE, 'utf8'); } catch (err) {
-    if (err && err.code === 'ENOENT') return { on: false, relay: '', email: '', denied: {}, device_id: '', ok: true };
-    return { on: false, relay: '', email: '', denied: {}, device_id: '', ok: false };
+    if (err && err.code === 'ENOENT') return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], ok: true };
+    return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], ok: false };
   }
   let parsed;
-  try { parsed = JSON.parse(raw); } catch { return { on: false, relay: '', email: '', denied: {}, device_id: '', ok: false }; }
+  try { parsed = JSON.parse(raw); } catch { return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], ok: false }; }
   // A JSON array passes `typeof === 'object'`, but that is harmless HERE, unlike
   // in heartbeat-setting: `on` below is read as `parsed.on === true` (an explicit
   // true test), never defaulted to true, so an array reads off -- the safe value
   // for a relay that is off until turned on. #2013 fixed heartbeat's twin of this
   // guard because heartbeat DID default true; this copy needs no Array.isArray.
-  if (!parsed || typeof parsed !== 'object') return { on: false, relay: '', email: '', denied: {}, device_id: '', ok: false };
+  if (!parsed || typeof parsed !== 'object') return { on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], ok: false };
   return {
     on: parsed.on === true,
     relay: typeof parsed.relay === 'string' ? parsed.relay : '',
@@ -217,6 +217,10 @@ function read() {
        shape is checked where it is minted/used (signinDeviceId), not here, the
        same way relay/email carry through unvalidated. */
     device_id: typeof parsed.device_id === 'string' ? parsed.device_id : '',
+    /* kosmos#5422: the ids this computer signed in with before device_id (the opaque one before it had a key, an
+       older key's). Their rows stay pending at the coordinator, so they are still known as this computer's own
+       (#4610) and never ask to be allowed. Newest first, never trimmed (see useDeviceId). */
+    past_device_ids: Array.isArray(parsed.past_device_ids) ? parsed.past_device_ids.filter((x) => typeof x === 'string') : [],
     /* Federation Kosmos+ gate: the account's last-known coordinator standing,
        cached from the sign-in flow (the only place the coordinator surfaces it,
        per ICK's contract). '' means unknown -> kosmosPlus() is false (fail-safe:
@@ -545,9 +549,22 @@ function write(patch, opts) {
   /* A repair starts from the defaults (the damaged file could not be read), so it would drop this computer's sign-in
      device id. If this process already minted one (signinDeviceId holds it in memory when its own write is refused
      on the damaged file), keep it: otherwise a sign-in on a damaged file repairs the file with no id, and the next
-     start mints another, a second "this computer" in the account's device list (#3149, review of #4308). */
-  if (current.ok === false && !next.device_id && typeof mintedDeviceId === 'string' && DEVICE_ID.test(mintedDeviceId)) {
-    next.device_id = mintedDeviceId;
+     start mints another, a second "this computer" in the account's device list (#3149, review of #4308).
+     kosmos#5422: whatever kind of id it is (a key's id too), and the ids before it, so those rows stay this
+     computer's own after the repair. */
+  if (current.ok === false && heldIdentity) {
+    if (!next.device_id && DEVICE_ID.test(heldIdentity.device_id)) next.device_id = heldIdentity.device_id;
+    // The ids before come back whether or not one is in use yet: a key id the tunnel answered is hidden as this
+    // computer's own from that moment, even if no sign-in with it was taken.
+    if (!(next.past_device_ids || []).length && heldIdentity.past_device_ids.length) next.past_device_ids = heldIdentity.past_device_ids;
+  } else if (heldIdentity && (!('device_id' in patch) || patch.device_id === current.device_id)) {
+    /* kosmos#5422: an earlier save of this process's ids failed while the file stayed readable (a full disk, a locked
+       file). Any later write that does not set the id itself carries them, so they reach the file once it can be
+       written, and are not lost to a restart or a Forget. */
+    const held = DEVICE_ID.test(heldIdentity.device_id) ? heldIdentity.device_id : '';
+    if (held && next.device_id !== held) next.device_id = held;
+    const all = [...heldIdentity.past_device_ids, ...(next.past_device_ids || []), current.device_id];
+    next.past_device_ids = all.filter((x, i) => typeof x === 'string' && x && x !== next.device_id && DEVICE_ID.test(x) && all.indexOf(x) === i);
   }
   /* Atomic (#4308): the new content goes to a temporary file of its own in the same folder, is fsynced, and only
      then renamed over the old one. An interrupted write leaves the previous file whole, and the bytes are handed to
@@ -1091,7 +1108,7 @@ async function forget() {
   // register first waiting on signed calls already out (a minute) and retiring a
   // half identity (retireTimeoutMs, a minute), the register itself (five), signed
   // calls already out again (a minute, below), then this retire (a minute). Only
-  // when something is already broken.
+  // when something is already broken. kosmos#5422 adds a sixth, the wait on key-making calls (a minute, below).
   //
   // One forget at a time: a second (a double click, two tabs, a retried request)
   // gets the first one's answer instead of retiring the same Mac beside it.
@@ -1107,6 +1124,13 @@ async function forget() {
       // Bounded: each tracked call carries its own kill timeout (at most one retire
       // bound), so this wait ends with the calls ended.
       if (signedInFlight.size) await Promise.allSettled([...signedInFlight]);
+      // kosmos#5422: a device-key ask or a keyed start may be making the key in the folder Forget empties. This wait
+      // is bounded (KEY_CALL_WAIT_MS, a minute), a sixth bound in the worst case above.
+      if (deviceIdInFlight.size) {
+        let timer;
+        await Promise.race([Promise.allSettled([...deviceIdInFlight]), new Promise((ok) => { timer = setTimeout(ok, keyCallWaitMs()); })]);
+        clearTimeout(timer);
+      }
       return await forgetNow();
     } finally {
       forgetting = false;
@@ -1144,6 +1168,9 @@ async function forgetNow() {
      of a member-only feature to a non-member. A real sign-in re-caches the new
      account's standing; until then, unknown -> not a member. */
   write({ ...r, on: false, standing: '' }, { repair: true });
+  // kosmos#5422: only now, after the repairs above put this process's ids back into remote.json (which keeps them, so
+  // the old rows stay this computer's own), is what this process held let go.
+  heldIdentity = null;
   // Anything started during the retire wait (it can be minutes) goes too.
   stopChild();
   return {
@@ -1273,7 +1300,11 @@ async function setupComplete(code, name) {
    writer of this Mac's allow_list; this module asks it in the shape setup
    already uses, and reads the pending snapshot the running tunnel refreshes
    every five seconds, so every open board can poll without spawning. ---- */
-const DEVICE_ID = /^[A-Za-z0-9_-]{1,128}$/;
+/* kosmos#5422: a sign-in device id is either the older opaque label or one proven by a key (`k1.` and 32 base64url
+   characters, the coordinator's fingerprint of the key). Exactly that shape, so a dot never lets a path through. */
+const LEGACY_ID = /^[A-Za-z0-9_-]{1,128}$/;
+const KEYED_ID = /^k1\.[A-Za-z0-9_-]{32}$/;
+const DEVICE_ID = /^(?:[A-Za-z0-9_-]{1,128}|k1\.[A-Za-z0-9_-]{32})$/;
 const DEVICE_NAME = /^[^\n\r]{1,60}$/;
 function pendingFile() { return path.join(STATE_DIR(), 'pending.json'); }
 /* #4610 (Josh, 12:50, a brand-new account was shown older requests): a new identity does not inherit the old one's
@@ -1317,8 +1348,15 @@ function resetSelfGrant() {
 }
 const SELF_ALLOW_RETRY_MS = 60000;
 /* Whether the running tunnel's last snapshot still lists this Mac's own sign-in. A read of the file, never a spawn. */
+/* kosmos#5422: the id this computer signs in as now. What this process holds is never older than remote.json (it is set
+   when a sign-in is taken, before the save that may fail on a full disk or a locked file), so it wins when valid. */
+function idInUse() {
+  if (heldIdentity && DEVICE_ID.test(heldIdentity.device_id)) return heldIdentity.device_id;
+  const d = read().device_id;
+  return typeof d === 'string' ? d : '';
+}
 function selfPendingInSnapshot() {
-  const id = typeof read().device_id === 'string' ? read().device_id : '';
+  const id = idInUse();
   if (!id) return false;
   try {
     const raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8'));
@@ -1326,7 +1364,7 @@ function selfPendingInSnapshot() {
   } catch { return false; }
 }
 function allowSelfQuietly() {
-  const id = typeof read().device_id === 'string' ? read().device_id : '';
+  const id = idInUse();
   if (!id || selfAllowing || !enrolled()) return false;
   if (selfGrantedId === id && Date.now() - selfGrantedAt < SELF_REGRANT_MS) return false;
   if (Date.now() - selfAllowAt < SELF_ALLOW_RETRY_MS) return false;
@@ -1366,10 +1404,10 @@ function pendingDevices() {
      device row at the coordinator (every session is one), and registering the Mac records no grant for it, so it
      stays pending for good. It is never a request: the app's window loads the board on this computer, not through
      Kosmos+. Its id is remote.json's device_id (the page used it only to relabel the row). Not listed, not counted. */
-  const self = typeof settings.device_id === 'string' ? settings.device_id : '';
+  const selves = ownDeviceIds(settings);
   const devices = list
     .filter((d) => d && DEVICE_ID.test(String(d.device_id || '')))
-    .filter((d) => !self || String(d.device_id) !== self)
+    .filter((d) => !selves.includes(String(d.device_id)))
     .map((d) => ({
       device_id: String(d.device_id),
       name: typeof d.name === 'string' && d.name.trim() ? d.name.trim().slice(0, 60) : null,
@@ -1629,17 +1667,169 @@ let signinSession = null;
     sign-in flow always runs in one board process. A fresh process re-reads the
     file, or mints again if the write never landed. */
 let mintedDeviceId = null;
+/* kosmos#5422: the id this process last signed in with and the ids before it, held in memory so a repair of a damaged
+   remote.json (whose own write of them was refused) puts them back (see write()). */
+let heldIdentity = null;
+/* kosmos#5422: every id this computer has signed in with (the file's and, when the file cannot be read, the ones this
+   process holds). Its rows at the coordinator are its own: never a request to allow (#4610), never in the allowed
+   list (server.js /api/remote/devices). */
+function ownDeviceIds(settings = read()) {
+  const ids = [settings.device_id, ...(settings.past_device_ids || [])];
+  if (heldIdentity) ids.push(heldIdentity.device_id, ...heldIdentity.past_device_ids);
+  return ids.filter((x, i, all) => typeof x === 'string' && x && all.indexOf(x) === i);
+}
+/* kosmos#5422: record that this computer now signs in as `id`. The id it used before moves to past_device_ids, so
+   its row (still pending at the coordinator) stays this computer's own. No cap: a row at the coordinator outlives any
+   count, and every new id is a person's act (a Forget, a new key), so the list stays short. Best-effort, like the
+   mint below. */
+function useDeviceId(id) {
+  const cur = read();
+  /* The ids before, from what this process holds (never older than the file; it may hold ids a failed save never got
+     into it) and from the file when it can be read. */
+  const fromFile = cur.ok === false ? [] : [cur.device_id, ...cur.past_device_ids];
+  const fromHeld = heldIdentity ? [heldIdentity.device_id, ...heldIdentity.past_device_ids] : [];
+  const all = [...fromHeld, ...fromFile];
+  const past = all.filter((x, i) => x && x !== id && DEVICE_ID.test(x) && all.indexOf(x) === i);
+  heldIdentity = { device_id: id, past_device_ids: past };
+  if (cur.device_id !== id || JSON.stringify(cur.past_device_ids) !== JSON.stringify(past)) write({ device_id: id, past_device_ids: past });
+}
 function signinDeviceId() {
-  if (mintedDeviceId && DEVICE_ID.test(mintedDeviceId)) return mintedDeviceId;
+  if (mintedDeviceId && LEGACY_ID.test(mintedDeviceId)) return mintedDeviceId;
   const r = read();
-  if (typeof r.device_id === 'string' && DEVICE_ID.test(r.device_id)) {
-    mintedDeviceId = r.device_id;
-    return mintedDeviceId;
-  }
-  const id = crypto.randomUUID();
+  // When remote.json cannot be read, what this process holds stands in for it (a key's sign-in may have moved the
+  // opaque id there), or an older tunnel would mint another "this computer" (#3149).
+  const held = r.ok === false && heldIdentity ? heldIdentity : null;
+  const inUse = held ? held.device_id : r.device_id;
+  // kosmos#5422: after a key, the opaque id is among the past ones (an older tunnel signs in with it again).
+  const pool = [r.device_id, ...r.past_device_ids, ...(held ? [held.device_id, ...held.past_device_ids] : [])];
+  const kept = pool.find((x) => typeof x === 'string' && LEGACY_ID.test(x));
+  const id = kept || crypto.randomUUID();
   mintedDeviceId = id;      // hold it even if the persist below fails
-  write({ device_id: id });
+  /* Kept at once, so a restart signs in with it again. With no valid id in use (a fresh install, a hand edit) it is the
+     id in use at once; with one in use (a key's id, under an older tunnel) it waits among the ids before, and becomes
+     the id in use only when a sign-in with it is taken (the callers record it), so the self-grant never moves to an id
+     the coordinator has not seen. */
+  if (!inUse || !DEVICE_ID.test(inUse)) useDeviceId(id);
+  else if (!kept) addPastId(id);
   return id;
+}
+
+/* kosmos#5422: the sign-in's device arguments, asked of the tunnel on every start and verify (no memo, so a Forget
+   that removes the key file, or a passing failure, is never remembered). A tunnel that knows `signin device-id
+   --device-key` keeps this computer's key in a file in its own state folder and proves it on verify; the crypto stays
+   in the tunnel, this module passes a path. The app bundles whichever tunnel was built for the release and nothing
+   pins the two, so an older tunnel must keep working: it refuses the verb as a usage error, exit 2 (measured on two
+   older builds: "error: unrecognized subcommand 'device-id'"), and only that means the opaque id. Any other failure
+   refuses the sign-in in words: falling back would sign in as another device, and a k1 id is never sent without its
+   key. The key file is deterministic, so a start and its verify name one device. */
+const DEVICE_KEY_FILE = () => path.join(STATE_DIR(), 'signin-device.key');
+const DEVICE_ID_ASK_MS = 15000;
+/* Calls that can make the device key (the ask, and a keyed start: the tunnel's start makes a missing key too). Forget
+   waits for them, since they write into the folder it empties. The ask is bounded (DEVICE_ID_ASK_MS); a start is
+   not, so Forget's wait is (KEY_CALL_WAIT_MS): a start still out after that cannot hold the Forget. */
+const KEY_CALL_WAIT_MS = 60000;
+const keyCallWaitMs = () => Number(process.env.AGENT_WORKFORCE_KEY_CALL_WAIT_MS) || KEY_CALL_WAIT_MS;   // test seam
+const deviceIdInFlight = new Set();
+function trackKeyCall(p) { deviceIdInFlight.add(p); const done = () => deviceIdInFlight.delete(p); p.then(done, done); return p; }
+/* What the tunnel said, for a person: its "Error: " line (anyhow's shape) and the innermost "Caused by" line (the
+   system's reason: permission, disk full), with the state folder's path taken out wherever it appears (it holds the
+   person's home folder, often with spaces in it, so no pattern on the path itself is safe). */
+function tunnelWords(asked) {
+  const lines = String(asked.stderr || '').split('\n');
+  // Every spelling of the folder the tunnel might print: as set, as joined into the key's path, and resolved.
+  const dirs = [...new Set([path.dirname(DEVICE_KEY_FILE()), path.resolve(STATE_DIR()), STATE_DIR()])].sort((x, y) => y.length - x.length);
+  const scrub = (l) => dirs.reduce((t, d) => t.split(d + path.sep).join('').split(d).join(''), l)
+    .replace(/\s*\bsignin-device\.key[^\s;:,)]*/g, '').replace(/\s+/g, ' ').trim();
+  const head = lines.find((l) => /^Error: /.test(l));
+  const causes = lines.slice(lines.findIndex((l) => /^Caused by:/.test(l)) + 1).map((l) => l.replace(/^\s*(\d+:\s*)?/, '')).filter(Boolean);
+  // No "Error:" line: clap's usage text, whose last line ("For more information, try '--help'.") says nothing.
+  if (!head) return 'the tunnel program refused the request';
+  const cause = lines.some((l) => /^Caused by:/.test(l)) && causes.length ? causes[causes.length - 1] : '';
+  return scrub(head.slice(7)) + (cause ? ' (' + scrub(cause) + ')' : '');
+}
+async function askDeviceKey() {
+  // Bounded: a hung tunnel must not hold the sign-in forever (a cancel cannot free a call that never returns).
+  // The tunnel would make a missing folder with default permissions; on macOS and Linux the key's folder is owner-only
+  // from the first ask. (On Windows mode bits do nothing: the key file is protected by the tunnel's own ACL.)
+  secureStateDir();
+  // A Forget waits for this (it may be making the key in the folder the Forget empties).
+  return trackKeyCall(setupRun(['signin', 'device-id', '--device-key', DEVICE_KEY_FILE()], null, DEVICE_ID_ASK_MS));
+}
+const keyedIdIn = (asked) => {
+  const r = parseSaid(asked);
+  return r.ok && r.data && typeof r.data.device_id === 'string' && KEYED_ID.test(r.data.device_id) ? r.data.device_id : '';
+};
+/* A key id the tunnel answered is this computer's own from that moment (a start with it may reach the coordinator
+   even if its answer never comes back): kept among the ids before, so its row is hidden, but not the id in use until
+   a sign-in with it is taken (the self-grant follows that one). */
+function noteOwnId(id) {
+  if (ownDeviceIds().includes(id)) return;
+  addPastId(id);
+}
+/* An id joins the ids before: in remote.json when it can be read, and in what this process holds whenever it holds
+   anything (a repair of a damaged file rebuilds from that, so an id written only to the file would be lost there). */
+function addPastId(id) {
+  const cur = read();
+  // Always in memory too (a save of it may fail), starting from the file's ids when this process holds none yet.
+  const base = heldIdentity || { device_id: cur.ok === false ? '' : cur.device_id, past_device_ids: cur.ok === false ? [] : cur.past_device_ids };
+  heldIdentity = { device_id: base.device_id, past_device_ids: [id, ...base.past_device_ids.filter((x) => x !== id)] };
+  if (cur.ok !== false) write({ past_device_ids: [id, ...cur.past_device_ids.filter((x) => x !== id)] });
+}
+/* One at a time: two starts at once (a double click, two tabs) must not both remove a corrupt key, the second
+   removing the good one the first just made, so the two name different devices. */
+let deviceArgsTail = Promise.resolve();
+function signinDeviceArgs(forVerify) {
+  const turn = deviceArgsTail.then(() => signinDeviceArgsNow(forVerify));
+  deviceArgsTail = turn.catch(() => {});
+  return turn;
+}
+async function signinDeviceArgsNow(forVerify) {
+  // Nothing may ask for (and so make) a key once a Forget has begun; busy() refuses the step too, this is the same
+  // rule at the call that writes into the folder.
+  if (forgetting) return { failed: busy() };
+  /* A verify never makes a key (the tunnel's own rule): one made now could not answer a code sent for the key that is
+     gone (a Forget between the start and the verify). If this computer signs in with a key and the file is gone, say
+     so; with no key file and no key id, this is an older tunnel's sign-in and the opaque id carries on. */
+  if (forVerify && !fs.existsSync(DEVICE_KEY_FILE())) {
+    if (KEYED_ID.test(idInUse())) return { failed: { ok: false, because: "this computer's sign-in key is gone; start the sign-in again" } };
+    const opaque = signinDeviceId();
+    return { args: ['--device-id', opaque], id: opaque };
+  }
+  let asked = await askDeviceKey();
+  // clap prints "error: unrecognized subcommand 'device-id'" first and the usage after it (exit 2); match it as the
+  // other verbs here do, so no other failure is read as an older tunnel.
+  if (!asked.ok && asked.code === 2 && /unrecognized subcommand|invalid subcommand/i.test(String(asked.stderr || '') + '\n' + String(asked.because || ''))) {
+    const opaque = signinDeviceId();
+    return { args: ['--device-id', opaque], id: opaque };
+  }
+  // The program itself did not run or answer (missing, not startable, timed out): its own words, not the key's.
+  // Fixed words: setupRun's own sentence for a spawn failure carries the program's path (under the home folder).
+  if (!asked.ok && typeof asked.code !== 'number') return { failed: { ok: false, because: asked.timedOut ? 'the tunnel program did not answer in time' : 'the tunnel program could not be started' } };
+  let id = keyedIdIn(asked);
+  /* A file that is not a key at all (the tunnel's "is not a P-256 key"; a truncated write, a hand edit) can never be
+     used, and the person has no button that removes it (Remove this computer shows only once enrolled). Its own
+     remedy is to remove it, so the app does: a start then makes a new key (a new device, allowed once); a verify says
+     start again, since a key made now could not answer the code. Any other failure (a key it could not READ) is
+     never removed: the tunnel's words say what is wrong. */
+  if (!id && /is not a P-256 key/.test(String(asked.stderr || ''))) {
+    try { fs.rmSync(DEVICE_KEY_FILE(), { force: true }); } catch {
+      // Not removable (a lock, antivirus): the tunnel's "remove it" is not something the person can do here.
+      return { failed: { ok: false, because: "this computer's sign-in key could not be used or replaced just now; quit and reopen Kosmos, then sign in again" } };
+    }
+    if (forVerify) return { failed: { ok: false, because: "this computer's sign-in key could not be used and was removed; start the sign-in again (this computer will be a new device, allowed once)" } };
+    // A Forget that began during the first ask must not be outrun by a second one making a key in its folder.
+    { const b = busy(); if (b) return { failed: b }; }
+    asked = await askDeviceKey();
+    id = keyedIdIn(asked);
+  }
+  if (!id && asked.ok) return { failed: { ok: false, because: 'the tunnel program answered with a device id this version of Kosmos does not know' } };
+  if (!id) {
+    return { failed: { ok: false, because: "this computer's sign-in key could not be opened: " + tunnelWords(asked) } };
+  }
+  noteOwnId(id);
+  // Recorded by the caller once the coordinator has taken a start or verify with it, not here: a cancelled or refused start
+  // never reached the coordinator, so its id must not displace the one this computer signed in with.
+  return { args: ['--device-key', DEVICE_KEY_FILE()], id };
 }
 
 /** Take the tunnel's `stage` answer, stash any bearer material HERE, and return
@@ -1828,10 +2018,21 @@ async function signinStart(email, deviceName) {
     return { ok: false, because: 'that does not look like an email address' };
   }
   signinSession = null;
+  // kosmos#5422: asking the tunnel for the device arguments waits, so a cancel, or a register or Forget begun in the
+  // meantime, is looked for again after it.
+  const epoch = signinEpoch;
+  const dev = await signinDeviceArgs();
+  if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
+  { const b = busy(); if (b) return b; }
+  if (dev.failed) return dev.failed;
   const args = ['signin', 'start', '--coordinator', COORDINATOR(),
-    '--email', email, '--device-id', signinDeviceId()];
+    '--email', email, ...dev.args];
   pushDeviceName(args, deviceName);
-  const r = parseSaid(await setupRun(args));
+  // kosmos#5422: a keyed start can make the key too (the tunnel's start makes a missing one), so Forget waits for it.
+  const r = parseSaid(await (dev.args[0] === '--device-key' ? trackKeyCall(setupRun(args)) : setupRun(args)));
+  // kosmos#5422: the id (a key's or the opaque one) becomes this computer's once the coordinator has taken a start with
+  // it; not after a cancel or a Forget meanwhile (the Forget emptied the folder that held the key).
+  if (r.ok && dev.id && epoch === signinEpoch && !forgetting) useDeviceId(dev.id);
   // Deliberately does NOT persist the email. The setup flow writes it because
   // setupComplete reads it back; sign-in carries the email explicitly through
   // verify, so nothing here needs it. Writing it would also make status()'s
@@ -1852,10 +2053,16 @@ async function signinVerify(email, code, deviceName) {
   if (!CODE_RULE.test(String(code || ''))) {
     return { ok: false, because: 'the code is six digits' };
   }
-  const args = ['signin', 'verify', '--coordinator', COORDINATOR(),
-    '--email', email, '--device-id', signinDeviceId(), '--code', String(code)];
-  pushDeviceName(args, deviceName);
+  // Taken before anything is awaited (kosmos#5422: the device arguments may ask the tunnel), so a cancel made while
+  // this verify waits is seen.
   const epoch = signinEpoch;
+  const dev = await signinDeviceArgs(true);
+  if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
+  { const b = busy(); if (b) return b; }
+  if (dev.failed) return dev.failed;
+  const args = ['signin', 'verify', '--coordinator', COORDINATOR(),
+    '--email', email, ...dev.args, '--code', String(code)];
+  pushDeviceName(args, deviceName);
   const r = parseSaid(await setupRun(args));
   if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
   // A CLI error (wrong code, coordinator down) is a TRANSIENT "try again" and
@@ -1865,6 +2072,9 @@ async function signinVerify(email, code, deviceName) {
   // clearing lives in absorbSession. So "unsuccessful verify" is not "slot
   // cleared"; "unusable answer" is.
   if (!r.ok) return r;
+  // kosmos#5422: a verify the coordinator took is a sign-in as the key's id, even when its start was never recorded
+  // (the start's answer was lost, or the board restarted while the person fetched the code).
+  if (dev.id) useDeviceId(dev.id);
   return absorbSession(r.data);
 }
 
@@ -2081,7 +2291,17 @@ async function clearHalfIdentity() {
     return { kept: retireReason(r) };
   }
   if (!r.ok) process.stderr.write('remote: an unfinished earlier sign-in could not be retired at Kosmos+ (' + r.because + '); its address may show on the account page until it is removed there\n');
-  try { fs.rmSync(STATE_DIR(), { recursive: true, force: true }); } catch { /* the register writes it again */ }
+  /* kosmos#5422: the sign-in's device key lives in this folder too and is not part of the half identity: it is the
+     device the person just signed in as. The folder is emptied entry by entry around it, so finishing a sign-in does
+     not make this computer another device next time; the key file itself is never rewritten (a rewrite would lose
+     the tunnel's Windows ACL). */
+  const keyName = path.basename(DEVICE_KEY_FILE());
+  let entries = [];
+  try { entries = fs.readdirSync(STATE_DIR()); } catch { /* no folder: nothing to clear */ }
+  for (const name of entries) {
+    if (name === keyName) continue;   // never touched: its contents and its owner-only protection (on Windows an ACL) stay
+    try { fs.rmSync(path.join(STATE_DIR(), name), { recursive: true, force: true }); } catch { /* the register writes it again */ }
+  }
   secureStateDir();
   return r.ok ? null : { stranded: retireReason(r) };
 }
@@ -2308,6 +2528,7 @@ async function signinRegister(name) {
 module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
+  ownDeviceIds,
   kosmosPlus,
   fedSetStanding,
   refreshStandingIfStale,
@@ -2371,7 +2592,7 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
   cancelledAfterForTests: cancelledAfter,   // kosmos#4743: tests only
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
-  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
+  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */
   bundledConnector,

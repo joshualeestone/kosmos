@@ -8089,7 +8089,7 @@ const server = http.createServer(async (req, res) => {
     if (!session) { sendJson(res, 409, { error: 'this agent is not running, so there is no session to write a handoff' }); return; }
     const snap = handoffFileSnap(session);
     let delivery;
-    try { delivery = await chat.deliverAsync(name, handoffRestart.handoffForRestartPrompt(snap.path), safeRoster(), undefined, undefined); }
+    try { delivery = await chat.deliverAsync(name, handoffRestart.handoffForRestartPrompt(snap.path), safeRoster(), undefined, undefined, { movedNote: false }); }   // #5400 review 3: the note rides the restarted session's pickup line
     catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
     sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, {
       delivery,
@@ -9113,7 +9113,7 @@ const server = http.createServer(async (req, res) => {
         // #4939: asked BEFORE the store write, as the comment route does: it records the ON period's start, which must
         // not be later than this post (the sweep sends only posts made at or after it), and says whether it will go.
         let will = { sends: false, later: false };
-        try { will = communitysend.willSend(agentId, Date.now(), 'post'); } catch { will = { sends: false, later: false }; }
+        try { will = communitysend.willSend(agentId, Date.now(), 'post'); } catch { will = { sends: false, later: false, why: 'records' }; }
         // The agent path sets a board only from the site's controlled inventory, never free text: kosmos_bug (#5062) and
         // a channel from communitysend.CHANNELS (#5171), both checked above.
         let r;
@@ -9134,7 +9134,10 @@ const server = http.createServer(async (req, res) => {
         // keeps the true status for the moderator surface.
         // A held post is not going yet at all (#4947): it is neither sent nor waiting until it is released.
         const going = r.status === 'published' && will.sends;
-        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends: going, later: going && will.later });
+        const postAnswer = { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends: going, later: going && will.later };
+        // #5435: why a published post is not going, in words both CLIs print (an older CLI ignores the field).
+        if (r.status === 'published' && !going) postAnswer.notSending = communitysend.notSendingWords('post', will.why);
+        sendJson(res, 200, postAnswer);
         if (r.status === 'published') communitySendSoon();   // #4938
       })
       .catch((e) => { console.error('FAIL /api/community/post (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); });
@@ -9212,7 +9215,7 @@ const server = http.createServer(async (req, res) => {
         // Asked BEFORE the store write: it may record the ON period's start, which must not be later than this row.
         // (That can move the posts' window earlier too, which only sends posts made while the person had it ON.)
         let will = { sends: false, later: false };
-        try { will = communitysend.willSend(agentId); } catch { will = { sends: false, later: false }; }
+        try { will = communitysend.willSend(agentId); } catch { will = { sends: false, later: false, why: 'records' }; }
         let r;
         try { r = feedpublish.publishServiceComment(content, { agentId }); }
         catch (e) { console.error('FAIL /api/community/service-comment: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); return; }
@@ -9230,6 +9233,7 @@ const server = http.createServer(async (req, res) => {
         }
         // Quarantined reads as held to the submitter, as for a post (not a scrubber oracle).
         const answer = { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends, later: sends && will.later };
+        if (r.status === 'published' && !sends) answer.notSending = communitysend.notSendingWords('comment', will.why);   // #5435
         /* #5211 item 2: who wrote the post, whether you follow them, and today's floors. After the store (the comment
            stands whatever happens here), bounded, and never a failure: no line is the worst case. */
         // #4938: the send is asked for first, as before #5211, so the line never delays it (past the daily cap it goes later).
@@ -9589,9 +9593,10 @@ const server = http.createServer(async (req, res) => {
         if (!list.ok) { sendJson(res, 500, { error: list.because }); return; }
         const pending = remote.pendingDevices();
         /* #4610: nor in the ALLOWED list. Josh: "never display to the user"; shown there it also carried a Remove
-           the automatic grant would quietly undo. Matched by the id this board minted for its own sign-in. */
-        const self = typeof remote.read().device_id === 'string' ? remote.read().device_id : '';
-        const allowed = (Array.isArray(list.data.devices) ? list.data.devices : []).filter((d) => !self || !d || d.device_id !== self);
+           the automatic grant would quietly undo. Matched by every id this board has signed in with (kosmos#5422: the
+           key's id and the ones before it, which stay at the coordinator). */
+        const selves = remote.ownDeviceIds();
+        const allowed = (Array.isArray(list.data.devices) ? list.data.devices : []).filter((d) => !d || !selves.includes(d.device_id));
         sendJson(res, 200, { pending: pending.devices, allowed, email: pending.email, on: remote.read().on === true });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the devices' }));
@@ -16997,7 +17002,7 @@ const server = http.createServer(async (req, res) => {
                         roster read and one commitments reading per agent for
                         the whole request
          waitingOnPerson tasks.waitingOnPerson: its agent needs the person about it (#3949)
-         state          tasks.taskState: closed / decision / held / built / nobody / working / assigned
+         state          tasks.taskState: closed / decision / held / built / scheduled / nobody / working / assigned
          projectPaused  its project is paused (#4771; with the task's own onHold, the held state)
          lastActivityAt the newest transcript event, else created/closed
        A task's own builtAt / builtBy / builtNote (#3951, set by POST .../built) ride every row as stored.
@@ -20873,6 +20878,30 @@ function start(port = PORT) {
          (and in what state); written back only when it changes. */
       let assignerPrev = assigner.loadMemory(Date.now());
       const FAILOVER_TELL_SEEN = new Set();   // #5382: cards idle at the previous tell sweep (engine/failovertell.js)
+      /* #5400: and on whatever Kosmos next types into an owed agent (a person's message at the reset, a room post),
+         so it is told before it can carry on with a moved part; marked told once that line may have reached it. */
+      /* Review 1 NIT: the records are read at most once every few seconds, not once per line typed (a room post to N
+         members), and anyOwed answers the common case (nothing owed anywhere) first; a told() drops the cached read. */
+      const movedRecs = { at: 0, recs: null, roster: null };
+      const movedRecords = () => {
+        if (!movedRecs.recs || Date.now() - movedRecs.at > 5000) { movedRecs.recs = projects.readAll(); movedRecs.roster = null; movedRecs.at = Date.now(); }
+        return movedRecs.recs;
+      };
+      /* #5382 review 3 x #5400 (rebase): the note names the agent now holding the part as the board shows it, so it needs
+         the roster; read only when something is owed, and cached with the records. */
+      const movedRoster = () => {
+        if (!movedRecs.roster) { try { movedRecs.roster = safeRoster(); } catch { movedRecs.roster = []; } }
+        return movedRecs.roster;
+      };
+      chat.setMovedTell({
+        owed: (session) => {
+          const ft = require('./engine/failovertell');
+          const recs = movedRecords();
+          return ft.anyOwed(recs) ? ft.owedFor(session, recs, movedRoster()) : [];
+        },
+        note: (items) => require('./engine/failovertell').noteFor(items),
+        told: (session, items) => { movedRecs.recs = null; require('./engine/failovertell').markAll(session, items, tasks.markMoveTold); },
+      });
       let assignerSaved = null;
       const assignerSweep = setInterval(() => {
         if (!liveExecution.liveExecutionAllowed()) return; // inert under test / before opt-in

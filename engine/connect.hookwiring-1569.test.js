@@ -34,12 +34,19 @@ const SANDBOX = mkTemp('hookwiring1569-');
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'launch');
+// #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too (a sandboxed board without it refuses
+// every systemd call, so a create ends partial on a Linux runner). macOS and Windows never read it.
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = require('node:path').join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 process.env.AGENT_WORKFORCE_PROJECTS = nodePath.join(SANDBOX, 'projects');
 process.env.AGENT_WORKFORCE_HOME = SANDBOX;
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = nodePath.join(SANDBOX, 'claude-config-dir');
 
 const connect = require('./connect');
+// #5419: download() and sign-in refuse on a real Linux host with no tmux; pinned to "present" so a Linux box without
+// tmux still runs these tests for what they name.
+connect.setTmuxCheckForTests(() => false);
+connect.setMuslLibsCheckForTests(() => false);   // #5419: nor the host's musl libraries
 
 /* 🛑 WITHOUT THIS, `start()` RETURNS `connected` IMMEDIATELY AND NEVER REACHES
    THE DOWNLOAD. Measured: on a signed-in machine it short-circuits before the

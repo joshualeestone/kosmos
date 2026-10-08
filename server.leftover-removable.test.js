@@ -24,6 +24,7 @@
  */
 
 const test = require('node:test');
+const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const store = require('./engine/store');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -54,8 +55,8 @@ function boardWithJobOnlyLeftover() {
     JSON.stringify({ role: 'Researcher', displayName: 'Leftover' }));
   // A launchd job, and DELIBERATELY NO WORKER FOLDER under sb/workers.
   // `plistFor` is a pure template, so it needs no environment here.
-  fs.writeFileSync(nodePath.join(launch, 'com.kosmos.agent.leftover.plist'),
-    create.plistFor('leftover', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-opus-5'));
+  fs.writeFileSync(jobfix.jobPathIn(launch, 'leftover'),
+    jobfix.jobFor('leftover', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-opus-5'));
 
   const bin = nodePath.join(sb, 'bin');
   fs.mkdirSync(bin, { recursive: true });

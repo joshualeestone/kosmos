@@ -239,6 +239,15 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
         allAgents: !document.getElementById('create-back').hidden }));
       ok(t + ' K5 Team with no catalogue: no dropdown or Create, "coming soon" said once, Upload an org chart is the gold action (Mona\'s review)',
         k5.onTeam && !k5.pick && k5.msg === 'Ready-made teams are coming soon.' && k5.soon === 1 && k5.gold && !k5.labelShown && k5.divider === '0px' && !k5.allAgents, JSON.stringify(k5));
+      /* #5444 (Mona Lisa, 0.7.26 design pass): the line is plain text, not a bordered box the size of a text field (it
+         read as somewhere to type). CONTROL: the old box style (.rolelimit) does draw a border, measured in this page. */
+      const k5box = await page.evaluate(() => {
+        const m = document.getElementById('team-seeded-msg'); const cs = getComputedStyle(m);
+        const probe = document.createElement('p'); probe.className = 'rolelimit'; probe.textContent = 'x';
+        m.parentNode.appendChild(probe); const old = getComputedStyle(probe).borderTopWidth; probe.remove();
+        return { border: cs.borderTopWidth, boxed: m.classList.contains('rolelimit'), old }; });
+      ok(t + ' K5 #5444 "coming soon" is a plain line, not a box shaped like a field (control: the old style draws one)',
+        k5box.border === '0px' && !k5box.boxed && parseFloat(k5box.old) > 0, JSON.stringify(k5box));
       await page.click('#team-orgchart-open');
       ok(t + ' K5 Upload an org chart opens its panel on the Team screen', await visible(page, '#orgchart-text'));
 

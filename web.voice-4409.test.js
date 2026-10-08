@@ -146,9 +146,9 @@ function voiceHarness() {
   // eslint-disable-next-line no-new-func
   const timers = [];
   const make = new Function('window', 'document', 'posted', 'setInterval', 'clearInterval',
-    'let CURRENT = null; let PJ_CURRENT = null; const VOICE_SAYS = {}; const VOICE_SAYS_PHONE = {};\n'
-    + ['const VOICE = {', 'const SPEAK = {', 'let VOICE_WATCH =', 'const VOICE_LISTENING =', 'let VOICE_PHONE ='].map(pageLine).join('\n') + '\n'   // the page's own state, not a copy
-    + ['viewKey', 'shownNow', 'voiceWhere', 'voiceBridge', 'voicePhoneWho', 'voicePhoneBridge', 'voiceListeningLine', 'voiceSplice', 'voicePaint', 'voiceSay', 'voiceMsgEl', 'voiceMsgEmpty', 'voiceUnsayOwn', 'voiceUnsay', 'voiceWho', 'voiceStop', 'voiceToggle', 'voiceCancel', 'voiceOnEvent', 'voiceSpeakWatch', 'speakStop', 'speakPaint', 'speakSameText', 'speakFollow', 'speechTidy', 'speechTextOfRow'].map(fn).join('\n')
+    'let CURRENT = null; let PJ_CURRENT = null; const VOICE_SAYS = { \'speech-denied\': \'(speech refused)\', \'mic-denied\': \'(mic refused)\', \'mic-restricted\': \'(mic restricted)\' }; const VOICE_SAYS_PHONE = {};\n'
+    + ['const VOICE = {', 'const SPEAK = {', 'let VOICE_WATCH =', 'const VOICE_LISTENING =', 'let VOICE_PHONE =', 'const VOICE_SETTINGS_PANE =', 'const VOICE_SETTINGS =', 'const VOICE_SETTINGS_WAIT =', 'const VOICE_SETTINGS_WAIT_MS ='].map(pageLine).join('\n') + '\n'   // the page's own state, not a copy
+    + ['viewKey', 'shownNow', 'voiceWhere', 'voiceBridge', 'voicePhoneWho', 'voicePhoneBridge', 'voiceListeningLine', 'voiceSplice', 'voicePaint', 'voiceSay', 'voiceMsgEl', 'voiceMsgEmpty', 'voiceUnsayOwn', 'voiceUnsay', 'voiceSettingsClear', 'voiceSettingsOffer', 'voiceWho', 'voiceStop', 'voiceToggle', 'voiceCancel', 'voiceOnEvent', 'voiceSpeakWatch', 'speakStop', 'speakPaint', 'speakSameText', 'speakFollow', 'speechTidy', 'speechTextOfRow'].map(fn).join('\n')
     + '\nreturn { VOICE, SPEAK, voiceWhere, voiceToggle, voiceOnEvent, speakFollow, viewKey, watching() { return VOICE_WATCH; }, set(card, room) { CURRENT = card || null; PJ_CURRENT = room; } };');
   const win = { webkit: { messageHandlers: { kosmosVoice: { postMessage(m) { posted.push(m); } } } }, speechSynthesis: { cancel() {} } };
   const doc = { hidden: false, boxes: {}, getElementById(id) { return this.boxes[id] || null; }, querySelectorAll: () => [] };
@@ -350,6 +350,23 @@ test('#4409: the native recognizer is on-device only, and only the board\'s own 
   assert.match(SWIFT, /didCommit navigation: WKNavigation!\) \{\n        voice\?\.hostCancel\("new page loaded"\)/, 'a reload draws the mic off while it listens');
   assert.match(SWIFT, /delegate\.voice = voice/, 'the app has no handle on the bridge, so hostCancel is never reached');
   assert.match(bridge, /event\["id"\] = pageId/, 'events carry no session id, so a late one ends the next session');
+  assert.match(bridge, /private func emit\(_ event: \[String: Any\]\) \{\n        let event = Self\.stampId\(event, pageId: pageId\)/, 'emit no longer stamps the session id (#5481 moved it into stampId)');
+  // #5481: the page and the app agree on the Settings message only by these names; a rename on one side would leave a
+  // button that does nothing, which no pure selftest row can see.
+  assert.match(bridge, /case "settings":[\s\S]{0,300}body\["pane"\] as\? String[\s\S]{0,900}body\["id"\] as\? String/, 'the app no longer reads pane and id from the settings op');
+  assert.match(PAGE, /h\.postMessage\(\{ op: 'settings', pane: VOICE_SETTINGS\.pane, id: VOICE_SETTINGS\.id \}\)/, 'the page no longer posts op settings with pane and id');
+  // ...and the names the app answers with, each seen on both sides.
+  for (const kind of ['allowed', 'settings-next', 'refused']) {
+    assert.ok(bridge.includes('"kind": "' + kind + '"'), 'the app no longer sends ' + kind);
+    assert.ok(PAGE.includes("ev.kind === '" + kind + "'"), 'the page no longer reads ' + kind);
+  }
+  assert.ok(bridge.includes('"canOpenSettings": true') && PAGE.includes('ev.canOpenSettings === true'), 'the app and the page no longer agree on canOpenSettings');
+  // The app's guards are pure and selftested; these pin that they are wired in where they act.
+  assert.match(bridge, /case "settings":[\s\S]{0,400}Self\.settingsAccepted\(lastRefusal: lastRefusal, pane: pane\) else \{ return \}/, 'Settings opens without a denial to answer');
+  assert.match(bridge, /private func refuse\(_ reason: String\) \{\n        pending = false\n        lastRefusal = reason/, 'refuse no longer records the denial Settings answers');
+  assert.match(bridge, /if Self\.pageGone\(why\) \{ awaitingAllow = false; lastRefusal = "" \}/, 'a gone page no longer drops its Settings visit');
+  assert.match(bridge, /self\.refuse\(Self\.micRefusal\(micAfter\)\)/, 'a refused mic is no longer told apart (restricted, never asked)');
+  assert.match(bridge, /forName: NSApplication\.didBecomeActiveNotification[^\n]*\{ \[weak self\] _ in\s+self\?\.recheckAfterSettings\(\)/, 'nothing looks again when the person comes back from Settings');
   assert.match(bridge, /guard pending \|\| engine != nil/, 'a window hidden during the permission prompt leaves the next start listening');
 });
 
@@ -407,4 +424,192 @@ test('#4409 slice 3 review 25: on the Mac, a press while Finishing is one more s
   h.voiceToggle(btn);
   assert.equal(posted.at(-1).op, 'stop', 'a press while Finishing on the Mac sent ' + JSON.stringify(posted.at(-1)) + ', which throws away the final words');
   assert.equal(h.VOICE.btn, btn, 'the Mac session ended at once instead of waiting for its final words');
+});
+
+test('#5481 (Josh): on the Mac app a denied mic becomes ONE pill in its place, [X   Turn on in Settings], with no sentence; the label asks for that pane, X puts the mic back, "allowed" starts the same mic', async () => {
+  const { h, posted, mkBtn, mkBox, doc, tick } = voiceHarness();
+  const pills = [];
+  const listeners = [];
+  doc.addEventListener = (e, f) => { if (e === 'visibilitychange') listeners.push(f); };
+  doc.removeEventListener = (e, f) => { const i = listeners.indexOf(f); if (i >= 0) listeners.splice(i, 1); };
+  const cls = () => { const set = new Set(); return { add: (c) => set.add(c), remove: (c) => set.delete(c), contains: (c) => set.has(c), toggle() {} }; };
+  const el = () => ({ className: '', textContent: '', type: '', title: '', attrs: {}, kids: [], handlers: {},
+    setAttribute(k, v) { this.attrs[k] = v; }, addEventListener(e, f) { this.handlers[e] = f; }, append(...k) { k.forEach((c) => { c.parentNode = this; }); this.kids.push(...k); },
+    replaceChild(now, was) { const i = this.kids.indexOf(was); if (i >= 0) { this.kids[i] = now; now.parentNode = this; } },
+    focus() { doc.activeElement = this; }, remove() { const i = pills.indexOf(this); if (i >= 0) pills.splice(i, 1); } });
+  doc.createElement = el;
+  const btn = Object.assign(mkBtn(), { classList: cls(), parentNode: {}, focus() { doc.activeElement = this; }, insertAdjacentElement(where, e) { assert.equal(where, 'afterend', 'the pill is not where the mic is'); pills.push(e); } });
+  doc.querySelectorAll = (sel) => (sel === '.voice-pill' ? pills.slice() : sel === '.micbtn.has-pill' ? (btn.classList.contains('has-pill') ? [btn] : []) : []);
+  doc.body = { contains: () => true };
+  doc.boxes['d-say-msg'] = { id: 'd-say-msg', textContent: '', classList: cls() };
+  doc.boxes['d-say'] = mkBox('d-say');
+  doc.boxes['d-say'].focus = function () { this.focused += 1; doc.activeElement = this; };   // as the page's box does: a start puts the caret here
+  btn.attrs['data-voice-for'] = 'd-say'; btn.attrs['data-voice-msg'] = 'd-say-msg';
+  const go = () => pills[0].kids.find((k) => k.className === 'vp-go');
+  const x = () => pills[0].kids.find((k) => k.className === 'vp-x');
+  h.set(CARD('april'), null);
+  btn.focus();
+  h.voiceToggle(btn);
+  const first = posted.at(-1);
+  assert.equal(first.op, 'start', 'fixture: the mic did not start');
+  h.voiceOnEvent({ kind: 'error', reason: 'speech-denied', canOpenSettings: true, id: first.id });
+  h.voiceOnEvent({ kind: 'stopped', id: first.id });
+  assert.equal(pills.length, 1, 'not exactly one pill');
+  assert.ok(btn.classList.contains('has-pill'), 'the mic still shows beside the pill instead of being replaced by it');
+  assert.deepEqual(pills[0].kids.map((k) => k.className), ['vh', 'vp-x', 'vp-go'], 'the pill is not [X   Turn on in Settings] with its hidden alert');
+  assert.equal(go().attrs['aria-label'], 'Turn on in Settings');
+  assert.match(go().innerHTML, /^<span class="vp-pre">Turn on in&nbsp;<\/span>Settings$/, 'the narrow label is not [X  Settings]');
+  assert.equal(doc.activeElement, doc.boxes['d-say'], 'the pill moved the caret out of the box the start put it in');
+  const msg = doc.boxes['d-say-msg'];
+  const alert = pills[0].kids[0];
+  assert.ok(alert.attrs.role === 'alert' && alert.textContent === '', 'the alert was born with its text, which is not announced');
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(alert.textContent, '(speech refused)', 'the refusal is not said to a screen reader');
+  assert.equal(msg.textContent, '', 'a sentence was said below the input (and that line is shared with other messages)');
+  go().handlers.click();
+  const ask = posted.at(-1);
+  assert.deepEqual([ask.op, ask.pane], ['settings', 'speech'], 'the label did not ask for the Speech Recognition pane');
+  // both were off. Back with speech on and the mic still refused, the same pill opens the Microphone pane.
+  h.voiceOnEvent({ kind: 'settings-next', pane: 'mic', id: 'not-this-visit' });
+  h.voiceOnEvent({ kind: 'settings-next', pane: 'https://example.com', id: ask.id });
+  go().handlers.click();
+  assert.equal(posted.at(-1).pane, 'speech', 'a next pane from another visit, or one that is not a pane, was taken');
+  h.voiceOnEvent({ kind: 'settings-next', pane: 'mic', id: posted.at(-1).id });
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(pills[0].kids[0].textContent, '(mic refused)', 'the pill now opens the Microphone pane and a screen reader is not told why');
+  go().handlers.click();
+  const ask2 = posted.at(-1);
+  assert.deepEqual([ask2.op, ask2.pane], ['settings', 'mic'], 'after speech was turned on the pill still opens the Speech pane');
+  h.voiceOnEvent({ kind: 'allowed', id: 'not-this-visit' });
+  h.voiceOnEvent({ kind: 'allowed' });
+  assert.equal(pills.length, 1, 'an "allowed" for another visit, or with no visit id, took the pill away');
+  assert.equal(ask2.id, ask.id, 'a second press minted a new visit id the app never saw (it ignores a press within a second)');
+  doc.hidden = true;   // the page can still read hidden at the instant the app comes back from Settings
+  const beforeAllowed = posted.length;
+  go().focus();
+  h.voiceOnEvent({ kind: 'allowed', id: ask2.id });
+  assert.equal(doc.activeElement, btn, 'the pill had focus and the restart left it on the page');
+  assert.equal(posted.length, beforeAllowed, 'the mic started while the page still read hidden (the watcher would cancel it on its first look)');
+  doc.hidden = false;
+  listeners.slice().forEach((f) => f());
+  assert.equal(listeners.length, 0, 'the wait for the page to show was left behind');
+  assert.equal(pills.length, 0, 'the pill stayed after both were allowed');
+  assert.ok(!btn.classList.contains('has-pill'), 'the mic did not come back');
+  assert.equal(posted.at(-1).op, 'start', 'the mic did not start again by itself');
+  // ...and it stays on: the watcher's next look and the first word must not cancel it.
+  h.voiceOnEvent({ kind: 'listening', id: posted.at(-1).id });
+  tick();
+  h.voiceOnEvent({ kind: 'partial', text: 'hello', id: posted.at(-1).id });
+  tick();
+  assert.equal(h.VOICE.btn, btn, 'the restarted mic was cancelled by its own watcher: ' + JSON.stringify(posted.slice(-3)));
+  assert.ok(!posted.slice(-3).some((m) => m.op === 'cancel'), 'the restarted mic was cancelled: ' + JSON.stringify(posted.slice(-3)));
+  // X: dismissed, the plain mic is back and nothing is asked of the app.
+  h.voiceOnEvent({ kind: 'error', reason: 'mic-denied', canOpenSettings: true, id: posted.at(-1).id });
+  h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
+  const n = posted.length;
+  go().focus();   // a keyboard user on the pill
+  x().handlers.click();
+  assert.equal(pills.length, 0, 'X did not dismiss the pill');
+  assert.ok(!btn.classList.contains('has-pill'), 'X did not put the mic back');
+  assert.equal(doc.activeElement, btn, 'X pressed from the keyboard left the focus nowhere');
+  assert.equal(posted.length, n, 'X asked the app for something');
+  // A mouse click on X (it focuses nothing in the app) leaves the caret in the box.
+  h.voiceToggle(btn);
+  h.voiceOnEvent({ kind: 'error', reason: 'mic-denied', canOpenSettings: true, id: posted.at(-1).id });
+  h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
+  x().handlers.click();
+  assert.equal(doc.activeElement, doc.boxes['d-say'], 'a mouse click on X took the caret out of the box');
+  // the Microphone pane for a mic refusal
+  h.voiceToggle(btn);
+  h.voiceOnEvent({ kind: 'error', reason: 'mic-denied', canOpenSettings: true, id: posted.at(-1).id });
+  go().handlers.click();
+  assert.equal(posted.at(-1).pane, 'mic');
+  // "allowed" after the person moved to another agent clears the pill but does not start the mic there.
+  const visit = posted.at(-1).id;
+  h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });   // the app always ends a refusal with stopped
+  assert.equal(h.VOICE.btn, null, 'fixture: the mic is still on, so nothing below could start it either way');
+  h.set(CARD('casey'), null);
+  const before = posted.length;
+  go().focus();
+  h.voiceOnEvent({ kind: 'allowed', id: visit });
+  assert.equal(doc.activeElement, btn, 'the pill had focus and went with no restart, leaving focus on the page');
+  assert.equal(pills.length, 0, 'the pill stayed after allowed in another view');
+  assert.equal(posted.length, before, 'the mic started in a view the person had left: ' + JSON.stringify(posted.slice(before)));
+  h.set(CARD('april'), null);
+  // The pill belongs to the chat it was offered in: switching agent (the DM's mic is shared) puts the plain mic back.
+  h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
+  h.voiceToggle(btn);
+  h.voiceOnEvent({ kind: 'error', reason: 'mic-denied', canOpenSettings: true, id: posted.at(-1).id });
+  h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
+  assert.equal(pills.length, 1, 'fixture: no pill');
+  tick();
+  assert.equal(pills.length, 1, 'the pill went while nothing changed');
+  h.set(CARD('casey'), null);
+  tick();
+  assert.equal(pills.length, 0, 'the pill stayed in a chat that was never refused');
+  assert.ok(!btn.classList.contains('has-pill'), 'the mic stayed hidden in another chat');
+  h.set(CARD('april'), null);
+  // back with the mic restricted, the pill gives way to the restricted sentence.
+  h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
+  h.voiceToggle(btn);
+  h.voiceOnEvent({ kind: 'error', reason: 'speech-denied', canOpenSettings: true, id: posted.at(-1).id });
+  h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
+  go().handlers.click();
+  h.voiceOnEvent({ kind: 'refused', reason: 'mic-denied', id: posted.at(-1).id });
+  assert.equal(pills.length, 1, 'a refused that is not a restriction replaced the pill');
+  h.voiceOnEvent({ kind: 'refused', reason: 'mic-restricted', id: posted.at(-1).id });
+  assert.equal(pills.length, 0, 'a restricted mic left the Settings pill up');
+  assert.equal(msg.textContent, '(mic restricted)', 'a restricted mic was not said');
+  msg.textContent = '';
+  // A new start retires the pill; a late "allowed" for its visit then matches nothing and starts nothing.
+  h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
+  h.voiceToggle(btn);
+  h.voiceOnEvent({ kind: 'error', reason: 'mic-denied', canOpenSettings: true, id: posted.at(-1).id });
+  h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
+  go().handlers.click();
+  const retired = posted.at(-1).id;
+  h.voiceToggle(btn);
+  assert.equal(pills.length, 0, 'a new start left the pill up');
+  const late = posted.length;
+  h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
+  h.voiceOnEvent({ kind: 'allowed', id: retired });
+  assert.equal(posted.length, late, 'a late allowed for a retired visit started the mic');
+  // A restart waiting for the page to show expires after a minute, and a new start drops it.
+  const pend = () => {
+    h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
+    h.voiceToggle(btn);
+    h.voiceOnEvent({ kind: 'error', reason: 'speech-denied', canOpenSettings: true, id: posted.at(-1).id });
+    h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
+    go().handlers.click();
+    const v = posted.at(-1).id;
+    doc.hidden = true;
+    h.voiceOnEvent({ kind: 'allowed', id: v });
+    assert.equal(listeners.length, 1, 'fixture: no restart is waiting for the page to show');
+  };
+  pend();
+  const realNow = Date.now;
+  const waitFrom = posted.length;
+  try { Date.now = () => realNow() + 61000; doc.hidden = false; listeners.slice().forEach((f) => f()); } finally { Date.now = realNow; }
+  assert.equal(posted.length, waitFrom, 'the page showed a minute later and the mic started with no press');
+  assert.equal(listeners.length, 0, 'the expired wait was left behind');
+  pend();
+  doc.hidden = false;
+  h.voiceToggle(btn);
+  assert.equal(listeners.length, 0, 'a new start left an old restart waiting for the page to show');
+  // An older app still running after an update cannot open Settings (no `canOpenSettings` on its refusal): the sentence, no pill.
+  h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
+  h.voiceToggle(btn);
+  h.voiceOnEvent({ kind: 'error', reason: 'mic-denied', id: posted.at(-1).id });
+  assert.equal(pills.length, 0, 'a pill was offered by an app that cannot open Settings');
+  assert.equal(msg.textContent, '(mic refused)', 'an older app\'s refusal lost its directions');
+  msg.textContent = '';
+  // CONTROL: not a denial, or restricted (Settings cannot undo it), offers no pill and says a sentence instead.
+  for (const reason of ['speech-unanswered', 'mic-unanswered', 'speech-restricted', 'mic-restricted']) {
+    h.voiceOnEvent({ kind: 'stopped', id: h.VOICE.id });
+    h.voiceToggle(btn);
+    assert.equal(pills.length, 0, 'a new start left the pill up');
+    h.voiceOnEvent({ kind: 'error', reason, canOpenSettings: true, id: posted.at(-1).id });   // an app that can open Settings
+    assert.equal(pills.length, 0, reason + ' offered a Settings pill');
+    assert.ok(!btn.classList.contains('has-pill'), reason + ' hid the mic');
+  }
 });

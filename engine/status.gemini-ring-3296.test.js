@@ -19,6 +19,7 @@
  */
 
 const test = require('node:test');
+const jobfix = require('../test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -36,6 +37,9 @@ process.env.AGENT_WORKFORCE_CONFIG_ROOT = CONFIG_ROOT;
 process.env.AGENT_WORKFORCE_HOME = SB;
 process.env.AGENT_WORKFORCE_DATA = STORE;
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SB, 'LaunchAgents');
+// #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too (a sandboxed board without it refuses
+// every systemd call, so a create ends partial on a Linux runner). macOS and Windows never read it.
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = require('node:path').join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 fs.mkdirSync(process.env.AGENT_WORKFORCE_LAUNCH, { recursive: true });
 
 const store = require('./store');
@@ -66,8 +70,8 @@ function writeSession(cwd, slug, inputTokens, model) {
 function writePlist(runner, configDir) {
   fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
   fs.writeFileSync(
-    create.plistPath(NAME),
-    create.plistFor(NAME, path.join(SB, 'claude'), path.join(SB, 'tmux'), null, configDir, runner),
+    jobfix.jobPath(NAME),
+    jobfix.jobFor(NAME, path.join(SB, 'claude'), path.join(SB, 'tmux'), null, configDir, runner),
     'utf8',
   );
 }
@@ -76,7 +80,7 @@ function reset() {
   try { for (const f of fs.readdirSync(path.join(STORE, 'profiles'))) fs.rmSync(path.join(STORE, 'profiles', f)); } catch { /* first run */ }
   fs.rmSync(path.join(GEMINI_HOME, 'tmp'), { recursive: true, force: true });
   fs.rmSync(path.join(GEMINI_HOME, 'projects.json'), { force: true });
-  try { fs.rmSync(create.plistPath(NAME), { force: true }); } catch { /* none */ }
+  try { fs.rmSync(jobfix.jobPath(NAME), { force: true }); } catch { /* none */ }
 }
 
 test('#3296 #4039: a known Gemini model gets its published window as an ASSUMED ceiling', () => {

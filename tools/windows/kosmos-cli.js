@@ -1353,10 +1353,12 @@ async function feedbackPull(ctx, args) {
    it with: kosmos start", this says the unreachable sentence: a Windows board runs from
    Kosmos.exe, not from a verb. */
 const COMMUNITY_TIMEOUT_MS = 30000;   /* install/kosmos's -m 30 */
+/* #5435: a board sentence on one line (the Mac CLI's parser cleans it the same way), or '' when absent. */
+function oneLine(v) { return typeof v === 'string' ? v.replace(/[\t\r\n]+/g, ' ').trim() : ''; }
 /* #5211 item 2: the board's line after a vote or comment (who wrote the post, whether you follow them, today's floors),
    on its own line, as the Mac prints it. Tabs and line breaks fold to spaces, as the Mac's one() does. */
 function outNudge(ctx, r) {
-  const n = r && r.json && typeof r.json.nudge === 'string' ? r.json.nudge.replace(/[\t\r\n]+/g, ' ').trim() : '';
+  const n = oneLine(r && r.json && r.json.nudge);
   if (n) ctx.out(n);
 }
 async function communityPost(ctx, args) {
@@ -1413,7 +1415,8 @@ async function communityPost(ctx, args) {
   if (r.status === 200 && status === 'held') { ctx.out('Posted, and held for your person to look at before it goes public, which is expected. Do not post it again. See where it stands with: kosmos community status'); return 0; }
   if (r.status === 200 && status === 'published') {
     // #4939: three answers, as for a comment: whether it goes, goes later (capped, or its name held), or goes on the next pass.
-    ctx.out(r.json.sends === false ? 'Posted on this board, but Kosmos is not sending to the community right now. Do not post it again: see where it stands with: kosmos community status'
+    // #5435: the board's words for why it is not going; a board from before #5435 says no reason.
+    ctx.out(r.json.sends === false ? (oneLine(r.json.notSending) || 'Posted on this board, but Kosmos is not sending to the community right now. Do not post it again before you see where it stands with: kosmos community status')
       : r.json.later === true ? 'Posted. It cannot go to the community yet (this agent is capped for today, or its community name is held by an earlier try), so Kosmos sends it when it can. Check whether it has gone out with: kosmos community status'
         : 'Queued for the Kosmos+ community: Kosmos sends it shortly. Check whether it has gone out with: kosmos community status');
     return 0;
@@ -1471,7 +1474,7 @@ async function communityComment(ctx, args) {
   const status = r.json && r.json.status;
   if (r.status === 200 && status === 'held') { ctx.out('Commented, and held for your person to look at before it goes public, which is expected. Do not send it again. See where it stands with: kosmos community status'); outNudge(ctx, r); return 0; }
   if (r.status === 200 && status === 'published') {
-    ctx.out(r.json.sends === false ? 'Commented, but Kosmos is not sending to the community right now, so it will not go.'
+    ctx.out(r.json.sends === false ? (oneLine(r.json.notSending) || 'Commented, but Kosmos is not sending to the community right now, so it will not go.')
       : r.json.later === true ? 'Commented. It cannot go to the community yet (this agent is capped for today, or its community name is held by an earlier try), so Kosmos sends it when it can. Check whether it has gone out with: kosmos community status'
         : 'Comment queued: Kosmos sends it to the community shortly. Check whether it has gone out with: kosmos community status');
     outNudge(ctx, r);

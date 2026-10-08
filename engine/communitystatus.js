@@ -56,6 +56,9 @@ const POST_WORDS = Object.freeze({
   agent_refused: 'not sent: the community has refused this agent, so nothing it writes is sent',
   deleted: 'removed from the community by your person',
   not_sent: 'not sent: Kosmos was not sending to the community when it was made, and it will not go',
+  // #5435 review 6: the period ended because the switch file could not be read (the pages showed OFF), not because the
+  // person turned it off; it may have been made while Kosmos was sending.
+  switch_unreadable: 'not sent, and it will not be: Kosmos could not read this board\'s community switch, so it stopped sending. Tell your person; once the community is on again you can post it again',
   held: 'held for your person to look at; it goes out only if they release it',
   // Review 5: this row stays listed for good, so the words cannot simply say "post it again": a later look, after a
   // repost already went, would invite a second copy.
@@ -63,6 +66,8 @@ const POST_WORDS = Object.freeze({
 });
 const COMMENT_WORDS = Object.freeze(Object.assign({}, POST_WORDS, {
   sending: 'being sent now',
+  // #5435 review 9: a comment is sent again, not posted again.
+  switch_unreadable: 'not sent, and it will not be: Kosmos could not read this board\'s community switch, so it stopped sending. Tell your person; once the community is on again you can send it again',
   unconfirmed: 'sent, but the community did not confirm it; it may already be there, so do not send it again',
 }));
 
@@ -100,7 +105,9 @@ const byAgent = (x, sessionName) => x && x.agent === sessionName && x.author && 
  * layer has not met it yet. `ctx`: { on, since, key (this agent's keys entry, read only for its refusal and caps), now }.
  */
 function stateOf(kind, rec, item, ctx) {
-  if (kind === 'comment' && item.notSent === true) return 'not_sent';   // the route told the agent it will not go
+  // The route told the agent it will not go. #5435 review 8: a refused agent was told "the community has refused this
+  // agent", so status says that too, not "was not sending".
+  if (kind === 'comment' && item.notSent === true) return ctx.key && ctx.key.refused ? 'agent_refused' : 'not_sent';
   const st = rec && rec.state;
   if (st && st !== 'pending') {
     if (rec.takenDown) return 'taken_down';
@@ -111,11 +118,17 @@ function stateOf(kind, rec, item, ctx) {
   // Not sent yet. Each check below is one the sweep makes before sending (communitysend sendPost / sendComment).
   if ((rec && rec.agentRefused) || (ctx.key && ctx.key.refused)) return 'agent_refused';
   // OFF ends the ON period at once and the next ON starts a new one from that moment, so an unsent item is never sent.
-  // Review 2: unless the period's start is still recorded (ending it is best effort, and an unreadable switch reads OFF
-  // without ending it): then it goes if sending resumes first, so it is waiting, never "post it again".
+  // Review 2: unless the period's start is still recorded (ending it is best effort): then it goes if sending resumes
+  // first, so it is waiting, never "post it again". (#5435: the sweep ends it for an unreadable switch too.)
+  // #5435: a switch file that cannot be read is not the person turning Community off, so its words are not the switch's,
+  // and they match the post command's (review 7). The sweep ends the period for it within a minute, as on main.
+  if (ctx.switchUnreadable) return 'switch_unreadable';
   if (!ctx.on) return ctx.since && madeAt(item) >= ctx.since ? 'paused' : 'before_on';
   // The sweep sends only items made at or after the ON period's recorded start (`since`). The post and comment routes
   // record it before they store, so an item with no start before it was made before the person turned it on.
+  // #5435 review 6: an address Kosmos does not send to records no start at all, so the item was not made "before the
+  // person turned it on": say it was not sending, as the post command did, never "switched off".
+  if (!ctx.since && !ctx.addressOk) return 'not_sent';
   if (!ctx.since || madeAt(item) < ctx.since) return 'before_on';
   if (!ctx.addressOk) return 'address_refused';   // the sweep sends nothing to an address that is not https (or local)
   // Review 2: from the key itself, so a post the sweep has not met yet, and every comment, read it too (#4800).
@@ -139,7 +152,8 @@ function itemsFor(sessionName, now = Date.now()) {
     if (recs.postsOk) postStatus = communitysend.statuses();
     if (recs.commentsOk) commentStatus = communitysend.commentRecords();
   } catch { return null; }
-  const ctx = { on: communitysend.switchOn(), since: typeof recs.state.since === 'string' ? recs.state.since : null,
+  const sw = communitysend.switchState();
+  const ctx = { on: sw === 'on', switchUnreadable: sw === 'unreadable', since: typeof recs.state.since === 'string' ? recs.state.since : null,
     key: recs.keys[sessionName] || null, now, addressOk: communitysend.endpointAllowed() };
   const out = [];
   for (const p of communitystore.publishedPosts()) {

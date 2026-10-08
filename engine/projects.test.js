@@ -19,6 +19,9 @@ const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-projects-'));
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+// #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too (a sandboxed board without it refuses
+// every systemd call, so a create ends partial on a Linux runner). macOS and Windows never read it.
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = require('node:path').join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 // ⚠️ THE FOURTH ROOT, and it is new on this branch. Creating a project with no
 // folder makes one under `~/Kosmos/Projects` — so without this the suite would
 // leave real directories in the operator's home, named after test fixtures. The
@@ -838,6 +841,34 @@ test('telling an agent writes the block into its real instruction file', () => {
   assert.ok(written.includes('You are the executive assistant.'), 'its own instructions survive');
   assert.ok(written.includes(dir), 'and it is told where the folder is');
   assert.equal(projects.get(p.id, []).agents[0].told.state, projects.TOLD.TOLD, 'and the verdict is recorded');
+});
+
+test('#5320 part 2: the block points a person at the Pause and Resume buttons beside the project name', () => {
+  const body = projects.blockBody([{ id: 'p1', name: 'Henderson lease', folder: '/tmp/h', agents: ['mara'], tasks: [] }], 'mara');
+  const flat = body.replace(/\n/g, ' ');
+  // The pause line keeps its own consequence ("the room is told you paused it" is true of the agent's pause, not of a
+  // press on the screen), and the ask comes after the resume pointer, naming "your person".
+  assert.match(flat, /pause it: `[^`]+ project pause <project-id>`\. Nobody is then nudged about its tasks or handed them, and the room is told you paused it \(unless it already was\)\./);
+  assert.match(flat, /tell them to press Resume beside the project's name, at the top of its page\. If you cannot tell whether your person means the whole project, ask them in the same place they asked, and tell them they can also press Pause beside the project's name, at the top of its page\. When they answer: if they pressed it, nothing more is needed; if they say yes, pause it; if they want nothing paused, leave it as it is; if they mean only some tasks, put those on hold: `[^`]+ task hold <project-id> <task-number>`\./);
+  assert.doesNotMatch(flat, /tell them it is on the project's page/, 'the old pointer is gone');
+});
+
+// Merge order: red until kosmos#5391's button (PR #5395) is on main, so this branch cannot land first.
+test('#5320 part 2: the Pause / Resume button the instructions name exists beside the project name', () => {
+  // The block tells agents to point their person at a Pause / Resume button beside the project name. If that button
+  // is removed, renamed or moved away from the name, this goes red instead of agents describing a button that is not there.
+  const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
+  const btn = page.indexOf('id="pj-head-pause"');
+  assert.ok(btn >= 0, 'no Pause / Resume button on the project page (#5391)');
+  const name = page.lastIndexOf('id="pj-one-name"', btn);
+  assert.ok(name >= 0 && btn - name < 600, 'the Pause / Resume button is not beside the project name');
+  const at = page.indexOf('function paintHeadPause(');
+  assert.ok(at >= 0, 'paintHeadPause (which labels that button) is gone');
+  const end = page.indexOf('\n}\n', at);
+  assert.ok(end > at, 'paintHeadPause has no closing brace at column 0');
+  const fn = page.slice(at, end);   // that function alone, to its own closing brace
+  assert.ok(fn.includes('pj-head-pause') && fn.includes("'Pause'") && fn.includes("'Resume'"),
+    'the header button is no longer labelled Pause / Resume');
 });
 
 test('#5320: only a change to the block\'s standing rules owes the running agent a re-read', () => {

@@ -169,9 +169,11 @@ function ageKey(t) {
 
 /* Open work that stops the goal ask: any open task EXCEPT a webhook task nobody has been given.
    Those wait for a person (pick never hands them out), so counting them would switch the goal ask
-   off for as long as an integration keeps one waiting, which for a monitor is forever. #1307. */
+   off for as long as an integration keeps one waiting, which for a monitor is forever. #1307.
+   #5456: likewise a repeating task with nobody on it, which pick no longer hands out either. */
 function blocksGoalAsk(t) {
   if (tasks.progressOf(t).closed) return false;
+  if (t && t.repeat && !tasks.whoOf(t).length) return false;
   return !(t && t.addedVia === 'webhook' && !tasks.whoOf(t).length);
 }
 
@@ -192,6 +194,9 @@ function pick(session, projects, taken) {
       const prog = tasks.progressOf(t);
       /* #3951: a built task is not handed out again: the work is done and waits on a release or a check. */
       if (prog.closed || tasks.whoOf(t).length || t.builtAt) continue;
+      /* #5456: a repeating task with nobody on it is run by a schedule (the board shows it "On a schedule"), not
+         waiting for an agent, so it is not handed out. A person can still give it to an agent by hand. */
+      if (t.repeat) continue;
       const part = prog.parts.find((x) => !x.closedAt);
       if (!part) continue;
       candidates.push({ projectId: p.id, n: t.number, partId: part.id, due: dueKey(t), age: ageKey(t) });
@@ -304,7 +309,8 @@ function goalProject(session, projects, goals, asked, now, askedSig) {
     if (askedSig instanceof Map && askedSig.get(p.id) === sig) continue;
     // Webhook tasks waiting for a person do not stop the ask (blocksGoalAsk), but the ask must not
     // then say the project has none: it says how many wait, and that they are not the agent's.
-    const waitingHooks = (Array.isArray(p.tasks) ? p.tasks : []).filter((t) => !tasks.progressOf(t).closed && !blocksGoalAsk(t)).length;
+    // #5456: only the webhook ones; a repeating task with nobody on it is not one, and its schedule needs nothing from the agent.
+    const waitingHooks = (Array.isArray(p.tasks) ? p.tasks : []).filter((t) => !tasks.progressOf(t).closed && t.addedVia === 'webhook' && !t.repeat && !tasks.whoOf(t).length).length;
     const item = { projectId: p.id, projectName: typeof p.name === 'string' && p.name ? p.name : p.id, goal, sig, ...(waitingHooks ? { waitingHooks } : {}) };
     // The pane's own check, not a copy of it: a line it would refuse is never asked.
     if (chat.messageProblem(askText(item))) continue;
