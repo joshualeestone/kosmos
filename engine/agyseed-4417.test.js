@@ -42,8 +42,12 @@ function runBridge(event, env) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [BRIDGE_FILE, event], { env, stdio: ['ignore', 'pipe', 'pipe'] });   // </dev/null, as the supervisor runs it
     let out = '';
+    let err = '';
     child.stdout.on('data', (d) => { out += d; });
-    child.on('close', (code) => resolve({ code, out }));
+    child.stderr.on('data', (d) => { err += d; });
+    // #5580: resolve with the close SIGNAL and stderr too, so a failing assertion names what
+    // killed the child -- a null code means a signal killed it, not that it ran slow.
+    child.on('close', (code, signal) => resolve({ code, signal, out, stderr: err }));
   });
 }
 
@@ -55,7 +59,9 @@ test('#4417: the launch event reports idle from the new pane, with its launch to
   const env = { ...process.env, AGENT_WORKFORCE_DATA: data, KOSMOS_PORT: String(board.port), TMUX_PANE: pane, KOSMOS_AGENT_TOKEN: 'abc123' };
   try {
     const r = await runBridge(bridge.LAUNCH_EVENT, env);
-    assert.equal(r.code, 0);
+    // #5580: name what killed the child on failure. A null code with a signal means the bridge
+    // child was killed (e.g. SIGKILL under CI memory pressure), not that it was slow.
+    assert.equal(r.code, 0, `the bridge child did not exit 0 -- code=${r.code}, signal=${r.signal}; stderr: ${r.stderr ? r.stderr.trim() : '(none)'}`);
     const reports = board.seen.filter((x) => x.url === '/api/report');
     assert.equal(reports.length, 1, 'a launched agy agent told the board nothing, so it reads "Can\'t tell" until its first turn');
     const body = JSON.parse(reports[0].body);
