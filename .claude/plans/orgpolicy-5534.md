@@ -58,3 +58,9 @@ re-verifies the bundle each time it is asked (inForce), so a bundle written sinc
 - WARNING left (low): if setModel fails after a switch for a non-policy reason, the route restarts on the runner's own pick. Rare; stated here.
 - NITs left: policy sentence before "already runs on X"; the applied.org mark line is redundant for records written by this code (kept for any record without marks).
 - Focused: orgpolicy 7, create 225, worldstarts 48, register 23, discover.adopt 29, server.switch-model-5429 9, all green (00:13 CDT 2026-10-08).
+### Review 4 (sonnet): 2 WARNINGs, NITs
+- WARNING fixed: setModel asked allows() directly, so a Gemini or Grok agent set back to its (listed) pinned default was refused while a create was allowed. It goes through policyAllows now, the one definition.
+- WARNING fixed in wording: a switch to Gemini or Grok carries no model (the route refuses one), so it is asked about the pinned default; the refusal now says so and points to creating an agent on an allowed model. Decided: no model on a Gemini/Grok switch stays the route's rule (#5429), not changed here.
+- NITs fixed: tests for a missing or non-integer exp, Grok's pinned default, the fail-open path; the held mark records the provider and clears only after a successful install (test across a failed then a successful install).
+- NIT left: a switch to the model an agent already runs is refused when the policy now drops it (consistent: only new switches are gated).
+- Mutations: setModel route, exp check, Grok default, fail-open, early clear: each red. Focused: orgpolicy 7, create 226, worldstarts 48, register 23, discover.adopt 29, server.switch-model-5429 9 (00:24 CDT 2026-10-08).
