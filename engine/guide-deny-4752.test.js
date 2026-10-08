@@ -331,7 +331,8 @@ test('#4752 a rule refused because it takes in the guide\'s folder stays out on 
   const read = () => JSON.parse(fs.readFileSync(path.join(guide, '.claude', 'settings.json'), 'utf8')).permissions.deny;
   const rule = `Read(//${path.join(base, 'linked').replace(/^\/+/, '')}/**)`;
   const write = process.stderr.write;
-  process.stderr.write = (s, ...rest) => (String(s).startsWith('#4752') ? true : write.call(process.stderr, s, ...rest));
+  const said = [];
+  process.stderr.write = (s, ...rest) => (String(s).startsWith('#4752') ? (said.push(String(s)), true) : write.call(process.stderr, s, ...rest));
   try {
     assert.equal(setupAssistant.guardGuideFolder(guide, 'guide', deps).ok, true);
     assert.ok(read().includes(rule), 'CONTROL: the linked entry was not named while it pointed elsewhere');
@@ -341,4 +342,5 @@ test('#4752 a rule refused because it takes in the guide\'s folder stays out on 
   } finally { process.stderr.write = write; }
   assert.ok(!read().includes(rule), 'the rule written on the earlier start came back');
   assert.ok(!read().includes(rule.replace(/\/\*\*\)$/, ')')), 'the linked entry\'s plain rule (no /**) came back');
+  assert.ok(said.some((l) => l.includes('earlier rule') && l.includes(rule)), 'the earlier rule was removed without a word: ' + said.join(''));
 });

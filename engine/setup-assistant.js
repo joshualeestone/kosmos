@@ -223,7 +223,7 @@ function kosmosHome() { return process.env.AGENT_WORKFORCE_HOME || require('os')
    default is), and production passes none of these. `home` reaches the older folder of this world (when
    AGENT_WORKFORCE_DATA is unset: dataRootFor ignores the home otherwise); the
    worlds' base comes from the environment the process was started with (`preWorldEnv`), whatever `home` says. */
-// for inspection and tests only: twins of EVERY rule, before the own-folder check (guardGuideFolder twins only the safe ones)
+// for inspection and tests only: twins of every `Read(//x/...)` rule, before the own-folder check (guardGuideFolder twins only the safe ones)
 function guideDenyRules(opts = {}) { return withNativeTwins(guideDenyRulesFor(opts).rules); }
 /* The rules, and the default world's store they name entry by entry (null when none is), so guardGuideFolder
    can drop earlier per-entry rules for that store instead of keeping one for every entry that ever existed. */
@@ -522,6 +522,8 @@ function guardGuideFolder(dir, agentName, deps = {}) {
     const refused = new Set(fresh.rules.filter((r) => !safe.includes(r)));
     // a twin is made only from a rule that passed the own-folder check, so a refused rule never gets one
     const deny = finalDeny(kept, withNativeTwins(safe, plat), refused, plat);
+    // an earlier rule (the guide's, or a person's own) removed because it equals a refused one is said, never silent
+    for (const r of kept) if (!deny.includes(r)) process.stderr.write(`#4752: an earlier rule that would take in the guide's own folder was removed: ${r}\n`);
     const next = { ...cur, permissions: { ...perms, deny } };
     /* Sandboxed Bash (Ice Cream Kitty's review): the deny rules above bind Claude Code's own tools, and
        a shell command such as `node -e readFileSync('.env')` or `grep -r` is a subprocess they do not
