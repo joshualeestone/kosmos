@@ -254,3 +254,28 @@ test('#5535 the streaming chunker cuts exactly where chunkBuffer does, whatever 
   assert.throws(() => bf.createChunker(SMALL).push('not a buffer'), /Buffer/);
   assert.deepEqual(bf.createChunker(SMALL).finish(), [], 'an empty stream gives no chunks');
 });
+
+test('#5535 streaming: forced cuts at max on low-entropy input, a tail under min, and pieces the caller reuses', () => {
+  const lens = (cs) => cs.map((c) => c.length);
+  const stream = (buf, pieceOf) => {
+    const ch = bf.createChunker(SMALL); const out = [];
+    for (let i = 0; i < buf.length;) { const n = pieceOf(i); out.push(...ch.push(buf.subarray(i, i + n))); i += n; }
+    return [...out, ...ch.finish()];
+  };
+  const zeros = Buffer.alloc(5 * SMALL.max + 100);   // no cut point anywhere: every chunk is forced at max, a 100-byte tail
+  const whole = bf.chunkBuffer(zeros, SMALL);
+  assert.ok(whole.slice(0, -1).every((c) => c.length === SMALL.max) && whole[whole.length - 1].length === 100, 'PRECONDITION: forced cuts and a tail under min');
+  for (const [what, pieceOf] of [['one piece', () => zeros.length], ['pieces crossing several max windows', () => 3 * SMALL.max + 7], ['small pieces', () => 1000]]) {
+    const st = stream(zeros, pieceOf);
+    assert.deepEqual(lens(st), lens(whole), `${what}: same forced boundaries and tail`);
+    assert.ok(st.every((c) => c.length <= SMALL.max), `${what}: no chunk over max`);
+  }
+  // A walker reuses its read buffer: chunks already returned, and the tail still held, must not change with it.
+  const data = rand(3 * SMALL.max, 'r');
+  const reused = Buffer.from(data.subarray(0, 2 * SMALL.max));
+  const ch = bf.createChunker(SMALL);
+  const out = [...ch.push(reused)];
+  reused.fill(0x55);
+  out.push(...ch.push(Buffer.from(data.subarray(2 * SMALL.max))), ...ch.finish());
+  assert.ok(Buffer.concat(out).equals(data), 'overwriting a pushed piece does not change the output');
+});
