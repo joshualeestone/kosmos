@@ -123,12 +123,12 @@ const check = (ok, label, got) => results.push({ ok: !!ok, label, got });
     const before = await page.evaluate(() => window.__wvReads);
     await page.evaluate(() => { window.__wvFail = true; });
     await page.click('#wv-refresh');
-    await page.waitForFunction(() => /not readable/.test(document.getElementById('wv-list').textContent || ''), null, { timeout: 5000 }).catch(() => {});
+    await page.waitForFunction(() => /[Nn]ot readable/.test(document.getElementById('wv-list').textContent || ''), null, { timeout: 5000 }).catch(() => {});
     const after = await page.evaluate(() => ({ reads: window.__wvReads, text: (document.getElementById('wv-list').textContent || '').trim() }));
     check(after.reads === before + 1, `@${w}: Refresh reads the route once more`, { before, after: after.reads });
-    check(/not readable on this machine/.test(after.text) && !/Home/.test(after.text), `@${w}: a failed read says so and leaves no old rows up`, after.text);
+    check(/[Nn]ot readable on this machine/.test(after.text) && !/Home/.test(after.text), `@${w}: a failed read says so and leaves no old rows up`, after.text);
     const status = await page.evaluate(() => { const e = document.getElementById('wv-status'); return { role: e.getAttribute('role'), live: e.getAttribute('aria-live'), text: e.textContent }; });
-    check(status.role === 'status' && status.live === 'polite' && /not readable on this machine/.test(status.text), `@${w}: the failed read is announced`, status);
+    check(status.role === 'status' && status.live === 'polite' && /[Nn]ot readable on this machine/.test(status.text), `@${w}: the failed read is announced`, status);
     // A board that is not signed in: the gated route answers 403 with `error`; the sheet says to sign in.
     await page.evaluate(() => { window.__wvFail = false; window.__wvDeny = true; });
     await page.click('#wv-refresh');
