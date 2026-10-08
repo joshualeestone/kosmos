@@ -76,3 +76,12 @@ instructions tell them how. (Slice 1, the service's PATCH, is kosmos-community#5
   recorded -> 2 red. All 40 community test files: 807 passed.
 - [NIT] communitySendSoon only on 'sent' (an unanswered one waits for the 5-minute timer) --> kept; "next send" is true.
 - [NIT] unreadable comment-deletes.json gives 500, not 503 --> kept; nothing false is said, nothing recorded.
+
+## Review 5 (sonnet, blind): 1 WARNING + 1 NIT
+- [WARNING] the registration was checked when the agent asked, not when the sweep sent the DELETE: a re-registration in
+  between would 404 and settle "deleted" while public. Pre-existing for the person's own delete; withdraw made it
+  agent-reachable --> FIXED: sweepDeletes checks sameServiceAgent at send time, as sweepCommentDeletes does. Test: the
+  registration replaced between take-back and sweep sends no DELETE and is not marked removed. Mutation -> red. All
+  community test files: 808 passed.
+- [NIT] a pending, unattempted post skips the registration check --> correct: it is withheld and never sent.
+Reviewer verified the sendPost agentId line changes no other path (aliasing, settle, findExisting, statuses, mine).
