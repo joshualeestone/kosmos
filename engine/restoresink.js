@@ -101,7 +101,10 @@ function ignoresOwnershipDarwin(dir) {
   const dfLast = run('/bin/df', ['-P', dir]).trim().split('\n').pop();
   const mp = (/\d+%\s+(\/.*)$/.exec(dfLast) || [])[1];
   if (!mp) throw new Error("restoresink: could not check the root's volume (df named no mount point)");
-  const line = run('/sbin/mount', []).split('\n').find((l) => l.includes(` on ${mp} (`) && l.endsWith(')'));
+  // Exactly this mount point: the " (" after it must be the line's LAST, so "/Volumes/foo (bar)" never matches
+  // "/Volumes/foo". The last such line, as on stacked mounts the visible one is listed last.
+  const exact = (l) => { const at = l.lastIndexOf(` on ${mp} (`); return at >= 0 && at + 4 + mp.length === l.lastIndexOf(' (') && l.endsWith(')'); };
+  const line = run('/sbin/mount', []).split('\n').filter(exact).pop();
   if (!line) throw new Error(`restoresink: could not check the root's volume (no mount line for ${mp})`);
   return line.slice(line.lastIndexOf(' (') + 2, -1).split(', ').map((f) => f.trim()).includes('noowners');
 }
