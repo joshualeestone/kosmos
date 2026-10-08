@@ -10,15 +10,17 @@ const { hpkeKeyPair } = require('./hpke');
 const br = require('./backuprestore');
 
 const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
+const BIG = 2 ** 40;
 
 /* A sink that records everything: committed files, aborted paths, and every call in order. */
-function memorySink({ failWriteOn, failCommitOn, failAbortOn } = {}) {
+function memorySink({ failBeginOn, failWriteOn, failCommitOn, failAbortOn } = {}) {
   const committed = new Map(), aborted = [], calls = [];
   return {
     committed, aborted, calls,
     begin(path) {
       const parts = [];
       calls.push(`begin ${path}`);
+      if (path === failBeginOn) throw new Error('cannot create');
       return {
         async write(buf) { if (path === failWriteOn) throw new Error('disk full'); parts.push(Buffer.from(buf)); },
         async commit() { calls.push(`commit ${path}`); if (path === failCommitOn) throw new Error('rename failed'); committed.set(path, Buffer.concat(parts)); },
@@ -51,7 +53,7 @@ function handMade(entries, { skipped } = {}) {
   const entry = (path, over = {}) => ({ path, chunks: [name], sha256: sha(data), size: data.length, ...over });
   const m = bf.sealManifest(member.pk, dev.privateKey, ctx, skipped ? { files: entries(entry, name), skipped } : { files: entries(entry, name) });
   const fetched = [];
-  const run = (sink = memorySink(), o = {}) => br.restoreSnapshot({ memberSk: member.sk, namingKey: nk, devicePubAtSnapshot: dev.publicKey, ctx, manifestObject: m,
+  const run = (sink = memorySink(), o = {}) => br.restoreSnapshot({ maxTotalBytes: BIG, memberSk: member.sk, namingKey: nk, devicePubAtSnapshot: dev.publicKey, ctx, manifestObject: m,
     fetchChunk: (n) => { fetched.push(n); return n === name ? object : null; }, sink, ...o }).then((r) => ({ r, sink }));
   return { run, fetched, data, name, object };
 }
@@ -60,7 +62,7 @@ test('#5536 a snapshot restores byte for byte through the sink, with what the ba
   const a = rand(30000), b = Buffer.from('notes\n');
   const k = backup([{ path: 'agents/a/memory.md', data: a }, { path: 'agents/a/notes.md', data: b }]);
   const sink = memorySink();
-  const r = await br.restoreSnapshot({ memberSk: k.member.sk, namingKey: k.nk, devicePubAtSnapshot: k.dev.publicKey, ctx: k.ctx, manifestObject: k.manifestObject, fetchChunk: async (n) => k.store.get(n), sink });
+  const r = await br.restoreSnapshot({ maxTotalBytes: BIG, memberSk: k.member.sk, namingKey: k.nk, devicePubAtSnapshot: k.dev.publicKey, ctx: k.ctx, manifestObject: k.manifestObject, fetchChunk: async (n) => k.store.get(n), sink });
   assert.deepEqual(r.failed, []);
   assert.deepEqual(r.restored, ['agents/a/memory.md', 'agents/a/notes.md']);
   assert.ok(sink.committed.get('agents/a/memory.md').equals(a), 'an async fetch works and the bytes match');
@@ -70,7 +72,7 @@ test('#5536 a snapshot restores byte for byte through the sink, with what the ba
 
 test('#5536 restore refuses: another device key, another context, another member key (control: the right ones open)', async () => {
   const k = backup([{ path: 'a.md', data: rand(5000) }]);
-  const go = (o) => br.restoreSnapshot({ memberSk: k.member.sk, namingKey: k.nk, devicePubAtSnapshot: k.dev.publicKey, ctx: k.ctx, manifestObject: k.manifestObject, fetchChunk: (n) => k.store.get(n), sink: memorySink(), ...o });
+  const go = (o) => br.restoreSnapshot({ maxTotalBytes: BIG, memberSk: k.member.sk, namingKey: k.nk, devicePubAtSnapshot: k.dev.publicKey, ctx: k.ctx, manifestObject: k.manifestObject, fetchChunk: (n) => k.store.get(n), sink: memorySink(), ...o });
   assert.ok(await go({}), 'CONTROL');
   assert.ok(await go({ manifestObject: new Uint8Array(k.manifestObject) }), 'a manifest handed over as a plain Uint8Array opens');
   assert.equal(await go({ devicePubAtSnapshot: k.dev2.publicKey }), null, 'a device key not enrolled at the snapshot time');
@@ -86,7 +88,7 @@ test('#5536 per file, fail closed: a missing, foreign, swapped or unfetchable ch
   const badNames = k.entries.find((e) => e.path === 'bad.md').chunks;
   const run = async (fetch) => {
     const sink = memorySink();
-    const r = await br.restoreSnapshot({ memberSk: k.member.sk, namingKey: k.nk, devicePubAtSnapshot: k.dev.publicKey, ctx: k.ctx, manifestObject: k.manifestObject, fetchChunk: fetch, sink });
+    const r = await br.restoreSnapshot({ maxTotalBytes: BIG, memberSk: k.member.sk, namingKey: k.nk, devicePubAtSnapshot: k.dev.publicKey, ctx: k.ctx, manifestObject: k.manifestObject, fetchChunk: fetch, sink });
     assert.deepEqual([...sink.committed.keys()], ['good.md'], 'the good file still restores; the bad one is never committed');
     assert.deepEqual(sink.aborted, ['bad.md'], 'the bad file is aborted');
     return r;
@@ -108,7 +110,7 @@ test('#5536 per file, fail closed: a missing, foreign, swapped or unfetchable ch
 test('#5536 a sink that fails to write aborts the file and does not commit it', async () => {
   const k = backup([{ path: 'a.md', data: rand(2000) }, { path: 'b.md', data: rand(2000) }]);
   const sink = memorySink({ failWriteOn: 'b.md' });
-  const r = await br.restoreSnapshot({ memberSk: k.member.sk, namingKey: k.nk, devicePubAtSnapshot: k.dev.publicKey, ctx: k.ctx, manifestObject: k.manifestObject, fetchChunk: (n) => k.store.get(n), sink });
+  const r = await br.restoreSnapshot({ maxTotalBytes: BIG, memberSk: k.member.sk, namingKey: k.nk, devicePubAtSnapshot: k.dev.publicKey, ctx: k.ctx, manifestObject: k.manifestObject, fetchChunk: (n) => k.store.get(n), sink });
   assert.deepEqual(r.failed, [{ path: 'b.md', why: 'the file could not be written' }]);
   assert.deepEqual([...sink.committed.keys()], ['a.md'], 'CONTROL: the other file commits');
   assert.deepEqual(sink.aborted, ['b.md']);
@@ -131,11 +133,11 @@ test('#5536 entries that land on the same file or folder are all refused (contro
   const nfc = 'caf\u00e9.md', nfd = 'cafe\u0301.md';
   const { run } = handMade((entry) => [entry('dup.md'), entry('dup.md'), entry('Readme.md'), entry('README.md'), entry(nfc), entry(nfd),
     entry('x'), entry('X/y.md'), entry('a\\b.md'), entry('a/b.md'), entry('ab\u03c2.md'), entry('AB\u03a3.md'), entry('\u03c3.md'), entry('\u03c2.md'),
-    entry('zw.md'), entry('z\u200bw.md'), entry('keep/one.md'), entry('keep/two.md')]);
+    entry('zw.md'), entry('z\u200bw.md'), entry('\u1e9e.md'), entry('ss.md'), entry('keep/one.md'), entry('keep/two.md')]);
   const { r } = await run();
   assert.deepEqual(r.restored, ['keep/one.md', 'keep/two.md'], 'CONTROL');
   assert.deepEqual(r.failed.map((f) => f.path).sort(), ['dup.md', 'dup.md', 'Readme.md', 'README.md', nfc, nfd, 'x', 'X/y.md', 'a\\b.md', 'a/b.md',
-    'ab\u03c2.md', 'AB\u03a3.md', '\u03c3.md', '\u03c2.md', 'zw.md', 'z\u200bw.md'].sort(), 'final sigma folds with sigma; an invisible character does not make a name distinct');
+    'ab\u03c2.md', 'AB\u03a3.md', '\u03c3.md', '\u03c2.md', 'zw.md', 'z\u200bw.md', '\u1e9e.md', 'ss.md'].sort(), 'final sigma folds with sigma; an invisible character does not make a name distinct');
   assert.ok(r.failed.every((f) => f.why === 'another entry lands on the same file or folder'));
 });
 
@@ -227,7 +229,7 @@ test('#5536 an empty chunk is refused, and a deep manifest is checked for collis
   const empty = bf.sealNamedChunk(k.member.pk, k.nk, Buffer.alloc(0));
   const ctx = { ...k.ctx, snapshot: 's2' };
   const m = bf.sealManifest(k.member.pk, k.dev.privateKey, ctx, { files: [{ path: 'e.md', size: 1, sha256: sha(Buffer.alloc(0)), chunks: [empty.name] }] });
-  const r = await br.restoreSnapshot({ memberSk: k.member.sk, namingKey: k.nk, devicePubAtSnapshot: k.dev.publicKey, ctx, manifestObject: m, fetchChunk: () => empty.object, sink: memorySink() });
+  const r = await br.restoreSnapshot({ maxTotalBytes: BIG, memberSk: k.member.sk, namingKey: k.nk, devicePubAtSnapshot: k.dev.publicKey, ctx, manifestObject: m, fetchChunk: () => empty.object, sink: memorySink() });
   assert.deepEqual(r.failed, [{ path: 'e.md', why: 'a chunk did not verify (forged, swapped or damaged)' }]);
   const deep = Array(2000).fill('a').join('/');
   const { run } = handMade((entry) => [...Array.from({ length: 2000 }, (_, i) => entry(`${deep}${i}`)), entry(`${deep}/x`), entry(deep)]);
@@ -248,4 +250,16 @@ test('#5536 maxTotalBytes caps what a restore commits, before fetching (control:
   assert.equal(sink.calls.filter((c) => c.startsWith('begin')).length, 2);
   const { r: exact } = await run(memorySink(), { maxTotalBytes: 300 });
   assert.deepEqual(exact.restored, ['a.md', 'b.md', 'c.md']);
+});
+
+test('#5536 a restore with no byte budget is refused, and a sink that cannot begin fails only that file', async () => {
+  const k = backup([{ path: 'a.md', data: rand(100) }, { path: 'b.md', data: rand(100) }]);
+  const args = { memberSk: k.member.sk, namingKey: k.nk, devicePubAtSnapshot: k.dev.publicKey, ctx: k.ctx, manifestObject: k.manifestObject, fetchChunk: (n) => k.store.get(n) };
+  await assert.rejects(br.restoreSnapshot({ ...args, sink: memorySink() }), /maxTotalBytes/);
+  await assert.rejects(br.restoreSnapshot({ ...args, sink: memorySink(), maxTotalBytes: Infinity }), /maxTotalBytes/);
+  const sink = memorySink({ failBeginOn: 'a.md' });
+  const r = await br.restoreSnapshot({ ...args, sink, maxTotalBytes: BIG });
+  assert.deepEqual(r.failed, [{ path: 'a.md', why: 'the file could not be written' }]);
+  assert.deepEqual(r.restored, ['b.md'], 'CONTROL');
+  assert.deepEqual(sink.aborted, [], 'nothing to abort when begin itself threw');
 });
