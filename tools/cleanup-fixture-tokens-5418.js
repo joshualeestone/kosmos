@@ -13,7 +13,7 @@
  *
  * 🛑 --apply removes only the plan a person read: it rebuilds the plan, and if its digest is not the one the dry run
  * printed (an agent missing from a degraded roster, a token file changed), it stops. The digest covers each token
- * file's name, key, mtime, newest mint, launchers and token names; for a temp or a link, its name and kind (each is
+ * file's name, key, mtime, newest mint, launchers and token names; for a temp, its name and kind; for a link, also its target (each is
  * re-checked to still be a file or a dangling link just before it goes). --port must equal this account's own
  * board port, derived as the kosmos CLI derives it (KOSMOS_PORT if set, else from the uid; with no uid
  * KOSMOS_PORT must say), so the board token reaches only the board this account's kosmos command would
@@ -77,8 +77,6 @@ const CUTOFF_MARGIN_MS = 60 * 60 * 1000;
 /* Hex characters of the plan digest a person types back: 64 bits, plenty to tell two plans apart. */
 const DIGEST_HEX = 16;
 
-/* The writer's own temp shape (securewrite's tempPath, and sendertoken's before #1787), anchored at the end. Any
-   other name is not a temp this store wrote, so it is listed and left alone. */
 // a temp is securewrite's own shape, decided by securewrite's own rule (one definition)
 const { tempWriterGone } = require('../engine/securewrite');
 const TEMP_SHAPE = { test: (name) => tempWriterGone(name) !== null };
@@ -182,8 +180,10 @@ function backup(dir, dest, names) {
   fs.mkdirSync(dest, { recursive: false, mode: 0o700 });
   try {
     copyInto(dir, dest, names);
-    // the folder's own entries on disk too (POSIX; Windows cannot flush a folder): a crash cannot lose the backup
-    if (process.platform !== 'win32') { const fd = fs.openSync(dest, 'r'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); } }
+    // the folder's entries, and its own entry in the store's folder, flushed too (POSIX; Windows cannot flush a folder)
+    if (process.platform !== 'win32') {
+      for (const d of [dest, path.dirname(dest)]) { const fd = fs.openSync(d, 'r'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); } }
+    }
   } catch (e) { if (e && typeof e === 'object') { try { e.backupCreated = true; } catch { /* frozen */ } } throw e; }
 }
 /* Flush one backup copy to disk. Read-write on Windows (it refuses to flush a read-only handle); where the platform
@@ -210,7 +210,7 @@ function copyInto(dir, dest, names) {
     else if (st.isFile()) {
       fs.copyFileSync(from, to, fs.constants.COPYFILE_EXCL);
       flushCopy(to);   // before the mode goes back: a read-only original's copy could not be opened to flush after
-      fs.chmodSync(to, st.mode & 0o777);   // on disk before any original is removed (#5434): a crash right after --apply cannot lose both
+      fs.chmodSync(to, st.mode & 0o777);   // flushed before any original is removed (#5434)
       if (fs.statSync(to).size !== st.size) throw new Error('the backup of ' + name + ' is not the same size as the file');
     }
     // anything else (a folder swapped in since the plan) is not backed up, so the run stops rather than go on without it
@@ -252,13 +252,13 @@ function applyPlan(dir, plan, revoke) {
   return { removed, failed, gone };
 }
 
+/* The most a board answer may be; more is refused (the health route answers before any token is sent, so anything on
+   the port can reply). A real roster is a few hundred KB at most. */
+const MAX_ANSWER_BYTES = 8 * 1024 * 1024;
 /* GET a loopback JSON route with node's http module, which never reads proxy settings (a fetch can be sent through a
    proxy by the environment, and the second call carries the board token: install/kosmos's rule #4466 is "never
    through a proxy"). The http module never follows a redirect, so the token's header cannot follow one; a redirect
    answer is also turned into an error here, so it reads as one rather than as a missing roster. */
-/* The most a board answer may be; more is refused (the health route answers before any token is sent, so anything on
-   the port can reply). A real roster is a few hundred KB at most. */
-const MAX_ANSWER_BYTES = 8 * 1024 * 1024;
 function getJson(port, route, headers, timeoutMs = BOARD_TIMEOUT_MS, maxBytes = MAX_ANSWER_BYTES) {
   return new Promise((resolve, reject) => {
     const req = require('node:http').request({ host: '127.0.0.1', port, path: route, method: 'GET', headers: headers || {}, timeout: timeoutMs }, (res) => {
@@ -268,11 +268,13 @@ function getJson(port, route, headers, timeoutMs = BOARD_TIMEOUT_MS, maxBytes = 
       res.on('error', reject);
       res.on('aborted', () => reject(new Error('the board stopped answering part way')));
       let body = '';
+      let bytes = 0;   // a running count, not a re-measure of the whole body per chunk
       res.setEncoding('utf8');
       res.on('data', (c) => {
         body += c;
+        bytes += Buffer.byteLength(c);
         // settle first, then close without an error (an error passed to destroy would surface again as uncaught)
-        if (Buffer.byteLength(body) > maxBytes) { reject(new Error('the board answer is larger than ' + maxBytes + ' bytes')); res.removeAllListeners('end'); req.destroy(); }
+        if (bytes > maxBytes) { reject(new Error('the board answer is larger than ' + maxBytes + ' bytes')); res.removeAllListeners('end'); req.destroy(); }
       });
       res.on('end', () => { let json = null; try { json = JSON.parse(body); } catch { json = null; } resolve({ status: res.statusCode, json }); });
     });
@@ -290,7 +292,7 @@ async function fetchRoster(port, boardToken) {
      this store's board token to some other local program. */
   const health = await getJson(port, '/api/health');
   if (health.status !== 200 || !health.json || health.json.app !== 'kosmos') throw new Error('nothing on that port answers as a Kosmos board');
-  const res = await getJson(port, '/api/status', boardToken ? { 'x-kosmos-board-token': boardToken } : {});
+  const res = await getJson(port, '/api/status', boardToken ? { [require('../engine/boardauth').HEADER_NAME]: boardToken } : {});
   if (res.status !== 200) throw new Error('the board answered ' + res.status);
   const body = res.json;
   if (!body || !Array.isArray(body.agents)) throw new Error('the board answered without an agent list');
@@ -362,8 +364,8 @@ function jobKeepNames(platform, tokenKeys, reader) {
 /* install/kosmos's derivation, for one uid (its test reads the formula out of install/kosmos). */
 function portForUid(uid) { return uid === 501 ? 16180 : 16180 + 1 + (uid % 3999); }
 
-/* A short digest of exactly what a plan removes (name, kind, key, mtime, newest mint, launchers, token names; a temp
-   or a link has no mtime here), so --apply can require the plan a person read. */
+/* A short digest of exactly what a plan removes (name, kind, key, mtime, newest mint, launchers, token names, and a
+   link's target; a temp or a link has no mtime here), so --apply can require the plan a person read. */
 function planDigest(plan) {
   const lines = plan.remove.map((r) => JSON.stringify([r.name, r.kind, r.key || '', r.mtimeMs === undefined ? null : r.mtimeMs,
     r.newestMintMs === undefined ? null : r.newestMintMs, (r.launchers || []).slice().sort(), (r.names || []).slice().sort(), r.linkTarget || null])).sort();
