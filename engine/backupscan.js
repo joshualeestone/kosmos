@@ -171,23 +171,39 @@ function rawClean(bytes, ownPlaceholders) {
    always such a run, while structured image data (HEIC, ICNS, Mach-O) made the shape patterns fire on noise and
    dropped ordinary screenshots and icons from backups (review round 3 measured 11 of 151 real files). Runs are
    taken from the raw bytes and from the bytes with NULs removed (UTF-16/32 text inside a binary). */
-// Public constants that look like tokens. The XMP packet id is fixed by Adobe's XMP spec and sits in nearly every
-// image or PDF with metadata (it fired long_token on this Mac's own wallpapers).
-const PUBLIC_CONSTANTS = /W5M0MpCehiHzreSzNTczkc9d/g;
-const PLACEHOLDER_BYTES = Buffer.from('\u2022\u2022\u2022\u2022', 'utf8');
+const PLACEHOLDER_BYTES = Buffer.from('••••', 'utf8');
+/* Media and font formats, by magic: structured image, glyph and code data makes the GENERIC kinds fire on noise
+   (long_token on base64 metadata, url_credential on glyph names; review rounds 3 and 4 measured both on this
+   Mac's own files). For these formats only, the generic kinds are ignored; every specific detector still counts.
+   Any other binary (a SQLite, LevelDB or plist store) counts them, since Azure and SendGrid keys fire only as
+   long_token. */
+const GENERIC_KINDS = new Set(['long_token', 'url_credential']);
+function mediaOrFont(b) {
+  const at = (i, hex) => b.length >= i + hex.length / 2 && b.subarray(i, i + hex.length / 2).equals(Buffer.from(hex, 'hex'));
+  const ascii = (i, s) => b.length >= i + s.length && b.subarray(i, i + s.length).toString('latin1') === s;
+  return at(0, '89504e470d0a1a0a') || at(0, 'ffd8ff') || ascii(0, 'GIF8') || (ascii(0, 'RIFF') && ascii(8, 'WEBP'))
+    || at(0, '49492a00') || at(0, '4d4d002a') || ascii(4, 'ftyp') || ascii(0, 'icns') || ascii(0, '%PDF-')
+    || at(0, 'feedfacf') || at(0, 'cffaedfe') || at(0, 'feedface') || at(0, 'cefaedfe') || at(0, 'cafebabe')
+    || at(0, '00010000') || ascii(0, 'OTTO') || ascii(0, 'true') || ascii(0, 'ttcf') || ascii(0, 'wOFF') || ascii(0, 'wOF2');
+}
 function binaryClean(bytes) {
   // Content holding the masking placeholder could hide a password behind it (secretmask trusts it): fail closed.
   if (bytes.includes(PLACEHOLDER_BYTES)) return false;
-  const runsOf = (s) => (s.match(/[\x20-\x7e\t]{8,}/g) || []).join('\n').replace(PUBLIC_CONSTANTS, '');
+  const media = mediaOrFont(bytes);
+  const runsOf = (s) => (s.match(/[\x20-\x7e\t]{8,}/g) || []).join('\n');
   const latin = bytes.toString('latin1');
-  for (const s of [runsOf(latin), runsOf(latin.replace(/\0/g, ''))]) {
+  const noNul = latin.replace(/\0/g, '');
+  const views = [runsOf(latin), runsOf(noNul)];
+  // A key split by one control byte breaks a run (or drops a short prefix run): for non-media binaries, also read
+  // the bytes with every non-printable byte deleted. Not for media: deleting them stitches image noise together.
+  if (!media) views.push(latin.replace(/[^\x20-\x7e\t\n]/g, ''));
+  for (const s of views) {
     const m = mask(s);
-    // The generic high-entropy kind (long_token) is ignored inside a binary: image metadata embeds base64 blobs
-    // (a binary plist in this Mac's own wallpaper fired it). Every SPECIFIC detector still counts: provider keys,
-    // JWTs, URL credentials, assigned secrets, private keys, and the board's own held values.
-    if (m.fired.some((f) => f.kind !== 'long_token') || withheld(m.text) || KEY_OPEN.test(s)) return false;
+    const counted = m.fired.filter((f) => !(media && GENERIC_KINDS.has(f.kind)));
+    // withheld: defence in depth (a withheld search also fires split_search_limit, which is counted)
+    if (counted.length || withheld(m.text) || KEY_OPEN.test(s)) return false;
   }
-  return !KEY_OPEN.test(latin) && !KEY_OPEN.test(latin.replace(/\0/g, ''));
+  return !KEY_OPEN.test(latin) && !KEY_OPEN.test(noNul);
 }
 
 const PLACEHOLDER_RUN = '\u2022\u2022\u2022\u2022';
@@ -232,7 +248,8 @@ function scanFile(rel, buf) {
       // No NUL near the start and only invalid UTF-8: most likely Latin-1 / Windows-1252 text. Decode it as such
       // and redact it (Latin-1 round-trips every byte), rather than skipping the whole file.
       if (latin1Text(buf)) {
-        return storeOrSkip(buf, buf.toString('latin1'), kinds, (s) => Buffer.from(s, 'latin1'));
+        // U+2022 has no Latin-1 byte (it would truncate to 0x22, a quote): the marker is written as '*' instead.
+        return storeOrSkip(buf, buf.toString('latin1'), kinds, (s) => Buffer.from(s.replace(/\u2022/g, '*'), 'latin1'));
       }
       if (!binaryClean(buf)) return { action: 'skip', why: 'binary file holding something shaped like a credential, or that could not be checked' };
       return { action: 'store', data: buf, redacted: [] };
