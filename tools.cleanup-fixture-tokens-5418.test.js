@@ -20,6 +20,11 @@ const { safeKey } = require('./engine/store');
 process.env.AGENT_WORKFORCE_WORKERS = fs.mkdtempSync(path.join(os.tmpdir(), 'tokclean-workers-'));
 test.after(() => fs.rmSync(process.env.AGENT_WORKFORCE_WORKERS, { recursive: true, force: true }));
 const fleet = require('./test-support/fleet');
+/* --apply needs live execution, which only the tool's command line turns on. This file opts in for its own process
+   (whose store is a throwaway, #5418 ask 1) and puts the gate back afterwards; one arm checks the refusal. */
+const liveExecution = require('./engine/live-execution');
+liveExecution.allowLiveExecution();
+test.after(() => liveExecution.resetForTests());
 
 const DAY = 24 * 3600 * 1000;
 const CUTOFF = Date.parse('2026-10-01T00:00:00Z');   // a fixed PAST date: the tool refuses a future cutoff
@@ -103,7 +108,8 @@ test('#5418: the port and the cutoff are required, never assumed', () => {
   assert.throws(() => tool.parseArgs(['--port', '1234']), /--cutoff is required/);
   assert.throws(() => tool.parseArgs(['--port', '70000', '--cutoff', '2026-10-01']), /--port is required/);
   assert.throws(() => tool.parseArgs(['--port', '1234', '--cutoff', 'soon']), /--cutoff is required/);
-  const a = tool.parseArgs(['--port', '1234', '--cutoff', '2026-10-01T00:00:00Z', '--apply']);
+  assert.throws(() => tool.parseArgs(['--port', '1234', '--cutoff', '2026-10-01T00:00:00Z', '--apply']), /--confirm/);
+  const a = tool.parseArgs(['--port', '1234', '--cutoff', '2026-10-01T00:00:00Z', '--apply', '--confirm', 'abc']);
   assert.equal(a.apply, true);
   assert.equal(a.cutoffMs, CUTOFF);
   assert.throws(() => tool.parseArgs(['--port', '1234', '--cutoff', new Date(Date.now() + DAY).toISOString()]), /in the future/);
@@ -120,7 +126,25 @@ async function stubBoard(t, status, body, { kosmos = true, seen = [] } = {}) {
   });
   await new Promise((ok) => srv.listen(0, '127.0.0.1', ok));
   t.after(() => srv.close());
+  // the tool requires --port to be this account's own board port; for the test, that is the stub's
+  const prev = process.env.KOSMOS_PORT;
+  process.env.KOSMOS_PORT = String(srv.address().port);
+  t.after(() => { if (prev === undefined) delete process.env.KOSMOS_PORT; else process.env.KOSMOS_PORT = prev; });
   return srv.address().port;
+}
+
+/* What a person does: run the dry run, read its digest, then --apply --confirm it. */
+async function digestOf(argv) {
+  const lines = [];
+  const orig = console.log;
+  console.log = (...a) => lines.push(a.join(' '));
+  try { await tool.main(argv); } finally { console.log = orig; }
+  const m = lines.map((l) => /Plan digest: (\w+)/.exec(l)).find(Boolean);
+  return m ? m[1] : 'none';
+}
+async function applyConfirmed(port) {
+  const argv = ['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString()];
+  return tool.main(argv.concat('--apply', '--confirm', await digestOf(argv)));
 }
 
 test('#5418: no roster means nothing is planned or removed', async (t) => {
@@ -143,7 +167,7 @@ function e2eStore(t) {
   fs.mkdirSync(dir, { recursive: true });
   t.after(() => {
     for (const f of fs.readdirSync(dir)) fs.rmSync(path.join(dir, f), { force: true, recursive: true });
-    for (const f of fs.readdirSync(path.dirname(dir))) if (f.startsWith('sendertokens.backup-5418-')) fs.rmSync(path.join(path.dirname(dir), f), { force: true, recursive: true });
+    for (const f of fs.readdirSync(path.dirname(dir))) if (f.startsWith(tool.BACKUP_PREFIX)) fs.rmSync(path.join(path.dirname(dir), f), { force: true, recursive: true });
   });
   const write = (name, mtime) => { const p = path.join(dir, name); fs.writeFileSync(p, JSON.stringify({ tokens: [{ token: 'x', instance: 'i' }] })); fs.utimesSync(p, mtime / 1000, mtime / 1000); };
   return { dir, write };
@@ -168,9 +192,9 @@ test('#5418 end to end: a dry run changes nothing; --apply backs up, then remove
   const argv = ['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString()];
   assert.equal(await tool.main(argv), 0);
   assert.deepEqual(fs.readdirSync(dir).sort(), before, 'a dry run changed the store');
-  assert.equal(await tool.main(argv.concat('--apply')), 0);
+  assert.equal(await tool.main(argv.concat('--apply', '--confirm', await digestOf(argv))), 0);
   assert.deepEqual(fs.readdirSync(dir).sort(), ['My.Agent.json', 'claudebot.json', 'sam.json'], 'a live agent was removed, or the orphan was kept');
-  const backups = fs.readdirSync(path.dirname(dir)).filter((n) => n.startsWith('sendertokens.backup-5418-'));
+  const backups = fs.readdirSync(path.dirname(dir)).filter((n) => n.startsWith(tool.BACKUP_PREFIX));
   assert.equal(backups.length, 1);
   assert.deepEqual(fs.readdirSync(path.join(path.dirname(dir), backups[0])).sort(), ['fixture-e2e.json'], 'the backup is not exactly what was removed');
 });
@@ -183,7 +207,7 @@ test('#5418: a roster that matches NONE of the store\'s token files (another sto
   t.after(() => f.restore());
   const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
   const err = quiet(t);
-  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply']), 2);
+  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply', '--confirm', 'unread']), 2);
   assert.deepEqual(fs.readdirSync(dir).sort(), ['alice.json', 'bob.json']);
   assert.match(String(err.mock.calls[0].arguments[0]), /different store/);
 });
@@ -203,7 +227,7 @@ test('#5418: a board that lists NO agents stops the tool before anything is plan
   const p = path.join(dir, 'would-be-orphan.json');
   const port = await stubBoard(t, 200, { agents: [] });
   const err = quiet(t);
-  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply']), 2);
+  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply', '--confirm', 'unread']), 2);
   assert.equal(fs.existsSync(p), true, 'an empty roster let a file be removed');
   assert.match(String(err.mock.calls[0].arguments[0]), /lists no agents/);
 });
@@ -217,7 +241,7 @@ test('#5418: no board token for this store stops the tool (nothing ties the boar
   t.after(() => f.restore());
   const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
   const err = quiet(t);
-  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply']), 2);
+  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply', '--confirm', 'unread']), 2);
   assert.equal(fs.existsSync(path.join(dir, 'would-be-orphan.json')), true);
   assert.match(String(err.mock.calls[0].arguments[0]), /no board token/);
 });
@@ -270,7 +294,7 @@ test('#5418: a key in the removal records or with a heartbeat record of any age 
   t.after(() => f.restore());
   const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
   quiet(t);
-  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply']), 0);
+  assert.equal(await applyConfirmed(port), 0);
   assert.deepEqual(fs.readdirSync(dir).filter((n) => n.endsWith('.json')).sort(), ['anchor.json', 'gone.json', 'remote-old.json']);
 });
 
@@ -307,7 +331,7 @@ test('#5418: the "different store" backstop counts the roster only: this store\'
   t.after(() => f.restore());
   const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
   const err = quiet(t);
-  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply']), 2);
+  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply', '--confirm', 'unread']), 2);
   assert.deepEqual(fs.readdirSync(dir).filter((n) => n.endsWith('.json')).sort(), ['alice.json', 'bob.json']);
   assert.match(String(err.mock.calls[0].arguments[0]), /different store/);
 });
@@ -324,7 +348,7 @@ test('#5418: an agent the store keeps a profile for keeps its token though offli
   t.after(() => f.restore());
   const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
   quiet(t);
-  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply']), 0);
+  assert.equal(await applyConfirmed(port), 0);
   assert.deepEqual(fs.readdirSync(dir).filter((n) => n.endsWith('.json')).sort(), ['adopted-x.json', 'anchor.json']);
 });
 
@@ -340,7 +364,7 @@ test('#5418: unreadable removal records stop the tool', async (t) => {
   t.after(() => f.restore());
   const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
   const err = quiet(t);
-  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply']), 2);
+  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply', '--confirm', 'unread']), 2);
   assert.equal(fs.existsSync(path.join(dir, 'fixture-z.json')), true);
   assert.match(String(err.mock.calls[0].arguments[0]), /removal records/);
 });
@@ -357,10 +381,10 @@ test('#5418: a backup that fails part way removes nothing and leaves no copy of 
   let n = 0;
   t.mock.method(fs, 'copyFileSync', (...a) => { n += 1; if (n === 2) throw Object.assign(new Error('disk full'), { code: 'ENOSPC' }); return realCopy(...a); });
   quiet(t);
-  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply']), 3);
+  assert.equal(await applyConfirmed(port), 3);
   assert.equal(n >= 2, true, 'the planted failure never fired');
   assert.deepEqual(fs.readdirSync(dir).filter((x) => x.endsWith('.json')).sort(), ['anchor.json', 'fixture-1.json', 'fixture-2.json']);
-  assert.deepEqual(fs.readdirSync(path.dirname(dir)).filter((x) => x.startsWith('sendertokens.backup-5418-')), [], 'a partial backup holding a token was left behind');
+  assert.deepEqual(fs.readdirSync(path.dirname(dir)).filter((x) => x.startsWith(tool.BACKUP_PREFIX)), [], 'a partial backup holding a token was left behind');
 });
 
 test('#5418: a backup folder that already exists is refused and never removed by the failure path', async (t) => {
@@ -373,7 +397,7 @@ test('#5418: a backup folder that already exists is refused and never removed by
   const realMkdir = fs.mkdirSync;
   let theirs = null;
   t.mock.method(fs, 'mkdirSync', (p, ...rest) => {
-    if (String(p).includes('sendertokens.backup-5418-')) {           // somebody else's folder is already at that name
+    if (String(p).includes(tool.BACKUP_PREFIX)) {           // somebody else's folder is already at that name
       theirs = p;
       realMkdir.call(fs, p, { recursive: true });
       fs.writeFileSync(path.join(p, 'theirs.json'), 'not ours');
@@ -382,8 +406,58 @@ test('#5418: a backup folder that already exists is refused and never removed by
     return realMkdir.call(fs, p, ...rest);
   });
   quiet(t);
-  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply']), 3);
+  assert.equal(await applyConfirmed(port), 3);
   assert.ok(theirs, 'the planted folder never came into play');
   assert.equal(fs.readFileSync(path.join(theirs, 'theirs.json'), 'utf8'), 'not ours', 'a folder this run did not make was removed');
   assert.equal(fs.existsSync(path.join(dir, 'fixture-1.json')), true);
+});
+
+test('#5418: --apply removes only the plan the person confirmed: a roster that shrank since the dry run stops it', async (t) => {
+  const { dir, write } = e2eStore(t);
+  write('anchor.json', OLD);
+  write('briefly-missing.json', OLD);   // listed by the board at the dry run, missing from a degraded roster at apply
+  write('fixture-q.json', OLD);
+  const full = fleet.install([fleet.agent('anchor'), fleet.agent('briefly-missing')]);
+  const cardsFull = JSON.parse(JSON.stringify(full.agents));
+  full.restore();
+  const few = fleet.install([fleet.agent('anchor')]);
+  const cardsFew = JSON.parse(JSON.stringify(few.agents));
+  few.restore();
+  let cards = cardsFull;
+  const srv = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(req.url === '/api/health' ? '{"app":"kosmos","ok":true}' : JSON.stringify({ agents: cards }));
+  });
+  await new Promise((ok) => srv.listen(0, '127.0.0.1', ok));
+  t.after(() => srv.close());
+  const port = srv.address().port;
+  const prev = process.env.KOSMOS_PORT;
+  process.env.KOSMOS_PORT = String(port);
+  t.after(() => { if (prev === undefined) delete process.env.KOSMOS_PORT; else process.env.KOSMOS_PORT = prev; });
+  const argv = ['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString()];
+  const err = quiet(t);
+  const digest = await digestOf(argv);      // the person reads a plan that removes only fixture-q.json
+  cards = cardsFew;                         // then the board answers without briefly-missing
+  assert.equal(await tool.main(argv.concat('--apply', '--confirm', digest)), 4);
+  assert.deepEqual(fs.readdirSync(dir).filter((n) => n.endsWith('.json')).sort(), ['anchor.json', 'briefly-missing.json', 'fixture-q.json']);
+  assert.match(String(err.mock.calls.at(-1).arguments[0]), /not the one confirmed/);
+});
+
+test('#5418: a --port that is not this account\'s own board port is refused before the token goes anywhere', async (t) => {
+  const seen = [];
+  const port = await stubBoard(t, 200, { agents: [] }, { seen });
+  process.env.KOSMOS_PORT = String(port + 1);   // this account's port is another one
+  const err = quiet(t);
+  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString()]), 2);
+  assert.deepEqual(seen, [], 'something was sent to the wrong port');
+  assert.match(String(err.mock.calls[0].arguments[0]), /not this account's board port/);
+});
+
+test('#5418: --apply is refused without live execution (only the command line turns it on)', async (t) => {
+  liveExecution.resetForTests();
+  t.after(() => liveExecution.allowLiveExecution());
+  const port = await stubBoard(t, 200, { agents: [] });
+  const err = quiet(t);
+  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply', '--confirm', 'x']), 2);
+  assert.match(String(err.mock.calls[0].arguments[0]), /live execution/);
 });

@@ -4,12 +4,19 @@
  * #5418 ask 2: a one-time, careful cleanup of the records that test runs left in this machine's REAL
  * sender-token store before #5418's ask 1 (PR #5452) made that impossible.
  *
- *   node tools/cleanup-fixture-tokens-5418.js --port <board port> --cutoff <ISO date>            (dry run)
- *   node tools/cleanup-fixture-tokens-5418.js --port <board port> --cutoff <ISO date> --apply    (backs up, then removes)
+ *   node tools/cleanup-fixture-tokens-5418.js --port <board port> --cutoff <ISO date>            (dry run: prints a digest)
+ *   node tools/cleanup-fixture-tokens-5418.js --port <board port> --cutoff <ISO date> --apply --confirm <digest>
+ *                                                                          (backs up, then removes EXACTLY that plan)
+ *
+ * 🛑 --apply removes only the plan a person read: it rebuilds the plan, and if its digest is not the one the dry run
+ * printed (an agent missing from a degraded roster, a file changed), it stops. --port must equal this account's own
+ * board port, derived as the kosmos CLI derives it, so the board token can only reach this account's board. And
+ * --apply needs live execution, which only the command line opens (repo convention: destructive actions fail closed).
  *
  * What it may remove, and only all of these together:
  *   - a token file whose agent is NOT on the running board's roster (GET /api/status, the board's own list),
- *     is NOT in the board's removal records, was last written BEFORE the cutoff, and is named exactly as the
+ *     is NOT in the board's removal records, has no heartbeat record and no profile, was last written BEFORE the
+ *     cutoff (at least an hour ago), and is named exactly as the
  *     store names its files (a name the store could not have written is listed and left alone), and holds
  *     no `launcher: 'remote'` token (a remote agent is on the roster only while its heartbeat is fresh, so an
  *     offline one would look orphaned). Its age is its NEWEST sign of life: the latest token mintedAt or the
@@ -34,7 +41,7 @@
  *     enforce its token. The port is required, never assumed.
  *   - each token file is removed only if, under the store's lock, it is still the file the plan looked at
  *     (sendertoken.revokeIfUnchanged): a token minted since the plan was made is never taken.
- *   - a cutoff in the future is refused.
+ *   - a cutoff less than an hour in the past (or in the future) is refused.
  * 🛑 BACKUP FIRST. --apply copies exactly the entries it is about to remove (files with their modes, links as
  * links) to a new timestamped folder beside the store, and stops if the copy fails. Only those: a copy of every
  * live agent's token would be a second set of live credentials left lying around.
@@ -42,6 +49,11 @@
  */
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
+
+/* How long a board may take to answer, and the backup folder's name (beside the store; the tests read it too). */
+const BOARD_TIMEOUT_MS = 10000;
+const BACKUP_PREFIX = 'sendertokens.backup-5418-';
 
 /* The writer's own temp shape (securewrite's tempPath, and sendertoken's before #1787), anchored at the end. Any
    other name is not a temp this store wrote, so it is listed and left alone. */
@@ -153,6 +165,9 @@ function applyPlan(dir, plan, revoke) {
         if (res && res.ok === false) throw new Error(res.because || 'revoke failed');
       } else if (r.kind === 'symlink') {
         if (!fs.lstatSync(p).isSymbolicLink()) throw new Error('no longer a link');
+        let points = false;
+        try { fs.statSync(p); points = true; } catch { points = false; }
+        if (points) throw new Error('its target exists now: kept');
         fs.unlinkSync(p);
       } else if (r.kind === 'temp') {
         if (!fs.lstatSync(p).isFile()) throw new Error('no longer a file');
@@ -167,13 +182,13 @@ function applyPlan(dir, plan, revoke) {
 async function fetchRoster(port, boardToken) {
   /* Ask, WITHOUT the token, whether a Kosmos board answers on that port at all, so a wrong --port never hands
      this store's board token to some other local program. */
-  const health = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(10000) });
+  const health = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(BOARD_TIMEOUT_MS) });
   let h = null;
   try { h = await health.json(); } catch { h = null; }
   if (!health.ok || !h || h.app !== 'kosmos') throw new Error('nothing on that port answers as a Kosmos board');
   const res = await fetch(`http://127.0.0.1:${port}/api/status`, {
     headers: boardToken ? { 'x-kosmos-board-token': boardToken } : {},
-    signal: AbortSignal.timeout(10000),
+    signal: AbortSignal.timeout(BOARD_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error('the board answered ' + res.status);
   const body = await res.json();
@@ -184,7 +199,7 @@ async function fetchRoster(port, boardToken) {
 /* Every spelling under which a token file for this row can exist (see the docblock). */
 function spellingsOf(row) {
   const out = new Set();
-  for (const v of [row && row.sessionName, row && row.name]) {
+  for (const v of [row && row.sessionName, row && row.session, row && row.name]) {
     if (typeof v !== 'string' || !v) continue;
     out.add(v);
     const noWorld = v.includes('+') ? v.slice(0, v.indexOf('+')) : v;
@@ -201,6 +216,7 @@ function parseArgs(argv) {
     if (argv[i] === '--apply') out.apply = true;
     else if (argv[i] === '--port') out.port = Number(argv[++i]);
     else if (argv[i] === '--cutoff') out.cutoff = argv[++i];
+    else if (argv[i] === '--confirm') out.confirm = argv[++i];
     else throw new Error('unknown argument: ' + argv[i]);
   }
   if (!Number.isInteger(out.port) || out.port <= 0 || out.port > 65535) throw new Error('--port is required (the board port for THIS account; never assumed)');
@@ -211,11 +227,37 @@ function parseArgs(argv) {
      writer's in-flight temp out of reach. */
   if (ms > Date.now() - CUTOFF_MARGIN_MS) throw new Error('--cutoff must be at least an hour in the past, so nothing in flight is old enough to plan');
   out.cutoffMs = ms;
+  if (out.apply && !out.confirm) throw new Error('--apply needs --confirm <the digest the dry run printed>');
   return out;
+}
+
+/* This account's board port, derived exactly as install/kosmos derives it (KOSMOS_PORT, else a pure function of the
+   uid). */
+function expectedPort(env = process.env) {
+  const fromEnv = Number(env.KOSMOS_PORT);
+  if (Number.isInteger(fromEnv) && fromEnv > 0) return fromEnv;
+  const uid = typeof process.getuid === 'function' ? process.getuid() : null;
+  if (uid === null) return null;
+  return uid === 501 ? 16180 : 16180 + 1 + (uid % 3999);
+}
+
+/* A short digest of exactly what a plan removes (name, kind, mtime), so --apply can require the plan a person read. */
+function planDigest(plan) {
+  const lines = plan.remove.map((r) => [r.name, r.kind, r.mtimeMs === undefined ? '' : String(r.mtimeMs)].join('|')).sort();
+  return crypto.createHash('sha256').update(lines.join('\n')).digest('hex').slice(0, 16);
 }
 
 async function main(argv) {
   const args = parseArgs(argv);
+  const want = expectedPort();
+  if (want !== null && args.port !== want) {
+    console.error(`Stopped, nothing changed: --port ${args.port} is not this account's board port (${want}), so the board token is not sent.`);
+    return 2;
+  }
+  if (args.apply && !require('../engine/live-execution').liveExecutionAllowed()) {
+    console.error('Stopped, nothing changed: --apply needs live execution, which only the command line turns on.');
+    return 2;
+  }
   const store = require('../engine/store');
   const sendertoken = require('../engine/sendertoken');
   const boardauth = require('../engine/boardauth');
@@ -266,9 +308,15 @@ async function main(argv) {
     console.log(`  remove  ${r.name}  (${r.why}${detail})`);
   }
   for (const k of plan.keep) console.log(`  keep    ${k.name}  (${k.why})`);
-  if (!args.apply) { console.log('Dry run: nothing changed. Read every "remove" line against the agents you know, then add --apply to back up and remove.'); return 0; }
+  const digest = planDigest(plan);
+  console.log(`Plan digest: ${digest}`);
+  if (!args.apply) { console.log(`Dry run: nothing changed. Read every "remove" line against the agents you know, then run again with --apply --confirm ${digest}.`); return 0; }
+  if (args.confirm !== digest) {
+    console.error(`Stopped, nothing removed: this plan (${digest}) is not the one confirmed (${args.confirm}); something changed since the dry run. Run the dry run again and read it.`);
+    return 4;
+  }
   if (plan.remove.length === 0) { console.log('Nothing to remove.'); return 0; }
-  const dest = path.join(path.dirname(dir), 'sendertokens.backup-5418-' + new Date().toISOString().replace(/[:.]/g, '-'));
+  const dest = path.join(path.dirname(dir), BACKUP_PREFIX + new Date().toISOString().replace(/[:.]/g, '-'));
   try { backup(dir, dest, plan.remove.map((r) => r.name)); }
   catch (e) {
     /* The half-made backup holds copies of tokens: take it back, or name it so a person can. */
@@ -287,8 +335,9 @@ async function main(argv) {
 }
 
 if (require.main === module) {
+  require('../engine/live-execution').allowLiveExecution();   // the command line, run by a person, is the only opt-in
   main(process.argv.slice(2)).then((code) => { process.exitCode = code; },
     (e) => { console.error('Stopped: ' + ((e && e.message) || e)); process.exitCode = 2; });
 }
 
-module.exports = { planCleanup, listEntries, tokenInfo, backup, applyPlan, parseArgs, fetchRoster, spellingsOf, main };
+module.exports = { planCleanup, listEntries, tokenInfo, backup, applyPlan, parseArgs, fetchRoster, spellingsOf, expectedPort, planDigest, BACKUP_PREFIX, main };
