@@ -446,5 +446,17 @@ out="$(LIE_SIDECAR_ON_DEPLOY=setup-staging.sha256 PATH="$BIN:$PATH" LIVE_DIR="$L
 read -r S27 L27 <<<"$(make_scenario)"; with_setup "$S27" "NEW-INSTALLER"
 out="$(STALE_SETUP_ON_DEPLOY=1 PATH="$BIN:$PATH" LIVE_DIR="$L27" HOST_URL="$HOSTURL" KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$S27" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" bash "$DEPLOY" --promote 2>&1)"; RC=$?
 { [ "$RC" = 1 ] && has "$out" "is not the installer the committed latest.json names"; } && pass "#5032: a served /setup pair that agrees with itself but is not the pointer's installer is refused at the edge" || bad "#5032 stale self-consistent /setup (rc=$RC) out=$out"
+# 28) #5589: a release cut publishes a pointer WHILE this run is fetching and building. The stub's .late
+#     mechanism serves latest-win-staging.json as 404 on its first read (the snapshot taken before any
+#     fetch) and as a real pointer from then on, i.e. a cut landed in between. The pre-deploy re-read must
+#     see the change and refuse with nothing deployed. Case 1 is the control: the same promote, with every
+#     live pointer unchanged across the run, deploys.
+read -r S28 L28 <<<"$(make_scenario)"
+printf '{"version":"9.9.9"}\n' > "$L28/dist/latest-win-staging.json.late"
+run_deploy "$S28" "$L28" --promote
+{ [ "$RC" = 1 ] && has "$out" "a live pointer changed while this run was building" \
+  && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L28/dist/latest.json")" = "$OLD" ]; } \
+  && pass "#5589: a live pointer moved mid-run (a cut published) is refused before the deploy, LIVE untouched" \
+  || bad "#5589 mid-run pointer move (rc=$RC) out=$out"
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

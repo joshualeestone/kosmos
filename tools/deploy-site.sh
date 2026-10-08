@@ -41,7 +41,8 @@
 # #2014 version-skew BLOCKER); it references the SITE's OWN version instead. --publish is safe.
 # 🛑 STILL COORDINATE A PRODUCTION DEPLOY. --publish is a live `vercel deploy --prod`: do not run
 # it concurrently with a release cut populating the same dist/ (see the concurrency note below),
-# and coordinate with the release owner so two deploys cannot race. The dry run (default, no
+# and coordinate with the release owner so two deploys cannot race (#5589 narrows, not closes, that race:
+# it refuses when a live pointer moved between the start of the run and the deploy). The dry run (default, no
 # flag) remains safe -- it fetches, builds the export, runs every guard, and STOPS before deploy.
 # =============================================================================
 #
@@ -516,6 +517,18 @@ _csm_read() {  # <url>
 # Seconds between retries of a live read; a value that is not a whole number falls back to 3.
 case "${KOSMOS_DEPLOY_RETRY_SLEEP:-3}" in ''|*[!0-9]*) _CSM_SLEEP=3 ;; *) _CSM_SLEEP=${KOSMOS_DEPLOY_RETRY_SLEEP:-3} ;; esac
 _csm_version() { printf '%s' "$1" | sed -n 's/^kosmos-\(.*\)-arm64\.tar\.gz$/\1/p'; }
+# #5589: the four live pointers a release cut moves, as one comparable line (each: name, HTTP status,
+# sha256 of the body). Taken once before anything is fetched and again right before `vercel deploy`: if a
+# cut published in between, the export holds the pointers as they were and deploying it would move the
+# cut's pointers back. The guards above compare the checkout with live at the START, so they cannot see
+# a cut that lands while this run is fetching and building (minutes). A read that does not complete reads
+# as status 000, which never equals a completed read, so an unreadable host refuses rather than passes.
+live_pointer_snapshot() {
+  for _lps in latest.json latest-staging.json latest-win.json latest-win-staging.json; do
+    _csm_read "$HOST/dist/$_lps"
+    printf '%s %s %s;' "$_lps" "$_CSM_CODE" "$(printf '%s' "$_CSM_BODY" | shasum -a 256 | cut -c1-64)"
+  done
+}
 # The committed pointer's name and sha, checked before either is used in a path, a URL or a
 # comparison. Sets _csm_art, _csm_sha and _csm_show from _csm_ptr; refuses on anything malformed.
 _csm_validate_committed() {
@@ -634,6 +647,7 @@ carry_staged_mac() {
 }
 # <<< staged Mac carry (#4819)
 check_staging_not_stale
+LIVE_PTRS_BEFORE=$(live_pointer_snapshot)   # #5589: compared again right before the deploy
 fetch_verified "$HOST/dist/$ART" "$SITE/dist/$ART"   # the artifact and its .sha256 (#4745)
 verify_sha "$SITE/dist/$ART" "$HOST/dist/$ART.sha256"
 # For a promote, pin the committed pointer's advertised sha to the bytes we just fetched + verified
@@ -777,6 +791,12 @@ if [ "$PUBLISH" != 1 ]; then
 fi
 
 # --- 5) deploy ---------------------------------------------------------------
+# #5589: refuse if a release cut moved a live pointer while this run was fetching and building. The
+# window left is the seconds between this read and Vercel switching the deployment over; the
+# post-deploy served check below is what catches a cut landing inside it.
+LIVE_PTRS_NOW=$(live_pointer_snapshot)
+case "$LIVE_PTRS_NOW" in *" 000 "*) echo "deploy-site: could not re-read the live pointers right before deploying -- refusing; nothing has been deployed (#5589)"; rm -rf "$EXPORT"; exit 1 ;; esac
+[ "$LIVE_PTRS_NOW" = "$LIVE_PTRS_BEFORE" ] || { echo "deploy-site: a live pointer changed while this run was building (a release cut published?) -- refusing; nothing has been deployed. Update the site checkout to origin/main and run again (#5589)."; echo "  before: $LIVE_PTRS_BEFORE"; echo "  now:    $LIVE_PTRS_NOW"; rm -rf "$EXPORT"; exit 1; }
 ( cd "$EXPORT" && vercel deploy --prod --yes ) || { echo "deploy-site: vercel deploy --prod failed"; rm -rf "$EXPORT"; exit 1; }
 rm -rf "$EXPORT"
 
