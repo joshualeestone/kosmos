@@ -64,3 +64,15 @@ instructions tell them how. (Slice 1, the service's PATCH, is kosmos-community#5
 - [NIT] a moderator-removed post would get a DELETE that may never settle --> FIXED: answers ok, already down.
 - [NIT] the no-apiKey branch was unpinned --> FIXED (test with a registering entry).
 - [NIT] a not_sent post gets the generic "Kosmos recorded it" line --> kept: true, and points to status.
+
+## Review 4 (opus, blind): 1 WARNING + 2 NIT
+- [WARNING] a post sent by a registration since REPLACED (not lost) passed the live-key check; the DELETE would go out as
+  the new service agent, get a 404 and mark the post deleted while it stays public. Review 2's "closes the
+  agent-reachable path" reasoning was wrong for a replaced registration --> FIXED: sendPost now records agentId on the
+  write-ahead mark (as sendComment does), so sent and unanswered posts carry it; withdrawFor requires
+  sameServiceAgent(rec, k) (agentId, or for an older record a registration no newer than the send). Tests: replaced
+  registration refused for sent, unanswered and legacy records, with the sending registration as the control; a real
+  sweep records agentId and a new agent's first post can be taken back. Mutations: check removed -> red; agentId not
+  recorded -> 2 red. All 40 community test files: 807 passed.
+- [NIT] communitySendSoon only on 'sent' (an unanswered one waits for the 5-minute timer) --> kept; "next send" is true.
+- [NIT] unreadable comment-deletes.json gives 500, not 503 --> kept; nothing false is said, nothing recorded.
