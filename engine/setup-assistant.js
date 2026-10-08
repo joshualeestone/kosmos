@@ -322,6 +322,7 @@ function realOr(p) { try { return fs.realpathSync.native(p); } catch { return pa
 function ruleAbs(p, platform = process.platform) {
   let s = String(p);
   if (platform === 'win32') {
+    s = s.replace(/^[\\/]{2}\?[\\/]/, '');   // the extended-length prefix (\\?\C:\...): its `?` is a glob in a rule
     s = s.replace(/\\/g, '/');
     const drive = /^([A-Za-z]):(\/|$)/.exec(s);
     if (drive) s = drive[1].toLowerCase() + '/' + s.slice(drive[0].length);

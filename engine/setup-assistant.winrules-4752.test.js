@@ -18,6 +18,7 @@ test('#4752: a Windows drive path is written in the POSIX form Claude Code match
   assert.equal(sa.ruleAbs('C:\\Users\\alice\\AppData\\Roaming\\Kosmos', 'win32'), '//c/Users/alice/AppData/Roaming/Kosmos');
   assert.equal(sa.ruleAbs('D:\\', 'win32'), '//d/');
   assert.equal(sa.ruleAbs('E:/mixed\\seps', 'win32'), '//e/mixed/seps');
+  assert.equal(sa.ruleAbs('\\\\?\\C:\\Users\\a\\K', 'win32'), '//c/Users/a/K', 'the extended-length prefix stayed (its ? is a glob)');
 });
 
 test('#4752: CONTROL, a macOS or Linux path is unchanged', () => {
