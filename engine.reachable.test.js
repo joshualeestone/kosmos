@@ -241,9 +241,10 @@ const TRIAGED_5548 = {
   geminiLastCompletionAt: ['engine/status.js', TEST_SEAM + ' (same as codexLastCompletionAt, #3296)'],
   grokLastCompletionAt: ['engine/status.js', TEST_SEAM + ' (same as codexLastCompletionAt, #3391)'],
   IMPORT_CONTRACT: ['engine/agentfile.js', INTERNAL + ' (the frozen contract the wired importAgent reads)'],
-  ALLOWED_TOOLS: ['engine/orgchartcodex.js', INTERNAL + ' (the capture hardening policy)'],
-  deriveCatalog: ['engine/orgchartcodex.js', INTERNAL + ' (a wrapper over catalogFor, which pickWithWhy uses)'],
-  offeredTools: ['engine/orgchartcodex.js', INTERNAL + ' (the capture hardening path)'],
+  // Review 1: these three are NOT used in their module either: test helpers of #5346's capture hardening.
+  ALLOWED_TOOLS: ['engine/orgchartcodex.js', TEST_SEAM + ' (the hardening policy list the capture test asserts; nothing in the module reads it)'],
+  deriveCatalog: ['engine/orgchartcodex.js', TEST_SEAM + ' (a wrapper over catalogFor for the capture test; production calls catalogFor)'],
+  offeredTools: ['engine/orgchartcodex.js', TEST_SEAM + ' (asserted by the capture test; nothing in the module calls it)'],
   parentOf: ['engine/tasks.js', ACCESSOR + ' (treeOf(p).up; the screen reads the tree through allTasks rows)'],
   childrenOf: ['engine/tasks.js', ACCESSOR + ' (treeOf(p).under)'],
   subtaskProgress: ['engine/tasks.js', ACCESSOR + ' (treeOf(p).progress; the screen shows "N of M subtasks done" from the row)'],
@@ -407,6 +408,15 @@ function findOrphans(modules, callerSources, tests, skip) {
   return orphans;
 }
 
+/* #5548 slice 2 review 1: bin/ callers count only in CODE, or the hundreds of comment lines in its shell scripts could
+   name an export and hide an orphan. JS files go through codeOnly; shell scripts lose their full-line # comments (not
+   a trailing # after code: agent-supervisor.sh carries JS inside node -e '...', where a # can be code). Done here, not
+   where sources is built, because codeOnly's REGEX_AFTER is declared below that line. */
+for (const s2 of sources) {
+  if (!/^bin[\/\\]/.test(s2.f)) continue;
+  s2.text = s2.f.endsWith('.js') ? codeOnly(s2.text) : s2.text.split('\n').map((l) => (/^\s*#/.test(l) ? '' : l)).join('\n');
+}
+
 // posix keys, so the file-keyed lists compare the same on Windows (#5548 review 2)
 const engineModules = engineFiles.map((f) => ({ rel: path.posix.join('engine', f), text: read(path.join('engine', f)) }));
 
@@ -509,4 +519,11 @@ test('#5532: printFor is excused only until its first caller lands', () => {
     assert.ok(still.has(file + ' exports ' + n), n + ' has a caller now: remove it from FIRST_CALLER_5532');
   }
   assert.equal(skipped('printFor', 'engine/some-other-module.js'), false, 'the excuse must not cover another module');
+});
+
+test('#5548 slice 2 review 1: a bin/ comment naming an export does not count as a call', () => {
+  const sh = sources.find((s2) => /^bin[\/\\]agent-supervisor\.sh$/.test(s2.f));
+  assert.ok(sh, 'fixture: bin/agent-supervisor.sh is a caller file');
+  assert.ok(/retireLauncher/.test(sh.text), 'CONTROL: its real call (inside node -e) survives the comment strip');
+  assert.ok(!/^\s*#/m.test(sh.text), 'no full-line comment is left in a bin shell script');
 });
