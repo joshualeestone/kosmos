@@ -29,3 +29,10 @@
 - Fixed (NIT): the archive "why" (a display state; members not re-told) restored beside edit()'s archived branch.
 - Left (NITs): the arm-570 comment (phrased as a guard against escaping returning, still accurate); rewrapped widths; a
   repeated `|| null` idiom.
+
+## Rebase onto #5600 (main's TRIAGED_5548) and review 3 (sonnet): converged
+- #5600 moved the five names into TRIAGED_5548 ("deletion tracked on #5582", minInterval "wire or delete on #5583").
+  Resolved by taking main's file and removing those five entries and the SUPERSEDED category only they used. The guard
+  that every listed name is still exported would otherwise red. 627 of 627 on the touched files, reachability guard
+  included (main's costOf red is gone with #5600).
+- Review 3 found nothing above NIT: no dangling reference anywhere, and the file is consistent after the rebase.
