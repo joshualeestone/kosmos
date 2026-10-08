@@ -47502,7 +47502,7 @@ async function plusOrgJoin() {
 function plusOrgNotNow() {
   const review = !!(PLUS_ORG.preview && PLUS_ORG.preview.review);
   PLUS_ORG.preview = null;
-  document.getElementById('plus-org-msg').textContent = review ? 'Nothing changed.' : 'Not joined. Only the code was checked; none of this Kosmos\'s data was sent.';
+  document.getElementById('plus-org-msg').textContent = review ? 'Nothing changed on this computer.' : 'Not joined. Only the code was checked; none of this Kosmos\'s data was sent.';
   plusOrgPaint();
 }
 /* #5531 follow-up: the words of the company this Kosmos already is the work Kosmos for. Accepting goes through Join with
@@ -47514,7 +47514,8 @@ async function plusOrgReview() {
   PLUS_ORG.busy = true;
   const r = await plusOrgPost('preview', { review: true });
   PLUS_ORG.busy = false;
-  if (!r.ok || r.review !== true) { msg.textContent = r.because || 'Your company\'s words could not be read just now.'; return; }
+  // A refusal can mean the state moved (another screen accepted: "already reports"), so read it back, keeping the line (review 9).
+  if (!r.ok || r.review !== true) { msg.textContent = r.because || 'Your company\'s words could not be read just now.'; PLUS_ORG.at = 0; plusOrgMaybe(true); return; }
   PLUS_ORG.preview = { code: null, org: r.org, ticket: r.ticket, review: true };
   document.getElementById('plus-org-ask').textContent = 'This is what ' + (r.org.name || 'your company') + ' asks of this Kosmos. Accept it so this Kosmos can report:';
   plusOrgList('plus-org-reports', r.consent.reports);

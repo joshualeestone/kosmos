@@ -7,7 +7,7 @@
 **What this builds:**
 - `engine/orgenroll.js` `reviewHere()`: answered only when this world has a record AND the company names this world here, for the company on that record. It returns that company's consent with `move: true, review: true`. It binds nothing.
 - `server.js`: `POST /api/org/preview` with `{ review: true }` calls `reviewHere()`. The one-time ticket is the move kind (no code), so Accept goes through the existing enroll with no code. The page may see `review` (allow-list).
-- `web/index.html`: a "Review what your company sees" button in the joined view, shown only while `reporting === false`. The consent shows in place of the joined view, and the primary button reads "Accept". Not now says "Nothing changed." (the joined view above already says it sends nothing)
+- `web/index.html`: a "Review what your company sees" button in the joined view, shown only while `reporting === false`. The consent shows in place of the joined view, and the primary button reads "Accept". Not now says "Nothing changed on this computer." (a lost Accept leaves the company side unknown)
 - **Accepting:** this is the existing codeless enroll, built on follow-up b (stacked on consenthash-5531). The coordinator (relay `mac_enroll`, `code: None`) re-enrolls the same Mac and world, and stores the `consentHash` the enroll carries, exactly as sent.
   - So Accept sends the hash the company SERVED with these words, from status, through the ticket.
   - With no hash to echo, the review is not offered at all: Accept could not make this Kosmos report, on either side.
@@ -73,4 +73,7 @@
 ## Review 8 (blind, Sonnet)
 - FIXED (C): the plan's "What this builds" line still quoted the old Not now wording.
 - DUPLICATES, kept as decided: reviewHere outside the serial queue (reviews 2, 6; enroll re-checks, a stale hash is answered org_consent_changed); the org_bad_world re-armed ticket (reviews 3, 5).
+
+## Review 9 (blind, Opus): CONVERGED (no BLOCKER, WARNING or CONVENTION)
+- NITs taken anyway, re-reviewed by review 10: a refused Review press reads the state back too (review 7's class, one step earlier); Not now says "Nothing changed on this computer."; O15's other-refusal fixture uses a code whose real wording matches.
 
