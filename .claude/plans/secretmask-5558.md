@@ -30,3 +30,9 @@ by the existing rules.
 ## Tests
 engine/secretmask.test.js '#5558': three plain paths kept; a chopped token masked; a random token masked (control);
 a random segment inside a path masked. Full secretmask.test.js 126/126.
+
+## Review log
+### Review 1 (opus): 1 WARNING fixed
+- WARNING fixed: random lowercase-and-digit tokens behind a path prefix (keys/prod/<32 chars>) passed as plain, up to 7.5% of fuzzed samples: the fallback split peeled a random chunk into word-like parts, `y` counted as a vowel, and single letters were words. Now each piece between - and _ is judged WHOLE: a number; a word of 3-12 letters with a real vowel; a word then up to 4 digits (win32); or a mostly-digit piece (at most 2 letters, 1-2 digit groups, starting with a digit or x+digit). The reviewer's fuzz (20,000 per shape, 10 shapes): 0 new leaks except 1 in 20,000 for a token chopped into eight 5-character lowercase chunks (named residual: an unusual credential shape).
+- Test: isPlainPath (exported for tests) never judges a path ending in a seeded random token plain (1,500 tokens, 16-32 chars), with a plain-path control. Two first drafts of this test were wrong (a generator drawing only nine characters, then a question this change does not control); recorded.
+- Repo sweep after: long_token 249 -> 183 (base count moved as main moved).

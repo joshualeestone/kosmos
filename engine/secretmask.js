@@ -1229,10 +1229,11 @@ function isPlainPath(run) {
   const segs = run.split('/').filter(Boolean);
   if (segs.length < 2) return false;
   /* Review 1: each piece between - and _ is judged WHOLE (no splitting a random chunk into harmless-looking parts).
-     Plain: a number; a word of 3+ letters with a real vowel (a e i o u), lowercase or Capitalized; a word then up to
+     Plain: a number; a word of 3 to 12 letters with a real vowel (a e i o u), lowercase or Capitalized; a word then up to
      4 digits (win32, arm64); or a mostly-digit piece with at most 2 letters and at most 2 digit groups (x64,
      20260926T1625, 20260913T052847Z). A random lowercase-and-digit chunk interleaves and fits none of these. */
-  const word = (w) => /^[A-Z]?[a-z]{2,}$/.test(w) && /[aeiou]/i.test(w);
+  // 3 to 12 letters: path words are short (presence, installer, challenge); a longer letter run is a random chunk's.
+  const word = (w) => /^[A-Z]?[a-z]{2,11}$/.test(w) && /[aeiou]/i.test(w);
   const pieceOk = (p) => {
     if (/^[0-9]+$/.test(p)) return true;
     if (word(p)) return true;
@@ -1494,4 +1495,4 @@ function describeFired(fired) {
 
 /* For tests: the fragment index's size and stride, and how many times the held set was rebuilt. */
 function fragmentIndexStats() { return { size: knownGrams.size, stride: fragmentStride, keyStride, builds: indexBuilds }; }
-module.exports = { MASK, WITHHELD, UNCHECKED, mask, describeFired, setKnownSecrets, knownSecretCount, fragmentIndexStats, madeOfWords, MIN_VALUE_LEN };
+module.exports = { MASK, WITHHELD, UNCHECKED, mask, describeFired, setKnownSecrets, knownSecretCount, fragmentIndexStats, madeOfWords, MIN_VALUE_LEN, isPlainPath };
