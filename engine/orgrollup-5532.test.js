@@ -667,3 +667,36 @@ test('#5532 rollup review 20: each world turns its day over at its own minute in
   assert.notEqual(offsetOf('a'.repeat(32)), offsetOf('b'.repeat(32)), 'two worlds share one minute');
 });
 
+
+test('#5532 rollup review 22: a failed pane read never lists running agents as stopped; a partial daily waits up to an hour', async (t) => {
+  // A snapshot that FAILS: the offline list is withheld, so a running agent is not sent as stopped.
+  const g = await r.gather(sources({ snapshot: () => { throw new Error('tmux gone'); }, survey: () => ({ ok: true, agents: [{ name: 'leo', shownAs: 'Leo', folder: true, job: true, profile: true }] }) }));
+  assert.equal(g.partial, true);
+  assert.equal(g.agents.some((a) => a.state === 'stopped'), false, 'a running agent went out as stopped after a failed pane read: ' + JSON.stringify(g.agents));
+  // CONTROL: with a whole read, an offline agent IS listed as stopped.
+  const ok = await r.gather(sources({ snapshot: () => ({ counts: { unreadableLines: 0 }, agents: [] }), survey: () => ({ ok: true, agents: [{ name: 'leo', shownAs: 'Leo', folder: true, job: true, profile: true }] }) }));
+  assert.equal(ok.agents.find((a) => a.name === 'Leo').state, 'stopped');
+  // A partial read when the daily is due: held, not sent; sent partial only after an hour of partial reads.
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root);
+  const broken = sources({ snapshot: () => { throw new Error('tmux gone'); } });
+  const T0 = Date.UTC(2026, 9, 7, 12);
+  assert.equal((await r.tick({ root, remote: c, sources: broken, now: T0 })).sent, false, 'a partial daily went at once');
+  assert.equal((await r.tick({ root, remote: c, sources: broken, now: T0 + 30 * 60e3 })).sent, false);
+  assert.equal((await r.tick({ root, remote: c, sources: sources(), now: T0 + 35 * 60e3 })).sent, true, 'CONTROL: a whole read sends the daily');
+  const root2 = world(t);
+  await oe.enroll('ACME-JOIN-1234', true, { root: root2, remote: c });
+  accept(root2);
+  await r.tick({ root: root2, remote: c, sources: broken, now: T0 });
+  const late = await r.tick({ root: root2, remote: c, sources: broken, now: T0 + 61 * 60e3 });
+  assert.equal(late.sent, true, 'a board unreadable for an hour never sent its daily: ' + JSON.stringify(late));
+});
+
+test('#5532 rollup review 22: an unknown runner or provider is sent as no provider, never as a guess', () => {
+  const src = r.defaultSources();
+  assert.equal(src.providerOf('some-future-runner'), null);
+  assert.equal(src.providerOf('codex'), 'openai', 'CONTROL');
+  assert.equal(r.KNOWN_PROVIDERS.has('anthropic'), true);
+});

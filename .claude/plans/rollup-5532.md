@@ -328,3 +328,14 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
   account; the way back is accepting again); the pending-leave print source is checked by world, not company (a record
   that predates the print only).
 
+## Review 22 (blind, Opus)
+- FIXED: a snapshot that FAILED left no running agent seen, so the offline list sent every running agent as stopped,
+  and the company keeps the day's statuses from its first daily. The offline list is withheld on a failed snapshot, as
+  on unreadable pane lines. Test (with its control); mutation makes it fail.
+- FIXED: a partial read at the daily minute is held, not sent, for up to an hour of ticks (`partialSince`), and sent
+  partial only if the board stays unreadable that long. A whole read sends the daily at once. Test; mutation makes it
+  fail.
+- NIT taken: only known runners and providers map to a provider (create's maps fall back to claude/anthropic, a guess).
+- NITs kept: `at` defaults to the wall clock (tick always passes it); the pre-send re-check guards less than its comment
+  says while gather() has no await (the coordinator's refusal and refresh cover the real window).
+

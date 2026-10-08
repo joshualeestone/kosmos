@@ -205,6 +205,8 @@ function fit(body) {
 }
 
 /* The real sources, behind one seam so tests can hand plain records instead. */
+const KNOWN_RUNNERS = new Set(['claude', 'codex', 'gemini', 'grok', 'antigravity', 'muse']);
+const KNOWN_PROVIDERS = new Set(['anthropic', 'openai', 'google', 'xai', 'antigravity', 'meta']);
 function defaultSources() {
   const status = require('./status');
   const register = require('./register');
@@ -226,15 +228,17 @@ function defaultSources() {
        the one rule this whole feature rests on. Usage is withheld (an empty list, and usageWithheld says so) until a reader scoped to
        this world's own agents exists. */
     lastActiveOf: (sessionName) => { const r = activity.read(sessionName, 'working'); return r.found ? r.at : null; },
-    providerOf: (runner) => create.runnerProvider(runner),
+    /* Known runners and providers only (rollup review 22): create's maps fall back to claude/anthropic for anything else,
+       which would send a guess as the provider. */
+    providerOf: (runner) => (KNOWN_RUNNERS.has(runner) ? create.runnerProvider(runner) : null),
     /* The recorded runner, or NULL when neither the launch job nor the profile names one: create.recordedRunner falls
        back to claude, which would report a guess as the provider (rollup review 7). */
     recordedRunner: (sessionName) => {
       const fromJob = (create.readJob(sessionName) || {}).runner;
-      if (fromJob) return fromJob;
+      if (fromJob) return KNOWN_RUNNERS.has(fromJob) ? fromJob : null;
       let provider = null;
       try { provider = require('./store').readProfile(sessionName).provider; } catch { provider = null; }
-      return provider ? create.providerRunner(provider) : null;
+      return KNOWN_PROVIDERS.has(provider) ? create.providerRunner(provider) : null;
     },
   };
 }
@@ -252,7 +256,8 @@ async function gather(src) {
   const s = src || defaultSources();
   const out = { agents: [], projects: [], usageByDay: {}, lastActive: null, partial: false };
   let snap = { agents: [], counts: {} };
-  try { snap = s.snapshot() || snap; } catch { out.partial = true; }
+  let snapFailed = false;
+  try { snap = s.snapshot() || snap; } catch { out.partial = true; snapFailed = true; }
   let gone = new Set();
   try { gone = new Set(s.removed() || []); } catch { /* none hidden */ }
   const nameOf = new Map();   // sessionName -> the name the board shows
@@ -278,7 +283,9 @@ async function gather(src) {
     out.agents.push({ name: a.name, provider: runner ? s.providerOf(runner) : null, model: a.model || null, state: a.state });
     touch(a.sessionName);
   }
-  if (snap.counts && snap.counts.unreadableLines > 0) out.partial = true;
+  /* No offline list without a whole pane read (rollup review 22): a snapshot that FAILED leaves no running agent seen, so
+     every running agent would be listed as stopped. /api/status gives no list at all then; nor does this. */
+  if (snapFailed || (snap.counts && snap.counts.unreadableLines > 0)) out.partial = true;
   else {
     let known = { ok: false };
     try { known = s.survey() || known; } catch { /* withheld */ }
@@ -375,7 +382,7 @@ async function tick(opts) {
      "waiting after a failure" or "nothing due" until the clock caught up, days of silence with no signal. */
   /* And anything that is not a sane time at all (rollup review 19): a string, NaN, or a number outside [0, now] from a
      cut-off or hand-edited file would make toISOString() throw on every tick, silently and for good. */
-  for (const k of ['failAt', 'lastAt', 'dailyAt', 'printWaitAt']) if (k in st && !(Number.isFinite(st[k]) && st[k] >= 0 && st[k] <= now)) delete st[k];
+  for (const k of ['failAt', 'lastAt', 'dailyAt', 'printWaitAt', 'partialSince']) if (k in st && !(Number.isFinite(st[k]) && st[k] >= 0 && st[k] <= now)) delete st[k];
   if (st.failAt && now - st.failAt < RETRY_AFTER_FAIL_MS) return { sent: false, because: 'waiting after a failure' };
   /* The daily send has its own clock (rollup review 11): a change send carries no status or model, so it must not push
      the next daily (the only send that does) further out on a board that changes every day. Older state without it
@@ -389,6 +396,9 @@ async function tick(opts) {
   const sinceMidnight = now - Date.parse(utcDay(now) + 'T00:00:00Z');
   const offset = parseInt(crypto.createHash('sha256').update(String(rec.world)).digest('hex').slice(0, 8), 16) % (60 * 60 * 1000);
   const due = !dailyAt || now - dailyAt >= DAILY_MS || (utcDay(dailyAt) !== utcDay(now) && sinceMidnight >= offset);
+  /* The company takes the day's statuses from its FIRST daily (rollup review 22), so a partial read is not sent as the
+     daily at once: it is held for up to an hour of ticks, and sent partial only if the board stays unreadable that long. */
+  const PARTIAL_HOLD_MS = 60 * 60 * 1000;
   /* Nothing can go yet (not due, and too soon after the last send for a change): the board is not read at all
      (review 15). Reading it takes a pane capture per agent, synchronously, every five minutes. */
   if (!due && st.lastAt && now - st.lastAt < CHANGE_MIN_MS) return { sent: false, because: 'nothing due' };
@@ -405,6 +415,11 @@ async function tick(opts) {
      by itself. Until the enrollment records `usageConsented` (set by the consent follow-up when the accepted words name
      usage), any usage read is dropped and the body says usageWithheld. */
   if (accepted.usageConsented !== true) { g.usageByDay = {}; g.usageWithheld = true; }
+  if (due && g.partial) {
+    const since = Number.isFinite(st.partialSince) && st.partialSince <= now ? st.partialSince : null;
+    if (since === null) { writeState(root, Object.assign({}, st, { enrolledAs, partialSince: now })); return { sent: false, because: 'the board could not be read in full; waiting before the daily' }; }
+    if (now - since < PARTIAL_HOLD_MS) return { sent: false, because: 'the board could not be read in full; waiting before the daily' };
+  }
   // A partial read is never a change (review 5): only the daily send may carry an incomplete body.
   const sig = signature(build(Object.assign({ world: rec.world, nowMs: now }, g)));
   const changed = !g.partial && st.lastSig && sig !== st.lastSig;
@@ -461,7 +476,7 @@ function waitingForPrint(root) {
 }
 
 module.exports = {
-  waitingForPrint,
+  waitingForPrint, KNOWN_RUNNERS, KNOWN_PROVIDERS,
   DAILY_MS, CHANGE_MIN_MS, RETRY_AFTER_FAIL_MS, STATE_FILE, signature, tick,
   ROUTE, VERSION, NAME_MAX, AGENTS_MAX, PROJECTS_MAX, NAMES_MAX, USAGE_DAYS, USAGE_ROWS_PER_DAY, BODY_MAX,
   STATUS, statusWord, providerOfModel, build, gather, defaultSources,
