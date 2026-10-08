@@ -40,3 +40,12 @@ two blind spots from the card cannot come back.
 - [NIT] generator/quoted/computed keys skipped --> recorded; the old regex skipped them too.
 - Correction to "255 of 255": 260 engine files, 255 with a literal block; the other five are now named.
 Mutations re-proven red: `}` as regex start; no postfix rule; no dot rule; re-exports counted; pending by name only.
+
+## Review 2 (opus, blind): CONVERGED (nothing above NIT)
+Reviewer compared codeOnly to a real tokenizer (acorn) over all 774 engine/*.js files: 0 disagreements either way
+(no comment/string/regex word kept as code, no code token blanked). Folded:
+- [NIT] path.join keys would be backslashed on Windows --> FIXED (path.posix.join for keys).
+- [NIT] a regex at the start of a template ${} read as division --> FIXED (afterOpen) + fixture.
+- [NIT] the 33 seams excused by generic names (setClock, setBin, _lock) would hide a same-named orphan elsewhere --> FIXED: SEAMS_5548 keyed by file, plus a test that each is still exported there.
+Recorded for slice 2 (not folded): cross-file callers still count a comment mention (codeOnly could apply to the JS caller files); exports added by Object.defineProperty(module.exports, ...) (chat.js DRY_RUN, VERIFY_FORMAT; store.js loop) are invisible.
+Mutations re-proven red: no afterOpen (self-test); a seam keyed to the wrong file (guard + seam ratchet).
