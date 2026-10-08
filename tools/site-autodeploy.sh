@@ -52,10 +52,11 @@
 #   parked         the sha not retried until main moves (red once, then reported; see red_once)
 #   paused         made by a PERSON to stop the job (e.g. while a deliberate site rollback is live,
 #                  which the job would otherwise undo by redeploying main); remove it to resume
-#   retries        "<sha> <n>" retried ticks for that sha since its last success (a failure between them does not reset it), whatever the cause (exit 75, a
-#                  checksum mismatch, an unreadable live pointer, a pointer move not yet live, a failed
-#                  mirror copy): one count, one alarm, because each
-#                  means the same thing to the person reading the run, the site is not settling
+#   retries        "<sha> <n>" retried ticks for that sha since its last success (a failure between
+#                  them does not reset it), whatever the cause (exit 75, a checksum mismatch, an
+#                  unreadable live pointer, a pointer move not yet live, a failed mirror copy): one
+#                  count, one alarm, because each means the same thing to the person reading the run,
+#                  the site is not settling
 #   deploy.out     the last deploy's output (printed and logged when it ends, or when the tick is killed)
 #   reported.d/    one file per "<sha>-<cause>" already reported red, holding the time (see red_once);
 #                  removing a file makes that state red again on its next tick
@@ -95,8 +96,10 @@ park() { echo "$TARGET" > "$STATE/parked"; mark_reported parked; }
 # account that last edited the workflow's cron on EVERY failed scheduled run, so red-every-tick on a
 # 15-minute schedule would mean up to 96 emails a day to Josh's account. Each sha and cause has its OWN
 # record (reported.d/<sha>-<cause>, holding the time), so two causes taking turns never re-arm each
-# other. The records for the states with a clean "it is over" moment (wedged lock, fetch, origin/main)
-# are removed the moment that is seen, so a new incident after it is red at once. The retry-type causes
+# other. The records for the states with a clean "it is over" moment (wedged lock, origin/main) are
+# removed the moment that is seen, so a new incident after it is red at once. NOT the fetch: a network
+# that fails on some ticks and works on others would re-arm its own red after every good fetch (up to 48
+# emails a day for one problem), so its record lasts its day, or until a deploy succeeds. The retry-type causes
 # (pointer, unread, mirror, checksum, moving) are removed only when a deploy succeeds or main is found
 # already live: until then the sha has not shipped, so a second incident of the same cause on it within
 # the day is the SAME problem still open, and is reported green ("STILL FAILING") rather than emailed
@@ -223,7 +226,7 @@ case "$FETCH_MAX_S" in ''|*[!0-9]*|0*) FETCH_MAX_S=120 ;; esac
 [ "$FETCH_MAX_S" -le 300 ] || FETCH_MAX_S=300   # with the deploy's 1200 cap, 25 of the job's 30 minutes
 GIT_TERMINAL_PROMPT=0 grouped_timeout "$FETCH_MAX_S" git -C "$SITE" fetch -q origin main 2>>"$LOG" \
   || red_once fetch "FAIL: could not fetch site origin/main in $SITE (failed or timed out)"
-clear_reported fetch   # (TARGET is still empty here: the "none" records)
+# (The fetch record is not cleared here: see red_once's header on a network that comes and goes.)
 TARGET=$(git -C "$SITE" rev-parse --verify -q origin/main) || { TARGET=""; red_once noref "FAIL: no origin/main in $SITE"; }
 _t="$TARGET"; TARGET=""; clear_reported noref; TARGET="$_t"   # recovered: the "none" record goes
 LAST=$(cat "$STATE/last-deployed" 2>/dev/null || true)
@@ -482,7 +485,7 @@ fi
 tee -a "$LOG" < "$DOUT"; printed=1
 [ -n "$timedout" ] && say "the deploy ran past its ${DEPLOY_MAX_S}s limit and was stopped (exit 124, a failure)"
 if [ "$rc" = 0 ]; then
-  echo "$TARGET" > "$STATE/last-deployed"; accounted=1; rm -f "$STATE/failures" "$STATE/retries" "$STATE/parked"; rm -rf "$REPORTED"
+  accounted=1; echo "$TARGET" > "$STATE/last-deployed"; rm -f "$STATE/failures" "$STATE/retries" "$STATE/parked"; rm -rf "$REPORTED"
   echo "$src_n" > "$STATE/mirror-count"
   say "deployed site main ${TARGET:0:9}"
   exit 0
