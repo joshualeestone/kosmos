@@ -36,6 +36,12 @@ When a Kosmos-run agent is stuck on the **same terminal error repeating** — an
 - If the board card is a rendered surface change → a `docs/browser-checks/` assertion or a `Browser-check:` trailer (repo convention #4).
 - Full local `tools/run-tests.sh` (unset KOSMOS_AGENT_TOKEN) + `/challenge-loop` to convergence, then `/create-pr`.
 
-## To confirm at implementation start
-- The cheapest place to read a per-agent terminal-error duration on the 5s status path without a second derivation of the state (reuse status.js's existing classification; do not re-derive it).
-- Whether `rate_limited` has a usable "first seen" anchor or needs one recorded (like crashloop's run files).
+## Implementation approach (grounded on origin/main)
+- **Signal is already on the snapshot:** each agent object `a` carries `a.state` (e.g. `a.state === 'connection_lost'` drives the `reconnect` field; `auth_failed`/`rate_limited` are the terminal values from status.js's classification). So slice C reads the EXISTING classified state — it does not re-derive it (two-derivations caution satisfied). Plug-in point: beside `crashLoop: a.isNamedOurs ? crashloop.read(...)` (server.js ~5330) add `stuckError: a.isNamedOurs ? stuckterminal.read(STUCK_BOOK, a.sessionName, a.state, now) : null`.
+- **"First seen stuck" anchor = in-memory, not disk.** `a.state` is only the CURRENT state, so I must record WHEN the agent entered it. Use a server-side `Map` (`STUCK_BOOK`, mirroring the existing `CONNLOST_BOOK` pattern) updated each poll: if `a.state` is terminal and equals the recorded one, keep the anchor; if it changed (or left the terminal set), reset/clear. No per-poll disk write (cheaper than crashloop's file read, appropriate for the 5s path).
+- **Detector `engine/stuckterminal.js` (pure, unit-tested):** `TERMINAL_STATES = ['auth_failed','rate_limited']`, `STUCK_MS` (conservative), `assess(state, anchor, now)` → `{ stuck, state, sinceAt }`; `read(book, key, state, now)` updates the anchor and returns the assessment; `forget(book, key)` for lifecycle. No `store.ROOT` I/O, so no require-time root freeze to worry about (convention #2 N/A here).
+- **One push per episode + board field + copy + precedence + lifecycle:** as in the Design section above (sweep beside `crashloop.tellLoops` ~21229; `id:'stuckterminal:'+key+':'+sinceAt`; `forget` on remove/create/delete-leftover; never masks the agent's own needs-you; clears on recovery).
+
+## Still to confirm at implementation start
+- Whether `rate_limited` should bound at a longer `STUCK_MS` than `auth_failed` (a rate limit legitimately persists a while; an expired login does not self-heal at all). Likely yes — two thresholds.
+- That `a.state`'s exact terminal spellings match status.js `STATE` constants (`auth_failed`, `rate_limited`) at the snapshot layer, not a remapped display value.
