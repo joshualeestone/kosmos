@@ -652,7 +652,7 @@ function boardCredentialPaths(deps = {}) {
   const sendertoken = require('./sendertoken');
   const roots = tokenOnlyTokenRoots(dataRoot, home, deps);
   const listFile = sendertoken.tokenOnlyFile();
-  const files = [...roots.map((r) => path.join(r, tokenFile)), listFile];
+  const files = [...roots.map((r) => path.join(r, tokenFile)), listFile, ...roots.map((r) => path.join(r, 'undo.json'))];   // undo's switch (review 19)
   const dotNamed = (dir, prefix) => { try { return fs.readdirSync(dir).filter((n) => n.startsWith(prefix)).map((n) => path.join(dir, n)); } catch { return []; } };
   for (const r of roots) files.push(...dotNamed(r, '.' + tokenFile + '.'));
   let regDir = null;

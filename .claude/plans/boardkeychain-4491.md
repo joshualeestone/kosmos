@@ -210,3 +210,4 @@ Eighteenth review (sonnet), no security hole; fixed: an existing settings.json t
 copy (settings.json.unreadable-<time>) and the board log says so before the guard is written. Stated plainly: a
 token-only agent's SHELL can no longer create anything in its own .claude (skills, plans, hooks), because the sandbox
 write-denies the whole folder; that is deliberate (the folder is its guard's). Reviewer names removed from code comments.
+Nineteenth review (opus), no blocker; fixed: move-aside re-checks the folder right before the move (as restore does before its rename), tested by a swap at the move itself; undo's switch file is in the protected set.

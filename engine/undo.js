@@ -456,6 +456,8 @@ function apply(projectId, task, paths, { now = Date.now() } = {}) {
       const keepAs = path.join(savedIn, sha(Buffer.from(f.path)).slice(0, 16) + '-' + path.basename(f.path));
       if (f.action === 'move-aside') {
         if (cur.kind !== 'file') { skipped.push({ path: f.path, why: 'gone' }); continue; }
+        beforeWrite(f.path, 'move');                       // tests only
+        folderStillSafe(f.path, rec, protectedSet);       // again right before the move (review 19), as restore does
         moveAside(f.path, keepAs);                         // the created file, moved aside: never deleted
       } else {
         /* The kept copy must still be what was kept, and the current version must be saved whole, before anything is
