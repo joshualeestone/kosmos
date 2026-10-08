@@ -1,0 +1,33 @@
+# reachable-5548: the #265 guard reads every engine module (kosmos#5548, slice 1 of 2)
+
+## Finished means (slice 1)
+engine.reachable.test.js reads the exports of every engine module that has a `module.exports = {` object (was 69
+of 253; now 255 of 255 on 3d16f16de), counts a same-file caller only in code, and every export it newly sees is
+either excused by name with a reason or on a pending list that can only shrink. A self-test fixture proves the
+two blind spots from the card cannot come back.
+
+## Measured (origin/main 3d16f16de)
+- Old regex `module\.exports = \{([\s\S]*?)\n\};` read 71 of 255 modules (1,782 names, some of them comment
+  words: "and", "rather", "for", "synchronously", and the contents of nested objects such as communitysend _paths).
+- New brace-matched read over code: 255 of 255 modules, 3,526 names. Sanity sweep: across 1,524 .js files the
+  lexer never blanks a top-level `function`/`const` line except code inside template strings (test stubs).
+- Newly visible orphans: 67. 33 are test seams by name and definition (injector or reset whose default restores
+  the real one) -> EXCUSED with file. 34 are not seams by name -> PENDING_5548 for slice 2.
+- No existing EXCUSED entry went unconsulted.
+
+## Decided
+- Slice it (the card asked for a count first). Slice 1 arms the guard for every NEW export now; slice 2 triages
+  the 34 (real caller / excuse with reason / delete). Rejected: excusing all 67 with one blanket reason (hides
+  real #265 candidates such as projects.setDescription and tasks.parentOf/childrenOf/subtaskProgress); landing
+  nothing until all 34 are triaged (leaves the guard blind on 184 modules meanwhile).
+- Parse, do not require: engine modules are mostly require-safe, but loading 255 modules in a reachability test
+  starts timers and reads the store; a lexer keeps the test pure. Weakest premise: the hand lexer's regex-literal
+  rule (a `/` after an operator or a keyword such as return starts a regex). The 255/255 read plus the blanking
+  sweep is the evidence; a module it misreads now fails "the guard reads every engine exports block" loudly.
+- Cross-file callers are still a plain mention anywhere (unchanged): stripping comments in web/index.html or
+  shell files is out of this card's scope and would widen the wave.
+
+## Checks
+- engine.reachable.test.js: 4 tests (guard, reads-every-block, pending-only-shrinks, self-test).
+- Mutations, each red: drop a pending name (guard); list a non-orphan as pending (ratchet); count comments again
+  (ratchet + self-test); restore the old regex (reads-every-block + ratchet + self-test).
