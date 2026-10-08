@@ -15,9 +15,9 @@ safe beside a cut, not building a new deploy.
 1. **deploy-site.sh: refuse when a live pointer moved mid-run.** The existing guards compare the
    checkout with live at the START. A release cut that publishes while this run fetches and
    builds (minutes) would be overwritten by the older pointers. `live_pointer_snapshot` reads the
-   four live pointers (latest, latest-staging, latest-win, latest-win-staging) right after
-   `check_staging_not_stale` and again right before `vercel deploy`; any change, or an incomplete
-   read, refuses with nothing deployed. Test: test-deploy-site-promote.sh case 28 (red with the
+   four live pointers (latest, latest-staging, latest-win, latest-win-staging) before any
+   start-of-run comparison with live, and again right before `vercel deploy`; any change, or an
+   incomplete read, refuses with nothing deployed, exiting 75 (try again later). Test: test-deploy-site-promote.sh case 28 (red with the
    comparison disabled).
 2. **tools/site-autodeploy.sh: one tick of an automatic deploy.** If site origin/main moved past
    the last deployed sha, fast-forward the job's OWN site checkout and run deploy-site.sh

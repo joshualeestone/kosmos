@@ -57,6 +57,7 @@ rel="${url#"$HOST_URL"/}"
 served_file="$LIVE_DIR/$rel"
 # #5589: an edge that cannot be reached for one file: <name>.down answers like a failed connection
 # (curl prints 000 for -w and exits 7). <name>.dropafter is served once, then goes down.
+case "$rel" in *must-404.bin) if [ -n "${CONTROL_DOWN:-}" ]; then [ -n "$wfmt" ] && printf '000'; exit 7; fi ;; esac
 if [ -f "$served_file.down" ]; then
   if [ -n "$wfmt" ]; then printf '000'; fi
   exit 7
@@ -476,21 +477,21 @@ run_deploy "$S28" "$L28" --promote
   && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L28/dist/latest.json")" = "$OLD" ]; } \
   && pass "#5589: a live pointer moved mid-run (a cut published) is refused before the deploy, LIVE untouched" \
   || bad "#5589 mid-run pointer move (rc=$RC) out=$out"
-# 31) #5589: a pointer that is absent live (404) is compared by status only, so a 404 page whose body
+# 29) #5589: a pointer that is absent live (404) is compared by status only, so a 404 page whose body
 #     differs per request does not read as a moved pointer. latest-win-staging.json is absent in this
 #     scenario, so both snapshots see a 404 with a different body.
-read -r S31 L31 <<<"$(make_scenario)"
-out="$(VARY_404=1 PATH="$BIN:$PATH" LIVE_DIR="$L31" HOST_URL="$HOSTURL" KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$S31" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" bash "$DEPLOY" --promote 2>&1)"; RC=$?
+read -r SA LA <<<"$(make_scenario)"
+out="$(VARY_404=1 PATH="$BIN:$PATH" LIVE_DIR="$LA" HOST_URL="$HOSTURL" KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$SA" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" bash "$DEPLOY" --promote 2>&1)"; RC=$?
 [ "$RC" = 0 ] && pass "#5589: a 404 whose body varies per request is not a moved pointer (the deploy goes ahead)" || bad "#5589 varying 404 body refused (rc=$RC) out=$out"
-# 29) #5589: a live pointer that cannot be read at the START refuses at once, before any fetch.
-read -r S29 L29 <<<"$(make_scenario)"
-: > "$L29/dist/latest-win-staging.json.down"
-run_deploy "$S29" "$L29" --promote
+# 30) #5589: a live pointer that cannot be read at the START refuses at once, before any fetch.
+read -r S30 L30x <<<"$(make_scenario)"
+: > "$L30x/dist/latest-win-staging.json.down"
+run_deploy "$S30" "$L30x" --promote
 { [ "$RC" = 75 ] && has "$out" "could not read the live pointers at the start" && ! has "$out" "fetched and verified" \
-  && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L29/dist/latest.json")" = "$OLD" ]; } \
+  && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L30x/dist/latest.json")" = "$OLD" ]; } \
   && pass "#5589: an unreadable live pointer at the start refuses before any fetch, LIVE untouched" \
   || bad "#5589 unreadable at start (rc=$RC) out=$out"
-# 30) #5589: a live pointer readable at the start but not right before the deploy: refused, nothing deployed.
+# 31) #5589: a live pointer readable at the start but not right before the deploy: refused, nothing deployed.
 read -r S30 L30 <<<"$(make_scenario)"
 printf '{"version":"9.9.9"}\n' > "$L30/dist/latest-win-staging.json"; : > "$L30/dist/latest-win-staging.json.dropafter"
 run_deploy "$S30" "$L30" --promote
@@ -498,5 +499,17 @@ run_deploy "$S30" "$L30" --promote
   && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L30/dist/latest.json")" = "$OLD" ]; } \
   && pass "#5589: a live pointer unreadable at the re-read refuses with nothing deployed" \
   || bad "#5589 unreadable at re-read (rc=$RC) out=$out"
+# 32) #5589: the served-verify negative control could not RUN (a transport blip): exit 75, nothing deployed.
+read -r S32 L32 <<<"$(make_scenario)"
+out="$(CONTROL_DOWN=1 PATH="$BIN:$PATH" LIVE_DIR="$L32" HOST_URL="$HOSTURL" KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$S32" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" bash "$DEPLOY" --promote 2>&1)"; RC=$?
+{ [ "$RC" = 75 ] && has "$out" "could not RUN against" \
+  && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L32/dist/latest.json")" = "$OLD" ]; } \
+  && pass "#5589: a negative control that could not run exits 75 (try again), nothing deployed" || bad "#5589 control blip (rc=$RC) out=$out"
+# 33) #5589: latest.json readable for the snapshot but not for the read after it: exit 75.
+read -r S33 L33 <<<"$(make_scenario)"
+: > "$L33/dist/latest.json.dropafter"
+run_deploy "$S33" "$L33" --promote
+{ [ "$RC" = 75 ] && has "$out" "cannot read $HOSTURL/dist/latest.json"; } \
+  && pass "#5589: an unreadable latest.json exits 75 (try again)" || bad "#5589 latest.json blip (rc=$RC) out=$out"
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi
