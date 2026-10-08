@@ -898,9 +898,12 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
         },
       };
     }
-    const tmp = `${file}.${process.pid}.new`;
-    fs.writeFileSync(tmp, JSON.stringify(next, null, 2) + '\n', 'utf8');
-    fs.renameSync(tmp, file);
+    const text = JSON.stringify(next, null, 2) + '\n';
+    if (text !== raw) {   // review 20: an unchanged guard is not rewritten at every board start
+      const tmp = `${file}.${process.pid}.new`;
+      fs.writeFileSync(tmp, text, 'utf8');
+      fs.renameSync(tmp, file);
+    }
     cleanLocalSettings(path.join(settingsDir, 'settings.local.json'));
     return { ok: true };
   } catch (err) {
