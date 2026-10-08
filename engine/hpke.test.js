@@ -108,6 +108,7 @@ test('#5535 open returns null, never throws, on every kind of wrong input (one s
     'one ciphertext bit flipped': () => hpke.hpkeOpen(r.sk, enc, info, aad, flip(ct, 0)),
     'one tag bit flipped': () => hpke.hpkeOpen(r.sk, enc, info, aad, flip(ct, ct.length - 1)),
     'one enc bit flipped': () => hpke.hpkeOpen(r.sk, flip(enc, 5), info, aad, ct),
+    'enc with bit 255 set (pinned: open does not normalize enc; kem_context binds the raw bytes)': () => { const e = Buffer.from(enc); e[31] |= 0x80; return hpke.hpkeOpen(r.sk, e, info, aad, ct); },
     'a truncated ciphertext (still over the tag length, so it reaches the AEAD)': () => hpke.hpkeOpen(r.sk, enc, info, aad, ct.subarray(0, ct.length - 1)),
     'a ciphertext shorter than the tag (stopped by the length check)': () => hpke.hpkeOpen(r.sk, enc, info, aad, ct.subarray(0, 10)),
     'a short enc': () => hpke.hpkeOpen(r.sk, enc.subarray(0, 31), info, aad, ct),
@@ -139,10 +140,16 @@ test('#5535 seal refuses a non-canonical public key (it would seal a message nob
   assert.throws(() => hpke.hpkeSeal(p, info, aad, Buffer.from('x')), /not a canonical/, 'u equal to p');
   const pPlus1 = Buffer.from(p); pPlus1[0] += 1;
   assert.throws(() => hpke.hpkeSeal(pPlus1, info, aad, Buffer.from('x')), /not a canonical/, 'u = p + 1');
+  const top = Buffer.alloc(32, 0xff); top[31] = 0x7f;  // 2^255 - 1: bit 255 clear, so ONLY the compare with p can refuse it
+  assert.throws(() => hpke.hpkeSeal(top, info, aad, Buffer.from('x')), /not a canonical/, 'u = 2^255 - 1 (compare-only refusal)');
+  const pMinus2 = Buffer.from(p); pMinus2[0] -= 2;  // the accepting edge: an over-strict compare would refuse it
+  assert.doesNotThrow(() => hpke.hpkeSeal(pMinus2, info, aad, Buffer.from('x')), 'u = p - 2 is canonical and seals');
   const { enc, ct } = hpke.hpkeSeal(r.pk, info, aad, Buffer.from('x'));
   assert.equal(hpke.hpkeOpen(r.sk, enc, info, aad, ct).toString(), 'x', 'CONTROL: the canonical key seals and opens');
-  for (let i = 0; i < 64; i++) {  // every generated key is canonical, so hpkeKeyPair output is always sealable
-    const k = hpke.hpkeKeyPair(); assert.equal(k.pk[31] & 0x80, 0);
+  for (let i = 0; i < 64; i++) {  // generated keys pass the check AND round-trip
+    const k = hpke.hpkeKeyPair();
+    const m = hpke.hpkeSeal(k.pk, info, aad, Buffer.from('y'));
+    assert.equal(hpke.hpkeOpen(k.sk, m.enc, info, aad, m.ct).toString(), 'y', `generated key ${i} did not round-trip`);
   }
 });
 

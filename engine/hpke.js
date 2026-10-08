@@ -134,7 +134,9 @@ function hpkeVectorSeamsForTests() {
 /* A public key must be in canonical form. X25519 itself ignores bit 255 and reduces mod p, but RFC 9180
    puts the RAW pkR bytes into kem_context while the recipient rebuilds them from its own key in canonical
    form, so a non-canonical pkR seals fine and can NEVER be opened: a backup that writes and cannot be
-   restored. Refused at seal time instead (review round 2 measured the silent failure). */
+   restored. Refused at seal time instead (review round 2 measured the silent failure). This is a DELIBERATE
+   local departure from RFC 7748 section 5, which says X25519 implementations MUST accept non-canonical u: a
+   backup key that cannot round-trip is worse than a loud error at the caller. Open is unchanged. */
 function canonicalPublicKey(pk) {
   if (pk[31] & 0x80) return false;
   for (let i = 31; i >= 0; i--) {  // little-endian compare with p: true only when pk < p
