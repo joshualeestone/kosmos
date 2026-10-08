@@ -375,3 +375,22 @@ test('review 7: an unreadable keys.json makes the person\'s Delete a "try again"
   writeJson(cs._paths.keysFile(), { ava: { apiKey: 'kc_key_1', remoteId: 'r-1', name: 'ava' } });
   assert.equal(cs.requestDelete(p.id).ok, true, 'CONTROL: readable, and the same registration, it is accepted');
 });
+
+test('review 8: a comment already marked for removal but unconfirmed or untraceable is not "taken back"', () => {
+  const lost = comment('ava', 'Out when the person pressed Delete.');
+  const gone = comment('ava', 'Sent by a registration since replaced.');
+  writeJson(cs._paths.commentsSentFile(), {
+    [lost.id]: { state: 'pending', attempted: true, agent: 'ava', post: POST },
+    [gone.id]: { state: 'sent', agent: 'ava', post: POST, remoteId: crypto.randomUUID(), agentId: 'r-old', sentAt: '2026-10-01T00:00:00.000Z' },
+  });
+  writeJson(cs._paths.commentDeletesFile(), { [lost.id]: '2026-10-08T00:00:00.000Z', [gone.id]: '2026-10-08T00:00:00.000Z' });
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'kc_key_new', remoteId: 'r-new', name: 'ava' } });
+  const r1 = cs.withdrawFor('ava', 'comment', lost.id);
+  assert.equal(r1.notEligible, true, JSON.stringify(r1));
+  assert.match(r1.because, /never learned whether this comment arrived/);
+  const r2 = cs.withdrawFor('ava', 'comment', gone.id);
+  assert.equal(r2.notEligible, true, JSON.stringify(r2));
+  assert.match(r2.because, /no way to find this comment again/);
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'kc_key_old', remoteId: 'r-old', name: 'ava' } });
+  assert.equal(cs.withdrawFor('ava', 'comment', gone.id).ok, true, 'CONTROL: with the registration that sent it, it is taken back');
+});

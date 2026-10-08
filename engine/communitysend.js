@@ -2069,6 +2069,11 @@ function withdrawFor(agentId, kind, id) {
     if (crec && crec.state === 'deleted') return { ok: true, state: 'deleted' };
     // Review 3: already held back (a retry after the first take-back, or marked not to go) is done too, as for a post.
     if (crec && (crec.state === 'withheld' || crec.state === 'not_sent')) return { ok: true, state: 'withheld' };
+    // Review 8: requestCommentDelete's own refusals apply only while no removal is recorded; one already recorded (the
+    // person's Delete, racing a send) skips them. A comment that can never be found again is refused here either way.
+    if (crec && crec.state === 'unconfirmed') return { ok: false, notEligible: true, because: 'Kosmos never learned whether this comment arrived, so it cannot take it back' };
+    if (crec && crec.state === 'sent' && crec.traceable === null) return { ok: false, retryable: true, because: 'Kosmos could not read its community registrations just now' };
+    if (crec && crec.state === 'sent' && crec.traceable === false) return { ok: false, notEligible: true, because: 'Kosmos has no way to find this comment again, so it cannot take it back' };
     return requestCommentDelete(local);
   }
   // Review 1: the post removal (#4287) records a removal in every state, for the person's list. An agent is told plainly,
