@@ -44,12 +44,14 @@
 #   last-deployed  the site sha this job last published (or found already live)
 #   last-failure   "<sha> rc=<n> <time>" of the last failed attempt (a record, read by nothing)
 #   failures       "<sha> <n>" consecutive failed attempts for that sha
-#   parked         the sha not retried until main moves (every tick on it is red until then)
+#   parked         the sha not retried until main moves (red once, then reported; see red_once)
 #   paused         made by a PERSON to stop the job (e.g. while a deliberate site rollback is live,
 #                  which the job would otherwise undo by redeploying main); remove it to resume
 #   retries        "<sha> <n>" consecutive retried ticks for that sha, whatever the cause (exit 75, a
 #                  checksum mismatch, an unreadable live pointer): one count, one alarm, because each
 #                  means the same thing to the person reading the run, the site is not settling
+#   reported.d/    one file per "<sha>-<cause>" already reported red, holding the time (see red_once);
+#                  removing a file makes that state red again on its next tick
 #   mirror-count   how many versioned tarballs the last successful deploy mirrored (the floor the
 #                  next mirror is held to; see MIRROR_DROP_MAX). A real prune of more than
 #                  MIRROR_DROP_MAX versions between two website deploys trips it ON PURPOSE: the tick
@@ -75,23 +77,29 @@ LOG="$STATE/log"
 now() { date '+%Y-%m-%d %H:%M:%S %Z'; }
 # Everything a tick says goes to the log AND to stdout, so a run in GitHub Actions shows why it did what it did.
 say() { printf '%s %s\n' "$(now)" "$*" | tee -a "$LOG"; }
-park() { echo "$TARGET" > "$STATE/parked"; printf '%s parked|%s\n' "$TARGET" "$(date +%s)" > "$STATE/reported"; }
+park() { echo "$TARGET" > "$STATE/parked"; mark_reported parked; }
 # A state that would be red on every tick (a parked sha, a retry alarm, a wedged lock, an unreachable
-# origin) goes red ONCE per sha and cause per day, then each further tick says so and stays green.
-# GitHub emails the account that last edited the workflow's cron on EVERY failed scheduled run, so
-# red-every-tick on a 15-minute schedule would mean up to 96 emails a day to Josh's account; a new
-# sha, a new cause, or a day passing makes it red again. (A state CHANGE, like a first failure or the
-# failure that parks, is always red; park() records itself as reported so its next tick is not a
-# second email.)
+# origin) goes red ONCE per sha and cause per day, then each further tick prints "STILL FAILING
+# (reported)" and stays green. GitHub emails the account that last edited the workflow's cron on EVERY
+# failed scheduled run, so red-every-tick on a 15-minute schedule would mean up to 96 emails a day to
+# Josh's account. Each sha and cause has its OWN record (reported.d/<sha>-<cause>, holding the time),
+# so two causes taking turns never re-arm each other. A record is removed the moment its cause is seen
+# to recover (the fetch works, the lock is taken), and every record goes when a deploy succeeds or main
+# is found already live, so a NEW incident after a recovery is red at once. A state CHANGE (a first
+# failure, the failure that parks, a checkout fault, an emptied dist) is always red; park() records
+# itself, so its next tick is not a second email.
+REPORTED="$STATE/reported.d"
+mark_reported() { mkdir -p "$REPORTED" && date +%s > "$REPORTED/${TARGET:-none}-$1"; }
+clear_reported() { rm -f "$REPORTED/${TARGET:-none}-$1"; }
 red_once() {  # <cause> <message>
-  local key="${TARGET:-none} $1" line at
-  line=$(cat "$STATE/reported" 2>/dev/null || true); at=${line##*|}
+  local f="$REPORTED/${TARGET:-none}-$1" at
+  at=$(cat "$f" 2>/dev/null || true)
   case "$at" in ''|*[!0-9]*) at=0 ;; esac
-  if [ "${line%|*}" = "$key" ] && [ $(( $(date +%s) - at )) -lt 86400 ]; then
-    say "$2 (red already reported at $(date -r "$at" '+%Y-%m-%d %H:%M'); green until it changes or a day passes)"
+  if [ "$at" != 0 ] && [ $(( $(date +%s) - at )) -lt 86400 ]; then
+    say "STILL FAILING (reported): ${2#FAIL: } (red already reported at $(date -r "$at" '+%Y-%m-%d %H:%M'); green until it recovers, changes, or a day passes)"
     exit 0
   fi
-  printf '%s|%s\n' "$key" "$(date +%s)" > "$STATE/reported"
+  mark_reported "$1"
   say "$2"
   exit 1
 }
@@ -102,7 +110,7 @@ count_for() {
   case "$cn" in ''|*[!0-9]*) cn=0 ;; esac
   if [ "$csha" = "$TARGET" ]; then echo "$cn"; else echo 0; fi
 }
-RETRY_ALARM=4   # consecutive retried ticks for one sha from which every run goes red
+RETRY_ALARM=4   # consecutive retried ticks for one sha at which the state is reported red (red_once)
 
 [ -n "$SITE" ] || { echo "site-autodeploy: set KOSMOS_AUTODEPLOY_SITE to this job's own site checkout" >&2; exit 2; }
 mkdir -p "$STATE" || { echo "site-autodeploy: cannot make $STATE" >&2; exit 2; }
@@ -128,18 +136,20 @@ if ! mkdir "$LOCK" 2>/dev/null; then
   rm -rf "$LOCK"; mkdir "$LOCK" 2>/dev/null || exit 0
 fi
 echo $$ > "$LOCK/pid"
+TARGET=""; clear_reported wedged   # the lock is ours: a wedged-lock report no longer describes anything
 trap '[ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"' EXIT   # only a lock this tick holds
 # The heartbeat is written only by a tick that holds the lock, so a wedged lock shows as a stale one.
 now > "$STATE/heartbeat"
 if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 5000000 ]; then tail -n 5000 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"; fi
 
 git -C "$SITE" fetch -q origin main 2>>"$LOG" || red_once fetch "FAIL: could not fetch site origin/main in $SITE"
-TARGET=$(git -C "$SITE" rev-parse --verify -q origin/main) || { say "FAIL: no origin/main in $SITE"; exit 1; }
+clear_reported fetch   # (TARGET is still empty here: the "none" records)
+TARGET=$(git -C "$SITE" rev-parse --verify -q origin/main) || { TARGET=""; red_once noref "FAIL: no origin/main in $SITE"; }
 LAST=$(cat "$STATE/last-deployed" 2>/dev/null || true)
 # Paused by a person (a deliberate site rollback, say): nothing is deployed until the file is removed.
 [ -e "$STATE/paused" ] && { say "paused: $STATE/paused exists; nothing is deployed until it is removed"; exit 0; }
-# Parked: not deployed again, and the run stays RED every tick until main moves or someone removes
-# the file, so a finding is not covered over by green runs.
+# Parked: not deployed again; reported red once (red_once), then each tick says so, until main moves
+# or someone removes the file.
 [ "$(cat "$STATE/parked" 2>/dev/null || true)" = "$TARGET" ] && red_once parked "FAIL (parked): site main ${TARGET:0:9} ($(cut -d' ' -f2 "$STATE/last-failure" 2>/dev/null | sed 's/^rc=//')); waiting for the next merge (or remove $STATE/parked)"
 
 # What the live site serves: the export marker deploy-site.sh and release.sh ship names the site commit
@@ -185,7 +195,7 @@ fi
 # own last attempt at it failed: deploy-site.sh can fail AFTER vercel deploy (its served checks), and
 # that deploy's marker names the commit too, so "served" would wrongly clear the failure.
 if [ "$served" = "$TARGET" ] && [ "$(count_for "$STATE/failures")" = 0 ]; then
-  echo "$TARGET" > "$STATE/last-deployed"; rm -f "$STATE/failures" "$STATE/retries" "$STATE/parked"
+  echo "$TARGET" > "$STATE/last-deployed"; rm -f "$STATE/failures" "$STATE/retries" "$STATE/parked"; rm -rf "$REPORTED"
   say "already live: $HOST serves site main ${TARGET:0:9}; nothing to deploy"
   exit 0
 fi
@@ -243,7 +253,7 @@ for _p in latest.json latest-staging.json; do
     200) [ "$_c" = "$_l" ] && continue
          # Retried, not parked: a promote pushes its pointer commit and THEN deploys it, so a tick in
          # between sees exactly this, and the next tick after the deploy finds the commit already live.
-         # An aborted cut never catches up, and goes red from the RETRY_ALARM-th tick until it is resolved.
+         # An aborted cut never catches up: reported red at the RETRY_ALARM-th tick (red_once), then said each tick.
          n=$(( $(count_for "$STATE/retries") + 1 )); echo "$TARGET $n" > "$STATE/retries"
          printf '%s rc=%s %s\n' "$TARGET" pointer "$(now)" > "$STATE/last-failure"
          _m="site main's dist/$_p is not what live serves, a release pointer move a cut or promote has not published (a website deploy never publishes one); $n in a row"
@@ -302,15 +312,15 @@ else
   KOSMOS_SITE="$SITE" bash "$REPO/tools/deploy-site.sh" --publish 2>&1 | tee -a "$LOG"; rc=${PIPESTATUS[0]}
 fi
 if [ "$rc" = 0 ]; then
-  echo "$TARGET" > "$STATE/last-deployed"; rm -f "$STATE/failures" "$STATE/retries" "$STATE/parked"
+  echo "$TARGET" > "$STATE/last-deployed"; rm -f "$STATE/failures" "$STATE/retries" "$STATE/parked"; rm -rf "$REPORTED"
   echo "$src_n" > "$STATE/mirror-count"
   say "deployed site main ${TARGET:0:9}"
   exit 0
 fi
 # 75: deploy-site.sh found the live site moving (a cut or a staging publish landed mid-run) or could
 # not read it. Not a finding about this sha, so it is NOT parked: the next tick tries again.
-# From the RETRY_ALARM-th in a row for the same sha, every such tick exits 1, so the runs stay red
-# while it lasts (a host that stays unreachable would otherwise read green forever); it keeps retrying.
+# From the RETRY_ALARM-th in a row for the same sha the state is reported red once (red_once), so a
+# host that stays unreachable never reads green with no report; it keeps retrying.
 if [ "$rc" = 75 ]; then
   n=$(( $(count_for "$STATE/retries") + 1 )); echo "$TARGET $n" > "$STATE/retries"
   [ "$n" -ge "$RETRY_ALARM" ] && red_once moving "FAIL: ${TARGET:0:9} has hit a moving or unreadable live site $n ticks in a row; still retrying"
