@@ -96,6 +96,7 @@ function planCleanup(entries, liveKeys, cutoffMs, safeKey) {
     if (e.isSymlink) {
       const linkKey = e.name.endsWith('.json') ? e.name.slice(0, -'.json'.length) : null;
       if (linkKey !== null && liveKeys.has(canon(linkKey))) keep.push({ name: e.name, why: 'a link named for a live agent: left alone' });
+      else if (e.targetExists === false && e.targetParentExists !== true) keep.push({ name: e.name, why: 'a link pointing at nothing, but its target\'s folder is missing or unreadable too (an unmounted drive?): left alone' });
       else if (e.targetExists === false && (e.name.endsWith('.json') || TEMP_SHAPE.test(e.name))) remove.push({ name: e.name, kind: 'symlink', why: 'a link pointing at nothing' + (e.linkTarget ? ' (it pointed at ' + e.linkTarget + '; check that is not an unmounted volume)' : '') });
       else if (e.targetExists === false) keep.push({ name: e.name, why: 'a link pointing at nothing, but not a name the store writes: left alone' });
       else if (e.targetExists === true) keep.push({ name: e.name, why: 'a link to something that exists: not ours to judge' });
@@ -141,6 +142,14 @@ function listEntries(dir) {
     if (!isSymlink && !st.isFile()) { out.push({ name, isSymlink: false, mtimeMs: null, other: true }); continue; }
     const entry = { name, isSymlink, targetExists, mtimeMs: st.mtimeMs };
     if (isSymlink) { try { entry.linkTarget = fs.readlinkSync(p); } catch { entry.linkTarget = null; } }
+    // a dangling link's target FOLDER: there (the file is really gone), missing (an unmounted drive?), or unknown
+    if (isSymlink && targetExists === false) {
+      entry.targetParentExists = null;
+      if (entry.linkTarget) {
+        try { fs.statSync(path.dirname(path.resolve(dir, entry.linkTarget))); entry.targetParentExists = true; }
+        catch (e) { entry.targetParentExists = e && e.code === 'ENOENT' ? false : null; }
+      }
+    }
     if (!isSymlink && name.endsWith('.json')) entry.tokens = tokenInfo(p);
     out.push(entry);
   }
@@ -314,6 +323,8 @@ function jobKeepNames(platform, tokenKeys, reader) {
   if (platform === 'darwin') return [];
   if (!reader || reader.known === false) return null;
   if (platform === 'win32') return reader.fleet ? [...reader.fleet] : null;
+  // a unit folder that cannot be listed stops the tool (presence() alone reads EACCES as "no unit")
+  if (platform === 'linux' && reader.dirReadable && reader.dirReadable() === false) return null;
   if (platform === 'linux') return tokenKeys.filter((k) => { try { return reader.of(k) === true; } catch { return true; } });
   return [];
 }
@@ -402,7 +413,13 @@ async function main(argv, { armFromCommandLine = false } = {}) {
     }).filter(Boolean) : [];
   } catch (e) { console.error('Stopped, nothing changed: ' + e.message + '.'); return 2; }
   // Windows Scheduled Tasks and Linux systemd units, read the way the board's own survey reads them (register.jobReader)
-  const otherJobs = jobKeepNames(process.platform, tokenKeys, require('../engine/register').jobReader(process.platform));
+  const jobReader = require('../engine/register').jobReader(process.platform);
+  if (process.platform === 'linux') {
+    jobReader.dirReadable = () => {
+      try { fs.readdirSync(require('../engine/linuxjob').systemdDir()); return true; } catch (e) { return !!e && e.code === 'ENOENT'; }
+    };
+  }
+  const otherJobs = jobKeepNames(process.platform, tokenKeys, jobReader);
   if (otherJobs === null) { console.error('Stopped, nothing changed: this computer\'s startup jobs could not be read, so offline agents cannot be told apart.'); return 2; }
   jobNames = jobNames.concat(otherJobs);
   for (const raw of workerNames.concat(jobNames)) {
