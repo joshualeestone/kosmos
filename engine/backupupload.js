@@ -572,7 +572,8 @@ async function uploadManifestInner(deps, bytes, o, st) {
       () => ({ sha256, size: bytes.length, nonce: crypto.randomBytes(16).toString('hex') }),
       (d) => parseManifestGrant(d, bytes, o.bucket));
     if (g.out && g.out.grantSpent) st.granted = true;
-    if (!g.ok) return Object.assign({ ok: false }, g.out);
+    // A re-grant request that fails still follows a grant that answered: that one's allowance is spent.
+    if (!g.ok) return Object.assign({ ok: false }, g.out, st.granted ? { grantSpent: true } : {});
     st.granted = true;
     const skew = clockSkew(now(), g.expiresAtMs);
     if (skew) return { ok: false, because: skew, grantSpent: true };

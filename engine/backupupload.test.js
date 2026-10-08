@@ -1031,7 +1031,7 @@ test('a manifest grant expiring far further ahead than a grant lasts (a clock fa
 
 test('an unreachable bucket for the manifest is retried until expiry, then ends retryLater with no unsure key and ONE grant', async () => {
   const b = await bucket();
-  const base = b.base; await b.close();   // nothing listens there now
+  const base = b.base; await b.close();   // nothing listens there now (not port 1: fetch blocks it as a bad port)
   const mc = manifestCoordinator({ base });
   const r = await up.uploadManifest(deps(mc, clock()), manifestBytes(), { bucket: `${new URL(base).host}/bucket/`, chunks: oneChunk() });
   assert.strictEqual(r.ok, false);
@@ -1278,8 +1278,27 @@ test('an unexpected throw after a write that may have landed still reports grant
     assert.strictEqual(r.grantSpent, true);
     assert.deepStrictEqual(r.unsure, [{ key: mKey(1) }]);
   } finally { await b.close(); }
-  // CONTROL: a throw before any grant reports neither.
-  const r2 = await up.uploadManifest({ macRequest: async () => { throw new Error('early'); }, fetch, sleep: async () => {} },
+  // CONTROL: a throw that escapes before any grant (deps.now, which askSigned does not wrap) reaches the same catch
+  // and reports neither.
+  let asked = 0;
+  const r2 = await up.uploadManifest({ macRequest: async () => { asked++; return { ok: false, because: 'x' }; }, fetch, sleep: async () => {}, now: () => { throw new Error('early'); } },
     manifestBytes(), { bucket: '127.0.0.1:1/bucket/', chunks: oneChunk() });
-  assert.strictEqual(r2.ok, false); assert.strictEqual(r2.grantSpent, undefined); assert.strictEqual(r2.unsure, undefined);
+  assert.strictEqual(r2.ok, false); assert.match(r2.because, /manifest uploader failed: early/);
+  assert.strictEqual(asked, 0);
+  assert.strictEqual(r2.grantSpent, undefined); assert.strictEqual(r2.unsure, undefined);
+});
+
+test('a re-grant request that fails after a grant ran out cleanly still says grantSpent (the first grant answered)', async () => {
+  const b = await bucket();
+  try {
+    let n = 0;
+    const mc = manifestCoordinator(b);
+    const real = mc.macRequest;
+    mc.macRequest = async (...a) => (++n === 1 ? real(...a) : { ok: false, because: 'refused (HTTP 429 on /v1/org/backup/manifest, code backup_quota)' });
+    b.script.set(mKey(1), [[403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>']]);
+    const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b));
+    assert.strictEqual(r.ok, false); assert.strictEqual(r.code, 'backup_quota');
+    assert.strictEqual(r.grantSpent, true);
+    assert.strictEqual(n, 2);
+  } finally { await b.close(); }
 });
