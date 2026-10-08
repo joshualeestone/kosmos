@@ -45,10 +45,14 @@
 #   last-failure   "<sha> rc=<n> <time>" of the last failed attempt (a record, read by nothing)
 #   failures       "<sha> <n>" consecutive failed attempts for that sha
 #   parked         the sha not retried until main moves
-#   retries        "<sha> <n>" consecutive retried ticks for that sha (exit 75, a checksum mismatch,
-#                  an unreadable live pointer)
+#   retries        "<sha> <n>" consecutive retried ticks for that sha, whatever the cause (exit 75, a
+#                  checksum mismatch, an unreadable live pointer): one count, one alarm, because each
+#                  means the same thing to the person reading the run, the site is not settling
 #   mirror-count   how many versioned tarballs the last successful deploy mirrored (the floor the
-#                  next mirror is held to; see MIRROR_DROP_MAX)
+#                  next mirror is held to; see MIRROR_DROP_MAX). A real prune of more than
+#                  MIRROR_DROP_MAX versions between two website deploys trips it ON PURPOSE: the tick
+#                  parks red and its FAIL line says how to accept the new count. That is the price of
+#                  never mirroring an emptied or rebuilt cut box over the site's older downloads.
 #   log            one line per tick that did something, plus each deploy's output (trimmed to its
 #                  last 5000 lines once it passes 5 MB)
 #
