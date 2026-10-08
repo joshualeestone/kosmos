@@ -915,3 +915,59 @@ test('#5531 review 39: a yes that names another company than the one whose conse
   const ok = await org.enroll('ALPHA-JOIN-0001', true, { root: c, remote: co([]), orgId: 'org_alpha' });
   assert.equal(ok.ok, true, JSON.stringify(ok));
 });
+
+test('#5531 follow-up b: a member moving here gets the hash the company served with the move consent', async (t) => {
+  const { a } = sandbox(t);
+  const SERVED = '6f'.repeat(32);
+  const co = { macRequest: async (m, route) => (route === org.ROUTES.redeem
+    ? { ok: false, because: '409 org_already_member' }
+    : { ok: true, data: { member: true, org: ORG, role: 'member', enrolled: null, consent: CONSENT, consentHash: SERVED } }) };
+  const p = await org.preview('ACME-JOIN-1234', { root: a, remote: co });
+  assert.equal(p.move, true, JSON.stringify(p));
+  assert.equal(p.served, SERVED, 'the move consent lost the hash the company served with it');
+});
+
+test('#5531 follow-up b review 1: an enroll refused because the words changed says so plainly; nothing is kept as unknown', async (t) => {
+  const { a } = sandbox(t);
+  const asked = [];
+  const co = { macRequest: async (m, route) => { asked.push(route); return route === org.ROUTES.enroll ? { ok: false, because: '409 {"because":"org_consent_changed"}' } : { ok: true, data: { member: false } }; } };
+  const r = await org.enroll('ACME-JOIN-1234', true, { root: a, remote: co, consentHash: 'ab'.repeat(32) });
+  assert.equal(r.code, 'org_consent_changed', JSON.stringify(r));
+  assert.match(r.because, /Nothing was joined/);
+  assert.equal(org.joinUnknown({ root: a }), null, 'a plain refusal was kept as an unknown join');
+  assert.deepEqual(asked, [org.ROUTES.enroll], 'status was asked about a join the company refused outright');
+});
+
+test('#5531 follow-up b review 2: a MOVE refused because the words changed says to type the code again (it typed none)', async (t) => {
+  const { a } = sandbox(t);
+  const co = { macRequest: async (m, route) => (route === org.ROUTES.enroll ? { ok: false, because: '409 {"because":"org_consent_changed"}' } : { ok: true, data: { member: false } }) };
+  const r = await org.enroll(null, true, { root: a, remote: co, consentHash: 'ab'.repeat(32) });
+  assert.equal(r.code, 'org_consent_changed', JSON.stringify(r));
+  assert.match(r.because, /Nothing moved\. Type your join code again/, r.because);
+});
+
+test('#5531 follow-up b review 3: what the enrollment records is exactly the hash the enroll sent', async (t) => {
+  const { a } = sandbox(t);
+  const H = '3c'.repeat(32);
+  let sentBody = null;
+  const co = { macRequest: async (m, route, body) => { if (route === org.ROUTES.enroll) { sentBody = body; return { ok: true, data: { ok: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } }; } return { ok: false, because: 'x' }; } };
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: co, consentHash: H });
+  assert.equal(sentBody.consentHash, H, 'the served hash was not sent');
+  assert.equal(org.readEnrollment({ root: a }).consentHash, sentBody.consentHash, 'the record holds a hash the enroll did not send');
+});
+
+test('#5531 follow-up b review 4: the served hash is echoed only when the person was shown exactly the served words', async (t) => {
+  const { a } = sandbox(t);
+  const H = '4d'.repeat(32);
+  const serve = (consent) => ({ macRequest: async () => ({ ok: true, data: { org: ORG, role: 'member', consent, consentHash: H } }) });
+  const ok = await org.preview('ACME-JOIN-1234', { root: a, remote: serve(CONSENT) });
+  assert.equal(ok.served, H, 'CONTROL: words cleaning leaves as they are keep the served hash');
+  // A line cleaning would cut (past LINE_MAX), and a line cleaning would alter (a zero-width character).
+  const long = Object.assign({}, CONSENT, { reports: CONSENT.reports.concat(['x'.repeat(400)]) });
+  assert.equal((await org.preview('ACME-JOIN-1234', { root: a, remote: serve(long) })).served, null, 'a hash was echoed for a line the person saw cut');
+  const odd = Object.assign({}, CONSENT, { never: ['keys\u200b'] });
+  assert.equal((await org.preview('ACME-JOIN-1234', { root: a, remote: serve(odd) })).served, null, 'a hash was echoed for a line the person saw altered');
+  // Review 5: a list that is not a list cleans to [] on both sides; the hash must not be echoed for it.
+  const notList = Object.assign({}, CONSENT, { backsUp: 'everything' });
+  assert.equal((await org.preview('ACME-JOIN-1234', { root: a, remote: serve(notList) })).served, null, 'a hash was echoed for a list the person saw as empty');
+});

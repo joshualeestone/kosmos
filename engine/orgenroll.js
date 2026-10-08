@@ -141,7 +141,26 @@ function cleanList(a) {
   const { externalName } = require('./externalname');
   return a.map((s) => externalName(s, LINE_MAX)).filter(Boolean).slice(0, LINES_MAX);
 }
-/* A stable hash of the consent words exactly as cleaned and shown (key order fixed). */
+/* The hash the COMPANY served with its words (contract v1.4): boards echo it, never recompute it, and the company
+   compares the one an enroll sends with the one its rollup expects. Null from a company that serves none. */
+function servedHash(d) {
+  const h = d && typeof d.consentHash === 'string' ? d.consentHash : '';
+  if (!/^[0-9a-f]{64}$/.test(h)) return null;
+  /* The hash names the RAW words; the person is shown the CLEANED ones. Echoed only when cleaning changed nothing (same
+     lists, same lines): otherwise it would vouch for words the person was not shown, and the join records none, so
+     nothing is sent on them (consenthash review 4). */
+  const raw = d.consent && typeof d.consent === 'object' ? d.consent : null;
+  const shown = cleanConsent(raw);
+  if (!raw || !shown) return null;
+  for (const k of ['reports', 'backsUp', 'readers', 'never']) {
+    if (!Array.isArray(raw[k])) return null;   // a non-list cleans to [] on both sides and would compare equal (review 5)
+    const a = raw[k];
+    if (a.length !== shown[k].length || a.some((line, i) => line !== shown[k][i])) return null;
+  }
+  return h;
+}
+/* A hash of the consent words as cleaned and shown (key order fixed). Not sent and not recorded by the board since
+   contract v1.4 (the served hash is); kept for tests only. */
 function consentHash(consent) {
   const c = consent || {};
   const canon = JSON.stringify(['reports', 'backsUp', 'readers', 'never'].map((k) => [k, Array.isArray(c[k]) ? c[k] : []]));
@@ -168,6 +187,8 @@ const SAY = Object.freeze({
   org_last_admin: 'You are the last admin of your company, so you cannot leave until someone else is made an admin.',
   org_bad_world: 'This Kosmos could not be named to your company. Try again.',
   org_already_member: 'You are already in this company. Check the code again to see what moving your work Kosmos here means.',
+  // v1.4: the words changed after this screen showed them (the enroll carried the hash of the old ones). Nothing joined.
+  org_consent_changed: 'Your company changed what it would see since you checked. Nothing was joined. Check the code again to read the new words.',
 });
 /* Only the PUBLIC codes count: a field such as org_id elsewhere in the line must not be read as the error. */
 const CODES = Object.freeze(Object.keys(SAY).concat(['org_not_accepted']));
@@ -215,7 +236,7 @@ async function preview(code, opts) {
     const org = d && d.member === true ? cleanOrg(d.org) : null;
     const role = d ? cleanRole(d.role) : null;
     const consent = d ? cleanConsent(d.consent) : null;
-    if (org && role && consent) return { ok: true, move: true, org, role, consent };
+    if (org && role && consent) return { ok: true, move: true, org, role, consent, served: servedHash(d) };
     return { ok: false, code: 'org_already_member', because: SAY.org_already_member };
   }
   if (!r.ok) return { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'The code could not be checked through Kosmos+ just now. Nothing was joined; try again in a minute.', code.trim()) };
@@ -223,7 +244,7 @@ async function preview(code, opts) {
   const role = cleanRole(r.data && r.data.role);
   const consent = cleanConsent(r.data && r.data.consent);
   if (!org || !role || !consent) return { ok: false, because: 'Your company\'s answer was not complete, so nothing was joined.' };
-  return { ok: true, org, role, consent };
+  return { ok: true, org, role, consent, served: servedHash(r.data) };
 }
 
 /* enroll, leave and refresh read and write the same record: one at a time, so the daily pass can never act on a
@@ -250,6 +271,10 @@ async function enrollNow(code, accepted, opts) {
   const world = worldId(opts);
   if (!world) return { ok: false, because: "This Kosmos's data folder cannot be written, so nothing was sent." };
   const body = { world, accepted: true };
+  /* v1.4: opts.consentHash is the hash the COMPANY served with the words the person accepted. It is the one option for
+     that fact: sent here and recorded below, so what is recorded is always what was sent (consenthash review 3). The
+     contract says boards echo it and never recompute it (the two encodings could drift). */
+  if (opts && typeof opts.consentHash === 'string' && /^[0-9a-f]{64}$/.test(opts.consentHash)) body.consentHash = opts.consentHash;
   if (code != null) {
     if (typeof code !== 'string' || !CODE.test(code.trim())) return { ok: false, because: 'That is not a join code. Check it and try again.' };
     body.code = code.trim();
@@ -265,6 +290,8 @@ async function enrollNow(code, accepted, opts) {
     return { ok: false, code: 'org_already_member', because: SAY.org_already_member };
   }
   const secretCode = typeof code === 'string' ? code.trim() : null;
+  // A move refused because the words changed: no code was typed, so say how to see them again (consenthash review 2).
+  if (!r.ok && move && codeOf(r.because) === 'org_consent_changed') return { ok: false, code: 'org_consent_changed', because: 'Your company changed what it would see since you checked. Nothing moved. Type your join code again to read the new words.' };
   if (!r.ok && codeOf(r.because)) return { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'Joining did not go through Kosmos+ just now. Nothing was joined; try again in a minute.', secretCode) };   // refused with a reason: nothing bound
   /* Refused on this computer before anything was sent (not connected to Kosmos+, a register or Forget out, no
      Kosmos+ here): certainly nothing was joined, and the ticket stays (review 27). */
