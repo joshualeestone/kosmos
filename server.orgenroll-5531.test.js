@@ -89,3 +89,12 @@ test('#5531: GET /api/org reports this world\'s own record, and only one that na
   assert.equal(other.json.org, null, "another world's company was shown here");
   fs.rmSync(enrollmentFile(), { force: true });
 });
+
+test('#5531 review 3: an accepted join needs the ticket a screen got from a preview; without it nothing is sent', async () => {
+  const r = await call('/api/org/enroll', { body: { accepted: true }, headers: SCREEN });
+  assert.equal(r.json.ok, false);
+  assert.match(r.json.because, /Check the code again first/, 'an accepted join without a preview ticket was let through: ' + JSON.stringify(r.json));
+  const forged = await call('/api/org/enroll', { body: { accepted: true, ticket: 'f'.repeat(32) }, headers: SCREEN });
+  assert.match(forged.json.because, /Check the code again first/, 'a made-up ticket was accepted');
+  assert.equal(fs.existsSync(enrollmentFile()), false);
+});

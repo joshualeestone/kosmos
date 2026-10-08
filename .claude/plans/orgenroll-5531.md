@@ -86,3 +86,14 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
 - DEFERRED: "an agent never joins for the person" is exactly as strong as isViaScreen, the board's check for every
   person-only setting (refuses an agent token; requires browser headers). A per-session screen nonce would be a
   board-wide change, not this card's.
+
+## Review 3 (blind, opus)
+- FIXED: a member's move needed no secret, so any screen-shaped request could move an enrollment. `/api/org/preview`
+  now hands the screen a one-time ticket (10 minutes), and an accepted `/api/org/enroll` needs it; a missing or made-up
+  ticket sends nothing. A pending leave keeps the record it cleared, so a retry refused as the last admin restores it.
+  The pending leave says a plain sentence, not the transport's text. The world id is minted through a unique temp
+  file, and a read never mints one. The enroll answer no longer carries the world id to the page. Check code and Not
+  now cannot run twice while a request is out.
+- DOCUMENTED: `isEnrolledHere()` is necessary, not sufficient. A copied data folder still holds the record until the
+  next refresh, so the coordinator must also refuse a report from a world it no longer names (E0.3, E0.6), and
+  Forget on a world should clear it (a later card).

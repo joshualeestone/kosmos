@@ -299,3 +299,17 @@ test('#5531 review 2: the daily pass and a leave run one at a time, so a pass th
   await refreshing; await leaving;
   assert.equal(org.isEnrolledHere({ root: a }), false, 'a pass that read enrolled before the leave wrote the record back after it');
 });
+
+test('#5531 review 3: a pending leave later refused as the last admin restores the enrollment it cleared, and the pending words are plain', async (t) => {
+  const { a } = sandbox(t);
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
+  const r1 = await org.leave({ root: a, remote: { macRequest: async () => ({ ok: false, because: 'offline' }) } });
+  assert.equal(r1.pending, true);
+  assert.match(r1.because, /could not be confirmed yet/, 'the pending leave carried the raw transport text: ' + r1.because);
+  assert.equal(r1.because.includes('offline'), false);
+  assert.equal(org.isEnrolledHere({ root: a }), false);
+  const r2 = await org.refresh({ root: a, remote: { macRequest: async () => ({ ok: false, because: '409 {"because":"org_last_admin"}' }) } });
+  assert.equal(r2.still, true, JSON.stringify(r2));
+  assert.equal(org.isEnrolledHere({ root: a }), true, 'the last admin\'s enrollment was lost by a retried leave');
+  assert.equal(org.leavePending({ root: a }), false);
+});

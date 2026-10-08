@@ -47139,11 +47139,12 @@ async function plusOrgCheck() {
   const code = document.getElementById('plus-org-code').value.trim();
   msg.textContent = '';
   if (!code) { msg.textContent = 'Type or paste the join code your company sent you.'; return; }
+  if (PLUS_ORG.busy) return;   // one check at a time
   PLUS_ORG.busy = true;
   const r = await plusOrgPost('/api/org/preview', { code });
   PLUS_ORG.busy = false;
   if (!r.ok) { msg.textContent = r.because || 'That code could not be checked.'; return; }
-  PLUS_ORG.preview = { code: r.move ? null : code, org: r.org };   // a member moving here enrolls with no code
+  PLUS_ORG.preview = { code: r.move ? null : code, org: r.org, ticket: r.ticket };   // a member moving here enrolls with no code
   document.getElementById('plus-org-ask').textContent = r.move
     ? 'You are already in ' + (r.org.name || 'your company') + '. Make this Kosmos your work Kosmos? Here is what that means:'
     : (r.org.name || 'Your company') + ' invites you to join' + (r.role === 'admin' ? ' as an admin' : r.role === 'recovery' ? ' in its recovery role' : '') + '. Joining makes this Kosmos your work Kosmos. Here is what that means:';
@@ -47159,10 +47160,10 @@ async function plusOrgJoin() {
   const p = PLUS_ORG.preview;
   if (!p) return;
   const join = document.getElementById('plus-org-join');
-  join.disabled = true;
+  join.disabled = true; document.getElementById('plus-org-notnow').disabled = true;
   PLUS_ORG.busy = true;
-  const r = await plusOrgPost('/api/org/enroll', p.code ? { code: p.code, accepted: true } : { accepted: true });
-  PLUS_ORG.busy = false; join.disabled = false;
+  const r = await plusOrgPost('/api/org/enroll', p.code ? { code: p.code, accepted: true, ticket: p.ticket } : { accepted: true, ticket: p.ticket });
+  PLUS_ORG.busy = false; join.disabled = false; document.getElementById('plus-org-notnow').disabled = false;
   if (!r.ok) {
     msg.textContent = r.because || 'Joining did not go through.';
     // A code that is used, expired, or for another company will not work on a second press: back to the code field.

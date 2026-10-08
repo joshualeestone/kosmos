@@ -64,7 +64,7 @@ function worldId(opts) {
   const id = crypto.randomBytes(16).toString('hex');
   try {
     fs.mkdirSync(root, { recursive: true });
-    const tmp = `${file}.${process.pid}.tmp`;
+    const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
     fs.writeFileSync(tmp, id + '\n', { mode: 0o600 });
     fs.renameSync(tmp, file);
     return id;
@@ -89,11 +89,17 @@ function clearEnrollment(opts) {
   try { fs.rmSync(path.join(storeRoot(opts), ENROLLMENT_FILE), { force: true }); } catch { /* already gone */ }
 }
 
-/* 🛑 THE GATE for every later sender: true only for the world whose own record names its own id. */
+/* This world's id if it was ever minted; never mints (the gate and a page read must not write). */
+function readWorldId(opts) {
+  try { const have = fs.readFileSync(path.join(storeRoot(opts), WORLD_ID_FILE), 'utf8').trim(); return WORLD_ID.test(have) ? have : null; } catch { return null; }
+}
+/* 🛑 THE GATE for every later sender: true only for the world whose own record names its own id. NECESSARY, NOT
+   SUFFICIENT: it is as fresh as the last refresh (daily), so the coordinator must also refuse a report from a world it
+   no longer names (E0.3, E0.6). */
 function isEnrolledHere(opts) {
   const rec = readEnrollment(opts);
   if (!rec) return false;
-  const id = worldId(opts);
+  const id = readWorldId(opts);
   return !!id && rec.world === id;
 }
 
@@ -212,9 +218,13 @@ async function enrollNow(code, accepted, opts) {
   return { ok: true, ...rec };
 }
 
-function setLeavePending(on, opts) {
+/* The pending leave keeps the record it cleared, so a retry the company refuses (the last admin) can put it back. */
+function setLeavePending(on, opts, rec) {
   const file = path.join(storeRoot(opts), LEAVE_PENDING_FILE);
-  try { if (on) fs.writeFileSync(file, new Date().toISOString() + '\n', { mode: 0o600 }); else fs.rmSync(file, { force: true }); } catch { /* best effort */ }
+  try { if (on) fs.writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), rec: rec || null }) + '\n', { mode: 0o600 }); else fs.rmSync(file, { force: true }); } catch { /* best effort */ }
+}
+function pendingRecord(opts) {
+  try { const j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_PENDING_FILE), 'utf8')); return j && j.rec && j.rec.org ? j.rec : null; } catch { return null; }
 }
 function leavePending(opts) { return fs.existsSync(path.join(storeRoot(opts), LEAVE_PENDING_FILE)); }
 
@@ -225,7 +235,7 @@ function leavePending(opts) { return fs.existsSync(path.join(storeRoot(opts), LE
    - No answer: a pending leave is kept, and the next start or daily pass sends it again. */
 async function leave(opts) { return oneAtATime(() => leaveNow(opts)); }
 async function leaveNow(opts) {
-  const before = readEnrollment(opts);
+  const before = readEnrollment(opts) || pendingRecord(opts);
   clearEnrollment(opts);
   const r = await signed('POST', ROUTES.leave, {}, opts);
   const code = r.ok ? null : codeOf(r.because);
@@ -235,8 +245,9 @@ async function leaveNow(opts) {
     setLeavePending(false, opts);
     return { ok: false, still: true, code, because: SAY.org_last_admin };
   }
-  setLeavePending(true, opts);
-  return { ok: false, pending: true, code, because: sayFor(r.because, 'leaving could not be confirmed yet; this Kosmos has stopped reporting, and it will tell your company again') };
+  setLeavePending(true, opts, before);
+  // The person's sentence, whatever the raw reason: they must hear that this Kosmos stopped and the leave will be sent.
+  return { ok: false, pending: true, code, because: 'Leaving could not be confirmed yet. This Kosmos has stopped reporting, and it will tell your company again.' };
 }
 
 /* On start and daily: ask the coordinator. member:false, or an enrollment naming another world, clears this world's
@@ -245,6 +256,7 @@ async function refresh(opts) { return oneAtATime(() => refreshNow(opts)); }
 async function refreshNow(opts) {
   if (leavePending(opts)) {   // a leave the company has not confirmed: send it again, report nothing meanwhile
     const r = await leaveNow(opts);
+    if (r.still) return { ok: false, still: true, enrolled: isEnrolledHere(opts), code: r.code, because: r.because };   // refused as the last admin: joined again
     return { ok: r.ok, enrolled: false, stopped: true, pending: !!r.pending, because: r.because };
   }
   const before = readEnrollment(opts);

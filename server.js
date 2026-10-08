@@ -9579,9 +9579,23 @@ const server = http.createServer(async (req, res) => {
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can join or leave a company, from Settings' }); return; }
         const oe = require('./engine/orgenroll');
         let r;
-        if (pathname === '/api/org/preview') r = await oe.preview(body.code);
-        else if (pathname === '/api/org/enroll') r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true);
-        else r = await oe.leave();
+        if (pathname === '/api/org/preview') {
+          r = await oe.preview(body.code);
+          /* A one-time ticket for THIS screen's consent: enroll needs it, so nothing can join (or move a member's
+             enrollment, which needs no code) without the consent having been fetched to a screen first. */
+          if (r.ok) { ORG_TICKET = { value: require('node:crypto').randomBytes(16).toString('hex'), at: Date.now() }; r.ticket = ORG_TICKET.value; }
+        } else if (pathname === '/api/org/enroll') {
+          if (body.accepted === true) {
+            const t = ORG_TICKET;
+            if (!t || typeof body.ticket !== 'string' || body.ticket !== t.value || Date.now() - t.at > 10 * 60 * 1000) {
+              sendJson(res, 200, { ok: false, because: 'Check the code again first, so you can read what your company would see.' });
+              return;
+            }
+            ORG_TICKET = null;   // one use
+          }
+          r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true);
+          if (r && typeof r === 'object') delete r.world;   // the opaque world id never goes to the page
+        } else r = await oe.leave();
         sendJson(res, 200, r);
       })
       .catch(() => sendJson(res, 200, { ok: false, because: 'we could not reach your company just now' }));
@@ -20508,6 +20522,7 @@ function federateOut(projectId, delivery, operator) {
   if (sent && hadFiles) messages.roomNote(projectId, 'The words went to ' + fedseats.farSide(projectId) + '; the attached file stayed on this computer.');
 }
 
+let ORG_TICKET = null;   // #5531: the last consent fetched to a screen, { value, at }
 function orgEnrollRefresh() {
   try {
     const oe = require('./engine/orgenroll');
