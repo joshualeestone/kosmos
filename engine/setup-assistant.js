@@ -330,7 +330,9 @@ function ruleAbs(p, platform = process.platform) {
 }
 /* The inverse, for code that reads a rule back as a path: what follows `Read(//` (without a trailing `/**`) to the
    path it names. On Windows `c/Users/x` is `C:\Users\x`; a rule in the older native form (`C:\Users\x`, written
-   before this change) is read as it is. Elsewhere it is `/` plus the rest. */
+   before this change) is read as it is. Elsewhere it is `/` plus the rest. Not handled: a UNC path (\\server\share),
+   whose rule reads back as a drive-less path (a one-letter host even as a drive), so the own-folder check does not
+   apply to a store on a network share; Claude Code's docs say such a share cannot be a working folder anyway. */
 function rulePath(inner, platform = process.platform) {
   const t = String(inner);
   if (platform === 'win32') {
@@ -340,18 +342,14 @@ function rulePath(inner, platform = process.platform) {
   }
   return '/' + t;
 }
-/* Before #4752's follow-up a Windows rule was written in the native form (`Read(//C:\...)`), which Claude Code does
-   not match. Is `rule` such a rule for a path at or under one of `roots` (the folders this code writes rules for)?
-   Those are dropped when the rules are made again, so they do not stay for ever. Uses path.win32 throughout, so it
-   is the same answer on any host. */
-function isLegacyWinRuleUnder(rule, roots) {
-  const m = /^Read\(\/\/([A-Za-z]:\\[^)]*?)(\/\*\*|\.\*)?\)$/.exec(String(rule));
-  if (!m) return false;
-  const p = path.win32.normalize(m[1]).toLowerCase();
-  return roots.filter(Boolean).some((r) => {
-    const root = path.win32.normalize(String(r)).toLowerCase().replace(/\\+$/, '');
-    return p === root || p.startsWith(root + '\\');
-  });
+/* Before #4752's follow-up a Windows rule was written in the native form (`Read(//C:\...)`), which is not the form
+   Claude Code documents as matched. For such a rule, the same rule in the form ruleAbs writes now (`Read(//c/...)`,
+   same suffix), else null. A caller drops an old rule ONLY when its equivalent is among the rules just made, so a
+   failure to make a rule never leaves a path with neither form. Uses the win32 conversion on any host. */
+function legacyWinEquivalent(rule) {
+  const m = /^Read\(\/\/([A-Za-z]:\\[^)]*?)(\/\*\*|\/\*\/[^)]*|\.\*)?\)$/.exec(String(rule));
+  if (!m) return null;
+  return `Read(${ruleAbs(m[1], 'win32')}${m[2] || ''})`;
 }
 /* #4752: is `rule` one this code writes for a single entry directly in `base` (either form), for a name
    baseEntryToName lets through? Built from the same ruleAbs(path.join(...)) as the writer, so it matches on
@@ -421,10 +419,11 @@ function guardGuideFolder(dir, agentName, deps = {}) {
        behind for ever. Only a rule this code could have written for one entry is dropped (wasEntryRule); any
        other rule stays, a person's own rule for the registry or for a name this code leaves alone included. */
     const kept0 = fresh.entryBase ? had.filter((r) => fresh.rules.includes(r) || !wasEntryRule(r, fresh.entryBase)) : had;
-    /* On Windows, a rule written before the path-form change, for a folder this code writes rules for, is dropped:
-       it named a form Claude Code does not match, and its replacement is in `fresh`. */
-    const ownedRoots = [fresh.entryBase, deps.dataRoot || store.ROOT];
-    const kept = process.platform === 'win32' ? kept0.filter((r) => !isLegacyWinRuleUnder(r, ownedRoots)) : kept0;
+    /* On Windows, a rule written before the path-form change is dropped only when the same rule in the new form was
+       just made: never a path left with neither form (and a person's own rule elsewhere has no equivalent here). */
+    const kept = process.platform === 'win32'
+      ? kept0.filter((r) => { const eq = legacyWinEquivalent(r); return !(eq && fresh.rules.includes(eq)); })
+      : kept0;
     /* #4752: none of THIS change's rules (fresh.extra) may take in the guide's own folder. An older folder or a
        linked entry a person made can resolve to an ancestor of it, and the sandbox follows links, so such a rule
        would cut the guide off from its own instructions: dropped, and said. What this checks, no more: a rule
@@ -918,7 +917,7 @@ function mergeSetting(stored, patch) {
 module.exports = {
   ruleAbs,   // #4752 follow-up: exported so the Windows form is pinned from any host
   rulePath,
-  isLegacyWinRuleUnder,
+  legacyWinEquivalent,
   SETUP_ROLE_KEY,
   GUIDE_CREATED_BY,
   GUIDE_PURPOSE_PREFIXES,

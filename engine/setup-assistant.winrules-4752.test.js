@@ -51,13 +51,14 @@ test('#4752: rulePath reads a written rule back to the exact path, so the own-fo
   }
 });
 
-test('#4752: an older native-form Windows rule under a folder this code owns is recognised for dropping; nothing else is', () => {
-  const roots = ['C:\\Users\\a\\AppData\\Roaming\\Kosmos', 'C:\\Users\\a\\AppData\\Roaming\\agent-workforce'];
-  assert.equal(sa.isLegacyWinRuleUnder('Read(//C:\\Users\\a\\AppData\\Roaming\\Kosmos/**)', roots), true);
-  assert.equal(sa.isLegacyWinRuleUnder('Read(//C:\\Users\\a\\AppData\\Roaming\\agent-workforce\\board-token)', roots), true);
-  assert.equal(sa.isLegacyWinRuleUnder('Read(//c:\\users\\a\\appdata\\roaming\\kosmos\\x.json)', roots), true, 'a different letter case is the same folder on Windows');
-  assert.equal(sa.isLegacyWinRuleUnder('Read(//c/Users/a/AppData/Roaming/Kosmos/**)', roots), false, 'CONTROL: the new form is kept');
-  assert.equal(sa.isLegacyWinRuleUnder('Read(//C:\\Users\\a\\Documents\\notes)', roots), false, 'CONTROL: a person\'s own rule elsewhere is kept');
-  assert.equal(sa.isLegacyWinRuleUnder('Read(//C:\\Users\\a\\AppData\\Roaming\\KosmosOther/**)', roots), false, 'CONTROL: a sibling with a shared prefix is kept');
-  assert.equal(sa.isLegacyWinRuleUnder('Read(~/.ssh/**)', roots), false);
+test('#4752: an older native-form Windows rule maps to its exact new-form equivalent (dropped only when that was made)', () => {
+  const eq = sa.legacyWinEquivalent;
+  assert.equal(eq('Read(//C:\\Users\\a\\AppData\\Roaming\\Kosmos/**)'), 'Read(//c/Users/a/AppData/Roaming/Kosmos/**)');
+  assert.equal(eq('Read(//C:\\Users\\a\\K\\board-token)'), 'Read(//c/Users/a/K/board-token)');
+  assert.equal(eq('Read(//C:\\Users\\a\\K\\.board-token.*)'), 'Read(//c/Users/a/K/.board-token.*)', 'the temp-copy suffix was lost');
+  assert.equal(eq('Read(//C:\\base\\worlds/*/Kosmos/**)'), 'Read(//c/base/worlds/*/Kosmos/**)', 'the worlds pattern suffix was lost');
+  assert.equal(eq('Read(//c/Users/a/x)'), null, 'CONTROL: a new-form rule has no older equivalent');
+  assert.equal(eq('Read(~/.ssh/**)'), null, 'CONTROL: a home rule is not a native-form rule');
+  // the equivalent is exactly what ruleAbs writes for the same path, so `fresh.rules.includes(eq)` can be true
+  assert.equal(eq('Read(//C:\\Users\\a\\x)'), `Read(${sa.ruleAbs('C:\\Users\\a\\x', 'win32')})`);
 });
