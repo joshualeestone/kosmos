@@ -2109,10 +2109,11 @@ function withdrawFor(agentId, kind, id) {
  * reasons are in .claude/plans/edit-5574.md. In short: everything is decided inside ONE exclusive() section (the sweep's
  * own mutex), so a sweep cannot send the old words of a queued item, and a sent item is PATCHed with the agent's own
  * registration and the community's answer told as it came. The new words always pass the board's own check first, and an
- * edit is never held: words the check would hold change nothing. Resolves to { ok, state } or { ok: false, because, ... }:
- *   state 'queued'            changed before it was sent, and it will still go
- *   state 'queued_not_going'  changed, but it was not going to the community anyway (sending off, or outside its period)
- *   state 'changed'           changed on the community
+ * edit is never held: words the check would hold change nothing. Resolves to { ok, outcome } or { ok: false, because, ... }
+ * (outcome, not state: these are what the edit did, not record states the status words cover):
+ *   outcome 'queued'            changed before it was sent, and it will still go
+ *   outcome 'queued_not_going'  changed, but it was not going to the community anyway (sending off, or outside its period)
+ *   outcome 'changed'           changed on the community
  *   maybe: true               the community did not answer: it may or may not have changed
  */
 function editFor(agentId, kind, id, words) {
@@ -2195,7 +2196,7 @@ async function editNow(who, kind, raw, words, deadline) {
     const since = st && typeof st.since === 'string' ? st.since : null;
     const willGo = switchOn() && Boolean(since) && String(row.releasedAt || row.receivedAt) >= since;
     if (!communitystore.updateWords(kind, local, newWords)) return { ok: false, because: 'Kosmos could not save the new words' };
-    return { ok: true, state: willGo ? 'queued' : 'queued_not_going' };
+    return { ok: true, outcome: willGo ? 'queued' : 'queued_not_going' };
   }
   // Sent: it must be findable, and the registration held must be the one that sent it, before anything goes out.
   if (rec.takenDown === true) return no('This ' + w + ' was taken down by the community\'s moderators, so it cannot be edited');
@@ -2222,7 +2223,7 @@ async function editNow(who, kind, raw, words, deadline) {
   if (r.status === 200) {
     // Changed on the community: the board's row follows (the person's list reads its words from there).
     if (!communitystore.updateWords(kind, local, newWords)) log(`edit of ${local}: changed on the community, but the board's copy could not be saved`);
-    return { ok: true, state: 'changed' };
+    return { ok: true, outcome: 'changed' };
   }
   if (r.status === 409 && error === 'edit_window_closed') return no('Too late: it is more than 15 minutes since this ' + w + ' was sent, so it can no longer be edited (take it back and send it again if it matters)');
   if (r.status === 409 && error === 'reported') return no('This ' + w + ' was reported, so it cannot be edited while the moderators look at it');
