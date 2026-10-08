@@ -149,10 +149,15 @@ function codeOf(because) {
 }
 /* A public code becomes its sentence. Anything else (a tunnel's stderr line, a spawn error naming a path) goes to the
    log, cleaned and bounded, and the person reads a fixed sentence: raw transport text never reaches the page. */
-function sayFor(because, fallback) {
+function sayFor(because, fallback, secret) {
   const c = codeOf(because);
   if (c && SAY[c]) return SAY[c];
-  if (because) { const { externalName } = require('./externalname'); console.error('orgenroll: ' + externalName(String(because), LINE_MAX)); }
+  if (because) {
+    const { externalName } = require('./externalname');
+    let line = String(because);
+    if (typeof secret === 'string' && secret.length >= 6) line = line.split(secret).join('[join code]');   // a code is single-use: never in a log
+    console.error('orgenroll: ' + externalName(line, LINE_MAX));
+  }
   return fallback;
 }
 
@@ -181,7 +186,7 @@ async function preview(code, opts) {
     if (org && role && consent) return { ok: true, move: true, org, role, consent };
     return { ok: false, code: 'org_already_member', because: SAY.org_already_member };
   }
-  if (!r.ok) return { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'The code could not be checked through Kosmos+ just now. Nothing was joined; try again in a minute.') };
+  if (!r.ok) return { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'The code could not be checked through Kosmos+ just now. Nothing was joined; try again in a minute.', code.trim()) };
   const org = cleanOrg(r.data && r.data.org);
   const role = cleanRole(r.data && r.data.role);
   const consent = cleanConsent(r.data && r.data.consent);
@@ -213,7 +218,7 @@ async function enrollNow(code, accepted, opts) {
     delete body.code;
     r = await signed('POST', ROUTES.enroll, body, opts);
   }
-  if (!r.ok) return { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'Joining did not go through Kosmos+ just now. Nothing was joined; try again in a minute.') };
+  if (!r.ok) return { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'Joining did not go through Kosmos+ just now. Nothing was joined; try again in a minute.', typeof code === 'string' ? code.trim() : null) };
   const org = cleanOrg(r.data && r.data.org);
   const role = cleanRole(r.data && r.data.role);
   const en = r.data && r.data.enrolled;
@@ -257,15 +262,26 @@ function leavePending(opts) { return fs.existsSync(path.join(storeRoot(opts), LE
    - Already not a member (org_not_member): left.
    - No answer: a pending leave is kept, and the next start or daily pass sends it again. */
 async function leave(opts) { return oneAtATime(() => leaveNow(opts)); }
+/* Retire this world's id whenever its enrollment ends for good, so a later join (to any company) is not linkable. */
+function retireWorldId(opts) {
+  try { fs.rmSync(path.join(storeRoot(opts), WORLD_ID_FILE), { force: true }); } catch { /* kept; harmless */ }
+}
+
 async function leaveNow(opts) {
+  /* Leave ends the whole membership, so only the world the company enrolls (or one whose leave is unconfirmed) sends
+     it. A world the company already stopped naming, or a stale record naming another world, clears locally and sends
+     NOTHING: the membership may now be another world's or another computer's, and must not be ended from here. */
+  if (!isEnrolledHere(opts) && !leavePending(opts)) {
+    clearEnrollment(opts); setStopped(null, opts);
+    return { ok: true, localOnly: true };
+  }
   const before = readEnrollment(opts) || pendingRecord(opts);
   clearEnrollment(opts);
   const r = await signed('POST', ROUTES.leave, {}, opts);
   const code = r.ok ? null : codeOf(r.because);
   if (r.ok || code === 'org_not_member') {
     setLeavePending(false, opts); setStopped(null, opts);
-    /* Left for good: retire this world's id, so a later join (to any company) is not linkable to this one. */
-    try { fs.rmSync(path.join(storeRoot(opts), WORLD_ID_FILE), { force: true }); } catch { /* kept; harmless */ }
+    retireWorldId(opts);   // left for good
     return { ok: true };
   }
   if (code === 'org_last_admin') {
@@ -301,7 +317,7 @@ async function refreshNow(opts) {
     || (e && typeof e === 'object' && typeof e.world === 'string' && (e.world !== world || e.thisComputer === false))));
   if (!here) {
     if (!clear) return { ok: false, because: 'the answer was not complete', enrolled: !!before };
-    if (before) { clearEnrollment(opts); setStopped((before.org && before.org.name) || 'your company', opts); }
+    if (before) { clearEnrollment(opts); setStopped((before.org && before.org.name) || 'your company', opts); retireWorldId(opts); }
     return { ok: true, enrolled: false, member: d.member === true, stopped: !!before, org: d.member === true ? cleanOrg(d.org) : null };
   }
   const org = cleanOrg(d.org);

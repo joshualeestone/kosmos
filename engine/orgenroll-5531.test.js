@@ -162,6 +162,7 @@ test('#5531: the coordinator\'s public error codes are said in plain words; an u
   assert.match(dom.because, /own email address/);
   const odd = await org.preview('ACME-JOIN-1234', { root: a, remote: said('the tunnel program did not answer in time') });
   assert.equal(odd.code, null); assert.match(odd.because, /could not be checked through Kosmos\+/);   // review 4: an unknown error is a fixed sentence, the raw line goes to the log
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });   // leave is sent only from the work Kosmos
   const last = await org.leave({ root: a, remote: said('409 org_last_admin') });
   assert.match(last.because, /last admin/);
 });
@@ -364,4 +365,30 @@ test('#5531 review 7: a confirmed leave retires this world id, so a later join i
   const r = await org.leave({ root: a, remote: { macRequest: async () => ({ ok: false, because: '409 {"because":"org_last_admin"}' }) } });
   assert.equal(r.still, true);
   assert.equal(org.worldId({ root: a }), state.world, 'a refused leave retired the id of a world still enrolled');
+});
+
+test('#5531 review 8: a world the company stopped naming leaves locally and sends nothing; its id is retired too', async (t) => {
+  const { a } = sandbox(t);
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
+  const first = org.worldId({ root: a });
+  await org.refresh({ root: a, remote: { macRequest: async () => ({ ok: true, data: { member: true, org: ORG, role: 'member', enrolled: { computer: 'c2', world: 'e'.repeat(32), thisComputer: false } } }) } });
+  assert.equal(org.stoppedFor({ root: a }), 'Acme');
+  const sent = [];
+  const r = await org.leave({ root: a, remote: { macRequest: async (m, route) => { sent.push(route); return { ok: true, data: { ok: true } }; } } });
+  assert.equal(r.ok, true); assert.equal(r.localOnly, true);
+  assert.deepEqual(sent, [], 'a world the company stopped naming ended the membership: ' + JSON.stringify(sent));
+  assert.equal(org.stoppedFor({ root: a }), null);
+  const state = {};
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote(state) });
+  assert.notEqual(state.world, first, 'the stopped world reused its old id');
+});
+
+test('#5531 review 8: a join code is never written to the log, even inside a raw failure line', async (t) => {
+  const { a } = sandbox(t);
+  const errs = []; const orig = console.error; console.error = (m) => errs.push(String(m)); t.after(() => { console.error = orig; });
+  const echo = { macRequest: async (m, route, body) => ({ ok: false, because: 'HTTP 502 for body ' + JSON.stringify(body) }) };
+  await org.preview('SECRET-CODE-7777', { root: a, remote: echo });
+  await org.enroll('SECRET-CODE-7777', true, { root: a, remote: echo });
+  assert.ok(errs.length >= 2, 'nothing was logged: ' + JSON.stringify(errs));
+  assert.equal(errs.some((m) => m.includes('SECRET-CODE-7777')), false, 'a join code reached the log: ' + errs.join(' | '));
 });

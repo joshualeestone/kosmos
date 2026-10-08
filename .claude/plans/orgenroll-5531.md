@@ -138,3 +138,13 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
   agent token. Leave is refused unless this is the work Kosmos (or one the company stopped naming, or one with a
   leave unconfirmed), since leaving ends the whole membership. A confirmed leave retires this world's id, so a later
   join is not linkable to the old one. The check and README say `{ code, accepted: true, ticket }`.
+
+## Review 8 (blind, sonnet)
+- FIXED (both from review 7's changes): leave is sent only from the world the company enrolls, or one whose leave is
+  unconfirmed. A world the company stopped naming, or a stale record naming another world, clears locally and sends
+  nothing, because the membership may now belong to another world or computer and must not be ended from here. The
+  world id is retired whenever an enrollment ends for good (a confirmed leave, or refresh stopping on a clear answer),
+  not only on a leave.
+- FIXED: a join code is never written to the log, even inside a raw failure line that echoes the request. Not now
+  says "only the code was checked", to match the hint above the field.
+- DUPLICATE: isViaScreen as the only person check (review 2).
