@@ -26,3 +26,19 @@ share. Agents (token-only callers) cannot fetch it.
   person, but anything that later shares the file should mask it first.
 
 ## Review log
+### Review 1 (opus): 1 BLOCKER, 3 WARNINGs
+- BLOCKER fixed: an untied card clears the panel from a fixed list, which left the export row and the last agent's link (it would download that agent under the stranger's card). The row and link are in the untied reset now; browser-check arm.
+- WARNING fixed: no test pinned "an agent token alone is refused"; server.agent-token-gate-4491.test.js now does (no credential, agent token, board token).
+- WARNING fixed: refusals did not follow the board's download convention; they go through refuseDownload (navigation 204, the page's ?check=1 look gets the sentence, said on the panel), headers match sendFileDownload (CSP, RFC 5987).
+- WARNING fixed: a first Save did not show the row; Save paints it.
+- NITs fixed: a read failure is a 500 with a plain sentence (the engine's message can carry a path); focus leaves the row before it hides; refusal bodies prove the route answered; temp dirs removed.
+### Review 2 (sonnet): 1 BLOCKER, 1 WARNING
+- BLOCKER fixed: the click's ?check=1 fetch was a computed URL, which web.api-routes-3957 counts against a ceiling (CI red); the address is written out.
+- WARNING fixed: the browser check never clicked; it now clicks (a real download of ezra.agent.md), refuses (the panel says why), and switches agents directly.
+- NITs fixed: comment order, a ticket so an older answer never lands, asSentence, focus on the untied path.
+### Review 3 (opus): 2 WARNINGs (tests)
+- Fixed: the direct-switch arm could not fail (the next load repainted anyway); it now switches to an agent whose read fails, so only the load's own reset can clear the link. The Save paint has an arm. The click remembers its load (a refusal answered after a reload of the same agent is not said).
+- NITs left: the HEAD ternary is equivalent (Node sends no HEAD body); the 500 branch is untested.
+### Review 4 (sonnet): nothing above NIT. CONVERGED.
+- NITs left (follow-up on the card): a Download click clears an unrelated Save message on the line; the check URL is built from CURRENT, not the link (equivalent today); navigation-204 asserted on the 404 branch only.
+- web.* 2527/2527, web.api-routes 29/29, reason-grep 7/7, wired 11/11, server '5581' and gate '5581' green (07:27 CDT 2026-10-08). Browser check: queued.
