@@ -61,6 +61,9 @@ test('the list the gate reads is found, sorted, and names the installer\'s own w
   assert.ok(list.length >= 5, 'EXPECTED_ADDS parsed to fewer entries than it has ever had: ' + JSON.stringify(list));
   // The gate compares a sorted find against this string literally, so an unsorted list reds every cut.
   assert.deepEqual(list, [...list].sort(), 'EXPECTED_ADDS is not in sort order; the gate compares it literally');
+  // Review 4: the gate compares the list as a string against a find that never repeats a path, so a repeat reds
+  // every cut while a membership check would pass.
+  assert.equal(new Set(list).size, list.length, 'EXPECTED_ADDS repeats an entry; the gate compares it literally');
   for (const f of INSTALLER_WRITES) assert.ok(list.includes(f), f + ' is no longer in EXPECTED_ADDS; update INSTALLER_WRITES here');
   for (const f of WRITTEN_ONLY_OUTSIDE_TESTS) {
     assert.ok(list.includes(f), f + ' is no longer in EXPECTED_ADDS; update WRITTEN_ONLY_OUTSIDE_TESTS here');
@@ -147,7 +150,7 @@ test('#5584: a board start adds exactly the gate\'s expected files, so a new one
       if (ok) { answered = true; break; }
       await new Promise((r) => setTimeout(r, 500));
     }
-    assert.ok(answered, 'the board never answered its first request (30s), so there is no first-answer snapshot: ' + out.slice(-1000));
+    assert.ok(answered, 'the board never answered its first request (60 tries), so there is no first-answer snapshot: ' + out.slice(-1000));
     // Review 2: what the gate itself diffs, at the board's first answer. A file that lands only after this is not
     // one the gate can rely on seeing, so it is reported apart below, not as something to bless.
     atAnswer = new Set(filesUnder(data).filter((f) => !before.has(f)));
