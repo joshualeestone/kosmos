@@ -45,7 +45,9 @@ const segmentNotPortable = (x) => /[. ]$/.test(x) || WIN_RESERVED_RE.test(x) || 
    refuses legal Mac names such as Icon\r (custom folder icons), aux.c or a name with ':'; each is reported. */
 function pathProblem(p) {
   if (typeof p !== 'string' || !p || p.length > 4096 || !p.isWellFormed()) return UNSAFE;  // a lone surrogate encodes as U+FFFD
-  if (/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/.test(p)) return UNSAFE;  // bidi controls and marks reorder how a name displays
+  // Bidi controls and marks reorder how a name displays; tag characters carry hidden text a model reads and a
+  // person does not see; NUL ends a name early in C APIs.
+  if (/[\x00\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069\u{e0000}-\u{e007f}]/u.test(p)) return UNSAFE;
   const segs = p.split(/[\\/]/).flatMap((x) => [x, x.replace(IGNORABLE_RE, '')]);
   if (segs.some(segmentUnsafe)) return UNSAFE;
   // Control characters (C0, DEL, C1, line and paragraph separators) and ':' (a drive or an NTFS stream).
@@ -118,7 +120,8 @@ function collidingPaths(entries) {
  *     Paths may name dotfiles (.ssh, .zshrc, .git/hooks): restore into a root the person chose, not over live config.
  *
  * restored, failed and skippedAtBackup all hold manifest text, another device's words: escape all of it for HTML.
- * restored paths passed pathProblem (no control or bidi characters); failed and skipped text is bounded and has
+ * restored paths passed pathProblem (no control, bidi or tag characters, though other invisible ones such as the
+ * joiners in emoji may remain); failed and skipped text is bounded and has
  * control, bidi and lone-surrogate characters written as \u{...}. failed is grouped by stage, not in manifest order. fetchChunk and the
  * sink have no timeout here: a call that never settles stalls the restore, so the caller bounds them.
  */
