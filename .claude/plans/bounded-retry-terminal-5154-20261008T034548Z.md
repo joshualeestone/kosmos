@@ -42,6 +42,18 @@ When a Kosmos-run agent is stuck on the **same terminal error repeating** — an
 - **Detector `engine/stuckterminal.js` (pure, unit-tested):** `TERMINAL_STATES = ['auth_failed','rate_limited']`, `STUCK_MS` (conservative), `assess(state, anchor, now)` → `{ stuck, state, sinceAt }`; `read(book, key, state, now)` updates the anchor and returns the assessment; `forget(book, key)` for lifecycle. No `store.ROOT` I/O, so no require-time root freeze to worry about (convention #2 N/A here).
 - **One push per episode + board field + copy + precedence + lifecycle:** as in the Design section above (sweep beside `crashloop.tellLoops` ~21229; `id:'stuckterminal:'+key+':'+sinceAt`; `forget` on remove/create/delete-leftover; never masks the agent's own needs-you; clears on recovery).
 
-## Still to confirm at implementation start
-- Whether `rate_limited` should bound at a longer `STUCK_MS` than `auth_failed` (a rate limit legitimately persists a while; an expired login does not self-heal at all). Likely yes — two thresholds.
-- That `a.state`'s exact terminal spellings match status.js `STATE` constants (`auth_failed`, `rate_limited`) at the snapshot layer, not a remapped display value.
+## Resolved wiring architecture (grounded on origin/main — ready to implement)
+The pure detector (`engine/stuckterminal.js`) + 9 unit tests are **built and green** (committed). The server wiring is the next unit:
+
+- **Single authoritative updater = the 60s sweep.** Unlike `crashloop.read` (a stateless disk read), `stuckterminal.read` MUTATES the anchor, so it must run once per poll from ONE place. The existing `crashLoopTick` (server.js ~21292) already calls `safeRoster()` every 60s; the stuck sweep rides the SAME roster read (no extra snapshot — the cost the crashloop comment warns about is already paid there). For each roster agent: `stuckterminal.read(STUCK_BOOK, key, a.state, now)`; on `stuck` fire once per episode via a `STUCK_TOLD` Set (mirror `CRASHLOOP_TOLD`) + log first, then `phonenotify.happened({ kind:'needs_you', id:'stuckterminal:'+key+':'+r.sinceAt, ... })`; clear the TOLD entry when no longer stuck. `safeRoster()` carries `a.state` (verified: it is built from `snapshot()`, e.g. the `a.state === 'connection_lost'` reconnect line at ~2428).
+- **`/api/status` is READ-ONLY** (no book mutation): attach `stuckError: a.isNamedOurs ? stuckterminal.assess(STUCK_BOOK.get(a.sessionName) || null, now) : null` beside `crashLoop` (server.js ~2432 and ~5331; check ~5547's `k` loop carries state). The board reads the current anchor assessment; the 60s granularity is irrelevant to a 15m/30m threshold.
+- **`STUCK_BOOK = new Map()`** declared beside `CONNLOST_BOOK` (~1113). In-memory only (a restart re-anchors from the live state, which is correct). No `store.ROOT` freeze (convention #2 N/A).
+- **Precedence is STRUCTURAL, not a special case:** an agent showing its own `needs_you` is, by status.js classification, NOT in `auth_failed`/`rate_limited`, so stuckterminal cannot fire over it. It also clears itself (anchor drops when the state leaves the terminal set). Both satisfy the card's precedence rule for free.
+- **Lifecycle:** add `stuckterminal.forget(STUCK_BOOK, key)` beside each existing `crashloop.forget` (remove.js ~817, create.js ~4957, delete-leftover.js ~533), and prune book entries not in the current roster during the sweep.
+- **Confirmed:** `rate_limited` uses a longer threshold than `auth_failed` (a rate limit legitimately persists; an expired login does not self-heal) — encoded as `STUCK_MS = { auth_failed: 15m, rate_limited: 30m }`. The terminal spellings `auth_failed`/`rate_limited` match status.js `STATE` constants.
+
+## Remaining units (next focused pass, NOT to be interrupted by the #5482 merge)
+1. The server.js wiring above (book + sweep + read-only `/api/status` field + lifecycle `forget`).
+2. A server-side test (mirror the crashloop server tests): the `/api/status` field + one-push-per-episode.
+3. The board card from `stuckError` + Mona Lisa copy; a `docs/browser-checks/` assertion or a `Browser-check:` trailer (rendered-surface convention #4).
+4. Full local `tools/run-tests.sh` (unset KOSMOS_AGENT_TOKEN) + `/challenge-loop` to convergence + `/create-pr` (Addresses #5154, non-closing).
