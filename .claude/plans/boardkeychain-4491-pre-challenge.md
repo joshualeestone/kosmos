@@ -2,17 +2,19 @@
 pre_challenge: true
 method: challenge-loop
 branch: boardkeychain-4491
-diff_hash: dc257d97738778e38815b1c94448c64f2b7428d64180effe4e74a2c6f37ffdb4
-validation: passed (Mortals full suite at a3d4699db, 08:35 CDT 2026-10-04: 15036 tests, 14812 pass, 0 fail, 224 skipped; hash 28628ddc726d; full suite passed on Mortals)
+diff_hash: dfe438cc76fe8f59699ef6f513d487ac47936effbed7af53f395f655c00f19db
+validation: passed (focused, at the rebased head 2026-10-07 20:2x CDT: guard/token/auth/undo/file-scanning guards 327 pass 0 fail, undo-credential 69/69, setup-assistant 27/27, undo routes 16/16, supervisor 156/156; the full suites run in PR CI and merge waits on them green)
 subdir_audit: passed
-timestamp: 2026-10-04T13:50:43Z
-iterations: 6
+timestamp: 2026-10-08T01:25:11Z
+iterations: 31
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 6
+**Iterations:** 31 (6 before the 2026-10-07 rebase, 25 after it, opus and sonnet alternating)
+**Converged (2026-10-07):** iteration 31 (post-rebase review 25, sonnet) found no BLOCKER and no WARNING that was not
+already a named residual, except one speculative residual deferred with its reason (below).
 **Converged:** Yes (iteration 5 found no BLOCKER/WARNING/CONVENTION; iteration 6 reviewed the leak fix added after
 the Mortals run and found none either)
 **Total findings:** 13 distinct actionable WARNINGs and CONVENTIONs across iterations 1-4, all FIXED; NITs as listed
@@ -135,3 +137,9 @@ Seventeenth review (opus): 2 WARNINGs fixed (any dropped rule fails closed; the 
 Eighteenth review (sonnet): no security hole; 1 WARNING (silent overwrite of an unreadable settings.json) fixed; 316 + 27 tests pass.
 Nineteenth review (opus): no blocker; 1 WARNING (move-aside pre-move check) fixed; 316 + 58 tests pass.
 Twentieth review (sonnet): no security hole; 2 WARNINGs addressed (unchanged rewrite skipped; over-refusal stated); 316 + 27 tests pass.
+Twenty-first review (sonnet): 1 WARNING (the person's own user settings can weaken the guard) fixed by a board-log warning, never editing their file; 2 NITs fixed; 317 tests pass.
+Twenty-second review (opus): 6 WARNINGs. [WARNING] launch-time window --> FIXED (supervisor guards a listed agent at each launch). [WARNING] silent root drop --> FIXED (refuses). [WARNING] Unix-socket allowances --> FIXED (dropped, warned). [WARNING] process-starting keys --> FIXED in part (said in the log), rest DEFERRED to #5516. [WARNING] other config files --> DEFERRED (#5516, named). [WARNING] private browser --> DEFERRED (#5516, named, unmeasured). 322 tests pass.
+Twenty-third review (sonnet): [WARNING] launch fails open --> DECIDED (logged, launch goes on; reasons in the plan). [WARNING] silent skip with no guard code --> FIXED. [WARNING] exact-value cleaning of settings.local.json --> FIXED (allowlist). [WARNING] denies only accumulate --> DEFERRED (over-denies only). 324 + 66 tests pass.
+Twenty-fourth review (opus): [WARNING] Windows rule spelling may never match --> FIXED (refused on win32 until measured). [WARNING] additionalDirectories --> FIXED (dropped, warned). [WARNING] soft link through the file tools --> DEFERRED (#5516 measurement). NITs fixed (hidden worlds, world id, temp cleanup). 327 + 69 tests pass.
+Twenty-fifth review (sonnet), CONVERGED: no BLOCKER; [WARNING] off-macOS ok means rules only --> named residual; [WARNING] temp copy permission-layer only --> named residual; [WARNING] other agents' transcripts not read-denied --> DEFERRED (speculative: no code prints the token; #5516 list). NITs left (double launch log line, empty-file copy, undo stat cost).
+Rebased onto main again 2026-10-07 20:2x (27 new commits on main; one conflict in tools/windows-tests.js HOST_BRANCH_EXCLUDED, both lines kept); every focused set above re-run green after the rebase.
