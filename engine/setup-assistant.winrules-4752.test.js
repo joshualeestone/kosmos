@@ -191,3 +191,9 @@ test('#4752: a refusal reaches an old rule spelt in another case on Windows', ()
 test('#4752: a drive root\'s twin is the old writer\'s spelling', () => {
   assert.deepEqual(sa.withNativeTwins(['Read(//d/**)'], 'win32'), ['Read(//d/**)', 'Read(//D:\\/**)']);
 });
+
+test('#4752: a refusal reaches a new-form rule spelt in another case on Windows, never off Windows', () => {
+  const refused = new Set(['Read(//c/Users/a/old/**)']);
+  assert.deepEqual(sa.finalDeny(['Read(//c/Users/A/old/**)'], [], refused, 'win32'), []);
+  assert.deepEqual(sa.finalDeny(['Read(//c/Users/A/old/**)'], [], refused, 'darwin'), ['Read(//c/Users/A/old/**)'], 'CONTROL: case folded off Windows');
+});
