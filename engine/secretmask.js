@@ -1228,21 +1228,19 @@ const LONG_TOKEN = /[A-Za-z0-9+/_-]{32,600}={0,2}/g;
 function isPlainPath(run) {
   const segs = run.split('/').filter(Boolean);
   if (segs.length < 2) return false;
-  /* #5558: each piece between - and _ is judged WHOLE (review 1: no splitting a random chunk into word-like parts).
-     Plain pieces, and nothing else:
-       a number of up to 10 digits;
-       a word-shaped piece of 3 to 12 letters (see word below), lowercase or Capitalized;
-       such a word then up to 4 digits (win32, arm64);
-       a date or timestamp (20260926, 20260926T1625, 20260913T052847Z): a real 19xx/20xx date, not any 8 digits;
+  /* #5558: a relative path made only of plain pieces is not a token. Split at /, then at - and _, and judge each
+     piece WHOLE (never split further, so a random chunk cannot be peeled into word-like parts). Plain pieces:
+       a number of up to 8 digits;
+       a word: 3 to 12 letters, lowercase or Capitalized, at least a sixth of them vowels, no 4 consonants in a row
+         (y counts as a consonant), no q without u (random letter runs such as goxswayqboz fail; so do a few real
+         words like firstrun, which only keeps them masked);
+       a word then up to 4 digits (win32, arm64);
+       a date or timestamp that is a real 19xx/20xx date (20260926, 20260926T1625, 20260913T052847Z);
        an architecture (x64, x86).
-     And no segment over 40 characters. Review 5: at most 10 digits in the whole path, one date not counted, so a
-     numeric secret cut into short numbers (pin/0403968243-1987742099/1844388921) is still judged as a token.
-     Review 2: a digit run with stray letters (46541662l) is NOT plain, so a numeric secret cut by slashes is still
-     judged as a token. Review 3: and the path needs at least one word-shaped piece. */
-  // Review 4: word-SHAPED, not only vowel-bearing: at most 3 consonants in a row (y counts as a consonant), at least
-  // a sixth of the letters vowels (plans, checks), and no q without u. Random letter runs (goxswayqboz, irqrfyfnsxp)
-  // fail; a few real words with long clusters (firstrun) fail too, which only keeps them masked. Not madeOfWords'
-  // wordLike: that one needs a quarter vowels, so plans fails it and nearly every real path would stay masked.
+     The path also needs at least two segments, at least one word, no segment over 40 characters, and at most 8
+     digits outside its first date, so a numeric secret cut into short numbers stays a token. Not madeOfWords'
+     wordLike: that one needs a quarter vowels, so "plans" fails it and nearly every real path would stay masked.
+     Residual: a secret built from pronounceable syllables, cut by slashes, with no digits beyond one date. */
   const word = (w) => {
     if (!/^(?:[a-z]{3,12}|[A-Z][a-z]{2,11})$/.test(w)) return false;
     const l = w.toLowerCase();
@@ -1250,8 +1248,7 @@ function isPlainPath(run) {
     return vowels >= 1 && vowels * 6 >= l.length && !/[^aeiou]{4}/.test(l) && !/q(?!u)/.test(l);
   };
   const isDate = (p) => /^(?:19|20)[0-9]{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12][0-9]|3[01])(?:T[0-9]{2,6}Z?)?$/.test(p);
-  // Review 3: a number is plain up to 10 digits (a long digit run is a token's), and a plain path needs a real word.
-  const pieceOk = (p) => /^[0-9]{1,10}$/.test(p)
+  const pieceOk = (p) => /^[0-9]{1,8}$/.test(p)
     || word(p)
     || ((m) => !!m && word(m[1]))(p.match(/^([A-Za-z]+)[0-9]{1,4}$/))
     || isDate(p)
@@ -1264,7 +1261,7 @@ function isPlainPath(run) {
     if (!dateSeen && isDate(p)) { dateSeen = true; continue; }
     digits += (p.match(/[0-9]/g) || []).length;
   }
-  return digits <= 10;
+  return digits <= 8;
 }
 
 function looksRandom(run) {
