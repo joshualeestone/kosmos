@@ -32,7 +32,7 @@ within the day. That trade is the point: one email per problem per day instead o
 ## Also on this branch (from the site workflow's review round 3)
 
 **The deploy has its own wall-clock limit** (KOSMOS_AUTODEPLOY_DEPLOY_MAX_S, default 900 s), well inside
-the workflow's 30-minute job timeout, so a hang is counted here (a FAILURE, exit 124: retried once, then
+the workflow's job timeout (45 minutes since the workflow's review round 20; 30 when this was written), so a hang is counted here (a FAILURE, exit 124: retried once, then
 parked; not a retry, because it may have published before hanging) instead of the runner killing the job
 with nothing recorded. Measured 2026-10-08: the 0.7.28 prod promote's deploy-site.sh --promote took 2
 min 18 s on Mortals. The deploy runs in its own process group with stdin from /dev/null; at the limit,
@@ -85,8 +85,8 @@ A future-dated record counts as never reported.
   see one; now `(^|/)sleep N$`, with a control that starts one and counts it.
 - **A damaged number never aborts a tick** (round 15): a report time, a count or the mirror count with a
   leading zero (089 is invalid octal to bash) reads as 0, like any other damaged value; tested with
-  0899999999 (red without the fix). The fetch cap is 300 s so the fetch and deploy caps together leave 5
-  of the job's 30 minutes. perl installs its signal handlers before the fork and both sides set the
+  0899999999 (red without the fix). The fetch cap is 300 s; with the deploy's 1200 s and the workflow's own
+  git, every cap sums to about 29 of the job's 45 minutes (the mirror and checksums are unclocked). perl installs its signal handlers before the fork and both sides set the
   child's group, closing two microsecond-wide races.
 - **A fetch that comes and goes stays reported** (round 17): its record is no longer cleared by a good
   fetch (a flapping network would re-arm its own red after every good tick, up to 48 emails a day); it
@@ -95,7 +95,8 @@ A future-dated record counts as never reported.
   fetch outage within the day of an earlier one is green-with-warning, not red.
 - **The cut check fails closed** (round 18): a process list that cannot be read (command fails or prints
   nothing) can no longer read as "no cut running"; nothing deploys and it is red once a day (psread).
-  Test 35 (red without the fix: it deployed twice). The records keyed "none" (made before the sha is
-  known) cover a new push the same day too; written in the header. Not airtight, and said so: the
+  Test 35 (red without the fix: it deployed twice). The records keyed "none" (fetch, wedged lock,
+  origin/main: made before the sha is known) cover a new push the same day too; psread is per sha.
+  Written in the header. Not airtight, and said so: the
   leaderless-group rule cannot tell a recycled pid whose own group outlived its leader; the leader-alive
   start-time check covers the common case.

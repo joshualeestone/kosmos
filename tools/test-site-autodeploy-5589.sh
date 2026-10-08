@@ -368,7 +368,7 @@ git -C "$T/site" remote set-url origin "$T/origin.git"; git -C "$T/site" config 
   && pass "a hanging fetch is stopped at its limit, its helpers with it, and reported red" || bad "hanging fetch (rc=$RC, ${el}s, $left left) $OUT"
 # (No cleanup kill on a failure: this is a shared user, and a pattern kill reaches other people's
 #  processes. A leftover sleep ends by itself within 82 minutes.)
-tick   # recovered: clears the fetch record
+tick   # a good tick (the fetch record stays: see test 21)
 # Control: the count above can see a leftover (a sleep of the same length, started here, is counted).
 /bin/sleep "$Z26" & ctl26=$!; sleep 0.3; seen=$(ps -axo command= | command grep -Ec "(^|/)sleep ${Z26//./\\.}\$"); kill "$ctl26"; wait "$ctl26" 2>/dev/null
 [ "$seen" -ge 1 ] && pass "the leftover count sees a sleep of that length (control)" || bad "the leftover count cannot see a sleep (it counted $seen)"
