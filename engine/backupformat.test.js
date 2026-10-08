@@ -232,3 +232,25 @@ test('#5535 the naming key must be exactly 32 bytes (a short or empty key would 
   const emptyName = crypto.createHmac('sha256', Buffer.alloc(0)).update(Buffer.from('evil')).digest('hex');
   assert.equal(bf.openVerifiedChunk(k.sk, Buffer.alloc(0), emptyName, forgeChunk(k.pk, emptyName, Buffer.from('evil'))), null, 'a forgery under an empty-key name is refused');
 });
+
+test('#5535 the streaming chunker cuts exactly where chunkBuffer does, whatever the piece sizes (golden vector too)', () => {
+  const lens = (cs) => cs.map((c) => c.length);
+  const stream = (buf, opts, pieceOf) => {
+    const ch = bf.createChunker(opts); const out = [];
+    for (let i = 0; i < buf.length;) { const n = pieceOf(i); out.push(...ch.push(buf.subarray(i, i + n))); i += n; }
+    return [...out, ...ch.finish()];
+  };
+  const big = rand(3 * 1024 * 1024 + 777, 's');
+  let seed = 7; const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648);
+  for (const [what, pieceOf] of [['1 byte at a time over the first 20k, then large', (i) => (i < 20000 ? 1 : 65536)], ['random sizes', () => 1 + (rnd() % 50000)], ['one piece', () => big.length]]) {
+    const s1 = stream(big, SMALL, pieceOf);
+    assert.deepEqual(lens(s1), lens(bf.chunkBuffer(big, SMALL)), `${what}: same boundaries`);
+    assert.ok(Buffer.concat(s1).equals(big), `${what}: reassembles`);
+  }
+  const golden = rand(6 * 1024 * 1024, 'c');
+  assert.deepEqual(lens(stream(golden, bf.CDC, () => 1 << 20)), [286742, 1078049, 1781820, 1480926, 1131483, 441857, 90579], 'format-1 golden vector, streamed');
+  const ch = bf.createChunker(SMALL); ch.finish();
+  assert.throws(() => ch.push(Buffer.from('x')), /after finish/);
+  assert.throws(() => bf.createChunker(SMALL).push('not a buffer'), /Buffer/);
+  assert.deepEqual(bf.createChunker(SMALL).finish(), [], 'an empty stream gives no chunks');
+});
