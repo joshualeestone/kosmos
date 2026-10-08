@@ -218,6 +218,21 @@ function defaultModelKeyFor(provider) {
   const m = modelsFor(provider).find((x) => x.default);
   return m ? m.key : null;
 }
+/**
+ * #5534: whether the company policy in force allows an agent on this provider and model. The model may be given by
+ * its key or its full id, or not at all (the provider's default is then the model it runs on); both names are
+ * checked so a policy may list either. A failure inside the policy code never blocks a create (nothing is bricked).
+ */
+function policyAllows(provider, modelKey) {
+  try {
+    const given = modelKey == null ? '' : String(modelKey).trim();
+    const key = given || defaultModelKeyFor(provider) || '';
+    const known = key ? modelsFor(provider).find((x) => x.key === key || x.arg === key) : null;
+    return require('./orgpolicy').allows({ provider, model: known ? [known.key, known.arg] : [key] });
+  } catch {
+    return { ok: true };
+  }
+}
 // ⚠️ The ROSTER, from the module that defines what an agent name is. A second
 // reading of tmux here would be a second definition of "who is already
 // running", and this codebase's worst defects have all been two definitions of
@@ -1830,8 +1845,8 @@ function setProvider(name, provider, opts) {
   }
   /* #5534: switching an agent onto a provider the company policy does not allow is refused like creating one there. */
   {
-    let allowed = { ok: true };
-    try { allowed = require('./orgpolicy').allows({ provider, model: '' }); } catch { allowed = { ok: true }; }
+    // The switch writes no model, so the agent runs on the provider's default: that is the model asked about.
+    const allowed = policyAllows(provider, '');
     if (!allowed.ok) return { outcome: OUTCOME.REFUSED, because: allowed.because };
   }
   /* #3564: a swarm's meter and stop keys are Claude Code's, so it stays on Claude, as at birth. */
@@ -2372,6 +2387,7 @@ function setModel(name, modelKey, opts) {
 
   /* #5534: switching onto a model the company policy does not allow is refused like creating an agent on it. */
   {
+    // An empty choice is the vendor's own default, which no list can name: refused when the provider has a list.
     let allowed = { ok: true };
     try { allowed = require('./orgpolicy').allows({ provider: agentProvider, model: [m.key, m.arg] }); } catch { allowed = { ok: true }; }
     if (!allowed.ok) return { outcome: OUTCOME.REFUSED, because: allowed.because };
@@ -4386,14 +4402,7 @@ function createAgentInner(opts) {
   // #5534 (Enterprise E0.5): a company policy in force on this board may not allow this provider or model. Refused
   // before anything is written, with the policy's own sentence; agents already running are never stopped by it.
   {
-    let allowed = { ok: true };
-    try {
-      const key = opts && opts.model ? String(opts.model) : '';
-      let full = '';
-      try { const mm = key ? modelFor(provider, key) : null; full = mm && mm.arg ? String(mm.arg) : ''; } catch { full = ''; }
-      allowed = require('./orgpolicy').allows({ provider, model: [key, full] });
-    }
-    catch { allowed = { ok: true }; }   // an unreadable policy record is no policy (nothing is bricked)
+    const allowed = policyAllows(provider, opts && opts.model);
     if (!allowed.ok) return { outcome: OUTCOME.REFUSED, because: allowed.because, steps };
   }
   /* #3564: an Agent or a Swarm. A swarm is refused here, before anything is written,
@@ -6213,7 +6222,7 @@ module.exports = {
   // exists because two definitions of one fact is where its worst defects came
   // from. The menu, the create check and the change check now all read one.
   modelsFor,
-  defaultModelKeyFor,
+  defaultModelKeyFor, policyAllows,
   modelFor,
   SELF_STARTS,
   selfStarts,

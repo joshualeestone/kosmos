@@ -848,3 +848,22 @@ test('R1 TEST-GAP (Windows, the path this box ships): no task yet -> the folder 
   const cfg = fs.readFileSync(nodePath.join(account, '.claude.json'), 'utf8');
   assert.ok(cfg.includes('wen') && cfg.includes('hasTrustDialogAccepted'), 'the copy was not trusted on the account it will run on');
 });
+
+test('#5534: an imported agent on a provider the company policy does not allow is not started here, and says why', () => {
+  const orgpolicy = require('./orgpolicy');
+  fs.mkdirSync(nodePath.dirname(orgpolicy.APPLIED()), { recursive: true });
+  fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 1, applied_at: 1,
+    policy: { providers_allowed: ['anthropic'], models_allowed: { anthropic: ['opus'] } } }));
+  try {
+    const before = calls.length;
+    assert.match(String(worldstarts.firstStartOfImport({ name: 'importcodex', runner: 'codex' }, MAC)),
+      /importcodex was not started here: .*does not allow openai/);
+    assert.match(String(worldstarts.firstStartOfImport({ name: 'importhaiku', runner: 'claude', model: 'claude-haiku-4-5-20251001' }, MAC)),
+      /does not allow the model haiku/, 'a model outside the list, given by its full id, was not refused');
+    assert.equal(calls.length, before, 'a refused import ran a command');
+    const allowed = worldstarts.firstStartOfImport({ name: 'importopus', runner: 'claude', model: 'claude-opus-5' }, MAC);
+    assert.doesNotMatch(String(allowed || ''), /policy/, 'CONTROL: an allowed provider and model is not refused for policy');
+  } finally {
+    fs.rmSync(orgpolicy.APPLIED(), { force: true });
+  }
+});

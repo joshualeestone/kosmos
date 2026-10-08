@@ -3,19 +3,27 @@
  * #5534 (Enterprise E0.5): the company policy an enrolled board applies. Design on the card (agreed with the E0.1 and
  * E0.2 owners): the coordinator signs each org's policy as a KST1 token of `typ: org_policy` with its own key, the
  * key every Kosmos+ Mac already pins; the tunnel fetches it on its Mac-signed org-status call and writes it to
- * `org_policy.kst` in its state folder; this module verifies it AGAIN (the file is on disk, so it is not trusted),
- * refuses a lower version than the one applied (no rollback by replaying an old bundle), and keeps the last good one
- * in force when a new one is refused. Nothing here stops a running agent: a disallowed provider or model is refused
- * when an agent is CREATED or LAUNCHED, and what is out of policy is reported, never bricked.
+ * `org_policy.kst` in its state folder; this module verifies it AGAIN (the file is on disk, so it is not trusted) and
+ * keeps the last good one in force when a new one is refused.
  *
- * Payload (v1): { typ: 'org_policy', v: 1, org, version, issued_at, exp, policy: { providers_allowed, models_allowed,
+ * Payload (v1): { typ: 'org_policy', v: 1, org, version, iat, exp, policy: { providers_allowed, models_allowed,
  * backup: { required, max_age_hours }, telemetry: { required }, ai_policy: { name, text } } }. A null list means "not
  * restricted". Providers are named by the board's own ids (anthropic, openai, google, xai, antigravity, meta), the
- * ones create.js uses, and models by their Kosmos key or full id (opus or claude-opus-...); either matches.
- * Enforced when an agent is created, switched to another provider or switched to another model. An agent already
- * on a provider or model the policy later drops keeps running and keeps relaunching (the card: nothing is
- * bricked); showing it as out of policy is the console's job (E0.4). Gating on enrollment, reporting the applied
- * version and the AI policy text follow once E0.2 and E0.3 land.
+ * ones create.js uses, and models by their Kosmos key or full id (opus or claude-opus-...); either matches. When a
+ * provider has a model list, a model must be named or be the provider's known default (create.policyAllows).
+ *
+ * Enforced when an agent is created (the create form, connecting a folder, importing from another Kosmos) or
+ * switched to another provider or model. An agent already on something the policy later drops keeps running and
+ * keeps relaunching: the card says nothing is bricked, and showing it as out of policy is the console's (E0.4).
+ *
+ * Rollback: the applied record keeps the highest version seen for each org, so an older bundle is refused even after
+ * a bundle of another org came in between. What this cannot stop, and what it is not trusted for: a person who can
+ * delete the applied record (it is in their own data folder) can apply any older bundle that has not expired, or
+ * none. Closing that needs the coordinator to check the version each board reports (E0.3).
+ *
+ * Not yet: gating on enrollment and leaving a company (E0.2; until then a policy stays in force once applied, and
+ * only a bundle signed by the pinned coordinator key can set one), reporting the applied version (E0.3), the AI
+ * policy text. The policy is per Kosmos on a Mac, as enrollment is: another Kosmos on the same Mac has its own.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -23,7 +31,8 @@ const store = require('./store');
 const kst1 = require('./kst1');
 
 const TYP = 'org_policy';
-// The tunnel's state folder, derived exactly as engine/remote.js does (one derivation of the data root).
+// The tunnel's state folder: the same derivation as remote.js's STATE_DIR, read live rather than frozen at load (so a
+// test can point it elsewhere); remote.js is not required for it because loading it starts that module's timers.
 const stateDir = () => process.env.AGENT_WORKFORCE_TUNNEL_STATE || path.join(store.ROOT, 'remote');
 const BUNDLE = () => path.join(stateDir(), 'org_policy.kst');
 const PINNED = () => path.join(stateDir(), 'coordinator_pubkey');
@@ -80,8 +89,10 @@ function refresh({ now, pinned } = {}) {
   if (p.v !== 1 || typeof p.org !== 'string' || !p.org || !Number.isInteger(p.version) || p.version < 1 || !shapeOk(p.policy)) {
     return { applied, refused: 'the policy bundle is not one this Kosmos understands' };
   }
+  const marks = applied && applied.marks && typeof applied.marks === 'object' && !Array.isArray(applied.marks) ? applied.marks : {};
+  const mark = Math.max(Number.isInteger(marks[p.org]) ? marks[p.org] : 0, applied && applied.org === p.org ? applied.version : 0);
+  if (p.version < mark) return { applied, refused: `an older policy (version ${p.version}) than one already applied (${mark})` };
   if (applied && applied.org === p.org) {
-    if (p.version < applied.version) return { applied, refused: `an older policy (version ${p.version}) than the one in force (${applied.version})` };
     if (p.version === applied.version) {
       // Same version, same words: nothing to do. Same version, other words: the coordinator never does that.
       return JSON.stringify(p.policy) === JSON.stringify(applied.policy)
@@ -89,7 +100,9 @@ function refresh({ now, pinned } = {}) {
         : { applied, refused: `a different policy under the same version (${p.version})` };
     }
   }
-  const rec = { org: p.org, version: p.version, issued_at: p.issued_at, applied_at: Math.floor(Date.now() / 1000), policy: p.policy };
+  const nextMarks = { ...marks, [p.org]: Math.max(mark, p.version) };
+  if (applied && Number.isInteger(applied.version)) nextMarks[applied.org] = Math.max(nextMarks[applied.org] || 0, applied.version);
+  const rec = { org: p.org, version: p.version, iat: p.iat, applied_at: Math.floor(Date.now() / 1000), policy: p.policy, marks: nextMarks };
   try { writeApplied(rec); } catch (e) { return { applied, refused: 'the policy could not be saved: ' + ((e && e.message) || e) }; }
   return { applied: rec, refused: null };
 }
@@ -119,7 +132,11 @@ function allows({ provider, model } = {}, policy = inForce()) {
     return { ok: false, because: `your company's policy does not allow ${provider || 'this provider'} for new agents` };
   }
   const models = policy.models_allowed && policy.models_allowed[provider];
-  if (Array.isArray(models) && names.length && !names.some((n) => models.includes(n))) {
+  if (Array.isArray(models) && !names.length) {
+    // No model named and none known for it (a vendor's own default): no list can name it, so it is not allowed.
+    return { ok: false, because: `your company's policy allows only some models on ${provider}: choose one of them` };
+  }
+  if (Array.isArray(models) && !names.some((n) => models.includes(n))) {
     return { ok: false, because: `your company's policy does not allow the model ${names[0]} on ${provider}` };
   }
   return { ok: true };

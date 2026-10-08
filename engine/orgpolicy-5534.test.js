@@ -37,7 +37,7 @@ function sign(payload, kp = coordinator) {
 }
 const POLICY = { providers_allowed: ['anthropic', 'openai'], models_allowed: { anthropic: ['opus', 'sonnet'] }, backup: { required: true, max_age_hours: 24 },
   telemetry: { required: true }, ai_policy: { name: 'Company', text: 'Be careful with customer data.' } };
-const bundle = (over = {}) => ({ typ: 'org_policy', v: 1, org: 'org-1', version: 1, issued_at: NOW - 10, exp: NOW + 86400, policy: POLICY, ...over });
+const bundle = (over = {}) => ({ typ: 'org_policy', v: 1, org: 'org-1', version: 1, iat: NOW - 10, exp: NOW + 86400, policy: POLICY, ...over });
 
 function place(token) { fs.writeFileSync(orgpolicy.BUNDLE(), token); }
 function reset() {
@@ -96,6 +96,13 @@ test('an older version is refused (no rollback by replaying an old bundle); a sa
   assert.equal(orgpolicy.refresh({ now: NOW, pinned: PINNED }).refused, null, 'CONTROL: the same bundle again is fine');
   place(sign(bundle({ version: 1, org: 'org-2' })));
   assert.equal(orgpolicy.refresh({ now: NOW, pinned: PINNED }).applied.org, 'org-2', 'a move to another org starts its own count');
+  // Review 1: the first org's mark survives the move, so its older bundle is still refused afterwards.
+  place(sign(bundle({ version: 4, policy: { ...POLICY, providers_allowed: null } })));
+  r = orgpolicy.refresh({ now: NOW, pinned: PINNED });
+  assert.match(String(r.refused), /older policy \(version 4\)/, 'an older bundle of the first org applied after another org came in between');
+  assert.equal(r.applied.org, 'org-2');
+  place(sign(bundle({ version: 6 })));
+  assert.equal(orgpolicy.refresh({ now: NOW, pinned: PINNED }).applied.version, 6, 'CONTROL: a newer bundle of the first org applies');
 });
 
 test('a malformed policy is refused rather than half-applied; no bundle means no policy', () => {
@@ -125,7 +132,9 @@ test('allows: a model given by several names is allowed when any one is listed, 
   assert.equal(orgpolicy.allows({ provider: 'anthropic', model: ['opus', 'claude-opus-4-5'] }, byId).ok, true, 'the full id is listed');
   assert.equal(orgpolicy.allows({ provider: 'anthropic', model: ['opus', 'claude-opus-4-5'] }, POLICY).ok, true, 'the key is listed');
   assert.match(orgpolicy.allows({ provider: 'anthropic', model: ['haiku', 'claude-haiku-4-5'] }, byId).because, /does not allow the model haiku/);
-  assert.equal(orgpolicy.allows({ provider: 'anthropic', model: ['', ''] }, POLICY).ok, true, 'no model named: the provider default, not refused');
+  assert.match(String(orgpolicy.allows({ provider: 'anthropic', model: ['', ''] }, POLICY).because), /allows only some models on anthropic/,
+    'no model named under a model list: refused (create.policyAllows names the default when it knows it)');
+  assert.equal(orgpolicy.allows({ provider: 'openai', model: [''] }, POLICY).ok, true, 'CONTROL: no list for openai, no model needed');
 });
 
 test('allows applies a bundle the tunnel wrote since, with no refresh call (nothing else calls one)', () => {
@@ -135,7 +144,7 @@ test('allows applies a bundle the tunnel wrote since, with no refresh call (noth
     assert.equal(orgpolicy.allows({ provider: 'google' }).ok, true, 'CONTROL: no bundle, no policy');
     place(sign(bundle({ exp: Math.floor(Date.now() / 1000) + 3600 })));
     assert.match(String(orgpolicy.allows({ provider: 'google' }).because), /does not allow google/, 'a fresh bundle was not applied');
-    assert.equal(orgpolicy.allows({ provider: 'anthropic' }).ok, true, 'CONTROL: an allowed provider');
+    assert.equal(orgpolicy.allows({ provider: 'anthropic', model: 'opus' }).ok, true, 'CONTROL: an allowed provider and model');
   } finally {
     fs.rmSync(orgpolicy.PINNED(), { force: true });
     reset();
