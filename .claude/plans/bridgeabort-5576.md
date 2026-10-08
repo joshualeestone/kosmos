@@ -12,13 +12,24 @@ socket, stream and fetch operations before the abort line. The cause itself is t
   needs another close path. A socket handed a low fd after a stdio fd was closed would be one.
 
 ## Built
-- engine/agyseed-4417.test.js: the bridge child runs with NODE_DEBUG=net,stream,fetch (stderr only; the answer is
-  stdout, and nothing asserts the child's stderr). The failure message keeps the head and the last 1,200 characters
-  of stderr (the abort line comes last). A test pins that.
+- test-support/agy-bridge-trace.js: a preload for the bridge CHILD only (NODE_OPTIONS=--require, appended to any
+  options already set). Markers straight to fd 2 with fs.writeSync (no stream, no handle): the type of fds 0, 1, 2 at
+  start; fetch begin and end; exit called; on 'exit' the fds 0, 1, 2 again. Measured on a real run: start 0:chr 1:sock
+  2:sock, fetch begin, fetch end ok, exit called 0, exit 0 with the same fds.
+- engine/agyseed-4417.test.js: the child carries the preload; a failure message keeps the head and the last 1,200
+  characters of stderr (the abort line comes last). Tests: the preload reaches the child's options without replacing
+  them; a real run has the markers on stderr and none on stdout; a long stderr keeps its abort line.
 
 ## Decided
 - Test-only: no diagnostic code in the production bridge.
-- Weakest premise: the debug lines may not include the close that aborts (libuv closes below Node's debug points).
-  They still order the abort against the fetch and the exit, which splits the card's two candidates.
+- Not NODE_DEBUG (my first version, review 1): it makes the child open a stream on fd 2, which the bridge never has,
+  the kind of handle the abort is about, so it could change the rate; and it logs nothing on the exit path, so it
+  could not tell the two candidates apart.
+- Weakest premise: a quiet stretch after this lands is not evidence the abort is gone (the preload adds a little work
+  at start); only a marked abort is.
 
 ## Review log
+### Review 1 (opus): 2 WARNINGs
+- Fixed: NODE_DEBUG opened a stream on fd 2 (could change what it measures) and could not split exit from fetch;
+  replaced by the fd-2 marker preload above. Fixed: nothing checked the setting reaches the child (fake-spawn test).
+- NITs left: the head of a long stderr is mostly start markers; exact 1,600/1,601 boundary untested.
