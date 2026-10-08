@@ -249,7 +249,7 @@ from a night in this codebase, kosmos#2616.)
    `engine/live-execution.js`'s `liveExecutionAllowed()` and, when it returns false, calls
    `refuseOrWarn(...)` to refuse rather than act (#1598). The flag is a module-level
    `allowed=false` that only `allowLiveExecution()` flips, called only on a real-start path: `server.js`'s
-   real startup (around line 10656), `engine/musefront.js`'s, and a one-shot command a person runs
+   real-start path, `engine/musefront.js`'s, and a one-shot command a person runs
    (`tools/cleanup-fixture-tokens-5418.js`, and only with `--apply`), never at module load. A `node --test` process is detected by
    `process.execArgv` containing `--test` (deliberately not an env var, which a child process
    would inherit and misfire on), so an in-process test never has live execution armed and
