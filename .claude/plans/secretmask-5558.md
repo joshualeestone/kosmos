@@ -53,3 +53,10 @@ a random segment inside a path masked. Full secretmask.test.js 126/126.
 - WARNING fixed: the seeded generator in review 1's test lost precision past 2^53 and cycled every ~10k draws; it uses Math.imul now.
 - NITs fixed: tests for the q-without-u rule and the 40-character segment cap; the comment lists the segment cap.
 - Test '#5558 review 5' red on the previous commit. Sweep (23:46 CDT 2026-10-07): long_token 261 -> 202 (main moved); 131/131.
+
+### Review 6 (sonnet): 3 WARNINGs, 1 CONVENTION fixed
+- WARNING fixed: a date bought 10 free digits (token/Alpha-1234567890-20260926T101010Z-secret was plain). The budget outside one date is now 8 digits, and a number piece is at most 8. Measured on 4,219 real path runs: cap 10 kept 3,079 plain, 8 keeps 3,074, 6 would keep 3,049; 8 chosen (a secret of 8 digits or fewer is PIN-sized).
+- WARNING accepted as the named residual: a secret built from pronounceable syllables, cut by slashes, with no digits beyond one date. Main masked those only incidentally. The digit cap removes most of the reviewer's examples; the rest is stated in the code comment.
+- WARNING fixed: seven rules survived mutation. Test '#5558 review 6' has one case per rule; measured red under each of six mutations (vowel ratio, consonant run, q rule, loose date, every date exempt, single segment). Two first drafts of its cases were written for the old cap and failed; corrected.
+- CONVENTION fixed: the isPlainPath comment states the current rules only.
+- 132/132 (23:51 CDT 2026-10-07).
