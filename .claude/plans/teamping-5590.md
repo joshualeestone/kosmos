@@ -1,0 +1,29 @@
+# teamping-5590: a team create tells installkosmos.com the agent count moved (kosmos#5590)
+
+## Josh's question (06:50) and what was true
+"When someone creates a team of agents do we get one single ping that an agent was created or like the actual number"
+- POST /api/agents (the single create) sends the created ping with the install's total ever created (#3038).
+- POST /api/team (the org-chart import, and agents building a team) sent NOTHING, so its members never reached the
+  homepage count unless that install later made one agent the single way.
+- Corrected premise: the page's seeded team sheet (Create a team) builds each member through POST /api/agents, so
+  those members already pinged one at a time. The gap was POST /api/team only.
+
+## Change
+- server.js, POST /api/team: after the create (both the agent-caller branch under the creator lock and the operator
+  branch, and after the liveness merge), ONE createdbeacon.pingAgentCreated(create.createdCount()) when at least one
+  member was created and the request did not say notifyCreated:false. The count is the total ever created, which
+  already includes every member just born; the site keeps the max, so a re-sent count never inflates it.
+- Early refusals (all members dead, the per-creator cap, shape errors) return before this point or create nobody.
+
+## Tests (server.teamping-5590.test.js), each planted red
+- a team of three: exactly one ping, count = the total before + 3 = createdCount().
+- a partial team (one dead member): one ping.
+- CONTROL: a refused team (all dead; missing purpose): no ping.
+- notifyCreated:false: the team is made, no ping.
+Plants: the ping removed (tests 1 and 2 red); the box ignored (test 4 red).
+Neighbours green: createdbeacon-3038 (unit and route), no-phone-home-4253, browser-checks-quiet-4253, team routes
+(1279), guidestate-4350: 78/78.
+
+## Decided
+- One ping per team, not per member (the card; the total is what the site records).
+- The org-chart import sends no notifyCreated, so it pings (#3038's default ON); its sheet has no box today.
