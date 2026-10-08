@@ -16,7 +16,7 @@ model onto something the policy does not allow is refused with the policy's sent
   allows it).
 - engine/create.js: createAgentInner, setProvider and setModel ask allows() before writing anything; an unreadable
   record is no policy.
-- Tests: engine/orgpolicy-5534.test.js (7), create.test.js '#5534' (create, provider switch, model create, model
+- Tests: engine/orgpolicy-5534.test.js (8, one: a bundle written since applies with no refresh call), create.test.js '#5534' (create, provider switch, model create, model
   switch, controls; red with the setModel gate removed).
 
 ## Decided (also on the card)
@@ -27,6 +27,7 @@ model onto something the policy does not allow is refused with the policy's sent
 
 ## Not in this slice
 Enrollment gate (E0.2 #5531), version report (E0.3), AI policy text via policy.js, the console (E0.4 #5533), the
-fetch on start and daily (the tunnel writes the bundle; nothing on the board calls refresh() on a timer yet).
+fetch on start and daily (the tunnel's job: it writes the bundle). The board needs no timer: allows() re-reads and
+re-verifies the bundle each time it is asked (inForce), so a bundle written since applies at the next create or switch.
 
 ## Review log

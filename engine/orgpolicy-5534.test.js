@@ -127,3 +127,17 @@ test('allows: a model given by several names is allowed when any one is listed, 
   assert.match(orgpolicy.allows({ provider: 'anthropic', model: ['haiku', 'claude-haiku-4-5'] }, byId).because, /does not allow the model haiku/);
   assert.equal(orgpolicy.allows({ provider: 'anthropic', model: ['', ''] }, POLICY).ok, true, 'no model named: the provider default, not refused');
 });
+
+test('allows applies a bundle the tunnel wrote since, with no refresh call (nothing else calls one)', () => {
+  reset();
+  fs.writeFileSync(orgpolicy.PINNED(), PINNED);
+  try {
+    assert.equal(orgpolicy.allows({ provider: 'google' }).ok, true, 'CONTROL: no bundle, no policy');
+    place(sign(bundle({ exp: Math.floor(Date.now() / 1000) + 3600 })));
+    assert.match(String(orgpolicy.allows({ provider: 'google' }).because), /does not allow google/, 'a fresh bundle was not applied');
+    assert.equal(orgpolicy.allows({ provider: 'anthropic' }).ok, true, 'CONTROL: an allowed provider');
+  } finally {
+    fs.rmSync(orgpolicy.PINNED(), { force: true });
+    reset();
+  }
+});
