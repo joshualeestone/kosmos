@@ -70,6 +70,10 @@ function chk(ok, label, extra) {
      hover is a see-through tint over the list's own ground, so only the composite says what a person sees). */
   const look = async (page, sentence) => {
     const row = page.locator('#tsk-groups .tsk-row', { hasText: sentence }).first();
+    // #5551: scrolled into view first. page.screenshot's clip is in viewport space, so a row below the fold (a CI
+    // runner's fonts make the list taller than a Mac's) threw "Clipped area is either empty or outside the resulting
+    // image" on every CI run while passing locally; reproduced locally at a 420px-tall viewport.
+    await row.scrollIntoViewIfNeeded().catch(() => {});
     const b = await row.boundingBox();
     if (!b) return null;
     const cursor = await row.evaluate((r) => getComputedStyle(r).cursor);
@@ -152,6 +156,7 @@ function chk(ok, label, extra) {
     // A click just below the checkbox, in its column, is a missed tick, not "open the task".
     await page.evaluate(() => showTab('tasks'));
     await page.waitForSelector('#tsk-groups .tsk-row .tl', { timeout: 10000 });
+    await page.locator('#tsk-groups .tsk-row', { hasText: S }).first().scrollIntoViewIfNeeded().catch(() => {}); // #5551: boxes are viewport space
     const cb = await page.locator('#tsk-groups .tsk-row', { hasText: S }).first().locator('input[type="checkbox"]').boundingBox();
     const b1 = await page.locator('#tsk-groups .tsk-row', { hasText: S }).first().boundingBox();
     await page.mouse.click(cb.x + cb.width / 2, b1.y + b1.height - 3);
@@ -160,6 +165,7 @@ function chk(ok, label, extra) {
     // A click on an empty part of the row opens that task.
     await page.evaluate(() => showTab('tasks'));
     await page.waitForSelector('#tsk-groups .tsk-row .tl', { timeout: 10000 });
+    await page.locator('#tsk-groups .tsk-row', { hasText: S }).first().scrollIntoViewIfNeeded().catch(() => {}); // #5551: boxes are viewport space
     const b2 = await page.locator('#tsk-groups .tsk-row', { hasText: S }).first().boundingBox();
     const px = b2.x + b2.width - 6, py = b2.y + b2.height - 4;
     const under = await page.evaluate(([x, y]) => {
