@@ -14,8 +14,10 @@
 
 ## Change (test only; the bridge is unchanged)
 - `runOnce` records the exit code, the signal, a spawn error and stderr.
-- `runBridge` tries again, up to three times with a short wait, ONLY when the child never ran (a spawn error or a null
-  code); a child that ran and exited with a code is never retried, so a bridge that really fails still fails.
+- `runBridge` tries again, up to three times with a short wait, only when the RUNNER ended the try (as the code
+  stands after review 9): a resource-shortage spawn error (EAGAIN, EMFILE, ENFILE, ENOMEM), an outside SIGKILL or
+  SIGTERM, or Node's runtime aborting (a thread-create failure, V8's `Check failed:`, or libuv's `uv__close`
+  assertion). A bridge exit code, a bridge crash, ENOENT/EACCES and a hang fail at once.
 - The assertion message prints how each try ended.
 
 ## Decided
@@ -81,16 +83,13 @@
   mutation that removes the check reddens it.
 - `Check failed:` is V8's fatal line; Node's own startup abort is caught by the thread-create arms. Stated in the comment.
 
-## The cause, named by this PR's own diagnostics (2026-10-08 02:25, this PR's CI)
-The retry's failure message on this PR's CI run said what the child died of: SIGABRT with stderr
-"Assertion failed: (fd > STDERR_FILENO), function uv__close, file core.c, line 646". libuv aborts when asked to close
-fd 0, 1 or 2. The bridge's readStdin called process.stdin.destroy() when it finished, the one place it would close its
-own stdin. The bridge always ends with process.exit(0), so destroying stdin bought nothing for its lifetime.
-- Fix (product, one line): pause stdin and drop its data listeners instead of destroying it. Measured: with stdin left
-  open (a pipe never closed) the bridge still exits 0 after its 1 s stdin timeout.
-- Pinned: a source guard refuses process.stdin.destroy( in the bridge, with a control that it still reads stdin;
-  restoring the destroy reddens it.
-- The retry is unchanged and correctly did NOT retry this abort (it was the bridge's, not the runner's).
-- NOT reproduced locally: 1,200 runs of the real events with stdin from /dev/null (24 in parallel) gave 0 aborts. The
-  link from destroy() to the abort is reasoned from the assertion and the code, not measured; CI on this branch is
-  the measure, and the retry's message will name the cause again if it is not this.
+## The CI abort of 2026-10-08, and a retraction (review 9)
+This PR's own diagnostics showed the child dying SIGABRT with "Assertion failed: (fd > STDERR_FILENO), function
+uv__close, file core.c, line 646". I first blamed the bridge's process.stdin.destroy() and changed the bridge
+(3267a4304), writing the cause as fact in a comment, the commit subject and a test title. Review 9 MEASURED otherwise:
+on this Mac, same node and macOS as CI, destroy() leaves fd 0 open with stdin ignored, from /dev/null, and a pipe. So
+the mechanism was wrong, and the bridge change is reverted (the bridge is unchanged again).
+- What is known: a libuv assertion in a 70 ms child at load 25 on 3 cores; never reproduced locally (1,200 runs).
+- Decided: retried as Node's runtime aborting (its own arm in STARTUP_ABORT, pinned; removing it reddens), and every try
+  still names it. Weakest premise: that this abort is the runtime's under load, not something the bridge provokes; the
+  root cause is on #5576 so the retry does not quietly become the fix.

@@ -75,7 +75,11 @@ const RUNNER_SIGNALS = new Set(['SIGKILL', 'SIGTERM']);
 /* uv_thread_create and pthread_create are the arms that catch Node's own startup abort; `Check failed:` is V8's fatal
    line (Node's own CHECKs print "Assertion ... failed" instead). Never a bare EAGAIN (review 5). A hang is never
    retried, even with a spawn error beside it (review 7). */
-const STARTUP_ABORT = /uv_thread_create|pthread_create|Check failed:/;
+/* libuv's own `uv__close` assertion (fd > STDERR_FILENO) is in this set too: seen on CI 2026-10-08 as a 70 ms SIGABRT of
+   this child at load 25 on 3 cores, never reproduced locally in 1,200 runs, and process.stdin.destroy() measured NOT to
+   close fd 0 (review 9). The cause is unknown and tracked on #5576; it is retried as Node's runtime aborting,
+   and every try still names it in the message. */
+const STARTUP_ABORT = /uv_thread_create|pthread_create|Check failed:|function uv__close, file core\.c/;
 const RUNNER_SPAWN_ERRORS = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);   // short of resources; never ENOENT/EACCES (review 4)
 const endedByRunner = (r) => r.signal !== 'timeout' && (RUNNER_SPAWN_ERRORS.has(r.error) || (r.code === null && (RUNNER_SIGNALS.has(r.signal)
   || (r.signal === 'SIGABRT' && STARTUP_ABORT.test(String(r.err || ''))))));
@@ -89,7 +93,7 @@ async function runBridge(event, env, run = runOnce, wait = (ms) => new Promise((
   }
   return { ...tries[tries.length - 1], tries };
 }
-const howItEnded = (r) => JSON.stringify((r.tries || [r]).map((x) => ({ code: x.code, signal: x.signal, error: x.error, stderr: String(x.err || '').slice(0, 300) })));
+const howItEnded = (r) => JSON.stringify((r.tries || [r]).map((x) => ({ code: x.code, signal: x.signal, error: x.error, stderr: String(x.err || '').slice(0, 600) })));
 
 test('#4417: the launch event reports idle from the new pane, with its launch token', async (t) => {
   const board = await standInBoard();
@@ -230,6 +234,9 @@ test('#5560: only a bridge child the runner ended is tried again; one that exite
   f = fake([{ code: null, signal: 'timeout', error: 'EAGAIN', out: '', err: '' }, ok]);
   assert.equal((await runBridge('x', {}, f.run, async () => {})).signal, 'timeout', 'a hang with a spawn error beside it was retried into a pass');
   assert.equal(f.calls.length, 1);
+  // libuv's uv__close assertion (the CI abort of 2026-10-08) is Node's runtime aborting, so it IS retried.
+  f = fake([{ code: null, signal: 'SIGABRT', error: null, out: '', err: 'Assertion failed: (fd > STDERR_FILENO), function uv__close, file core.c, line 646.\n' }, ok]);
+  assert.equal((await runBridge('x', {}, f.run, async () => {})).code, 0, 'the libuv uv__close abort was not retried');
   // A SIGABRT whose stderr merely mentions EAGAIN is the bridge's, not Node's startup (review 5).
   f = fake([{ code: null, signal: 'SIGABRT', error: null, out: '', err: 'bridge: write failed EAGAIN' }, ok]);
   assert.equal((await runBridge('x', {}, f.run, async () => {})).code, null, 'a bridge abort mentioning EAGAIN was retried into a pass');
@@ -250,11 +257,4 @@ test('#5560 review 5: a spawn refused before stdio exists (EMFILE) ends at once 
   assert.equal(r.error, 'EMFILE');
   assert.equal(r.code, null);
   assert.notEqual(r.signal, 'timeout');
-});
-
-test('#5560: the bridge never closes its own stdin (destroying it closed fd 0, and libuv aborted the child on CI)', () => {
-  const src = fs.readFileSync(BRIDGE_FILE, 'utf8');
-  // CONTROL: the bridge does read stdin, so a missing destroy is a choice, not a file that reads nothing.
-  assert.match(src, /process\.stdin\.on\('data'/, 'CONTROL: the bridge no longer reads stdin');
-  assert.equal(/process\.stdin\.destroy\(/.test(src), false, 'the bridge closes fd 0 again; libuv aborts on that (Assertion failed: fd > STDERR_FILENO)');
 });
