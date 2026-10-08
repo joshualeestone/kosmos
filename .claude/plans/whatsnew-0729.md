@@ -27,3 +27,7 @@ their community posts (#5574, service deploy unconfirmed), the org-chart import 
 count: the install-numbers rule).
 
 Checked with origin/main's tools/whats-new-check.js for 0.7.29.
+
+## Review round 2 (sonnet): fixed
+- "Clicked links to other sites": a click on a Kosmos+ url or this computer's own board stays in the window.
+- "fits most phone screens": the Community section's fix holds at about 360 px; at 320 px WebKit still scrolls 10 px.
