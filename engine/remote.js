@@ -990,7 +990,8 @@ function setupRun(args, stdin = null, timeoutMs = 0) {
   });
 }
 
-/** One signed request to a coordinator /v1/mac/ route, through the tunnel's
+/** One signed request to a coordinator route the tunnel allow-lists (a /v1/mac/ route, or since kosmos#5535 an
+    org backup grant route), through the tunnel's
     `mac-request` verb (#718): the key stays in the tunnel binary, never here.
     A POST body goes on stdin, never argv. Resolves to
     { ok: true, data } with the coordinator's parsed JSON, or
