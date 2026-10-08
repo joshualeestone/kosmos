@@ -322,6 +322,18 @@ async function enrollNow(code, accepted, opts) {
   if (!r.ok && body.code && codeOf(r.because) === 'org_already_member') {
     return { ok: false, code: 'org_already_member', because: SAY.org_already_member };
   }
+  /* A review's Accept (this world already named here before it was pressed) is never a join, so none of the join words
+     below fit it (orgreview reviews 1 and 2): every refusal is said in review words, and points at Accept or at the
+     Review button, never at a code. A lost answer: a status read cannot tell whether the re-acceptance landed, because
+     "here" was true either way, so nothing is recorded; accepting again is harmless. */
+  const review = !!(opts && opts.review === true && move);
+  if (!r.ok && review) {
+    const c = codeOf(r.because);
+    if (c === 'org_consent_changed') return { ok: false, code: c, because: 'Your company changed what it asks of this Kosmos since you read it. Nothing changed here. Press Review what your company sees to read the new words.' };
+    if (c) { sayFor(r.because, '', null); return { ok: false, code: c, because: 'Your company did not take the acceptance. Nothing changed on this computer. Press Review what your company sees to try again.' }; }
+    if (r.notSent) return { ok: false, because: 'This Kosmos could not reach your company through Kosmos+ just now. Nothing was sent; press Accept again in a minute.' };
+    return { ok: false, because: 'It is not known whether accepting reached your company. Nothing changed on this computer; press Accept again in a minute.' };
+  }
   const secretCode = typeof code === 'string' ? code.trim() : null;
   // A move refused because the words changed: no code was typed, so say how to see them again (consenthash review 2).
   if (!r.ok && move && codeOf(r.because) === 'org_consent_changed') return { ok: false, code: 'org_consent_changed', because: 'Your company changed what it would see since you checked. Nothing moved. Type your join code again to read the new words.' };
@@ -329,11 +341,6 @@ async function enrollNow(code, accepted, opts) {
   /* Refused on this computer before anything was sent (not connected to Kosmos+, a register or Forget out, no
      Kosmos+ here): certainly nothing was joined, and the ticket stays (review 27). */
   if (!r.ok && r.notSent) return { ok: false, because: 'This Kosmos could not reach your company through Kosmos+ just now. Nothing was sent, so nothing was joined; try again in a minute.' };
-  /* A review's Accept (this world already named here before it was pressed): a status read cannot tell whether the
-     re-acceptance landed, because "here" was true either way (review 1). Nothing is recorded; accepting again is
-     harmless, so the person is asked to. */
-  const review = !!(opts && opts.review === true && move);
-  if (!r.ok && review) return { ok: false, because: 'It is not known whether accepting reached your company. Nothing changed on this computer; press Accept again in a minute.' };
   if (!r.ok) {
     /* #5531 review 19: no reason (a tunnel timeout) says nothing about whether the company already bound this world.
        Ask once. Bound here: the person accepted, so it is recorded as a join. Bound to this world elsewhere: undone.

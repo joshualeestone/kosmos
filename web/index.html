@@ -47482,6 +47482,8 @@ async function plusOrgJoin() {
     msg.textContent = r.because || 'Joining did not go through.';
     // A review has no code to check again: its way back is the Review button (orgreview review 1).
     if (p.review && r.code === 'org_ticket') msg.textContent = 'These words were open too long. Press Review what your company sees to read them again.';
+    // A review refused with a reason points at the Review button, so the joined view (and that button) comes back.
+    if (p.review && r.code) { PLUS_ORG.preview = null; plusOrgPaint(); return; }
     // A code that is used, expired, or for another company will not work on a second press: back to the code field.
     // Also an outcome not known yet, or an undo still to send (review 25): the code may be spent, and "Not now" would say nothing was joined.
     if (['org_code_used', 'org_code_expired', 'org_code_unknown', 'org_other_org', 'org_wrong_domain', 'org_ticket', 'org_not_accepted', 'org_already_member', 'org_join_unknown', 'org_undo_pending', 'org_consent_changed'].includes(r.code)) { PLUS_ORG.preview = null; plusOrgPaint(); }
@@ -47489,7 +47491,7 @@ async function plusOrgJoin() {
   }
   PLUS_ORG.preview = null;
   document.getElementById('plus-org-code').value = '';
-  PLUS_ORG.state = { enrolled: true, org: r.org, role: r.role };
+  PLUS_ORG.state = { enrolled: true, org: r.org, role: r.role, reporting: p.review === true ? true : undefined };   // an accepted review reports (its words are now recorded)
   PLUS_ORG.at = Date.now();
   msg.textContent = '';
   plusOrgPaint();

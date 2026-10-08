@@ -315,6 +315,15 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     await page.waitForFunction(() => document.getElementById('plus-org-consent').hidden);
     const late = await page.evaluate(() => ({ msg: document.getElementById('plus-org-msg').textContent,
       review: (() => { const el = document.getElementById('plus-org-review'); return !el.hidden && el.getClientRects().length > 0; })() }));
+    // Any other refusal with a reason (one the page does not list) also brings back the joined view and its Review button.
+    await page.evaluate(() => { window.__enrollAnswer = { ok: false, code: 'org_not_member', because: 'Your company did not take the acceptance. Nothing changed on this computer. Press Review what your company sees to try again.' };
+      document.getElementById('plus-org-msg').textContent = ''; });
+    await page.click('#plus-org-review');
+    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
+    await page.click('#plus-org-join');
+    await page.waitForFunction(() => document.getElementById('plus-org-msg').textContent !== '');
+    const other = await page.evaluate(() => ({ consent: !document.getElementById('plus-org-consent').hidden,
+      review: (() => { const el = document.getElementById('plus-org-review'); return !el.hidden && el.getClientRects().length > 0; })() }));
     await page.evaluate(() => { window.__enrollAnswer = null; PLUS_ORG.state = { enrolled: true, reporting: false, org: { name: 'Acme', slug: 'acme' }, role: 'member' }; plusOrgPaint(); });
     const enrollsBefore = await page.evaluate(() => window.__org.filter((x) => x.path === '/api/org/enroll').length);
     await page.click('#plus-org-review');
@@ -328,10 +337,11 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
       && /^This is what Acme asks of this Kosmos/.test(rv.ask)
       && nn.msg === 'Nothing changed.' && nn.inView && !nn.consent
       && late.msg === 'These words were open too long. Press Review what your company sees to read them again.' && late.review
+      && !other.consent && other.review
       && acc.enroll.length === enrollsBefore + 1 && last.body.accepted === true && !('code' in last.body) && typeof last.body.ticket === 'string'
       && acc.inView && acc.join === 'Join with this Kosmos',
       'O15 a Kosmos that sends nothing reviews its company\'s words and accepts them with no code; Not now changes nothing; one that reports is not offered it',
-      JSON.stringify({ offeredWhenReporting, offered, rv, nn, late, last, acc: { inView: acc.inView, join: acc.join } }));
+      JSON.stringify({ offeredWhenReporting, offered, rv, nn, late, other, last, acc: { inView: acc.inView, join: acc.join } }));
     await page.evaluate(() => { window.__review = false; PLUS_ORG.state = { enrolled: false, org: null, role: null }; PLUS_ORG.preview = null; plusOrgPaint(); });
 
     chk(errs.length === 0, 'O6 no page errors', errs.join(' | '));

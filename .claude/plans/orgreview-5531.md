@@ -36,3 +36,9 @@
 - NITs taken: an Accept keeps the original join date (pinned); Not now says only "Nothing changed." (the joined view already says it sends nothing).
 - NIT kept: no arms for "status unreachable" and "no consent in status". They are plain refusals, with the same shape as preview's.
 
+
+## Review 2 (blind, Sonnet)
+- FIXED, the same class as review 1's third finding, one step over: a review's Accept refused WITH a reason fell into the join wording ("Type your join code again", "Nothing was joined"). Every refusal of a review's Accept is now said in review words before any join branch runs: a changed consent points at the Review button, as does any other code, and an unsent request or a lost answer says press Accept again. An engine arm per case asserts no code or join wording; mutating the branch away makes it fail.
+- FIXED: the page brings back the joined view (with its Review button) on ANY coded refusal of a review, not only the listed codes (O15 arm with an unlisted code; mutation makes it fail).
+- NIT taken: an accepted review sets `reporting: true` on the page state explicitly.
+- NIT kept: reviewHere is not serialized with enroll/leave/refresh (same as preview; Accept re-validates).

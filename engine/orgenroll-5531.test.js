@@ -1031,6 +1031,17 @@ test('#5531 follow-up: reviewHere shows this record\'s company\'s words, and acc
   assert.match(lostAnswer.because, /press Accept again/);
   assert.equal(org.mayReport({ root: a }), false, 'a lost Accept let this Kosmos report');
   assert.deepEqual(lost, [org.ROUTES.enroll], 'a lost Accept asked the company and trusted a "here" that was true before');
+  // Every refusal of a review's Accept is said in review words: never a code to type, never "Nothing was joined" (review 2).
+  for (const [ans, want] of [
+    [{ ok: false, because: '409 {"because":"org_consent_changed"}' }, /changed what it asks.*Press Review what your company sees/],
+    [{ ok: false, because: '403 {"because":"org_not_member"}' }, /did not take the acceptance.*Press Review what your company sees/],
+    [{ ok: false, notSent: true, because: 'not connected' }, /Nothing was sent; press Accept again/]]) {
+    const refused = await org.enroll(null, true, { root: a, review: true, consentHash: SERVED, orgId: r.org.id, remote: { macRequest: async (m, route) => (route === org.ROUTES.enroll ? ans : withConsent().macRequest(m, route)) } });
+    assert.equal(refused.ok, false, JSON.stringify(refused));
+    assert.match(refused.because, want, JSON.stringify(ans));
+    assert.doesNotMatch(refused.because, /join code|Nothing was joined|Join again/, 'a review was told about a code or a join: ' + refused.because);
+    assert.equal(org.mayReport({ root: a }), false, 'a refused Accept let this Kosmos report');
+  }
   // Accepting: enroll with NO code and the company's hash. It records them, so it may report.
   const sent = fr.sent.length;
   const ok = await org.enroll(null, true, { root: a, remote: fr, consentHash: r.served, orgId: r.org.id, review: true });
