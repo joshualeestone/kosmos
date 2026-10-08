@@ -406,7 +406,7 @@ test('#4491 review 11: keys that undo the guard are removed from settings.local.
   assert.equal(j.model, 'x', 'CONTROL: a non-sandbox key was removed');
 });
 
-test('#4491 review 14: a rule whose path has a pattern character is dropped and said, never written to misparse', () => {
+test('#4491 reviews 14 and 17: a rule whose path has a pattern character is never written, and the guard is then not ok', () => {
   const odd = fs.mkdtempSync(path.join(SANDBOX, 'home(x)-'));
   const errs = [];
   const real = process.stderr.write;
@@ -414,11 +414,11 @@ test('#4491 review 14: a rule whose path has a pattern character is dropped and 
   const dir = agentDir('pilot-odd');
   let g;
   try { g = setup.guardTokenOnlyFolder(dir, 'pilot-odd', { ...DEPS, home: odd }); } finally { process.stderr.write = real; }
-  assert.equal(g.ok, true, JSON.stringify(g));
-  const deny = readSettings(dir).permissions.deny;
-  assert.ok(!deny.some((r) => r.includes('(x)')), 'a rule with a pattern character was written: ' + JSON.stringify(deny.filter((r) => r.includes('(x)'))));
+  // Review 17: the dropped rules are the ~/.claude settings Edit denies (the agent's own guard), so the guard is NOT ok.
+  assert.equal(g.ok, false, 'a guard missing its self-protection rules reported ok: ' + JSON.stringify(g));
+  assert.match(g.because, /cannot carry/);
   assert.ok(errs.join('').includes('no rule'), 'the dropped rule was not said');
-  assert.ok(deny.some((r) => r.startsWith('Read(') && r.includes('board.token')), 'CONTROL: the plain token rules are still there');
+  assert.ok(!fs.existsSync(path.join(dir, '.claude', 'settings.json')) || !readSettings(dir).permissions.deny.some((r) => r.includes('(x)')), 'a rule with a pattern character was written');
 });
 
 test('#4491 review 15: the pattern-character check reads a Windows path\'s backslashes as separators, not patterns', () => {
