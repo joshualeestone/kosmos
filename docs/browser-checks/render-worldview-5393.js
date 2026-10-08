@@ -91,13 +91,28 @@ const check = (ok, label, got) => results.push({ ok: !!ok, label, got });
       `@${w}: the overlay covers the window from inside the header`, got.back);
     check(got.box[0] >= 0 && got.box[1] <= got.vw && !got.sideways, `@${w}: the sheet fits the width, nothing scrolls sideways`, got.box);
     check(got.focus === 'wv-close', `@${w}: focus starts on Close`, got.focus);
+    // The sheet is inside the sticky header (its own stacking context): it must still be ON TOP of floating UI, not
+    // just the right size. A fixed element at the page's floating layer (46, the add menu's) sits in the corner.
+    const onTop = await page.evaluate(() => {
+      const f = document.createElement('div');
+      f.id = 'zz-float';
+      f.style.cssText = 'position:fixed;right:4px;bottom:4px;width:60px;height:60px;z-index:46;background:red;';
+      document.body.appendChild(f);
+      const box = document.querySelector('#wv-modal .rm-box').getBoundingClientRect();
+      const hit = (x, y) => { const e = document.elementFromPoint(x, y); return !!(e && e.closest('#wv-modal')); };
+      const out = { centre: hit(box.left + box.width / 2, box.top + box.height / 2), corner: hit(innerWidth - 20, innerHeight - 20),
+        close: hit(document.getElementById('wv-close').getBoundingClientRect().left + 4, document.getElementById('wv-close').getBoundingClientRect().top + 4) };
+      f.remove();
+      return out;
+    });
+    check(onTop.centre && onTop.close && onTop.corner, `@${w}: the sheet and its backdrop are on top of floating UI (z 46)`, onTop);
     const home = got.lines[0] || '';
     const other = got.lines[1] || '';
     check(/^Home \(open now\)/.test(home), `@${w}: the open Kosmos is named and marked`, home);
     check(/Claude: Paused until \d/.test(home), `@${w}: a paused provider says until when`, home);
     check(/OpenAI Codex: Not paused\. 1 agent could not sign in/.test(home), `@${w}: not paused, never "Working", and the failed sign-in`, home);
     check(!/working/i.test(home), `@${w}: no provider is called working`, home);
-    check(/1 agent on another computer/.test(home), `@${w}: agents with no provider are counted`, home);
+    check(/1 agent whose AI provider is not shown here/.test(home), `@${w}: agents with no provider are counted`, home);
     check(/3 tasks waiting for someone, and 1 on hold/.test(home), `@${w}: tasks nobody is on`, home);
     check(/Client work/.test(other) && /AI providers: known only while this Kosmos is open/.test(other), `@${w}: another Kosmos says its providers are known only while it is open`, other);
     check(/Tasks: we cannot read the projects/.test(other) && !/\b0 tasks\b/.test(other), `@${w}: an unreadable task list is said, not shown as 0`, other);

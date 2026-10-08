@@ -2146,7 +2146,7 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 .worldsw-plus { font-weight: 700; font-size: 1.05em; line-height: 1; }
 /* kosmos#5393 slice 2: the "At a glance" entry and its sheet. */
 .worldsw-glance { display: block; width: 100%; padding: 6px 8px 7px; border: 0; background: none; cursor: pointer;
-  font: var(--text-callout) var(--font-ui); color: var(--k-ink); text-align: left; border-radius: 0 0 7px 7px; }
+  font: var(--text-callout) var(--font-ui); color: var(--k-ink); text-align: left; border-radius: 0; }
 .worldsw-glance:hover { color: var(--gold-edge); }
 .worldsw-glance:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
 .wv-list { display: flex; flex-direction: column; gap: var(--space-4); margin-top: var(--space-4); max-height: 60vh; overflow-y: auto; }
@@ -2155,6 +2155,10 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 .wv-here { font-weight: 400; color: var(--label-2); }
 .wv-line { margin: 2px 0; overflow-wrap: anywhere; }
 .wv-muted { color: var(--label-2); }
+/* The sheet sits inside the sticky .apphead (z-index 20, its own stacking context), so its z-index 50 only counted
+   inside the header and floating UI (the assistant button, toasts, menus at 40-46) drew over it. While it is open
+   the header takes the layer every other modal has, 50, so the sheet sits where a body-level modal would. */
+.apphead:has(#wv-modal:not([hidden])) { z-index: 50; }
 /* #2563: the create-time "add my agents from an existing Kosmos" control. Reuses the
    modal field tokens; the list scrolls if the person has many Kosmoses. Each row is a
    clickable label wrapping its checkbox. */
@@ -11955,7 +11959,7 @@ window.kosmosMeasureScrollbarWidth();
           <div class="rm-box rm-box-form" role="dialog" aria-modal="true" aria-labelledby="wv-t" aria-describedby="wv-in">
             <h2 class="rm-title" id="wv-t">At a glance</h2>
             <p class="rm-small" id="wv-in">Each Kosmos on this computer: how its AI providers are doing, and the tasks nobody is on yet.</p>
-            <div class="wv-list" id="wv-list" role="status" aria-live="polite"></div>
+            <div class="wv-list" id="wv-list" tabindex="0" aria-label="Your Kosmoses at a glance"></div>
             <div class="rm-acts" style="margin-top: var(--space-6);">
               <button class="btn" id="wv-refresh" type="button">Refresh</button>
               <button class="btn uprime" id="wv-close" type="button">Close</button>
@@ -29194,10 +29198,12 @@ function worldAddClose() {
 const WV_PROVIDER = { claude: 'Claude', codex: 'OpenAI Codex', gemini: 'Gemini', grok: 'Grok',
   antigravity: 'Gemini (Google subscription)', muse: 'Meta Muse' };
 function wvCount(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
-function wvTime(iso) {
+function wvTime(iso, now = new Date()) {
   const d = new Date(iso);
   if (!Number.isFinite(d.getTime())) return '';
-  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const t = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  // A time on another day says which day: a pool or quota reset can be hours or days away.
+  return d.toDateString() === now.toDateString() ? t : d.toLocaleDateString([], { weekday: 'short' }) + ' ' + t;
 }
 function wvProviderLine(r) {
   const name = WV_PROVIDER[r.provider] || String(r.provider || 'An AI provider');
@@ -29211,8 +29217,10 @@ function wvProviderLine(r) {
 }
 function wvTasksLine(w) {
   if (!w.unassigned) return w.unassignedBecause ? 'Tasks: ' + String(w.unassignedBecause) : 'Tasks: not known';
-  const { waiting, held } = w.unassigned;
+  const waiting = Number(w.unassigned.waiting) || 0;
+  const held = Number(w.unassigned.held) || 0;
   if (!waiting && !held) return 'No tasks waiting for someone';
+  if (!waiting) return wvCount(held, 'task', 'tasks') + ' on hold, none waiting for someone';
   return wvCount(waiting, 'task', 'tasks') + ' waiting for someone' + (held ? ', and ' + held + ' on hold' : '');
 }
 function wvWorldHtml(w) {
@@ -29221,7 +29229,7 @@ function wvWorldHtml(w) {
     if (!w.providers.length && !w.agentsWithoutProvider) lines.push('<p class="wv-line wv-muted">No agents running an AI provider</p>');
     for (const r of w.providers) lines.push('<p class="wv-line">' + esc(wvProviderLine(r)) + '</p>');
     if (w.agentsWithoutProvider > 0) lines.push('<p class="wv-line wv-muted">' + esc(wvCount(w.agentsWithoutProvider, 'agent', 'agents')
-      + ' on another computer, so their provider is not shown here') + '</p>');
+      + ' whose AI provider is not shown here (they run without a terminal pane)') + '</p>');
   } else {
     lines.push('<p class="wv-line wv-muted">AI providers: ' + esc(String(w.providersBecause || 'not known')) + '</p>');
   }
@@ -29238,6 +29246,7 @@ let wvGen = 0;
 async function wvLoad() {
   const gen = ++wvGen;
   const list = document.getElementById('wv-list');
+  list.setAttribute('aria-busy', 'true');
   list.innerHTML = '<p class="wv-line wv-muted">Reading your Kosmoses...</p>';
   let html;
   try {
@@ -29250,6 +29259,7 @@ async function wvLoad() {
   }
   if (gen !== wvGen) return;   // a newer Refresh or open owns the list
   list.innerHTML = html;
+  list.setAttribute('aria-busy', 'false');
 }
 function wvOpen() {
   worldswClose();

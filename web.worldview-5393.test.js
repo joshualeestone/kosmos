@@ -35,6 +35,10 @@ test('provider rows say only what the cards know: never "Working", and a stated 
   const until = new Date(Date.now() + 3600e3).toISOString();
   assert.equal(B.wvProviderLine(row({ state: 'paused', paused: 2, until })), 'Claude: Paused until ' + B.wvTime(until));
   assert.equal(B.wvProviderLine(row({ state: 'paused', paused: 2, until: null })), 'Claude: Paused');
+  // A time on another day names the day; today's is the time alone.
+  const now = new Date(2026, 9, 7, 20, 0);
+  assert.doesNotMatch(B.wvTime(new Date(2026, 9, 7, 21, 30).toISOString(), now), /[A-Za-z]{3} /);
+  assert.match(B.wvTime(new Date(2026, 9, 9, 3, 0).toISOString(), now), /^[A-Za-z]{2,4}\.? /);
   assert.equal(B.wvProviderLine(row({ provider: 'codex', state: 'some_paused', paused: 1, agents: 3 })), 'OpenAI Codex: 1 of 3 agents paused');
   assert.equal(B.wvProviderLine(row({ provider: 'gemini', state: 'stopped', agents: 0, stopped: 2 })), 'Gemini: Stopped');
   assert.equal(B.wvProviderLine(row({ signInFailed: 1 })), 'Claude: Not paused. 1 agent could not sign in');
@@ -46,6 +50,8 @@ test('tasks nobody is on: counts, on hold, none, and an unreadable list said rat
   assert.equal(B.wvTasksLine({ unassigned: { waiting: 3, held: 0 } }), '3 tasks waiting for someone');
   assert.equal(B.wvTasksLine({ unassigned: { waiting: 1, held: 2 } }), '1 task waiting for someone, and 2 on hold');
   assert.equal(B.wvTasksLine({ unassigned: { waiting: 0, held: 0 } }), 'No tasks waiting for someone');
+  assert.equal(B.wvTasksLine({ unassigned: { waiting: 0, held: 1 } }), '1 task on hold, none waiting for someone');
+  assert.equal(B.wvTasksLine({ unassigned: {} }), 'No tasks waiting for someone', 'missing fields are 0, never "undefined"');
   const unread = B.wvTasksLine({ unassigned: null, unassignedBecause: 'we cannot read the projects in this Kosmos right now' });
   assert.equal(unread, 'Tasks: we cannot read the projects in this Kosmos right now');
   assert.doesNotMatch(unread, /\b0\b/);
@@ -58,7 +64,8 @@ test('a world: the open one lists its providers; another says its providers are 
   assert.match(open, /^Home <&> \(open now\)/, 'the name is escaped and the open one is marked');
   assert.match(open, /Claude: Not paused/);
   assert.match(open, /Grok: Stopped/);
-  assert.match(open, /2 agents on another computer, so their provider is not shown here/);
+  assert.match(open, /2 agents whose AI provider is not shown here \(they run without a terminal pane\)/);
+  assert.doesNotMatch(open, /another computer/, 'a paneless agent can run on this computer (Windows)');
   assert.match(open, /2 tasks waiting for someone/);
   const other = text(B.wvWorldHtml({ id: 'w2', name: 'Client work', running: false, providers: null, agentsWithoutProvider: null,
     unassigned: { waiting: 0, held: 1 }, providersBecause: 'known only while this Kosmos is open' }));
