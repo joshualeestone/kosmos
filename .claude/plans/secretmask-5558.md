@@ -68,3 +68,8 @@ a random segment inside a path masked. Full secretmask.test.js 126/126.
 - Comment: the residual is now stated as syllable pieces with up to 8 digits besides one real date and time.
 - NIT fixed: vowels >= 1 removed (the ratio already requires it).
 - 133/133 (23:57 CDT 2026-10-07).
+
+### Review 8 (sonnet): nothing above NIT. CONVERGED.
+- Fuzz by the reviewer (2 seeds x 200k shaped inputs; 6 charsets x 4 separator sets x 4 lengths x 4,000): no secret main masks is left alone except the named residual.
+- 14 of 16 mutations red. NITs left: the per-piece caps (8 digits on a number, 4 on a word's suffix) are covered by the whole-path budget, so widening either alone is an equivalent mutant.
+- Final (00:05 CDT 2026-10-08): secretmask 133/133; other files requiring secretmask 3/3 green; guards fixture-discipline, cli.sandbox-data-4796, engine.reachable, no-brand-refs-1881, no-name-refs-3071, win32-separator-guard, windows-coupling-audit-1732, windows-tests-1777 all green. Base is current origin/main.
