@@ -178,9 +178,10 @@ const PLACEHOLDER_BYTES = Buffer.from('••••', 'utf8');
    SPECIFIC detector still counts everywhere. Any other binary (SQLite, LevelDB, plist stores) counts both,
    since Azure and SendGrid keys fire only as long_token. Magics are checked strictly (PNG needs IHDR, a font a
    sane table count, ISO media a known image brand), so a store cannot pass as media by a short prefix by chance.
-   Residual, stated: a long_token-only key compiled into a Mach-O, or a store crafted with real media headers,
-   passes; the threat model is accidental secrets in ordinary work, not a user hiding them from their employer. */
+   Residual, stated: a long_token-only key compiled into a Mach-O (or a Java .class, which shares cafebabe), a
+   url_credential inside a font, or a store crafted with real media headers, passes; the threat model is accidental secrets in ordinary work, not a user hiding them from their employer. */
 const ISO_IMAGE_BRANDS = new Set(['heic', 'heix', 'hevc', 'hevx', 'mif1', 'msf1', 'avif', 'avis']);
+const ISO_AV_BRANDS = new Set(['M4A ', 'M4V ', 'mp41', 'mp42', 'isom', 'qt  ']);
 function mediaKind(b) {
   const at = (i, hex) => b.length >= i + hex.length / 2 && b.subarray(i, i + hex.length / 2).equals(Buffer.from(hex, 'hex'));
   const ascii = (i, s) => b.length >= i + s.length && b.subarray(i, i + s.length).toString('latin1') === s;
@@ -189,11 +190,15 @@ function mediaKind(b) {
   if (at(0, 'ffd8ff') || ascii(0, 'GIF87a') || ascii(0, 'GIF89a') || (ascii(0, 'RIFF') && ascii(8, 'WEBP'))) return 'image';
   if (at(0, '49492a00') || at(0, '4d4d002a') || ascii(0, 'icns')) return 'image';
   if (ascii(4, 'ftyp') && ISO_IMAGE_BRANDS.has(b.subarray(8, 12).toString('latin1'))) return 'image';
+  // Audio and video: sample data fires long_token like image data (review round 6 measured 10 of 17 real system
+  // sounds skipped). Strict magics: the container AND its form or brand.
+  if ((ascii(0, 'FORM') && (ascii(8, 'AIFF') || ascii(8, 'AIFC'))) || (ascii(0, 'RIFF') && ascii(8, 'WAVE')) || ascii(0, 'caff')
+    || ascii(0, 'ID3') || (ascii(4, 'ftyp') && ISO_AV_BRANDS.has(b.subarray(8, 12).toString('latin1')))) return 'audio';
   if (at(0, 'feedfacf') || at(0, 'cffaedfe') || at(0, 'feedface') || at(0, 'cefaedfe') || at(0, 'cafebabe')) return 'code';
   if (((at(0, '00010000') || ascii(0, 'OTTO') || ascii(0, 'true')) && tables()) || ascii(0, 'ttcf') || ascii(0, 'wOFF') || ascii(0, 'wOF2')) return 'font';
   return null;
 }
-const IGNORED_KINDS = { image: new Set(['long_token']), code: new Set(['long_token']), font: new Set(['long_token', 'url_credential']) };
+const IGNORED_KINDS = { image: new Set(['long_token']), audio: new Set(['long_token']), code: new Set(['long_token']), font: new Set(['long_token', 'url_credential']) };
 function binaryClean(bytes) {
   // Content holding the masking placeholder could hide a password behind it (secretmask trusts it): fail closed.
   if (bytes.includes(PLACEHOLDER_BYTES)) return false;

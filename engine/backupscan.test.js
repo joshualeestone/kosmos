@@ -379,3 +379,35 @@ test('#5535 anything unexpected while scanning skips the file (fail closed)', ()
   const r = bs.scanFile('agents/a/n.md', h);
   assert.deepEqual(r, { action: 'skip', why: 'could not be checked' });
 });
+
+const LONG_ONLY = 'Xq7Lp2Vw9Kx4Rn6Tj8Hm3Bc5Zd1Fg0Yh7Wk2Qs4Ej6Ru9Ti3';   // fires long_token and nothing else (measured)
+const URL_ONLY = 'ftp://glyphname:uni0C95below@kannada';                 // fires url_credential and nothing else (measured)
+
+test('#5535 audio is media: real system sounds are kept; a provider key in one is still caught', () => {
+  const fs = require('fs');
+  let checked = 0;
+  for (const name of ['Blow.aiff', 'Basso.aiff', 'Bottle.aiff', 'Funk.aiff']) {
+    let buf; try { buf = fs.readFileSync(`/System/Library/Sounds/${name}`); } catch { continue; }
+    checked++;
+    assert.equal(bs.scanFile(`agents/a/${name}`, buf).action, 'store', `the real ${name} was skipped`);
+  }
+  const wav = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WAVEfmt '), Buffer.alloc(8, 5), Buffer.from(LONG_ONLY), Buffer.alloc(8)]);
+  assert.equal(bs.scanFile('agents/a/memo.wav', wav).action, 'store', 'a WAV with long_token-shaped sample noise is kept');
+  const keyed = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WAVEfmt '), Buffer.alloc(8, 5), Buffer.from(KEY), Buffer.alloc(8)]);
+  assert.equal(bs.scanFile('agents/a/memo2.wav', keyed).action, 'skip', 'a provider key inside a WAV is caught (specific detectors still count)');
+  if (fs.existsSync('/System/Library/Sounds')) assert.ok(checked > 0, 'PRECONDITION: some real sounds were checked');
+});
+
+test('#5535 strict magics have cases: an ISO file with a non-media brand is not media; each font magic is a font', () => {
+  const iso = (brand) => Buffer.concat([Buffer.alloc(4), Buffer.from('ftyp' + brand), Buffer.alloc(8), Buffer.from(LONG_ONLY), Buffer.alloc(8)]);
+  assert.equal(bs.scanFile('agents/a/x.bin', iso('crx3')).action, 'skip', 'ftyp with an unknown brand: long_token counts');
+  assert.equal(bs.scanFile('agents/a/x.heic', iso('heic')).action, 'store', 'CONTROL: ftyp heic is an image');
+  assert.equal(bs.scanFile('agents/a/x.m4a', iso('M4A ')).action, 'store', 'CONTROL: ftyp M4A is audio');
+  const fontWith = (head, payload) => Buffer.concat([head, Buffer.alloc(8, 1), Buffer.from(payload), Buffer.alloc(8)]);
+  const sane = (tag) => Buffer.concat([Buffer.from(tag, 'latin1'), Buffer.from('0010', 'hex')]);  // numTables = 16
+  for (const [what, head] of [['wOF2', Buffer.from('wOF2')], ['ttcf', Buffer.from('ttcf')], ['true', sane('true')], ['OTTO', sane('OTTO')]]) {
+    assert.equal(bs.scanFile(`agents/a/f.${what}`, fontWith(head, LONG_ONLY)).action, 'store', `${what}: a font with long_token-shaped glyph data is kept`);
+    assert.equal(bs.scanFile(`agents/b/f.${what}`, fontWith(head, URL_ONLY)).action, 'store', `${what}: glyph-name noise that fires url_credential is kept (a font-only exemption)`);
+  }
+  assert.equal(bs.scanFile('agents/a/f.bin', Buffer.concat([Buffer.from([0, 1, 2, 3]), Buffer.alloc(4), Buffer.from(URL_ONLY), Buffer.alloc(8)])).action, 'skip', 'CONTROL: the same url_credential in a non-font binary counts');
+});
