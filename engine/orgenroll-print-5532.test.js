@@ -259,3 +259,11 @@ test('#5532 rollup review 18: while the rollup waits for a pinned print, it says
   await rollup.tick({ root, remote: co, sources: src, now: Date.UTC(2026, 9, 8, 12, 5) });
   assert.equal(rollup.waitingForPrint(root), false, 'CONTROL: once the print can be read, it no longer says it waits');
 });
+
+test('#5532 rollup review 21: a malformed salt is said once, not on every tick', async (t) => {
+  const lines = [];
+  const orig = console.error; console.error = (...a) => lines.push(a.join(' ')); t.after(() => { console.error = orig; });
+  const root = sandbox(t);
+  for (let i = 0; i < 3; i += 1) await join(root, company(root), { computerSalt: 'zz-not-hex-' + 'q'.repeat(30) });
+  assert.equal(lines.filter((l) => /no computer print/.test(l)).length, 1, 'the same malformed salt was logged more than once: ' + JSON.stringify(lines));
+});

@@ -152,12 +152,15 @@ function servedSalt(d) {
    review 39 refuses an answer naming any other). Never logged: only printFor's `because`, which holds no print or id.
    The read is synchronous and can block the board for up to five seconds while ioreg hangs; it runs on a join, a
    leave and the rollup tick, at most once a minute while reads fail and once an hour after giving up (accepted). */
+const PRINT_ERR_SAID = new Set();
 function printFields(salt, orgId) {
   if (typeof salt !== 'string' || !salt) return { send: 'none', fields: {} };   // no salt: an older company side; no print, nothing pinned
   const p = require('./computerprint').printFor(salt, orgId);
   if (p.send === 'print') return { send: 'print', fields: { computerPrint: p.print } };
   if (p.send === 'none' || p.send === 'later') return { send: p.send, fields: {} };
-  console.error('orgenroll: no computer print: ' + p.because);
+  // Once per salt and company in this process (rollup review 21): the rollup asks every five minutes.
+  const key = salt + '|' + orgId;
+  if (!PRINT_ERR_SAID.has(key)) { PRINT_ERR_SAID.add(key); console.error('orgenroll: no computer print: ' + p.because); }
   return { send: 'error', fields: {} };
 }
 /* The print for the rollup: from this world's record only. */

@@ -309,12 +309,22 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
 ## Review 20 (blind, Opus)
 - FIXED (my review-15 rule made it live): "due on a new UTC day" sent every board's daily in the same five minutes
   after midnight, and retried them together. Each world now turns its day over at its own fixed minute in the first
-  hour (sha256 of its world id), so the first daily of the day stays the first and the fleet spreads out. Test (its
-  "not before its minute" arm runs when the random world's minute is past the ten-minute window, about 5 runs in 6).
+  hour (sha256 of its world id), so the first daily of the day stays the first and the fleet spreads out. Test (deterministic since review 21).
 - NITs taken: build() checks days against the tick's own clock (`nowMs`), so it is a pure function of its input;
   acceptedConsent guards a missing record.
 - Decided, recorded: `lastActive` is the latest day any agent was working, which can include unattended work; the
   consent words are PigeonPete's to match. And the joined view says "reports" while every rollup is refused with the
   same code: that is what this board intends and keeps trying; the refusal is logged (review 18) and refresh acts on
   the codes that mean "stop".
+
+## Review 21 (blind, Sonnet)
+- FIXED: the review-20 test used a random world, so its "not before its minute" arm ran about 5 runs in 6. It now
+  enrolls a chosen world id whose minute is past the change window, so both arms always run; the mutation makes it fail.
+- FIXED: a malformed salt or company logged on every five-minute tick. Now once per salt and company per process. Test;
+  mutation makes it fail.
+- NIT taken: a comment that `org_consent_changed` is taken as the company's final word with no confirming retry (it
+  answers it only when the words it serves differ from the member's record).
+- NITs kept: after `printPinned: false` an older pin with another salt could refuse a later leave (rare: the salt is per
+  account; the way back is accepting again); the pending-leave print source is checked by world, not company (a record
+  that predates the print only).
 

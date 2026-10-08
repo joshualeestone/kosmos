@@ -644,19 +644,24 @@ test('#5532 rollup review 19: a state file with times that are not times never s
 test('#5532 rollup review 20: each world turns its day over at its own minute in the first hour, never the whole fleet at once', async (t) => {
   const crypto = require('node:crypto');
   const offsetOf = (w) => parseInt(crypto.createHash('sha256').update(w).digest('hex').slice(0, 8), 16) % 3600e3;
+  // A world id chosen so its minute is past the ten-minute change window (review 21): both arms always run.
+  let pick = null;
+  for (let i = 0; i < 256 && !pick; i += 1) { const id = i.toString(16).padStart(2, '0').repeat(16); if (offsetOf(id) > 12 * 60e3) pick = id; }
+  assert.ok(pick, 'CONTROL: a world id with a late minute exists');
   const root = world(t);
+  fs.writeFileSync(path.join(root, oe.WORLD_ID_FILE), pick + '\n');
   const c = coordinator();
   await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
   accept(root);
   const w = oe.readEnrollment({ root }).world;
+  assert.equal(w, pick, 'CONTROL: the chosen world id is the one enrolled');
   const off = offsetOf(w);
   const late = Date.UTC(2026, 9, 9, 23, 50);
   assert.equal((await r.tick({ root, remote: c, sources: sources(), now: late })).reason, 'daily');
   const midnight = Date.UTC(2026, 9, 10);
-  if (off > 11 * 60e3) {   // before its minute (and past the ten-minute change window): not due yet
-    const early = await r.tick({ root, remote: c, sources: sources(), now: midnight + 60e3 });
-    assert.notEqual(early.reason, 'daily', 'the daily went before this world\'s minute: ' + JSON.stringify(early));
-  }
+  // Before its minute (and past the ten-minute change window): not due yet.
+  const early = await r.tick({ root, remote: c, sources: sources(), now: midnight + 11 * 60e3 });
+  assert.notEqual(early.reason, 'daily', 'the daily went before this world\'s minute: ' + JSON.stringify(early));
   const at = await r.tick({ root, remote: c, sources: sources(), now: midnight + Math.max(off, 11 * 60e3) + 1 });
   assert.equal(at.reason, 'daily', 'the daily did not go at this world\'s minute');
   assert.notEqual(offsetOf('a'.repeat(32)), offsetOf('b'.repeat(32)), 'two worlds share one minute');

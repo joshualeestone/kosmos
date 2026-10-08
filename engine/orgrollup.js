@@ -437,6 +437,8 @@ async function tick(opts) {
   console.error('orgrollup: the company did not take the rollup (' + code + ')');
   /* The company holds other words for this member than the ones accepted here (contract v1.5, 409 org_consent_changed):
      stop reporting until the person accepts the new words (the joined view then says it sends nothing). */
+  // Taken as the company's final word, with no confirming retry: the coordinator answers it only when the words it
+  // serves now differ from the ones on record for this member (v1.4), which a transient fault does not change.
   if (r && /\borg_consent_changed\b/.test(String(r.because || ''))) {
     await oe.consentWithdrawn(eo, rec.consentHash);   // only the words this report was sent under (review 11)
     return { sent: false, because: 'the company\'s words changed; nothing more is sent until they are accepted here' };
