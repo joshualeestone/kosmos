@@ -142,9 +142,8 @@ test('#5309 p2 resolver: Claude agent on a non-default folder does not reach, na
 });
 
 test('#5309 p2 resolver: a whitespace/mixed-case runner does NOT become a false reaches:true', () => {
-  // Regression: the resolver once gated the dir on a no-trim runner check while reachFrom trimmed, so
-  // a padded runner on a non-default folder slipped into the default (reaches:true) branch. Both must
-  // read it as claude-on-a-separate-folder.
+  // Invariant: the resolver and reachFrom must read a padded runner identically. A padded ' claude' on a
+  // non-default folder is claude-on-a-separate-folder, never a default-launch reaches:true.
   const r = reachForAgent('pad', deps({ job: { runner: ' claude', configDir: '/Users/person/.claude-two' } }));
   assert.equal(r.reaches, false);
   assert.equal(r.reason, SEPARATE_ACCOUNT);
@@ -156,8 +155,8 @@ test('#5309 p2 resolver: a Codex agent is isolated regardless of its configDir',
 });
 
 test('#5309 p2 resolver: a plist with no runner key is treated as Claude (readJob default)', () => {
-  // readJob returns runner:'claude' when the 9th plist arg is absent; a job object with no runner key
-  // exercises the resolver's `job.runner || 'claude'` fallback.
+  // A job object with no runner key defaults to 'claude' (the resolver defaults runner only on
+  // null/undefined, matching readJob's own default for a plist with no 9th arg).
   const r = reachForAgent('old', deps({ job: { configDir: '/Users/person/.claude-old' } }));
   assert.equal(r.reaches, false);
   assert.equal(r.reason, SEPARATE_ACCOUNT);

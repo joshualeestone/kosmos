@@ -30,6 +30,14 @@
  * while the pane actually runs elsewhere. reachFrom takes the effective dir as input, so slice 2 (which
  * has the live pane env) passes the pane's real CLAUDE_CONFIG_DIR and closes it. Until then, treat a
  * reaches:true as "reaches, unless the pane was EFFECTIVE_CCD-pinned".
+ *
+ * TWO obligations for slice 2 before it wires reachForAgent into a live caller (both are safe to leave
+ * open here because reachForAgent has NO production caller yet):
+ *   1. Pass the pane's live CLAUDE_CONFIG_DIR as agentClaudeDir (closes the EFFECTIVE_CCD over-report above).
+ *   2. Pass the WORLD: reachForAgent calls create.readJob(agentName) with no worldId, and jobs are keyed by
+ *      world, so in a named Kosmos world it would read the default world's same-named job (or null) and
+ *      could over-report reaches:true for a named-world agent. The /api/status caller slice 2 wires into
+ *      has the world in hand; thread it through to readJob then.
  */
 
 const path = require('node:path');
