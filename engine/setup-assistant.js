@@ -223,7 +223,7 @@ function kosmosHome() { return process.env.AGENT_WORKFORCE_HOME || require('os')
    default is), and production passes none of these. `home` reaches the older folder of this world (when
    AGENT_WORKFORCE_DATA is unset: dataRootFor ignores the home otherwise); the
    worlds' base comes from the environment the process was started with (`preWorldEnv`), whatever `home` says. */
-function guideDenyRules(opts = {}) { return guideDenyRulesFor(opts).rules; }
+function guideDenyRules(opts = {}) { return withNativeTwins(guideDenyRulesFor(opts).rules); }   // with Windows twins, as written
 /* The rules, and the default world's store they name entry by entry (null when none is), so guardGuideFolder
    can drop earlier per-entry rules for that store instead of keeping one for every entry that ever existed. */
 function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsBase, legacyRoots } = {}) {
@@ -316,7 +316,7 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
        so a guide written without them can be told apart from one written with them. */
     process.stderr.write(`#4752: the setup guide's rules for the older data folder and the other worlds' stores were left out: ${(err && err.message) || err}\n`);
   }
-  return { rules: withNativeTwins(rules), entryBase, extra };
+  return { rules, entryBase, extra };   // twins are added in guardGuideFolder, only to rules that pass the own-folder check
 }
 /* Whether `p` cannot be written as a rule: once written (ruleAbs), it has a character the rule syntax reads as a
    pattern; or, on Windows, the native path is not a drive path (C:\..., or \\?\C:\...): a share, the device form
@@ -492,7 +492,7 @@ function guardGuideFolder(dir, agentName, deps = {}) {
        behind for ever. Only a rule this code could have written for one entry is dropped (wasEntryRule); any
        other rule stays, a person's own rule for the registry or for a name this code leaves alone included. */
     const plat = process.platform;   // the platform the rules above were written for (ruleAbs uses the same)
-    const kept = migrateKept(had, fresh, plat);
+    const kept = migrateKept(had, { ...fresh, rules: withNativeTwins(fresh.rules, plat) }, plat);
     /* #4752: none of THIS change's rules (fresh.extra) may take in the guide's own folder. An older folder or a
        linked entry a person made can resolve to an ancestor of it, and the sandbox follows links, so such a rule
        would cut the guide off from its own instructions: dropped, and said. What this checks, no more: a rule
@@ -512,7 +512,8 @@ function guardGuideFolder(dir, agentName, deps = {}) {
     });
     /* A refused rule is kept out of the earlier rules too, or a rule written on an earlier start would come back. */
     const refused = new Set(fresh.rules.filter((r) => !safe.includes(r)));
-    const deny = finalDeny(kept, safe, refused, plat);
+    // a twin is made only from a rule that passed the own-folder check, so a refused rule never gets one
+    const deny = finalDeny(kept, withNativeTwins(safe, plat), refused, plat);
     const next = { ...cur, permissions: { ...perms, deny } };
     /* Sandboxed Bash (Ice Cream Kitty's review): the deny rules above bind Claude Code's own tools, and
        a shell command such as `node -e readFileSync('.env')` or `grep -r` is a subprocess they do not
