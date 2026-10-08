@@ -1088,3 +1088,31 @@ test('each chunk reports the lock date its OWN upload signed, stored by a 200 or
     assert.strictEqual(r.lockedUntil.get(cs[1].name), signed[1], 'stored: not the lock date its own upload signed');
   } finally { await b.close(); }
 });
+
+test('a refused manifest PUT names the key as unsure only when an earlier attempt may have written it', async () => {
+  for (const [what, script, unsure] of [
+    ['first attempt refused', [[400, '<Error><Code>BadDigest</Code></Error>']], undefined],
+    ['refused after a 500 (a write that may have landed)', [[500], [400, '<Error><Code>BadDigest</Code></Error>']], [{ key: mKey(1) }]],
+  ]) {
+    const b = await bucket();
+    try {
+      const mc = manifestCoordinator(b);
+      b.script.set(mKey(1), script.slice());
+      const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b));
+      assert.strictEqual(r.ok, false, what);
+      assert.match(r.because, /refused the manifest/, what);
+      assert.deepStrictEqual(r.unsure, unsure, what);
+      assert.strictEqual(mc.bodies.length, 1, `${what}: asked for another grant`);
+    } finally { await b.close(); }
+  }
+});
+
+test('the pre-grant floor counts the grant window: chunks locked until now + 30 days + 10 minutes are refused with no grant', async () => {
+  const b = await bucket();
+  try {
+    const mc = manifestCoordinator(b);
+    const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunksLockedUntilMs: Date.now() + 30 * DAY + 10 * 60 * 1000 }));
+    assert.strictEqual(r.ok, false); assert.strictEqual(r.grantSpent, false);
+    assert.strictEqual(mc.bodies.length, 0);
+  } finally { await b.close(); }
+});
