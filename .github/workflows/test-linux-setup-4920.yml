@@ -12,18 +12,10 @@
 name: linux-setup
 
 on:
-  # #5519 stopgap: each run's two boards count as installs, so pull requests run this only when they change a path
-  # below; otherwise run it by hand. What it does and does not cover: the cipathstop-5519 plan (kosmos#5519). Remove
-  # the filter once #5519 lands.
+  # #5519 landed here: this job's boards send their install ping to a dead local address (see the environment step), so
+  # it no longer counts as installs and runs on every pull request again (the #5526 paths filter is removed).
   pull_request:
-    paths:
-      - 'install/**'
-      - 'tools/test-installer-runnable-guard.sh'
-      - 'tools/test-plist-heredoc-clean.sh'
-      - 'tools/test-install-static*.sh'
-      - 'tools/lib/install-static-checks.sh'
-      - 'tools/test-install.sh'
-      - '.github/workflows/test-linux-setup-4920.yml'
+  # Run by hand on a branch (gh workflow run test-linux-setup-4920.yml --ref <branch>) without opening a PR.
   workflow_dispatch:
 
 permissions:
@@ -62,6 +54,14 @@ jobs:
           echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
           echo "KOSMOS_PORT=16180" >> "$GITHUB_ENV"
           echo "KOSMOS_NO_OPEN=1" >> "$GITHUB_ENV"
+          # #5519: this job's boards must not count as installs (Josh 10-07). The install beacon goes to a dead local
+          # address; setup.sh's unit carries it, and the steps below assert the unit and the running board have it.
+          echo "AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created" >> "$GITHUB_ENV"
+          # The other two senders aimed at nothing too, as tools/test-install.sh and run-tests.sh do. These two reach only
+          # boards started from this shell: the systemd unit carries the beacon address alone, so a board systemd runs keeps
+          # the DEFAULT feedback and community endpoints. Not the install counter; nothing here writes a report or a post.
+          echo "AGENT_WORKFORCE_FEEDBACK_URL=http://127.0.0.1:9/api/feedback" >> "$GITHUB_ENV"
+          echo "AGENT_WORKFORCE_COMMUNITY_URL=http://127.0.0.1:9" >> "$GITHUB_ENV"
 
       - name: Stage this checkout as the bundle setup.sh installs
         # ⚠️ A hand copy of tools/build-kosmos-bundle.sh's file list (that script is Mac-only). If the bundle gains a
@@ -119,6 +119,15 @@ jobs:
           systemctl --user is-enabled kosmos-board.service
           # setup.sh hands the running board to systemd (kosmos restart after installBoard), as the Mac does to launchd.
           test "$(systemctl --user is-active kosmos-board.service)" = active
+          # #5519: this test install must not count. The unit carries the dead beacon address, and so does the board
+          # systemd is actually running (its own environment). Checked after the board started: a change that broke the
+          # hand-off would leak its own run's pings once, then turn this step red.
+          grep -qxF "Environment=\"AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL\"" "$UNIT_FILE"
+          BPID="$(systemctl --user show -p MainPID --value kosmos-board.service)"
+          if [ -z "$BPID" ] || [ "$BPID" = 0 ]; then echo "FAIL: systemd reports no running board" >&2; exit 1; fi
+          # Read into a variable, not piped into grep -q: under pipefail an early grep exit could SIGPIPE tr.
+          BENV="$(tr '\0' '\n' < "/proc/$BPID/environ")"
+          grep -qxF "AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL" <<< "$BENV"
 
       - name: Verify board responsiveness
         run: |
@@ -286,6 +295,10 @@ jobs:
           # by hand, clear its marker, start the unit).
           "$KOSMOS_HOME/bin/kosmos" stop --force || true
           rm -f "$KOSMOS_HOME/board.stopped"
+          # #5519: 0.7.27's unit cannot carry the beacon address, so the test adds it before systemd starts that board.
+          sed -i "/^\[Service\]$/a Environment=AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL" "$UNIT"
+          grep -qxF "Environment=AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL" "$UNIT"   # sed exits 0 on no match
+          systemctl --user daemon-reload
           systemctl --user start kosmos-board.service
           sleep 3
           test "$(systemctl --user is-active kosmos-board.service)" = active
@@ -297,6 +310,8 @@ jobs:
           cat "$UNIT"
           grep -qxF "KillMode=process" "$UNIT"
           grep -qxF "Restart=on-failure" "$UNIT"
+          # #5519: the updated unit still carries the beacon address (the update ran with it in its environment).
+          grep -qxF "Environment=\"AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL\"" "$UNIT"
           if grep -qxF "Restart=always" "$UNIT"; then echo "FAIL: the update left the old Restart=always unit" >&2; exit 1; fi
           test "$(systemctl --user is-active kosmos-board.service)" = active
           curl -fsS -m 5 http://127.0.0.1:16180/ >/dev/null
@@ -326,6 +341,7 @@ jobs:
           UNIT_FILE="$HOME/.config/systemd/user/kosmos-board.${HASH}.service"
           test -f "$UNIT_FILE"
           grep -qF "Environment=\"KOSMOS_HOME=$CUSTOM_HOME\"" "$UNIT_FILE"
+          grep -qxF "Environment=\"AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL\"" "$UNIT_FILE"   # #5519: this board too
           AGENT_WORKFORCE_DATA="$CUSTOM_HOME/data" KOSMOS_HOME="$CUSTOM_HOME" sh install/setup.sh --uninstall
           test ! -f "$UNIT_FILE"
           test ! -e "$HOME/.config/systemd/user/default.target.wants/kosmos-board.${HASH}.service"
