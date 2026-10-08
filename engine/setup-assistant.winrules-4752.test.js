@@ -28,6 +28,9 @@ test('#4752: CONTROL, a macOS or Linux path is unchanged', () => {
   assert.equal(sa.ruleAbs('/home/alice/.local/share/Kosmos', 'linux'), '//home/alice/.local/share/Kosmos');
   // a backslash in a POSIX path is part of a file name, not a separator
   assert.equal(sa.ruleAbs('/tmp/a\\b', 'darwin'), '//tmp/a\\b');
+  // POSIX: a trailing slash is dropped (as for a drive root); a normalised path (path.join/resolve) never has one
+  assert.equal(sa.ruleAbs('/Users/a/K/', 'darwin'), sa.ruleAbs(require('path').posix.join('/Users/a', 'K'), 'darwin'));
+  assert.equal(sa.ruleAbs('/Users/a/K', 'darwin'), '//Users/a/K', 'CONTROL: an ordinary POSIX path changed');
 });
 
 test('#4752: on THIS host every rule (its Windows assertions run on the Windows job only) is in the documented form, and on Windows also has its native twin', (t) => {
@@ -121,6 +124,7 @@ test('#4752: on Windows a refused rule (it would take in the guide\'s own folder
 
 /* The Windows-only arm below is the one proof that guardGuideFolder writes twins and refuses both spellings on a real
    Windows host. tools/windows-tests.js passes a file in which some tests skip, so on win32 a skip must fail HERE. */
+// (it would misfire only under --test-name-pattern on Windows; tools/windows-tests.js runs each file whole)
 let windowsArmRan = false;
 test.after(() => { if (process.platform === 'win32' && !windowsArmRan) throw new Error('#4752: the Windows-only guardGuideFolder arm did not run on a Windows host'); });
 
