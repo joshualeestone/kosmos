@@ -344,8 +344,9 @@ function rulePath(inner, platform = process.platform) {
 }
 /* Before #4752's follow-up a Windows rule was written in the native form (`Read(//C:\...)`), which is not the form
    Claude Code documents as matched. For such a rule, the same rule in the form ruleAbs writes now (`Read(//c/...)`,
-   same suffix), else null. A caller drops an old rule ONLY when its equivalent is among the rules just made, so a
-   failure to make a rule never leaves a path with neither form. Uses the win32 conversion on any host. */
+   same suffix), else null. migrateKept keeps an old rule beside its equivalent and drops it only when the
+   equivalent is a per-entry rule for an entry that is gone; finalDeny leaves it out when its equivalent was refused.
+   Uses the win32 conversion on any host. */
 function legacyWinEquivalent(rule) {
   // a drive, then a backslash (the native form) or a slash (a path given as C:/...); ruleAbs only touches the
   // separators and the drive, so the whole inside converts in one go, suffix included
@@ -354,8 +355,8 @@ function legacyWinEquivalent(rule) {
   return `Read(${ruleAbs(m[1], 'win32')})`;
 }
 /* #4752: is `rule` one this code writes for a single entry directly in `base` (either form), for a name
-   baseEntryToName lets through? Built from the same ruleAbs(path.join(...)) as the writer, so it matches on
-   Windows too. */
+   baseEntryToName lets through? Built from ruleAbs over the platform's own join (the writer's on that platform), so it
+   matches on Windows too. Case-sensitive: a rule spelt in another case is not recognised, and stays (the safe way). */
 function wasEntryRule(rule, base, platform = process.platform) {
   const join = platform === 'win32' ? path.win32.join : path.join;
   const prefix = `Read(${ruleAbs(join(base, 'x'), platform).slice(0, -1)}`;   // the writer's own spelling, separator included
@@ -365,6 +366,17 @@ function wasEntryRule(rule, base, platform = process.platform) {
   if (!name || name.includes('/') || name.includes('\\') || name.includes(path.sep)) return false;
   const worlds = require('./worlds');
   return baseEntryToName(name, worlds.WORLDS_SUBDIR, path.basename(worlds.registryPath(base)), require('./boardauth').TOKEN_FILE);
+}
+/* #4752: the deny list written: the kept earlier rules and the safe new ones, less every refused rule. On Windows an
+   earlier rule in the older native form whose new-form equivalent was refused (it would take in the guide's own
+   folder) is left out too: migrateKept keeps old rules beside their new form, so the refusal must reach both
+   spellings or the old one would cut the guide off. Pure, with the platform passed in. */
+function finalDeny(kept, safe, refused, platform = process.platform) {
+  return [...new Set([...kept, ...safe])].filter((r) => {
+    if (refused.has(r)) return false;
+    if (platform === 'win32') { const eq = legacyWinEquivalent(r); if (eq && refused.has(eq)) return false; }
+    return true;
+  });
 }
 /* #4752: which of the rules already in the guide's settings stay, given the rules just made (`fresh`).
    - An earlier rule for one entry of the default world's store is dropped (wasEntryRule) unless just made again,
@@ -457,7 +469,7 @@ function guardGuideFolder(dir, agentName, deps = {}) {
     });
     /* A refused rule is kept out of the earlier rules too, or a rule written on an earlier start would come back. */
     const refused = new Set(fresh.rules.filter((r) => !safe.includes(r)));
-    const deny = [...new Set([...kept, ...safe])].filter((r) => !refused.has(r));
+    const deny = finalDeny(kept, safe, refused, plat);
     const next = { ...cur, permissions: { ...perms, deny } };
     /* Sandboxed Bash (Ice Cream Kitty's review): the deny rules above bind Claude Code's own tools, and
        a shell command such as `node -e readFileSync('.env')` or `grep -r` is a subprocess they do not
@@ -935,6 +947,7 @@ module.exports = {
   rulePath,
   legacyWinEquivalent,
   migrateKept,
+  finalDeny,
   SETUP_ROLE_KEY,
   GUIDE_CREATED_BY,
   GUIDE_PURPOSE_PREFIXES,

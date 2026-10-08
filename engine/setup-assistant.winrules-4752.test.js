@@ -52,7 +52,7 @@ test('#4752: rulePath reads a written rule back to the exact path, so the own-fo
   }
 });
 
-test('#4752: an older native-form Windows rule maps to its exact new-form equivalent (dropped only when that was made)', () => {
+test('#4752: an older native-form Windows rule maps to its exact new-form equivalent', () => {
   const eq = sa.legacyWinEquivalent;
   assert.equal(eq('Read(//C:\\Users\\a\\AppData\\Roaming\\Kosmos/**)'), 'Read(//c/Users/a/AppData/Roaming/Kosmos/**)');
   assert.equal(eq('Read(//C:\\Users\\a\\K\\board-token)'), 'Read(//c/Users/a/K/board-token)');
@@ -93,4 +93,20 @@ test('#4752: migrating a Windows guide keeps exactly the right rules (pure, so i
 test('#4752: CONTROL, off Windows no native-looking rule is touched by the Windows migration', () => {
   const had = ['Read(//C:\\Users\\a\\x)', 'Read(//Users/a/y)'];
   assert.deepEqual(sa.migrateKept(had, { entryBase: null, rules: ['Read(//c/Users/a/x)'] }, 'darwin'), had);
+});
+
+test('#4752: on Windows a refused rule (it would take in the guide\'s own folder) is left out in BOTH spellings', () => {
+  const newR = `Read(${sa.ruleAbs('C:\\Users\\a\\old\\Kosmos', 'win32')}/**)`;
+  const oldR = 'Read(//C:\\Users\\a\\old\\Kosmos/**)';
+  // migrateKept keeps the old rule beside its new form, since the new form was just made...
+  const kept = sa.migrateKept([oldR], { entryBase: null, rules: [newR], extra: [newR] }, 'win32');
+  assert.deepEqual(kept, [oldR]);
+  // ...and the refusal must reach it too, or the old spelling would still cut the guide off
+  const refused = new Set([newR]);
+  assert.deepEqual(sa.finalDeny(kept, [], refused, 'win32'), []);
+  // CONTROL: an old rule whose new form was NOT refused stays
+  const other = 'Read(//C:\\Users\\a\\Documents\\private)';
+  assert.deepEqual(sa.finalDeny([other], [newR], new Set(), 'win32'), [other, newR]);
+  // CONTROL: off Windows only the exact refused string is left out
+  assert.deepEqual(sa.finalDeny([oldR], [], refused, 'darwin'), [oldR]);
 });

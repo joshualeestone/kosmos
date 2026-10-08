@@ -14,15 +14,19 @@ so on Windows those rules were at best unverified. The `~/` rules are unaffected
   form it would have resolved `c/Users/...` against the current drive and never matched (review 1, BLOCKER). It now
   uses `rulePath`, the exact inverse of `ruleAbs` (it also reads an older native-form rule as it is).
 - Which earlier rules stay is now one pure function, `migrateKept(had, fresh, platform)` (review 3: the migration was
-  reachable only on a Windows host; the platform now comes from `deps.platform`, and `wasEntryRule`/`rulePath` take
-  it too). A rule written before this change in the native form (or as `C:/...`) STAYS beside its new-form equivalent
+  reachable only on a Windows host; `wasEntryRule`/`rulePath` take the platform too, so the Windows answer is pinned
+  from any host). `guardGuideFolder` passes the process's own platform, not `deps.platform` (which only its sandbox
+  block reads), so a test giving `deps.platform: 'win32'` on macOS still gets POSIX rules. A rule written before this change in the native form (or as `C:/...`) STAYS beside its new-form equivalent
   (review 4: these are deny rules, and the new form rests on Claude Code's docs, not a Windows measurement; a
   duplicate deny costs nothing, a removed working one exposes the file). It is dropped only when its equivalent is
   a per-entry rule for an entry gone from the store just listed in full: nothing is left to protect
-  (`legacyWinEquivalent`). The platform is the process's own, the same one the writers use (review 4: honouring
-  `deps.platform` there made the migration and the writers disagree).
+  (`legacyWinEquivalent`).
+- The deny list written is `finalDeny(kept, safe, refused, platform)`: on Windows a refused rule (one that would take
+  in the guide's own folder) is left out in BOTH spellings, since the old one is now kept beside the new (review 5
+  BLOCKER: otherwise the old copy of a refused rule stayed and could cut the guide off).
   A person's own rule elsewhere has no equivalent here and stays. `RULE_SYNTAX` is checked on the native path with its separator taken out first, as before.
-- Not handled, recorded: a UNC store path (rulePath reads its rule back drive-less, so the own-folder check does not
+- Not handled, recorded: on the writer side a UNC path with a one-letter host (`\\s\share`) is written `//s/share`,
+  which in the documented form is also drive S: (a small over-deny, the safe way); a UNC store path (rulePath reads its rule back drive-less, so the own-folder check does not
   apply to a store on a network share); a path with a bracket or parenthesis in a home or data-root rule (as before).
 
 ## Tests
