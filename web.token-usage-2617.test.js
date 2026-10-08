@@ -273,8 +273,8 @@ test('#2840: usageModelPrice resolves exact ids and strips a date suffix', () =>
 });
 
 test('#3460: claude-opus-5-5 is priced (in the cost figure), not unpriced', () => {
-  // opus-5-5 published: in 4 / out 20 / cr 0.20 (cr is 0.05x input, a real break from
-  // the 0.1x other tiers use); cw 5.00 is the standard 1.25x input write, as every row.
+  // opus-5-5 published: in 4 / out 20 / cr 0.20 (cr is 0.05x input, as sonnet-5-5 since #5627, a break from
+  // the 0.1x most other tiers use); cw 5.00 is the standard 1.25x input write, as every row.
   const p = U.usageModelPrice('claude-opus-5-5');
   assert.ok(p, 'claude-opus-5-5 resolves to a published price row');
   assert.deepEqual(p, { in: 4, out: 20, cw: 5.00, cr: 0.20 }, 'published rates');

@@ -17,3 +17,5 @@
 **Weakest premise:** that the published page is current. The 0.20 came from Claude Code's own catalog entry (tier_2_10). The published price wins, as it does for every other row.
 
 **Tests:** usageprice.test.js and web.token-usage-2617.test.js pass. Every test file naming claude-sonnet-5-5 passes (5 files, 524 tests).
+
+## Review 1 (blind, Opus): converged; NITs taken (comments name the shared 0.05x; wording)
