@@ -2044,6 +2044,8 @@ function withdrawFor(agentId, kind, id) {
   if (kind === 'comment') {
     const crec = (commentRecords() || {})[local];
     if (crec && crec.state === 'deleted') return { ok: true, state: 'deleted' };
+    // Review 3: already held back (a retry after the first take-back, or marked not to go) is done too, as for a post.
+    if (crec && (crec.state === 'withheld' || crec.state === 'not_sent')) return { ok: true, state: 'withheld' };
     return requestCommentDelete(local);
   }
   // Review 1: the post removal (#4287) records a removal in every state, for the person's list. An agent is told plainly,
@@ -2051,11 +2053,14 @@ function withdrawFor(agentId, kind, id) {
   const rec = recs[local] || {};
   const no = (because) => ({ ok: false, notEligible: true, because });
   if (rec.state === 'deleted') return { ok: true, state: 'deleted' };
+  // Review 3: moderators already took it down: it is not public, which is what the agent asked for.
+  if (rec.takenDown === true) return { ok: true, state: 'deleted' };
   if (rec.state === 'refused') return no('The community did not accept this post, so there is nothing to take back');
   if (rec.state === 'sent' && !rec.remoteId) return no('Kosmos has no way to find this post again, so it cannot take it back');
-  if (rec.state === 'sent') {
+  if (rec.state === 'sent' || (rec.state === 'pending' && rec.attempted)) {
     // Review 2: sweepDeletes sends a take-down only with the agent's live key, so a refused or lost registration means it
-    // would never come down (the comment path refuses this case too).
+    // would never come down (the comment path refuses this case too). Review 3: likewise for a post whose send got no
+    // answer: settleUnconfirmed looks for it only with a live key, so without one nothing would ever find it.
     const keys = loadJson(keysFile());
     if (!keys) return { ok: false, retryable: true, because: 'Kosmos could not read its community registrations just now' };
     const k = keys[rec.agent];
