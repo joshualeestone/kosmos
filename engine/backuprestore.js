@@ -61,8 +61,10 @@ const collisionKey = (p) => toSinkPath(p).replace(IGNORABLE_RE, '')
   .normalize('NFC').toLowerCase().toUpperCase().toLowerCase().normalize('NFC');
 /* pathProblem and collisionKey read '\' as a separator, so the sink is handed the same reading. */
 const toSinkPath = (p) => p.replace(/\\/g, '/');
-/* A manifest path as reported back: bounded, since a refused entry's path is not length-checked. */
-const forReport = (p) => (p.length > 300 ? `${p.slice(0, 300).replace(/[\ud800-\udbff]$/, '')}...` : p);
+/* Manifest text as reported back: bounded (a refused entry's path is not length-checked), with control characters,
+   bidi characters and lone surrogates written as \u{...} so a hostile manifest cannot drive a terminal or a log. */
+const forReport = (p) => (p.length > 300 ? `${p.slice(0, 300).replace(/[\ud800-\udbff]$/, '')}...` : p)
+  .replace(/[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ud800-\udfff]/gu, (c) => `\\u{${c.codePointAt(0).toString(16)}}`);
 
 /** Every manifest path that must not be restored because another entry collides with it (see collisionKey): the
  *  same key, or a key that is another's folder. A trie of key segments, so the cost is linear in the paths' length. */
@@ -95,7 +97,8 @@ function collidingPaths(entries) {
  * signature, so it says nothing about authenticity); or null
  * when the manifest itself does not verify and open (wrong device key for the time, wrong context, tampering). maxTotalBytes is REQUIRED (the caller sets it from free disk) and caps the
  * bytes committed: a file that would pass it fails before anything is fetched. Every fetched object's bytes count
- * against twice that, plus 8 KiB for each entry that is tried (sealing overhead), whether or not it verifies; and
+ * against twice that, plus 8 KiB for each well-formed entry that collides with none (sealing overhead), whether or
+ * not it verifies; and
  * one object may be at most twice its file's recorded size plus 8 KiB. So a hostile store or files that fail late
  * cost at most 2 x maxTotalBytes + 8 KiB x maxFiles (about 4 GB at the default maxFiles) of download, with a fetch that
  * honours maxBytes (one that does not can overdraw by one object).
@@ -114,8 +117,9 @@ function collidingPaths(entries) {
  *         turns a fullwidth '．．' into '..').
  *     Paths may name dotfiles (.ssh, .zshrc, .git/hooks): restore into a root the person chose, not over live config.
  *
- * Paths in failed and skippedAtBackup come from the manifest and may hold any printable text: escape them for
- * display.
+ * Text in failed and skippedAtBackup comes from the manifest: it is bounded and has control, bidi and lone-surrogate
+ * characters written as \u{...}, but it is still another device's words; escape it for HTML. fetchChunk and the
+ * sink have no timeout here: a call that never settles stalls the restore, so the caller bounds them.
  */
 async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, manifestObject, fetchChunk, sink,
   maxChunkObject = MAX_CHUNK_OBJECT, maxManifestObject = MAX_MANIFEST_OBJECT, maxFiles = MAX_FILES, maxTotalBytes }) {
@@ -124,6 +128,7 @@ async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, 
   if (!sink || typeof sink.begin !== 'function') throw new Error('backuprestore: sink.begin is required');
   if (typeof fetchChunk !== 'function') throw new Error('backuprestore: fetchChunk is required');
   if (!Buffer.isBuffer(namingKey) || namingKey.length !== 32) throw new Error('backuprestore: namingKey must be a 32-byte Buffer');
+  if (!Buffer.isBuffer(memberSk) || memberSk.length !== 32) throw new Error('backuprestore: memberSk must be a 32-byte Buffer');
   checkBackupContext(ctx);
   if (!(devicePubAtSnapshot instanceof crypto.KeyObject) || devicePubAtSnapshot.type !== 'public' || devicePubAtSnapshot.asymmetricKeyType !== 'ed25519') {
     throw new Error('backuprestore: devicePubAtSnapshot must be an Ed25519 public key');
@@ -156,7 +161,8 @@ async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, 
   const work = { left: 2 * maxTotalBytes + WORK_PER_ENTRY * wellFormed.filter((f) => !clash.has(f.path)).length };
   for (const f of wellFormed) {
     if (clash.has(f.path)) { failed.push({ path: forReport(f.path), why: 'another entry lands on the same file or folder' }); continue; }
-    if (f.size > budget || f.size > work.left) { failed.push({ path: forReport(f.path), why: 'the restore is over its byte budget' }); continue; }
+    if (f.size > budget) { failed.push({ path: forReport(f.path), why: 'the restore is over its byte budget' }); continue; }
+    if (f.size > work.left) { failed.push({ path: forReport(f.path), why: 'the store sent more data than the restore could use' }); continue; }
     const why = await restoreFile(f, { memberSk, namingKey, fetchChunk, sink, maxChunkObject, work });
     if (why) failed.push({ path: forReport(f.path), why });
     else { restored.push(f.path); budget -= f.size; }
@@ -181,7 +187,7 @@ async function restoreFile(f, { memberSk, namingKey, fetchChunk, sink, maxChunkO
       if (!(obj instanceof Uint8Array) && !(obj instanceof ArrayBuffer)) return await abortWith(out, 'the fetch returned something that is not bytes');
       obj = toBuffer(obj);
       // Charged first: these bytes were downloaded whether or not they are kept.
-      if (obj.length > work.left) { work.left = 0; return await abortWith(out, 'the restore is over its byte budget'); }
+      if (obj.length > work.left) { work.left = 0; return await abortWith(out, 'the store sent more data than the restore could use'); }
       work.left -= obj.length;
       // A chunk of this file holds at most f.size bytes, and sealing adds at most a 4 KiB frame plus padding.
       if (obj.length > maxChunkObject || obj.length > 2 * f.size + WORK_PER_ENTRY) return await abortWith(out, 'a chunk is larger than any real chunk');
