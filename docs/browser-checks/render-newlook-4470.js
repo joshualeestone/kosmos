@@ -146,7 +146,9 @@ const BUBBLES = `(() => {
   a.remove(); b.remove();
   return out;
 })()`;
-/* #5551: the project room's question box, shown for the read and put back (it is painted only while an agent asks). */
+/* #5551: the project room's question box, unhidden for the read and put back (it is painted only while an agent asks).
+   Its thread section can itself be hidden at this point, so `shown` is reported, not required: computed style answers
+   either way, and the control below proves the read can tell the two looks apart. */
 const QUESTION_LOOK = `(() => {
   const q = document.getElementById('pj-question');
   if (!q) return { found: false };
@@ -740,7 +742,7 @@ const AGENTS_LOOK = `(() => {
       }
       const dmOn = await page.evaluate(DM_LOOK);
       const qOn = await page.evaluate(QUESTION_LOOK);
-      chk(qOn.found && qOn.shown && qOn.radius === '24px' && qOn.edge === 'rgba(0, 0, 0, 0)' && qOn.bg !== 'rgba(0, 0, 0, 0)' && qOn.bg !== GREY_OF[theme],
+      chk(qOn.found && qOn.radius === '24px' && qOn.edge === 'rgba(0, 0, 0, 0)' && qOn.bg !== 'rgba(0, 0, 0, 0)' && qOn.bg !== GREY_OF[theme],
         `${tag} On: an agent's question in the room keeps its warm ground, with no hairline and 24px corners (#5551)`, JSON.stringify(qOn));
       const bub = await page.evaluate(BUBBLES);
       const PAGE_OF = { light: 'rgb(255, 255, 255)', dark: 'rgb(0, 0, 0)' };
