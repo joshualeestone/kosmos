@@ -90,7 +90,7 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     const before = await page.evaluate(() => window.__org.length);
     await page.click('#plus-org-notnow');
     const o3 = await page.evaluate((n) => ({ sent: window.__org.slice(n), msg: document.getElementById('plus-org-msg').textContent, consent: !document.getElementById('plus-org-consent').hidden }), before);
-    chk(o3.sent.length === 0 && /Nothing about this Kosmos was sent/.test(o3.msg) && !o3.consent,
+    chk(o3.sent.length === 0 && /none of this Kosmos's data was sent/.test(o3.msg) && !o3.consent,
       'O3 Not now sends nothing more and says so', JSON.stringify(o3));
 
     await page.click('#plus-org-check');

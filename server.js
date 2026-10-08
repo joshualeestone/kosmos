@@ -9575,7 +9575,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const stopped = here ? null : oe.stoppedFor();   // the company stopped naming this world: the screen says so ONCE
-      if (stopped) oe.clearStopped();
+      if (stopped && req.method === 'GET') oe.clearStopped();   // a HEAD shows nothing, so it must not use up the note
       sendJson(res, 200, { enrolled: here, stoppedFor: stopped, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
     } catch { sendJson(res, 200, { enrolled: false, org: null, role: null, enrolledAt: null }); }
     return;

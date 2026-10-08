@@ -73,6 +73,8 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
 ## Not done here
 - The join link (`login.kosmosplus.com/org/join#code=...`) opening the board: the code is typed or pasted for now.
 - A live round trip against Pete's coordinator: it waits on his dev branch and on a connector that carries the paths.
+- Sending `consentHash` on enroll (contract v1.4, kosmos-relay audit-5537): the coordinator serves it from E0.8's
+  deploy on. A follow-up then keeps the SERVED hash with the consent and sends it back; until that deploy, nothing new is sent.
 
 ## Review 1 (blind, opus)
 - FIXED: leave reconciliation (last admin stays joined; a pending leave is retried); company name and consent lines
@@ -200,3 +202,18 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
 - WORDING: the route comment now says what isViaScreen enforces (an agent token is refused; browser headers are
   trusted), not that an agent "must never" join.
 - DEDUP: isViaScreen as the only person check (review 2).
+
+## Review 13 (blind, opus)
+- CORRECTED (a claim of mine, measured): the Kosmos+ signing key lives in the world's data root (`<root>/remote`,
+  engine/remote.js), so a FULL copy of the data folder carries it and is the same signer to the company. `thisComputer`
+  then cannot tell the copy apart; it catches a world id copied without the key, or a key re-registered on the second
+  computer. The comments now say exactly that, and PigeonPete is asked what `thisComputer` is computed from.
+- FIXED (from review 12): a record that cannot be written after the company accepted is retried once; then a FIRST
+  join is undone with a leave, but a MOVE is not (a leave would end a membership the person already had). Each case
+  says only what happened ("undone", "could not be undone yet", or "your company now names this Kosmos").
+- FIXED: the hint and Not now no longer say "sends only the code": the check goes through this Kosmos's Kosmos+
+  connection, so the company learns which account checked it; what is true is that nothing joins and none of this
+  Kosmos's data is sent. A HEAD no longer uses up the one-time stopped note. The log scrub also removes email
+  addresses. The module header names the Kosmos+ signer beside the opaque id.
+- DEFERRED: preview is not serialized with enroll, leave and refresh. It only reads (redeem, and status for a member),
+  so it cannot write a record back over a leave; a later writer from preview must join the queue.

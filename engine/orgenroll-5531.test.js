@@ -453,7 +453,7 @@ test('#5531 review 12: a join the company accepted but this Kosmos cannot record
   fs.mkdirSync(path.join(a, org.ENROLLMENT_FILE));   // a directory where the record goes: the write fails, the world id file still works
   const r = await org.enroll('ACME-JOIN-1234', true, { root: a, remote });
   assert.equal(r.ok, false);
-  assert.match(r.because, /joining was undone/);
+  assert.match(r.because, /Joining was undone, so nothing was joined/);
   assert.deepEqual(remote.sent.map((x) => x.route), [org.ROUTES.enroll, org.ROUTES.leave], 'the join the company holds was not undone');
   assert.equal(state.member, false);
   const errs = []; const orig = console.error; console.error = (m) => errs.push(String(m)); t.after(() => { console.error = orig; });
@@ -461,4 +461,24 @@ test('#5531 review 12: a join the company accepted but this Kosmos cannot record
   await org.preview('ACME-JOIN-1234', { root: a, remote: { macRequest: async () => ({ ok: false, because: 'HTTP 502 world ' + id }) } });
   assert.ok(errs.length >= 1);
   assert.equal(errs.some((m) => m.includes(id)), false, 'an id reached the log: ' + errs.join(' | '));
+});
+
+test('#5531 review 13: an unrecordable MOVE is never undone with a leave, and a failed undo says so', async (t) => {
+  const { a, b } = sandbox(t);
+  const st = {};
+  const remote = fakeRemote(st);
+  fs.mkdirSync(path.join(a, org.ENROLLMENT_FILE));   // the record cannot be written here
+  const mv = await org.enroll(null, true, { root: a, remote });   // a member moving the enrollment here: no code
+  assert.equal(mv.ok, false);
+  assert.match(mv.because, /now names this Kosmos/);
+  assert.equal(remote.sent.some((x) => x.route === org.ROUTES.leave), false, 'a move was undone with a leave, ending the membership');
+
+  fs.mkdirSync(path.join(b, org.ENROLLMENT_FILE));
+  const stuck = { macRequest: async (m, route, body) => (route === org.ROUTES.enroll
+    ? { ok: true, data: { ok: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } }
+    : { ok: false, because: 'offline' }) };
+  const r = await org.enroll('ACME-JOIN-1234', true, { root: b, remote: stuck });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /could not be undone yet/, 'a failed undo was reported as undone: ' + r.because);
+  assert.equal(/Joining was undone/.test(r.because), false);
 });

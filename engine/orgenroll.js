@@ -9,7 +9,8 @@
  *   - each world keeps its own data root (engine/worlds.js), so its id file and enrollment record live inside it and
  *     no other world can read or write them;
  *   - the world is named to the coordinator only by an OPAQUE id minted here (random, never the world's name, which
- *     can be personal), and only by the world being enrolled;
+ *     can be personal), and only by the world being enrolled. Every request is ALSO signed by this Kosmos's Kosmos+
+ *     identity (engine/remote.js, its key in <world root>/remote), which is stable across a retired world id;
  *   - isEnrolledHere() is the gate every later sender (E0.3 telemetry, E0.6 backup) must pass: it is true only when
  *     this world's record names this world's id, and refresh() clears the record the moment the coordinator names a
  *     different world or says this account is no longer a member.
@@ -161,7 +162,7 @@ function sayFor(because, fallback, secret) {
   if (because) {
     const { externalName } = require('./externalname');
     let line = String(because);
-    line = line.replace(/[0-9a-f]{32,}/gi, '[id]');   // the world id and org-like ids stay out of the log too
+    line = line.replace(/[0-9a-f]{32,}/gi, '[id]').replace(/[^\s@"'<>]+@[^\s@"'<>]+\.[A-Za-z]{2,}/g, '[email]');   // hex ids and email addresses too
     if (typeof secret === 'string' && secret.length >= 6) {   // a code is single-use: never in a log, in any case
       line = line.replace(new RegExp(secret.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '[join code]');
     }
@@ -223,26 +224,34 @@ async function enrollNow(code, accepted, opts) {
   let r = await signed('POST', ROUTES.enroll, body, opts);
   /* #5530 review 1: already in that company, a code is refused (409 org_already_member) and NOT spent, since it may be
      someone else's. The person has just accepted, so move the enrollment to this world the member's way: no code. */
+  let move = !body.code;   // no code: a member moving the enrollment here, not a first join
   if (!r.ok && body.code && codeOf(r.because) === 'org_already_member') {
-    delete body.code;
+    delete body.code; move = true;
     r = await signed('POST', ROUTES.enroll, body, opts);
   }
   if (!r.ok) return { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'Joining did not go through Kosmos+ just now. Nothing was joined; try again in a minute.', typeof code === 'string' ? code.trim() : null) };
   const org = cleanOrg(r.data && r.data.org);
   const role = cleanRole(r.data && r.data.role);
   const en = r.data && r.data.enrolled;
-  /* #5530 review 2: thisComputer says the CALLING Mac is the enrolled one. A world's id can be copied to a second Mac
-     with its data (a restored backup, Migration Assistant); only the Mac the company names reports. */
+  /* #5530 review 2: thisComputer says the CALLING signer is the enrolled one. It catches a world id copied WITHOUT the
+     Kosmos+ key, or a computer that registered its own key. A full copy of the data folder also carries the key
+     (<world root>/remote), and is then the same signer to the company: this check cannot tell it apart (review 13). */
   if (!org || !role || !en || en.world !== world || en.thisComputer !== true) return { ok: false, because: 'the company did not confirm this Kosmos, so it is not enrolled' };
   const rec = { org, role, world, enrolledAt: new Date().toISOString() };
   // The consent the person was shown, as a hash: what they accepted is then a checkable fact on this side (#5531 review 10).
   if (opts && typeof opts.consentHash === 'string' && /^[0-9a-f]{64}$/.test(opts.consentHash)) rec.consentHash = opts.consentHash;
   try { writeEnrollment(rec, opts); } catch {
-    /* The company now enrolls this world, but this Kosmos cannot record it, so it would never report and never show
-       Leave (review 12). Undo it: send the leave now, and if that fails too, leave it pending for the next pass. */
-    const undo = await signed('POST', ROUTES.leave, {}, opts);
-    if (!undo.ok && codeOf(undo.because) !== 'org_not_member') setLeavePending(true, opts, null);
-    return { ok: false, because: "This Kosmos's data folder could not be written, so joining was undone. Nothing was joined." };
+    try { writeEnrollment(rec, opts); } catch {   // once more: a passing error (a full disk freeing up)
+      /* The company now enrolls this world, but this Kosmos cannot record it, so it would never report and never show
+         Leave (review 12). A FIRST join is undone with a leave. A MOVE is not: the person was a member before, and a
+         leave would end that membership too (review 13). Each says only what actually happened. */
+      const NOWRITE = "This Kosmos's data folder could not be written.";
+      if (move) return { ok: false, because: NOWRITE + ' Your company now names this Kosmos as your work Kosmos, but it is not reporting. Fix the folder, then check the code again.' };
+      const undo = await signed('POST', ROUTES.leave, {}, opts);
+      if (undo.ok || codeOf(undo.because) === 'org_not_member') return { ok: false, because: NOWRITE + ' Joining was undone, so nothing was joined.' };
+      setLeavePending(true, opts, null);   // best effort: retried on the next pass if this file, at least, can be written
+      return { ok: false, because: NOWRITE + ' Joining could not be undone yet, so your company may still list this Kosmos. It is not reporting.' };
+    }
   }
   setLeavePending(false, opts);   // joined again after an unconfirmed leave: that old leave must never be sent now
   setStopped(null, opts);
@@ -313,9 +322,9 @@ async function leaveNow(opts) {
   }
   const before = readEnrollment(opts) || pendingRecord(opts);
   clearEnrollment(opts);   // stop at once, whatever happens next
-  /* Ask first. A data folder copied to a second computer carries this record and this world's id, so the local check
-     passes there too, and a leave ends the WHOLE membership (by account, not by computer): sent from the copy it would
-     end the real work Kosmos's. Send it only when the company confirms this world on THIS computer. A clear answer
+  /* Ask first. A leave ends the WHOLE membership (by account, not by computer), so it is sent only when the company
+     confirms this world AND this signer. That stops a stale record, a moved enrollment, and a copy whose Kosmos+ key
+     was re-registered; a full copy that carries the key is the same signer and is NOT stopped here (review 13). A clear answer
      that this is not the enrolled world clears locally and sends nothing; no answer leaves it pending, asked again. */
   const st = await signed('POST', ROUTES.status, {}, opts);
   const verdict = statusVerdict(st.ok ? st.data : null, readWorldId(opts));

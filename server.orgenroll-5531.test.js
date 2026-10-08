@@ -135,7 +135,7 @@ test('#5531 review 5: a ticket from a preview IS accepted once, for the code tha
   await call('/api/org/leave', { body: {}, headers: SCREEN });
 });
 
-test('#5531 review 6: an agent reading /api/org learns which company, and not the role or when', async (t) => {
+test('#5531 review 6 and 12: an agent reading /api/org learns only whether this Kosmos is enrolled', async (t) => {
   const b = fleet.install([fleet.agent('leo', { state: 'idle' })]);
   t.after(() => { b.restore(); fs.rmSync(enrollmentFile(), { force: true }); });
   fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'admin', world: oe.worldId(), enrolledAt: '2026-10-07T00:00:00.000Z' }));
@@ -235,4 +235,11 @@ test('#5531 review 11: a failed join does not put its old ticket back over a new
   const r = await call('/api/org/enroll', { body: { code: 'ACME-JOIN-1234', accepted: true, ticket: second.json.ticket }, headers: SCREEN });
   assert.equal(r.json.ok, true, 'the newer screen\'s ticket was replaced by the failed join\'s: ' + JSON.stringify(r.json));
   await call('/api/org/leave', { body: {}, headers: SCREEN });
+});
+
+test('#5531 review 13: a HEAD from the screen does not use up the stopped note', async () => {
+  fs.writeFileSync(path.join(store.ROOT, 'org-stopped.json'), JSON.stringify({ at: '2026-10-07T00:00:00.000Z', name: 'Acme' }));
+  await call('/api/org', { method: 'HEAD', headers: SCREEN });
+  const shown = await call('/api/org', { method: 'GET', headers: SCREEN });
+  assert.equal(shown.json.stoppedFor, 'Acme', 'a HEAD cleared the note before any screen showed it');
 });

@@ -18826,7 +18826,8 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <!-- #5531 (Enterprise E0.2): joining a company makes THIS Kosmos the work Kosmos (#5529 decision 1). The consent
            words come from the company's side (the coordinator), so every board shows the same ones: the page renders
-           them as text, never as markup. Checking a code sends only the code; nothing joins until the person has read
+           them as text, never as markup. Checking a code asks the company through this Kosmos's Kosmos+ connection (so the company learns which account
+           checked it); nothing joins until the person has read
            what the company would see and pressed Join. Connected computers only: joining is a signed request. -->
       <div id="plus-org" hidden style="margin-top:16px;">
         <p class="setname">Your company</p>
@@ -18842,7 +18843,7 @@ window.kosmosMeasureScrollbarWidth();
           </div>
         </div>
         <div id="plus-org-out">
-          <p class="fhint">Have a join code from your company? Joining makes this Kosmos your work Kosmos. Checking a code sends only the code; nothing joins until you have read what your company would see and pressed Join.</p>
+          <p class="fhint">Have a join code from your company? Joining makes this Kosmos your work Kosmos. Checking a code asks your company through this Kosmos's Kosmos+ connection; nothing joins, and none of this Kosmos's data is sent, until you have read what your company would see and pressed Join.</p>
           <div class="frow">
             <input type="text" class="tk-inp" id="plus-org-code" autocomplete="off" spellcheck="false" maxlength="128" aria-label="Join code" placeholder="Join code">
             <button class="btn" type="button" id="plus-org-check">Check code</button>
@@ -47183,7 +47184,7 @@ async function plusOrgJoin() {
 }
 function plusOrgNotNow() {
   PLUS_ORG.preview = null;
-  document.getElementById('plus-org-msg').textContent = 'Not joined. Nothing about this Kosmos was sent; only the code was checked.';
+  document.getElementById('plus-org-msg').textContent = 'Not joined. Only the code was checked; none of this Kosmos\'s data was sent.';
   plusOrgPaint();
 }
 function plusOrgLeaveArm(on) {
