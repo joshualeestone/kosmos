@@ -26,11 +26,17 @@ const { safeKey } = require('./engine/store');
 process.env.AGENT_WORKFORCE_WORKERS = fs.mkdtempSync(path.join(os.tmpdir(), 'tokclean-workers-'));
 test.after(() => fs.rmSync(process.env.AGENT_WORKFORCE_WORKERS, { recursive: true, force: true }));
 const fleet = require('./test-support/fleet');
-/* --apply needs live execution, which only the tool's command line turns on. This file opts in for its own process
-   (whose store is a throwaway, #5418 ask 1) and puts the gate back afterwards; one arm checks the refusal. */
+/* --apply needs live execution, which only the tool's command line turns on. Only a call that applies is armed, for
+   that call alone (the store is a throwaway, #5418 ask 1); two arms check the refusal unarmed. */
 const liveExecution = require('./engine/live-execution');
-liveExecution.allowLiveExecution();
-test.after(() => liveExecution.resetForTests());
+async function armedMain(argv) {
+  liveExecution.allowLiveExecution();
+  try { return await tool.main(argv); } finally { liveExecution.resetForTests(); }
+}
+function armedApply(...a) {
+  liveExecution.allowLiveExecution();
+  try { return tool.applyPlan(...a); } finally { liveExecution.resetForTests(); }
+}
 
 const DAY = 24 * 3600 * 1000;
 const CUTOFF = Date.parse('2026-10-01T00:00:00Z');   // a fixed PAST date: the tool refuses a future cutoff
@@ -151,7 +157,7 @@ async function digestOf(argv) {
 }
 async function applyConfirmed(port) {
   const argv = ['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString()];
-  return tool.main(argv.concat('--apply', '--confirm', await digestOf(argv)));
+  return armedMain(argv.concat('--apply', '--confirm', await digestOf(argv)));
 }
 
 test('#5418: fetchRoster rejects a non-OK board and one with no agent list', async (t) => {
@@ -202,7 +208,7 @@ test('#5418 end to end: a dry run changes nothing; --apply backs up, then remove
   assert.equal(await tool.main(argv), 0);
   assert.deepEqual(fs.readdirSync(dir).sort(), before, 'a dry run changed the store');
   assert.deepEqual(times(), timesBefore, 'a dry run touched a token file (its digest would no longer match)');
-  assert.equal(await tool.main(argv.concat('--apply', '--confirm', await digestOf(argv))), 0);
+  assert.equal(await armedMain(argv.concat('--apply', '--confirm', await digestOf(argv))), 0);
   assert.deepEqual(fs.readdirSync(dir).sort(), ['My.Agent.json', 'claudebot.json', 'sam.json'], 'a live agent was removed, or the orphan was kept');
   const backups = fs.readdirSync(path.dirname(dir)).filter((n) => n.startsWith(tool.BACKUP_PREFIX));
   assert.equal(backups.length, 1);
@@ -217,7 +223,7 @@ test('#5418: a roster that matches NONE of the store\'s token files (another sto
   t.after(() => f.restore());
   const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
   const err = quiet(t);
-  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply', '--confirm', 'unread']), 2);
+  assert.equal(await armedMain(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply', '--confirm', 'unread']), 2);
   assert.deepEqual(fs.readdirSync(dir).sort(), ['alice.json', 'bob.json']);
   assert.match(String(err.mock.calls[0].arguments[0]), /different store/);
 });
@@ -237,7 +243,7 @@ test('#5418: a board that lists NO agents stops the tool before anything is plan
   const p = path.join(dir, 'would-be-orphan.json');
   const port = await stubBoard(t, 200, { agents: [] });
   const err = quiet(t);
-  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply', '--confirm', 'unread']), 2);
+  assert.equal(await armedMain(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply', '--confirm', 'unread']), 2);
   assert.equal(fs.existsSync(p), true, 'an empty roster let a file be removed');
   assert.match(String(err.mock.calls[0].arguments[0]), /lists no agents/);
 });
@@ -251,7 +257,7 @@ test('#5418: no board token for this store stops the tool (nothing ties the boar
   t.after(() => f.restore());
   const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
   const err = quiet(t);
-  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply', '--confirm', 'unread']), 2);
+  assert.equal(await armedMain(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply', '--confirm', 'unread']), 2);
   assert.equal(fs.existsSync(path.join(dir, 'would-be-orphan.json')), true);
   assert.match(String(err.mock.calls[0].arguments[0]), /no board token/);
 });
@@ -271,7 +277,7 @@ test('#5418: applying removes a token only if, under the lock, it is still the f
     { name: 'x.json.kosmos-1-t0-1-1.tmp', kind: 'temp' },
     { name: 'changed.tmp', kind: 'temp' },
   ] };
-  const res = tool.applyPlan(dir, plan, sendertoken.revokeIfUnchanged);
+  const res = armedApply(dir, plan, sendertoken.revokeIfUnchanged);
   assert.deepEqual(res.removed.sort(), ['fix.json', 'x.json.kosmos-1-t0-1-1.tmp']);
   assert.deepEqual(res.failed.map((f) => f.name).sort(), ['changed.tmp', 'fresh.json']);
   assert.equal(fs.existsSync(path.join(dir, 'fresh.json')), true, 'a token minted after the plan was taken');
@@ -316,7 +322,7 @@ test('#5418: a link swapped for a real file between plan and apply is not remove
   assert.deepEqual(plan.remove.map((r) => r.name).sort(), ['still-a-link.json', 'was-a-link.json']);
   fs.unlinkSync(path.join(dir, 'was-a-link.json'));
   fs.writeFileSync(path.join(dir, 'was-a-link.json'), 'now a real file');
-  const res = tool.applyPlan(dir, plan, () => { throw new Error('no token is planned here'); });
+  const res = armedApply(dir, plan, () => { throw new Error('no token is planned here'); });
   assert.deepEqual(res.removed, ['still-a-link.json']);
   assert.deepEqual(res.failed.map((x) => x.name), ['was-a-link.json']);
   assert.equal(fs.readFileSync(path.join(dir, 'was-a-link.json'), 'utf8'), 'now a real file');
@@ -341,7 +347,7 @@ test('#5418: the "different store" backstop counts the roster only: this store\'
   t.after(() => f.restore());
   const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
   const err = quiet(t);
-  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply', '--confirm', 'unread']), 2);
+  assert.equal(await armedMain(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply', '--confirm', 'unread']), 2);
   assert.deepEqual(fs.readdirSync(dir).filter((n) => n.endsWith('.json')).sort(), ['alice.json', 'bob.json']);
   assert.match(String(err.mock.calls[0].arguments[0]), /different store/);
 });
@@ -374,7 +380,7 @@ test('#5418: unreadable removal records stop the tool', async (t) => {
   t.after(() => f.restore());
   const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
   const err = quiet(t);
-  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply', '--confirm', 'unread']), 2);
+  assert.equal(await armedMain(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply', '--confirm', 'unread']), 2);
   assert.equal(fs.existsSync(path.join(dir, 'fixture-z.json')), true);
   assert.match(String(err.mock.calls[0].arguments[0]), /removal records/);
 });
@@ -448,7 +454,7 @@ test('#5418: --apply removes only the plan the person confirmed: a roster that s
   const err = quiet(t);
   const digest = await digestOf(argv);      // the person reads a plan that removes only fixture-q.json
   cards = cardsFew;                         // then the board answers without briefly-missing
-  assert.equal(await tool.main(argv.concat('--apply', '--confirm', digest)), 4);
+  assert.equal(await armedMain(argv.concat('--apply', '--confirm', digest)), 4);
   assert.deepEqual(fs.readdirSync(dir).filter((n) => n.endsWith('.json')).sort(), ['anchor.json', 'briefly-missing.json', 'fixture-q.json']);
   assert.match(String(err.mock.calls.at(-1).arguments[0]), /not the one confirmed/);
 });
@@ -465,7 +471,6 @@ test('#5418: a --port that is not this account\'s own board port is refused befo
 
 test('#5418: --apply is refused without live execution (only the command line turns it on)', async (t) => {
   liveExecution.resetForTests();
-  t.after(() => liveExecution.allowLiveExecution());
   const port = await stubBoard(t, 200, { agents: [] });
   const err = quiet(t);
   assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply', '--confirm', 'x']), 2);
@@ -517,7 +522,7 @@ test('#5418: a token minted in the same mtime tick is kept (mintedAt is checked 
   // a coarse-mtime mount: a new token lands, and the mtime reads the same as before
   fs.writeFileSync(p, JSON.stringify({ tokens: [{ token: 'a', instance: 'i', mintedAt: new Date(OLD).toISOString() }, { token: 'b', instance: 'j', mintedAt: new Date().toISOString() }] }));
   fs.utimesSync(p, OLD / 1000, OLD / 1000);
-  const res = tool.applyPlan(dir, { remove: [
+  const res = armedApply(dir, { remove: [
     { name: 'tick.json', kind: 'token', key: 'tick', mtimeMs: planned.mtimeMs, newestMintMs: planned.newestMintMs },
     { name: 'never-there.json', kind: 'token', key: 'never-there', mtimeMs: OLD, newestMintMs: null },
   ] }, sendertoken.revokeIfUnchanged);
@@ -562,7 +567,7 @@ test('#5418: a non-OK board, or one with no agent list, stops main with nothing 
   for (const [status, body] of [[500, {}], [200, { ok: true }]]) {
     const port = await stubBoard(t, status, body);
     const err = quiet(t);
-    assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply', '--confirm', 'x']), 2);
+    assert.equal(await armedMain(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply', '--confirm', 'x']), 2);
     assert.match(String(err.mock.calls.at(-1).arguments[0]), /could not read the board roster/);
     assert.deepEqual(fs.readdirSync(dir).filter((n) => n.endsWith('.json')), ['x.json']);
   }
@@ -700,7 +705,6 @@ test('#5418: a board that stalls part way through its answer is a clean refusal,
 
 test('#5418: applyPlan itself refuses while live execution is off', (t) => {
   liveExecution.resetForTests();
-  t.after(() => liveExecution.allowLiveExecution());
   const dir = scratch(t);
   fs.writeFileSync(path.join(dir, 'x.json.kosmos-1-t0-1-1.tmp'), 'tmp');
   assert.throws(() => tool.applyPlan(dir, { remove: [{ name: 'x.json.kosmos-1-t0-1-1.tmp', kind: 'temp' }] }, () => ({ ok: true })), /live execution is off/);
@@ -721,4 +725,41 @@ test('#5418: a link the backup cannot re-make (EPERM, as on Windows) is noted, n
   tool.backup(dir, dest, ['a.json', 'l.json']);
   assert.equal(fs.readFileSync(path.join(dest, 'a.json'), 'utf8'), 'A');
   assert.match(fs.readFileSync(path.join(dest, 'LINKS.txt'), 'utf8'), /l\.json -> D:/);
+});
+
+test('#5418: a profile named in another spelling (-discord) keeps the token key it maps to', async (t) => {
+  const { dir, write } = e2eStore(t);
+  const store = require('./engine/store');
+  write('anchor.json', OLD);
+  write('sam.json', OLD);
+  write('fixture-z.json', OLD);
+  store.writeProfile('sam-discord', { role: 'any profile at all' });
+  t.after(() => { try { fs.rmSync(store.PROFILES, { recursive: true, force: true }); } catch { /* none */ } });
+  const f = fleet.install([fleet.agent('anchor')]);
+  t.after(() => f.restore());
+  const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
+  quiet(t);
+  assert.equal(await applyConfirmed(port), 0);
+  const left = fs.readdirSync(dir).filter((n) => n.endsWith('.json')).sort();
+  assert.ok(left.includes('sam.json'), 'the profile sam-discord did not keep the token sam');
+  assert.equal(left.includes('fixture-z.json'), false, 'CONTROL: an orphan with no profile was kept');
+});
+
+test('#5418: a board that drips its answer slowly still meets the whole-answer deadline', async (t) => {
+  const timers = [];
+  const srv = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    timers.push(setInterval(() => { try { res.write(' '); } catch { /* closed */ } }, 50));
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  t.after(() => { for (const x of timers) clearInterval(x); srv.closeAllConnections(); srv.close(); });
+  const started = Date.now();
+  // the arm's own limit: without the deadline the request never settles, and this must fail, not hang the suite
+  let guard;
+  const limit = new Promise((resolve) => { guard = setTimeout(() => resolve('held'), 3000); });
+  const outcome = await Promise.race([tool.getJson(srv.address().port, '/api/status', {}, 300).then(() => 'answered', (e) => e), limit]);
+  clearTimeout(guard);
+  assert.ok(outcome instanceof Error, 'the dripping board held the request past its deadline: ' + String(outcome));
+  assert.match(outcome.message, /in time|part way|aborted|socket hang up/);
+  assert.ok(Date.now() - started < 3000, 'the dripping board held the request far past its deadline');
 });
