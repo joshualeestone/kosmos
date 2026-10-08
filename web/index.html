@@ -47349,7 +47349,7 @@ async function paintPlus() {
 }
 /* ---- #5531 (Enterprise E0.2): this Kosmos joining a company. The 5-second repaint above asks at most once a minute,
    and never while the person is reading a consent or a call is out. */
-var PLUS_ORG = { at: 0, busy: false, state: null, preview: null };
+var PLUS_ORG = { at: 0, busy: false, state: null, preview: null, open: false };   // open: the person opened the company block (10-08)
 function plusOrgMaybe() {
   if (PLUS_ORG.busy || PLUS_ORG.preview) return;
   if (Date.now() - PLUS_ORG.at < 60000) { if (PLUS_ORG.state) plusOrgPaint(); return; }   // at most once a minute, failed reads included
@@ -47382,6 +47382,9 @@ function plusOrgPaint() {
   const st = PLUS_ORG.state || {};
   const here = st.enrolled === true && st.org;
   // The whole block only for someone it concerns (Splinter/Josh 10-08); everyone else gets the one-line opener.
+  /* A line on screen opens the block, so the person sees what it is about (a company note, "Not joined", "You left").
+     🛑 Every writer of #plus-org-msg relies on this: a NEW message for a computer with no company would reveal the
+     block (review 2). Write one only for something this person did here or a company note about this Kosmos. */
   const msgOn = (document.getElementById('plus-org-msg').textContent || '') !== '';
   const full = !!here || !!PLUS_ORG.preview || PLUS_ORG.open === true || msgOn || !!st.stoppedFor || !!st.leaveRefused;
   document.getElementById('plus-org-open').hidden = full;

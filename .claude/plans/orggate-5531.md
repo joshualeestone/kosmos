@@ -33,3 +33,10 @@
 - NITs taken: the page repaints after setting a company note, so the block matches it at once; the id is
   `plus-org-title` (not `plus-org-h`, a class already used in the consent).
 - NIT kept: once opened, the block stays open for the page's life.
+
+## Review 2 (blind, Sonnet)
+- TAKEN as a documented rule rather than a mechanism (the reviewer: "a risk for later changes, not a bug today"): a line in
+  #plus-org-msg opens the block, and the comment at `msgOn` says every writer relies on that and when a new one may.
+- NIT taken: `open: false` declared in PLUS_ORG.
+- NITs kept: the first paint in plusOrgMaybe before the message is set (same microtask, no render between); the
+  mutation results are in this plan, not re-shown by the check.
