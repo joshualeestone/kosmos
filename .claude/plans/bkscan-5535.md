@@ -79,3 +79,10 @@ That secretmask's shape patterns plus known values catch the credentials a work 
 - **Latin-1 redaction** wrote `"` for the U+2022 marker; it now writes `*`.
 - **Guards with no test:** each now has one (XMP-only metadata kept, a UTF-16 key inside a binary skipped, a lone key opening skipped, a NUL keeping text on the binary path). The binary withheld check is labelled defence in depth (a withheld search also fires a counted kind).
 - **Corrected in flight: the XMP packet id was never the cause.** Round 3's diagnosis printed the first run that changed under masking, and that run held both the XMP id and, further along, the base64 binary plist. The plist fired; the id alone fires nothing (measured). The `PUBLIC_CONSTANTS` removal guarded nothing, so it is gone. Round 4's mutation of it caught nothing, and that is how this was found.
+
+## Review round 5 (opus): no BLOCKER, 2 WARNINGs, 1 CONVENTION, fixed
+- **Over-skipping is fine** on a broad sample: 11 of 6,515 worktree files, each for a stated reason. System binary plists are skipped as accepted.
+- **Exemptions are per format** (images and Mach-O ignore only long_token; fonts also url_credential), so a database URL compiled into a Mach-O is caught (url_credential fires on 3 of 1,377 Mach-O files). **Magics checked strictly** (PNG needs IHDR, a font a sane table count, ISO media a known image brand), so a store prefixed with a bare magic is not media. **Residual, stated:** a long_token-only key compiled into a Mach-O, or a store crafted with full media headers, passes. The threat model is accidental secrets, not a user hiding them.
+- **Media-only guards tested** (a PNG hiding a password behind the placeholder; a PNG with a UTF-16 key), with a clean-PNG control.
+- **Compressed fixtures** for lzma, zip 0708 and a zip end record after a stub, each with a deflated key behind it; `BZh9hello` is the block-magic control.
+- **The fail-closed catch is tested** with a Buffer whose toString throws. The KEY_OPEN binary checks are labelled defence in depth.
