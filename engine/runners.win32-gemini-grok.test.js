@@ -48,11 +48,12 @@ const LEGACY_GEMINI = path.join(SANDBOX, 'legacy', 'gemini');
 const LEGACY_GROK = path.join(SANDBOX, 'legacy', 'grok');
 const clear = (p) => removeTree(path.join(runners.managedRoot(), p));
 
-test('the keyed-runner gate lets Windows through for Gemini and Grok; the Claude link path stays darwin-only', () => {
+test('the keyed-runner gate lets Windows and Linux through for Gemini and Grok; the Claude link path stays darwin-only', () => {
   assert.equal(platformGate.canDownloadKeyedRunner('win32'), true);
   assert.equal(platformGate.canDownloadKeyedRunner('darwin'), true);
-  for (const p of ['linux', 'aix', '', null]) assert.equal(platformGate.canDownloadKeyedRunner(p), false, String(p) + ' fails closed');
-  assert.deepEqual(platformGate.KEYED_RUNNER_DOWNLOADS, ['darwin', 'win32']);
+  assert.equal(platformGate.canDownloadKeyedRunner('linux'), true, '#5419 slice 2: Grok publishes Linux builds; Gemini is one tarball');
+  for (const p of ['freebsd', 'aix', '', null]) assert.equal(platformGate.canDownloadKeyedRunner(p), false, String(p) + ' fails closed');
+  assert.deepEqual(platformGate.KEYED_RUNNER_DOWNLOADS, ['darwin', 'win32', 'linux']);
   assert.ok(Object.isFrozen(platformGate.KEYED_RUNNER_DOWNLOADS));
   assert.equal(platformGate.canDownloadRunner('win32'), false, 'RUNNER_DOWNLOADS is unchanged');
   assert.match(runners.install('claude', { platform: 'win32' }).because, /not supported/);
