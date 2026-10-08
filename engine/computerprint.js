@@ -7,9 +7,11 @@
  * that folder (a restored backup, Migration Assistant) is the same signer to the company. The hardware is not copied:
  * a restored backup or a migrated Mac lands on different hardware.
  *
- * WHAT IS SENT. Only sha256(salt + ':' + hardware id), where the salt is per account and served by the coordinator in
- * status. The raw hardware id never leaves this computer, and with a per-account salt the print cannot be matched
- * across accounts or companies.
+ * WHAT IS SENT. Only sha256(salt + ':' + company id + ':' + hardware id). The salt is served by the coordinator in
+ * status; the company id is the org this Kosmos is enrolled in, which the board already holds. The raw hardware id
+ * never leaves this computer, and because the company id is in the hash, two companies always get different prints
+ * for one computer, EVEN IF a coordinator served the same salt to both (review 3): unlinkability across companies
+ * does not rest on the coordinator's salt alone.
  *
  * WHERE THE HARDWARE ID COMES FROM.
  *   macOS: IOPlatformUUID, from `ioreg -rd1 -c IOPlatformExpertDevice` (no permission prompt, no entitlement).
@@ -68,13 +70,15 @@ function hardwareId(opts) {
   return id;
 }
 
-/* The print the company pins: sha256 of the served salt and this computer's hardware id, or null when either is
-   missing or malformed. */
-function fingerprint(salt, opts) {
+/* The print the company pins: sha256(salt:company:hardware id), or null when any is missing or malformed. `company` is
+   the enrolled org's id. opts.run, opts.platform and opts.now are TESTS ONLY (now moves the shared retry window). */
+const COMPANY = /^[A-Za-z0-9_-]{1,128}$/;
+function fingerprint(salt, company, opts) {
   if (typeof salt !== 'string' || !SALT.test(salt)) return null;
+  if (typeof company !== 'string' || !COMPANY.test(company)) return null;
   const id = hardwareId(opts);
   if (!id) return null;
-  return crypto.createHash('sha256').update(salt + ':' + id).digest('hex');
+  return crypto.createHash('sha256').update(salt + ':' + company + ':' + id).digest('hex');
 }
 
 /* TESTS ONLY: swap the unseamed reader and clear the cache, so the cache rule itself can be tested. Pass null to restore.

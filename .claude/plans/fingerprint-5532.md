@@ -45,3 +45,12 @@ company, and `thisComputer` cannot tell them apart.
   and fails if the test-only reader swap is called outside the tests. Proven by planting a tracked file.
 - FIXED: the salt must be whole bytes. parseIoreg stays exported for the fixture tests (it returns an id only from
   text the caller already holds); `_testRunner` is marked tests-only and guarded.
+
+## Review 3 (blind, opus)
+- FIXED: the print is sha256(salt:company:hardware id), the company being the enrolled org's id. Two companies always
+  get different prints for one computer, even if a coordinator served them the same salt; unlinkability across
+  companies no longer rests on the coordinator alone (mutation reddens). Told PigeonPete: the board computes it, the
+  coordinator only pins and compares, so the coordinator needs no change.
+- FIXED: the guard covers more spellings (system_profiler's hardware page, kern.uuid, WMI's computer-system product,
+  machine-id, the split registry key) and says it is a guard on known spellings, not a proof; the exclusion is anchored
+  to engine/; the test's fresh read uses the module's timeout and quiet stderr; `now` is documented as tests only.
