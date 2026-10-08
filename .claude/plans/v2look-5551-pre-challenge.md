@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: v2look-5551
-diff_hash: 52aed068be3b9e7daf9829b9fe0d2ea00fb412e5c52240341eafac9ef5cd81c0
-validation: passed (validation_log PASSED for stack=typescript hash=52aed068be3b, full tools/run-tests.sh incl. browser-check gates; render-newlook-4470.js 307/307 headless)
+diff_hash: 115d84868f8b6565539b467909c52a9b5fef4d7f29676db94060f21b6bfe1834
+validation: passed (validation_log PASSED for stack=typescript hash=115d84868f8b after the render-taskhover-4880 fix, full tools/run-tests.sh incl. browser-check gates)
 subdir_audit: passed
-timestamp: 2026-10-08T08:17:44Z
+timestamp: 2026-10-08T12:56:19Z
 iterations: 2
 converged: true
 ---
@@ -36,3 +36,11 @@ At today's 8px padding the label crowded the 24px curve; padding 16px 20px under
 
 ### Strengths
 New look only, CSS only; the check reads the box with the look on and off (the control), proven red by removing the corners and by removing the hairline.
+
+## After review: CI-only failure in render-taskhover-4880 (a9c17e22a)
+- [WARNING] CI failed render-taskhover-4880's old-look pass on every run with "Clipped area is either empty or outside
+  the resulting image": on a runner the task list is taller, the row sat below the fold, and page.screenshot's clip
+  and mouse points are viewport space --> FIXED: the row is scrolled into view before each measurement. Reproduced
+  at a 420px-tall viewport (red before, all passed after) and still all passed at 900px. Both browser-check gates
+  rc 0; full validation passed again.
+
