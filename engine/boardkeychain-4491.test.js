@@ -328,7 +328,7 @@ test('WARNING 4: creation names the runner to the guard and still refuses when i
   assert.match(SERVER, /setupAssistant\.refreshTokenOnlyGuards\(\)/, 'the board start no longer refreshes the guards');
 });
 
-test('re-review (Kitty): the worlds registry is write-denied, and a world added LATER is covered by a glob (both verbs)', () => {
+test('re-review (independent): the worlds registry is write-denied, and a world added LATER is covered by a glob (both verbs)', () => {
   const base = path.join(SANDBOX, 'worldsbase-later');
   fs.mkdirSync(base, { recursive: true });
   const real = require('./worlds');
@@ -455,4 +455,21 @@ test('#4491 review 16: a board.token rule that cannot be written makes the guard
   assert.match(g.because, /cannot carry/);
   assert.equal(lin.ok, true, 'CONTROL: a plain store on Linux is guarded: ' + JSON.stringify(lin));
   assert.ok(errs.join('').includes('off macOS pilot-linux gets permission rules only'), 'no off-macOS note at create time');
+});
+
+test('#4491 review 18: a settings.json that does not parse is kept as a dated copy before the guard is written', () => {
+  const dir = agentDir('pilot-badjson');
+  const file = path.join(dir, '.claude', 'settings.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, '{ "mine": true, }');
+  const errs = [];
+  const real = process.stderr.write;
+  process.stderr.write = (t) => { errs.push(String(t)); return true; };
+  let g;
+  try { g = setup.guardTokenOnlyFolder(dir, 'pilot-badjson', DEPS); } finally { process.stderr.write = real; }
+  assert.equal(g.ok, true, 'CONTROL: the guard is still written');
+  const kept = fs.readdirSync(path.dirname(file)).filter((n) => n.startsWith('settings.json.unreadable-'));
+  assert.equal(kept.length, 1, 'the person\'s unreadable settings were replaced with no copy');
+  assert.equal(fs.readFileSync(path.join(path.dirname(file), kept[0]), 'utf8'), '{ "mine": true, }');
+  assert.ok(errs.join('').includes('could not be read as settings'), 'the replacement was not said');
 });
