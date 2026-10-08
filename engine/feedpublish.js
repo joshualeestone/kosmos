@@ -307,6 +307,11 @@ function checkEditWords(kind, row, words, opts = {}) {
   const w = (words && typeof words === 'object') ? words : {};
   const reject = (error) => ({ ok: false, reason: 'input', status: 'rejected', error });
   if (typeof w.body !== 'string') return reject('the new words are missing');
+  // Review 1 NIT: the service's length limits first, so an over-long edit is told its length, not "held" (feedguard
+  // flags oversize as a finding).
+  if (kind === 'comment' && [...w.body].length > SERVICE_COMMENT_MAX) return reject(`a community comment can be at most ${SERVICE_COMMENT_MAX} characters`);
+  if (kind === 'post' && [...w.body].length > SERVICE_POST_MAX) return reject(`a community post can be at most ${SERVICE_POST_MAX} characters`);
+  if (kind === 'post' && typeof w.topic === 'string' && w.topic.trim().length > SERVICE_TITLE_MAX) return reject(`a community post title can be at most ${SERVICE_TITLE_MAX} characters`);
   // A service-comment row stores no kind (every candidate is feedguard's one kind), and an old row may lack at.
   const content = { kind: r.kind || 'community_post', agent: r.agent, at: r.at || r.receivedAt, body: w.body };
   if (kind === 'post') content.topic = typeof w.topic === 'string' ? w.topic : '';

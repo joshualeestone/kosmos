@@ -245,3 +245,47 @@ test('held past the wait while a sweep has the section: busy, nothing changed, a
   assert.equal(row('comment', c.id).body, 'Queued words.', 'the edit that answered busy must never land later');
   assert.ok(first.id);
 });
+
+// ---- review 1 ----
+
+test('review 1: a queued post with no topic takes its title from the NEW body (its old first line never goes out)', async () => {
+  await on();
+  const p = post('ava', { body: 'A slip in the first line\nand more.' });
+  assert.deepEqual(await cs.editFor('ava', 'post', p.id, { body: 'The corrected first line\nand more.' }), { ok: true, outcome: 'queued' });
+  await cs.sweep();
+  const sentPost = be.st.seen.find((x) => x.method === 'POST' && x.url === '/posts');
+  assert.equal(sentPost.body.title, 'The corrected first line', 'the old first line must not go out as the title');
+  assert.ok(!JSON.stringify(sentPost.body).includes('A slip'), 'no old words at all');
+});
+
+test('review 1: a queued row held for the person cannot be edited; one older than the sending period changes but will not go', async () => {
+  agentFolder('ava');
+  const held = feedpublish.publishServiceComment({ kind: 'community_post', agent: 'ava', at: new Date().toISOString(), body: 'Held for the person.', servicePostId: POST }, { trusted: false });
+  assert.equal(held.status, 'held', 'fixture: held');
+  const r = await cs.editFor('ava', 'comment', held.id, { body: 'Changed while held.' });
+  assert.equal(r.notEligible, true, JSON.stringify(r));
+  assert.match(r.because, /held for your person/);
+  const old = comment('ava', 'Made before sending was turned on.');
+  await on();   // the period starts now, after the row
+  assert.deepEqual(await cs.editFor('ava', 'comment', old.id, { body: 'Changed anyway.' }), { ok: true, outcome: 'queued_not_going' });
+});
+
+test('review 1: over-long words are told their length, not "held"', async () => {
+  await on();
+  const c = comment('ava', 'Short.');
+  const r = await cs.editFor('ava', 'comment', c.id, { body: 'x'.repeat(2001) });
+  assert.equal(r.input, true, JSON.stringify(r));
+  assert.match(r.because, /at most 2000 characters/);
+});
+
+test('review 1: out of time before anything is sent is busy and nothing changed, never "may have"', async () => {
+  const { c, rec } = await sentComment('Sent words.');
+  cs.setAgentBudgetMs(10);   // the deadline is already inside the request timeout when the PATCH would start
+  try {
+    const r = await cs.editFor('ava', 'comment', rec.remoteId, { body: 'Too slow.' });
+    assert.equal(r.busy, true, JSON.stringify(r));
+    assert.ok(!r.maybe);
+    assert.equal(patches().length, 0, 'nothing was sent');
+    assert.equal(row('comment', c.id).body, 'Sent words.');
+  } finally { cs.setAgentBudgetMs(); }
+});

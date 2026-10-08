@@ -2142,7 +2142,7 @@ function editFor(agentId, kind, id, words) {
       started = true;
       clearTimeout(timer);
       return editNow(who, kind, raw, w, deadline);
-    }).then(done, () => done({ ok: false, maybe: true, because: 'Kosmos stopped partway through that edit, so it may or may not have been made; read it before editing again' }));
+    }).then(done, () => { clearTimeout(timer); done({ ok: false, maybe: true, because: 'Kosmos stopped partway through that edit, so it may or may not have been made; read it before editing again' }); });
   });
 }
 
@@ -2178,14 +2178,17 @@ async function editNow(who, kind, raw, words, deadline) {
   if (state === 'not_sent') return no('This ' + w + ' was never sent, so there is nothing to edit');
   if (state === 'refused') return no('The community did not accept this ' + w + ', so there is nothing to edit');
   if (state === 'deleted') return no('This ' + w + ' has been taken down from the community, so it cannot be edited');
-  if (state === 'pending' && rec && rec.attempted) {
+  if ((state === 'pending' && rec && rec.attempted) || state === 'unconfirmed') {
     return no(kind === 'comment' ? 'Kosmos never learned whether this comment arrived, so it cannot edit it'
       : 'Kosmos has not yet heard whether this post arrived; try again after its next send');
   }
   if (state !== 'pending' && state !== 'sent') return no('This ' + w + ' cannot be edited right now');
   // The new words, checked as a new one's are. A post keeps its title unless a new one is given (its title is its topic,
   // else its first line: pinned, so a body edit never silently retitles it).
-  const topic = kind === 'post' ? (typeof words.topic === 'string' && words.topic.trim() ? words.topic : titleFor(row)) : undefined;
+  // Review 1: only a SENT post's title is pinned (it is public); a queued one's never was, so without --topic it follows
+  // the new body as it would have (else an old first line holding the slip would still go out as the title).
+  const given = typeof words.topic === 'string' && words.topic.trim() ? words.topic : null;
+  const topic = kind === 'post' ? (given || (state === 'sent' ? titleFor(row) : (typeof row.topic === 'string' && row.topic.trim() ? row.topic : titleFor({ body: words.body })))) : undefined;
   const chk = feedpublish.checkEditWords(kind, row, kind === 'post' ? { body: words.body, topic } : { body: words.body }, { agentId: who });
   if (!chk.ok) return { ok: false, input: true, because: chk.error };
   if (chk.status !== feedpublish.PUBLISHED) return no('Kosmos\'s safety check would hold these words for your person, so nothing was changed');
@@ -2195,7 +2198,9 @@ async function editNow(who, kind, raw, words, deadline) {
     const st = loadJson(stateFile());
     const since = st && typeof st.since === 'string' ? st.since : null;
     const willGo = switchOn() && Boolean(since) && String(row.releasedAt || row.receivedAt) >= since;
-    if (!communitystore.updateWords(kind, local, newWords)) return { ok: false, because: 'Kosmos could not save the new words' };
+    let saved = false;
+    try { saved = communitystore.updateWords(kind, local, newWords); } catch { saved = false; }
+    if (!saved) return { ok: false, because: 'Kosmos could not save the new words, so nothing was changed' };
     return { ok: true, outcome: willGo ? 'queued' : 'queued_not_going' };
   }
   // Sent: it must be findable, and the registration held must be the one that sent it, before anything goes out.
@@ -2212,7 +2217,12 @@ async function editNow(who, kind, raw, words, deadline) {
   const pathname = kind === 'post' ? '/posts/' + encodeURIComponent(rec.remoteId)
     : '/posts/' + encodeURIComponent(rec.post) + '/comments/' + encodeURIComponent(rec.remoteId);
   const body = kind === 'post' ? { title: newWords.topic, body: newWords.body } : { body: newWords.body };
-  const r = await agentCallSteps(who, 'PATCH', pathname, { register: false, deadline, body });
+  let r;
+  try { r = await agentCallSteps(who, 'PATCH', pathname, { register: false, deadline, body }); } catch (e) {
+    // Review 1: over budget is thrown BEFORE anything is sent (as agentCallNow turns it into busy): nothing changed.
+    if (e instanceof OverBudget) return { ok: false, busy: true, because: 'Kosmos ran out of time before asking the community, so nothing was changed; try again in a minute' };
+    throw e;
+  }
   if (!r.ok) {
     if (r.sent) return { ok: false, maybe: true, because: 'The community did not answer, so the edit may or may not have been made; read it before editing again' };
     return { ok: false, notEligible: true, because: r.because || 'nothing could be sent to the community' };
@@ -2222,7 +2232,11 @@ async function editNow(who, kind, raw, words, deadline) {
   const error = detail && typeof detail === 'object' && !Array.isArray(detail) ? detail.error : null;
   if (r.status === 200) {
     // Changed on the community: the board's row follows (the person's list reads its words from there).
-    if (!communitystore.updateWords(kind, local, newWords)) log(`edit of ${local}: changed on the community, but the board's copy could not be saved`);
+    // Review 1: it IS changed on the community whatever happens to the board's copy, so a failed save is logged, never
+    // told as "may not have changed".
+    let saved = false;
+    try { saved = communitystore.updateWords(kind, local, newWords); } catch { saved = false; }
+    if (!saved) log(`edit of ${local}: changed on the community, but the board's copy could not be saved`);
     return { ok: true, outcome: 'changed' };
   }
   if (r.status === 409 && error === 'edit_window_closed') return no('Too late: it is more than 15 minutes since this ' + w + ' was sent, so it can no longer be edited (take it back and send it again if it matters)');
