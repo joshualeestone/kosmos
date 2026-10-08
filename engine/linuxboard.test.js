@@ -196,3 +196,25 @@ test('canRestart checks unit file existence, status and PID matching', () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test('#5519: the unit carries AGENT_WORKFORCE_CREATED_URL only when the installer has a plain http(s) one', () => {
+  const was = process.env.AGENT_WORKFORCE_CREATED_URL;
+  const home = fs.mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'aw-5519-'));
+  const line = (u) => 'Environment="AGENT_WORKFORCE_CREATED_URL=' + u + '"';
+  try {
+    delete process.env.AGENT_WORKFORCE_CREATED_URL;
+    const plain = linuxboard.boardUnitFor(home, 16180);
+    assert.doesNotMatch(plain, /AGENT_WORKFORCE_CREATED_URL/, 'a real install (unset) must keep counting: no line');
+    process.env.AGENT_WORKFORCE_CREATED_URL = 'http://127.0.0.1:9/api/created';
+    const ci = linuxboard.boardUnitFor(home, 16180);
+    assert.equal(ci.split('\n').filter((l) => l === line('http://127.0.0.1:9/api/created')).length, 1, 'the CI address is carried once');
+    assert.equal(ci.replace(line('http://127.0.0.1:9/api/created') + '\n', ''), plain, 'nothing else in the unit changes');
+    for (const bad of ['http://x/a b', 'http://x/"\nExecStart=/bin/evil', "http://x/'", 'http://x/%h', 'file:///etc/passwd', 'http://x/\\', '']) {
+      process.env.AGENT_WORKFORCE_CREATED_URL = bad;
+      assert.doesNotMatch(linuxboard.boardUnitFor(home, 16180), /AGENT_WORKFORCE_CREATED_URL/, 'carried an unsafe value: ' + JSON.stringify(bad));
+    }
+  } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_CREATED_URL; else process.env.AGENT_WORKFORCE_CREATED_URL = was;
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});

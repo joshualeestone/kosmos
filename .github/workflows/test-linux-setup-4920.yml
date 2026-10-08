@@ -62,6 +62,9 @@ jobs:
           echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
           echo "KOSMOS_PORT=16180" >> "$GITHUB_ENV"
           echo "KOSMOS_NO_OPEN=1" >> "$GITHUB_ENV"
+          # #5519: this job's boards must not count as installs (Josh 10-07). The install beacon goes to a dead local
+          # address; setup.sh's unit carries it, and the steps below assert the unit and the running board have it.
+          echo "AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created" >> "$GITHUB_ENV"
 
       - name: Stage this checkout as the bundle setup.sh installs
         # ⚠️ A hand copy of tools/build-kosmos-bundle.sh's file list (that script is Mac-only). If the bundle gains a
@@ -119,6 +122,12 @@ jobs:
           systemctl --user is-enabled kosmos-board.service
           # setup.sh hands the running board to systemd (kosmos restart after installBoard), as the Mac does to launchd.
           test "$(systemctl --user is-active kosmos-board.service)" = active
+          # #5519: this test install must not count. The unit carries the dead beacon address, and so does the board
+          # systemd is actually running (its own environment), so its install ping cannot reach the live counter.
+          grep -qxF "Environment=\"AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL\"" "$UNIT_FILE"
+          BPID="$(systemctl --user show -p MainPID --value kosmos-board.service)"
+          test -n "$BPID" && test "$BPID" != 0
+          tr '\0' '\n' < "/proc/$BPID/environ" | grep -qxF "AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL"
 
       - name: Verify board responsiveness
         run: |
@@ -286,6 +295,9 @@ jobs:
           # by hand, clear its marker, start the unit).
           "$KOSMOS_HOME/bin/kosmos" stop --force || true
           rm -f "$KOSMOS_HOME/board.stopped"
+          # #5519: 0.7.27's unit cannot carry the beacon address, so the test adds it before systemd starts that board.
+          sed -i "/^\[Service\]$/a Environment=AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL" "$UNIT"
+          systemctl --user daemon-reload
           systemctl --user start kosmos-board.service
           sleep 3
           test "$(systemctl --user is-active kosmos-board.service)" = active
@@ -297,6 +309,8 @@ jobs:
           cat "$UNIT"
           grep -qxF "KillMode=process" "$UNIT"
           grep -qxF "Restart=on-failure" "$UNIT"
+          # #5519: the updated unit still carries the beacon address (the update ran with it in its environment).
+          grep -qxF "Environment=\"AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL\"" "$UNIT"
           if grep -qxF "Restart=always" "$UNIT"; then echo "FAIL: the update left the old Restart=always unit" >&2; exit 1; fi
           test "$(systemctl --user is-active kosmos-board.service)" = active
           curl -fsS -m 5 http://127.0.0.1:16180/ >/dev/null
