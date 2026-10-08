@@ -210,6 +210,7 @@ async function scanUsage({ sinceDay, untilDay, mtimeCut = false }) {
   const days = {};
   const folders = {};
   const folderModels = {};   // #5532: day -> launch folder -> model, for usage scoped to one Kosmos's agents
+  let unreadable = 0;        // #5532: transcripts that could not be stat-ed or read, so a scoped count can say it is short
   // Launch folder per top-level transcript, for its subagents to inherit.
   const launchOf = new Map();
   for (const root of roots) {
@@ -223,7 +224,7 @@ async function scanUsage({ sinceDay, untilDay, mtimeCut = false }) {
          gives its first cwd (a head read), because a subagent written today takes its launch folder from it. */
       if (cutMs !== null) {
         let st;
-        try { st = await fsp.stat(file); } catch { continue; }
+        try { st = await fsp.stat(file); } catch { unreadable += 1; continue; }
         if (st.mtimeMs < cutMs) {
           // Its first cwd is read only if a subagent of it is read (below): most skipped sessions have none in the
           // window, and a head read of each was 14,196 file opens on the fleet Mac.
@@ -232,7 +233,7 @@ async function scanUsage({ sinceDay, untilDay, mtimeCut = false }) {
         }
       }
       let text;
-      try { text = await fsp.readFile(file, 'utf8'); } catch { continue; }
+      try { text = await fsp.readFile(file, 'utf8'); } catch { unreadable += 1; continue; }
       /* #2617: a transcript is keyed by the FIRST cwd it records, the folder
          the session was launched in. A row's own cwd moves when the agent
          `cd`s into a worktree; keyed per row, that work would leave the
@@ -240,6 +241,7 @@ async function scanUsage({ sinceDay, untilDay, mtimeCut = false }) {
          sessions carried more than one cwd, 21% of their rows off the first. */
       const lines = text.split('\n');
       let launch = '';
+      let orphan = false;
       for (const line of lines) {
         if (!line.includes('"cwd"')) continue;
         let r;
@@ -263,6 +265,10 @@ async function scanUsage({ sinceDay, untilDay, mtimeCut = false }) {
           launchOf.set(parentFile, parent);
         }
         if (parent) launch = parent;
+        /* #5532: for the SCOPED split only, a subagent whose top-level transcript is gone or records no folder counts
+           for nobody: its own first folder may be wherever a person's own session had cd'd to, an agent's folder
+           included. The per-folder totals the usage screen reads keep their behaviour. */
+        else orphan = true;
       } else {
         launchOf.set(file, launch);
       }
@@ -311,16 +317,17 @@ async function scanUsage({ sinceDay, untilDay, mtimeCut = false }) {
         const fb = folders[day][folder];
         for (const field of BUCKET_FIELDS) fb[field] += Number(usage[field]) || 0;
         fb.rows += 1;
+        const scoped = orphan ? '' : folder;
         if (!folderModels[day]) folderModels[day] = {};
-        if (!folderModels[day][folder]) folderModels[day][folder] = {};
-        if (!folderModels[day][folder][model]) folderModels[day][folder][model] = emptyBuckets();
-        const fm = folderModels[day][folder][model];
+        if (!folderModels[day][scoped]) folderModels[day][scoped] = {};
+        if (!folderModels[day][scoped][model]) folderModels[day][scoped][model] = emptyBuckets();
+        const fm = folderModels[day][scoped][model];
         for (const field of BUCKET_FIELDS) fm[field] += Number(usage[field]) || 0;
         fm.rows += 1;
       }
     }
   }
-  return { days, folders, folderModels, rootsRead: roots };
+  return { days, folders, folderModels, unreadable, rootsRead: roots };
 }
 
 /**
@@ -333,7 +340,11 @@ async function scanUsage({ sinceDay, untilDay, mtimeCut = false }) {
  * beneath it). Read fresh each time, frozen nowhere: the per-day files the usage screen keeps are untouched.
  *
  * Returns { byDay: { day: { model: bucket } }, complete } where complete is false when any provider was only partly
- * read (the caller then says so rather than send a short count as the whole).
+ * read, a Claude transcript could not be read, or a scan failed outright (never thrown): the caller then says so rather
+ * than send a short count as the whole. A folder that is not absolute is nobody's (it would otherwise resolve against
+ * this server's own folder). A message found in two transcripts counts once, for the copy whose path sorts first, so an
+ * agent can be UNDER-counted when a person's own transcript holds the same message: the safe direction.
+ * `deps` (scanUsage, scanProviders, realpath) is for tests only.
  */
 async function worldUsageByModel(days, agentDirs, deps) {
   const d = deps || {};
@@ -342,8 +353,10 @@ async function worldUsageByModel(days, agentDirs, deps) {
   const sinceDay = new Date(Date.now() - (n - 1) * 86400000).toISOString().slice(0, 10);
   const realpath = d.realpath || (async (p) => { try { return await fsp.realpath(p); } catch { return path.resolve(p); } });
   const mine = new Set();
-  for (const dir of Array.isArray(agentDirs) ? agentDirs : []) if (typeof dir === 'string' && dir) mine.add(await realpath(dir));
-  const claude = await (d.scanUsage || scanUsage)({ sinceDay, untilDay, mtimeCut: true });
+  for (const dir of Array.isArray(agentDirs) ? agentDirs : []) if (typeof dir === 'string' && path.isAbsolute(dir)) mine.add(await realpath(dir));
+  let claude;
+  try { claude = await (d.scanUsage || scanUsage)({ sinceDay, untilDay, mtimeCut: true }); }
+  catch { claude = { folderModels: {}, unreadable: 1 }; }   // a failed scan is a short count, never a throw
   let others = { folderModels: {}, complete: false };
   try { others = await (d.scanProviders || ((o) => require('./usageproviders').scanProviders(o)))({ sinceDay, untilDay }); }
   catch { others = { folderModels: {}, complete: false }; }
@@ -352,14 +365,14 @@ async function worldUsageByModel(days, agentDirs, deps) {
   for (const src of [claude.folderModels || {}, others.folderModels || {}]) {
     for (const [day, folders] of Object.entries(src)) {
       for (const [folder, models] of Object.entries(folders || {})) {
-        if (!folder) continue;   // a transcript with no recorded folder is nobody's
+        if (!folder || !path.isAbsolute(folder)) continue;   // no recorded folder, or a relative one: nobody's
         if (!resolved.has(folder)) resolved.set(folder, await realpath(folder));
         if (!mine.has(resolved.get(folder))) continue;
         for (const [model, b] of Object.entries(models || {})) addInto((byDay[day] = byDay[day] || {}), model, b);
       }
     }
   }
-  return { byDay, complete: others.complete !== false };
+  return { byDay, complete: others.complete !== false && !(claude.unreadable > 0) };
 }
 
 async function ensureUsageDir() {

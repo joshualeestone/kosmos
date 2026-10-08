@@ -25,3 +25,12 @@ sessions outside Kosmos. This branch adds the reader the rollup needs to send us
   control); providers scoped the same way; a partly read or failing provider gives complete: false; an agent folder
   given as a link, and a session launched through a link, both match. Each of four mutations reddens.
 - Every existing test file that calls the scans (66 tests) passes.
+
+## Review 1 (blind, opus)
+- FIXED: Claude's half reports completeness too (scanUsage counts transcripts it could not stat or read; any makes the
+  scoped result complete: false); a failing scan returns complete: false instead of throwing; a folder that is not
+  absolute, on either side, is nobody's; in the SCOPED split only, a subagent with no top-level transcript counts for
+  nobody (its own folder may be where a person's session had cd'd to). Tests for each, the window (1 and 2 days), and
+  a subagent of the agent's own session from a worktree; all 73 existing scan tests pass.
+- DOCUMENTED: a message in two transcripts counts once, for the copy whose path sorts first, so an agent can be
+  under-counted (the safe direction); `deps` is for tests only.

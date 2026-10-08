@@ -76,3 +76,53 @@ test('#5532: a session launched through a link to an agent\'s folder counts for 
   const w = await usage.worldUsageByModel(1, [AGENT], { scanProviders: async () => ({ folderModels: {}, complete: true }) });
   assert.equal((w.byDay[TODAY] || {})['claude-via-link'] && w.byDay[TODAY]['claude-via-link'].input_tokens, 55, 'a session recorded under a link to the agent\'s folder was not counted: ' + JSON.stringify(w.byDay));
 });
+
+const NOPROV = { scanProviders: async () => ({ folderModels: {}, complete: true }) };
+function sub(sessionDir, cwd, id, model, input, day) {
+  const file = path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects', sessionDir, 'subagents', 'a.jsonl');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, [
+    JSON.stringify({ type: 'user', cwd, timestamp: (day || TODAY) + 'T01:00:00.000Z' }),
+    JSON.stringify({ timestamp: (day || TODAY) + 'T03:00:00.000Z', cwd, message: { id, model, usage: { input_tokens: input, output_tokens: 1 } } }),
+  ].join('\n') + '\n');
+}
+
+test('#5532 review 1: a subagent with no top-level transcript counts for nobody; one under the agent\'s own session counts', async () => {
+  sub('orphan-sess', AGENT, 'm-orphan', 'claude-orphan-sub', 11);   // a person's session cd'd into the agent's folder, its top level pruned
+  const parentFile = path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects', 'kid', 'sess.jsonl');
+  fs.mkdirSync(path.dirname(parentFile), { recursive: true });
+  fs.writeFileSync(parentFile, JSON.stringify({ type: 'user', cwd: AGENT, timestamp: TODAY + 'T00:30:00.000Z' }) + '\n');
+  sub('kid/sess', path.join(AGENT, 'worktree'), 'm-kid', 'claude-kid-sub', 22);   // spawned from a worktree under the agent's session
+  const w = await usage.worldUsageByModel(1, [AGENT], NOPROV);
+  assert.equal((w.byDay[TODAY] || {})['claude-orphan-sub'], undefined, 'an orphaned subagent in the agent\'s folder was counted');
+  assert.equal(((w.byDay[TODAY] || {})['claude-kid-sub'] || {}).input_tokens, 22, 'a subagent of the agent\'s own session was not counted');
+});
+
+test('#5532 review 1: an unreadable transcript or a failing scan gives complete: false, never a throw; relative folders count for nobody', async (t) => {
+  const file = path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects', 'locked', 's.jsonl');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ type: 'user', cwd: AGENT, timestamp: TODAY + 'T01:00:00.000Z' }) + '\n');
+  fs.chmodSync(file, 0o000);
+  t.after(() => { try { fs.chmodSync(file, 0o600); } catch { /* removed with the sandbox */ } });
+  const w = await usage.worldUsageByModel(1, [AGENT], NOPROV);
+  assert.equal(w.complete, false, 'an unreadable Claude transcript was reported as the whole count');
+  fs.chmodSync(file, 0o600);
+  const thrown = await usage.worldUsageByModel(1, [AGENT], { scanUsage: async () => { throw new Error('no roots'); }, scanProviders: NOPROV.scanProviders });
+  assert.deepEqual(thrown, { byDay: {}, complete: false });
+  const rel = await usage.worldUsageByModel(1, ['.', AGENT], { scanUsage: async () => ({ folderModels: { [TODAY]: { '.': { 'claude-rel': { input_tokens: 5, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 } } } }, unreadable: 0 }), scanProviders: NOPROV.scanProviders });
+  assert.deepEqual(rel.byDay, {}, 'a relative folder was counted');
+});
+
+test('#5532 review 1: the window is the last N UTC days, today included', async () => {
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const old = path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects', 'yday', 's.jsonl');
+  fs.mkdirSync(path.dirname(old), { recursive: true });
+  fs.writeFileSync(old, [
+    JSON.stringify({ type: 'user', cwd: AGENT, timestamp: yesterday + 'T01:00:00.000Z' }),
+    JSON.stringify({ timestamp: yesterday + 'T02:00:00.000Z', cwd: AGENT, message: { id: 'm-yday', model: 'claude-yesterday', usage: { input_tokens: 9, output_tokens: 1 } } }),
+  ].join('\n') + '\n');
+  const one = await usage.worldUsageByModel(1, [AGENT], NOPROV);
+  assert.equal(one.byDay[yesterday], undefined, 'a one-day window counted yesterday');
+  const two = await usage.worldUsageByModel(2, [AGENT], NOPROV);
+  assert.equal(((two.byDay[yesterday] || {})['claude-yesterday'] || {}).input_tokens, 9, 'a two-day window left out yesterday');
+});
