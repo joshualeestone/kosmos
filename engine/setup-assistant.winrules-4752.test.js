@@ -13,6 +13,7 @@ const path = require('node:path');
 const os = require('node:os');
 const fs = require('node:fs');
 const sa = require('./setup-assistant');
+const { removeTree } = require('../test-support/remove-tree');
 
 test('#4752: a Windows drive path is written in the POSIX form Claude Code matches', () => {
   assert.equal(sa.ruleAbs('C:\\Users\\alice\\AppData\\Roaming\\Kosmos', 'win32'), '//c/Users/alice/AppData/Roaming/Kosmos');
@@ -31,7 +32,7 @@ test('#4752: CONTROL, a macOS or Linux path is unchanged', () => {
 
 test('#4752: on THIS host (meaningful on the Windows job; trivially true elsewhere) no Read rule carries a backslash or a drive colon', (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'winrules-'));
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  t.after(() => removeTree(home));
   const rules = sa.guideDenyRules({ home, dataRoot: path.join(home, 'data'), worldsBase: path.join(home, 'base'), legacyRoots: [] });
   const abs = rules.filter((r) => r.startsWith('Read(//'));
   assert.ok(abs.length > 0, 'no absolute rule was written, so this arm tests nothing');
@@ -76,6 +77,7 @@ test('#4752: migrating a Windows guide keeps exactly the right rules (pure, so i
   const had = [
     'Read(//C:\\Users\\a\\AppData\\Roaming\\Kosmos\\notes.json)',   // old form, new form made just now: BOTH kept (unmeasured)
     'Read(//C:\\Users\\a\\AppData\\Roaming\\Kosmos\\gone.log)',     // old form, entry gone from the listed store: dropped
+    'Read(//C:\\Users\\a\\AppData\\Roaming\\Kosmos\\gone-dir/**)',   // old form, a FOLDER entry gone: dropped too
     nf(base + '\\also-gone.log'),                                     // new form, entry gone: dropped (wasEntryRule)
     'Read(//C:\\Users\\a\\Documents\\private)',                        // a person's own old-form rule elsewhere: kept
     nf('C:\\Users\\a\\Documents\\other'),                              // a person's own new-form rule elsewhere: kept
@@ -101,7 +103,7 @@ test('#4752: on Windows a refused rule (it would take in the guide\'s own folder
   const newR = `Read(${sa.ruleAbs('C:\\Users\\a\\old\\Kosmos', 'win32')}/**)`;
   const oldR = 'Read(//C:\\Users\\a\\old\\Kosmos/**)';
   // migrateKept keeps the old rule beside its new form, since the new form was just made...
-  const kept = sa.migrateKept([oldR], { entryBase: null, rules: [newR], extra: [newR] }, 'win32');
+  const kept = sa.migrateKept([oldR], { entryBase: null, rules: [newR] }, 'win32');
   assert.deepEqual(kept, [oldR]);
   // ...and the refusal must reach it too, or the old spelling would still cut the guide off
   const refused = new Set([newR]);
@@ -115,7 +117,7 @@ test('#4752: on Windows a refused rule (it would take in the guide\'s own folder
 
 test('#4752 on a Windows host: guardGuideFolder leaves out a rule taking in the guide\'s folder in BOTH spellings, end to end', { skip: process.platform !== 'win32' && 'measures the real Windows path through guardGuideFolder; runs on the Windows job' }, (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'winrules-e2e-'));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTree(root));
   const workers = path.join(root, 'home', 'workers');
   const guide = path.join(workers, 'guide');
   fs.mkdirSync(path.join(guide, '.claude'), { recursive: true });
@@ -138,4 +140,9 @@ test('#4752 on a Windows host: guardGuideFolder leaves out a rule taking in the 
   assert.equal(deny.includes(oldNative), false, 'the old spelling of that rule survived and still cuts the guide off');
   assert.ok(deny.includes(personal), 'CONTROL: a person\'s own rule elsewhere was dropped');
   assert.ok(deny.includes(`Read(${sa.ruleAbs(dataOwn, 'win32')}/**)`), 'CONTROL: the data folder rule is missing, or not in the //c/ form');
+});
+
+test('#4752: a Windows rule with no drive (a share) reads back as nothing, never as a path on the current drive', () => {
+  assert.equal(sa.rulePath('host/share/K', 'win32'), null);
+  assert.equal(sa.rulePath('Users/a', 'darwin'), '/Users/a', 'CONTROL: off Windows a rule reads back as its POSIX path');
 });

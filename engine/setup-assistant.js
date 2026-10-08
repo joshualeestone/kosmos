@@ -265,7 +265,9 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
   const same = (a, b) => !!a && !!b && (path.resolve(a) === path.resolve(b) || realOr(a) === realOr(b));
   /* A folder whose path the rule syntax would misread (`* ? [ ] ( ) { } !`) gets no rule here: said, not guessed. */
   /* The platform's own separator is not the syntax, so it is taken out before the check. */
-  const plain = (p) => { if (!RULE_SYNTAX.test(String(p).split(path.sep).join('/'))) return true; process.stderr.write(`#4752: no rule for ${p}: its path has a character the rule syntax reads as a pattern\n`); return false; };
+  /* Checked on what ruleAbs writes (its leading // taken off), so the check and the rule are one spelling: an
+     extended-length \\?\ path is checked after its `?` is gone, as it will be written. */
+  const plain = (p) => { if (!RULE_SYNTAX.test(ruleAbs(p).slice(2))) return true; process.stderr.write(`#4752: no rule for ${p}: its path has a character the rule syntax reads as a pattern\n`); return false; };
   let extra = [];
   let entryBase = null;
   let listed = false;   // earlier per-entry rules are dropped only when this list is complete
@@ -343,6 +345,7 @@ function rulePath(inner, platform = process.platform) {
     if (/^[A-Za-z]:/.test(t)) return t;
     const d = /^([A-Za-z])(\/|$)/.exec(t);
     if (d) return d[1].toUpperCase() + ':\\' + t.slice(d[0].length).replace(/\//g, '\\');
+    return null;   // no drive: a share (or a form not handled); never resolved against the current drive
   }
   return '/' + t;
 }
@@ -466,7 +469,9 @@ function guardGuideFolder(dir, agentName, deps = {}) {
       if (!fresh.extra.includes(r)) return true;
       const m = /^Read\(\/\/([^*?]*?)(\/\*\*)?\)$/.exec(r);
       if (!m) return true;
-      const target = realOr(rulePath(m[1], plat));   // the inverse of ruleAbs, so a Windows rule reads back with its drive
+      const back = rulePath(m[1], plat);   // the inverse of ruleAbs, so a Windows rule reads back with its drive
+      if (back === null) return true;      // a share's rule: the own-folder check does not apply (recorded in the plan)
+      const target = realOr(back);
       if (own !== target && !own.startsWith(target.endsWith(path.sep) ? target : target + path.sep)) return true;
       process.stderr.write(`#4752: a rule that would take in the guide's own folder was left out: ${r}\n`);
       return false;
