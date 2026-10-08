@@ -75,3 +75,10 @@ company, and `thisComputer` cannot tell them apart.
   the full ioreg dump).
 - DOCUMENTED: within one company the print is a pseudonym the company can resolve (it holds the salt and its own id,
   and an MDM inventory often lists hardware ids); it hides the id from everyone else.
+
+## Review 6 (blind, sonnet)
+- FIXED: the failure time uses null, not 0, as "never failed", so a failure at clock 0 still starts the wait (test;
+  the old falsy check reddens it).
+- ON THE CARD for whoever wires enroll, leave and the rollup (a repeat of reviews 4 and 5): the print is a pseudonym
+  the company can resolve, and it is never stored or logged, nor a request body that carries it.
+- KEPT: UUID and SALT stay exported for the tests; the guard sees tracked files only (it says so).

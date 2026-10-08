@@ -104,3 +104,12 @@ test('#5532 v1.5: no file but computerprint.js uses a known spelling of a raw ha
   assert.deepEqual(hits, [], 'another file reads the raw hardware id: ' + hits.join(', '));
   assert.deepEqual(swaps, [], 'the test-only reader swap is called outside the tests: ' + swaps.join(', '));
 });
+
+test('#5532 v1.5 review 6: a failure at clock 0 still starts the wait', (t) => {
+  let n = 0;
+  withReader(t, () => { n += 1; throw new Error('ioreg timed out'); }, { platform: 'darwin', now: 0 });
+  assert.equal(cp.fingerprint(SALT, ORG), null);
+  cp._testClock(1000);
+  assert.equal(cp.fingerprint(SALT, ORG), null);
+  assert.equal(n, 1, 'a failure at clock 0 was not recorded, so ioreg was asked again at once');
+});

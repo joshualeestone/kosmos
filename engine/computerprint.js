@@ -45,7 +45,7 @@ let defaultRun = realRun;   // replaced only by tests, through _testRunner below
 /* After a failed read, wait this long before asking ioreg again (review 2): a hung ioreg must not block the board for
    five seconds on every call. */
 const RETRY_AFTER_FAIL_MS = 60 * 1000;
-let failedAt = 0;
+let failedAt = null;   // when the last read failed, or null (never 0 as a sentinel: a clock can read 0 in a test)
 
 /* The raw IOPlatformUUID out of ioreg's text, or null. Pure, so the parse is tested on fixtures. */
 function parseIoreg(text) {
@@ -65,11 +65,11 @@ function hardwareId() {
   if (cached) return cached;   // only a SUCCESSFUL read is kept (review 1); a failed one is tried again,
   // A clock that never runs backwards (review 5): a wall clock set back would hold the wait open for hours.
   const now = testNow != null ? testNow : Number(process.hrtime.bigint() / 1000000n);
-  if (failedAt && now - failedAt < RETRY_AFTER_FAIL_MS) return null;   // but not at once (review 2)
+  if (failedAt !== null && now - failedAt < RETRY_AFTER_FAIL_MS) return null;   // but not at once (review 2)
   let id = null;
   // 🛑 Never log this error: on a timeout or a non-zero exit its .stdout is the full ioreg dump, raw id and serial number.
   try { id = parseIoreg(defaultRun()); } catch { id = null; }
-  if (id) { cached = id; failedAt = 0; } else failedAt = now;
+  if (id) { cached = id; failedAt = null; } else failedAt = now;
   return id;
 }
 
@@ -97,7 +97,7 @@ function _testRunner(fn, opts) {
   testPlatform = o.platform || null;
   testNow = o.now != null ? o.now : null;
   cached = undefined;
-  failedAt = 0;
+  failedAt = null;
 }
 /* TESTS ONLY: move the test clock without clearing the cache (for the retry-wait test). */
 function _testClock(now) { testNow = now; }
