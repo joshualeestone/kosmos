@@ -354,3 +354,12 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
 - mayReport(): enrolled here AND a consentHash recorded here. The gate for every sender (stated at the function);
   isEnrolledHere stays "is this the work Kosmos". A re-adopted record may not send. Pinned.
 - A marker left beside a record is cleared on the next pass. The data-folder message is a full sentence.
+
+## Review 28
+- refresh copied the old record's consentHash onto a record rebuilt for ANOTHER world (a copied or restored folder),
+  so mayReport passed for a world never shown consent. The hash is carried only when the old record names this world.
+- namesThisWorld counted "member, no world enrolled" as this world's join. That is also what the company shows while
+  the same account's join from another computer is landing, and an undo then would end it. Only this world's id counts
+  now (the timed-out path then stays UNKNOWN and is settled later). Both pinned; each mutation reddens.
+- Kept (nits): a re-adopted record shows as joined though it may not report (no sender exists yet; E0.3 decides how
+  to show it); no Leave while a join is unknown (consistent: nothing is recorded); the stopped note is said once.

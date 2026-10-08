@@ -399,10 +399,12 @@ async function settleUnknownJoin(unsure, opts) {
    'gone'    not a member at all;
    'notHere' a member, but enrolled nowhere, as another world, or as this world on another computer;
    'unclear' anything else (a field missing, an unreadable local id): change nothing. */
-/* The company names this world (on this computer or another), or no world at all: what a join of this world left. */
+/* The company names THIS world's id (on this computer or another): what a join of this world left. NOT "no world at all":
+   that is also what the company shows while the same account's join from another computer is still landing, and an
+   undo sent then would end that membership (review 28). */
 function namesThisWorld(d, world) {
   if (!d || d.member !== true || !world) return false;
-  return d.enrolled === null || (!!d.enrolled && typeof d.enrolled === 'object' && d.enrolled.world === world);
+  return !!d.enrolled && typeof d.enrolled === 'object' && d.enrolled.world === world;
 }
 function statusVerdict(d, world) {
   if (!d || typeof d !== 'object') return 'unclear';
@@ -520,7 +522,8 @@ async function refreshNow(opts) {
   const role = cleanRole(d.role);
   if (!org || !role) return { ok: false, because: 'Your company\'s answer was not complete.', enrolled: !!before };
   const rec = { org, role, world, enrolledAt: (before && before.enrolledAt) || new Date().toISOString() };
-  if (before && before.consentHash) rec.consentHash = before.consentHash;
+  // The consent belongs to the world it was shown for: never carried onto a record for another world (review 28).
+  if (before && before.consentHash && before.world === world) rec.consentHash = before.consentHash;
   try { writeEnrollment(rec, opts); } catch { /* keep the old record; the next refresh tries again */ }
   return { ok: true, enrolled: true, member: true, ...rec };
 }

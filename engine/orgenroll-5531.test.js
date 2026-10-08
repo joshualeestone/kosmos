@@ -738,3 +738,25 @@ test('#5531 review 27: an undo refused as the last admin leaves no "your leave w
   assert.equal(org.isEnrolledHere({ root: a }), true, 'CONTROL: the record was rebuilt');
   assert.equal(org.leaveRefusedFor({ root: a }), null, 'the screen would say "your leave was refused" for a leave the person never asked for');
 });
+
+test('#5531 review 28: a consent hash is never carried onto a record for another world; "no world enrolled" is not undone', async (t) => {
+  const { a, b } = sandbox(t);
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}), consentHash: 'e'.repeat(64) });
+  // A stale record naming another world (a copied or restored folder): the company names THIS world here.
+  const rec = org.readEnrollment({ root: a });
+  fs.writeFileSync(path.join(a, org.ENROLLMENT_FILE), JSON.stringify(Object.assign({}, rec, { world: 'f'.repeat(32) })));
+  await org.refresh({ root: a, remote: here(a, { macRequest: async () => ({ ok: false, because: 'unexpected' }) }) });
+  assert.equal(org.isEnrolledHere({ root: a }), true, 'CONTROL: refresh wrote the record for this world');
+  assert.equal(org.readEnrollment({ root: a }).consentHash, undefined, 'another world\'s consent was carried onto this one');
+  assert.equal(org.mayReport({ root: a }), false, 'this world may report on consent shown for another');
+  // A first join whose answer was lost, while the company shows the account a member with NO world enrolled (another
+  // computer's join landing): unknown, never undone.
+  const sent = [];
+  const co = { macRequest: async (m, route) => { sent.push(route);
+    if (route === org.ROUTES.enroll) return { ok: false, because: 'the tunnel program did not answer in time' };
+    if (route === org.ROUTES.status) return { ok: true, data: { member: true, org: ORG, role: 'member', enrolled: null } };
+    return { ok: true, data: { ok: true } }; } };
+  const r = await org.enroll('ACME-JOIN-1234', true, { root: b, remote: co });
+  assert.equal(r.code, 'org_join_unknown', JSON.stringify(r));
+  assert.equal(sent.includes(org.ROUTES.leave), false, 'an undo was sent while another computer\'s join may be landing');
+});
