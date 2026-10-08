@@ -198,14 +198,20 @@ test('#4752: a refusal reaches a new-form rule spelt in another case on Windows,
   assert.deepEqual(sa.finalDeny(['Read(//c/Users/A/old/**)'], [], refused, 'darwin'), ['Read(//c/Users/A/old/**)'], 'CONTROL: case folded off Windows');
 });
 
-test('#4752: on Windows one rule spelt in two cases is kept once; off Windows both stay', () => {
+test('#4752: on Windows one rule spelt in two cases keeps both spellings (a duplicate deny costs nothing; folding could drop a person\'s rule)', () => {
   const kept = ['Read(//c:\\Users\\a\\K/**)'];
   const safe = ['Read(//C:\\Users\\a\\K/**)', 'Read(//c/Users/a/K/**)'];
-  assert.deepEqual(sa.finalDeny(kept, safe, new Set(), 'win32'), ['Read(//C:\\Users\\a\\K/**)', 'Read(//c/Users/a/K/**)'], 'the current spelling is not the one kept');
-  assert.equal(sa.finalDeny(kept, safe, new Set(), 'darwin').length, 3, 'CONTROL: case folded off Windows');
+  assert.equal(sa.finalDeny(kept, safe, new Set(), 'win32').length, 3);
 });
 
 test('#4752: on Windows a person\'s rule equal to a fresh one but for case is never folded into it (Bash, new-form paths)', () => {
   const out = sa.finalDeny(['Bash(SET)', 'Read(//c/users/a/k/**)'], ['Bash(set)', 'Read(//c/Users/a/K/**)'], new Set(), 'win32');
   for (const r of ['Bash(SET)', 'Read(//c/users/a/k/**)', 'Bash(set)', 'Read(//c/Users/a/K/**)']) assert.ok(out.includes(r), 'dropped: ' + r);
+});
+
+test('#4752: on Windows a refusal never folds into a Bash rule, even one equal to it but for case', () => {
+  // a refused set holding a Bash rule (never built today): a person's Bash rule equal to it but for case is NOT folded
+  assert.deepEqual(sa.finalDeny(['Bash(SET)'], [], new Set(['Bash(set)']), 'win32'), ['Bash(SET)']);
+  // CONTROL: a Read rule equal to a refused one but for case IS removed
+  assert.deepEqual(sa.finalDeny(['Read(//C/users/a/old/**)'], [], new Set(['Read(//c/Users/a/old/**)']), 'win32'), []);
 });

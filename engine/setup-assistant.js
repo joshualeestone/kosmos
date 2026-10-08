@@ -324,6 +324,7 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
    \\.\C:\ or a drive-relative C:foo would be written as a rule that matches nothing. Pure, the platform passed in. */
 function ruleUnwritable(p, platform = process.platform) {
   if (RULE_SYNTAX.test(ruleAbs(p, platform).slice(2))) return true;
+  // the drive test reads the NATIVE path (a share or device form is only visible there; ruleAbs has rewritten it)
   return platform === 'win32' && !/^([A-Za-z]:[\\/]|[\\/]{2}\?[\\/][A-Za-z]:[\\/])/.test(String(p));
 }
 /* The characters the rule syntax reads as a pattern or a bracket (and a backslash): a path with one gets no rule. */
@@ -403,6 +404,7 @@ function wasEntryRule(rule, base, platform = process.platform) {
   if (!rule.startsWith(prefix) || !rule.endsWith(')')) return false;
   let name = rule.slice(prefix.length, -1);
   if (name.endsWith('/**')) name = name.slice(0, -3);
+  // a backslash is refused on every platform: no POSIX rule ever held one (`plain` refuses them), so none is orphaned
   if (!name || name.includes('/') || name.includes('\\') || name.includes(path.sep)) return false;
   const worlds = require('./worlds');
   return baseEntryToName(name, worlds.WORLDS_SUBDIR, path.basename(worlds.registryPath(base)), require('./boardauth').TOKEN_FILE);
@@ -414,17 +416,13 @@ function wasEntryRule(rule, base, platform = process.platform) {
 function finalDeny(kept, safe, refused, platform = process.platform) {
   // on Windows a path's case does not matter, so an old rule spelt in another case still reaches its refused new form
   const refusedLower = new Set([...refused].map((x) => x.toLowerCase()));
-  // the native spellings the guide writes now, case-folded: a KEPT native rule equal to one of them but for case is the
-  // same rule spelt by an earlier writer, and the current spelling is the one kept. Only native rules (the old
-  // writer's spelling) are folded: a Bash rule or a new-form path is never folded into another rule.
-  const safeNative = new Set(safe.filter((r) => platform === 'win32' && /^Read\(\/\/[A-Za-z]:\\/.test(r)).map((r) => r.toLowerCase()));
-  const safeSet = new Set(safe);
   return [...new Set([...kept, ...safe])].filter((r) => {
     if (refused.has(r)) return false;
-    if (platform === 'win32' && refusedLower.has(r.toLowerCase())) return false;   // a new-form rule spelt in another case
+    // a new-form path rule spelt in another case (Read rules only: a refusal is only ever a Read rule)
+    if (platform === 'win32' && r.startsWith('Read(') && refusedLower.has(r.toLowerCase())) return false;
     if (platform === 'win32') { const eq = legacyWinEquivalent(r); if (eq && refusedLower.has(eq.toLowerCase())) return false; }
-    // on Windows an old `//c:\` rule beside the `//C:\` twin written now is kept once, in the current spelling
-    if (platform === 'win32' && !safeSet.has(r) && safeNative.has(r.toLowerCase())) return false;
+    // two spellings of one rule (an old `//c:\` beside the `//C:\` twin) both stay: whether Claude Code matches case-
+    // blind is not documented, and a duplicate deny costs nothing, while folding could drop a person's own rule
     return true;
   });
 }
