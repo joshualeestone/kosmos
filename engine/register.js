@@ -420,6 +420,12 @@ function repair(opts) {
           : provider === 'antigravity' ? { runner: 'antigravity' } // #3568
             : provider === 'meta' ? { runner: 'muse' } // #3939
               : {};
+    /* #5534: an imported agent the company policy held never ran here, so Repair does not start it either while
+       the policy still says no. An agent that ran before is restored as always (nothing is bricked). */
+    if ((store.readProfile(name) || {}).policyHeld === true) {
+      const allowed = create.policyAllows(provider || 'anthropic', model);
+      if (!allowed.ok) return { name, shownAs: shownName(name), ok: false, because: allowed.because };
+    }
     const r = create.installJob(name, { model, platform, ...runnerOpt });
     return { name, shownAs: shownName(name), ...r };
   });

@@ -225,8 +225,11 @@ function defaultModelKeyFor(provider) {
 function policyAllows(provider, modelKey) {
   try {
     const given = modelKey == null ? '' : String(modelKey).trim();
-    const key = given || defaultModelKeyFor(provider) || '';
-    const known = key ? modelsFor(provider).find((x) => x.key === key || x.arg === key) : null;
+    // Only a provider with its own model list has a known default (modelsFor answers Claude's list for the others).
+    const own = modelsFor(provider).filter((x) => x.provider === provider);
+    const fallback = own.find((x) => x.default);
+    const key = given || (fallback ? fallback.key : '');
+    const known = key ? own.find((x) => x.key === key || x.arg === key) : null;
     return require('./orgpolicy').allows({ provider, model: known ? [known.key, known.arg] : [key] });
   } catch {
     return { ok: true };
@@ -1844,8 +1847,8 @@ function setProvider(name, provider, opts) {
   }
   /* #5534: switching an agent onto a provider the company policy does not allow is refused like creating one there. */
   {
-    // The switch writes no model, so the agent runs on the provider's default: that is the model asked about.
-    const allowed = policyAllows(provider, '');
+    // The model the person picked with the switch (set right after it, #5429), or else the provider's default.
+    const allowed = policyAllows(provider, opts && typeof opts.model === 'string' ? opts.model : '');
     if (!allowed.ok) return { outcome: OUTCOME.REFUSED, because: allowed.because };
   }
   /* #3564: a swarm's meter and stop keys are Claude Code's, so it stays on Claude, as at birth. */
