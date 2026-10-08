@@ -93,3 +93,13 @@ the mechanism was wrong, and the bridge change is reverted (the bridge is unchan
 - Decided: retried as Node's runtime aborting (its own arm in STARTUP_ABORT, pinned; removing it reddens), and every try
   still names it. Weakest premise: that this abort is the runtime's under load, not something the bridge provokes; the
   root cause is on #5576 so the retry does not quietly become the fix.
+
+## Reviews 10 and 11
+- The uv__close arm is marked TEMPORARY (remove when #5576 finds the cause); #5576 records that the production bridge
+  has the same exposure (a lost launch report reads as "Can't tell").
+- It now matches libuv's assertion TEXT (`fd > STDERR_FILENO`), not macOS's format, so the Linux runs retry it too
+  (the glibc spelling is pinned).
+- Every member of the retry sets is pinned both ways in one table (spawn errors, signals, every abort marker, and a
+  bridge abort that is not retried); dropping ENOMEM from the set reddens it.
+- Declined (review 10): the marker cleanup token. The bridge keys its throttle marker on the pane first
+  (bin/agy-report-bridge.js:96), so markerFile(env) is the real marker whatever the token.

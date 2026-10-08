@@ -79,7 +79,7 @@ const RUNNER_SIGNALS = new Set(['SIGKILL', 'SIGTERM']);
    this child at load 25 on 3 cores, never reproduced locally in 1,200 runs, and process.stdin.destroy() measured NOT to
    close fd 0 (review 9). The cause is unknown and tracked on #5576; it is retried as Node's runtime aborting,
    and every try still names it in the message. 🛑 TEMPORARY: remove the uv__close arm when #5576 finds the cause. */
-const STARTUP_ABORT = /uv_thread_create|pthread_create|Check failed:|function uv__close, file core\.c/;
+const STARTUP_ABORT = /uv_thread_create|pthread_create|Check failed:|fd > STDERR_FILENO/;   // the last: libuv's assertion text, in macOS's and glibc's formats alike
 const RUNNER_SPAWN_ERRORS = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);   // short of resources; never ENOENT/EACCES (review 4)
 const endedByRunner = (r) => r.signal !== 'timeout' && (RUNNER_SPAWN_ERRORS.has(r.error) || (r.code === null && (RUNNER_SIGNALS.has(r.signal)
   || (r.signal === 'SIGABRT' && STARTUP_ABORT.test(String(r.err || ''))))));
@@ -257,4 +257,16 @@ test('#5560 review 5: a spawn refused before stdio exists (EMFILE) ends at once 
   assert.equal(r.error, 'EMFILE');
   assert.equal(r.code, null);
   assert.notEqual(r.signal, 'timeout');
+});
+
+test('#5560 review 11: every member of the retry sets is pinned, both ways', async () => {
+  const fake = (first) => { const calls = []; return { calls, run: async () => { calls.push(1); return calls.length === 1 ? first : { code: 0, signal: null, error: null, out: '', err: '' }; } }; };
+  const tried = async (first) => { const f = fake(first); await runBridge('x', {}, f.run, async () => {}); return f.calls.length > 1; };
+  const base = { code: null, signal: null, error: null, out: '', err: '' };
+  for (const e of ['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']) assert.equal(await tried({ ...base, code: -1, error: e }), true, e + ' was not retried');
+  for (const e of ['ENOENT', 'EACCES']) assert.equal(await tried({ ...base, code: -2, error: e }), false, e + ' was retried');
+  for (const sig of ['SIGKILL', 'SIGTERM']) assert.equal(await tried({ ...base, signal: sig }), true, sig + ' was not retried');
+  for (const line of ['uv_thread_create failed', 'pthread_create: Resource temporarily unavailable', '# Check failed: x', 'Assertion failed: (fd > STDERR_FILENO), function uv__close, file core.c, line 646.',
+    "node: ../deps/uv/src/unix/core.c:646: uv__close: Assertion `fd > STDERR_FILENO' failed."]) assert.equal(await tried({ ...base, signal: 'SIGABRT', err: line }), true, 'not retried: ' + line);
+  assert.equal(await tried({ ...base, signal: 'SIGABRT', err: 'bridge: something else' }), false, 'a bridge abort was retried');
 });
