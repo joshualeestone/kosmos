@@ -15,13 +15,16 @@ on:
   # points its install beacon at a dead address, each run adds 2 to the live install counter. So pull requests run it
   # only when they touch the installer, the guards this job runs, or this file. The two engine modules are listed for
   # #5485, which makes this job install the checkout's own engine (today it installs the published bundle). Run it by
-  # hand (workflow_dispatch) for anything else that could break a Linux install.
+  # hand (workflow_dispatch) for anything else that could break a Linux install. On main it also catches a published
+  # release that breaks Linux, so REMOVE this filter once #5519 lands (its runs no longer count as installs).
   pull_request:
     paths:
       - 'install/**'
       - 'tools/test-installer-runnable-guard.sh'
       - 'tools/test-plist-heredoc-clean.sh'
       - 'tools/test-install-static*.sh'
+      - 'tools/lib/install-static-checks.sh'
+      - 'tools/test-install.sh'
       - 'engine/linuxboard.js'
       - 'engine/linuxjob.js'
       - '.github/workflows/test-linux-setup-4920.yml'
