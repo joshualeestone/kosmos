@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: boardkeychain-4491
-diff_hash: aba34af0159009dfc3351bc1e7ed4c712be0471dc3d955a983e7e613ecaf4500
+diff_hash: 2cbff2b50d14c31211e0240957d730e553438580ab9b10fc9cac4745619aaaad
 validation: passed (Mortals full suite at a3d4699db, 08:35 CDT 2026-10-04: 15036 tests, 14812 pass, 0 fail, 224 skipped; hash 28628ddc726d; full suite passed on Mortals)
 subdir_audit: passed
 timestamp: 2026-10-04T13:50:43Z
@@ -132,3 +132,4 @@ Fourteenth review (sonnet): no security hole; 1 WARNING (rule syntax) fixed; 312
 Fifteenth review (opus): 4 WARNINGs fixed (incl. my round-14 Windows regression); 314 + 56 + 27 tests pass.
 Sixteenth review (sonnet): no security hole; 2 WARNINGs fixed; 315 + 57 tests pass.
 Seventeenth review (opus): 2 WARNINGs fixed (any dropped rule fails closed; the test that pinned the gap flipped); 315 + 57 tests pass.
+Eighteenth review (sonnet): no security hole; 1 WARNING (silent overwrite of an unreadable settings.json) fixed; 316 + 27 tests pass.
