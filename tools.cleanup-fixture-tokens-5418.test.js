@@ -14,6 +14,7 @@ const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
 const tool = require('./tools/cleanup-fixture-tokens-5418');
+const { safeKey } = require('./engine/store');
 
 const DAY = 24 * 3600 * 1000;
 const CUTOFF = Date.parse('2026-10-08T00:00:00Z');
@@ -38,16 +39,17 @@ test('#5418: the plan keeps a live agent at any age and removes only old orphans
     { name: 'linked.json', isSymlink: true, targetExists: true, mtimeMs: OLD },    // live link: keep
     { name: 'notes.txt', isSymlink: false, mtimeMs: OLD },             // other: keep
     { name: 'dir.json', other: true, isSymlink: false, mtimeMs: null }, // a folder named like a token: keep
+    { name: 'My.Agent.json', isSymlink: false, mtimeMs: OLD },         // not a name the store writes: keep
   ];
-  const plan = tool.planCleanup(entries, live, CUTOFF);
+  const plan = tool.planCleanup(entries, live, CUTOFF, safeKey);
   assert.deepEqual(plan.remove.map((r) => r.name).sort(), ['fixture-a.json', 'planted.json', 'x.json.kosmos-1-t0-1-1.tmp']);
-  assert.deepEqual(plan.keep.map((k) => k.name).sort(), ['alice.json', 'dir.json', 'fixture-b.json', 'linked.json', 'notes.txt', 'y.json.kosmos-2-t0-1-1.tmp']);
+  assert.deepEqual(plan.keep.map((k) => k.name).sort(), ['My.Agent.json', 'alice.json', 'dir.json', 'fixture-b.json', 'linked.json', 'notes.txt', 'y.json.kosmos-2-t0-1-1.tmp']);
   assert.equal(plan.remove.length + plan.keep.length, entries.length, 'an entry was dropped from both lists');
   assert.equal(plan.remove.find((r) => r.name === 'fixture-a.json').key, 'fixture-a');
 });
 
 test('#5418: an unreadable or unknown-age file is never removed', () => {
-  const plan = tool.planCleanup([{ name: 'odd.json', isSymlink: false, mtimeMs: null }], new Set(), CUTOFF);
+  const plan = tool.planCleanup([{ name: 'odd.json', isSymlink: false, mtimeMs: null }], new Set(), CUTOFF, safeKey);
   assert.deepEqual(plan.remove, []);
 });
 
@@ -63,7 +65,7 @@ test('#5418: listEntries sees links without following them, and a folder as neit
   assert.equal(byName['dangling.json'].targetExists, false);
   assert.equal(byName['ok.json'].targetExists, true);
   assert.equal(byName['d.json'].other, true);
-  assert.equal(tool.planCleanup(tool.listEntries(dir), new Set(), Date.now() + DAY).keep.some((k) => k.name === 'd.json'), true);
+  assert.equal(tool.planCleanup(tool.listEntries(dir), new Set(), Date.now() + DAY, safeKey).keep.some((k) => k.name === 'd.json'), true);
 });
 
 test('#5418: the backup copies files with their modes and links as links, and never overwrites one', { skip: process.platform === 'win32' && 'POSIX modes and symlinks' }, (t) => {
@@ -84,16 +86,21 @@ test('#5418: applying removes tokens through revoke and re-checks each other ent
   const dir = scratch(t);
   fs.writeFileSync(path.join(dir, 'x.json.kosmos-1-t0-1-1.tmp'), 'tmp');
   fs.mkdirSync(path.join(dir, 'changed.tmp'));   // planned as a temp, now a folder: must not be removed
+  fs.writeFileSync(path.join(dir, 'fix.json'), '{}');
+  fs.utimesSync(path.join(dir, 'fix.json'), OLD / 1000, OLD / 1000);
+  fs.writeFileSync(path.join(dir, 'fresh.json'), '{}');   // planned at OLD, written since: must be kept
   const revoked = [];
   const plan = { remove: [
-    { name: 'fix.json', kind: 'token', key: 'fix' },
+    { name: 'fix.json', kind: 'token', key: 'fix', mtimeMs: fs.lstatSync(path.join(dir, 'fix.json')).mtimeMs },
+    { name: 'fresh.json', kind: 'token', key: 'fresh', mtimeMs: OLD },
     { name: 'x.json.kosmos-1-t0-1-1.tmp', kind: 'temp' },
     { name: 'changed.tmp', kind: 'temp' },
   ] };
   const res = tool.applyPlan(dir, plan, (key) => { revoked.push(key); return { ok: true }; });
   assert.deepEqual(revoked, ['fix']);
   assert.deepEqual(res.removed.sort(), ['fix.json', 'x.json.kosmos-1-t0-1-1.tmp']);
-  assert.deepEqual(res.failed.map((f) => f.name), ['changed.tmp']);
+  assert.deepEqual(res.failed.map((f) => f.name).sort(), ['changed.tmp', 'fresh.json']);
+  assert.equal(revoked.includes('fresh'), false, 'a token written after the plan was revoked');
   assert.equal(fs.existsSync(path.join(dir, 'changed.tmp')), true);
 });
 
@@ -124,43 +131,80 @@ test('#5418: no roster means nothing is planned or removed', async (t) => {
   }
 });
 
-test('#5418 end to end, in this test process\'s throwaway store: a dry run changes nothing; --apply backs up, then removes only the old orphan', async (t) => {
+/* The store this test process uses (its throwaway, per #5418 ask 1), with a board token so the tool's
+   "no token, no run" guard passes, and every file removed afterwards. */
+function e2eStore(t) {
   const store = require('./engine/store');
   const sendertoken = require('./engine/sendertoken');
+  const boardauth = require('./engine/boardauth');
   assert.equal(store.realish(store.ROOT, process.platform).startsWith(store.realish(store.realDefaultRoot(process.platform), process.platform)), false,
     'this test must not run against the real store');
+  boardauth.ensureToken();
   const dir = sendertoken.DIR;
   fs.mkdirSync(dir, { recursive: true });
+  t.after(() => {
+    for (const f of fs.readdirSync(dir)) fs.rmSync(path.join(dir, f), { force: true, recursive: true });
+    for (const f of fs.readdirSync(path.dirname(dir))) if (f.startsWith('sendertokens.backup-5418-')) fs.rmSync(path.join(path.dirname(dir), f), { force: true, recursive: true });
+  });
   const write = (name, mtime) => { const p = path.join(dir, name); fs.writeFileSync(p, JSON.stringify({ tokens: [{ token: 'x', instance: 'i' }] })); fs.utimesSync(p, mtime / 1000, mtime / 1000); };
-  write('alice.json', OLD);
-  write('fixture-e2e.json', OLD);
-  t.after(() => { for (const f of fs.readdirSync(dir)) fs.rmSync(path.join(dir, f), { force: true, recursive: true }); });
-  const port = await stubBoard(t, 200, { agents: [{ name: 'alice' }] });
+  return { dir, write };
+}
+function quiet(t) { t.mock.method(console, 'log', () => {}); return t.mock.method(console, 'error', () => {}); }
+
+test('#5418 end to end: a dry run changes nothing; --apply backs up, then removes only the old orphan, keeping every spelling of a live agent', async (t) => {
+  const { dir, write } = e2eStore(t);
+  write('claudebot.json', OLD);      // card reads "Splinter", session "claudebot": the TOKEN key is the session
+  write('sam.json', OLD);            // a -discord twin: session "sam-discord", tokens under "sam"
+  write('My.Agent.json', OLD);       // not a name the store writes: left alone
+  write('fixture-e2e.json', OLD);    // the orphan
+  const port = await stubBoard(t, 200, { agents: [{ name: 'Splinter', sessionName: 'claudebot' }, { name: 'Sam', sessionName: 'sam-discord' }] });
   const before = fs.readdirSync(dir).sort();
-  const log = t.mock.method(console, 'log', () => {});
-  t.mock.method(console, 'error', () => {});
-  assert.equal(await require('./tools/cleanup-fixture-tokens-5418').main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString()]), 0);
+  quiet(t);
+  const argv = ['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString()];
+  assert.equal(await tool.main(argv), 0);
   assert.deepEqual(fs.readdirSync(dir).sort(), before, 'a dry run changed the store');
-  assert.equal(await require('./tools/cleanup-fixture-tokens-5418').main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply']), 0);
-  assert.deepEqual(fs.readdirSync(dir).sort(), ['alice.json'], 'the live agent was removed, or the orphan was kept');
+  assert.equal(await tool.main(argv.concat('--apply')), 0);
+  assert.deepEqual(fs.readdirSync(dir).sort(), ['My.Agent.json', 'claudebot.json', 'sam.json'], 'a live agent was removed, or the orphan was kept');
   const backups = fs.readdirSync(path.dirname(dir)).filter((n) => n.startsWith('sendertokens.backup-5418-'));
   assert.equal(backups.length, 1);
   assert.deepEqual(fs.readdirSync(path.join(path.dirname(dir), backups[0])).sort(), before, 'the backup is not a full copy');
-  assert.ok(log.mock.calls.length > 0);
+});
+
+test('#5418: a roster that matches NONE of the store\'s token files (another store\'s board) stops the tool', async (t) => {
+  const { dir, write } = e2eStore(t);
+  write('alice.json', OLD);
+  write('bob.json', OLD);
+  const port = await stubBoard(t, 200, { agents: [{ name: 'Zed', sessionName: 'zed' }] });
+  const err = quiet(t);
+  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply']), 2);
+  assert.deepEqual(fs.readdirSync(dir).sort(), ['alice.json', 'bob.json']);
+  assert.match(String(err.mock.calls[0].arguments[0]), /different store/);
+});
+
+test('#5418: every spelling of a roster row is kept: session, display, +world and -discord stripped', () => {
+  assert.deepEqual(tool.spellingsOf({ name: 'Splinter', sessionName: 'claudebot-discord+qa' }).sort(),
+    ['Splinter', 'claudebot', 'claudebot-discord', 'claudebot-discord+qa'].sort());
 });
 
 test('#5418: a board that lists NO agents stops the tool before anything is planned or removed', async (t) => {
-  const sendertoken = require('./engine/sendertoken');
-  const dir = sendertoken.DIR;
-  fs.mkdirSync(dir, { recursive: true });
+  const { dir, write } = e2eStore(t);
+  write('would-be-orphan.json', OLD);
   const p = path.join(dir, 'would-be-orphan.json');
-  fs.writeFileSync(p, '{"tokens":[]}');
-  fs.utimesSync(p, OLD / 1000, OLD / 1000);
-  t.after(() => fs.rmSync(p, { force: true }));
   const port = await stubBoard(t, 200, { agents: [] });
-  t.mock.method(console, 'log', () => {});
-  const err = t.mock.method(console, 'error', () => {});
+  const err = quiet(t);
   assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply']), 2);
   assert.equal(fs.existsSync(p), true, 'an empty roster let a file be removed');
   assert.match(String(err.mock.calls[0].arguments[0]), /lists no agents/);
+});
+
+test('#5418: no board token for this store stops the tool (nothing ties the board on that port to it)', async (t) => {
+  const { dir, write } = e2eStore(t);
+  write('would-be-orphan.json', OLD);
+  const boardauth = require('./engine/boardauth');
+  t.mock.method(boardauth, 'readToken', () => null);
+  const port = await stubBoard(t, 200, { agents: [{ name: 'a', sessionName: 'a' }] });
+  const err = quiet(t);
+  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply']), 2);
+  assert.equal(fs.existsSync(path.join(dir, 'would-be-orphan.json')), true);
+  assert.match(String(err.mock.calls[0].arguments[0]), /no board token/);
 });
