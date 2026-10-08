@@ -398,11 +398,10 @@ function rulePath(inner, platform = process.platform) {
    equivalent is a per-entry rule for an entry that is gone; finalDeny leaves it out when its equivalent was refused.
    Uses the win32 conversion on any host. */
 function legacyWinEquivalent(rule) {
-  // a drive, then a backslash (the native form) or a slash (a path given as C:/...), then the suffix the writer adds
-  // (`/**`, `/*/...`, `.*`): the path is converted alone, as ruleAbs converts it (so a drive root maps to `//c/**`)
-  // the path may hold a `)` (a folder like `Jo (work)`): lazy, anchored on the known suffix and the rule's last `)`
+  // A drive then a backslash or a slash (C:\..., C:/...), or a share in main's spelling (\\host\share\...), then the
+  // suffix the writer adds (`/**`, `/*/...`, `.*`); the path may hold a `)`, so it is lazy and anchored on the known
+  // suffix and the rule's last `)`. The path is converted alone, as ruleAbs converts it (a drive root maps to //c/**).
   const m = /^Read\(\/\/([A-Za-z]:[\\/].*?|\\\\[^\\/]+[\\/].*?)((?:\/\*\*|\/\*\/[^/]*\/\*\*|\/\*\/[^/]*|\.\*)?)\)$/.exec(String(rule));
-  // (a share in main's spelling, //\\host\share\..., maps to //host/share/... as well)
   if (!m) return null;
   return `Read(${ruleAbs(m[1], 'win32')}${m[2]})`;
 }
@@ -417,11 +416,10 @@ function withNativeTwins(rules, platform = process.platform) {
   const seen = new Set(rules);
   for (const r of rules) {
     out.push(r);
-    // the path is a drive letter alone (a drive root) or a drive and a path; the suffix is what the writer added
-    // a one-letter share host (//s/share) is twinned as S:\share too: a small over-deny, recorded in the plan
-    // the path may hold a `)` (a folder like `Jo (work)`): lazy, anchored on the known suffix and the rule's last `)`
-    // a drive (c or c/...) or a share (host/share/..., host longer than a letter: a one-letter host is twinned as a
-    // drive above); the twin is main's spelling of the same path, so a new install keeps a fallback for a share too
+    // The path is a drive (c, or c/...) or a share (host/share/... with a host longer than one letter; a one-letter
+    // host is read as a drive, a small over-deny recorded in the plan), then the suffix the writer added. It may hold
+    // a `)` (a folder like `Jo (work)`): lazy, anchored on the known suffix and the rule's last `)`. The twin is main's
+    // spelling of the same path, so a new install keeps a fallback for a drive and for a share.
     const m = /^Read\(\/\/([a-z](?:\/.*?)??|[^/.][^/]+\/[^/].*?)((?:\/\*\*|\/\*\/[^/]*\/\*\*|\/\*\/[^/]*|\.\*)?)\)$/.exec(r);
     if (!m) continue;
     const native = rulePath(m[1], 'win32');
