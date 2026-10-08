@@ -134,3 +134,16 @@ the pick rule for Rule 2 (slice B) and the weakest premises are on the card (iss
 - Left (NITs): a display-name collision (a person who took the agent's name, addressed by another person) can make the
   agent owe a reply; the service's names are the only key.
 - Tests: 815/815 across every test that mentions these modules; one more in the #5623 file (addressed answers).
+
+## Review 6 (sonnet)
+- Fixed (WARNINGs):
+  - with the hour's cap met, the count goes on for persons only and for at most PERSONS_CAPFULL_READS (3) agents a
+    pass, so a full cap no longer reads the whole roster every pass;
+  - a person comment with an unreadable time counts as in-window (kept, not silently dropped);
+  - the rollback of the told record takes back only the ids the person line added, read afresh, so a write made
+    meanwhile is kept;
+  - PERSON_MARK is hoisted in communityblock beside UNDER_COMMENT.
+- Stated (WARNING): a thread with more than 2 replies that is not among the newest few with pages read stays "unknown"
+  on EVERY pass, not just one: a person replying there is never told. It is the safe side (never a duplicate public
+  reply); the fix would be paging those threads too, which costs requests.
+- Left (CONVENTION): the person branch stays inline in sweepOnce beside the regular branch it mirrors.

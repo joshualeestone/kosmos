@@ -64,6 +64,7 @@ const TITLE_CAP = 80;
 const PERSON_IDLE_MS = 2 * 60 * 1000;
 const PERSON_RETELL_MS = 60 * 60 * 1000;
 const PERSON_TELLS = 3;
+const PERSONS_CAPFULL_READS = 3;   // review 6: with the hour's cap met, at most this many agents are read a pass, for persons only
 const PERSONS_KEPT_MS = 14 * 24 * 60 * 60 * 1000;   // an entry no count has seen for this long is dropped
 
 /* agentnudge's helper, plus (review 1) the invisible characters it leaves: line and paragraph separators, bidi controls
@@ -271,6 +272,7 @@ async function sweepOnce(o) {
        reading), and only then is anything typed, so an agent that reads its replies the moment it is told never meets
        this pass's lock. */
     const counted = [];
+    let capReads = 0;   // review 6
     let readOne = false;   // review 2: the gap follows EVERY read that asked the service since the last gap, counted or not
     /* Review 8 (Opus): the pass starts AFTER the last agent asked last pass (o.rotation, kept by the caller), so a pass
        that ends early (a refusing service, the hour cap) does not starve the same later agents every time, and an agent
@@ -313,6 +315,9 @@ async function sweepOnce(o) {
       // the count goes on for persons only.
       const capFull = sent.length + counted.filter((c) => !c.noSlot && c.regular).length >= cap;
       if (capFull && typeof o.readPersons !== 'function') break;
+      /* Review 6: past the cap the count goes on for persons only, and for at most PERSONS_CAPFULL_READS agents a pass, so
+         a full cap no longer reads the whole roster from the service every pass. */
+      if (capFull) { capReads += 1; if (capReads > PERSONS_CAPFULL_READS) break; }
       try {
         // Review 2: only replies it has NOT been told about count (and take a cap slot); told-but-unread ones wait for its read.
         /* Review 4 (Opus): the told record is read BEFORE the service is asked, so an agent whose record cannot be read
@@ -438,7 +443,12 @@ async function sweepOnce(o) {
           const because = due.length + (due.length === 1 ? ' person is' : ' people are') + ' waiting for an answer';
           if (!reached) {
             let back = false; try { back = o.writePersons(session, rec) === true; } catch { back = false; }
-            if (nudged0 instanceof Set && tops.length) { let ok = false; try { ok = o.writeNudged(session, nudged0) === true; } catch { ok = false; } if (!ok) say({ name: display, session, act: 'missed', because: 'its told record could not be put back for the person line' }); }
+            /* Review 6: only the ids this line added are taken back, read afresh, so a write made meanwhile is kept. */
+            if (nudged0 instanceof Set && tops.length) {
+              let ok = false;
+              try { const now = o.readNudged(session); if (now instanceof Set) { const back = new Set([...now].filter((id) => !tops.includes(id) || nudged0.has(id))); ok = o.writeNudged(session, back) === true; } } catch { ok = false; }
+              if (!ok) say({ name: display, session, act: 'missed', because: 'its told record could not be put back for the person line' });
+            }
             if (!back) say({ name: display, session, act: 'missed', because: 'its person record could not be put back, so this tell counts' });
           }
           results.push({ session, name: display, act: 'person', delivered: reached, delivery: state, because });

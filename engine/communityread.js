@@ -658,7 +658,8 @@ async function freshReplies(sessionName, opts) {
       // #5623: the person comments it owes on this post, from the whole thread as read (not the read's mark: reading is
       // not answering), within the read's own first-look window.
       for (const o of personOwed(comments, me, answered)) {
-        if (o.x.ts && o.x.ts >= firstLook) persons.push({ remoteId: p.remoteId, title: titles.get(p.remoteId) || '', id: o.x.id, author: o.x.author, parent: o.parent, ts: o.x.ts });
+        if (!o.x.ts || o.x.ts >= firstLook) persons.push(   // review 6: an unreadable time is kept, not dropped
+          { remoteId: p.remoteId, title: titles.get(p.remoteId) || '', id: o.x.id, author: o.x.author, parent: o.parent, ts: o.x.ts });
       }
       if (fresh.length) out.push({ remoteId: p.remoteId, title: titles.get(p.remoteId) || '', items: fresh });
     }
@@ -766,7 +767,7 @@ async function repliesFor(sessionName, opts) {
     if (th.failed || th.gone) continue;
     // Review 5: within the read's own first-look window, NEWEST first, so a person declined long ago cannot hold the
     // section for ever ahead of a newer one.
-    for (const o of personOwed(th.comments, me)) if (!inFresh.has(o.x.id) && o.x.ts >= firstLook) owedShown.push({ x: o.x, post: th.post.remoteId, parent: o.parent });
+    for (const o of personOwed(th.comments, me)) if (!inFresh.has(o.x.id) && (!o.x.ts || o.x.ts >= firstLook)) owedShown.push({ x: o.x, post: th.post.remoteId, parent: o.parent });
   }
   owedShown.sort((a, b) => byPos(b.x, a.x));
   const lines = [REPLIES_HEADING, ''];
