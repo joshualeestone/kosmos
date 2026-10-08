@@ -37,7 +37,8 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
     org_not_member: left. No answer: a pending leave, sent again on start and daily. Every ending retires the world id.
   - `refresh()` runs on start and daily. It clears the record on `member:false`, or when the company names another
     world. An unreachable coordinator changes nothing.
-  - `isEnrolledHere()` is the gate for every later sender (E0.3 telemetry, E0.6 backup).
+  - `mayReport()` is the gate for every later sender (E0.3 telemetry, E0.6 backup): enrolled here AND the consent recorded
+    here (review 27). `isEnrolledHere()` only answers whether this is the work Kosmos.
   - The public error codes become plain sentences.
 - `server.js`:
   - `GET /api/org` reports this world's record to the SCREEN only; any other caller (this board's agents included)
@@ -434,3 +435,16 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
   drops the marker too. Pinned; removing it reddens the test.
 - Kept (nits): a typed code equal to a public code string could be read as that error if a line echoed it (the tunnel
   does not); a settle-undo overwrites an older pending leave's saved record (both end the same membership).
+
+## Review 37 (a BLOCKER, reproduced)
+- A lost answer could turn into a join of the WRONG company: while a leave from company A was pending (the world id
+  kept), the person accepted company B's consent and B's answer was lost; the status read named this world "here"
+  through the old A membership, which was taken as B's join landing. A was recorded on B's consent hash and the leave
+  the person asked for was dropped. The previewed company now rides with the ticket (server ORG_TICKET.orgId -> enroll
+  opts.orgId -> the join-unknown marker). "Here" counts as THIS join only for that company; the undo likewise. Another
+  company named here settles the marker as not this join, and the pending leave goes on. Pinned in the engine (both
+  the immediate and the settle path) and through the real route; each mutation reddens its test.
+- The module header, the gate's own comment, CLAUDE.md's routing row and this plan's top section all name mayReport()
+  as the sender gate now (isEnrolledHere only answers whether this is the work Kosmos).
+- Kept (nits): the fast follow-up still runs a full refresh when the marker is older than a pending leave; a settle
+  that sends an undo can be followed by a second leave attempt in the same pass.

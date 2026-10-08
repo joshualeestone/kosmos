@@ -321,3 +321,19 @@ test('#5531 review 32: a code that is not text is refused before the screen\'s t
   assert.equal(good.json.ok, true, 'the malformed request used up the screen\'s ticket: ' + JSON.stringify(good.json));
   await call('/api/org/leave', { body: {}, headers: SCREEN });
 });
+
+test('#5531 review 37: the screen\'s ticket carries the previewed company to the join, so another company named here is not this join', async (t) => {
+  const remote = require('./engine/remote');
+  const orig = remote.macRequest;
+  remote.macRequest = async (method, route) => {
+    if (route === oe.ROUTES.redeem) return { ok: true, data: { org: { id: 'org_beta', name: 'Beta', slug: 'beta' }, role: 'member', consent: { reports: ['agent names'], backsUp: [], readers: ['you'], never: [] } } };
+    if (route === oe.ROUTES.enroll) return { ok: false, because: 'the tunnel program did not answer in time' };
+    if (route === oe.ROUTES.status) return { ok: true, data: { member: true, org: { id: 'org_alpha', name: 'Alpha', slug: 'alpha' }, role: 'member', enrolled: { computer: 'c1', world: oe.worldId(), thisComputer: true } } };
+    return { ok: false, because: 'unexpected ' + route };
+  };
+  t.after(() => { remote.macRequest = orig; fs.rmSync(enrollmentFile(), { force: true }); try { fs.rmSync(path.join(store.ROOT, 'org-join-unknown.json'), { force: true }); } catch { /* none */ } });
+  const pv = await call('/api/org/preview', { body: { code: 'BETA-JOIN-5678' }, headers: SCREEN });
+  const r = await call('/api/org/enroll', { body: { code: 'BETA-JOIN-5678', accepted: true, ticket: pv.json.ticket }, headers: SCREEN });
+  assert.notEqual(r.json.ok, true, 'Alpha (named here) was taken as the Beta join landing: ' + JSON.stringify(r.json));
+  assert.equal(oe.isEnrolledHere(), false, 'Alpha was recorded on Beta\'s consent');
+});

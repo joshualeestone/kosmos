@@ -11,9 +11,9 @@
  *   - the world is named to the coordinator only by an OPAQUE id minted here (random, never the world's name, which
  *     can be personal), and only by the world being enrolled. Every request is ALSO signed by this Kosmos's Kosmos+
  *     identity (engine/remote.js, its key in <world root>/remote), which is stable across a retired world id;
- *   - isEnrolledHere() is the gate every later sender (E0.3 telemetry, E0.6 backup) must pass: it is true only when
- *     this world's record names this world's id, and refresh() clears the record the moment the coordinator names a
- *     different world or says this account is no longer a member.
+ *   - mayReport() is the gate every later sender (E0.3 telemetry, E0.6 backup) must pass: this world is the enrolled
+ *     one (isEnrolledHere: its record names its own id; refresh() clears the record the moment the coordinator names a
+ *     different world or says this account is no longer a member) AND the consent was accepted on this computer.
  *
  * 🔑 NOTHING BINDS BEFORE CONSENT. preview(code) asks the coordinator what the code is for and returns the consent
  * words it sends (so every board shows the same words, changed without an app release). It uses no code and makes no
@@ -107,9 +107,9 @@ function clearEnrollment(opts) {
 function readWorldId(opts) {
   try { const have = fs.readFileSync(path.join(storeRoot(opts), WORLD_ID_FILE), 'utf8').trim(); return WORLD_ID.test(have) ? have : null; } catch { return null; }
 }
-/* 🛑 THE GATE for every later sender: true only for the world whose own record names its own id. NECESSARY, NOT
-   SUFFICIENT: it is as fresh as the last refresh (daily), so the coordinator must also refuse a report from a world it
-   no longer names (E0.3, E0.6). */
+/* "Is this the work Kosmos": true only for the world whose own record names its own id. NOT the sender gate (that is
+   mayReport, below, which also needs the consent recorded here). As fresh as the last refresh (daily), so the
+   coordinator must also refuse a report from a world it no longer names (E0.3, E0.6). */
 function isEnrolledHere(opts) {
   const rec = readEnrollment(opts);
   if (!rec) return false;
@@ -277,11 +277,17 @@ async function enrollNow(code, accepted, opts) {
        (reviews 25, 27). */
     sayFor(r.because, '', secretCode);   // the raw line goes to the log, cleaned
     const st = await signed('POST', ROUTES.status, {}, opts);
-    const verdict = statusVerdict(st.ok ? st.data : null, world);
-    if (verdict === 'notHere' && !move && namesThisWorld(st.ok ? st.data : null, world)) return undoFirstJoin('Your company did not confirm this Kosmos, so it is not your work Kosmos.', opts);
+    const d0 = st.ok ? st.data : null;
+    /* "Here" counts as THIS join only for the company whose consent was accepted. A pending leave keeps this world's
+       id, so the company can still name it here through the OLD membership: that is not this join landing, and taking
+       it as one would record the old company on the new company's words and drop the leave asked for (review 37). */
+    const wantOrg = opts && typeof opts.orgId === 'string' && opts.orgId ? opts.orgId : null;
+    const sameOrg = !wantOrg || !!(d0 && d0.org && d0.org.id === wantOrg);
+    const verdict = sameOrg ? statusVerdict(d0, world) : 'unclear';
+    if (verdict === 'notHere' && !move && namesThisWorld(d0, world)) return undoFirstJoin('Your company did not confirm this Kosmos, so it is not your work Kosmos.', opts);
     if (verdict !== 'here') {
       const hash = opts && typeof opts.consentHash === 'string' && /^[0-9a-f]{64}$/.test(opts.consentHash) ? opts.consentHash : null;
-      setJoinUnknown({ consentHash: hash, move }, opts);
+      setJoinUnknown({ consentHash: hash, move, orgId: wantOrg }, opts);
       return { ok: false, unknown: true, code: 'org_join_unknown', because: 'It is not known yet whether joining went through. This Kosmos will ask your company again in a few minutes; if joining went through, this screen will show it.' };
     }
     r = { ok: true, data: st.data };
@@ -342,7 +348,7 @@ function setJoinUnknown(info, opts) {
   const file = path.join(storeRoot(opts), JOIN_UNKNOWN_FILE);
   try {
     if (!info) { fs.rmSync(file, { force: true }); return; }
-    writeWhole(file, JSON.stringify({ at: new Date().toISOString(), consentHash: info.consentHash || null, move: info.move === true }) + '\n');
+    writeWhole(file, JSON.stringify({ at: new Date().toISOString(), consentHash: info.consentHash || null, move: info.move === true, orgId: typeof info.orgId === 'string' ? info.orgId : null }) + '\n');
   } catch { /* best effort */ }
 }
 function joinUnknownAge(opts) { const j = joinUnknown(opts); const t = j ? Date.parse(j.at || '') : NaN; return Number.isFinite(t) && t <= Date.now() ? Date.now() - t : null; }
@@ -397,6 +403,12 @@ async function settleUnknownJoin(unsure, opts) {
   const world = readWorldId(opts);
   const st = await signed('POST', ROUTES.status, {}, opts);
   const d = st.ok ? st.data : null;
+  // Another company named here is not this join (review 37): the account is still in the old one, so this join did
+  // not land; the marker goes and any pending leave goes on.
+  if (unsure.orgId && d && d.member === true && d.org && typeof d.org.id === 'string' && d.org.id !== unsure.orgId) {
+    setJoinUnknown(null, opts);
+    return { ok: true, enrolled: false };
+  }
   const verdict = statusVerdict(d, world);
   if (verdict === 'unclear') return { ok: false, enrolled: false, because: "Your company's answer was not complete." };
   const t = Date.parse(unsure.at || '');

@@ -857,3 +857,33 @@ test('#5531 review 36: every ending that retires the world id also drops a join 
   assert.equal(fs.existsSync(path.join(a, org.WORLD_ID_FILE)), false, 'CONTROL: the leave retired the world id');
   assert.equal(org.joinUnknown({ root: a }), null, 'a join marker outlived its world id and would keep asking the company');
 });
+
+test('#5531 review 37: a lost answer for company B, seen through a pending leave from company A, never records A on B\'s words', async (t) => {
+  const { a, b } = sandbox(t);
+  const ALPHA = { id: 'org_alpha', name: 'Alpha', slug: 'alpha' };
+  const BETA_HASH = 'be'.repeat(32);
+  for (const [root, lostStatus] of [[a, false], [b, true]]) {
+    await org.enroll('ACME-JOIN-1234', true, { root, remote: { macRequest: async (m, route, body) => (route === org.ROUTES.enroll
+      ? { ok: true, data: { ok: true, org: ALPHA, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } } : { ok: false, because: 'x' }) } });
+    // The person leaves Alpha; no answer: pending, and the world id is kept.
+    await org.leave({ root, remote: { macRequest: async () => ({ ok: false, because: 'offline' }) } });
+    assert.equal(org.leavePending({ root }), true, 'CONTROL: the Alpha leave is pending');
+    // The company still names this world HERE, through the old Alpha membership.
+    const alphaHere = { ok: true, data: { member: true, org: ALPHA, role: 'member', enrolled: { computer: 'c1', world: org.worldId({ root }), thisComputer: true } } };
+    const sent = [];
+    const co = { macRequest: async (m, route) => { sent.push(route);
+      if (route === org.ROUTES.enroll) return { ok: false, because: 'the tunnel program did not answer in time' };
+      if (route === org.ROUTES.status) return lostStatus && sent.filter((x) => x === route).length === 1 ? { ok: false, because: 'offline' } : alphaHere;
+      if (route === org.ROUTES.leave) return { ok: true, data: { ok: true } };
+      return { ok: false, because: 'unexpected ' + route }; } };
+    // The person accepts BETA's consent; the answer is lost.
+    const r = await org.enroll('BETA-JOIN-5678', true, { root, remote: co, consentHash: BETA_HASH, orgId: 'org_beta' });
+    assert.notEqual(r.ok, true, 'Alpha (seen through the pending leave) was taken as the Beta join landing: ' + JSON.stringify(r));
+    assert.equal(org.isEnrolledHere({ root }), false, 'Alpha was recorded on Beta\'s consent');
+    // The next pass: the marker (if any) is settled as not this join, and the person's Alpha leave goes out.
+    await org.refresh({ root, remote: co });
+    assert.equal(org.isEnrolledHere({ root }), false, 'Alpha was recorded on Beta\'s consent after the follow-up');
+    assert.ok(sent.includes(org.ROUTES.leave), 'the leave the person asked for was dropped: ' + JSON.stringify(sent));
+    assert.equal(org.leavePending({ root }), false);
+  }
+});

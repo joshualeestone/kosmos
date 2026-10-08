@@ -9599,7 +9599,8 @@ const server = http.createServer(async (req, res) => {
              that check can also preview first. What it adds is that no join or move skips the consent step. */
           if (r.ok) {
             ORG_TICKET = { value: require('node:crypto').randomBytes(16).toString('hex'), at: Date.now(), code: r.move ? null : String(body.code).trim(),
-              consentHash: oe.consentHash(r.consent) };   // the words this screen was shown, kept with the enrollment
+              consentHash: oe.consentHash(r.consent),   // the words this screen was shown, kept with the enrollment
+              orgId: r.org && typeof r.org.id === 'string' ? r.org.id : null };   // WHICH company they were for (review 37)
             r.ticket = ORG_TICKET.value;
           }
         } else if (pathname === '/api/org/enroll') {
@@ -9615,7 +9616,7 @@ const server = http.createServer(async (req, res) => {
           }
           const spent = body.accepted === true ? ORG_TICKET : null;
           if (spent) ORG_TICKET = null;   // one use
-          r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true, spent ? { consentHash: spent.consentHash } : undefined);
+          r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true, spent ? { consentHash: spent.consentHash, orgId: spent.orgId } : undefined);
           // Not joined for a passing reason (no public code: unreachable, busy; or org_bad_world, which says "Try again"):
           // the same consent may be accepted again.
           if (spent && r && r.ok === false && (!r.code || r.code === 'org_bad_world') && !r.declined && Date.now() - spent.at <= ORG_TICKET_MS
