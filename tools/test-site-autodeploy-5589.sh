@@ -149,7 +149,7 @@ tick
 #    the 4th in a row for one sha turns the run red once; a success clears the count.
 H9=$(advance nine)
 rcs=""; for i in 1 2 3 4 5; do DEPLOY_RC=75 tick; rcs="$rcs$RC"; done
-{ [ "$rcs" = 00010 ] && [ ! -e "$ST/parked" ] && [ "$(ndeploys)" = 14 ]; } && pass "75 is retried every tick; red on the 4th in a row, then green with a note" || bad "75 sequence '$rcs' (want 00010), deploys=$(ndeploys)"
+{ [ "$rcs" = 00010 ] && [ ! -e "$ST/parked" ] && [ "$(ndeploys)" = 14 ] && printf '%s' "$OUT" | grep -q "STILL FAILING (reported)"; } && pass "75 is retried every tick; red on the 4th in a row, then green with a note" || bad "75 sequence '$rcs' (want 00010), deploys=$(ndeploys)"
 tick
 { [ "$RC" = 0 ] && [ ! -e "$ST/retries" ] && [ "$(cat "$ST/last-deployed")" = "$H9" ]; } && pass "a success after 75s deploys and clears the count" || bad "after 75s (rc=$RC)"
 
@@ -172,6 +172,8 @@ tick
 touch -t "$(date -v-2H +%Y%m%d%H%M)" "$ST/heartbeat"
 tick
 { [ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q "no heartbeat for over an hour"; } && pass "a lock held with no heartbeat for over an hour goes red" || bad "wedged lock stayed green (rc=$RC)"
+tick
+{ [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q "STILL FAILING (reported)"; } && pass "the wedged lock's next tick is reported, not red again" || bad "wedged repeat (rc=$RC) $OUT"
 kill "$live" 2>/dev/null; wait "$live" 2>/dev/null
 rm -f "$ST/lock/pid"
 tick
@@ -243,16 +245,39 @@ H18=$(advance eighteen); tick
 { [ ! -e "$T/site/dist/kosmos-0.7.100-arm64.tar.gz" ] && [ -f "$T/site/dist/kosmos-0.7.21-arm64.tar.gz" ] && printf '%s' "$OUT" | grep -q "newer than any release pointer"; } \
   && pass "a build newer than every release pointer on main (0.7.100 > 0.7.99) is not mirrored; 0.7.21 is" || bad "unreleased build mirrored: $(ls "$T/site/dist" | tr '\n' ' ')"
 
-# 19) red once per sha and cause per DAY: a report older than a day, or a different cause, is red again.
+# 19) red once per sha and cause per DAY, one record per sha and cause (reported.d/<sha>-<cause>).
 H19=$(advance nineteen)
-printf '%s parked|%s\n' "$H19" "$(( $(date +%s) - 90000 ))" > "$ST/reported"; echo "$H19" > "$ST/parked"
-printf '%s rc=1 x\n' "$H19" > "$ST/last-failure"
+mkdir -p "$ST/reported.d"
+echo "$H19" > "$ST/parked"; printf '%s rc=1 x\n' "$H19" > "$ST/last-failure"
+echo "$(( $(date +%s) - 90000 ))" > "$ST/reported.d/$H19-parked"
 tick; r1=$RC; tick; r2=$RC
-printf '%s wedged|%s\n' "$H19" "$(date +%s)" > "$ST/reported"; tick; r3=$RC
-{ [ "$r1" = 1 ] && [ "$r2" = 0 ] && [ "$r3" = 1 ]; } && pass "a red reported over a day ago is red again; then green; a different cause is red again" || bad "red-once day/cause (r1=$r1 r2=$r2 r3=$r3)"
-printf '%s parked|garbage\n' "$H19" > "$ST/reported"; tick
+{ [ "$r1" = 1 ] && [ "$r2" = 0 ] && printf '%s' "$OUT" | grep -q "^.*STILL FAILING (reported)"; } \
+  && pass "a red reported over a day ago is red again, then green with STILL FAILING" || bad "day-old report (r1=$r1 r2=$r2)"
+echo garbage > "$ST/reported.d/$H19-parked"; tick
 [ "$RC" = 1 ] && pass "a damaged report time is treated as never reported (red)" || bad "damaged report time (rc=$RC)"
-rm -f "$ST/parked" "$ST/reported"
+rm -f "$ST/parked"; rm -rf "$ST/reported.d"
+
+# 20) two causes taking turns on one sha (a checksum mismatch, then the live site moving, then again):
+#     each is red once, after which neither re-arms the other (one record per cause, not one slot).
+H20=$(advance twenty)
+echo "$H20 9" > "$ST/retries"
+seq20=""
+printf 'bad\n' > "$CUTDIST/kosmos-0.7.21-arm64.tar.gz"; tick; seq20="$seq20$RC"
+cp "$T/good21" "$CUTDIST/kosmos-0.7.21-arm64.tar.gz"; DEPLOY_RC=75 tick; seq20="$seq20$RC"
+printf 'bad\n' > "$CUTDIST/kosmos-0.7.21-arm64.tar.gz"; tick; seq20="$seq20$RC"
+cp "$T/good21" "$CUTDIST/kosmos-0.7.21-arm64.tar.gz"; DEPLOY_RC=75 tick; seq20="$seq20$RC"
+[ "$seq20" = 1100 ] && pass "alternating causes on one sha: each red once, then both quiet" || bad "alternating causes sequence '$seq20' (want 1100)"
+tick; rm -f "$ST/retries"
+[ ! -d "$ST/reported.d" ] && pass "a successful deploy clears every report" || bad "reports survived a deploy: $(ls "$ST/reported.d")"
+
+# 21) the origin cannot be fetched: red, then green (reported); after it recovers, a NEW outage is red at once.
+git -C "$T/site" remote set-url origin "$T/no-such-origin.git"
+tick; f1=$RC; tick; f2=$RC
+git -C "$T/site" remote set-url origin "$T/origin.git"; tick; f3=$RC
+git -C "$T/site" remote set-url origin "$T/no-such-origin.git"; tick; f4=$RC
+git -C "$T/site" remote set-url origin "$T/origin.git"
+{ [ "$f1" = 1 ] && [ "$f2" = 0 ] && [ "$f3" = 0 ] && [ "$f4" = 1 ]; } \
+  && pass "fetch outage: red, then reported; a new outage after recovery is red again" || bad "fetch sequence $f1$f2$f3$f4 (want 1001)"
 
 # 13) no site configured: a usage error, never a deploy.
 nfinal=$(ndeploys); KOSMOS_AUTODEPLOY_SITE="" bash "$AD" 2>/dev/null; RC=$?
