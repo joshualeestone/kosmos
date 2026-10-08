@@ -43,7 +43,10 @@ function expectedAdds() {
 function filesUnder(root) {
   const out = [];
   const walk = (dir) => {
-    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    let entries;
+    // Review 3: a directory the board removes between listing and reading is simply gone, not an error.
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { if (e.code === 'ENOENT') return; throw e; }
+    for (const e of entries) {
       const p = path.join(dir, e.name);
       if (e.isDirectory()) walk(p);
       else if (e.isFile()) out.push('./' + path.relative(root, p).split(path.sep).join('/'));
@@ -105,6 +108,10 @@ test('#5584: a board start adds exactly the gate\'s expected files, so a new one
       // Review 2: set, not inherited. The board's network-touching modules stay inert on this variable, so it must
       // hold even when this file is run some other way than `node --test`.
       NODE_TEST_CONTEXT: process.env.NODE_TEST_CONTEXT || 'child-v8',
+      // Review 3: a suite run inside a cut inherits the gate's request log (the operator's real ~/.claude/logs);
+      // this board logs into the sandbox, and not as the gate.
+      KOSMOS_INSTALL_GATE_LOG: path.join(sb, 'gate-requests.log'),
+      KOSMOS_INSTALL_GATE: '',
       // Review 1: the rest of the gate's sandbox, so a test-booted board can reach nothing of the real home: the
       // Claude config file and root (else trust and onboarding read and write the operator's ~/.claude.json),
       // the shell profile, the system app folder, no browser, and a Claude binary path inside the sandbox.
@@ -129,16 +136,18 @@ test('#5584: a board start adds exactly the gate\'s expected files, so a new one
       if (Date.now() - upAt > 20000) throw new Error('the board did not report startup in time:\n' + out.slice(-2000));
       await new Promise((r) => setTimeout(r, 50));
     }
-    // The gate waits by asking the board for its page (curl http://127.0.0.1:$PORT/) until it answers, and that
-    // first request is itself part of the start (ping.json is written on it). Ask the same way.
+    // The gate waits by asking the board for its page (curl http://127.0.0.1:$PORT/) until it answers, and takes its
+    // diff then. Ask the same way.
     const port = (out.match(/Kosmos on http:\/\/[^:\s]+:(\d+)/) || [])[1];
     assert.ok(port, 'no port in the startup line: ' + out.slice(-500));
+    let answered = false;
     for (let i = 0; i < 60; i++) {
       const ok = await fetch('http://127.0.0.1:' + port + '/', { signal: AbortSignal.timeout(3000) })
         .then((r) => r.status > 0, () => false);
-      if (ok) break;
+      if (ok) { answered = true; break; }
       await new Promise((r) => setTimeout(r, 500));
     }
+    assert.ok(answered, 'the board never answered its first request (30s), so there is no first-answer snapshot: ' + out.slice(-1000));
     // Review 2: what the gate itself diffs, at the board's first answer. A file that lands only after this is not
     // one the gate can rely on seeing, so it is reported apart below, not as something to bless.
     atAnswer = new Set(filesUnder(data).filter((f) => !before.has(f)));
