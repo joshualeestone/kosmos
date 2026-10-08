@@ -53,6 +53,11 @@ test('#5535 chunking: tiny and empty inputs, and the real format-1 sizes on a fe
   assert.deepEqual(Buffer.concat(c), big);
   c.slice(0, -1).forEach((x) => assert.ok(x.length >= bf.CDC.min && x.length <= bf.CDC.max));
   assert.throws(() => bf.chunkBuffer(big, { min: 10, avg: 5, max: 20 }), /min < avg < max/);
+  assert.throws(() => bf.chunkBuffer(big, { min: 1, avg: 2 ** 30, max: 2 ** 31 }), /2\^28/, 'an average that would push the mask out of range');
+  assert.throws(() => bf.chunkBuffer(big, { min: 1.5, avg: 2048, max: 8192 }), /integers/, 'non-integer sizes');
+  // GOLDEN: format 1's boundaries, fixed forever. Changing the gear table, the masks or the hard/easy switch keeps
+  // every property above green but silently ends dedup against every existing backup; this catches it.
+  assert.deepEqual(c.map((x) => x.length), [286742, 1078049, 1781820, 1480926, 1131483, 441857, 90579], 'format-1 chunk boundaries moved: that needs a format bump');
 });
 
 test('#5535 padme matches an independent float reference at every power-of-two edge it can meet', () => {
