@@ -186,3 +186,9 @@ company, and `thisComputer` cannot tell them apart.
   an hour, not one a minute (both mutations redden).
 - CORRECTED (my own overclaim in review 14): see above; "this Mac" in a test message is now "this computer".
 - KEPT: the tests-only hooks on the export (review 4).
+
+## Review 16 (blind, sonnet)
+- FIXED (a repeat of review 12's class, which two-in-a-row only narrowed): "no id here" needs the WHOLE hardware block,
+  its header line and its property list closed by a lone `}`. A dump cut off before the end, however often and however
+  identically, is a failed read (test with the same cut twice; header-only mutation reddens).
+- NOTED for the first caller (on #5532): run printFor off the request path or at start; the read can take 5 seconds.

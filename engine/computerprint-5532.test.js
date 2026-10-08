@@ -144,6 +144,12 @@ test('#5532 v1.5 reviews 7 to 9: printFor gives ONE answer: send the print, send
   assert.deepEqual(cp.printFor(SALT, ORG), { send: 'later' }, 'one block without an id (possibly a cut-off dump) was taken as lasting (review 12)');
   cp._testClock(5 + cp.RETRY_AFTER_FAIL_MS + 1);
   assert.deepEqual(cp.printFor(SALT, ORG), { send: 'none' }, 'a computer with no hardware id would wait forever');
+  // Review 16: a block cut off before its closing brace, twice in a row, is still a failed read, never 'none'.
+  const CUT = '+-o VM <class IOPlatformExpertDevice>\n  {\n    "model" = "VMw';
+  cp._testRunner(() => CUT, { platform: 'darwin', now: 5 });
+  assert.deepEqual(cp.printFor(SALT, ORG), { send: 'later' });
+  cp._testClock(5 + cp.RETRY_AFTER_FAIL_MS + 1);
+  assert.deepEqual(cp.printFor(SALT, ORG), { send: 'later' }, 'a dump cut off the same way twice was taken as a lasting "no id"');
   // A cut-off dump followed by a good one is a computer WITH an id: the streak resets.
   let k = 0;
   cp._testRunner(() => (k++ === 0 ? VM : SAMPLE), { platform: 'darwin', now: 5 });

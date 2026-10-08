@@ -115,7 +115,10 @@ function hardwareId() {
   if (gaveUp(now)) backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);   // after giving up, back off (review 15)
   /* "No id here" only when ioreg answered WITH its hardware block and that block has no UUID key at all (review 9):
      a truncated or garbled answer is a failed read to retry, never a reason to send without a print. */
-  const blockWithoutId = ran && /^\+-o .*<class IOPlatformExpertDevice\b/m.test(out) && !/"IOPlatformUUID"\s*=/.test(out);   // the block's own header line
+  /* The block must be WHOLE: its own header line, then its property list closed by a line holding only "}" (review 16).
+     A dump cut off before the end, however often, is a failed read, not "no id here". */
+  const blockWithoutId = ran && /^\+-o .*<class IOPlatformExpertDevice\b[\s\S]*\n\s*\{[\s\S]*\n\s*\}\s*$/m.test(out)
+    && !/"IOPlatformUUID"\s*=/.test(out);
   noIdStreak = blockWithoutId ? noIdStreak + 1 : 0;
   noIdHere = noIdStreak >= 2;   // the same answer twice, a minute apart: a lasting "no id", not a dump cut short
   return null;
