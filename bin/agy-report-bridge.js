@@ -137,8 +137,10 @@ function readStdin() {
     const finish = () => {
       if (done) return;
       done = true;
-      /* Let go of stdin: an agy that left it open would otherwise keep this process alive. */
-      try { process.stdin.destroy(); } catch { /* already closed */ }
+      /* Let go of stdin WITHOUT closing it. An agy that left stdin open cannot keep this process alive: it always ends
+         with process.exit (below). Destroying it closed fd 0, which libuv refuses to do and aborts on ("Assertion
+         failed: (fd > STDERR_FILENO), function uv__close"): seen on CI as a SIGABRT of this child (#5560). */
+      try { process.stdin.pause(); process.stdin.removeAllListeners('data'); } catch { /* already gone */ }
       resolve(data);
     };
     try {

@@ -251,3 +251,10 @@ test('#5560 review 5: a spawn refused before stdio exists (EMFILE) ends at once 
   assert.equal(r.code, null);
   assert.notEqual(r.signal, 'timeout');
 });
+
+test('#5560: the bridge never closes its own stdin (destroying it closed fd 0, and libuv aborted the child on CI)', () => {
+  const src = fs.readFileSync(BRIDGE_FILE, 'utf8');
+  // CONTROL: the bridge does read stdin, so a missing destroy is a choice, not a file that reads nothing.
+  assert.match(src, /process\.stdin\.on\('data'/, 'CONTROL: the bridge no longer reads stdin');
+  assert.equal(/process\.stdin\.destroy\(/.test(src), false, 'the bridge closes fd 0 again; libuv aborts on that (Assertion failed: fd > STDERR_FILENO)');
+});

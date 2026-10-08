@@ -80,3 +80,17 @@
 - A hang is never retried, even with a spawn error beside it: `endedByRunner` checks for `timeout` first. Pinned; the
   mutation that removes the check reddens it.
 - `Check failed:` is V8's fatal line; Node's own startup abort is caught by the thread-create arms. Stated in the comment.
+
+## The cause, named by this PR's own diagnostics (2026-10-08 02:25, this PR's CI)
+The retry's failure message on this PR's CI run said what the child died of: SIGABRT with stderr
+"Assertion failed: (fd > STDERR_FILENO), function uv__close, file core.c, line 646". libuv aborts when asked to close
+fd 0, 1 or 2. The bridge's readStdin called process.stdin.destroy() when it finished, the one place it would close its
+own stdin. The bridge always ends with process.exit(0), so destroying stdin bought nothing for its lifetime.
+- Fix (product, one line): pause stdin and drop its data listeners instead of destroying it. Measured: with stdin left
+  open (a pipe never closed) the bridge still exits 0 after its 1 s stdin timeout.
+- Pinned: a source guard refuses process.stdin.destroy( in the bridge, with a control that it still reads stdin;
+  restoring the destroy reddens it.
+- The retry is unchanged and correctly did NOT retry this abort (it was the bridge's, not the runner's).
+- NOT reproduced locally: 1,200 runs of the real events with stdin from /dev/null (24 in parallel) gave 0 aborts. The
+  link from destroy() to the abort is reasoned from the assertion and the code, not measured; CI on this branch is
+  the measure, and the retry's message will name the cause again if it is not this.
