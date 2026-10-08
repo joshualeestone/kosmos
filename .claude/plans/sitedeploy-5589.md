@@ -40,8 +40,18 @@ on Mortals: on push to main, every 15 minutes as a backstop, and on demand.
   and a macOS runner, and cannot see the cut).
 - **Its own site checkout** (`git clone --reference`), so a cut's half-populated dist/ is never the
   one deployed, and it can sit on main as deploy-site.sh's #3073 guard requires.
-- **A failed sha is not retried** until main moves: a refusal is a finding, and a tick re-running it
-  every 15 minutes would bury it.
+- **A failed deploy is retried once, then parked** until main moves. One network blip anywhere in
+  deploy-site.sh (most of its reads still exit 1, not 75) should not park a website change; a second
+  failure on the same sha is a finding, and a tick re-running it every 15 minutes would bury it.
+  Exit 75 (the live site moved or could not be read) is never parked; four in a row go red once.
+- **The older versioned Mac downloads are mirrored** from the cut's site checkout before each
+  deploy (only `kosmos-*-arm64.tar.gz` and their `.sha256`, removals included), because a deploy
+  ships every versioned tarball in dist/ and the job's own clone has none: without the mirror every
+  automatic deploy would take the older versions' downloads off the site. If that source is missing
+  the tick parks rather than deploying without them.
+- **A commit the live site already serves is not deployed again.** The served
+  `.kosmos-release-export` names the site commit it was built from, so the tick right after a cut's
+  own step 8 records it and does nothing.
 - **Stage 2, not this branch:** move the Mac downloads to R2 behind redirects (as Windows is), so a
   site deploy carries no downloads at all. The reader sweep on the card lists the fixes it needs
   first (verify-served.sh and two others do not follow redirects).

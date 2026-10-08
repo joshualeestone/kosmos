@@ -365,7 +365,7 @@ live_pointer_snapshot() {
       case "$_lps_code" in 000|429|5[0-9][0-9]) [ "$_lps_try" = 3 ] || sleep "$_lps_sleep" ;; *) break ;; esac
     done
     # Only a 200's body is compared: a 404 page can differ per request, and absent is absent.
-    if [ "$_lps_code" = 200 ]; then printf '%s 200 %s;' "$_lps" "$(shasum -a 256 < "$_lps_tmp" | cut -c1-64)"; else printf '%s %s -;' "$_lps" "$_lps_code"; fi
+    if [ "$_lps_code" = 200 ]; then printf '%s 200 %s;' "$_lps" "$(_sha256_of "$_lps_tmp")"; else printf '%s %s -;' "$_lps" "$_lps_code"; fi
     rm -f "$_lps_tmp"
   done
 }
