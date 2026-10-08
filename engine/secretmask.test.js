@@ -2018,3 +2018,12 @@ test('#5558 review 1: the plain-path rule never judges a path ending in a random
   assert.equal(isPlainPath('claude/plans/avatar-4038-20260926T1625'), true, 'CONTROL: a plain path');
   assert.equal(mask('keys/prod/shtwyqrchpxh4ho7s75pbot6mgjoujth').text, MASK);
 });
+
+test('#5558 review 2: a numeric secret with stray letters cut by slashes is not a plain path', () => {
+  const { isPlainPath } = require('./secretmask');
+  assert.equal(isPlainPath('46541662l/2u59132670/6x94661429/00769515g0'), false, 'digit runs with stray letters were plain');
+  assert.equal(isPlainPath('plans/ab/xo/ka'), false, 'two-letter pieces were words');
+  for (const p of ['claude/plans/avatar-4038-20260926T1625', 'plans/win32-installer-native-20260913T052847Z', 'dist/windows-x64/cli']) {
+    assert.equal(isPlainPath(p), true, 'CONTROL: ' + p);
+  }
+});
