@@ -330,6 +330,9 @@ function binFor(s) {
  *    refusal by returning ok:false rather than throwing, so it is said on stderr (the board
  *    log): a write that fails every launch would otherwise leave an agent on the modal with no
  *    trace. No secret is in `because`.
+ *  - #5612 reporting hooks: for a default-account agent, the hooks that make it report idle and
+ *    needs-you (accounts.wireDefaultHooks), written here because the board's own write may come
+ *    after this agent's Claude has read the file.
  */
 function preacceptClaudeFirstRun(s) {
   if (String(s.runner || 'claude') !== 'claude') return;

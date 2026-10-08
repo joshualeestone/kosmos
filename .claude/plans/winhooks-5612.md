@@ -13,12 +13,20 @@
   block (written into CLAUDE.md at create and at board start), and the switch (ON by default, written atomically).
   The Windows CLI has every community verb.
 
-## Fix
-- engine/accounts.js wireDefaultHooks(): on win32, reporthook.ensureWired(<home>/.claude/settings.json,
-  hookScriptPath('win32')). Merge-only, idempotent, fail-soft. Anywhere else it is a no-op, because setup.sh owns
-  the Mac.
-- server.js calls it at board start, right after the community switch's one-time step. A refusal is logged to stderr
-  and never stops the board. Agents pick the hooks up when they next start.
+## Fix (as built, after review 7's reversal)
+- engine/accounts.js wireDefaultHooks(): on win32 (process.platform), reporthook.ensureWired on
+  trust.defaultAgentSettings() under the #3088 lock preacceptBypass takes. Merge-only, idempotent, fail-soft; a held
+  lock returns busy; anywhere else a no-op, because setup.sh owns the Mac.
+- Two callers. (1) server.js at board start: a busy lock is retried up to 5 more times, a minute apart, with waitMs 0.
+  (2) engine/win32launch.js preacceptClaudeFirstRun, for each default-account agent, just before its Claude reads the
+  file: the board and the supervisors are separate logon tasks with no order between them.
+- Weakest premises, all of them:
+  - an agent already running when this ships reports nothing until its next start;
+  - a busy lock at a LAUNCH is not retried (one stderr line); the agent is still covered if the board's earlier write
+    landed, and otherwise is wired at its next launch;
+  - the board and every supervisor run the same node.exe (the bundle's runtime\node.exe, process.execPath). If they
+    ever differed, each writer would repoint the other's entry on every start: no harm to the hooks firing, but
+    churn. Owed on the Windows box: the entry's command is runtime\node.exe.
 
 ## Decisions
 - win32 only. Rejected: running it on every platform. On a Mac setup.sh wires every account folder at install and
@@ -123,3 +131,11 @@
 - Fixed (NIT): the server.js comment says every agent launch (not logon), and that launches now wire the hooks too.
 - Left (NITs): the file mode a fresh settings.json gets depends on which writer creates it (irrelevant on Windows);
   long lines match neighbours.
+
+## Review 8 (sonnet): no blockers
+- Fixed (WARNING): wireDefaultHooks's and preacceptClaudeFirstRun's doc comments name both callers and the #5612 write.
+- Fixed (WARNING): the plan's Fix section describes the design as built (two callers) and lists every weakest premise,
+  including the two review 8 named (no retry at launch; one node.exe for board and supervisors).
+- Fixed (NITs): the server.js comment rewrapped; the catch-all sentence covers a write failure too.
+- Left (NIT): the launch-site check is a source check (P7 and P8 red it); a behavioural test would need
+  preacceptClaudeFirstRun exported, and the Windows-box checks cover the behaviour.

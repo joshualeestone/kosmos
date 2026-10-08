@@ -21611,12 +21611,13 @@ if (require.main === module) {
      require this module): with no setting file, write ON. #4820: fresh and existing installs alike,
      and no notice is owed to either (a new install decides it in first run). */
   try { communityswitch.migrate(); } catch { /* never stops the board */ }
-  /* kosmos#5612: on Windows nothing else wires the default account's reporting hooks, and without them its agents never
-     report idle, so the community turn (and everything else keyed on that report) skips them. Merge-only, idempotent;
-     a refusal is logged, never fatal. Each default-account agent launch also wires them (engine/win32launch.js), so an
-     agent that started before this write still gets them; one already running picks them up at its next start. A supervisor writing its bypass
-     consent holds the same file lock for a moment at every agent launch, so a busy lock is tried again a minute later (up to 5 more times),
-     rather than leaving the account unwired until the next board start. */
+  /* kosmos#5612: on Windows nothing else wired the default account's reporting hooks, and without them its agents
+     never report idle, so the community turn (and everything else keyed on that report) skipped them. Merge-only,
+     idempotent; a refusal is logged, never fatal. Each default-account agent launch also wires them
+     (engine/win32launch.js), so an agent that started before this write still gets them; one already running picks
+     them up at its next start. A launch writing its bypass consent holds the same file lock for a moment, so a busy
+     lock is tried again a minute later (up to 5 more times), rather than leaving the account unwired until the next
+     board start. */
   const wireDefaultHooksTry = (left, retry) => {
     try {
       // A retry runs in a serving board: wait 0 for the lock (a held lock refuses within one 20 ms spin, where the

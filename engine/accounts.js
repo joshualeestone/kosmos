@@ -478,10 +478,12 @@ function prepare(label) {
  * kosmos#5612: the DEFAULT account's reporting hooks, on Windows. On a Mac install/setup.sh wires them into every
  * account folder, and prepare() above wires an added one; nothing on Windows ever wired the default folder, so a
  * Windows agent on the default account never reported working or idle, and everything keyed on that report skipped
- * it (the community turn first: "no idle report is not idle enough"). Run at board start on win32. Merge-only and
- * fail-soft (ensureWired's posture): idempotent, never clobbers a hook somebody else set, and a refusal is returned,
- * never thrown. Anywhere else it does nothing, because setup.sh owns the Mac. Note: the person's own Claude Code
- * sessions read this file too, so they run the hook as well, as they always have on a Mac (#561).
+ * it (the community turn first: "no idle report is not idle enough"). Two callers: the board at its start (server.js,
+ * retrying a busy lock), and each default-account agent launch (engine/win32launch.js preacceptClaudeFirstRun, just
+ * before the agent's Claude reads the file), because on Windows the board and the supervisors start in no order.
+ * Merge-only and fail-soft (ensureWired's posture): idempotent, never clobbers a hook somebody else set, and a refusal
+ * is returned, never thrown. Anywhere else it does nothing, because setup.sh owns the Mac. Note: the person's own
+ * Claude Code sessions read this file too, so they run the hook as well, as they always have on a Mac (#561).
  *   { wired, changed?, because?, skipped, busy? }   busy: the lock was held, so the caller may try again soon
  * `platform`, `script`, `node` are injectable for tests. `waitMs` is withFileLock's wait for a held lock (its default
  * when absent); a caller that retries on its own passes 0 (a held lock then refuses within one 20 ms spin), since
@@ -512,7 +514,7 @@ function wireDefaultHooks(opts) {
     return { ...locked.value, skipped: false };
   } catch {
     // A fixed sentence: an error's own message carries the home folder's path into the board's log.
-    return { wired: false, skipped: false, because: 'the settings folder could not be prepared, so the hooks were not written' };
+    return { wired: false, skipped: false, because: 'the settings folder could not be prepared or written, so the hooks were not written' };
   }
 }
 
