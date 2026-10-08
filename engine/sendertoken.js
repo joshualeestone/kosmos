@@ -271,7 +271,7 @@ function revokeIfUnchanged(sessionName, mtimeMs, newestMintMs) {
         return (e && e.code === 'ENOENT') ? { ok: true, already: true } : { ok: false, because: 'we could not look at that agent\'s tokens' };
       }
       // the type first, before anything is read: a link or a FIFO swapped in is never followed or read under the lock
-      if (!st.isFile()) return { ok: false, because: 'written since the plan was made: kept' };
+      if (!st.isFile()) return { ok: false, because: 'no longer a regular file: kept' };
       // Also the newest mintedAt, read under the lock: a mint that lands in the same mtime tick (a coarse-mtime
       // mount) still adds a newer token, and that keeps the file.
       const newest = readTokens(sessionName).reduce((m, t) => { const ms = Date.parse((t && t.mintedAt) || ''); return Number.isFinite(ms) && ms > m ? ms : m; }, -Infinity);
