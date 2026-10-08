@@ -1849,8 +1849,14 @@ function setProvider(name, provider, opts) {
   /* #5534: switching an agent onto a provider the company policy does not allow is refused like creating one there. */
   {
     // The model the person picked with the switch (set right after it, #5429); none picked is what the runner picks.
-    const allowed = policyAllows(provider, opts && typeof opts.model === 'string' ? opts.model : '');
-    if (!allowed.ok) return { outcome: OUTCOME.REFUSED, because: allowed.because };
+    const picked = opts && typeof opts.model === 'string' ? opts.model.trim() : '';
+    const allowed = policyAllows(provider, picked);
+    if (!allowed.ok) {
+      // Gemini and Grok take no model with a switch (they start on their pinned default), so say that is what was asked.
+      const pinnedNote = !picked && (provider === 'google' || provider === 'xai')
+        ? `. A switch starts it on its default model; to use another, create a new agent on an allowed model` : '';
+      return { outcome: OUTCOME.REFUSED, because: allowed.because + pinnedNote };
+    }
   }
   /* #3564: a swarm's meter and stop keys are Claude Code's, so it stays on Claude, as at birth. */
   if (provider !== 'anthropic') {
@@ -2390,9 +2396,8 @@ function setModel(name, modelKey, opts) {
 
   /* #5534: switching onto a model the company policy does not allow is refused like creating an agent on it. */
   {
-    // An empty choice is the vendor's own default, which no list can name: refused when the provider has a list.
-    let allowed = { ok: true };
-    try { allowed = require('./orgpolicy').allows({ provider: agentProvider, model: [m.key, m.arg] }); } catch { allowed = { ok: true }; }
+    // The one definition (policyAllows): an empty choice is the runner's own pick, pinned for Gemini and Grok.
+    const allowed = policyAllows(agentProvider, m.key || m.arg || '');
     if (!allowed.ok) return { outcome: OUTCOME.REFUSED, because: allowed.because };
   }
   const unwritten = rewriteAgentJob(clean, spoken, {

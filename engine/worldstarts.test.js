@@ -867,8 +867,13 @@ test('#5534: an imported agent on a provider the company policy does not allow i
     assert.doesNotMatch(String(allowed || ''), /policy/, 'CONTROL: an allowed provider and model is not refused for policy');
     fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 2, applied_at: 1,
       policy: { providers_allowed: null, models_allowed: null } }));
-    worldstarts.firstStartOfImport({ name: 'importcodex', runner: 'codex' }, MAC);
-    assert.equal(store.readProfile('importcodex').policyHeld, false, 'the mark stayed after the policy allowed the import');
+    // Allowed but the install fails (no folder yet): it has not run, so the mark stays and Repair still asks.
+    const failed = worldstarts.firstStartOfImport({ name: 'importcodex', runner: 'codex' }, MAC);
+    assert.match(String(failed), /could not set importcodex up/, 'setup: the install was expected to fail here');
+    assert.equal(store.readProfile('importcodex').policyHeld, true, 'the mark cleared although the agent never ran');
+    fs.mkdirSync(create.workerDir('importcodex'), { recursive: true });
+    const second = worldstarts.firstStartOfImport({ name: 'importcodex', runner: 'codex' }, MAC);
+    assert.equal(store.readProfile('importcodex').policyHeld, false, 'the mark stayed after the import was set up to run: ' + second);
   } finally {
     fs.rmSync(orgpolicy.APPLIED(), { force: true });
   }
