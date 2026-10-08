@@ -84,10 +84,10 @@ async function runBridge(event, env, run = runOnce, wait = (ms) => new Promise((
   for (let i = 0; i < 3; i += 1) {
     const r = await run(event, env);
     tries.push(r);
-    if (!endedByRunner(r)) return Object.assign(r, { tries });
+    if (!endedByRunner(r)) return { ...r, tries };
     if (i < 2) await wait(200 * (i + 1));
   }
-  return Object.assign(tries[tries.length - 1], { tries });
+  return { ...tries[tries.length - 1], tries };
 }
 const howItEnded = (r) => JSON.stringify((r.tries || [r]).map((x) => ({ code: x.code, signal: x.signal, error: x.error, stderr: String(x.err || '').slice(0, 300) })));
 
@@ -109,7 +109,7 @@ test('#4417: the launch event reports idle from the new pane, with its launch to
     assert.equal(r.code, 0, 'the bridge did not exit 0: ' + howItEnded(r));
     const reports = board.seen.filter((x) => x.url === '/api/report' && x.headers['x-kosmos-agent-token'] === token);
     // CONTROL: a report under no try's token would be a bug in the stand-in or the bridge, not a retry.
-    assert.equal(board.seen.filter((x) => x.url === '/api/report' && !/^abc123[0-9]$/.test(String(x.headers['x-kosmos-agent-token']))).length, 0, 'a report arrived under a token no try sent');
+    assert.equal(board.seen.filter((x) => x.url === '/api/report' && !/^abc123[0-9]+$/.test(String(x.headers['x-kosmos-agent-token']))).length, 0, 'a report arrived under a token no try sent');
     assert.equal(reports.length, 1, reports.length === 0
       ? 'a launched agy agent told the board nothing, so it reads "Can\'t tell" until its first turn: ' + howItEnded(r)
       : 'the board got ' + reports.length + ' launch reports from one run: ' + howItEnded(r));
