@@ -133,6 +133,9 @@ function createRestoreSink(root) {
   if (process.platform !== 'win32') {
     if (st.mode & 0o002n) throw new Error('restoresink: the root must not be writable by other users (or the drive keeps no permissions, such as exFAT)');
     try { fs.chmodSync(rootReal, 0o700); } catch (e) { throw new Error(`restoresink: could not make the root private (${e.code || e.message})`); }
+    // Read the mode back: a mount that reports success but ignores modes (a CIFS dynperm mount, some FUSE mounts)
+    // would otherwise leave a group-writable root accepted. (#5536, review round 19 of E0.7)
+    if (fs.lstatSync(rootReal, { bigint: true }).mode & 0o077n) throw new Error('restoresink: the root could not be made private (the drive ignored the permission change); choose a folder on this computer\'s own disk');
     if (process.platform === 'darwin') stripAclDarwin(rootReal);
     if (fs.readdirSync(rootReal).length) throw new Error('restoresink: something appeared in the root while it was being made private');
   }
