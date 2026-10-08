@@ -123,6 +123,15 @@ rcs=""; for i in 1 2 3 4 5; do DEPLOY_RC=75 tick; rcs="$rcs$RC"; done
 tick
 { [ "$RC" = 0 ] && [ ! -e "$KOSMOS_AUTODEPLOY_STATE/retries" ]; } && pass "a success clears the retry count" || bad "retry count not cleared (rc=$RC)"
 
+# 11b) a damaged count file is read as zero, never evaluated: its text cannot run.
+advance eleven-b >/dev/null
+H11b=$(git -C "$T/work" rev-parse HEAD)
+printf '%s %s\n' "$H11b" '$(touch '"$T"'/pwned)x' > "$KOSMOS_AUTODEPLOY_STATE/retries"
+DEPLOY_RC=75 tick
+{ [ "$RC" = 0 ] && [ ! -e "$T/pwned" ] && [ "$(cat "$KOSMOS_AUTODEPLOY_STATE/retries")" = "$H11b 1" ]; } \
+  && pass "a damaged retry count restarts at 1 and its text never runs" || bad "damaged count (rc=$RC, file='$(cat "$KOSMOS_AUTODEPLOY_STATE/retries")')"
+tick
+
 # 12) a tick that cannot take the lock writes no heartbeat, so a wedged lock shows as a stale heartbeat;
 #     a lock with no pid yet (just made by another tick) is held, not taken over.
 advance twelve >/dev/null

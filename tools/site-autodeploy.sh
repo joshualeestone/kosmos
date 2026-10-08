@@ -22,7 +22,8 @@
 # depend on the other checkout afterwards), then copy .vercel/ into it.
 #
 # Skips, retried on the next tick: a release running on this machine, another tick still running.
-# Does NOT retry a sha whose deploy failed (except exit 75, below: the live site was moving): a refusal is a finding, not a blip, and a tick that
+# Does NOT retry a sha whose deploy failed (except exit 75, below: the live site was moving): a
+# refusal is a finding, not a blip, and a tick that
 # re-ran a refusing deploy every couple of minutes would hide it in noise. The failure is recorded
 # (last-failure, and the log) and the next merge, or deleting last-failure, tries again.
 #
@@ -58,7 +59,7 @@ if ! mkdir "$LOCK" 2>/dev/null; then
   holder=$(cat "$LOCK/pid" 2>/dev/null || true)
   if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then say "skip: another tick (pid $holder) holds the lock"; exit 0; fi
   # No pid yet: a tick that has just made the lock and not written its pid. Held, unless that was
-  # long enough ago that its tick must have died first.
+  # long enough ago that its tick must have died first. (stat -f is the macOS form: this runs on Mortals.)
   if [ -z "$holder" ] && [ $(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || echo 0) )) -lt 60 ]; then exit 0; fi
   rm -rf "$LOCK"; mkdir "$LOCK" 2>/dev/null || exit 0
 fi
@@ -74,10 +75,15 @@ LAST=$(cat "$STATE/last-deployed" 2>/dev/null || true)
 case "$(cat "$STATE/last-failure" 2>/dev/null || true)" in "$TARGET "*) exit 0 ;; esac
 
 # A release cut publishes the site itself (its step 8) from its own checkout, and a hand-run deploy-site.sh
-# or promote-channel.sh is about to publish too. Do not deploy beside any of them: wait for it to finish, then publish whatever main holds. This sees only cuts on THIS machine,
+# or promote-channel.sh is about to publish too. Do not deploy beside any of them: wait for it to
+# finish, then publish whatever main holds. This sees only cuts on THIS machine,
 # which is where cuts run; a cut on another box is caught, if at all, by deploy-site.sh's pointer
 # re-read (#5589) and its committed-vs-live guards. The match is anchored on the command
-# column (an interpreter, any options, then a path ending in tools/release.sh), so a grep or an editor naming the
+# column (an interpreter, any options, then a path ending in tools/<name>.sh), so a grep or an editor naming the
+# file does not read as a cut. A wrapper (caffeinate, nohup, env, bash -c, queued-heavy.sh) does not hide a
+# cut: release.sh still runs as its own `bash .../tools/release.sh` process, and that line is what matches.
+# What it cannot see is a cut on another machine (above).
+#
 # file does not read as a cut.
 PS_CMD="${KOSMOS_AUTODEPLOY_PS:-ps -axo command=}"
 if sh -c "$PS_CMD" 2>/dev/null | grep -Eq '^([^ ]*/)?(ba|z)?sh( -[^ ]+)* [^ ]*tools/(release|deploy-site|promote-channel)\.sh( |$)'; then
@@ -112,7 +118,9 @@ fi
 # (a host that stays unreachable would otherwise read green forever); it keeps retrying after that.
 RETRY_ALARM=4
 if [ "$rc" = 75 ]; then
-  n=0; read -r rsha rn < "$STATE/retries" 2>/dev/null && [ "$rsha" = "$TARGET" ] && n=$rn
+  n=0; rsha=""; rn=""; read -r rsha rn < "$STATE/retries" 2>/dev/null || true
+  case "$rn" in ''|*[!0-9]*) rn=0 ;; esac   # a damaged count file counts from zero, never evaluates its text
+  [ "$rsha" = "$TARGET" ] && n=$rn
   n=$((n + 1)); echo "$TARGET $n" > "$STATE/retries"
   if [ "$n" = "$RETRY_ALARM" ]; then
     say "FAIL: ${TARGET:0:9} has hit a moving or unreadable live site $n ticks in a row; still retrying"
