@@ -11,6 +11,9 @@ const br = require('./backuprestore');
 
 const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
 const BIG = 2 ** 40;
+/* How a refused path is reported: the escape rule restated from the JSDoc, pinned by explicit examples below. */
+const shown = (p) => p.replace(/[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ud800-\udfff\u{e0000}-\u{e007f}\p{Default_Ignorable_Code_Point}]/gu,
+  (c) => `\\u{${c.codePointAt(0).toString(16)}}`);
 
 /* A sink that records everything: committed files, aborted paths, and every call in order. */
 function memorySink({ failBeginOn, failWriteOn, failCommitOn, failAbortOn } = {}) {
@@ -126,10 +129,9 @@ test('#5536 unsafe paths are refused before anything is fetched (control: a plai
   const { r, sink } = await run();
   assert.deepEqual(r.restored, ['ok.md', '.hidden/fine.md', 'family\u{1f469}\u200d\u{1f467}.md', 'heart\u2764\ufe0f.md', 'notes~draft.md', 'backup~1.tar.gz'],
     'CONTROL: plain relative paths restore, emoji names with a joiner or a variation selector, and a ~ that is not a short name');
-  const shown = (p) => p.replace(/[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ud800-\udfff]/gu, (c) => `\\u{${c.codePointAt(0).toString(16)}}`);
   assert.deepEqual(r.failed.map((f) => f.path), bad.map(shown), 'reported paths have control, bidi and lone-surrogate characters escaped');
   const reported = new Set(r.failed.map((f) => f.path));
-  for (const p of ['evil.md\\u{0}.txt', 'Icon\\u{d}', 'exe\\u{202e}txt.md', 'lone\\u{d800}.md', 'nel\\u{85}.md']) assert.ok(reported.has(p), p);
+  for (const p of ['f1\\u{e0041}', '\\u{200b}', 'evil.md\\u{0}.txt', 'Icon\\u{d}', 'exe\\u{202e}txt.md', 'lone\\u{d800}.md', 'nel\\u{85}.md']) assert.ok(reported.has(p), p);
   assert.deepEqual(r.failed.filter((f) => f.why === 'malformed entry or unsafe path').map((f) => f.path), unsafe.map(shown), 'could escape, alias or disguise a name');
   assert.deepEqual(r.failed.filter((f) => f.why === 'a name not every system accepts').map((f) => f.path), notPortable.map(shown), 'refused everywhere, reported as a portability loss, not as tampering');
   assert.equal(sink.calls.filter((c) => c.startsWith('begin')).length, 6, 'no sink is opened for a refused path');
@@ -144,7 +146,7 @@ test('#5536 entries that land on the same file or folder are all refused (contro
   const { r } = await run();
   assert.deepEqual(r.restored, ['keep/one.md', 'keep/two.md'], 'CONTROL');
   assert.deepEqual(r.failed.map((f) => f.path).sort(), ['dup.md', 'dup.md', 'Readme.md', 'README.md', nfc, nfd, 'x', 'X/y.md', 'a\\b.md', 'a/b.md',
-    'ab\u03c2.md', 'AB\u03a3.md', '\u03c3.md', '\u03c2.md', 'zw.md', 'z\u200bw.md', '\u1e9e.md', 'ss.md'].sort(), 'final sigma folds with sigma; an invisible character does not make a name distinct');
+    'ab\u03c2.md', 'AB\u03a3.md', '\u03c3.md', '\u03c2.md', 'zw.md', 'z\u200bw.md', '\u1e9e.md', 'ss.md'].map(shown).sort(), 'final sigma folds with sigma; an invisible character does not make a name distinct');
   assert.ok(r.failed.every((f) => f.why === 'another entry lands on the same file or folder'));
 });
 
@@ -209,9 +211,10 @@ test('#5536 a commit that throws fails the file and aborts it, even when the abo
 
 test('#5536 skippedAtBackup keeps only well-formed { path, why } entries', async () => {
   const { run } = handMade((entry) => [entry('a.md')], { skipped: [{ path: '.env', why: 'environment file', extra: 1 }, { path: 5 }, null, 'x', { path: 'k', why: 'key' },
-    { path: 'e\x1b]0;t\x07', why: '\x1b[2Jcleared' }] });
+    { path: 'e\x1b]0;t\x07', why: '\x1b[2Jcleared' }, { path: 'h\u{e0049}\u{e0047}', why: 'w\u200b' }] });
   const { r } = await run();
-  assert.deepEqual(r.skippedAtBackup, [{ path: '.env', why: 'environment file' }, { path: 'k', why: 'key' }, { path: 'e\\u{1b}]0;t\\u{7}', why: '\\u{1b}[2Jcleared' }],
+  assert.deepEqual(r.skippedAtBackup, [{ path: '.env', why: 'environment file' }, { path: 'k', why: 'key' }, { path: 'e\\u{1b}]0;t\\u{7}', why: '\\u{1b}[2Jcleared' },
+    { path: 'h\\u{e0049}\\u{e0047}', why: 'w\\u{200b}' }],
     'terminal escapes a device wrote come back escaped, in the path and in the reason');
 });
 
@@ -355,4 +358,16 @@ test('#5536 the failed list is capped at 10000, with a count of the rest; an obj
   assert.equal(rt.failed[0].why, 'a chunk is larger than any real chunk', 'a 1-byte file cannot draw an object over 8194 bytes');
   const { r: ok } = await tiny.run(memorySink(), { fetchChunk: () => big.subarray(1) });
   assert.equal(ok.failed[0].why, 'a chunk did not verify (forged, swapped or damaged)', 'CONTROL: at the cap the object is tried');
+});
+
+test('#5536 only entries that fit the byte budget earn work allowance; shrinkWarning thresholds are checked', async () => {
+  // Two 100-byte entries and 50 claiming more than the budget: the pool is 2 x 100 + 2 x 8192 = 16,584. a.md draws
+  // 8,392 bytes of junk, so b.md may fetch 8,192 (the pool), not 8,392 (its own cap), unless the 50 had added to it.
+  const { run } = handMade((entry) => [entry('a.md'), entry('b.md'), ...Array.from({ length: 50 }, (_, i) => entry(`huge${i}.md`, { size: 10 ** 9 }))]);
+  const limits = [];
+  await run(memorySink(), { maxTotalBytes: 100, fetchChunk: (_n, o) => { limits.push(o.maxBytes); return limits.length === 1 ? crypto.randomBytes(8392) : null; } });
+  assert.deepEqual(limits, [8392, 8192], 'entries over the budget add nothing to the pool');
+  assert.throws(() => br.shrinkWarning({ files: [] }, { files: [] }, { files: NaN }), /shrinkWarning files/);
+  assert.throws(() => br.shrinkWarning({ files: [] }, { files: [] }, { bytes: 2 }), /shrinkWarning bytes/);
+  assert.equal(br.shrinkWarning({ files: [] }, { files: [] }, { files: 1, bytes: 0.1 }), null, 'CONTROL');
 });

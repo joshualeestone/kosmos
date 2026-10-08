@@ -63,10 +63,11 @@ const collisionKey = (p) => toSinkPath(p).replace(IGNORABLE_RE, '')
   .normalize('NFC').toLowerCase().toUpperCase().toLowerCase().normalize('NFC');
 /* pathProblem and collisionKey read '\' as a separator, so the sink is handed the same reading. */
 const toSinkPath = (p) => p.replace(/\\/g, '/');
-/* Manifest text as reported back: bounded (a refused entry's path is not length-checked), with control characters,
-   bidi characters and lone surrogates written as \u{...} so a hostile manifest cannot drive a terminal or a log. */
+/* Manifest text as reported back: bounded (a refused entry's path is not length-checked), with control, bidi, tag and
+   other invisible characters and lone surrogates written as \u{...}, so a hostile manifest can neither drive a
+   terminal or a log nor hide text in a report a person or a model reads. */
 const forReport = (p) => (p.length > 300 ? `${p.slice(0, 300).replace(/[\ud800-\udbff]$/, '')}...` : p)
-  .replace(/[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ud800-\udfff]/gu, (c) => `\\u{${c.codePointAt(0).toString(16)}}`);
+  .replace(/[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ud800-\udfff\u{e0000}-\u{e007f}\p{Default_Ignorable_Code_Point}]/gu, (c) => `\\u{${c.codePointAt(0).toString(16)}}`);
 
 /** Every manifest path that must not be restored because another entry collides with it (see collisionKey): the
  *  same key, or a key that is another's folder. A trie of key segments, so the cost is linear in the paths' length. */
@@ -98,10 +99,11 @@ function collidingPaths(entries) {
  * manifest is larger than the caller allowed (raise the bound and retry; the object-size bound is checked before the
  * signature, so it says nothing about authenticity); or { malformed: 'files' } when a manifest that verified has no
  * file list (the device wrote it badly, not tampering); or null
- * when the manifest itself does not verify and open (wrong device key for the time, wrong context, tampering). maxTotalBytes is REQUIRED (the caller sets it from free disk) and caps the
- * bytes committed: a file that would pass it fails before anything is fetched. Every fetched object's bytes count
- * against twice that, plus 8 KiB for each well-formed entry that collides with none (sealing overhead), whether or
- * not it verifies; and
+ * when the manifest itself does not verify and open (wrong device key for the time, wrong context, tampering).
+ *
+ * maxTotalBytes is REQUIRED (the caller sets it from free disk) and caps the bytes committed: a file that would pass
+ * it fails before anything is fetched. Every fetched object's bytes count against twice that, plus 8 KiB for each
+ * well-formed entry that collides with none and fits the budget (sealing overhead), whether or not it verifies; and
  * one object may be at most twice its file's recorded size plus 8 KiB. So a hostile store or files that fail late
  * cost at most 2 x maxTotalBytes + 8 KiB x maxFiles (about 4 GB at the default maxFiles) of download, with a fetch that
  * honours maxBytes (one that does not can overdraw by one object).
@@ -124,7 +126,7 @@ function collidingPaths(entries) {
  * restored, failed and skippedAtBackup all hold manifest text, another device's words: escape all of it for HTML.
  * restored paths passed pathProblem (no control, bidi or tag characters, though other invisible ones such as the
  * joiners in emoji may remain); failed and skipped text is bounded and has
- * control, bidi and lone-surrogate characters written as \u{...}. failed is grouped by stage, not in manifest order. fetchChunk and the
+ * control, bidi, tag and other invisible characters and lone surrogates written as \u{...}. failed is grouped by stage, not in manifest order. fetchChunk and the
  * sink have no timeout here: a call that never settles stalls the restore, so the caller bounds them.
  */
 async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, manifestObject, fetchChunk, sink,
@@ -165,7 +167,7 @@ async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, 
   // Two budgets: bytes committed (maxTotalBytes), and bytes FETCHED whether or not they verify or their file commits
   // (twice that, plus room for each entry's sealing overhead: a small chunk is padded to a 4 KiB frame).
   let budget = maxTotalBytes;
-  const work = { left: 2 * maxTotalBytes + WORK_PER_ENTRY * wellFormed.filter((f) => !clash.has(f.path)).length };
+  const work = { left: 2 * maxTotalBytes + WORK_PER_ENTRY * wellFormed.filter((f) => !clash.has(f.path) && f.size <= maxTotalBytes).length };
   for (const f of wellFormed) {
     if (clash.has(f.path)) { failed.push({ path: forReport(f.path), why: 'another entry lands on the same file or folder' }); continue; }
     if (f.size > budget) { failed.push({ path: forReport(f.path), why: 'the restore is over its byte budget' }); continue; }
@@ -226,6 +228,9 @@ async function abortWith(out, why) {
  *  read from the manifests, which the backing-up device writes: a heuristic for an accidental or careless
  *  shrink, not a defence against a device that pads its manifest. */
 function shrinkWarning(older, newer, { files = 0.5, bytes = 0.5 } = {}) {
+  for (const [k, v] of Object.entries({ files, bytes })) {
+    if (typeof v !== 'number' || !(v > 0 && v <= 1)) throw new Error(`backuprestore: shrinkWarning ${k} must be a fraction in (0, 1]`);
+  }
   const count = (m) => (Array.isArray(m && m.files) ? m.files.length : 0);
   const size = (m) => (Array.isArray(m && m.files) ? m.files.reduce((n, f) => n + (Number.isSafeInteger(f && f.size) && f.size > 0 ? f.size : 0), 0) : 0);
   const fo = count(older), fn = count(newer), bo = size(older), bn = size(newer);
