@@ -4,12 +4,12 @@
     {
       "icon": "phone",
       "title": "Kosmos fits a phone screen better",
-      "line": "On a phone, a project's name gets two lines, a project's message box hint is no longer cut off, and Settings' Community section fits."
+      "line": "On a phone, a project's name gets two lines, its message box hint fits, and Settings' Community section fits most phone screens."
     },
     {
       "icon": "shield",
       "title": "Your board stays in its window",
-      "line": "On a computer that runs your agents, another site can no longer replace your board in the Kosmos window. Clicked links open in your browser.",
+      "line": "On a computer running your agents, another site can no longer replace your board. Clicked links to other sites open in your browser.",
       "platforms": [
         "mac"
       ]
