@@ -288,8 +288,8 @@ const PHONE_LOOK = `(() => {
     const a = mk(false), y = mk(true);
     try {
       const ab = a.querySelector('.msg-av').getBoundingClientRect(), an = a.querySelector('.msg-b').getBoundingClientRect();
-      const yb = y.querySelector('.msg-av').getBoundingClientRect(), yn = y.querySelector('.msg-b').getBoundingClientRect();
-      return { agentAvTopOff: Math.round(ab.top - an.top), yourAvBottomOff: Math.round(yn.bottom - yb.bottom), tall: Math.round(an.height) };
+      const yav = y.querySelector('.msg-av'), yb = yav.getBoundingClientRect(), yn = y.querySelector('.msg-b').getBoundingClientRect();
+      return { agentAvTopOff: Math.round(ab.top - an.top), yourAvBottomOff: Math.round(yn.bottom - yb.bottom), yourAvShown: yav.getClientRects().length > 0, agentAvShown: a.querySelector('.msg-av').getClientRects().length > 0, tall: Math.round(an.height) };
     } finally { a.remove(); y.remove(); if (sec) sec.hidden = sh; panel.hidden = hid; }
   };
   out.room = one('pj-room', 'panel-projects'); out.dm = one('d-dmthread', 'panel-detail');
@@ -848,9 +848,9 @@ const AGENTS_LOOK = `(() => {
       chk(partOf.found && partOf.above, `${tag} On: a subtask's "Part of" line sits above its title, as it reads`, JSON.stringify(partOf));
       const hdOn = await page.evaluate(HEAD_PLACE);
       const phOn = await page.evaluate(PHONE_LOOK);
-      const top = (t) => !!t && t.agentAvTopOff <= 4 && t.tall > 40, foot = (t) => !!t && t.yourAvBottomOff <= 4;
-      chk(phOn.found && top(phOn.room) && top(phOn.dm) && foot(phOn.room) && foot(phOn.dm) && phOn.newTaskRadius === '999px',
-        `${tag} On: an agent's message has its avatar at the top (room and DM), yours keeps it at the foot, and New task is a pill`, JSON.stringify(phOn));
+      const top = (t) => !!t && t.agentAvTopOff <= 4 && t.tall > 40, noAv = (t) => !!t && t.yourAvShown === false && t.agentAvShown === true;
+      chk(phOn.found && top(phOn.room) && top(phOn.dm) && noAv(phOn.room) && noAv(phOn.dm) && phOn.newTaskRadius === '999px',
+        `${tag} On: an agent's message has its avatar at the top (room and DM), yours has none (#5551, the drawing), and New task is a pill`, JSON.stringify(phOn));
       if (width <= 960) chk(phOn.found && phOn.cog !== 'hidden' && phOn.cog.on && phOn.cog.right <= phOn.vw && phOn.cog.sw <= phOn.vw
         && phOn.cogLong && phOn.cogLong.on && phOn.cogLong.sw <= phOn.vw && phOn.cogRowMarginRight === '4px',
         `${tag} On, a phone: the project's gear sits on the crumb's line inside the page, with a long name too, and keeps 4px for its touch area`, JSON.stringify(phOn));
@@ -1107,8 +1107,8 @@ const AGENTS_LOOK = `(() => {
       chk(ctlOff.found && ctlBefore.found && JSON.stringify(ctlOff) === JSON.stringify(ctlBefore) && ctlOff.plainEdge !== 'rgba(0, 0, 0, 0)' && ctlOff.plainRadius !== '999px',
         `${tag} Off, the controls: exactly today's gold-edged buttons, as before the switch was touched (the control)`, JSON.stringify({ off: ctlOff, before: ctlBefore }));
       const phOff = await page.evaluate(PHONE_LOOK);
-      chk(phOff.found && phOff.room && phOff.dm && phOff.room.agentAvTopOff > 4 && phOff.dm.agentAvTopOff > 4 && phOff.newTaskRadius !== '999px',
-        `${tag} Off: an agent's message keeps its avatar at the bubble's foot (room and DM) and New task its corners (the control)`, JSON.stringify(phOff));
+      chk(phOff.found && phOff.room && phOff.dm && phOff.room.agentAvTopOff > 4 && phOff.dm.agentAvTopOff > 4 && phOff.room.yourAvShown && phOff.dm.yourAvShown && phOff.room.yourAvBottomOff <= 4 && phOff.newTaskRadius !== '999px',
+        `${tag} Off: an agent's message keeps its avatar at the bubble's foot (room and DM), yours keeps its avatar at the foot too, and New task its corners (the control)`, JSON.stringify(phOff));
       await page.mouse.move(0, 0);
       const crOff = await page.evaluate(CREATE_LOOK);
       chk(crOff.found && crBefore.found && JSON.stringify(crOff) === JSON.stringify(crBefore) && crOff.restEdge !== 'rgba(0, 0, 0, 0)' && crOff.continueRadius !== '999px',

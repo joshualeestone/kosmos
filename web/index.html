@@ -10640,6 +10640,10 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #panel-detail #d-talk-box { background: var(--k-bg); }
 :root[data-look="new"] body:not(.consolidated) #d-dmthread .msg.you .msg-bd { background-color: var(--nl-grey); }
 :root[data-look="new"] body:not(.consolidated) #d-dmthread .msg:not(.you) .msg-bd { background-color: var(--k-bg); }
+/* #5551: your own messages carry no avatar under the look, as Josh's v9 drawing has them: the side and the grey
+   already say they are yours, so the ink dot (.msg-av.mine) or your photo beside each one is decoration. An agent's
+   message keeps its avatar (it says who). The time stays inside the bubble (the timestamp-inside rulings). */
+:root[data-look="new"] body:not(.consolidated) :is(#pj-one-view, #d-dmthread) .msg.you > .msg-av { display: none; }
 :root[data-look="new"] body:not(.consolidated) #d-dmthread .msg .msg-bd::after { background: var(--k-bg); }
 :root[data-look="new"] body:not(.consolidated) #d-talk-box .dmbar.composerbox { border: 0; border-radius: 24px; padding: 6px 6px 6px 8px; }
 :root[data-look="new"] body:not(.consolidated) #d-talk-box .dmbar.composerbox:not(.dragging) { background: var(--nl-grey); }
