@@ -11216,6 +11216,7 @@ body.plus-active:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.att
 #s-sec-plus .plus-org-g { margin-top: 12px; }
 #s-sec-plus .plus-org-h { font-weight: 600; color: #E6EBF7; font-size: .8125rem; margin: 0 0 4px; }
 #s-sec-plus .plus-org-lists ul { margin: 0; padding-left: 20px; }
+#s-sec-plus .plus-org-lists li.plus-org-none { list-style: none; margin-left: -20px; color: var(--k-ink-2); }   /* a statement, not an item */
 #s-sec-plus .plus-org-box .frow { margin-top: 16px; }   /* Mona's NIT: room above the two buttons */
 @media (max-width: 600px) {
   #s-sec-plus .plus-org-lists { grid-template-columns: 1fr; }
@@ -47158,12 +47159,15 @@ function plusOrgMaybe() {
       : 'Your leave from ' + j.leaveRefused + ' was refused: you are its last admin. This Kosmos is your work Kosmos again' + reports;
   }).catch(() => { /* the next minute tries again */ });
 }
-function plusOrgList(id, items) {
+function plusOrgList(id, items, none) {
   const ul = document.getElementById(id);
   ul.textContent = '';
   for (const t of items || []) { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); }   // text, never markup
+  /* #5531 follow-up: a group with a sentence for "none" says it rather than vanish (a company that backs up nothing
+     yet sends an empty list, and a missing heading reads as "not shown", not "nothing"). */
+  if (!(items && items.length) && none) { const li = document.createElement('li'); li.className = 'plus-org-none'; li.textContent = none; ul.appendChild(li); }
   // The whole group, heading and list; the Never group always shows, for this Kosmos's own line under it.
-  ul.parentElement.hidden = !(items && items.length) && id !== 'plus-org-never';
+  ul.parentElement.hidden = !(items && items.length) && !none && id !== 'plus-org-never';
 }
 function plusOrgPaint() {
   const st = PLUS_ORG.state || {};
@@ -47201,7 +47205,7 @@ async function plusOrgCheck() {
     ? 'You are already in ' + (r.org.name || 'your company') + '. Make this Kosmos your work Kosmos? Here is what that means:'
     : (r.org.name || 'Your company') + ' invites you to join' + (r.role === 'admin' ? ' as an admin' : r.role === 'recovery' ? ' in its recovery role' : '') + '. Joining makes this Kosmos your work Kosmos. Here is what that means:';
   plusOrgList('plus-org-reports', r.consent.reports);
-  plusOrgList('plus-org-backsup', r.consent.backsUp);
+  plusOrgList('plus-org-backsup', r.consent.backsUp, r.consent.backsUpNone === true ? 'Nothing is backed up.' : null);
   plusOrgList('plus-org-readers', r.consent.readers);
   plusOrgList('plus-org-never', r.consent.never);
   plusOrgPaint();
