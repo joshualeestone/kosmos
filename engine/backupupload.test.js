@@ -896,10 +896,9 @@ test('chunks whose lock ends within 30 days are refused before any grant is aske
     assert.strictEqual(r.ok, false);
     assert.strictEqual(r.outlastsChunks, true);
     assert.strictEqual(mc.bodies.length, 0, 'a grant was asked for');
-    // CONTROL: 31 days asks.
-    const ok = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunksLockedUntilMs: Date.now() + 40 * DAY }));
+    // CONTROL: 31 days asks (the stub locks for 33 days from the grant, so set the floor past that for the PUT too).
+    const ok = await up.uploadManifest(deps(manifestCoordinator(b, { retainMs: (e) => e - 15 * 60 * 1000 + 31 * DAY - 60 * 1000 })), manifestBytes(), mOpts(b, { chunksLockedUntilMs: Date.now() + 31 * DAY }));
     assert.strictEqual(ok.ok, true, ok.because);
-    assert.strictEqual(mc.bodies.length, 1);
   } finally { await b.close(); }
 });
 
@@ -1018,5 +1017,53 @@ test('a manifest grant expiring far further ahead than a grant lasts (a clock fa
     const r = await up.uploadManifest(deps(manifestCoordinator(b, { expiresAt: Date.now() + 3 * 60 * 60 * 1000 })), manifestBytes(), mOpts(b));
     assert.strictEqual(r.ok, false); assert.match(r.because, /clocks is wrong/);
     assert.strictEqual(b.puts, 0);
+  } finally { await b.close(); }
+});
+
+test('an unreachable bucket for the manifest is retried until expiry, then ends retryLater with no unsure key and ONE grant', async () => {
+  const b = await bucket();
+  const base = b.base; await b.close();   // nothing listens there now
+  const mc = manifestCoordinator({ base });
+  const r = await up.uploadManifest(deps(mc, clock()), manifestBytes(), { bucket: `${new URL(base).host}/bucket/`, chunksLockedUntilMs: Date.now() + 40 * DAY });
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.retryLater, true);
+  assert.match(r.because, /could not be reached/);
+  assert.strictEqual(r.unsure, undefined);
+  assert.strictEqual(mc.bodies.length, 1, 'a new grant spent manifest allowance on a bucket it could not reach');
+});
+
+test('a manifest grant naming one of its chunks\' keys, or a key an earlier manifest grant gave, is refused before any PUT', async () => {
+  let b = await bucket();
+  try {
+    const r = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b, { chunkKeys: [keyN(9), mKey(1)] }));
+    assert.strictEqual(r.ok, false); assert.match(r.because, /already given/);
+    assert.strictEqual(b.puts, 0);
+    // CONTROL: other chunk keys pass.
+    const ok = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b, { chunkKeys: new Set([keyN(9)]) }));
+    assert.strictEqual(ok.ok, true, ok.because);
+    const bad = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b, { chunkKeys: 'org1/acct1' }));
+    assert.strictEqual(bad.ok, false); assert.match(bad.because, /not a list/);
+  } finally { await b.close(); }
+  b = await bucket();
+  try {
+    // A re-grant (after a clean expiry) that repeats the first grant's key.
+    let n = 0;
+    const mc = manifestCoordinator(b, { tamper: (d) => { if (++n === 2) { d.upload.key = mKey(1); d.upload.url = d.upload.url.replace('mK2', 'mK1'); } } });
+    b.script.set(mKey(1), [[403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>'], [500], [412, '<Error><Code>PreconditionFailed</Code></Error>']]);
+    const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b));
+    assert.strictEqual(r.ok, false); assert.match(r.because, /already given/);
+    assert.strictEqual(mc.bodies.length, 2);
+    assert.strictEqual(b.puts, 1);
+  } finally { await b.close(); }
+});
+
+test('a chunk stored through a 412 (after a lost answer) still reports its lock end', async () => {
+  const b = await bucket();
+  try {
+    b.script.set(keyN(1), [[503], [412, '<Error><Code>PreconditionFailed</Code></Error>']]);
+    const cs = [chunk(1)];
+    const r = await up.uploadChunks(deps(coordinator(b)), cs);
+    assert.strictEqual(r.ok, true, r.because);
+    assert.ok(Number.isFinite(r.lockedUntil.get(cs[0].name)), 'no lock end for a chunk stored through present');
   } finally { await b.close(); }
 });

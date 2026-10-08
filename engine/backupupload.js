@@ -488,9 +488,13 @@ function parseManifestGrant(data, bytes, runPrefix) {
      bucket               the bucket path its chunks are under (uploadChunks' `bucket`); the manifest goes there too
      chunksLockedUntilMs  the EARLIEST lock end among the chunks it names (from uploadChunks' lockedUntil, or the
                           caller's record for chunks stored by an earlier run): a manifest locked past it would name
-                          chunks that can be gone, so it is refused (before the grant when the clock already shows it,
-                          else as the grant arrives, its allowance spent, before any byte is sent)
-   plus putTimeoutMs, as uploadChunks. Resolves { ok: true, key, sha256, lockedUntilMs } or { ok: false, because,
+                          chunks that can be gone, so it is refused (before the grant when THIS MAC'S clock already
+                          shows it, which errs toward refusing when that clock runs fast; else as the grant arrives,
+                          its allowance spent, before any byte is sent)
+   and optionally chunkKeys, the keys its chunks are stored under (uploadChunks' keys.values()): a manifest grant that
+   names one of them is refused, since a 412 on it would read as the manifest stored. Plus putTimeoutMs, as
+   uploadChunks; by default one PUT may take a minute plus its bytes at 16 KB/s, so a black-holed PUT of a 64 MiB
+   manifest holds the call about 70 minutes before it ends retryLater. Resolves { ok: true, key, sha256, lockedUntilMs } or { ok: false, because,
    code?, retryLater?, unsure?, outlastsChunks? }, unsure being [{ key }] when a write may have landed. Never throws.
    The PUT is retried and classified exactly as a chunk's: the same url until the grant runs out, a 412 counted as
    stored only after an attempt that may have written it, a new grant only when one ran out cleanly. */
@@ -515,6 +519,13 @@ async function uploadManifestInner(deps, bytes, o) {
   if (floor < now() + MANIFEST_LOCK_FLOOR_MS) return { ok: false, outlastsChunks: true, because: `a manifest granted now stays locked past ${new Date(floor).toISOString()}, when the earliest chunk it names may be gone; upload those chunks again first` };
   const timeoutMs = Number.isFinite(o.putTimeoutMs) && o.putTimeoutMs > 0 ? o.putTimeoutMs : putTimeoutFor(bytes.length, 1);
   const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+  // Every key this call must not write: the chunks' (when given) and each earlier manifest grant's. The 412 rule rests
+  // on a key being this upload's alone, as in uploadChunks.
+  const avoid = new Set();
+  if (o.chunkKeys !== undefined) {
+    if (o.chunkKeys === null || typeof o.chunkKeys[Symbol.iterator] !== 'function' || typeof o.chunkKeys === 'string') return { ok: false, because: 'chunkKeys is not a list of keys' };
+    for (const k of o.chunkKeys) avoid.add(k);
+  }
   for (let grants = 0; grants <= MAX_REGRANTS; grants++) {
     const asked = now();
     const g = await askSigned(deps.macRequest, MANIFEST_ROUTE,
@@ -524,6 +535,8 @@ async function uploadManifestInner(deps, bytes, o) {
     const skew = clockSkew(now(), g.expiresAtMs);
     if (skew) return { ok: false, because: skew };
     const up = g.upload;
+    if (avoid.has(up.key)) return { ok: false, because: 'the manifest grant names a key this run was already given; nothing was sent (this grant\'s allowance is spent)' };
+    avoid.add(up.key);
     if (up.retainMs > floor) return { ok: false, outlastsChunks: true, because: `the manifest grant locks until ${new Date(up.retainMs).toISOString()}, past the earliest chunk it names (${new Date(floor).toISOString()}); nothing was sent (this grant's allowance is spent)` };
     const deadline = asked + g.lifetimeMs - 10 * 1000;
     let troubled = false, preOnly = false, cleanRanOut = false;
