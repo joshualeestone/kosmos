@@ -69,3 +69,20 @@ the pick rule for Rule 2 (slice B) and the weakest premises are on the card (iss
     Acceptable for a first slice; it never reaches unanswered.
 - Fixed (CONVENTION): the commentOf test calls cr.commentOf (with replyToKey).
 - Tests: 14 in the #5623 file; 445/445 across every test that mentions these modules.
+
+## Review 2 (sonnet)
+- Fixed (BLOCKER): a re-tell sent the agent to read --replies, which no longer shows a comment past its read mark, so
+  the agent had ids and nothing to read. repliesFor now lists every person comment the agent still owes, whatever the
+  mark. GAP: this path has no direct test (it needs a fetched thread); the owed set it uses is personOwed, which is
+  tested.
+- Fixed (WARNINGs):
+  - an entry leaves the record ONLY when seen answered (freshReplies returns `answered`); an unseen one (post unreadable,
+    thread not wholly visible) is kept with its history. P6 (unseen dropped) reds it.
+  - a person replying to the agent inside another agent's thread (reply_to names the agent) is owed.
+  - PERSONS_MAX 100, so given-up entries cannot starve newer persons before the nudge filters them.
+  - communityblock.js states the rule: a line marked "a person wrote this" is always owed an answer. The general
+    "under comment" sentence is unchanged, and two block tests pin it.
+  - a re-tell says the person is still waiting.
+- Left (WARNING, stated): with the hourly cap met the pass reads every idle agent for persons. Bounded by pacing, and the
+  priority call.
+- Tests: 810/810 across the 24 files that mention these modules (block included).

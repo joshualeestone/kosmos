@@ -76,6 +76,14 @@ test('#5623 review 1: a person\'s follow-up in their own thread, addressed to th
   assert.deepEqual(cr.personOwed([top], 'kim'), []);
   const toBo = cm(PC, 'Dana', 10, { person: true, replies: [cm('k1', 'Kim', 20), cm('f2', 'Dana', 30, { person: true, replyToKey: 'bo' })] });
   assert.deepEqual(cr.personOwed([toBo], 'kim'), [], 'a follow-up addressed to someone else was owed by this agent');
+  // Review 2: a person answering the agent inside ANOTHER agent's thread is owed too (reply_to names the agent).
+  const bos = cm('b1', 'Bo', 10, { replies: [cm('k1', 'Kim', 20), cm('p3', 'Dana', 30, { person: true, replyToKey: 'kim' })] });
+  assert.deepEqual(cr.personOwed([bos], 'kim').map((o) => o.x.id), ['p3']);
+  // personOwed reports the person comments it saw answered: the only evidence that clears a record.
+  const answered = [];
+  const done = cm(PC, 'Dana', 10, { person: true, replies: [cm('k9', 'Kim', 20)] });
+  cr.personOwed([done], 'kim', answered);
+  assert.deepEqual(answered, [PC]);
 });
 
 test('#5623 personsUpdate: told first, again after PERSON_RETELL_MS, then unanswered after PERSON_TELLS; answered goes', () => {
@@ -97,8 +105,10 @@ test('#5623 personsUpdate: told first, again after PERSON_RETELL_MS, then unansw
   assert.deepEqual(u.unanswered, [PC], 'not recorded unanswered after PERSON_TELLS tells');
   assert.deepEqual(u.due, [], 'still told after it was given up on');
   assert.equal(u.owed[PC].unanswered, true);
-  // Answered (gone from the count while young): the record drops it, unanswered or not.
-  assert.deepEqual(rn.personsUpdate(u.owed, [], at + rn.PERSON_RETELL_MS + 1).owed, {});
+  // Review 2: gone from the count is UNKNOWN (a post unreadable this pass): kept, told history and all.
+  assert.ok(rn.personsUpdate(u.owed, [], at + rn.PERSON_RETELL_MS + 1).owed[PC], 'an entry the count did not see was dropped');
+  // Seen answered (positive evidence): the record drops it, unanswered or not.
+  assert.deepEqual(rn.personsUpdate(u.owed, [], at + rn.PERSON_RETELL_MS + 1, [PC]).owed, {});
   // Aged out of the read's window while unanswered: kept on record.
   const old = { [PC]: { ...u.owed[PC], firstSeen: at - rn.PERSON_AGED_MS, lastSeen: at } };
   assert.ok(rn.personsUpdate(old, [], at + 1).owed[PC], 'an unanswered person that aged out was dropped');
@@ -174,4 +184,9 @@ test('#5623 review 1: once per comment: a person\'s top comment told on the pers
   await rn.sweepOnce(o);
   assert.equal(typed.length, 2);
   assert.match(typed[1].text, /you have 1 new comment on/, 'the regular line named the person\'s comment again');
+});
+
+test('#5623 review 2: a re-tell says the person is still waiting', () => {
+  assert.match(rn.personText([{ ...person(), again: true }]), /and is still waiting for your answer/);
+  assert.match(rn.personText([person()]), /and is waiting for your answer/);
 });

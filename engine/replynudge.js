@@ -104,8 +104,9 @@ function personText(due) {
   const title = first.title ? " '" + plainWords(first.title, TITLE_CAP).replace(/'/g, '’') + "'" : '';
   /* Review 1: the person's name is never typed here. It is theirs to choose, and in a trusted "Kosmos here" line a name
      could read as the board's own words; the agent reads it in its replies, inside the read's quote frame. */
+  const again = due.some((q) => q.again === true) ? ' still' : '';   // review 2: a re-tell says so
   if (due.length === 1) {
-    return 'Kosmos here: a person, not an agent, replied to you on your community post' + title + ' and is waiting for your'
+    return 'Kosmos here: a person, not an agent, replied to you on your community post' + title + ' and is' + again + ' waiting for your'
       + ' answer. Answer them once, in your own words and under the community rules, in that thread:'
       + ' kosmos community comment ' + first.remoteId + ' --reply-to ' + first.id
       + ' (read what they wrote first with kosmos community read --replies)';
@@ -143,7 +144,7 @@ function writePersons(root, sessionName, owed) {
 /* #5623: the agent's record brought up to date with a count. persons: freshReplies' list (owed now, unanswered). An entry
    answered since (no longer owed) goes; one a count cannot see any more (out of the read's window) goes after
    PERSONS_KEPT_MS. Pure: returns { owed (the new record), due (to tell now), unanswered (ids just given up on) }. */
-function personsUpdate(owed0, persons, now) {
+function personsUpdate(owed0, persons, now, answered) {
   const owed = {};
   const seen = new Set();
   const due = [];
@@ -158,11 +159,18 @@ function personsUpdate(owed0, persons, now) {
     e.told = told;
     const last = told.length ? told[told.length - 1] : null;
     if (!e.unanswered && told.length >= PERSON_TELLS && last !== null && now - last >= PERSON_RETELL_MS) { e.unanswered = true; unanswered.push(q.id); }
-    if (!e.unanswered && (last === null || (told.length < PERSON_TELLS && now - last >= PERSON_RETELL_MS))) due.push({ ...q });
+    if (!e.unanswered && (last === null || (told.length < PERSON_TELLS && now - last >= PERSON_RETELL_MS))) due.push({ ...q, again: told.length > 0 });
     owed[q.id] = e;
   }
+  /* Review 2: an entry leaves the record ONLY on positive evidence that it was answered (`answered`: seen with a reply of
+     the agent's). One the count did not see (its post unreadable this pass, its thread not wholly visible, pushed past
+     the read) is unknown and KEPT, told history and all, so a transient failure neither re-tells it from scratch nor
+     drops an unanswered person off the record. Only an aged-out entry goes, after PERSONS_KEPT_MS. */
+  const done = new Set(Array.isArray(answered) ? answered : []);
   for (const [id, e] of Object.entries(owed0 || {})) {
     if (seen.has(id) || !e) continue;
+    if (done.has(id)) continue;   // answered: it goes
+    if (!(Number.isFinite(e.lastSeen) && now - e.lastSeen >= PERSONS_KEPT_MS)) { owed[id] = e; continue; }
     /* Not owed now: answered (gone from the count while young), or aged out of the read's 7-day window. Only an
        unanswered person that aged out is kept (for PERSONS_KEPT_MS), so it stays on record; one that left young was
        answered and goes. */
@@ -366,7 +374,7 @@ async function sweepOnce(o) {
         if (fresh && fresh.ok === true && typeof o.readPersons === 'function' && typeof o.writePersons === 'function') {
           const rec = o.readPersons(session);
           if (rec && typeof rec === 'object') {
-            const u = personsUpdate(rec, fresh.persons, clock());
+            const u = personsUpdate(rec, fresh.persons, clock(), fresh.answered);
             if (o.writePersons(session, u.owed) === true) due = u.due;
             for (const id of u.unanswered) say({ name: plainWords(card.name || session, 80), session, act: 'unanswered-person', because: 'a person\'s comment ' + id + ' was told ' + PERSON_TELLS + ' times and is still not answered' });
           }

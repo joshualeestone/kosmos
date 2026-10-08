@@ -469,25 +469,28 @@ const byPos = (a, b) => (a.ts - b.ts) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0
  * unknown this pass and is not told. Missing a tell is the side to fail on: a duplicate public reply cannot be taken back.
  *   [{ x (the comment), parent (its top comment's id, '' for a top comment) }]
  */
-function personOwed(comments, me) {
+function personOwed(comments, me, answered) {
   const out = [];
   if (!me || !Array.isArray(comments)) return out;
+  const done = Array.isArray(answered) ? answered : null;   // review 2: the person comments SEEN answered (positive evidence)
   const mine = (r) => r && r.nameKey === me;
   for (const c of comments) {
     if (!c) continue;
     const replies = Array.isArray(c.replies) ? c.replies : [];
     if (Number.isInteger(c.replyCount) && c.replyCount > replies.length) continue;   // part of the thread unseen: unknown
     const laterMine = (r) => replies.some((o) => mine(o) && o.ts > r.ts);
-    if (c.person && !replies.some(mine)) out.push({ x: c, parent: '' });
+    if (c.person) { if (!replies.some(mine)) out.push({ x: c, parent: '' }); else if (done) done.push(c.id); }
     for (const r of replies) {
       if (!r || !r.person) continue;
-      const toMe = c.nameKey === me || (c.person && r.replyToKey === me);
-      if (toMe && !laterMine(r)) out.push({ x: r, parent: c.id });
+      // Review 2: addressed to the agent (reply_to names it) in ANY thread, or a reply under the agent's own comment.
+      const toMe = c.nameKey === me || r.replyToKey === me;
+      if (!toMe) continue;
+      if (!laterMine(r)) out.push({ x: r, parent: c.id }); else if (done) done.push(r.id);
     }
   }
   return out;
 }
-const PERSONS_MAX = 30;   // #5623: owed person comments returned per count, oldest first (the nudge skips given-up ones)
+const PERSONS_MAX = 100;   // #5623: owed person comments returned per count, oldest first (review 2: wide, so given-up ones cannot starve newer)
 
 function afterMark(x, mark, firstLook) {
   if (!mark) return x.ts > firstLook;
@@ -587,12 +590,13 @@ async function freshReplies(sessionName, opts) {
     const now = Number.isFinite(opts.now) ? opts.now : Date.now();
     const firstLook = now - REPLIES_FIRST_DAYS * 24 * 3600 * 1000;
     const { posts } = ownPosts(sessionName);
-    if (!posts.length) return { ok: true, posts: [], persons: [], asked: 0 };
+    if (!posts.length) return { ok: true, posts: [], persons: [], answered: [], asked: 0 };
     const marks = readMarks(sessionName);
     const me = ownName(sessionName);
     const titles = postTitles(sessionName);
     const out = [];
     const persons = [];   // #5623
+    const answered = [];   // #5623 review 2: person comments seen answered (the only evidence that clears a record)
     for (const p of posts) {
       /* Review 2: an agent's own read is waiting: let it in. Review 4 (Opus): as BUSY, not a partial ok, or the agent is
          told about some posts now and the rest in a second line, and a batch given up on comes back under a new key. */
@@ -644,7 +648,7 @@ async function freshReplies(sessionName, opts) {
       }
       // #5623: the person comments it owes on this post, from the whole thread as read (not the read's mark: reading is
       // not answering), within the read's own first-look window.
-      for (const o of personOwed(comments, me)) {
+      for (const o of personOwed(comments, me, answered)) {
         if (o.x.ts && o.x.ts >= firstLook) persons.push({ remoteId: p.remoteId, title: titles.get(p.remoteId) || '', id: o.x.id, author: o.x.author, parent: o.parent, ts: o.x.ts });
       }
       if (fresh.length) out.push({ remoteId: p.remoteId, title: titles.get(p.remoteId) || '', items: fresh });
@@ -662,7 +666,7 @@ async function freshReplies(sessionName, opts) {
       more: o.items.filter((i) => !keep.has(i) && owedClear(i)).sort((a, b) => byPos(a.x, b.x)).map((i) => i.x.id) }))
       .filter((o) => o.ids.length || o.more.length);
     persons.sort((a, b) => a.ts - b.ts);
-    return { ok: true, posts: capped, persons: persons.slice(0, PERSONS_MAX), asked, marksAt: marksStamp(sessionName, marks) };
+    return { ok: true, posts: capped, persons: persons.slice(0, PERSONS_MAX), answered, asked, marksAt: marksStamp(sessionName, marks) };
   } catch (err) {
     return { ok: false, because: 'the replies could not be read (' + String((err && err.message) || err) + ')' };
   } finally { replyReadRunning = false; }
@@ -739,6 +743,13 @@ async function repliesFor(sessionName, opts) {
       const parent = x === c ? '' : (x.parentId || c.id);
       if (x.author && x.ts && !(me && x.nameKey === me) && afterMark(x, mark, firstLook)) fresh.push({ x, post: th.post.remoteId, parent });
     }
+  }
+  /* #5623 review 2: a person's comment the agent still owes is shown whatever the read's mark says, so a re-tell can
+     always be read and answered (a mark records reading, not answering). */
+  const inFresh = new Set(fresh.map((f) => f.x.id));
+  for (const th of threads) {
+    if (th.failed || th.gone) continue;
+    for (const o of personOwed(th.comments, me)) if (!inFresh.has(o.x.id)) { fresh.push({ x: o.x, post: th.post.remoteId, parent: o.parent }); inFresh.add(o.x.id); }
   }
   fresh.sort((a, b) => byPos(a.x, b.x));
   const shownItems = fresh.slice(0, REPLIES_SHOWN_MAX);
