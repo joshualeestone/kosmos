@@ -56,3 +56,6 @@ socket, stream and fetch operations before the abort line. The cause itself is t
 - NITs left: fetch read at preload time (a plain property on Node 26.8.1, so no timing change here); if fd 2 itself is
   reused, later lines are silent, so a missing exit line reads like a death before exit; the real-run test does not
   assert the stand-in board received the report.
+
+## Validation (08:31 CDT 2026-10-08)
+- Rebased onto origin/main. agyseed-4417 11/11; guards fixture-discipline, cli.sandbox-data-4796 (red once after the rebase: the new guard test's child had no data root; fixed), engine.reachable, no-brand-refs, no-name-refs, the three Windows guards: green.
