@@ -260,6 +260,7 @@ const TRIAGED_5548 = {
   labelForMember: ['engine/fedmembers.js', SUPERSEDED + ' (a convenience over labelsFor that no screen uses)'],
   labelFor: ['engine/communityindustry.js', 'pending: slice 2 of OPEN #4375 (the public label for an owner\'s industry)'],
   HANDOFF_CHECK_FOR_SERVING_AFTER_MS: ['engine/win32handoff.js', 'mirrored by tools/windows/KosmosLauncher.cs (CheckForServingAfterMs), pinned equal by tools.win-launcher-native.test.js'],
+  costOf: ['engine/usageprice.js', 'pending: #5532\'s rollup sender (its next piece) is the first caller; merged in #5556 after this guard, nothing calls it yet by design, and usageprice.test.js pins it to the page\'s usageApiCost'],
   exportAgent: ['engine/agentfile.js', 'an UNREACHABLE capability (the export half of #1652): wire or delete on #5581'],
   // Review 2: NOT superseded (collapse does not bound a sequential loop): an unwired cost defence.
   minInterval: ['engine/inflight.js', 'an UNREACHABLE capability (the connections-sweep guard of #1645, never wired): wire or delete on #5583'],
