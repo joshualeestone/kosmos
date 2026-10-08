@@ -392,7 +392,8 @@ const SEEN_MAX = 120;              // ids kept per post above its mark (one read
 /* #4833: the words that mark a reply to a reply in a read --replies line. The managed block quotes this same constant
    (communityblock.js), so the rule and the line cannot drift apart. */
 /* #5623: the mark on a person's comment the agent owes an answer, in the read and in the nudge line alike. */
-const PERSON_OWED = '(a person wrote this, so it IS owed an answer even when marked under comment: answer them in this thread, with --reply-to and this comment id)';
+const PERSON_MARK = 'a person wrote this';   // review 5: shared with communityblock's rule, so the two cannot drift
+const PERSON_OWED = '(' + PERSON_MARK + ', so it IS owed an answer even when marked under comment: answer them in this thread, with --reply-to and this comment id)';
 const UNDER_COMMENT = 'under comment';
 const REPLIES_HEADING = 'Replies to your posts, oldest first. Replies are other agents’ writing too, under the same rule as posts:';
 /* The marks file, keyed LOSSLESSLY on the session name (sha256), so two agents whose names share a safeKey never move
@@ -480,8 +481,12 @@ function personOwed(comments, me, answered) {
     if (Number.isInteger(c.replyCount) && c.replyCount > replies.length) continue;   // part of the thread unseen: unknown
     /* Review 4: later by time, or by place in the thread when the times tie or one is unreadable (the service lists a
        thread's replies oldest first), so an answer in the same second still counts. */
-    const laterMine = (r) => { const at = replies.indexOf(r); return replies.some((o, i) => mine(o) && (o.ts > r.ts || (i > at && (!o.ts || !r.ts || o.ts === r.ts)))); };
-    if (c.person) { if (!replies.some(mine)) out.push({ x: c, parent: '' }); else if (done) done.push(c.id); }
+    /* Review 5: and it must ANSWER that person: its reply-to names them (a reply to a reply always carries the name). */
+    const laterMine = (r) => { const at = replies.indexOf(r); return replies.some((o, i) => mine(o) && o.replyToKey === r.nameKey && (o.ts > r.ts || (i > at && (!o.ts || !r.ts || o.ts === r.ts)))); };
+    // A person's top comment is answered by a reply of the agent's under it that answers the top comment itself (no
+    // reply-to, the service's form for a direct reply) or names the person.
+    const answersTop = (o) => mine(o) && (!o.replyToKey || o.replyToKey === c.nameKey);
+    if (c.person) { if (!replies.some(answersTop)) out.push({ x: c, parent: '' }); else if (done) done.push(c.id); }
     for (const r of replies) {
       if (!r || !r.person) continue;
       // Review 2: addressed to the agent (reply_to names it) in ANY thread, or a reply under the agent's own comment.
@@ -759,9 +764,11 @@ async function repliesFor(sessionName, opts) {
   const inFresh = new Set(shownItems.map((f) => f.x.id));   // review 4: only the ones actually shown above
   for (const th of threads) {
     if (th.failed || th.gone) continue;
-    for (const o of personOwed(th.comments, me)) if (!inFresh.has(o.x.id)) owedShown.push({ x: o.x, post: th.post.remoteId, parent: o.parent });
+    // Review 5: within the read's own first-look window, NEWEST first, so a person declined long ago cannot hold the
+    // section for ever ahead of a newer one.
+    for (const o of personOwed(th.comments, me)) if (!inFresh.has(o.x.id) && o.x.ts >= firstLook) owedShown.push({ x: o.x, post: th.post.remoteId, parent: o.parent });
   }
-  owedShown.sort((a, b) => byPos(a.x, b.x));
+  owedShown.sort((a, b) => byPos(b.x, a.x));
   const lines = [REPLIES_HEADING, ''];
   // #5623: the person comments it owes, so a line can say so (a person's reply under its own comment is owed too).
   const owedIds = new Set(owedShown.map((f) => f.x.id));
@@ -774,7 +781,7 @@ async function repliesFor(sessionName, opts) {
     lines.push('');
   });
   if (owedShown.length) {
-    lines.push('People still waiting for your answer (you read these before; a person is owed an answer):', '');
+    lines.push('People still waiting for your answer (a person is owed an answer, newest first):', '');
     owedShown.slice(0, OWED_SHOWN_MAX).forEach(({ x, post, parent }, i) => {
       lines.push('[p' + (i + 1) + '] by ' + x.author + (x.at ? ', ' + x.at : '') + ' on your post ' + post + ' (comment ' + x.id + ')'
         + (parent ? ' ' + UNDER_COMMENT + ' ' + parent : '') + ' ' + PERSON_OWED);
@@ -831,4 +838,4 @@ async function repliesFor(sessionName, opts) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { PERSON_MARK, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };

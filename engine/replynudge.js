@@ -414,6 +414,10 @@ async function sweepOnce(o) {
             if (Number.isFinite(since) && clock() - since < PERSON_IDLE_MS) { results.push({ session, name: display, act: 'just-idle', because: 'it finished a turn moments ago' }); continue; }
           }
           if (Number.isFinite(countedAt) && clock() - countedAt > COUNT_MAX_AGE_MS) { results.push({ session, name: display, act: 'stale-count', because: 'its count is older than ' + Math.round(COUNT_MAX_AGE_MS / 60000) + ' min' }); continue; }
+          /* Review 5: it worked since the count (its idle began after it), or it is reading its replies now: it may have
+             answered meanwhile, so it is not told "still waiting"; the next pass counts afresh. */
+          if (typeof o.idleSince === 'function') { let since = null; try { since = o.idleSince(session); } catch { since = null; } if (Number.isFinite(since) && Number.isFinite(countedAt) && since > countedAt) { results.push({ session, name: display, act: 'worked-since', because: 'it worked after its count' }); continue; } }
+          if (typeof o.readingNow === 'function') { let r = false; try { r = o.readingNow(session) === true; } catch { r = false; } if (r) { results.push({ session, name: display, act: 'read-meanwhile', because: 'it is reading its replies now' }); continue; } }
           const rec = o.readPersons(session);
           if (!rec || typeof rec !== 'object') continue;
           const at = clock();
@@ -434,7 +438,7 @@ async function sweepOnce(o) {
           const because = due.length + (due.length === 1 ? ' person is' : ' people are') + ' waiting for an answer';
           if (!reached) {
             let back = false; try { back = o.writePersons(session, rec) === true; } catch { back = false; }
-            if (nudged0 instanceof Set && tops.length) { try { o.writeNudged(session, nudged0); } catch { /* told late, never twice */ } }
+            if (nudged0 instanceof Set && tops.length) { let ok = false; try { ok = o.writeNudged(session, nudged0) === true; } catch { ok = false; } if (!ok) say({ name: display, session, act: 'missed', because: 'its told record could not be put back for the person line' }); }
             if (!back) say({ name: display, session, act: 'missed', because: 'its person record could not be put back, so this tell counts' });
           }
           results.push({ session, name: display, act: 'person', delivered: reached, delivery: state, because });

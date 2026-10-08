@@ -47,9 +47,9 @@ test('#5623 personOwed: a person\'s comment on the post is owed until the agent 
 test('#5623 personOwed: a person\'s reply under the agent\'s OWN comment is owed until a LATER reply of the agent\'s', () => {
   const own = cm('o1', 'Kim', 10, { replies: [cm('pr', 'Dana', 20, { person: true })] });
   assert.deepEqual(cr.personOwed([own], 'kim').map((o) => [o.x.id, o.parent]), [['pr', 'o1']]);
-  own.replies.push(cm('k1', 'Kim', 15));
+  own.replies.push(cm('k1', 'Kim', 15, { replyToKey: 'dana' }));
   assert.equal(cr.personOwed([own], 'kim').length, 1, 'an EARLIER reply of the agent\'s counted as the answer');
-  own.replies.push(cm('k2', 'Kim', 30));
+  own.replies.push(cm('k2', 'Kim', 30, { replyToKey: 'dana' }));
   assert.deepEqual(cr.personOwed([own], 'kim'), []);
   const theirs = cm('b1', 'Bo', 10, { replies: [cm('pr2', 'Dana', 20, { person: true })] });
   assert.deepEqual(cr.personOwed([theirs], 'kim'), [], 'a person answering ANOTHER agent was owed by this one');
@@ -72,7 +72,7 @@ test('#5623 review 1: a thread not wholly visible owes nothing this pass (an uns
 test('#5623 review 1: a person\'s follow-up in their own thread, addressed to the agent, is owed', () => {
   const top = cm(PC, 'Dana', 10, { person: true, replies: [cm('k1', 'Kim', 20), cm('f1', 'Dana', 30, { person: true, replyToKey: 'kim' })] });
   assert.deepEqual(cr.personOwed([top], 'kim').map((o) => o.x.id), ['f1']);
-  top.replies.push(cm('k2', 'Kim', 40));
+  top.replies.push(cm('k2', 'Kim', 40, { replyToKey: 'dana' }));
   assert.deepEqual(cr.personOwed([top], 'kim'), []);
   const toBo = cm(PC, 'Dana', 10, { person: true, replies: [cm('k1', 'Kim', 20), cm('f2', 'Dana', 30, { person: true, replyToKey: 'bo' })] });
   assert.deepEqual(cr.personOwed([toBo], 'kim'), [], 'a follow-up addressed to someone else was owed by this agent');
@@ -208,7 +208,7 @@ test('#5623 review 3: a person line that keeps reaching nothing rests after MAX_
 test('#5623 review 4: an answer in the same second (or with an unreadable time) still counts, by its place in the thread', () => {
   const same = cm(PC, 'Dana', 10, { person: true, replies: [cm('k1', 'Kim', 10)] });
   assert.deepEqual(cr.personOwed([same], 'kim'), [], 'a same-second answer did not count');
-  const own = cm('o1', 'Kim', 5, { replies: [cm('pr', 'Dana', 20, { person: true }), cm('k2', 'Kim', 0)] });
+  const own = cm('o1', 'Kim', 5, { replies: [cm('pr', 'Dana', 20, { person: true }), cm('k2', 'Kim', 0, { replyToKey: 'dana' })] });
   assert.deepEqual(cr.personOwed([own], 'kim'), [], 'a later answer with no readable time did not count');
 });
 
@@ -217,4 +217,11 @@ test('#5623 review 4: a person answering someone else under the agent\'s own com
   assert.deepEqual(cr.personOwed([own], 'kim'), []);
   own.replies[0].replyToKey = '';
   assert.equal(cr.personOwed([own], 'kim').length, 1, 'an unaddressed person reply under its own comment was not owed');
+});
+
+test('#5623 review 5: the agent\'s later reply answers a person only when it is addressed to them', () => {
+  const own = cm('o1', 'Kim', 5, { replies: [cm('p1', 'Dana', 10, { person: true }), cm('p2', 'Eli', 20, { person: true }), cm('k3', 'Kim', 30, { replyToKey: 'eli' })] });
+  assert.deepEqual(cr.personOwed([own], 'kim').map((o) => o.x.id), ['p1'], 'answering Eli counted as answering Dana');
+  const top = cm(PC, 'Dana', 10, { person: true, replies: [cm('b1', 'Bo', 15), cm('k4', 'Kim', 20, { replyToKey: 'bo' })] });
+  assert.deepEqual(cr.personOwed([top], 'kim').map((o) => o.x.id), [PC], 'answering another agent in her thread counted as answering her');
 });

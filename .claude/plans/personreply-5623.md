@@ -13,7 +13,7 @@ the pick rule for Rule 2 (slice B) and the weakest premises are on the card (iss
   - a person's top comment on its post, until the agent has a reply under it;
   - a person's reply under the agent's OWN comment, until the agent has a LATER reply in that thread.
   A person answering another agent's comment is not owed here. freshReplies returns them as `persons` (oldest first,
-  at most 10, in the read's 7-day window), from the thread it already reads: no extra request to the service. The read
+  at most PERSONS_MAX (100 after review 2), in the read's 7-day window), from the thread it already reads: no extra request to the service. The read
   marks each with PERSON_OWED.
 - engine/replynudge.js, the person path:
   - counted after PERSON_IDLE_MS (2 min), where regular comments still wait 10 min;
@@ -56,7 +56,7 @@ the pick rule for Rule 2 (slice B) and the weakest premises are on the card (iss
 - Fixed (WARNINGs):
   - a person's top comment told on the person line is also recorded in the regular told record, so the regular line
     never names it again (once per comment; P5 reds it);
-  - PERSONS_MAX raised to 30, and given-up entries are skipped by the nudge, so they no longer hold the slots;
+  - PERSONS_MAX raised (100 after review 2), so given-up entries cannot starve newer persons;
   - a person's follow-up in their own thread addressed to the agent (reply_to names it) is owed;
   - the read's mark says such a comment IS owed even when marked under comment, overriding the general rule;
   - the person's name is never typed into a Kosmos line (theirs to choose: a prompt-injection surface);
@@ -65,8 +65,7 @@ the pick rule for Rule 2 (slice B) and the weakest premises are on the card (iss
 - Stated (WARNINGs):
   - with the hourly cap met the pass still counts, for persons only. That costs service reads, paced at 1.5 s. The
     trade is deliberate: a person waiting is the priority.
-  - an entry that leaves the count while young (its post gone, pushed past the read) is treated as answered and drops.
-    Acceptable for a first slice; it never reaches unanswered.
+  - (REVERSED at review 2: an entry now leaves the record only when seen answered.)
 - Fixed (CONVENTION): the commentOf test calls cr.commentOf (with replyToKey).
 - Tests: 14 in the #5623 file; 445/445 across every test that mentions these modules.
 
@@ -116,3 +115,22 @@ the pick rule for Rule 2 (slice B) and the weakest premises are on the card (iss
   an older owed comment the nudge no longer counts. Said in the doc.
 - Left (WARNING): the owed section of repliesFor still has no direct test (it needs a fetched thread).
 - Tests: 2 more in the #5623 file. #4774 W1 reddened once in the wide run and passes alone (44/44 with this file).
+
+## Review 5 (opus)
+- It verified the ordering premise in the service: replies oldest first by (created_at, id), the preview and the pages
+  concatenate in order, microsecond times, reply_count counts removed replies.
+- Fixed (WARNINGs):
+  - an answer must ADDRESS the person: the agent's later reply names them (reply-to), or, for a person's top comment, is
+    a direct reply (no reply-to) or names them. Answering someone else in that thread no longer clears a person;
+  - the person line re-checks before typing: if the agent worked after the count, or is reading now, it is not told
+    "still waiting";
+  - the owed section of the read keeps to the read's 7-day window and shows the NEWEST first, so a person declined long
+    ago cannot hold it for ever.
+- Fixed (NITs):
+  - the section's heading no longer claims the agent read them;
+  - the block and the read share the mark words through communityread.PERSON_MARK;
+  - a rollback of the told record that fails is logged;
+  - the stale plan lines are corrected.
+- Left (NITs): a display-name collision (a person who took the agent's name, addressed by another person) can make the
+  agent owe a reply; the service's names are the only key.
+- Tests: 815/815 across every test that mentions these modules; one more in the #5623 file (addressed answers).
