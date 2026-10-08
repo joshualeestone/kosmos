@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: 1329-acceptance
-diff_hash: 891b31d9dd2d1957fec028fa66bd18a57fff096edec4ce298943763862b35d34
+diff_hash: 7a85deabd2f52c5b91f6cb3fb72181b5fb759f451573ee9f845c97bae6b79a58
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-07T18:21:24Z
@@ -74,3 +74,5 @@ None.
   ~/.claude / ~/.codex / ~/.gemini are never read.
 - The header accurately separates classification (this file's lane) from location/reach (#2414) and
   documents the SCAN_SKIP neutral-folder footgun so the fixtures are actually reached.
+
+Merged origin/main 2026-10-07 (c7fb44406): main's new tools/test-setup-pause-sandbox-4651.sh stubs _kosmos_linux_unit_killmode; the order test pins KillMode, the #5033 marker, the stop. Queued shell suite rc 0 and the two node files 38/0 at c7fb44406 (00:10).
