@@ -243,3 +243,25 @@ test('#5429 review 2: when the switch is partial (the picked Claude account coul
   assert.match(r.body.because, /It runs on Claude Opus 5\.5\./, r.body.because);
   assert.match(plist(name), /claude-opus-5-5/, 'the model was written');
 });
+
+
+test('#5534: under a company model list, a switch WITH a listed model goes through and one without is refused, before anything changes', LINUX_PLIST_5432, async () => {
+  const orgpolicy = require('./engine/orgpolicy');
+  const name = born('srv-sm-policy');
+  let r = await switchTo(name, { provider: 'google' });
+  assert.equal(r.status, 200, 'setup: on Gemini first ' + JSON.stringify(r.body));
+  fs.mkdirSync(nodePath.dirname(orgpolicy.APPLIED()), { recursive: true });
+  fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 1, applied_at: 1,
+    policy: { providers_allowed: null, models_allowed: { anthropic: ['opus55'] } } }));
+  try {
+    r = await switchTo(name, { provider: 'anthropic' });
+    assert.equal(r.status, 400, 'a model-less switch went through under a model list');
+    assert.match(String(r.body.because), /allows only some models on anthropic/);
+    assert.equal(store.readProfile(name).provider, 'google', 'a refused switch changed the provider');
+    r = await switchTo(name, { provider: 'anthropic', model: 'opus55' });
+    assert.equal(r.status, 200, 'a switch with the listed model was refused: ' + JSON.stringify(r.body));
+    assert.match(plist(name), /claude-opus-5-5/);
+  } finally {
+    fs.rmSync(orgpolicy.APPLIED(), { force: true });
+  }
+});

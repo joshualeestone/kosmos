@@ -16,10 +16,14 @@
  * switched to another provider or model. An agent already on something the policy later drops keeps running and
  * keeps relaunching: the card says nothing is bricked, and showing it as out of policy is the console's (E0.4).
  *
- * Rollback: the applied record keeps the highest version seen for each org, so an older bundle is refused even after
- * a bundle of another org came in between. What this cannot stop, and what it is not trusted for: a person who can
- * delete the applied record (it is in their own data folder) can apply any older bundle that has not expired, or
- * none. Closing that needs the coordinator to check the version each board reports (E0.3).
+ * Rollback: the applied record keeps the highest version seen for each org, so an older bundle of an org is refused
+ * even after a bundle of another org came in between.
+ *
+ * What this is NOT trusted for, until E0.2 binds a Mac to its org and E0.3 has the coordinator check the version each
+ * board reports: the person whose Mac it is can write every file involved. They can put any validly signed, unexpired
+ * bundle of ANOTHER org in place (it is not older under that org's own count), edit or delete the applied record
+ * (it is not signed), or replace the pinned coordinator key in the tunnel's folder. This module keeps an honest board
+ * from drifting and refuses forged or tampered bundles; it does not stop the Mac's own user.
  *
  * Not yet: gating on enrollment and leaving a company (E0.2; until then a policy stays in force once applied, and
  * only a bundle signed by the pinned coordinator key can set one), reporting the applied version (E0.3), the AI

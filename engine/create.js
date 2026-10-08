@@ -219,17 +219,18 @@ function defaultModelKeyFor(provider) {
 }
 /**
  * #5534: whether the company policy in force allows an agent on this provider and model. The model may be given by
- * its key or its full id, or not at all (the provider's default is then the model it runs on); both names are
- * checked so a policy may list either. A failure inside the policy code never blocks a create (nothing is bricked).
+ * its key or its full id; both names are checked so a policy may list either. Given no model, an agent runs what its
+ * runner picks: Gemini and Grok are pinned by the supervisor (win32keyed.DEFAULT_MODEL), so that model is the one
+ * asked about; Claude Code and Codex choose their own (it depends on the account), so no list can name it and a
+ * provider with a model list refuses a model-less agent. A failure inside the policy code never blocks a create.
  */
 function policyAllows(provider, modelKey) {
   try {
     const given = modelKey == null ? '' : String(modelKey).trim();
-    // Only a provider with its own model list has a known default (modelsFor answers Claude's list for the others).
-    const own = modelsFor(provider).filter((x) => x.provider === provider);
-    const fallback = own.find((x) => x.default);
-    const key = given || (fallback ? fallback.key : '');
-    const known = key ? own.find((x) => x.key === key || x.arg === key) : null;
+    const pinned = require('./win32keyed').DEFAULT_MODEL;
+    const key = given || (provider === 'google' ? pinned.gemini : provider === 'xai' ? pinned.grok : '');
+    // Both names of a model in this provider's own list (modelsFor answers Claude's list for providers without one).
+    const known = key ? modelsFor(provider).find((x) => x.provider === provider && (x.key === key || x.arg === key)) : null;
     return require('./orgpolicy').allows({ provider, model: known ? [known.key, known.arg] : [key] });
   } catch {
     return { ok: true };
@@ -1847,7 +1848,7 @@ function setProvider(name, provider, opts) {
   }
   /* #5534: switching an agent onto a provider the company policy does not allow is refused like creating one there. */
   {
-    // The model the person picked with the switch (set right after it, #5429), or else the provider's default.
+    // The model the person picked with the switch (set right after it, #5429); none picked is what the runner picks.
     const allowed = policyAllows(provider, opts && typeof opts.model === 'string' ? opts.model : '');
     if (!allowed.ok) return { outcome: OUTCOME.REFUSED, because: allowed.because };
   }
