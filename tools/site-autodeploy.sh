@@ -17,11 +17,10 @@
 # 🔑 Why its own checkout. A release cut populates the site checkout's gitignored dist/ and leaves
 # versions.html dirty behind it. A checkout nobody else uses is never the one a cut is writing, and
 # it can sit on main, which deploy-site.sh requires for a publish (#3073). Make it once with
-#   git clone --reference <the cut's site checkout> <site remote> <this checkout>
-# then copy .vercel/ into it. It borrows the cut checkout's objects (no download, no second copy of
-# 2.7 GB of old tarball blobs), so that checkout must never be gc'd or repacked; it already must not
-# be (a repack of it ran 6 to 16 minutes at load 20+ and reclaimed nothing). Not --dissociate: that
-# repacks the new clone, the same cost.
+#   git clone <site remote> <this checkout>      (a plain, self-contained clone: ~40 s, 2.8 GB)
+# then copy .vercel/ into it. NOT --reference: a borrowing clone can depend on objects the cut's checkout
+# holds only through a feature branch, which git's own gc --auto there may prune (found in review; the
+# Mortals clone was first made with --reference and remade plainly on 2026-10-08).
 #
 # 🔑 The older versioned Mac downloads. A deploy ships every versioned kosmos-<v>-arm64.tar.gz (and
 # .sha256) present in dist/, and those are gitignored, so a checkout of its own has none: deploying
