@@ -70,3 +70,7 @@ deleted. Each Linux arm was shown to fail: the matching linuxjob export or fs ca
 test (no production edit) and the test went red with its own message (14 red runs, each with a passing control run).
 Forced Linux: 223 tests, 203 pass, 0 fail, 20 skipped (the 9 #4279 no-equivalent skips and the bare onLinux ones);
 macOS 223 pass. jobArgv replaces the identical plistArgs (kept as an alias).
+
+## Shipped as one PR (2026-10-07 21:5x)
+Slices 1, 2 and 3 go in one PR from branch linuxport-5500c (rebased onto main after #5502 merged). Plan renamed to the branch's name for the PR gate. Slice 3 (create.test.js's tests of the job itself assert the systemd unit's equivalent on Linux) converged at its first review (opus, no BLOCKER/WARNING/CONVENTION; NITs left: setModel's Linux arm checks ExecStart words 2,4,5,7 only, as macOS; the jobMissing chmod-000 arm assumes a non-root runner, as its neighbours; some backfill titles still say Mac/plist).
+After the rebase onto main: create.test.js 223 tests (Linux 203 pass + 20 skipped by reason; Mac 223 pass), the 13 server/create files of slice 2 identical counts on Linux and Mac, the file-scanning guards 67/67.
