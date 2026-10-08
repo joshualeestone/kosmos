@@ -40,3 +40,12 @@
 - NIT taken: `open: false` declared in PLUS_ORG.
 - NITs kept: the first paint in plusOrgMaybe before the message is set (same microtask, no render between); the
   mutation results are in this plan, not re-shown by the check.
+
+## Review 3 (blind, Opus)
+- FIXED: no fresh-page arm covered "a company note opens the block" (O8 and O12 ran after O1 had opened it). O17c: a
+  fresh page whose Kosmos the company stopped naming shows the heading, the code field and the note, with no opener.
+  Removing the note terms from `full` makes it fail.
+- NITs taken: the fresh pages report page errors into O6 (now asserted after them); the README row names O17; the first
+  repaint in plusOrgMaybe is gone (the one after the message covers it).
+- NIT kept: a joined Kosmos whose first read fails shows the opener until the next minute's read (before this branch it
+  showed the whole code field then).

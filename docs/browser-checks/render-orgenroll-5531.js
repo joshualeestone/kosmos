@@ -232,14 +232,16 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     }
     await page.evaluate(() => { window.__enrollAnswer = null; });
 
-    chk(errs.length === 0, 'O6 no page errors', errs.join(' | '));
 
     // O17 (review 1): on a FRESH page, before any click. (a) /api/org fails: still only the opener. (b) This Kosmos is
     // already its company's work Kosmos: the heading and the joined view show at once, no opener.
     for (const [label, init, want] of [
       ['a read that fails', () => { window.__orgFail = true; }, { opener: true, title: false, out: false, in: false }],
-      ['already joined', () => { window.__orgState = { enrolled: true, reporting: true, stoppedFor: null, leaveRefused: null, org: { name: 'Acme', slug: 'acme' }, role: 'member', enrolledAt: '2026-10-07T00:00:00.000Z' }; }, { opener: false, title: true, out: false, in: true }]]) {
+      ['already joined', () => { window.__orgState = { enrolled: true, reporting: true, stoppedFor: null, leaveRefused: null, org: { name: 'Acme', slug: 'acme' }, role: 'member', enrolledAt: '2026-10-07T00:00:00.000Z' }; }, { opener: false, title: true, out: false, in: true }],
+      // (c) review 3: a company note opens the block on its own: the company stopped naming this Kosmos.
+      ['a company note (stopped)', () => { window.__stopped = 'Acme'; }, { opener: false, title: true, out: true, in: false }]]) {
       const p2 = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+      p2.on('pageerror', (e) => errs.push('O17 ' + label + ': ' + e.message));   // into O6, below
       await p2.addInitScript(harness(), [CONSENT]);
       await p2.addInitScript(init);
       await p2.goto(PAGE);
@@ -251,6 +253,7 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
       chk(JSON.stringify(got) === JSON.stringify(want), 'O17 ' + label + ': ' + JSON.stringify(want), JSON.stringify(got));
       await p2.close();
     }
+    chk(errs.length === 0, 'O6 no page errors', errs.join(' | '));
   } finally {
     await browser.close();
   }

@@ -47356,7 +47356,7 @@ function plusOrgMaybe() {
   PLUS_ORG.at = Date.now();
   fetch('/api/org').then((res) => res.json()).then((j) => {
     const was = !!(PLUS_ORG.state && PLUS_ORG.state.enrolled === true);
-    PLUS_ORG.state = j; plusOrgPaint();
+    PLUS_ORG.state = j;
     const msg = document.getElementById('plus-org-msg');
     // A line about the old state ("not known yet", "left") must not sit under the new one (review 31).
     if (j && (j.enrolled === true) !== was) msg.textContent = '';
