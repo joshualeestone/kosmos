@@ -448,6 +448,8 @@ function statusVerdict(d, world) {
    later join unlinkable: every org request is signed by this computer's Kosmos+ identity, under the same account. */
 function retireWorldId(opts) {
   try { fs.rmSync(path.join(storeRoot(opts), WORLD_ID_FILE), { force: true }); } catch { /* kept; harmless */ }
+  // A join marker for the retired id can never settle (no id to match), so it goes with it (review 36).
+  setJoinUnknown(null, opts);
 }
 
 async function leaveNow(opts, retry) {

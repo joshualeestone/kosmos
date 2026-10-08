@@ -845,3 +845,15 @@ test('#5531 review 35: a pending leave never ends a join the person made after i
   assert.equal(org.isEnrolledHere({ root: a }), true);
   assert.equal(org.leavePending({ root: a }), false, 'the old leave was kept, to be sent later');
 });
+
+test('#5531 review 36: every ending that retires the world id also drops a join marker, so nothing keeps asking', async (t) => {
+  const { a } = sandbox(t);
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
+  // An older join marker beside the enrollment (left by an earlier unknown join).
+  fs.writeFileSync(path.join(a, 'org-join-unknown.json'), JSON.stringify({ at: new Date(Date.now() - 600e3).toISOString(), consentHash: null, move: false }));
+  assert.ok(org.joinUnknown({ root: a }), 'CONTROL: the marker is there');
+  const r = await org.leave({ root: a, remote: here(a, { macRequest: async () => ({ ok: true, data: { ok: true } }) }) });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(fs.existsSync(path.join(a, org.WORLD_ID_FILE)), false, 'CONTROL: the leave retired the world id');
+  assert.equal(org.joinUnknown({ root: a }), null, 'a join marker outlived its world id and would keep asking the company');
+});

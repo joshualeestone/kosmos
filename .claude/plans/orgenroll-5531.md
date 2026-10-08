@@ -427,3 +427,10 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
   unknown, the leave waits; not made, the leave goes on. Pinned with the reviewer's sequence; the mutation reddens it.
 - The small marker files (pending leave, join unknown, leave refused, stopped) are written whole (temp then rename),
   as the enrollment is: a torn pending leave would have kept counting as pending but lost its undo flag and consent.
+
+## Review 36
+- A join marker older than a completed leave outlived the world id it was for: it could never settle (no id to
+  match) and kept the 2-minute follow-up asking the company for a day. retireWorldId, which every ending calls, now
+  drops the marker too. Pinned; removing it reddens the test.
+- Kept (nits): a typed code equal to a public code string could be read as that error if a line echoed it (the tunnel
+  does not); a settle-undo overwrites an older pending leave's saved record (both end the same membership).
