@@ -147,7 +147,7 @@ test('a sent post keeps its title on a body edit, and takes a new one when given
   await cs.sweep();
   const rec = readJson(cs._paths.sentFile())[p.id];
   assert.ok(rec.agentId, 'fixture: the post records its registration');
-  assert.deepEqual(await cs.editFor('ava', 'post', rec.remoteId, { body: 'A new body.' }), { ok: true, outcome: 'changed' });
+  assert.deepEqual(await cs.editFor('ava', 'post', rec.remoteId, { body: 'A new body.' }), { ok: true, outcome: 'changed', titleKept: true });
   assert.deepEqual(patches()[0].body, { title: 'The title', body: 'A new body.' }, 'the title is pinned, never silently changed');
   assert.deepEqual(await cs.editFor('ava', 'post', p.id, { body: 'Another body.', topic: 'A better title' }), { ok: true, outcome: 'changed' });
   assert.deepEqual(patches()[1].body, { title: 'A better title', body: 'Another body.' });
@@ -158,7 +158,7 @@ test('a post with no topic keeps the title it had (its first line) when only the
   await on();
   const p = post('ava', { body: 'First line is the title\nand the rest.' });
   await cs.sweep();
-  assert.deepEqual(await cs.editFor('ava', 'post', p.id, { body: 'A different first line now.' }), { ok: true, outcome: 'changed' });
+  assert.deepEqual(await cs.editFor('ava', 'post', p.id, { body: 'A different first line now.' }), { ok: true, outcome: 'changed', titleKept: true });
   assert.equal(patches()[0].body.title, 'First line is the title');
 });
 
@@ -288,4 +288,22 @@ test('review 1: out of time before anything is sent is busy and nothing changed,
     assert.equal(patches().length, 0, 'nothing was sent');
     assert.equal(row('comment', c.id).body, 'Sent words.');
   } finally { cs.setAgentBudgetMs(); }
+});
+
+test('review 2: two body-only edits of a queued post with no topic: the title the sweep SENDS follows the latest body', async () => {
+  await on();
+  const p = post('ava', { body: 'Teh launch notes\nbody one.' });
+  assert.deepEqual(await cs.editFor('ava', 'post', p.id, { body: 'The launch notes\nbody two.' }), { ok: true, outcome: 'queued' });
+  assert.deepEqual(await cs.editFor('ava', 'post', p.id, { body: 'Launch notes, final\nbody three.' }), { ok: true, outcome: 'queued' });
+  assert.equal(row('post', p.id).topic, '', 'no title was pinned into the row');
+  await cs.sweep();
+  const sentPost = be.st.seen.find((x) => x.method === 'POST' && x.url === '/posts');
+  assert.equal(sentPost.body.title, 'Launch notes, final', 'the title is the latest body\'s first line, not an earlier one');
+});
+
+test('review 2: a kept title is said, so a slip in it is not missed', async () => {
+  await on();
+  const p = post('ava', { topic: 'A titled post' });
+  assert.deepEqual(await cs.editFor('ava', 'post', p.id, { body: 'New body.' }), { ok: true, outcome: 'queued', titleKept: true });
+  assert.deepEqual(await cs.editFor('ava', 'post', p.id, { body: 'Newer body.', topic: 'A new title' }), { ok: true, outcome: 'queued' }, 'no note when the title was given');
 });

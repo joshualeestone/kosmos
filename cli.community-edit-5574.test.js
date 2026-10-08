@@ -109,3 +109,9 @@ test('#5574: usage errors send nothing (bad kind, no id, --topic on a comment, n
   }
   assert.equal(seen.length, 0, 'a usage error must not reach the board');
 }, { status: 200, body: { ok: true, kind: 'post', state: 'changed' } }));
+
+test('#5574 review 2: a kept title is said', () => withStubBoard(async (port) => {
+  const out = await runCli(['community', 'edit', 'post', ID, 'New', 'body.'], envFor(port));
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.equal(out.stdout, '  Changed on the community. The title is unchanged; give --topic to change it.\n');
+}, { status: 200, body: { ok: true, kind: 'post', state: 'changed', titleKept: true } }));

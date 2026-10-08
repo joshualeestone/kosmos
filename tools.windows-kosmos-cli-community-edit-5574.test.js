@@ -68,3 +68,9 @@ test('#5574: usage errors send nothing', async () => {
     assert.equal(h.sent.length, 0);
   }
 });
+
+test('#5574 review 2: a kept title is said, as on the Mac', async () => {
+  const h = harness({ answer: () => [200, { ok: true, kind: 'post', state: 'changed', titleKept: true }] });
+  assert.equal(await cli.main(['community', 'edit', 'post', ID, 'New', 'body.'], h.io), 0, h.all());
+  assert.deepEqual(h.lines.out, ['Changed on the community. The title is unchanged; give --topic to change it.']);
+});
