@@ -1228,21 +1228,21 @@ const LONG_TOKEN = /[A-Za-z0-9+/_-]{32,600}={0,2}/g;
 function isPlainPath(run) {
   const segs = run.split('/').filter(Boolean);
   if (segs.length < 2) return false;
-  /* Review 1: each piece between - and _ is judged WHOLE (no splitting a random chunk into harmless-looking parts).
-     Plain: a number; a word of 3 to 12 letters with a real vowel (a e i o u), lowercase or Capitalized; a word then up to
-     4 digits (win32, arm64); or a mostly-digit piece with at most 2 letters and at most 2 digit groups (x64,
-     20260926T1625, 20260913T052847Z). A random lowercase-and-digit chunk interleaves and fits none of these. */
-  // 3 to 12 letters: path words are short (presence, installer, challenge); a longer letter run is a random chunk's.
-  const word = (w) => /^[A-Z]?[a-z]{2,11}$/.test(w) && /[aeiou]/i.test(w);
-  const pieceOk = (p) => {
-    if (/^[0-9]+$/.test(p)) return true;
-    if (word(p)) return true;
-    const wd = p.match(/^([A-Za-z]+)([0-9]{1,4})$/);
-    if (wd && word(wd[1])) return true;
-    const letters = (p.match(/[A-Za-z]/g) || []).length;
-    const groups = (p.match(/[0-9]+/g) || []).length;
-    return p.length <= 20 && letters <= 2 && groups >= 1 && groups <= 2 && !/^[A-Za-z]/.test(p.replace(/^x(?=[0-9])/, ''));
-  };
+  /* #5558: each piece between - and _ is judged WHOLE (review 1: no splitting a random chunk into word-like parts).
+     Plain pieces, and nothing else:
+       a number;
+       a word of 3 to 12 letters with a vowel (a e i o u), lowercase or Capitalized;
+       such a word then up to 4 digits (win32, arm64);
+       a date or timestamp (20260926, 20260926T1625, 20260913T052847Z);
+       an architecture (x64, x86).
+     Review 2: a digit run with stray letters (46541662l) is NOT plain, so a numeric secret cut by slashes is still
+     judged as a token. */
+  const word = (w) => /^(?:[a-z]{3,12}|[A-Z][a-z]{2,11})$/.test(w) && /[aeiou]/i.test(w);
+  const pieceOk = (p) => /^[0-9]+$/.test(p)
+    || word(p)
+    || ((m) => !!m && word(m[1]))(p.match(/^([A-Za-z]+)[0-9]{1,4}$/))
+    || /^[0-9]{6,8}(?:T[0-9]{2,6}Z?)?$/.test(p)
+    || /^x(?:64|86)$/.test(p);
   return segs.every((seg) => seg.length <= 40 && seg.split(/[-_]/).filter(Boolean).every(pieceOk));
 }
 
@@ -1251,10 +1251,8 @@ function looksRandom(run) {
      (/Users/..., ~/..., //host) is a path, and only the letters and digits are judged. */
   if (/^[/~]/.test(run) || run.includes('//')) return false;
   /* #5558: a path made of plain segments (.claude/plans/avatar-4038-20260926T1625.md reaches here as
-     `claude/plans/avatar-4038-20260926T1625`: the leading dot is not in the run) is not a token. Plain: every piece of
-     every segment, split at - _ and case changes, is a number, a mostly-digit run (a timestamp such as 20260926T1625),
-     or a lowercase or Capitalized word. A random segment (an AWS secret's K7MDENG or bPxRfiCYEXAMPLEKEY, a hex-ish
-     a8f3k2m9) fails, so a run with one random segment is still judged below. */
+     `claude/plans/avatar-4038-20260926T1625`: the leading dot is not in the run) is not a token; isPlainPath says what
+     a plain piece is. A run with any other piece (a random chunk, a digit run with stray letters) is judged below. */
   if (run.includes('/') && isPlainPath(run)) return false;
   const s = run.replace(/[/=]/g, '');
   if (!(/[A-Za-z]/.test(s) && /[0-9]/.test(s)) || /^[0-9a-fA-F]+$/.test(s)) return false;
