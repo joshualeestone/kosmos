@@ -50,7 +50,7 @@ const MAX_PER_GRANT = 500;              // the coordinator's limit per grant req
 const MIN_OBJECT = 4148;                // a sealed chunk's framing floor (backupformat's 4 KiB Padme floor plus framing)
 const MAX_OBJECT = 5 * 1024 * 1024;     // the coordinator's per-object ceiling
 const MAX_REGRANTS = 3;                 // grants in a row that store nothing before the run gives up
-const INITIAL_BATCH = 8;                // the first grant's size; it doubles while grants finish in their window
+const INITIAL_BATCH = 8;                // the first grant's size; later ones follow the rate achieved (uploadInner)
 const BACKOFF_MAX_MS = 30 * 1000;      // a retry of the same url waits at most this long (it retries until expiry)
 const DEFAULT_CONCURRENCY = 4;
 const MAX_CONCURRENCY = 32;
@@ -137,6 +137,9 @@ function parseGrant(data, objects, seenKeys) {
     // The path is the key itself (a virtual-hosted bucket) or one bucket segment and the key (path-style), nothing
     // else, so the key the map records is the object S3 stores. And one bucket path per grant.
     const pre = path.slice(0, path.length - u.key.length);
+    // A virtual-hosted S3 host (<bucket>.s3.<region>.amazonaws.com) names the bucket already: the path is the key.
+    const virtualHosted = /\.s3[.-]([a-z0-9-]+\.)?amazonaws\.com$/.test(url.hostname) && !/^s3[.-]/.test(url.hostname);
+    if (virtualHosted && pre !== '/') return { ok: false, because: `upload ${i}'s url path is not its key (a virtual-hosted bucket)` };
     if (!(pre === '/' || /^\/[^/]+\/$/.test(pre))) return { ok: false, because: `upload ${i}'s url path is not its key under one bucket segment` };
     const prefix = `${url.host}${pre}`;
     if (i === 0) bucketPrefix = prefix; else if (prefix !== bucketPrefix) return { ok: false, because: `upload ${i}'s url is not under the grant's bucket path` };
@@ -291,21 +294,25 @@ async function uploadInner(deps, objects, opts, keys, run) {
   let fruitless = 0;
   while (queue.length) {
     const pending = queue.splice(0, batch);
+    // The grant's clock starts when it is ASKED for (the coordinator signs between then and its answer), on this Mac's
+    // clock, so the deadline below never runs past the real expiry because the answer was slow.
+    const asked = now();
     const g = await askGrant(deps.macRequest, pending, run.seenKeys);
     if (!g.ok) return Object.assign({ ok: false, keys }, g.out);
     for (const u of g.uploads) run.seenKeys.add(u.key);
     // A grant already over when it arrives is not a slow network but a clock ahead of the coordinator's: a new grant
     // would be "expired" too, and each spends allowance. Stop and say so.
-    if (now() >= g.expiresAtMs) return { ok: false, because: `this computer's clock reads past the grant's expiry (${new Date(g.expiresAtMs).toISOString()}) as it arrives: check the clock`, keys };
+    // Both directions get the same hour: within it, a Mac clock that is off still works, since the deadline below is
+    // measured on this Mac's own clock and S3 never reads it.
+    if (now() - g.expiresAtMs > 60 * 60 * 1000) return { ok: false, because: `this computer's clock reads over an hour past the grant's expiry (${new Date(g.expiresAtMs).toISOString()}) as it arrives: one of the two clocks is wrong (this grant's allowance is spent)`, keys };
     // And never far ahead of this Mac's clock (more than the window plus an hour): one of the two clocks is wrong.
     // (An hour of tolerance: a Mac a few minutes slow still backs up; S3 itself refuses a request whose signing time is
     // more than 15 minutes off its own clock.)
     if (g.expiresAtMs - now() > GRANT_WINDOW_MS + 60 * 60 * 1000) return { ok: false, because: `the grant expires ${new Date(g.expiresAtMs).toISOString()}, over an hour further ahead of this computer's clock than a grant lasts: one of the two clocks is wrong (this grant's allowance is spent)`, keys };
-    // This grant's deadline on THIS Mac's clock: its arrival plus the url's own lifetime, less a 10 s margin for the
-    // trip here. So a Mac clock that is minutes off does not end a grant early or late (the skew checks above catch a
+    // This grant's deadline on THIS Mac's clock: when it was asked for plus the url's own lifetime, less a 10 s
+    // margin. So a Mac clock that is minutes off does not end a grant early or late (the skew checks above catch a
     // clock that is far off). The PUTs are bounded by S3's own check on arrival either way.
-    const arrival = now();
-    const deadline = arrival + g.lifetimeMs - 10 * 1000;
+    const deadline = asked + g.lifetimeMs - 10 * 1000;
     const left = [], stuck = [];   // stuck: [{ chunk, key }], a write that may have landed under key
     const troubledNow = run.troubled; // name -> { c, key } for chunks that met trouble and are not (yet) stored
     let stop = null, stored = 0;
@@ -340,7 +347,9 @@ async function uploadInner(deps, objects, opts, keys, run) {
     if (stuck.length) return { ok: false, retryLater: true, because: `${stuck.length} chunks met bucket or network trouble until their grant expired; try again later`, keys, unsure: stuck.map((x) => ({ name: x.c.name, key: x.key })) };
     // The next grant is sized from the RATE this one achieved: about 80% of what the link carries in one window,
     // never more than double this grant (so it settles instead of swinging), at least 1, at most MAX_PER_GRANT.
-    const elapsed = Math.max(1, now() - arrival);
+    // A grant that ran out (chunks left) counts as having used its whole window, whatever the clock says: S3 can end a
+    // grant early (a coordinator clock behind S3's), and a short elapsed would read as a fast link and over-ask.
+    const elapsed = Math.max(1, now() - asked, left.length ? g.lifetimeMs : 0);
     const fits = Math.floor((stored * g.lifetimeMs * 0.8) / elapsed);
     batch = Math.max(1, Math.min(MAX_PER_GRANT, batch * 2, fits));
     if (left.length) {
