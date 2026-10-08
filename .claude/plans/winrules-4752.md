@@ -9,16 +9,27 @@ so on Windows those rules were at best unverified. The `~/` rules are unaffected
 - `engine/setup-assistant.js` `ruleAbs(p, platform = process.platform)`: on win32, backslashes become `/` and a
   leading drive `C:` becomes `c/`, then the usual `//` prefix: `C:\Users\x` -> `//c/Users/x`. macOS and Linux are
   unchanged (a backslash there is part of a file name). Exported, so the form is pinned from any host.
-- Everything that builds an absolute rule already goes through `ruleAbs`, including `wasEntryRule`'s prefix, so the
-  writer and the reader of those rules agree. `RULE_SYNTAX` is checked on the native path with its separator taken
-  out first, as before.
+- Every writer of an absolute rule goes through `ruleAbs`, and `wasEntryRule` builds its prefix with it. The other
+  reader, `guardGuideFolder`'s own-folder check, parsed rules back by hand for the old native form, so with the new
+  form it would have resolved `c/Users/...` against the current drive and never matched (review 1, BLOCKER). It now
+  uses `rulePath`, the exact inverse of `ruleAbs` (it also reads an older native-form rule as it is).
+- Rules written before this change in the native form, for folders this code writes rules for (the store and the
+  default world's base), are dropped on Windows when the rules are made again (`isLegacyWinRuleUnder`, built on
+  `path.win32` so it answers the same on any host); a person's own rule elsewhere is kept. `RULE_SYNTAX` is checked
+  on the native path with its separator taken out first, as before.
 
 ## Tests
 `engine/setup-assistant.winrules-4752.test.js` (in `tools/windows-tests.js` ALSO): drive paths to `//c/...` (fails on
-main: ruleAbs not exported and native); macOS and Linux unchanged (control); and, on the host it runs on, no Read
+main: ruleAbs not exported and native); macOS and Linux unchanged (control); `rulePath` reads every written rule back
+to its exact path, both forms; an older native-form rule under an owned folder is recognised and nothing else is
+(controls: the new form, a person's rule elsewhere, a sibling sharing a prefix); and, on the host it runs on, no Read
 rule the guide writes keeps a backslash or a drive colon, which the Windows job measures for real.
+Not done: running `engine/guide-deny-4752.test.js` (the own-folder arms) on Windows. Its expected rules are built by a
+hand-written POSIX helper, so it would fail there for the wrong reason; making it host-neutral is its own change.
+The own-folder check's Windows half is pinned instead by the rulePath round trip above.
 
 ## Weakest premise
-That Claude Code's documented normalisation is what the version a person runs does. Not measured on a Windows
+That Claude Code's documented normalisation is what the version a person runs does (the drive letter is written
+lower case, as the docs' example is; whether matching is case-blind is not documented). Not measured on a Windows
 machine here; the docs are the source. The old native form was not documented as matched at all, so this cannot
 make a rule that worked stop working unless Claude Code also matches the native form, which nothing says.

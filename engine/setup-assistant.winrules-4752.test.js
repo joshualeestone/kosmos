@@ -38,3 +38,26 @@ test('#4752: no Read rule the guide writes on THIS host carries a backslash or a
     assert.equal(/^Read\(\/\/[A-Za-z]:/.test(r), false, 'a rule keeps a drive colon: ' + r);
   }
 });
+
+test('#4752: rulePath reads a written rule back to the exact path, so the own-folder check compares real paths', () => {
+  for (const p of ['C:\\Users\\alice\\AppData\\Roaming\\Kosmos', 'D:\\data\\Kosmos\\worlds', 'c:\\lower\\drive']) {
+    const back = sa.rulePath(sa.ruleAbs(p, 'win32').slice(2), 'win32');
+    assert.equal(back.toLowerCase(), p.toLowerCase(), 'the Windows round trip lost the path: ' + back);
+    assert.match(back, /^[A-Z]:\\/, 'the drive is not restored as a drive');
+  }
+  assert.equal(sa.rulePath('C:\\written\\before', 'win32'), 'C:\\written\\before', 'a rule in the older native form is not read as it is');
+  for (const p of ['/Users/alice/Library/Application Support/Kosmos', '/home/a/.local/share/Kosmos']) {
+    assert.equal(sa.rulePath(sa.ruleAbs(p, 'darwin').slice(2), 'darwin'), p, 'CONTROL: the POSIX round trip changed');
+  }
+});
+
+test('#4752: an older native-form Windows rule under a folder this code owns is recognised for dropping; nothing else is', () => {
+  const roots = ['C:\\Users\\a\\AppData\\Roaming\\Kosmos', 'C:\\Users\\a\\AppData\\Roaming\\agent-workforce'];
+  assert.equal(sa.isLegacyWinRuleUnder('Read(//C:\\Users\\a\\AppData\\Roaming\\Kosmos/**)', roots), true);
+  assert.equal(sa.isLegacyWinRuleUnder('Read(//C:\\Users\\a\\AppData\\Roaming\\agent-workforce\\board-token)', roots), true);
+  assert.equal(sa.isLegacyWinRuleUnder('Read(//c:\\users\\a\\appdata\\roaming\\kosmos\\x.json)', roots), true, 'a different letter case is the same folder on Windows');
+  assert.equal(sa.isLegacyWinRuleUnder('Read(//c/Users/a/AppData/Roaming/Kosmos/**)', roots), false, 'CONTROL: the new form is kept');
+  assert.equal(sa.isLegacyWinRuleUnder('Read(//C:\\Users\\a\\Documents\\notes)', roots), false, 'CONTROL: a person\'s own rule elsewhere is kept');
+  assert.equal(sa.isLegacyWinRuleUnder('Read(//C:\\Users\\a\\AppData\\Roaming\\KosmosOther/**)', roots), false, 'CONTROL: a sibling with a shared prefix is kept');
+  assert.equal(sa.isLegacyWinRuleUnder('Read(~/.ssh/**)', roots), false);
+});
