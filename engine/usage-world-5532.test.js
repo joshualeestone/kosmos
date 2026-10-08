@@ -169,7 +169,9 @@ test('#5532 review 4: a project folder that cannot be listed makes the count inc
 });
 
 test('#5532 review 5: the folders come from this Kosmos\'s roster, and a shared parent folder claims nothing', async () => {
-  assert.equal(usage.worldUsageByModel.length, 2, 'worldUsageByModel takes a caller\'s folder list again');
+  // Behaviour, not arity (review 6): a list passed where a caller might pass one is not used as the folders.
+  const passed = await usage.worldUsageByModel(1, [AGENT]);
+  assert.deepEqual(passed.byDay, {}, 'a caller\'s folder list was used instead of the roster');
   // The roster here is the sandboxed store, with no agents: the default reads it, not a listing of any folder.
   assert.deepEqual(usage.worldAgentDirs(), []);
   const none = await usage.worldUsageByModel(1, NOPROV);
@@ -180,4 +182,5 @@ test('#5532 review 5: the folders come from this Kosmos\'s roster, and a shared 
   const w = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [workers, AGENT] }, NOPROV));
   assert.equal((w.byDay[TODAY] || {})['claude-workers-root'], undefined, 'a folder containing another agent\'s folder claimed a session');
   assert.ok((w.byDay[TODAY] || {})['claude-opus-5-5'], 'the agent beneath it lost its own usage');
+  assert.equal(w.complete, false, 'a dropped parent folder left the count looking whole');
 });

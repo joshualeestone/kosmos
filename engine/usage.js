@@ -78,9 +78,8 @@ function emptyBuckets() {
  * the first version used fs.*Sync throughout and would have stalled every
  * other route on this server for as long as a scan took.
  */
-/* `onError` (#5532): told of a folder that exists but cannot be listed, so a scoped count can say it is short. A
-   missing projects/ folder (ENOENT) is "no sessions", not an error. */
 async function walkTranscriptsUnder(root, onError) {
+  // `onError` (#5532): told of a folder that exists but cannot be listed; a missing projects/ (ENOENT) is no sessions.
   const projects = path.join(root, 'projects');
   const failed = (e) => { if (onError && !(e && e.code === 'ENOENT')) onError(); };
   let projectDirs;
@@ -334,6 +333,19 @@ async function scanUsage({ sinceDay, untilDay, mtimeCut = false }) {
   return { days, folders, folderModels, unreadable, rootsRead: roots };
 }
 
+/* This Kosmos's own agent folders, from its roster, exactly as the usage screen builds them (server.js, the per-agent
+   split). Never a listing of the workers folder, which several Kosmoses on one computer share. Null when the roster
+   cannot be read. */
+function worldAgentDirs() {
+  const register = require('./register');
+  const create = require('./create');
+  const known = register.known();
+  if (!known.ok) return null;
+  const dirs = [];
+  for (const name of known.names) { try { dirs.push(create.workerDir(name)); } catch { /* not resolvable: nobody's */ } }
+  return dirs;
+}
+
 /**
  * #5532 (Enterprise E0.3): usage of THIS Kosmos's own agents only, per day and model. The rest of this file reads
  * every Claude config folder on the computer, so its totals include the person's other Kosmoses and their sessions
@@ -354,23 +366,14 @@ async function scanUsage({ sinceDay, untilDay, mtimeCut = false }) {
  * 🛑 the folders MUST be this Kosmos's own roster (register.known() through create.workerDir, as the usage screen builds
  * it), NEVER a listing of the workers folder: in the default world several Kosmoses on one computer share that folder,
  * and a listing would sweep in another Kosmos's agents (review 3).
- * A folder that contains another agent's folder (a shared parent) claims nothing. `days` is meant to be small (the
+ * A folder that contains another agent's folder (a shared parent) claims nothing, and the count says incomplete.
+ * RESIDUAL (review 6): ownership is by launch folder only. In the default world several Kosmoses share the workers
+ * folder, so two Kosmoses' agents with the same name, or a person's own session started in an agent's exact folder,
+ * cannot be told apart here and count as this world's. The rollup sends usage only under consent words that say
+ * "sessions launched in your agents' folders". `days` is meant to be small (the
  * rollup's seven): every call is a fresh scan of the window.
  * `deps` (scanUsage, scanProviders, realpath, home, agentDirs) is for tests only.
  */
-/* This Kosmos's own agent folders, from its roster, exactly as the usage screen builds them (server.js, the per-agent
-   split). Never a listing of the workers folder, which several Kosmoses on one computer share. Null when the roster
-   cannot be read. */
-function worldAgentDirs() {
-  const register = require('./register');
-  const create = require('./create');
-  const known = register.known();
-  if (!known.ok) return null;
-  const dirs = [];
-  for (const name of known.names) { try { dirs.push(create.workerDir(name)); } catch { /* not resolvable: nobody's */ } }
-  return dirs;
-}
-
 async function worldUsageByModel(days, deps) {
   const d = deps || {};
   /* The folders come from this Kosmos's roster, not from the caller (review 5): no caller can pass a listing that
@@ -396,8 +399,10 @@ async function worldUsageByModel(days, deps) {
   }
   /* A folder that CONTAINS another agent's folder is a shared parent (the workers root, a person's ~/work), not one
      agent's own folder: it claims nothing (review 5). */
+  let droppedParent = false;
   for (const real of reals) {
     if (!reals.some((o) => o !== real && o.startsWith(real.endsWith(path.sep) ? real : real + path.sep))) mine.add(real);
+    else droppedParent = true;   // its own sessions are left out too, so the count is short (review 6)
   }
   let claude;
   try { claude = await (d.scanUsage || scanUsage)({ sinceDay, untilDay, mtimeCut: true }); }
@@ -420,7 +425,7 @@ async function worldUsageByModel(days, deps) {
       }
     }
   }
-  return { byDay, complete: others.complete !== false && !(claude.unreadable > 0) && !missingDir };
+  return { byDay, complete: others.complete !== false && !(claude.unreadable > 0) && !missingDir && !droppedParent };
 }
 
 async function ensureUsageDir() {

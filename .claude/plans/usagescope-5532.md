@@ -67,3 +67,12 @@ sessions outside Kosmos. This branch adds the reader the rollup needs to send us
   claims nothing (test; mutation reddens).
 - NOTED: days is meant to be small (every call is a fresh scan); Gemini's folder comes from .project_root, which may be
   a project root rather than the launch folder (a subfolder there could be claimed; one provider, measured later).
+
+## Review 6 (blind, sonnet)
+- FIXED: a dropped shared-parent folder makes the count incomplete (its own sessions are left out too; test).
+- STATED as a residual in the code: ownership is by launch folder only; in the default world two Kosmoses' agents with
+  one name share a folder, and a person's own session in an agent's exact folder cannot be told apart. Usage is sent
+  only under consent words naming "sessions launched in your agents' folders".
+- FIXED: the doc comment sits on worldUsageByModel again; the walk's onError note joins its function; an arity test
+  replaced by a behaviour test (a list passed as the second argument is not used).
+- DUPLICATE: the dedup undercount (documented).
