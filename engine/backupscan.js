@@ -195,7 +195,7 @@ function mediaKind(b) {
   // Audio and video: sample data fires long_token like image data (review round 6 measured 10 of 17 real system
   // sounds skipped). Strict magics: the container AND its form or brand.
   if ((ascii(0, 'FORM') && (ascii(8, 'AIFF') || ascii(8, 'AIFC'))) || (ascii(0, 'RIFF') && ascii(8, 'WAVE')) || ascii(0, 'caff')
-    || ascii(0, 'ID3') || (ascii(4, 'ftyp') && ISO_AV_BRANDS.has(b.subarray(8, 12).toString('latin1')))
+    || (ascii(0, 'ID3') && b.length > 3 && b[3] >= 2 && b[3] <= 4) || (ascii(4, 'ftyp') && ISO_AV_BRANDS.has(b.subarray(8, 12).toString('latin1')))
     || (ascii(0, 'OggS') && b.length > 4 && b[4] === 0) || ascii(0, 'fLaC')) return 'audio';
   if (at(0, 'feedfacf') || at(0, 'cffaedfe') || at(0, 'feedface') || at(0, 'cefaedfe') || at(0, 'cafebabe')) return 'code';
   if (at(0, '0061736d01000000')) return 'code';   // WebAssembly, version 1

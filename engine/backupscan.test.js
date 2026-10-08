@@ -430,3 +430,13 @@ test('#5535 audio arms each pinned: specific kinds still count; wrong forms are 
   assert.equal(bs.scanFile('agents/a/v.ogg', Buffer.concat([Buffer.from('OggS\u0000\u0002'), Buffer.alloc(8, 3), Buffer.from(KEY), Buffer.alloc(8)])).action, 'skip', 'a provider key inside an Ogg file');
   assert.equal(bs.scanFile('agents/a/o.bin', Buffer.concat([Buffer.from('OggS\u0001'), Buffer.alloc(8, 3), Buffer.from(LONG_ONLY), Buffer.alloc(8)])).action, 'skip', 'OggS with a non-zero version is not audio');
 });
+
+test('#5535 deny-list entries each pinned: provider sign-ins, bare credential files, a git file; near misses kept', () => {
+  for (const p of ['.codex/auth.json', '.gemini/oauth_creds.json', '.grok/credentials', 'x/credentials', 'x/secret', 'x/secrets', 'wt/.git']) {
+    assert.equal(bs.pathDecision(p).include, false, `${p} must be skipped by path`);
+  }
+  for (const p of ['.codex/config.toml', '.gemini/settings.json', 'x/credentials-guide.md', 'x/secretary.md', 'wt/.gitignore', 'wt/.github/workflows/ci.yml']) {
+    assert.equal(bs.pathDecision(p).include, true, `CONTROL: ${p} is kept`);
+  }
+  assert.equal(bs.scanFile('agents/a/n.mp3', Buffer.concat([Buffer.from('ID3'), Buffer.from([9, 0]), Buffer.alloc(8, 3), Buffer.from(LONG_ONLY), Buffer.alloc(8)])).action, 'skip', 'ID3 with an impossible version is not audio');
+});
