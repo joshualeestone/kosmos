@@ -66,6 +66,8 @@ function chunkBuffer(buf, opts = CDC) {
 /* ---------------- naming and padding ---------------- */
 /** The chunk's name inside manifests and associated data: hex HMAC-SHA256 under the period's naming key. */
 function chunkName(namingKey, plaintext) {
+  // SECURITY: restore trusts a chunk only because nobody else can compute its name. An empty or short key would
+  // let anyone holding the public key forge a valid name for any content.
   if (!Buffer.isBuffer(namingKey) || namingKey.length !== 32) throw new Error('backupformat: the naming key must be 32 bytes');
   return crypto.createHmac('sha256', namingKey).update(plaintext).digest('hex');
 }
@@ -91,7 +93,8 @@ function frame(plaintext) {
 function unframe(f) {
   if (f.length < 4) return null;
   const n = f.readUInt32BE(0);
-  if (n > f.length - 4 || f.length !== frameSize(n)) return null;  // exactly one valid encoding per plaintext
+  // exactly one valid encoding per plaintext (the first half is defence in depth: frameSize(n) > n + 4 already)
+  if (n > f.length - 4 || f.length !== frameSize(n)) return null;
   for (let i = 4 + n; i < f.length; i++) if (f[i] !== 0) return null;  // padding must be zeros
   return f.subarray(4, 4 + n);
 }
@@ -195,11 +198,12 @@ function sealManifest(memberPk, deviceKey, ctx, manifest) {
   // A plain object only: a top-level null would open as null, which is also what every failure returns.
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) throw new Error('backupformat: a manifest is a plain object');
   const json = canonicalJson(manifest);
+  // Defence in depth: the strict canonicalJson rules leave no known value that passes them and fails to read back.
   if (canonicalJson(JSON.parse(json)) !== json) throw new Error('backupformat: the manifest does not read back as itself');
   const { enc, ct } = hpkeSeal(memberPk, Buffer.from(`kosmos-backup v${FORMAT} manifest`), cb, frame(Buffer.from(json)));
   const sealed = Buffer.concat([MANIFEST_MAGIC, enc, ct]);
   const sig = crypto.sign(null, signedBytes(sealed, ctx), deviceKey);
-  if (sig.length !== SIG_LEN) throw new Error('backupformat: the manifest signature is not 64 bytes');
+  if (sig.length !== SIG_LEN) throw new Error('backupformat: the manifest signature is not 64 bytes');  // defence in depth after the Ed25519 check
   return Buffer.concat([MANIFEST_MAGIC, sig, enc, ct]);
 }
 /** Check a manifest's signature WITHOUT decrypting (the coordinator's check). Returns true or false, never throws.
