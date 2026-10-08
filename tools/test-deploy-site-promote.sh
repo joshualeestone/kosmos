@@ -75,7 +75,12 @@ if [ ! -f "$served_file" ] && [ -f "$served_file.late" ]; then
   exit 22
 fi
 if [ -n "$wfmt" ]; then
-  if [ -f "$served_file" ]; then [ -n "$dest" ] && cp "$served_file" "$dest"; printf '200'; else printf '404'; fi
+  if [ -f "$served_file" ]; then [ -n "$dest" ] && cp "$served_file" "$dest"; printf '200'
+  else
+    # #5589: VARY_404=1 makes every 404 carry a different body, as a host's error page can.
+    [ -n "${VARY_404:-}" ] && [ -n "$dest" ] && printf 'not found, request %s-%s\n' "$$" "$RANDOM" > "$dest"
+    printf '404'
+  fi
   exit 0
 fi
 [ -f "$served_file" ] || exit 22
@@ -467,15 +472,21 @@ out="$(STALE_SETUP_ON_DEPLOY=1 PATH="$BIN:$PATH" LIVE_DIR="$L27" HOST_URL="$HOST
 read -r S28 L28 <<<"$(make_scenario)"
 printf '{"version":"9.9.9"}\n' > "$L28/dist/latest-win-staging.json.late"
 run_deploy "$S28" "$L28" --promote
-{ [ "$RC" = 1 ] && has "$out" "a live pointer changed while this run was building" \
+{ [ "$RC" = 75 ] && has "$out" "a live pointer changed while this run was building" \
   && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L28/dist/latest.json")" = "$OLD" ]; } \
   && pass "#5589: a live pointer moved mid-run (a cut published) is refused before the deploy, LIVE untouched" \
   || bad "#5589 mid-run pointer move (rc=$RC) out=$out"
+# 31) #5589: a pointer that is absent live (404) is compared by status only, so a 404 page whose body
+#     differs per request does not read as a moved pointer. latest-win-staging.json is absent in this
+#     scenario, so both snapshots see a 404 with a different body.
+read -r S31 L31 <<<"$(make_scenario)"
+out="$(VARY_404=1 PATH="$BIN:$PATH" LIVE_DIR="$L31" HOST_URL="$HOSTURL" KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$S31" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" bash "$DEPLOY" --promote 2>&1)"; RC=$?
+[ "$RC" = 0 ] && pass "#5589: a 404 whose body varies per request is not a moved pointer (the deploy goes ahead)" || bad "#5589 varying 404 body refused (rc=$RC) out=$out"
 # 29) #5589: a live pointer that cannot be read at the START refuses at once, before any fetch.
 read -r S29 L29 <<<"$(make_scenario)"
 : > "$L29/dist/latest-win-staging.json.down"
 run_deploy "$S29" "$L29" --promote
-{ [ "$RC" = 1 ] && has "$out" "could not read the live pointers at the start" && ! has "$out" "fetched and verified" \
+{ [ "$RC" = 75 ] && has "$out" "could not read the live pointers at the start" && ! has "$out" "fetched and verified" \
   && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L29/dist/latest.json")" = "$OLD" ]; } \
   && pass "#5589: an unreadable live pointer at the start refuses before any fetch, LIVE untouched" \
   || bad "#5589 unreadable at start (rc=$RC) out=$out"
@@ -483,7 +494,7 @@ run_deploy "$S29" "$L29" --promote
 read -r S30 L30 <<<"$(make_scenario)"
 printf '{"version":"9.9.9"}\n' > "$L30/dist/latest-win-staging.json"; : > "$L30/dist/latest-win-staging.json.dropafter"
 run_deploy "$S30" "$L30" --promote
-{ [ "$RC" = 1 ] && has "$out" "could not re-read the live pointers right before deploying" \
+{ [ "$RC" = 75 ] && has "$out" "could not re-read the live pointers right before deploying" \
   && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L30/dist/latest.json")" = "$OLD" ]; } \
   && pass "#5589: a live pointer unreadable at the re-read refuses with nothing deployed" \
   || bad "#5589 unreadable at re-read (rc=$RC) out=$out"

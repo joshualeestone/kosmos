@@ -39,6 +39,9 @@ tick
 # 3) a release cut running: skipped, nothing recorded; then deployed once it is gone.
 H2=$(advance two)
 KOSMOS_AUTODEPLOY_PS="printf %s\\n '/bin/bash tools/release.sh 0.7.28'" tick
+R1=$RC; N1=$(ndeploys)
+KOSMOS_AUTODEPLOY_PS="printf %s\\n 'bash -x tools/release.sh 0.7.28'" tick
+{ [ "$R1" = 0 ] && [ "$N1" = 1 ] && [ "$(ndeploys)" = 1 ]; } && pass "a release.sh started with shell options is still seen as a cut" || bad "bash -x release.sh not seen as a cut (deploys=$(ndeploys))"
 { [ "$RC" = 0 ] && [ "$(ndeploys)" = 1 ] && [ "$(cat "$T/state/last-deployed")" = "$H1" ]; } \
   && pass "a running release.sh holds the deploy" || bad "deployed beside a cut (deploys=$(ndeploys))"
 KOSMOS_AUTODEPLOY_PS="printf %s\\n 'grep tools/release.sh' 'vim tools/release.sh'" tick
@@ -59,21 +62,30 @@ tick
 { [ "$RC" = 0 ] && [ "$(ndeploys)" = 4 ] && [ "$(cat "$T/state/last-deployed")" = "$H4" ] && [ ! -e "$T/state/last-failure" ]; } \
   && pass "a new merge after a failure deploys and clears the failure" || bad "no retry after main moved (deploys=$(ndeploys))"
 
+# 4b) exit 75 (deploy-site.sh: the live site moved or could not be read mid-run) is retried, not parked.
+H4b=$(advance four-b)
+DEPLOY_RC=75 tick
+{ [ "$RC" = 0 ] && [ "$(ndeploys)" = 5 ] && [ ! -e "$T/state/last-failure" ] && [ "$(cat "$T/state/last-deployed")" = "$H4" ]; } \
+  && pass "exit 75 (live site moved) is not recorded as a failure" || bad "exit 75 bookkeeping (rc=$RC, deploys=$(ndeploys))"
+tick
+{ [ "$(ndeploys)" = 6 ] && [ "$(cat "$T/state/last-deployed")" = "$H4b" ]; } \
+  && pass "the next tick retries the same sha after a 75, and deploys it" || bad "75 not retried (deploys=$(ndeploys))"
+
 # 5) another tick holding the lock: this one does nothing. A lock whose holder is gone is taken over.
 H5=$(advance five)
 mkdir "$T/state/lock"; sleep 300 & live=$!; echo "$live" > "$T/state/lock/pid"
 tick
-{ [ "$RC" = 0 ] && [ "$(ndeploys)" = 4 ]; } && pass "a live lock holder: no deploy" || bad "deployed under a live lock"
+{ [ "$RC" = 0 ] && [ "$(ndeploys)" = 6 ]; } && pass "a live lock holder: no deploy" || bad "deployed under a live lock"
 kill "$live" 2>/dev/null; wait "$live" 2>/dev/null
 tick
-{ [ "$(ndeploys)" = 5 ] && [ "$(cat "$T/state/last-deployed")" = "$H5" ] && [ ! -e "$T/state/lock" ]; } \
+{ [ "$(ndeploys)" = 7 ] && [ "$(cat "$T/state/last-deployed")" = "$H5" ] && [ ! -e "$T/state/lock" ]; } \
   && pass "a dead holder's lock is taken over, and the tick removes its own lock" || bad "stale lock (deploys=$(ndeploys))"
 
 # 6) the job's checkout is dirty: no deploy, the failure is recorded.
 H6=$(advance six)
 echo local-edit >> "$T/site/index.html"
 tick
-{ [ "$RC" = 1 ] && [ "$(ndeploys)" = 5 ] && grep -q "^$H6 rc=checkout " "$T/state/last-failure"; } \
+{ [ "$RC" = 1 ] && [ "$(ndeploys)" = 7 ] && grep -q "^$H6 rc=checkout " "$T/state/last-failure"; } \
   && pass "a dirty checkout is refused before any deploy and recorded" || bad "dirty checkout (rc=$RC, deploys=$(ndeploys))"
 git -C "$T/site" checkout -q -- index.html
 
@@ -81,12 +93,12 @@ git -C "$T/site" checkout -q -- index.html
 H7=$(advance seven)
 git -C "$T/site" checkout -q -b feature
 tick
-{ [ "$RC" = 1 ] && [ "$(ndeploys)" = 5 ] && grep -q "is on 'feature', not main" "$T/state/log"; } \
+{ [ "$RC" = 1 ] && [ "$(ndeploys)" = 7 ] && grep -q "is on 'feature', not main" "$T/state/log"; } \
   && pass "a checkout off main is refused before any deploy" || bad "off-main checkout (rc=$RC)"
 
 # 8) no site configured: a usage error, never a deploy.
 KOSMOS_AUTODEPLOY_SITE="" bash "$AD" 2>/dev/null; RC=$?
-{ [ "$RC" = 2 ] && [ "$(ndeploys)" = 5 ]; } && pass "no KOSMOS_AUTODEPLOY_SITE: exit 2, nothing deployed" || bad "unset site (rc=$RC)"
+{ [ "$RC" = 2 ] && [ "$(ndeploys)" = 7 ]; } && pass "no KOSMOS_AUTODEPLOY_SITE: exit 2, nothing deployed" || bad "unset site (rc=$RC)"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-site-autodeploy-5589: ALL PASS"; else echo "test-site-autodeploy-5589: FAILURES above"; exit 1; fi
