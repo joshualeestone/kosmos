@@ -763,3 +763,30 @@ test('#5418: a board that drips its answer slowly still meets the whole-answer d
   assert.match(outcome.message, /in time|part way|aborted|socket hang up/);
   assert.ok(Date.now() - started < 3000, 'the dripping board held the request far past its deadline');
 });
+
+test('#5418: the command line arms live execution only from the parsed --apply, never from a value that contains it', async (t) => {
+  liveExecution.resetForTests();
+  t.after(() => liveExecution.resetForTests());
+  const err = quiet(t);
+  // `--apply` as the VALUE of --confirm: it parses (apply false), so main runs past the arming point
+  assert.equal(tool.parseArgs(['--port', '1', '--cutoff', new Date(CUTOFF).toISOString(), '--confirm', '--apply']).apply, false);
+  await tool.main(['--port', '1', '--cutoff', new Date(CUTOFF).toISOString(), '--confirm', '--apply'], { armFromCommandLine: true }).catch(() => 2);
+  assert.equal(liveExecution.liveExecutionAllowed(), false, 'a value containing --apply armed live execution');
+  void err;
+});
+
+test('#5418: a planned token removal that names no launcher is flagged loudly in the dry run', async (t) => {
+  const { write } = e2eStore(t);
+  write('anchor.json', OLD);
+  write('nolauncher.json', OLD);
+  const f = fleet.install([fleet.agent('anchor')]);
+  t.after(() => f.restore());
+  const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
+  const lines = [];
+  quiet(t);
+  t.mock.method(console, 'log', (...a) => { lines.push(a.join(' ')); });
+  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString()]), 0);
+  const line = lines.find((l) => l.includes('remove  nolauncher.json'));
+  assert.ok(line, 'the orphan was not planned: ' + lines.join('\n'));
+  assert.match(line, /NO LAUNCHER/);
+});
