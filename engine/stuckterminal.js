@@ -58,12 +58,16 @@ function readAnchor(key) {
   return null;
 }
 
-// Write the anchor (or delete the file when null). Never throws.
+// Write the anchor (or delete the file when null). Never throws. Written atomically (tmp + rename) so a
+// concurrent 5s peek never reads a half-written file and a crash mid-write never leaves a truncated one.
 function writeAnchor(key, anchor) {
   try {
     if (!anchor) { try { fs.unlinkSync(fileFor(key)); } catch { /* already gone */ } return; }
     fs.mkdirSync(dir(), { recursive: true });
-    fs.writeFileSync(fileFor(key), JSON.stringify({ state: anchor.state, sinceAt: anchor.sinceAt }));
+    const dest = fileFor(key);
+    const tmp = dest + '.' + process.pid + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify({ state: anchor.state, sinceAt: anchor.sinceAt }));
+    fs.renameSync(tmp, dest);   // atomic on the same filesystem
   } catch { /* a board that cannot write its own data dir simply does not escalate; never fatal */ }
 }
 
@@ -120,6 +124,13 @@ function peek(key, now) {
    Wired into engine/create.js, remove.js and delete-leftover.js beside the crashloop.forget calls. */
 function forget(key) { writeAnchor(key, null); }
 
+/* The safeKey'd names of agents with a stored anchor (the files in dir()), like crashloop.keys(). Used by
+   tellStuck to prune anchors for agents that have LEFT the roster. Never throws. */
+function keys() {
+  try { return fs.readdirSync(dir()).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5)); }
+  catch { return []; }
+}
+
 /*
  * The once-per-episode sweep, encapsulated here so it is unit-testable (mirrors crashloop.tellLoops).
  * The caller (server.js, from the 60s tick) passes:
@@ -133,8 +144,11 @@ function forget(key) { writeAnchor(key, null); }
  * roster read (empty `rows`) never wipes a genuinely-stuck agent's clock.
  */
 function tellStuck({ rows, told, now, tell }) {
+  if (now === undefined) now = Date.now();
+  const liveSafe = new Set();
   for (const row of rows || []) {
     if (!row || !row.key) continue;
+    liveSafe.add(store.safeKey(row.key));
     const r = read(row.key, row.state, now);
     if (r.stuck) {
       if (!told.has(row.key)) { told.add(row.key); tell(row.key, r, row.shown || row.key); }
@@ -142,6 +156,13 @@ function tellStuck({ rows, told, now, tell }) {
       told.delete(row.key);
     }
   }
+  // #5154 slice C (review 2): on a GOOD roster (the caller only invokes tellStuck when the snapshot read
+  // succeeded -- it skips on roster === null), forget the anchor of any agent that is NO LONGER present.
+  // An agent that LEFT the roster while anchored -- a world closed, a pause, a session gone without a
+  // remove event -- must not come back later in the same terminal state and be judged stuck on its OLD
+  // clock (the chief risk). forget-on-remove covers an explicit removal; this covers the rest. Safe
+  // because it runs only on a good roster; a transient enumerate failure never reaches here to wipe a clock.
+  for (const dk of keys()) if (!liveSafe.has(dk)) { try { fs.unlinkSync(path.join(dir(), dk + '.json')); } catch { /* already gone */ } }
 }
 
-module.exports = { TERMINAL_STATES, STUCK_MS, isTerminal, dir, fileFor, readAnchor, writeAnchor, nextAnchor, sameAnchor, assess, read, peek, forget, tellStuck };
+module.exports = { TERMINAL_STATES, STUCK_MS, isTerminal, dir, fileFor, readAnchor, writeAnchor, nextAnchor, sameAnchor, assess, read, peek, forget, keys, tellStuck };

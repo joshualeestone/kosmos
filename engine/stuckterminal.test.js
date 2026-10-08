@@ -133,3 +133,28 @@ test('#5154-C: tellStuck never tells a non-terminal agent (precedence: its own n
   assert.deepEqual(sweepOnce(told, rows, t0 + 10 * RATE), [], 'however long it sits in needs_you, never told');
   assert.equal(st.readAnchor('tsq'), null, 'no anchor for a non-terminal state');
 });
+
+test('#5154-C: readAnchor rejects a malformed or wrong-typed file (reads as no anchor, never throws)', () => {
+  const k = 'bad';
+  fs.mkdirSync(st.dir(), { recursive: true });
+  for (const body of ['not json', '{"state":"working","sinceAt":1}', '{"state":"auth_failed"}', '{"state":"auth_failed","sinceAt":"soon"}', '{}', 'null']) {
+    fs.writeFileSync(st.fileFor(k), body);
+    assert.equal(st.readAnchor(k), null, 'rejects: ' + body);
+  }
+  fs.writeFileSync(st.fileFor(k), '{"state":"auth_failed","sinceAt":123}');
+  assert.deepEqual(st.readAnchor(k), { state: 'auth_failed', sinceAt: 123 }, 'a well-formed anchor reads back');
+});
+
+test('#5154-C review 2: tellStuck prunes the anchor of an agent that LEFT the roster (off-roster, good roster)', () => {
+  const told = new Set(); const t0 = 14_000_000;
+  const present = [{ key: 'leaver', state: 'auth_failed', shown: 'Z' }];
+  sweepOnce(told, present, t0);
+  assert.ok(st.readAnchor('leaver'), 'anchored while present');
+  // Next sweep: the agent is gone from the (good, non-empty) roster -> its anchor is forgotten.
+  sweepOnce(told, [{ key: 'other', state: 'working', shown: 'O' }], t0 + 60_000);
+  assert.equal(st.readAnchor('leaver'), null, 'a departed agent\'s anchor is pruned on a good roster');
+  // So if it returns later in the same terminal state, it starts a FRESH clock (not stuck immediately).
+  const r = st.read('leaver', 'auth_failed', t0 + 120_000);
+  assert.equal(r.stuck, false);
+  assert.equal(r.sinceAt, t0 + 120_000, 'returned agent re-anchors to now, not the old clock');
+});
