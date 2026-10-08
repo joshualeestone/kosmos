@@ -1182,3 +1182,33 @@ test('a bucket that is not host/ or host/bucket/ is refused before any grant; ev
     assert.strictEqual(none.grantSpent, undefined);
   } finally { await b.close(); }
 });
+
+test('every manifest exit after a grant answered says grantSpent: a refused PUT, trouble, an unreachable bucket, the re-grant cap', async () => {
+  const expired = [403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>'];
+  let b = await bucket();
+  try {
+    b.script.set(mKey(1), [[400, '<Error><Code>BadDigest</Code></Error>']]);
+    const refused = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b));
+    assert.match(refused.because, /refused the manifest/); assert.strictEqual(refused.grantSpent, true);
+    b.script.get = () => [[503]];
+    const trouble = await up.uploadManifest(deps(manifestCoordinator(b, { tag: 't' }), clock()), manifestBytes(), mOpts(b));
+    assert.strictEqual(trouble.retryLater, true); assert.ok(trouble.unsure); assert.strictEqual(trouble.grantSpent, true);
+    b.script.get = () => [expired];
+    const cap = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b));
+    assert.match(cap.because, /grants in a row/); assert.strictEqual(cap.grantSpent, true);
+  } finally { await b.close(); }
+  b = await bucket();
+  const base = b.base; await b.close();
+  const unreached = await up.uploadManifest(deps(manifestCoordinator({ base }), clock()), manifestBytes(), { bucket: `${new URL(base).host}/bucket/`, chunks: oneChunk() });
+  assert.match(unreached.because, /could not be reached/); assert.strictEqual(unreached.grantSpent, true);
+});
+
+test('a bucket path with an upper-case host is refused before any grant (a URL host is always lower case)', async () => {
+  const b = await bucket();
+  try {
+    const mc = manifestCoordinator(b);
+    const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { bucket: 'S3.us-east-1.amazonaws.com/b1/' }));
+    assert.strictEqual(r.ok, false); assert.match(r.because, /not a bucket path/);
+    assert.strictEqual(mc.bodies.length, 0);
+  } finally { await b.close(); }
+});
