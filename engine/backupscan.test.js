@@ -411,3 +411,22 @@ test('#5535 strict magics have cases: an ISO file with a non-media brand is not 
   }
   assert.equal(bs.scanFile('agents/a/f.bin', Buffer.concat([Buffer.from([0, 1, 2, 3]), Buffer.alloc(4), Buffer.from(URL_ONLY), Buffer.alloc(8)])).action, 'skip', 'CONTROL: the same url_credential in a non-font binary counts');
 });
+
+test('#5535 audio arms each pinned: specific kinds still count; wrong forms are not audio; each format keeps its noise', () => {
+  const wavWith = (payload) => Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WAVEfmt '), Buffer.alloc(8, 5), Buffer.from(payload), Buffer.alloc(8)]);
+  const sm = require('./secretmask');
+  const pw = 'password=Hunter2Hunter2xyzQ', url = 'https://user:Pa55wordXyz@host.example.com/x';
+  if (sm.mask(pw).fired.length) assert.equal(bs.scanFile('agents/a/a.wav', wavWith(pw)).action, 'skip', 'an assigned password inside a WAV');
+  assert.equal(bs.scanFile('agents/a/b.wav', wavWith(url)).action, 'skip', 'a URL credential inside a WAV (audio ignores only long_token)');
+  const riffAvi = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('AVI LIST'), Buffer.alloc(8, 5), Buffer.from(LONG_ONLY), Buffer.alloc(8)]);
+  assert.equal(bs.scanFile('agents/a/c.bin', riffAvi).action, 'skip', 'RIFF that is not WAVE is not audio');
+  const form8svx = Buffer.concat([Buffer.from('FORM'), Buffer.alloc(4), Buffer.from('8SVX'), Buffer.alloc(8, 5), Buffer.from(LONG_ONLY), Buffer.alloc(8)]);
+  assert.equal(bs.scanFile('agents/a/d.bin', form8svx).action, 'skip', 'FORM that is not AIFF/AIFC is not audio');
+  for (const [what, head] of [['ID3', Buffer.from('ID3\u0004\u0000')], ['caff', Buffer.from('caff\u0000\u0001')], ['Ogg', Buffer.from('OggS\u0000\u0002')],
+    ['FLAC', Buffer.from('fLaC\u0000')], ['BMP', Buffer.concat([Buffer.from('BM'), Buffer.alloc(12), Buffer.from([40, 0, 0, 0])])],
+    ['ICO', Buffer.from('000001000100', 'hex')], ['WASM', Buffer.from('0061736d01000000', 'hex')]]) {
+    assert.equal(bs.scanFile(`agents/a/n.${what}`, Buffer.concat([head, Buffer.alloc(8, 3), Buffer.from(LONG_ONLY), Buffer.alloc(8)])).action, 'store', `${what}: long_token-shaped noise is kept`);
+  }
+  assert.equal(bs.scanFile('agents/a/v.ogg', Buffer.concat([Buffer.from('OggS\u0000\u0002'), Buffer.alloc(8, 3), Buffer.from(KEY), Buffer.alloc(8)])).action, 'skip', 'a provider key inside an Ogg file');
+  assert.equal(bs.scanFile('agents/a/o.bin', Buffer.concat([Buffer.from('OggS\u0001'), Buffer.alloc(8, 3), Buffer.from(LONG_ONLY), Buffer.alloc(8)])).action, 'skip', 'OggS with a non-zero version is not audio');
+});

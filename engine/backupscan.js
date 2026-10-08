@@ -189,12 +189,16 @@ function mediaKind(b) {
   if (at(0, '89504e470d0a1a0a') && ascii(12, 'IHDR')) return 'image';
   if (at(0, 'ffd8ff') || ascii(0, 'GIF87a') || ascii(0, 'GIF89a') || (ascii(0, 'RIFF') && ascii(8, 'WEBP'))) return 'image';
   if (at(0, '49492a00') || at(0, '4d4d002a') || ascii(0, 'icns')) return 'image';
+  if (ascii(0, 'BM') && b.length >= 18 && [12, 40, 52, 56, 64, 108, 124].includes(b.readUInt32LE(14))) return 'image';   // BMP: its DIB header size
+  if (at(0, '00000100') && b.length >= 6 && b.readUInt16LE(4) >= 1 && b.readUInt16LE(4) <= 64) return 'image';         // ICO: a sane image count
   if (ascii(4, 'ftyp') && ISO_IMAGE_BRANDS.has(b.subarray(8, 12).toString('latin1'))) return 'image';
   // Audio and video: sample data fires long_token like image data (review round 6 measured 10 of 17 real system
   // sounds skipped). Strict magics: the container AND its form or brand.
   if ((ascii(0, 'FORM') && (ascii(8, 'AIFF') || ascii(8, 'AIFC'))) || (ascii(0, 'RIFF') && ascii(8, 'WAVE')) || ascii(0, 'caff')
-    || ascii(0, 'ID3') || (ascii(4, 'ftyp') && ISO_AV_BRANDS.has(b.subarray(8, 12).toString('latin1')))) return 'audio';
+    || ascii(0, 'ID3') || (ascii(4, 'ftyp') && ISO_AV_BRANDS.has(b.subarray(8, 12).toString('latin1')))
+    || (ascii(0, 'OggS') && b.length > 4 && b[4] === 0) || ascii(0, 'fLaC')) return 'audio';
   if (at(0, 'feedfacf') || at(0, 'cffaedfe') || at(0, 'feedface') || at(0, 'cefaedfe') || at(0, 'cafebabe')) return 'code';
+  if (at(0, '0061736d01000000')) return 'code';   // WebAssembly, version 1
   if (((at(0, '00010000') || ascii(0, 'OTTO') || ascii(0, 'true')) && tables()) || ascii(0, 'ttcf') || ascii(0, 'wOFF') || ascii(0, 'wOF2')) return 'font';
   return null;
 }
