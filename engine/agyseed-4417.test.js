@@ -78,7 +78,7 @@ const RUNNER_SIGNALS = new Set(['SIGKILL', 'SIGTERM']);
 /* libuv's own `uv__close` assertion (fd > STDERR_FILENO) is in this set too: seen on CI 2026-10-08 as a 70 ms SIGABRT of
    this child at load 25 on 3 cores, never reproduced locally in 1,200 runs, and process.stdin.destroy() measured NOT to
    close fd 0 (review 9). The cause is unknown and tracked on #5576; it is retried as Node's runtime aborting,
-   and every try still names it in the message. */
+   and every try still names it in the message. 🛑 TEMPORARY: remove the uv__close arm when #5576 finds the cause. */
 const STARTUP_ABORT = /uv_thread_create|pthread_create|Check failed:|function uv__close, file core\.c/;
 const RUNNER_SPAWN_ERRORS = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);   // short of resources; never ENOENT/EACCES (review 4)
 const endedByRunner = (r) => r.signal !== 'timeout' && (RUNNER_SPAWN_ERRORS.has(r.error) || (r.code === null && (RUNNER_SIGNALS.has(r.signal)
