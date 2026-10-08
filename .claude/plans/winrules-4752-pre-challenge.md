@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: winrules-4752
-diff_hash: 7951d13eb4eb8e8b9100f077f9fde1652da18ab0f8e31ef69076a32d14abbefe
+diff_hash: b0c6fc8aa585c062911fc6cb161caab32fde0ba387a2736f349218ecf6eb0c82
 validation: passed (Mortals)
 subdir_audit: passed
 timestamp: 2026-10-08T10:30:40Z
@@ -17,7 +17,8 @@ converged: true
 **Fixed:** every BLOCKER and WARNING raised, or recorded as a decision in the plan with its reason | **Asked:** 0
 
 Rebased onto origin/main at merge time: the only conflict was tools/windows-tests.js's ALSO list (main added
-sendertoken.revokeifunchanged-5418.test.js; both entries kept), so diff_hash was recomputed; the related and meta set
+sendertoken.revokeifunchanged-5418.test.js, then restoresink.test.js; all kept, this branch's entry moved
+mid-list so later appends do not collide; main's own engine.reachable red on usageprice costOf, #5600, is not this branch's), so diff_hash was recomputed; the related and meta set
 passed again locally and CI re-ran on the rebased head.
 Validation: full suite on Mortals for the pre-rebase diff (local hash 9b9ab7770ad1, head 5a598af57 after a rebase onto
 origin/main): PASSED, recorded by mortals-validate. Locally, the related and repo-wide meta set, 4323 tests, 0 fail.
