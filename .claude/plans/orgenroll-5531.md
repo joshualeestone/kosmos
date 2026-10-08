@@ -21,22 +21,28 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
   carries that connector.
 
 ## What this branch builds
+(As it stands after review 24. The per-review sections below record how each part got here.)
 - `engine/orgenroll.js`:
   - `worldId()` is an opaque random id per world, kept in that world's own data root (owner-only file). It is never
     the world's name.
   - `preview(code)` binds nothing. A malformed code is refused without a request. An empty consent, or one with no
     reader, is refused, so the page never offers Join on it.
   - `enroll(code, accepted)` sends NOTHING unless `accepted === true`. It records the enrollment only when the company
-    confirms THIS world's id. On `org_already_member` it retries once without the code.
-  - `leave()` clears the record first, so the world stops at once. Refused as the last admin (org_last_admin): the record
-    comes back (still joined). org_not_member: left. No answer: a pending leave, sent again on start and daily.
+    confirms THIS world's id on THIS computer. On `org_already_member` it does NOT move: the page checks the code
+    again and shows the move wording (review 15). A first join it cannot keep (unrecordable, unconfirmed, or bound
+    elsewhere after a lost answer) is undone with a leave; a lost answer asks status once (reviews 12, 19, 23).
+  - `leave()` clears the record first, so the world stops at once, then asks status: it sends the leave only when the
+    company names this world on this computer; otherwise it clears locally and sends nothing. Refused as the last
+    admin: the record comes back (still joined), and a refusal of a RETRIED leave is said once on the screen.
+    org_not_member: left. No answer: a pending leave, sent again on start and daily. Every ending retires the world id.
   - `refresh()` runs on start and daily. It clears the record on `member:false`, or when the company names another
     world. An unreachable coordinator changes nothing.
   - `isEnrolledHere()` is the gate for every later sender (E0.3 telemetry, E0.6 backup).
   - The public error codes become plain sentences.
 - `server.js`:
-  - `GET /api/org` reports this world's record. It never hands the world id to the page, and a record naming another
-    world reads as not enrolled.
+  - `GET /api/org` reports this world's record to the SCREEN only; any other caller (this board's agents included)
+    learns only `enrolled` (review 12). It never hands the world id or org id to the page; a record naming another
+    world reads as not enrolled; the stopped and leave-refused notes are handed to the screen once.
   - `POST /api/org/preview`, `/api/org/enroll` and `/api/org/leave` are person-only (`isViaScreen`).
   - On start and daily, only a world WITH an enrollment calls status. A world that never joined sends nothing.
 - `web/index.html`: a "Your company" block in the connected Kosmos+ panel (only a connected computer can sign).

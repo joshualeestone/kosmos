@@ -205,8 +205,6 @@ async function preview(code, opts) {
   return { ok: true, org, role, consent };
 }
 
-/* Enroll THIS world. Sends nothing unless the person accepted. `code` is required for a first join and omitted when an
-   existing member moves the enrollment to this world. */
 /* enroll, leave and refresh read and write the same record: one at a time, so the daily pass can never act on a
    record a leave has just cleared and is about to restore (or the reverse). */
 let queue = Promise.resolve();
@@ -222,6 +220,8 @@ async function undoFirstJoin(lead, opts) {
   return { ok: false, because: lead + ' Joining could not be undone yet, so your company may still list this Kosmos. It is not reporting.' };
 }
 
+/* Enroll THIS world. Sends nothing unless the person accepted. `code` is required for a first join and omitted when an
+   existing member moves the enrollment to this world. */
 async function enroll(code, accepted, opts) { return oneAtATime(() => enrollNow(code, accepted, opts)); }
 async function enrollNow(code, accepted, opts) {
   if (accepted !== true) return { ok: false, declined: true, because: 'Not accepted, so nothing was sent.' };
