@@ -22,8 +22,9 @@
   file: the board and the supervisors are separate logon tasks with no order between them.
 - Weakest premises, all of them:
   - an agent already running when this ships reports nothing until its next start;
-  - a busy lock at a LAUNCH is not retried (one stderr line); the agent is still covered if the board's earlier write
-    landed, and otherwise is wired at its next launch;
+  - a busy lock at a LAUNCH is not retried and not waited for (waitMs 0, one stderr line): preacceptBypass already
+    waited on it, and a held lock usually means another launch is writing these same hooks; the agent is covered if
+    that write or the board's landed, and otherwise is wired at its next launch;
   - the board and every supervisor run the same node.exe (the bundle's runtime\node.exe, process.execPath). If they
     ever differed, each writer would repoint the other's entry on every start: no harm to the hooks firing, but
     churn. Owed on the Windows box: the entry's command is runtime\node.exe.
@@ -139,3 +140,14 @@
 - Fixed (NITs): the server.js comment rewrapped; the catch-all sentence covers a write failure too.
 - Left (NIT): the launch-site check is a source check (P7 and P8 red it); a behavioural test would need
   preacceptClaudeFirstRun exported, and the Windows-box checks cover the behaviour.
+
+## Review 9 (opus): no blockers
+- Fixed (WARNING): the launch wiring took the default 2 s lock wait right after preacceptBypass's own, so a launch in
+  a serving process could block about 4 s. It passes { waitMs: 0 }; the source check now requires exactly that (no
+  injected platform).
+- Carded (NIT, a sibling gap): prepare() also wires the weekly statusline (allowance.ensureStatusLine, #3946), and
+  setup.sh does it for the default account on a Mac (install/setup.sh:3971); nothing does it for the Windows default
+  account, so Windows default-account agents have no weekly-allowance reading. Carded as #5614, because the statusline
+  command's Windows form needs its own look.
+- Left (NIT): the test file has no win32 in its name, so the Windows runner's selector skips it; it injects the
+  platform and runs on every OS in the main suite.

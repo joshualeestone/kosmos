@@ -164,14 +164,16 @@ test('#5612: the board calls it on its real start path (beside the community swi
   assert.ok(wire > migrate, 'server.js does not wire the default hooks after the community switch step');
 });
 
-test('#5612: each default-account Windows launch wires them too (the board and the supervisors start in no order), on the REAL platform', () => {
+test('#5612: each default-account Windows launch wires them too (the board and the supervisors start in no order), on the REAL platform, without waiting on the lock', () => {
   const src = fs.readFileSync(path.join(__dirname, 'win32launch.js'), 'utf8');
   const fnAt = src.indexOf('function preacceptClaudeFirstRun(');
   const end = src.indexOf('\n}\n', fnAt);
   const body = src.slice(fnAt, end);
   assert.ok(fnAt > 0 && end > fnAt, 'the anchor moved: preacceptClaudeFirstRun is not in win32launch.js');
-  assert.ok(body.includes("require('./accounts').wireDefaultHooks()"), 'the launch path does not wire the default hooks');
-  // No argument: wireDefaultHooks reads process.platform itself, so a test injecting win32 on a Mac writes nothing.
-  assert.equal(/wireDefaultHooks\(\s*\{/.test(body), false, 'the launch passes options (an injected platform could reach the real file)');
+  const call = body.match(/require\('\.\/accounts'\)\.wireDefaultHooks\(([^)]*)\)/);
+  assert.ok(call, 'the launch path does not wire the default hooks');
+  // Only { waitMs: 0 } may be passed: wireDefaultHooks must read process.platform itself, so a test injecting win32 on
+  // a Mac writes nothing, and the launch must not wait on the lock a second time.
+  assert.equal(call[1].replace(/\s/g, ''), '{waitMs:0}', 'the launch passes something other than { waitMs: 0 }: ' + call[1]);
   assert.ok(body.indexOf('if (!s.configDir)') >= 0, 'not limited to the default account');
 });

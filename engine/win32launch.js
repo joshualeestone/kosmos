@@ -352,7 +352,9 @@ function preacceptClaudeFirstRun(s) {
      agent starts anyway. An added account (configDir) was wired by accounts.prepare. */
   if (!s.configDir) {
     let h;
-    try { h = require('./accounts').wireDefaultHooks(); }
+    // waitMs 0: preacceptBypass just waited on this same lock, and a launch may run in a serving process; a held lock
+    // means another writer is in the file now (often another launch writing these same hooks), so do not wait twice.
+    try { h = require('./accounts').wireDefaultHooks({ waitMs: 0 }); }
     catch { h = { wired: false, skipped: false, because: 'the hooks could not be wired' }; }
     if (h && !h.skipped && h.wired !== true) {
       process.stderr.write('[win32launch] ' + String(s.name || 'agent') + ': could not set up its reporting hooks (' + h.because + '); it starts anyway\n');
