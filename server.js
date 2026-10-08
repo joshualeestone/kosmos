@@ -9573,7 +9573,8 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { enrolled: here, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug } : null, role: null, enrolledAt: null });
         return;
       }
-      const stopped = here ? null : oe.stoppedFor();   // the company stopped naming this world: the screen says so
+      const stopped = here ? null : oe.stoppedFor();   // the company stopped naming this world: the screen says so ONCE
+      if (stopped) oe.clearStopped();
       sendJson(res, 200, { enrolled: here, stoppedFor: stopped, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
     } catch { sendJson(res, 200, { enrolled: false, org: null, role: null, enrolledAt: null }); }
     return;
@@ -9608,12 +9609,13 @@ const server = http.createServer(async (req, res) => {
           const spent = body.accepted === true ? ORG_TICKET : null;
           if (spent) ORG_TICKET = null;   // one use
           r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true);
-          // Not joined for a passing reason (no public code: unreachable, busy): the same consent may be accepted again.
-          if (spent && r && r.ok === false && !r.code && !r.declined && Date.now() - spent.at <= 10 * 60 * 1000) ORG_TICKET = spent;
+          // Not joined for a passing reason (no public code: unreachable, busy; or org_bad_world, which says "Try again"):
+          // the same consent may be accepted again.
+          if (spent && r && r.ok === false && (!r.code || r.code === 'org_bad_world') && !r.declined && Date.now() - spent.at <= 10 * 60 * 1000) ORG_TICKET = spent;
         } else {
-          /* Leave is for the whole membership, so only the work Kosmos (or one the company stopped naming, or one with a
-             leave still unconfirmed) may send it; another Kosmos of this person's must not end it. */
-          if (!oe.isEnrolledHere() && !oe.leavePending() && !oe.stoppedFor()) {
+          /* Leave ends the whole membership, so it is sent only from the work Kosmos, or from one whose leave is still
+             unconfirmed (engine/orgenroll.js leaveNow). Any other Kosmos of this person's is refused here. */
+          if (!oe.isEnrolledHere() && !oe.leavePending()) {
             sendJson(res, 200, { ok: false, because: 'This Kosmos is not your work Kosmos. Leave from your work Kosmos.' });
             return;
           }
@@ -9626,7 +9628,7 @@ const server = http.createServer(async (req, res) => {
         }
         sendJson(res, 200, r);
       })
-      .catch(() => sendJson(res, 200, { ok: false, because: 'we could not reach your company just now' }));
+      .catch(() => sendJson(res, 200, { ok: false, because: 'This Kosmos could not read that request. Nothing was sent to your company.' }));
     return;
   }
   /* kosmos#4794 slice 1: this computer joining. GET runs one pairing round and answers the page-safe status; POST

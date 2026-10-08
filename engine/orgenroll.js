@@ -155,7 +155,9 @@ function sayFor(because, fallback, secret) {
   if (because) {
     const { externalName } = require('./externalname');
     let line = String(because);
-    if (typeof secret === 'string' && secret.length >= 6) line = line.split(secret).join('[join code]');   // a code is single-use: never in a log
+    if (typeof secret === 'string' && secret.length >= 6) {   // a code is single-use: never in a log, in any case
+      line = line.replace(new RegExp(secret.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '[join code]');
+    }
     console.error('orgenroll: ' + externalName(line, LINE_MAX));
   }
   return fallback;
@@ -241,12 +243,13 @@ function setLeavePending(on, opts, rec) {
 function pendingRecord(opts) {
   try { const j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_PENDING_FILE), 'utf8')); return j && j.rec && j.rec.org ? j.rec : null; } catch { return null; }
 }
-/* Why this world stopped without the person leaving here: the company no longer names it. Shown on the screen, and it
-   lets the person still leave from here. Cleared by a join or a leave. */
+/* Why this world stopped without the person leaving here: the company no longer names it. The screen's next read of
+   GET /api/org shows it once and clears it; a join or a leave also clears it. */
 function stoppedFor(opts) {
   try { const j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), STOPPED_FILE), 'utf8')); return j && typeof j.name === 'string' ? j.name : null; }
   catch { return null; }
 }
+function clearStopped(opts) { setStopped(null, opts); }
 function setStopped(name, opts) {
   const file = path.join(storeRoot(opts), STOPPED_FILE);
   try {
@@ -262,7 +265,8 @@ function leavePending(opts) { return fs.existsSync(path.join(storeRoot(opts), LE
    - Already not a member (org_not_member): left.
    - No answer: a pending leave is kept, and the next start or daily pass sends it again. */
 async function leave(opts) { return oneAtATime(() => leaveNow(opts)); }
-/* Retire this world's id whenever its enrollment ends for good, so a later join (to any company) is not linkable. */
+/* Retire this world's id whenever its enrollment ends for good, so the old id is never sent again. This does NOT make a
+   later join unlinkable: every org request is signed by this computer's Kosmos+ identity, under the same account. */
 function retireWorldId(opts) {
   try { fs.rmSync(path.join(storeRoot(opts), WORLD_ID_FILE), { force: true }); } catch { /* kept; harmless */ }
 }
@@ -314,7 +318,8 @@ async function refreshNow(opts) {
      world's id on another computer (thisComputer false). An answer in any other shape changes nothing, like an
      unreachable coordinator: one odd reply must not end an enrollment the company still holds, with no way back. */
   const clear = d.member === false || (d.member === true && (e === null
-    || (e && typeof e === 'object' && typeof e.world === 'string' && (e.world !== world || e.thisComputer === false))));
+    || (e && typeof e === 'object' && typeof e.world === 'string' && world && (e.world !== world || e.thisComputer === false))));
+  // `world &&`: an unreadable local id (permissions, I/O) is an unclear answer, not proof the company moved on.
   if (!here) {
     if (!clear) return { ok: false, because: 'the answer was not complete', enrolled: !!before };
     if (before) { clearEnrollment(opts); setStopped((before.org && before.org.name) || 'your company', opts); retireWorldId(opts); }
@@ -330,5 +335,5 @@ async function refreshNow(opts) {
 
 module.exports = {
   ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, codeOf,
-  worldId, readEnrollment, leavePending, stoppedFor, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh,
+  worldId, readEnrollment, leavePending, stoppedFor, clearStopped, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh,
 };

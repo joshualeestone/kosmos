@@ -175,3 +175,30 @@ test('#5531 review 7: a join that fails for a passing reason keeps its ticket; a
   const left = await call('/api/org/leave', { body: {}, headers: SCREEN });
   assert.equal(left.json.ok, true, 'the work Kosmos could not leave: ' + JSON.stringify(left.json));
 });
+
+test('#5531 review 9: the stopped note is shown to the screen once; org_bad_world keeps the ticket', async (t) => {
+  fs.writeFileSync(path.join(store.ROOT, 'org-stopped.json'), JSON.stringify({ at: '2026-10-07T00:00:00.000Z', name: 'Acme' }));
+  const first = await call('/api/org', { method: 'GET', headers: SCREEN });
+  assert.equal(first.json.stoppedFor, 'Acme');
+  const second = await call('/api/org', { method: 'GET', headers: SCREEN });
+  assert.equal(second.json.stoppedFor, null, 'the stopped note came back on every visit');
+
+  const remote = require('./engine/remote');
+  const orig = remote.macRequest;
+  const CONSENT = { reports: ['agent names'], backsUp: ['agent folders'], readers: ['you'], never: ['keys'] };
+  let bad = true;
+  remote.macRequest = async (method, route, body) => {
+    if (route === oe.ROUTES.redeem) return { ok: true, data: { org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: CONSENT } };
+    if (route === oe.ROUTES.enroll) return bad ? { ok: false, because: '400 {"because":"org_bad_world"}' } : { ok: true, data: { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } };
+    if (route === oe.ROUTES.leave) return { ok: true, data: { ok: true } };
+    return { ok: false, because: 'unexpected ' + route };
+  };
+  t.after(() => { remote.macRequest = orig; fs.rmSync(enrollmentFile(), { force: true }); });
+  const pv = await call('/api/org/preview', { body: { code: 'ACME-JOIN-1234' }, headers: SCREEN });
+  const r1 = await call('/api/org/enroll', { body: { code: 'ACME-JOIN-1234', accepted: true, ticket: pv.json.ticket }, headers: SCREEN });
+  assert.equal(r1.json.code, 'org_bad_world');
+  bad = false;
+  const r2 = await call('/api/org/enroll', { body: { code: 'ACME-JOIN-1234', accepted: true, ticket: pv.json.ticket }, headers: SCREEN });
+  assert.equal(r2.json.ok, true, '"Try again" after org_bad_world could never work: ' + JSON.stringify(r2.json));
+  await call('/api/org/leave', { body: {}, headers: SCREEN });
+});

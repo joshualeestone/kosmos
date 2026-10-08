@@ -137,7 +137,7 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
 - FIXED: GET /api/org gives the role and date only to the screen (isViaScreen), not merely to callers without an
   agent token. Leave is refused unless this is the work Kosmos (or one the company stopped naming, or one with a
   leave unconfirmed), since leaving ends the whole membership. A confirmed leave retires this world's id, so a later
-  join is not linkable to the old one. The check and README say `{ code, accepted: true, ticket }`.
+  join never resends the old id (a later join can still be linked by computer and account: every request is signed). The check and README say `{ code, accepted: true, ticket }`.
 
 ## Review 8 (blind, sonnet)
 - FIXED (both from review 7's changes): leave is sent only from the world the company enrolls, or one whose leave is
@@ -148,3 +148,14 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
 - FIXED: a join code is never written to the log, even inside a raw failure line that echoes the request. Not now
   says "only the code was checked", to match the hint above the field.
 - DUPLICATE: isViaScreen as the only person check (review 2).
+
+## Review 9 (blind, opus)
+- FIXED: the "stopped reporting" note is shown to the screen once and then cleared (it came back on every visit with
+  no way to dismiss it). org_bad_world, which says "Try again", keeps the ticket; org_not_accepted returns the page to
+  the code field. An unreadable local world id is an unclear answer, not proof the company moved on. The join code is
+  kept out of the log in any letter case. A request body the board cannot read says so, instead of blaming the company.
+- CORRECTED: retiring the world id stops the old id being sent again; it does not make a later join unlinkable, since
+  every request is signed by this computer's Kosmos+ identity. The leave comment now says what the code does.
+- DECIDED: one ticket per board process. A preview from a second screen replaces the first screen's ticket, and that
+  screen's Join returns it to the code field (org_ticket). Rare, recoverable, and simpler than per-screen state.
+- DECIDED: the plan keeps the name `<branch>.md`; the PR hook looks for exactly that file.

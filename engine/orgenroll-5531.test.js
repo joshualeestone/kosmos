@@ -392,3 +392,16 @@ test('#5531 review 8: a join code is never written to the log, even inside a raw
   assert.ok(errs.length >= 2, 'nothing was logged: ' + JSON.stringify(errs));
   assert.equal(errs.some((m) => m.includes('SECRET-CODE-7777')), false, 'a join code reached the log: ' + errs.join(' | '));
 });
+
+test('#5531 review 9: an unreadable local world id is an unclear answer, and a code is kept out of the log in any case', async (t) => {
+  const { a } = sandbox(t);
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
+  fs.rmSync(path.join(a, org.WORLD_ID_FILE));
+  await org.refresh({ root: a, remote: { macRequest: async () => ({ ok: true, data: { member: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: 'e'.repeat(32), thisComputer: true } } }) } });
+  assert.ok(fs.existsSync(path.join(a, org.ENROLLMENT_FILE)), 'a missing local id was read as the company moving on');
+  assert.equal(org.stoppedFor({ root: a }), null);
+  const errs = []; const orig = console.error; console.error = (m) => errs.push(String(m)); t.after(() => { console.error = orig; });
+  await org.preview('Secret-Code-7777', { root: a, remote: { macRequest: async () => ({ ok: false, because: 'HTTP 502 for SECRET-CODE-7777' }) } });
+  assert.ok(errs.length >= 1);
+  assert.equal(errs.some((m) => /secret-code-7777/i.test(m)), false, 'the code reached the log in another case: ' + errs.join(' | '));
+});
