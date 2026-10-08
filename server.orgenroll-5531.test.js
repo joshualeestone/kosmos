@@ -304,3 +304,20 @@ test('#5531 review 26: an unknown join is asked about every few minutes while it
   const start = src.slice(src.indexOf('function start(port = PORT)'));
   assert.match(start.slice(0, 4000), /if \(oe\.joinUnknown\(\) && age !== null && age < 24 \* 60 \* 60 \* 1000\) orgEnrollRefresh\(\);/, 'start() does not run the short follow-up only while the marker exists (and only for a day)');
 });
+
+test('#5531 review 32: a code that is not text is refused before the screen\'s ticket is touched', async (t) => {
+  const remote = require('./engine/remote');
+  const orig = remote.macRequest;
+  remote.macRequest = async (method, route, body) => (route === oe.ROUTES.redeem
+    ? { ok: true, data: { org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: { reports: ['agent names'], backsUp: [], readers: ['you'], never: [] } } }
+    : route === oe.ROUTES.enroll ? { ok: true, data: { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } }
+    : { ok: true, data: { ok: true } });
+  t.after(() => { remote.macRequest = orig; fs.rmSync(enrollmentFile(), { force: true }); });
+  const pv = await call('/api/org/preview', { body: { code: '1234-5678' }, headers: SCREEN });
+  const bad = await call('/api/org/enroll', { body: { code: 12345678, accepted: true, ticket: pv.json.ticket }, headers: SCREEN });
+  assert.equal(bad.json.ok, false); assert.match(bad.json.because, /not a join code/);
+  // CONTROL: the screen's own ticket still works for the code it previewed.
+  const good = await call('/api/org/enroll', { body: { code: '1234-5678', accepted: true, ticket: pv.json.ticket }, headers: SCREEN });
+  assert.equal(good.json.ok, true, 'the malformed request used up the screen\'s ticket: ' + JSON.stringify(good.json));
+  await call('/api/org/leave', { body: {}, headers: SCREEN });
+});

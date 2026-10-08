@@ -452,6 +452,9 @@ async function leaveNow(opts, retry) {
   const before = readEnrollment(opts) || pendingRecord(opts);
   const undo = pendingUndo(opts);
   setLeaveRefused(null, opts);
+  /* The pending marker goes down BEFORE the record goes, so a restart in between can never leave neither: the next pass
+     then sends the leave (review 32). Every clear outcome below removes it. */
+  setLeavePending(true, opts, before, undo, pendingConsentHash(opts));
   clearEnrollment(opts);   // stop at once, whatever happens next
   /* Ask first. A leave ends the WHOLE membership (by account, not by computer), so it is sent only when the company
      confirms this world AND this signer. That stops a stale record, a moved enrollment, and a copy whose Kosmos+ key

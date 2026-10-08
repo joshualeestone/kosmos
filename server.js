@@ -9605,6 +9605,8 @@ const server = http.createServer(async (req, res) => {
         } else if (pathname === '/api/org/enroll') {
           if (body.accepted === true) {
             const t = ORG_TICKET;
+            // A code that is not text is no join code: refused before the ticket is touched (review 32).
+            if (body.code != null && typeof body.code !== 'string') { sendJson(res, 200, { ok: false, because: 'That is not a join code. Check it and try again.' }); return; }
             const code = body.code == null ? null : String(body.code).trim();
             if (!t || typeof body.ticket !== 'string' || body.ticket !== t.value || Date.now() - t.at > ORG_TICKET_MS || code !== t.code) {
               sendJson(res, 200, { ok: false, code: 'org_ticket', because: 'Check the code again first, so you can read what your company would see.' });

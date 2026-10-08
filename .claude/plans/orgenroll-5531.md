@@ -391,3 +391,13 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
 - Not done (recorded): a join that lands at the company more than 2 minutes after its timeout is settled here as not
   made; the person recovers by checking the code again (the move consent). The first local-only branch of leaveNow is
   a defensive copy of the route's own refusal (reachable only by a race).
+
+## Review 32
+- leaveNow cleared the record before writing the pending leave, so a restart in between left neither and the leave
+  was never sent. The pending marker now goes down first; every clear outcome removes it. Pinned (the fake company
+  checks, at the moment it is asked, that the marker is on disk and the record gone); the mutation reddens it.
+- /api/org/enroll refuses a code that is not text before it touches the screen's ticket (a server test with a
+  control that the screen's ticket still works). The mutation reddens that test on its message; whether the ticket
+  would actually have been lost without the guard was not measured (the engine's refusal has no code, so the route may
+  have restored it).
+- Kept: a poll resolving after Join (self-heals in a minute); the inline route block (the file's style).

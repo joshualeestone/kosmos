@@ -781,3 +781,16 @@ test('#5531 review 30: a marker whose time cannot be read is settled on the firs
   await org.refresh({ root: a, remote: co });
   assert.equal(org.joinUnknown({ root: a }), null, 'a marker with an unreadable time was kept forever');
 });
+
+test('#5531 review 32: the pending leave is on disk before the record goes, so a restart mid-leave never leaves neither', async (t) => {
+  const { a } = sandbox(t);
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
+  let seen = null;
+  const co = { macRequest: async (m, route) => {
+    // The moment the company is asked: what would a restart right now find on disk?
+    if (route === org.ROUTES.status) { seen = { pending: org.leavePending({ root: a }), record: !!org.readEnrollment({ root: a }) }; return { ok: false, because: 'offline' }; }
+    return { ok: false, because: 'unexpected ' + route }; } };
+  const r = await org.leave({ root: a, remote: co });
+  assert.equal(r.pending, true, JSON.stringify(r));
+  assert.deepEqual(seen, { pending: true, record: false }, 'a restart while the company was asked would find no record and no pending leave');
+});
