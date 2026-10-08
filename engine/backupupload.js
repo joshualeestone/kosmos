@@ -64,6 +64,7 @@ const GRANT_WINDOW_MS = 15 * 60 * 1000;                 // the coordinator's gra
 // The only query parameters a grant's url may carry: SigV4's own. S3 honours x-amz-* request parameters in the query
 // too (a legal hold, a retention, tagging, a multipart uploadId), which would act on the locked bucket unseen by the
 // header checks, so any other parameter refuses the grant.
+const S3_HOST = /^([a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\.)?s3([.-][a-z0-9-]+)?\.amazonaws\.com$/;
 const QUERY_ALLOWED = ['X-Amz-Algorithm', 'X-Amz-Credential', 'X-Amz-Date', 'X-Amz-Expires', 'X-Amz-SignedHeaders', 'X-Amz-Signature'];
 // The lock a grant may set, measured from the grant's own start (expires_at minus its window), never the Mac's clock:
 // the coordinator locks to the end of the week plus 30 days (plus the window), or the next week's end in a week's
@@ -71,11 +72,17 @@ const QUERY_ALLOWED = ['X-Amz-Algorithm', 'X-Amz-Credential', 'X-Amz-Date', 'X-A
 const LOCK_MIN_MS = 29 * 86400 * 1000, LOCK_MAX_MS = 39 * 86400 * 1000;
 // fetch refusing the request itself, before or without the network: no retry fixes these. Any other failure (a
 // network code, known or not: ENETDOWN, EADDRNOTAVAIL under the macOS TIME_WAIT leak, a TLS error) is worth another try.
+// Failures before any byte of the body could have left (no DNS answer, nothing listening, TLS refused): retried, but
+// such an attempt cannot have written anything, so it never makes a chunk "unsure".
+const PRECONNECT_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'EHOSTUNREACH', 'ENETUNREACH', 'ENETDOWN',
+  'UND_ERR_CONNECT_TIMEOUT', 'CERT_HAS_EXPIRED', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'SELF_SIGNED_CERT_IN_CHAIN',
+  'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'ERR_TLS_CERT_ALTNAME_INVALID']);
 const LOCAL_CODES = new Set(['UND_ERR_REQ_CONTENT_LENGTH_MISMATCH', 'UND_ERR_INVALID_ARG', 'UND_ERR_NOT_SUPPORTED',
   'ERR_INVALID_URL', 'ERR_INVALID_ARG_TYPE', 'ERR_INVALID_ARG_VALUE', 'ERR_INVALID_HTTP_TOKEN', 'ERR_INVALID_CHAR']);
 
-// The ONLY way to allow plain-http upload urls: a test calls allowHttpForTests(true). Not an argument or an
-// environment variable, which a production caller or a child process could pass on by mistake.
+// The ONLY way to allow plain-http upload urls (and a host that is not AWS S3, the local test bucket): a test calls
+// allowHttpForTests(true). Not an argument or an environment variable, which a production caller or a child process
+// could pass on by mistake.
 let httpForTests = false;
 function allowHttpForTests(on) { httpForTests = !!on; }
 
@@ -130,7 +137,13 @@ function parseGrant(data, objects, seenKeys) {
     keys.add(u.key);
     let url;
     try { url = new URL(String(u.url)); } catch { return { ok: false, because: `upload ${i} has no usable url` }; }
+    if (urls.has(url.toString())) return { ok: false, because: `upload ${i} repeats a url` };
+    urls.add(url.toString());
     if (!(url.protocol === 'https:' || (allowHttp && url.protocol === 'http:'))) return { ok: false, because: `upload ${i} is not https` };
+    // The bucket is AWS S3: the Mac sends its bytes only to an S3 endpoint on the default port, whatever host a grant
+    // names (a coordinator bug cannot point it at a LAN address or another service). Path-style s3.<region> or
+    // s3-<region>, or virtual-hosted <bucket>.s3.<region>.
+    if (!allowHttp && (url.port || !S3_HOST.test(url.hostname))) return { ok: false, because: `upload ${i}'s host is not an AWS S3 endpoint (${url.host})` };
     let path;
     try { path = decodeURIComponent(url.pathname); } catch { return { ok: false, because: `upload ${i} has an undecodable url path` }; }
     if (!path.endsWith('/' + u.key)) return { ok: false, because: `upload ${i}'s url does not carry its key` };
@@ -138,13 +151,11 @@ function parseGrant(data, objects, seenKeys) {
     // else, so the key the map records is the object S3 stores. And one bucket path per grant.
     const pre = path.slice(0, path.length - u.key.length);
     // A virtual-hosted S3 host (<bucket>.s3.<region>.amazonaws.com) names the bucket already: the path is the key.
-    const virtualHosted = /\.s3[.-]([a-z0-9-]+\.)?amazonaws\.com$/.test(url.hostname) && !/^s3[.-]/.test(url.hostname);
+    const virtualHosted = /\.s3[.-]([a-z0-9-]+\.)?amazonaws\.com$/.test(url.hostname);
     if (virtualHosted && pre !== '/') return { ok: false, because: `upload ${i}'s url path is not its key (a virtual-hosted bucket)` };
     if (!(pre === '/' || /^\/[^/]+\/$/.test(pre))) return { ok: false, because: `upload ${i}'s url path is not its key under one bucket segment` };
     const prefix = `${url.host}${pre}`;
     if (i === 0) bucketPrefix = prefix; else if (prefix !== bucketPrefix) return { ok: false, because: `upload ${i}'s url is not under the grant's bucket path` };
-    if (urls.has(url.toString())) return { ok: false, because: `upload ${i} repeats a url` };
-    urls.add(url.toString());
     const qnames = [...url.searchParams.keys()];
     for (const q of qnames) if (!QUERY_ALLOWED.includes(q)) return { ok: false, because: `upload ${i}'s url carries a parameter it may not (${q})` };
     if (new Set(qnames).size !== qnames.length) return { ok: false, because: `upload ${i}'s url repeats a parameter` };
@@ -182,7 +193,9 @@ function parseGrant(data, objects, seenKeys) {
     if (headerOf(headers, 'if-none-match') !== '*') return { ok: false, because: `upload ${i} is not write-once` };
     // And the lock must be the one the plan says: COMPLIANCE, for 29 to 39 days from the grant's own start.
     if (headerOf(headers, 'x-amz-object-lock-mode') !== 'COMPLIANCE') return { ok: false, because: `upload ${i} is not a COMPLIANCE lock` };
-    const retainMs = expiryMs(headerOf(headers, 'x-amz-object-lock-retain-until-date'));
+    // An ISO string only (a bare number would pass expiryMs but be sent as text S3 refuses).
+    const retainRawKey = Object.keys(u.headers).find((k) => k.toLowerCase() === 'x-amz-object-lock-retain-until-date');
+    const retainMs = retainRawKey && typeof u.headers[retainRawKey] === 'string' ? expiryMs(u.headers[retainRawKey]) : NaN;
     const lockFor = retainMs - signedAtMs;   // from the grant's own (signed) start
     if (!Number.isFinite(retainMs) || lockFor < LOCK_MIN_MS || lockFor > LOCK_MAX_MS) return { ok: false, because: `upload ${i}'s lock is not 29 to 39 days` };
     uploads.push({ key: u.key, url: url.toString(), headers });
@@ -227,7 +240,8 @@ async function putOne(fetchFn, up, bytes, attempt, timeoutMs) {
     const c = err && ((err.cause && err.cause.code) || err.code);
     const local = LOCAL_CODES.has(c) || (err && err.name === 'TypeError' && !err.cause && !ac.signal.aborted);
     if (local) return { kind: 'refused', status: null, code: c || 'local' };
-    return { kind: 'retry', status: null, code: ac.signal.aborted ? 'timeout' : (c || 'network') };
+    const pre = !ac.signal.aborted && (PRECONNECT_CODES.has(c) || /^ERR_TLS_/.test(String(c || '')));
+    return { kind: 'retry', status: null, code: ac.signal.aborted ? 'timeout' : (c || 'network'), preconnect: pre };
   } finally {
     clearTimeout(t);
   }
@@ -314,16 +328,17 @@ async function uploadInner(deps, objects, opts, keys, run) {
     // clock that is far off). The PUTs are bounded by S3's own check on arrival either way.
     const deadline = asked + g.lifetimeMs - 10 * 1000;
     const left = [], stuck = [];   // stuck: [{ chunk, key }], a write that may have landed under key
+    const unreached = [];           // chunks that met only pre-connect failures until the deadline: nothing written
     const troubledNow = run.troubled; // name -> { c, key } for chunks that met trouble and are not (yet) stored
     let stop = null, stored = 0;
     await eachLimited(g.uploads.map((up, i) => [up, pending[i]]), conc, async ([up, c]) => {
-      let troubled = false;
+      let troubled = false, preOnly = false;
       for (let attempt = 0; ; attempt++) {
         if (stop) return;
         // Out of time on this grant. A chunk that met bucket or network trouble does NOT get a new grant (that spends
         // allowance and could write a second locked copy if an answer was lost): the run ends retryLater.
         const remaining = deadline - now();
-        if (remaining <= 0) { if (troubled) stuck.push({ c, key: up.key }); else left.push(c); return; }
+        if (remaining <= 0) { if (troubled) stuck.push({ c, key: up.key }); else if (preOnly) unreached.push(c); else left.push(c); return; }
         // NOT capped at the grant's remaining time: S3 checks a presigned url's expiry when the request ARRIVES, so a PUT
         // started in time may finish after it. Aborting it at the deadline would turn a landed write into an unknown.
         const r = await putOne(fetchFn, up, c.object, attempt, timeoutFor(c.object.length));
@@ -331,8 +346,7 @@ async function uploadInner(deps, objects, opts, keys, run) {
         // S3 says the grant expired. After trouble that is the same case as above: an earlier attempt may have landed.
         if (r.kind === 'expired') { if (troubled) stuck.push({ c, key: up.key }); else left.push(c); return; }
         if (r.kind === 'refused') { stop = stop || `the bucket refused a chunk (${r.status ? 'HTTP ' + r.status : 'locally'}${r.code ? ' ' + r.code : ''}); a new grant would not change that`; return; }
-        troubled = true;
-        troubledNow.set(c.name, { c, key: up.key });
+        if (r.preconnect) { preOnly = true; } else { troubled = true; troubledNow.set(c.name, { c, key: up.key }); }
         // Jittered, so workers that met the same SlowDown do not retry in lockstep.
         await sleep(Math.min(BACKOFF_MAX_MS, 500 * 2 ** attempt) * (0.5 + Math.random() / 2));
       }
@@ -344,6 +358,8 @@ async function uploadInner(deps, objects, opts, keys, run) {
     }
     // unsure: chunks whose write may have landed under these keys (an answer was lost). A later run uploads them again
     // under new keys, so a landed one becomes a locked orphan until its lock ends; the caller may record them.
+    // The bucket could not even be reached: no new grant (it could not be reached either), and nothing is unsure.
+    if (unreached.length && !stuck.length) return { ok: false, retryLater: true, because: `the bucket could not be reached (${unreached.length} chunks never connected before their grant ran out); try again later`, keys };
     if (stuck.length) return { ok: false, retryLater: true, because: `${stuck.length} chunks met bucket or network trouble until their grant expired; try again later`, keys, unsure: stuck.map((x) => ({ name: x.c.name, key: x.key })) };
     // The next grant is sized from the RATE this one achieved: about 80% of what the link carries in one window,
     // never more than double this grant (so it settles instead of swinging), at least 1, at most MAX_PER_GRANT.

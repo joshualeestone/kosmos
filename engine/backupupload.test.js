@@ -102,54 +102,55 @@ test('every chunk is stored once under its granted key, and the name -> key map 
 });
 
 test('a grant that does not bind OUR bytes, or does not name its key, is refused before anything is sent', async () => {
-  for (const [what, tamper] of [
-    ['another MD5', (d) => { d.uploads[1].headers['content-md5'] = md5(Buffer.from('other')); }],
-    ['a listed Content-Length that is not ours', (d) => { d.uploads[0].headers['Content-Length'] = String(up.MIN_OBJECT + 1 + 7); }],
-    ['not write-once', (d) => { delete d.uploads[2].headers['if-none-match']; }],
-    ['content-length not signed', (d) => { d.uploads[0].url = d.uploads[0].url.replace(encodeURIComponent('content-length;'), ''); }],
-    ['content-md5 not signed', (d) => { d.uploads[0].url = d.uploads[0].url.replace(encodeURIComponent('content-md5;'), ''); }],
-    ['no SignedHeaders at all', (d) => { d.uploads[0].url = d.uploads[0].url.replace(/X-Amz-SignedHeaders=[^&]*&/, ''); }],
+  for (const [what, tamper, want] of [
+    ['another MD5', (d) => { d.uploads[1].headers['content-md5'] = md5(Buffer.from('other')); }, 'MD5'],
+    ['a listed Content-Length that is not ours', (d) => { d.uploads[0].headers['Content-Length'] = String(up.MIN_OBJECT + 1 + 7); }, 'length'],
+    ['not write-once', (d) => { delete d.uploads[2].headers['if-none-match']; }, 'write-once'],
+    ['content-length not signed', (d) => { d.uploads[0].url = d.uploads[0].url.replace(encodeURIComponent('content-length;'), ''); }, 'does not sign content-length'],
+    ['content-md5 not signed', (d) => { d.uploads[0].url = d.uploads[0].url.replace(encodeURIComponent('content-md5;'), ''); }, 'does not sign content-md5'],
+    ['no SignedHeaders at all', (d) => { d.uploads[0].url = d.uploads[0].url.replace(/X-Amz-SignedHeaders=[^&]*&/, ''); }, 'has no X-Amz-SignedHeaders'],
     // Distinct url and distinct key, but the url names another object: only the url-to-key check can catch it.
-    ['a url that does not carry its key', (d) => { d.uploads[1].key = 'org1/acct1/1/2026-W41/other'; }],
+    ['a url that does not carry its key', (d) => { d.uploads[1].key = 'org1/acct1/1/2026-W41/other'; }, 'carry its key'],
     // Distinct keys, ONE url that ends with both ('.../bucket/<k1>' ends with '/' + 'bucket/<k1>' and '/' + '<k1>'), so
     // the url-to-key check passes both and only the repeated-url check can catch it.
-    ['a repeated url', (d) => { d.uploads[1].key = 'bucket/' + d.uploads[0].key; d.uploads[1].url = d.uploads[0].url; }],
-    ['one upload short', (d) => { d.uploads.pop(); }],
-    ['a repeated key', (d) => { d.uploads[1].key = d.uploads[0].key; }],
-    ['no expiry', (d) => { delete d.expires_at; }],
+    ['a repeated url', (d) => { d.uploads[1].key = 'bucket/' + d.uploads[0].key; d.uploads[1].url = d.uploads[0].url; }, 'repeats a url'],
+    ['one upload short', (d) => { d.uploads.pop(); }, 'one upload per chunk'],
+    ['a repeated key', (d) => { d.uploads[1].key = d.uploads[0].key; }, 'repeats a key'],
+    ['no expiry', (d) => { delete d.expires_at; }, 'expires_at'],
     // Every upload under the same TWO segments: one prefix (so the one-path check passes), but not the key under one
     // bucket segment, so the map would record a key that is not the stored object's.
-    ['every url two segments above its key', (d) => { for (const u of d.uploads) u.url = u.url.replace('/bucket/', '/bucket/extra/'); }],
-    ['a header signed beyond the six', (d) => { d.uploads[0].url = d.uploads[0].url.replace(encodeURIComponent('x-amz-object-lock-retain-until-date'), encodeURIComponent('x-amz-object-lock-retain-until-date;x-amz-meta-a')); }],
-    ['no X-Amz-Signature', (d) => { d.uploads[0].url = d.uploads[0].url.replace('&X-Amz-Signature=00', ''); }],
-    ['no X-Amz-Credential', (d) => { d.uploads[0].url = d.uploads[0].url.replace(/&X-Amz-Credential=[^&]*/, ''); }],
-    ['an unreadable X-Amz-Date', (d) => { d.uploads[0].url = d.uploads[0].url.replace(/X-Amz-Date=[^&]*/, 'X-Amz-Date=yesterday'); }],
-    ['expires_at that disagrees with the signed time', (d) => { d.expires_at = iso(Date.parse(d.expires_at) + 10 * 60 * 1000); }],
-    ['a legal hold in the url query', (d) => { d.uploads[0].url += '&x-amz-object-lock-legal-hold=ON'; }],
-    ['a multipart uploadId in the url query', (d) => { d.uploads[0].url += '&partNumber=1&uploadId=zz'; }],
-    ['a repeated query parameter', (d) => { d.uploads[0].url += '&X-Amz-Expires=900'; }],
-    ['a url that outlives a grant (X-Amz-Expires 3600)', (d) => { d.uploads[0].url = d.uploads[0].url.replace('X-Amz-Expires=900', 'X-Amz-Expires=3600'); }],
-    ['a url with no X-Amz-Expires', (d) => { d.uploads[0].url = d.uploads[0].url.replace('X-Amz-Expires=900&', ''); }],
-    ['a lock of exactly 28 days', (d) => { d.uploads[0].headers['x-amz-object-lock-retain-until-date'] = iso(Date.parse(d.expires_at) - 15 * 60 * 1000 + 28 * 86400 * 1000); }],
-    ['a lock of 40 days', (d) => { d.uploads[0].headers['x-amz-object-lock-retain-until-date'] = iso(Date.parse(d.expires_at) - 15 * 60 * 1000 + 40 * 86400 * 1000); }],
-    ['an extra header', (d) => { d.uploads[0].headers['x-anything'] = '1'; }],
-    ['a Host header', (d) => { d.uploads[0].headers.Host = 'evil.example'; }],
-    ['Transfer-Encoding', (d) => { d.uploads[0].headers['Transfer-Encoding'] = 'chunked'; }],
-    ['a header twice in another case', (d) => { d.uploads[0].headers['Content-MD5'] = md5(Buffer.from('x')); }],
-    // (Caught by the exact lock-mode check; the printable-ASCII rule is defense in depth, not isolable: every allowed
-    // header also has an exact-value check.)
-    ['a lock mode with CRLF in it', (d) => { d.uploads[0].headers['x-amz-object-lock-mode'] = 'COMPLIANCE\r\nX-Evil: 1'; }],
-    ['a GOVERNANCE lock', (d) => { d.uploads[0].headers['x-amz-object-lock-mode'] = 'GOVERNANCE'; }],
-    ['no lock mode', (d) => { delete d.uploads[0].headers['x-amz-object-lock-mode']; }],
-    ['a lock until 2099', (d) => { d.uploads[0].headers['x-amz-object-lock-retain-until-date'] = '2099-01-01T00:00:00Z'; }],
-    ['a 10-day lock', (d) => { d.uploads[0].headers['x-amz-object-lock-retain-until-date'] = iso(Date.now() + 10 * 86400 * 1000); }],
-    ['the lock date not signed', (d) => { d.uploads[0].url = d.uploads[0].url.replace(encodeURIComponent(';x-amz-object-lock-retain-until-date'), ''); }],
-    ['a numeric-looking string expiry', (d) => { d.expires_at = '1700000000'; }],
+    ['every url two segments above its key', (d) => { for (const u of d.uploads) u.url = u.url.replace('/bucket/', '/bucket/extra/'); }, 'bucket segment'],
+    ['a header signed beyond the six', (d) => { d.uploads[0].url = d.uploads[0].url.replace(encodeURIComponent('x-amz-object-lock-retain-until-date'), encodeURIComponent('x-amz-object-lock-retain-until-date;x-amz-meta-a')); }, 'outside the six'],
+    ['no X-Amz-Signature', (d) => { d.uploads[0].url = d.uploads[0].url.replace('&X-Amz-Signature=00', ''); }, 'has no X-Amz-Signature'],
+    ['no X-Amz-Credential', (d) => { d.uploads[0].url = d.uploads[0].url.replace(/&X-Amz-Credential=[^&]*/, ''); }, 'has no X-Amz-Credential'],
+    ['an unreadable X-Amz-Date', (d) => { d.uploads[0].url = d.uploads[0].url.replace(/X-Amz-Date=[^&]*/, 'X-Amz-Date=yesterday'); }, 'X-Amz-Date'],
+    ['expires_at that disagrees with the signed time', (d) => { d.expires_at = iso(Date.parse(d.expires_at) + 10 * 60 * 1000); }, 'signed time'],
+    ['a legal hold in the url query', (d) => { d.uploads[0].url += '&x-amz-object-lock-legal-hold=ON'; }, 'x-amz-object-lock-legal-hold'],
+    ['a multipart uploadId in the url query', (d) => { d.uploads[0].url += '&partNumber=1&uploadId=zz'; }, 'may not (partNumber)'],
+    ['a repeated query parameter', (d) => { d.uploads[0].url += '&X-Amz-Expires=900'; }, 'repeats a parameter'],
+    ['a url that outlives a grant (X-Amz-Expires 3600)', (d) => { d.uploads[0].url = d.uploads[0].url.replace('X-Amz-Expires=900', 'X-Amz-Expires=3600'); }, 'lasts longer'],
+    ['a url with no X-Amz-Expires', (d) => { d.uploads[0].url = d.uploads[0].url.replace('X-Amz-Expires=900&', ''); }, 'has no X-Amz-Expires'],
+    ['a lock of exactly 28 days', (d) => { d.uploads[0].headers['x-amz-object-lock-retain-until-date'] = iso(Date.parse(d.expires_at) - 15 * 60 * 1000 + 28 * 86400 * 1000); }, '29 to 39'],
+    ['a lock of 40 days', (d) => { d.uploads[0].headers['x-amz-object-lock-retain-until-date'] = iso(Date.parse(d.expires_at) - 15 * 60 * 1000 + 40 * 86400 * 1000); }, '29 to 39'],
+    ['an extra header', (d) => { d.uploads[0].headers['x-anything'] = '1'; }, 'may not (x-anything)'],
+    ['a Host header', (d) => { d.uploads[0].headers.Host = 'evil.example'; }, 'may not (Host)'],
+    ['Transfer-Encoding', (d) => { d.uploads[0].headers['Transfer-Encoding'] = 'chunked'; }, 'may not (Transfer-Encoding)'],
+    ['a header twice in another case', (d) => { d.uploads[0].headers['Content-MD5'] = md5(Buffer.from('x')); }, 'twice'],
+    // The printable-ASCII check runs before the exact lock-mode check, so this case isolates it.
+    ['a lock mode with CRLF in it', (d) => { d.uploads[0].headers['x-amz-object-lock-mode'] = 'COMPLIANCE\r\nX-Evil: 1'; }, 'printable ASCII'],
+    ['a GOVERNANCE lock', (d) => { d.uploads[0].headers['x-amz-object-lock-mode'] = 'GOVERNANCE'; }, 'COMPLIANCE'],
+    ['no lock mode', (d) => { delete d.uploads[0].headers['x-amz-object-lock-mode']; }, 'COMPLIANCE'],
+    ['a lock until 2099', (d) => { d.uploads[0].headers['x-amz-object-lock-retain-until-date'] = '2099-01-01T00:00:00Z'; }, '29 to 39'],
+    ['a 10-day lock', (d) => { d.uploads[0].headers['x-amz-object-lock-retain-until-date'] = iso(Date.now() + 10 * 86400 * 1000); }, '29 to 39'],
+    ['the lock date not signed', (d) => { d.uploads[0].url = d.uploads[0].url.replace(encodeURIComponent(';x-amz-object-lock-retain-until-date'), ''); }, 'does not sign x-amz-object-lock-retain-until-date'],
+    ['a numeric-looking string expiry', (d) => { d.expires_at = '1700000000'; }, 'expires_at'],
   ]) {
     const b = await bucket();
     try {
       const r = await up.uploadChunks(deps(coordinator(b, { tamper })), [chunk(1), chunk(2), chunk(3)]);
       assert.strictEqual(r.ok, false, what);
+      // The refusal must come from the check this case aims at, not from an unrelated earlier one.
+      assert.ok(String(r.because).includes(want), `${what}: refused for another reason: ${r.because}`);
       assert.strictEqual(b.puts, 0, `${what}: a PUT was sent`);
     } finally { await b.close(); }
   }
@@ -593,6 +594,37 @@ test('a virtual-hosted S3 url must have the key as its whole path', () => {
   assert.strictEqual(up.parseGrant(mk('b1.s3.us-east-1.amazonaws.com', '/a/k'), [c]).ok, true);
   assert.strictEqual(up.parseGrant(mk('b1.s3.us-east-1.amazonaws.com', '/x/a/k'), [c]).ok, false);
   assert.strictEqual(up.parseGrant(mk('s3.us-east-1.amazonaws.com', '/b1/a/k'), [c]).ok, true, 'path-style keeps one bucket segment');
+});
+
+test('upload hosts are AWS S3 endpoints only (outside the test setter): a LAN host, another service or a port is refused', () => {
+  const c = chunk(1);
+  const mk = (host) => ({ expires_at: '2030-01-01T00:15:00Z', uploads: [{ key: 'a/k', url: `https://${host}/b1/a/k?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=c&X-Amz-Date=20300101T000000Z&X-Amz-Expires=900&X-Amz-SignedHeaders=${encodeURIComponent(SIGNED)}&X-Amz-Signature=00`, headers: { 'content-md5': md5(c.object), 'if-none-match': '*', 'x-amz-object-lock-mode': 'COMPLIANCE', 'x-amz-object-lock-retain-until-date': '2030-02-03T00:00:00Z' } }] });
+  up.allowHttpForTests(false);
+  try {
+    for (const ok of ['s3.us-east-1.amazonaws.com', 's3-us-west-2.amazonaws.com', 's3.amazonaws.com']) assert.strictEqual(up.parseGrant(mk(ok), [c]).ok, true, ok);
+    for (const bad of ['192.168.1.10', 'localhost', 'storage.example.com', 's3.us-east-1.amazonaws.com.evil.example', 's3.us-east-1.amazonaws.com:8443']) {
+      const r = up.parseGrant(mk(bad), [c]);
+      assert.strictEqual(r.ok, false, bad); assert.match(r.because, /not an AWS S3 endpoint/, bad);
+    }
+  } finally { up.allowHttpForTests(true); }
+});
+
+test('a bucket that cannot even be reached (DNS) ends retryLater with nothing unsure and no second grant', async () => {
+  const c = coordinator({ base: 'http://127.0.0.1:9' });
+  const nodns = async () => { const e = new TypeError('fetch failed'); e.cause = { code: 'ENOTFOUND' }; throw e; };
+  const r = await up.uploadChunks(deps(c, Object.assign({ fetch: nodns }, clock())), [chunk(1), chunk(2)]);
+  assert.strictEqual(r.ok, false); assert.strictEqual(r.retryLater, true);
+  assert.match(r.because, /could not be reached/);
+  assert.strictEqual(r.unsure, undefined, 'a chunk that never connected was named as possibly landed');
+  assert.strictEqual(c.bodies.length, 1);
+});
+
+test('a lock date given as a number (not an ISO string) is refused', () => {
+  const c = chunk(1);
+  const data = { expires_at: '2030-01-01T00:15:00Z', uploads: [{ key: 'a/k', url: `http://bucket.example/b/a/k?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=c&X-Amz-Date=20300101T000000Z&X-Amz-Expires=900&X-Amz-SignedHeaders=${encodeURIComponent(SIGNED)}&X-Amz-Signature=00`, headers: { 'content-md5': md5(c.object), 'if-none-match': '*', 'x-amz-object-lock-mode': 'COMPLIANCE', 'x-amz-object-lock-retain-until-date': Date.UTC(2030, 1, 3) } }] };
+  assert.strictEqual(up.parseGrant(data, [c]).ok, false);
+  data.uploads[0].headers['x-amz-object-lock-retain-until-date'] = '2030-02-03T00:00:00Z';
+  assert.strictEqual(up.parseGrant(data, [c]).ok, true, 'control');
 });
 
 test('never throws: a throwing injected clock still resolves to ok: false', async () => {
