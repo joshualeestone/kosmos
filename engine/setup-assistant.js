@@ -347,11 +347,6 @@ function ruleAbs(p, platform = process.platform) {
   // no trailing slash, so a drive root's folder rule is //d/** and not //d//**
   return '//' + s.replace(/^\/+/, '').replace(/\/+$/, '');
 }
-/* The inverse, for code that reads a rule back as a path: what follows `Read(//` (without a trailing `/**`) to the
-   path it names. On Windows `c/Users/x` is `C:\Users\x`; a rule in the older native form (`C:\Users\x`, written
-   before this change) is read as it is. Elsewhere it is `/` plus the rest. A share's rule (host/share/...) reads back as
-   its UNC path (\\host\share\...), so the own-folder check compares real paths; a one-letter host reads back as a drive
-   (S:), the one form that cannot be told apart. */
 /* Every path a rule can stand for: rulePath's reading and, on Windows, for a rule that starts with one letter, the
    share that letter could also be the host of (\\\\s\\share is written //s/share, the same as drive S:). */
 function rulePaths(inner, platform = process.platform) {
@@ -362,14 +357,19 @@ function rulePaths(inner, platform = process.platform) {
   if (platform === 'win32' && /^[A-Za-z]\/[^/]+/.test(t)) out.push('\\\\' + t.replace(/\//g, '\\'));
   return out;
 }
+/* The inverse, for code that reads a rule back as a path: what follows `Read(//` (without a trailing `/**`) to the
+   path it names. On Windows `c/Users/x` is `C:\Users\x`; a rule in the older native form (`C:\Users\x`, written
+   before this change) is read as it is. Elsewhere it is `/` plus the rest. A share's rule (host/share/...) reads back as
+   its UNC path (\\host\share\...), so the own-folder check compares real paths; a one-letter host reads back as a drive
+   (S:), the one form that cannot be told apart. */
 function rulePath(inner, platform = process.platform) {
   const t = String(inner);
   if (platform === 'win32') {
     if (/^[A-Za-z]:/.test(t)) return t;   // already native: only a round trip reaches this today, kept for a reader
     const d = /^([A-Za-z])(\/|$)/.exec(t);
     if (d) return d[1].toUpperCase() + ':\\' + t.slice(d[0].length).replace(/\//g, '\\');
-    // no drive: a share (host/share/...) reads back as its UNC path, so the own-folder check compares real paths
-    //; anything shorter is not a form ruleAbs writes, and is never resolved against the current drive
+    // no drive: a share (host/share/...) reads back as its UNC path, so the own-folder check compares real paths;
+    // anything shorter is not a form ruleAbs writes, and is never resolved against the current drive
     if (/^[^/]+\/[^/]+/.test(t)) return '\\\\' + t.replace(/\//g, '\\');
     return null;
   }
@@ -525,8 +525,12 @@ function guardGuideFolder(dir, agentName, deps = {}) {
       const backs = rulePaths(m[1], plat);
       if (!backs.length) return true;      // not a form ruleAbs writes: nothing to compare
       // case-sensitive is safe: an existing target is a realpath like `own`; a missing one cannot contain the guide
-      const holds = (back) => { const target = realOr(back); return own === target || own.startsWith(target.endsWith(path.sep) ? target : target + path.sep); };
-      if (!backs.some(holds)) return true;
+      const holds = (target) => own === target || own.startsWith(target.endsWith(path.sep) ? target : target + path.sep);
+      // the first reading is resolved (realpath); a one-letter share reading is compared as TEXT, case-blind, and never
+      // resolved: resolving \\c\Users would send Windows to the network for a host named c on every drive rule
+      const lower = (x) => x.toLowerCase();
+      const holdsText = (unc) => lower(own) === lower(unc) || lower(own).startsWith(lower(unc.endsWith(path.sep) ? unc : unc + path.sep));
+      if (!holds(realOr(backs[0])) && !backs.slice(1).some(holdsText)) return true;
       process.stderr.write(`#4752: a rule that would take in the guide's own folder was left out: ${r}\n`);
       return false;
     });
