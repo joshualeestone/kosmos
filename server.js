@@ -7854,6 +7854,17 @@ const server = http.createServer(async (req, res) => {
             + ' agents were created; ' + result.refused.length + ' were refused (see refused[])');
         }
 
+        /* #5590: a team create tells installkosmos.com the agent count moved, as the single create does (the
+           #3038 block in POST /api/agents): ONE ping per team carrying the install's total ever created
+           (create.createdCount, which already includes every member just born), never one per member. Sent when
+           at least one member was created (a whole or partial team; a refused team creates nobody), unless the
+           request turned the create-agent box off (notifyCreated: false). The same default as the single create, so
+           the CLI's `kosmos agent create` (a one-member team) and an agent building a team are counted too. The
+           guide itself is never in the count (createdCount leaves out its own birth, #4350); members it creates are.
+           Best-effort: the beacon never affects the create. */
+        if (result && Array.isArray(result.created) && result.created.length > 0 && body.notifyCreated !== false) {
+          try { createdbeacon.pingAgentCreated(create.createdCount()); } catch { /* a beacon never affects a create */ }
+        }
         const code = result.outcome === 'refused' ? 400 : 200;
         sendJson(res, code, result);
       })
