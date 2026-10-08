@@ -43,3 +43,11 @@ sessions outside Kosmos. This branch adds the reader the rollup needs to send us
   session started in an agent's exact folder is counted as that agent's (the weakest premise above).
 - DUPLICATES / KEPT: the scan-wide dedup can undercount an agent (documented); a case-different spelling on a
   case-insensitive disk undercounts (the safe direction).
+
+## Review 3 (blind, opus)
+- FIXED: a skipped parent whose head read fails counts as unreadable, so the count says incomplete instead of being
+  quietly short (test with an old, unreadable parent; mutation reddens).
+- STATED in the doc comment (the caller rule the privacy guarantee rests on): agentDirs is this Kosmos's own roster,
+  never a listing of the workers folder, which several Kosmoses on one computer share.
+- FIXED: a duplicate root check removed; distinct folders resolved once, in parallel; a test pins that the usage
+  screen's per-folder totals keep their behaviour for an orphan subagent.

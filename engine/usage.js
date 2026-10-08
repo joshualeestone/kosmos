@@ -148,7 +148,7 @@ function utcDay(isoTimestamp) {
    whose rows are skipped (it was last written before the window) but a subagent of which is read, and takes its
    launch folder.
    The same rule as the full read below: the first line that names a cwd and parses with a non-empty one. */
-async function firstCwd(file) {
+async function firstCwd(file, onError) {
   let stream;
   try {
     stream = fs.createReadStream(file, { encoding: 'utf8' });
@@ -159,7 +159,7 @@ async function firstCwd(file) {
       try { r = JSON.parse(line); } catch { continue; }
       if (r && typeof r.cwd === 'string' && r.cwd) { lines.close(); return r.cwd; }
     }
-  } catch { /* unreadable: no launch folder, as the full read would give */ } finally {
+  } catch { if (onError) onError(); /* unreadable: no launch folder, as the full read would give */ } finally {
     if (stream) stream.destroy();
   }
   return '';
@@ -262,7 +262,7 @@ async function scanUsage({ sinceDay, untilDay, mtimeCut = false }) {
         const parentFile = file.slice(0, sub) + '.jsonl';
         let parent = launchOf.get(parentFile);
         if (parent && typeof parent === 'object') {   // #5363: a skipped parent, head-read now that it is needed
-          parent = await firstCwd(parentFile);
+          parent = await firstCwd(parentFile, () => { unreadable += 1; });   // #5532: a failed head read is a short count
           launchOf.set(parentFile, parent);
         }
         if (parent) launch = parent;
@@ -347,6 +347,9 @@ async function scanUsage({ sinceDay, untilDay, mtimeCut = false }) {
  * agent can be UNDER-counted when a person's own transcript holds the same message: the safe direction.
  * An agent folder that is the home folder or a filesystem root is nobody's; an agent folder that no longer exists makes
  * the result incomplete (its past sessions cannot be matched by real path).
+ * 🛑 `agentDirs` MUST be this Kosmos's own roster (register.known() through create.workerDir, as the usage screen builds
+ * it), NEVER a listing of the workers folder: in the default world several Kosmoses on one computer share that folder,
+ * and a listing would sweep in another Kosmos's agents (review 3).
  * `deps` (scanUsage, scanProviders, realpath, home) is for tests only.
  */
 async function worldUsageByModel(days, agentDirs, deps) {
@@ -359,7 +362,7 @@ async function worldUsageByModel(days, agentDirs, deps) {
   let missingDir = false;
   /* Never a folder that holds the person's own work too (review 2): the home folder or a filesystem root as an
      agent's folder would claim every session started there. */
-  const broad = new Set([await realpath(d.home || os.homedir()), path.parse(process.cwd()).root]);
+  const broad = new Set([await realpath(d.home || os.homedir())]);   // a filesystem root is caught per folder below
   for (const dir of Array.isArray(agentDirs) ? agentDirs : []) {
     if (typeof dir !== 'string' || !path.isAbsolute(dir)) continue;
     try { await fsp.access(dir); } catch { missingDir = true; }   // a gone folder cannot be matched by its real path
@@ -374,12 +377,15 @@ async function worldUsageByModel(days, agentDirs, deps) {
   try { others = await (d.scanProviders || ((o) => require('./usageproviders').scanProviders(o)))({ sinceDay, untilDay }); }
   catch { others = { folderModels: {}, complete: false }; }
   const byDay = {};
-  const resolved = new Map();
-  for (const src of [claude.folderModels || {}, others.folderModels || {}]) {
+  const sources = [claude.folderModels || {}, others.folderModels || {}];
+  // Every distinct folder resolved once, in parallel (review 3), as byAgentAsync does.
+  const distinct = new Set();
+  for (const src of sources) for (const folders of Object.values(src)) for (const f of Object.keys(folders || {})) if (f && path.isAbsolute(f)) distinct.add(f);
+  const resolved = new Map(await Promise.all([...distinct].map(async (f) => [f, await realpath(f)])));
+  for (const src of sources) {
     for (const [day, folders] of Object.entries(src)) {
       for (const [folder, models] of Object.entries(folders || {})) {
         if (!folder || !path.isAbsolute(folder)) continue;   // no recorded folder, or a relative one: nobody's
-        if (!resolved.has(folder)) resolved.set(folder, await realpath(folder));
         if (!mine.has(resolved.get(folder))) continue;
         for (const [model, b] of Object.entries(models || {})) addInto((byDay[day] = byDay[day] || {}), model, b);
       }

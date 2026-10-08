@@ -96,6 +96,9 @@ test('#5532 review 1: a subagent with no top-level transcript counts for nobody;
   const w = await usage.worldUsageByModel(1, [AGENT], NOPROV);
   assert.equal((w.byDay[TODAY] || {})['claude-orphan-sub'], undefined, 'an orphaned subagent in the agent\'s folder was counted');
   assert.equal(((w.byDay[TODAY] || {})['claude-kid-sub'] || {}).input_tokens, 22, 'a subagent of the agent\'s own session was not counted');
+  // The usage screen's per-folder totals keep their behaviour (review 3): the orphan stays under its own first folder.
+  const all = await usage.scanUsage({ sinceDay: TODAY, untilDay: TODAY });
+  assert.ok((all.folders[TODAY][AGENT] || {}).input_tokens >= 11, 'the orphan rule leaked into the usage screen\'s per-folder totals');
 });
 
 test('#5532 review 1: an unreadable transcript or a failing scan gives complete: false, never a throw; relative folders count for nobody', async (t) => {
@@ -137,4 +140,17 @@ test('#5532 review 2: a home folder or a root as an agent folder claims nothing;
   const gone = await usage.worldUsageByModel(1, [AGENT, path.join(SANDBOX, 'workers', 'deleted-agent')], NOPROV);
   assert.equal(gone.complete, false, 'a gone agent folder was reported as a complete count');
   assert.ok(gone.byDay[TODAY]['claude-opus-5-5'], 'the agents that remain were not counted');
+});
+
+test('#5532 review 3: a skipped parent that cannot be head-read makes the count incomplete, not quietly short', async (t) => {
+  const parent = path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects', 'oldkid', 'sess.jsonl');
+  fs.mkdirSync(path.dirname(parent), { recursive: true });
+  fs.writeFileSync(parent, JSON.stringify({ type: 'user', cwd: AGENT, timestamp: '2020-01-01T00:00:00.000Z' }) + '\n');
+  const old = new Date(Date.now() - 5 * 86400000);
+  fs.utimesSync(parent, old, old);   // last written before the window: skipped, then head-read for its subagent
+  fs.chmodSync(parent, 0o000);
+  t.after(() => { try { fs.chmodSync(parent, 0o600); } catch { /* removed with the sandbox */ } });
+  sub('oldkid/sess', AGENT, 'm-oldkid', 'claude-oldkid-sub', 8);
+  const w = await usage.worldUsageByModel(1, [AGENT], NOPROV);
+  assert.equal(w.complete, false, 'a parent that could not be read left the count looking whole');
 });
