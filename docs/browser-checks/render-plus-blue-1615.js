@@ -95,7 +95,9 @@ const GRADIENT_RE = /gradient/i;      /* the body ground is a radial-gradient on
         if (!f) return 'no field';
         f.classList.add('bad'); const v = getComputedStyle(f).borderTopColor; f.classList.remove('bad'); return v;
       };
-      const whiteFields = document.querySelectorAll('#plus-flow .tk-inp:not(select)').length;
+      /* #5531: the company join code is the one #plus-flow field, painted as the dark field (the control below checks it). */
+      const whiteFields = document.querySelectorAll('#plus-flow .tk-inp:not(select):not(#plus-org-code)').length;   // every field but the one known dark one (review 17)
+      const orgField = document.getElementById('plus-org-code') ? getComputedStyle(document.getElementById('plus-org-code')).backgroundColor : 'no field';
       const darkFieldDanger = painted(document.querySelector('#plus-state2 .tk-inp:not(select)'));
       const toastTone = () => { const t = document.createElement('div'); t.className = 'utoast'; document.body.appendChild(t); const v = getComputedStyle(t).getPropertyValue('--utone').trim().toLowerCase(); t.remove(); return v; };
       const enterToast = toastTone();
@@ -137,7 +139,7 @@ const GRADIENT_RE = /gradient/i;      /* the body ground is a radial-gradient on
       const offTabBg = bg();
       const offTabBgImg = bgImg();
 
-      return { enterMeaning, leaveMeaning, whiteFields, darkFieldDanger, enterToast, leaveToast,
+      return { enterMeaning, leaveMeaning, whiteFields, orgField, darkFieldDanger, enterToast, leaveToast,
         enterActive, enterBg, enterBgImg, enterNavBg, mounted, starsSized, markSized,
         leaveActive, leaveBg, leaveBgImg, leaveNavBg, leaveMounted,
         reEnterActive, offTabActive, offTabBg, offTabBgImg,
@@ -163,6 +165,7 @@ const GRADIENT_RE = /gradient/i;      /* the body ground is a radial-gradient on
     /* #3724: navy pins the meaning colours to the dark look's, whatever the Mac's mode. CONTROL: off Plus in light
        mode they are the light ones again, so this read can tell the two apart. */
     // #4698: no white field is left in the pane; one coming back needs its error border checked here again.
+    if (r.orgField !== 'rgb(22, 34, 62)') problems.push(label + ': CONTROL (#5531): the company join code is not the dark field, so the white count proves nothing: ' + r.orgField);
     if (r.whiteFields !== 0) problems.push(label + ': a white field is back in #plus-flow (' + r.whiteFields + '); check its error border (light red, not coral)');
     if (r.darkFieldDanger !== 'rgb(232, 112, 94)') problems.push(label + ': #3796 a dark sign-in wizard field marked bad did not paint the coral border (got ' + r.darkFieldDanger + ')');
     if (r.enterToast !== '#ff8c82') problems.push(label + ': on Plus the update toast is not the navy-readable red (got ' + r.enterToast + ')');

@@ -190,6 +190,21 @@ async function joinWaiting(page) {
   await page.route('**/api/remote/join', (r) => r.fulfill({ status: 200, contentType: 'application/json',
     body: JSON.stringify({ supported: true, held: true, join_code: '482 915', on: 'homemac', asked_of: ['homemac'], failed: false, confirmed: false, confirm_expired: false }) }));
 }
+/* #5531: a connected computer, for Settings > Kosmos+ > Your company. The company's answers are stand-ins in the shape
+   of #5530's contract; the consent words are the sample the contract carries. */
+async function orgConnected(page, enrolled) {
+  const remote = { configured: true, on: true, ok: true, enrolled: true, email: 'owner@example.com', status: { state: 'up', address: 'sample.kosmosplus.com' } };
+  await page.route('**/api/remote', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(r.request().method() === 'GET' ? remote : { ok: true }) }));
+  await page.route('**/api/remote/devices', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ pending: [], allowed: [], email: 'owner@example.com', on: true }) }));
+  const ORG = { id: 'org_sample', name: 'Northwind Design', slug: 'northwind' };
+  await page.route('**/api/org', (r) => r.fulfill({ status: 200, contentType: 'application/json',
+    body: JSON.stringify(enrolled ? { enrolled: true, org: ORG, role: 'member', enrolledAt: new Date().toISOString() } : { enrolled: false, org: null, role: null, enrolledAt: null }) }));
+  await page.route('**/api/org/preview', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, org: ORG, role: 'member', consent: {
+    reports: ['agent names, the AI provider and model each uses', 'project names', 'tokens and estimated cost per day', 'when you were last active', 'which company policy you have and when you were last backed up'],
+    backsUp: ['agent folders and their files', 'transcripts', 'projects and what agents make'],
+    readers: ['you', "your company's recovery role, only by restoring it, and every restore is logged and shown to you"],
+    never: ['your chats are never shown in the console', 'keys and passwords'] } }) }));
+}
 /* #5359: a restart note made seven minutes ago, on this page's own route (engine/restartnote.js makes the real one). */
 async function stubRebootNote(page) {
   const now = Date.now();
@@ -424,6 +439,19 @@ const SCREENS = [
       devices: [{ device_id: 'd-sample-wait', name: 'laptop', code: '', first_seen: Math.floor(Date.now() / 1000) - 20, denied_at: 0, joining_computer: 'laptop', code_wait: null }] }) }));
     await at(page, '?tab=settings&sec=plus');
     await page.waitForFunction(() => /Working out the code with laptop/.test((document.getElementById('plus-ask-rows') || {}).innerText || ''), null, { timeout: 8000 });
+  } },
+  /* #5531: Your company, a join code checked: the consent before anything binds. */
+  { name: 'plus-org-consent', owner: 'Renet Tilley', noServiceWorker: true, go: async (page) => { await orgConnected(page, false); await at(page, '?tab=settings&sec=plus');
+    await page.waitForSelector('#plus-org-code', { state: 'visible', timeout: 10000 });
+    await page.fill('#plus-org-code', 'NW-JOIN-4821');
+    await page.click('#plus-org-check');
+    await page.waitForSelector('#plus-org-consent', { state: 'visible', timeout: 8000 });
+    await page.evaluate(() => document.getElementById('plus-org').scrollIntoView({ block: 'start' }));
+  } },
+  /* #5531: Your company, this Kosmos joined. */
+  { name: 'plus-org-joined', owner: 'Renet Tilley', noServiceWorker: true, go: async (page) => { await orgConnected(page, true); await at(page, '?tab=settings&sec=plus');
+    await page.waitForSelector('#plus-org-in', { state: 'visible', timeout: 10000 });
+    await page.evaluate(() => document.getElementById('plus-org').scrollIntoView({ block: 'start' }));
   } },
   /* #4794: the computer waiting to be allowed shows the same code and "The codes match". */
   { name: 'plus-join', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await joinWaiting(page); await at(page, '?tab=settings&sec=plus');
