@@ -110,6 +110,9 @@ function planCleanup(entries, liveKeys, cutoffMs, safeKey) {
       const newest = Math.max(typeof e.mtimeMs === 'number' ? e.mtimeMs : Infinity, typeof info.newestMintMs === 'number' ? info.newestMintMs : -Infinity);
       if (canon(key) !== key) keep.push({ name: e.name, why: 'not a name the store writes: left alone' });
       else if (liveKeys.has(key)) keep.push({ name: e.name, why: 'its agent is on the board or in the removal records' });
+      // a file that cannot be read or parsed says nothing about itself (no launcher, no mint): kept, as every other
+      // unreadable record is
+      else if (info.unreadable) keep.push({ name: e.name, why: 'it cannot be read or parsed, so it cannot be judged' });
       else if (info.launchers.includes('remote')) keep.push({ name: e.name, why: 'holds a remote agent\'s token (an offline remote agent is not on the board)' });
       else if (!(newest < cutoffMs)) keep.push({ name: e.name, why: 'minted or written on or after the cutoff' });
       else remove.push({ name: e.name, kind: 'token', key, mtimeMs: e.mtimeMs, launchers: info.launchers, names: info.names || [], newestMintMs: info.newestMintMs, why: 'no such agent on the board, nothing newer than the cutoff' });
@@ -160,7 +163,7 @@ function listEntries(dir) {
 function tokenInfo(file) {
   const out = { launchers: [], names: [], newestMintMs: null };
   let kept;
-  try { kept = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return out; }
+  try { kept = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { out.unreadable = true; return out; }
   const tokens = kept && Array.isArray(kept.tokens) ? kept.tokens : (kept && typeof kept.token === 'string' ? [kept] : []);
   for (const t of tokens) {
     // the entries the store itself reads (sendertoken.readTokens): one with no string token is not a token
@@ -417,14 +420,18 @@ async function main(argv, { armFromCommandLine = false } = {}) {
       return 2;
     }
   }
-  // heartbeat files are keyed by safeKey(session); keep its -discord-stripped spelling too. A `+world` is already
-  // folded away by safeKey, so a world session's heartbeat may not reach its token key: REASONED (the only heartbeat
+  // heartbeat files are keyed by safeKey(session); keep its -discord-stripped spelling too. A `+world` is folded away by
+  // safeKey (sam+w is stored as samw), so a token key that a heartbeat key STARTS with is kept as well (over-keep, the
+  // safe direction; see below). (Before that, REASONED only: the only heartbeat
   // writer runs after a token check), not measured; the roster, profiles and folders are the other keeps for it.
   for (const k of heartbeats) for (const n of spellingsOf({ sessionName: k })) { try { liveKeys.add(store.safeKey(n)); } catch { /* not a key */ } }
+  const heartbeatKeys = heartbeats.map((k) => { try { return store.safeKey(k); } catch { return null; } }).filter(Boolean);
   const dir = sendertoken.DIR;
   if (!fs.existsSync(dir)) { console.log('Nothing to clean: this store has no sender-token folder.'); return 0; }
   const entries = listEntries(dir);
   const tokenKeys = entries.filter((e) => !e.isSymlink && !e.other && e.name.endsWith('.json')).map((e) => e.name.slice(0, -'.json'.length));
+  // a named world's heartbeat (sam+w, stored as samw) starts with its token key (sam): keep every such key
+  for (const k of tokenKeys) if (heartbeatKeys.some((h) => h !== k && h.startsWith(k))) liveKeys.add(k);
   /* An agent can exist with no profile (a leftover with only a launchd job or a worker folder, #500) and still be
      running where the board cannot see it (#668), and the board's offline rows can drop a row silently. So any key
      with a worker folder or a launchd job is kept too; a folder that is there but cannot be read stops the tool. */
