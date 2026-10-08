@@ -142,10 +142,10 @@ test('#5536 entries that land on the same file or folder are all refused (contro
 });
 
 test('#5536 a malformed chunk name is never handed to fetchChunk', async () => {
-  const { run, fetched } = handMade((entry, name) => [entry('probe.md', { chunks: ['../../../etc/passwd'] }), entry('upper.md', { chunks: [name.toUpperCase()] }), entry('ok.md')]);
+  const { run, fetched } = handMade((entry, name) => [entry('probe.md', { chunks: ['../../../etc/passwd'] }), entry('upper.md', { chunks: [name.toUpperCase()] }), entry('num.md', { chunks: [123] }), entry('ok.md')]);
   const { r } = await run();
   assert.deepEqual(r.restored, ['ok.md'], 'CONTROL');
-  assert.deepEqual(r.failed, [{ path: 'probe.md', why: 'a chunk name is malformed' }, { path: 'upper.md', why: 'a chunk name is malformed' }]);
+  assert.deepEqual(r.failed, [{ path: 'probe.md', why: 'a chunk name is malformed' }, { path: 'upper.md', why: 'a chunk name is malformed' }, { path: 'num.md', why: 'a chunk name is malformed' }]);
   assert.ok(fetched.every((n) => /^[0-9a-f]{64}$/.test(n)), 'only well-formed names reach the fetch');
 });
 
@@ -275,9 +275,9 @@ test('#5536 every fetched byte counts against the work budget, so a hostile stor
   let n = 0, bytes = 0;
   const limits = [];
   const { r } = await run(memorySink(), { maxTotalBytes: 100, fetchChunk: (_name, opts) => { n++; bytes += junk.length; limits.push(opts.maxBytes); return junk; } });
-  assert.equal(n, 5, 'four 100 KB objects fit, the fifth overdraws and stops the restore fetching');
+  assert.equal(n, 5, 'a fetch that ignores maxBytes: four 100 KB objects are charged, the fifth overdraws and stops the restore');
   assert.ok(bytes <= 5 * junk.length);
-  assert.deepEqual(limits.slice(0, 2), [409800, 309800], 'fetchChunk is told how much it may download');
+  assert.deepEqual(limits.slice(0, 2), [8392, 8392], 'fetchChunk is told how much it may download: twice the file plus 8 KiB');
   assert.equal(r.failed.filter((f) => f.why === 'the restore is over its byte budget').length, 46);
   assert.equal(r.failed.filter((f) => f.why === 'another entry lands on the same file or folder').length, 100);
   const ok = await run(memorySink(), { maxTotalBytes: 100, fetchChunk: () => object });
@@ -308,5 +308,19 @@ test('#5536 a manifest whose files is not a list opens to nothing; a skipped tha
   const go = (body) => br.restoreSnapshot({ memberSk: member.sk, namingKey: nk, devicePubAtSnapshot: dev.publicKey, ctx, manifestObject: bf.sealManifest(member.pk, dev.privateKey, ctx, body),
     fetchChunk: () => null, sink: memorySink(), maxTotalBytes: BIG });
   assert.equal(await go({ files: { 0: 'x' } }), null);
-  assert.deepEqual(await go({ files: [], skipped: 'none' }), { restored: [], failed: [], skippedAtBackup: [] }, 'CONTROL: an empty list opens');
+  assert.deepEqual(await go({ files: [], skipped: 'none' }), { restored: [], failed: [], failedNotListed: 0, skippedAtBackup: [] }, 'CONTROL: an empty list opens');
+});
+
+test('#5536 the failed list is capped at 10000, with a count of the rest; an object over twice its file is refused', async () => {
+  const { run } = handMade((entry) => [...Array.from({ length: 10005 }, (_, i) => entry(`../x${i}`)), entry('a.md')]);
+  const { r } = await run();
+  assert.equal(r.failed.length, 10000);
+  assert.equal(r.failedNotListed, 5);
+  assert.deepEqual(r.restored, ['a.md'], 'CONTROL');
+  const tiny = handMade((entry) => [entry('t.md', { size: 1, chunks: [entry('x').chunks[0]] })]);
+  const big = Buffer.alloc(2 + 8192 + 1);
+  const { r: rt } = await tiny.run(memorySink(), { fetchChunk: () => big });
+  assert.equal(rt.failed[0].why, 'a chunk is larger than any real chunk', 'a 1-byte file cannot draw an object over 8194 bytes');
+  const { r: ok } = await tiny.run(memorySink(), { fetchChunk: () => big.subarray(1) });
+  assert.equal(ok.failed[0].why, 'a chunk did not verify (forged, swapped or damaged)', 'CONTROL: at the cap the object is tried');
 });

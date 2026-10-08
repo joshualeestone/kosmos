@@ -21,6 +21,7 @@ const CHUNK_NAME_RE = /^[0-9a-f]{64}$/;
 // under twice that. A bigger object is refused before it is decrypted (raise maxChunkObject for other chunk sizes).
 const MAX_CHUNK_OBJECT = 2 * CDC.max + 4096;
 const MAX_SKIPPED_REPORTED = 10000;
+const MAX_FAILED_REPORTED = 10000;
 const WORK_PER_ENTRY = 8192;
 // Bounds on the manifest: its object is refused before it is decrypted, its entry count before it is walked. A
 // manifest is parsed whole, so these stay modest (about 270 bytes an entry); the caller can raise both.
@@ -80,12 +81,14 @@ function collidingPaths(entries) {
 }
 
 /**
- * Restore one snapshot. Resolves to { restored: [path], failed: [{ path, why }], skippedAtBackup: [...] }, or null
+ * Restore one snapshot. Resolves to { restored: [path], failed: [{ path, why }] (the first 10000), failedNotListed
+ * (how many more failed), skippedAtBackup: [...] }, or null
  * when the manifest itself does not verify and open (wrong device key for the time, wrong context, tampering), or
  * exceeds maxManifestObject bytes or maxFiles entries. maxTotalBytes is REQUIRED (the caller sets it from free disk) and caps the
  * bytes committed: a file that would pass it fails before anything is fetched. Every fetched object's bytes count
- * against twice that (plus 8 KiB an entry for sealing overhead) whether or not it verifies, so a hostile store or
- * files that fail late are bounded too.
+ * against twice that, plus 8 KiB for each entry that is tried (sealing overhead), whether or not it verifies; and
+ * one object may be at most twice its file's recorded size plus 8 KiB. So a hostile store or files that fail late
+ * cost at most 2 x maxTotalBytes + 8 KiB x maxFiles (4 GiB at the default maxFiles) of download.
  *
  *   fetchChunk(name, { maxBytes }) -> Buffer, Uint8Array or ArrayBuffer | null, or a promise of one (null: the chunk is not
  *     stored). It should refuse to download more than maxBytes; restore refuses a larger object before decrypting it.
@@ -147,7 +150,7 @@ async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, 
   const skippedAtBackup = (Array.isArray(manifest.skipped) ? manifest.skipped : [])
     .filter((x) => x && typeof x.path === 'string' && typeof x.why === 'string').slice(0, MAX_SKIPPED_REPORTED)
     .map(({ path, why }) => ({ path: forReport(path), why: forReport(why) }));
-  return { restored, failed, skippedAtBackup };
+  return { restored, failed: failed.slice(0, MAX_FAILED_REPORTED), failedNotListed: Math.max(0, failed.length - MAX_FAILED_REPORTED), skippedAtBackup };
 }
 
 /* One file: null when committed, otherwise why it was not. Never leaves a file committed that did not verify. */
@@ -160,13 +163,15 @@ async function restoreFile(f, { memberSk, namingKey, fetchChunk, sink, maxChunkO
     let size = 0;
     for (const name of f.chunks) {
       let obj;
-      try { obj = await fetchChunk(name, { maxBytes: Math.min(maxChunkObject, work.left) }); } catch { return await abortWith(out, 'a chunk could not be fetched'); }
+      try { obj = await fetchChunk(name, { maxBytes: Math.min(maxChunkObject, 2 * f.size + WORK_PER_ENTRY, work.left) }); } catch { return await abortWith(out, 'a chunk could not be fetched'); }
       if (obj == null) return await abortWith(out, 'a chunk is missing');
       if (!(obj instanceof Uint8Array) && !(obj instanceof ArrayBuffer)) return await abortWith(out, 'the fetch returned something that is not bytes');
       obj = toBuffer(obj);
-      if (obj.length > maxChunkObject) return await abortWith(out, 'a chunk is larger than any real chunk');
+      // Charged first: these bytes were downloaded whether or not they are kept.
       if (obj.length > work.left) { work.left = 0; return await abortWith(out, 'the restore is over its byte budget'); }
       work.left -= obj.length;
+      // A chunk of this file holds at most f.size bytes, and sealing adds at most a 4 KiB frame plus padding.
+      if (obj.length > maxChunkObject || obj.length > 2 * f.size + WORK_PER_ENTRY) return await abortWith(out, 'a chunk is larger than any real chunk');
       const pt = openVerifiedChunk(memberSk, namingKey, name, obj);
       if (!pt || !pt.length) return await abortWith(out, 'a chunk did not verify (forged, swapped or damaged)');
       size += pt.length;
