@@ -75,3 +75,11 @@ A future-dated record counts as never reported.
   pipeline, which under pipefail reads 141 as a miss once ps prints past a pipe buffer; measured by the
   reviewer: 20 of 20). Not tested: neither the pipe-buffer size nor the kill-between-end-and-record
   window can be produced on demand without a seam in production code; both fixes are by construction.
+- **The ceiling is never silently off, and never leaky** (round 14): a release pointer on main that yields
+  no readable version parks (no ceiling would mirror unreleased builds); a build above the ceiling that is
+  already in this dist/ AND still in the source is removed before the deploy (the rsync exclude that keeps
+  it from being copied also protects it from --delete). Test 33 first planted a version absent from the
+  source, which rsync deletes anyway, so it passed with the fix removed; it now plants one the source
+  still holds, and is red without the fix.
+- Test 26's leftover count matched `^sleep N$`, but ps names the helper `/bin/sleep N`, so it could never
+  see one; now `(^|/)sleep N$`, with a control that starts one and counts it.

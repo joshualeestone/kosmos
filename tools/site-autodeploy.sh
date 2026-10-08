@@ -53,7 +53,8 @@
 #   paused         made by a PERSON to stop the job (e.g. while a deliberate site rollback is live,
 #                  which the job would otherwise undo by redeploying main); remove it to resume
 #   retries        "<sha> <n>" consecutive retried ticks for that sha, whatever the cause (exit 75, a
-#                  checksum mismatch, an unreadable live pointer): one count, one alarm, because each
+#                  checksum mismatch, an unreadable live pointer, a pointer move not yet live, a failed
+#                  mirror copy): one count, one alarm, because each
 #                  means the same thing to the person reading the run, the site is not settling
 #   deploy.out     the last deploy's output (printed and logged when it ends, or when the tick is killed)
 #   reported.d/    one file per "<sha>-<cause>" already reported red, holding the time (see red_once);
@@ -293,6 +294,14 @@ MIRROR_DROP_MAX=5
 # latest-staging.json name (no pointers at all, as in a bare test tree: no ceiling).
 ptr_version() { git -C "$SITE" show "$TARGET:dist/$1" 2>/dev/null | sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p'; }
 CEIL=$( { ptr_version latest.json; ptr_version latest-staging.json; } | grep . | sort -V | tail -1)
+# A pointer that IS on main but yields no version (a format change, a version split across lines) would
+# leave no ceiling, which silently turns the guard off. Parked: retrying cannot read it either.
+for _p in latest.json latest-staging.json; do
+  if git -C "$SITE" cat-file -e "$TARGET:dist/$_p" 2>/dev/null && [ -z "$(ptr_version "$_p")" ]; then
+    say "FAIL: main's dist/$_p has no \"version\" this script can read, so no ceiling can be set and an unreleased build could be mirrored (parked)"
+    printf '%s rc=%s %s\n' "$TARGET" ptrversion "$(now)" > "$STATE/last-failure"; park; exit 1
+  fi
+done
 TOO_NEW=()
 src_n=0
 for _f in "$DIST_FROM"/kosmos-*-arm64.tar.gz; do
@@ -351,6 +360,16 @@ if [ "${PIPESTATUS[0]}" != 0 ]; then
   n=$(( $(count_for "$STATE/retries") + 1 )); echo "$TARGET $n" > "$STATE/retries"
   [ "$n" -ge "$RETRY_ALARM" ] && red_once mirror "FAIL: could not mirror the versioned downloads from $DIST_FROM, $n ticks in a row"
   say "retry: could not mirror the versioned downloads from $DIST_FROM ($n in a row)"; exit 0
+fi
+# A build above the ceiling that is ALREADY in this dist/ (mirrored before a pointer was rolled back) is
+# removed: the excludes above keep rsync from copying one in, and also from deleting one already here.
+if [ -n "$CEIL" ]; then
+  for _t in "$SITE"/dist/kosmos-*-arm64.tar.gz; do
+    [ -e "$_t" ] || continue
+    _v=${_t##*/kosmos-}; _v=${_v%-arm64.tar.gz}
+    printf '%s\n%s\n' "$_v" "$CEIL" | sort -V -C && continue
+    rm -f "$_t" "$_t.sha256"; say "removed ${_t##*/} from this dist/: newer than any release pointer on main ($CEIL)"
+  done
 fi
 # Every mirrored tarball must match its own .sha256, or it is not deployed. deploy-site.sh checks only
 # the current build, and a cut that started after the check above could be writing one right now. A
