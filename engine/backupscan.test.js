@@ -474,3 +474,8 @@ test('#5535 the xmpDM:key carve-out removes only the name: a key in its value, i
   assert.equal(bs.scanFile('agents/a/c.db', db).action, 'skip', 'the carve-out does not apply to a non-media binary');
   assert.equal(bs.scanFile('agents/a/d.mov', vid(`<rdf:li xmpDM:key="${'x'.repeat(600)} ${KEY}`)).action, 'skip', 'a key far past an unclosed xmpDM:key quote');
 });
+
+test('#5535 credential-named CSV exports are denied by path (cloud consoles export keys as CSV)', () => {
+  for (const p of ['credentials.csv', 'secrets.csv', 'auth.csv', 'x/tokens.csv']) assert.equal(bs.pathDecision(p).include, false, p);
+  assert.equal(bs.pathDecision('reports/q3-tokens-used.csv').include, true, 'CONTROL: an ordinary CSV is kept');
+});
