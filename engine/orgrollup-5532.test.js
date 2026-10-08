@@ -124,7 +124,7 @@ function sources(over) {
     usageByDay: async () => ({ [DAY(0)]: { 'claude-opus-5-5': { input_tokens: 10 } } }),
     lastActiveOf: (n) => ({ leo: '2026-10-07T10:00:00Z', april: '2026-10-06T10:00:00Z' }[n] || null),
     providerOf: (runner) => ({ codex: 'openai', gemini: 'google', grok: 'xai' }[runner] || 'anthropic'),
-    recordedRunner: () => 'gemini',
+    recordedRunner: (n) => ({ leo: 'claude', raph: 'codex' }[n] || 'gemini'),   // the recorded runner, for running and stopped alike (review 16)
   }, over || {});
 }
 
@@ -562,10 +562,16 @@ test('#5532 rollup review 13: usage with a model id the board cannot vouch for i
   assert.equal(ok.truncated, false, 'CONTROL: a row with no tokens is not a trim');
 });
 
-test('#5532 rollup review 14: a change send carries no provider either (it differs between a running and a stopped agent)', () => {
-  const a = r.build({ world: 'w', reason: 'change', agents: [{ name: 'Leo', provider: 'anthropic', model: 'claude-opus-5-5', state: 'working' }] }).agents[0];
-  assert.equal(a.provider, null);
-  assert.equal(r.build({ world: 'w', reason: 'daily', agents: [{ name: 'Leo', provider: 'anthropic', state: 'working' }] }).agents[0].provider, 'anthropic', 'CONTROL: the daily send carries it');
+test('#5532 rollup review 16: every send carries the provider (the company keeps none across sends), read from the record whether the agent runs or not', async () => {
+  const change = r.build({ world: 'w', reason: 'change', agents: [{ name: 'Leo', provider: 'anthropic', model: 'claude-opus-5-5', state: 'working' }] }).agents[0];
+  assert.equal(change.provider, 'anthropic', 'a change send blanked the provider the company keeps from it');
+  assert.equal(change.model, null); assert.equal(change.status, null);
+  // The provider of a running card is the RECORDED one, never the pane's: it cannot move on start or stop.
+  const g = await r.gather(sources({
+    snapshot: () => ({ counts: { unreadableLines: 0 }, agents: [{ sessionName: 'leo', name: 'Leo', runner: 'codex', model: 'gpt-5.1', state: 'working', isNamedOurs: true }] }),
+    survey: () => ({ ok: true, agents: [] }), removed: () => [],
+    recordedRunner: (n) => (n === 'leo' ? 'claude' : null), providerOf: (runner) => ({ claude: 'anthropic', codex: 'openai' }[runner] || null) }));
+  assert.equal(g.agents.find((a) => a.name === 'Leo').provider, 'anthropic', 'the running card\'s provider came from its pane, so it moves on start and stop');
 });
 
 test('#5532 rollup review 15: a clock that was ahead once never silences the rollup; a new UTC day makes the daily due', async (t) => {

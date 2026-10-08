@@ -202,3 +202,14 @@ test('#5532 rollup review 15: the company\'s own printPinned answer decides, so 
   await join(yes, co2);
   assert.equal(oe.readEnrollment({ root: yes }).printPinned, true, 'CONTROL: pinned when the company says so');
 });
+
+test('#5532 rollup review 16: a print sent and not pinned records no accepted words, so nothing is reported on a print that cannot match', async (t) => {
+  const root = sandbox(t);
+  const co = company(root);
+  const base = co.macRequest;
+  co.macRequest = async (m, route, body) => { const r = await base(m, route, body); if (route === oe.ROUTES.enroll) r.data.printPinned = false; return r; };
+  const r = await join(root, co);
+  assert.equal(r.ok, true, 'the join itself stands: ' + JSON.stringify(r));
+  assert.equal(oe.isEnrolledHere({ root }), true);
+  assert.equal(oe.mayReport({ root }), false, 'a join whose print was not pinned reports anyway');
+});

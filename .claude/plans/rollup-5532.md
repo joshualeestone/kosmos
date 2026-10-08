@@ -237,9 +237,10 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
   record now says whether this join pinned a print (`printPinned`: each enroll pins exactly what it sends), carried by
   the lost-answer marker, refresh (same company), the pending-leave file and the last-admin rebuild. While pinned, `none`
   WAITS (`pinnedWait`) instead of sending without. Tests; the mutation makes them fail.
-- FIXED: a change send still carried the provider, which differs between a running card (from its pane) and a stopped
-  agent (from its record, can be null), so it showed which agents were running. Change sends now carry no provider
-  either. Test.
+- (SUPERSEDED by review 16: the provider goes on every send again, read from the record for running and stopped agents
+  alike.) FIXED: a change send still carried the provider, which differs between a running card (from its pane) and a
+  stopped agent (from its record, can be null), so it showed which agents were running. Change sends now carry no
+  provider either. Test.
 - FIXED (C): the plan's header described the dormant branch's gate and "not done" items; marked superseded, the Tests
   section names the new files, and the contract is cited as rollup3-5532.md (the file that exists).
 - NITs taken: the undo gates on a salt AND a company, as enroll does; the stale "withheld ... truncated" comment.
@@ -258,3 +259,18 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
 - NITs kept: the signature covers names and projects, not providers (decided in review 9; the consent wording is the
   coordinator's to align); the model-id allow-list can pass a made-up but harmless id; "cost" in a report line turns
   usage consent on (no usage reader exists; the coordinator's flag decides).
+
+## Review 16 (blind, Opus)
+- FIXED, my review-14 change: the company keeps only model and status across sends, so a change send without the
+  provider blanked every provider until the next daily, and the contract lets change sends carry it. The provider goes
+  on every send again. Review 14's concern (it differed between a running card and a stopped agent) is met at the
+  source: gather() reads the RECORDED runner for running and stopped agents alike, never the pane's, so it cannot move
+  on start or stop. Tests; each mutation makes them fail.
+- FIXED: a print sent and NOT pinned (the company's `printPinned: false`: a salt it does not hold, or a failed binding
+  write). The join stands, but its words are not recorded as accepted here: it sends nothing, the joined view says so,
+  and accepting again (#5531 follow-up a0) enrolls again with a fresh salt. Logged once, without the print. Test;
+  mutation makes it fail.
+- NITs taken: the print is checked BEFORE the board is read (a print that must wait means nothing can go); no last send on
+  record counts as long ago in the change check.
+- NIT kept: "cost" in a report line (no usage reader; the coordinator's flag decides).
+

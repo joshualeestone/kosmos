@@ -430,7 +430,13 @@ async function enrollNow(code, accepted, opts) {
   }
   const rec = { org, role, world, enrolledAt: new Date().toISOString() };
   // The consent the person was shown, as a hash: what they accepted is then a checkable fact on this side (#5531 review 10).
-  if (opts && typeof opts.consentHash === 'string' && /^[0-9a-f]{64}$/.test(opts.consentHash)) rec.consentHash = opts.consentHash;
+  /* A print sent and NOT pinned (rollup review 16): the company says the salt is not the one on record, or its binding
+     write failed, so this computer's reports would not match whatever print it holds. The join stands, but its words
+     are not recorded as accepted here: it sends nothing (the joined view says so) until the person accepts again,
+     which enrolls again with a fresh salt. */
+  const printNotTaken = !!body.computerPrint && r.data && r.data.printPinned === false;
+  if (printNotTaken) console.error('orgenroll: the company did not pin the computer print; not reporting until the words are accepted again');
+  if (!printNotTaken && opts && typeof opts.consentHash === 'string' && /^[0-9a-f]{64}$/.test(opts.consentHash)) rec.consentHash = opts.consentHash;
   if (body.computerSalt) rec.computerSalt = body.computerSalt;   // the salt the pinned print was made with (#5532): leave and rollup use it
   /* Whether this join pinned a print: the company's own answer when it gives one (review 15: a print made with a salt
      it does not hold is not pinned, and waiting for one would stop reporting for nothing), else "a print was sent", the

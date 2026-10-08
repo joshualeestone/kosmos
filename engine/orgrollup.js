@@ -108,9 +108,10 @@ function build(input) {
     const model = MODEL_ID.test(String(a.model || '')) && providerOfModel(a.model) ? a.model : null;
     /* A change send carries no status and no model (rollup review 10, as the contract says): those ride on the daily
        send only, so a change is not a record of when this person's agents run. */
-    /* Nor a provider (rollup review 14): a running card's comes from its pane and a stopped agent's from its record,
-       which can be null, so it too would show which agents were running at that minute. */
-    agents.push({ name, provider: change ? null : provider, model: change ? null : model, status: change ? null : statusWord(a.state) });
+    /* The provider goes on every send (rollup review 16: the company keeps only model and status across sends, so a
+       change send without it would blank every provider until the next daily). gather() reads it from the record
+       whether the agent runs or not, so it shows nothing about when agents run (review 14's concern). */
+    agents.push({ name, provider, model: change ? null : model, status: change ? null : statusWord(a.state) });
   }
 
   const projectsIn = Array.isArray(i.projects) ? i.projects : [];
@@ -263,9 +264,11 @@ async function gather(src) {
     if (!a.name) { out.partial = true; continue; }   // no shown name: never send the internal session name (review 4)
     seen.add(a.sessionName);
     nameOf.set(a.sessionName, a.name);
-    /* A paneless card carries no runner: read the recorded one, as the offline path does (rollup review 3). */
-    let runner = a.runner || null;
-    if (!runner) { try { runner = s.recordedRunner(a.sessionName); } catch { runner = null; } }
+    /* The RECORDED runner, as the offline path reads it, never the pane's (rollup review 16): one source whether the agent
+       runs or not, so its provider does not change when it starts or stops, and every send can carry it (the company
+       keeps no provider across sends). A paneless card has no pane runner anyway (review 3). */
+    let runner = null;
+    try { runner = s.recordedRunner(a.sessionName); } catch { runner = null; }
     // An unknown runner sends provider null, never a guess (review 5). The model goes only in the daily body, and only
     // for an agent that is running when it is built: a stopped agent has no current model.
     out.agents.push({ name: a.name, provider: runner ? s.providerOf(runner) : null, model: a.model || null, state: a.state });
@@ -378,6 +381,9 @@ async function tick(opts) {
   /* Nothing can go yet (not due, and too soon after the last send for a change): the board is not read at all
      (review 15). Reading it takes a pane capture per agent, synchronously, every five minutes. */
   if (!due && st.lastAt && now - st.lastAt < CHANGE_MIN_MS) return { sent: false, because: 'nothing due' };
+  /* The print first (rollup review 16): while it must wait, nothing can go, so the board is not read either. */
+  const pf = oe.reportPrint(eo);
+  if (pf.send === 'later' || pf.send === 'error') return { sent: false, because: 'this computer could not be read yet' };
   const g = await gather(o.sources);
   /* Usage leaves only under a consent that named it (review 8): a reader added to the sources later cannot turn it on
      by itself. Until the enrollment records `usageConsented` (set by the consent follow-up when the accepted words name
@@ -386,13 +392,12 @@ async function tick(opts) {
   // A partial read is never a change (review 5): only the daily send may carry an incomplete body.
   const sig = signature(build(Object.assign({ world: rec.world }, g)));
   const changed = !g.partial && st.lastSig && sig !== st.lastSig;
-  if (!due && !(changed && now - st.lastAt >= CHANGE_MIN_MS)) return { sent: false, because: 'nothing due' };
+  if (!due && !(changed && (!st.lastAt || now - st.lastAt >= CHANGE_MIN_MS)))   // no last send on record: long ago (review 16)
+    return { sent: false, because: 'nothing due' };
   const body = build(Object.assign({ world: rec.world, at: new Date(now).toISOString(), reason: due ? 'daily' : 'change' }, g));
   /* #5532 (v1.5): the computer print pinned at enroll, made from this world's own record. Once a print is pinned the
      company refuses a rollup without it (a copy would just leave it out), so a read still retrying waits for the next
      tick instead of sending; that is not a failure, so it starts no hour of quiet. */
-  const pf = oe.reportPrint(eo);
-  if (pf.send === 'later' || pf.send === 'error') return { sent: false, because: 'this computer could not be read yet' };
   Object.assign(body, pf.fields);
   /* Again, right before the send: a leave may have landed while gather() read the board (rollup review 3). The person
      has been told this Kosmos stopped reporting; nothing may go after that. */
