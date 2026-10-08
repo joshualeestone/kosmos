@@ -19,7 +19,7 @@ PigeonPete 2026-10-07 18:40.
   - `signInFailed > 0` adds "<n> could not sign in".
   - Provider names from the page's own words: Claude, OpenAI Codex, Gemini, Grok, Gemini (Google subscription);
     an unknown runner shows its own name.
-  - `agentsWithoutProvider > 0`: "<n> agents on another computer or runner" (paneless cards carry no provider).
+  - `agentsWithoutProvider > 0`: "<n> agents whose AI provider is not shown here (they run without a terminal pane)".
 - **Other worlds:** `providersBecause` is shown as written ("known only while this Kosmos is open"), never a blank.
 - **Unassigned tasks:** "<w> tasks waiting for someone", "+ <h> on hold" when held; `unassignedBecause` shown
   instead of a number when the projects file is unreadable. Never shown as 0 when unreadable.
@@ -27,8 +27,15 @@ PigeonPete 2026-10-07 18:40.
 - **Failure:** a fetch failure or a non-200 says so in the sheet with Refresh; nothing stale is left up as current.
 
 ## Weakest premise
-That "At a glance" in the switcher menu is discoverable enough. A one-world install still shows the switcher, so
-the entry is reachable there too.
+That "At a glance" in the switcher menu is discoverable enough.
+
+## Known limits (decided)
+- On a one-Kosmos install the switcher is fixed text (worldswOneKosmos) and its menu never opens, so the view is
+  not reachable there. Decided: this is a view ACROSS Kosmoses, several Kosmoses are switched off by default
+  (#4815), and a one-world person already sees their providers on the Agents page. Revisit if the view should also
+  serve one world.
+- With one Kosmos and other computers on Kosmos+, the menu opens for the computers and "At a glance" lists the one
+  Kosmos. Kept: it is still true and useful.
 
 ## Validation plan
 - Pure render function, node-tested (state words, unknown provider, unreadable counts, other worlds, failure).

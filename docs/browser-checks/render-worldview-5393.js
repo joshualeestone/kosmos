@@ -109,7 +109,8 @@ const check = (ok, label, got) => results.push({ ok: !!ok, label, got });
     const home = got.lines[0] || '';
     const other = got.lines[1] || '';
     check(/^Home \(open now\)/.test(home), `@${w}: the open Kosmos is named and marked`, home);
-    check(/Claude: Paused until \d/.test(home), `@${w}: a paused provider says until when`, home);
+    // The fixture's time is two hours ahead, which is tomorrow after 22:00: the day may lead the time.
+    check(/Claude: Paused until (\S+ )?\d/.test(home), `@${w}: a paused provider says until when`, home);
     check(/OpenAI Codex: Not paused\. 1 agent could not sign in/.test(home), `@${w}: not paused, never "Working", and the failed sign-in`, home);
     check(!/working/i.test(home), `@${w}: no provider is called working`, home);
     check(/1 agent whose AI provider is not shown here/.test(home), `@${w}: agents with no provider are counted`, home);
@@ -129,6 +130,49 @@ const check = (ok, label, got) => results.push({ ok: !!ok, label, got });
     const closed = await page.evaluate(() => ({ hidden: document.getElementById('wv-modal').hidden, focus: document.activeElement && document.activeElement.id }));
     check(closed.hidden && closed.focus === 'worldsw-btn', `@${w}: Escape closes it and focus goes back to the switcher`, closed);
     check(!errors.length, `@${w}: no page errors`, errors);
+    await page.close();
+  }
+  // The consolidated layout: .apphead is static there, so the sheet's own z-index must hold at the root.
+  {
+    const page = await browser.newPage({ viewport: { width: 1100, height: 800 } });
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(String(e && e.message || e)));
+    await page.addInitScript(([names, overview]) => {
+      try { localStorage.setItem('kosmos.multiKosmos', '1'); } catch {}
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => {
+        const url = String(u);
+        if (url.indexOf('/api/worlds/overview') !== -1) return Promise.resolve({ ok: true, json: async () => overview });
+        if (url.indexOf('/api/worlds/names') !== -1) return Promise.resolve({ ok: true, json: async () => names });
+        return realFetch(u, o);
+      };
+    }, [NAMES, OVERVIEW]);
+    await page.goto('file://' + PAGE);
+    const layout = await page.evaluate(async () => {
+      document.documentElement.setAttribute('data-layout', 'consolidated');
+      document.body.classList.add('consolidated');
+      if (typeof showTab === 'function') { try { showTab('agents'); } catch (_e) {} }
+      await worldsFetch();
+      return getComputedStyle(document.querySelector('.apphead')).position;
+    });
+    await page.click('#worldsw-btn');
+    await page.click('#worldsw-glance');
+    await page.waitForFunction(() => /Home/.test(document.getElementById('wv-list').textContent || ''), null, { timeout: 5000 }).catch(() => {});
+    const r = await page.evaluate(() => {
+      const f = document.createElement('div');
+      f.style.cssText = 'position:fixed;right:4px;bottom:4px;width:60px;height:60px;z-index:46;background:red;';
+      document.body.appendChild(f);
+      const box = document.querySelector('#wv-modal .rm-box').getBoundingClientRect();
+      const hit = (x, y) => { const e = document.elementFromPoint(x, y); return !!(e && e.closest('#wv-modal')); };
+      const back = document.getElementById('wv-modal').getBoundingClientRect();
+      const out = { centre: hit(box.left + box.width / 2, box.top + box.height / 2), corner: hit(innerWidth - 20, innerHeight - 20),
+        covers: back.left <= 0 && back.top <= 0 && back.width >= innerWidth && back.height >= innerHeight };
+      f.remove();
+      return out;
+    });
+    check(layout === 'static', 'consolidated: the arm really runs with a static .apphead', layout);
+    check(r.centre && r.corner && r.covers, 'consolidated: the sheet covers the window and is on top of floating UI (z 46)', r);
+    check(!errors.length, 'consolidated: no page errors', errors);
     await page.close();
   }
   await browser.close();

@@ -2155,9 +2155,11 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 .wv-here { font-weight: 400; color: var(--label-2); }
 .wv-line { margin: 2px 0; overflow-wrap: anywhere; }
 .wv-muted { color: var(--label-2); }
-/* The sheet sits inside the sticky .apphead (z-index 20, its own stacking context), so its z-index 50 only counted
-   inside the header and floating UI (the assistant button, toasts, menus at 40-46) drew over it. While it is open
-   the header takes the layer every other modal has, 50, so the sheet sits where a body-level modal would. */
+/* The sheet sits inside .apphead. In the tab layout .apphead is sticky with z-index 20, its own stacking context, so
+   the sheet's z-index 50 only counted inside the header and floating UI (the assistant button, toasts, menus at
+   40-46) drew over it. While it is open the header takes the layer every other modal has, 50. In the consolidated
+   layout .apphead is static and makes no stacking context, so this rule does nothing there and the sheet's own 50
+   counts at the root, like any modal (render-worldview-5393 measures both). */
 .apphead:has(#wv-modal:not([hidden])) { z-index: 50; }
 /* #2563: the create-time "add my agents from an existing Kosmos" control. Reuses the
    modal field tokens; the list scrolls if the person has many Kosmoses. Each row is a
@@ -29203,7 +29205,10 @@ function wvTime(iso, now = new Date()) {
   if (!Number.isFinite(d.getTime())) return '';
   const t = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   // A time on another day says which day: a pool or quota reset can be hours or days away.
-  return d.toDateString() === now.toDateString() ? t : d.toLocaleDateString([], { weekday: 'short' }) + ' ' + t;
+  if (d.toDateString() === now.toDateString()) return t;
+  // Six days or more away, the weekday alone could read as today's, so the date comes with it.
+  const far = d.getTime() - now.getTime() >= 6 * 86400e3;
+  return d.toLocaleDateString([], far ? { weekday: 'short', month: 'short', day: 'numeric' } : { weekday: 'short' }) + ' ' + t;
 }
 function wvProviderLine(r) {
   const name = WV_PROVIDER[r.provider] || String(r.provider || 'An AI provider');
@@ -61349,7 +61354,7 @@ document.addEventListener('keydown', (e) => {
        name is typed, then includes Create. */
     ['world-add-modal', ['world-add-name', 'world-add-cancel', 'world-add-go'], 'world-add-name'],
     /* kosmos#5393 slice 2: "At a glance" is aria-modal, so it gets the trap too. Home is Close. */
-    ['wv-modal', ['wv-refresh', 'wv-close'], 'wv-close'],
+    ['wv-modal', ['wv-list', 'wv-refresh', 'wv-close'], 'wv-close'],
     /* #6: the switch-confirm dialog declares aria-modal, so it gets a real trap, in DOM
        order. Home is Cancel -- the safe/back choice, matching doc-keep -- and
        worldswConfirmSwitch also opens initial focus on Cancel (a reflexive Enter cancels

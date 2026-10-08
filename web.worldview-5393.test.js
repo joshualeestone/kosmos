@@ -38,7 +38,10 @@ test('provider rows say only what the cards know: never "Working", and a stated 
   // A time on another day names the day; today's is the time alone.
   const now = new Date(2026, 9, 7, 20, 0);
   assert.doesNotMatch(B.wvTime(new Date(2026, 9, 7, 21, 30).toISOString(), now), /[A-Za-z]{3} /);
-  assert.match(B.wvTime(new Date(2026, 9, 9, 3, 0).toISOString(), now), /^[A-Za-z]{2,4}\.? /);
+  const soon = B.wvTime(new Date(2026, 9, 9, 3, 0).toISOString(), now);
+  const week = B.wvTime(new Date(2026, 9, 14, 3, 0).toISOString(), now);
+  assert.match(soon, /^\S+ /, 'another day names its day (in any language)');
+  assert.ok(week.length > soon.length, 'six days or more away also names the date: ' + week + ' vs ' + soon);
   assert.equal(B.wvProviderLine(row({ provider: 'codex', state: 'some_paused', paused: 1, agents: 3 })), 'OpenAI Codex: 1 of 3 agents paused');
   assert.equal(B.wvProviderLine(row({ provider: 'gemini', state: 'stopped', agents: 0, stopped: 2 })), 'Gemini: Stopped');
   assert.equal(B.wvProviderLine(row({ signInFailed: 1 })), 'Claude: Not paused. 1 agent could not sign in');
