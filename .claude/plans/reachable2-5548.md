@@ -46,3 +46,8 @@ Reviewer found no dangerous-direction entry (no real capability hidden as a seam
 - [NIT] a future non-JS, non-shell file in bin/ would be stripped as a shell script; JS comments inside node -e and
   trailing # comments are not stripped --> recorded: no current case; the remaining way to hide an orphan is named.
 Reviewer verified the shebang in bin/*.js blanks only part of line 1 (output after line 1 identical with and without).
+
+## Review 3 (sonnet, blind): CONVERGED (nothing above NIT)
+Spot-checked the 17 entries reviews 1 and 2 had not: none hides an unreachable capability or unwired defence.
+- [NIT] IMPORT_CONTRACT "importAgent reads it" was inaccurate (it is declarative; tests assert the enforcement matches)
+  --> FIXED wording.
