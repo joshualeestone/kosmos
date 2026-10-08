@@ -24,3 +24,8 @@
   deleted setters.
 - Plant: re-exporting wireText with a test that names it and no caller reds the reachability guard (a plant with no
   test mention stays green by design: the guard hunts TESTED but uncalled exports).
+
+## Review 2 (opus): converged (nothing above NIT)
+- Fixed (NIT): the archive "why" (a display state; members not re-told) restored beside edit()'s archived branch.
+- Left (NITs): the arm-570 comment (phrased as a guard against escaping returning, still accurate); rewrapped widths; a
+  repeated `|| null` idiom.

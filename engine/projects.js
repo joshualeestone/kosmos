@@ -2710,6 +2710,8 @@ function edit(id, fields = {}) {
       } else { delete next.paused; delete next.pausedByPerson; }   // absent = not paused, as every older record reads
     }
     if (fields.archived !== undefined) {
+      // Archiving is a display state, not a removal: members and agents are
+      // deliberately not re-told, and nothing else on the record changes.
       next.archived = fields.archived;
       // Archiving an already-archived project keeps its original date;
       // restoring clears it rather than leaving a stale "archived at"
