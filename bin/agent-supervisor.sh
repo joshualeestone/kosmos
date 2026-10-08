@@ -140,6 +140,15 @@ _kosmos_supervisor_tmux() {
   fi
   return 0
 }
+# #5516: a PATH with only its absolute entries (empty and relative ones mean "the current folder"), split on ':' alone
+# and never globbed; the system default when nothing absolute is left. Tested by engine/launchpath-5516.test.js.
+abs_path_only() {
+  local _out="" _e _old_ifs="$IFS"
+  IFS=':'; set -f
+  for _e in $1; do case "$_e" in /*) _out="${_out:+$_out:}$_e" ;; esac; done
+  set +f; IFS="$_old_ifs"
+  printf '%s' "${_out:-/usr/bin:/bin:/usr/sbin:/sbin}"
+}
 LOG="${5:-}"
 # The model this agent runs on, optional and NEW as of the create-agent
 # branch (2026-08-16). Empty means claude's own default. Existing plists
@@ -595,13 +604,9 @@ if [ -z "$adopt" ]; then
           # the pane AND to the guard, so the guard covers exactly the folders the pane uses.
           _guard_path="$("$TMUX_BIN" show-environment -g PATH 2>/dev/null || true)"
           case "$_guard_path" in PATH=?*) _guard_path="${_guard_path#PATH=}" ;; *) _guard_path="$PATH" ;; esac
-          _clean_path=""
-          _old_ifs="$IFS"; IFS=':'; set -f   # split on ':' only, never glob an entry
-          for _e in $_guard_path; do case "$_e" in /*) _clean_path="${_clean_path:+$_clean_path:}$_e" ;; esac; done
-          set +f; IFS="$_old_ifs"
-          _guard_path="$_clean_path"
+          _guard_path="$(abs_path_only "$_guard_path")"
+          # (The codex/gemini/grok PATH append below does not apply: the token-only guard is Claude-only.)
           PANE_ENV+=(-e "PATH=$_guard_path")
-          unset _clean_path _old_ifs _e
           KOSMOS_GUARD_PANE_PATH="$_guard_path" "$NODE_BIN" -e '
             try {
               const out = require(process.argv[1]).refreshTokenOnlyGuards({ only: process.argv[2] });

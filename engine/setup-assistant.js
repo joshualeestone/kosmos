@@ -733,34 +733,46 @@ function ruleHasPatternChar(rule, sep = path.sep) {
    (KOSMOS_GUARD_PANE_PATH), this process's own PATH, and the plist's fixed folders. An entry that cannot be covered
    (empty, relative, or inside the agent's own folder) is returned in `unsafe`. */
 const LAUNCH_PATH_FIXED = ['/opt/homebrew/bin', '/usr/local/bin'];
+const LINK_SCAN_MAX = 4000;
 function launchPathDirs(agentDir, deps = {}) {
-  const sources = [deps.panePath !== undefined ? deps.panePath : process.env.KOSMOS_GUARD_PANE_PATH, deps.ownPath !== undefined ? deps.ownPath : process.env.PATH];
-  const entries = [...LAUNCH_PATH_FIXED];
-  for (const src of sources) if (typeof src === 'string') entries.push(...src.split(path.delimiter));
+  const pane = deps.panePath !== undefined ? deps.panePath : process.env.KOSMOS_GUARD_PANE_PATH;
+  const ownPath = deps.ownPath !== undefined ? deps.ownPath : process.env.PATH;
+  const max = deps.linkScanMax || LINK_SCAN_MAX;
   const own = realOr(agentDir);
+  // Review 2: refreshTokenOnlyGuards passes one Map for its whole pass, so a PATH is scanned once, not once per agent.
+  const cache = deps.launchCache instanceof Map ? deps.launchCache : null;
+  const key = JSON.stringify([pane, ownPath, own, max]);
+  if (cache && cache.has(key)) return cache.get(key);
+  // A folder that is the agent's own, inside it, or ABOVE it (review 2: denying an ancestor would deny the agent's own
+  // folder) cannot be covered.
+  const uncoverable = (real) => real === own || real.startsWith(own + path.sep) || own.startsWith(real === path.sep ? real : real + path.sep);
   const dirs = [];
   const unsafe = [];
-  for (const e of entries) {
-    if (!e || !path.isAbsolute(e)) { unsafe.push(e === '' ? '(an empty entry)' : e); continue; }
+  const add = (e, strict) => {
+    if (!e || !path.isAbsolute(e)) { if (strict) unsafe.push(e === '' ? '(an empty entry)' : e); return; }
     const real = realOr(e);
-    if (real === own || real.startsWith(own + path.sep)) { unsafe.push(e); continue; }
+    if (uncoverable(real)) { unsafe.push(e); return; }
     if (!dirs.includes(real)) dirs.push(real);
-  }
-  // Review 1: a program on PATH is often a link into another folder; cover the folder each one resolves into as well.
-  // Capped per folder so a very large one cannot stall a launch; a cap reached is reported in `unsafe`.
-  const LINK_SCAN_MAX = 4000;
+  };
+  for (const e of LAUNCH_PATH_FIXED) add(e, true);
+  // The pane's PATH is held strictly; this process's own (review 2) only contributes its absolute entries.
+  if (typeof pane === 'string') for (const e of pane.split(path.delimiter)) add(e, true);
+  if (typeof ownPath === 'string') for (const e of ownPath.split(path.delimiter)) add(e, false);
   for (const d of [...dirs]) {
     let names = [];
     try { names = fs.readdirSync(d); } catch { continue; }
-    if (names.length > LINK_SCAN_MAX) { unsafe.push(d + ' (too many entries to check)'); names = names.slice(0, LINK_SCAN_MAX); }
+    if (names.length > max) { unsafe.push(`${d} (more than ${max} entries; only the first ${max} were checked)`); names = names.slice(0, max); }
     for (const n of names) {
-      let target;
-      try { target = path.dirname(fs.realpathSync.native(path.join(d, n))); } catch { continue; }
-      if (target === own || target.startsWith(own + path.sep)) { unsafe.push(path.join(d, n)); continue; }
+      let real;
+      try { real = fs.realpathSync.native(path.join(d, n)); if (fs.statSync(real).isDirectory()) continue; } catch { continue; }
+      const target = path.dirname(real);   // only files run from PATH; the folder each one lives in
+      if (uncoverable(target)) { unsafe.push(path.join(d, n)); continue; }
       if (!dirs.includes(target)) dirs.push(target);
     }
   }
-  return { dirs, unsafe: [...new Set(unsafe)] };
+  const value = { dirs, unsafe: [...new Set(unsafe)] };
+  if (cache) cache.set(key, value);
+  return value;
 }
 
 function tokenOnlySettingsRules(dir, deps = {}) {
@@ -1035,6 +1047,7 @@ function refreshTokenOnlyGuards(deps = {}) {
   try { names = require('./sendertoken').tokenOnlyList(); } catch { return out; }   // the roster's own reader (#4491)
   // Review 22: the supervisor guards ONE listed agent at its launch (a name listed after board start), not them all.
   if (deps.only) { names = names.filter((n) => n === deps.only); deps = { ...deps, atLaunch: true }; }   // review 23: notes said at board start, not each launch
+  if (!(deps.launchCache instanceof Map)) deps = { ...deps, launchCache: new Map() };   // #5516: one PATH scan per pass
   const toDir = deps.workerDir || create.workerDir;
   for (const name of names) {
     let dir = null;

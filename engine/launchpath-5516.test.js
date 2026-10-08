@@ -2,10 +2,8 @@
 require('../test-support/tmpscope');   // first: every mkdtemp in this file lands in a per-process dir removed on exit (#4273)
 
 /*
- * #5516: Claude Code runs programs (git, at every start) outside the sandbox, found through the PATH its pane starts
- * with, so the token-only guard denies the agent's file tools and shell any write to a folder on that PATH. These tests
- * assert the CONFIG WRITTEN, as boardkeychain-4491.test.js does; that Claude Code honours an Edit deny with permissions
- * skipped was measured by hand on 2026-10-08 (Claude Code 2.1.295, two arms: written without the rule, refused with it).
+ * #5516: the token-only guard also protects the folders on the PATH an agent starts with. These tests assert the
+ * CONFIG WRITTEN, as boardkeychain-4491.test.js does; Claude Code's enforcement of an Edit deny was measured by hand.
  */
 
 const test = require('node:test');
@@ -97,7 +95,7 @@ test('#5516: launchPathDirs resolves symlinks and does not repeat a folder', () 
   const { dirs, unsafe } = setup.launchPathDirs(agentDir('lp-sym'), { panePath: [link, real].join(path.delimiter), ownPath: '' });
   assert.equal(dirs.filter((d) => d === realOr(real)).length, 1, JSON.stringify(dirs));
   assert.ok(!dirs.includes(link), 'the symlink path itself was kept, not its target');
-  assert.deepEqual(unsafe, ['(an empty entry)'], 'an empty own PATH is an empty entry, and is said');
+  assert.deepEqual(unsafe, [], 'an empty board PATH is skipped quietly (review 2); only the pane PATH is held strictly');
 });
 
 test('#5516 review 1: a program on PATH that links into another folder gets that folder covered too', () => {
@@ -117,13 +115,47 @@ test('#5516 review 1: a program on PATH that links into another folder gets that
   assert.ok(!readSettings(dir2).permissions.deny.includes(`Edit(${ruleAbs(realOr(realHome))}/**)`));
 });
 
-test('#5516 review 1: the supervisor hands the pane a cleaned PATH and gives the guard the same one', () => {
+test('#5516 review 2: the supervisor cleans the pane PATH with a function this test runs', () => {
   const sup = fs.readFileSync(path.join(__dirname, '..', 'bin', 'agent-supervisor.sh'), 'utf8');
-  const i = sup.indexOf('_guard_path="$("$TMUX_BIN" show-environment -g PATH');
-  assert.ok(i > 0, 'the pane PATH is not read from the tmux server');
+  const m = sup.match(/\nabs_path_only\(\) \{\n[\s\S]*?\n\}\n/);
+  assert.ok(m, 'abs_path_only is not defined in the supervisor');
+  const run = (input) => require('child_process').execFileSync('/bin/bash', ['-c', m[0] + '\nabs_path_only "$1"', 'x', input], { encoding: 'utf8' });
+  assert.equal(run('/a::rel:/b c:.:/d*'), '/a:/b c:/d*', 'empty, relative and dot entries go; spaces and a * stay literal');
+  assert.equal(run('rel:.:'), '/usr/bin:/bin:/usr/sbin:/sbin', 'nothing absolute left: the system default');
+  // The pane AND the guard are given its result.
+  const i = sup.indexOf('_guard_path="$(abs_path_only "$_guard_path")"');
+  assert.ok(i > 0, 'the pane PATH is not cleaned');
   const block = sup.slice(i, sup.indexOf('unset _guard_path', i));
-  assert.match(block, /case "\$_e" in \/\*\)/, 'empty and relative entries are not removed');
   assert.match(block, /PANE_ENV\+=\(-e "PATH=\$_guard_path"\)/, 'the pane is not given the cleaned PATH');
   assert.match(block, /KOSMOS_GUARD_PANE_PATH="\$_guard_path"/, 'the guard is not given the same PATH');
-  assert.match(block, /set -f/, 'entries could be globbed when split');
+});
+
+test('#5516 review 2: an ancestor of the agent folder is never denied (it would lock the agent out of its own folder)', () => {
+  const dir = agentDir('lp-anc');
+  const ancestor = path.dirname(dir);
+  const r = setup.guardTokenOnlyFolder(dir, 'lp-anc', { ...BASE, panePath: ancestor });
+  assert.equal(r.ok, false, JSON.stringify(r));
+  const s = readSettings(dir);
+  assert.ok(!s.permissions.deny.includes(`Edit(${ruleAbs(realOr(ancestor))}/**)`), 'an ancestor was denied');
+  assert.ok(!s.sandbox.filesystem.denyWrite.includes(realOr(ancestor)));
+});
+
+test('#5516 review 2: broken links, folders as entries and the scan cap', () => {
+  const pd = binDir('odd-path');
+  fs.symlinkSync(path.join(SANDBOX, 'nowhere', 'gone'), path.join(pd, 'broken'));
+  fs.mkdirSync(path.join(pd, 'subdir'));
+  fs.writeFileSync(path.join(pd, 'a'), ''); fs.writeFileSync(path.join(pd, 'b'), ''); fs.writeFileSync(path.join(pd, 'c'), '');
+  const r = setup.launchPathDirs(agentDir('lp-odd'), { panePath: pd, ownPath: '', linkScanMax: 2 });
+  assert.ok(r.dirs.includes(realOr(pd)), JSON.stringify(r));
+  assert.ok(!r.dirs.includes(realOr(path.join(pd, 'subdir'))) && !r.dirs.includes(realOr(pd) + path.sep + 'subdir'), 'a folder entry was taken as a program folder');
+  assert.ok(r.unsafe.some((u) => u.startsWith(realOr(pd)) && u.includes('more than 2 entries')), `the cap was not reported: ${JSON.stringify(r.unsafe)}`);
+  // CONTROL: under the cap, no cap note.
+  const r2 = setup.launchPathDirs(agentDir('lp-odd2'), { panePath: pd, ownPath: '', linkScanMax: 100 });
+  assert.ok(!r2.unsafe.some((u) => u.startsWith(realOr(pd))), JSON.stringify(r2.unsafe));   // (the fixed Homebrew folder may pass the cap)
+});
+
+test('#5516 review 2: odd entries in the board process PATH are skipped quietly; the pane PATH is held strictly', () => {
+  const r = setup.launchPathDirs(agentDir('lp-own'), { panePath: '/usr/bin', ownPath: '::rel:/bin' });
+  assert.deepEqual(r.unsafe, [], JSON.stringify(r.unsafe));
+  assert.ok(r.dirs.includes(realOr('/bin')));
 });
