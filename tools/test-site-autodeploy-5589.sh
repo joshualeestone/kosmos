@@ -400,6 +400,41 @@ KOSMOS_AUTODEPLOY_DEPLOY='sleep 300 & echo $! > '"$HANG29"'; exit 0' tick; sleep
 { [ "$RC" = 0 ] && [ -n "$hp29" ] && ! kill -0 "$hp29" 2>/dev/null && printf '%s' "$OUT" | grep -q "left processes running"; } \
   && pass "a child left running in the deploy's group after it exits is stopped" || { bad "lingering child (rc=$RC alive=$(kill -0 "$hp29" 2>/dev/null && echo yes || echo no)) $OUT"; [ -n "$hp29" ] && kill "$hp29" 2>/dev/null; }
 
+# 30) the green run's ::warning:: annotation is escaped: a % in a path in the message is %25, so it can
+#     never be read as a workflow-command escape. (A state folder with a % in its name.)
+ST30="$T/st%41te"; mkdir -p "$ST30"; H30=$(git -C "$T/origin.git" rev-parse main)
+echo "$H30" > "$ST30/parked"; printf '%s rc=1 x\n' "$H30" > "$ST30/last-failure"
+KOSMOS_AUTODEPLOY_STATE="$ST30" tick; a1=$RC; KOSMOS_AUTODEPLOY_STATE="$ST30" tick
+ann30=$(printf '%s\n' "$OUT" | command grep '^::warning::')
+{ [ "$a1" = 1 ] && [ "$RC" = 0 ] && printf '%s' "$ann30" | command grep -q 'st%2541te' && ! printf '%s' "$ann30" | command grep -q 'st%41te'; } \
+  && pass "the ::warning:: annotation escapes % in its message" || bad "annotation not escaped (a1=$a1 rc=$RC): $ann30"
+
+# 31) a deploy limit with a leading zero (or 0) falls back to the default instead of being read as 3 s
+#     (or as no time at all): a 4 s deploy under "03" and under "0" succeeds.
+H31=$(advance thirtyone)
+KOSMOS_AUTODEPLOY_DEPLOY_MAX_S=03 KOSMOS_AUTODEPLOY_DEPLOY='sleep 4; exit 0' tick; l1=$RC
+H31b=$(advance thirtyoneb)
+KOSMOS_AUTODEPLOY_DEPLOY_MAX_S=0 KOSMOS_AUTODEPLOY_DEPLOY='sleep 4; exit 0' tick; l2=$RC
+{ [ "$l1" = 0 ] && [ "$l2" = 0 ] && [ "$(cat "$ST/last-deployed")" = "$H31b" ]; } \
+  && pass "a deploy limit of 03 or 0 falls back to the default" || bad "deploy limit fallback (03 -> $l1, 0 -> $l2) $OUT"
+
+# 32) deploy.pid identity. (a) the leader is alive but the file has NO start time: not ours, never
+#     signalled. (b) the leader has exited but its group still has a member: ours, stopped and counted.
+set -m; sleep 300 & own32=$!; set +m
+printf '%s %s \n' "$own32" "$H31b" > "$ST/deploy.pid"; touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
+tick
+kill -0 "$own32" 2>/dev/null && pass "a deploy.pid with no start time never signals a live leader" || bad "signalled a leader it could not identify"
+kill "$own32" 2>/dev/null; wait "$own32" 2>/dev/null
+M32="$T/member32.pid"
+set -m; sh -c 'sleep 300 & echo $! > '"$M32"'; exit 0' & lead32=$!; set +m; wait "$lead32" 2>/dev/null
+for i in $(seq 1 50); do [ -s "$M32" ] && break; sleep 0.1; done; m32=$(cat "$M32")
+printf '%s %s Mon_Jan_1_00:00:00_2001\n' "$lead32" "$H31b" > "$ST/deploy.pid"; touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
+tick; sleep 1
+{ ! kill -0 "$m32" 2>/dev/null && printf '%s' "$OUT" | grep -q "stopped the deploy of"; } \
+  && pass "a deploy group whose leader exited is still found by its members, stopped and counted" \
+  || { bad "leaderless group (member alive=$(kill -0 "$m32" 2>/dev/null && echo yes || echo no)) $OUT"; kill "$m32" 2>/dev/null; }
+rm -f "$ST/failures" "$ST/parked" "$ST/deploy.pid"; rm -rf "$ST/reported.d"
+
 # 13) no site configured: a usage error, never a deploy.
 nfinal=$(ndeploys); KOSMOS_AUTODEPLOY_SITE="" bash "$AD" 2>/dev/null; RC=$?
 { [ "$RC" = 2 ] && [ "$(ndeploys)" = "$nfinal" ]; } && pass "no KOSMOS_AUTODEPLOY_SITE: exit 2, nothing deployed" || bad "unset site (rc=$RC)"

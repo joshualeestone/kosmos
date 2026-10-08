@@ -32,7 +32,8 @@
 # Skips, retried on the next tick: a release, deploy-site.sh or promote-channel.sh running on this
 # machine; another tick still running; exit 75 from deploy-site.sh (the live site moved or could not
 # be read). A commit the live site already serves (its .kosmos-release-export names it, as right
-# after a cut's own step 8) is recorded as deployed without deploying it again.
+# after a cut's own step 8) is recorded as deployed without deploying it again. A deploy left running
+# by a tick killed outright: waited for while under 1200 s, then stopped; a failure either way.
 # A failed deploy is retried once on the next tick (one network blip should not park a website
 # change), then PARKED: a second failure on the same sha is a finding, not a blip, and a tick
 # re-running a refusing deploy every 15 minutes would bury it. The next merge, or deleting `parked`,
@@ -43,7 +44,11 @@
 #   heartbeat      the time of the last tick that held the lock (a stall shows as an old heartbeat)
 #   last-deployed  the site sha this job last published (or found already live)
 #   last-failure   "<sha> rc=<n> <time>" of the last failed attempt (its rc names the cause in the parked line)
-#   failures       "<sha> <n>" consecutive failed attempts for that sha
+#   failures       "<sha> <n>" consecutive failed attempts for that sha (a timeout is rc 124, a killed
+#                  tick rc 143, a deploy left by a tick killed outright rc 137)
+#   deploy.pid     "<pgid> <sha> <leader start time>" while a deploy runs; still there at the next tick
+#                  means its tick was killed outright, and that tick finds the deploy by it
+#   lock/          held by the running tick (lock/pid); see the wedged-lock check
 #   parked         the sha not retried until main moves (red once, then reported; see red_once)
 #   paused         made by a PERSON to stop the job (e.g. while a deliberate site rollback is live,
 #                  which the job would otherwise undo by redeploying main); remove it to resume
@@ -162,9 +167,19 @@ now > "$STATE/heartbeat"
 # A deploy left by a tick that died WITHOUT its EXIT trap (a SIGKILL, a runner's tree kill after bash
 # was gone). The deploy runs in its own process group, so it outlives such a kill. deploy.pid holds
 # "<pgid> <sha> <leader start time>", written at launch and removed when a tick accounts for the deploy,
-# so a file still here means nobody did. The start time is the identity check: a reused pid has another.
+# so a file still here means nobody did. Identity: while the group's leader lives, only the same start
+# time is ours (a reused pid has another); once the leader has exited, a group that still has members is
+# ours, since a pid is never handed out again while a process group of that id exists. Start times are
+# read with a fixed locale and zone, so a tick run by hand compares the same text the runner wrote.
+psq() { LC_ALL=C TZ=UTC ps "$@" 2>/dev/null; }
 if read -r opg osha ostart 2>/dev/null < "$STATE/deploy.pid" && [ -n "$opg" ]; then
-  if [ -n "$ostart" ] && [ "$(ps -o lstart= -p "$opg" 2>/dev/null | tr -s ' ' _)" = "$ostart" ]; then
+  lead=$(psq -o lstart= -p "$opg" | tr -s ' ' _); ours=""
+  if [ -n "$lead" ]; then
+    [ -n "$ostart" ] && [ "$lead" = "$ostart" ] && ours=1
+  elif psq -axo pgid= | tr -d ' ' | grep -qx "$opg"; then
+    ours=1
+  fi
+  if [ -n "$ours" ]; then
     if [ $(( $(date +%s) - $(stat -f %m "$STATE/deploy.pid") )) -lt 1200 ]; then
       say "skip: the deploy of ${osha:0:9} from an earlier tick (process group $opg) is still running; this tick waits"
       exit 0
@@ -180,15 +195,18 @@ if read -r opg osha ostart 2>/dev/null < "$STATE/deploy.pid" && [ -n "$opg" ]; t
 fi
 if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 5000000 ]; then tail -n 5000 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"; fi
 
-# Bounded: no prompt, and a 120 s wall clock (KOSMOS_AUTODEPLOY_FETCH_MAX_S) (perl's alarm; macOS has no timeout(1)), so a stalled
-# transfer or a keychain helper that never answers is a failed fetch, not a tick hung until the runner's
-# job timeout (which would be red every tick, past red_once).
+# Bounded: no prompt, and a wall clock (KOSMOS_AUTODEPLOY_FETCH_MAX_S; perl's alarm, as macOS has no
+# timeout(1)), so a stalled transfer or a keychain helper that never answers is a failed fetch. Without it
+# the runner's job timeout would kill the tick, outside red_once, so every tick would be red.
+# A TERM sent to this tick's pid ALONE waits for the fetch to return (bash runs a trap after the foreground
+# command), at most the limit; the runner's cancel signals the whole process tree, perl included, and
+# perl's handler stops the git group (TERM, then KILL) at once.
 # The git runs in its own process group and the whole group is stopped at the limit, so its helpers
 # (git-remote-https, a credential helper waiting on the keychain) cannot outlive it.
 grouped_timeout() {  # <seconds> <cmd...>: run cmd in its own process group; on expiry TERM then KILL the group, exit 142
   perl -e 'my $t = shift; my $p = fork; defined $p or exit 126; if (!$p) { setpgrp(0, 0); exec @ARGV or exit 127 }
     $SIG{ALRM} = sub { kill "TERM", -$p; sleep 2; kill "KILL", -$p; waitpid($p, 0); exit 142 };
-    $SIG{$_} = sub { kill "TERM", -$p; exit 143 } for qw(TERM INT HUP);   # a killed tick takes the git group too
+    $SIG{$_} = sub { kill "TERM", -$p; sleep 2; kill "KILL", -$p; exit 143 } for qw(TERM INT HUP);   # a killed tick takes the git group too
     alarm $t; waitpid($p, 0); my $s = $?; exit(($s & 127) ? 128 + ($s & 127) : $s >> 8)' "$@"
 }
 FETCH_MAX_S="${KOSMOS_AUTODEPLOY_FETCH_MAX_S:-120}"
@@ -401,12 +419,17 @@ killed_tick() {
   [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"
 }
 trap killed_tick EXIT
-trap 'exit 143' TERM INT HUP   # (stays for the rest of the tick: exit runs whichever EXIT trap is current)
+# Until dpid is set and deploy.pid written, a signal is only NOTED, so the launch cannot be cut between
+# the fork and dpid (which would leave a deploy no tick can find). Trapped, not ignored: an ignored signal
+# would stay ignored in the deploy itself.
+_sig=""; trap '_sig=1' TERM INT HUP
 # </dev/null: under set -m a background job keeps the terminal as stdin, and a read would stop it (SIGTTIN).
 set -m; KOSMOS_SITE="$SITE" "${DCMD[@]}" < /dev/null > "$DOUT" 2>&1 & dpid=$!; set +m
 # Recorded so a tick killed outright (no EXIT trap) leaves the next tick a way to find this deploy:
 # being its own process group, it is out of reach of a kill aimed at this tick's group.
-printf '%s %s %s\n' "$dpid" "$TARGET" "$(ps -o lstart= -p "$dpid" 2>/dev/null | tr -s ' ' _)" > "$STATE/deploy.pid"
+printf '%s %s %s\n' "$dpid" "$TARGET" "$(psq -o lstart= -p "$dpid" | tr -s ' ' _)" > "$STATE/deploy.pid"
+trap 'exit 143' TERM INT HUP   # (stays for the rest of the tick: exit runs whichever EXIT trap is current)
+[ -z "$_sig" ] || exit 143   # a signal that arrived during the launch, acted on now that the deploy is findable
 dstart=$SECONDS   # the clock, not a count of loop turns (turns stretch under load)
 while kill -0 "$dpid" 2>/dev/null && [ $((SECONDS - dstart)) -lt "$DEPLOY_MAX_S" ]; do sleep 0.2; done
 if kill -0 "$dpid" 2>/dev/null; then
