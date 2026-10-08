@@ -84,20 +84,20 @@ say() { printf '%s %s\n' "$(now)" "$*" | tee -a "$LOG"; }
 park() { echo "$TARGET" > "$STATE/parked"; mark_reported parked; }
 # A state that would be red on every tick (a parked sha, a retry alarm, a wedged lock, an unreachable
 # origin) goes red ONCE per sha and cause per day (a rolling 24 hours from the report, not a calendar
-# day), then each further tick prints "STILL FAILING
-# (reported)" and stays green. GitHub emails the account that last edited the workflow's cron on EVERY
-# failed scheduled run, so red-every-tick on a 15-minute schedule would mean up to 96 emails a day to
-# Josh's account. Each sha and cause has its OWN record (reported.d/<sha>-<cause>, holding the time),
-# so two causes taking turns never re-arm each other. The records for the states with a clean "it is
-# over" moment (wedged lock, fetch, origin/main) are removed the moment that is seen, so a new incident
-# after it is red at once. The retry-type causes (pointer, unread, mirror, checksum, moving)
-# are removed only when a deploy succeeds or main is found already live: until then the sha has not
-# shipped, so a second incident of the same cause on it within the day is the SAME problem still open,
-# and is reported green ("STILL FAILING") rather than emailed again. Clearing those on any passing check
-# would let two causes taking turns re-arm each other every tick. (Records for a sha that main has since
-# moved past linger until the next successful deploy empties the folder; they are tiny and harmless.) A state CHANGE (a first
-# failure, the failure that parks, a checkout fault, an emptied dist) is always red; park() records
-# itself, so its next tick is not a second email.
+# day), then each further tick prints "STILL FAILING (reported)" and stays green. GitHub emails the
+# account that last edited the workflow's cron on EVERY failed scheduled run, so red-every-tick on a
+# 15-minute schedule would mean up to 96 emails a day to Josh's account. Each sha and cause has its OWN
+# record (reported.d/<sha>-<cause>, holding the time), so two causes taking turns never re-arm each
+# other. The records for the states with a clean "it is over" moment (wedged lock, fetch, origin/main)
+# are removed the moment that is seen, so a new incident after it is red at once. The retry-type causes
+# (pointer, unread, mirror, checksum, moving) are removed only when a deploy succeeds or main is found
+# already live: until then the sha has not shipped, so a second incident of the same cause on it within
+# the day is the SAME problem still open, and is reported green ("STILL FAILING") rather than emailed
+# again. Clearing those on any passing check would let two causes taking turns re-arm each other every
+# tick. (Records for a sha that main has since moved past linger until the next successful deploy
+# empties the folder; they are tiny and harmless.) A state CHANGE (a first failure, the failure that
+# parks, a checkout fault, an emptied dist) is always red; park() records itself, so its next tick is
+# not a second email.
 REPORTED="$STATE/reported.d"
 mark_reported() { mkdir -p "$REPORTED" && date +%s > "$REPORTED/${TARGET:-none}-$1"; }
 clear_reported() { rm -f "$REPORTED/${TARGET:-none}-$1"; }
@@ -152,7 +152,7 @@ if ! mkdir "$LOCK" 2>/dev/null; then
   rm -rf "$LOCK"; mkdir "$LOCK" 2>/dev/null || exit 0
 fi
 echo $$ > "$LOCK/pid"
-TARGET=""; clear_reported wedged   # the lock is ours: a wedged-lock report no longer describes anything
+clear_reported wedged   # the lock is ours: a wedged-lock report no longer describes anything (TARGET is still empty here)
 trap '[ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"' EXIT   # only a lock this tick holds
 # The heartbeat is written only by a tick that holds the lock, so a wedged lock shows as a stale one.
 now > "$STATE/heartbeat"
@@ -166,6 +166,7 @@ if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 5000000 ]; then tail -n 5000 "$LOG
 grouped_timeout() {  # <seconds> <cmd...>: run cmd in its own process group; on expiry TERM then KILL the group, exit 142
   perl -e 'my $t = shift; my $p = fork; if (!$p) { setpgrp(0, 0); exec @ARGV or exit 127 }
     $SIG{ALRM} = sub { kill "TERM", -$p; sleep 2; kill "KILL", -$p; waitpid($p, 0); exit 142 };
+    $SIG{$_} = sub { kill "TERM", -$p; exit 143 } for qw(TERM INT HUP);   # a killed tick takes the git group too
     alarm $t; waitpid($p, 0); my $s = $?; exit(($s & 127) ? 128 + ($s & 127) : $s >> 8)' "$@"
 }
 GIT_TERMINAL_PROMPT=0 grouped_timeout 120 git -C "$SITE" fetch -q origin main 2>>"$LOG" \
@@ -342,6 +343,7 @@ export KOSMOS_REPO="$REPO"
 # not just the subshell.
 DEPLOY_MAX_S="${KOSMOS_AUTODEPLOY_DEPLOY_MAX_S:-900}"
 case "$DEPLOY_MAX_S" in ''|*[!0-9]*|0*) DEPLOY_MAX_S=900 ;; esac   # 0 kills every deploy at once; a leading 0 reads as octal
+[ "$DEPLOY_MAX_S" -le 1500 ] || DEPLOY_MAX_S=1500   # stays inside the workflow's 30-minute job timeout by construction
 if [ -n "${KOSMOS_AUTODEPLOY_DEPLOY:-}" ]; then DCMD=(sh -c "$KOSMOS_AUTODEPLOY_DEPLOY"); else DCMD=(bash "$REPO/tools/deploy-site.sh" --publish); fi
 DOUT="$STATE/deploy.out"; : > "$DOUT"
 dpid=""   # set the moment the deploy starts; the traps below are in place BEFORE it starts
@@ -354,13 +356,24 @@ stop_deploy() {   # TERM the deploy group, give it up to 5 s, then KILL whatever
   for _i in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$dpid" 2>/dev/null || break; sleep 0.5; done
   kill -KILL -- "-$dpid" 2>/dev/null
 }
-# On the way out of a killed tick: stop the deploy, keep its output (run + log), free the lock.
-trap 'stop_deploy; tee -a "$LOG" < "$DOUT" 2>/dev/null; [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"' EXIT
+# On the way out of a killed tick: stop the deploy, keep its output (run + log), and RECORD A FAILURE
+# (rc 143): the deploy may have published before the kill, so the next tick's "already live" shortcut
+# must not bless the sha (the same reason a timeout is a failure). Then free the lock.
+killed_tick() {
+  if [ -n "$dpid" ] && kill -0 "$dpid" 2>/dev/null; then
+    stop_deploy
+    printf '%s rc=%s %s\n' "$TARGET" 143 "$(now)" > "$STATE/last-failure"
+    echo "$TARGET $(( $(count_for "$STATE/failures") + 1 ))" > "$STATE/failures"
+  fi
+  tee -a "$LOG" < "$DOUT" 2>/dev/null
+  [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"
+}
+trap killed_tick EXIT
 trap 'exit 143' TERM INT HUP   # (stays for the rest of the tick: exit runs whichever EXIT trap is current)
 # </dev/null: under set -m a background job keeps the terminal as stdin, and a read would stop it (SIGTTIN).
 set -m; KOSMOS_SITE="$SITE" "${DCMD[@]}" < /dev/null > "$DOUT" 2>&1 & dpid=$!; set +m
-tenths=0   # polled every 0.2 s, counted in tenths of a second
-while kill -0 "$dpid" 2>/dev/null && [ "$tenths" -lt $((DEPLOY_MAX_S * 10)) ]; do sleep 0.2; tenths=$((tenths + 2)); done
+dstart=$SECONDS   # the clock, not a count of loop turns (turns stretch under load)
+while kill -0 "$dpid" 2>/dev/null && [ $((SECONDS - dstart)) -lt "$DEPLOY_MAX_S" ]; do sleep 0.2; done
 if kill -0 "$dpid" 2>/dev/null; then
   stop_deploy
   # NOT 75: a deploy can be stopped AFTER vercel deploy has published (its served checks were running), so
@@ -371,11 +384,11 @@ if kill -0 "$dpid" 2>/dev/null; then
 else
   wait "$dpid"; rc=$?; timedout=""
 fi
+trap '[ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"' EXIT   # the deploy is over: back to the plain trap
 # Printed whole once it has ended (not streamed: a live tail could be orphaned by a killed tick, and
 # could cut off the last lines). The run and the log get the same complete output.
 tee -a "$LOG" < "$DOUT"
 [ -n "$timedout" ] && say "the deploy ran past its ${DEPLOY_MAX_S}s limit and was stopped (exit 124, a failure)"
-trap '[ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"' EXIT   # the deploy is over: back to the plain trap
 if [ "$rc" = 0 ]; then
   echo "$TARGET" > "$STATE/last-deployed"; rm -f "$STATE/failures" "$STATE/retries" "$STATE/parked"; rm -rf "$REPORTED"
   echo "$src_n" > "$STATE/mirror-count"
