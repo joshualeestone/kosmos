@@ -48,7 +48,8 @@ const ALSO = ['agentpermission-5406.test.js', 'platform.test.js', 'store.test.js
   'securewrite.fsync-5434.test.js',   // #5434: its Windows-only skips (EPERM, EISDIR) run only there
   'accounts.fsync-5434.test.js',   // #5434 slice 2: the account stores' saves must work on Windows too
   'store.real-root-5418.test.js',   // #5418: the test-process root rule is live in this job, so its own test runs here too
-  'sendertoken.revokeifunchanged-5418.test.js'];   // #5418 ask 2: the cleanup's last guard, on Windows too
+  'sendertoken.revokeifunchanged-5418.test.js',   // #5418 ask 2: the cleanup's last guard, on Windows too
+  'restoresink.test.js'];   // #5536: the restore sink's Windows duties (Unicode names, link on NTFS, junction refusal) are measured here
 // test-support.remove-tree.test.js (#5074): the shared win32 cleanup retry's own tests, which ran here inside the
 // shims file before the helper moved.
 const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.js', 'test-support.remove-tree.test.js',
@@ -56,6 +57,7 @@ const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
+  'engine/usage-world-5532.test.js': 'its win32 branches (#5532) only skip the chmod and symlink arms; the usage scan it tests reads Claude transcripts the same way on both, and engine/usage.test.js is not run on Windows either',
   'engine/agentbrowser.test.js': 'its win32 branch only skips a read-only-folder arm; the file describes macOS',
   'engine/status.codex-model-switch-4416.test.js': 'the guard it tests is Mac-only by design: it compares a rollout with the launch plist\'s mtime, and a Windows Scheduled Task has no file to compare',
   'engine/geminisettings.test.js': 'its win32 branch only skips a POSIX file-mode arm',

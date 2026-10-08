@@ -37,6 +37,7 @@
 
 const fs = require('node:fs');
 const fsp = fs.promises;
+const os = require('node:os');
 const path = require('node:path');
 const { configRoots } = require('./status');
 const store = require('./store');
@@ -77,16 +78,18 @@ function emptyBuckets() {
  * the first version used fs.*Sync throughout and would have stalled every
  * other route on this server for as long as a scan took.
  */
-async function walkTranscriptsUnder(root) {
+async function walkTranscriptsUnder(root, onError) {
+  // `onError` (#5532): told of a folder that exists but cannot be listed; a missing projects/ (ENOENT) is no sessions.
   const projects = path.join(root, 'projects');
+  const failed = (e) => { if (onError && !(e && e.code === 'ENOENT')) onError(); };
   let projectDirs;
-  try { projectDirs = await fsp.readdir(projects, { withFileTypes: true }); } catch { return []; }
+  try { projectDirs = await fsp.readdir(projects, { withFileTypes: true }); } catch (e) { failed(e); return []; }
   const files = [];
   for (const projectDir of projectDirs) {
     if (!projectDir.isDirectory()) continue;
     const projectPath = path.join(projects, projectDir.name);
     let entries;
-    try { entries = await fsp.readdir(projectPath, { withFileTypes: true }); } catch { continue; }
+    try { entries = await fsp.readdir(projectPath, { withFileTypes: true }); } catch (e) { failed(e); continue; }
     for (const entry of entries) {
       const entryPath = path.join(projectPath, entry.name);
       if (entry.isFile() && entry.name.endsWith('.jsonl')) {
@@ -103,7 +106,7 @@ async function walkTranscriptsUnder(root) {
         // looked usage-shaped. Only a subdirectory actually named
         // `subagents` is walked -- the one real shape a session directory
         // carries.
-        await walkSubagentsTree(entryPath, files);
+        await walkSubagentsTree(entryPath, files, failed);
       }
     }
   }
@@ -111,12 +114,12 @@ async function walkTranscriptsUnder(root) {
 }
 
 /** Only the `subagents/` child of a session directory, never its other contents. */
-async function walkSubagentsTree(sessionDir, out) {
+async function walkSubagentsTree(sessionDir, out, failed) {
   let entries;
-  try { entries = await fsp.readdir(sessionDir, { withFileTypes: true }); } catch { return; }
+  try { entries = await fsp.readdir(sessionDir, { withFileTypes: true }); } catch (e) { if (failed) failed(e); return; }
   for (const entry of entries) {
     if (entry.isDirectory() && entry.name === SUBAGENTS_DIRNAME) {
-      await walkJsonlRecursive(path.join(sessionDir, entry.name), out);
+      await walkJsonlRecursive(path.join(sessionDir, entry.name), out, failed);
     }
   }
 }
@@ -128,12 +131,12 @@ async function walkSubagentsTree(sessionDir, out) {
  * subagents/ tree (unlike walkSubagentsTree, which only enters one by
  * name at the session-directory level).
  */
-async function walkJsonlRecursive(dir, out) {
+async function walkJsonlRecursive(dir, out, failed) {
   let entries;
-  try { entries = await fsp.readdir(dir, { withFileTypes: true }); } catch { return; }
+  try { entries = await fsp.readdir(dir, { withFileTypes: true }); } catch (e) { if (failed) failed(e); return; }
   for (const entry of entries) {
     const entryPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) await walkJsonlRecursive(entryPath, out);
+    if (entry.isDirectory()) await walkJsonlRecursive(entryPath, out, failed);
     else if (entry.isFile() && entry.name.endsWith('.jsonl')) out.push(entryPath);
   }
 }
@@ -147,7 +150,7 @@ function utcDay(isoTimestamp) {
    whose rows are skipped (it was last written before the window) but a subagent of which is read, and takes its
    launch folder.
    The same rule as the full read below: the first line that names a cwd and parses with a non-empty one. */
-async function firstCwd(file) {
+async function firstCwd(file, onError) {
   let stream;
   try {
     stream = fs.createReadStream(file, { encoding: 'utf8' });
@@ -158,7 +161,7 @@ async function firstCwd(file) {
       try { r = JSON.parse(line); } catch { continue; }
       if (r && typeof r.cwd === 'string' && r.cwd) { lines.close(); return r.cwd; }
     }
-  } catch { /* unreadable: no launch folder, as the full read would give */ } finally {
+  } catch { if (onError) onError(); /* unreadable: no launch folder, as the full read would give */ } finally {
     if (stream) stream.destroy();
   }
   return '';
@@ -209,20 +212,22 @@ async function scanUsage({ sinceDay, untilDay, mtimeCut = false }) {
   const roots = configRoots();
   const days = {};
   const folders = {};
+  const folderModels = {};   // #5532: day -> launch folder -> model, for usage scoped to one Kosmos's agents
+  let unreadable = 0;        // #5532: transcripts that could not be stat-ed or read, so a scoped count can say it is short
   // Launch folder per top-level transcript, for its subagents to inherit.
   const launchOf = new Map();
   for (const root of roots) {
     /* Sorted, so when one message id appears in two transcripts launched in
        different folders (a resumed session), the same file wins the dedup on
        every scan and the per-agent split does not depend on readdir order. */
-    for (const file of (await walkTranscriptsUnder(root)).sort()) {
+    for (const file of (await walkTranscriptsUnder(root, () => { unreadable += 1; })).sort()) {
       const sub = file.indexOf(path.sep + SUBAGENTS_DIRNAME + path.sep, root.length);
       const isSub = sub !== -1;
       /* #5363: a file last written before the window holds no row in it, so it is not read. A top-level one still
          gives its first cwd (a head read), because a subagent written today takes its launch folder from it. */
       if (cutMs !== null) {
         let st;
-        try { st = await fsp.stat(file); } catch { continue; }
+        try { st = await fsp.stat(file); } catch { unreadable += 1; continue; }
         if (st.mtimeMs < cutMs) {
           // Its first cwd is read only if a subagent of it is read (below): most skipped sessions have none in the
           // window, and a head read of each was 14,196 file opens on the fleet Mac.
@@ -231,7 +236,7 @@ async function scanUsage({ sinceDay, untilDay, mtimeCut = false }) {
         }
       }
       let text;
-      try { text = await fsp.readFile(file, 'utf8'); } catch { continue; }
+      try { text = await fsp.readFile(file, 'utf8'); } catch { unreadable += 1; continue; }
       /* #2617: a transcript is keyed by the FIRST cwd it records, the folder
          the session was launched in. A row's own cwd moves when the agent
          `cd`s into a worktree; keyed per row, that work would leave the
@@ -239,6 +244,7 @@ async function scanUsage({ sinceDay, untilDay, mtimeCut = false }) {
          sessions carried more than one cwd, 21% of their rows off the first. */
       const lines = text.split('\n');
       let launch = '';
+      let orphan = false;
       for (const line of lines) {
         if (!line.includes('"cwd"')) continue;
         let r;
@@ -258,10 +264,14 @@ async function scanUsage({ sinceDay, untilDay, mtimeCut = false }) {
         const parentFile = file.slice(0, sub) + '.jsonl';
         let parent = launchOf.get(parentFile);
         if (parent && typeof parent === 'object') {   // #5363: a skipped parent, head-read now that it is needed
-          parent = await firstCwd(parentFile);
+          parent = await firstCwd(parentFile, () => { unreadable += 1; });   // #5532: a failed head read is a short count
           launchOf.set(parentFile, parent);
         }
         if (parent) launch = parent;
+        /* #5532: for the SCOPED split only, a subagent whose top-level transcript is gone or records no folder counts
+           for nobody: its own first folder may be wherever a person's own session had cd'd to, an agent's folder
+           included. The per-folder totals the usage screen reads keep their behaviour. */
+        else orphan = true;
       } else {
         launchOf.set(file, launch);
       }
@@ -310,10 +320,124 @@ async function scanUsage({ sinceDay, untilDay, mtimeCut = false }) {
         const fb = folders[day][folder];
         for (const field of BUCKET_FIELDS) fb[field] += Number(usage[field]) || 0;
         fb.rows += 1;
+        const scoped = orphan ? '' : folder;
+        if (!folderModels[day]) folderModels[day] = {};
+        if (!folderModels[day][scoped]) folderModels[day][scoped] = {};
+        if (!folderModels[day][scoped][model]) folderModels[day][scoped][model] = emptyBuckets();
+        const fm = folderModels[day][scoped][model];
+        for (const field of BUCKET_FIELDS) fm[field] += Number(usage[field]) || 0;
+        fm.rows += 1;
       }
     }
   }
-  return { days, folders, rootsRead: roots };
+  return { days, folders, folderModels, unreadable, rootsRead: roots };
+}
+
+/* This Kosmos's own agent folders, from its roster, exactly as the usage screen builds them (server.js, the per-agent
+   split). Null when the roster cannot be read. An agent whose folder cannot be resolved stays in the list as null, so
+   the count says it left that agent out rather than looking whole. */
+function worldAgentDirs() {
+  const register = require('./register');
+  const create = require('./create');
+  const known = register.known();
+  if (!known.ok) return null;
+  const dirs = [];
+  for (const name of known.names) { try { dirs.push(create.workerDir(name)); } catch { dirs.push(null); } }
+  return dirs;
+}
+
+/**
+ * #5532 (Enterprise E0.3): usage of THIS Kosmos's own agents only, per day and model. The rest of this file reads
+ * every Claude config folder on the computer, so its totals include the person's other Kosmoses and their sessions
+ * outside Kosmos; the company rollup must never send those.
+ *
+ * MATCHING. A row counts only when its transcript's launch folder IS one of `agentDirs`, compared after realpath as
+ * byAgent compares. A subfolder is not claimed, so an agent on a broad folder cannot absorb the person's own sessions
+ * beneath it. Unlike byAgent, a home folder, a root, a shared parent and an orphaned subagent claim nothing here, so the
+ * usage screen's per-agent totals can be larger than this for the same agents.
+ * Read fresh each time, frozen nowhere: the per-day files the usage screen keeps are untouched.
+ *
+ * Returns { byDay: { day: { model: bucket } }, complete } where complete is false when any provider was only partly
+ * read, a Claude transcript could not be read, or a scan failed outright (never thrown): the caller then says so rather
+ * than send a short count as the whole. A folder that is not absolute is nobody's (it would otherwise resolve against
+ * this server's own folder). A message found in two transcripts counts once, for the copy whose path sorts first, so an
+ * agent can be UNDER-counted when a person's own transcript holds the same message: the safe direction.
+ * An agent folder that is the home folder, a filesystem root, not absolute or unresolvable claims nothing AND makes the
+ * result incomplete (that agent's own sessions are left out). One that no longer exists also makes it incomplete: its
+ * sessions recorded under the same spelling still match, but any reached through a link cannot be resolved (review 11).
+ * The rollup decides what an incomplete count means; a roster profile that outlives its folder keeps it incomplete.
+ * 🛑 The folders are this Kosmos's own roster (worldAgentDirs: register.known() through create.workerDir, as the usage
+ * screen builds it), NEVER a listing of the workers folder: in the default world several Kosmoses on one computer share that folder,
+ * and a listing would sweep in another Kosmos's agents (review 3).
+ * A folder that contains another agent's folder (a shared parent) claims nothing, and the count says incomplete.
+ * RESIDUAL (review 6): ownership is by launch folder only. In the default world several Kosmoses share the workers
+ * folder, so two Kosmoses' agents with the same name, or a person's own session started in an agent's exact folder,
+ * cannot be told apart here and count as this world's. The rollup sends usage only under consent words that say
+ * "sessions launched in your agents' folders". `days` is meant to be small (the
+ * rollup's seven): every call is a fresh scan of the window.
+ * `deps` (scanUsage, scanProviders, realpath, home, agentDirs) is for tests only: `deps.agentDirs` overrides the roster,
+ * so a caller COULD pass a listing; a test (usage-world-5532, review 7) refuses any non-test file that passes a second
+ * argument. Within one config root the copy whose path sorts first is the one counted; across roots, the root's place
+ * in configRoots() decides.
+ */
+async function worldUsageByModel(days, deps) {
+  const d = deps || {};
+  // `deps.agentDirs` overrides the roster, for tests only (see the docblock).
+  const agentDirs = Array.isArray(d.agentDirs) ? d.agentDirs : worldAgentDirs();
+  if (!agentDirs) return { byDay: {}, complete: false };   // the roster could not be read: say so
+  const n = Math.min(MAX_DAYS, Math.max(1, Math.trunc(Number(days)) || 1));
+  const untilDay = todayUtc();
+  const sinceDay = new Date(Date.now() - (n - 1) * 86400000).toISOString().slice(0, 10);
+  const realpath = d.realpath || (async (p) => { try { return await fsp.realpath(p); } catch { return path.resolve(p); } });
+  const mine = new Set();
+  let missingDir = false;
+  /* An agent whose folder is dropped below (unresolvable, not absolute, a home or a root) has its own sessions left
+     out, so the count is short and says so, exactly as a shared parent does. */
+  let droppedAgent = false;
+  /* Never a folder that holds the person's own work too (review 2): the home folder or a filesystem root as an
+     agent's folder would claim every session started there. */
+  // The home Kosmos uses (AGENT_WORKFORCE_HOME, as store.js reads it) AND the account's own: either claims nothing (review 8).
+  // A filesystem root is caught per folder below.
+  const homes = [d.home || process.env.AGENT_WORKFORCE_HOME || os.homedir(), os.homedir()];
+  const broad = new Set(await Promise.all(homes.map((h) => realpath(h))));
+  const reals = [];
+  for (const dir of agentDirs) {
+    if (typeof dir !== 'string' || !path.isAbsolute(dir)) { droppedAgent = true; continue; }
+    try { await fsp.access(dir); } catch { missingDir = true; }   // a gone folder cannot be matched by its real path
+    const real = await realpath(dir);
+    if (broad.has(real) || real === path.parse(real).root) { droppedAgent = true; continue; }
+    reals.push(real);
+  }
+  /* A folder that CONTAINS another agent's folder is a shared parent (the workers root, a person's ~/work), not one
+     agent's own folder: it claims nothing (review 5). */
+  let droppedParent = false;
+  for (const real of reals) {
+    if (!reals.some((o) => o !== real && o.startsWith(real.endsWith(path.sep) ? real : real + path.sep))) mine.add(real);
+    else droppedParent = true;   // its own sessions are left out too, so the count is short (review 6)
+  }
+  let claude;
+  try { claude = await (d.scanUsage || scanUsage)({ sinceDay, untilDay, mtimeCut: true }); }
+  catch { claude = { folderModels: {}, unreadable: 1 }; }   // a failed scan is a short count, never a throw
+  let others = { folderModels: {}, complete: false };
+  try { others = await (d.scanProviders || ((o) => require('./usageproviders').scanProviders(o)))({ sinceDay, untilDay }); }
+  catch { others = { folderModels: {}, complete: false }; }
+  const byDay = {};
+  const sources = [claude.folderModels || {}, others.folderModels || {}];
+  // Every distinct folder resolved once, in parallel (review 3), as byAgentAsync does.
+  const distinct = new Set();
+  for (const src of sources) for (const folders of Object.values(src)) for (const f of Object.keys(folders || {})) if (f && path.isAbsolute(f)) distinct.add(f);
+  const resolved = new Map(await Promise.all([...distinct].map(async (f) => [f, await realpath(f)])));
+  for (const src of sources) {
+    for (const [day, folders] of Object.entries(src)) {
+      for (const [folder, models] of Object.entries(folders || {})) {
+        if (!folder || !path.isAbsolute(folder)) continue;   // no recorded folder, or a relative one: nobody's
+        if (!mine.has(resolved.get(folder))) continue;
+        for (const [model, b] of Object.entries(models || {})) addInto((byDay[day] = byDay[day] || {}), model, b);
+      }
+    }
+  }
+  // Fails closed (review 8): a provider result that does not SAY complete is not complete.
+  return { byDay, complete: others.complete === true && !(claude.unreadable > 0) && !missingDir && !droppedParent && !droppedAgent };
 }
 
 async function ensureUsageDir() {
@@ -614,6 +738,8 @@ module.exports = {
   walkTranscriptsUnder,
   scanUsage,
   dailyUsageByModel,
+  worldUsageByModel,
+  worldAgentDirs,
   byAgent,
   byAgentAsync,
   utcDay,

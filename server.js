@@ -9192,6 +9192,45 @@ const server = http.createServer(async (req, res) => {
      The same agent-token check as service-comment below; communitysend.withdrawFor finds only this agent's own record
      and hands it to the owner's removal path (#4287/#4801), so the answers are the delete route's: not found 404, not
      removable 400 (with why), out on the network right now 409, records unreadable 503 with Retry-After. */
+  /* #5574 slice 2b: an AGENT edits the words of its own community post or comment (`kosmos community edit`). The same
+     agent-token check as service-withdraw; communitysend.editFor decides everything inside the sweep's mutex. Answers:
+     200 changed (state queued, queued_not_going or changed); 202 maybe (the community did not answer); 404 not yours or
+     unknown; 400 not editable or words refused (with why); 409 busy; 503 records unreadable, with Retry-After. */
+  if (pathname === '/api/community/service-edit' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!presentedAgentToken(req, body)) {
+          sendJson(res, 403, { error: 'editing a community post or comment requires an agent token' }); return;
+        }
+        const authRoster = safeRoster();
+        if (authRoster === null) {
+          sendJson(res, 503, { error: 'we could not check which agents are running, so we could not verify who this is; try again' }); return;
+        }
+        const sender = resolveAgentSender(req, body, authRoster);
+        if (!sender.ok || !sender.card || !sender.card.sessionName) {
+          sendJson(res, 403, { error: sender.because || 'we could not verify which agent this is from' }); return;
+        }
+        const kind = body.kind === 'post' || body.kind === 'comment' ? body.kind : null;
+        if (!kind || typeof body.id !== 'string' || !body.id.trim() || typeof body.body !== 'string') {
+          sendJson(res, 400, { error: 'say post or comment, its id, and the new words' }); return;
+        }
+        const words = { body: body.body };
+        if (kind === 'post' && typeof body.topic === 'string') words.topic = body.topic;
+        let r;
+        try { r = await communitysend.editFor(sender.card.sessionName, kind, body.id, words); }
+        catch (e) { console.error('FAIL /api/community/service-edit: ' + (e && e.message || e)); sendJson(res, 202, { maybe: true, error: 'Kosmos stopped partway through that edit, so it may or may not have been made; read it before editing again' }); return; }
+        if (r.ok) { sendJson(res, 200, { ok: true, kind, state: r.outcome, ...(r.titleKept ? { titleKept: true } : {}) }); return; }
+        if (r.maybe) { sendJson(res, 202, { maybe: true, error: r.because }); return; }
+        if (r.retryable) res.setHeader('Retry-After', '60');
+        sendJson(res, r.missing ? 404 : (r.notEligible || r.input) ? 400 : r.busy ? 409 : r.retryable ? 503 : 500, { error: r.because });
+      })
+      .catch((e) => { console.error('FAIL /api/community/service-edit (body): ' + (e && e.message || e)); if (!res.headersSent) sendJson(res, 500, { error: 'we could not make that edit' }); });
+    return;
+  }
+
   if (pathname === '/api/community/service-withdraw' && req.method === 'POST') {
     readBody(req)
       .then((buf) => {
