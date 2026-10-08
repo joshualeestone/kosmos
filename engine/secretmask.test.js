@@ -2034,3 +2034,13 @@ test('#5558 review 3: long digit runs and word-less paths are not plain', () => 
   assert.equal(isPlainPath('1234/5678/20260926'), false, 'a path with no word was plain');
   assert.equal(isPlainPath('plans/item-4038-20260926'), true, 'CONTROL');
 });
+
+test('#5558 review 4: random letter pieces are not words, so the path is still masked', () => {
+  const { isPlainPath, mask } = require('./secretmask');
+  const leak = '17195/5669431090/goxswayqboz/irqrfyfnsxp/929574';
+  assert.equal(isPlainPath(leak), false, 'random letter pieces were taken for words');
+  assert.notEqual(mask('see ' + leak).text, 'see ' + leak, 'the random path was left unmasked');
+  const real = 'claude/plans/1548-abort-rollback-pre-challenge';
+  assert.equal(isPlainPath(real), true, 'CONTROL: a real path is plain');
+  assert.equal(mask('see ' + real).text, 'see ' + real, 'CONTROL: a real path is left alone');
+});

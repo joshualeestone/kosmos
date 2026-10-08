@@ -1231,13 +1231,22 @@ function isPlainPath(run) {
   /* #5558: each piece between - and _ is judged WHOLE (review 1: no splitting a random chunk into word-like parts).
      Plain pieces, and nothing else:
        a number of up to 10 digits;
-       a word of 3 to 12 letters with a vowel (a e i o u), lowercase or Capitalized;
+       a word-shaped piece of 3 to 12 letters (see word below), lowercase or Capitalized;
        such a word then up to 4 digits (win32, arm64);
        a date or timestamp (20260926, 20260926T1625, 20260913T052847Z);
        an architecture (x64, x86).
      Review 2: a digit run with stray letters (46541662l) is NOT plain, so a numeric secret cut by slashes is still
-     judged as a token. Review 3: and the path needs at least one real word. */
-  const word = (w) => /^(?:[a-z]{3,12}|[A-Z][a-z]{2,11})$/.test(w) && /[aeiou]/i.test(w);
+     judged as a token. Review 3: and the path needs at least one word-shaped piece. */
+  // Review 4: word-SHAPED, not only vowel-bearing: at most 3 consonants in a row (y counts as a consonant), at least
+  // a sixth of the letters vowels (plans, checks), and no q without u. Random letter runs (goxswayqboz, irqrfyfnsxp)
+  // fail; a few real words with long clusters (firstrun) fail too, which only keeps them masked. Not madeOfWords'
+  // wordLike: that one needs a quarter vowels, so plans fails it and nearly every real path would stay masked.
+  const word = (w) => {
+    if (!/^(?:[a-z]{3,12}|[A-Z][a-z]{2,11})$/.test(w)) return false;
+    const l = w.toLowerCase();
+    const vowels = (l.match(/[aeiou]/g) || []).length;
+    return vowels >= 1 && vowels * 6 >= l.length && !/[^aeiou]{4}/.test(l) && !/q(?!u)/.test(l);
+  };
   // Review 3: a number is plain up to 10 digits (a long digit run is a token's), and a plain path needs a real word.
   const pieceOk = (p) => /^[0-9]{1,10}$/.test(p)
     || word(p)
