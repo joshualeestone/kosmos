@@ -25,7 +25,16 @@
  * Known limits, stated on #5532: a cloned disk image or VM clone copies MachineGuid; a logic-board repair changes
  * IOPlatformUUID. Both end at the consent prompt to make this computer the enrolled one, never at lost data.
  *
- * Null means "cannot say", and a caller must treat it as such: send no print (an older board), never a made-up one.
+ * CALLERS USE printFor() ONLY (review 11). It answers what to do: send the print, send none, wait, or report an error.
+ * The bare print function is not exported, because its null is ambiguous: "this computer can never print" means send
+ * none, but "a read just failed" means wait, and a print-less request then would read as a copy.
+ *
+ * 🛑 THE COMPANY ID MUST COME FROM THIS BOARD'S OWN ENROLLMENT RECORD, NEVER FROM A COORDINATOR'S ANSWER (review 11).
+ * Otherwise a coordinator could ask a computer enrolled in company B for its print under company A's id and salt, and
+ * link the two with no list of hardware ids at all.
+ *
+ * The print does not rotate within one company: a computer that leaves and joins again, or is handed to someone else,
+ * is recognisable to that company and to the coordinator for as long as that account's salt lives (review 11).
  *
  * 🛑 TWO RULES THE GUARANTEE RESTS ON (review 1), because the print is reported by this computer, not proven:
  *   1. NEVER store or LOG the print (or the raw id), nor a request body that carries it: not under a world's data root,
@@ -123,10 +132,11 @@ function fingerprint(salt, company) {
  * Never reveals the id. fingerprint() alone answers only the print or null; callers should use this.
  */
 function printFor(salt, company) {
-  const platform = testPlatform || process.platform;
-  if (platform !== 'darwin') return { send: 'none' };
+  // Inputs first, on every platform (review 11): a malformed salt or company is the same visible error everywhere.
   if (typeof salt !== 'string' || !SALT.test(salt)) return { send: 'error', because: 'the company served a salt this board cannot use' };
   if (typeof company !== 'string' || !COMPANY.test(company)) return { send: 'error', because: 'the company id is not one this board can use' };
+  const platform = testPlatform || process.platform;
+  if (platform !== 'darwin') return { send: 'none' };
   const print = fingerprint(salt, company);
   if (print) return { send: 'print', print };
   if (noIdHere || failures >= GIVE_UP_AFTER) return { send: 'none' };
@@ -150,4 +160,4 @@ function _testRunner(fn, opts) {
 function _testClock(now) { testNow = now; }
 
 // parseIoreg is exported for the fixture tests: it returns an id only from text the caller already holds.
-module.exports = { parseIoreg, fingerprint, printFor, UUID, SALT, RETRY_AFTER_FAIL_MS, GIVE_UP_AFTER, _testRunner, _testClock };
+module.exports = { parseIoreg, printFor, _testFingerprint: fingerprint, UUID, SALT, RETRY_AFTER_FAIL_MS, GIVE_UP_AFTER, _testRunner, _testClock };

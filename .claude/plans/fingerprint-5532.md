@@ -6,13 +6,15 @@ company, and `thisComputer` cannot tell them apart.
 
 ## What this branch builds
 - `engine/computerprint.js`:
-  - `hardwareId()`: macOS IOPlatformUUID from `ioreg -rd1 -c IOPlatformExpertDevice` (measured: no prompt, no
-    entitlement), read once per run. Windows: null until the Windows owner builds MachineGuid (spec on #5532, per the
-    fleet's Windows rule). Anything else: null.
-  - `fingerprint(salt, company)`: HMAC-SHA256(key = salt bytes, message = company + ':' + hardware id), lowercase hex,
-    or null when the salt (hex from
-    the coordinator's status, whole bytes), the company (the enrolled org's id) or the hardware id is missing. The raw id never leaves the computer; a per-account salt keeps prints from matching
-    across accounts.
+  - `printFor(salt, company)`: THE call for callers: `{ send: 'print', print }`, `{ send: 'none' }`,
+    `{ send: 'later' }` or `{ send: 'error', because }`. The bare print function is private (exported to the tests only
+    as `_testFingerprint`): its null is ambiguous (review 11).
+  - The print: HMAC-SHA256(key = salt bytes, message = company + ':' + hardware id), lowercase hex. The salt comes from
+    the coordinator (whole bytes, either case); the company is the enrolled org's id FROM THIS BOARD'S OWN RECORD, never
+    from a coordinator's answer. The company id in the HMAC keeps prints from matching across companies.
+  - The hardware id (private): macOS IOPlatformUUID from `ioreg -rd1 -c IOPlatformExpertDevice` (measured: no prompt,
+    no entitlement). A successful read is kept; a failed one is retried after a minute and given up after ten.
+    Windows: null until the Windows owner builds MachineGuid (spec on #5532). Anything else: null.
 - Nothing calls it yet: enroll, leave and the rollup send it once the coordinator accepts the field (v1.5).
 
 ## Decided
@@ -130,3 +132,14 @@ company, and `thisComputer` cannot tell them apart.
 - FIXED: the guard's listing check asserts known files are present instead of a count.
 - DUPLICATES / KEPT: the tests-only hooks on the export (review 4); module-wide retry counters (one computer, one
   hardware answer, so one counter is right).
+
+## Review 11 (blind, opus)
+- FIXED: callers use printFor() only; the bare print function is no longer exported (its null meant "send none" and
+  "wait" at once). The header said to send no print on null; it now says to use printFor.
+- STATED in the header and on the card: the company id must come from this board's own enrollment record, never from
+  a coordinator's answer, or a coordinator could link companies with no hardware list at all. The print also does not
+  rotate within a company across leaving and joining again.
+- FIXED: the guard also flags any `ioreg` call and any use of `parseIoreg` outside this module (measured: no other
+  hits today); salt and company are checked before the platform, so a malformed one is the same error everywhere; the
+  give-up boundary is pinned at exactly GIVE_UP_AFTER; a test title now says what it checks; this plan's summary is
+  current.
