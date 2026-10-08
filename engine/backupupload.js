@@ -83,8 +83,9 @@ const QUERY_ALLOWED = ['X-Amz-Algorithm', 'X-Amz-Credential', 'X-Amz-Date', 'X-A
 // locks to the end of the week plus 30 days plus the window, or the next week's end in a week's last day, so about
 // 31 days 15 minutes to 38 days 15 minutes. Outside [29, 39] days is a coordinator bug that would lock for the wrong time.
 const LOCK_MIN_MS = 29 * 86400 * 1000, LOCK_MAX_MS = 39 * 86400 * 1000;
-// The coordinator locks every object to its period's end plus 30 days (plus the window), and a period ends no earlier
-// than now: so a manifest granted now locks for at least this long, and chunks whose lock ends sooner are ones it
+// The coordinator locks every object to its period's end plus 30 days plus the grant window, and a period ends no
+// earlier than now: so a manifest granted now locks for at least this long plus GRANT_WINDOW_MS, and chunks whose
+// lock ends sooner are ones it
 // would outlast (checked before a grant is asked for, so no allowance is spent on a manifest that must be refused).
 const MANIFEST_LOCK_FLOOR_MS = 30 * 86400 * 1000;
 // fetch refusing the request itself, before or without the network: no retry fixes these. Any other failure (a
@@ -445,8 +446,9 @@ async function uploadInner(deps, objects, opts, keys, run) {
   // Every chunk asked for has a key, or this is not a success.
   for (const c of todo) if (!keys.has(c.name)) return { ok: false, because: 'a chunk was left without a stored key', keys };
   // lockedUntil: each chunk's lock end (ms), so the caller can give uploadManifest the earliest one its manifest names;
-  // bucket: the bucket path every key is under, which the manifest must share (null when nothing was asked for, every
-  // chunk being a duplicate or the list empty: uploadManifest then refuses with "no bucket").
+  // bucket: the bucket path every key is under, which the manifest must share (null only for an empty list, since a
+  // repeated name is still uploaded once; uploadManifest then refuses with "no bucket"). A walker that skips chunks
+  // stored by EARLIER runs must keep their bucket path itself, as it keeps their lock ends and keys.
   return { ok: true, keys, lockedUntil: new Map(todo.map((c) => [c.name, run.locked.get(c.name)])), bucket: run.bucket.prefix };
 }
 
@@ -525,7 +527,7 @@ async function uploadManifestInner(deps, bytes, o) {
   if (typeof o.bucket !== 'string' || !o.bucket) return { ok: false, because: "no bucket for the manifest (its chunks' bucket path)" };
   const floor = o.chunksLockedUntilMs;
   if (typeof floor !== 'number' || !Number.isFinite(floor)) return { ok: false, because: "no lock end for the manifest's chunks" };
-  if (floor < now() + MANIFEST_LOCK_FLOOR_MS) return { ok: false, outlastsChunks: true, grantSpent: false, because: `a manifest granted now stays locked past ${new Date(floor).toISOString()}, when the earliest chunk it names may be gone; upload those chunks again first` };
+  if (floor < now() + MANIFEST_LOCK_FLOOR_MS + GRANT_WINDOW_MS) return { ok: false, outlastsChunks: true, grantSpent: false, because: `a manifest granted now stays locked past ${new Date(floor).toISOString()}, when the earliest chunk it names may be gone; upload those chunks again first` };
   const timeoutMs = Number.isFinite(o.putTimeoutMs) && o.putTimeoutMs > 0 ? o.putTimeoutMs : putTimeoutFor(bytes.length, 1);
   const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
   // Every key this call must not write: the chunks' (when given) and each earlier manifest grant's. The 412 rule rests
