@@ -23,7 +23,7 @@
  *
  * Run: see the README in this directory (same shape as render-found-undo.js).
  *
- * // Browser-check-surface: team-orgchart-open cstep-team orgchartpick orgchart-text orgchart-usenames orgchart-preview orgchart-preview-box orgchart-count orgchart-list orgchart-create orgchart-edit orgchart-msg orgchart-undo orgchart-undo-go orgchart-undo-keep create-tell
+ * // Browser-check-surface: team-orgchart-open cstep-team orgchartpick orgchart-text orgchart-usenames orgchart-preview orgchart-preview-box orgchart-count orgchart-list orgchart-create orgchart-edit orgchart-msg orgchart-undo orgchart-undo-go orgchart-undo-keep create-tell orgchart-tell
  */
 'use strict';
 
@@ -286,13 +286,17 @@ function check(name, pass, detail) {
     refused: [],
     because: 'that is 20 agents in one request and the cap is 12. Kosmos holds this bound rather than the prompt. Have the OPERATOR raise the cap (up to 50).',
   };
-  // #5590: the box unticked -> the import says notifyCreated false (restored after).
-  await page.evaluate(() => { document.getElementById('create-tell').checked = false; });
+  // #5590: the person unticks the box SHOWN on the import (not the hidden one) -> the import says notifyCreated false.
+  const tellShown = await page.evaluate(() => { const b = document.getElementById('orgchart-tell'); const r = b && b.getBoundingClientRect(); return Boolean(b && b.checked && r.width > 0 && r.height > 0); });
+  check('#5590: the import shows the "Let Kosmos know" box, ticked as the sheet\'s choice is', tellShown, String(tellShown));
+  await page.click('#orgchart-tell');
+  const followed = await page.evaluate(() => document.getElementById('create-tell').checked === false);
+  check('#5590: unticking it on the import is the sheet\'s one choice (#create-tell follows)', followed, String(followed));
   await page.click('#orgchart-create');
   await page.waitForTimeout(300);
-  check('#5590: an unticked create-agent box makes the import send notifyCreated false',
+  check('#5590: an unticked box makes the import send notifyCreated false',
     Boolean(lastTeamBody) && lastTeamBody.notifyCreated === false, JSON.stringify(lastTeamBody && lastTeamBody.notifyCreated));
-  await page.evaluate(() => { document.getElementById('create-tell').checked = true; });
+  await page.click('#orgchart-tell');   // ticked again for the arms after this one
   const overcap = await page.evaluate(() => document.getElementById('orgchart-count').textContent);
   const overcapUndo = await page.evaluate(() => document.getElementById('orgchart-undo').hidden);
   check('nothing created, so no Undo is offered', overcapUndo);

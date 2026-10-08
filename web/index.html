@@ -15509,6 +15509,13 @@ window.kosmosMeasureScrollbarWidth();
             <button class="btn uprime" type="button" id="orgchart-undo-go" hidden>Remove them</button>
             <button class="btn" type="button" id="orgchart-undo-keep" hidden>Keep them</button>
           </div>
+          <!-- #5590: the import tells installkosmos.com the agent count moved, so the sheet's "Let Kosmos know" choice is
+               shown where it is used, as the team step does (Review 27, #tc-tell): kept equal to #create-tell, which
+               stays the one the creates read. -->
+          <label class="tellrow" for="orgchart-tell">
+            <input type="checkbox" id="orgchart-tell">
+            <span>Let Kosmos know these agents were created</span>
+          </label>
           <!-- #4559: more than the usual team size is started only on this explicit yes (Liu Kang m3436). -->
           <div class="orgchart-consent" id="orgchart-many" role="group" aria-labelledby="orgchart-many-say" hidden>
             <p id="orgchart-many-say"></p>
@@ -52453,6 +52460,10 @@ document.getElementById('tc-tell').addEventListener('change', (e) => {
   const tellBox = document.getElementById('create-tell');
   if (tellBox) tellBox.checked = e.currentTarget.checked;   // one choice for the sheet, whichever step it was made on
 });
+document.getElementById('orgchart-tell').addEventListener('change', (e) => {   // #5590: the same, from the import
+  const tellBox = document.getElementById('create-tell');
+  if (tellBox) tellBox.checked = e.currentTarget.checked;
+});
 
 /* #4936 "Go to your team": the agents view with the members marked (tcGoToTeam), not one agent's page. */
 document.getElementById('tc-hello').addEventListener('click', () => {
@@ -52863,8 +52874,12 @@ document.getElementById('team-orgchart-open').addEventListener('click', () => {
   const panel = document.getElementById('orgchartpick');
   const opening = panel.hidden;
   ORGCHART_GEN += 1;
-  if (opening) resetOrgchartPreview();
-  else {
+  if (opening) {
+    resetOrgchartPreview();
+    /* #5590: the sheet's one "Let Kosmos know" choice, shown here too (as #tc-tell is on the team step). */
+    const tellBox = document.getElementById('create-tell');
+    document.getElementById('orgchart-tell').checked = tellBox ? tellBox.checked === true : true;
+  } else {
     orgchartUndoAsking(false);   // #4688: as resetTeamStep: a left Undo is not busy
     orgchartEndFileFlow();   // #4559's leave rule; the result and its Undo stay, and come back when the panel reopens within ORGCHART_UNDO_KEEP_MS (#4688)
   }
