@@ -20,6 +20,7 @@ const path = require('node:path');
 /* Test seams and re-exports, excused BY NAME WITH A REASON. An entry here is
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
+  _resetCache: 'engine/computerprint.js (#5532): a test seam that forgets the kept hardware id and the last failed read, so engine/computerprint-5532.test.js can drive the keep-a-success / retry-a-failure-after-5-minutes rule from empty; nothing in the app forgets them',
   resetPauses: 'engine/communitysend.js (#4953): a test seam that clears the per-minute 429 pauses (and the once-said unreadable-429 note) between tests, so one test\'s pause cannot hold the next; nothing in the app resets them',
   setTmuxCandidates: 'engine/status.js (#2955): a test seam, the list of tmux binaries tmuxRepick asks at the version wall; engine/status.test.js sets it so its fakes are asked instead of the real Homebrew paths.',
   setOwnTmux: 'engine/status.js (#2955): a test seam, Kosmos\'s own tmux path, which status.js derives from where it is installed (pinned by its own test); engine/status.test.js points it at a fake.',
