@@ -26,7 +26,10 @@
  *
  * KNOWN, TESTED LOSS when something is removed: secretmask rewrites the text it masks, so a redacted file also
  * loses invisible format characters (a UTF-8 BOM, zero-width joiners, soft hyphens), and its split-key logic can
- * take the word and line break after a masked key with it. A file where nothing fires is stored byte for byte.
+ * take the word and line break after a masked key with it, and its long_token pattern rewrites long path-like runs in
+ * ordinary text (review round 9: 228 of 6,833 repo files changed, e.g. a long plan-file name became a mark). Over-
+ * redaction is the safe direction; exempting paths could leak a token in a path segment. A file where nothing
+ * fires is stored byte for byte.
  *
  * What is recorded: per file, the action, and for a redaction the kinds and counts of what was removed. Never a
  * value, and never where in the file it sat (a position plus the file is a hint at the value).
@@ -101,7 +104,19 @@ function compressed(b) {
     // zlib (git loose objects) and lzma have weak magic: trusted only on a file that is binary anyway.
     if (b.length >= 2 && (b[0] & 0x0f) === 8 && ((b[0] << 8) | b[1]) % 31 === 0) return true;
     if (at(0, '5d0000')) return true;
-    if (b.includes(Buffer.from('504b0304', 'hex')) || b.includes(Buffer.from('504b0506', 'hex'))) return true;  // a zip after a stub
+    if (!mediaKind(b) && appendedZip(b)) return true;  // a zip after a stub (a self-extractor, a jar)
+  }
+  return false;
+}
+
+/* A zip appended after a stub is recognized by a WELL-FORMED end-of-central-directory record that closes the file
+   (its comment length reaches the end), not by four signature bytes anywhere: in a large compressed media file
+   those occur by chance (a real screenshot in this repo had PK\x05\x06 at offset 124094). */
+function appendedZip(b) {
+  const sig = Buffer.from('504b0506', 'hex');
+  const from = Math.max(0, b.length - 65557);
+  for (let pos = b.lastIndexOf(sig); pos >= from; pos = pos > 0 ? b.lastIndexOf(sig, pos - 1) : -1) {
+    if (pos + 22 <= b.length && pos + 22 + b.readUInt16LE(pos + 20) === b.length) return true;
   }
   return false;
 }
@@ -208,7 +223,10 @@ function binaryClean(bytes) {
   if (bytes.includes(PLACEHOLDER_BYTES)) return false;
   const media = mediaKind(bytes);
   const runsOf = (s) => (s.match(/[\x20-\x7e\t]{8,}/g) || []).join('\n');
-  const latin = bytes.toString('latin1');
+  // Media metadata (Adobe XMP) carries key="..." attributes that fire assigned_secret (8 of 42 system .mov files):
+  // for media kinds the XMP packet is dropped from the views. The packet holds descriptive metadata, not content.
+  const dropXmp = (s) => (media ? s.replace(/<x:xmpmeta[\s\S]{0,262144}?<\/x:xmpmeta>/g, '') : s);
+  const latin = dropXmp(bytes.toString('latin1'));
   const noNul = latin.replace(/\0/g, '');
   const views = [runsOf(latin), runsOf(noNul)];
   // A key split by one control byte breaks a run (or drops a short prefix run): for non-media binaries, also read

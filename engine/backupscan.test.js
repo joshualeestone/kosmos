@@ -224,7 +224,7 @@ test('#5535 compressed magic: every listed format is skipped, and ordinary text 
     ['bzip2', Buffer.from('BZh9').toString('hex') + '314159265359']]) {
     assert.equal(bs.scanFile('agents/a/blob', Buffer.from(hex + '00'.repeat(8), 'hex')).action, 'skip', what);
   }
-  const stubbed = Buffer.concat([Buffer.from([0, 1, 2]), Buffer.from('MZ stub'), Buffer.from('504b0304', 'hex'), zlib.deflateRawSync(Buffer.from(KEY))]);
+  const stubbed = Buffer.concat([Buffer.from([0, 1, 2]), Buffer.from('MZ stub'), Buffer.from('504b0304', 'hex'), zlib.deflateRawSync(Buffer.from(KEY)), Buffer.from('504b0506', 'hex'), Buffer.alloc(18)]);  // a real appended zip ends with its end record
   assert.equal(bs.scanFile('agents/a/setup.exe', stubbed).action, 'skip', 'a zip appended after a stub');
   for (const text of ['x^2 + y^2 = r^2\n', 'BZhello there\n', 'PACKAGE LIST\n', 'PK notes\n', ']\u0000\u0000 not quite'.replace(/\u0000/g, '')]) {
     assert.equal(bs.scanFile('agents/a/notes.md', Buffer.from(text)).action, 'store', `CONTROL: ordinary text ${JSON.stringify(text)} is kept`);
@@ -439,4 +439,20 @@ test('#5535 deny-list entries each pinned: provider sign-ins, bare credential fi
     assert.equal(bs.pathDecision(p).include, true, `CONTROL: ${p} is kept`);
   }
   assert.equal(bs.scanFile('agents/a/n.mp3', Buffer.concat([Buffer.from('ID3'), Buffer.from([9, 0]), Buffer.alloc(8, 3), Buffer.from(LONG_ONLY), Buffer.alloc(8)])).action, 'skip', 'ID3 with an impossible version is not audio');
+});
+
+test('#5535 over-skips from round 9: a chance zip signature in media, XMP keys in video, and the stated path loss', () => {
+  const fs = require('fs'), path = require('path');
+  const shot = path.join(__dirname, '..', 'ios', 'store', 'screenshots', 'dark', '04-project-room.png');
+  if (fs.existsSync(shot)) assert.equal(bs.scanFile('agents/a/shot.png', fs.readFileSync(shot)).action, 'store', 'a real PNG with PK\\x05\\x06 by chance is kept');
+  const mov = '/System/Library/ExtensionKit/Extensions/MouseExtension.appex/Contents/Resources/Mouse.mov';
+  if (fs.existsSync(mov)) assert.equal(bs.scanFile('agents/a/m.mov', fs.readFileSync(mov)).action, 'store', 'a real .mov with XMP keys is kept');
+  // An appended zip still counts when its end record closes the file.
+  const zipped = Buffer.concat([Buffer.from([0, 1, 2, 3]), Buffer.from('stub'), Buffer.from('504b0506', 'hex'), Buffer.alloc(16), Buffer.from([0, 0])]);
+  assert.equal(bs.scanFile('agents/a/setup.bin', zipped).action, 'skip', 'a well-formed appended zip end record is still skipped');
+  const chance = Buffer.concat([Buffer.from([0, 1, 2, 3]), Buffer.from('504b0506', 'hex'), Buffer.alloc(40, 7)]);
+  assert.equal(bs.scanFile('agents/a/x.bin', chance).action, 'store', 'CONTROL: the signature by chance, not closing the file, is not a zip');
+  // XMP in a video with a REAL key elsewhere still skips: only the packet is dropped.
+  const movKey = Buffer.concat([Buffer.from([0, 0, 0, 20]), Buffer.from('ftypqt  '), Buffer.alloc(8), Buffer.from('<x:xmpmeta xmpDM:key="keywordExt_123e4567"></x:xmpmeta>'), Buffer.alloc(4), Buffer.from(KEY), Buffer.alloc(4)]);
+  assert.equal(bs.scanFile('agents/a/v.mov', movKey).action, 'skip', 'a provider key outside the XMP packet still skips');
 });
