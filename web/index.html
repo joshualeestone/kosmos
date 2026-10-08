@@ -41355,10 +41355,12 @@ function setWritesOffered(a, tied) {
     INSTR_READY = false;
     INSTR_BANNER = false;   // not our card: nothing here is about the agent on screen
     INSTR_VERSION = null;
-    for (const id of ['d-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev', 'd-instr-updating', 'd-instr-loading', 'd-instr-retry-row', 'd-instr-personal', 'd-instr-add']) {
+    for (const id of ['d-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev', 'd-instr-updating', 'd-instr-loading', 'd-instr-retry-row', 'd-instr-personal', 'd-instr-add', 'd-instr-export']) {
       const el = document.getElementById(id);
       if (el) el.hidden = true;
     }
+    const exLink = document.getElementById('d-instr-export-link');   // #5581: the last agent's file is not this card's
+    if (exLink) exLink.setAttribute('href', '#');
     const personal = document.getElementById('d-instr-personal');   // #4446: emptied too, not only hidden
     if (personal) personal.textContent = '';
     const msg = document.getElementById('d-instr-msg');
@@ -41671,6 +41673,31 @@ async function instrAddAct(sessionName, act, note, buttons) {
   }
   loadInstructions(sessionName);
 }
+/* kosmos#5581: offer "Download this agent" when there is a saved, non-empty file to put in it (the engine refuses an
+   empty or missing one, and a link that answers a refusal is a broken promise). Painted on a load and after a Save. */
+/* The download starts in the person's click (the link itself), and beside it the page asks the same route with
+   ?check=1, as kplusDownload does: a refusal is said on the panel's message line instead of left to the browser. */
+document.addEventListener('click', (e) => {
+  const link = e.target && e.target.closest && e.target.closest('#d-instr-export-link');
+  if (!link) return;
+  const href = link.getAttribute('href') || '#';
+  if (href === '#') { e.preventDefault(); return; }
+  const msg = document.getElementById('d-instr-msg');
+  const forAgent = CURRENT && CURRENT.sessionName;
+  fetch(href + '?check=1', { cache: 'no-store' }).then(async (res) => {
+    if (res.ok || !CURRENT || CURRENT.sessionName !== forAgent) return;
+    let said = '';
+    try { const b = await res.json(); said = (b && (b.because || b.error)) || ''; } catch { said = ''; }
+    if (msg) msg.textContent = 'Not downloaded: ' + (said || 'that agent could not be put in a file') + '.';
+  }).catch(() => { /* the download itself is already under way; a failed look is not a failed download */ });
+});
+function paintInstrExport(sessionName, has) {
+  const ex = document.getElementById('d-instr-export');
+  const link = document.getElementById('d-instr-export-link');
+  if (!ex || !link) return;
+  link.setAttribute('href', has ? '/api/agent/' + encodeURIComponent(sessionName) + '/export' : '#');
+  ex.hidden = !has;
+}
 async function loadInstructions(sessionName) {
   const mine = ++INSTR_LOAD;
   INSTR_EPOCH += 1;
@@ -41709,7 +41736,10 @@ async function loadInstructions(sessionName) {
   // failed load showed "the version before your last save is kept" about an
   // agent with no folder at all.
   document.getElementById('d-instr-prev').hidden = true;
-  document.getElementById('d-instr-export').hidden = true;   // #5581: the last agent's file is not this one's
+  { const ex = document.getElementById('d-instr-export');   // #5581: the last agent's file is not this one's
+    if (ex.contains(document.activeElement)) { const m = document.getElementById('d-instr-msg'); m.tabIndex = -1; m.focus(); }
+    ex.hidden = true;
+    document.getElementById('d-instr-export-link').setAttribute('href', '#'); }
   paintPersonalInstr(null);   // #4446: the last agent's sentence is not this one's
   renderStale(null);
   /* #4406: an empty, greyed box while the load is in flight read as "the instructions are gone" (a restart can
@@ -41762,10 +41792,7 @@ async function loadInstructions(sessionName) {
     document.getElementById('d-instr-prev').hidden = !data.hasPrevious;
     /* #5581: the export carries the SAVED file, so it is offered only when there is one with something in it (the
        engine refuses an empty or missing one, and a link that answers a refusal is a broken promise). */
-    { const ex = document.getElementById('d-instr-export');
-      const has = !!data.exists && !!String(data.text || '').trim();
-      document.getElementById('d-instr-export-link').href = has ? '/api/agent/' + encodeURIComponent(sessionName) + '/export' : '#';
-      ex.hidden = !has; }
+    paintInstrExport(sessionName, !!data.exists && !!String(data.text || '').trim());
     // Only claim editability when it is a file this screen can actually
     // save to (the sentence about an agent with no folder would be false).
     // The PATH itself is not shown -- pack ruling, Josh 2026-08-17.
@@ -42341,6 +42368,7 @@ document.getElementById('d-instr-save').addEventListener('click', async () => {
     // moment it matters most.
     document.getElementById('d-instr-prev').hidden =
       !(data.keptPrevious || (data.unchanged && data.hasPrevious));
+    paintInstrExport(forAgent, !!text.trim());   // #5581: a first save makes something to download
     // Re-derive rather than assume: saving makes the file newer than the
     // session, so this is exactly when the stale state becomes true.
     renderStale(data.staleness);

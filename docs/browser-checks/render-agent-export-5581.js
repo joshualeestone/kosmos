@@ -106,6 +106,17 @@ function readRow(page) {
     chk(dl.status === 200 && /attachment; filename="ezra\.agent\.md"/.test(dl.cd), 'the link answers the file as a download', JSON.stringify({ status: dl.status, cd: dl.cd }));
     chk(/You keep the #5581 archive\./.test(dl.text) && /^---\n/.test(dl.text), 'the file holds the saved instructions under its header', JSON.stringify(dl.text.slice(0, 80)));
 
+    // Review 1: an UNTIED card never loads instructions; the panel is cleared from a list instead. Ezra's link must
+    // not survive onto it (it would download Ezra's file under the stranger's card). Simulated as render-detail-header
+    // does: the untied card's own reset, run with an untied CURRENT.
+    const untied = await page.evaluate(() => {
+      CURRENT = { ...CURRENT, sessionName: 'someone-untied', isNamedOurs: false };
+      setWritesOffered(CURRENT, false);
+      const row = document.getElementById('d-instr-export');
+      return { hidden: row.hidden, href: document.getElementById('d-instr-export-link').getAttribute('href') };
+    });
+    chk(untied.hidden === true && untied.href === '#', 'an untied card clears the last agent\'s export row and link', JSON.stringify(untied));
+
     // An agent whose instructions are empty: nothing to share, so no row (and the last agent's link is gone).
     await openInstr(page, 'nell');
     await page.waitForFunction(() => document.getElementById('d-instr').placeholder !== 'Loading instructions…', null, { timeout: 8000 });
@@ -120,6 +131,10 @@ function readRow(page) {
     await browser.close();
     server.close();
     fleet.restore();
+    for (const k of ['AGENT_WORKFORCE_WORKERS', 'AGENT_WORKFORCE_CONFIG_ROOT', 'AGENT_WORKFORCE_LAUNCH', 'AGENT_WORKFORCE_PROJECTS']) {
+      try { fs.rmSync(process.env[k], { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+    try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
   }
   if (fail.length) { console.error('FAILURES: ' + fail.length); process.exit(1); }
   console.log('\nall passed');
