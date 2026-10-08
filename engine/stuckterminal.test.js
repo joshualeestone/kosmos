@@ -187,3 +187,39 @@ test('#5154-C review 2: tellStuck prunes the anchor of an agent that LEFT the ro
   assert.equal(r.stuck, false);
   assert.equal(r.sinceAt, t0 + 120_000, 'returned agent re-anchors to now, not the old clock');
 });
+
+// ---- sweepRoster (the server-glue null-skip SAFETY INVARIANT, review 5) ----
+
+test('#5154-C review 5: sweepRoster SKIPS a failed snapshot (roster not an array) and NEVER touches an anchor', () => {
+  const k = 'sr-null'; const t0 = 30_000_000;
+  st.read(k, 'auth_failed', t0);   // genuinely stuck-in-progress anchor
+  const told = new Set();
+  for (const bad of [null, undefined, 'oops', {}, 42]) {
+    const swept = st.sweepRoster({ roster: bad, told, now: t0 + AUTH + 60_000, tell: () => { throw new Error('must not tell on a failed snapshot'); } });
+    assert.equal(swept, false, 'a non-array roster is a failed read: skipped');
+    assert.deepEqual(st.readAnchor(k), { state: 'auth_failed', sinceAt: t0 }, 'the anchor is untouched by a failed-read sweep (the W3 wipe the guard prevents): ' + String(bad));
+  }
+});
+
+test('#5154-C review 5: sweepRoster on a genuinely EMPTY roster ([], a complete snapshot) prunes every anchor', () => {
+  const k = 'sr-empty'; const t0 = 31_000_000;
+  st.read(k, 'auth_failed', t0);
+  const swept = st.sweepRoster({ roster: [], told: new Set(), now: t0 + 60_000, tell: () => {} });
+  assert.equal(swept, true, 'an empty array is a successful, complete snapshot: swept');
+  assert.equal(st.readAnchor(k), null, 'a departed agent on a complete empty roster has its anchor pruned');
+});
+
+test('#5154-C review 5: sweepRoster tells once for OUR named stuck agent and ignores not-ours / unnamed rows', () => {
+  const told = new Set(); const t0 = 32_000_000; const tells = [];
+  const tell = (key, r, shown) => tells.push({ key, state: r.state, shown });
+  const rows = [
+    { sessionName: 'sr-leo', name: 'Leo', state: 'auth_failed', isNamedOurs: true },
+    { sessionName: 'sr-foreign', name: 'X', state: 'auth_failed', isNamedOurs: false },   // not ours -> ignored
+    { name: 'noname', state: 'auth_failed', isNamedOurs: true },                          // no sessionName -> ignored
+  ];
+  st.sweepRoster({ roster: rows, told, now: t0, tell });
+  st.sweepRoster({ roster: rows, told, now: t0 + AUTH, tell });
+  assert.equal(tells.length, 1, 'only our named stuck agent is told');
+  assert.equal(tells[0].key, 'sr-leo');
+  assert.equal(st.readAnchor('sr-foreign'), null, 'a not-ours row is never anchored');
+});

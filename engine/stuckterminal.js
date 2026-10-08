@@ -185,4 +185,26 @@ function tellStuck({ rows, told, now, tell }) {
   for (const tk of Array.from(told)) if (!liveSafe.has(store.safeKey(tk))) told.delete(tk);
 }
 
-module.exports = { TERMINAL_STATES, STUCK_MS, isTerminal, dir, fileFor, readAnchor, writeAnchor, nextAnchor, sameAnchor, assess, read, peek, forget, keys, clearAll, tellStuck };
+/*
+ * The 60s sweep as the server drives it, from the RAW roster snapshot. Extracted here (review 5) so the
+ * null-skip SAFETY INVARIANT is pinned by a unit test, not asserted only by reading the single server.js
+ * caller -- tellStuck itself prunes on `rows: []`, so a future refactor that passed a failed read straight
+ * through (e.g. `roster || []`) would wipe every stuck agent's clock with no test to catch it (the W3 bug).
+ * Slice A (crashloop) has no equivalent invariant to mirror: it reads its own run files, never the roster.
+ *   - roster is NOT an array (a FAILED snapshot, null): do NOTHING and return false. A read we could not
+ *     trust must never advance or prune an anchor.
+ *   - roster is [] (a genuinely empty, SUCCESSFUL snapshot): an ordinary sweep that prunes every anchor.
+ *   - a good roster: advance/tell/recover + prune departed, over our own named agents only.
+ * Returns true when it swept, false when it skipped a failed read -- the one bit a caller or a test checks.
+ */
+function sweepRoster({ roster, told, now, tell }) {
+  if (!Array.isArray(roster)) return false;
+  tellStuck({
+    rows: roster.filter((a) => a && a.sessionName && a.isNamedOurs)
+                .map((a) => ({ key: a.sessionName, state: a.state, shown: a.name || a.sessionName })),
+    told: told, now: now, tell: tell,
+  });
+  return true;
+}
+
+module.exports = { TERMINAL_STATES, STUCK_MS, isTerminal, dir, fileFor, readAnchor, writeAnchor, nextAnchor, sameAnchor, assess, read, peek, forget, keys, clearAll, tellStuck, sweepRoster };
