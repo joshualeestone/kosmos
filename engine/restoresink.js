@@ -88,23 +88,22 @@ function stripAclDarwin(dir) {
   }
 }
 
-/* macOS: whether the volume holding dir ignores ownership ("Ignore ownership on this volume", the mount flag
-   noowners, the default for many external drives). There every account is reported as the owner of every file, so
-   0700 and the owner check keep nobody out, while the mode reads back truthfully. Read from /sbin/mount: the mount
-   point that is the longest prefix of dir. */
+/* macOS: whether the volume holding dir ignores ownership (mount flag noowners, "Ignore ownership on this volume",
+   common on external drives): there 0700 and the owner check keep nobody out. df -P names dir's mount point (so no
+   case or Unicode matching of paths here); its flags come from that exact mount's line in /sbin/mount. Anything it
+   cannot read or find refuses (fails closed). */
 function ignoresOwnershipDarwin(dir) {
-  const r = spawnSync('/sbin/mount', [], { encoding: 'utf8' });
-  if (r.status !== 0) throw new Error(`restoresink: could not read this Mac's mounts to check the root's volume (mount exited ${r.status})`);
-  let best = null;
-  for (const line of String(r.stdout || '').split('\n')) {
-    const m = / on (.+) \(([^)]*)\)$/.exec(line);
-    if (!m) continue;
-    const mp = m[1];
-    if (dir === mp || dir.startsWith(mp === '/' ? '/' : mp + '/')) {
-      if (!best || mp.length > best.mp.length) best = { mp, flags: m[2].split(', ').map((f) => f.trim()) };
-    }
-  }
-  return !!best && best.flags.includes('noowners');
+  const run = (cmd, args) => {
+    const r = spawnSync(cmd, args, { encoding: 'utf8', timeout: 10 * 1000 });
+    if (r.error || r.status !== 0) throw new Error(`restoresink: could not check the root's volume (${cmd}: ${r.error ? r.error.code || r.error.message : 'exited ' + r.status})`);
+    return String(r.stdout || '');
+  };
+  const dfLast = run('/bin/df', ['-P', dir]).trim().split('\n').pop();
+  const mp = (/\d+%\s+(\/.*)$/.exec(dfLast) || [])[1];
+  if (!mp) throw new Error("restoresink: could not check the root's volume (df named no mount point)");
+  const line = run('/sbin/mount', []).split('\n').find((l) => l.includes(` on ${mp} (`) && l.endsWith(')'));
+  if (!line) throw new Error(`restoresink: could not check the root's volume (no mount line for ${mp})`);
+  return line.slice(line.lastIndexOf(' (') + 2, -1).split(', ').map((f) => f.trim()).includes('noowners');
 }
 
 /** A sink over the empty folder at root. Throws unless root is a fresh folder. Call close() when the restore ends. */
@@ -152,14 +151,13 @@ function createRestoreSink(root) {
   // write in it either, confirm the mode took, then check it is still empty, so nothing planted before the chmod survives it.
   if (process.platform !== 'win32') {
     if (st.mode & 0o002n) throw new Error('restoresink: the root must not be writable by other users (or the drive keeps no permissions, such as exFAT)');
-    // On a volume that ignores ownership, 0700 means nothing (see ignoresOwnershipDarwin): refused before the chmod.
+    // On a volume that ignores ownership 0700 means nothing: refused before the chmod.
     if (process.platform === 'darwin' && ignoresOwnershipDarwin(rootReal)) throw new Error("restoresink: the root is on a volume that ignores ownership (Get Info: \"Ignore ownership on this volume\"), so it cannot be made private; choose a folder on this computer's own disk");
     try { fs.chmodSync(rootReal, 0o700); } catch (e) { throw new Error(`restoresink: could not make the root private (${e.code || e.message})`); }
-    // Read the mode back: a mount that reports success but ignores modes (a CIFS dynperm mount, some FUSE mounts)
-    // would otherwise leave a root others can READ or write accepted. The mask is 0o077 on purpose, not 0o022: a
-    // restore is someone's work, so a fixed dir_mode=0755 share is refused too. Read from the same folder (dev/ino).
+    // Read the mode back, from the same folder (dev/ino): a mount can accept chmod and ignore it. The mask is 0o077,
+    // not 0o022, on purpose: a restore is someone's work, so a root others can READ is refused too.
     const st3 = fs.lstatSync(rootReal, { bigint: true });
-    if (st3.dev !== st.dev || st3.ino !== st.ino) throw new Error('restoresink: the root changed while it was being checked');
+    if (st3.dev !== st.dev || st3.ino !== st.ino) throw new Error('restoresink: the root changed after it was made private');
     if (st3.mode & 0o077n) throw new Error("restoresink: the root could not be made private (the drive ignored the permission change); choose a folder on this computer's own disk");
     if (process.platform === 'darwin') stripAclDarwin(rootReal);
     if (fs.readdirSync(rootReal).length) throw new Error('restoresink: something appeared in the root while it was being made private');
