@@ -158,7 +158,8 @@ test('#5531 review 7: a join that fails for a passing reason keeps its ticket; a
   remote.macRequest = async (method, route, body) => {
     sent.push(route);
     if (route === oe.ROUTES.redeem) return { ok: true, data: { org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: CONSENT } };
-    if (route === oe.ROUTES.enroll) { if (up) bound = body.world; return up ? { ok: true, data: { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } } : { ok: false, because: 'the tunnel program did not answer in time' }; }
+    // Not sent (refused on this computer, review 27): certainly nothing bound, so the ticket is kept for a retry.
+    if (route === oe.ROUTES.enroll) { if (up === 'timeout') return { ok: false, because: 'the tunnel program did not answer in time' }; if (up) bound = body.world; return up ? { ok: true, data: { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } } : { ok: false, notSent: true, because: 'this computer is not connected to Kosmos+' }; }
     if (route === oe.ROUTES.leave) return { ok: true, data: { ok: true } };
     // A real coordinator names this world only once an enroll went through (#5531 review 19 asks status after a timeout).
     if (route === oe.ROUTES.status) return { ok: true, data: bound ? { member: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: bound, thisComputer: true } } : { member: false } };
@@ -180,6 +181,14 @@ test('#5531 review 7: a join that fails for a passing reason keeps its ticket; a
   assert.equal(used.json.code, 'org_ticket', 'a refused ticket carried no code, so the page cannot go back: ' + JSON.stringify(used.json));
   const left = await call('/api/org/leave', { body: {}, headers: SCREEN });
   assert.equal(left.json.ok, true, 'the work Kosmos could not leave: ' + JSON.stringify(left.json));
+  // Review 27: a timeout may have spent the code, so it is an unknown outcome with a code, and its ticket is NOT kept.
+  bound = null; up = 'timeout';
+  t.after(() => { try { fs.rmSync(path.join(store.ROOT, 'org-join-unknown.json'), { force: true }); } catch { /* none */ } });
+  const pv2 = await call('/api/org/preview', { body: { code: 'ACME-JOIN-1234' }, headers: SCREEN });
+  const lost = await call('/api/org/enroll', { body: { code: 'ACME-JOIN-1234', accepted: true, ticket: pv2.json.ticket }, headers: SCREEN });
+  assert.equal(lost.json.code, 'org_join_unknown', JSON.stringify(lost.json));
+  const again = await call('/api/org/enroll', { body: { code: 'ACME-JOIN-1234', accepted: true, ticket: pv2.json.ticket }, headers: SCREEN });
+  assert.equal(again.json.code, 'org_ticket', 'a ticket for a code that may be spent was kept: ' + JSON.stringify(again.json));
 });
 
 test('#5531 review 9: the stopped note is shown to the screen once; org_bad_world keeps the ticket', async (t) => {

@@ -106,6 +106,16 @@ function isEnrolledHere(opts) {
   const id = readWorldId(opts);
   return !!id && rec.world === id;
 }
+/* 🛑 THE GATE FOR EVERY SENDER (E0.3 rollup, E0.6 backup): mayReport, NOT isEnrolledHere. A record can be enrolled here
+   with no consent recorded on this side: one re-adopted by refresh after a move that could not be written, or rebuilt
+   from the company's answer after a last-admin refusal. Those carry no consentHash, and nothing is sent under them
+   until the person has seen and accepted the words here (review 27). isEnrolledHere answers "is this the work Kosmos";
+   mayReport answers "may it send". */
+function mayReport(opts) {
+  if (!isEnrolledHere(opts)) return false;
+  const rec = readEnrollment(opts);
+  return !!rec && typeof rec.consentHash === 'string' && /^[0-9a-f]{64}$/.test(rec.consentHash);
+}
 
 /* The coordinator's answers are not trusted for shape: kept to what the page shows, and only plain strings. */
 /* A company admin chose these words, and they are shown in a sentence the person decides on ("X invites you to join"):
@@ -175,7 +185,7 @@ function sayFor(because, fallback, secret) {
 
 async function signed(method, route, body, opts) {
   const remote = remoteFor(opts);
-  if (!remote || typeof remote.macRequest !== 'function') return { ok: false, because: 'Kosmos+ is not available here' };
+  if (!remote || typeof remote.macRequest !== 'function') return { ok: false, notSent: true, because: 'Kosmos+ is not available here' };
   try {
     const r = await remote.macRequest(method, route, body);
     return r && typeof r === 'object' ? r : { ok: false, because: 'no answer' };
@@ -228,7 +238,7 @@ async function enroll(code, accepted, opts) { return oneAtATime(() => enrollNow(
 async function enrollNow(code, accepted, opts) {
   if (accepted !== true) return { ok: false, declined: true, because: 'Not accepted, so nothing was sent.' };
   const world = worldId(opts);
-  if (!world) return { ok: false, because: "this Kosmos's data folder cannot be written" };
+  if (!world) return { ok: false, because: "This Kosmos's data folder cannot be written, so nothing was sent." };
   const body = { world, accepted: true };
   if (code != null) {
     if (typeof code !== 'string' || !CODE.test(code.trim())) return { ok: false, because: 'That is not a join code. Check it and try again.' };
@@ -246,22 +256,24 @@ async function enrollNow(code, accepted, opts) {
   }
   const secretCode = typeof code === 'string' ? code.trim() : null;
   if (!r.ok && codeOf(r.because)) return { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'Joining did not go through Kosmos+ just now. Nothing was joined; try again in a minute.', secretCode) };   // refused with a reason: nothing bound
+  /* Refused on this computer before anything was sent (not connected to Kosmos+, a register or Forget out, no
+     Kosmos+ here): certainly nothing was joined, and the ticket stays (review 27). */
+  if (!r.ok && r.notSent) return { ok: false, because: 'This Kosmos could not reach your company through Kosmos+ just now. Nothing was sent, so nothing was joined; try again in a minute.' };
   if (!r.ok) {
     /* #5531 review 19: no reason (a tunnel timeout) says nothing about whether the company already bound this world.
-       Ask once. Confirmed here: the person accepted, so it is recorded as a join. Unclear: say so, never "nothing". */
+       Ask once. Bound here: the person accepted, so it is recorded as a join. Bound to this world elsewhere: undone.
+       Anything else stays UNKNOWN, kept on disk for the follow-up (every two minutes while it lasts): a status read
+       straight after a timeout can come before the company saved the join, so "not bound" now is not "not bound"
+       (reviews 25, 27). */
     sayFor(r.because, '', secretCode);   // the raw line goes to the log, cleaned
     const st = await signed('POST', ROUTES.status, {}, opts);
     const verdict = statusVerdict(st.ok ? st.data : null, world);
-    if (verdict === 'unclear') {
-      // Kept on disk, so the next start or daily pass asks once more and records or clears it (review 25).
+    if (verdict === 'notHere' && !move && namesThisWorld(st.ok ? st.data : null, world)) return undoFirstJoin('Your company did not confirm this Kosmos, so it is not your work Kosmos.', opts);
+    if (verdict !== 'here') {
       const hash = opts && typeof opts.consentHash === 'string' && /^[0-9a-f]{64}$/.test(opts.consentHash) ? opts.consentHash : null;
       setJoinUnknown({ consentHash: hash, move }, opts);
       return { ok: false, unknown: true, code: 'org_join_unknown', because: 'It is not known yet whether joining went through. This Kosmos will ask your company again in a few minutes, and this screen will show what it learns.' };
     }
-    /* A first join the company bound to this world on another computer (or to no computer) went through and is not
-       kept: undone, as the answered path does (review 23). */
-    if (verdict === 'notHere' && !move && namesThisWorld(st.ok ? st.data : null, world)) return undoFirstJoin('Your company did not confirm this Kosmos, so it is not your work Kosmos.', opts);
-    if (verdict !== 'here') return { ok: false, because: move ? 'Your work Kosmos did not move here. Try again in a minute.' : 'Joining did not go through Kosmos+ just now. Nothing was joined; try again in a minute.' };
     r = { ok: true, data: st.data };
   }
   const org = cleanOrg(r.data && r.data.org);
@@ -461,7 +473,8 @@ async function leaveNow(opts, retry) {
     let kept = false;
     if (back) { try { writeEnrollment(back, opts); kept = true; } catch { /* below */ } }
     setLeavePending(!kept, opts, back, undo);
-    if (kept && retry) setLeaveRefused((back.org && back.org.name) || 'your company', opts);   // told "stopped" earlier: say it is not
+    // Told "stopped" earlier: say it is not. Only for the person's own leave: an undo is not one they asked for (review 27).
+    if (kept && retry && !undo) setLeaveRefused((back.org && back.org.name) || 'your company', opts);
     return { ok: false, still: true, code, because: SAY.org_last_admin };
   }
   setLeavePending(true, opts, before, undo);
@@ -479,6 +492,7 @@ async function refreshNow(opts) {
     return { ok: r.ok, enrolled: false, stopped: true, pending: !!r.pending, because: r.because };
   }
   const before = readEnrollment(opts);
+  if (before && joinUnknown(opts)) setJoinUnknown(null, opts);   // a record settles it: no follow-up beside one (review 27)
   const unsure = before ? null : joinUnknown(opts);
   if (unsure) return settleUnknownJoin(unsure, opts);
   /* No local world id: nothing can match, so nothing is asked (review 14). A missing id file means the record is stale
@@ -513,5 +527,5 @@ async function refreshNow(opts) {
 
 module.exports = {
   ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, codeOf,
-  worldId, readEnrollment, leavePending, joinUnknown, stoppedFor, clearStopped, leaveRefusedFor, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh,
+  worldId, readEnrollment, leavePending, joinUnknown, mayReport, stoppedFor, clearStopped, leaveRefusedFor, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh,
 };

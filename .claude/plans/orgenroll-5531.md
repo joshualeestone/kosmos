@@ -341,3 +341,16 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
   less; setting it to a day reddens it.
 - Kept (nits): an undo refused as the last admin after an unknown join is retried daily without a note (narrow);
   the small marker files are written directly (a torn write reads as no marker); repeated inline requires.
+
+## Review 27 (four more in the uncertain-join paths reviews 19 and 25 built)
+- A refusal made on this computer before anything was sent (not connected to Kosmos+, a register or Forget out, no
+  Kosmos+ here) was treated as "outcome unknown". engine/remote.js now marks those `notSent` (additive field), as does
+  signed() when Kosmos+ is absent; enroll then says nothing was sent so nothing was joined, keeps the ticket and writes
+  no marker. Pinned (no marker, status never asked).
+- After a timeout, a status read at once can come before the company saved the join. Every timeout not confirmed here
+  (or bound elsewhere and undone) is now UNKNOWN with the marker, settled by the 2-minute follow-up. The server test's
+  "passing failure" became a not-sent refusal (the ticket kept); a timeout keeps no ticket (pinned).
+- The "your leave was refused" note is written only for the person's own leave, never for an undo. Pinned.
+- mayReport(): enrolled here AND a consentHash recorded here. The gate for every sender (stated at the function);
+  isEnrolledHere stays "is this the work Kosmos". A re-adopted record may not send. Pinned.
+- A marker left beside a record is cleared on the next pass. The data-folder message is a full sentence.

@@ -1011,10 +1011,11 @@ async function macRequest(method, routePath, body, opts) {
   const keyOnly = !!(opts && opts.keyOnly);
   // keyOnly opens ONE route, the report's, and nothing else, whatever a future caller passes.
   if (keyOnly && !(method === 'POST' && routePath === KEY_ONLY_ROUTE)) {
-    return { ok: false, because: 'only the remote report may be signed without enrolment' };
+    return { ok: false, notSent: true, because: 'only the remote report may be signed without enrolment' };
   }
   const identityThere = keyOnly ? holdsKey() : enrolled();
-  if (!identityThere) return { ok: false, because: 'this computer is not connected to Kosmos+' };
+  // notSent: refused here, before anything left this computer (a caller can then say "nothing was sent" for certain).
+  if (!identityThere) return { ok: false, notSent: true, because: 'this computer is not connected to Kosmos+' };
   const args = ['mac-request', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR(),
     '--method', method, '--path', routePath];
   // AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS is a test seam (a hung tunnel in a test).
@@ -1022,7 +1023,7 @@ async function macRequest(method, routePath, body, opts) {
   // A signed call like the device verbs: refused while a register or a Forget is
   // out (it would sign with a key being replaced or retired), and Forget waits for
   // one already out (it carries its own bound).
-  { const b = busy(); if (b) return b; }
+  { const b = busy(); if (b) return Object.assign({}, b, { notSent: true }); }
   const r = await tracked(setupRun(args, method === 'GET' ? null : JSON.stringify(body || {}), timeout));
   if (!r.ok) return { ok: false, because: r.because };
   const got = lastJsonLine(r.said);

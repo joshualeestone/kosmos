@@ -547,11 +547,21 @@ test('#5531 review 19: an enroll with no answer asks status once: bound here is 
   assert.equal(r1.ok, true, 'a join the company made was reported as not joined: ' + JSON.stringify(r1));
   assert.equal(org.isEnrolledHere({ root: a }), true);
   assert.deepEqual(boundHere.sent, [org.ROUTES.enroll, org.ROUTES.status]);
-  // Not bound: nothing was joined, and it says so.
+  // Not bound YET, read straight after a timeout: unknown, kept for the follow-up, never "nothing was joined" (review 27).
   const none = timeout(() => ({ member: false }));
   const r2 = await org.enroll('ACME-JOIN-1234', true, { root: b, remote: none });
-  assert.equal(r2.ok, false); assert.match(r2.because, /Nothing was joined/);
+  assert.equal(r2.code, 'org_join_unknown', JSON.stringify(r2));
+  assert.equal(/Nothing was joined/.test(r2.because), false, 'a status read too early was taken as "nothing joined"');
+  assert.ok(org.joinUnknown({ root: b }), 'the timeout left nothing for the follow-up');
   assert.equal(org.isEnrolledHere({ root: b }), false);
+  // Refused on this computer before sending: certainly nothing joined, no marker, no status asked.
+  const asked = [];
+  const local = { macRequest: async (m, route) => { asked.push(route); return { ok: false, notSent: true, because: 'this computer is not connected to Kosmos+' }; } };
+  const { a: c } = sandbox(t);
+  const r3 = await org.enroll('ACME-JOIN-1234', true, { root: c, remote: local });
+  assert.match(r3.because, /Nothing was sent, so nothing was joined/, r3.because);
+  assert.equal(org.joinUnknown({ root: c }), null, 'a join never sent was kept as unknown');
+  assert.deepEqual(asked, [org.ROUTES.enroll], 'status was asked about a join that was never sent');
 });
 
 test('#5531 review 19: a first join the company did not confirm for this Kosmos is undone; a move is not', async (t) => {
@@ -700,4 +710,31 @@ test('#5531 review 14: a record whose world id file is gone is stale: cleared, a
   assert.deepEqual(sent, [], 'a world with no id of its own still contacted the company');
   assert.equal(fs.existsSync(path.join(a, org.ENROLLMENT_FILE)), false, 'the stale record was kept, so every pass would ask again');
   assert.equal(org.stoppedFor({ root: a }), 'Acme', 'this Kosmos stopped reporting and the screen was never told (review 22)');
+});
+
+test('#5531 review 27: mayReport needs the consent recorded here; a record without it is enrolled but may not send', async (t) => {
+  const { a, b } = sandbox(t);
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}), consentHash: 'd'.repeat(64) });
+  assert.equal(org.isEnrolledHere({ root: a }), true);
+  assert.equal(org.mayReport({ root: a }), true, 'CONTROL: a join with its consent recorded may report');
+  // A record re-adopted by refresh (no consent shown here): the company names this world, but nothing may be sent.
+  org.worldId({ root: b });
+  await org.refresh({ root: b, remote: here(b, { macRequest: async () => ({ ok: false, because: 'unexpected' }) }) });
+  fs.writeFileSync(path.join(b, org.ENROLLMENT_FILE), JSON.stringify({ org: ORG, role: 'member', world: org.worldId({ root: b }), enrolledAt: '2026-10-07T00:00:00.000Z' }));
+  assert.equal(org.isEnrolledHere({ root: b }), true, 'CONTROL: the re-adopted record is enrolled here');
+  assert.equal(org.mayReport({ root: b }), false, 'a record with no consent recorded here may report');
+});
+
+test('#5531 review 27: an undo refused as the last admin leaves no "your leave was refused" note (the person asked for no leave)', async (t) => {
+  const { a } = sandbox(t);
+  const co = { macRequest: async (m, route, body) => {
+    if (route === org.ROUTES.enroll) return { ok: true, data: { ok: true, org: ORG, role: 'member', enrolled: { computer: 'c2', world: body.world, thisComputer: false } } };
+    if (route === org.ROUTES.leave) return { ok: false, because: 'offline' };
+    return { ok: false, because: 'unexpected ' + route }; } };
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: co });
+  assert.equal(org.leavePending({ root: a }), true, 'CONTROL: a pending undo');
+  // The company now names this world HERE and refuses the undo as the last admin: the record is rebuilt.
+  await org.refresh({ root: a, remote: here(a, { macRequest: async () => ({ ok: false, because: '409 {"because":"org_last_admin"}' }) }) });
+  assert.equal(org.isEnrolledHere({ root: a }), true, 'CONTROL: the record was rebuilt');
+  assert.equal(org.leaveRefusedFor({ root: a }), null, 'the screen would say "your leave was refused" for a leave the person never asked for');
 });
