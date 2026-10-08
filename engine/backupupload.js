@@ -517,13 +517,17 @@ function parseManifestGrant(data, bytes, runPrefix) {
    The PUT is retried and classified exactly as a chunk's: the same url until the grant runs out, a 412 counted as
    stored only after an attempt that may have written it, a new grant only when one ran out cleanly. */
 async function uploadManifest(deps, bytes, opts) {
+  // What has happened so far, for an unexpected throw: a grant answered (its allowance spent), and the key of an
+  // upload whose write may have landed, so the caller is never told less than the inner code knew.
+  const st = { granted: false, unsureKey: null };
   try {
-    return await uploadManifestInner(deps, bytes, opts || {});
+    return await uploadManifestInner(deps, bytes, opts || {}, st);
   } catch (err) {
-    return { ok: false, because: `the manifest uploader failed: ${(err && err.message) || err}` };
+    return Object.assign({ ok: false, because: `the manifest uploader failed: ${(err && err.message) || err}` },
+      st.granted ? { grantSpent: true } : {}, st.unsureKey ? { unsure: [{ key: st.unsureKey }] } : {});
   }
 }
-async function uploadManifestInner(deps, bytes, o) {
+async function uploadManifestInner(deps, bytes, o, st) {
   if (!deps || typeof deps.macRequest !== 'function') return { ok: false, grantSpent: false, because: 'no signed-request function' };
   const fetchFn = deps.fetch || globalThis.fetch;
   if (typeof fetchFn !== 'function') return { ok: false, grantSpent: false, because: 'no fetch here' };
@@ -567,7 +571,9 @@ async function uploadManifestInner(deps, bytes, o) {
     const g = await askSigned(deps.macRequest, MANIFEST_ROUTE,
       () => ({ sha256, size: bytes.length, nonce: crypto.randomBytes(16).toString('hex') }),
       (d) => parseManifestGrant(d, bytes, o.bucket));
+    if (g.out && g.out.grantSpent) st.granted = true;
     if (!g.ok) return Object.assign({ ok: false }, g.out);
+    st.granted = true;
     const skew = clockSkew(now(), g.expiresAtMs);
     if (skew) return { ok: false, because: skew, grantSpent: true };
     const up = g.upload;
@@ -583,7 +589,7 @@ async function uploadManifestInner(deps, bytes, o) {
       if (r.kind === 'expired') { cleanRanOut = !troubled; break; }
       if (r.kind === 'refused') return Object.assign({ ok: false, grantSpent: true, because: `the bucket refused the manifest (${r.status ? 'HTTP ' + r.status : 'locally'}${r.code ? ' ' + r.code : ''}); a new grant would not change that` }, troubled ? { unsure: [{ key: up.key }] } : {});
       // The chunk worker in uploadInner carries the same rules: change both together.
-      if (r.preconnect) { preOnly = true; } else if (!r.nothingCommitted) { troubled = true; }
+      if (r.preconnect) { preOnly = true; } else if (!r.nothingCommitted) { troubled = true; st.unsureKey = up.key; }
       await sleep(Math.min(BACKOFF_MAX_MS, 500 * 2 ** attempt) * (0.5 + Math.random() / 2));
     }
     // A write that may have landed is never followed by a new grant (a second locked manifest): try again later.
