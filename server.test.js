@@ -1710,10 +1710,23 @@ test('a successful PUT rewrites the file and answers with the new stale state', 
 /* #5581: the agent as one portable file, the export half of #1652. The board answers it as a download; the file
    round-trips through the import route the create form uses. */
 test('#5581: GET export answers the agent as a downloadable file that imports back; unknown and empty are refused', async (t) => {
+  // Each refusal is the ROUTE's own sentence (a fallthrough 404 would not carry it).
   const unknown = await req('/api/agent/definitely-not-an-agent/export');
   assert.equal(unknown.status, 404, 'an unknown agent is refused before anything is read');
+  assert.equal(JSON.parse(unknown.body).because, 'no agent by that name');
   const bad = await req('/api/agent/%zz/export');
   assert.equal(bad.status, 404, 'a malformed name is refused, not crashed on');
+  assert.equal(JSON.parse(bad.body).because, 'no agent by that name');
+  // A browser's own download of a refused file gets 204 and nothing to save (the board's download convention).
+  // node:http, not fetch: fetch drops a sec-fetch-mode header, which is the one this convention reads.
+  const nav = await new Promise((resolve, reject) => {
+    const u = new URL(`${base}/api/agent/definitely-not-an-agent/export`);
+    const r = require('node:http').request({ host: u.hostname, port: u.port, path: u.pathname, method: 'GET',
+      headers: { 'sec-fetch-mode': 'navigate' } }, (out) => { out.resume(); out.on('end', () => resolve(out.statusCode)); });
+    r.on('error', reject);
+    r.end();
+  });
+  assert.equal(nav, 204, 'a refused navigation was answered with a body some browsers would save');
   const name = await anyAgent(t);
   if (!name) return;
   const dir = nodePath.join(WORKERS, decodeURIComponent(name));
@@ -1728,6 +1741,12 @@ test('#5581: GET export answers the agent as a downloadable file that imports ba
   assert.match(res.headers.get('content-type') || '', /^text\/markdown/);
   assert.match(res.headers.get('content-disposition') || '', /^attachment; filename="[A-Za-z0-9._-]+\.agent\.md"; filename\*=UTF-8''/);
   assert.equal(res.headers.get('cache-control'), 'no-store');
+  assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(res.headers.get('content-security-policy'), "default-src 'none'; sandbox");
+  // The page's look beside the click: 204 with no body when the download is allowed.
+  const look = await fetch(`${base}/api/agent/${name}/export?check=1`);
+  assert.equal(look.status, 204, 'the check answered something other than "allowed, nothing to save"');
+  assert.equal((await look.text()).length, 0);
   assert.match(text, /^---\n/, 'the file starts with its header block');
   assert.match(text, /You answer the #5581 test\./, 'the saved instructions are in the file');
   // Round trip: the import route the create form uses reads the downloaded file.
@@ -1743,7 +1762,7 @@ test('#5581: GET export answers the agent as a downloadable file that imports ba
   fs.writeFileSync(file, '   \n');
   const empty = await req(`/api/agent/${name}/export`);
   assert.equal(empty.status, 409, empty.body);
-  assert.match(JSON.parse(empty.body).error, /instructions are empty/);
+  assert.match(JSON.parse(empty.body).because, /instructions are empty/);
 });
 
 /* #4406: the version kept beside the file, for the Instructions tab to put back in the box. */

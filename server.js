@@ -16751,22 +16751,26 @@ const server = http.createServer(async (req, res) => {
      provider hint), and answered as a download. Refused with the engine's sentence when there is nothing to share. */
   const agentExport = pathname.match(/^\/api\/agent\/([^/]+)\/export$/);
   if (agentExport && (req.method === 'GET' || req.method === 'HEAD')) {
+    /* Refused the way the board's other downloads are (refuseDownload): the browser's own download gets 204 and
+       nothing to save, and the page's ?check=1 look, made beside the click, gets the sentence to show. */
     const name = decodeSegment(agentExport[1]);
-    if (name === null) { sendJson(res, 404, { error: 'that is not a name we can read' }); return; }
-    if (!knownAgent(name)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
+    if (name === null || !knownAgent(name)) { refuseDownload(req, res, 'no agent by that name', 404); return; }
     let out;
     try { out = agentfile.exportAgent(name, { store, instructions }); } catch { out = null; }
-    if (!out) { sendJson(res, 500, { error: 'that agent could not be put in a file' }); return; }
-    if (!out.ok) { sendJson(res, 409, { error: out.because }); return; }
+    // A read that failed is the board's problem, said plainly (the engine's message can carry a path).
+    if (!out || (!out.ok && /could not read/.test(String(out.because || '')))) {
+      refuseDownload(req, res, 'that agent could not be put in a file', 500); return;
+    }
+    if (!out.ok) { refuseDownload(req, res, out.because, 409); return; }
+    if (isDownloadCheck(req)) { res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return; }
     const body = Buffer.from(out.text, 'utf8');
-    // An ASCII fallback name plus the exact one (RFC 6266/5987), so no character in a name can break the header.
-    const ascii = String(out.filename).replace(/[^A-Za-z0-9._-]/g, '_');
+    const fname = String(out.filename);
     res.writeHead(200, {
-      'content-type': 'text/markdown; charset=utf-8',
-      'content-disposition': `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(out.filename)}`,
-      'content-length': body.length,
-      'cache-control': 'no-store',
-      'x-content-type-options': 'nosniff',
+      'content-type': 'text/markdown; charset=utf-8', 'content-length': body.length, 'x-content-type-options': 'nosniff',
+      // The same two names sendFileDownload gives: an ASCII fallback, then the exact one as RFC 5987.
+      'content-disposition': 'attachment; filename="' + fname.replace(/[^\x20-\x7e]|["\\]/g, '_') + '"; filename*=UTF-8\'\''
+        + encodeURIComponent(fname).replace(/['()*!]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase()),
+      'content-security-policy': "default-src 'none'; sandbox", 'cache-control': 'no-store',
     });
     res.end(req.method === 'HEAD' ? undefined : body);
     return;
