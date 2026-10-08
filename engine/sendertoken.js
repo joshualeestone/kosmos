@@ -256,8 +256,8 @@ function revoke(sessionName) {
   return held.value;
 }
 
-/* #5418 ask 2: drop an agent's token file ONLY if it is still the file a plan looked at (same mtime), checked UNDER
-   the lock, so a mint landing between the plan and the removal is never taken. For the one-time cleanup tool
+/* #5418 ask 2: drop an agent's token file ONLY if it is still the file a plan looked at (still a regular file, the
+   same mtime, no newer mintedAt), checked UNDER the lock, so a mint landing between the plan and the removal is never taken. For the one-time cleanup tool
    (tools/cleanup-fixture-tokens-5418.js); every other caller wants revoke. Remove it with that tool once it is
    retired. */
 function revokeIfUnchanged(sessionName, mtimeMs, newestMintMs) {
