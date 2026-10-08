@@ -19,6 +19,10 @@ for (const v of ['CODEX_HOME', 'AGENT_WORKFORCE_CODEX_HOME', 'GEMINI_CLI_HOME', 
 fs.mkdirSync(process.env.AGENT_WORKFORCE_DATA, { recursive: true });
 
 const usage = require('./usage');
+// chmod 000 does not stop root, and is not a permission on Windows; symlinks need privileges there (review 4).
+const NO_CHMOD = process.platform === 'win32' || (typeof process.getuid === 'function' && process.getuid() === 0);
+const NO_LINKS = process.platform === 'win32';
+
 const TODAY = new Date().toISOString().slice(0, 10);
 const AGENT = path.join(SANDBOX, 'workers', 'leo');
 const PERSONAL = path.join(SANDBOX, 'home', 'my-own-project');
@@ -62,14 +66,14 @@ test('#5532: other providers are scoped the same way, and a partly read provider
   assert.equal(thrown.complete, false);
 });
 
-test('#5532: an agent folder reached through a link matches its real folder', async () => {
+test('#5532: an agent folder reached through a link matches its real folder', { skip: NO_LINKS && 'symlinks need privileges here' }, async () => {
   const link = path.join(SANDBOX, 'link-to-leo');
   fs.symlinkSync(AGENT, link);
   const w = await usage.worldUsageByModel(1, [link], { scanProviders: async () => ({ folderModels: {}, complete: true }) });
   assert.deepEqual(Object.keys(w.byDay[TODAY] || {}), ['claude-opus-5-5'], 'a linked agent folder did not match');
 });
 
-test('#5532: a session launched through a link to an agent\'s folder counts for that agent', async () => {
+test('#5532: a session launched through a link to an agent\'s folder counts for that agent', { skip: NO_LINKS && 'symlinks need privileges here' }, async () => {
   const link = path.join(SANDBOX, 'another-link-to-leo');
   fs.symlinkSync(AGENT, link);
   session('via-link', link, 'm-link', 'claude-via-link', 55);
@@ -101,7 +105,7 @@ test('#5532 review 1: a subagent with no top-level transcript counts for nobody;
   assert.ok((all.folders[TODAY][AGENT] || {}).input_tokens >= 11, 'the orphan rule leaked into the usage screen\'s per-folder totals');
 });
 
-test('#5532 review 1: an unreadable transcript or a failing scan gives complete: false, never a throw; relative folders count for nobody', async (t) => {
+test('#5532 review 1: an unreadable transcript or a failing scan gives complete: false, never a throw; relative folders count for nobody', { skip: NO_CHMOD && 'chmod cannot make a file unreadable here' }, async (t) => {
   const file = path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects', 'locked', 's.jsonl');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify({ type: 'user', cwd: AGENT, timestamp: TODAY + 'T01:00:00.000Z' }) + '\n');
@@ -142,7 +146,7 @@ test('#5532 review 2: a home folder or a root as an agent folder claims nothing;
   assert.ok(gone.byDay[TODAY]['claude-opus-5-5'], 'the agents that remain were not counted');
 });
 
-test('#5532 review 3: a skipped parent that cannot be head-read makes the count incomplete, not quietly short', async (t) => {
+test('#5532 review 3: a skipped parent that cannot be head-read makes the count incomplete, not quietly short', { skip: NO_CHMOD && 'chmod cannot make a file unreadable here' }, async (t) => {
   const parent = path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects', 'oldkid', 'sess.jsonl');
   fs.mkdirSync(path.dirname(parent), { recursive: true });
   fs.writeFileSync(parent, JSON.stringify({ type: 'user', cwd: AGENT, timestamp: '2020-01-01T00:00:00.000Z' }) + '\n');
@@ -153,4 +157,13 @@ test('#5532 review 3: a skipped parent that cannot be head-read makes the count 
   sub('oldkid/sess', AGENT, 'm-oldkid', 'claude-oldkid-sub', 8);
   const w = await usage.worldUsageByModel(1, [AGENT], NOPROV);
   assert.equal(w.complete, false, 'a parent that could not be read left the count looking whole');
+});
+
+test('#5532 review 4: a project folder that cannot be listed makes the count incomplete', { skip: NO_CHMOD && 'chmod cannot make a folder unlistable here' }, async (t) => {
+  const dir = path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects', 'locked-dir');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.chmodSync(dir, 0o000);
+  t.after(() => { try { fs.chmodSync(dir, 0o700); } catch { /* removed with the sandbox */ } });
+  const w = await usage.worldUsageByModel(1, [AGENT], NOPROV);
+  assert.equal(w.complete, false, 'an unlistable project folder left the count looking whole');
 });

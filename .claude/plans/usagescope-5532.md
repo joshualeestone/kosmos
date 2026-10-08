@@ -51,3 +51,10 @@ sessions outside Kosmos. This branch adds the reader the rollup needs to send us
   never a listing of the workers folder, which several Kosmoses on one computer share.
 - FIXED: a duplicate root check removed; distinct folders resolved once, in parallel; a test pins that the usage
   screen's per-folder totals keep their behaviour for an orphan subagent.
+
+## Review 4 (blind, sonnet)
+- FIXED: a folder that exists but cannot be listed (projects/, a project, a subagents tree) counts as unreadable, so
+  the count says incomplete; a missing projects/ folder is still "no sessions" (test; mutation reddens).
+- FIXED: tests that need chmod or symlinks skip, with the reason, on Windows or as root.
+- DUPLICATES: the agentDirs roster rule (stated, review 3; the rollup PR must build agentDirs from the roster in a test);
+  a person's session in an agent's exact folder (the weakest premise; consent wording with PigeonPete).

@@ -37,7 +37,7 @@
 
 const fs = require('node:fs');
 const fsp = fs.promises;
-const os = require('os');
+const os = require('node:os');
 const path = require('node:path');
 const { configRoots } = require('./status');
 const store = require('./store');
@@ -78,16 +78,19 @@ function emptyBuckets() {
  * the first version used fs.*Sync throughout and would have stalled every
  * other route on this server for as long as a scan took.
  */
-async function walkTranscriptsUnder(root) {
+/* `onError` (#5532): told of a folder that exists but cannot be listed, so a scoped count can say it is short. A
+   missing projects/ folder (ENOENT) is "no sessions", not an error. */
+async function walkTranscriptsUnder(root, onError) {
   const projects = path.join(root, 'projects');
+  const failed = (e) => { if (onError && !(e && e.code === 'ENOENT')) onError(); };
   let projectDirs;
-  try { projectDirs = await fsp.readdir(projects, { withFileTypes: true }); } catch { return []; }
+  try { projectDirs = await fsp.readdir(projects, { withFileTypes: true }); } catch (e) { failed(e); return []; }
   const files = [];
   for (const projectDir of projectDirs) {
     if (!projectDir.isDirectory()) continue;
     const projectPath = path.join(projects, projectDir.name);
     let entries;
-    try { entries = await fsp.readdir(projectPath, { withFileTypes: true }); } catch { continue; }
+    try { entries = await fsp.readdir(projectPath, { withFileTypes: true }); } catch (e) { failed(e); continue; }
     for (const entry of entries) {
       const entryPath = path.join(projectPath, entry.name);
       if (entry.isFile() && entry.name.endsWith('.jsonl')) {
@@ -104,7 +107,7 @@ async function walkTranscriptsUnder(root) {
         // looked usage-shaped. Only a subdirectory actually named
         // `subagents` is walked -- the one real shape a session directory
         // carries.
-        await walkSubagentsTree(entryPath, files);
+        await walkSubagentsTree(entryPath, files, failed);
       }
     }
   }
@@ -112,12 +115,12 @@ async function walkTranscriptsUnder(root) {
 }
 
 /** Only the `subagents/` child of a session directory, never its other contents. */
-async function walkSubagentsTree(sessionDir, out) {
+async function walkSubagentsTree(sessionDir, out, failed) {
   let entries;
-  try { entries = await fsp.readdir(sessionDir, { withFileTypes: true }); } catch { return; }
+  try { entries = await fsp.readdir(sessionDir, { withFileTypes: true }); } catch (e) { if (failed) failed(e); return; }
   for (const entry of entries) {
     if (entry.isDirectory() && entry.name === SUBAGENTS_DIRNAME) {
-      await walkJsonlRecursive(path.join(sessionDir, entry.name), out);
+      await walkJsonlRecursive(path.join(sessionDir, entry.name), out, failed);
     }
   }
 }
@@ -129,12 +132,12 @@ async function walkSubagentsTree(sessionDir, out) {
  * subagents/ tree (unlike walkSubagentsTree, which only enters one by
  * name at the session-directory level).
  */
-async function walkJsonlRecursive(dir, out) {
+async function walkJsonlRecursive(dir, out, failed) {
   let entries;
-  try { entries = await fsp.readdir(dir, { withFileTypes: true }); } catch { return; }
+  try { entries = await fsp.readdir(dir, { withFileTypes: true }); } catch (e) { if (failed) failed(e); return; }
   for (const entry of entries) {
     const entryPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) await walkJsonlRecursive(entryPath, out);
+    if (entry.isDirectory()) await walkJsonlRecursive(entryPath, out, failed);
     else if (entry.isFile() && entry.name.endsWith('.jsonl')) out.push(entryPath);
   }
 }
@@ -218,7 +221,7 @@ async function scanUsage({ sinceDay, untilDay, mtimeCut = false }) {
     /* Sorted, so when one message id appears in two transcripts launched in
        different folders (a resumed session), the same file wins the dedup on
        every scan and the per-agent split does not depend on readdir order. */
-    for (const file of (await walkTranscriptsUnder(root)).sort()) {
+    for (const file of (await walkTranscriptsUnder(root, () => { unreadable += 1; })).sort()) {
       const sub = file.indexOf(path.sep + SUBAGENTS_DIRNAME + path.sep, root.length);
       const isSub = sub !== -1;
       /* #5363: a file last written before the window holds no row in it, so it is not read. A top-level one still
