@@ -831,9 +831,12 @@ async function sweepDeletes(keys, sent, deletes) {
     if (!rec || rec.state !== 'sent' || !rec.remoteId) continue;
     const k = keys[rec.agent];
     if (!k || !k.apiKey || k.refused) continue;
-    // #5574 review 5: checked again HERE, at send time, as sweepCommentDeletes does: a registration replaced since the
-    // take-back was asked for would DELETE as another service agent, whose 404 means "not mine", not "gone".
-    if (!sameServiceAgent(rec, k)) continue;
+    // #5574 review 5+6: checked again HERE, at send time: a registration KNOWN to be another (the record names the one
+    // that sent it) would DELETE as another service agent, whose 404 means "not mine", not "gone". A record without that
+    // name (every post sent before #5574) is treated as main always did, as the held registration's: the time fallback
+    // cannot tell an agent's first post (registered in the same sweep) from a re-registration, and refusing it would
+    // leave the person's Delete promising "within a few minutes" forever.
+    if (knownOtherRegistration(rec, k)) continue;
     const r = await asAgent(rec.agent, keys, 'DELETE', '/posts/' + encodeURIComponent(rec.remoteId));
     if (r.status === 204 || r.status === 404) sent[id] = settle(rec, { state: 'deleted' });
     else {
@@ -2001,6 +2004,15 @@ function requestDelete(localId) {
     const meta = communitystore.postMeta(id);
     if (!meta) return requestCommentDelete(id);
     if (meta.authorType !== 'agent') return { ok: false, notEligible: true, because: 'the board never sends that post' };
+    // #5574 review 6: a sent post whose sending registration is known to be gone would never come down (sweepDeletes
+    // skips it), so the owner is told now rather than shown "Deleting" forever.
+    {
+      const sentNow = loadJson(sentFile()) || {};
+      const rec = sentNow[id];
+      if (rec && rec.state === 'sent' && knownOtherRegistration(rec, (loadJson(keysFile()) || {})[rec.agent])) {
+        return { ok: false, notEligible: true, because: 'Kosmos no longer holds the registration that sent this post, so it cannot remove it' };
+      }
+    }
     const deletes = loadJson(deletesFile());
     if (!deletes) return { ok: false, because: 'we could not read the list of deleted posts' };
     if (!deletes[id]) {
@@ -2074,7 +2086,7 @@ function withdrawFor(agentId, kind, id) {
     if (!k || !k.apiKey) return no('Kosmos no longer holds the registration that sent this post, so it cannot take it back');
     // Review 4: and it must be the registration that SENT it (agentId, or for an older record a registration no newer than
     // the send), or the take-down goes out as another service agent, gets a 404 and reads as removed while still public.
-    if (!sameServiceAgent(rec, k)) return no('Kosmos cannot be sure the registration it holds sent this post, so it cannot take it back');
+    if (knownOtherRegistration(rec, k)) return no('Kosmos no longer holds the registration that sent this post, so it cannot take it back');
   }
   // Review 2: a post whose send got no answer (or is out right now) is NOT refused: unlike a comment, a post can be found
   // again, so the next sweep settles it (settleUnconfirmed) and then takes it down if it arrived, or holds it if it did not.
@@ -2289,6 +2301,11 @@ function commentStatuses() {
  * #4801 review 2: null when comments-sent.json or comment-deletes.json is unreadable. Read as empty, a removed comment
  * would be offered Delete again, or every comment would vanish into a false "none".
  */
+/* #5574 review 6: a post record names the registration that sent it (agentId, recorded from #5574 on) and the one held
+   is not it. Unknown (no agentId) is NOT a mismatch: see sweepDeletes. */
+function knownOtherRegistration(rec, k) {
+  return Boolean(rec && rec.agentId) && !(k && k.remoteId === rec.agentId);
+}
 function sameServiceAgent(rec, k) {
   if (rec.agentId) return Boolean(k && k.remoteId === rec.agentId);
   // #4801 review 1: a record with no agentId (sent before agentId was recorded) is this registration's only when the
