@@ -74,14 +74,14 @@ const RUNNER_SIGNALS = new Set(['SIGKILL', 'SIGTERM']);
    signal and stderr in the message, so the next red names its cause. */
 const STARTUP_ABORT = /uv_thread_create|pthread_create|Check failed:/;   // Node's own startup lines only, never a bare EAGAIN (review 5)
 const RUNNER_SPAWN_ERRORS = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);   // short of resources; never ENOENT/EACCES (review 4)
-const neverRan = (r) => RUNNER_SPAWN_ERRORS.has(r.error) || (r.code === null && (RUNNER_SIGNALS.has(r.signal)
+const endedByRunner = (r) => RUNNER_SPAWN_ERRORS.has(r.error) || (r.code === null && (RUNNER_SIGNALS.has(r.signal)
   || (r.signal === 'SIGABRT' && STARTUP_ABORT.test(String(r.err || '')))));
 async function runBridge(event, env, run = runOnce, wait = (ms) => new Promise((res) => setTimeout(res, ms))) {
   const tries = [];
   for (let i = 0; i < 3; i += 1) {
     const r = await run(event, env);
     tries.push(r);
-    if (!neverRan(r)) return Object.assign(r, { tries });
+    if (!endedByRunner(r)) return Object.assign(r, { tries });
     if (i < 2) await wait(200 * (i + 1));
   }
   return Object.assign(tries[tries.length - 1], { tries });
@@ -95,14 +95,16 @@ test('#4417: the launch event reports idle from the new pane, with its launch to
   const data = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'aw-agyseed-data-'));
   const env = { ...process.env, AGENT_WORKFORCE_DATA: data, KOSMOS_PORT: String(board.port), TMUX_PANE: pane, KOSMOS_AGENT_TOKEN: 'abc123' };
   try {
-    const r = await runBridge(bridge.LAUNCH_EVENT, env);
+    /* Only the LAST try's reports count: a try the runner killed after its report reached the stand-in would otherwise
+       make the retry look like a double report (review 6). The count of 1 below still catches a bridge that reports twice. */
+    const r = await runBridge(bridge.LAUNCH_EVENT, env, (e, v) => { board.seen.length = 0; return runOnce(e, v); });
     // A retry that rescued the run is printed, so how often the runner kills a child can be counted, not hidden.
     if (r.tries.length > 1) t.diagnostic('#5560: the bridge child was retried: ' + howItEnded(r));
     assert.equal(r.code, 0, 'the bridge did not exit 0: ' + howItEnded(r));
     const reports = board.seen.filter((x) => x.url === '/api/report');
     assert.equal(reports.length, 1, reports.length === 0
       ? 'a launched agy agent told the board nothing, so it reads "Can\'t tell" until its first turn: ' + howItEnded(r)
-      : 'the board got ' + reports.length + ' launch reports (a killed try had already sent one before its retry?): ' + howItEnded(r));
+      : 'the board got ' + reports.length + ' launch reports from one run: ' + howItEnded(r));
     const body = JSON.parse(reports[0].body);
     assert.equal(body.state, 'idle');
     assert.equal(body.auto, true, 'a launch report without auto could erase a blocked the agent filed');

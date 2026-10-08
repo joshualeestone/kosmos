@@ -62,3 +62,11 @@
   EAGAIN. Pinned by a bridge SIGABRT whose stderr mentions EAGAIN, which is not retried.
 - Accepted residual: a retry that rescues the run is only a t.diagnostic line. An intermittent outside kill caused by
   the bridge itself (an OOM kill) could pass green once; a deterministic one still fails all three tries.
+
+## Review 6
+- The main test counts only the LAST try's reports (the stand-in board's list is cleared before each try), so a try
+  killed after its report landed no longer fails the retry as a double report. NOT pinned by a mutation: it acts only
+  on a real outside kill, which this test cannot stage. The count of 1 still catches a bridge that reports twice in one run.
+- neverRan renamed endedByRunner (it also covers a child killed after it started).
+- Declined: dropping "(review N)" labels from comments (the codebase's convention); a real self-killing child for
+  runOnce's signal path (accepted residual, as review 5).
