@@ -204,14 +204,12 @@ nb=$(ndeploys)
 mkdir -p "$T/work/dist"; printf '{"version":"0.7.99"}\n' > "$T/work/dist/latest-staging.json"
 git -C "$T/work" add dist/latest-staging.json; git -C "$T/work" commit -q -m ptr; git -C "$T/work" push -q origin main
 H14=$(git -C "$T/work" rev-parse HEAD)
+rcs=""; for i in 1 2 3 4 5; do tick; rcs="$rcs$RC"; done
+{ [ "$rcs" = 00011 ] && [ "$(ndeploys)" = "$nb" ] && [ ! -e "$ST/parked" ] && printf '%s' "$OUT" | grep -q "release pointer move"; } \
+  && pass "a release pointer on main that live does not serve is never published; red from the 4th tick, not parked" || bad "pointer move (rcs=$rcs, deploys=$(ndeploys)) $OUT"
+cp "$T/work/dist/latest-staging.json" "$SERVED/dist/latest-staging.json"
 tick
-{ [ "$RC" = 1 ] && [ "$(ndeploys)" = "$nb" ] && [ "$(cat "$ST/parked")" = "$H14" ] && printf '%s' "$OUT" | grep -q "release pointer move"; } \
-  && pass "a release pointer on main that live does not serve is parked, not published" || bad "pointer move published (rc=$RC, deploys=$(ndeploys)) $OUT"
-tick
-{ [ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q "FAIL (parked): site main ${H14:0:9} (pointer)"; } && pass "the parked tick names why (pointer)" || bad "parked reason missing: $OUT"
-rm -f "$ST/parked"; cp "$T/work/dist/latest-staging.json" "$SERVED/dist/latest-staging.json"
-tick
-{ [ "$RC" = 0 ] && [ "$(ndeploys)" = $((nb + 1)) ]; } && pass "the same pointer bytes live (control): the deploy goes ahead" || bad "equal pointer held the deploy (rc=$RC)"
+{ [ "$RC" = 0 ] && [ "$(ndeploys)" = $((nb + 1)) ]; } && pass "once live serves the same pointer bytes (a promote's deploy landed), it clears itself and deploys" || bad "equal pointer held the deploy (rc=$RC)"
 
 # 15) a deploy that failed AFTER publishing (its served checks), whose marker now names main: the
 #     "already live" shortcut does not clear it; it is retried.

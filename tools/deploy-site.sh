@@ -361,7 +361,8 @@ fi
 # that publishes at any point after this read therefore shows up as a difference, including one that
 # lands between a start-of-run check and the snapshot. A read that does not complete records status
 # 000; a 000 here refuses at once, and a 000 at the second read refuses there.
-# These three refusals exit 75 (EX_TEMPFAIL), not 1: nothing is wrong with the checkout, the live
+# Cost: four reads, each up to 3 tries of 30 s, so a host that times out on everything adds minutes
+# before the refusal. These three refusals exit 75 (EX_TEMPFAIL), not 1: nothing is wrong with the checkout, the live
 # site was moving or unreachable, so running again later is the right response (site-autodeploy.sh
 # retries a 75 on its next tick instead of parking the sha).
 case "${KOSMOS_DEPLOY_RETRY_SLEEP:-3}" in ''|*[!0-9]*) _lps_sleep=3 ;; *) _lps_sleep=${KOSMOS_DEPLOY_RETRY_SLEEP:-3} ;; esac
