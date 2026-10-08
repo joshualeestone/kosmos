@@ -49,6 +49,11 @@ test('#5535 chunking: tiny and empty inputs, and the real format-1 sizes on a fe
   assert.throws(() => bf.chunkBuffer(big, { min: 10, avg: 5, max: 20 }), /min < avg < max/);
 });
 
+test('#5535 padme matches an independent float reference at every power-of-two edge it can meet', () => {
+  const ref = (L) => { const E = Math.floor(Math.log2(L)), S = Math.floor(Math.log2(E)) + 1, m = 2 ** (E - S); return Math.ceil(L / m) * m; };
+  for (let k = 2; k <= 31; k++) for (const L of [2 ** k - 1, 2 ** k, 2 ** k + 1]) assert.equal(bf.padme(L), ref(L), `padme(${L})`);
+});
+
 test('#5535 padme: never smaller, overhead at most about 12%, and sizes collapse into buckets', () => {
   for (const L of [2, 3, 100, 1000, 4096, 4097, 65537, 1048576, 1048577, 4194304]) {
     const p = bf.padme(L);
@@ -153,12 +158,19 @@ test('#5535 manifests: anything that would not read back is refused before seali
   const k = hpkeKeyPair(), dev = crypto.generateKeyPairSync('ed25519');
   const ctx = { org: 'o', member: 'm', epoch: 'e', period: 'p', snapshot: 's' };
   for (const [what, m] of [['undefined', { size: undefined }], ['an array hole', [undefined]], ['a Date', { at: new Date(0) }],
-    ['a Map', { m: new Map() }], ['a function', { f() {} }], ['a bigint', { n: 10n }], ['-0', { z: -0 }], ['an unsafe integer', { n: 2 ** 60 }], ['NaN', { x: NaN }]]) {
+    ['a Map', { m: new Map() }], ['a function', { f() {} }], ['a bigint', { n: 10n }], ['-0', { z: -0 }], ['an unsafe integer', { n: 2 ** 60 }], ['NaN', { x: NaN }],
+    ['a one-hole array', { a: [,] }], ['an array with an extra property', { a: Object.assign([1], { x: 2 }) }],
+    ['a symbol key', { [Symbol('s')]: 1, ok: 1 }], ['a hidden property', Object.defineProperty({ ok: 1 }, 'h', { value: 1, enumerable: false })],
+    ['a top-level null', null], ['a top-level array', [1, 2]]]) {
     assert.throws(() => bf.sealManifest(k.pk, dev.privateKey, ctx, m), /manifest/, what);
   }
   const obj = bf.sealManifest(k.pk, dev.privateKey, ctx, { ok: [1, 'two', { three: true }], n: null });
   assert.deepEqual(bf.openManifest(k.sk, dev.publicKey, ctx, obj), { n: null, ok: [1, 'two', { three: true }] }, 'CONTROL: a plain manifest round-trips');
   assert.equal(bf.verifyManifestSignature(dev.publicKey, { org: 'o' }, obj), false, 'a context missing fields verifies nothing');
+  assert.throws(() => bf.sealManifest(k.pk, dev.privateKey, { ...ctx, org: '\ud800' }, { ok: 1 }), /letters, digits/, 'a lone surrogate id is refused');
+  assert.throws(() => bf.sealManifest(k.pk, dev.privateKey, { ...ctx, org: 'a b' }, { ok: 1 }), /letters, digits/, 'a space in an id is refused');
+  assert.ok(bf.sealManifest(k.pk, dev.privateKey, { ...ctx, period: '2026-W41', snapshot: 's.1:a_b' }, { ok: 1 }), 'CONTROL: ordinary ids seal');
+  assert.deepEqual(bf.openManifest(k.sk, dev.publicKey, ctx, bf.sealManifest(k.pk, dev.privateKey, ctx, Object.create(null))), {}, 'CONTROL: a null-prototype empty object seals and opens');
 });
 
 test('#5535 manifests are padded: very different file counts in one bucket seal to one size', () => {

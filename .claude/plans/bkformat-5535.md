@@ -47,3 +47,10 @@ The 1 MiB average and the content-defined boundaries are tuned by reasoning, not
 - **WARNING, small files matched by size:** the frame has a 4 KiB floor, so all small chunks and manifests look alike.
 - **NITs:** a canonical-name check in every function; each frame must be exactly its padded size (one valid encoding); the canonical JSON comment; new tests for crafted bad frames, chunking boundaries, refused manifest values and manifest padding.
 - **Deferred, named:** a streaming chunker for very large files belongs to slice 3 (the walker), which reads files. This pure function takes a Buffer.
+
+## Review round 2 (sonnet): no BLOCKER, 2 WARNINGs, fixed
+- **Silent drops in strict JSON:** a one-hole array (`[,]`) became `[]` and still read back; symbol keys, non-enumerable properties and extra array properties were dropped. All are now refused (Reflect.ownKeys checks), with tests for each shape.
+- **A top-level null manifest** sealed and signed but opened as null, which is indistinguishable from failure. Manifests must be plain objects (tested, with a null-prototype control).
+- **Context ids** are pinned to `[A-Za-z0-9._:-]{1,128}`: a lone surrogate became U+FFFD, so two contexts shared a signed byte string.
+- **padme** uses integer bit math (`clz32`), so the exact frame size cannot depend on an engine's Math.log2. A test compares it with a float reference at every power-of-two edge up to 2^31.
+- Documented: `devicePub` must come from trusted state (the member's enrolled devices, E0.2). The signature proves the device, and that binding proves the member.
