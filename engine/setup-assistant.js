@@ -808,10 +808,13 @@ function tokenOnlySettingsRules(dir, deps = {}) {
  * alone does not (measured, this branch's spike arm 3). It denies the AGENT's own .claude DIR (safe:
  * Claude Code writes no runtime state there) but only the specific settings FILES under the config home
  * ~/.claude (NOT the whole dir: that holds Claude Code's own session/config state, so a dir-level
- * denyWrite there would break normal operation). The board.token temp copy and the ~/.claude-* account
- * variants are covered by the permission-layer Read/Edit denies above, which Seatbelt translates to
- * subprocesses (measured for the guide: its permission Read-glob blocked a subprocess read with EPERM);
- * the sandbox filesystem list carries the concrete paths only. allowUnsandboxedCommands false stops a
+ * denyWrite there would break normal operation). Every ~/.claude-<label> account home that EXISTS when the
+ * guard is written gets the same concrete settings-file denies in both layers (tokenOnlySettingsRules); a
+ * home made later is covered only by the permission-layer ~/.claude-* glob until the next board start
+ * rewrites the guard. The board.token temp copy is covered by the permission-layer Read deny, which Seatbelt
+ * translates to subprocesses (measured for the guide: its permission Read-glob blocked a subprocess read
+ * with EPERM). The person's own user settings are never edited; refreshTokenOnlyGuards logs any sandbox
+ * key there that weakens this guard (review 21). allowUnsandboxedCommands false stops a
  * refused command being re-run with dangerouslyDisableSandbox (every Kosmos agent runs
  * --dangerously-skip-permissions); allowLocalBinding true keeps the loopback board reachable.
  *
@@ -965,6 +968,24 @@ function refreshTokenOnlyGuards(deps = {}) {
     const exists = dir ? (() => { try { return fs.statSync(dir).isDirectory(); } catch { return false; } })() : false;
     const g = exists ? guardTokenOnlyFolder(dir, name, { ...deps, runner }) : { ok: false, because: 'no agent folder yet' };
     if (g.ok) out.guarded.push(name); else out.unguarded.push({ name, because: g.because });
+  }
+  /* Review 21: the person's own user settings (~/.claude, ~/.claude-<label>) also reach a token-only agent. They are
+     the person's, so the guard never edits them; it says when one holds a key that weakens the sandbox. */
+  if (out.guarded.length) {
+    for (const h of accountConfigHomes(deps.home || kosmosHome())) {
+      for (const f of ['settings.json', 'settings.local.json']) {
+        let j = null;
+        try { j = JSON.parse(fs.readFileSync(path.join(h, f), 'utf8')); } catch { continue; }
+        const sb = j && j.sandbox && typeof j.sandbox === 'object' ? j.sandbox : null;
+        if (!sb) continue;
+        const weak = [];
+        if (sb.enabled === false) weak.push('enabled false');
+        if (sb.allowUnsandboxedCommands === true) weak.push('allowUnsandboxedCommands');
+        if (sb.excludedCommands !== undefined) weak.push('excludedCommands');
+        if (sb.filesystem && (sb.filesystem.allowRead !== undefined || sb.filesystem.allowWrite !== undefined)) weak.push('filesystem allowRead/allowWrite');
+        if (weak.length) process.stderr.write(`#4491: ${path.join(h, f)} (your own Claude settings) has sandbox ${weak.join(', ')}, which also reaches token-only agents and can weaken their guard\n`);
+      }
+    }
   }
   /* Review 12: a listed name with no agent folder (not made yet, or removed and still listed) is a note, not a guard
      failure: nothing is running under that name to guard. */

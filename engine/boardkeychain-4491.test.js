@@ -201,11 +201,18 @@ test('refreshTokenOnlyGuards is a safe no-op when the list is absent', () => {
   assert.deepEqual(out.guarded, []);
 });
 
-test('no em dash in a settings file this test writes', () => {
+test('no em dash in a settings file the guard writes, nor in the guard source', () => {
   const dir = agentDir('pilot-emdash');
-  setup.guardTokenOnlyFolder(dir, 'pilot-emdash', DEPS);
+  const g = setup.guardTokenOnlyFolder(dir, 'pilot-emdash', DEPS);
+  assert.equal(g.ok, true, 'the guard did not write, so the check below would read nothing');
   const raw = fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8');
+  assert.ok(raw.length > 50 && raw.includes('sandbox'), 'the written settings file is not the guard');
   assert.ok(!raw.includes('\u2014'), 'an em dash reached a written settings file');
+  // Review 21: the file above carries only rules, so also read the strings the guard and undo can say.
+  for (const f of ['setup-assistant.js', 'undo.js']) {
+    const src = fs.readFileSync(path.join(__dirname, f), 'utf8');
+    assert.ok(!/\u2014|&mdash;|&#8212;|&#x2014;|\\u2014|\\u\{2014\}/i.test(src), 'an em dash spelling in ' + f);
+  }
 });
 
 test('sendertoken.tokenOnlyList is the reader membership and the refresh use (undo has its own, stricter one), and tokenOnlyFor reads it', () => {
@@ -472,4 +479,19 @@ test('#4491 review 18: a settings.json that does not parse is kept as a dated co
   assert.equal(kept.length, 1, 'the person\'s unreadable settings were replaced with no copy');
   assert.equal(fs.readFileSync(path.join(path.dirname(file), kept[0]), 'utf8'), '{ "mine": true, }');
   assert.ok(errs.join('').includes('could not be read as settings'), 'the replacement was not said');
+});
+
+test('#4491 review 21: the person\'s own user settings that weaken the sandbox are said at board start, never edited', () => {
+  const home = fs.mkdtempSync(path.join(SANDBOX, 'home21-'));
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  const userFile = path.join(home, '.claude', 'settings.json');
+  const before = JSON.stringify({ sandbox: { excludedCommands: ['cat'] } });
+  fs.writeFileSync(userFile, before);
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['u21'] }) + '\n');
+  const errs = [];
+  const real = process.stderr.write;
+  process.stderr.write = (t) => { errs.push(String(t)); return true; };
+  try { setup.refreshTokenOnlyGuards({ ...DEPS, home, workerDir: () => agentDir('u21') }); } finally { process.stderr.write = real; }
+  assert.ok(errs.join('').includes('your own Claude settings') && errs.join('').includes('excludedCommands'), 'the weakening user setting was not said: ' + errs.join(''));
+  assert.equal(fs.readFileSync(userFile, 'utf8'), before, 'the person\'s own settings were edited');
 });
