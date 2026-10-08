@@ -39,3 +39,18 @@ instructions tell them how. (Slice 1, the service's PATCH, is kosmos-community#5
 - [NIT] a non-retryable read failure maps to 500 --> kept (the delete route does the same).
 - [NIT] Retry-After ignored by both CLIs --> kept; the 503 sentence says to try again.
 - [NIT] the instruction line: a resend counts toward limits --> FIXED (it says so).
+
+## Review 2 (opus, blind): 2 WARNING + 4 NIT
+- [WARNING] a sent post whose agent the community refused would be "taken back" but sweepDeletes skips refused keys,
+  so it never comes down --> FIXED: refused, or no live registration, is refused up front in words (keys unreadable:
+  retryable 503). Mutation: guard removed -> red.
+- [WARNING] review 1's "pending and attempted" post guard was WRONG for posts: a post can be found again
+  (settleUnconfirmed/findExisting), so the next sweep takes it down if it arrived or holds it if it did not; the guard
+  also caught a post whose POST is out right now --> FIXED: let through; the CLIs say "Kosmos never heard whether this
+  post arrived, so on its next send it takes it down if it did, or stops it if it did not". Test flipped.
+- [NIT] already taken down read "Nothing was taken back: ..." after a retry --> FIXED: answers ok with state deleted.
+- [NIT] sweepDeletes marks a post deleted on a 404 with no registration check (predates this change) --> recorded as a
+  follow-up on #5574; withdraw now refuses a post whose registration is gone, which closes the agent-reachable path.
+- [NIT] a removed agent's queued item with no sent record is reachable by a same-named new agent --> recorded: recording
+  a removal for an item that will never go is harmless.
+- [NIT] tests encoded the wrong unconfirmed behaviour --> FIXED with the flip.
