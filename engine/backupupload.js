@@ -15,7 +15,8 @@
  * What this module owns, and what it does not:
  *  - Before a single byte leaves, every grant must bind OUR bytes: the MD5 in its headers is the one we asked for, a
  *    Content-Length (if listed) is the chunk's length, X-Amz-SignedHeaders covers those six headers, If-None-Match is
- *    `*`, the url carries exactly SigV4's six query parameters and a signed time that agrees with expires_at, the url is https and carries the upload's own key, and no url or key
+ *    `*`, the url carries exactly SigV4's six query parameters and a signed time that agrees with expires_at, its host
+ *    is an AWS S3 endpoint (path-style or virtual-hosted, never a website endpoint), the url is https and carries the upload's own key, and no url or key
  *    repeats. A coordinator bug cannot make the Mac write something other than what it sealed.
  *  - 412 counts as stored only after an earlier attempt on that key that MAY HAVE WRITTEN it (a lost answer, a failure
  *    after S3 received the request); not after pre-connect failures or S3's "nothing committed" answers. The key
@@ -145,7 +146,7 @@ function parseGrant(data, objects, seenKeys) {
     // names (a coordinator bug cannot point it at a LAN address or another service). Path-style s3.<region> or
     // s3-<region>, or virtual-hosted <bucket>.s3.<region>. This pins the SERVICE, not the bucket: the Mac holds no
     // bucket name of its own, so a grant naming another bucket on S3 passes; the payload is sealed either way.
-    if (!allowHttp && (url.port || !S3_HOST.test(url.hostname))) return { ok: false, because: `upload ${i}'s host is not an AWS S3 endpoint (${url.host})` };
+    if (!allowHttp && (url.port || !S3_HOST.test(url.hostname) || /s3-website/.test(url.hostname))) return { ok: false, because: `upload ${i}'s host is not an AWS S3 endpoint (${url.host})` };
     let path;
     try { path = decodeURIComponent(url.pathname); } catch { return { ok: false, because: `upload ${i} has an undecodable url path` }; }
     if (!path.endsWith('/' + u.key)) return { ok: false, because: `upload ${i}'s url does not carry its key` };
@@ -155,6 +156,8 @@ function parseGrant(data, objects, seenKeys) {
     // A virtual-hosted S3 host (<bucket>.s3.<region>.amazonaws.com) names the bucket already: the path is the key.
     const virtualHosted = /\.s3[.-]([a-z0-9-]+\.)?amazonaws\.com$/.test(url.hostname);
     if (virtualHosted && pre !== '/') return { ok: false, because: `upload ${i}'s url path is not its key (a virtual-hosted bucket)` };
+    // A path-style S3 host takes the FIRST segment as the bucket, so there the key must follow exactly one segment.
+    if (!virtualHosted && !allowHttp && !/^\/[^/]+\/$/.test(pre)) return { ok: false, because: `upload ${i}'s url path is not one bucket segment and its key (a path-style host)` };
     if (!(pre === '/' || /^\/[^/]+\/$/.test(pre))) return { ok: false, because: `upload ${i}'s url path is not its key under one bucket segment` };
     const prefix = `${url.host}${pre}`;
     if (i === 0) bucketPrefix = prefix; else if (prefix !== bucketPrefix) return { ok: false, because: `upload ${i}'s url is not under the grant's bucket path` };
