@@ -59,7 +59,7 @@ test('#5532 v1.5: on a Mac, this computer\'s real print exists and is stable (no
   t.after(() => cp._testRunner());
   cp._testRunner();
   const a = cp._testFingerprint(SALT, ORG);
-  assert.ok(typeof a === 'string' && /^[0-9a-f]{64}$/.test(a), 'no print on this Mac (ioreg gave no IOPlatformUUID)');
+  assert.ok(typeof a === 'string' && /^[0-9a-f]{64}$/.test(a), 'no print on this computer (ioreg gave no IOPlatformUUID)');
   // Fresh reads, not the cache, and compared as a boolean so a failure can never print a value.
   const fresh = () => require('node:child_process').execFileSync('/usr/sbin/ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice'], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] });
   cp._testRunner(fresh, { platform: 'darwin' });
@@ -90,8 +90,11 @@ test('#5532 v1.5: no file but computerprint.js uses a known spelling of a raw ha
   const root = path.join(__dirname, '..');
   // Needs git (it lists tracked files); outside a checkout it throws, and the count below keeps it from passing empty.
   const files = require('node:child_process').execFileSync('git', ['-C', root, 'ls-files', '-z'], { encoding: 'utf8' }).split('\0')
-    .filter((f) => /\.(js|mjs|cjs|sh|ps1|html|swift|m|mm|c|h|java|kt|py)$/.test(f) && !/^engine\/computerprint(-5532\.test)?\.js$/.test(f));
-  assert.ok(files.includes('server.js') && files.includes('engine/store.js'), 'the repo was not listed (' + files.length + ' files)');
+    .filter((f) => !/^engine\/computerprint(-5532\.test)?\.js$/.test(f))
+    .filter((f) => /\.(js|mjs|cjs|sh|ps1|html|swift|m|mm|c|h|java|kt|py|yml|yaml|plist|gradle)$/.test(f)
+      // and extensionless scripts, found by their first line (install/kosmos, install/pkg-scripts/postinstall; review 15)
+      || (!/\.[^/]+$/.test(f) && (() => { try { return /^#!/.test(fs.readFileSync(path.join(root, f), 'utf8').slice(0, 2)); } catch { return false; } })()));
+  assert.ok(files.includes('server.js') && files.includes('engine/store.js') && files.includes('install/kosmos'), 'the repo was not listed, or extensionless scripts were skipped (' + files.length + ' files)');
   /* The spellings covered (review 3 listed the ones an earlier version missed): ioreg's keys, system_profiler's hardware
      page, sysctl's kern.uuid, WMI's computer-system product, Linux's machine-id, and the Windows registry key, whole or
      split into arguments. A read by another spelling is not caught: this is a guard on the known ways, not a proof. */
@@ -155,18 +158,34 @@ test('#5532 v1.5 reviews 7 to 9: printFor gives ONE answer: send the print, send
   assert.deepEqual(cp.printFor(SALT, ORG), { send: 'later' }, 'a quoted mention read as the hardware block');
 });
 
-test('#5532 v1.5 review 9: an ioreg that always fails stops deferring after GIVE_UP_AFTER reads, never waits forever', (t) => {
+test('#5532 v1.5 reviews 9 and 15: an ioreg that always fails stops deferring after GIVE_UP_AFTER_MS on the clock, then backs off', (t) => {
   let n = 0;
   withReader(t, () => { n += 1; throw new Error('ioreg missing'); }, { platform: 'darwin', now: 0 });
-  let last;
-  for (let k = 0; k < cp.GIVE_UP_AFTER + 2; k += 1) {
-    cp._testClock(k * (cp.RETRY_AFTER_FAIL_MS + 1));
-    last = cp.printFor(SALT, ORG);
-    if (k < cp.GIVE_UP_AFTER - 1) assert.equal(last.send, 'later', 'gave up too early, at read ' + (k + 1));
-    if (k === cp.GIVE_UP_AFTER - 1) assert.equal(last.send, 'none', 'did not give up at exactly GIVE_UP_AFTER reads');
-  }
-  assert.equal(n, cp.GIVE_UP_AFTER + 2, 'reads were not retried once a minute');
-  assert.deepEqual(last, { send: 'none' }, 'a Mac whose ioreg always fails would defer enroll and leave forever');
+  assert.equal(cp.printFor(SALT, ORG).send, 'later');
+  // Review 15: the give-up is time, not how often a caller asks. One retry only, long after: still gives up.
+  cp._testClock(cp.GIVE_UP_AFTER_MS - 1);
+  assert.equal(cp.printFor(SALT, ORG).send, 'later', 'gave up before GIVE_UP_AFTER_MS');
+  cp._testClock(cp.GIVE_UP_AFTER_MS);
+  assert.deepEqual(cp.printFor(SALT, ORG), { send: 'none' }, 'a Mac whose ioreg always fails would defer enroll and leave forever');
+  // Backoff after giving up: the next reads come further apart, so a hung ioreg cannot stall the board every minute.
+  const before = n;
+  for (let m = 1; m <= 60; m += 1) { cp._testClock(cp.GIVE_UP_AFTER_MS + m * 60 * 1000); cp.printFor(SALT, ORG); }
+  assert.ok(n - before <= 7, 'read ' + (n - before) + ' times in the hour after giving up; expected a doubling wait');
+  assert.ok(n - before >= 1, 'stopped trying for good; a reader that recovers would never be noticed');
 });
 
-test.todo('#5532 the first caller of printFor() lands with a guard that its file never logs the print or a request body carrying it (rule 1; review 7)');
+
+test('#5532 v1.5 review 15: nothing outside the tests loads computerprint until its first caller brings the two privacy guards', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const root = path.join(__dirname, '..');
+  const files = require('node:child_process').execFileSync('git', ['-C', root, 'ls-files', '-z'], { encoding: 'utf8' }).split('\0')
+    .filter((f) => /\.(js|mjs|cjs)$/.test(f) && !/\.test\.js$/.test(f) && f !== 'engine/computerprint.js');
+  assert.ok(files.includes('server.js'), 'the repo was not listed');
+  /* The first caller adds itself here, in the same PR as a test that (1) its file never logs a printFor result, a print
+     or a request body carrying one, and (2) it takes `company` from this board's own enrollment record, never from a
+     coordinator's answer (see the header of engine/computerprint.js). */
+  const ALLOWED = [];
+  const loaders = files.filter((f) => /require\(\s*['"][^'"]*computerprint['"]\s*\)|from\s+['"][^'"]*computerprint['"]/.test(fs.readFileSync(path.join(root, f), 'utf8')));
+  assert.deepEqual(loaders.filter((f) => !ALLOWED.includes(f)), [], 'loads computerprint without being allowed: add it to ALLOWED only together with its no-logging and company-source tests');
+});

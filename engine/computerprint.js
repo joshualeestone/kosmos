@@ -35,8 +35,10 @@
  * link the two with no list of hardware ids at all.
  *
  * In memory: the raw id is kept in a module variable for the life of the board process once read (a heap snapshot or a
- * core dump would hold it), and a dump that failed to parse is dropped at once. Nothing writes either anywhere.
- * After GIVE_UP_AFTER the reader still tries once a minute (decided, review 13): a reader that recovers is noticed. So
+ * core dump would hold it), and so would the last ioreg dump until it is garbage-collected (a JavaScript string cannot
+ * be wiped; review 15 corrected my claim that it was "dropped at once"). Nothing writes either anywhere.
+ * After giving up, the reader still tries, but each wait doubles up to an hour (review 15): a reader that recovers is
+ * noticed, and a reader that hangs for good costs one five-second stall an hour, not one a minute. So
  * one enrollment can see 'none' and later a print (review 14). That is expected: an enroll with no print pins nothing
  * (the coordinator confirmed), so the later print cannot mismatch; enrolling again with the print pins it.
  *
@@ -71,13 +73,17 @@ let defaultRun = realRun;   // replaced only by tests, through _testRunner below
    five seconds on every call. */
 const RETRY_AFTER_FAIL_MS = 60 * 1000;
 let failedAt = null;   // when the last read failed, or null (never 0 as a sentinel: a clock can read 0 in a test)
-let failures = 0;      // failed reads in a row
+let firstFailAt = null;  // when the current run of failed reads began, or null
+let backoff = RETRY_AFTER_FAIL_MS;   // the wait before the next read; doubles after giving up, up to MAX_BACKOFF_MS
 let noIdHere = false;  // ioreg's hardware block was there and has no IOPlatformUUID (some VMs): a lasting answer
 let noIdStreak = 0;    // such answers in a row: one can be a cut-off dump, so it takes two (review 12)
-/* After this many failed reads in a row (about ten minutes at one a minute), stop deferring and send without a print
-   (review 9). On a computer that had a print pinned, the company then asks the person to make this computer the work
-   Kosmos again, with consent: a recoverable end, where an endless wait would never let it enroll or leave. */
-const GIVE_UP_AFTER = 10;
+/* After failing for this long in a row (measured on the clock, not by how often a caller asks; review 15), stop
+   deferring and send without a print (review 9). On a computer that had a print pinned, the company then asks the
+   person to make this computer the work Kosmos again, with consent: a recoverable end, never an endless wait. */
+const GIVE_UP_AFTER_MS = 10 * 60 * 1000;
+const MAX_BACKOFF_MS = 60 * 60 * 1000;
+function gaveUp(now) { return firstFailAt !== null && now - firstFailAt >= GIVE_UP_AFTER_MS; }
+function clockNow() { return testNow != null ? testNow : Number(process.hrtime.bigint() / 1000000n); }
 
 /* The raw IOPlatformUUID out of ioreg's text, or null. Pure, so the parse is tested on fixtures. */
 function parseIoreg(text) {
@@ -96,20 +102,20 @@ function hardwareId() {
   if (platform !== 'darwin') return null;   // no reader here (Windows: by its owner); not a failure, so no retry state
   if (cached) return cached;   // only a SUCCESSFUL read is kept (review 1); a failed one is tried again,
   // A clock that never runs backwards (review 5): a wall clock set back would hold the wait open for hours.
-  const now = testNow != null ? testNow : Number(process.hrtime.bigint() / 1000000n);
-  if (failedAt !== null && now - failedAt < RETRY_AFTER_FAIL_MS) return null;   // but not at once (review 2)
+  const now = clockNow();
+  if (failedAt !== null && now - failedAt < backoff) return null;   // but not at once (review 2)
   let id = null;
   let ran = false;
   // 🛑 Never log this error: on a timeout or a non-zero exit its .stdout is the full ioreg dump, raw id and serial number.
   let out = '';
   try { out = String(defaultRun() || ''); ran = true; id = parseIoreg(out); } catch { id = null; }
-  if (id) { cached = id; failedAt = null; failures = 0; noIdHere = false; return id; }
+  if (id) { cached = id; failedAt = null; firstFailAt = null; backoff = RETRY_AFTER_FAIL_MS; noIdHere = false; return id; }
   failedAt = now;
-  failures += 1;
+  if (firstFailAt === null) firstFailAt = now;
+  if (gaveUp(now)) backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);   // after giving up, back off (review 15)
   /* "No id here" only when ioreg answered WITH its hardware block and that block has no UUID key at all (review 9):
      a truncated or garbled answer is a failed read to retry, never a reason to send without a print. */
   const blockWithoutId = ran && /^\+-o .*<class IOPlatformExpertDevice\b/m.test(out) && !/"IOPlatformUUID"\s*=/.test(out);   // the block's own header line
-  out = '';   // the dump also holds the serial number: drop it as soon as it has been read (review 14)
   noIdStreak = blockWithoutId ? noIdStreak + 1 : 0;
   noIdHere = noIdStreak >= 2;   // the same answer twice, a minute apart: a lasting "no id", not a dump cut short
   return null;
@@ -134,7 +140,7 @@ function fingerprint(salt, company) {
  * What a caller sends, in ONE answer (review 9: a separate state and print could disagree):
  *   { send: 'print', print }   send the print
  *   { send: 'none' }           send WITHOUT a print: no reader on this platform, a computer whose hardware block has no
- *                              id, or GIVE_UP_AFTER failed reads in a row
+ *                              id, or reads failing for GIVE_UP_AFTER_MS in a row
  *   { send: 'later' }          DEFER the request: a read failed and its wait is running (a request without a print now
  *                              would read as a copy to the company)
  *   { send: 'error', because } the salt or the company is not well formed: a bug on one side, not a wait (review 10).
@@ -150,7 +156,7 @@ function printFor(salt, company) {
   if (platform !== 'darwin') return { send: 'none' };
   const print = fingerprint(salt, company);
   if (print) return { send: 'print', print };
-  if (noIdHere || failures >= GIVE_UP_AFTER) return { send: 'none' };
+  if (noIdHere || gaveUp(clockNow())) return { send: 'none' };
   return { send: 'later' };
 }
 
@@ -164,7 +170,8 @@ function _testRunner(fn, opts) {
   testNow = o.now != null ? o.now : null;
   cached = undefined;
   failedAt = null;
-  failures = 0;
+  firstFailAt = null;
+  backoff = RETRY_AFTER_FAIL_MS;
   noIdHere = false;
   noIdStreak = 0;
 }
@@ -172,4 +179,4 @@ function _testRunner(fn, opts) {
 function _testClock(now) { testNow = now; }
 
 // parseIoreg is exported for the fixture tests: it returns an id only from text the caller already holds.
-module.exports = { parseIoreg, printFor, _testFingerprint: fingerprint, UUID, SALT, RETRY_AFTER_FAIL_MS, GIVE_UP_AFTER, _testRunner, _testClock };
+module.exports = { parseIoreg, printFor, _testFingerprint: fingerprint, UUID, SALT, RETRY_AFTER_FAIL_MS, GIVE_UP_AFTER_MS, MAX_BACKOFF_MS, _testRunner, _testClock };

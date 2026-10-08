@@ -13,7 +13,8 @@ company, and `thisComputer` cannot tell them apart.
     the coordinator (whole bytes, either case); the company is the enrolled org's id FROM THIS BOARD'S OWN RECORD, never
     from a coordinator's answer. The company id in the HMAC keeps prints from matching across companies.
   - The hardware id (private): macOS IOPlatformUUID from `ioreg -rd1 -c IOPlatformExpertDevice` (measured: no prompt,
-    no entitlement). A successful read is kept; a failed one is retried after a minute and given up after ten.
+    no entitlement). A successful read is kept; a failed one is retried after a minute; after ten minutes of failing it gives up, and the
+    wait then doubles up to an hour.
     Windows: null until the Windows owner builds MachineGuid (spec on #5532). Anything else: null.
 - Nothing calls it yet: enroll, leave and the rollup send it once the coordinator accepts the field (v1.5).
 
@@ -171,5 +172,17 @@ company, and `thisComputer` cannot tell them apart.
   redden the suite. Measured both ways: a planted mention passes, a planted ioreg invocation fails.
 - DOCUMENTED: one enrollment can see 'none' and later a print (the reader recovered); an enroll with no print pins
   nothing, so the later print cannot mismatch.
-- FIXED: the ioreg dump (which also holds the serial number) is dropped as soon as it is read.
+- (WITHDRAWN by review 15: `out = ''` wiped nothing, since a JavaScript string cannot be cleared; the line is gone and
+  the header says the dump stays in memory until garbage collection.)
 - DUPLICATE: the never-log rule is prose until a caller lands (pinned test.todo, on #5532).
+
+## Review 15 (blind, opus)
+- FIXED: the reader guard also scans extensionless scripts (found by their #! line: install/kosmos, the pkg
+  postinstall), CI yml, plist and gradle files; a planted extensionless ioreg script reddens it.
+- ARMED NOW, not a todo: no file outside the tests may load computerprint until its first caller is added to an
+  allowlist, in the same PR as its no-logging and company-source tests (a planted loader reddens it).
+- FIXED: the give-up is ten minutes on the clock since the first failure in a row, not ten reads (a caller retrying
+  rarely would wait days); after giving up the wait doubles up to an hour, so a hung ioreg costs one five-second stall
+  an hour, not one a minute (both mutations redden).
+- CORRECTED (my own overclaim in review 14): see above; "this Mac" in a test message is now "this computer".
+- KEPT: the tests-only hooks on the export (review 4).
