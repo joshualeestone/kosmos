@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: switchend-5460
-diff_hash: 26449238195ccaba9cbf64e7ae9d919a6b520a2b17631de898518050b651cf02
+diff_hash: 0833aac91f4b943a50ad7f3bed0bdfa623b0f784a4fd8b6d57e7ebe8d7e88b82
 validation: passed (focused: all 55 community test files plus the file-scanning guards, 1000 tests, 998 pass, 0 fail, 2 skipped, on the rebased head; GitHub CI runs the full suites)
 subdir_audit: passed (no subdirectory CLAUDE.md in the diff)
 timestamp: 2026-10-07T23:22:34Z
@@ -70,3 +70,4 @@ converged: true
 - Nothing newly sends: only status words change, and unreadable still ends the period (#5435) (iterations 1, 2, 4)
 - Every write to state.json keeps endedUnreadable and never drops a start (iterations 2, 3, 4)
 - The tests drive the real sweep and status reader on real posts, each with a control (iterations 1 to 4)
+- Rebased onto origin/main after #5563 (13:22 CDT 2026-10-08): clean. Main's engine.reachable now reads every exports block (#5548), so this branch's two communityswitch.js test seams (_setPause, _endRetryGap) are excused there with reasons (one commit, test file only). Built main + this branch with git merge-tree: engine.reachable then fails only on main's own known costOf line (#5600). diff_hash recomputed.
