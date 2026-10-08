@@ -61,6 +61,7 @@ const check = (ok, label, got) => results.push({ ok: !!ok, label, got });
         if (url.indexOf('/api/worlds/overview') !== -1) {
           window.__wvReads += 1;
           if (window.__wvFail) return Promise.resolve({ ok: false, status: 500, json: async () => ({ because: 'the world registry is not readable on this machine' }) });
+          if (window.__wvDeny) return Promise.resolve({ ok: false, status: 403, json: async () => ({ error: 'this board needs its token' }) });
           return Promise.resolve({ ok: true, json: async () => overview });
         }
         if (url.indexOf('/api/worlds/names') !== -1) return Promise.resolve({ ok: true, json: async () => names });
@@ -128,6 +129,12 @@ const check = (ok, label, got) => results.push({ ok: !!ok, label, got });
     check(/not readable on this machine/.test(after.text) && !/Home/.test(after.text), `@${w}: a failed read says so and leaves no old rows up`, after.text);
     const status = await page.evaluate(() => { const e = document.getElementById('wv-status'); return { role: e.getAttribute('role'), live: e.getAttribute('aria-live'), text: e.textContent }; });
     check(status.role === 'status' && status.live === 'polite' && /not readable on this machine/.test(status.text), `@${w}: the failed read is announced`, status);
+    // A board that is not signed in: the gated route answers 403 with `error`; the sheet says to sign in.
+    await page.evaluate(() => { window.__wvFail = false; window.__wvDeny = true; });
+    await page.click('#wv-refresh');
+    await page.waitForFunction(() => /Sign in to this Kosmos/.test(document.getElementById('wv-list').textContent || ''), null, { timeout: 5000 }).catch(() => {});
+    const denied = await page.evaluate(() => ({ list: (document.getElementById('wv-list').textContent || '').trim(), said: document.getElementById('wv-status').textContent }));
+    check(/Sign in to this Kosmos/.test(denied.list) && /Sign in to this Kosmos/.test(denied.said), `@${w}: a board that is not signed in is told to sign in, not to retry`, denied);
     await page.keyboard.press('Escape');
     const closed = await page.evaluate(() => ({ hidden: document.getElementById('wv-modal').hidden, focus: document.activeElement && document.activeElement.id }));
     check(closed.hidden && closed.focus === 'worldsw-btn', `@${w}: Escape closes it and focus goes back to the switcher`, closed);

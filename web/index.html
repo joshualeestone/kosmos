@@ -11962,8 +11962,8 @@ window.kosmosMeasureScrollbarWidth();
             <h2 class="rm-title" id="wv-t">At a glance</h2>
             <p class="rm-small" id="wv-in">Each Kosmos on this computer: how its AI providers are doing, and the tasks nobody is on yet.</p>
             <div class="wv-list" id="wv-list" tabindex="0" aria-label="Your Kosmoses at a glance"></div>
-    <!-- One short sentence on how the last read went, announced; the rows themselves are not re-read on Refresh. -->
-    <p class="vh" id="wv-status" role="status" aria-live="polite"></p>
+            <!-- One short sentence on how the last read went, announced; the rows themselves are not re-read on Refresh. -->
+            <p class="vh" id="wv-status" role="status" aria-live="polite"></p>
             <div class="rm-acts" style="margin-top: var(--space-6);">
               <button class="btn" id="wv-refresh" type="button">Refresh</button>
               <button class="btn uprime" id="wv-close" type="button">Close</button>
@@ -29255,6 +29255,7 @@ async function wvLoad() {
   const gen = ++wvGen;
   const list = document.getElementById('wv-list');
   list.setAttribute('aria-busy', 'true');
+  document.getElementById('wv-status').textContent = '';   // cleared, so the same outcome twice is still announced
   list.innerHTML = '<p class="wv-line wv-muted">Reading your Kosmoses...</p>';
   let html;
   let said = 'Your Kosmoses are up to date.';
@@ -29262,8 +29263,12 @@ async function wvLoad() {
     const res = await fetch('/api/worlds/overview', { cache: 'no-store' });
     let body = null;
     try { body = await res.json(); } catch (_e) {}
-    if (!res.ok) said = (body && body.because) || 'Kosmos could not read your Kosmoses just now.';
-    html = res.ok ? wvListHtml(body) : wvListHtml({ because: said });
+    // The route is token-gated: a board that is not signed in answers 401/403 with `error`, not `because`, and
+    // Refresh will not fix that, so it is said as what it is.
+    if (res.status === 401 || res.status === 403) said = 'Sign in to this Kosmos to see your Kosmoses at a glance.';
+    else if (!res.ok) said = (body && (body.because || body.error)) || 'Kosmos could not read your Kosmoses just now.';
+    else if (!body || !Array.isArray(body.worlds)) said = 'Kosmos could not read your Kosmoses just now.';
+    html = res.ok && body && Array.isArray(body.worlds) ? wvListHtml(body) : wvListHtml({ because: said });
   } catch (_e) {
     said = 'Kosmos could not be reached just now.';
     html = wvListHtml({ because: said });
