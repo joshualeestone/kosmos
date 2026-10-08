@@ -177,7 +177,13 @@ async function preview(code, opts) {
 
 /* Enroll THIS world. Sends nothing unless the person accepted. `code` is required for a first join and omitted when an
    existing member moves the enrollment to this world. */
-async function enroll(code, accepted, opts) {
+/* enroll, leave and refresh read and write the same record: one at a time, so the daily pass can never act on a
+   record a leave has just cleared and is about to restore (or the reverse). */
+let queue = Promise.resolve();
+function oneAtATime(fn) { const run = queue.then(fn, fn); queue = run.catch(() => {}); return run; }
+
+async function enroll(code, accepted, opts) { return oneAtATime(() => enrollNow(code, accepted, opts)); }
+async function enrollNow(code, accepted, opts) {
   if (accepted !== true) return { ok: false, declined: true, because: 'not accepted, so nothing was sent' };
   const world = worldId(opts);
   if (!world) return { ok: false, because: "this Kosmos's data folder cannot be written" };
@@ -202,6 +208,7 @@ async function enroll(code, accepted, opts) {
   if (!org || !role || !en || en.world !== world || en.thisComputer !== true) return { ok: false, because: 'the company did not confirm this Kosmos, so it is not enrolled' };
   const rec = { org, role, world, enrolledAt: new Date().toISOString() };
   try { writeEnrollment(rec, opts); } catch { return { ok: false, because: 'joined, but this Kosmos could not record it; check again' }; }
+  setLeavePending(false, opts);   // joined again after an unconfirmed leave: that old leave must never be sent now
   return { ok: true, ...rec };
 }
 
@@ -216,7 +223,8 @@ function leavePending(opts) { return fs.existsSync(path.join(storeRoot(opts), LE
      keeps showing you joined, because you are.
    - Already not a member (org_not_member): left.
    - No answer: a pending leave is kept, and the next start or daily pass sends it again. */
-async function leave(opts) {
+async function leave(opts) { return oneAtATime(() => leaveNow(opts)); }
+async function leaveNow(opts) {
   const before = readEnrollment(opts);
   clearEnrollment(opts);
   const r = await signed('POST', ROUTES.leave, {}, opts);
@@ -233,9 +241,10 @@ async function leave(opts) {
 
 /* On start and daily: ask the coordinator. member:false, or an enrollment naming another world, clears this world's
    record (removed, left, or moved elsewhere). An unreachable coordinator changes nothing. */
-async function refresh(opts) {
+async function refresh(opts) { return oneAtATime(() => refreshNow(opts)); }
+async function refreshNow(opts) {
   if (leavePending(opts)) {   // a leave the company has not confirmed: send it again, report nothing meanwhile
-    const r = await leave(opts);
+    const r = await leaveNow(opts);
     return { ok: r.ok, enrolled: false, stopped: true, pending: !!r.pending, because: r.because };
   }
   const before = readEnrollment(opts);

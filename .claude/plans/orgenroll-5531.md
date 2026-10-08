@@ -78,3 +78,11 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
 - FIXED: leave reconciliation (last admin stays joined; a pending leave is retried); company name and consent lines
   cleaned with engine/externalname.js and bounded; codeOf matches only the public codes (an org_id field is not the
   error); the page throttles failed /api/org reads; a terminal enroll refusal returns to the code field; Mona's 16px.
+
+## Review 2 (blind, sonnet)
+- FIXED: a successful enroll clears a pending leave (else the next pass sent the old leave and un-enrolled a person who
+  had just joined); enroll, leave and refresh run one at a time (a pass that read "enrolled" before a leave could
+  write the record back after it). Both pinned; each mutation reddens.
+- DEFERRED: "an agent never joins for the person" is exactly as strong as isViaScreen, the board's check for every
+  person-only setting (refuses an agent token; requires browser headers). A per-session screen nonce would be a
+  board-wide change, not this card's.

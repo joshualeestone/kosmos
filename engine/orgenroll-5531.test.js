@@ -264,3 +264,38 @@ test('#5531 review 1: the company name and consent lines are cleaned as outside 
   assert.ok(p.consent.reports[0].length <= 300, 'an unbounded line');
   assert.equal(org.codeOf('409 {"org_id":"org_1","because":"org_already_member"}'), 'org_already_member', 'a field named org_id was read as the error');
 });
+
+test('#5531 review 2: joining again after an unconfirmed leave clears it, so the next pass does not send the old leave', async (t) => {
+  const { a } = sandbox(t);
+  const state = {};
+  const remote = fakeRemote(state);
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote });
+  await org.leave({ root: a, remote: { macRequest: async () => ({ ok: false, because: 'offline' }) } });
+  assert.equal(org.leavePending({ root: a }), true);
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote });
+  assert.equal(org.leavePending({ root: a }), false, 'the old leave survived a new join');
+  const before = remote.sent.length;
+  const r = await org.refresh({ root: a, remote });
+  assert.equal(r.enrolled, true, 'the next pass un-enrolled a person who had just joined');
+  assert.ok(!remote.sent.slice(before).some((x) => x.route === org.ROUTES.leave), 'the old leave was sent');
+});
+
+test('#5531 review 2: the daily pass and a leave run one at a time, so a pass that read "enrolled" cannot write the record back after the leave', async (t) => {
+  const { a } = sandbox(t);
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const remote = { macRequest: async (m, route) => {
+    if (route === org.ROUTES.status) {   // the pass's read is slow, and says enrolled (true when it was asked)
+      await gate;
+      return { ok: true, data: { member: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: org.worldId({ root: a }), thisComputer: true } } };
+    }
+    if (route === org.ROUTES.leave) return { ok: true, data: { ok: true } };
+    return { ok: false, because: 'unexpected' };
+  } };
+  const refreshing = org.refresh({ root: a, remote });   // starts first, waits on its read
+  const leaving = org.leave({ root: a, remote });       // the person leaves meanwhile
+  release();
+  await refreshing; await leaving;
+  assert.equal(org.isEnrolledHere({ root: a }), false, 'a pass that read enrolled before the leave wrote the record back after it');
+});
