@@ -68,3 +68,7 @@ The 1 MiB average and the content-defined boundaries are tuned by reasoning, not
 - The reviewer removed each of 26 guards in a scratch copy, and 16 went red. **The only security guard with no test was the naming-key length check**, the thing that stops an empty or short key letting anyone forge valid chunk names. It is now tested: empty, 16-byte, 33-byte and string keys are refused on seal and on open, a forgery under an empty-key name is refused, and the round trip is the control.
 - The remaining untested guards are unreachable behind other checks. Each is now labelled defence in depth in the code (the read-back check, the signature length, the frame length half), so the next reviewer does not report them again.
 - The plan's export counts and entry names are corrected.
+
+## Review round 6 (sonnet): converged (no BLOCKER, WARNING or CONVENTION), both NITs taken
+- **A golden vector pins format 1's chunk boundaries:** 6 MiB of deterministic bytes give exactly 7 chunks of 286742, 1078049, 1781820, 1480926, 1131483, 441857 and 90579 bytes. Changing the gear table, the masks or the hard/easy switch would keep every property test green while silently ending dedup against existing backups. Now it fails a test, and needs a format bump.
+- `chunkBuffer` validates caller sizes: integers, 0 < min < avg < max, 64 <= avg <= 2^28 (so the mask shift stays in range).

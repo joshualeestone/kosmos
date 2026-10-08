@@ -45,7 +45,9 @@ const masksFor = (avg) => { const b = Math.round(Math.log2(avg)); return { hard:
 /** Split a Buffer into content-defined chunks (subarrays, no copy). Deterministic for format 1. */
 function chunkBuffer(buf, opts = CDC) {
   const { min, avg, max } = opts;
-  if (!(min > 0 && min < avg && avg < max)) throw new Error('backupformat: chunk sizes need 0 < min < avg < max');
+  if (![min, avg, max].every(Number.isSafeInteger) || !(min > 0 && min < avg && avg < max) || avg < 64 || avg > 2 ** 28) {
+    throw new Error('backupformat: chunk sizes need integers with 0 < min < avg < max and 64 <= avg <= 2^28');
+  }
   const { hard: MASK_HARD, easy: MASK_EASY } = masksFor(avg);
   const out = [];
   let start = 0;
