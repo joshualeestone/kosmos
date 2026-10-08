@@ -36,4 +36,7 @@ Final validation on 50a836ac4: validation_log PASSED (full tools/run-tests.sh su
 ## Rebased onto main for #5564 (2026-10-08)
 CI's only red (twice) was #4417's launch-event flake, 1 of 16689 node tests; its fix #5564 merged after this branch
 was cut. Rebased onto main (clean, no conflicts) to carry the fix; no change to this branch's own lines, but the diff's
-context moved, so the hash is re-taken and the pre-push hook re-runs full validation on the new diff.
+context moved, so the hash is re-taken. The local full validation in the frontmatter ran on the PREVIOUS base; the
+rebased diff is validated by CI's full run on the new head (node and shell suites, windows, browser-checks), which
+the merge watcher requires green. (Corrected: an earlier line here said the pre-push hook re-runs validation; it
+does not.)
