@@ -60,6 +60,10 @@ const SIGNED_NEEDED = ['content-length', 'content-md5', 'host', 'if-none-match',
 // The only headers a grant may ask the Mac to send (the coordinator lists four; Content-Length is tolerated if listed).
 const HEADER_ALLOWED = new Set(['content-md5', 'if-none-match', 'x-amz-object-lock-mode', 'x-amz-object-lock-retain-until-date', 'content-length']);
 const GRANT_WINDOW_MS = 15 * 60 * 1000;                 // the coordinator's grant lifetime (GRANT_SECS)
+// The only query parameters a grant's url may carry: SigV4's own. S3 honours x-amz-* request parameters in the query
+// too (a legal hold, a retention, tagging, a multipart uploadId), which would act on the locked bucket unseen by the
+// header checks, so any other parameter refuses the grant.
+const QUERY_ALLOWED = ['X-Amz-Algorithm', 'X-Amz-Credential', 'X-Amz-Date', 'X-Amz-Expires', 'X-Amz-SignedHeaders', 'X-Amz-Signature'];
 // The lock a grant may set, measured from the grant's own start (expires_at minus its window), never the Mac's clock:
 // the coordinator locks to the end of the week plus 30 days (plus the window), or the next week's end in a week's
 // last day, so 30 to about 38 days. Outside [29, 39] days is a coordinator bug that would lock data for the wrong time.
@@ -121,6 +125,9 @@ function parseGrant(data, objects, allowHttp) {
     if (!path.endsWith('/' + u.key)) return { ok: false, because: `upload ${i}'s url does not carry its key` };
     if (urls.has(url.toString())) return { ok: false, because: `upload ${i} repeats a url` };
     urls.add(url.toString());
+    const qnames = [...url.searchParams.keys()];
+    for (const q of qnames) if (!QUERY_ALLOWED.includes(q)) return { ok: false, because: `upload ${i}'s url carries a parameter it may not (${q})` };
+    if (new Set(qnames).size !== qnames.length) return { ok: false, because: `upload ${i}'s url repeats a parameter` };
     const signed = String(url.searchParams.get('X-Amz-SignedHeaders') || '').toLowerCase().split(';');
     // The url itself must not outlive a grant: X-Amz-Expires (seconds) at most the window.
     const xe = Number(url.searchParams.get('X-Amz-Expires'));
@@ -146,7 +153,7 @@ function parseGrant(data, objects, allowHttp) {
     if (headerOf(headers, 'if-none-match') !== '*') return { ok: false, because: `upload ${i} is not write-once` };
     // And the lock must be the one the plan says: COMPLIANCE, for 29 to 39 days from the grant's own start.
     if (headerOf(headers, 'x-amz-object-lock-mode') !== 'COMPLIANCE') return { ok: false, because: `upload ${i} is not a COMPLIANCE lock` };
-    const retainMs = expiryMs(String(headerOf(headers, 'x-amz-object-lock-retain-until-date') || ''));
+    const retainMs = expiryMs(headerOf(headers, 'x-amz-object-lock-retain-until-date'));
     const lockFor = retainMs - (expiresAtMs - GRANT_WINDOW_MS);
     if (!Number.isFinite(retainMs) || lockFor < LOCK_MIN_MS || lockFor > LOCK_MAX_MS) return { ok: false, because: `upload ${i}'s lock is not 29 to 39 days` };
     uploads.push({ key: u.key, url: url.toString(), headers });
@@ -170,8 +177,9 @@ async function putOne(fetchFn, up, bytes, attempt, timeoutMs) {
   try {
     // redirect 'manual': a 3xx is returned, not followed, so the body never goes to an address the grant did not name.
     const r = await fetchFn(up.url, { method: 'PUT', headers: up.headers, body: bytes, redirect: 'manual', signal: ac.signal });
+    // Only S3's <Code> and <Message> are read: at most the first 8 KB of a body from a host the grant named.
     let text = '';
-    try { text = await r.text(); } catch { /* only the S3 error code is read */ }
+    try { text = await headOf(r, 8192); } catch { /* the code is optional */ }
     const code = (/<Code>([A-Za-z]+)<\/Code>/.exec(text) || [])[1] || null;
     const s = r.status;
     if (s === 200) return { kind: 'stored', status: s, code };
@@ -190,6 +198,22 @@ async function putOne(fetchFn, up, bytes, attempt, timeoutMs) {
   } finally {
     clearTimeout(t);
   }
+}
+
+/* The first `max` bytes of a response body as text; the rest is not read (the stream is cancelled). */
+async function headOf(r, max) {
+  if (!r.body || typeof r.body.getReader !== 'function') return String((await r.text()) || '').slice(0, max);
+  const reader = r.body.getReader();
+  const parts = [];
+  let n = 0;
+  try {
+    while (n < max) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      parts.push(Buffer.from(value)); n += value.length;
+    }
+  } finally { try { await reader.cancel(); } catch { /* already closed */ } }
+  return Buffer.concat(parts).subarray(0, max).toString('utf8');
 }
 
 /* Upload sealed chunk objects ([{ name, object }]). deps: { macRequest, fetch?, now?, sleep?, allowHttp? (tests) }.
@@ -242,8 +266,11 @@ async function uploadInner(deps, objects, opts, keys) {
     if (now() >= g.expiresAtMs) return { ok: false, because: `this computer's clock reads past the grant's expiry (${new Date(g.expiresAtMs).toISOString()}) as it arrives: check the clock`, keys };
     // And never far ahead: the lock is checked from the grant's own start, so a coordinator clock far ahead would pass
     // that check with a lock far in the future. More than the window plus 5 minutes ahead is refused before a byte.
-    if (g.expiresAtMs - now() > GRANT_WINDOW_MS + 5 * 60 * 1000) return { ok: false, because: `the grant expires ${new Date(g.expiresAtMs).toISOString()}, further ahead of this computer's clock than a grant lasts: one of the two clocks is wrong`, keys };
+    // (An hour of tolerance: a Mac a few minutes slow still backs up; S3 itself refuses a request whose signing time is
+    // more than 15 minutes off its own clock.)
+    if (g.expiresAtMs - now() > GRANT_WINDOW_MS + 60 * 60 * 1000) return { ok: false, because: `the grant expires ${new Date(g.expiresAtMs).toISOString()}, over an hour further ahead of this computer's clock than a grant lasts: one of the two clocks is wrong (this grant's allowance is spent)`, keys };
     const left = [], stuck = [];   // stuck: [{ chunk, key }], a write that may have landed under key
+    const troubledNow = new Map(); // name -> { c, key } for chunks that met trouble and are not (yet) stored
     let stop = null, stored = 0;
     await eachLimited(g.uploads.map((up, i) => [up, pending[i]]), conc, async ([up, c]) => {
       let troubled = false;
@@ -256,16 +283,21 @@ async function uploadInner(deps, objects, opts, keys) {
         // NOT capped at the grant's remaining time: S3 checks a presigned url's expiry when the request ARRIVES, so a PUT
         // started in time may finish after it. Aborting it at the deadline would turn a landed write into an unknown.
         const r = await putOne(fetchFn, up, c.object, attempt, timeoutFor(c.object.length));
-        if (r.kind === 'stored' || r.kind === 'present') { keys.set(c.name, up.key); stored++; return; }
+        if (r.kind === 'stored' || r.kind === 'present') { keys.set(c.name, up.key); troubledNow.delete(c.name); stored++; return; }
         // S3 says the grant expired. After trouble that is the same case as above: an earlier attempt may have landed.
         if (r.kind === 'expired') { if (troubled) stuck.push({ c, key: up.key }); else left.push(c); return; }
         if (r.kind === 'refused') { stop = stop || `the bucket refused a chunk (${r.status ? 'HTTP ' + r.status : 'locally'}${r.code ? ' ' + r.code : ''}); a new grant would not change that`; return; }
         troubled = true;
+        troubledNow.set(c.name, { c, key: up.key });
         // Jittered, so workers that met the same SlowDown do not retry in lockstep.
         await sleep(Math.min(BACKOFF_MAX_MS, 500 * 2 ** attempt) * (0.5 + Math.random() / 2));
       }
     });
-    if (stop) return { ok: false, because: stop, keys };
+    // A refusal stops the run; chunks that met trouble on the way may still have landed, so they are named too.
+    if (stop) {
+      const unsure = [...troubledNow.values()].map((x) => ({ name: x.c.name, key: x.key }));
+      return Object.assign({ ok: false, because: stop, keys }, unsure.length ? { unsure } : {});
+    }
     // unsure: chunks whose write may have landed under these keys (an answer was lost). A later run uploads them again
     // under new keys, so a landed one becomes a locked orphan until its lock ends; the caller may record them.
     if (stuck.length) return { ok: false, retryLater: true, because: `${stuck.length} chunks met bucket or network trouble until their grant expired; try again later`, keys, unsure: stuck.map((x) => ({ name: x.c.name, key: x.key })) };
