@@ -296,3 +296,13 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
 - A stale record cleared because the world id file is gone now leaves the one-time "stopped" note, as the company's own
   stop does, so the screen says this Kosmos stopped reporting. Pinned.
 - Kept (decided at reviews 18 and 20): refresh writes the record the company confirms here; one board-wide ticket.
+
+## Review 23 (three fixes to lines review 21 and 19 wrote)
+- A pending undo is sent only while the company names THIS world (any computer) or no world. Enrolled as another
+  world, the membership is one the person set up since from another Kosmos: cleared here, nothing sent. Pinned.
+- An undo refused as the last admin writes no record unless the company named this world HERE; the undo stays pending
+  and no "reports again" note is left. Pinned.
+- A first join whose answer was lost, which status shows bound to this world on another computer, is undone (not
+  "nothing was joined"), as the answered path does. Pinned.
+- An undone join returns org_code_used, so the route keeps no ticket for the spent code. Pinned.
+- Not done (nit): a retried leave that resolves local-only leaves no note.

@@ -216,7 +216,8 @@ function oneAtATime(fn) { const run = queue.then(fn, fn); queue = run.catch(() =
    Kosmos) is undone with a leave, and each says only what happened (reviews 12, 19). */
 async function undoFirstJoin(lead, opts) {
   const undo = await signed('POST', ROUTES.leave, {}, opts);
-  if (undo.ok || codeOf(undo.because) === 'org_not_member') return { ok: false, because: lead + ' Joining was undone, so nothing was joined. That code is used up: ask your company for a new one.' };
+  // org_code_used: the code is spent, so the route keeps no ticket for it and the page goes back to the code field.
+  if (undo.ok || codeOf(undo.because) === 'org_not_member') return { ok: false, code: 'org_code_used', because: lead + ' Joining was undone, so nothing was joined. That code is used up: ask your company for a new one.' };
   setLeavePending(true, opts, null, true);   // an undo, retried on the next pass if this file, at least, can be written
   return { ok: false, because: lead + ' Joining could not be undone yet, so your company may still list this Kosmos. It is not reporting.' };
 }
@@ -250,6 +251,9 @@ async function enrollNow(code, accepted, opts) {
     const st = await signed('POST', ROUTES.status, {}, opts);
     const verdict = statusVerdict(st.ok ? st.data : null, world);
     if (verdict === 'unclear') return { ok: false, unknown: true, because: 'It is not known yet whether joining went through. Check the code again in a minute: it will say if this Kosmos is already your work Kosmos.' };
+    /* A first join the company bound to this world on another computer (or to no computer) went through and is not
+       kept: undone, as the answered path does (review 23). */
+    if (verdict === 'notHere' && !move && namesThisWorld(st.ok ? st.data : null, world)) return undoFirstJoin('Your company did not confirm this Kosmos, so it is not your work Kosmos.', opts);
     if (verdict !== 'here') return { ok: false, because: move ? 'Your work Kosmos did not move here. Try again in a minute.' : 'Joining did not go through Kosmos+ just now. Nothing was joined; try again in a minute.' };
     r = { ok: true, data: st.data };
   }
@@ -337,6 +341,11 @@ async function leave(opts) { return oneAtATime(() => leaveNow(opts)); }
    'gone'    not a member at all;
    'notHere' a member, but enrolled nowhere, as another world, or as this world on another computer;
    'unclear' anything else (a field missing, an unreadable local id): change nothing. */
+/* The company names this world (on this computer or another), or no world at all: what a join of this world left. */
+function namesThisWorld(d, world) {
+  if (!d || d.member !== true || !world) return false;
+  return d.enrolled === null || (!!d.enrolled && typeof d.enrolled === 'object' && d.enrolled.world === world);
+}
 function statusVerdict(d, world) {
   if (!d || typeof d !== 'object') return 'unclear';
   if (d.member === false) return 'gone';
@@ -376,11 +385,15 @@ async function leaveNow(opts, retry) {
   const st = await signed('POST', ROUTES.status, {}, opts);
   const verdict = statusVerdict(st.ok ? st.data : null, readWorldId(opts));
   if (verdict === 'gone') { setLeavePending(false, opts); setStopped(null, opts); retireWorldId(opts); return { ok: true }; }
-  if (verdict === 'notHere' && !undo) {   // still a member, enrolled elsewhere: this world stops and forgets its id, nothing is sent
+  /* A pending undo is sent only while the company still names THIS world (on any computer) or no world at all: that
+     is the join being undone. Enrolled as ANOTHER world, the membership is one the person set up since, from another
+     Kosmos, and must not be ended from here (#5531 review 23). */
+  const undoSend = undo && verdict === 'notHere' && namesThisWorld(st.ok ? st.data : null, readWorldId(opts));
+  if (verdict === 'notHere' && !undoSend) {   // still a member, enrolled elsewhere: this world stops and forgets its id, nothing is sent
     setLeavePending(false, opts); setStopped(null, opts); retireWorldId(opts);
     return { ok: true, localOnly: true };
   }
-  if (verdict !== 'here' && !(undo && verdict === 'notHere')) {
+  if (verdict !== 'here' && !undoSend) {
     setLeavePending(true, opts, before, undo);
     return { ok: false, pending: true, because: 'Leaving could not be confirmed yet. This Kosmos has stopped reporting, and it will tell your company again.' };
   }
@@ -397,7 +410,8 @@ async function leaveNow(opts, retry) {
        leave stays pending, so the next pass asks again rather than nothing ever asking (#5531 review 17). */
     const d = st.data || {};
     const org = cleanOrg(d.org), role = cleanRole(d.role);
-    const back = before || (org && role ? { org, role, world: readWorldId(opts), enrolledAt: new Date().toISOString() } : null);
+    // Rebuilt only when the company named this world HERE: an undo's notHere must never become a record (review 23).
+    const back = before || (verdict === 'here' && org && role ? { org, role, world: readWorldId(opts), enrolledAt: new Date().toISOString() } : null);
     let kept = false;
     if (back) { try { writeEnrollment(back, opts); kept = true; } catch { /* below */ } }
     setLeavePending(!kept, opts, back, undo);

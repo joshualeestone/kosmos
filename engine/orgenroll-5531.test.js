@@ -604,6 +604,51 @@ test('#5531 review 21: a person\'s pending leave later refused as the last admin
   assert.equal(org.leaveRefusedFor({ root: a }), 'Acme', 'the person was told this Kosmos stopped, it reports again, and nothing says so');
 });
 
+test('#5531 review 23: a pending undo never ends a membership the person since moved to another Kosmos', async (t) => {
+  const { a } = sandbox(t);
+  let statusWorld = null;
+  const sent = [];
+  let leaveUp = false;
+  const co = { macRequest: async (m, route, body) => { sent.push(route);
+    if (route === org.ROUTES.enroll) return { ok: true, data: { ok: true, org: ORG, role: 'member', enrolled: { computer: 'c2', world: body.world, thisComputer: false } } };
+    if (route === org.ROUTES.leave) return leaveUp ? { ok: true, data: { ok: true } } : { ok: false, because: 'offline' };
+    if (route === org.ROUTES.status) return { ok: true, data: { member: true, org: ORG, role: 'member', enrolled: { computer: 'c9', world: statusWorld, thisComputer: false } } };
+    return { ok: false, because: 'unexpected ' + route }; } };
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: co });
+  assert.equal(org.leavePending({ root: a }), true, 'CONTROL: no pending undo, so this test drives nothing');
+  // The person then moved the enrollment to another Kosmos: the company names a DIFFERENT world.
+  statusWorld = 'f'.repeat(32); leaveUp = true; sent.length = 0;
+  await org.refresh({ root: a, remote: co });
+  assert.deepEqual(sent, [org.ROUTES.status], 'a pending undo ended the membership the person set up from another Kosmos: ' + JSON.stringify(sent));
+  assert.equal(org.leavePending({ root: a }), false);
+});
+
+test('#5531 review 23: an undo refused as the last admin writes no record here; a timed-out first join bound elsewhere is undone', async (t) => {
+  const { a, b } = sandbox(t);
+  let mode = 'offline';
+  const co = (root) => ({ macRequest: async (m, route, body) => {
+    if (route === org.ROUTES.enroll) return mode === 'timeout' ? { ok: false, because: 'the tunnel program did not answer in time' } : { ok: true, data: { ok: true, org: ORG, role: 'member', enrolled: { computer: 'c2', world: body.world, thisComputer: false } } };
+    if (route === org.ROUTES.leave) return mode === 'offline' ? { ok: false, because: 'offline' } : mode === 'admin' ? { ok: false, because: '409 {"because":"org_last_admin"}' } : { ok: true, data: { ok: true } };
+    if (route === org.ROUTES.status) return { ok: true, data: { member: true, org: ORG, role: 'member', enrolled: { computer: 'c2', world: org.worldId({ root }), thisComputer: false } } };
+    return { ok: false, because: 'unexpected ' + route }; } });
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: co(a) });
+  mode = 'admin';
+  const r = await org.refresh({ root: a, remote: co(a) });
+  assert.equal(r.still, true, JSON.stringify(r));
+  assert.equal(org.isEnrolledHere({ root: a }), false, 'an undo refused as the last admin made this world the work Kosmos the company says it is not');
+  assert.equal(org.leaveRefusedFor({ root: a }), null, 'the screen would say "reports again" for a world that does not');
+  assert.equal(org.leavePending({ root: a }), true, 'the undo was dropped, so nothing asks again');
+  // A first join whose answer was lost, bound by the company to this world on another computer: undone, not "nothing".
+  mode = 'timeout';
+  const sentB = [];
+  const coB = co(b);
+  const wrap = { macRequest: async (m, route, body) => { sentB.push(route); if (route === org.ROUTES.leave) return { ok: true, data: { ok: true } }; return coB.macRequest(m, route, body); } };
+  const e = await org.enroll('ACME-JOIN-1234', true, { root: b, remote: wrap });
+  assert.match(e.because, /Joining was undone/, e.because);
+  assert.equal(e.code, 'org_code_used', 'the spent code\'s ticket would be put back');
+  assert.deepEqual(sentB, [org.ROUTES.enroll, org.ROUTES.status, org.ROUTES.leave]);
+});
+
 test('#5531 review 14: a record whose world id file is gone is stale: cleared, and nothing is asked', async (t) => {
   const { a } = sandbox(t);
   await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
