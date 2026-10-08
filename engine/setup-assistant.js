@@ -320,12 +320,14 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
   return { rules, entryBase, extra };   // twins are added in guardGuideFolder, only to rules that pass the own-folder check
 }
 /* Whether `p` cannot be written as a rule: once written (ruleAbs), it has a character the rule syntax reads as a
-   pattern; or, on Windows, the native path is not a drive path (C:\..., or \\?\C:\...): a share, the device form
-   \\.\C:\ or a drive-relative C:foo would be written as a rule that matches nothing. Pure, the platform passed in. */
+   pattern; or, on Windows, the native path is neither a drive path (C:\..., \\?\C:\...) nor a share (\\host\share,
+   \\?\UNC\host\share): the device form \\.\C:\ and a drive-relative C:foo are refused. A share IS written (as
+   //host/share/...): whether Claude Code matches it is not documented, and an extra deny costs nothing, while
+   refusing it would leave a redirected-profile store's token files with no rule at all (review 21). Pure. */
 function ruleUnwritable(p, platform = process.platform) {
   if (RULE_SYNTAX.test(ruleAbs(p, platform).slice(2))) return true;
   // the drive test reads the NATIVE path (a share or device form is only visible there; ruleAbs has rewritten it)
-  return platform === 'win32' && !/^([A-Za-z]:[\\/]|[\\/]{2}\?[\\/][A-Za-z]:[\\/])/.test(String(p));
+  return platform === 'win32' && !/^([A-Za-z]:[\\/]|[\\/]{2}\?[\\/][A-Za-z]:[\\/]|[\\/]{2}\?[\\/]UNC[\\/][^\\/]|[\\/]{2}[^\\/?.][^\\/]*[\\/][^\\/])/i.test(String(p));
 }
 /* The characters the rule syntax reads as a pattern or a bracket (and a backslash): a path with one gets no rule. */
 const RULE_SYNTAX = /[*?[\](){}!\\]/;
@@ -343,7 +345,7 @@ function ruleAbs(p, platform = process.platform) {
     s = s.replace(/^[\\/]{2}\?[\\/]UNC[\\/]/i, '//');   // \\?\UNC\host\share: the same share as \\host\share
     s = s.replace(/^[\\/]{2}\?[\\/]/, '');   // the extended-length prefix (\\?\C:\...): its `?` is a glob in a rule
     s = s.replace(/\\/g, '/');
-    const drive = /^([A-Za-z]):(\/|$)/.exec(s);
+    const drive = /^([A-Za-z]):\//.exec(s);   // only a drive WITH its separator: a bare C: is drive-relative, never the whole drive
     if (drive) s = drive[1].toLowerCase() + '/' + s.slice(drive[0].length);
   }
   // no trailing slash, so a drive root's folder rule is //d/** and not //d//**
@@ -388,6 +390,7 @@ function withNativeTwins(rules, platform = process.platform) {
   for (const r of rules) {
     out.push(r);
     // the path is a drive letter alone (a drive root) or a drive and a path; the suffix is what the writer added
+    // a one-letter share host (//s/share) is twinned as S:\share too: a small over-deny, recorded in the plan
     const m = /^Read\(\/\/([a-z](?:\/[^)]*?)??)((?:\/\*\*|\/\*\/[^)]*|\.\*)?)\)$/.exec(r);
     if (!m) continue;
     const native = rulePath(m[1], 'win32');
@@ -523,7 +526,8 @@ function guardGuideFolder(dir, agentName, deps = {}) {
     // a twin is made only from a rule that passed the own-folder check, so a refused rule never gets one
     const deny = finalDeny(kept, withNativeTwins(safe, plat), refused, plat);
     // an earlier rule (the guide's, or a person's own) removed because it equals a refused one is said, never silent
-    for (const r of kept) if (!deny.includes(r)) process.stderr.write(`#4752: an earlier rule that would take in the guide's own folder was removed: ${r}\n`);
+    const written = new Set(deny);
+    for (const r of kept) if (!written.has(r)) process.stderr.write(`#4752: an earlier rule that would take in the guide's own folder was removed: ${r}\n`);
     const next = { ...cur, permissions: { ...perms, deny } };
     /* Sandboxed Bash (Ice Cream Kitty's review): the deny rules above bind Claude Code's own tools, and
        a shell command such as `node -e readFileSync('.env')` or `grep -r` is a subprocess they do not
