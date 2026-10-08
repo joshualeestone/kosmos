@@ -29,7 +29,7 @@ test('#4752: CONTROL, a macOS or Linux path is unchanged', () => {
   // a backslash in a POSIX path is part of a file name, not a separator
   assert.equal(sa.ruleAbs('/tmp/a\\b', 'darwin'), '//tmp/a\\b');
   // POSIX: a trailing slash is dropped (as for a drive root); a normalised path (path.join/resolve) never has one
-  assert.equal(sa.ruleAbs('/Users/a/K/', 'darwin'), sa.ruleAbs(require('path').posix.join('/Users/a', 'K'), 'darwin'));
+  assert.equal(sa.ruleAbs('/Users/a/K/', 'darwin'), sa.ruleAbs(path.posix.join('/Users/a', 'K'), 'darwin'));
   assert.equal(sa.ruleAbs('/Users/a/K', 'darwin'), '//Users/a/K', 'CONTROL: an ordinary POSIX path changed');
 });
 
@@ -37,7 +37,7 @@ test('#4752: on THIS host every rule (weak off Windows; the pure arms carry the 
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'winrules-'));
   t.after(() => removeTree(home));
   const rules = sa.guideDenyRules({ home, dataRoot: path.join(home, 'data'), worldsBase: path.join(home, 'base'), legacyRoots: [] });
-  const isTwin = (r) => /^Read\(\/\/[A-Za-z]:\\/.test(r);   // the deliberate old native spelling (Windows only)
+  const isTwin = (r) => /^Read\(\/\/([A-Za-z]:\\|\\\\)/.test(r);   // the deliberate old native spelling, drive or share (Windows only)
   const abs = rules.filter((r) => r.startsWith('Read(//') && !isTwin(r));
   assert.ok(abs.length > 0, 'no absolute rule was written, so this arm tests nothing');
   for (const r of abs) {
@@ -278,4 +278,13 @@ test('#4752: on Windows a refusal never silently removes one of the guide\'s own
   // a fresh (safe) rule equal to the refused one but for case stays; an earlier (kept) one is removed (and said)
   assert.deepEqual(sa.finalDeny([], ['Read(//c/Users/A/old/**)'], refused, 'win32'), ['Read(//c/Users/A/old/**)']);
   assert.deepEqual(sa.finalDeny(['Read(//c/Users/A/old/**)'], [], refused, 'win32'), [], 'CONTROL: an earlier rule is removed');
+});
+
+test('#4752: a share rule gets main\'s spelling as its twin, and main\'s share rule maps back (both spellings refused)', () => {
+  const r = 'Read(//srv/share/K/**)';
+  const twins = sa.withNativeTwins([r], 'win32');
+  assert.deepEqual(twins, [r, 'Read(//\\\\srv\\share\\K/**)'], 'a share rule got no twin in main\'s spelling');
+  assert.equal(sa.legacyWinEquivalent('Read(//\\\\srv\\share\\K/**)'), r, 'main\'s share rule does not map back');
+  assert.deepEqual(sa.finalDeny(['Read(//\\\\srv\\share\\K/**)'], [], new Set([r]), 'win32'), [], 'a refusal did not reach main\'s share spelling');
+  assert.deepEqual(sa.withNativeTwins(['Read(//./C:/x/**)'], 'win32'), ['Read(//./C:/x/**)'], 'CONTROL: a device-form rule gets no twin');
 });

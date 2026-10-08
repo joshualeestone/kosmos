@@ -401,7 +401,8 @@ function legacyWinEquivalent(rule) {
   // a drive, then a backslash (the native form) or a slash (a path given as C:/...), then the suffix the writer adds
   // (`/**`, `/*/...`, `.*`): the path is converted alone, as ruleAbs converts it (so a drive root maps to `//c/**`)
   // the path may hold a `)` (a folder like `Jo (work)`): lazy, anchored on the known suffix and the rule's last `)`
-  const m = /^Read\(\/\/([A-Za-z]:[\\/].*?)((?:\/\*\*|\/\*\/[^/]*\/\*\*|\/\*\/[^/]*|\.\*)?)\)$/.exec(String(rule));
+  const m = /^Read\(\/\/([A-Za-z]:[\\/].*?|\\\\[^\\/]+[\\/].*?)((?:\/\*\*|\/\*\/[^/]*\/\*\*|\/\*\/[^/]*|\.\*)?)\)$/.exec(String(rule));
+  // (a share in main's spelling, //\\host\share\..., maps to //host/share/... as well)
   if (!m) return null;
   return `Read(${ruleAbs(m[1], 'win32')}${m[2]})`;
 }
@@ -419,7 +420,9 @@ function withNativeTwins(rules, platform = process.platform) {
     // the path is a drive letter alone (a drive root) or a drive and a path; the suffix is what the writer added
     // a one-letter share host (//s/share) is twinned as S:\share too: a small over-deny, recorded in the plan
     // the path may hold a `)` (a folder like `Jo (work)`): lazy, anchored on the known suffix and the rule's last `)`
-    const m = /^Read\(\/\/([a-z](?:\/.*?)??)((?:\/\*\*|\/\*\/[^/]*\/\*\*|\/\*\/[^/]*|\.\*)?)\)$/.exec(r);
+    // a drive (c or c/...) or a share (host/share/..., host longer than a letter: a one-letter host is twinned as a
+    // drive above); the twin is main's spelling of the same path, so a new install keeps a fallback for a share too
+    const m = /^Read\(\/\/([a-z](?:\/.*?)??|[^/.][^/]+\/[^/].*?)((?:\/\*\*|\/\*\/[^/]*\/\*\*|\/\*\/[^/]*|\.\*)?)\)$/.exec(r);
     if (!m) continue;
     const native = rulePath(m[1], 'win32');
     if (native) { const twin = `Read(//${native}${m[2]})`; if (!seen.has(twin)) { seen.add(twin); out.push(twin); } }
@@ -535,7 +538,8 @@ function guardGuideFolder(dir, agentName, deps = {}) {
     /* #4752: none of THIS change's rules (fresh.extra) may take in the guide's own folder. An older folder or a
        linked entry a person made can resolve to an ancestor of it, and the sandbox follows links, so such a rule
        would cut the guide off from its own instructions: dropped, and said. What this checks, no more: a rule
-       naming one folder or file, compared by real path (rulePath reads a rule back, the Windows form included); a rule
+       naming one folder or file, compared through every reading of the rule (rulePaths, readingsHoldGuide: a drive
+       reading by real path, a share reading as text); a rule
        with a `*` is not checked, and an earlier rule removed for taking in this folder
        (equal to a refused rule in either spelling or case, by finalDeny) is said by the loop after it; migrateKept
        drops an earlier per-entry rule for a gone entry without a word, as on main. */
