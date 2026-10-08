@@ -96,7 +96,8 @@ function collidingPaths(entries) {
  * Restore one snapshot. Resolves to { restored: [path], failed: [{ path, why }] (the first 10000), failedNotListed
  * (how many more failed), skippedAtBackup: [...] }; or { overBound: 'maxManifestObject' | 'maxFiles' } when the
  * manifest is larger than the caller allowed (raise the bound and retry; the object-size bound is checked before the
- * signature, so it says nothing about authenticity); or null
+ * signature, so it says nothing about authenticity); or { malformed: 'files' } when a manifest that verified has no
+ * file list (the device wrote it badly, not tampering); or null
  * when the manifest itself does not verify and open (wrong device key for the time, wrong context, tampering). maxTotalBytes is REQUIRED (the caller sets it from free disk) and caps the
  * bytes committed: a file that would pass it fails before anything is fetched. Every fetched object's bytes count
  * against twice that, plus 8 KiB for each well-formed entry that collides with none (sealing overhead), whether or
@@ -119,6 +120,7 @@ function collidingPaths(entries) {
  *         turns a fullwidth '．．' into '..').
  *     Paths may name dotfiles (.ssh, .zshrc, .git/hooks): restore into a root the person chose, not over live config.
  *
+ * restored keeps the manifest's spelling of each path (the sink was handed it with '/' separators).
  * restored, failed and skippedAtBackup all hold manifest text, another device's words: escape all of it for HTML.
  * restored paths passed pathProblem (no control, bidi or tag characters, though other invisible ones such as the
  * joiners in emoji may remain); failed and skipped text is bounded and has
@@ -144,7 +146,8 @@ async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, 
   const mo = toBuffer(manifestObject);
   if (mo.length > maxManifestObject) return { overBound: 'maxManifestObject' };
   const manifest = openManifest(memberSk, devicePubAtSnapshot, ctx, mo);
-  if (!manifest || !Array.isArray(manifest.files)) return null;
+  if (!manifest) return null;
+  if (!Array.isArray(manifest.files)) return { malformed: 'files' };
   if (manifest.files.length > maxFiles) return { overBound: 'maxFiles' };
   const restored = [], failed = [];
   const wellFormed = [];

@@ -334,12 +334,12 @@ test('#5536 caller mistakes throw instead of reading as tampering', async () => 
   assert.ok(await br.restoreSnapshot({ ...args, manifestObject: ab, sink: memorySink() }), 'CONTROL: a manifest as an ArrayBuffer opens');
 });
 
-test('#5536 a manifest whose files is not a list opens to nothing; a skipped that is not a list reports none', async () => {
+test('#5536 a manifest whose files is not a list is reported malformed; a skipped that is not a list reports none', async () => {
   const member = hpkeKeyPair(), nk = crypto.randomBytes(32), dev = crypto.generateKeyPairSync('ed25519');
   const ctx = { org: 'o', member: 'm', epoch: 'e', period: 'p', snapshot: 's' };
   const go = (body) => br.restoreSnapshot({ memberSk: member.sk, namingKey: nk, devicePubAtSnapshot: dev.publicKey, ctx, manifestObject: bf.sealManifest(member.pk, dev.privateKey, ctx, body),
     fetchChunk: () => null, sink: memorySink(), maxTotalBytes: BIG });
-  assert.equal(await go({ files: { 0: 'x' } }), null);
+  assert.deepEqual(await go({ files: { 0: 'x' } }), { malformed: 'files' }, 'a verified manifest with no file list is not called tampering');
   assert.deepEqual(await go({ files: [], skipped: 'none' }), { restored: [], failed: [], failedNotListed: 0, skippedAtBackup: [] }, 'CONTROL: an empty list opens');
 });
 

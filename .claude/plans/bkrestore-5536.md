@@ -54,3 +54,5 @@ Review round 17 (opus): refused paths and skipped reasons came back with a devic
 Review round 18 (sonnet): restored paths were not named as manifest text to escape, and Windows-forbidden characters were missing from the sink conformance list. Both fixed in the docs. The sink-duties warning repeats round 8 (already in the REQUIRED note and on #5536).
 
 Review round 19 (opus): Unicode tag characters (hidden text a model reads) restored in names; now refused as unsafe, accepting the loss of subdivision-flag emoji in names. NUL is now unsafe rather than a portability loss. Not done: a pre-fetch check for a nearly spent work budget. I built it and could not arm it: each remaining entry keeps its own 8 KiB allowance, so the pool falls below a sealed chunk only through an overdraw, which zeroes it, and the per-file pre-check then fails the next file with the store reason before fetching.
+
+Review round 20 (sonnet): a verified manifest with no file list read as tampering (now { malformed: 'files' }); the do-not-wire gate lived only here (now also in the engine.reachable.test.js excuse). restored keeps the manifest's spelling of each path, now stated.
