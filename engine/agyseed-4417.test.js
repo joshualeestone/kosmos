@@ -58,18 +58,18 @@ function runOnce(event, env) {
     child.on('close', (code, signal) => { clearTimeout(hung); resolve({ code, signal, error: spawnError, out, err: errText }); });
   });
 }
-/* A child that never RAN (it could not start, or a signal ended it) is tried again, up to three times with a short
-   wait: that is the runner, not the bridge. A child that ran and exited with a code is never retried, so a bridge
-   that really fails still fails here. */
-/* Whether a try never ran: a spawn error, or no exit code (a signal ended it, or it never closed). */
-const neverRan = (r) => r.code === null || !!r.error;
+/* Only a try the RUNNER ended is tried again, up to three times with a short wait: a refused start (a spawn error)
+   or a kill from outside (SIGKILL, SIGTERM). A child that exited with a code, crashed on its own (SIGABRT, SIGSEGV) or
+   hung past 10 s is the bridge's failure and is never retried, so a bridge that really fails still fails here. */
+const RUNNER_SIGNALS = new Set(['SIGKILL', 'SIGTERM']);
+const neverRan = (r) => !!r.error || (r.code === null && RUNNER_SIGNALS.has(r.signal));
 async function runBridge(event, env, run = runOnce) {
   const tries = [];
   for (let i = 0; i < 3; i += 1) {
     const r = await run(event, env);
     tries.push(r);
     if (!neverRan(r)) return Object.assign(r, { tries });
-    await new Promise((res) => setTimeout(res, 200 * (i + 1)));
+    if (i < 2) await new Promise((res) => setTimeout(res, 200 * (i + 1)));
   }
   return Object.assign(tries[tries.length - 1], { tries });
 }
@@ -189,6 +189,11 @@ test('#5560: only a bridge child that never ran is tried again; one that exited 
   f = fake([failed, ok]);
   assert.equal((await runBridge('x', {}, f.run)).code, 1, 'a bridge that ran and exited 1 was retried into a pass');
   assert.equal(f.calls.length, 1);
+  for (const own of [{ code: null, signal: 'SIGABRT' }, { code: null, signal: 'SIGSEGV' }, { code: null, signal: 'timeout' }]) {
+    f = fake([Object.assign({ error: null, out: '', err: '' }, own), ok]);
+    assert.equal((await runBridge('x', {}, f.run)).code, null, own.signal + ' was retried into a pass, hiding a bridge crash or hang');
+    assert.equal(f.calls.length, 1);
+  }
   f = fake([killed, killed, killed, ok]);
   assert.equal((await runBridge('x', {}, f.run)).code, null, 'more than three tries');
   assert.equal(f.calls.length, 3);

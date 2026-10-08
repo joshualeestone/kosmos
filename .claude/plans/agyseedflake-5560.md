@@ -35,3 +35,9 @@
   and this plan say a null code is a signal, not a refused start.
 - FIXED: the retry decision has a committed unit test with an injected runner (a killed or refused child is retried,
   one that exited 1 never is, at most three tries); widening it to "any non-zero" reddens it.
+
+## Review 2 (blind, sonnet)
+- FIXED: only a try the RUNNER ended is retried (a spawn error, or SIGKILL/SIGTERM); a crash of the bridge's own
+  (SIGABRT, SIGSEGV) or a hang past 10 s fails at once (unit test; "retry any null" mutation reddens). No wait after the
+  last try; one comment for the rule.
+- DUPLICATE: a try killed after its report reached the board gives a second report; the message says so.
