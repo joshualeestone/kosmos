@@ -279,9 +279,58 @@ const GROK_WIN32 = Object.freeze(Object.assign(Object.create(null), {
 }));
 
 /**
+ * #5419 slice 2: the LINUX builds of the same pinned releases, keyed by process.arch. Same source and trust anchor
+ * as the Mac and Windows entries: each is the npm registry's own tarball with its own registry sha512. MEASURED
+ * 2026-10-06 (each tarball streamed, its sha512 matched the registry, the byte count is the real size, the paths
+ * read from the tarball's listing). Codex's Linux builds are static musl, so one build per CPU serves glibc and
+ * Alpine alike. Grok's Linux builds are statically linked too (measured from the binaries: the x64 one is static-pie,
+ * the arm64 one static, neither names a program loader), so no libc check is made; none of these has yet been run on a
+ * real Linux box, and the prove step (--version) is the backstop if one does not run there. Grok's layout is the Mac one: ONE
+ * compressed `bin/grok.br`, expanded to `bin/grok-native`.
+ */
+const CODEX_LINUX = Object.freeze(Object.assign(Object.create(null), {
+  x64: Object.freeze({
+    arch: 'x64',
+    url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-linux-x64.tgz',
+    integrity: 'sha512-Of5fGYgr7tAMsyj6vhXb4/RM/UoA3Zq8BLegUBDC09UNy1XTLGYP/2XD+UX8z3qh0NDwxYdCjFIWdDNijKZggQ==',
+    binInPackage: 'vendor/x86_64-unknown-linux-musl/bin/codex',
+    downloadBytes: 125550959,
+  }),
+  arm64: Object.freeze({
+    arch: 'arm64',
+    url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-linux-arm64.tgz',
+    integrity: 'sha512-OqxUfZ1TVvHd18zHPKK/8ZRlpk8Vy11mg5CMHaLxNWldTbwVImDKtSLWT+m8m4NM5Sz4PbjtZMrVT/RfpBW/mQ==',
+    binInPackage: 'vendor/aarch64-unknown-linux-musl/bin/codex',
+    downloadBytes: 118078094,
+  }),
+}));
+/* The layout is stated per entry (as GROK_WIN32 and CODEX_LINUX do), read from these tarballs, so a change to the Mac
+   base cannot move the Linux one. */
+const GROK_LINUX = Object.freeze(Object.assign(Object.create(null), {
+  x64: Object.freeze({
+    arch: 'x64',
+    url: 'https://registry.npmjs.org/@xai-official/grok-linux-x64/-/grok-linux-x64-1.0.41.tgz',
+    integrity: 'sha512-5KS0AMeGYQh3++0EEZPKVjAcalFQma8K5SKMhBu1k1OVNpA/lO+fRgecS1/kOsLaGaPDPfQm611Z+a5J9dLfAg==',
+    brotliFrom: 'bin/grok.br',
+    binInPackage: 'bin/grok-native',
+    binName: 'grok',
+    downloadBytes: 49179836,
+  }),
+  arm64: Object.freeze({
+    arch: 'arm64',
+    url: 'https://registry.npmjs.org/@xai-official/grok-linux-arm64/-/grok-linux-arm64-1.0.41.tgz',
+    integrity: 'sha512-6g8fHFwKb/jdo3XTGXMiA5FrzzUi6q5nKtT3+eXNbNKGtMOmN4t7NNh+IK3S6FlWcG+slL1Po2YDaNgMZ6swqg==',
+    brotliFrom: 'bin/grok.br',
+    binInPackage: 'bin/grok-native',
+    binName: 'grok',
+    downloadBytes: 44233139,
+  }),
+}));
+
+/**
  * The manifest entry for `provider` ON A GIVEN PLATFORM AND CPU. Everything that
  * installs or resolves a runner asks this rather than reading MANIFEST directly,
- * so the Mac and Windows answers can never drift into two resolvers again.
+ * so the Mac, Windows and (#5419) Linux answers can never drift into separate resolvers.
  *
  * On win32 the openai entry is the darwin one with the Windows build's url,
  * integrity, binary path and size laid over it (version and name are shared: it is
@@ -309,6 +358,15 @@ function manifestFor(provider, platform = process.platform, arch = process.arch)
   }
   if (provider === 'gemini' && platform === 'win32') {
     return Object.freeze({ ...base, binName: 'gemini.cmd' });
+  }
+  /* #5419 slice 2: Linux takes its own Codex and Grok builds (a CPU with none gets x64, refused by name by the arch
+     guard, as on Windows); the Mac's POSIX install path, stable symlink and node launcher serve it unchanged, and
+     Gemini's bundle is the same tarball everywhere. */
+  if (provider === 'openai' && platform === 'linux') {
+    return Object.freeze({ ...base, ...(CODEX_LINUX[arch] || CODEX_LINUX.x64) });
+  }
+  if (provider === 'grok' && platform === 'linux') {
+    return Object.freeze({ ...base, ...(GROK_LINUX[arch] || GROK_LINUX.x64) });
   }
   return base;
 }
@@ -747,6 +805,7 @@ function resolveBin(provider, opts) {
     if (isRunnable(managed) && launcherHasNode(managed) && (plat !== 'win32' || isVerified(mf, plat, 'gemini'))) {
       return { bin: managed, present: true, managed: true, overridden: false };
     }
+    // The Mac's npm-global copy; on Linux a person's own npm copy is not looked for yet (#5419 plan: deferred).
     const legacy = (opts && opts.legacyBin) || '/opt/homebrew/bin/gemini';
     if (isRunnable(legacy)) return { bin: legacy, present: true, managed: false, overridden: false };
     return { bin: managed, present: false, managed: true, overridden: false };
@@ -774,6 +833,7 @@ function resolveBin(provider, opts) {
     if (isRunnable(managed) && (plat !== 'win32' || isVerified(mf, plat, 'grok'))) {
       return { bin: managed, present: true, managed: true, overridden: false };
     }
+    // The Mac's npm-global copy; on Linux a person's own npm copy is not looked for yet (#5419 plan: deferred).
     const legacy = (opts && opts.legacyBin) || '/opt/homebrew/bin/grok';
     if (isRunnable(legacy)) return { bin: legacy, present: true, managed: false, overridden: false };
     return { bin: managed, present: false, managed: true, overridden: false };
@@ -1068,14 +1128,20 @@ function download(url, file, job, redirectsLeft, getter) {
 }
 
 /**
- * The tar that unpacks a runner tarball. The Mac's is /usr/bin/tar. Windows 10
+ * The tar that unpacks a runner tarball. The Mac's is /usr/bin/tar; Linux's is /usr/bin/tar or /bin/tar (see the
+ * branch below). Windows 10
  * (1803) and later ship bsdtar as %SystemRoot%\System32\tar.exe, which reads .tgz
  * natively and takes the same flags; there is no /usr/bin on Windows, and a clean
  * laptop has no Git or MSYS tar to fall back on, so the system copy is named by its
  * full path rather than found on PATH (where a stray GNU tar could shadow it and
  * misread `C:\` as a remote host).
  */
-function tarBin(platform = process.platform, env = process.env) {
+function tarBin(platform = process.platform, env = process.env, exists = fs.existsSync) {
+  /* #5419 slice 2: Linux keeps tar at /usr/bin/tar only where /usr was merged; Debian 10, Ubuntu 18.04, an unmerged
+     upgrade and stock Alpine (busybox) have it at /bin/tar. The Mac's path is unchanged. */
+  // Neither (Nix, a minimal container): the bare name, so execFile finds tar on PATH (the reason Windows avoids a bare
+  // name, GNU tar reading C:\ as a host, does not apply here). Callers: install() here and agentbrowser.js's unpack.
+  if (platform === 'linux') return ['/usr/bin/tar', '/bin/tar'].find((p) => { try { return exists(p); } catch { return false; } }) || 'tar';
   if (platform !== 'win32') return '/usr/bin/tar';
   return path.win32.join(env.SystemRoot || env.windir || 'C:\\Windows', 'System32', 'tar.exe');
 }
@@ -1301,22 +1367,14 @@ function install(provider, opts) {
    */
   const refuse = (because) => ({ ...blankJob(), phase: 'failed', because });
 
-  /* kosmos macOS-only gate (Option A, extended to the provider-binary download at
-     Splinter's ruling 2026-09-01): the pinned runners are darwin builds (e.g.
-     codex-...-darwin-arm64.tgz), so on any other OS an install would download a Mac
-     binary that cannot run. Refuse BEFORE any bytes move, in the job shape the
-     screen already reads. This is the gate (refuse), NOT the Option C fix -- it
-     fetches no Windows build, so no part of Windows is made to look functional.
-     `o.platform` is the test seam (defaults to process.platform); the polished
-     user-facing wording is the operator's to refine (see engine/platform.js). */
-  /* #5419: Claude on Linux and Windows is installed by connect.download (checksum-verified per platform), not here,
-     so 'claude' keeps the darwin-only canDownloadRunner on purpose; provider runners on Linux are #5419 slice 2. */
-  /* 📌 openai reads its OWN list (canDownloadCodex: darwin + win32), because OpenAI
-     publishes a Windows Codex build and it is pinned above. Every other arm keeps the
-     darwin-only canDownloadRunner, including Claude's Mac-shaped link path. The
-     sentence is for a person: it names the thing and says nothing moved. */
-  /* Gemini and Grok read their own list too (canDownloadKeyedRunner: darwin + win32), since
-     their Windows builds are pinned above (GROK_WIN32; Gemini's bundle is one tarball). */
+  /* The platform gate (first a macOS-only gate, Splinter's ruling 2026-09-01): a runner installs only where a build
+     for that OS is pinned above, so no OS is handed another's binary. Refuse BEFORE any bytes move, in the job shape
+     the screen already reads; the sentence names the thing and says nothing moved. `o.platform` is the test seam.
+     - openai reads canDownloadCodex (darwin, win32, linux: CODEX_WIN32, CODEX_LINUX).
+     - gemini and grok read canDownloadKeyedRunner (darwin, win32, linux: GROK_WIN32, GROK_LINUX; Gemini's bundle is
+       one tarball).
+     - claude keeps the darwin-only canDownloadRunner on purpose: its link path here is Mac-shaped, and on Linux and
+       Windows Claude Code installs through connect.download, checksum-verified per platform (#5419). */
   const allowed = provider === 'openai'
     ? platformGate.canDownloadCodex(plat)
     : (provider === 'gemini' || provider === 'grok')
@@ -1470,8 +1528,8 @@ function install(provider, opts) {
       // The verified archive's WHOLE package tree lands under pkg/ (the
       // binary resolves vendored siblings -- rg, zsh, code-mode-host --
       // relative to itself, so one extracted file would be a runner
-      // stranded from its own tools). /usr/bin/tar ships on every Mac and
-      // reads .tgz natively; --strip-components 1 drops the npm "package/"
+      // stranded from its own tools). tarBin is /usr/bin/tar on a Mac, /usr/bin/tar or /bin/tar on
+      // Linux, tar.exe on Windows; each reads .tgz natively; --strip-components 1 drops the npm "package/"
       // root. A previous version's pkg/ is replaced whole, never merged.
       // Unpack into a per-process tree, then SWAP it in whole: the pkg/
       // tree is never half-written at its final name, so a concurrent

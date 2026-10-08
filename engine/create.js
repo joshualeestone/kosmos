@@ -49,6 +49,7 @@
  */
 
 const fs = require('node:fs');
+const { envDelete, envSet } = require('./win32env');   // #5386: env copies keep names as spelled; on Windows any spelling counts
 const os = require('node:os');
 const path = require('node:path');
 const codexupdate = require('./codexupdate');
@@ -3991,7 +3992,8 @@ function defaultClaudeProbe(configDir) {
     let bin; try { bin = runners.resolveBin('claude').bin; } catch { bin = null; }
     if (!bin) { resolve({ exitCode: null, out: '' }); return; }
     const env = { ...process.env };
-    if (configDir) env.CLAUDE_CONFIG_DIR = configDir; else delete env.CLAUDE_CONFIG_DIR;
+    // #5386: every spelling (a copy of process.env keeps names as spelled).
+    if (configDir) envSet(env, 'CLAUDE_CONFIG_DIR', configDir); else envDelete(env, 'CLAUDE_CONFIG_DIR');
     // Overridable only so a test can drive the timeout/partial-output path
     // quickly; unset in production, where 15s is the wait before a hung probe is
     // killed and its partial output classified.

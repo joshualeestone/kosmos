@@ -182,6 +182,44 @@ esac
 # two later copies compute it (slash-normalised like KOSMOS_HOME itself).
 _kosmos_home_default="$(printf '%s' "$HOME/.local/share/kosmos" | /usr/bin/tr -s '/')"
 _kosmos_home_default="${_kosmos_home_default%/}"
+
+# #4920: the board unit's file name as the shell rule before linuxboard.js wrote it (the default home gives
+# kosmos-board.service, any other the sha256 of KOSMOS_HOME, first 8 hex). setup.sh normalizes KOSMOS_HOME above and
+# refuses a relative one, so this equals linuxboard.boardUnitName for every home setup.sh accepts. Used where
+# linuxboard cannot run: the KillMode fix before a stop, and the uninstall branches for an older release, a node that is
+# gone or cannot load linuxboard, and an app folder that is gone.
+_kosmos_linux_unit_name() {
+  if [ "$KOSMOS_HOME" = "$_kosmos_home_default" ]; then
+    printf '%s' "kosmos-board.service"
+  else
+    printf 'kosmos-board.%s.service' "$(printf '%s' "$KOSMOS_HOME" | (sha256sum 2>/dev/null || shasum -a 256 2>/dev/null) | cut -c1-8)"
+  fi
+}
+# #4920 review 11: a unit an earlier release wrote (0.7.27) has no KillMode=, so systemd's default control-group kill
+# applies: stopping the board kills every process in its cgroup, and an in-app update runs this script there, beside
+# the agents' tmux server. Before the update pauses the board, give that unit KillMode=process, as linuxboard's unit
+# has, and reload, so the pause stops the board only. The unit mechanism is measured both ways on real systemd by
+# the setup workflow's KillMode step (control: the old unit kills its child; fixed: the child survives), and a test
+# pins this call right before both stops; no CI run performs a real in-app update from inside the board's cgroup.
+_kosmos_linux_unit_killmode() {
+  [ "$(uname -s)" = "Linux" ] || return 0
+  command -v systemctl >/dev/null 2>&1 || return 0
+  if [ -n "${AGENT_WORKFORCE_LAUNCH:-}" ] && [ -z "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ]; then return 0; fi
+  [ -n "${XDG_RUNTIME_DIR:-}" ] || export XDG_RUNTIME_DIR="/run/user/$(id -u 2>/dev/null || echo 1000)"   # su or cron
+  _lk_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
+  _lk_file="$_lk_dir/$(_kosmos_linux_unit_name)"
+  [ -f "$_lk_file" ] || return 0
+  # Already right only when KillMode=process is the one KillMode line (systemd takes the last of several).
+  [ "$(grep -c '^KillMode=' "$_lk_file")" = 1 ] && grep -qx 'KillMode=process' "$_lk_file" && return 0
+  _lk_tmp="$_lk_dir/.kosmos-killmode.$$"
+  # Any other KillMode= line is dropped: systemd takes the last one, so a second line would make this do nothing.
+  if awk '/^KillMode=/ { next } { print } /^\[Service\]$/ { print "KillMode=process" }' "$_lk_file" > "$_lk_tmp" && mv "$_lk_tmp" "$_lk_file"; then
+    systemctl --user daemon-reload 2>/dev/null || true
+  else
+    rm -f "$_lk_tmp"
+  fi
+  return 0
+}
 if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
   [ -n "${KOSMOS_BIN_DIR:-}" ] || export KOSMOS_BIN_DIR="$KOSMOS_HOME/localbin"
   [ -n "${KOSMOS_PROFILE_FILE:-}" ] || export KOSMOS_PROFILE_FILE="$KOSMOS_HOME/zprofile"
@@ -1327,6 +1365,7 @@ uninstall() {
     # #4466: --force on every board start/stop/restart in this installer. `kosmos` refuses an AGENT's
     # stop/restart of a board that answers, and an install or update run from an agent's pane is not
     # the agent restarting the board. An older kosmos ignores the extra word.
+    _kosmos_linux_unit_killmode   # #4920: as before an update pause, so an old unit's cgroup kill cannot take this run
     "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true
     # A refused stop (a board this command did not start) is NAMED rather
     # than glossed: the files still come off, but an orphan process would
@@ -1408,22 +1447,95 @@ uninstall() {
   # is gone and a fresh call would quietly return the literal instead.
   _support="$(_kosmos_data_root)"
   if [ "$(uname -s)" = "Linux" ]; then
-    _unit_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
-    _unit_name="kosmos-board.service"
-    if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
-      _unit_name="kosmos-board.$(printf '%s' "$KOSMOS_HOME" | (sha256sum 2>/dev/null || shasum -a 256 2>/dev/null) | cut -c1-8).service"
-    fi
-    _unit_file="$_unit_dir/$_unit_name"
-    if [ -f "$_unit_file" ]; then
+    # #4920: piece B's removeBoard (stop, disable, delete, reload), the same derivation of the unit's name and path as
+    # installBoard. Run before the app folder is deleted, since it is the app's own code.
+    # As the install step does: systemctl --user needs the user bus, which su and cron do not set up.
+    [ -n "${XDG_RUNTIME_DIR:-}" ] || export XDG_RUNTIME_DIR="/run/user/$(id -u 2>/dev/null || echo 1000)"
+    if [ -n "${AGENT_WORKFORCE_LAUNCH:-}" ] && [ -z "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ]; then
+      # A sandboxed run never touches real systemd (linuxboard refuses it by design): said as what it is.
+      info "sandboxed run: the systemd step was skipped on purpose"
+    elif [ -f "$KOSMOS_HOME/app/engine/linuxboard.js" ] && [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ -x "$KOSMOS_HOME/runtime/bin/node" ] && command -v systemctl >/dev/null 2>&1; then
       info "removing the systemd service for the board"
-      if command -v systemctl >/dev/null 2>&1; then
-        systemctl --user stop "$_unit_name" 2>/dev/null || true
-        systemctl --user disable "$_unit_name" 2>/dev/null || true
+      _lb_rc=0
+      _lb_out="$("$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME/app/engine/linuxboard.js" "$KOSMOS_HOME" <<'BOARDEOF' 2>/dev/null
+let r;
+let lb = null;
+try { lb = require(process.argv[2]); r = lb.removeBoard(process.argv[3]); } catch (e) { r = { ok: false, because: String((e && e.message) || e) }; }
+if (!r || !r.ok) {
+  const why = String((r && r.because) || 'no reason given').split('\n')[0];
+  // The app folder is deleted next, so a unit left enabled would retry a missing folder at every login: delete the
+  // file and its enable link here, as the shell code before this change did, and say what to run if even that fails.
+  const fs = require('fs'); const path = require('path');
+  let file = '';
+  try {
+    file = lb.boardUnitPath(process.argv[3]);
+    fs.rmSync(file, { force: true });
+    fs.rmSync(path.join(path.dirname(file), 'default.target.wants', path.basename(file)), { force: true });
+    process.stdout.write(why + '; its unit file was deleted, so it will not start again, though it may keep running until you log out or restart');
+  } catch (e2) {
+    process.stdout.write(why + (file ? '; remove it with: systemctl --user disable --now ' + path.basename(file) + ' and delete ' + file : ''));
+  }
+  process.exit(3);
+}
+BOARDEOF
+)" || _lb_rc=$?
+      [ "$_lb_rc" -eq 0 ] || info "the board's systemd service was not fully removed: ${_lb_out:-its removal step did not run ($KOSMOS_HOME/runtime/bin/node)}"
+      # Review 16: when the node step could not even load linuxboard (a broken app folder, a node too old), its own
+      # fallback could not name the file. The app folder is deleted next, so remove the unit by the shell rule here.
+      _lb_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
+      _lb_name="$(_kosmos_linux_unit_name)"
+      if [ "$_lb_rc" -ne 0 ] && [ -f "$_lb_dir/$_lb_name" ]; then
+        systemctl --user stop "$_lb_name" 2>/dev/null || true
+        systemctl --user disable "$_lb_name" 2>/dev/null || true
+        rm -f "$_lb_dir/$_lb_name" "$_lb_dir/default.target.wants/$_lb_name"
+        systemctl --user daemon-reload 2>/dev/null || true
+        info "its unit file was removed by name instead, so it will not start again"
       fi
-      rm -f "$_unit_file"
-      if command -v systemctl >/dev/null 2>&1; then
+    elif [ -f "$KOSMOS_HOME/app/server.js" ] && command -v systemctl >/dev/null 2>&1; then
+      # The app is here but its linuxboard cannot run: an install from a release before linuxboard.js (#4918), whose
+      # shell-written unit carries the old name rule, or one whose runtime/bin/node is gone (on Linux it links the system
+      # node, which can be uninstalled). The shell rule gives the same name as linuxboard for every home setup.sh
+      # accepts (_kosmos_linux_unit_name), so remove the unit by it; otherwise the app folder is deleted below and the
+      # unit retries a missing folder every 5 seconds, at every boot.
+      _lb_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
+      _lb_name="$(_kosmos_linux_unit_name)"
+      if [ -f "$_lb_dir/$_lb_name" ]; then
+        info "removing the systemd service for the board"
+        systemctl --user stop "$_lb_name" 2>/dev/null || true
+        systemctl --user disable "$_lb_name" 2>/dev/null || true
+        rm -f "$_lb_dir/$_lb_name" "$_lb_dir/default.target.wants/$_lb_name"
+        systemctl --user daemon-reload 2>/dev/null || true
+      else
+        info "no board service named $_lb_name was found, so none was removed"
+      fi
+    elif [ -f "$KOSMOS_HOME/app/server.js" ]; then
+      # The app is here (this release or an older one) but systemctl is not: nothing can stop or disable a unit, and there is no user manager to have
+      # loaded one. Say so rather than blaming a missing app folder, and still delete this home's unit file and link.
+      _lb_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
+      _lb_name="$(_kosmos_linux_unit_name)"
+      rm -f "$_lb_dir/$_lb_name" "$_lb_dir/default.target.wants/$_lb_name"
+      info "systemctl is not available, so no board service could be stopped (none can be running without it); its unit file, if any, was deleted"
+    else
+      # The app is gone. This home's own unit is named by _kosmos_linux_unit_name (the name carries a hash of
+      # KOSMOS_HOME, so it can only be this install's): remove it, or it restarts against a missing folder every 5 s at
+      # every boot. Any other kosmos-board unit may be another install's, so it is named, never touched.
+      # The folder is linuxjob.defaultSystemdDir's (a sandboxed run, the LAUNCH case, took the first branch above).
+      _lb_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
+      _lb_name="$(_kosmos_linux_unit_name)"
+      if [ -f "$_lb_dir/$_lb_name" ] && ! command -v systemctl >/dev/null 2>&1; then
+        rm -f "$_lb_dir/$_lb_name" "$_lb_dir/default.target.wants/$_lb_name"   # no user manager: just the file and link
+      elif [ -f "$_lb_dir/$_lb_name" ]; then
+        info "removing the systemd service for the board"
+        systemctl --user stop "$_lb_name" 2>/dev/null || true
+        systemctl --user disable "$_lb_name" 2>/dev/null || true
+        rm -f "$_lb_dir/$_lb_name" "$_lb_dir/default.target.wants/$_lb_name"
         systemctl --user daemon-reload 2>/dev/null || true
       fi
+      for _lb_f in "$_lb_dir"/kosmos-board*.service; do
+        [ -f "$_lb_f" ] || continue
+        [ "${_lb_f##*/}" = "$_lb_name" ] && continue
+        info "a Kosmos board service is still at $_lb_f. This install's app code or runtime is missing, so it was not removed: it may be this install's or another Kosmos's on this computer. If it is this one's, run: systemctl --user disable --now ${_lb_f##*/} and delete the file."
+      done
     fi
   fi
   _board_label=com.kosmos.board
@@ -2874,6 +2986,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
   if ! _kosmos_mode_keeps_board_off && [ ! -e "$KOSMOS_HOME/board.stopped" ]; then
     _kosmos_was_running=yes
   fi
+  _kosmos_linux_unit_killmode   # #4920: before the stop, so an old unit's cgroup kill cannot take this run with it
   _kosmos_marker_ours="$_kosmos_was_running"   # #5033: armed before the stop, which writes the marker and then waits
   "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true
   # Did the stop actually work? A POST-CONDITION of the line above, which is
@@ -4079,50 +4192,90 @@ if [ "$(uname -s)" = "Linux" ]; then
   else
     step "Keeping Kosmos running with systemd."
   fi
-  _unit_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
-  _unit_name="kosmos-board.service"
-  if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
-    _unit_name="kosmos-board.$(printf '%s' "$KOSMOS_HOME" | (sha256sum 2>/dev/null || shasum -a 256 2>/dev/null) | cut -c1-8).service"
-  fi
-  _unit_file="$_unit_dir/$_unit_name"
-  mkdir -p "$_unit_dir" 2>/dev/null || true
-  cat > "$_unit_file" <<UNIT
-[Unit]
-Description=Kosmos Board
-After=network.target
-ConditionPathExists=!$KOSMOS_HOME/board.stopped
-
-[Service]
-Type=simple
-ExecStart=/bin/bash $KOSMOS_HOME/bin/kosmos board-run
-WorkingDirectory=$KOSMOS_HOME
-Restart=always
-RestartSec=5
-Environment=HOME=$HOME
-Environment=KOSMOS_HOME=$KOSMOS_HOME
-Environment=PATH=$KOSMOS_HOME/tmux/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=LANG=C.UTF-8
-Environment=PORT=$PORT
-Environment=KOSMOS_PORT=$PORT
-StandardOutput=append:$KOSMOS_HOME/logs/board.log
-StandardError=append:$KOSMOS_HOME/logs/board.log
-
-[Install]
-WantedBy=default.target
-UNIT
   [ -n "${XDG_RUNTIME_DIR:-}" ] || export XDG_RUNTIME_DIR="/run/user/$(id -u 2>/dev/null || echo 1000)"
-  loginctl enable-linger "$(id -un 2>/dev/null || echo "$USER")" 2>/dev/null || true
-  if command -v systemctl >/dev/null 2>&1; then
-    systemctl --user daemon-reload 2>/dev/null || true
+  # 🔑 #4920: ONE BOARD UNIT, piece B's (engine/linuxboard.js installBoard), never a second copy written here. The
+  # shell copy this replaced had drifted: Restart=always restarted a stopped board every 5 seconds (measured by #4918),
+  # and it lacked KillMode=process (a stop must not kill the shared tmux server). installBoard writes and enables the
+  # unit and turns on linger, reading it back. The board-off case needs nothing extra: the unit's
+  # ConditionPathExists=!board.stopped keeps it from starting.
+  if ! command -v systemctl >/dev/null 2>&1; then
     if [ "$_kosmos_board_off" = yes ]; then
-      systemctl --user enable "$_unit_name" 2>/dev/null || true
-      info "Kosmos will not start itself at login $(_kosmos_off_why)"
+      info "note: systemctl not available, so Kosmos cannot be set to start itself; it stays off $(_kosmos_off_why)"
     else
-      systemctl --user enable "$_unit_name" 2>/dev/null || true
-      info "Kosmos will start itself when you log in"
+      info "note: systemctl not available; Kosmos was started in background and will not start itself after a restart"
     fi
   else
-    info "note: systemctl not available; Kosmos was started in background"
+    _lb_rc=0
+    _lb_handoff=ok
+    _lb_out="$("$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME/app/engine/linuxboard.js" "$KOSMOS_HOME" "$PORT" <<'BOARDEOF' 2>/dev/null
+let r;
+let held = false;
+let changed = false;
+try {
+  const lb = require(process.argv[2]);
+  const fs = require('fs');
+  const read = () => { try { return fs.readFileSync(lb.boardUnitPath(process.argv[3]), 'utf8'); } catch (e0) { return null; } };
+  const before = read();
+  // A tmux the launcher picked, marked by KOSMOS_TMUX_BIN_PICKED, is a choice for this run, not one to write into the
+  // unit, where it would read as a person choice forever. The unit PATH already holds the Kosmos tmux folder. Reached
+  // on an in-app update: the board runs setup.sh with the environment its launcher exported, marker included.
+  if (process.env.KOSMOS_TMUX_BIN_PICKED === '1') delete process.env.AGENT_WORKFORCE_TMUX_BIN;
+  r = lb.installBoard(process.argv[3], Number(process.argv[4]));
+  if (r && r.ok) {
+    const j = lb.loadedBoardJob(process.argv[3]);
+    held = Boolean(j && j.ok && j.active);   // is systemd running it now
+    changed = before !== null && before !== read();   // an update that rewrote the unit text
+  }
+} catch (e) { r = { ok: false, because: String((e && e.message) || e).split('\n')[0] }; }
+if (!r || !r.ok) { process.stdout.write('refused: ' + String((r && r.because) || 'no reason given').split('\n')[0]); process.exit(3); }
+process.stdout.write((held ? (changed ? 'held-changed ' : 'held ') : 'loose ') + (r.lingering ? 'lingering' : 'not lingering'));
+BOARDEOF
+)" || _lb_rc=$?
+    if [ "$_lb_rc" -ne 0 ] && case "$_lb_out" in *"sandboxed board does not manage"*) true ;; *) false ;; esac; then
+      # A sandboxed run (AGENT_WORKFORCE_LAUNCH without a systemd folder of its own) never touches real systemd, by
+      # design; said as what it is, not as a failure.
+      info "sandboxed run: systemd itself was not asked, on purpose (the unit file stays in the sandbox)"
+    elif [ "$_lb_rc" -ne 0 ] && [ -z "$_lb_out" ]; then
+      info "Kosmos could not set itself to start with systemd: its setup step did not run ($KOSMOS_HOME/runtime/bin/node with $KOSMOS_HOME/app/engine/linuxboard.js)"
+    elif [ "$_lb_rc" -ne 0 ]; then
+      info "Kosmos could not set itself to start with systemd: ${_lb_out#refused: }"
+    else
+      # As on the Mac, hand the board to systemd ONLY when systemd is not already running it and linger is on (the snippet asks systemd,
+      # through linuxboard.loadedBoardJob): on a first install the board running now was started before the unit
+      # existed, so kosmos restart retires it and starts the unit's. On an update the start step above already
+      # restarted it through systemd, and a second bounce would only risk a healthy board; and a unit left by an earlier
+      # run whose own hand-off failed is still handed over now. Not on a computer set not to run a board (a restart
+      # would clear board.stopped). Best-effort: the unit is enabled either way and starts at the next login or boot.
+      _kosmos_board_decide
+      # The first hand-over (loose) only with linger on: without it the unit dies at logout, while the board setup.sh
+      # started survives it (logind keeps user processes by default), so handing over would make a no-linger server less
+      # available. A board systemd already runs (held-changed) is restarted either way: it is the unit's already.
+      # And once more for a board systemd already runs when this update changed its unit text: Environment= (PATH, the
+      # port, the tmux entry) reaches a running unit only at its next start, which daemon-reload does not do.
+      case "$_lb_out" in
+        "loose lingering"|held-changed\ *)
+          if [ "$_kosmos_board_off" != yes ] && ! "$KOSMOS_HOME/bin/kosmos" restart --force >/dev/null 2>&1; then
+            # restart fails when the old board would not stop, or the new one was slow to answer: never a quiet success.
+            info "Kosmos is set to start with systemd, but the hand-over just now did not confirm it is running (it may still be running on its previous settings). Check with: kosmos status, and if it is not running: kosmos start (what it said is in $KOSMOS_HOME/logs/board.log)"
+            _lb_handoff=failed
+          fi ;;
+      esac
+      _lb_state="${_lb_out%% *}"
+      _lb_out="${_lb_out#* }"
+    fi
+    if [ "$_lb_rc" -ne 0 ]; then
+      :   # said above
+    elif [ "$_kosmos_board_off" = yes ]; then
+      info "Kosmos will not start itself at login $(_kosmos_off_why)"
+    elif [ "$_lb_out" = lingering ]; then
+      # Not after a failed hand-off: the line above already said to check; a success-shaped close would contradict it.
+      [ "$_lb_handoff" = failed ] || info "Kosmos will start itself when this computer starts"
+    else
+      if [ "$_lb_handoff" = failed ]; then _lb_now="Kosmos"; else _lb_now="Kosmos is running now and"; fi
+      # A board systemd runs (held) stops at the next logout; one setup.sh started (loose) survives it until a restart.
+      case "${_lb_state:-}" in held*) _lb_when="it stops when you log out" ;; *) _lb_when="after a restart it stops when you log out" ;; esac
+      info "$_lb_now will start itself when you log in, but not at boot: linger is off for $(id -un 2>/dev/null || echo "this user"), so $_lb_when. To keep it running, an administrator can run: loginctl enable-linger $(id -un 2>/dev/null || echo "<user>")"
+    fi
   fi
   ok
 else

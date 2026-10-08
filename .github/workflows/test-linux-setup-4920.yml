@@ -4,14 +4,19 @@
 # - Detects Linux and machine architecture
 # - Discovers or installs tmux without interactive prompts
 # - Symlinks system node into the runtime directory
-# - Installs systemd user unit for board keep-alive and enables lingering
+# - Installs the board's systemd user unit through piece B's engine/linuxboard.js (one unit, not a shell copy)
+#   and enables lingering
 # - Starts the board and verifies HTTP 200 response on the board port
 # - Successfully stops, restarts, and uninstalls cleanly
 
 name: linux-setup
 
 on:
+  # #5519 landed here: this job's boards send their install ping to a dead local address (see the environment step), so
+  # it no longer counts as installs and runs on every pull request again (the #5526 paths filter is removed).
   pull_request:
+  # Run by hand on a branch (gh workflow run test-linux-setup-4920.yml --ref <branch>) without opening a PR.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -49,10 +54,45 @@ jobs:
           echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
           echo "KOSMOS_PORT=16180" >> "$GITHUB_ENV"
           echo "KOSMOS_NO_OPEN=1" >> "$GITHUB_ENV"
+          # #5519: this job's boards must not count as installs (Josh 10-07). The install beacon goes to a dead local
+          # address; setup.sh's unit carries it, and the steps below assert the unit and the running board have it.
+          echo "AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created" >> "$GITHUB_ENV"
+          # The other two senders aimed at nothing too, as tools/test-install.sh and run-tests.sh do. These two reach only
+          # boards started from this shell: the systemd unit carries the beacon address alone, so a board systemd runs keeps
+          # the DEFAULT feedback and community endpoints. Not the install counter; nothing here writes a report or a post.
+          echo "AGENT_WORKFORCE_FEEDBACK_URL=http://127.0.0.1:9/api/feedback" >> "$GITHUB_ENV"
+          echo "AGENT_WORKFORCE_COMMUNITY_URL=http://127.0.0.1:9" >> "$GITHUB_ENV"
+
+      - name: Stage this checkout as the bundle setup.sh installs
+        # ⚠️ A hand copy of tools/build-kosmos-bundle.sh's file list (that script is Mac-only). If the bundle gains a
+        # file the app needs, add it here too, or this run tests less than a release ships.
+        # The published bundle is the LAST release, so it does not carry this branch's engine (setup.sh's Linux step
+        # requires app/engine/linuxboard.js, measured: run 37592812752 said "Cannot find module"). Stage the same file
+        # list tools/build-kosmos-bundle.sh packs (that script is Mac-only: codesign, lipo, the native app), and
+        # install it through setup.sh's local-copy path (KOSMOS_SRC). runtime/ is left out: on Linux setup.sh links
+        # the system node when the bundled one cannot run, as it does for the published bundle.
+        run: |
+          SRC="$RUNNER_TEMP/kosmos-src"
+          mkdir -p "$SRC/bin" "$SRC/app/engine" "$SRC/app/bin"
+          cp server.js package.json "$SRC/app/"
+          for f in engine/*.js; do case "$f" in *.test.js) ;; *) cp "$f" "$SRC/app/engine/" ;; esac; done
+          cp -R web "$SRC/app/web"
+          cp bin/agent-supervisor.sh bin/board-watchdog.sh bin/codex-report-bridge.js bin/gemini-report-bridge.js \
+             bin/grok-report-bridge.js bin/agy-report-bridge.js "$SRC/app/bin/"
+          chmod +x "$SRC/app/bin/"*
+          V="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' package.json | head -1)"
+          sed -i "s/__KOSMOS_VERSION__/$V/" "$SRC/app/web/index.html"
+          cp install/kosmos-report-hook.sh "$SRC/app/bin/kosmos-report-hook.sh"
+          cp install/kosmos "$SRC/bin/kosmos"
+          chmod +x "$SRC/bin/kosmos"
+          test -f "$SRC/app/engine/linuxboard.js"
+          echo "KOSMOS_SRC=$SRC" >> "$GITHUB_ENV"
 
       - name: Execute install/setup.sh
+        # sh, not bash: people run curl ... | sh, and on Ubuntu sh is dash, so the installer is tested in the shell it
+        # really meets (the bash 3.2 parse is covered on the Mac by install.linux-board-4920.test.js).
         run: |
-          bash install/setup.sh
+          sh install/setup.sh
 
       - name: Verify installed pieces
         run: |
@@ -62,14 +102,32 @@ jobs:
           test -f "$KOSMOS_HOME/runtime/bin/node" && test -x "$KOSMOS_HOME/runtime/bin/node"
           "$KOSMOS_HOME/runtime/bin/node" --version
 
-          # Check systemd user unit exists and has expected directives
+          # #4920: the unit is piece B's (engine/linuxboard.js boardUnitFor), written by installBoard. grep -F: the
+          # values are literal text, and the unit quotes them.
           UNIT_FILE="$HOME/.config/systemd/user/kosmos-board.service"
           test -f "$UNIT_FILE"
-          grep -q "Description=Kosmos Board" "$UNIT_FILE"
-          grep -q "ConditionPathExists=!$KOSMOS_HOME/board.stopped" "$UNIT_FILE"
-          grep -q "ExecStart=/bin/bash $KOSMOS_HOME/bin/kosmos board-run" "$UNIT_FILE"
-          grep -q "Environment=KOSMOS_HOME=$KOSMOS_HOME" "$UNIT_FILE"
-          grep -q "WorkingDirectory=$KOSMOS_HOME" "$UNIT_FILE"
+          cat "$UNIT_FILE"
+          grep -qF "Description=Kosmos Board" "$UNIT_FILE"
+          grep -qF "ConditionPathExists=!$KOSMOS_HOME/board.stopped" "$UNIT_FILE"
+          grep -qF "ExecStart=/bin/bash \"$KOSMOS_HOME/bin/kosmos\" board-run" "$UNIT_FILE"
+          grep -qF "Environment=\"KOSMOS_HOME=$KOSMOS_HOME\"" "$UNIT_FILE"
+          grep -qF "WorkingDirectory=$KOSMOS_HOME" "$UNIT_FILE"
+          # What B's unit has and the old shell copy did not:
+          grep -qxF "Restart=on-failure" "$UNIT_FILE"
+          grep -qxF "KillMode=process" "$UNIT_FILE"
+          if grep -qxF "Restart=always" "$UNIT_FILE"; then echo "FAIL: Restart=always restarts a stopped board" >&2; exit 1; fi
+          systemctl --user is-enabled kosmos-board.service
+          # setup.sh hands the running board to systemd (kosmos restart after installBoard), as the Mac does to launchd.
+          test "$(systemctl --user is-active kosmos-board.service)" = active
+          # #5519: this test install must not count. The unit carries the dead beacon address, and so does the board
+          # systemd is actually running (its own environment). Checked after the board started: a change that broke the
+          # hand-off would leak its own run's pings once, then turn this step red.
+          grep -qxF "Environment=\"AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL\"" "$UNIT_FILE"
+          BPID="$(systemctl --user show -p MainPID --value kosmos-board.service)"
+          if [ -z "$BPID" ] || [ "$BPID" = 0 ]; then echo "FAIL: systemd reports no running board" >&2; exit 1; fi
+          # Read into a variable, not piped into grep -q: under pipefail an early grep exit could SIGPIPE tr.
+          BENV="$(tr '\0' '\n' < "/proc/$BPID/environ")"
+          grep -qxF "AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL" <<< "$BENV"
 
       - name: Verify board responsiveness
         run: |
@@ -80,28 +138,210 @@ jobs:
       - name: Test stop and restart
         run: |
           KOSMOS_HOME="$HOME/.local/share/kosmos"
+          # kosmos stop and start through systemd (setup.sh handed the board to it; asserted after install).
           "$KOSMOS_HOME/bin/kosmos" stop
-          # Board should be stopped
-          if curl -fsS -m 2 http://127.0.0.1:16180/ >/dev/null 2>&1; then
-            echo "FAIL: board still responding after stop" >&2
-            exit 1
-          fi
+          if curl -fsS -m 2 http://127.0.0.1:16180/ >/dev/null 2>&1; then echo "FAIL: board responding after stop" >&2; exit 1; fi
+          "$KOSMOS_HOME/bin/kosmos" start
+          curl -fsS -m 5 http://127.0.0.1:16180/ >/dev/null
+          test "$(systemctl --user is-active kosmos-board.service)" = active
+
+      - name: A board that exits while stopped is not restarted (#4918's loop)
+        run: |
+          # CONTROL first, on a throwaway unit shaped like the board's: with Restart=always a TERM exit while the marker
+          # is present IS restarted (systemd does not re-check ConditionPathExists on an automatic restart) and NRestarts
+          # grows; with Restart=on-failure and SuccessExitStatus=143 it does not. This proves the counter can show the
+          # loop, so the check on the real unit below can fail.
+          LOOP_UNIT="$HOME/.config/systemd/user/kosmos-looptest.service"
+          MARK="$RUNNER_TEMP/looptest.stopped"
+          loop_arm() {
+            rm -f "$MARK"
+            # StartLimitIntervalSec=0: the always arm restarts fast enough to hit systemd's start limit, which would refuse
+            # the next arm's start (measured: run 37602008378).
+            printf '[Unit]\nConditionPathExists=!%s\nStartLimitIntervalSec=0\n\n[Service]\nExecStart=/bin/sh -c "[ -e %s ] && exit 0; exec sleep 1000"\nRestart=%s\nSuccessExitStatus=143\nRestartSec=1\n' "$MARK" "$MARK" "$1" > "$LOOP_UNIT"
+            systemctl --user daemon-reload
+            systemctl --user reset-failed kosmos-looptest.service 2>/dev/null || true
+            systemctl --user start kosmos-looptest.service || return 2
+            sleep 1
+            B="$(systemctl --user show -p NRestarts --value kosmos-looptest.service)"
+            touch "$MARK"
+            # Never kill a pid that is not a real one: MainPID reads 0 when the unit is not running, and kill 0 signals
+            # this whole process group, the job itself (measured: run 37602008378 was cancelled that way).
+            PID="$(systemctl --user show -p MainPID --value kosmos-looptest.service)"
+            case "$PID" in ''|0|*[!0-9]*) echo "no main pid to signal ($PID)" >&2; return 2 ;; esac
+            kill -TERM "$PID"
+            sleep 6
+            A="$(systemctl --user show -p NRestarts --value kosmos-looptest.service)"
+            systemctl --user stop kosmos-looptest.service 2>/dev/null || true
+            # errexit is off inside a function called from || : every failure returns explicitly.
+            [ -n "$B" ] && [ -n "$A" ] || { echo "no NRestarts reported" >&2; return 2; }
+            echo "$1: NRestarts $B -> $A"
+            [ "$A" != "$B" ]
+          }
+          rc=0; loop_arm always || rc=$?
+          [ "$rc" -eq 0 ] || { echo "CONTROL FAILED: Restart=always did not move NRestarts (rc $rc), so the check below proves nothing" >&2; exit 1; }
+          rc=0; loop_arm on-failure || rc=$?
+          [ "$rc" -eq 1 ] || { echo "CONTROL FAILED: Restart=on-failure arm rc $rc (0 = it moved NRestarts, 2 = it could not run)" >&2; exit 1; }
+          rm -f "$LOOP_UNIT" "$MARK"; systemctl --user daemon-reload
+          # The #4918 loop, reproduced: with board.stopped present the board's own exit is clean, and Restart=always
+          # restarted it every RestartSec (board-run then exited 0 at once, forever). kosmos stop cannot show this: its
+          # systemctl stop cancels any pending restart. So: mark stopped, end the board with a plain TERM (not through
+          # systemd), wait two restart windows, and require systemd restarted it zero times. A TERM exit is clean
+          # (SuccessExitStatus=143), so this fails on Restart=always (any exit restarts), the regression it names.
+          KOSMOS_HOME="$HOME/.local/share/kosmos"
+          PID="$(systemctl --user show -p MainPID --value kosmos-board.service)"
+          case "$PID" in ''|0|*[!0-9]*) echo "FAIL: no main pid for the board ($PID)" >&2; exit 1 ;; esac
+          BEFORE="$(systemctl --user show -p NRestarts --value kosmos-board.service)"
+          touch "$KOSMOS_HOME/board.stopped"
+          kill -TERM "$PID"
+          sleep 12   # RestartSec=5 in B's unit (engine/linuxboard.js): two restart windows
+          AFTER="$(systemctl --user show -p NRestarts --value kosmos-board.service)"
+          echo "NRestarts before=$BEFORE after=$AFTER"
+          test -n "$BEFORE" && test -n "$AFTER" || { echo "FAIL: systemd did not report NRestarts, so this check would test nothing" >&2; exit 1; }
+          test "$AFTER" = "$BEFORE" || { echo "FAIL: systemd restarted a board that exited while stopped" >&2; exit 1; }
+          if [ "$(systemctl --user is-active kosmos-board.service 2>/dev/null)" = active ]; then echo "FAIL: board active while stopped" >&2; exit 1; fi
+          rm -f "$KOSMOS_HOME/board.stopped"
           "$KOSMOS_HOME/bin/kosmos" start
           curl -fsS -m 5 http://127.0.0.1:16180/ >/dev/null
 
       - name: Test uninstall
         run: |
-          bash install/setup.sh --uninstall
+          sh install/setup.sh --uninstall
           UNIT_FILE="$HOME/.config/systemd/user/kosmos-board.service"
           test ! -f "$UNIT_FILE"
+          # The enable link is what a failed disable leaves behind (the file is deleted either way).
+          test ! -e "$HOME/.config/systemd/user/default.target.wants/kosmos-board.service"
+
+      - name: An update keeps an old unit's other processes alive (KillMode fix, measured both ways)
+        # 0.7.27's shell-written unit has no KillMode=, so stopping it kills its whole cgroup, which on an in-app update
+        # holds setup.sh and the agents' tmux server. setup.sh's _kosmos_linux_unit_killmode adds KillMode=process and
+        # reloads before the update pauses the board. CONTROL first (the old unit kills its child), then the fix (the
+        # child survives): the control is what proves this step can fail.
+        run: |
+          set -e
+          UNITS="$HOME/.config/systemd/user"
+          UNIT="$UNITS/kosmos-board.service"
+          cat > "$RUNNER_TEMP/kb-service.sh" <<'SVC'
+          #!/bin/sh
+          sleep 1000 &
+          echo $! > "$1"
+          wait
+          SVC
+          chmod +x "$RUNNER_TEMP/kb-service.sh"
+          write_old_unit() {
+            printf '[Unit]\nDescription=Kosmos Board\n\n[Service]\nExecStart=/bin/sh %s %s\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=default.target\n' \
+              "$RUNNER_TEMP/kb-service.sh" "$RUNNER_TEMP/kb-child.pid" > "$UNIT"
+            systemctl --user daemon-reload
+          }
+          start_and_child() {
+            rm -f "$RUNNER_TEMP/kb-child.pid"
+            systemctl --user start kosmos-board.service
+            for i in 1 2 3 4 5 6 7 8 9 10; do [ -s "$RUNNER_TEMP/kb-child.pid" ] && break; sleep 0.5; done
+            cat "$RUNNER_TEMP/kb-child.pid"
+          }
+          # CONTROL: the old unit, stopped, takes its child with it.
+          write_old_unit
+          CHILD="$(start_and_child)"; kill -0 "$CHILD"
+          systemctl --user stop kosmos-board.service; sleep 1
+          if kill -0 "$CHILD" 2>/dev/null; then echo "CONTROL FAILED: the old unit did not kill its child, so this step proves nothing" >&2; kill "$CHILD"; exit 1; fi
+          echo "control: the old unit killed its child (cgroup kill), as expected"
+          # FIX: the same old unit, running; setup.sh's own function adds KillMode=process and reloads; the stop spares the child.
+          write_old_unit
+          CHILD="$(start_and_child)"; kill -0 "$CHILD"
+          sed -n '/^_kosmos_linux_unit_name() {/,/^}/p; /^_kosmos_linux_unit_killmode() {/,/^}/p' install/setup.sh > "$RUNNER_TEMP/kb-fns.sh"
+          KOSMOS_HOME="$HOME/.local/share/kosmos" _kosmos_home_default="$HOME/.local/share/kosmos" sh -c ". \"$RUNNER_TEMP/kb-fns.sh\"; _kosmos_linux_unit_killmode"
+          grep -qx 'KillMode=process' "$UNIT"
+          systemctl --user stop kosmos-board.service; sleep 1
+          if ! kill -0 "$CHILD" 2>/dev/null; then echo "FAIL: with KillMode=process the stop still killed the child" >&2; exit 1; fi
+          echo "fix: the child survived the stop"
+          kill "$CHILD"
+          systemctl --user disable kosmos-board.service 2>/dev/null || true
+          rm -f "$UNIT"; systemctl --user daemon-reload
+
+      - name: An update over an install made by 0.7.27's setup.sh (its shell unit) lands on B's unit
+        # The path the KillMode fix, the held-changed restart and installBoard's rewrite exist for, end to end: install
+        # with main's own setup.sh (shell-written unit, Restart=always, no KillMode), hand the board to that unit as a
+        # reboot would, then run this branch's setup.sh as an update.
+        run: |
+          set -e
+          KOSMOS_HOME="$HOME/.local/share/kosmos"
+          UNIT="$HOME/.config/systemd/user/kosmos-board.service"
+          # Pinned to the commit that shipped the shell unit (#4985 on main, in 0.7.27), not to main, which stops
+          # writing it once this change lands.
+          git fetch --depth=1 origin 28c352bc0cba518f4343952911746d10b9490263
+          git show FETCH_HEAD:install/setup.sh > "$RUNNER_TEMP/old-setup.sh"
+          grep -qx 'Restart=always' "$RUNNER_TEMP/old-setup.sh"   # a unit heredoc line, not a comment
+          # The OLD app and kosmos too, staged from the same commit with the bundle's file list: the KOSMOS_SRC this job
+          # exports holds THIS branch's systemd-aware kosmos, which a real 0.7.27 install does not have.
+          OLDREPO="$RUNNER_TEMP/old-repo"; OLDSRC="$RUNNER_TEMP/old-src"
+          mkdir -p "$OLDREPO" "$OLDSRC/bin" "$OLDSRC/app/engine" "$OLDSRC/app/bin"
+          git archive FETCH_HEAD server.js package.json engine web bin install | tar -x -C "$OLDREPO"
+          cp "$OLDREPO/server.js" "$OLDREPO/package.json" "$OLDSRC/app/"
+          for f in "$OLDREPO"/engine/*.js; do case "$f" in *.test.js) ;; *) cp "$f" "$OLDSRC/app/engine/" ;; esac; done
+          cp -R "$OLDREPO/web" "$OLDSRC/app/web"
+          for b in agent-supervisor.sh board-watchdog.sh codex-report-bridge.js gemini-report-bridge.js grok-report-bridge.js agy-report-bridge.js; do
+            [ -f "$OLDREPO/bin/$b" ] && cp "$OLDREPO/bin/$b" "$OLDSRC/app/bin/"
+          done
+          chmod +x "$OLDSRC/app/bin/"* || true
+          V="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$OLDREPO/package.json" | head -1)"
+          sed -i "s/__KOSMOS_VERSION__/$V/" "$OLDSRC/app/web/index.html"
+          cp "$OLDREPO/install/kosmos-report-hook.sh" "$OLDSRC/app/bin/kosmos-report-hook.sh"
+          cp "$OLDREPO/install/kosmos" "$OLDSRC/bin/kosmos"; chmod +x "$OLDSRC/bin/kosmos"
+          if grep -q systemctl "$OLDSRC/bin/kosmos"; then echo "SETUP WRONG: the old kosmos knows systemd" >&2; exit 1; fi
+          KOSMOS_SRC="$OLDSRC" sh "$RUNNER_TEMP/old-setup.sh"
+          if grep -q systemctl "$KOSMOS_HOME/bin/kosmos"; then echo "SETUP WRONG: the installed kosmos is not the old one" >&2; exit 1; fi
+          grep -qx 'Restart=always' "$UNIT"
+          if grep -qx 'KillMode=process' "$UNIT"; then echo "SETUP WRONG: the old unit already has KillMode" >&2; exit 1; fi
+          # As after a reboot: systemd runs the board from the old unit (main's kosmos knows no systemd, so stop it
+          # by hand, clear its marker, start the unit).
+          "$KOSMOS_HOME/bin/kosmos" stop --force || true
+          rm -f "$KOSMOS_HOME/board.stopped"
+          # #5519: 0.7.27's unit cannot carry the beacon address, so the test adds it before systemd starts that board.
+          sed -i "/^\[Service\]$/a Environment=AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL" "$UNIT"
+          grep -qxF "Environment=AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL" "$UNIT"   # sed exits 0 on no match
+          systemctl --user daemon-reload
+          systemctl --user start kosmos-board.service
+          sleep 3
+          test "$(systemctl --user is-active kosmos-board.service)" = active
+          # The update. Run from the runner's shell, not from inside the board's cgroup: moving a process into the board
+          # unit's cgroup failed with an I/O error both from here and from under systemd-run --user (runs 37609062744,
+          # 37609285535; cause not established). The cgroup hazard itself is measured by the KillMode step above
+          # (control and fix on real systemd), and a unit test pins the fix right before both stops.
+          sh install/setup.sh
+          cat "$UNIT"
+          grep -qxF "KillMode=process" "$UNIT"
+          grep -qxF "Restart=on-failure" "$UNIT"
+          # #5519: the updated unit still carries the beacon address (the update ran with it in its environment).
+          grep -qxF "Environment=\"AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL\"" "$UNIT"
+          if grep -qxF "Restart=always" "$UNIT"; then echo "FAIL: the update left the old Restart=always unit" >&2; exit 1; fi
+          test "$(systemctl --user is-active kosmos-board.service)" = active
+          curl -fsS -m 5 http://127.0.0.1:16180/ >/dev/null
+          # The held-changed restart happened: the running process started after installBoard rewrote the unit (the start
+          # step's earlier restart ran under the OLD unit text, before the rewrite).
+          STARTED="$(systemctl --user show -p ExecMainStartTimestampMonotonic --value kosmos-board.service)"
+          UNIT_MTIME_S="$(stat -c %Y "$UNIT")"; BOOT_S="$(awk '{print int($1)}' /proc/uptime)"; NOW_S="$(date +%s)"
+          UNIT_MONO_US=$(( (UNIT_MTIME_S - (NOW_S - BOOT_S)) * 1000000 ))
+          echo "board started at monotonic $STARTED us; unit rewritten at about $UNIT_MONO_US us"
+          test -n "$STARTED" && [ "$STARTED" -gt "$UNIT_MONO_US" ] || { echo "FAIL: the board was not restarted after its unit was rewritten" >&2; exit 1; }
+          # And it stays up without a restart loop.
+          N1="$(systemctl --user show -p NRestarts --value kosmos-board.service)"
+          sleep 12
+          N2="$(systemctl --user show -p NRestarts --value kosmos-board.service)"
+          echo "after the update: NRestarts $N1 -> $N2"
+          test -n "$N1" && test "$N1" = "$N2"
+          curl -fsS -m 5 http://127.0.0.1:16180/ >/dev/null
+          sh install/setup.sh --uninstall
+          test ! -f "$UNIT"
 
       - name: Test custom KOSMOS_HOME unit derivation
         run: |
           CUSTOM_HOME="$HOME/custom-kosmos"
-          AGENT_WORKFORCE_DATA="$CUSTOM_HOME/data" KOSMOS_HOME="$CUSTOM_HOME" bash install/setup.sh
+          AGENT_WORKFORCE_DATA="$CUSTOM_HOME/data" KOSMOS_HOME="$CUSTOM_HOME" sh install/setup.sh
+          # B's name rule: sha256 of the resolved path, first 8 hex (CUSTOM_HOME is already absolute and clean).
           HASH=$(printf '%s' "$CUSTOM_HOME" | sha256sum | cut -c1-8)
           UNIT_FILE="$HOME/.config/systemd/user/kosmos-board.${HASH}.service"
           test -f "$UNIT_FILE"
-          grep -q "Environment=KOSMOS_HOME=$CUSTOM_HOME" "$UNIT_FILE"
-          AGENT_WORKFORCE_DATA="$CUSTOM_HOME/data" KOSMOS_HOME="$CUSTOM_HOME" bash install/setup.sh --uninstall
+          grep -qF "Environment=\"KOSMOS_HOME=$CUSTOM_HOME\"" "$UNIT_FILE"
+          grep -qxF "Environment=\"AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL\"" "$UNIT_FILE"   # #5519: this board too
+          AGENT_WORKFORCE_DATA="$CUSTOM_HOME/data" KOSMOS_HOME="$CUSTOM_HOME" sh install/setup.sh --uninstall
           test ! -f "$UNIT_FILE"
+          test ! -e "$HOME/.config/systemd/user/default.target.wants/kosmos-board.${HASH}.service"

@@ -55,6 +55,24 @@ rel="${url#"$HOST_URL"/}"
 # NB: not `path=` -- in zsh `path` is tied to PATH, and tools/test-zsh-tied-names.sh
 # statically refuses any shell file that writes it (a file sourced into zsh would clobber PATH).
 served_file="$LIVE_DIR/$rel"
+# #5589: an edge that cannot be reached for one file: <name>.down answers like a failed connection
+# (curl prints 000 for -w and exits 7). <name>.dropafter is served once, then goes down.
+case "$rel" in *must-404.bin)
+  if [ -n "${CONTROL_DOWN:-}" ]; then [ -n "$wfmt" ] && printf '000'; exit 7; fi
+  if [ -n "${CONTROL_200:-}" ]; then [ -n "$dest" ] && printf 'soft 404 page\n' > "$dest"; [ -n "$wfmt" ] && printf '200'; exit 0; fi ;;
+esac
+if [ -f "$served_file.err503" ]; then [ -n "$wfmt" ] && printf '503'; exit 0; fi
+if [ -f "$served_file.down" ]; then
+  if [ -n "$wfmt" ]; then printf '000'; fi
+  exit 7
+fi
+if [ -f "$served_file.dropafter" ] && [ -f "$served_file" ]; then
+  [ -n "$dest" ] && cp "$served_file" "$dest"
+  [ -n "$wfmt" ] && printf '200'
+  [ -n "$dest" ] || [ -n "$wfmt" ] || cat "$served_file"
+  mv "$served_file.dropafter" "$served_file.down"
+  exit 0
+fi
 # An edge that is late (#4819): a file held back as <name>.late answers 404 once, then is served.
 if [ ! -f "$served_file" ] && [ -f "$served_file.late" ]; then
   mv "$served_file.late" "$served_file"
@@ -62,7 +80,12 @@ if [ ! -f "$served_file" ] && [ -f "$served_file.late" ]; then
   exit 22
 fi
 if [ -n "$wfmt" ]; then
-  if [ -f "$served_file" ]; then [ -n "$dest" ] && cp "$served_file" "$dest"; printf '200'; else printf '404'; fi
+  if [ -f "$served_file" ]; then [ -n "$dest" ] && cp "$served_file" "$dest"; printf '200'
+  else
+    # #5589: VARY_404=1 makes every 404 carry a different body, as a host's error page can.
+    [ -n "${VARY_404:-}" ] && [ -n "$dest" ] && printf 'not found, request %s-%s\n' "$$" "$RANDOM" > "$dest"
+    printf '404'
+  fi
   exit 0
 fi
 [ -f "$served_file" ] || exit 22
@@ -446,5 +469,73 @@ out="$(LIE_SIDECAR_ON_DEPLOY=setup-staging.sha256 PATH="$BIN:$PATH" LIVE_DIR="$L
 read -r S27 L27 <<<"$(make_scenario)"; with_setup "$S27" "NEW-INSTALLER"
 out="$(STALE_SETUP_ON_DEPLOY=1 PATH="$BIN:$PATH" LIVE_DIR="$L27" HOST_URL="$HOSTURL" KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$S27" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" bash "$DEPLOY" --promote 2>&1)"; RC=$?
 { [ "$RC" = 1 ] && has "$out" "is not the installer the committed latest.json names"; } && pass "#5032: a served /setup pair that agrees with itself but is not the pointer's installer is refused at the edge" || bad "#5032 stale self-consistent /setup (rc=$RC) out=$out"
+# 28) #5589: a release cut publishes a pointer WHILE this run is fetching and building. The stub's .late
+#     mechanism serves latest-win-staging.json as 404 on its first read (the snapshot taken before any
+#     fetch) and as a real pointer from then on, i.e. a cut landed in between. The pre-deploy re-read must
+#     see the change and refuse with nothing deployed. Case 1 is the control: the same promote, with every
+#     live pointer unchanged across the run, deploys.
+read -r S28 L28 <<<"$(make_scenario)"
+printf '{"version":"9.9.9"}\n' > "$L28/dist/latest-win-staging.json.late"
+run_deploy "$S28" "$L28" --promote
+{ [ "$RC" = 75 ] && has "$out" "a live pointer changed while this run was building" \
+  && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L28/dist/latest.json")" = "$OLD" ]; } \
+  && pass "#5589: a live pointer moved mid-run (a cut published) is refused before the deploy, LIVE untouched" \
+  || bad "#5589 mid-run pointer move (rc=$RC) out=$out"
+# 28b) #5589: the same mid-run move under --publish, the mode site-autodeploy.sh runs. Live serves the
+#      committed pointer, so the only thing that can refuse is the mid-run re-read. Control: the same
+#      scenario without the late pointer publishes (rc 0).
+read -r S28c L28c <<<"$(make_scenario)"; cp "$S28c/dist/latest.json" "$L28c/dist/latest.json"
+run_deploy "$S28c" "$L28c" --publish
+[ "$RC" = 0 ] && pass "#5589 control: --publish with live = committed and no pointer moving deploys" || bad "#5589 --publish control (rc=$RC) out=$out"
+read -r S28b L28b <<<"$(make_scenario)"; cp "$S28b/dist/latest.json" "$L28b/dist/latest.json"
+printf '{"version":"9.9.9"}\n' > "$L28b/dist/latest-win-staging.json.late"
+run_deploy "$S28b" "$L28b" --publish
+{ [ "$RC" = 75 ] && has "$out" "a live pointer changed while this run was building"; } \
+  && pass "#5589: --publish refuses a pointer moved mid-run (exit 75)" || bad "#5589 --publish mid-run move (rc=$RC) out=$out"
+# 29) #5589: a pointer that is absent live (404) is compared by status only, so a 404 page whose body
+#     differs per request does not read as a moved pointer. latest-win-staging.json is absent in this
+#     scenario, so both snapshots see a 404 with a different body.
+read -r SA LA <<<"$(make_scenario)"
+out="$(VARY_404=1 PATH="$BIN:$PATH" LIVE_DIR="$LA" HOST_URL="$HOSTURL" KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$SA" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" bash "$DEPLOY" --promote 2>&1)"; RC=$?
+[ "$RC" = 0 ] && pass "#5589: a 404 whose body varies per request is not a moved pointer (the deploy goes ahead)" || bad "#5589 varying 404 body refused (rc=$RC) out=$out"
+# 30) #5589: a live pointer that cannot be read at the START refuses at once, before any fetch.
+read -r S30 L30 <<<"$(make_scenario)"
+: > "$L30/dist/latest-win-staging.json.down"
+run_deploy "$S30" "$L30" --promote
+{ [ "$RC" = 75 ] && has "$out" "could not read the live pointers at the start" && ! has "$out" "fetched and verified" \
+  && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L30/dist/latest.json")" = "$OLD" ]; } \
+  && pass "#5589: an unreadable live pointer at the start refuses before any fetch, LIVE untouched" \
+  || bad "#5589 unreadable at start (rc=$RC) out=$out"
+# 31) #5589: a live pointer readable at the start but not right before the deploy: refused, nothing deployed.
+read -r S31 L31 <<<"$(make_scenario)"
+printf '{"version":"9.9.9"}\n' > "$L31/dist/latest-win-staging.json"; : > "$L31/dist/latest-win-staging.json.dropafter"
+run_deploy "$S31" "$L31" --promote
+{ [ "$RC" = 75 ] && has "$out" "could not re-read the live pointers right before deploying" \
+  && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L31/dist/latest.json")" = "$OLD" ]; } \
+  && pass "#5589: a live pointer unreadable at the re-read refuses with nothing deployed" \
+  || bad "#5589 unreadable at re-read (rc=$RC) out=$out"
+# 32) #5589: the served-verify negative control could not RUN (a transport blip): exit 75, nothing deployed.
+read -r S32 L32 <<<"$(make_scenario)"
+out="$(CONTROL_DOWN=1 PATH="$BIN:$PATH" LIVE_DIR="$L32" HOST_URL="$HOSTURL" KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$S32" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" bash "$DEPLOY" --promote 2>&1)"; RC=$?
+{ [ "$RC" = 75 ] && has "$out" "could not RUN against" \
+  && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L32/dist/latest.json")" = "$OLD" ]; } \
+  && pass "#5589: a negative control that could not run exits 75 (try again), nothing deployed" || bad "#5589 control blip (rc=$RC) out=$out"
+# 32b) #5589: control for 32: a BLIND host (answers 200 for a path that cannot exist) is a finding, exit 1.
+read -r S32b L32b <<<"$(make_scenario)"
+out="$(CONTROL_200=1 PATH="$BIN:$PATH" LIVE_DIR="$L32b" HOST_URL="$HOSTURL" KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$S32b" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" bash "$DEPLOY" --promote 2>&1)"; RC=$?
+{ [ "$RC" = 1 ] && has "$out" "negative control FAILED"; } && pass "#5589: a blind host (negative control answered 200) still exits 1, not 75" || bad "#5589 blind host (rc=$RC) out=$out"
+# 33) #5589: latest.json readable for the snapshot but not for the read after it: exit 75.
+read -r S33 L33 <<<"$(make_scenario)"
+: > "$L33/dist/latest.json.dropafter"
+run_deploy "$S33" "$L33" --promote
+{ [ "$RC" = 75 ] && has "$out" "cannot read $HOSTURL/dist/latest.json"; } \
+  && pass "#5589: an unreadable latest.json exits 75 (try again)" || bad "#5589 latest.json blip (rc=$RC) out=$out"
+# 34) #5589: a pointer that answers 503 through every retry never said what it is: unread, exit 75 at
+#     the start (not a 503 that compares equal at both reads and lets the deploy through).
+read -r S34 L34 <<<"$(make_scenario)"
+: > "$L34/dist/latest-win-staging.json.err503"
+run_deploy "$S34" "$L34" --promote
+{ [ "$RC" = 75 ] && has "$out" "could not read the live pointers at the start"; } \
+  && pass "#5589: a pointer answering 5xx through every retry counts as unread (exit 75)" || bad "#5589 persistent 503 (rc=$RC) out=$out"
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

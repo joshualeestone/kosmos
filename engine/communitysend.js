@@ -773,6 +773,9 @@ async function sendPost(post, keys, sent, now, from) {
   let body = payload(post, rec.channel);
   if (!body.title || !body.body) { sent[post.id] = settle(rec, { state: 'refused', reasons: ['empty'] }); return; }
   if (rec.attempted) return;                         // settleUnconfirmed could not tell this sweep: wait
+  // #5574 review 4: which service agent sends it, as a comment records (agentId), so a take-back is asked only by that
+  // same agent: after a re-registration a DELETE as the new one answers 404 ("not mine") and would read as removed.
+  if (k.remoteId) rec.agentId = k.remoteId;
   // Write-ahead: if the board stops while the POST is out, the next sweep finds this mark
   // and looks for the post on the server instead of sending it again.
   sent[post.id] = { ...rec, attempted: true };
@@ -828,6 +831,12 @@ async function sweepDeletes(keys, sent, deletes) {
     if (!rec || rec.state !== 'sent' || !rec.remoteId) continue;
     const k = keys[rec.agent];
     if (!k || !k.apiKey || k.refused) continue;
+    // #5574 review 5+6: checked again HERE, at send time: a registration KNOWN to be another (the record names the one
+    // that sent it) would DELETE as another service agent, whose 404 means "not mine", not "gone". A record without that
+    // name (every post sent before #5574) is treated as main always did, as the held registration's: the time fallback
+    // cannot tell an agent's first post (registered in the same sweep) from a re-registration, and refusing it would
+    // leave the person's Delete promising "within a few minutes" forever.
+    if (knownOtherRegistration(rec, k)) continue;
     const r = await asAgent(rec.agent, keys, 'DELETE', '/posts/' + encodeURIComponent(rec.remoteId));
     if (r.status === 204 || r.status === 404) sent[id] = settle(rec, { state: 'deleted' });
     else {
@@ -1995,6 +2004,20 @@ function requestDelete(localId) {
     const meta = communitystore.postMeta(id);
     if (!meta) return requestCommentDelete(id);
     if (meta.authorType !== 'agent') return { ok: false, notEligible: true, because: 'the board never sends that post' };
+    // #5574 review 6: a sent post whose sending registration is known to be gone would never come down (sweepDeletes
+    // skips it), so the owner is told now rather than shown "Deleting" forever.
+    {
+      const sentNow = loadJson(sentFile()) || {};
+      const rec = sentNow[id];
+      if (rec && rec.state === 'sent' && rec.agentId) {
+        // Review 7: an unreadable keys.json is "cannot tell just now", never "the registration is gone".
+        const keysNow = loadJson(keysFile());
+        if (!keysNow) return { ok: false, retryable: true, because: 'Kosmos could not read its community registrations just now' };
+        if (knownOtherRegistration(rec, keysNow[rec.agent])) {
+          return { ok: false, notEligible: true, because: 'Kosmos no longer holds the registration that sent this post, so it cannot remove it' };
+        }
+      }
+    }
     const deletes = loadJson(deletesFile());
     if (!deletes) return { ok: false, because: 'we could not read the list of deleted posts' };
     if (!deletes[id]) {
@@ -2005,6 +2028,79 @@ function requestDelete(localId) {
   } catch {
     return { ok: false, because: 'we could not save that' };
   }
+}
+
+/**
+ * #5574: an AGENT takes back its own post or comment (`kosmos community withdraw`). The owner's removal (#4287, #4801)
+ * does the work, so every state it handles is handled the same way: not sent yet, it is withheld and never goes; sent,
+ * the next sweep takes it down from the community; refused, untraceable or out on the network right now, it says why.
+ *
+ * `id` is the one the agent has: the service's id (what `kosmos community read` shows after "post" or "comment") once
+ * it is out, or the board's own id (what the send answered) while it is queued. Either way it must be THIS agent's:
+ * another agent's id, or one nobody holds, is not found, with no hint of which (no oracle for other agents' ids).
+ */
+function withdrawFor(agentId, kind, id) {
+  const who = typeof agentId === 'string' ? agentId : '';
+  const raw = typeof id === 'string' ? id.trim() : '';
+  if (!who || !raw || (kind !== 'post' && kind !== 'comment')) return { ok: false, because: 'withdraw needs post or comment and an id' };
+  let local = null;
+  let recs;
+  try {
+    recs = loadJson(kind === 'post' ? sentFile() : commentsSentFile());
+    if (!recs) return { ok: false, retryable: true, because: 'Kosmos could not read its record of sent ' + kind + 's just now' };
+    // Review 1: a removed agent's records are renamed retired:<name>:<at> in the SENT files only; the board's own rows keep
+    // the name. So a board id counts as this agent's only when no sent record says it belongs to someone else, or a new
+    // agent given a removed agent's name could take back the old agent's words by their board id.
+    if (communitystore.agentOf(kind, raw) === who && (!recs[raw] || recs[raw].agent === who)) local = raw;
+    else {
+      const want = raw.toLowerCase();
+      for (const [lid, rec] of Object.entries(recs)) {
+        if (rec && rec.agent === who && typeof rec.remoteId === 'string' && rec.remoteId.toLowerCase() === want) { local = lid; break; }
+      }
+    }
+  } catch {
+    return { ok: false, retryable: true, because: 'Kosmos could not read its records just now' };
+  }
+  if (!local) return { ok: false, missing: true, because: 'you have no ' + kind + ' with that id' };
+  // Review 2: already down is what the agent asked for, so it is an answer, not a refusal ("Nothing was taken back"
+  // after a retry that follows a timed-out first try would be false).
+  if (kind === 'comment') {
+    const crec = (commentRecords() || {})[local];
+    if (crec && crec.state === 'deleted') return { ok: true, state: 'deleted' };
+    // Review 3: already held back (a retry after the first take-back, or marked not to go) is done too, as for a post.
+    if (crec && (crec.state === 'withheld' || crec.state === 'not_sent')) return { ok: true, state: 'withheld' };
+    // Review 8: requestCommentDelete's own refusals apply only while no removal is recorded; one already recorded (the
+    // person's Delete, racing a send) skips them. A comment that can never be found again is refused here either way.
+    if (crec && crec.state === 'unconfirmed') return { ok: false, notEligible: true, because: 'Kosmos never learned whether this comment arrived, so it cannot take it back' };
+    if (crec && crec.state === 'sent' && crec.traceable === null) return { ok: false, retryable: true, because: 'Kosmos could not read its community registrations just now' };
+    if (crec && crec.state === 'sent' && crec.traceable === false) return { ok: false, notEligible: true, because: 'Kosmos has no way to find this comment again, so it cannot take it back' };
+    return requestCommentDelete(local);
+  }
+  // Review 1: the post removal (#4287) records a removal in every state, for the person's list. An agent is told plainly,
+  // up front, when nothing will come down, rather than a "taken back" that will never happen.
+  const rec = recs[local] || {};
+  const no = (because) => ({ ok: false, notEligible: true, because });
+  if (rec.state === 'deleted') return { ok: true, state: 'deleted' };
+  // Review 3: moderators already took it down: it is not public, which is what the agent asked for.
+  if (rec.takenDown === true) return { ok: true, state: 'deleted' };
+  if (rec.state === 'refused') return no('The community did not accept this post, so there is nothing to take back');
+  if (rec.state === 'sent' && !rec.remoteId) return no('Kosmos has no way to find this post again, so it cannot take it back');
+  if (rec.state === 'sent' || (rec.state === 'pending' && rec.attempted)) {
+    // Review 2: sweepDeletes sends a take-down only with the agent's live key, so a refused or lost registration means it
+    // would never come down (the comment path refuses this case too). Review 3: likewise for a post whose send got no
+    // answer: settleUnconfirmed looks for it only with a live key, so without one nothing would ever find it.
+    const keys = loadJson(keysFile());
+    if (!keys) return { ok: false, retryable: true, because: 'Kosmos could not read its community registrations just now' };
+    const k = keys[rec.agent];
+    if (k && k.refused) return no('The community refused this agent, so Kosmos cannot take its posts back');
+    if (!k || !k.apiKey) return no('Kosmos no longer holds the registration that sent this post, so it cannot take it back');
+    // Review 4: and it must be the registration that SENT it (agentId, or for an older record a registration no newer than
+    // the send), or the take-down goes out as another service agent, gets a 404 and reads as removed while still public.
+    if (knownOtherRegistration(rec, k)) return no('Kosmos no longer holds the registration that sent this post, so it cannot take it back');
+  }
+  // Review 2: a post whose send got no answer (or is out right now) is NOT refused: unlike a comment, a post can be found
+  // again, so the next sweep settles it (settleUnconfirmed) and then takes it down if it arrived, or holds it if it did not.
+  return requestDelete(local);
 }
 
 function requestCommentDelete(id) {
@@ -2215,6 +2311,11 @@ function commentStatuses() {
  * #4801 review 2: null when comments-sent.json or comment-deletes.json is unreadable. Read as empty, a removed comment
  * would be offered Delete again, or every comment would vanish into a false "none".
  */
+/* #5574 review 6: a post record names the registration that sent it (agentId, recorded from #5574 on) and the one held
+   is not it. Unknown (no agentId) is NOT a mismatch: see sweepDeletes. */
+function knownOtherRegistration(rec, k) {
+  return Boolean(rec && rec.agentId) && !(k && k.remoteId === rec.agentId);
+}
 function sameServiceAgent(rec, k) {
   if (rec.agentId) return Boolean(k && k.remoteId === rec.agentId);
   // #4801 review 1: a record with no agentId (sent before agentId was recorded) is this registration's only when the
@@ -2332,7 +2433,7 @@ function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }
 function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : ms; }
 
 module.exports = {
-  switchOn, switchState, notOnWords, willSend, NOT_SENDING, notSendingWords, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete,
+  switchOn, switchState, notOnWords, willSend, NOT_SENDING, notSendingWords, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete, withdrawFor,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
   sendAddress: endpoint,   // #5415: communitystatus takes a sent item's public link host from it, and whether there is one
   setSender, resetPauses, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,

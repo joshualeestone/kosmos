@@ -40,11 +40,12 @@ test.afterEach(() => runners.resetForTests());
 
 const LEGACY = path.join(SANDBOX, 'legacy', 'codex');
 
-test('the Codex gate lets Windows through; every other runner arm stays darwin-only', () => {
+test('the Codex gate lets Windows and Linux through; every other runner arm stays darwin-only', () => {
   assert.equal(platformGate.canDownloadCodex('win32'), true, 'OpenAI publishes a Windows Codex build');
   assert.equal(platformGate.canDownloadCodex('darwin'), true);
-  for (const p of ['linux', 'aix', '', null]) assert.equal(platformGate.canDownloadCodex(p), false, String(p) + ' fails closed');
-  assert.deepEqual(platformGate.CODEX_DOWNLOADS, ['darwin', 'win32']);
+  assert.equal(platformGate.canDownloadCodex('linux'), true, '#5419 slice 2: OpenAI publishes Linux Codex builds');
+  for (const p of ['freebsd', 'aix', '', null]) assert.equal(platformGate.canDownloadCodex(p), false, String(p) + ' fails closed');
+  assert.deepEqual(platformGate.CODEX_DOWNLOADS, ['darwin', 'win32', 'linux']);
   assert.ok(Object.isFrozen(platformGate.CODEX_DOWNLOADS));
   // The Claude LINK path and unknown providers are unchanged on Windows.
   assert.equal(platformGate.canDownloadRunner('win32'), false);
@@ -118,10 +119,10 @@ test('a Windows CPU with no published build is refused by name before a byte mov
 });
 
 test('an unsupported platform is refused in plain words that name the product', () => {
-  const job = runners.install('openai', { platform: 'linux' });
+  const job = runners.install('openai', { platform: 'freebsd' });   // #5419 slice 2: linux has its own build now
   assert.equal(job.phase, 'failed');
   assert.match(job.because, /not supported/);
-  assert.match(job.because, /linux/);
+  assert.match(job.because, /freebsd/);
   assert.match(job.because, /OpenAI's Codex/, 'the person reads the product name, not the word "runner"');
   assert.match(job.because, /nothing was downloaded/);
   assert.doesNotMatch(job.because, /\u2014/, 'no em dash in person-facing copy');

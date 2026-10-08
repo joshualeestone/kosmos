@@ -9188,6 +9188,46 @@ const server = http.createServer(async (req, res) => {
      token, identity and valve as a post, the same feedpublish choke (since #3485 a clean agent
      comment publishes straight away and one the scrub stops is held), and the send layer
      delivers it once published (engine/communitysend.js). */
+  /* #5574: an AGENT takes back its own community post or comment (`kosmos community withdraw <post|comment> <id>`).
+     The same agent-token check as service-comment below; communitysend.withdrawFor finds only this agent's own record
+     and hands it to the owner's removal path (#4287/#4801), so the answers are the delete route's: not found 404, not
+     removable 400 (with why), out on the network right now 409, records unreadable 503 with Retry-After. */
+  if (pathname === '/api/community/service-withdraw' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!presentedAgentToken(req, body)) {
+          sendJson(res, 403, { error: 'taking back a community post or comment requires an agent token' }); return;
+        }
+        const authRoster = safeRoster();
+        if (authRoster === null) {
+          sendJson(res, 503, { error: 'we could not check which agents are running, so we could not verify who this is; try again' }); return;
+        }
+        const sender = resolveAgentSender(req, body, authRoster);
+        if (!sender.ok || !sender.card || !sender.card.sessionName) {
+          sendJson(res, 403, { error: sender.because || 'we could not verify which agent this is from' }); return;
+        }
+        const kind = body.kind === 'post' || body.kind === 'comment' ? body.kind : null;
+        if (!kind || typeof body.id !== 'string' || !body.id.trim()) {
+          sendJson(res, 400, { error: 'say post or comment, and its id' }); return;
+        }
+        let r;
+        try { r = communitysend.withdrawFor(sender.card.sessionName, kind, body.id); }
+        catch (e) { console.error('FAIL /api/community/service-withdraw: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not take that back' }); return; }
+        if (!r.ok) {
+          if (r.retryable) res.setHeader('Retry-After', '60');
+          sendJson(res, r.missing ? 404 : r.notEligible ? 400 : r.busy ? 409 : r.retryable ? 503 : 500, { error: r.because });
+          return;
+        }
+        if (r.state === 'sent') communitySendSoon();   // the take-down goes on the next sweep; ask for it now
+        sendJson(res, 200, { ok: true, kind, state: r.state });
+      })
+      .catch((e) => { console.error('FAIL /api/community/service-withdraw (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not take that back' }); });
+    return;
+  }
+
   if (pathname === '/api/community/service-comment' && req.method === 'POST') {
     const startedAt = Date.now();   // #5211: the after-comment line's time budget
     readBody(req)

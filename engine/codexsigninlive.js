@@ -47,6 +47,7 @@
  */
 
 const { execFile } = require('node:child_process');
+const { envSet } = require('./win32env');   // #5386: env copies keep names as spelled; on Windows any spelling counts
 const runners = require('./runners');
 const observed = require('./observed');
 
@@ -120,7 +121,7 @@ function defaultRunner(dir) {
   const env = { ...process.env };
   // A null/empty dir means the default codex home; leave CODEX_HOME as the process inherits
   // it (codex resolves its own default) rather than forcing an empty value.
-  if (dir) env.CODEX_HOME = String(dir);
+  if (dir) envSet(env, 'CODEX_HOME', String(dir));   // #5386: one key, whatever spelling was inherited
   return new Promise((resolve) => {
     execFile(bin, ['doctor', '--json'], { env, timeout: TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024 },
       (err, stdout) => {

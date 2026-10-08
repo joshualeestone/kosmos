@@ -256,6 +256,42 @@ function revoke(sessionName) {
   return held.value;
 }
 
+/* #5418 ask 2: drop an agent's token file ONLY if it is still the file a plan looked at (still a regular file, the
+   same mtime, no newer mintedAt), checked UNDER the lock, so a mint landing between the plan and the removal is never taken. For the one-time cleanup tool
+   (tools/cleanup-fixture-tokens-5418.js); every other caller wants revoke.
+   TODO(#5418) RETIRE-5418: remove it with that tool once the fleet cleanup is done and the tool is retired, together with its
+   test file, both of their lines in tools/windows-tests.js (ALSO and ALSO_ROOT), and the tool's line in CLAUDE.md
+   convention 3. */
+function revokeIfUnchanged(sessionName, mtimeMs, newestMintMs) {
+  let held;
+  try {
+    held = withSessionLock(sessionName, () => {
+      let st;
+      try { st = fs.lstatSync(fileFor(sessionName)); } catch (e) {
+        return (e && e.code === 'ENOENT') ? { ok: true, already: true } : { ok: false, because: 'we could not look at that agent\'s tokens' };
+      }
+      // the type first, before anything is read: a link or a FIFO swapped in is never followed or read under the lock
+      if (!st.isFile()) return { ok: false, because: 'no longer a regular file: kept' };
+      // Also the newest mintedAt, read under the lock: a mint that lands in the same mtime tick (a coarse-mtime
+      // mount) still adds a newer token, and that keeps the file.
+      const newest = readTokens(sessionName).reduce((m, t) => { const ms = Date.parse((t && t.mintedAt) || ''); return Number.isFinite(ms) && ms > m ? ms : m; }, -Infinity);
+      const mintedSincePlanned = typeof newestMintMs === 'number' && newest > newestMintMs;
+      // no mint was recorded at plan time: a mint at or after the planned mtime is newer than the plan (>= because a
+      // coarse-mtime mount rounds the mtime down; erring here keeps the file)
+      const mintedWhereNoneWasPlanned = typeof newestMintMs !== 'number' && newest > -Infinity && newest >= mtimeMs;
+      if (mintedSincePlanned || mintedWhereNoneWasPlanned) {
+        return { ok: false, because: 'a token was minted since the plan was made: kept' };
+      }
+      // A mint rewrites the file (temp then rename), so its mtime moves; the mintedAt check above covers a mount
+      // whose mtime is too coarse to.
+      if (st.mtimeMs !== mtimeMs) return { ok: false, because: 'written since the plan was made: kept' };
+      return revokeUnlocked(sessionName);
+    });
+  } catch { return { ok: false, because: 'we could not remove that agent\'s tokens' }; }
+  if (!held.ok) return { ok: false, because: held.because };
+  return held.value;
+}
+
 /** Drop ONE run's token, leaving the agent's other live runs alone. */
 function retire(sessionName, instance) {
   let held;
@@ -599,5 +635,5 @@ function tokenOnlyFor(name) {
 }
 
 module.exports = {
-  mint, revoke, retire, retireLauncher, live, instanceState, keys, resolve, resolveName, tokenOnlyFor, tokenOnlyFile, CLASH, DIR, MAX_LIVE,
+  mint, revoke, revokeIfUnchanged, retire, retireLauncher, live, instanceState, keys, resolve, resolveName, tokenOnlyFor, tokenOnlyFile, CLASH, DIR, MAX_LIVE,
   NO_MATCH };   // #5333: exported so the CLIs' recovery hint is pinned to the one sentence (cli.token-refused-5333.test.js)

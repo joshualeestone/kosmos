@@ -33,6 +33,7 @@
  * and its child process is an injectable seam.
  */
 const { spawn } = require('node:child_process');
+const { envSet } = require('./win32env');   // #5386: env copies keep names as spelled; on Windows any spelling counts
 
 /* codex's spelling of claude's --dangerously-skip-permissions. The same flag
    win32launch.AUTONOMY.codex carries, written once here so the two cannot drift. */
@@ -130,8 +131,9 @@ function runCodexTurn(opts) {
   return new Promise((resolve) => {
     const o = opts || {};
     const args = codexTurnArgs(o);
-    const env = o.env
-      || Object.assign({}, process.env, o.codexHome ? { CODEX_HOME: String(o.codexHome) } : {});
+    // #5386: the fallback copy goes through envSet, so an inherited codex_home in another spelling cannot sit beside
+    // the account's CODEX_HOME (a copy keeps names as spelled; on Windows either is the variable codex reads).
+    const env = o.env || (o.codexHome ? envSet({ ...process.env }, 'CODEX_HOME', String(o.codexHome)) : { ...process.env });
     let child;
     try {
       child = spawner()(o.bin, args, {

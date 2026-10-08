@@ -41,7 +41,8 @@
 # #2014 version-skew BLOCKER); it references the SITE's OWN version instead. --publish is safe.
 # 🛑 STILL COORDINATE A PRODUCTION DEPLOY. --publish is a live `vercel deploy --prod`: do not run
 # it concurrently with a release cut populating the same dist/ (see the concurrency note below),
-# and coordinate with the release owner so two deploys cannot race. The dry run (default, no
+# and coordinate with the release owner so two deploys cannot race (#5589 narrows, not closes, that race:
+# it refuses when a live pointer moved between the start of the run and the deploy). The dry run (default, no
 # flag) remains safe -- it fetches, builds the export, runs every guard, and STOPS before deploy.
 # =============================================================================
 #
@@ -343,8 +344,47 @@ H=$(git -C "$SITE" rev-parse HEAD 2>/dev/null) || { echo "deploy-site: cannot re
 # been deployed, so a blip means retry and a blind host means stop. The two post-deploy calls both
 # mean "the deploy already ran, investigate" whichever code came back, and the library's own stderr
 # line already says "failed at the transport layer" when it was a blip.
-served_verify_host_discriminates "$HOST" || { _svrc=$?; if [ "$_svrc" -eq 2 ]; then echo "deploy-site: refusing BEFORE any deploy -- the served-verify negative control could not RUN against $HOST (transport error, see above), so nothing about this host is proven either way. Nothing has been deployed."; else echo "deploy-site: refusing BEFORE any deploy -- the served-verify negative control FAILED against $HOST (see the reason above): the host answered 200 for a path that cannot exist. Nothing has been deployed."; fi; exit 1; }
-LJ=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json") || { echo "deploy-site: cannot read $HOST/dist/latest.json -- refusing"; exit 1; }
+# #5589: the blip arm exits 75 (EX_TEMPFAIL, like the pointer refusals below: run again later); a
+# blind host is a finding and exits 1.
+_svrc=0; served_verify_host_discriminates "$HOST" || _svrc=$?
+if [ "$_svrc" -ne 0 ]; then
+  if [ "$_svrc" -eq 2 ]; then
+    echo "deploy-site: refusing BEFORE any deploy -- the served-verify negative control could not RUN against $HOST (transport error, see above), so nothing about this host is proven either way. Nothing has been deployed."
+    exit 75
+  fi
+  echo "deploy-site: refusing BEFORE any deploy -- the served-verify negative control FAILED against $HOST (see the reason above): the host answered 200 for a path that cannot exist. Nothing has been deployed."
+  exit 1
+fi
+# #5589: the four live pointers a release cut moves, as one comparable line (each: name, HTTP status,
+# sha256 of the body). Taken here, BEFORE any start-of-run comparison of the checkout with live (the
+# latest.json guard below, check_staging_not_stale), and again right before `vercel deploy`. A cut
+# that publishes at any point after this read therefore shows up as a difference, including one that
+# lands between a start-of-run check and the snapshot. A read that does not complete records status
+# 000; a 000 here refuses at once, and a 000 at the second read refuses there.
+# Cost: four reads, each up to 3 tries of 30 s, so a host that times out on everything adds minutes
+# before the refusal. These three refusals exit 75 (EX_TEMPFAIL), not 1: nothing is wrong with the checkout, the live
+# site was moving or unreachable, so running again later is the right response (site-autodeploy.sh
+# retries a 75 on its next tick instead of parking the sha).
+case "${KOSMOS_DEPLOY_RETRY_SLEEP:-3}" in ''|*[!0-9]*) _lps_sleep=3 ;; *) _lps_sleep=${KOSMOS_DEPLOY_RETRY_SLEEP:-3} ;; esac
+live_pointer_snapshot() {
+  for _lps in latest.json latest-staging.json latest-win.json latest-win-staging.json; do
+    _lps_tmp=$(mktemp "${TMPDIR:-/tmp}/deploy-site-ptr.XXXXXX") || { printf '%s 000 -;' "$_lps"; continue; }
+    for _lps_try in 1 2 3; do
+      _lps_code=$(curl -sSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' -o "$_lps_tmp" -w '%{http_code}' "$HOST/dist/$_lps" 2>/dev/null) || _lps_code=000
+      case "$_lps_code" in ''|*[!0-9]*) _lps_code=000 ;; esac
+      case "$_lps_code" in 000|429|5[0-9][0-9]) [ "$_lps_try" = 3 ] || sleep "$_lps_sleep" ;; *) break ;; esac
+    done
+    # A 429 or 5xx that outlasted the retries never said what the pointer is, so it counts as unread.
+    case "$_lps_code" in 429|5[0-9][0-9]) _lps_code=000 ;; esac
+    # Only a 200's body is compared: a 404 page can differ per request, and absent is absent.
+    if [ "$_lps_code" = 200 ]; then printf '%s 200 %s;' "$_lps" "$(_sha256_of "$_lps_tmp")"; else printf '%s %s -;' "$_lps" "$_lps_code"; fi
+    rm -f "$_lps_tmp"
+  done
+}
+LIVE_PTRS_BEFORE=""
+[ "$PUBLISH" = 1 ] && LIVE_PTRS_BEFORE=$(live_pointer_snapshot)   # a dry run deploys nothing, so has nothing to compare
+case "$LIVE_PTRS_BEFORE" in *" 000 "*) echo "deploy-site: could not read the live pointers at the start ($LIVE_PTRS_BEFORE; or a local temp file could not be made) -- refusing; nothing has been deployed (#5589)"; exit 75 ;; esac
+LJ=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json") || { echo "deploy-site: cannot read $HOST/dist/latest.json -- refusing (exit 75: try again later, #5589)"; exit 75; }
 # The COMMITTED pointer (git archive of $H) is what a deploy actually SERVES, because dist/latest.json
 # is TRACKED. Read it once here for both the site-copy guard and the promote path. A git-show failure
 # must not set-e abort before the friendly refuses below.
@@ -777,6 +817,12 @@ if [ "$PUBLISH" != 1 ]; then
 fi
 
 # --- 5) deploy ---------------------------------------------------------------
+# #5589: refuse if a release cut moved a live pointer while this run was fetching and building. The
+# window left is the seconds between this read and Vercel switching the deployment over; the
+# post-deploy served check below is what catches a cut landing inside it.
+LIVE_PTRS_NOW=$(live_pointer_snapshot)
+case "$LIVE_PTRS_NOW" in *" 000 "*) echo "deploy-site: could not re-read the live pointers right before deploying -- refusing; nothing has been deployed (#5589)"; rm -rf "$EXPORT"; exit 75 ;; esac
+[ "$LIVE_PTRS_NOW" = "$LIVE_PTRS_BEFORE" ] || { echo "deploy-site: a live pointer changed while this run was building (a release cut published?) -- refusing; nothing has been deployed. Update the site checkout to origin/main and run again (#5589)."; echo "  before: $LIVE_PTRS_BEFORE"; echo "  now:    $LIVE_PTRS_NOW"; rm -rf "$EXPORT"; exit 75; }
 ( cd "$EXPORT" && vercel deploy --prod --yes ) || { echo "deploy-site: vercel deploy --prod failed"; rm -rf "$EXPORT"; exit 1; }
 rm -rf "$EXPORT"
 

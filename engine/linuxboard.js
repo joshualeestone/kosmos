@@ -5,8 +5,9 @@
  * Keeps the board running after machine restart / crash, mirroring macOS
  * com.kosmos.board.plist and Windows Scheduled Tasks.
  *
- * Callers: engine/boardrestart.js (self-restart on a world switch or a user restart). installBoard and removeBoard
- * have no production caller until piece D's installer (#4920). install/kosmos never loads this file: it names the
+ * Callers: engine/boardrestart.js (self-restart on a world switch or a user restart); install/setup.sh on
+ * Linux calls installBoard, loadedBoardJob, removeBoard and boardUnitPath (#4920) through the installed node.
+ * install/kosmos never loads this file: it names the
  * same unit itself (_kosmos_board_systemd_unit, kept equal by tools/test-board-supervised-linux-4918.sh).
  */
 
@@ -78,6 +79,14 @@ function boardUnitFor(kosmosHome, port) {
      "incomplete" and restart every 5 seconds. */
   const sysTmux = typeof process.env.AGENT_WORKFORCE_TMUX_BIN === 'string' && path.isAbsolute(process.env.AGENT_WORKFORCE_TMUX_BIN)
     ? process.env.AGENT_WORKFORCE_TMUX_BIN : '';
+  /* #5519 (Josh 10-07: do not count our own Linux installs): an install made with AGENT_WORKFORCE_CREATED_URL set (our
+     CI and test runs point it at a dead local address) keeps it in the unit, so the board's install beacon
+     (engine/createdbeacon.js) never reaches the live counter, across restarts and updates (an update re-runs setup
+     from the board's own environment). Unset, which every real install is, the unit is unchanged. Only a plain
+     http(s) URL is carried: no whitespace, quotes, backslash or % (systemd's specifier); anything else is left out
+     rather than failing an install. */
+  const rawBeacon = process.env.AGENT_WORKFORCE_CREATED_URL;
+  const beaconUrl = typeof rawBeacon === 'string' && /^https?:\/\/[^\s"'\\%]+$/.test(rawBeacon) ? rawBeacon : '';
   const pathVal = `${tmuxBinDir}:${sysTmux ? path.dirname(sysTmux) + ':' : ''}/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`;
   const { unitSafe } = require('./linuxjob');
   for (const [v, what] of [[home, 'the Kosmos folder'], [userHome, 'the home folder'], [sysTmux, 'the tmux path']]) unitSafe(v, what);
@@ -95,7 +104,7 @@ Environment="PATH=${pathVal}"
 Environment="LANG=C.UTF-8"
 Environment="KOSMOS_PORT=${p}"
 Environment="PORT=${p}"
-${sysTmux ? `Environment="AGENT_WORKFORCE_TMUX_BIN=${sysTmux}"\n` : ''}# The board writes where install/kosmos says it does (BOARD_LOG = $KOSMOS_HOME/logs/board.log), as on the Mac,
+${sysTmux ? `Environment="AGENT_WORKFORCE_TMUX_BIN=${sysTmux}"\n` : ''}${beaconUrl ? `Environment="AGENT_WORKFORCE_CREATED_URL=${beaconUrl}"\n` : ''}# The board writes where install/kosmos says it does (BOARD_LOG = $KOSMOS_HOME/logs/board.log), as on the Mac,
 # never only to the journal: kosmos start sends the person to that file when the board does not come up (review 16).
 StandardOutput=append:${path.join(home, 'logs', 'board.log')}
 StandardError=append:${path.join(home, 'logs', 'board.log')}
