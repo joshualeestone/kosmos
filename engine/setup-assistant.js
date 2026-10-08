@@ -611,29 +611,32 @@ function guardGuideFolder(dir, agentName, deps = {}) {
  * #4491: every board.token root a token-only agent could read -- this store, plus the pre-#2439 legacy
  * roots and the default world's base, each of which carries its own board.token that is a valid token
  * for that board. Derived the way the guide does, but DEFENSIVELY: worlds resolution can throw, and a
- * throw here must degrade to current-store coverage, never fail the guard (which would fail agent
- * creation). The guide lets these throw because it denies the whole root; here the token is the point,
- * and partial coverage beats no agent. Every named world that exists now is listed here, and
+ * throw here never throws out of this function. Review 22: it is NAMED in `missed`, and the token-only
+ * guard then refuses (create then refuses that token-only agent) instead of reporting a guard with a
+ * store's token left out; undo's set passes no `missed` and keeps the roots it found. Every named world that exists now is listed here, and
  * tokenOnlySettingsRules also writes the worlds-folder glob for a world made later.
  */
-function tokenOnlyTokenRoots(dataRoot, home, deps = {}) {
+function tokenOnlyTokenRoots(dataRoot, home, deps = {}, missed = null) {
   const roots = [dataRoot];
   const add = (r) => { if (r && typeof r === 'string' && !roots.includes(r)) roots.push(r); };
-  try { const lr = deps.legacyRoots !== undefined ? deps.legacyRoots : guideLegacyRoots(home); if (Array.isArray(lr)) lr.forEach(add); } catch { /* current store only */ }
+  /* Review 22: a lookup that throws is NAMED in `missed` (when the caller passes it), so the token-only guard can
+     refuse rather than report guarded with a store left out. The undo set (boardCredentialPaths) passes none. */
+  const miss = (what) => { if (Array.isArray(missed)) missed.push(what); };
+  try { const lr = deps.legacyRoots !== undefined ? deps.legacyRoots : guideLegacyRoots(home); if (Array.isArray(lr)) lr.forEach(add); } catch { miss('the older Kosmos stores'); }
   let base = null;
   try {
     base = deps.worldsBase !== undefined ? deps.worldsBase : guideWorldsBase();
     if (base && base !== dataRoot) add(base);   // the default world's base, when this agent is in a named world
-  } catch { /* current store only */ }
+  } catch { miss('the default world'); }
   // #4491 review: EVERY named world's store too, since the board accepts any world's token. Concrete paths
   // for the worlds that exist now; the
   // board-start refresh rewrites the guard, so a world made later is covered from the agent's next start.
   try {
     if (base) {
       const worlds = deps.worlds || require('./worlds');
-      for (const w of worlds.listWorlds(base)) { try { add(worlds.worldStoreRoot(base, w)); } catch { /* skip that one */ } }
+      for (const w of worlds.listWorlds(base)) { try { add(worlds.worldStoreRoot(base, w)); } catch { miss('world ' + w); } }
     }
-  } catch { /* the roots above only */ }
+  } catch { miss('the list of worlds'); }
   return roots;
 }
 
@@ -728,7 +731,8 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const dataRoot = deps.dataRoot || store.ROOT;
   const tokenFile = require('./boardauth').TOKEN_FILE;
   const settingsDir = path.join(dir, '.claude');
-  const tokenRoots = tokenOnlyTokenRoots(dataRoot, home, deps);
+  const rootsMissed = [];
+  const tokenRoots = tokenOnlyTokenRoots(dataRoot, home, deps, rootsMissed);
   const tokenPaths = tokenRoots.map((r) => path.join(r, tokenFile));
   const tokenTmps = tokenRoots.map((r) => path.join(r, '.' + tokenFile));
   // Concrete config homes get a denyWrite on their settings FILES (not the whole dir: a config home holds
@@ -762,7 +766,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
         }
       }
     }
-  } catch { /* the concrete paths above only */ }
+  } catch { rootsMissed.push('the worlds registry'); }
   // #4491 (post-rebase review): the undo copy store (engine/undo.js, #5153) holds copies of files the board read for an
   // agent, so it is read-denied (a copy there must not be readable by the agent's shell) and write-denied (restore
   // writes its records back out).
@@ -795,7 +799,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     tokenRuleDropped = true;   // reviews 16 and 17: ANY dropped rule leaves part of the guard out (a token read, or its own self-protection)
     return false;
   });
-  return { deny: safeDeny, tokenRuleDropped, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites, undoDirs, tokenDirs, undoSwitches };
+  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites, undoDirs, tokenDirs, undoSwitches };
 }
 
 /*
@@ -857,6 +861,8 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     /* Reviews 16 and 17: a rule that could not be written leaves part of the guard out (the board.token read, or the
        Edit rules that keep the agent from editing its own guard away), so the guard is NOT in place: say so (create then
        refuses; the refresh lists the agent as unguarded). Rename or move the folder whose path holds the character. */
+    // Review 22: as with a dropped rule, a store or registry that could not be worked out leaves a token place unguarded.
+    if (rules.rootsMissed && rules.rootsMissed.length) return { ok: false, because: 'Kosmos could not work out where ' + rules.rootsMissed.join(', ') + ' keep the board token, so the guard cannot be written whole' };
     if (rules.tokenRuleDropped) return { ok: false, because: 'a folder path (the agent, its home or Kosmos) has a character the permission rules cannot carry, so the guard cannot be written whole' };
     // Review 16: off macOS no sandbox block is written: said at create time as well as at board start.
     if ((deps.platform || process.platform) !== 'darwin') process.stderr.write('#4491 note: off macOS ' + agentName + ' gets permission rules only (its shell is not sandboxed)\n');
@@ -883,17 +889,20 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
       // for 'the sandbox limits normal work' must widen it somewhere else, never to those.
       /* #4491 whole-branch review: keys already in this file survive the merge, and some undo the guard: commands that
          run outside the sandbox (excludedCommands) and paths re-opened inside a deny (filesystem allowRead / allowWrite).
-         A token-only agent's settings are Kosmos's, so those are dropped here, at every refresh. allowUnixSockets is
-         kept (pinned by a test; a socket is not a file read). */
+         A token-only agent's settings are Kosmos's, so those are dropped here, at every refresh. Review 22: so are the
+         Unix-socket allowances, since a socket can reach a server outside the sandbox that runs commands for its
+         caller (tmux, which every agent runs in, is one). */
       const { excludedCommands: _dropExcluded, ...sbKept } = sb;
       const { allowRead: _dropAllowRead, allowWrite: _dropAllowWrite, ...fsbKept } = fsb;
-      const dropped = [['sandbox.excludedCommands', _dropExcluded], ['sandbox.filesystem.allowRead', _dropAllowRead], ['sandbox.filesystem.allowWrite', _dropAllowWrite]]
+      const { allowUnixSockets: _dropSockets, allowAllUnixSockets: _dropAllSockets, ...netKept } = net;
+      const dropped = [['sandbox.excludedCommands', _dropExcluded], ['sandbox.filesystem.allowRead', _dropAllowRead], ['sandbox.filesystem.allowWrite', _dropAllowWrite],
+        ['sandbox.network.allowUnixSockets', _dropSockets], ['sandbox.network.allowAllUnixSockets', _dropAllSockets]]
         .filter(([, v]) => v !== undefined).map(([k]) => k);
       // Review 10: a dropped key may have been the person's own (a repo the agent wrote to): say so, never silently.
       if (dropped.length) console.error(`token-only guard: removed ${dropped.join(', ')} from ${file}; a token-only agent's shell may not run outside the sandbox or reopen a denied path`);
       next.sandbox = {
         ...sbKept, enabled: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false,
-        network: { ...net, allowLocalBinding: true },
+        network: { ...netKept, allowLocalBinding: true },
         filesystem: {
           ...fsbKept,
           denyRead: [...new Set([...dr, ...denyReadPaths])],
@@ -924,6 +933,8 @@ function managedSettingsPresent(platform = process.platform) {
   try { return fs.existsSync(MANAGED_SETTINGS_PATH); } catch { return false; }
 }
 
+const STARTS_A_PROCESS = ['hooks', 'statusLine', 'apiKeyHelper', 'mcpServers', 'enableAllProjectMcpServers', 'enabledMcpjsonServers'];
+
 /* #4491 review 11: settings.local.json in the agent's .claude takes precedence over settings.json, and a token-only
    agent may have written one before the guard existed. The keys that would undo the guard are removed from it too (a
    sandbox switched off, unsandboxed commands allowed, commands run outside it, paths reopened), logged, and the file
@@ -932,7 +943,12 @@ function managedSettingsPresent(platform = process.platform) {
 function cleanLocalSettings(file) {
   let cur;
   try { cur = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return; }
-  if (!cur || typeof cur !== 'object' || !cur.sandbox || typeof cur.sandbox !== 'object') return;
+  if (!cur || typeof cur !== 'object') return;
+  /* Review 22: keys that start a process when the agent next starts (outside the sandbox) are the person's call and
+     #5516's scope; Kosmos never writes this file, so any here was put there by someone. Said, not removed. */
+  const starts = STARTS_A_PROCESS.filter((k) => cur[k] !== undefined);
+  if (starts.length) process.stderr.write(`#4491: ${file} has ${starts.join(', ')}, which start a process outside the sandbox when the agent starts; Kosmos left them\n`);
+  if (!cur.sandbox || typeof cur.sandbox !== 'object') return;
   const sb = cur.sandbox;
   const dropped = [];
   if (sb.enabled === false) { delete sb.enabled; dropped.push('sandbox.enabled false'); }
@@ -940,6 +956,9 @@ function cleanLocalSettings(file) {
   if (sb.excludedCommands !== undefined) { delete sb.excludedCommands; dropped.push('sandbox.excludedCommands'); }
   if (sb.filesystem && typeof sb.filesystem === 'object') {
     for (const k of ['allowRead', 'allowWrite']) if (sb.filesystem[k] !== undefined) { delete sb.filesystem[k]; dropped.push('sandbox.filesystem.' + k); }
+  }
+  if (sb.network && typeof sb.network === 'object') {
+    for (const k of ['allowUnixSockets', 'allowAllUnixSockets']) if (sb.network[k] !== undefined) { delete sb.network[k]; dropped.push('sandbox.network.' + k); }
   }
   if (!dropped.length) return;
   const tmp = `${file}.${process.pid}.new`;
@@ -957,6 +976,8 @@ function refreshTokenOnlyGuards(deps = {}) {
   const out = { guarded: [], unguarded: [], managed: managedSettingsPresent(platform) };
   let names;
   try { names = require('./sendertoken').tokenOnlyList(); } catch { return out; }   // the roster's own reader (#4491)
+  // Review 22: the supervisor guards ONE listed agent at its launch (a name listed after board start), not them all.
+  if (deps.only) names = names.filter((n) => n === deps.only);
   const toDir = deps.workerDir || create.workerDir;
   for (const name of names) {
     let dir = null;
@@ -979,9 +1000,10 @@ function refreshTokenOnlyGuards(deps = {}) {
         const sb = j && j.sandbox && typeof j.sandbox === 'object' ? j.sandbox : null;
         if (!sb) continue;
         const weak = [];
-        if (sb.enabled === false) weak.push('enabled false');
-        if (sb.allowUnsandboxedCommands === true) weak.push('allowUnsandboxedCommands');
+        // Review 22: only the list keys, which merge across files; enabled and allowUnsandboxedCommands are single values
+        // the agent's own guard sets, and it outranks these files.
         if (sb.excludedCommands !== undefined) weak.push('excludedCommands');
+        if (sb.network && (sb.network.allowUnixSockets !== undefined || sb.network.allowAllUnixSockets !== undefined)) weak.push('Unix-socket allowances');
         if (sb.filesystem && (sb.filesystem.allowRead !== undefined || sb.filesystem.allowWrite !== undefined)) weak.push('filesystem allowRead/allowWrite');
         if (weak.length) process.stderr.write(`#4491: ${path.join(h, f)} (your own Claude settings) has sandbox ${weak.join(', ')}, which also reaches token-only agents and can weaken their guard\n`);
       }

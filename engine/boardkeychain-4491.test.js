@@ -43,6 +43,7 @@ function ruleAbs(p) { return '//' + String(p).replace(/^\/+/, ''); }
 // compare against resolved paths. realOr for a dir that exists; realOrLeaf for a file whose leaf may not
 // (resolve the existing parent, keep the absent basename) -- mirrors the code's two helpers.
 function realOr(p) { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } }
+// Review 22 NIT: a copy can share a bug with the code; one test below pins this copy to a literal resolved path.
 function realOrLeaf(p) {
   const abs = path.resolve(p); let dir = path.dirname(abs); const tail = [path.basename(abs)];
   for (;;) {
@@ -115,14 +116,14 @@ test('covers the ~/.claude-* account config variants with an Edit glob (CLAUDE_C
   assert.ok(deny.includes(`Edit(${ruleAbs(path.join(star, 'settings.local.json'))})`), 'the ~/.claude-* settings.local.json Edit glob is missing');
 });
 
-test('preserves pre-existing sandbox.filesystem and sandbox.network entries on merge', () => {
+test('preserves pre-existing sandbox.filesystem entries on merge, drops Unix-socket allowances (review 22)', () => {
   const dir = agentDir('pilot-sbmerge');
   const file = path.join(dir, '.claude', 'settings.json');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify({ sandbox: { network: { allowUnixSockets: ['/tmp/x.sock'] }, filesystem: { denyRead: ['/some/other/secret'], denyWrite: ['/some/other/dir'] } } }) + '\n');
   setup.guardTokenOnlyFolder(dir, 'pilot-sbmerge', DEPS);
   const sb = readSettings(dir).sandbox;
-  assert.deepEqual(sb.network.allowUnixSockets, ['/tmp/x.sock'], 'a pre-existing network key was dropped');
+  assert.equal(sb.network.allowUnixSockets, undefined, 'review 22: a Unix-socket allowance survived the guard');
   assert.equal(sb.network.allowLocalBinding, true, 'allowLocalBinding was not added alongside');
   assert.ok(sb.filesystem.denyRead.includes('/some/other/secret'), 'a pre-existing denyRead entry was dropped');
   assert.ok(sb.filesystem.denyWrite.includes('/some/other/dir'), 'a pre-existing denyWrite entry was dropped');
@@ -296,9 +297,12 @@ test('BLOCKER 2: every named world store is covered (read and write), not only t
     assert.ok(st.sandbox.filesystem.denyRead.includes(real), 'a shell can read another world token: ' + root);
     assert.ok(st.sandbox.filesystem.denyWrite.includes(real), 'a shell can write another world token: ' + root);
   }
-  // A world lookup that throws degrades to the other roots, never fails the guard.
+  // Review 22 (reverses the earlier degrade): a world lookup that throws leaves that world's token unguarded, so the
+  // guard says so and is not reported in place.
   const boom = { listWorlds: () => { throw new Error('registry unreadable'); }, worldStoreRoot: () => null, registryPath: (b) => path.join(b, 'worlds.json'), WORLDS_SUBDIR: 'worlds' };
-  assert.equal(setup.guardTokenOnlyFolder(agentDir('pilot-boom'), 'pilot-boom', { ...DEPS, legacyRoots: [], worldsBase: base, worlds: boom }).ok, true);
+  const g = setup.guardTokenOnlyFolder(agentDir('pilot-boom'), 'pilot-boom', { ...DEPS, legacyRoots: [], worldsBase: base, worlds: boom });
+  assert.equal(g.ok, false, 'a failed world lookup was reported guarded');
+  assert.ok(/list of worlds/.test(g.because), g.because);
 });
 
 test('WARNING 1: a non-Claude or unnamed runner is NOT reported guarded, and nothing is written for it', () => {
@@ -379,7 +383,7 @@ test('#4491 whole-branch review: keys that undo the guard are dropped at every w
   assert.equal(sb.filesystem.allowRead, undefined, 'a planted allowRead survived the guard');
   assert.equal(sb.filesystem.allowWrite, undefined, 'a planted allowWrite survived the guard');
   assert.ok(sb.filesystem.denyRead.includes('/kept/secret'), 'CONTROL: an ordinary denyRead entry was dropped too');
-  assert.deepEqual(sb.network.allowUnixSockets, ['/tmp/y.sock'], 'CONTROL: allowUnixSockets is kept');
+  assert.equal(sb.network.allowUnixSockets, undefined, 'review 22: a planted allowUnixSockets survived the guard');
 });
 
 test('#4491 review 11: the board-start refresh never creates a folder for a listed name that has none (it would block creating it)', () => {
@@ -494,4 +498,52 @@ test('#4491 review 21: the person\'s own user settings that weaken the sandbox a
   try { setup.refreshTokenOnlyGuards({ ...DEPS, home, workerDir: () => agentDir('u21') }); } finally { process.stderr.write = real; }
   assert.ok(errs.join('').includes('your own Claude settings') && errs.join('').includes('excludedCommands'), 'the weakening user setting was not said: ' + errs.join(''));
   assert.equal(fs.readFileSync(userFile, 'utf8'), before, 'the person\'s own settings were edited');
+});
+
+test('#4491 review 22: realOrLeaf (the code and this copy) resolves a symlinked parent and keeps an absent leaf', () => {
+  const real = fs.mkdtempSync(path.join(SANDBOX, 'r22real-'));
+  const link = path.join(SANDBOX, 'r22link-' + process.pid);
+  fs.symlinkSync(real, link);
+  try {
+    const want = path.join(fs.realpathSync.native(real), 'absent.token');
+    assert.equal(setup.realOrLeaf(path.join(link, 'absent.token')), want, 'the code did not resolve the symlinked parent');
+    assert.equal(realOrLeaf(path.join(link, 'absent.token')), want, 'the test copy differs from the code');
+    assert.notEqual(want, path.join(link, 'absent.token'), 'CONTROL: the fixture has no symlink to resolve');
+  } finally { fs.rmSync(link, { force: true }); }
+});
+
+test('#4491 review 22: a token place that cannot be worked out refuses the guard rather than reporting it guarded', () => {
+  const dir = agentDir('r22miss');
+  const g = setup.guardTokenOnlyFolder(dir, 'r22miss', { ...DEPS, worlds: { registryPath() { throw new Error('boom'); }, WORLDS_SUBDIR: 'worlds', listWorlds() { return []; } }, worldsBase: SANDBOX });
+  assert.equal(g.ok, false, 'the guard reported ok with the worlds registry left out');
+  assert.ok(/worlds registry/.test(g.because), g.because);
+  const ok = setup.guardTokenOnlyFolder(dir, 'r22miss', DEPS);
+  assert.equal(ok.ok, true, 'CONTROL: the same folder guards when every place is known: ' + ok.because);
+});
+
+test('#4491 review 22: Unix-socket allowances are removed from settings.local.json; process-starting keys there are said, not removed', () => {
+  const dir = agentDir('r22local');
+  fs.mkdirSync(path.join(dir, '.claude'), { recursive: true });
+  const local = path.join(dir, '.claude', 'settings.local.json');
+  fs.writeFileSync(local, JSON.stringify({ hooks: { SessionStart: [] }, sandbox: { network: { allowAllUnixSockets: true, allowUnixSockets: ['/tmp/s'] } } }));
+  const errs = [];
+  const real = process.stderr.write;
+  process.stderr.write = (t) => { errs.push(String(t)); return true; };
+  try { assert.equal(setup.guardTokenOnlyFolder(dir, 'r22local', DEPS).ok, true); } finally { process.stderr.write = real; }
+  const j = JSON.parse(fs.readFileSync(local, 'utf8'));
+  assert.equal(j.sandbox.network.allowAllUnixSockets, undefined, 'allowAllUnixSockets survived in settings.local.json');
+  assert.equal(j.sandbox.network.allowUnixSockets, undefined, 'allowUnixSockets survived in settings.local.json');
+  assert.ok(j.hooks, 'the hooks key was removed (it is the person\'s call)');
+  assert.ok(errs.join('').includes('hooks'), 'the hooks key was not said: ' + errs.join(''));
+});
+
+test('#4491 review 22: refreshTokenOnlyGuards({ only }) guards just that listed agent', () => {
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['r22a', 'r22b'] }) + '\n');
+  const a = agentDir('r22a'); const b = agentDir('r22b');
+  fs.mkdirSync(a, { recursive: true }); fs.mkdirSync(b, { recursive: true });
+  const map = { r22a: a, r22b: b };
+  const out = setup.refreshTokenOnlyGuards({ ...DEPS, only: 'r22b', workerDir: (n) => map[n] });
+  assert.deepEqual(out.guarded, ['r22b']);
+  assert.equal(fs.existsSync(path.join(a, '.claude', 'settings.json')), false, 'the other listed agent was guarded too');
+  assert.equal(fs.existsSync(path.join(b, '.claude', 'settings.json')), true, 'CONTROL: the named agent was not guarded');
 });
