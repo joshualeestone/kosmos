@@ -348,7 +348,7 @@ function ruleAbs(p, platform = process.platform) {
   return '//' + s.replace(/^\/+/, '').replace(/\/+$/, '');
 }
 /* Every path a rule can stand for: rulePath's reading and, on Windows, for a rule that starts with one letter, the
-   share that letter could also be the host of (\\\\s\\share is written //s/share, the same as drive S:). */
+   share that letter could also be the host of (\\s\share is written //s/share, the same as drive S:). */
 function rulePaths(inner, platform = process.platform) {
   const out = [];
   const back = rulePath(inner, platform);
@@ -362,16 +362,17 @@ function rulePaths(inner, platform = process.platform) {
 /* Whether any reading of a rule (rulePaths) holds the guide's own folder `own`. The first reading is resolved with
    `real` (realpath; case-sensitive is safe, since `own` is a realpath too and a missing folder cannot contain the
    guide), unless it is a share; every share reading is compared as TEXT, case-blind, and never resolved: resolving
-   \\\\c\\Users would send Windows to the network for a host named c on every drive rule. Pure, `real` and `sep` passed in. */
+   \\c\Users would send Windows to the network for a host named c on every drive rule. Pure, `real` and `sep` passed in. */
 function readingsHoldGuide(backs, own, real, sep) {
   const under = (a, b) => a === b || a.startsWith(b.endsWith(sep) ? b : b + sep);
   const text = (t) => under(own.toLowerCase(), t.toLowerCase());
   if (!backs.length) return false;
+  // returns the reading that holds the guide (truthy), so the refusal can say which, or false
   // a share reading (\\\\host\\...) is never resolved either: resolving it is a network lookup that can send this
   // person's Windows credentials to the host it names (Claude Code's permissions docs say so of UNC paths)
   const first = backs[0];
-  if (/^[\\/]{2}/.test(first) ? text(first) : under(own, real(first))) return true;
-  return backs.slice(1).some(text);
+  if (/^[\\/]{2}/.test(first) ? text(first) : under(own, real(first))) return first;
+  return backs.slice(1).find(text) || false;
 }
 /* The inverse, for code that reads a rule back as a path: what follows `Read(//` (without a trailing `/**`) to the
    path it names. On Windows `c/Users/x` is `C:\Users\x`; a rule in the older native form (`C:\Users\x`, written
@@ -546,8 +547,9 @@ function guardGuideFolder(dir, agentName, deps = {}) {
       // every path the rule can stand for (a one-letter share host reads as a drive too): refused if ANY holds the guide
       const backs = rulePaths(m[1], plat);
       if (!backs.length) return true;      // not a form ruleAbs writes: nothing to compare
-      if (!readingsHoldGuide(backs, own, realOr, path.sep)) return true;
-      process.stderr.write(`#4752: a rule that would take in the guide's own folder was left out: ${r}\n`);
+      const held = readingsHoldGuide(backs, own, realOr, path.sep);
+      if (!held) return true;
+      process.stderr.write(`#4752: a rule that would take in the guide's own folder was left out: ${r} (read as ${held})\n`);
       return false;
     });
     /* A refused rule is kept out of the earlier rules too, or a rule written on an earlier start would come back. */
