@@ -173,3 +173,17 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
   failure line in the local log (review 6, measured local only).
 - WORDING: the comments now say the ids are never sent to the page, not that they "stay in the engine" (the files are
   in the world's data root).
+- AGREED with PigeonPete for v1.4 (lands in his audit-5537 PR; the board sends nothing until he says it is on a
+  branch): the coordinator SERVES `consentHash` beside `consent` in redeem and status, and enroll takes it back
+  (409 `org_consent_changed` when the words changed since the preview). Follow-up for the board, not this branch:
+  keep and send the SERVED hash instead of the local one, and if cleaning changed any served line, refuse to offer
+  Join rather than show words other than the ones hashed.
+
+## Review 11 (blind, opus)
+- FIXED (both from review 10's leave change): a leave that ends only on this computer (`localOnly`: the company enrolls
+  another world or computer) no longer says "You left"; it says the person is still in the company and to leave from
+  the work Kosmos (browser check O9). That branch also retires this world's id, as refresh does for the same answer:
+  the two now read one helper, `statusVerdict` ('here', 'gone', 'notHere', 'unclear'), so they cannot drift again.
+- FIXED: a failed join puts its ticket back only if no newer screen has fetched one meanwhile (test holds the first
+  join at the coordinator while a second screen previews). The ticket lifetime and the daily interval are named
+  constants (`ORG_TICKET_MS`, `ORG_REFRESH_MS`). CLAUDE.md's Where to Find Things has a row for company enrollment.

@@ -9602,7 +9602,7 @@ const server = http.createServer(async (req, res) => {
           if (body.accepted === true) {
             const t = ORG_TICKET;
             const code = body.code == null ? null : String(body.code).trim();
-            if (!t || typeof body.ticket !== 'string' || body.ticket !== t.value || Date.now() - t.at > 10 * 60 * 1000 || code !== t.code) {
+            if (!t || typeof body.ticket !== 'string' || body.ticket !== t.value || Date.now() - t.at > ORG_TICKET_MS || code !== t.code) {
               sendJson(res, 200, { ok: false, code: 'org_ticket', because: 'Check the code again first, so you can read what your company would see.' });
               return;
             }
@@ -9612,7 +9612,8 @@ const server = http.createServer(async (req, res) => {
           r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true, spent ? { consentHash: spent.consentHash } : undefined);
           // Not joined for a passing reason (no public code: unreachable, busy; or org_bad_world, which says "Try again"):
           // the same consent may be accepted again.
-          if (spent && r && r.ok === false && (!r.code || r.code === 'org_bad_world') && !r.declined && Date.now() - spent.at <= 10 * 60 * 1000) ORG_TICKET = spent;
+          if (spent && r && r.ok === false && (!r.code || r.code === 'org_bad_world') && !r.declined && Date.now() - spent.at <= ORG_TICKET_MS
+            && ORG_TICKET === null) ORG_TICKET = spent;   // never over a newer screen's ticket issued while this one was out
         } else {
           /* Leave ends the whole membership, so it is sent only from the work Kosmos, or from one whose leave is still
              unconfirmed (engine/orgenroll.js leaveNow). Any other Kosmos of this person's is refused here. */
@@ -20553,7 +20554,12 @@ function federateOut(projectId, delivery, operator) {
   if (sent && hadFiles) messages.roomNote(projectId, 'The words went to ' + fedseats.farSide(projectId) + '; the attached file stayed on this computer.');
 }
 
-let ORG_TICKET = null;   // #5531: the last consent fetched to a screen, { value, at, code } (code null for a member's move)
+/** #5531: the last consent fetched to a screen, { value, at, code, consentHash } (code null for a member's move). */
+let ORG_TICKET = null;
+/** How long a fetched consent may be accepted: a screen left open longer is asked to check the code again. */
+const ORG_TICKET_MS = 10 * 60 * 1000;
+/** How often an enrolled world asks the company whether it is still enrolled (also once at start). */
+const ORG_REFRESH_MS = 24 * 60 * 60 * 1000;
 function orgEnrollRefresh() {
   try {
     const oe = require('./engine/orgenroll');
@@ -20572,7 +20578,7 @@ function start(port = PORT) {
   /* #5531: an enrolled work Kosmos asks its company on start and daily whether it is still the enrolled world, and
      stops reporting at once if not. Only a world with an enrollment asks: one that never joined sends nothing. */
   orgEnrollRefresh();
-  setInterval(orgEnrollRefresh, 24 * 60 * 60 * 1000).unref();
+  setInterval(orgEnrollRefresh, ORG_REFRESH_MS).unref();
   /* #4408: what this board is running, taken now, before anything can edit the app folder under it. The
      restart module is loaded first: it is otherwise required lazily, and the button depends on it. */
   try { require('./engine/boardrestart'); } catch { /* the restart route reports its own failure */ }

@@ -273,6 +273,23 @@ function leavePending(opts) { return fs.existsSync(path.join(storeRoot(opts), LE
    - Already not a member (org_not_member): left.
    - No answer: a pending leave is kept, and the next start or daily pass sends it again. */
 async function leave(opts) { return oneAtATime(() => leaveNow(opts)); }
+/* What a status answer says about THIS world, in one place (leave and refresh both read it, review 11):
+   'here'    the company enrolls this world on this computer;
+   'gone'    not a member at all;
+   'notHere' a member, but enrolled nowhere, as another world, or as this world on another computer;
+   'unclear' anything else (a field missing, an unreadable local id): change nothing. */
+function statusVerdict(d, world) {
+  if (!d || typeof d !== 'object') return 'unclear';
+  if (d.member === false) return 'gone';
+  if (d.member !== true) return 'unclear';
+  const e = d.enrolled;
+  if (e === null) return 'notHere';
+  if (!e || typeof e !== 'object' || typeof e.world !== 'string' || !world) return 'unclear';
+  if (e.world === world && e.thisComputer === true) return 'here';
+  if (e.world !== world || e.thisComputer === false) return 'notHere';
+  return 'unclear';
+}
+
 /* Retire this world's id whenever its enrollment ends for good, so the old id is never sent again. This does NOT make a
    later join unlinkable: every org request is signed by this computer's Kosmos+ identity, under the same account. */
 function retireWorldId(opts) {
@@ -294,15 +311,13 @@ async function leaveNow(opts) {
      end the real work Kosmos's. Send it only when the company confirms this world on THIS computer. A clear answer
      that this is not the enrolled world clears locally and sends nothing; no answer leaves it pending, asked again. */
   const st = await signed('POST', ROUTES.status, {}, opts);
-  const d = st.ok && st.data && typeof st.data === 'object' ? st.data : null;
-  const world = readWorldId(opts);
-  if (d && d.member === false) { setLeavePending(false, opts); setStopped(null, opts); retireWorldId(opts); return { ok: true }; }
-  const e = d && d.member === true ? d.enrolled : undefined;
-  const notHere = d && d.member === true && (e === null || (e && typeof e === 'object' && typeof e.world === 'string' && world
-    && (e.world !== world || e.thisComputer === false)));
-  if (notHere) { setLeavePending(false, opts); setStopped(null, opts); return { ok: true, localOnly: true }; }
-  const confirmed = d && d.member === true && e && world && e.world === world && e.thisComputer === true;
-  if (!confirmed) {
+  const verdict = statusVerdict(st.ok ? st.data : null, readWorldId(opts));
+  if (verdict === 'gone') { setLeavePending(false, opts); setStopped(null, opts); retireWorldId(opts); return { ok: true }; }
+  if (verdict === 'notHere') {   // still a member, enrolled elsewhere: this world stops and forgets its id, nothing is sent
+    setLeavePending(false, opts); setStopped(null, opts); retireWorldId(opts);
+    return { ok: true, localOnly: true };
+  }
+  if (verdict !== 'here') {
     setLeavePending(true, opts, before);
     return { ok: false, pending: true, because: 'Leaving could not be confirmed yet. This Kosmos has stopped reporting, and it will tell your company again.' };
   }
@@ -337,16 +352,11 @@ async function refreshNow(opts) {
   if (!r.ok || !r.data || typeof r.data !== 'object') return { ok: false, because: sayFor(r && r.because, 'not checked'), enrolled: !!before };
   const d = r.data;
   const world = readWorldId(opts);
-  const e = d.member === true ? d.enrolled : undefined;
-  const here = d.member === true && e && world && e.world === world && e.thisComputer === true;
-  /* Stop only on a CLEAR answer: not a member; a member enrolled nowhere (null); enrolled as another world; or this
-     world's id on another computer (thisComputer false). An answer in any other shape changes nothing, like an
+  /* Stop only on a CLEAR answer (statusVerdict 'gone' or 'notHere'). Any other shape changes nothing, like an
      unreachable coordinator: one odd reply must not end an enrollment the company still holds, with no way back. */
-  const clear = d.member === false || (d.member === true && (e === null
-    || (e && typeof e === 'object' && typeof e.world === 'string' && world && (e.world !== world || e.thisComputer === false))));
-  // `world &&`: an unreadable local id (permissions, I/O) is an unclear answer, not proof the company moved on.
-  if (!here) {
-    if (!clear) return { ok: false, because: 'the answer was not complete', enrolled: !!before };
+  const verdict = statusVerdict(d, world);
+  if (verdict !== 'here') {
+    if (verdict === 'unclear') return { ok: false, because: 'the answer was not complete', enrolled: !!before };
     if (before) { clearEnrollment(opts); setStopped((before.org && before.org.name) || 'your company', opts); retireWorldId(opts); }
     return { ok: true, enrolled: false, member: d.member === true, stopped: !!before, org: d.member === true ? cleanOrg(d.org) : null };
   }

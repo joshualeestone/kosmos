@@ -206,3 +206,32 @@ test('#5531 review 9: the stopped note is shown to the screen once; org_bad_worl
   assert.equal(r2.json.ok, true, '"Try again" after org_bad_world could never work: ' + JSON.stringify(r2.json));
   await call('/api/org/leave', { body: {}, headers: SCREEN });
 });
+
+test('#5531 review 11: a failed join does not put its old ticket back over a newer screen\'s', async (t) => {
+  const remote = require('./engine/remote');
+  const orig = remote.macRequest;
+  const CONSENT = { reports: ['agent names'], backsUp: ['agent folders'], readers: ['you'], never: ['keys'] };
+  let release; const held = new Promise((r) => { release = r; });
+  let enrolls = 0;
+  remote.macRequest = async (method, route, body) => {
+    if (route === oe.ROUTES.redeem) return { ok: true, data: { org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: CONSENT } };
+    if (route === oe.ROUTES.enroll) {
+      enrolls += 1;
+      if (enrolls === 1) { await held; return { ok: false, because: 'the tunnel program did not answer in time' }; }
+      return { ok: true, data: { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } };
+    }
+    if (route === oe.ROUTES.status) return { ok: true, data: { member: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: oe.worldId(), thisComputer: true } } };
+    if (route === oe.ROUTES.leave) return { ok: true, data: { ok: true } };
+    return { ok: false, because: 'unexpected ' + route };
+  };
+  t.after(() => { remote.macRequest = orig; fs.rmSync(enrollmentFile(), { force: true }); });
+  const first = await call('/api/org/preview', { body: { code: 'ACME-JOIN-1234' }, headers: SCREEN });
+  const out = call('/api/org/enroll', { body: { code: 'ACME-JOIN-1234', accepted: true, ticket: first.json.ticket }, headers: SCREEN });
+  await new Promise((r) => setTimeout(r, 50));   // the first join is out, held at the coordinator
+  const second = await call('/api/org/preview', { body: { code: 'ACME-JOIN-1234' }, headers: SCREEN });   // a second screen
+  release();
+  assert.equal((await out).json.ok, false);
+  const r = await call('/api/org/enroll', { body: { code: 'ACME-JOIN-1234', accepted: true, ticket: second.json.ticket }, headers: SCREEN });
+  assert.equal(r.json.ok, true, 'the newer screen\'s ticket was replaced by the failed join\'s: ' + JSON.stringify(r.json));
+  await call('/api/org/leave', { body: {}, headers: SCREEN });
+});

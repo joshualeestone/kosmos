@@ -430,6 +430,9 @@ test('#5531 review 10: leave from a copied data folder asks first and sends noth
   assert.deepEqual(sent, [org.ROUTES.status], 'a copy ended the real work Kosmos\'s membership: ' + JSON.stringify(sent));
   assert.equal(org.isEnrolledHere({ root: a }), false);
   assert.equal(org.leavePending({ root: a }), false);
+  const state = {};
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote(state) });
+  assert.notEqual(state.world, world, 'the copy kept the real work Kosmos\'s id and sent it again (review 11)');
 });
 
 test('#5531 review 10: the enrollment keeps a hash of the consent words that were shown', async (t) => {

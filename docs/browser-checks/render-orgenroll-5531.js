@@ -13,6 +13,7 @@
  *   O6  no page errors.
  *   O7  a member moving here sees the consent as a move, and Join sends no code.
  *   O8  a Kosmos the company stopped naming says so (stoppedFor from /api/org), as text.
+ *   O9  a leave that ends only on this computer (localOnly) says the membership goes on, never "You left".
  */
 const path = require('node:path');
 const { chromium } = require('playwright');
@@ -43,7 +44,7 @@ function harness() {
       if (u.includes('/api/org')) window.__org.push({ path: u.replace(/^.*?(\/api\/org[^?]*).*$/, '$1'), method: (init && init.method) || 'GET', body });
       if (u.endsWith('/api/org/preview')) return enc(Object.assign({ ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent, ticket: 't-' + Date.now() }, window.__move ? { move: true } : {}));
       if (u.endsWith('/api/org/enroll')) return enc({ ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member' });
-      if (u.endsWith('/api/org/leave')) return enc({ ok: true });
+      if (u.endsWith('/api/org/leave')) return enc(window.__localOnly ? { ok: true, localOnly: true } : { ok: true });
       if (u.endsWith('/api/org')) return enc({ enrolled: false, stoppedFor: window.__stopped || null, org: null, role: null, enrolledAt: null });
       if (u.endsWith('/api/remote') && !(init && init.method)) return enc({ enrolled: true, on: true });   // a connected computer
       if (u.includes('/api/history')) return enc({ readable: false });   // Settings' history row, in the shape the engine sends when it has none
@@ -121,6 +122,16 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     const lastEnroll = await page.evaluate(() => window.__org.filter((r) => r.path === '/api/org/enroll').at(-1));
     chk(/already in Acme\. Make this Kosmos your work Kosmos/.test(askMove) && lastEnroll.body.accepted === true && !('code' in lastEnroll.body) && /^t-/.test(lastEnroll.body.ticket),
       'O7 a member moving here sees the consent as a move, and Join sends no code', JSON.stringify({ askMove, lastEnroll }));
+
+    // O9: the company enrolls another world or computer, so leave ends only here: the membership goes on.
+    await page.evaluate(() => { window.__localOnly = true; });
+    await page.click('#plus-org-leave');
+    await page.click('#plus-org-leave-yes');
+    await page.waitForFunction(() => !document.getElementById('plus-org-out').hidden);
+    const o9 = await page.evaluate(() => document.getElementById('plus-org-msg').textContent);
+    chk(o9 === 'This Kosmos has stopped reporting. You are still in Acme: your work Kosmos is elsewhere, so leave from there.' && !/You left/.test(o9),
+      'O9 a leave that ends only on this computer says the membership goes on', JSON.stringify(o9));
+    await page.evaluate(() => { window.__localOnly = false; });
 
     // O8: the company stopped naming this world. The next /api/org read carries stoppedFor; the block says so.
     await page.evaluate(() => { window.__stopped = 'Acme <i>Co</i>'; PLUS_ORG.at = 0; document.getElementById('plus-org-msg').textContent = ''; plusOrgMaybe(); });
