@@ -78,11 +78,13 @@ const DIGEST_HEX = 16;
 
 /* The writer's own temp shape (securewrite's tempPath, and sendertoken's before #1787), anchored at the end. Any
    other name is not a temp this store wrote, so it is listed and left alone. */
-const TEMP_SHAPE = /\.kosmos-\d+-(?:t\d+-)?\d+-\d+\.tmp$/;
+// a temp is securewrite's own shape, decided by securewrite's own rule (one definition)
+const { tempWriterGone } = require('../engine/securewrite');
+const TEMP_SHAPE = { test: (name) => tempWriterGone(name) !== null };
 
 /* The decision, pure: `entries` is what is in the folder ({ name, isSymlink, targetExists, mtimeMs, tokens }),
    `liveKeys` the safeKey'd names to keep (every spelling of the roster's rows, the removal records, the heartbeat
-   records and adopted profiles). Returns { remove: [{ name, kind, why }], keep: [{ name, why }] }. Every entry lands
+   records and every profile). Returns { remove: [{ name, kind, why }], keep: [{ name, why }] }. Every entry lands
    in exactly one list. */
 function planCleanup(entries, liveKeys, cutoffMs, safeKey) {
   const canon = (k) => { try { return safeKey(k); } catch { return null; } };
@@ -113,11 +115,12 @@ function planCleanup(entries, liveKeys, cutoffMs, safeKey) {
       else remove.push({ name: e.name, kind: 'token', key, mtimeMs: e.mtimeMs, launchers: info.launchers, names: info.names || [], newestMintMs: info.newestMintMs, why: 'no such agent on the board, nothing newer than the cutoff' });
       continue;
     }
-    // A temp is planned whatever its key: it is over an hour old (the cutoff margin), and a writer's temp lives
-    // only for the moment of one write, so no live agent's write can still be using it.
+    // A temp is planned whatever its key, only when BOTH hold: it is older than the cutoff, and its writer is provably
+    // gone (securewrite's own proof-of-death rule, #1793). Either alone keeps it.
     if (TEMP_SHAPE.test(e.name)) {
-      if (old) remove.push({ name: e.name, kind: 'temp', why: 'a leftover temp written before the cutoff' });
-      else keep.push({ name: e.name, why: 'a temp written on or after the cutoff (may be in flight)' });
+      if (!old) keep.push({ name: e.name, why: 'a temp written on or after the cutoff (may be in flight)' });
+      else if (tempWriterGone(e.name) !== true) keep.push({ name: e.name, why: 'a temp whose writer may still be running' });
+      else remove.push({ name: e.name, kind: 'temp', why: 'a leftover temp written before the cutoff by a writer that is gone' });
       continue;
     }
     keep.push({ name: e.name, why: 'not a token, temp or link: left alone' });
@@ -424,6 +427,7 @@ async function main(argv, { armFromCommandLine = false } = {}) {
   console.log(`Also kept: ${workerNames.length} worker folders, ${jobNames.length} launchd jobs.`);
   console.log(`Kept by name: ${rows.length} agents on the board (${tokenKeys.filter((k) => rosterKeys.has(k)).length} of ${tokenKeys.length} token files match one), ${removed.length} in the removal records, ${heartbeats.length} with a heartbeat record, ${profiled} with a profile.`);
   console.log(`Would remove ${plan.remove.length}, keep ${plan.keep.length}:`);
+  if (plan.remove.some((r) => r.kind === 'token' && !(r.launchers || []).length)) console.log('  (NO LAUNCHER is expected on most fixture lines: fixture, adopted and Windows tokens all mint without one. Read each name.)');
   for (const r of plan.remove) {
     const newest = Math.max(r.mtimeMs || 0, r.newestMintMs || 0);
     const age = newest ? `; silent ${Math.floor((Date.now() - newest) / 86400000)} days` : '';
