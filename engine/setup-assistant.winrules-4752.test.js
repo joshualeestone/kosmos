@@ -154,6 +154,7 @@ test('#4752 on a Windows host: guardGuideFolder leaves out a rule taking in the 
   assert.ok(said.some((l) => l.includes('own folder') && l.includes(newForm)), 'the refusal of the rule taking in the guide\'s folder was not said: ' + said.join(' | '));
   assert.equal(deny.includes(newForm), false, 'the new-form rule taking in the guide\'s folder was written');
   assert.equal(deny.includes(oldNative), false, 'the old spelling of that rule survived and still cuts the guide off');
+  assert.ok(said.some((l) => l.includes('earlier rule') && l.includes(oldNative)), 'removing the earlier native-spelling rule was not said: ' + said.join(' | '));
   assert.equal(deny.some((r) => sa.legacyWinEquivalent(r) === newForm), false, 'some old spelling of the refused rule survived');
   assert.ok(deny.includes(personal), 'CONTROL: a person\'s own rule elsewhere was dropped');
   assert.ok(deny.includes(`Read(${sa.ruleAbs(dataOwn, 'win32')}/**)`), 'CONTROL: the data folder rule is missing, or not in the //c/ form');
@@ -195,7 +196,7 @@ test('#4752: on Windows every path is written as it is unless it has rule syntax
   }
   assert.equal(sa.ruleUnwritable('\\\\?\\Volume{0000}\\x', 'win32'), true, 'a path with rule syntax (braces) was not refused');
   assert.equal(sa.ruleAbs('\\\\srv\\share\\K', 'win32'), '//srv/share/K');
-  assert.equal(sa.ruleAbs('C:', 'win32').includes('//c'), false, 'a bare drive-relative C: was written as the whole drive');
+  assert.equal(sa.ruleAbs('C:', 'win32'), '//C:', 'a bare drive-relative C: was written as the whole drive');
   assert.equal(sa.ruleUnwritable('/srv/share/K', 'darwin'), false, 'CONTROL: an ordinary POSIX path refused');
   assert.equal(sa.ruleUnwritable('/a/b*c', 'darwin'), true, 'CONTROL: a pattern character not refused');
 });
@@ -231,4 +232,11 @@ test('#4752: on Windows a refusal never folds into a Bash rule, even one equal t
   assert.deepEqual(sa.finalDeny(['Bash(SET)'], [], new Set(['Bash(set)']), 'win32'), ['Bash(SET)']);
   // CONTROL: a Read rule equal to a refused one but for case IS removed
   assert.deepEqual(sa.finalDeny(['Read(//C/users/a/old/**)'], [], new Set(['Read(//c/Users/a/old/**)']), 'win32'), []);
+});
+
+test('#4752: on Windows a rule starting with one letter is checked as a drive AND as a share host; off Windows only as itself', () => {
+  assert.deepEqual(sa.rulePaths('s/share/K', 'win32'), ['S:\\share\\K', '\\\\s\\share\\K']);
+  assert.deepEqual(sa.rulePaths('srv/share/K', 'win32'), ['\\\\srv\\share\\K'], 'CONTROL: a longer host has one reading');
+  assert.deepEqual(sa.rulePaths('c', 'win32'), ['C:\\'], 'CONTROL: a drive root has one reading');
+  assert.deepEqual(sa.rulePaths('s/share/K', 'darwin'), ['/s/share/K'], 'CONTROL: off Windows a rule reads as itself');
 });
