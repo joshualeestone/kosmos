@@ -153,7 +153,11 @@ trap '[ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"' EXIT   # on
 now > "$STATE/heartbeat"
 if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 5000000 ]; then tail -n 5000 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"; fi
 
-git -C "$SITE" fetch -q origin main 2>>"$LOG" || red_once fetch "FAIL: could not fetch site origin/main in $SITE"
+# Bounded: no prompt, and a 120 s wall clock (perl's alarm; macOS has no timeout(1)), so a stalled
+# transfer or a keychain helper that never answers is a failed fetch, not a tick hung until the runner's
+# job timeout (which would be red every tick, past red_once).
+GIT_TERMINAL_PROMPT=0 perl -e 'alarm shift; exec @ARGV' 120 git -C "$SITE" fetch -q origin main 2>>"$LOG" \
+  || red_once fetch "FAIL: could not fetch site origin/main in $SITE (failed or timed out)"
 clear_reported fetch   # (TARGET is still empty here: the "none" records)
 TARGET=$(git -C "$SITE" rev-parse --verify -q origin/main) || { TARGET=""; red_once noref "FAIL: no origin/main in $SITE"; }
 _t="$TARGET"; TARGET=""; clear_reported noref; TARGET="$_t"   # recovered: the "none" record goes
