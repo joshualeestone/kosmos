@@ -70,3 +70,13 @@
 - neverRan renamed endedByRunner (it also covers a child killed after it started).
 - Declined: dropping "(review N)" labels from comments (the codebase's convention); a real self-killing child for
   runOnce's signal path (accepted residual, as review 5).
+
+## Review 7
+- Replaces review 6's list-clearing (racy: the stand-in records a request on its `end`, which can land after the next
+  try began). Each try now sends its own hex launch token (abc123 + try number; the bridge sends only a hex token), and
+  only the last try's token is counted. A CONTROL asserts no report arrives under a token no try sent; it went red
+  once during the change, when a non-hex token was silently dropped by the bridge. Still unpinned by a mutation: it
+  acts only on a real outside kill.
+- A hang is never retried, even with a spawn error beside it: `endedByRunner` checks for `timeout` first. Pinned; the
+  mutation that removes the check reddens it.
+- `Check failed:` is V8's fatal line; Node's own startup abort is caught by the thread-create arms. Stated in the comment.

@@ -72,10 +72,13 @@ const RUNNER_SIGNALS = new Set(['SIGKILL', 'SIGTERM']);
    create error on stderr (review 3: the likeliest cause of a 56 ms death on a runner logging EAGAIN). Only that abort
    is the runner's; any other SIGABRT is the bridge's. The set is a reasoned guess: what this change surely adds is the
    signal and stderr in the message, so the next red names its cause. */
-const STARTUP_ABORT = /uv_thread_create|pthread_create|Check failed:/;   // Node's own startup lines only, never a bare EAGAIN (review 5)
+/* uv_thread_create and pthread_create are the arms that catch Node's own startup abort; `Check failed:` is V8's fatal
+   line (Node's own CHECKs print "Assertion ... failed" instead). Never a bare EAGAIN (review 5). A hang is never
+   retried, even with a spawn error beside it (review 7). */
+const STARTUP_ABORT = /uv_thread_create|pthread_create|Check failed:/;
 const RUNNER_SPAWN_ERRORS = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);   // short of resources; never ENOENT/EACCES (review 4)
-const endedByRunner = (r) => RUNNER_SPAWN_ERRORS.has(r.error) || (r.code === null && (RUNNER_SIGNALS.has(r.signal)
-  || (r.signal === 'SIGABRT' && STARTUP_ABORT.test(String(r.err || '')))));
+const endedByRunner = (r) => r.signal !== 'timeout' && (RUNNER_SPAWN_ERRORS.has(r.error) || (r.code === null && (RUNNER_SIGNALS.has(r.signal)
+  || (r.signal === 'SIGABRT' && STARTUP_ABORT.test(String(r.err || ''))))));
 async function runBridge(event, env, run = runOnce, wait = (ms) => new Promise((res) => setTimeout(res, ms))) {
   const tries = [];
   for (let i = 0; i < 3; i += 1) {
@@ -95,13 +98,18 @@ test('#4417: the launch event reports idle from the new pane, with its launch to
   const data = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'aw-agyseed-data-'));
   const env = { ...process.env, AGENT_WORKFORCE_DATA: data, KOSMOS_PORT: String(board.port), TMUX_PANE: pane, KOSMOS_AGENT_TOKEN: 'abc123' };
   try {
-    /* Only the LAST try's reports count: a try the runner killed after its report reached the stand-in would otherwise
-       make the retry look like a double report (review 6). The count of 1 below still catches a bridge that reports twice. */
-    const r = await runBridge(bridge.LAUNCH_EVENT, env, (e, v) => { board.seen.length = 0; return runOnce(e, v); });
+    /* Each try carries its own launch token, and only the LAST try's reports count: a try the runner killed after its
+       report left would otherwise read as a double report, even one the stand-in records after the retry began
+       (reviews 6 and 7). The count of 1 below still catches a bridge that reports twice in one run. */
+    let tryNo = 0;
+    const r = await runBridge(bridge.LAUNCH_EVENT, env, (e, v) => { tryNo += 1; return runOnce(e, { ...v, KOSMOS_AGENT_TOKEN: 'abc123' + tryNo }); });
+    const token = 'abc123' + tryNo;   // hex only: the bridge sends no other token
     // A retry that rescued the run is printed, so how often the runner kills a child can be counted, not hidden.
     if (r.tries.length > 1) t.diagnostic('#5560: the bridge child was retried: ' + howItEnded(r));
     assert.equal(r.code, 0, 'the bridge did not exit 0: ' + howItEnded(r));
-    const reports = board.seen.filter((x) => x.url === '/api/report');
+    const reports = board.seen.filter((x) => x.url === '/api/report' && x.headers['x-kosmos-agent-token'] === token);
+    // CONTROL: a report under no try's token would be a bug in the stand-in or the bridge, not a retry.
+    assert.equal(board.seen.filter((x) => x.url === '/api/report' && !/^abc123[0-9]$/.test(String(x.headers['x-kosmos-agent-token']))).length, 0, 'a report arrived under a token no try sent');
     assert.equal(reports.length, 1, reports.length === 0
       ? 'a launched agy agent told the board nothing, so it reads "Can\'t tell" until its first turn: ' + howItEnded(r)
       : 'the board got ' + reports.length + ' launch reports from one run: ' + howItEnded(r));
@@ -109,7 +117,7 @@ test('#4417: the launch event reports idle from the new pane, with its launch to
     assert.equal(body.state, 'idle');
     assert.equal(body.auto, true, 'a launch report without auto could erase a blocked the agent filed');
     assert.equal(body.from_pane, pane, 'the report is not identified as the new pane');
-    assert.equal(reports[0].headers['x-kosmos-agent-token'], 'abc123', 'the launch token did not travel, so an enforcing board refuses it');
+    assert.equal(reports[0].headers['x-kosmos-agent-token'], token, 'the launch token did not travel, so an enforcing board refuses it');
     assert.equal(reports[0].headers['x-kosmos-board-token'], undefined, 'the test sent this Mac\'s real board token');
   } finally {
     try { fs.rmSync(bridge.markerFile(env), { force: true }); } catch { /* none */ }
@@ -193,7 +201,7 @@ test('#4417: agytrust says `trusted` only when the folder is in agy\'s trusted l
   assert.equal(missing.stdout.trim(), '', 'a folder agy will ask about says `trusted`, and the supervisor would seed idle over the prompt');
 });
 
-test('#5560: only a bridge child that never ran is tried again; one that exited with a code never is', async () => {
+test('#5560: only a bridge child the runner ended is tried again; one that exited with a code never is', async () => {
   const fake = (results) => { let i = 0; const calls = []; return { calls, run: async () => { calls.push(i); return results[Math.min(i++, results.length - 1)]; } }; };
   const killed = { code: null, signal: 'SIGKILL', error: null, out: '', err: '' };
   const refused = { code: -11, signal: null, error: 'EAGAIN', out: '', err: '' };
@@ -218,6 +226,10 @@ test('#5560: only a bridge child that never ran is tried again; one that exited 
   f = fake([killed, killed, killed, ok]);
   assert.equal((await runBridge('x', {}, f.run, async () => {})).code, null, 'more than three tries');
   assert.equal(f.calls.length, 3);
+  // A hang is the bridge's even with a spawn error beside it (review 7).
+  f = fake([{ code: null, signal: 'timeout', error: 'EAGAIN', out: '', err: '' }, ok]);
+  assert.equal((await runBridge('x', {}, f.run, async () => {})).signal, 'timeout', 'a hang with a spawn error beside it was retried into a pass');
+  assert.equal(f.calls.length, 1);
   // A SIGABRT whose stderr merely mentions EAGAIN is the bridge's, not Node's startup (review 5).
   f = fake([{ code: null, signal: 'SIGABRT', error: null, out: '', err: 'bridge: write failed EAGAIN' }, ok]);
   assert.equal((await runBridge('x', {}, f.run, async () => {})).code, null, 'a bridge abort mentioning EAGAIN was retried into a pass');
