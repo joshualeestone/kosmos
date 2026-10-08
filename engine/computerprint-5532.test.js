@@ -58,7 +58,21 @@ test('#5532 v1.5: on Windows, this computer\'s real MachineGuid has the GUID sha
   const id = cp.hardwareId();
   assert.ok(id && cp.UUID.test(id), 'reg query gave no MachineGuid on this PC');
   assert.ok(id === id.toUpperCase(), 'the MachineGuid was not upper-cased');
-  assert.ok(cp.hardwareId() === id, 'not stable within one run');
+  // Two fresh registry reads (a stubbed run that calls the real reg.exe bypasses the cache), so this is real stability.
+  const read = () => require('node:child_process').execFileSync(cp.regExe(), cp.REG_ARGS, { encoding: 'utf8', timeout: 5000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+  assert.ok(cp.hardwareId({ platform: 'win32', run: read }) === id, 'a fresh read differs from the first');
+  assert.ok(cp.hardwareId({ platform: 'win32', run: read }) === id, 'two fresh reads differ');
+});
+
+test('#5532 v1.5: a successful read is kept for the run, a failed one is not (a timeout at logon must not stick)', () => {
+  const fail = () => { throw new Error('reg timed out'); };
+  cp._resetCache();
+  try {
+    assert.equal(cp.hardwareId({ platform: 'win32', run: fail, useCache: true }), null);
+    assert.equal(cp.hardwareId({ platform: 'win32', run: () => REG, useCache: true }), '0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9', 'a failed read was kept, so a later good one was never tried');
+    assert.equal(cp.hardwareId({ platform: 'win32', run: fail, useCache: true }), '0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9', 'a good read was not kept');
+    assert.equal(cp.hardwareId({ platform: 'win32', run: fail }), null, 'a stubbed run without useCache read the cache');
+  } finally { cp._resetCache(); }
 });
 
 test('#5532 v1.5: Windows runs System32\'s reg.exe by full path, against the 64-bit registry view', () => {
@@ -66,7 +80,7 @@ test('#5532 v1.5: Windows runs System32\'s reg.exe by full path, against the 64-
   const saved = process.env.SystemRoot;
   try {
     process.env.SystemRoot = 'D:\\Win';
-    assert.equal(cp.regExe().toLowerCase().replace(/\//g, '\\'), 'd:\\win\\system32\\reg.exe', 'reg.exe was not taken from System32');
+    assert.equal(cp.regExe(), 'D:\\Win\\System32\\reg.exe', 'reg.exe was not taken from System32');
   } finally { if (saved === undefined) delete process.env.SystemRoot; else process.env.SystemRoot = saved; }
 });
 
