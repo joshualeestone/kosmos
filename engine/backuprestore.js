@@ -97,7 +97,7 @@ function collidingPaths(entries) {
  * bytes committed: a file that would pass it fails before anything is fetched. Every fetched object's bytes count
  * against twice that, plus 8 KiB for each entry that is tried (sealing overhead), whether or not it verifies; and
  * one object may be at most twice its file's recorded size plus 8 KiB. So a hostile store or files that fail late
- * cost at most 2 x maxTotalBytes + 8 KiB x maxFiles (4 GiB at the default maxFiles) of download, with a fetch that
+ * cost at most 2 x maxTotalBytes + 8 KiB x maxFiles (about 4 GB at the default maxFiles) of download, with a fetch that
  * honours maxBytes (one that does not can overdraw by one object).
  *
  *   fetchChunk(name, { maxBytes }) -> Buffer, Uint8Array or ArrayBuffer | null, or a promise of one (null: the chunk is not
