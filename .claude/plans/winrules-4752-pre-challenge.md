@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: winrules-4752
-diff_hash: 9b9ab7770ad1841d982cc42166bc0a24ade73d51a275477831c04a5c6f553198
+diff_hash: 7951d13eb4eb8e8b9100f077f9fde1652da18ab0f8e31ef69076a32d14abbefe
 validation: passed (Mortals)
 subdir_audit: passed
 timestamp: 2026-10-08T10:30:40Z
@@ -16,7 +16,10 @@ converged: true
 **Converged:** Yes (iteration 34 raised NITs only; they were applied)
 **Fixed:** every BLOCKER and WARNING raised, or recorded as a decision in the plan with its reason | **Asked:** 0
 
-Validation: full suite on Mortals for this exact diff (local hash 9b9ab7770ad1, head 5a598af57 after a rebase onto
+Rebased onto origin/main at merge time: the only conflict was tools/windows-tests.js's ALSO list (main added
+sendertoken.revokeifunchanged-5418.test.js; both entries kept), so diff_hash was recomputed; the related and meta set
+passed again locally and CI re-ran on the rebased head.
+Validation: full suite on Mortals for the pre-rebase diff (local hash 9b9ab7770ad1, head 5a598af57 after a rebase onto
 origin/main): PASSED, recorded by mortals-validate. Locally, the related and repo-wide meta set, 4323 tests, 0 fail.
 Every pure guard added in review was mutation-checked on this Mac (removing it fails an arm). The Windows-only end-to-end
 arm runs only on the Windows job, where a top-level test.after fails the file if it was skipped.
