@@ -502,6 +502,7 @@ function wireDefaultHooks(opts) {
       { busy: BUSY, cannotAccess: 'the settings folder refused the lock file, so the hooks were not written' });
     if (!locked || locked.ok !== true) {
       // Only a held lock is worth trying again; a folder that refuses the lock file will refuse it next time too.
+      // withFileLock returns opts.busy verbatim for a held lock; the lock test runs the real filelock, so drift reds it.
       return { wired: false, skipped: false, busy: Boolean(locked) && locked.because === BUSY,
         because: (locked && locked.because) || 'the hooks could not be wired' };
     }

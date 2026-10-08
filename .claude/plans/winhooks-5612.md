@@ -27,8 +27,10 @@
 - Board start, not each agent launch. Rejected: wiring inside win32launch (per launch). One idempotent write per boot
   is enough: the hooks live in the shared settings file, not per agent. Weakest premise: the board starts before any
   agent on that boot. An agent already running keeps its old settings until it restarts, which is said in the comment.
-- The default folder is <home>/.claude, the same derivation accounts.js uses everywhere (homeDir()). Not handled: a
-  person who set CLAUDE_CONFIG_DIR for their default account. accounts.js does not handle that anywhere else either.
+- The default folder comes from trust.defaultAgentSettings() (AGENT_WORKFORCE_CLAUDE_SETTINGS, else
+  <AGENT_WORKFORCE_HOME or home>/.claude/settings.json), the file preacceptBypass writes for a default-account agent, so
+  both writers lock the same path. Not handled: a person who set CLAUDE_CONFIG_DIR for their default account;
+  win32launch deletes it for a default-account agent anyway.
 
 ## Verified
 - engine/accounts.wiredefaulthooks-5612.test.js (5 tests at first, 7 after review 1), platform injected so they run on any OS:
@@ -84,3 +86,13 @@
   wireDefaultHooks passes withFileLock its busy and cannotAccess sentences and marks busy only for the held lock.
 - Fixed (NITs): the comment says "up to 5 more times" (1 + 5 attempts); a throw returns a fixed sentence (an error
   message carried the home path into the log); the plan says the wiring test is a source-position check.
+
+## Review 4 (sonnet): no blockers
+- Fixed (WARNING): the cannot-access test plants its refusal with a read-only folder, which binds neither root nor
+  Windows. It skips there and says why.
+- Answered (WARNING): busy compares withFileLock's own busy sentence. The held-lock test runs the real filelock, so any
+  drift in that sentence reds it. Commented at the comparison.
+- Fixed (NITs): the wiring test drops its fragile distance bound (order only); the plan's default-folder sentence names
+  trust.defaultAgentSettings().
+- Left (NIT): the retry timers have no test of their own; busy (which drives them) is tested, and they are unref'd and
+  bounded.
