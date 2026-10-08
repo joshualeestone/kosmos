@@ -202,3 +202,4 @@ cleanLocalSettings failing makes the guard report not ok on purpose. Residuals n
 is a protected file (existence only, never content). The create wiring is checked by source text, not by a behavioural
 create (a real create needs a full sandboxed agent; noted, not built).
 Thirteenth review (opus): one WARNING fixed (a test that the cached set sees a token-only list change at once and never caches a failure; red with the key check removed); the cache key includes the list's path; the comment says the cached folder lists can be up to 2 s old; the managed-belt warning counts only guarded agents.
+Fourteenth review (sonnet), no security hole: a token-only rule whose path has a pattern character (the guide's #4752 RULE_SYNTAX) is now dropped and said on the board log, never written to misparse (the sandbox keeps the concrete path); test wording fixed.

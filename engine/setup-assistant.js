@@ -768,7 +768,17 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     ...worldRules,
     ...editTargets.map((t) => `Edit(${ruleAbs(t.f)})`),
   ];
-  return { deny, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites, undoDirs };
+  /* #4491 review 14: a path with a character the rule syntax reads as a pattern (the guide's #4752 RULE_SYNTAX) would
+     misparse the rule, or make Claude Code reject the whole file. Such a rule is dropped and said on the board log; the
+     sandbox layer still carries the concrete path. The globs this function adds itself are taken out before testing. */
+  const ownGlobs = (r) => r.replace(/\/\*\*\)$/, ')').replace(/\.\*\)$/, ')').replace(/\/\*\//g, '/').replace(/\.claude-\*/g, '.claude-x');
+  const safeDeny = deny.filter((r) => {
+    const inner = ownGlobs(r).replace(/^\w+\(/, '').replace(/\)$/, '');
+    if (!RULE_SYNTAX.test(inner)) return true;
+    process.stderr.write(`#4491: no rule ${r}: its path has a character the rule syntax reads as a pattern\n`);
+    return false;
+  });
+  return { deny: safeDeny, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites, undoDirs };
 }
 
 /*
