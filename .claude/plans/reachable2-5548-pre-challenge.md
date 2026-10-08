@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: reachable2-5548
-diff_hash: 6af3615810751f66ecbfb49d8a037200741eae3de7a67317465b381311eabb97
+diff_hash: 0fd6b3032a2d9afdfcc7000d93396da82cf3852a5cff6f3127c34447e8a69521
 validation: passed (validation_log PASSED for stack=typescript hash=4ec1bd72df15 on main after #5577, full tools/run-tests.sh; engine.reachable.test.js 7/7)
 subdir_audit: passed
-timestamp: 2026-10-08T17:47:30Z
+timestamp: 2026-10-08T19:23:18Z
 iterations: 3
 converged: true
 ---
@@ -36,4 +36,10 @@ converged: true
 its CI ran before #5577 put the guard on main, so main's engine.reachable.test.js has failed since. Rebased onto main
 and excused costOf in TRIAGED_5548 with that reason: 7/7 with the entry, and red on main without it (the failure that
 surfaced it). The full validation in the frontmatter ran on the earlier diff; CI's full run on this head validates this one.
+
+## Rebased again (14:25 CDT): main had grown the guard's lists
+Four PRs edited engine.reachable.test.js after this branch was cut: EXCUSED entries (restorerequest, restoresink,
+worldUsageByModel), SEAMS entries (computerprint's _test*), and an armed FIRST_CALLER_5532 list with its own test that
+still named PENDING_5548. Resolved by keeping all of theirs: `skipped` now ORs TRIAGED_5548 and FIRST_CALLER_5532, and
+the printFor test's `without` uses TRIAGED_5548. Both tests added at one spot are kept. Guard 8/8 (7 + printFor).
 
