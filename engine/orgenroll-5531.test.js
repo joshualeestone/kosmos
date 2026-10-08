@@ -880,9 +880,15 @@ test('#5531 review 37: a lost answer for company B, seen through a pending leave
     const r = await org.enroll('BETA-JOIN-5678', true, { root, remote: co, consentHash: BETA_HASH, orgId: 'org_beta' });
     assert.notEqual(r.ok, true, 'Alpha (seen through the pending leave) was taken as the Beta join landing: ' + JSON.stringify(r));
     assert.equal(org.isEnrolledHere({ root }), false, 'Alpha was recorded on Beta\'s consent');
-    // The next pass: the marker (if any) is settled as not this join, and the person's Alpha leave goes out.
+    // Review 38: too soon, the old company named here does not settle it, and the older leave waits.
     await org.refresh({ root, remote: co });
     assert.equal(org.isEnrolledHere({ root }), false, 'Alpha was recorded on Beta\'s consent after the follow-up');
+    assert.equal(sent.includes(org.ROUTES.leave), false, 'the old leave went out while the newer join could still be landing');
+    // Old enough: settled as not this join, and the person's Alpha leave goes out.
+    const mk = path.join(root, 'org-join-unknown.json');
+    fs.writeFileSync(mk, JSON.stringify(Object.assign(JSON.parse(fs.readFileSync(mk, 'utf8')), { at: new Date(Date.now() - org.SETTLE_AFTER_MS - 1000).toISOString() })));
+    await org.refresh({ root, remote: co });
+    assert.equal(org.isEnrolledHere({ root }), false);
     assert.ok(sent.includes(org.ROUTES.leave), 'the leave the person asked for was dropped: ' + JSON.stringify(sent));
     assert.equal(org.leavePending({ root }), false);
   }

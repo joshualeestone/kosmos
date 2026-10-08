@@ -448,3 +448,11 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
   as the sender gate now (isEnrolledHere only answers whether this is the work Kosmos).
 - Kept (nits): the fast follow-up still runs a full refresh when the marker is older than a pending leave; a settle
   that sends an undo can be followed by a second leave attempt in the same pass.
+
+## Review 38
+- Review 37's "another company named here" branch settled the join as not made at once, with no age gate: a read too
+  soon can still show the old company before the new join is saved, and the old leave would then be sent. It now waits
+  for SETTLE_AFTER_MS like any "not made"; until then the marker stays and an older pending leave waits. Pinned (fresh:
+  no leave sent; aged: the leave goes out); removing the gate reddens it.
+- Kept (nits): the leave route refuses before the engine's local-only cleanup (refresh clears it); two comments sit a
+  line above what they describe; SETTLE_AFTER_MS, CODE and SAY exported for tests.

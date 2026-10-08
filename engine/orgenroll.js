@@ -403,9 +403,13 @@ async function settleUnknownJoin(unsure, opts) {
   const world = readWorldId(opts);
   const st = await signed('POST', ROUTES.status, {}, opts);
   const d = st.ok ? st.data : null;
-  // Another company named here is not this join (review 37): the account is still in the old one, so this join did
-  // not land; the marker goes and any pending leave goes on.
+  const t0 = Date.parse(unsure.at || '');
+  const old = !(Number.isFinite(t0) && t0 <= Date.now()) || Date.now() - t0 >= SETTLE_AFTER_MS;
+  /* Another company named here is not this join (review 37): the account is still in the old one. Settled only once the
+     marker is old enough, like any "not made" (review 38): a read too soon can still show the old company before the
+     new join is saved. Until then the marker stays, and a pending leave older than it waits. */
   if (unsure.orgId && d && d.member === true && d.org && typeof d.org.id === 'string' && d.org.id !== unsure.orgId) {
+    if (!old) return { ok: false, enrolled: false, because: 'Too soon to say the join was not made.' };
     setJoinUnknown(null, opts);
     return { ok: true, enrolled: false };
   }
