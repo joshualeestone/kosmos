@@ -139,7 +139,7 @@ DEPLOY_RC=1 tick
 DEPLOY_RC=1 tick
 { [ "$RC" = 1 ] && [ "$(ndeploys)" = 8 ] && [ "$(cat "$ST/parked")" = "$H7" ]; } && pass "a second failure on the same sha parks it" || bad "second failure (rc=$RC, deploys=$(ndeploys))"
 tick
-{ [ "$RC" = 0 ] && [ "$(ndeploys)" = 8 ] && printf '%s' "$OUT" | grep -q "^.*parked: site main"; } && pass "a parked sha is not retried, and the tick says it is parked" || bad "parked tick (deploys=$(ndeploys)) $OUT"
+{ [ "$RC" = 1 ] && [ "$(ndeploys)" = 8 ] && printf '%s' "$OUT" | grep -q "FAIL (parked): site main"; } && pass "a parked sha is not retried, and every tick on it stays red and says why" || bad "parked tick (deploys=$(ndeploys)) $OUT"
 H8=$(advance eight)
 tick
 { [ "$RC" = 0 ] && [ "$(ndeploys)" = 9 ] && [ "$(cat "$ST/last-deployed")" = "$H8" ] && [ ! -e "$ST/failures" ]; } \
@@ -208,7 +208,7 @@ tick
 { [ "$RC" = 1 ] && [ "$(ndeploys)" = "$nb" ] && [ "$(cat "$ST/parked")" = "$H14" ] && printf '%s' "$OUT" | grep -q "release pointer move"; } \
   && pass "a release pointer on main that live does not serve is parked, not published" || bad "pointer move published (rc=$RC, deploys=$(ndeploys)) $OUT"
 tick
-printf '%s' "$OUT" | grep -q "parked: site main ${H14:0:9} (pointer)" && pass "the parked tick names why (pointer)" || bad "parked reason missing: $OUT"
+{ [ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q "FAIL (parked): site main ${H14:0:9} (pointer)"; } && pass "the parked tick names why (pointer)" || bad "parked reason missing: $OUT"
 rm -f "$ST/parked"; cp "$T/work/dist/latest-staging.json" "$SERVED/dist/latest-staging.json"
 tick
 { [ "$RC" = 0 ] && [ "$(ndeploys)" = $((nb + 1)) ]; } && pass "the same pointer bytes live (control): the deploy goes ahead" || bad "equal pointer held the deploy (rc=$RC)"
@@ -231,6 +231,19 @@ n16=$(ndeploys); tick
 printf 'kosmos-release-export\ncommit=%s\n' "0123456789abcdef0123456789abcdef01234567" > "$SERVED/.kosmos-release-export"
 n16=$(ndeploys); tick; tick
 [ "$(ndeploys)" = "$n16" ] && pass "an unrelated marker does not cause a redeploy (control)" || bad "unrelated marker redeployed (deploys=$(ndeploys))"
+
+# 17) a person's pause file stops the job (green, says so); removing it resumes.
+H17=$(advance seventeen); touch "$ST/paused"; n17=$(ndeploys); tick
+{ [ "$RC" = 0 ] && [ "$(ndeploys)" = "$n17" ] && printf '%s' "$OUT" | grep -q "paused:"; } && pass "a paused job deploys nothing and says so" || bad "pause ignored (deploys=$(ndeploys))"
+rm -f "$ST/paused"; tick
+[ "$(ndeploys)" = $((n17 + 1)) ] && pass "removing the pause file resumes (control)" || bad "no deploy after unpause"
+
+# 18) a build newer than every release pointer on main (a cut that stopped before 7b) is not mirrored;
+#     versions at or below the newest pointer are.
+printf 'tar 0.7.100\n' > "$CUTDIST/kosmos-0.7.100-arm64.tar.gz"; printf '%s  x\n' "$(shasum -a 256 "$CUTDIST/kosmos-0.7.100-arm64.tar.gz" | cut -c1-64)" > "$CUTDIST/kosmos-0.7.100-arm64.tar.gz.sha256"
+H18=$(advance eighteen); tick
+{ [ ! -e "$T/site/dist/kosmos-0.7.100-arm64.tar.gz" ] && [ -f "$T/site/dist/kosmos-0.7.21-arm64.tar.gz" ] && printf '%s' "$OUT" | grep -q "newer than any release pointer"; } \
+  && pass "a build newer than every release pointer on main (0.7.100 > 0.7.99) is not mirrored; 0.7.21 is" || bad "unreleased build mirrored: $(ls "$T/site/dist" | tr '\n' ' ')"
 
 # 13) no site configured: a usage error, never a deploy.
 nfinal=$(ndeploys); KOSMOS_AUTODEPLOY_SITE="" bash "$AD" 2>/dev/null; RC=$?

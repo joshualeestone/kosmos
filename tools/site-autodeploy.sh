@@ -44,7 +44,9 @@
 #   last-deployed  the site sha this job last published (or found already live)
 #   last-failure   "<sha> rc=<n> <time>" of the last failed attempt (a record, read by nothing)
 #   failures       "<sha> <n>" consecutive failed attempts for that sha
-#   parked         the sha not retried until main moves
+#   parked         the sha not retried until main moves (every tick on it is red until then)
+#   paused         made by a PERSON to stop the job (e.g. while a deliberate site rollback is live,
+#                  which the job would otherwise undo by redeploying main); remove it to resume
 #   retries        "<sha> <n>" consecutive retried ticks for that sha, whatever the cause (exit 75, a
 #                  checksum mismatch, an unreadable live pointer): one count, one alarm, because each
 #                  means the same thing to the person reading the run, the site is not settling
@@ -114,7 +116,11 @@ if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 5000000 ]; then tail -n 5000 "$LOG
 git -C "$SITE" fetch -q origin main 2>>"$LOG" || { say "FAIL: could not fetch site origin/main in $SITE"; exit 1; }
 TARGET=$(git -C "$SITE" rev-parse --verify -q origin/main) || { say "FAIL: no origin/main in $SITE"; exit 1; }
 LAST=$(cat "$STATE/last-deployed" 2>/dev/null || true)
-[ "$(cat "$STATE/parked" 2>/dev/null || true)" = "$TARGET" ] && { say "parked: site main ${TARGET:0:9} ($(cut -d' ' -f2 "$STATE/last-failure" 2>/dev/null | sed 's/^rc=//')); waiting for the next merge (or remove $STATE/parked)"; exit 0; }
+# Paused by a person (a deliberate site rollback, say): nothing is deployed until the file is removed.
+[ -e "$STATE/paused" ] && { say "paused: $STATE/paused exists; nothing is deployed until it is removed"; exit 0; }
+# Parked: not deployed again, and the run stays RED every tick until main moves or someone removes
+# the file, so a finding is not covered over by green runs.
+[ "$(cat "$STATE/parked" 2>/dev/null || true)" = "$TARGET" ] && { say "FAIL (parked): site main ${TARGET:0:9} ($(cut -d' ' -f2 "$STATE/last-failure" 2>/dev/null | sed 's/^rc=//')); waiting for the next merge (or remove $STATE/parked)"; exit 1; }
 
 # What the live site serves: the export marker deploy-site.sh and release.sh ship names the site commit
 # it was built from. Empty when it cannot be read, which proves nothing either way.
@@ -175,7 +181,20 @@ git -C "$SITE" merge -q --ff-only origin/main 2>>"$LOG" || { say "FAIL: could no
 # delete them here and the deploy would take them off the site. tools/dist-retention.sh prunes a few
 # at a time, so MIRROR_DROP_MAX allows that and refuses a collapse.
 MIRROR_DROP_MAX=5
-src_n=$(find "$DIST_FROM" -maxdepth 1 -name 'kosmos-*-arm64.tar.gz' 2>/dev/null | wc -l | tr -d ' ')
+# Only versions a release pointer on main has reached are mirrored: the cut box's dist/ can also hold a
+# build a cut made and never released (it stopped before 7b), and shipping that at its versioned URL
+# would publish an unchecked build. The ceiling is the newer of the versions main's latest.json and
+# latest-staging.json name (no pointers at all, as in a bare test tree: no ceiling).
+ptr_version() { git -C "$SITE" show "$TARGET:dist/$1" 2>/dev/null | sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p'; }
+CEIL=$( { ptr_version latest.json; ptr_version latest-staging.json; } | grep . | sort -V | tail -1)
+TOO_NEW=()
+src_n=0
+for _f in "$DIST_FROM"/kosmos-*-arm64.tar.gz; do
+  [ -e "$_f" ] || continue
+  _v=${_f##*/kosmos-}; _v=${_v%-arm64.tar.gz}
+  if [ -n "$CEIL" ] && ! printf '%s\n%s\n' "$_v" "$CEIL" | sort -V -C; then TOO_NEW+=("--exclude=${_f##*/}" "--exclude=${_f##*/}.sha256"); continue; fi
+  src_n=$((src_n + 1))
+done
 prev_n=$(cat "$STATE/mirror-count" 2>/dev/null || true); case "$prev_n" in ''|*[!0-9]*) prev_n=0 ;; esac
 if [ -d "$DIST_FROM" ] && { [ "$src_n" = 0 ] || [ "$src_n" -lt $((prev_n - MIRROR_DROP_MAX)) ]; }; then
   say "FAIL: $DIST_FROM holds $src_n versioned tarballs (the last good mirror held $prev_n); mirroring it would take the older downloads off the site (parked). If that drop is a real prune, set $STATE/mirror-count to $src_n and remove $STATE/parked"
@@ -195,7 +214,7 @@ for _p in latest.json latest-staging.json; do
     file://*) if [ -f "${HOST#file://}/dist/$_p" ]; then cp "${HOST#file://}/dist/$_p" "$STATE/ptr.tmp"; _lc=200; else _lc=404; fi ;;   # tests
     *) _lc=$(curl -sS --max-time 20 -H 'Cache-Control: no-cache' -o "$STATE/ptr.tmp" -w '%{http_code}' "$HOST/dist/$_p" 2>/dev/null) || _lc=000 ;;
   esac
-  _l=$(shasum -a 256 < "$STATE/ptr.tmp" 2>/dev/null | cut -c1-64); rm -f "$STATE/ptr.tmp"
+  _l=""; [ -f "$STATE/ptr.tmp" ] && _l=$(shasum -a 256 < "$STATE/ptr.tmp" | cut -c1-64); rm -f "$STATE/ptr.tmp"
   [ "$_lc" = 404 ] && [ "$_has" = 0 ] && continue   # absent on main and live alike
   [ "$_lc" = 404 ] && _lc=200 && _l=absent           # on main, not live: a move like any other
   case "$_lc" in
@@ -211,8 +230,15 @@ done
 # Mirror the older versioned Mac downloads (see the header). --delete with these filters removes only
 # versioned tarballs and sidecars the source no longer has; every other file in dist/ is left alone.
 [ -d "$DIST_FROM" ] || { say "FAIL: no $DIST_FROM to take the older versioned downloads from; deploying without them would take them off the site (parked)"; printf '%s rc=%s %s\n' "$TARGET" dist "$(now)" > "$STATE/last-failure"; park; exit 1; }
-rsync -a --delete --include='kosmos-*-arm64.tar.gz' --include='kosmos-*-arm64.tar.gz.sha256' --exclude='*' "$DIST_FROM/" "$SITE/dist/" 2>&1 | tee -a "$LOG"
-[ "${PIPESTATUS[0]}" = 0 ] || { say "FAIL: could not mirror the versioned downloads from $DIST_FROM"; printf '%s rc=%s %s\n' "$TARGET" dist "$(now)" > "$STATE/last-failure"; exit 1; }
+# ${arr[@]+...}: bash 3.2 (macOS /bin/bash) calls an empty array unbound under set -u.
+[ "${#TOO_NEW[@]}" = 0 ] || say "not mirrored, newer than any release pointer on main ($CEIL): ${TOO_NEW[*]}"
+rsync -a --delete ${TOO_NEW[@]+"${TOO_NEW[@]}"} --include='kosmos-*-arm64.tar.gz' --include='kosmos-*-arm64.tar.gz.sha256' --exclude='*' "$DIST_FROM/" "$SITE/dist/" 2>&1 | tee -a "$LOG"
+if [ "${PIPESTATUS[0]}" != 0 ]; then
+  # Counted with the other retries (not parked: a copy failing says nothing about this sha).
+  n=$(( $(count_for "$STATE/retries") + 1 )); echo "$TARGET $n" > "$STATE/retries"
+  say "retry: could not mirror the versioned downloads from $DIST_FROM ($n in a row)"
+  [ "$n" -ge "$RETRY_ALARM" ] && exit 1; exit 0
+fi
 # Every mirrored tarball must match its own .sha256, or it is not deployed. deploy-site.sh checks only
 # the current build, and a cut that started after the check above could be writing one right now. A
 # mismatch is not a finding about this sha, so it is retried on the next tick, never parked.

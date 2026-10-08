@@ -94,6 +94,12 @@ though its marker now names main; and if live goes back to an older commit of ma
 deployed main, the next tick deploys main again (only for a marker naming a strict ancestor of main,
 so an unreadable or unrelated marker cannot make it redeploy every tick).
 
+**A parked sha stays red** every tick until main moves or someone removes `parked`: a finding is
+never covered over by later green runs. **A person can pause the job** with `~/.kosmos-site-autodeploy/paused`
+on Mortals (for a deliberate site rollback, which the job would otherwise undo). **Only released
+versions are mirrored**: a tarball newer than both release pointers on main (a cut that stopped
+before 7b) is excluded, so an unchecked build never ships at its versioned URL.
+
 **Accepted, not fixed:** most of deploy-site.sh's own fetch failures still exit 1, not 75, so two
 network blips in a row on one sha park it until the next merge (red both times). Making every fetch
 path in deploy-site.sh transient-aware is wider than this card.
