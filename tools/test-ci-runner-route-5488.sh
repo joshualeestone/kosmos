@@ -26,7 +26,7 @@ if ! ruby -ryaml -e '
   raise "suite runs-on: only the node part takes scope'"'"'s choice" unless j["suite"]["runs-on"] == %q{${{ fromJSON(matrix.part == '"'"'node'"'"' && needs.scope.outputs.mac_runner || '"'"'"macos-latest"'"'"') }}}
   raise "test stays on ubuntu" unless j["test"]["runs-on"] == "ubuntu-latest" && j["scope"]["runs-on"] == "ubuntu-latest"
   tmux = j["suite"]["steps"].find { |x| x["name"].to_s.include?("tmux") }
-  raise "tmux installed only when missing, and never by brew on the self-hosted runner" unless tmux && tmux["run"].strip == %q{command -v tmux || { [ "$RUNNER_ENVIRONMENT" != self-hosted ] || { echo "::error::tmux is missing on the self-hosted runner; not installing into the machine owner'"'"'s Homebrew, card 5488"; exit 1; }; brew install tmux; }}
+  raise "tmux installed only when missing, and never by brew on the self-hosted runner" unless tmux && tmux["run"].strip == %q{command -v tmux || { [ "$RUNNER_ENVIRONMENT" != self-hosted ] || { echo "::error::tmux is missing on the self-hosted runner (or not on its PATH); not installing into the machine owner'"'"'s Homebrew, card 5488"; exit 1; }; brew install tmux; }}
   File.write(ARGV[1], d["run"])
   File.write(ARGV[2], tmux["run"])
 ' "$WF" "$T/decide.sh" "$T/tmux.sh" 2>"$T/rb.err"; then
@@ -75,7 +75,7 @@ tmux_step() { # <RUNNER_ENVIRONMENT> <with-tmux: 0|1> -> prints "rc=<n> brew=<ca
   if [ "$2" = 1 ]; then printf '#!/bin/sh\nexit 0\n' > "$T/bin/tmux"; chmod +x "$T/bin/tmux"; fi
   local rc=0 err=no
   RUNNER_ENVIRONMENT="$1" PATH="$T/bin" /bin/bash --noprofile --norc -eo pipefail "$T/tmux.sh" > "$T/step.out" 2>&1 || rc=$?
-  grep -q '^::error::tmux is missing on the self-hosted runner' "$T/step.out" && err=yes
+  grep -q '^::error::tmux is missing on the self-hosted runner (or not on its PATH)' "$T/step.out" && err=yes
   if [ -s "$T/brew.log" ]; then echo "rc=$rc brew=called err=$err"; else echo "rc=$rc brew=not err=$err"; fi
 }
 # Without the step body (the wiring parse failed above), every arm here would pass or fail for the wrong reason.
@@ -87,7 +87,7 @@ else
   got="$(tmux_step github-hosted 0)"
   [ "$got" = "rc=0 brew=called err=no" ] && pass "github-hosted, no tmux: brew install as before" || fail "github-hosted, no tmux: want rc=0 brew=called err=no, got $got"
   got="$(tmux_step "" 0)"
-  [ "$got" = "rc=0 brew=called err=no" ] && pass "RUNNER_ENVIRONMENT unset (older runner): brew install as before" || fail "unset env, no tmux: want rc=0 brew=called err=no, got $got"
+  [ "$got" = "rc=0 brew=called err=no" ] && pass "RUNNER_ENVIRONMENT empty (older runners leave it unset; the step treats both alike): brew install as before" || fail "empty env, no tmux: want rc=0 brew=called err=no, got $got"
   got="$(tmux_step self-hosted 1)"
   [ "$got" = "rc=0 brew=not err=no" ] && pass "CONTROL self-hosted, tmux present: passes, no brew" || fail "control self-hosted with tmux: got $got"
   got="$(tmux_step github-hosted 1)"

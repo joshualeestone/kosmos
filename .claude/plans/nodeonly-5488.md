@@ -15,14 +15,14 @@
    - GitHub-hosted calls brew;
    - unset calls brew;
    - controls: tmux present means neither calls brew;
-   - a precondition that /usr/bin and /bin hold no tmux, so the no-tmux arms are not vacuous.
+   - a stub-only PATH (no system tmux can make a no-tmux arm vacuous), and a guard that the step body was extracted at all.
 
 ## Caught while building
 The first draft's error text ended `(see #5488)`. In a YAML plain scalar, ` #` starts a comment, so the parsed step was silently truncated mid-command. The new wiring pin caught it, and the text now reads `card 5488`.
 
 ## Checks
 - route 17 ok (incl. the 5 tmux arms), job-guard 28 ok, plans-only-reuse 35 ok, tools.shell-shard-4317 12/12.
-- **Red-check:** reverting the tmux step to `command -v tmux || brew install tmux` makes the route test fail. It fails through the exact-string pin, whose failure aborts the parse and with it every later arm. That is pre-existing harness behaviour, kept as is.
+- **Red-check:** reverting the tmux step to `command -v tmux || brew install tmux` makes the route test fail. It fails through the exact-string pin, whose failure aborts the parse and with it every later arm. That is pre-existing harness behaviour, kept as is. **A second red-check aimed at the behaviour arm alone:** the guard changed to `exit 0` in BOTH the workflow and the pin, so the wiring passed (16 ok). Only `self-hosted, no tmux` went red (want rc=1, got rc=0). Reverted.
 
 ## Not in scope
 - Turning the switch back on, which follows the merge. Then I measure again against the part b numbers and report on #5488.
