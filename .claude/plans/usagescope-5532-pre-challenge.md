@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: usagescope-5532
-diff_hash: 2f4dbc3da531c7b9fc293dc77bc20a80a3a290f5c6cee39a9f79d55b97d8392e
-validation: passed (Mortals full suite at f217c9f45, hash 2f4dbc3da531)
+diff_hash: 95296b5418cf53324d1b913ae13a4ca49986c885966d38690e8d04018489242c
+validation: passed (Mortals full suite at f217c9f45, hash 2f4dbc3da531; main merged at d1a06cdd5 for #5564's flake fix: every changed line identical, measured, only diff context moved)
 subdir_audit: passed
 timestamp: 2026-10-08T06:16:19Z
 iterations: 12
