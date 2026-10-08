@@ -100,3 +100,8 @@ That secretmask's shape patterns plus known values catch the credentials a work 
 ## Review round 8 (sonnet): no BLOCKER, 1 WARNING (untested deny entries), fixed
 - The reviewer removed each of the 20 deny entries in turn; 17 went red. The three that did not (provider sign-ins for Codex, Gemini and Grok; bare `credentials`/`secrets` files; a `.git` gitfile) now each have a skip assertion, with near-miss controls (`.codex/config.toml`, `x/credentials-guide.md`, `x/secretary.md`, `.gitignore`, `.github/`).
 - NIT taken: ID3 needs a plausible version byte (2 to 4).
+
+## Review round 9 (opus): no BLOCKER, 3 WARNINGs (all lost work, no leak), fixed or stated
+- **A chance `PK\x05\x06` in compressed media** (this repo's own dark-mode screenshot) was read as an appended zip. Now an appended zip needs a well-formed end record that closes the file, and is never inferred for media kinds. Tested with the real PNG, a well-formed appended record (still skipped) and a chance-signature control.
+- **Video with Adobe XMP** (`xmpDM:key="..."` fires assigned_secret; 8 of 42 system .mov files): the XMP packet is dropped from the views for media kinds only. Tested with the real Mouse.mov, and a provider key outside the packet still skips.
+- **secretmask's long_token rewrites long path-like runs in ordinary text** (228 of 6,833 repo files changed). **Decision: keep it and state it** as a known loss in the header. Over-redaction is the safe direction, and exempting paths could leak a token sitting in a path segment. The fix belongs in secretmask, which the setup guide shares, so it is filed as its own card (#5558) rather than changed here. The consent text should say redaction may also hide long identifiers.
