@@ -256,7 +256,10 @@ function applyPlan(dir, plan, revoke) {
    proxy by the environment, and the second call carries the board token: install/kosmos's rule #4466 is "never
    through a proxy"). The http module never follows a redirect, so the token's header cannot follow one; a redirect
    answer is also turned into an error here, so it reads as one rather than as a missing roster. */
-function getJson(port, route, headers, timeoutMs = BOARD_TIMEOUT_MS) {
+/* The most a board answer may be; more is refused (the health route answers before any token is sent, so anything on
+   the port can reply). A real roster is a few hundred KB at most. */
+const MAX_ANSWER_BYTES = 8 * 1024 * 1024;
+function getJson(port, route, headers, timeoutMs = BOARD_TIMEOUT_MS, maxBytes = MAX_ANSWER_BYTES) {
   return new Promise((resolve, reject) => {
     const req = require('node:http').request({ host: '127.0.0.1', port, path: route, method: 'GET', headers: headers || {}, timeout: timeoutMs }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400) { res.resume(); reject(new Error('the board answered with a redirect')); return; }
@@ -266,7 +269,11 @@ function getJson(port, route, headers, timeoutMs = BOARD_TIMEOUT_MS) {
       res.on('aborted', () => reject(new Error('the board stopped answering part way')));
       let body = '';
       res.setEncoding('utf8');
-      res.on('data', (c) => { body += c; });
+      res.on('data', (c) => {
+        body += c;
+        // settle first, then close without an error (an error passed to destroy would surface again as uncaught)
+        if (Buffer.byteLength(body) > maxBytes) { reject(new Error('the board answer is larger than ' + maxBytes + ' bytes')); res.removeAllListeners('end'); req.destroy(); }
+      });
       res.on('end', () => { let json = null; try { json = JSON.parse(body); } catch { json = null; } resolve({ status: res.statusCode, json }); });
     });
     req.on('timeout', () => req.destroy(new Error('the board did not answer in time')));

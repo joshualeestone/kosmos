@@ -945,3 +945,12 @@ test('#5418: a link\'s target is in the digest, so a link re-pointed after the d
   const b = tool.planDigest({ remove: [{ name: 'l.json', kind: 'symlink', linkTarget: '/x/b' }] });
   assert.notEqual(a, b);
 });
+
+test('#5418: a board answer larger than the limit is refused, not read whole', async (t) => {
+  const srv = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end('[' + '0,'.repeat(4096) + '0]'); });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  t.after(() => { srv.closeAllConnections(); srv.close(); });
+  await assert.rejects(tool.getJson(srv.address().port, '/api/status', {}, 2000, 1024), /larger than/);
+  const ok = await tool.getJson(srv.address().port, '/api/status', {}, 2000, 1024 * 1024);
+  assert.equal(ok.status, 200, 'CONTROL: under the limit the answer is read');
+});
