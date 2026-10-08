@@ -62,26 +62,58 @@ test('#5532 v1.5: on Windows, this computer\'s real MachineGuid has the GUID sha
   const read = () => require('node:child_process').execFileSync(cp.regExe(), cp.REG_ARGS, { encoding: 'utf8', timeout: 5000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
   assert.ok(cp.hardwareId({ platform: 'win32', run: read }) === id, 'a fresh read differs from the first');
   assert.ok(cp.hardwareId({ platform: 'win32', run: read }) === id, 'two fresh reads differ');
+  // The PowerShell fallback, for real, as on a PC whose policy blocks reg.exe: it must read the same value.
+  const ps = () => require('node:child_process').execFileSync(cp.powershellExe(), cp.PS_ARGS, { encoding: 'utf8', timeout: 20000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+  const blocked = () => { throw new Error('Registry editing has been disabled by your administrator'); };
+  assert.ok(cp.hardwareId({ platform: 'win32', run: blocked, runFallback: ps }) === id, 'the PowerShell fallback read a different value, or none');
 });
 
-test('#5532 v1.5: a successful read is kept for the run, a failed one is not (a timeout at logon must not stick)', () => {
+test('#5532 v1.5: on Windows, PowerShell is the fallback when reg.exe refuses, and only then', () => {
+  const blocked = () => { throw new Error('Registry editing has been disabled by your administrator'); };
+  let psRuns = 0;
+  const ps = () => { psRuns += 1; return '0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9\r\n'; };
+  assert.equal(cp.hardwareId({ platform: 'win32', run: blocked, runFallback: ps }), '0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9');
+  assert.equal(psRuns, 1);
+  assert.equal(cp.hardwareId({ platform: 'win32', run: () => REG, runFallback: ps }), '0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9');
+  assert.equal(psRuns, 1, 'PowerShell ran although reg.exe answered');
+  assert.equal(cp.hardwareId({ platform: 'win32', run: blocked, runFallback: () => { throw new Error('blocked too'); } }), null);
+  assert.equal(cp.hardwareId({ platform: 'win32', run: blocked, runFallback: () => 'Get-ItemPropertyValue : Property MachineGuid does not exist' }), null);
+  assert.equal(cp.parsePsValue('  0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9\n'), '0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9');
+  assert.equal(cp.parsePsValue('{0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9}'), null);
+  assert.equal(cp.parsePsValue('0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9\r\n0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9'), null, 'two values are not one');
+  assert.equal(cp.parsePsValue(''), null);
+});
+
+test('#5532 v1.5: a successful read is kept for the run; a failed one is retried, but not before RETRY_AFTER_MS', () => {
   const fail = () => { throw new Error('reg timed out'); };
+  const T = 1_000_000;
   cp._resetCache();
   try {
-    assert.equal(cp.hardwareId({ platform: 'win32', run: fail, useCache: true }), null);
-    assert.equal(cp.hardwareId({ platform: 'win32', run: () => REG, useCache: true }), '0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9', 'a failed read was kept, so a later good one was never tried');
-    assert.equal(cp.hardwareId({ platform: 'win32', run: fail, useCache: true }), '0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9', 'a good read was not kept');
+    assert.equal(cp.hardwareId({ platform: 'win32', run: fail, useCache: true, now: T }), null);
+    let ran = false;
+    const good = () => { ran = true; return REG; };
+    assert.equal(cp.hardwareId({ platform: 'win32', run: good, useCache: true, now: T + cp.RETRY_AFTER_MS - 1 }), null, 'a failed read was retried at once');
+    assert.equal(ran, false, 'it spawned a read inside the retry window');
+    assert.equal(cp.hardwareId({ platform: 'win32', run: good, useCache: true, now: T + cp.RETRY_AFTER_MS }), '0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9', 'a failed read was kept for good');
+    assert.equal(cp.hardwareId({ platform: 'win32', run: fail, useCache: true, now: T + 2 * cp.RETRY_AFTER_MS }), '0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9', 'a good read was not kept');
     assert.equal(cp.hardwareId({ platform: 'win32', run: fail }), null, 'a stubbed run without useCache read the cache');
   } finally { cp._resetCache(); }
 });
 
 test('#5532 v1.5: Windows runs System32\'s reg.exe by full path, against the 64-bit registry view', () => {
   assert.deepEqual([...cp.REG_ARGS], ['query', 'HKLM\\SOFTWARE\\Microsoft\\Cryptography', '/v', 'MachineGuid', '/reg:64']);
-  const saved = process.env.SystemRoot;
+  assert.deepEqual([...cp.PS_ARGS], ['-NoProfile', '-NonInteractive', '-Command',
+    "Get-ItemPropertyValue -LiteralPath 'HKLM:\\SOFTWARE\\Microsoft\\Cryptography' -Name MachineGuid"]);
+  const saved = { root: process.env.SystemRoot, wow: process.env.PROCESSOR_ARCHITEW6432 };
+  const put = (k, v) => { if (v === undefined) delete process.env[k]; else process.env[k] = v; };
   try {
-    process.env.SystemRoot = 'D:\\Win';
+    put('SystemRoot', 'D:\\Win');
+    put('PROCESSOR_ARCHITEW6432', undefined);
     assert.equal(cp.regExe(), 'D:\\Win\\System32\\reg.exe', 'reg.exe was not taken from System32');
-  } finally { if (saved === undefined) delete process.env.SystemRoot; else process.env.SystemRoot = saved; }
+    assert.equal(cp.powershellExe(), 'D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+    put('PROCESSOR_ARCHITEW6432', 'AMD64');   // a 32-bit process on 64-bit Windows
+    assert.equal(cp.powershellExe(), 'D:\\Win\\Sysnative\\WindowsPowerShell\\v1.0\\powershell.exe', 'a 32-bit node would run the 32-bit PowerShell and read WOW6432Node');
+  } finally { put('SystemRoot', saved.root); put('PROCESSOR_ARCHITEW6432', saved.wow); }
 });
 
 test('#5532 v1.5: on a Mac, this computer\'s real hardware id has the UUID shape (the value is never printed)', { skip: process.platform !== 'darwin' }, () => {

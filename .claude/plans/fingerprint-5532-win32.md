@@ -10,8 +10,12 @@ under the 09-16 rule that the Windows box builds the Windows side. Spec: Renet's
   `reg query HKLM\SOFTWARE\Microsoft\Cryptography /v MachineGuid /reg:64`, run as System32's reg.exe by full path
   (never off PATH), 5s timeout, no window, stderr discarded. Readable by a standard user with no elevation.
 - `parseRegQuery(text)`: only a `REG_SZ` in the GUID shape counts, upper-cased like the Mac arm; else null.
-- A successful read is kept for the run; a failed one is NOT (shared with the Mac arm): a reg.exe timeout at logon,
-  when Defender scans are worst, must not leave the board with no print until it restarts. Never printed or logged.
+- When reg.exe refuses (the DisableRegistryTools policy or an AppLocker rule, common on managed PCs, the very ones
+  Enterprise is for), a PowerShell `Get-ItemPropertyValue` read is the fallback (works in Constrained Language mode;
+  Sysnative for a 32-bit node). It runs only when reg.exe gave nothing. Both blocked: null, as an older board.
+- A successful read is kept for the run; a failed one is NOT kept for good (shared with the Mac arm): a reg.exe timeout
+  at logon, when Defender scans are worst, must not leave the board with no print until it restarts. It is retried no
+  sooner than RETRY_AFTER_MS (5 min), so a blocked PC does not pay a synchronous spawn per call. Never printed or logged.
   `fingerprint(salt)` unchanged. `_resetCache()` and `opts.useCache` exist only for the cache's own test.
 - `regExe()` uses `path.win32.join` with the SystemRoot / windir / C:\Windows fallback, as machine.js and runners.js do.
 - `REG_ARGS` and `regExe()` exported so a test pins the command.
