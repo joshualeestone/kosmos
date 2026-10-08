@@ -817,7 +817,8 @@ test('#5418: a named-world session\'s heartbeat (sam+w is stored as samw) does N
 
 test('#5418: startup jobs keep tokens on Windows (Scheduled Tasks) and Linux (systemd units); an unreadable list stops', () => {
   assert.deepEqual(tool.jobKeepNames('win32', ['sam', 'gone'], { known: true, fleet: new Set(['sam']) }), ['sam']);
-  assert.equal(tool.jobKeepNames('win32', ['sam'], { known: false }), null, 'an unreadable task list did not stop the tool');
+  assert.equal(tool.jobKeepNames('win32', ['sam'], { known: false, fleet: new Set(['sam']) }), null, 'an unreadable task list did not stop the tool');
+  assert.equal(tool.jobKeepNames('linux', ['sam'], { known: false, of: () => true }), null, 'an unreadable unit list did not stop the tool');
   assert.deepEqual(tool.jobKeepNames('linux', ['sam', 'gone'], { known: true, of: (n) => n === 'sam' }), ['sam']);
   assert.deepEqual(tool.jobKeepNames('linux', ['odd'], { known: true, of: () => { throw new Error('x'); } }), ['odd'], 'a unit that could not be read was not kept');
   assert.deepEqual(tool.jobKeepNames('darwin', ['sam'], { known: true, of: () => true }), [], 'CONTROL: macOS reads its launchd folder instead');
