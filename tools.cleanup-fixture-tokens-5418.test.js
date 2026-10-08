@@ -116,7 +116,7 @@ async function stubBoard(t, status, body) {
 test('#5418: no roster means nothing is planned or removed', async (t) => {
   for (const [status, body] of [[500, {}], [200, { ok: true }]]) {
     const port = await stubBoard(t, status, body);
-    await assert.rejects(tool.fetchRosterNames(port, null));
+    await assert.rejects(tool.fetchRoster(port, null));
   }
 });
 
@@ -242,4 +242,38 @@ test('#5418: tokenInfo reads the launchers and newest mint, and an unreadable fi
   const b = path.join(dir, 'b.json');
   fs.writeFileSync(b, 'not json');
   assert.deepEqual(tool.tokenInfo(b), { launchers: [], newestMintMs: null });
+});
+
+test('#5418: a key in the removal records or with a heartbeat record of any age is kept, though not on the board', async (t) => {
+  const { dir, write } = e2eStore(t);
+  const store = require('./engine/store');
+  const liveness = require('./engine/liveness');
+  write('anchor.json', OLD);          // on the board, so the "matches none" backstop passes
+  write('gone.json', OLD);            // removed agent: kept by the removal records
+  write('remote-old.json', OLD);      // a remote agent minted before launcher tags, offline: kept by its heartbeat record
+  write('fixture-x.json', OLD);       // the only orphan
+  const removedFile = path.join(store.ROOT, 'removed.json');
+  fs.writeFileSync(removedFile, JSON.stringify([{ name: 'gone', removedAt: new Date(OLD).toISOString() }]));
+  liveness.seen('remote-old', new Date(OLD).toISOString());
+  t.after(() => { fs.rmSync(removedFile, { force: true }); fs.rmSync(liveness.fileFor('remote-old'), { force: true }); });
+  const f = fleet.install([fleet.agent('anchor')]);
+  t.after(() => f.restore());
+  const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
+  quiet(t);
+  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply']), 0);
+  assert.deepEqual(fs.readdirSync(dir).filter((n) => n.endsWith('.json')).sort(), ['anchor.json', 'gone.json', 'remote-old.json']);
+});
+
+test('#5418: a link swapped for a real file between plan and apply is not removed', { skip: process.platform === 'win32' && 'symlinks need privilege on Windows' }, (t) => {
+  const dir = scratch(t);
+  fs.symlinkSync(path.join(dir, 'gone'), path.join(dir, 'was-a-link.json'));
+  fs.symlinkSync(path.join(dir, 'gone'), path.join(dir, 'still-a-link.json'));
+  const plan = tool.planCleanup(tool.listEntries(dir), new Set(), CUTOFF, safeKey);
+  assert.deepEqual(plan.remove.map((r) => r.name).sort(), ['still-a-link.json', 'was-a-link.json']);
+  fs.unlinkSync(path.join(dir, 'was-a-link.json'));
+  fs.writeFileSync(path.join(dir, 'was-a-link.json'), 'now a real file');
+  const res = tool.applyPlan(dir, plan, () => { throw new Error('no token is planned here'); });
+  assert.deepEqual(res.removed, ['still-a-link.json']);
+  assert.deepEqual(res.failed.map((x) => x.name), ['was-a-link.json']);
+  assert.equal(fs.readFileSync(path.join(dir, 'was-a-link.json'), 'utf8'), 'now a real file');
 });

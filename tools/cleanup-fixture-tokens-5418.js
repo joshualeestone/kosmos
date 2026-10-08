@@ -23,8 +23,12 @@
  *   - a roster row counts under EVERY spelling a token file can carry: its session name (the key tokens are
  *     minted under, by the supervisor's token_roster_name: +world stripped, then -discord), that stripped form,
  *     and its display name. A spelling too many keeps a file; a spelling too few would delete a live one.
- *   - no roster, an empty one, no board token to send, or a roster that matches NONE of the store's token files
- *     (a board serving a different store) stops the tool before planning. The port is required, never assumed.
+ *   - beyond the roster, a key with a heartbeat (liveness) record of ANY age is kept: a remote agent reports
+ *     through that path, and one minted before #4530 carries no launcher tag to keep it by.
+ *   - no roster, an empty one, or no board token to send stops the tool before planning. The real tie between
+ *     the board on that port and this store is the board token: a board refuses a token that is not its own.
+ *     A roster matching NONE of the store's token files also stops it, as a backstop for a board that does not
+ *     enforce its token. The port is required, never assumed.
  *   - each token file is removed only if, under the store's lock, it is still the file the plan looked at
  *     (sendertoken.revokeIfUnchanged): a token minted since the plan was made is never taken.
  *   - a cutoff in the future is refused.
@@ -143,7 +147,7 @@ function applyPlan(dir, plan, revoke) {
   return { removed, failed };
 }
 
-async function fetchRosterNames(port, boardToken) {
+async function fetchRoster(port, boardToken) {
   const res = await fetch(`http://127.0.0.1:${port}/api/status`, {
     headers: boardToken ? { 'x-kosmos-board-token': boardToken } : {},
     signal: AbortSignal.timeout(10000),
@@ -189,11 +193,12 @@ async function main(argv) {
   const sendertoken = require('../engine/sendertoken');
   const boardauth = require('../engine/boardauth');
   const removal = require('../engine/remove');
+  const liveness = require('../engine/liveness');
   let token = null;
   try { token = boardauth.readToken(); } catch { token = null; }
   if (!token) { console.error('Stopped, nothing changed: no board token for this store, so nothing ties the board on that port to it.'); return 2; }
   let rows;
-  try { rows = await fetchRosterNames(args.port, token); }
+  try { rows = await fetchRoster(args.port, token); }
   catch (e) { console.error('Stopped, nothing changed: could not read the board roster (' + e.message + ').'); return 2; }
   if (rows.length === 0) { console.error('Stopped, nothing changed: the board lists no agents, so every file would look orphaned.'); return 2; }
   const removed = removal.removedAgents().filter((r) => r && typeof r === 'object');
@@ -201,6 +206,10 @@ async function main(argv) {
   for (const row of rows.concat(removed)) {
     for (const n of spellingsOf(row)) { try { liveKeys.add(store.safeKey(n)); } catch { /* an unkeyable name holds no file */ } }
   }
+  let heartbeats = [];
+  try { heartbeats = fs.readdirSync(liveness.DIR).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -'.json'.length)); }
+  catch { heartbeats = []; }   // no heartbeat folder: no agent has ever reported that way
+  for (const k of heartbeats) liveKeys.add(k);
   const dir = sendertoken.DIR;
   const entries = listEntries(dir);
   const tokenKeys = entries.filter((e) => !e.isSymlink && !e.other && e.name.endsWith('.json')).map((e) => e.name.slice(0, -'.json'.length));
@@ -209,7 +218,7 @@ async function main(argv) {
     return 2;
   }
   const plan = planCleanup(entries, liveKeys, args.cutoffMs, store.safeKey);
-  console.log(`Kept by name: ${rows.length} agents on the board, ${removed.length} in the removal records; ${tokenKeys.filter((k) => liveKeys.has(k)).length} of ${tokenKeys.length} token files match one.`);
+  console.log(`Kept by name: ${rows.length} agents on the board, ${removed.length} in the removal records, ${heartbeats.length} with a heartbeat record; ${tokenKeys.filter((k) => liveKeys.has(k)).length} of ${tokenKeys.length} token files match one.`);
   console.log(`Would remove ${plan.remove.length}, keep ${plan.keep.length}:`);
   for (const r of plan.remove) {
     const detail = r.kind === 'token' ? `; launchers: ${r.launchers.join(', ') || 'none'}; newest mint: ${r.newestMintMs ? new Date(r.newestMintMs).toISOString() : 'none'}` : '';
@@ -220,7 +229,10 @@ async function main(argv) {
   if (plan.remove.length === 0) { console.log('Nothing to remove.'); return 0; }
   const dest = path.join(path.dirname(dir), 'sendertokens.backup-5418-' + new Date().toISOString().replace(/[:.]/g, '-'));
   try { backup(dir, dest, plan.remove.map((r) => r.name)); }
-  catch (e) { console.error('Stopped, nothing removed: the backup failed (' + e.message + ').'); return 3; }
+  catch (e) {
+    console.error('Stopped, nothing removed: the backup failed (' + e.message + '). If a file it names is gone, the store changed since the plan was made: run it again.');
+    return 3;
+  }
   console.log('Backed up to ' + dest);
   const res = applyPlan(dir, plan, sendertoken.revokeIfUnchanged);
   console.log(`Removed ${res.removed.length}.`);
@@ -233,4 +245,4 @@ if (require.main === module) {
     (e) => { console.error('Stopped: ' + ((e && e.message) || e)); process.exitCode = 2; });
 }
 
-module.exports = { planCleanup, listEntries, tokenInfo, backup, applyPlan, parseArgs, fetchRosterNames, spellingsOf, main };
+module.exports = { planCleanup, listEntries, tokenInfo, backup, applyPlan, parseArgs, fetchRoster, spellingsOf, main };
