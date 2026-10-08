@@ -8578,11 +8578,15 @@ function snapshot() {
   agents.sort((a, b) => a.name.localeCompare(b.name));
   /* #5154 slice A: every row states crashLoop. The snapshot cannot know about runs (the supervisor's run file is
      read by the route, engine/crashloop.js), so it says null; /api/status fills the real value for agents we started.
-     #5154 slice C: stuckError is deliberately NOT normalised here. Adding it to snapshot()'s emitted shape drifts
-     the golden card fixture (render-talk-goldencard-2519) and the strict card/row field contracts; and every
-     consumer (needsPerson / agentNeedsAttention / projects) tests `Boolean(a.stuckError) && ...`, so an ABSENT
-     field reads as not-stuck exactly as `null` would. safeRoster attaches the real stuckError (via peek) for the
-     agents we started -- the only rows where "stuck" can be true -- so normalising the rest buys nothing. */
+     #5154 slice C: stuckError is deliberately NOT normalised here. Adding it to snapshot()'s emitted shape would
+     drift the golden card fixture (render-talk-goldencard-2519) and force a live re-capture, for a field that is
+     always null in snapshot() anyway. safeRoster attaches the real stuckError (via peek) for the agents we started
+     -- the only rows where "stuck" can be true. A consumer reading stuckError over a BARE snapshot row (needsPerson,
+     reached via waitingOnPerson in tasks.js and via projects.js) therefore GUARDS the read on presence
+     (hasOwnProperty): a bare read of an absent field is the silent-`undefined` defect that test-support/fleet.js's
+     strict proxy throws on, so the absence is handled explicitly rather than by `undefined` coercion. The weak point
+     of this choice is the asymmetry with crashLoop (which IS normalised and so is read unguarded); it is accepted
+     because normalising stuckError buys nothing but a hazardous re-capture, the field being null here regardless. */
   for (const a of agents) if (a && !Object.prototype.hasOwnProperty.call(a, 'crashLoop')) a.crashLoop = null;
 
   return {
@@ -8606,9 +8610,14 @@ function needsPerson(a) {
     // #5154 slice A: an agent Kosmos keeps restarting and that keeps stopping within minutes.
     || (Boolean(a.crashLoop) && a.crashLoop.looping === true)
     // #5154 slice C: an agent stuck past the threshold on the same terminal error (auth_failed / rate_limited).
-    // Kept byte-for-byte aligned with web/index.html agentNeedsAttention. The stuckError field is attached to
-    // the /api/status rows this runs over (server.js), as crashLoop is.
-    || (Boolean(a.stuckError) && a.stuckError.stuck === true));
+    // Behaviourally aligned with web/index.html agentNeedsAttention (the crashloop-5154 parity harness pins them
+    // equal). UNLIKE crashLoop, stuckError is NOT normalised into snapshot()'s shape: server.js attaches it (via
+    // peek) only to the /api/status rows, where "stuck" can be true. needsPerson ALSO runs over BARE snapshot().agents
+    // rows (waitingOnPerson in tasks.js, projects.js), which omit it -- so the read is GUARDED on presence. A bare read
+    // of an absent field is the silent-`undefined` defect that test-support/fleet.js's strict proxy throws on; the
+    // hasOwnProperty check handles the absence explicitly instead of relying on `undefined` coercion. (agentNeedsAttention
+    // needs no guard: it runs over wire rows that always carry stuckError, never bare snapshot rows.)
+    || (Object.prototype.hasOwnProperty.call(a, 'stuckError') && Boolean(a.stuckError) && a.stuckError.stuck === true));
 }
 /**
  * The numbers on the summary line, for a given set of cards.
