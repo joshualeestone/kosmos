@@ -2039,15 +2039,31 @@ function withdrawFor(agentId, kind, id) {
     return { ok: false, retryable: true, because: 'Kosmos could not read its records just now' };
   }
   if (!local) return { ok: false, missing: true, because: 'you have no ' + kind + ' with that id' };
-  if (kind === 'comment') return requestCommentDelete(local);
+  // Review 2: already down is what the agent asked for, so it is an answer, not a refusal ("Nothing was taken back"
+  // after a retry that follows a timed-out first try would be false).
+  if (kind === 'comment') {
+    const crec = (commentRecords() || {})[local];
+    if (crec && crec.state === 'deleted') return { ok: true, state: 'deleted' };
+    return requestCommentDelete(local);
+  }
   // Review 1: the post removal (#4287) records a removal in every state, for the person's list. An agent is told plainly,
-  // up front, when there is nothing it can take back, rather than a "taken back" that will never happen.
+  // up front, when nothing will come down, rather than a "taken back" that will never happen.
   const rec = recs[local] || {};
   const no = (because) => ({ ok: false, notEligible: true, because });
+  if (rec.state === 'deleted') return { ok: true, state: 'deleted' };
   if (rec.state === 'refused') return no('The community did not accept this post, so there is nothing to take back');
-  if (rec.state === 'deleted') return no('This post has already been taken down from the community');
-  if (rec.state === 'pending' && rec.attempted) return no('Kosmos never learned whether this post arrived, so it cannot take it back');
   if (rec.state === 'sent' && !rec.remoteId) return no('Kosmos has no way to find this post again, so it cannot take it back');
+  if (rec.state === 'sent') {
+    // Review 2: sweepDeletes sends a take-down only with the agent's live key, so a refused or lost registration means it
+    // would never come down (the comment path refuses this case too).
+    const keys = loadJson(keysFile());
+    if (!keys) return { ok: false, retryable: true, because: 'Kosmos could not read its community registrations just now' };
+    const k = keys[rec.agent];
+    if (k && k.refused) return no('The community refused this agent, so Kosmos cannot take its posts back');
+    if (!k || !k.apiKey) return no('Kosmos no longer holds the registration that sent this post, so it cannot take it back');
+  }
+  // Review 2: a post whose send got no answer (or is out right now) is NOT refused: unlike a comment, a post can be found
+  // again, so the next sweep settles it (settleUnconfirmed) and then takes it down if it arrived, or holds it if it did not.
   return requestDelete(local);
 }
 

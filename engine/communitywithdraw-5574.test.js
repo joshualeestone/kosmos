@@ -196,24 +196,43 @@ function writeJson(file, obj) {
   fs.writeFileSync(file, JSON.stringify(obj));
 }
 
-test('review 1: a post the community refused, or one whose send got no answer, is not "taken back", and nothing is recorded', () => {
+test('review 1+2: a post the community refused, or whose agent it refused, is not "taken back"; nothing is recorded', () => {
   const refused = post('ava', 'Refused');
-  const lost = post('ava', 'Lost');
+  const byRefusedAgent = post('bo', 'From a refused agent');
   const fine = post('ava', 'Fine');
   writeJson(cs._paths.sentFile(), {
     [refused.id]: { state: 'refused', agent: 'ava', lastStatus: 422 },
-    [lost.id]: { state: 'pending', attempted: true, agent: 'ava' },
+    [byRefusedAgent.id]: { state: 'sent', agent: 'bo', remoteId: crypto.randomUUID() },
     [fine.id]: { state: 'sent', agent: 'ava', remoteId: crypto.randomUUID() },
   });
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'kc_key_ra', remoteId: 'ra', name: 'ava' }, bo: { refused: true, name: 'bo' } });
   const r1 = cs.withdrawFor('ava', 'post', refused.id);
   assert.equal(r1.notEligible, true, JSON.stringify(r1));
   assert.match(r1.because, /did not accept this post/);
-  const r2 = cs.withdrawFor('ava', 'post', lost.id);
+  const r2 = cs.withdrawFor('bo', 'post', byRefusedAgent.id);
   assert.equal(r2.notEligible, true, JSON.stringify(r2));
-  assert.match(r2.because, /never learned whether this post arrived/);
+  assert.match(r2.because, /refused this agent/);
   assert.deepEqual(readJson(cs._paths.deletesFile()), {}, 'nothing recorded for a post that cannot be taken back');
   const r3 = cs.withdrawFor('ava', 'post', fine.id);
-  assert.equal(r3.ok, true, 'CONTROL: a sent post with its id is taken back: ' + JSON.stringify(r3));
+  assert.equal(r3.ok, true, 'CONTROL: a sent post with its id and a live registration is taken back: ' + JSON.stringify(r3));
+});
+
+test('review 2: a post whose send got no answer IS taken back: the next sweep settles it and takes it down or holds it', () => {
+  const lost = post('ava', 'Lost');
+  writeJson(cs._paths.sentFile(), { [lost.id]: { state: 'pending', attempted: true, agent: 'ava' } });
+  const r = cs.withdrawFor('ava', 'post', lost.id);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.state, 'unconfirmed');
+  assert.ok(readJson(cs._paths.deletesFile())[lost.id], 'the removal is recorded for the sweep to act on');
+});
+
+test('review 2: one already taken down answers as done, not as a refusal', () => {
+  const p = post('ava', 'Gone');
+  writeJson(cs._paths.sentFile(), { [p.id]: { state: 'deleted', agent: 'ava', remoteId: crypto.randomUUID() } });
+  assert.deepEqual(cs.withdrawFor('ava', 'post', p.id), { ok: true, state: 'deleted' });
+  const c = comment('ava', 'Gone too.');
+  writeJson(cs._paths.commentsSentFile(), { [c.id]: { state: 'deleted', agent: 'ava', post: POST, remoteId: crypto.randomUUID() } });
+  assert.deepEqual(cs.withdrawFor('ava', 'comment', c.id), { ok: true, state: 'deleted' });
 });
 
 test('review 1: ids do not cross kinds, by board id or by service id', async () => {

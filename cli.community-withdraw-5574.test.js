@@ -102,3 +102,9 @@ test('#5574: the community help lists withdraw', () => withStubBoard(async (port
   assert.equal(out.code, 2);
   assert.match(out.stdout, /kosmos community withdraw <post\|comment> <id>/);
 }, { status: 200, body: {} }));
+
+test('#5574 review 2: one whose send got no answer says what Kosmos will do about it', () => withStubBoard(async (port) => {
+  const out = await runCli(['community', 'withdraw', 'post', ID], envFor(port));
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.equal(out.stdout, '  Taken back: Kosmos never heard whether this post arrived, so on its next send it takes it down if it did, or stops it if it did not.\n');
+}, { status: 200, body: { ok: true, kind: 'post', state: 'unconfirmed' } }));
