@@ -21,12 +21,13 @@ test('#5532 v1.5: the IOPlatformUUID is read out of ioreg text, and nothing else
 /* Every reader swap goes through the tests-only hook; fingerprint() itself takes only a salt and a company. */
 function withReader(t, run, opts) { cp._testRunner(run, opts); t.after(() => cp._testRunner()); }
 
-test('#5532 v1.5: the print is sha256(salt:company:id); the raw id never appears in it; anything missing gives null', (t) => {
+test('#5532 v1.5: the print is HMAC-SHA256(salt, company:id); the raw id never appears in it; anything missing gives null', (t) => {
   withReader(t, () => SAMPLE, { platform: 'darwin' });
   const p = cp.fingerprint(SALT, ORG);
   assert.match(p, /^[0-9a-f]{64}$/);
   assert.equal(p.includes('0A1B2C3D'), false);
-  assert.equal(p, require('node:crypto').createHash('sha256').update(SALT + ':' + ORG + ':0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9').digest('hex'));
+  assert.equal(p, require('node:crypto').createHmac('sha256', Buffer.from(SALT, 'hex')).update(ORG + ':0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9').digest('hex'));
+  assert.equal(cp.fingerprint(SALT.toUpperCase(), ORG), p, 'the coordinator serving upper-case hex changed the print');
   // Review 3: one salt served to two companies must still give two prints, so a computer cannot be linked across them.
   assert.notEqual(cp.fingerprint(SALT, 'org_other_2'), p, 'a reused salt linked one computer across two companies');
   assert.notEqual(cp.fingerprint('cd'.repeat(16), ORG), p, 'two salts gave one print');

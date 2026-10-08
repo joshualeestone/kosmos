@@ -64,3 +64,14 @@ company, and `thisComputer` cannot tell them apart.
 - DOCUMENTED: the print is a stable identifier for this computer within one company, so it is personal data that
   company holds under its own policy; it cannot link companies (the company id is in the hash). The guard test needs
   git and says so.
+
+## Review 5 (blind, opus)
+- FIXED: rule 1 now forbids LOGGING the print, or a request body that carries it, not only storing it under a data
+  root (a copied log replays as well as a copied folder). The same rule goes on the card for whoever wires enroll,
+  leave and the rollup.
+- CHANGED before any print is pinned: HMAC-SHA256 with the salt as the key (the standard keyed construction); the salt
+  is accepted in either hex case and lower-cased, so a coordinator's case cannot change the print (mutation reddens);
+  the retry wait uses a clock that never runs backwards; the catch block says never to log its error (its stdout is
+  the full ioreg dump).
+- DOCUMENTED: within one company the print is a pseudonym the company can resolve (it holds the salt and its own id,
+  and an MDM inventory often lists hardware ids); it hides the id from everyone else.

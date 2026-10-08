@@ -7,11 +7,13 @@
  * that folder (a restored backup, Migration Assistant) is the same signer to the company. The hardware is not copied:
  * a restored backup or a migrated Mac lands on different hardware.
  *
- * WHAT IS SENT. Only sha256(salt + ':' + company id + ':' + hardware id). The salt is served by the coordinator in
+ * WHAT IS SENT. Only HMAC-SHA256(key = salt, message = company id + ':' + hardware id). The salt is served by the coordinator in
  * status; the company id is the org this Kosmos is enrolled in, which the board already holds. The raw hardware id
  * never leaves this computer, and because the company id is in the hash, two companies always get different prints
  * for one computer, EVEN IF a coordinator served the same salt to both (review 3): unlinkability across companies
- * does not rest on the coordinator's salt alone.
+ * does not rest on the coordinator's salt alone. Within ONE company the print is a pseudonym that company can resolve:
+ * it holds the salt and its own id, so with a list of candidate hardware ids (an MDM inventory often has them) it can
+ * tell which computer a print is. It hides the id from everyone else, not from the company (review 5).
  *
  * WHERE THE HARDWARE ID COMES FROM.
  *   macOS: IOPlatformUUID, from `ioreg -rd1 -c IOPlatformExpertDevice` (no permission prompt, no entitlement).
@@ -24,8 +26,9 @@
  * Null means "cannot say", and a caller must treat it as such: send no print (an older board), never a made-up one.
  *
  * 🛑 TWO RULES THE GUARANTEE RESTS ON (review 1), because the print is reported by this computer, not proven:
- *   1. NEVER store the print (or the raw id) under a world's data root: a copied folder would carry it and replay it.
- *      Compute it fresh for each request from the salt and the hardware.
+ *   1. NEVER store or LOG the print (or the raw id), nor a request body that carries it: not under a world's data root,
+ *      not in board.log, activity records or any other log. A copied folder or a copied log would carry it and replay
+ *      it (review 5). Compute it fresh for each request from the salt and the hardware.
  *   2. The COORDINATOR must treat a missing print, after one has been pinned for that enrollment, as a mismatch: a copy
  *      could otherwise simply send none and pass as an older board.
  * The raw id is not exported: only fingerprint() leaves this module, so no caller can log or send the id by mistake.
@@ -34,7 +37,7 @@ const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 
 const UUID = /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i;
-const SALT = /^(?:[0-9a-f]{2}){16,64}$/;   // the coordinator's per-account salt: hex, 16 to 64 whole bytes
+const SALT = /^(?:[0-9a-fA-F]{2}){16,64}$/;   // the coordinator's per-account salt: hex either case, 16 to 64 whole bytes
 
 let cached;   // the hardware does not change while the board runs; a successful read is kept
 const realRun = () => execFileSync('/usr/sbin/ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice'], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] });
@@ -60,9 +63,11 @@ function hardwareId() {
   const platform = testPlatform || process.platform;
   if (platform !== 'darwin') return null;   // no reader here (Windows: by its owner); not a failure, so no retry state
   if (cached) return cached;   // only a SUCCESSFUL read is kept (review 1); a failed one is tried again,
-  const now = testNow != null ? testNow : Date.now();
+  // A clock that never runs backwards (review 5): a wall clock set back would hold the wait open for hours.
+  const now = testNow != null ? testNow : Number(process.hrtime.bigint() / 1000000n);
   if (failedAt && now - failedAt < RETRY_AFTER_FAIL_MS) return null;   // but not at once (review 2)
   let id = null;
+  // 🛑 Never log this error: on a timeout or a non-zero exit its .stdout is the full ioreg dump, raw id and serial number.
   try { id = parseIoreg(defaultRun()); } catch { id = null; }
   if (id) { cached = id; failedAt = 0; } else failedAt = now;
   return id;
@@ -78,7 +83,9 @@ function fingerprint(salt, company) {
   if (typeof company !== 'string' || !COMPANY.test(company)) return null;
   const id = hardwareId();
   if (!id) return null;
-  return crypto.createHash('sha256').update(salt + ':' + company + ':' + id).digest('hex');
+  // HMAC, the standard keyed construction (review 5), chosen before any company has pinned a print: changing it later
+  // would change every print. The salt is the key, lower-cased so a coordinator's hex case cannot change the print.
+  return crypto.createHmac('sha256', Buffer.from(salt.toLowerCase(), 'hex')).update(company + ':' + id).digest('hex');
 }
 
 /* TESTS ONLY: swap the reader, the platform and the clock, and clear the cache and the retry state. Call with no
