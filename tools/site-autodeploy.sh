@@ -71,7 +71,7 @@ count_for() {
   case "$cn" in ''|*[!0-9]*) cn=0 ;; esac
   if [ "$csha" = "$TARGET" ]; then echo "$cn"; else echo 0; fi
 }
-RETRY_ALARM=4   # consecutive retried ticks for one sha before a run goes red once
+RETRY_ALARM=4   # consecutive retried ticks for one sha from which every run goes red
 
 [ -n "$SITE" ] || { echo "site-autodeploy: set KOSMOS_AUTODEPLOY_SITE to this job's own site checkout" >&2; exit 2; }
 mkdir -p "$STATE" || { echo "site-autodeploy: cannot make $STATE" >&2; exit 2; }
@@ -105,7 +105,7 @@ git -C "$SITE" fetch -q origin main 2>>"$LOG" || { say "FAIL: could not fetch si
 TARGET=$(git -C "$SITE" rev-parse --verify -q origin/main) || { say "FAIL: no origin/main in $SITE"; exit 1; }
 LAST=$(cat "$STATE/last-deployed" 2>/dev/null || true)
 [ "$TARGET" = "$LAST" ] && exit 0
-[ "$(cat "$STATE/parked" 2>/dev/null || true)" = "$TARGET" ] && exit 0
+[ "$(cat "$STATE/parked" 2>/dev/null || true)" = "$TARGET" ] && { say "parked: site main ${TARGET:0:9} failed twice; waiting for the next merge (or remove $STATE/parked)"; exit 0; }
 
 # A release cut publishes the site itself (its step 8) from its own checkout, and a hand-run
 # deploy-site.sh or promote-channel.sh is about to publish too. Do not deploy beside any of them: wait
@@ -148,6 +148,17 @@ br=$(git -C "$SITE" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
 [ "$br" = main ] || { say "FAIL: $SITE is on '${br:-a detached HEAD}', not main; deploy-site.sh would refuse (parked)"; printf '%s rc=%s %s\n' "$TARGET" checkout "$(now)" > "$STATE/last-failure"; park; exit 1; }
 git -C "$SITE" merge -q --ff-only origin/main 2>>"$LOG" || { say "FAIL: could not fast-forward $SITE to ${TARGET:0:9}, dirty or diverged (parked)"; printf '%s rc=%s %s\n' "$TARGET" checkout "$(now)" > "$STATE/last-failure"; park; exit 1; }
 
+# The source must look like a real cut checkout's dist/ before it is mirrored with --delete: none at
+# all (a fresh clone, a cleaned or rebuilt cut box), or far fewer than the last good mirror held, would
+# delete them here and the deploy would take them off the site. tools/dist-retention.sh prunes a few
+# at a time, so MIRROR_DROP_MAX allows that and refuses a collapse.
+MIRROR_DROP_MAX=5
+src_n=$(find "$DIST_FROM" -maxdepth 1 -name 'kosmos-*-arm64.tar.gz' 2>/dev/null | wc -l | tr -d ' ')
+prev_n=$(cat "$STATE/mirror-count" 2>/dev/null || true); case "$prev_n" in ''|*[!0-9]*) prev_n=0 ;; esac
+if [ -d "$DIST_FROM" ] && { [ "$src_n" = 0 ] || [ "$src_n" -lt $((prev_n - MIRROR_DROP_MAX)) ]; }; then
+  say "FAIL: $DIST_FROM holds $src_n versioned tarballs (the last good mirror held $prev_n); mirroring it would take the older downloads off the site (parked)"
+  printf '%s rc=%s %s\n' "$TARGET" dist "$(now)" > "$STATE/last-failure"; park; exit 1
+fi
 # Mirror the older versioned Mac downloads (see the header). --delete with these filters removes only
 # versioned tarballs and sidecars the source no longer has; every other file in dist/ is left alone.
 [ -d "$DIST_FROM" ] || { say "FAIL: no $DIST_FROM to take the older versioned downloads from; deploying without them would take them off the site (parked)"; printf '%s rc=%s %s\n' "$TARGET" dist "$(now)" > "$STATE/last-failure"; park; exit 1; }
@@ -156,6 +167,7 @@ rsync -a --delete --include='kosmos-*-arm64.tar.gz' --include='kosmos-*-arm64.ta
 # Every mirrored tarball must match its own .sha256, or it is not deployed. deploy-site.sh checks only
 # the current build, and a cut that started after the check above could be writing one right now. A
 # mismatch is not a finding about this sha, so it is retried on the next tick, never parked.
+MISMATCH=""
 for _t in "$SITE"/dist/kosmos-*-arm64.tar.gz; do
   [ -e "$_t" ] || continue
   _want=$(cut -c1-64 "$_t.sha256" 2>/dev/null || true); _have=$(shasum -a 256 "$_t" | cut -c1-64)
@@ -165,7 +177,7 @@ if [ -n "${MISMATCH:-}" ]; then
   # Counted with the exit-75 retries: a cut writing it clears within a tick or two; one that never
   # matches (no sidecar, a corrupt copy at the source) goes red on the 4th tick instead of green forever.
   n=$(( $(count_for "$STATE/retries") + 1 )); echo "$TARGET $n" > "$STATE/retries"
-  if [ "$n" = "$RETRY_ALARM" ]; then say "FAIL: the mirrored $MISMATCH has not matched its .sha256 for $n ticks; fix it at $DIST_FROM"; exit 1; fi
+  if [ "$n" -ge "$RETRY_ALARM" ]; then say "FAIL: the mirrored $MISMATCH has not matched its .sha256 for $n ticks; fix it at $DIST_FROM"; exit 1; fi
   say "skip: the mirrored $MISMATCH does not match its .sha256 (a cut writing it?); the next tick tries again ($n in a row)"
   exit 0
 fi
@@ -189,16 +201,17 @@ else
 fi
 if [ "$rc" = 0 ]; then
   echo "$TARGET" > "$STATE/last-deployed"; rm -f "$STATE/failures" "$STATE/retries" "$STATE/parked"
+  echo "$src_n" > "$STATE/mirror-count"
   say "deployed site main ${TARGET:0:9}"
   exit 0
 fi
 # 75: deploy-site.sh found the live site moving (a cut or a staging publish landed mid-run) or could
 # not read it. Not a finding about this sha, so it is NOT parked: the next tick tries again.
-# After RETRY_ALARM of them in a row for the same sha the tick exits 1 once, so the run goes red
-# (a host that stays unreachable would otherwise read green forever); it keeps retrying after that.
+# From the RETRY_ALARM-th in a row for the same sha, every such tick exits 1, so the runs stay red
+# while it lasts (a host that stays unreachable would otherwise read green forever); it keeps retrying.
 if [ "$rc" = 75 ]; then
   n=$(( $(count_for "$STATE/retries") + 1 )); echo "$TARGET $n" > "$STATE/retries"
-  if [ "$n" = "$RETRY_ALARM" ]; then
+  if [ "$n" -ge "$RETRY_ALARM" ]; then
     say "FAIL: ${TARGET:0:9} has hit a moving or unreadable live site $n ticks in a row; still retrying"
     exit 1
   fi

@@ -6,7 +6,7 @@
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 AD="$REPO/tools/site-autodeploy.sh"
-T=$(mktemp -d "${TMPDIR:-/tmp}/site-autodeploy-test.XXXXXX"); trap 'rm -rf "$T"' EXIT
+T=$(mktemp -d "${TMPDIR:-/tmp}/site-autodeploy-test.XXXXXX"); live=""; trap '[ -n "$live" ] && kill "$live" 2>/dev/null; rm -rf "$T"' EXIT
 fail=0
 pass() { echo "PASS  $1"; }
 bad()  { echo "FAIL  $1"; fail=1; }
@@ -72,8 +72,8 @@ tick
 # 4c) a mirrored tarball that NEVER matches its .sha256 goes red on the 4th tick, not green forever.
 H2c=$(advance two-c)
 printf 'stuck\n' > "$CUTDIST/kosmos-0.7.21-arm64.tar.gz"
-rcs=""; for i in 1 2 3 4; do tick; rcs="$rcs$RC"; done
-{ [ "$rcs" = 0001 ] && [ ! -e "$ST/parked" ]; } && pass "a mirrored tarball that never matches goes red on the 4th tick, unparked" || bad "checksum alarm sequence '$rcs' (want 0001)"
+rcs=""; for i in 1 2 3 4 5; do tick; rcs="$rcs$RC"; done
+{ [ "$rcs" = 00011 ] && [ ! -e "$ST/parked" ]; } && pass "a mirrored tarball that never matches goes red from the 4th tick on, unparked" || bad "checksum alarm sequence '$rcs' (want 00011)"
 cp "$T/good21" "$CUTDIST/kosmos-0.7.21-arm64.tar.gz"; tick
 
 # 5) no source for the older downloads: parked before any deploy (deploying would take them off the site).
@@ -81,6 +81,21 @@ H3=$(advance three)
 KOSMOS_AUTODEPLOY_DIST_FROM="$T/nope" tick
 { [ "$RC" = 1 ] && [ "$(ndeploys)" = 4 ] && [ "$(cat "$ST/parked")" = "$H3" ]; } && pass "a missing source of the older downloads parks the sha with nothing deployed" || bad "missing dist source (rc=$RC, deploys=$(ndeploys))"
 rm -f "$ST/parked"
+
+# 5b) a source dist/ that exists but holds no versioned tarballs (a fresh or cleaned cut box), or far
+#     fewer than the last good mirror, is refused and parked: mirroring it would take them off the site.
+H3b=$(advance three-b)
+EMPTYDIST="$T/emptydist"; mkdir -p "$EMPTYDIST"
+KOSMOS_AUTODEPLOY_DIST_FROM="$EMPTYDIST" tick
+{ [ "$RC" = 1 ] && [ "$(ndeploys)" = 4 ] && [ "$(cat "$ST/parked")" = "$H3b" ] && [ -f "$T/site/dist/kosmos-0.7.21-arm64.tar.gz" ]; } \
+  && pass "an empty source dist/ is refused before the mirror deletes anything, and parked" || bad "empty source dist (rc=$RC, deploys=$(ndeploys))"
+rm -f "$ST/parked"
+echo 12 > "$ST/mirror-count"
+H3c=$(advance three-c)
+tick
+{ [ "$RC" = 1 ] && [ "$(ndeploys)" = 4 ] && [ "$(cat "$ST/parked")" = "$H3c" ]; } \
+  && pass "a source with far fewer versions than the last good mirror (1 vs 12) is refused" || bad "collapsed source not refused (rc=$RC, deploys=$(ndeploys))"
+rm -f "$ST/parked"; echo 1 > "$ST/mirror-count"
 
 # 6) already live: the served export marker names main, so it is recorded with no deploy.
 H4=$(advance four)
@@ -124,7 +139,7 @@ DEPLOY_RC=1 tick
 DEPLOY_RC=1 tick
 { [ "$RC" = 1 ] && [ "$(ndeploys)" = 8 ] && [ "$(cat "$ST/parked")" = "$H7" ]; } && pass "a second failure on the same sha parks it" || bad "second failure (rc=$RC, deploys=$(ndeploys))"
 tick
-{ [ "$RC" = 0 ] && [ "$(ndeploys)" = 8 ]; } && pass "a parked sha is not retried" || bad "retried a parked sha (deploys=$(ndeploys))"
+{ [ "$RC" = 0 ] && [ "$(ndeploys)" = 8 ] && printf '%s' "$OUT" | grep -q "^.*parked: site main"; } && pass "a parked sha is not retried, and the tick says it is parked" || bad "parked tick (deploys=$(ndeploys)) $OUT"
 H8=$(advance eight)
 tick
 { [ "$RC" = 0 ] && [ "$(ndeploys)" = 9 ] && [ "$(cat "$ST/last-deployed")" = "$H8" ] && [ ! -e "$ST/failures" ]; } \
@@ -134,7 +149,7 @@ tick
 #    the 4th in a row for one sha turns the run red once; a success clears the count.
 H9=$(advance nine)
 rcs=""; for i in 1 2 3 4 5; do DEPLOY_RC=75 tick; rcs="$rcs$RC"; done
-{ [ "$rcs" = 00010 ] && [ ! -e "$ST/parked" ] && [ "$(ndeploys)" = 14 ]; } && pass "75 is retried every tick; the 4th in a row exits 1 once" || bad "75 sequence '$rcs' (want 00010), deploys=$(ndeploys)"
+{ [ "$rcs" = 00011 ] && [ ! -e "$ST/parked" ] && [ "$(ndeploys)" = 14 ]; } && pass "75 is retried every tick; from the 4th in a row each tick is red" || bad "75 sequence '$rcs' (want 00011), deploys=$(ndeploys)"
 tick
 { [ "$RC" = 0 ] && [ ! -e "$ST/retries" ] && [ "$(cat "$ST/last-deployed")" = "$H9" ]; } && pass "a success after 75s deploys and clears the count" || bad "after 75s (rc=$RC)"
 
