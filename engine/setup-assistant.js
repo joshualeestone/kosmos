@@ -499,7 +499,7 @@ function guardGuideFolder(dir, agentName, deps = {}) {
        behind for ever. Only a rule this code could have written for one entry is dropped (wasEntryRule); any
        other rule stays, a person's own rule for the registry or for a name this code leaves alone included. */
     const plat = process.platform;   // the platform the rules above were written for (ruleAbs uses the same)
-    const kept = migrateKept(had, { ...fresh, rules: withNativeTwins(fresh.rules, plat) }, plat);
+    const kept = migrateKept(had, fresh, plat);
     /* #4752: none of THIS change's rules (fresh.extra) may take in the guide's own folder. An older folder or a
        linked entry a person made can resolve to an ancestor of it, and the sandbox follows links, so such a rule
        would cut the guide off from its own instructions: dropped, and said. What this checks, no more: a rule

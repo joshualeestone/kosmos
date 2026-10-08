@@ -147,6 +147,9 @@ test('#4752 on a Windows host: guardGuideFolder leaves out a rule taking in the 
   assert.equal(deny.some((r) => sa.legacyWinEquivalent(r) === newForm), false, 'some old spelling of the refused rule survived');
   assert.ok(deny.includes(personal), 'CONTROL: a person\'s own rule elsewhere was dropped');
   assert.ok(deny.includes(`Read(${sa.ruleAbs(dataOwn, 'win32')}/**)`), 'CONTROL: the data folder rule is missing, or not in the //c/ form');
+  // guardGuideFolder WRITES the old native spelling beside it (the twin is the only protection if //c/ does not match)
+  const dataTwin = sa.withNativeTwins([`Read(${sa.ruleAbs(dataOwn, 'win32')}/**)`], 'win32')[1];
+  assert.ok(dataTwin && deny.includes(dataTwin), 'the data folder rule\'s old native spelling was not written: ' + dataTwin);
 });
 
 test('#4752: a Windows rule with no drive (a share) reads back as nothing, never as a path on the current drive', () => {
