@@ -88,3 +88,4 @@ node path (a folder passes) --> FIXED (d5244b70b) with a folder-as-node test; re
 - Every failure falls back to needs-you, each with its own test (all)
 - Real hooks driven in tests, each allowed case with a no-env control (all)
 - Rebased onto origin/main after #5563 (13:22 CDT 2026-10-08). One conflict, tools/windows-tests.js ALSO_ROOT: main added tools.cleanup-fixture-tokens-5418.test.js, this branch added report-hook-allowed-5495.test.js; both kept. Built main + this branch with git merge-tree: engine.reachable adds nothing (only main's known costOf, #5600). diff_hash recomputed.
+- Rebased onto origin/main after #5600 (15:27 CDT 2026-10-08): clean, no change to this branch's content. Merge-tree check: engine.reachable adds nothing. diff_hash recomputed.
