@@ -126,9 +126,12 @@ test('#5536 unsafe paths are refused before anything is fetched (control: a plai
   const { r, sink } = await run();
   assert.deepEqual(r.restored, ['ok.md', '.hidden/fine.md', 'family\u{1f469}\u200d\u{1f467}.md', 'heart\u2764\ufe0f.md', 'notes~draft.md', 'backup~1.tar.gz'],
     'CONTROL: plain relative paths restore, emoji names with a joiner or a variation selector, and a ~ that is not a short name');
-  assert.deepEqual(r.failed.map((f) => f.path), bad);
-  assert.deepEqual(r.failed.filter((f) => f.why === 'malformed entry or unsafe path').map((f) => f.path), unsafe, 'could escape, alias or disguise a name');
-  assert.deepEqual(r.failed.filter((f) => f.why === 'a name not every system accepts').map((f) => f.path), notPortable, 'refused everywhere, reported as a portability loss, not as tampering');
+  const shown = (p) => p.replace(/[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ud800-\udfff]/gu, (c) => `\\u{${c.codePointAt(0).toString(16)}}`);
+  assert.deepEqual(r.failed.map((f) => f.path), bad.map(shown), 'reported paths have control, bidi and lone-surrogate characters escaped');
+  const reported = new Set(r.failed.map((f) => f.path));
+  for (const p of ['nul\\u{0}.md', 'Icon\\u{d}', 'exe\\u{202e}txt.md', 'lone\\u{d800}.md', 'nel\\u{85}.md']) assert.ok(reported.has(p), p);
+  assert.deepEqual(r.failed.filter((f) => f.why === 'malformed entry or unsafe path').map((f) => f.path), unsafe.map(shown), 'could escape, alias or disguise a name');
+  assert.deepEqual(r.failed.filter((f) => f.why === 'a name not every system accepts').map((f) => f.path), notPortable.map(shown), 'refused everywhere, reported as a portability loss, not as tampering');
   assert.equal(sink.calls.filter((c) => c.startsWith('begin')).length, 6, 'no sink is opened for a refused path');
   assert.equal(fetched.length, 6, 'nothing is fetched for a refused path');
 });
@@ -205,9 +208,11 @@ test('#5536 a commit that throws fails the file and aborts it, even when the abo
 });
 
 test('#5536 skippedAtBackup keeps only well-formed { path, why } entries', async () => {
-  const { run } = handMade((entry) => [entry('a.md')], { skipped: [{ path: '.env', why: 'environment file', extra: 1 }, { path: 5 }, null, 'x', { path: 'k', why: 'key' }] });
+  const { run } = handMade((entry) => [entry('a.md')], { skipped: [{ path: '.env', why: 'environment file', extra: 1 }, { path: 5 }, null, 'x', { path: 'k', why: 'key' },
+    { path: 'e\x1b]0;t\x07', why: '\x1b[2Jcleared' }] });
   const { r } = await run();
-  assert.deepEqual(r.skippedAtBackup, [{ path: '.env', why: 'environment file' }, { path: 'k', why: 'key' }]);
+  assert.deepEqual(r.skippedAtBackup, [{ path: '.env', why: 'environment file' }, { path: 'k', why: 'key' }, { path: 'e\\u{1b}]0;t\\u{7}', why: '\\u{1b}[2Jcleared' }],
+    'terminal escapes a device wrote come back escaped, in the path and in the reason');
 });
 
 test('#5536 skippedAtBackup is bounded: at most 10000 entries, each path and reason at most 300 characters', async () => {
@@ -303,7 +308,7 @@ test('#5536 every fetched byte counts against the work budget, so a hostile stor
   assert.equal(n, 5, 'a fetch that ignores maxBytes: four 100 KB objects are charged, the fifth overdraws and stops the restore');
   assert.ok(bytes <= 5 * junk.length);
   assert.deepEqual(limits.slice(0, 2), [8392, 8392], 'fetchChunk is told how much it may download: twice the file plus 8 KiB');
-  assert.equal(r.failed.filter((f) => f.why === 'the restore is over its byte budget').length, 46);
+  assert.equal(r.failed.filter((f) => f.why === 'the store sent more data than the restore could use').length, 46, 'named as the store, not as the disk');
   assert.equal(r.failed.filter((f) => f.why === 'another entry lands on the same file or folder').length, 100);
   const ok = await run(memorySink(), { maxTotalBytes: 100, fetchChunk: () => object });
   assert.deepEqual(ok.r.restored, ['f0.md'], 'CONTROL: a real chunk restores within the same budget');
@@ -317,6 +322,8 @@ test('#5536 caller mistakes throw instead of reading as tampering', async () => 
   await assert.rejects(br.restoreSnapshot({ ...args, sink: {} }), /sink\.begin/);
   await assert.rejects(br.restoreSnapshot({ ...args, fetchChunk: undefined }), /fetchChunk/);
   await assert.rejects(br.restoreSnapshot({ ...args, namingKey: k.nk.subarray(0, 16) }), /namingKey/);
+  await assert.rejects(br.restoreSnapshot({ ...args, memberSk: undefined }), /memberSk/);
+  await assert.rejects(br.restoreSnapshot({ ...args, memberSk: k.member.sk.subarray(0, 31) }), /memberSk/);
   await assert.rejects(br.restoreSnapshot({ ...args, maxFiles: NaN }), /maxFiles/, 'an explicit NaN does not erase a bound');
   await assert.rejects(br.restoreSnapshot({ ...args, maxManifestObject: undefined + 1 }), /maxManifestObject/);
   await assert.rejects(br.restoreSnapshot({ ...args, maxChunkObject: -1 }), /maxChunkObject/);
