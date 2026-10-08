@@ -58,7 +58,9 @@ const DEFAULT_CONCURRENCY = 4;
 const MAX_CONCURRENCY = 32;
 // A PUT may take 60 s plus the time to send its bytes at 16 KB/s shared by the workers sending at once (5 MiB with
 // four workers: about 22 minutes). Not capped at the grant: S3 checks expiry when a request arrives.
-const putTimeoutFor = (size, workers) => 60 * 1000 + Math.ceil((size * Math.max(1, workers || 1)) / 16);
+// (The worker multiplier is capped at the default concurrency, so a caller choosing many workers cannot stretch one
+// black-holed PUT's hold on its worker to hours.)
+const putTimeoutFor = (size, workers) => 60 * 1000 + Math.ceil((size * Math.min(DEFAULT_CONCURRENCY, Math.max(1, workers || 1))) / 16);
 const SIGNED_NEEDED = ['content-length', 'content-md5', 'host', 'if-none-match', 'x-amz-object-lock-mode', 'x-amz-object-lock-retain-until-date'];
 // The only headers a grant may ask the Mac to send (the coordinator lists four; Content-Length is tolerated if listed).
 const HEADER_ALLOWED = new Set(['content-md5', 'if-none-match', 'x-amz-object-lock-mode', 'x-amz-object-lock-retain-until-date', 'content-length']);
@@ -146,7 +148,7 @@ function parseGrant(data, objects, seenKeys, runBucket) {
     // names (a coordinator bug cannot point it at a LAN address or another service). Path-style s3.<region> or
     // s3-<region>, or virtual-hosted <bucket>.s3.<region>. This pins the SERVICE, not the bucket: the Mac holds no
     // bucket name of its own, so a grant naming another bucket on S3 passes; the payload is sealed either way.
-    if (!allowHttp && (url.port || !S3_HOST.test(url.hostname) || /s3-website/.test(url.hostname))) return { ok: false, because: `upload ${i}'s host is not an AWS S3 endpoint (${url.host})` };
+    if (!allowHttp && (url.port || !S3_HOST.test(url.hostname) || /s3-(website|control)/.test(url.hostname))) return { ok: false, because: `upload ${i}'s host is not an AWS S3 endpoint (${url.host})` };
     let path;
     try { path = decodeURIComponent(url.pathname); } catch { return { ok: false, because: `upload ${i} has an undecodable url path` }; }
     if (!path.endsWith('/' + u.key)) return { ok: false, because: `upload ${i}'s url does not carry its key` };
