@@ -2060,3 +2060,23 @@ test('#5558 review 4: random letter pieces are not words, so the path is still m
   assert.equal(isPlainPath(real), true, 'CONTROL: a real path is plain');
   assert.equal(mask('see ' + real).text, 'see ' + real, 'CONTROL: a real path is left alone');
 });
+
+test('#5558 review 6: each plain-path rule holds on its own, and a date does not buy extra digits', () => {
+  const { isPlainPath } = require('./secretmask');
+  // Each case fails exactly one rule; its control passes them all.
+  const cases = [
+    ['notes/brtabrt/plans', 'a word with too few vowels'],
+    ['notes/abcdfe/plans', 'four consonants in a row'],
+    ['notes/qatar/plans', 'q without u'],
+    ['notes/plans/99999999-1', 'eight digits that are not a date count, so one more digit is over the budget'],
+    ['notes/plans/20260926/20260927-1', 'a second date counts toward the digits'],
+    ['notesplans-plans', 'a single segment'],
+    ['token/Alpha-1234567890-20260926T101010Z-secret', 'a ten-digit number beside a date'],
+    ['session/credentials/pin/198765432/20260926T235959Z', 'a nine-digit number beside a date'],
+  ];
+  for (const [t, why] of cases) assert.equal(isPlainPath(t), false, why + ': ' + t);
+  for (const t of ['notes/brtab/plans', 'notes/abcde/plans', 'notes/queen/plans', 'notes/plans/20260926', 'notes/plans/2026-0926',
+    'claude/plans/3386-grok-20260922-0302']) {
+    assert.equal(isPlainPath(t), true, 'CONTROL: ' + t);
+  }
+});
