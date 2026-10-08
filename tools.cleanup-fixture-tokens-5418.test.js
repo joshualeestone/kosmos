@@ -905,3 +905,16 @@ test('#5418 on a Windows host: main keeps a token whose agent has a Scheduled Ta
   assert.ok(left.includes('taskkept.json'), 'a token whose agent has a Scheduled Task was removed');
   assert.equal(left.includes('fixture-w.json'), false, 'CONTROL: the orphan was kept');
 });
+
+test('#5418: a backup copy is flushed; on Windows a handle that cannot be flushed (EPERM) does not stop the backup', (t) => {
+  const f = path.join(scratch(t), 'copy.json');
+  fs.writeFileSync(f, 'x');
+  let flushed = 0;
+  const real = fs.fsyncSync;
+  t.mock.method(fs, 'fsyncSync', (fd) => { flushed += 1; return real(fd); });
+  tool.flushCopy(f);
+  assert.equal(flushed, 1, 'the copy was not flushed');
+  t.mock.method(fs, 'fsyncSync', () => { throw Object.assign(new Error('flush'), { code: 'EPERM' }); });
+  assert.doesNotThrow(() => tool.flushCopy(f, 'win32'), 'EPERM on Windows stopped the backup');
+  assert.throws(() => tool.flushCopy(f, 'darwin'), /flush/, 'CONTROL: off Windows a failed flush is not swallowed');
+});
