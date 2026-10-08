@@ -266,3 +266,16 @@ test('#4752: a share reading is never resolved (no network lookup), only compare
   sa.readingsHoldGuide(sa.rulePaths('c/Users', 'win32'), 'C:\\Users\\a', (p) => { resolved += 1; return p; }, '\\');
   assert.equal(resolved, 1, 'CONTROL: a drive reading is still resolved (links on a local disk are seen through)');
 });
+
+test('#4752: on macOS and Linux a path with a backslash still gets no rule (as on main)', () => {
+  assert.equal(sa.ruleUnwritable('/Users/a/odd\\name', 'darwin'), true, 'a POSIX path with a backslash was given a rule');
+  assert.equal(sa.ruleUnwritable('/Users/a/odd\\name', 'linux'), true);
+  assert.equal(sa.ruleUnwritable('/Users/a/plain', 'darwin'), false, 'CONTROL');
+});
+
+test('#4752: on Windows a refusal never silently removes one of the guide\'s own fresh rules by case', () => {
+  const refused = new Set(['Read(//c/Users/a/old/**)']);
+  // a fresh (safe) rule equal to the refused one but for case stays; an earlier (kept) one is removed (and said)
+  assert.deepEqual(sa.finalDeny([], ['Read(//c/Users/A/old/**)'], refused, 'win32'), ['Read(//c/Users/A/old/**)']);
+  assert.deepEqual(sa.finalDeny(['Read(//c/Users/A/old/**)'], [], refused, 'win32'), [], 'CONTROL: an earlier rule is removed');
+});

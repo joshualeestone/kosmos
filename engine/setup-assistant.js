@@ -381,7 +381,7 @@ function readingsHoldGuide(backs, own, real, sep) {
 function rulePath(inner, platform = process.platform) {
   const t = String(inner);
   if (platform === 'win32') {
-    if (/^[A-Za-z]:/.test(t)) return t;   // already native: only a round trip reaches this today, kept for a reader
+    if (/^[A-Za-z]:/.test(t)) return t;   // native already, or a bare/drive-relative C: or c:foo (resolved as given)
     const d = /^([A-Za-z])(\/|$)/.exec(t);
     if (d) return d[1].toUpperCase() + ':\\' + t.slice(d[0].length).replace(/\//g, '\\');
     // no drive: a share (host/share/...) reads back as its UNC path, so the own-folder check compares real paths;
@@ -446,10 +446,11 @@ function wasEntryRule(rule, base, platform = process.platform) {
 function finalDeny(kept, safe, refused, platform = process.platform) {
   // on Windows a path's case does not matter, so an old rule spelt in another case still reaches its refused new form
   const refusedLower = new Set([...refused].map((x) => x.toLowerCase()));
+  const earlier = new Set(kept);   // only an earlier rule is removed by case (its removal is said by the caller)
   return [...new Set([...kept, ...safe])].filter((r) => {
     if (refused.has(r)) return false;
     // a new-form path rule spelt in another case (Read rules only: a refusal is only ever a Read rule)
-    if (platform === 'win32' && r.startsWith('Read(') && refusedLower.has(r.toLowerCase())) return false;
+    if (platform === 'win32' && earlier.has(r) && r.startsWith('Read(') && refusedLower.has(r.toLowerCase())) return false;
     if (platform === 'win32') { const eq = legacyWinEquivalent(r); if (eq && refusedLower.has(eq.toLowerCase())) return false; }
     // two spellings of one rule (an old `//c:\` beside the `//C:\` twin) both stay: whether Claude Code matches case-
     // blind is not documented, and a duplicate deny costs nothing, while folding could drop a person's own rule
@@ -534,8 +535,9 @@ function guardGuideFolder(dir, agentName, deps = {}) {
        linked entry a person made can resolve to an ancestor of it, and the sandbox follows links, so such a rule
        would cut the guide off from its own instructions: dropped, and said. What this checks, no more: a rule
        naming one folder or file, compared by real path (rulePath reads a rule back, the Windows form included); a rule
-       with a `*` is not checked, and an earlier rule is removed only by finalDeny
-       (when it equals a refused rule in either spelling or case), which says so. */
+       with a `*` is not checked, and an earlier rule removed for taking in this folder
+       (equal to a refused rule in either spelling or case, by finalDeny) is said by the loop after it; migrateKept
+       drops an earlier per-entry rule for a gone entry without a word, as on main. */
     const own = realOr(dir);
     const safe = fresh.rules.filter((r) => {
       if (!fresh.extra.includes(r)) return true;
