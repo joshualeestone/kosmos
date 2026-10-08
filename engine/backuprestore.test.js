@@ -112,15 +112,15 @@ test('#5536 a sink that fails to write aborts the file and does not commit it', 
 
 test('#5536 unsafe paths are refused before anything is fetched (control: a plain path restores)', async () => {
   const bad = ['../escape.md', '..\\escape.md', 'a/../../b', '/etc/x', '\\\\server\\share', 'C:/x', 'a/C:/x', 'file.txt:ads', 'a//b', '.', 'a/./b',
-    'nul\0.md', 'tab\there', 'lone\ud800.md', 'nel\u0085.md', 'line\u2028sep.md', 'exe\u202etxt.md', 'CON', 'nul.txt', 'a/com1.log', 'trailing.', 'trailing ', ' ..', ''];
-  const { run, fetched } = handMade((entry) => [...bad.map((p) => entry(p)), entry('ok.md'), entry('.hidden/fine.md'), entry('family\u{1f469}\u200d\u{1f467}.md'), entry('heart\u2764\ufe0f.md')]);
+    'nul\0.md', 'tab\there', 'lone\ud800.md', 'nel\u0085.md', 'line\u2028sep.md', 'exe\u202etxt.md', '..\u200b', '.\u200c/x', '\u200b', 'a/\u3164', 'x\ufeff./y', 'nul .txt', 'CON .md', 'LONGFI~1.MD', 'PROGRA~1/x', 'CON', 'nul.txt', 'a/com1.log', 'trailing.', 'trailing ', ' ..', ''];
+  const { run, fetched } = handMade((entry) => [...bad.map((p) => entry(p)), entry('ok.md'), entry('.hidden/fine.md'), entry('family\u{1f469}\u200d\u{1f467}.md'), entry('heart\u2764\ufe0f.md'), entry('notes~draft.md'), entry('backup~1.tar.gz')]);
   const { r, sink } = await run();
-  assert.deepEqual(r.restored, ['ok.md', '.hidden/fine.md', 'family\u{1f469}\u200d\u{1f467}.md', 'heart\u2764\ufe0f.md'],
-    'CONTROL: plain relative paths restore, emoji names with a joiner or a variation selector included');
+  assert.deepEqual(r.restored, ['ok.md', '.hidden/fine.md', 'family\u{1f469}\u200d\u{1f467}.md', 'heart\u2764\ufe0f.md', 'notes~draft.md', 'backup~1.tar.gz'],
+    'CONTROL: plain relative paths restore, emoji names with a joiner or a variation selector, and a ~ that is not a short name');
   assert.deepEqual(r.failed.map((f) => f.path), bad);
   assert.ok(r.failed.every((f) => f.why === 'malformed entry or unsafe path'));
-  assert.equal(sink.calls.filter((c) => c.startsWith('begin')).length, 4, 'no sink is opened for a refused path');
-  assert.equal(fetched.length, 4, 'nothing is fetched for a refused path');
+  assert.equal(sink.calls.filter((c) => c.startsWith('begin')).length, 6, 'no sink is opened for a refused path');
+  assert.equal(fetched.length, 6, 'nothing is fetched for a refused path');
 });
 
 test('#5536 entries that land on the same file or folder are all refused (control: distinct paths restore)', async () => {

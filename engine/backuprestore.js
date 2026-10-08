@@ -21,8 +21,14 @@ const CHUNK_NAME_RE = /^[0-9a-f]{64}$/;
 // is refused before it is decrypted.
 const MAX_CHUNK_OBJECT = 2 * CDC.max + 4096;
 const MAX_SKIPPED_REPORTED = 10000;
-// Windows device names, with or without an extension (CON, nul.txt, COM1.log).
-const WIN_RESERVED_RE = /^(con|prn|aux|nul|conin\$|conout\$|com[0-9¹²³]|lpt[0-9¹²³])(\..*)?$/i;
+// Windows device names, with or without an extension, and with spaces before it (CON, nul.txt, COM1.log, nul .txt).
+const WIN_RESERVED_RE = /^(con|prn|aux|nul|conin\$|conout\$|com[0-9¹²³]|lpt[0-9¹²³]) *(\..*)?$/i;
+// The shape of an NTFS 8.3 short name (PROGRA~1, LONGFI~1.MD), which can name another entry's file.
+const SHORT_NAME_RE = /^[^.]{1,6}~[0-9]+(\.[^.]{1,3})?$/;
+const IGNORABLE_RE = /\p{Default_Ignorable_Code_Point}/gu;
+// A segment may not be empty or end in a dot or a space: that refuses '.' and '..' too, and the names Windows
+// silently trims to another file's name. Checked as written and with invisible characters dropped.
+const segmentOk = (x) => x !== '' && !/[. ]$/.test(x) && !WIN_RESERVED_RE.test(x) && !SHORT_NAME_RE.test(x);
 
 function safeRel(p) {
   if (typeof p !== 'string' || !p || p.length > 4096 || !p.isWellFormed()) return false;  // a lone surrogate encodes as U+FFFD
@@ -30,15 +36,14 @@ function safeRel(p) {
   // name), and ':' (a drive or an NTFS stream).
   if (/[\x00-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069:]/.test(p)) return false;
   if (p.startsWith('/') || p.startsWith('\\')) return false;
-  // A segment may not be empty or end in a dot or a space: that refuses '.' and '..' too, and the names Windows
-  // silently trims to another file's name.
-  return p.split(/[\\/]/).every((x) => x !== '' && !/[. ]$/.test(x) && !WIN_RESERVED_RE.test(x));
+  return p.split(/[\\/]/).every((x) => segmentOk(x) && segmentOk(x.replace(IGNORABLE_RE, '')));
 }
 
 /* The key two entries collide on: invisible characters dropped, NFC, upper- then lower-cased (so final sigma folds
    with sigma), NFC again, with '\' read as '/'. An approximation of APFS and NTFS name matching, not their exact
-   folding; see the sink duties. */
-const collisionKey = (p) => toSinkPath(p).replace(/\p{Default_Ignorable_Code_Point}/gu, '')
+   folding; where it differs it mostly over-refuses (straße and strasse collide here, not on APFS); see the sink
+   duties. */
+const collisionKey = (p) => toSinkPath(p).replace(IGNORABLE_RE, '')
   .normalize('NFC').toUpperCase().toLowerCase().normalize('NFC');
 /* safeRel and collisionKey read '\' as a separator, so the sink is handed the same reading. */
 const toSinkPath = (p) => p.replace(/\\/g, '/');
@@ -78,8 +83,10 @@ function collidingPaths(entries) {
  *   sink.begin(path) -> { write(buf), commit(), abort() } (each may return a promise). Bytes are written BEFORE the
  *     file is verified, so the sink must write somewhere other than the final path, leave any existing file there
  *     untouched until commit, and publish atomically on commit. abort must be safe at any point, including after
- *     a commit that threw. The sink is handed paths with '/' separators, and must also:
- *       - refuse to overwrite a file it already committed in this restore (collision refusal here is approximate);
+ *     a commit that threw. The sink is handed paths with '/' separators (so a Mac name holding '\' comes back as a
+ *     folder), and must also:
+ *       - refuse to overwrite a file it already committed in this restore, comparing file identity (inode or file
+ *         ID), not path strings (collision refusal here is approximate);
  *       - refuse a path whose folders resolve outside the restore root, such as through a symlink already there.
  *
  * Paths in failed and skippedAtBackup come from the manifest and may hold any printable text: escape them for
