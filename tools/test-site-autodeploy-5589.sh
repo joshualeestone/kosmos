@@ -2,7 +2,8 @@
 # #5589: tools/site-autodeploy.sh publishes the site when its main moves, and only then.
 # A real git origin and clone in a temp dir; the deploy, the process list, the served marker (a
 # file:// URL) and the cut checkout's dist/ are all local, so nothing here reaches Vercel or the
-# network. One test (26) reads this machine's process list, to see that a hanging fetch left nothing.
+# network. Tests 26, 28 and 32 read this machine's real process table (a leftover fetch helper; deploy
+# group identity via ps).
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 AD="$REPO/tools/site-autodeploy.sh"
@@ -463,6 +464,13 @@ tick
 { [ "$RC" = 1 ] && [ -e "$ST/parked" ] && printf '%s' "$OUT" | grep -q 'has no "version"'; } && pass "a pointer with no readable version parks instead of mirroring unbounded" || bad "unreadable pointer version (rc=$RC) $OUT"
 cp "$T/ptr34.keep" "$T/work/dist/latest-staging.json"; git -C "$T/work" commit -q -am ptr34-back; git -C "$T/work" push -q origin main
 tick; rm -f "$ST/parked" "$ST/failures"; rm -rf "$ST/reported.d"
+
+# 35) a process list that cannot be read fails CLOSED: nothing deploys, red once, then reported.
+H35=$(advance thirtyfive); n35=$(ndeploys)
+KOSMOS_AUTODEPLOY_PS="printf ''" tick; p1=$RC; OUTP=$OUT; KOSMOS_AUTODEPLOY_PS="false" tick; p2=$RC
+{ [ "$p1" = 1 ] && [ "$p2" = 0 ] && [ "$(ndeploys)" = "$n35" ] && printf '%s' "$OUTP" | grep -q "could not read the process list"; } \
+  && pass "an unreadable process list never deploys: red once, then reported" || bad "unreadable ps (p1=$p1 p2=$p2 deploys $n35 -> $(ndeploys)) $OUTP"
+tick; [ "$(cat "$ST/last-deployed")" = "$H35" ] && pass "with the process list readable again, it deploys (control)" || bad "no deploy after ps recovered"
 
 # 13) no site configured: a usage error, never a deploy.
 nfinal=$(ndeploys); KOSMOS_AUTODEPLOY_SITE="" bash "$AD" 2>/dev/null; RC=$?

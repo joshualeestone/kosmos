@@ -19,8 +19,7 @@
 # it can sit on main, which deploy-site.sh requires for a publish (#3073). Make it once with
 #   git clone <site remote> <this checkout>      (a plain, self-contained clone: ~40 s, 2.8 GB)
 # then copy .vercel/ into it. NOT --reference: a borrowing clone can depend on objects the cut's checkout
-# holds only through a feature branch, which git's own gc --auto there may prune (found in review; the
-# Mortals clone was first made with --reference and remade plainly on 2026-10-08).
+# holds only through a feature branch, which git's own gc --auto there may prune.
 #
 # 🔑 The older versioned Mac downloads. A deploy ships every versioned kosmos-<v>-arm64.tar.gz (and
 # .sha256) present in dist/, and those are gitignored, so a checkout of its own has none: deploying
@@ -96,7 +95,10 @@ park() { echo "$TARGET" > "$STATE/parked"; mark_reported parked; }
 # account that last edited the workflow's cron on EVERY failed scheduled run, so red-every-tick on a
 # 15-minute schedule would mean up to 96 emails a day to Josh's account. Each sha and cause has its OWN
 # record (reported.d/<sha>-<cause>, holding the time), so two causes taking turns never re-arm each
-# other. The records for the states with a clean "it is over" moment (wedged lock, origin/main) are
+# other. (The records made before the sha is known, fetch, wedged lock, origin/main and the process
+# list, are keyed "none": once one is reported, a NEW push the same day whose tick hits the same cause is
+# green with the warning too. Nothing could deploy it during that cause anyway; the warning names it.)
+# The records for the states with a clean "it is over" moment (wedged lock, origin/main) are
 # removed the moment that is seen, so a new incident after it is red at once. NOT the fetch: a network
 # that fails on some ticks and works on others would re-arm its own red after every good fetch (up to 48
 # emails a day for one problem), so its record lasts its day, or until a deploy succeeds. The retry-type causes
@@ -267,9 +269,15 @@ fi
 # busy machine would read as "nothing running" exactly when a cut is. This also matches the shell
 # suite's own runs of tools/deploy-site.sh on this machine, which only delays a deploy a tick.
 PS_CMD="${KOSMOS_AUTODEPLOY_PS:-ps -axo command=}"
+# Fails CLOSED: a process list that cannot be read (the command fails or prints nothing; a real one
+# always lists this tick) cannot rule out a cut, so nothing deploys, and it is reported red once a day
+# (red_once psread) rather than skipping silently forever.
 publisher_running() {
   local procs
   procs=$(sh -c "$PS_CMD" 2>/dev/null) || procs=""
+  if [ -z "$procs" ]; then
+    red_once psread "FAIL: could not read the process list ($PS_CMD), so a release cut cannot be ruled out; nothing deployed"
+  fi
   grep -Eq '^([^ ]*/)?(ba|z)?sh( -[^ ]+)* [^ ]*tools/(release|deploy-site|promote-channel)\.sh( |$)' <<<"$procs"
 }
 if publisher_running; then
