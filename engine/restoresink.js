@@ -136,8 +136,10 @@ function createRestoreSink(root) {
     try { fs.chmodSync(rootReal, 0o700); } catch (e) { throw new Error(`restoresink: could not make the root private (${e.code || e.message})`); }
     // Read the mode back: a mount that reports success but ignores modes (a CIFS dynperm mount, some FUSE mounts)
     // would otherwise leave a root others can READ or write accepted. The mask is 0o077 on purpose, not 0o022: a
-    // restore is someone's work, so a fixed dir_mode=0755 share is refused too. (#5536, review round 19 of E0.7)
-    if (fs.lstatSync(rootReal, { bigint: true }).mode & 0o077n) throw new Error("restoresink: the root could not be made private (the drive ignored the permission change); choose a folder on this computer's own disk");
+    // restore is someone's work, so a fixed dir_mode=0755 share is refused too. Read from the same folder (dev/ino).
+    const st3 = fs.lstatSync(rootReal, { bigint: true });
+    if (st3.dev !== st.dev || st3.ino !== st.ino) throw new Error('restoresink: the root changed while it was being checked');
+    if (st3.mode & 0o077n) throw new Error("restoresink: the root could not be made private (the drive ignored the permission change); choose a folder on this computer's own disk");
     if (process.platform === 'darwin') stripAclDarwin(rootReal);
     if (fs.readdirSync(rootReal).length) throw new Error('restoresink: something appeared in the root while it was being made private');
   }
