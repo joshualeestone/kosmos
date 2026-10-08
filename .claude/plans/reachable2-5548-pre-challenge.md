@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: reachable2-5548
-diff_hash: 4ec1bd72df155e07a6003dade258bad671ddc3000ca535e5f1f1616177f9d067
+diff_hash: 6af3615810751f66ecbfb49d8a037200741eae3de7a67317465b381311eabb97
 validation: passed (validation_log PASSED for stack=typescript hash=4ec1bd72df15 on main after #5577, full tools/run-tests.sh; engine.reachable.test.js 7/7)
 subdir_audit: passed
-timestamp: 2026-10-08T15:47:58Z
+timestamp: 2026-10-08T17:47:30Z
 iterations: 3
 converged: true
 ---
@@ -30,3 +30,10 @@ converged: true
 **After convergence:** rebased onto main after #5577 merged. The test passes 7/7 on current main, and the full validation passed on the rebased diff.
 
 **Weakest premise:** the per-name category in the research pass. An entry is cheap to correct, and the shrink-only check stops the list growing.
+
+## After the PR opened: main went red on this guard (12:44 CDT)
+#5556 (12:03) added engine/usageprice.js's costOf with no caller by design (#5532's rollup sender is its first);
+its CI ran before #5577 put the guard on main, so main's engine.reachable.test.js has failed since. Rebased onto main
+and excused costOf in TRIAGED_5548 with that reason: 7/7 with the entry, and red on main without it (the failure that
+surfaced it). The full validation in the frontmatter ran on the earlier diff; CI's full run on this head validates this one.
+
