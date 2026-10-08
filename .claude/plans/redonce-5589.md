@@ -83,3 +83,8 @@ A future-dated record counts as never reported.
   still holds, and is red without the fix.
 - Test 26's leftover count matched `^sleep N$`, but ps names the helper `/bin/sleep N`, so it could never
   see one; now `(^|/)sleep N$`, with a control that starts one and counts it.
+- **A damaged number never aborts a tick** (round 15): a report time, a count or the mirror count with a
+  leading zero (089 is invalid octal to bash) reads as 0, like any other damaged value; tested with
+  0899999999 (red without the fix). The fetch cap is 300 s so the fetch and deploy caps together leave 5
+  of the job's 30 minutes. perl installs its signal handlers before the fork and both sides set the
+  child's group, closing two microsecond-wide races.

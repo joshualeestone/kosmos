@@ -111,7 +111,7 @@ clear_reported() { rm -f "$REPORTED/${TARGET:-none}-$1"; }
 red_once() {  # <cause> <message>
   local f="$REPORTED/${TARGET:-none}-$1" at
   at=$(cat "$f" 2>/dev/null || true)
-  case "$at" in ''|*[!0-9]*) at=0 ;; esac
+  case "$at" in ''|*[!0-9]*|0?*) at=0 ;; esac   # a leading 0 would be read as octal (089 aborts bash)
   local now; now=$(date +%s)
   if [ "$at" != 0 ] && [ "$at" -le "$now" ] && [ $(( now - at )) -lt 86400 ]; then   # a future time counts as never
     _msg="${2#FAIL: }"; _msg="${_msg/#FAIL (parked)/parked}"
@@ -131,7 +131,7 @@ red_once() {  # <cause> <message>
 count_for() {
   local f="$1" csha="" cn=""
   read -r csha cn 2>/dev/null < "$f" || true
-  case "$cn" in ''|*[!0-9]*) cn=0 ;; esac
+  case "$cn" in ''|*[!0-9]*|0?*) cn=0 ;; esac
   if [ "$csha" = "$TARGET" ]; then echo "$cn"; else echo 0; fi
 }
 RETRY_ALARM=4   # consecutive retried ticks for one sha at which the state is reported red (red_once)
@@ -209,14 +209,18 @@ if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 5000000 ]; then tail -n 5000 "$LOG
 # The git runs in its own process group and the whole group is stopped at the limit, so its helpers
 # (git-remote-https, a credential helper waiting on the keychain) cannot outlive it.
 grouped_timeout() {  # <seconds> <cmd...>: run cmd in its own process group; on expiry TERM then KILL the group, exit 142
-  perl -e 'my $t = shift; my $p = fork; defined $p or exit 126; if (!$p) { setpgrp(0, 0); exec @ARGV or exit 127 }
+  perl -e 'my $t = shift; my $p;
+    # Handlers before the fork, so a signal right after it cannot kill perl and leave git running.
+    # The child sets its own group too (setpgid from both sides), so the group exists before any kill.
+    $SIG{$_} = sub { if ($p) { kill "TERM", -$p; sleep 2; kill "KILL", -$p } exit 143 } for qw(TERM INT HUP);   # a killed tick takes the git group too
+    $p = fork; defined $p or exit 126; if (!$p) { setpgrp(0, 0); exec @ARGV or exit 127 }
+    setpgrp($p, $p);
     $SIG{ALRM} = sub { kill "TERM", -$p; sleep 2; kill "KILL", -$p; waitpid($p, 0); exit 142 };
-    $SIG{$_} = sub { kill "TERM", -$p; sleep 2; kill "KILL", -$p; exit 143 } for qw(TERM INT HUP);   # a killed tick takes the git group too
     alarm $t; waitpid($p, 0); my $s = $?; exit(($s & 127) ? 128 + ($s & 127) : $s >> 8)' "$@"
 }
 FETCH_MAX_S="${KOSMOS_AUTODEPLOY_FETCH_MAX_S:-120}"
 case "$FETCH_MAX_S" in ''|*[!0-9]*|0*) FETCH_MAX_S=120 ;; esac
-[ "$FETCH_MAX_S" -le 600 ] || FETCH_MAX_S=600
+[ "$FETCH_MAX_S" -le 300 ] || FETCH_MAX_S=300   # with the deploy's 1200 cap, 25 of the job's 30 minutes
 GIT_TERMINAL_PROMPT=0 grouped_timeout "$FETCH_MAX_S" git -C "$SITE" fetch -q origin main 2>>"$LOG" \
   || red_once fetch "FAIL: could not fetch site origin/main in $SITE (failed or timed out)"
 clear_reported fetch   # (TARGET is still empty here: the "none" records)
@@ -310,7 +314,7 @@ for _f in "$DIST_FROM"/kosmos-*-arm64.tar.gz; do
   if [ -n "$CEIL" ] && ! printf '%s\n%s\n' "$_v" "$CEIL" | sort -V -C; then TOO_NEW+=("--exclude=${_f##*/}" "--exclude=${_f##*/}.sha256"); continue; fi
   src_n=$((src_n + 1))
 done
-prev_n=$(cat "$STATE/mirror-count" 2>/dev/null || true); case "$prev_n" in ''|*[!0-9]*) prev_n=0 ;; esac
+prev_n=$(cat "$STATE/mirror-count" 2>/dev/null || true); case "$prev_n" in ''|*[!0-9]*|0?*) prev_n=0 ;; esac
 if [ -d "$DIST_FROM" ] && { [ "$src_n" = 0 ] || [ "$src_n" -lt $((prev_n - MIRROR_DROP_MAX)) ]; }; then
   say "FAIL: $DIST_FROM holds $src_n versioned tarballs (the last good mirror held $prev_n); mirroring it would take the older downloads off the site (parked). If that drop is a real prune, set $STATE/mirror-count to $src_n and remove $STATE/parked"
   printf '%s rc=%s %s\n' "$TARGET" dist "$(now)" > "$STATE/last-failure"; park; exit 1
@@ -409,7 +413,7 @@ export KOSMOS_REPO="$REPO"
 # not just the subshell.
 DEPLOY_MAX_S="${KOSMOS_AUTODEPLOY_DEPLOY_MAX_S:-900}"
 case "$DEPLOY_MAX_S" in ''|*[!0-9]*|0*) DEPLOY_MAX_S=900 ;; esac   # 0 kills every deploy at once; a leading 0 reads as octal
-[ "$DEPLOY_MAX_S" -le 1200 ] || DEPLOY_MAX_S=1200   # bounds the DEPLOY phase only; 20 min leaves room in the 30-minute job for the fetch, mirror and checks
+[ "$DEPLOY_MAX_S" -le 1200 ] || DEPLOY_MAX_S=1200   # bounds the DEPLOY phase only; with the fetch's 300 s cap that is 25 of the job's 30 minutes
 if [ -n "${KOSMOS_AUTODEPLOY_DEPLOY:-}" ]; then DCMD=(sh -c "$KOSMOS_AUTODEPLOY_DEPLOY"); else DCMD=(bash "$REPO/tools/deploy-site.sh" --publish); fi
 DOUT="$STATE/deploy.out"; : > "$DOUT"
 dpid=""   # set the moment the deploy starts; the traps below are in place BEFORE it starts
