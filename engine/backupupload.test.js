@@ -113,6 +113,9 @@ test('a grant that does not bind OUR bytes, or does not name its key, is refused
     ['one upload short', (d) => { d.uploads.pop(); }],
     ['a repeated key', (d) => { d.uploads[1].key = d.uploads[0].key; }],
     ['no expiry', (d) => { delete d.expires_at; }],
+    ['a legal hold in the url query', (d) => { d.uploads[0].url += '&x-amz-object-lock-legal-hold=ON'; }],
+    ['a multipart uploadId in the url query', (d) => { d.uploads[0].url += '&partNumber=1&uploadId=zz'; }],
+    ['a repeated query parameter', (d) => { d.uploads[0].url += '&X-Amz-Expires=900'; }],
     ['a url that outlives a grant (X-Amz-Expires 3600)', (d) => { d.uploads[0].url = d.uploads[0].url.replace('X-Amz-Expires=900', 'X-Amz-Expires=3600'); }],
     ['a url with no X-Amz-Expires', (d) => { d.uploads[0].url = d.uploads[0].url.replace('X-Amz-Expires=900&', ''); }],
     ['a lock of exactly 28 days', (d) => { d.uploads[0].headers['x-amz-object-lock-retain-until-date'] = iso(Date.parse(d.expires_at) - 15 * 60 * 1000 + 28 * 86400 * 1000); }],
@@ -362,7 +365,7 @@ test('a slow uplink: a grant that runs out of time shrinks the next to what it c
 test('a grant that expires far further ahead than a grant lasts (a clock far off) is refused before any PUT', async () => {
   const b = await bucket();
   try {
-    const c = coordinator(b, { expiresAt: Date.now() + 3 * 3600 * 1000 });
+    const c = coordinator(b, { expiresAt: Date.now() + 3 * 3600 * 1000 });   // an hour of tolerance; three is refused
     const r = await up.uploadChunks(deps(c), [chunk(1)]);
     assert.strictEqual(r.ok, false); assert.match(r.because, /clocks is wrong/);
     assert.strictEqual(b.puts, 0);
@@ -422,6 +425,27 @@ test('a grant request that got no answer at all (network, timeout) ends retryLat
   assert.strictEqual(r.ok, false); assert.strictEqual(r.retryLater, true);
   r = await up.uploadChunks({ macRequest: async () => ({ ok: false, notSent: true, because: 'this computer is not connected to Kosmos+' }), fetch }, [chunk(1)]);
   assert.strictEqual(r.ok, false); assert.ok(!r.retryLater);
+});
+
+test('a refusal stops the run and still names the chunks that met trouble on the way (unsure)', async () => {
+  const b = await bucket();
+  try {
+    const cs = [chunk(1), chunk(2)];
+    // Chunk 1: a lost answer (timeout) then a refusal; chunk 2 is refused outright after chunk 1's trouble began.
+    b.script.set(keyN(1), [[200, '', 400], [400, '<Error><Code>BadDigest</Code></Error>']]);
+    const r = await up.uploadChunks(deps(coordinator(b)), cs, { putTimeoutMs: 100, concurrency: 1 });
+    assert.strictEqual(r.ok, false);
+    assert.deepStrictEqual(r.unsure, [{ name: cs[0].name, key: keyN(1) }]);
+  } finally { await b.close(); }
+});
+
+test('an S3 error body is read only up to 8 KB', async () => {
+  const b = await bucket();
+  try {
+    b.script.set(keyN(1), [[400, '<Error><Code>BadDigest</Code></Error>' + 'x'.repeat(2 * 1024 * 1024)]]);
+    const r = await up.uploadChunks(deps(coordinator(b)), [chunk(1)]);
+    assert.strictEqual(r.ok, false); assert.match(r.because, /HTTP 400 BadDigest/);
+  } finally { await b.close(); }
 });
 
 test('never throws: a throwing injected clock still resolves to ok: false', async () => {
