@@ -74,6 +74,11 @@ const LOCK_MIN_MS = 29 * 86400 * 1000, LOCK_MAX_MS = 39 * 86400 * 1000;
 const LOCAL_CODES = new Set(['UND_ERR_REQ_CONTENT_LENGTH_MISMATCH', 'UND_ERR_INVALID_ARG', 'UND_ERR_NOT_SUPPORTED',
   'ERR_INVALID_URL', 'ERR_INVALID_ARG_TYPE', 'ERR_INVALID_ARG_VALUE', 'ERR_INVALID_HTTP_TOKEN', 'ERR_INVALID_CHAR']);
 
+// The ONLY way to allow plain-http upload urls: a test calls allowHttpForTests(true). Not an argument or an
+// environment variable, which a production caller or a child process could pass on by mistake.
+let httpForTests = false;
+function allowHttpForTests(on) { httpForTests = !!on; }
+
 const md5b64 = (buf) => crypto.createHash('md5').update(buf).digest('base64');
 
 /* The request body for one batch: sizes and MD5s in order, plus a nonce that makes every body unique. */
@@ -104,10 +109,11 @@ function expiryMs(v) {
 }
 
 /* Check a grant answer against the batch it was asked for. Returns { ok: true, expiresAtMs, uploads } or
-   { ok: false, because }. Every upload must bind exactly the bytes we asked to write. `allowHttp` is a test seam, and
-   honoured only under the test runner (NODE_TEST_CONTEXT), so a production caller passing it cannot enable http. */
-function parseGrant(data, objects, allowHttpAsked) {
-  const allowHttp = !!allowHttpAsked && !!process.env.NODE_TEST_CONTEXT;
+   { ok: false, because }. Every upload must bind exactly the bytes we asked to write. `seenKeys` (optional) holds
+   every key granted earlier in this run: a grant repeating one is refused, since the 412-on-retry rule rests on keys
+   being unique across the run, not only within one grant. */
+function parseGrant(data, objects, seenKeys) {
+  const allowHttp = httpForTests;
   if (!data || typeof data !== 'object') return { ok: false, because: 'the grant answer is not an object' };
   const expiresAtMs = expiryMs(data.expires_at);
   if (!Number.isFinite(expiresAtMs)) return { ok: false, because: 'the grant answer has no readable expires_at' };
@@ -120,6 +126,7 @@ function parseGrant(data, objects, allowHttpAsked) {
     if (!u || typeof u !== 'object') return { ok: false, because: `upload ${i} is not an object` };
     if (typeof u.key !== 'string' || !u.key || u.key.length > 1024) return { ok: false, because: `upload ${i} has no usable key` };
     if (keys.has(u.key)) return { ok: false, because: `upload ${i} repeats a key` };
+    if (seenKeys && seenKeys.has(u.key)) return { ok: false, because: `upload ${i} repeats a key an earlier grant in this run already gave` };
     keys.add(u.key);
     let url;
     try { url = new URL(String(u.url)); } catch { return { ok: false, because: `upload ${i} has no usable url` }; }
@@ -127,8 +134,11 @@ function parseGrant(data, objects, allowHttpAsked) {
     let path;
     try { path = decodeURIComponent(url.pathname); } catch { return { ok: false, because: `upload ${i} has an undecodable url path` }; }
     if (!path.endsWith('/' + u.key)) return { ok: false, because: `upload ${i}'s url does not carry its key` };
-    // Every upload of one grant sits under one bucket path, so a longer key ending in this one cannot slip through.
-    const prefix = `${url.host}${path.slice(0, path.length - u.key.length)}`;
+    // The path is the key itself (a virtual-hosted bucket) or one bucket segment and the key (path-style), nothing
+    // else, so the key the map records is the object S3 stores. And one bucket path per grant.
+    const pre = path.slice(0, path.length - u.key.length);
+    if (!(pre === '/' || /^\/[^/]+\/$/.test(pre))) return { ok: false, because: `upload ${i}'s url path is not its key under one bucket segment` };
+    const prefix = `${url.host}${pre}`;
     if (i === 0) bucketPrefix = prefix; else if (prefix !== bucketPrefix) return { ok: false, because: `upload ${i}'s url is not under the grant's bucket path` };
     if (urls.has(url.toString())) return { ok: false, because: `upload ${i} repeats a url` };
     urls.add(url.toString());
@@ -148,6 +158,7 @@ function parseGrant(data, objects, allowHttpAsked) {
     minExpiresS = Math.min(minExpiresS, xe);
     if (Math.abs(signedAtMs + xe * 1000 - expiresAtMs) > 60 * 1000) return { ok: false, because: `upload ${i}'s signed time does not match the grant's expires_at` };
     for (const h of SIGNED_NEEDED) if (!signed.includes(h)) return { ok: false, because: `upload ${i} does not sign ${h}` };
+    if (signed.length !== SIGNED_NEEDED.length) return { ok: false, because: `upload ${i} signs headers outside the six it may` };
     if (!u.headers || typeof u.headers !== 'object' || Array.isArray(u.headers)) return { ok: false, because: `upload ${i} has no headers` };
     const headers = {};
     const names = new Set();
@@ -235,18 +246,21 @@ async function headOf(r, max) {
   return Buffer.concat(parts).subarray(0, max).toString('utf8');
 }
 
-/* Upload sealed chunk objects ([{ name, object }]). deps: { macRequest, fetch?, now?, sleep?, allowHttp? (tests) }.
+/* Upload sealed chunk objects ([{ name, object }]). deps: { macRequest, fetch?, now?, sleep? }.
    Resolves { ok: true, keys } with keys a Map from each chunk's name to the key it is stored under, or
    { ok: false, because, code?, retryLater?, keys } with the chunks stored so far. Never throws. */
 async function uploadChunks(deps, objects, opts) {
   const keys = new Map();
+  // Run-wide: chunks that met trouble and are not stored (their write may have landed), and every key granted.
+  const run = { troubled: new Map(), seenKeys: new Set() };
   try {
-    return await uploadInner(deps, objects, opts, keys);
+    return await uploadInner(deps, objects, opts, keys, run);
   } catch (err) {
-    return { ok: false, because: `the uploader failed: ${(err && err.message) || err}`, keys };
+    const unsure = [...run.troubled.values()].map((x) => ({ name: x.c.name, key: x.key }));
+    return Object.assign({ ok: false, because: `the uploader failed: ${(err && err.message) || err}`, keys }, unsure.length ? { unsure } : {});
   }
 }
-async function uploadInner(deps, objects, opts, keys) {
+async function uploadInner(deps, objects, opts, keys, run) {
   const o = opts || {};
   if (!deps || typeof deps.macRequest !== 'function') return { ok: false, because: 'no signed-request function', keys };
   const fetchFn = deps.fetch || globalThis.fetch;
@@ -277,8 +291,9 @@ async function uploadInner(deps, objects, opts, keys) {
   let fruitless = 0;
   while (queue.length) {
     const pending = queue.splice(0, batch);
-    const g = await askGrant(deps.macRequest, pending, deps.allowHttp);
+    const g = await askGrant(deps.macRequest, pending, run.seenKeys);
     if (!g.ok) return Object.assign({ ok: false, keys }, g.out);
+    for (const u of g.uploads) run.seenKeys.add(u.key);
     // A grant already over when it arrives is not a slow network but a clock ahead of the coordinator's: a new grant
     // would be "expired" too, and each spends allowance. Stop and say so.
     if (now() >= g.expiresAtMs) return { ok: false, because: `this computer's clock reads past the grant's expiry (${new Date(g.expiresAtMs).toISOString()}) as it arrives: check the clock`, keys };
@@ -292,7 +307,7 @@ async function uploadInner(deps, objects, opts, keys) {
     const arrival = now();
     const deadline = arrival + g.lifetimeMs - 10 * 1000;
     const left = [], stuck = [];   // stuck: [{ chunk, key }], a write that may have landed under key
-    const troubledNow = new Map(); // name -> { c, key } for chunks that met trouble and are not (yet) stored
+    const troubledNow = run.troubled; // name -> { c, key } for chunks that met trouble and are not (yet) stored
     let stop = null, stored = 0;
     await eachLimited(g.uploads.map((up, i) => [up, pending[i]]), conc, async ([up, c]) => {
       let troubled = false;
@@ -343,12 +358,12 @@ async function uploadInner(deps, objects, opts, keys) {
 
 /* One grant request, with one fresh-nonce retry for a replayed body. { ok: true, expiresAtMs, uploads } or
    { ok: false, out: { because, code, retryLater } }. */
-async function askGrant(macRequest, batch, allowHttp) {
+async function askGrant(macRequest, batch, seenKeys) {
   for (let i = 0; i < 2; i++) {
     let r;
     try { r = await macRequest('POST', GRANT_ROUTE, grantBody(batch)); } catch (err) { r = { ok: false, because: (err && err.message) || 'the grant request failed' }; }
     if (r && r.ok) {
-      const p = parseGrant(r.data, batch, allowHttp);
+      const p = parseGrant(r.data, batch, seenKeys);
       return p.ok ? p : { ok: false, out: { because: p.because } };
     }
     const because = (r && r.because) || 'Kosmos+ did not answer';
@@ -376,4 +391,4 @@ async function eachLimited(items, n, fn) {
   if (failed) throw failed.err;
 }
 
-module.exports = { GRANT_ROUTE, MAX_PER_GRANT, MIN_OBJECT, MAX_OBJECT, MAX_REGRANTS, INITIAL_BATCH, BACKOFF_MAX_MS, grantBody, refusalOf, expiryMs, parseGrant, putOne, uploadChunks };
+module.exports = { allowHttpForTests, GRANT_ROUTE, MAX_PER_GRANT, MIN_OBJECT, MAX_OBJECT, MAX_REGRANTS, INITIAL_BATCH, BACKOFF_MAX_MS, grantBody, refusalOf, expiryMs, parseGrant, putOne, uploadChunks };

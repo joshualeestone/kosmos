@@ -8,6 +8,7 @@ const assert = require('node:assert');
 const http = require('node:http');
 const crypto = require('node:crypto');
 const up = require('./backupupload');
+up.allowHttpForTests(true);   // the local bucket is plain http; only this setter allows that
 
 const md5 = (b) => crypto.createHash('md5').update(b).digest('base64');
 const chunk = (n, size) => ({ name: crypto.createHash('sha256').update(`c${n}`).digest('hex'), object: crypto.randomBytes(size || up.MIN_OBJECT + n) });
@@ -67,7 +68,7 @@ function coordinator(b, opts) {
   };
   return { macRequest, bodies };
 }
-const deps = (c, extra) => Object.assign({ macRequest: c.macRequest, fetch, sleep: async () => {}, allowHttp: true }, extra || {});
+const deps = (c, extra) => Object.assign({ macRequest: c.macRequest, fetch, sleep: async () => {} }, extra || {});
 const keyN = (n) => `org1/acct1/1/2026-W41/k${n}`;
 
 test('refusalOf reads the status and code from the tunnel text, and nothing from other text', () => {
@@ -116,6 +117,10 @@ test('a grant that does not bind OUR bytes, or does not name its key, is refused
     ['one upload short', (d) => { d.uploads.pop(); }],
     ['a repeated key', (d) => { d.uploads[1].key = d.uploads[0].key; }],
     ['no expiry', (d) => { delete d.expires_at; }],
+    // Every upload under the same TWO segments: one prefix (so the one-path check passes), but not the key under one
+    // bucket segment, so the map would record a key that is not the stored object's.
+    ['every url two segments above its key', (d) => { for (const u of d.uploads) u.url = u.url.replace('/bucket/', '/bucket/extra/'); }],
+    ['a header signed beyond the six', (d) => { d.uploads[0].url = d.uploads[0].url.replace(encodeURIComponent('x-amz-object-lock-retain-until-date'), encodeURIComponent('x-amz-object-lock-retain-until-date;x-amz-meta-a')); }],
     ['no X-Amz-Signature', (d) => { d.uploads[0].url = d.uploads[0].url.replace('&X-Amz-Signature=00', ''); }],
     ['no X-Amz-Credential', (d) => { d.uploads[0].url = d.uploads[0].url.replace(/&X-Amz-Credential=[^&]*/, ''); }],
     ['an unreadable X-Amz-Date', (d) => { d.uploads[0].url = d.uploads[0].url.replace(/X-Amz-Date=[^&]*/, 'X-Amz-Date=yesterday'); }],
@@ -163,8 +168,9 @@ test('the coordinator leaves Content-Length out of headers (fetch sets it): that
 test('an http (not https) upload url is refused unless the test seam allows it', () => {
   const c = chunk(1);
   const data = { expires_at: '2030-01-01T00:15:00Z', uploads: [{ key: 'a/k', url: `http://bucket.example/b/a/k?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=c&X-Amz-Date=20300101T000000Z&X-Amz-Expires=900&X-Amz-SignedHeaders=${encodeURIComponent(SIGNED)}&X-Amz-Signature=00`, headers: { 'Content-MD5': md5(c.object), 'If-None-Match': '*', 'X-Amz-Object-Lock-Mode': 'COMPLIANCE', 'X-Amz-Object-Lock-Retain-Until-Date': '2030-02-03T00:00:00Z' } }] };
-  assert.strictEqual(up.parseGrant(data, [c]).ok, false);
-  assert.strictEqual(up.parseGrant(data, [c], true).ok, true);
+  up.allowHttpForTests(false);
+  try { assert.strictEqual(up.parseGrant(data, [c]).ok, false); } finally { up.allowHttpForTests(true); }
+  assert.strictEqual(up.parseGrant(data, [c]).ok, true);
   data.uploads[0].url = data.uploads[0].url.replace('http:', 'https:');
   assert.strictEqual(up.parseGrant(data, [c]).ok, true, 'header names are matched case-insensitively');
 });
@@ -480,21 +486,22 @@ test('if a worker throws, nothing keeps uploading after the result is returned',
     b.script.set(keyN(2), [[200, '', 300]]);   // chunk 2's PUT is still in flight when chunk 1's worker throws
     const r = await up.uploadChunks(deps(coordinator(b), { sleep: async () => { throw new Error('sleep broke'); } }), cs, { concurrency: 2 });
     assert.strictEqual(r.ok, false); assert.match(r.because, /sleep broke/);
+    assert.deepStrictEqual(r.unsure, [{ name: cs[0].name, key: keyN(1) }], 'a worker throw drops the possibly-landed chunk');
     const at = r.keys.size;
     await new Promise((res) => setTimeout(res, 500));
     assert.strictEqual(r.keys.size, at, 'the keys map changed after the result was returned');
   } finally { await b.close(); }
 });
 
-test('the http test seam does nothing outside the test runner', () => {
-  const c = chunk(1);
-  const data = { expires_at: '2030-01-01T00:15:00Z', uploads: [{ key: 'a/k', url: `http://bucket.example/b/a/k?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=c&X-Amz-Date=20300101T000000Z&X-Amz-Expires=900&X-Amz-SignedHeaders=${encodeURIComponent(SIGNED)}&X-Amz-Signature=00`, headers: { 'content-md5': md5(c.object), 'if-none-match': '*', 'x-amz-object-lock-mode': 'COMPLIANCE', 'x-amz-object-lock-retain-until-date': '2030-02-03T00:00:00Z' } }] };
-  const saved = process.env.NODE_TEST_CONTEXT;
+test('http is allowed only through the module setter: a deps or opts flag does nothing', async () => {
+  const b = await bucket();
+  up.allowHttpForTests(false);
   try {
-    delete process.env.NODE_TEST_CONTEXT;
-    assert.strictEqual(up.parseGrant(data, [c], true).ok, false);
-  } finally { if (saved !== undefined) process.env.NODE_TEST_CONTEXT = saved; }
-  assert.strictEqual(up.parseGrant(data, [c], true).ok, true);
+    const c = coordinator(b);
+    const r = await up.uploadChunks(Object.assign(deps(c), { allowHttp: true }), [chunk(1)], { allowHttp: true });
+    assert.strictEqual(r.ok, false); assert.match(r.because, /not https/);
+    assert.strictEqual(b.puts, 0);
+  } finally { up.allowHttpForTests(true); await b.close(); }
 });
 
 test('grant sizes SETTLE on a slow link: allowance asked for stays within 1.2x of what is stored', async () => {
@@ -533,8 +540,20 @@ test('all uploads of one grant must sit under one bucket path', async () => {
   try {
     const tamper = (d) => { d.uploads[1].url = d.uploads[1].url.replace('/bucket/', '/bucket/extra/'); d.uploads[1].key = d.uploads[1].key; };
     const r = await up.uploadChunks(deps(coordinator(b, { tamper })), [chunk(1), chunk(2)]);
-    assert.strictEqual(r.ok, false); assert.match(r.because, /bucket path/);
+    assert.strictEqual(r.ok, false); assert.match(r.because, /bucket (path|segment)/);
     assert.strictEqual(b.puts, 0);
+  } finally { await b.close(); }
+});
+
+test('a later grant that repeats a key an earlier grant in the run gave is refused before any PUT', async () => {
+  const b = await bucket();
+  try {
+    let calls = 0;
+    const c = coordinator(b, { tamper: (d) => { if (++calls === 2) { d.uploads[0].key = keyN(1); d.uploads[0].url = d.uploads[0].url.replace(/k\d+\?/, 'k1?'); } } });
+    b.script.set(keyN(1), [[403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>']]);
+    const r = await up.uploadChunks(deps(c), [chunk(1)]);
+    assert.strictEqual(r.ok, false); assert.match(r.because, /earlier grant in this run/);
+    assert.strictEqual(b.puts, 1, 'only the first grant\'s PUT was sent');
   } finally { await b.close(); }
 });
 
