@@ -110,3 +110,7 @@ That secretmask's shape patterns plus known values catch the credentials a work 
 - **Round 9's XMP fix leaked:** dropping the whole XMP packet hid a provider key or password inside it (a key pasted into a description field). Now only the benign `xmpDM:key="..."` attribute is removed, and the rest of the packet is scanned by every detector. Tested: a key and a password inside the packet skip; xmpDM:key noise in a synthetic video is kept.
 - **The real Mouse.mov check is conditional** (it asserts nothing without that file), so the synthetic video fixture pins the behaviour everywhere.
 - NIT: a zip appended to a real image (a polyglot) is added to the stated residuals.
+
+## Review round 11 (opus): 2 WARNINGs, the same class one level down, fixed
+- **Removing the whole xmpDM:key value still hid a key stored IN that value.** Now only the attribute name (`xmpDM:key=`) is removed, so the noisy `key=` assignment is gone and the value is scanned by every detector. Measured: a key in the value skips, and the real Mouse.mov is still kept. Lesson recorded: a carve-out for noise must remove the smallest thing that causes the noise. Round 9 removed the packet, round 10 the value; both leaked.
+- **Each mutation of the carve-out is now caught** (applying it to every binary; widening it to any xmpDM field; a key past an unclosed quote): four tests.

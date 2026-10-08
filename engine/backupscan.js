@@ -225,9 +225,9 @@ function binaryClean(bytes) {
   const media = mediaKind(bytes);
   const runsOf = (s) => (s.match(/[\x20-\x7e\t]{8,}/g) || []).join('\n');
   // Adobe XMP in media writes xmpDM:key="..." attributes, which fire assigned_secret (8 of 42 system .mov files).
-  // Only that attribute is removed, for media kinds: the rest of the packet is still scanned, so a key pasted into
-  // a description or keyword field skips the file. (Round 9 dropped the whole packet; round 10 measured the leak.)
-  const dropXmp = (s) => (media ? s.replace(/xmpDM:key="[^"]{0,512}"/g, '') : s);
+  // Only that attribute's NAME is removed, for media kinds: its value and the rest of the packet are still scanned,
+  // so a key pasted into any field skips the file. (Round 9 dropped the packet, round 10 the value: both leaked.)
+  const dropXmp = (s) => (media ? s.replace(/xmpDM:key=(?=")/g, ' ') : s);  // the attribute NAME only: its value is still scanned
   const latin = dropXmp(bytes.toString('latin1'));
   const noNul = latin.replace(/\0/g, '');
   const views = [runsOf(latin), runsOf(noNul)];
