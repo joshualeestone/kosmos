@@ -456,3 +456,12 @@ test('#5535 over-skips from round 9: a chance zip signature in media, XMP keys i
   const movKey = Buffer.concat([Buffer.from([0, 0, 0, 20]), Buffer.from('ftypqt  '), Buffer.alloc(8), Buffer.from('<x:xmpmeta xmpDM:key="keywordExt_123e4567"></x:xmpmeta>'), Buffer.alloc(4), Buffer.from(KEY), Buffer.alloc(4)]);
   assert.equal(bs.scanFile('agents/a/v.mov', movKey).action, 'skip', 'a provider key outside the XMP packet still skips');
 });
+
+test('#5535 XMP in media: only xmpDM:key noise is ignored; a key or password elsewhere in the packet still skips', () => {
+  const vid = (packet) => Buffer.concat([Buffer.from([0, 0, 0, 20]), Buffer.from('ftypqt  '), Buffer.alloc(8), Buffer.from(packet), Buffer.alloc(8)]);
+  assert.equal(bs.scanFile('agents/a/n.mov', vid('<x:xmpmeta><rdf:li xmpDM:key="keywordExtDVAv1_123e4567-e89b-12d3-a456-426614174000"/></x:xmpmeta>')).action, 'store',
+    'synthetic video with xmpDM:key noise is kept (pins the behaviour on any machine)');
+  assert.equal(bs.scanFile('agents/a/k.mov', vid(`<x:xmpmeta><rdf:Description dc:description="my key ${KEY}"/></x:xmpmeta>`)).action, 'skip', 'a provider key inside the XMP packet');
+  const pw = '<x:xmpmeta><rdf:Description password="Hunter2Hunter2xyz99"/></x:xmpmeta>';
+  if (require('./secretmask').mask('password="Hunter2Hunter2xyz99"').fired.length) assert.equal(bs.scanFile('agents/a/p.mov', vid(pw)).action, 'skip', 'a password attribute inside the XMP packet');
+});
