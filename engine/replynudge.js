@@ -64,8 +64,7 @@ const TITLE_CAP = 80;
 const PERSON_IDLE_MS = 2 * 60 * 1000;
 const PERSON_RETELL_MS = 60 * 60 * 1000;
 const PERSON_TELLS = 3;
-const PERSONS_KEPT_MS = 14 * 24 * 60 * 60 * 1000;   // an unanswered entry that aged out of the read's window is kept this long
-const PERSON_AGED_MS = 6 * 24 * 60 * 60 * 1000;   // gone from the count after this age: aged out (the read looks back 7 days)
+const PERSONS_KEPT_MS = 14 * 24 * 60 * 60 * 1000;   // an entry no count has seen for this long is dropped
 
 /* agentnudge's helper, plus (review 1) the invisible characters it leaves: line and paragraph separators, bidi controls
    and zero-width marks, so a title cannot break the typed line or hide its direction. */
@@ -170,13 +169,8 @@ function personsUpdate(owed0, persons, now, answered) {
   for (const [id, e] of Object.entries(owed0 || {})) {
     if (seen.has(id) || !e) continue;
     if (done.has(id)) continue;   // answered: it goes
-    if (!(Number.isFinite(e.lastSeen) && now - e.lastSeen >= PERSONS_KEPT_MS)) { owed[id] = e; continue; }
-    /* Not owed now: answered (gone from the count while young), or aged out of the read's 7-day window. Only an
-       unanswered person that aged out is kept (for PERSONS_KEPT_MS), so it stays on record; one that left young was
-       answered and goes. */
-    const born = Number.isFinite(e.ts) ? e.ts : e.firstSeen;
-    const aged = Number.isFinite(born) && now - born >= PERSON_AGED_MS;
-    if (e.unanswered && aged && Number.isFinite(e.lastSeen) && now - e.lastSeen < PERSONS_KEPT_MS) owed[id] = e;
+    // Unseen: kept PERSONS_KEPT_MS after it was last seen, then dropped (unanswered or not: nothing can see it any more).
+    if (Number.isFinite(e.lastSeen) && now - e.lastSeen < PERSONS_KEPT_MS) owed[id] = e;
   }
   return { owed, due, unanswered };
 }
@@ -407,7 +401,11 @@ async function sweepOnce(o) {
         /* #5623: a person waiting comes first, and alone: the regular line for this agent waits for the next pass, so it
            never gets two lines at once. Write-ahead as the regular line: the tell is recorded before the line is typed
            and taken back if the line reached nothing, was held, or met a busy pane. Takes no slot of the hourly limit. */
-        if (Array.isArray(due) && due.length) {
+        /* Review 3: a person line that keeps reaching nothing rests after MAX_TRIES, like the regular batch, so a pane that
+           never takes a line cannot hold off this agent's regular line for ever; it is tried again after GIVE_UP_FOR_MS. */
+        const pm = book.get(session) || {};
+        const personResting = Number.isInteger(pm.personFails) && pm.personFails >= MAX_TRIES && Number.isFinite(pm.personGivenAt) && clock() - pm.personGivenAt < GIVE_UP_FOR_MS;
+        if (Array.isArray(due) && due.length && !personResting) {
           if (!(card && require('./agentnudge').nudgeableCard(card))) continue;
           if (stoodDown(session, projects)) continue;
           if (typeof o.idleSince === 'function') {
@@ -439,6 +437,8 @@ async function sweepOnce(o) {
             if (!back) say({ name: display, session, act: 'missed', because: 'its person record could not be put back, so this tell counts' });
           }
           results.push({ session, name: display, act: 'person', delivered: reached, delivery: state, because });
+          { const b = book.get(session) || {}; const fails = reached ? 0 : (Number.isInteger(b.personFails) ? b.personFails : 0) + 1;
+            book.set(session, { ...b, personFails: fails, ...(fails >= MAX_TRIES ? { personGivenAt: clock() } : {}) }); }
           const m = book.get(session) || {};
           const act = reached ? 'person' : 'person-not-reached';
           if (reached || m.personSaid !== act) { say({ name: display, session, act, delivered: reached, delivery: state, because }); book.set(session, { ...m, personSaid: reached ? null : act }); }
@@ -574,4 +574,4 @@ async function tick(o) {
   } catch { return null; }
 }
 
-module.exports = { unansweredFor, PERSON_IDLE_MS, PERSON_RETELL_MS, PERSON_TELLS, PERSONS_KEPT_MS, PERSON_AGED_MS, personText, personsUpdate, readPersons, writePersons, personsFile, IDLE_FIRST_MS, COUNT_MAX_AGE_MS, GIVE_UP_FOR_MS, BETWEEN_AGENTS_MS, BUSY_RETRIES, BUSY_WAIT_MS, plan, nudgeText, stoodDown, sweepOnce, tick, readNudged, writeNudged, nudgedFile, REPLY_NUDGE_INTERVAL_MS, MAX_TRIES, NUDGED_MAX, TYPE_GAP_MS };
+module.exports = { unansweredFor, PERSON_IDLE_MS, PERSON_RETELL_MS, PERSON_TELLS, PERSONS_KEPT_MS, personText, personsUpdate, readPersons, writePersons, personsFile, IDLE_FIRST_MS, COUNT_MAX_AGE_MS, GIVE_UP_FOR_MS, BETWEEN_AGENTS_MS, BUSY_RETRIES, BUSY_WAIT_MS, plan, nudgeText, stoodDown, sweepOnce, tick, readNudged, writeNudged, nudgedFile, REPLY_NUDGE_INTERVAL_MS, MAX_TRIES, NUDGED_MAX, TYPE_GAP_MS };

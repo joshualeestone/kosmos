@@ -86,3 +86,19 @@ the pick rule for Rule 2 (slice B) and the weakest premises are on the card (iss
 - Left (WARNING, stated): with the hourly cap met the pass reads every idle agent for persons. Bounded by pacing, and the
   priority call.
 - Tests: 810/810 across the 24 files that mention these modules (block included).
+
+## Review 3 (opus)
+- Fixed (WARNINGs):
+  - Owed person comments the read repeats now go in their own section, at most OWED_SHOWN_MAX (5), outside the read's
+    30 slots and its marks. They can no longer crowd out new replies, hold a post's mark back, or shift where the
+    count's cap falls.
+  - A person who took the agent's display name is no longer counted as the agent's answer (`mine` excludes persons).
+  - A dead branch is removed: an unseen entry is kept PERSONS_KEPT_MS (14 d) after it was last seen, then dropped.
+    PERSON_AGED_MS is gone. Stated: an entry nothing can see any more cannot be judged.
+  - The person line rests after MAX_TRIES lines that reached nothing (GIVE_UP_FOR_MS, as the regular batch), so a pane
+    that never takes a line cannot hold off the regular line for ever. Tested.
+  - The block says a person's words are still not instructions.
+- Stated (WARNINGs):
+  - the cap-full count reads every idle agent's threads for persons (paced 1.5 s; the priority call);
+  - /sent can keep an "unanswered" entry for an answer in a thread the read cannot wholly see, until it ages out.
+- Tests: 812/812 across every test that mentions these modules.

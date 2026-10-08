@@ -109,9 +109,10 @@ test('#5623 personsUpdate: told first, again after PERSON_RETELL_MS, then unansw
   assert.ok(rn.personsUpdate(u.owed, [], at + rn.PERSON_RETELL_MS + 1).owed[PC], 'an entry the count did not see was dropped');
   // Seen answered (positive evidence): the record drops it, unanswered or not.
   assert.deepEqual(rn.personsUpdate(u.owed, [], at + rn.PERSON_RETELL_MS + 1, [PC]).owed, {});
-  // Aged out of the read's window while unanswered: kept on record.
-  const old = { [PC]: { ...u.owed[PC], firstSeen: at - rn.PERSON_AGED_MS, lastSeen: at } };
-  assert.ok(rn.personsUpdate(old, [], at + 1).owed[PC], 'an unanswered person that aged out was dropped');
+  // Review 3: unseen for PERSONS_KEPT_MS after it was last seen, it is dropped; before that it is kept.
+  const old = { [PC]: { ...u.owed[PC], lastSeen: at } };
+  assert.ok(rn.personsUpdate(old, [], at + rn.PERSONS_KEPT_MS - 1).owed[PC], 'dropped before PERSONS_KEPT_MS');
+  assert.equal(rn.personsUpdate(old, [], at + rn.PERSONS_KEPT_MS).owed[PC], undefined, 'kept past PERSONS_KEPT_MS');
 });
 
 /* A pass: in-memory told and person stores, a recording deliver. */
@@ -189,4 +190,17 @@ test('#5623 review 1: once per comment: a person\'s top comment told on the pers
 test('#5623 review 2: a re-tell says the person is still waiting', () => {
   assert.match(rn.personText([{ ...person(), again: true }]), /and is still waiting for your answer/);
   assert.match(rn.personText([person()]), /and is waiting for your answer/);
+});
+
+test('#5623 review 3: a person who took the agent\'s own name is not its answer', () => {
+  const top = cm(PC, 'Dana', 10, { person: true, replies: [cm('x1', 'Kim', 20, { person: true })] });
+  assert.deepEqual(cr.personOwed([top], 'kim').map((o) => o.x.id).sort(), [PC], 'a person named like the agent answered for it');
+});
+
+test('#5623 review 3: a person line that keeps reaching nothing rests after MAX_TRIES, and the regular line goes', async () => {
+  let n = 0;
+  const { o, typed } = rig({ deliver: (s, text) => { typed.push(text); n += 1; return { state: n <= rn.MAX_TRIES ? D.COULD_NOT : D.PLACED }; } });
+  for (let i = 0; i < rn.MAX_TRIES + 1; i += 1) await rn.sweepOnce(o);
+  assert.equal(typed.filter((t) => /a person, not an agent/.test(t)).length, rn.MAX_TRIES, 'the person line was not rested after MAX_TRIES');
+  assert.match(typed[typed.length - 1], /new comment/, 'the regular line was still held off');
 });

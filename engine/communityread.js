@@ -473,7 +473,7 @@ function personOwed(comments, me, answered) {
   const out = [];
   if (!me || !Array.isArray(comments)) return out;
   const done = Array.isArray(answered) ? answered : null;   // review 2: the person comments SEEN answered (positive evidence)
-  const mine = (r) => r && r.nameKey === me;
+  const mine = (r) => r && !r.person && r.nameKey === me;   // review 3: a person who took the agent's name is not its answer
   for (const c of comments) {
     if (!c) continue;
     const replies = Array.isArray(c.replies) ? c.replies : [];
@@ -490,6 +490,7 @@ function personOwed(comments, me, answered) {
   }
   return out;
 }
+const OWED_SHOWN_MAX = 5;   // #5623 review 3: owed person comments the read repeats, in their own section
 const PERSONS_MAX = 100;   // #5623: owed person comments returned per count, oldest first (review 2: wide, so given-up ones cannot starve newer)
 
 function afterMark(x, mark, firstLook) {
@@ -744,18 +745,22 @@ async function repliesFor(sessionName, opts) {
       if (x.author && x.ts && !(me && x.nameKey === me) && afterMark(x, mark, firstLook)) fresh.push({ x, post: th.post.remoteId, parent });
     }
   }
-  /* #5623 review 2: a person's comment the agent still owes is shown whatever the read's mark says, so a re-tell can
-     always be read and answered (a mark records reading, not answering). */
+  /* #5623 review 2/3: a person's comment the agent still owes is shown whatever the read's mark says, so a re-tell can
+     always be read and answered (a mark records reading, not answering). Review 3: in a SEPARATE section, at most
+     OWED_SHOWN_MAX, outside the read's own REPLIES_SHOWN_MAX slots and its marks, so owed items can never crowd out new
+     replies, hold a post's mark back, or shift where freshReplies' count says the read's cap falls. */
+  const owedShown = [];
   const inFresh = new Set(fresh.map((f) => f.x.id));
   for (const th of threads) {
     if (th.failed || th.gone) continue;
-    for (const o of personOwed(th.comments, me)) if (!inFresh.has(o.x.id)) { fresh.push({ x: o.x, post: th.post.remoteId, parent: o.parent }); inFresh.add(o.x.id); }
+    for (const o of personOwed(th.comments, me)) if (!inFresh.has(o.x.id)) owedShown.push({ x: o.x, post: th.post.remoteId, parent: o.parent });
   }
+  owedShown.sort((a, b) => byPos(a.x, b.x));
   fresh.sort((a, b) => byPos(a.x, b.x));
   const shownItems = fresh.slice(0, REPLIES_SHOWN_MAX);
   const lines = [REPLIES_HEADING, ''];
-  // #5623: the person comments it owes, so the line can say so (a person's reply under its own comment is owed too).
-  const owedIds = new Set();
+  // #5623: the person comments it owes, so a line can say so (a person's reply under its own comment is owed too).
+  const owedIds = new Set(owedShown.map((f) => f.x.id));
   for (const th of threads) if (!th.failed && !th.gone) for (const o of personOwed(th.comments, me)) owedIds.add(o.x.id);
   shownItems.forEach(({ x, post, parent }, i) => {
     lines.push('[r' + (i + 1) + '] by ' + x.author + (x.replyTo ? ' replying to ' + x.replyTo : '') + (x.at ? ', ' + x.at : '')
@@ -764,6 +769,15 @@ async function repliesFor(sessionName, opts) {
     lines.push(x.body.split('\n').map((l) => QUOTE + l).join('\n'));
     lines.push('');
   });
+  if (owedShown.length) {
+    lines.push('People still waiting for your answer (you read these before; a person is owed an answer):', '');
+    owedShown.slice(0, OWED_SHOWN_MAX).forEach(({ x, post, parent }, i) => {
+      lines.push('[p' + (i + 1) + '] by ' + x.author + (x.at ? ', ' + x.at : '') + ' on your post ' + post + ' (comment ' + x.id + ')'
+        + (parent ? ' ' + UNDER_COMMENT + ' ' + parent : '') + ' ' + PERSON_OWED);
+      lines.push(x.body.split('\n').map((l) => QUOTE + l).join('\n'));
+      lines.push('');
+    });
+  }
   const failed = threads.filter((th) => th.failed).length;
   if (fresh.length > shownItems.length) lines.push('(' + (fresh.length - shownItems.length) + ' newer replies not shown yet; the next read starts after these)', '');
   if (!fresh.length) lines.push(failed ? '(nothing new could be read)' : '(no new replies)', '');
