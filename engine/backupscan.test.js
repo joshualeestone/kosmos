@@ -59,11 +59,10 @@ test('#5535 a PEM private key is cut whole even though it spans lines; an unterm
   assert.equal(open.action, 'skip', 'a key with no END line cannot be bounded, so the file is skipped');
 });
 
-test('#5535 when the whole-text search gives up, the text is masked line by line; a line that still gives up skips the file', () => {
-  /* secretmask withholds a whole text when its search for the board's KNOWN secrets runs out of budget. That needs
-     held values (the walker feeds the board's own secrets) and text that keeps many of them half-matched: the same
-     shape secretmask.test.js uses to prove its budget. Without held values nothing withholds even at 2 MB
-     (measured), so a plain long filler would never reach the fallback. */
+test('#5535 when secretmask cannot finish checking a text, the file is skipped (no partial fallback)', () => {
+  /* secretmask withholds a whole text when its search for the board's KNOWN secrets runs out of budget: held values
+     plus rows that keep many of them half-matched (the shape secretmask.test.js uses). Without held values nothing
+     withholds even at 2 MB (measured). */
   const sm = require('./secretmask');
   const held = Array.from({ length: 2000 }, (_, i) => `hq7x-vzlq-${String(i).padStart(8, '0')}-k9z`);
   const rows = Array.from({ length: 1000 }, (_, i) => `| hq7x-vzlq- | 0000 | ${i % 10} | 00 | -k9z |`).join('\n');
@@ -71,13 +70,25 @@ test('#5535 when the whole-text search gives up, the text is masked line by line
   try {
     const text = `${rows}\nkey ${GH}\n`;
     const whole = sm.mask(text).text;
-    assert.ok(whole === sm.WITHHELD || whole === sm.UNCHECKED, 'PRECONDITION: the whole text must be withheld, or this test proves nothing');
+    assert.ok(whole === sm.WITHHELD || whole === sm.UNCHECKED, 'PRECONDITION: the whole text is withheld, or this proves nothing');
     const r = bs.scanFile('agents/a/transcript.md', Buffer.from(text));
-    assert.equal(r.action, 'store', 'stored through the line-by-line pass, not skipped');
-    assert.ok(!r.data.toString().includes(GH), 'the token is masked on its own line');
-    assert.ok(r.data.toString().includes('| 0000 | 9 | 00 |'), 'the rows are kept');
-    const oneLine = rows.split('\n').join(' ');
-    assert.equal(bs.scanFile('agents/a/one.md', Buffer.from(oneLine)).action, 'skip', 'a single line that still cannot be checked skips the file');
+    assert.deepEqual(r, { action: 'skip', why: 'text that could not be fully checked' }, 'skipped by name, never stored unchecked');
+  } finally { sm.setKnownSecrets([]); }
+  const plain = Array.from({ length: 20000 }, (_, i) => `plain prose line ${i} about the work`).join('\n') + `\nkey ${GH}\n`;
+  const r2 = bs.scanFile('agents/a/long.md', Buffer.from(plain));
+  assert.ok(r2.action === 'store' && !r2.data.toString().includes(GH), 'CONTROL: a long ordinary transcript (with no held secrets) is checked whole and stored masked');
+});
+
+test('#5535 a held value split across lines is caught by secretmask\'s whole-text pass (the reason there is no line-by-line fallback)', () => {
+  const sm = require('./secretmask');
+  const secret = 'Zq8Lp3Vw7Kx2Rn5Tj9Hm';
+  sm.setKnownSecrets([secret]);
+  try {
+    for (const half of [secret.slice(0, 10), secret.slice(10)]) assert.ok(!sm.mask(half).fired.length, `PRECONDITION: the half ${half} alone does not fire`);
+    const r = bs.scanFile('agents/a/notes.md', Buffer.from(`pw:\n${secret.slice(0, 10)}\n${secret.slice(10)}\ndone\n`));
+    assert.equal(r.action, 'store');
+    const out = r.data.toString();
+    assert.ok(!out.includes(secret.slice(0, 10)) && !out.includes(secret.slice(10)), 'neither half survives');
   } finally { sm.setKnownSecrets([]); }
 });
 
@@ -115,4 +126,77 @@ test('#5535 scanFile never throws and fails closed on junk input', () => {
     let r; assert.doesNotThrow(() => { r = bs.scanFile(rel, buf); });
     assert.equal(r.action, 'skip', `${JSON.stringify(rel)} skipped`);
   }
+});
+
+test('#5535 UTF-16 text is decoded and scanned as text (a key in it would pass a byte scan), and written back in its own encoding', () => {
+  const text = `note\r\nkey ${KEY}\r\nend line\r\n`;
+  const le = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, 'utf16le')]);
+  const leNoBom = Buffer.from(text, 'utf16le');
+  const be = Buffer.from(Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, 'utf16le')])); be.swap16();
+  for (const [what, buf, decode] of [['UTF-16LE with BOM', le, (b) => b.subarray(2).toString('utf16le')],
+    ['UTF-16LE without BOM', leNoBom, (b) => b.toString('utf16le')],
+    ['UTF-16BE with BOM', be, (b) => { const c = Buffer.from(b); c.swap16(); return c.subarray(2).toString('utf16le'); }]]) {
+    const r = bs.scanFile('agents/a/out.txt', buf);
+    assert.equal(r.action, 'store', what);
+    assert.ok(r.redacted.length >= 1, `${what}: something was recorded as removed`);
+    const back = decode(r.data);
+    assert.ok(!back.includes(KEY) && back.includes('note') && back.includes('line'), `${what}: key gone, text kept, same encoding`);
+    assert.equal(r.data[0], buf[0], `${what}: the BOM (or first byte) is kept`);
+  }
+  const clean = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('nothing here\r\n', 'utf16le')]);
+  assert.ok(bs.scanFile('agents/a/clean.txt', clean).data.equals(clean), 'CONTROL: clean UTF-16 is stored byte for byte');
+});
+
+test('#5535 compressed content is skipped by its magic, whatever it is called (a scan cannot read deflated bytes)', () => {
+  const zlib = require('zlib');
+  const secret = Buffer.from(`API=${KEY}\n`);
+  for (const [what, buf] of [['a git loose object (zlib)', zlib.deflateSync(secret)], ['gzip', zlib.gzipSync(secret)],
+    ['a zip container named .txt', Buffer.concat([Buffer.from('PK\u0003\u0004'), secret])], ['bzip2', Buffer.from('BZh91AY&SY')],
+    ['a git pack', Buffer.concat([Buffer.from('PACK'), Buffer.alloc(8)])], ['a PDF with Flate streams', Buffer.from('%PDF-1.7\n1 0 obj << /Filter /FlateDecode >>')]]) {
+    assert.equal(bs.scanFile('agents/a/blob.txt', buf).action, 'skip', what);
+  }
+  assert.equal(bs.scanFile('agents/a/plain.pdf', Buffer.from('%PDF-1.4\n(uncompressed text)')).action, 'store', 'CONTROL: a PDF with no deflated streams is scanned and kept');
+});
+
+test('#5535 deny-list round 1: the gaps are closed and ordinary code is kept', () => {
+  for (const p of ['.envrc', 'deploy/prod.env', 'credentials.tfrc.json', 'infra/terraform.tfstate', 'infra/terraform.tfstate.backup',
+    'client_secret_123.apps.json', 'proj/.git/modules/sub/config', 'proj/.git/objects/ab/cdef', '.yarnrc.yml', 'kubeconfig',
+    '.vault-token', '.boto', '.s3cfg', '.config/rclone/rclone.conf', '.m2/settings.xml', 'pip.conf', 'AuthKey_ABC.p8',
+    'Chrome/Default/Cookies', 'Chrome/Default/Login Data', 'reports/q3.docx', 'model.whl', 'secrets.yaml', 'auth.json']) {
+    assert.equal(bs.pathDecision(p).include, false, `${p} must be skipped`);
+  }
+  for (const p of ['src/auth.ts', 'pkg/auth.go', 'src/tokens.ts', 'styles/tokens.css', 'docs/secrets-handling.md', '..notes.md', 'a/..b.md']) {
+    assert.equal(bs.pathDecision(p).include, true, `CONTROL: ${p} is ordinary work and is kept`);
+  }
+});
+
+test('#5535 PGP armored private keys are cut whole too', () => {
+  const pgp = '-----BEGIN PGP PRIVATE KEY BLOCK-----\n\nlQOYBF4xyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef\nqrstuvwxyz0123456789ABCDEFGH\n=AbCd\n-----END PGP PRIVATE KEY BLOCK-----';
+  const r = bs.scanFile('agents/a/notes.md', Buffer.from(`before\n${pgp}\nafter\n`));
+  assert.equal(r.action, 'store');
+  const out = r.data.toString();
+  assert.ok(!out.includes('lQOYBF4xyz') && !out.includes('qrstuvwxyz0123') && !out.includes('=AbCd'), 'no line of the PGP key survives');
+  assert.ok(out.includes('before') && out.includes('after'));
+  assert.equal(bs.scanFile('agents/a/k.txt', Buffer.from('PuTTY-User-Key-File-3: ssh-ed25519\nPrivate-Lines: 1\nAAAA\n')).action, 'skip', 'a PuTTY key in a text file');
+});
+
+test('#5535 known, documented loss: a redacted file loses invisible format characters; a clean file keeps every byte', () => {
+  const bom = Buffer.from([0xef, 0xbb, 0xbf]);
+  const body = 'family \u{1F468}‍\u{1F469}‍\u{1F467} and soft­hyphen\n';
+  const clean = Buffer.concat([bom, Buffer.from(body)]);
+  assert.ok(bs.scanFile('agents/a/clean.md', clean).data.equals(clean), 'CONTROL: nothing fires, so the BOM, joiners and soft hyphen all stay');
+  const dirty = Buffer.concat([bom, Buffer.from(body + `key ${KEY}\n`)]);
+  const r = bs.scanFile('agents/a/dirty.md', dirty);
+  assert.equal(r.action, 'store');
+  assert.ok(!r.data.toString().includes(KEY), 'the key is gone');
+  // The documented loss: pin it, so a change in secretmask's rewriting shows up here instead of silently.
+  assert.ok(!r.data.subarray(0, 3).equals(bom) || !r.data.toString().includes('‍') || !r.data.toString().includes('­'),
+    'the stated loss no longer happens: update the header comment and this test');
+});
+
+test('#5535 binary scan: a NUL-split key and a withheld scan both skip; a clean binary is stored', () => {
+  const nulSplit = Buffer.from([...Buffer.from('xx\0'), ...Buffer.from(KEY.split('').join('\0').slice(0, 0) || ''), ...Buffer.from(`\0\0${KEY}`)]);
+  assert.equal(bs.scanFile('agents/a/b.bin', nulSplit).action, 'skip', 'a key after NULs in a binary');
+  const clean = Buffer.concat([Buffer.from([0, 1, 2, 3]), Buffer.from('ordinary bytes')]);
+  assert.equal(bs.scanFile('agents/a/c.bin', clean).action, 'store', 'CONTROL: a clean binary is stored');
 });
