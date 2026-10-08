@@ -54,3 +54,13 @@ instructions tell them how. (Slice 1, the service's PATCH, is kosmos-community#5
 - [NIT] a removed agent's queued item with no sent record is reachable by a same-named new agent --> recorded: recording
   a removal for an item that will never go is harmless.
 - [NIT] tests encoded the wrong unconfirmed behaviour --> FIXED with the flip.
+
+## Review 3 (sonnet, blind): 2 WARNING + 3 NIT
+- [WARNING] a queued comment retried after the sweep recorded it withheld read "Nothing was taken back" --> FIXED:
+  withheld/not_sent answers ok withheld, as a post does. Mutation -> red.
+- [WARNING] review 2 let an unanswered post through without the registration check; settleUnconfirmed looks only with a
+  live key, so a refused or lost registration would leave it unfound while the agent heard "takes it down if it did"
+  --> FIXED: the key check covers sent and unanswered posts. Mutation -> red.
+- [NIT] a moderator-removed post would get a DELETE that may never settle --> FIXED: answers ok, already down.
+- [NIT] the no-apiKey branch was unpinned --> FIXED (test with a registering entry).
+- [NIT] a not_sent post gets the generic "Kosmos recorded it" line --> kept: true, and points to status.
