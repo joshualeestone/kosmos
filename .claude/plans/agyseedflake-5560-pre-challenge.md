@@ -2,21 +2,21 @@
 pre_challenge: true
 method: challenge-loop
 branch: agyseedflake-5560
-diff_hash: 54348ffc81d2313a0fed3df9d001bb01344d29ec94d66f2b415447a921fb0587
-validation: test-only change; node --test engine/agyseed-4417.test.js engine/agyhooks.test.js 46/46 at a8dea9d0e; full suite by CI
+diff_hash: 89e1bef794b16eb245577eaf46fcc0ff91372dbb64c7d0c86e10a10601240663
+validation: test-only change (bin/agy-report-bridge.js unchanged against main); node --test engine/agyseed-4417.test.js engine/agyhooks.test.js green at 34e44e13f; full suite by CI
 subdir_audit: passed
-timestamp: 2026-10-08T04:27:47Z
-iterations: 8
+timestamp: 2026-10-08T07:36:36Z
+iterations: 12
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 8, each a fresh blind reviewer, alternating Opus (odd) and Sonnet (even).
-**Converged:** Yes. Iteration 8 (Sonnet) found no new BLOCKER, WARNING or CONVENTION: its one WARNING duplicates the residual accepted in iteration 5 (a retry that rescues a run is printed as a diagnostic, not failed; failing it would restore the flake this card is about). Its two NITs were fixed at a8dea9d0e.
-**Total findings:** 0 BLOCKERs, 10 WARNINGs (8 fixed, 1 kept with reasons, 1 accepted residual), 0 CONVENTIONs, NITs as listed.
-**Self-generated:** iterations 2 and 7 found defects in lines earlier fixes of this loop wrote (marked SELF).
-**Validation:** test-only (no product file changes). The two agy test files pass 46/46 locally; every retry rule has a unit arm and the mutation removing it was seen to redden (recorded per iteration in the plan). Two parts are NOT pinned by a mutation: counting only the last try's token, and the real runOnce signal path, because both act only on a real outside kill this test cannot stage. The full suite runs on CI.
+**Iterations:** 12, each a fresh blind reviewer, alternating Opus (odd) and Sonnet (even).
+**Converged:** Yes, at iteration 12 (Sonnet): its two WARNINGs duplicate decisions already recorded (the TEMPORARY uv__close arm, cause on #5576; the last-try count residual from iteration 5).
+**Total findings:** 0 BLOCKERs; WARNINGs and CONVENTIONs as in the ledger below, each fixed, declined with a measured reason, or accepted as a stated residual.
+**Retraction:** at iteration 8 to 9 I changed the bridge on a mechanism (stdin.destroy closing fd 0) that iteration 9 measured false. The bridge change is reverted; the abort CI named is retried as Node's runtime aborting under a TEMPORARY, pinned arm, and its cause is on #5576.
+**Validation:** test-only; the two agy test files pass locally; every retry rule is pinned both ways in one table, and each mutation recorded in the plan reddened its own assertion. The full suite runs on CI.
 
 ## Ledger (verbatim, iteration by iteration)
 
@@ -43,3 +43,21 @@ converged: true
 - R7 (Opus) W: review-6 clearing races the stand-in's async record. FIXED (per-try hex token, last only; control). SELF.
 - R7 N: stale test title FIXED. N: hang+EAGAIN retried FIXED, pinned. N: Check failed is V8's: comment FIXED.
 - R8 (Sonnet) W: a rescued retry can mask a report from the killed try. DUP of R5 accepted residual (failing it would restore the flake). N: circular tries object FIXED; N: token regex bound FIXED; N: review labels DUP declined. ZERO NEW B/W/C -> CONVERGED at iteration 8.
+#### Iteration 9 (Opus) on 3267a4304
+- [WARNING] (7) the bridge change rested on a mechanism review 9 MEASURED false (destroy leaves fd 0 open). SELF. FIXED (bridge change reverted; cause on #5576; the uv__close abort retried as Node's runtime aborting, pinned).
+- [WARNING] (8) the source guard pinned the wrong mechanism. FIXED (removed).
+- [CONVENTION] (9) plan 'Change' section stale. FIXED.
+- [NIT] stderr cut at 300 (FIXED: 600); error-then-close comment (kept).
+#### Iteration 10 (Sonnet) on fac2442b2
+- [WARNING] marker cleanup uses the wrong token: DECLINED, false (the bridge's throttle key is the pane first, bin/agy-report-bridge.js:96, so markerFile(env) is the real marker whatever the token).
+- [WARNING] (10) the uv__close retry must stay visibly temporary. FIXED (TEMPORARY: remove when #5576 finds the cause).
+- [NIT] hung assignment order (kept); runOnce real signal path untested (DUP r5 residual).
+#### Iteration 11 (Opus) on 2762c70d2
+- [WARNING] retry hides a production-path abort: DUP (TEMPORARY + #5576 records the production exposure).
+- [WARNING] (11) uv__close arm matched macOS's format only. FIXED (the libuv text; glibc spelling pinned).
+- [NIT] untested set members (FIXED: one table, both ways; ENOMEM mutation reddens); stacked comments (kept); neverRan in history (kept).
+#### Iteration 12 (Sonnet) on 34e44e13f
+- [WARNING] uv__close arm may hide a production abort: DUP (r11; TEMPORARY, #5576).
+- [WARNING] count-of-one sees only the last try: DUP (r5/r8 accepted residual).
+- [NIT] runOnce real paths untested (DUP r5); stacked comments; emoji; backoff unasserted (kept).
+- ZERO NEW B/W/C -> CONVERGED at iteration 12.
