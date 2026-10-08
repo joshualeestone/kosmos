@@ -251,7 +251,7 @@ mkdir -p "$ST/reported.d"
 echo "$H19" > "$ST/parked"; printf '%s rc=1 x\n' "$H19" > "$ST/last-failure"
 echo "$(( $(date +%s) - 90000 ))" > "$ST/reported.d/$H19-parked"
 tick; r1=$RC; tick; r2=$RC
-{ [ "$r1" = 1 ] && [ "$r2" = 0 ] && printf '%s' "$OUT" | grep -q "^.*STILL FAILING (reported)"; } \
+{ [ "$r1" = 1 ] && [ "$r2" = 0 ] && printf '%s' "$OUT" | grep -q "STILL FAILING (reported)"; } \
   && pass "a red reported over a day ago is red again, then green with STILL FAILING" || bad "day-old report (r1=$r1 r2=$r2)"
 echo garbage > "$ST/reported.d/$H19-parked"; tick
 [ "$RC" = 1 ] && pass "a damaged report time is treated as never reported (red)" || bad "damaged report time (rc=$RC)"

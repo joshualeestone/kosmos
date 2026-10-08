@@ -43,7 +43,7 @@
 # State (KOSMOS_AUTODEPLOY_STATE, default ~/.kosmos-site-autodeploy):
 #   heartbeat      the time of the last tick that held the lock (a stall shows as an old heartbeat)
 #   last-deployed  the site sha this job last published (or found already live)
-#   last-failure   "<sha> rc=<n> <time>" of the last failed attempt (a record, read by nothing)
+#   last-failure   "<sha> rc=<n> <time>" of the last failed attempt (its rc names the cause in the parked line)
 #   failures       "<sha> <n>" consecutive failed attempts for that sha
 #   parked         the sha not retried until main moves (red once, then reported; see red_once)
 #   paused         made by a PERSON to stop the job (e.g. while a deliberate site rollback is live,
@@ -107,7 +107,8 @@ red_once() {  # <cause> <message>
   local now; now=$(date +%s)
   if [ "$at" != 0 ] && [ "$at" -le "$now" ] && [ $(( now - at )) -lt 86400 ]; then   # a future time counts as never
     _msg="${2#FAIL: }"; _msg="${_msg/#FAIL (parked)/parked}"
-    say "STILL FAILING (reported): $_msg (red already reported at $(date -r "$at" '+%Y-%m-%d %H:%M'); green until it recovers, changes, or a day passes)"
+    echo "::warning::still failing, reported red earlier today: $_msg"   # an annotation on the green run (GitHub Actions)
+    say "STILL FAILING (reported): $_msg (red already reported at $(date -r "$at" '+%Y-%m-%d %H:%M'); green until it recovers, changes, or a day passes; remove $f to make it red again now)"
     exit 0
   fi
   mark_reported "$1"
@@ -332,11 +333,12 @@ DEPLOY_MAX_S="${KOSMOS_AUTODEPLOY_DEPLOY_MAX_S:-900}"
 case "$DEPLOY_MAX_S" in ''|*[!0-9]*|0) DEPLOY_MAX_S=900 ;; esac   # 0 would kill every deploy at once
 if [ -n "${KOSMOS_AUTODEPLOY_DEPLOY:-}" ]; then DCMD=(sh -c "$KOSMOS_AUTODEPLOY_DEPLOY"); else DCMD=(bash "$REPO/tools/deploy-site.sh" --publish); fi
 DOUT="$STATE/deploy.out"; : > "$DOUT"
-# </dev/null: under set -m a background job keeps the terminal as stdin, and a read would stop it (SIGTTIN).
-set -m; KOSMOS_SITE="$SITE" "${DCMD[@]}" < /dev/null > "$DOUT" 2>&1 & dpid=$!; set +m
+dpid=""   # set the moment the deploy starts; the traps below are in place BEFORE it starts
+
 # If this tick is killed (the runner cancels the job, or its timeout), take the deploy group with it,
 # so no orphaned deploy keeps publishing beside the next tick.
 stop_deploy() {   # TERM the deploy group, give it up to 5 s, then KILL whatever is left (a child that ignores TERM)
+  [ -n "$dpid" ] || return 0
   kill -TERM -- "-$dpid" 2>/dev/null
   for _i in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$dpid" 2>/dev/null || break; sleep 0.5; done
   kill -KILL -- "-$dpid" 2>/dev/null
@@ -344,6 +346,8 @@ stop_deploy() {   # TERM the deploy group, give it up to 5 s, then KILL whatever
 # On the way out of a killed tick: stop the deploy, keep its output (run + log), free the lock.
 trap 'stop_deploy; tee -a "$LOG" < "$DOUT" 2>/dev/null; [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"' EXIT
 trap 'exit 143' TERM INT HUP   # (stays for the rest of the tick: exit runs whichever EXIT trap is current)
+# </dev/null: under set -m a background job keeps the terminal as stdin, and a read would stop it (SIGTTIN).
+set -m; KOSMOS_SITE="$SITE" "${DCMD[@]}" < /dev/null > "$DOUT" 2>&1 & dpid=$!; set +m
 tenths=0   # polled every 0.2 s, counted in tenths of a second
 while kill -0 "$dpid" 2>/dev/null && [ "$tenths" -lt $((DEPLOY_MAX_S * 10)) ]; do sleep 0.2; tenths=$((tenths + 2)); done
 if kill -0 "$dpid" 2>/dev/null; then
