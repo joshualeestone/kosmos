@@ -118,8 +118,8 @@ test('#5536 a sink that fails to write aborts the file and does not commit it', 
 
 test('#5536 unsafe paths are refused before anything is fetched (control: a plain path restores)', async () => {
   const unsafe = ['../escape.md', '..\\escape.md', 'a/../../b', '/etc/x', '\\\\server\\share', 'a//b', '.', 'a/./b', 'lone\ud800.md',
-    'exe\u202etxt.md', 'ok2\u200f.md', 'x\u061c.md', '..\u200b', '.\u200c/x', '\u200b', 'a/\u3164', ''];
-  const notPortable = ['C:/x', 'a/C:/x', 'file.txt:ads', 'nul\0.md', 'tab\there', 'Icon\r', 'nel\u0085.md', 'line\u2028sep.md', 'x\ufeff./y',
+    'exe\u202etxt.md', 'ok2\u200f.md', 'x\u061c.md', 'f1\u{e0041}', 'evil.md\0.txt', '..\u200b', '.\u200c/x', '\u200b', 'a/\u3164', ''];
+  const notPortable = ['C:/x', 'a/C:/x', 'file.txt:ads', 'tab\there', 'Icon\r', 'nel\u0085.md', 'line\u2028sep.md', 'x\ufeff./y',
     'nul .txt', 'CON .md', 'LONGFI~1.MD', 'PROGRA~1/x', 'conin$', 'COM\u00b9.txt', 'lpt\u00b2', 'CON', 'nul.txt', 'a/com1.log', 'aux.c', 'trailing.', 'trailing ', ' ..'];
   const bad = [...unsafe, ...notPortable];
   const { run, fetched } = handMade((entry) => [...bad.map((p) => entry(p)), entry('ok.md'), entry('.hidden/fine.md'), entry('family\u{1f469}\u200d\u{1f467}.md'), entry('heart\u2764\ufe0f.md'), entry('notes~draft.md'), entry('backup~1.tar.gz')]);
@@ -129,7 +129,7 @@ test('#5536 unsafe paths are refused before anything is fetched (control: a plai
   const shown = (p) => p.replace(/[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ud800-\udfff]/gu, (c) => `\\u{${c.codePointAt(0).toString(16)}}`);
   assert.deepEqual(r.failed.map((f) => f.path), bad.map(shown), 'reported paths have control, bidi and lone-surrogate characters escaped');
   const reported = new Set(r.failed.map((f) => f.path));
-  for (const p of ['nul\\u{0}.md', 'Icon\\u{d}', 'exe\\u{202e}txt.md', 'lone\\u{d800}.md', 'nel\\u{85}.md']) assert.ok(reported.has(p), p);
+  for (const p of ['evil.md\\u{0}.txt', 'Icon\\u{d}', 'exe\\u{202e}txt.md', 'lone\\u{d800}.md', 'nel\\u{85}.md']) assert.ok(reported.has(p), p);
   assert.deepEqual(r.failed.filter((f) => f.why === 'malformed entry or unsafe path').map((f) => f.path), unsafe.map(shown), 'could escape, alias or disguise a name');
   assert.deepEqual(r.failed.filter((f) => f.why === 'a name not every system accepts').map((f) => f.path), notPortable.map(shown), 'refused everywhere, reported as a portability loss, not as tampering');
   assert.equal(sink.calls.filter((c) => c.startsWith('begin')).length, 6, 'no sink is opened for a refused path');
