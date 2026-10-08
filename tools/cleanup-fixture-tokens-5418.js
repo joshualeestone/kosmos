@@ -109,7 +109,7 @@ function planCleanup(entries, liveKeys, cutoffMs, safeKey) {
       const info = e.tokens || { launchers: [], newestMintMs: null };
       const newest = Math.max(typeof e.mtimeMs === 'number' ? e.mtimeMs : Infinity, typeof info.newestMintMs === 'number' ? info.newestMintMs : -Infinity);
       if (canon(key) !== key) keep.push({ name: e.name, why: 'not a name the store writes: left alone' });
-      else if (liveKeys.has(key)) keep.push({ name: e.name, why: 'its agent is on the board or in the removal records' });
+      else if (liveKeys.has(key)) keep.push({ name: e.name, why: 'it has a keep record (the board, a removal record, a heartbeat, a profile, a worker folder or a startup job)' });
       // a file that cannot be read or parsed says nothing about itself (no launcher, no mint): kept, as every other
       // unreadable record is
       else if (info.unreadable) keep.push({ name: e.name, why: 'it cannot be read or parsed, so it cannot be judged' });
@@ -137,7 +137,8 @@ function listEntries(dir) {
   for (const name of fs.readdirSync(dir)) {
     const p = path.join(dir, name);
     let st;
-    try { st = fs.lstatSync(p); } catch { continue; }
+    // an entry that cannot be looked at is listed and kept, never silently skipped
+    try { st = fs.lstatSync(p); } catch { out.push({ name, isSymlink: false, mtimeMs: null, other: true }); continue; }
     const isSymlink = st.isSymbolicLink();
     let targetExists = null;
     if (isSymlink) { try { fs.statSync(p); targetExists = true; } catch (e) { targetExists = e && e.code === 'ENOENT' ? false : null; } }

@@ -1,8 +1,9 @@
 'use strict';
 /**
  * #5418 ask 2: tools/cleanup-fixture-tokens-5418.js removes only what test runs left in the sender-token store:
- * a token file whose agent is not on the board, not in the removal records, has no heartbeat, profile, worker folder
- * or launchd job, holds no remote token, and predates the cutoff; an old writer's temp; a dangling store-named link. Never a live agent's file, never without a roster, never before a backup.
+ * a token file whose agent is not on the board, not in the removal records, has no heartbeat (a named world's
+ * heartbeat keeps by prefix), profile, worker folder or startup job (launchd, a Scheduled Task, a systemd unit), holds
+ * no remote token, can be read, and predates the cutoff; an old writer's temp; a dangling store-named link. Never a live agent's file, never without a roster, never before a backup.
  * This file runs in a test process, so (#5418 ask 1) the store root is this process's throwaway, never the real one.
  *
  *   node --test tools.cleanup-fixture-tokens-5418.test.js
@@ -818,6 +819,7 @@ test('#5418: a named-world session\'s heartbeat (sam+w is stored as samw) keeps 
   assert.ok(liveness.DIR.startsWith(process.env.AGENT_WORKFORCE_DATA), 'the heartbeat folder is not in the throwaway store');
   write('anchor.json', OLD);
   write('sam.json', OLD);
+  write('fixture-p.json', OLD);   // CONTROL: an orphan with no keep record is still removed
   assert.equal(liveness.seen('sam+w').seen, true, 'the heartbeat was not written, so this arm tests nothing');
   t.after(() => { try { fs.rmSync(liveness.DIR, { recursive: true, force: true }); } catch { /* none */ } });
   const f = fleet.install([fleet.agent('anchor')]);
@@ -826,6 +828,7 @@ test('#5418: a named-world session\'s heartbeat (sam+w is stored as samw) keeps 
   quiet(t);
   assert.equal(await applyConfirmed(port), 0);
   assert.ok(fs.readdirSync(dir).includes('sam.json'), 'a world session\'s heartbeat did not keep its token');
+  assert.equal(fs.readdirSync(dir).includes('fixture-p.json'), false, 'CONTROL: the orphan was kept, so the plan removed nothing');
 });
 
 test('#5418: startup jobs keep tokens on Windows (Scheduled Tasks) and Linux (systemd units); an unreadable list stops', () => {
