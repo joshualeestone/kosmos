@@ -35,6 +35,7 @@ const ROUTES = Object.freeze({
 });
 const WORLD_ID_FILE = 'org-world-id';
 const ENROLLMENT_FILE = 'org-enrollment.json';
+const LEAVE_REFUSED_FILE = 'org-leave-refused.json';   // { at, name }: a retried leave was refused as the last admin (the screen says so once)
 const STOPPED_FILE = 'org-stopped.json';   // { at, name }: the company stopped naming this world (the screen says so once)
 const LEAVE_PENDING_FILE = 'org-leave-pending';   // a leave the company has not confirmed yet; retried on start and daily
 const NAME_MAX = 120;      // a company name or slug, as the page shows it
@@ -215,8 +216,8 @@ function oneAtATime(fn) { const run = queue.then(fn, fn); queue = run.catch(() =
    Kosmos) is undone with a leave, and each says only what happened (reviews 12, 19). */
 async function undoFirstJoin(lead, opts) {
   const undo = await signed('POST', ROUTES.leave, {}, opts);
-  if (undo.ok || codeOf(undo.because) === 'org_not_member') return { ok: false, because: lead + ' Joining was undone, so nothing was joined.' };
-  setLeavePending(true, opts, null);   // best effort: retried on the next pass if this file, at least, can be written
+  if (undo.ok || codeOf(undo.because) === 'org_not_member') return { ok: false, because: lead + ' Joining was undone, so nothing was joined. That code is used up: ask your company for a new one.' };
+  setLeavePending(true, opts, null, true);   // an undo, retried on the next pass if this file, at least, can be written
   return { ok: false, because: lead + ' Joining could not be undone yet, so your company may still list this Kosmos. It is not reporting.' };
 }
 
@@ -249,7 +250,7 @@ async function enrollNow(code, accepted, opts) {
     const st = await signed('POST', ROUTES.status, {}, opts);
     const verdict = statusVerdict(st.ok ? st.data : null, world);
     if (verdict === 'unclear') return { ok: false, unknown: true, because: 'It is not known yet whether joining went through. Check the code again in a minute: it will say if this Kosmos is already your work Kosmos.' };
-    if (verdict !== 'here') return { ok: false, because: 'Joining did not go through Kosmos+ just now. Nothing was joined; try again in a minute.' };
+    if (verdict !== 'here') return { ok: false, because: move ? 'Your work Kosmos did not move here. Try again in a minute.' : 'Joining did not go through Kosmos+ just now. Nothing was joined; try again in a minute.' };
     r = { ok: true, data: st.data };
   }
   const org = cleanOrg(r.data && r.data.org);
@@ -279,16 +280,33 @@ async function enrollNow(code, accepted, opts) {
     }
   }
   setLeavePending(false, opts);   // joined again after an unconfirmed leave: that old leave must never be sent now
-  setStopped(null, opts);
+  setStopped(null, opts); setLeaveRefused(null, opts);
   return { ok: true, ...rec };
 }
 
 /* The pending leave keeps the record it cleared, so a retry the company refuses (the last admin) can put it back.
    Owner-only, read by this module alone: no route hands it, or the org id and world id inside it, to the page. */
-function setLeavePending(on, opts, rec) {
+/* `undo` marks the leave that takes back this Kosmos's OWN first join (one it could not keep): that one is sent while the
+   account is a member at all, not only when the company names this world, since the company's not naming it here is
+   exactly why it is being undone (#5531 review 21). */
+function setLeavePending(on, opts, rec, undo) {
   const file = path.join(storeRoot(opts), LEAVE_PENDING_FILE);
-  try { if (on) fs.writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), rec: rec || null }) + '\n', { mode: 0o600 }); else fs.rmSync(file, { force: true }); } catch { /* best effort */ }
+  try { if (on) fs.writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), rec: rec || null, undo: undo === true }) + '\n', { mode: 0o600 }); else fs.rmSync(file, { force: true }); } catch { /* best effort */ }
 }
+function pendingUndo(opts) {
+  try { return JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_PENDING_FILE), 'utf8')).undo === true; } catch { return false; }
+}
+/* A retried leave the company refused as the last admin puts the enrollment back, so this Kosmos reports again. The
+   person was told it had stopped, so the screen's next read says once that it did not (#5531 review 21). */
+function leaveRefusedFor(opts) {
+  try { const j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_REFUSED_FILE), 'utf8')); return j && typeof j.name === 'string' ? j.name : null; }
+  catch { return null; }
+}
+function setLeaveRefused(name, opts) {
+  const file = path.join(storeRoot(opts), LEAVE_REFUSED_FILE);
+  try { if (name == null) fs.rmSync(file, { force: true }); else fs.writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), name }) + '\n', { mode: 0o600 }); } catch { /* the screen just does not say it */ }
+}
+function clearLeaveRefused(opts) { setLeaveRefused(null, opts); }
 function pendingRecord(opts) {
   try { const j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_PENDING_FILE), 'utf8')); return j && j.rec && j.rec.org ? j.rec : null; } catch { return null; }
 }
@@ -337,7 +355,7 @@ function retireWorldId(opts) {
   try { fs.rmSync(path.join(storeRoot(opts), WORLD_ID_FILE), { force: true }); } catch { /* kept; harmless */ }
 }
 
-async function leaveNow(opts) {
+async function leaveNow(opts, retry) {
   /* Leave ends the whole membership, so only the world the company enrolls (or one whose leave is unconfirmed) sends
      it. A world the company already stopped naming, or a stale record naming another world, clears locally and sends
      NOTHING: the membership may now be another world's or another computer's, and must not be ended from here. */
@@ -348,6 +366,8 @@ async function leaveNow(opts) {
     return { ok: true, localOnly: true };
   }
   const before = readEnrollment(opts) || pendingRecord(opts);
+  const undo = pendingUndo(opts);
+  setLeaveRefused(null, opts);
   clearEnrollment(opts);   // stop at once, whatever happens next
   /* Ask first. A leave ends the WHOLE membership (by account, not by computer), so it is sent only when the company
      confirms this world AND this signer. That stops a stale record, a moved enrollment, and a copy whose Kosmos+ key
@@ -356,12 +376,12 @@ async function leaveNow(opts) {
   const st = await signed('POST', ROUTES.status, {}, opts);
   const verdict = statusVerdict(st.ok ? st.data : null, readWorldId(opts));
   if (verdict === 'gone') { setLeavePending(false, opts); setStopped(null, opts); retireWorldId(opts); return { ok: true }; }
-  if (verdict === 'notHere') {   // still a member, enrolled elsewhere: this world stops and forgets its id, nothing is sent
+  if (verdict === 'notHere' && !undo) {   // still a member, enrolled elsewhere: this world stops and forgets its id, nothing is sent
     setLeavePending(false, opts); setStopped(null, opts); retireWorldId(opts);
     return { ok: true, localOnly: true };
   }
-  if (verdict !== 'here') {
-    setLeavePending(true, opts, before);
+  if (verdict !== 'here' && !(undo && verdict === 'notHere')) {
+    setLeavePending(true, opts, before, undo);
     return { ok: false, pending: true, because: 'Leaving could not be confirmed yet. This Kosmos has stopped reporting, and it will tell your company again.' };
   }
   const r = await signed('POST', ROUTES.leave, {}, opts);
@@ -380,10 +400,11 @@ async function leaveNow(opts) {
     const back = before || (org && role ? { org, role, world: readWorldId(opts), enrolledAt: new Date().toISOString() } : null);
     let kept = false;
     if (back) { try { writeEnrollment(back, opts); kept = true; } catch { /* below */ } }
-    setLeavePending(!kept, opts, back);
+    setLeavePending(!kept, opts, back, undo);
+    if (kept && retry) setLeaveRefused((back.org && back.org.name) || 'your company', opts);   // told "stopped" earlier: say it is not
     return { ok: false, still: true, code, because: SAY.org_last_admin };
   }
-  setLeavePending(true, opts, before);
+  setLeavePending(true, opts, before, undo);
   // The person's sentence, whatever the raw reason: they must hear that this Kosmos stopped and the leave will be sent.
   return { ok: false, pending: true, code, because: 'Leaving could not be confirmed yet. This Kosmos has stopped reporting, and it will tell your company again.' };
 }
@@ -393,7 +414,7 @@ async function leaveNow(opts) {
 async function refresh(opts) { return oneAtATime(() => refreshNow(opts)); }
 async function refreshNow(opts) {
   if (leavePending(opts)) {   // a leave the company has not confirmed: send it again, report nothing meanwhile
-    const r = await leaveNow(opts);
+    const r = await leaveNow(opts, true);
     if (r.still) return { ok: false, still: true, enrolled: isEnrolledHere(opts), code: r.code, because: r.because };   // refused as the last admin: joined again
     return { ok: r.ok, enrolled: false, stopped: true, pending: !!r.pending, because: r.because };
   }
@@ -427,5 +448,5 @@ async function refreshNow(opts) {
 
 module.exports = {
   ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, codeOf,
-  worldId, readEnrollment, leavePending, stoppedFor, clearStopped, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh,
+  worldId, readEnrollment, leavePending, stoppedFor, clearStopped, leaveRefusedFor, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh,
 };

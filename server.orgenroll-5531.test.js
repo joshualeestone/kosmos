@@ -76,7 +76,7 @@ test('#5531: from the screen, a decline sends nothing and records nothing; a pre
 
 test('#5531: GET /api/org reports this world\'s own record, and only one that names this world', async () => {
   const none = await call('/api/org', { method: 'GET', headers: SCREEN });
-  assert.deepEqual(none.json, { enrolled: false, stoppedFor: null, org: null, role: null, enrolledAt: null });
+  assert.deepEqual(none.json, { enrolled: false, stoppedFor: null, leaveRefused: null, org: null, role: null, enrolledAt: null });
   const world = oe.worldId();
   fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', world, enrolledAt: '2026-10-07T00:00:00.000Z' }));
   const yes = await call('/api/org', { method: 'GET', headers: SCREEN });
@@ -239,6 +239,31 @@ test('#5531 review 11: a failed join does not put its old ticket back over a new
   const r = await call('/api/org/enroll', { body: { code: 'ACME-JOIN-1234', accepted: true, ticket: second.json.ticket }, headers: SCREEN });
   assert.equal(r.json.ok, true, 'the newer screen\'s ticket was replaced by the failed join\'s: ' + JSON.stringify(r.json));
   await call('/api/org/leave', { body: {}, headers: SCREEN });
+});
+
+test('#5531 review 21: a retried leave refused as the last admin is shown to the screen once', async (t) => {
+  const remote = require('./engine/remote');
+  const orig = remote.macRequest;
+  let mode = 'ok';
+  remote.macRequest = async (method, route, body) => {
+    if (route === oe.ROUTES.redeem) return { ok: true, data: { org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: { reports: ['agent names'], backsUp: ['agent folders'], readers: ['you'], never: ['keys'] } } };
+    if (route === oe.ROUTES.enroll) return { ok: true, data: { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } };
+    if (route === oe.ROUTES.status) return { ok: true, data: { member: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: oe.worldId(), thisComputer: true } } };
+    if (route === oe.ROUTES.leave) return mode === 'offline' ? { ok: false, because: 'offline' } : { ok: false, because: '409 {"because":"org_last_admin"}' };
+    return { ok: false, because: 'unexpected ' + route };
+  };
+  t.after(() => { remote.macRequest = orig; fs.rmSync(enrollmentFile(), { force: true }); oe.clearLeaveRefused(); });
+  const pv = await call('/api/org/preview', { body: { code: 'ACME-JOIN-1234' }, headers: SCREEN });
+  await call('/api/org/enroll', { body: { code: 'ACME-JOIN-1234', accepted: true, ticket: pv.json.ticket }, headers: SCREEN });
+  mode = 'offline';
+  const left = await call('/api/org/leave', { body: {}, headers: SCREEN });
+  assert.equal(left.json.pending, true, JSON.stringify(left.json));
+  mode = 'admin';
+  await oe.refresh();
+  const first = await call('/api/org', { method: 'GET', headers: SCREEN });
+  assert.equal(first.json.enrolled, true); assert.equal(first.json.leaveRefused, 'Acme', JSON.stringify(first.json));
+  const second = await call('/api/org', { method: 'GET', headers: SCREEN });
+  assert.equal(second.json.leaveRefused, null, 'the note was shown more than once');
 });
 
 test('#5531 review 13: a HEAD from the screen does not use up the stopped note', async () => {

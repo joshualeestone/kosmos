@@ -570,6 +570,40 @@ test('#5531 review 19: a first join the company did not confirm for this Kosmos 
   assert.equal(moved.includes(org.ROUTES.leave), false, 'a move was undone with a leave, ending the membership');
 });
 
+test('#5531 review 21: an undo that could not be sent is sent on the next pass even though the company does not name this world here', async (t) => {
+  const { a } = sandbox(t);
+  let leaveUp = false;
+  const sent = [];
+  const notThis = { macRequest: async (m, route, body) => { sent.push(route);
+    if (route === org.ROUTES.enroll) return { ok: true, data: { ok: true, org: ORG, role: 'member', enrolled: { computer: 'c2', world: body.world, thisComputer: false } } };
+    if (route === org.ROUTES.leave) return leaveUp ? { ok: true, data: { ok: true } } : { ok: false, because: 'offline' };
+    if (route === org.ROUTES.status) return { ok: true, data: { member: true, org: ORG, role: 'member', enrolled: { computer: 'c2', world: org.worldId({ root: a }), thisComputer: false } } };
+    return { ok: false, because: 'unexpected ' + route }; } };
+  const r = await org.enroll('ACME-JOIN-1234', true, { root: a, remote: notThis });
+  assert.match(r.because, /could not be undone yet/, r.because);
+  assert.equal(org.leavePending({ root: a }), true);
+  leaveUp = true;
+  sent.length = 0;
+  await org.refresh({ root: a, remote: notThis });
+  assert.deepEqual(sent, [org.ROUTES.status, org.ROUTES.leave], 'the undo of a join this Kosmos could not keep was never sent: ' + JSON.stringify(sent));
+  assert.equal(org.leavePending({ root: a }), false);
+});
+
+test('#5531 review 21: a person\'s pending leave later refused as the last admin is said once; their own refused leave is not', async (t) => {
+  const { a } = sandbox(t);
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
+  const lastAdmin = { macRequest: async () => ({ ok: false, because: '409 {"because":"org_last_admin"}' }) };
+  // CONTROL: refused while the person waits: they are told at once, so no note is left for later.
+  const now = await org.leave({ root: a, remote: here(a, lastAdmin) });
+  assert.equal(now.still, true);
+  assert.equal(org.leaveRefusedFor({ root: a }), null, 'a refusal the person already read was left as a note too');
+  const p = await org.leave({ root: a, remote: { macRequest: async () => ({ ok: false, because: 'offline' }) } });
+  assert.equal(p.pending, true);
+  await org.refresh({ root: a, remote: here(a, lastAdmin) });
+  assert.equal(org.isEnrolledHere({ root: a }), true);
+  assert.equal(org.leaveRefusedFor({ root: a }), 'Acme', 'the person was told this Kosmos stopped, it reports again, and nothing says so');
+});
+
 test('#5531 review 14: a record whose world id file is gone is stale: cleared, and nothing is asked', async (t) => {
   const { a } = sandbox(t);
   await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });

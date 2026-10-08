@@ -17,6 +17,8 @@
  *   O10 a company consent with an EMPTY never list still shows this Kosmos's own line: other Kosmoses are not part of it.
  *   O11 a leave refused before anything was done (the route's "not your work Kosmos", the screen check's { error })
  *       keeps the joined view and says why, never "stopped reporting" (#5531 review 19).
+ *   O12 a retried leave the company refused as the last admin (leaveRefused from /api/org) says so, as text, with the
+ *       joined view back: the person was told it had stopped (#5531 review 21).
  */
 const path = require('node:path');
 const { chromium } = require('playwright');
@@ -48,7 +50,9 @@ function harness() {
       if (u.endsWith('/api/org/preview')) return enc(Object.assign({ ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: window.__noNever ? Object.assign({}, consent, { never: [] }) : consent, ticket: 't-' + Date.now() }, window.__move ? { move: true } : {}));
       if (u.endsWith('/api/org/enroll')) return enc({ ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member' });
       if (u.endsWith('/api/org/leave')) return enc(window.__leaveRefused || (window.__localOnly ? { ok: true, localOnly: true } : { ok: true }));
-      if (u.endsWith('/api/org')) return enc({ enrolled: false, stoppedFor: window.__stopped || null, org: null, role: null, enrolledAt: null });
+      if (u.endsWith('/api/org')) return enc(window.__refused
+        ? { enrolled: true, stoppedFor: null, leaveRefused: window.__refused, org: { name: 'Acme', slug: 'acme' }, role: 'admin', enrolledAt: '2026-10-07T00:00:00.000Z' }
+        : { enrolled: false, stoppedFor: window.__stopped || null, leaveRefused: null, org: null, role: null, enrolledAt: null });
       if (u.endsWith('/api/remote') && !(init && init.method)) return enc({ enrolled: true, on: true });   // a connected computer
       if (u.includes('/api/history')) return enc({ readable: false });   // Settings' history row, in the shape the engine sends when it has none
       return enc({});
@@ -158,6 +162,14 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
       await page.click('#plus-org-leave-yes');
       await page.waitForFunction(() => !document.getElementById('plus-org-out').hidden);
     }
+
+    // O12: a leave retried later was refused as the last admin: the next read says so once, and the joined view is back.
+    await page.evaluate(() => { window.__refused = 'Acme <b>Co</b>'; PLUS_ORG.at = 0; document.getElementById('plus-org-msg').textContent = 'an earlier line still on screen'; plusOrgMaybe(); });
+    await page.waitForFunction(() => /was refused/.test(document.getElementById('plus-org-msg').textContent), null, { timeout: 5000 }).catch(() => {});
+    const o12 = await page.evaluate(() => ({ msg: document.getElementById('plus-org-msg').textContent, bold: document.querySelectorAll('#plus-org-msg b').length, joined: !document.getElementById('plus-org-in').hidden }));
+    chk(o12.msg === 'Your leave from Acme <b>Co</b> was refused: you are its last admin. This Kosmos is your work Kosmos again and reports to it.' && o12.bold === 0 && o12.joined,
+      'O12 a retried leave refused as the last admin says so, as text, with the joined view back', JSON.stringify(o12));
+    await page.evaluate(() => { window.__refused = null; PLUS_ORG.state = { enrolled: false, org: null, role: null }; plusOrgPaint(); });
 
     // O8: the company stopped naming this world. The next /api/org read carries stoppedFor; the block says so.
     await page.evaluate(() => { window.__stopped = 'Acme <i>Co</i>'; PLUS_ORG.at = 0; document.getElementById('plus-org-msg').textContent = 'an earlier line still on screen'; plusOrgMaybe(); });

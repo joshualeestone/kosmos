@@ -280,3 +280,14 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
 - Deferred, decided: one consent ticket for the board. A second screen's preview replaces the first's ticket, and the
   first screen's Join is then refused with org_ticket ("check the code again"): it fails closed with a clear sentence
   and binds nothing. Keying tickets per screen is a follow-up if a second screen (the remote page) ever holds a consent.
+
+## Review 21
+- An undo of this Kosmos's own first join that could not be sent was never sent: its retry asked status, which named
+  this world on another computer (the reason for the undo), read that as notHere, and cleared locally. The pending file
+  now records `undo`, and a pending undo is sent while the account is a member at all. Pinned.
+- A person's pending leave, refused later as the last admin, quietly turned back into a reporting enrollment. That
+  retry now leaves a one-time note (org-leave-refused.json); GET /api/org hands it to the screen once (screen only, as
+  stoppedFor), and the page says the leave was refused and this Kosmos reports again. A refusal the person reads at
+  once leaves no note. Pinned in the engine, the server (once only) and the page (O12, as text).
+- "Joining was undone" now says the code is used up; a move with no answer that did not land says the work Kosmos did
+  not move (not "nothing was joined").

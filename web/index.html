@@ -47120,6 +47120,8 @@ function plusOrgMaybe() {
     const msg = document.getElementById('plus-org-msg');
     // The server shows this note once, so it replaces whatever line is there rather than waiting for an empty one.
     if (j && j.enrolled !== true && j.stoppedFor) msg.textContent = 'This Kosmos is no longer the work Kosmos for ' + j.stoppedFor + ', so it has stopped reporting.';
+    // #5531 review 21: a leave the person was told would be sent again was refused, so this Kosmos reports again.
+    if (j && j.enrolled === true && j.leaveRefused) msg.textContent = 'Your leave from ' + j.leaveRefused + ' was refused: you are its last admin. This Kosmos is your work Kosmos again and reports to it.';
   }).catch(() => { /* the next minute tries again */ });
 }
 function plusOrgList(id, items) {
