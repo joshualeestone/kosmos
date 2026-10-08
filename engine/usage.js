@@ -390,7 +390,8 @@ async function worldUsageByModel(days, deps) {
   let missingDir = false;
   /* Never a folder that holds the person's own work too (review 2): the home folder or a filesystem root as an
      agent's folder would claim every session started there. */
-  const broad = new Set([await realpath(d.home || os.homedir())]);   // a filesystem root is caught per folder below
+  // The home Kosmos uses (AGENT_WORKFORCE_HOME, as store.js reads it) AND the account's own: either claims nothing (review 8).
+  const broad = new Set(await Promise.all([d.home || process.env.AGENT_WORKFORCE_HOME || os.homedir(), os.homedir()].map((h) => realpath(h))));   // a filesystem root is caught per folder below
   const reals = [];
   for (const dir of agentDirs) {
     if (typeof dir !== 'string' || !path.isAbsolute(dir)) continue;
@@ -427,7 +428,8 @@ async function worldUsageByModel(days, deps) {
       }
     }
   }
-  return { byDay, complete: others.complete !== false && !(claude.unreadable > 0) && !missingDir && !droppedParent };
+  // Fails closed (review 8): a provider result that does not SAY complete is not complete.
+  return { byDay, complete: others.complete === true && !(claude.unreadable > 0) && !missingDir && !droppedParent };
 }
 
 async function ensureUsageDir() {

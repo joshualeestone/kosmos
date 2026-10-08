@@ -87,3 +87,12 @@ sessions outside Kosmos. This branch adds the reader the rollup needs to send us
 - Docblock: the roster rule said once; dedup order is per root, then configRoots() order.
 - Declined: ENOENT between walk and read counts as unreadable (the safe direction: a false incomplete, never a short
   count passed as whole); folderModels on every scan (never serialized, small cost; an opt-in flag adds a second path).
+
+## Review 8
+- The home guard covers the home Kosmos uses (AGENT_WORKFORCE_HOME, as store.js reads it) and the account's own.
+  Pinned with a control (a non-home folder claims the same session); dropping the env home reddens it.
+- `complete` fails closed: a provider result that does not say `complete: true` is incomplete. The real scanProviders
+  always returns the boolean. Pinned; the old `!== false` reddens it.
+- Kept: ownership by exact launch folder (the residual stated since review 6; the rollup's consent words carry it).
+- Kept: the guard test's regex is an accident net, not a security boundary (a call whose first argument holds a `)`
+  is missed); stated here.

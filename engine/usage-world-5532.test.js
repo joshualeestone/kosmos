@@ -215,3 +215,20 @@ test('#5532 review 7: no file outside the tests passes worldUsageByModel a secon
   // engine/usage.js's own definition takes (days, deps); it is the one allowed.
   assert.deepEqual(bad.filter((b) => !b.startsWith('engine/usage.js: worldUsageByModel(days, deps)')), [], 'a caller passes deps, and could hand it a folder listing that sweeps in another Kosmos');
 });
+
+test('#5532 review 8: the home Kosmos uses (AGENT_WORKFORCE_HOME) claims nothing, with no home passed in', async () => {
+  const home = process.env.AGENT_WORKFORCE_HOME;
+  session('in-env-home', home, 'm-env-home', 'claude-env-home-session', 55);
+  await wholeBefore('the home folder was named as an agent folder');
+  // CONTROL: the same session IS claimed by a folder that is not a home, so the miss below is the guard.
+  const asOther = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [home], home: path.join(SANDBOX, 'not-a-home') }, NOPROV));
+  assert.ok((asOther.byDay[TODAY] || {})['claude-env-home-session'], 'CONTROL: the session in that folder was not read at all');
+  const w = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [home] }, NOPROV));
+  assert.equal((w.byDay[TODAY] || {})['claude-env-home-session'], undefined, 'the home Kosmos uses, as an agent folder, claimed the person\'s own session');
+});
+
+test('#5532 review 8: a provider result that does not say complete is not complete', async () => {
+  await wholeBefore('the provider answer lost its complete field');
+  const w = await usage.worldUsageByModel(1, { agentDirs: [AGENT], scanProviders: async () => ({ folderModels: {} }) });
+  assert.equal(w.complete, false, 'a provider result with no complete field was read as the whole count');
+});
