@@ -195,7 +195,8 @@ function applyPlan(dir, plan, revoke) {
 
 /* GET a loopback JSON route with node's http module, which never reads proxy settings (a fetch can be sent through a
    proxy by the environment, and the second call carries the board token: install/kosmos's rule #4466 is "never
-   through a proxy"). A redirect is not followed: it is an error, so the token's header cannot follow one. */
+   through a proxy"). The http module never follows a redirect, so the token's header cannot follow one; a redirect
+   answer is also turned into an error here, so it reads as one rather than as a missing roster. */
 function getJson(port, route, headers) {
   return new Promise((resolve, reject) => {
     const req = require('node:http').request({ host: '127.0.0.1', port, path: route, method: 'GET', headers: headers || {}, timeout: BOARD_TIMEOUT_MS }, (res) => {
