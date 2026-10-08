@@ -8,7 +8,7 @@
  *    TIME (the caller looks it up in E0.2's device history).
  *  - Every chunk goes through openVerifiedChunk, and every file is checked against the size and sha256 the
  *    manifest recorded at upload.
- *  - Paths are refused unless they are plain relative paths (see safeRel), and colliding entries (see
+ *  - Paths are refused unless they are plain relative paths (see pathProblem), and colliding entries (see
  *    collisionKey) are all refused, not first-wins.
  *  - Files stream through the sink one chunk at a time; a file is committed only after all of it verified, and
  *    aborted otherwise.
@@ -33,16 +33,24 @@ const WIN_RESERVED_RE = /^(con|prn|aux|nul|conin\$|conout\$|com[0-9¹²³]|lpt[0
 // The shape of an NTFS 8.3 short name (PROGRA~1, LONGFI~1.MD), which can name another entry's file.
 const SHORT_NAME_RE = /^[^.]{1,6}~[0-9]+(\.[^.]{1,3})?$/;
 const IGNORABLE_RE = /\p{Default_Ignorable_Code_Point}/gu;
-// A segment may not be empty or end in a dot or a space: that refuses '.' and '..' too, and the names Windows
-// silently trims to another file's name. Checked as written and with invisible characters dropped.
-const segmentOk = (x) => x !== '' && !/[. ]$/.test(x) && !WIN_RESERVED_RE.test(x) && !SHORT_NAME_RE.test(x);
+const UNSAFE = 'malformed entry or unsafe path';
+const NOT_PORTABLE = 'a name not every system accepts';
+// Segment rules, checked as written and with invisible characters dropped.
+const segmentUnsafe = (x) => x === '' || x === '.' || x === '..';
+// Names Windows refuses, or trims to another file's name: a trailing dot or space, device names, short names.
+const segmentNotPortable = (x) => /[. ]$/.test(x) || WIN_RESERVED_RE.test(x) || SHORT_NAME_RE.test(x);
 
-function safeRel(p) {
-  if (typeof p !== 'string' || !p || p.length > 4096 || !p.isWellFormed()) return false;  // a lone surrogate encodes as U+FFFD
-  // Control characters (C0, DEL, C1, line and paragraph separators), bidi controls and marks (they reorder how a
-  // name displays), and ':' (a drive or an NTFS stream).
-  if (/[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069:]/.test(p)) return false;
-  return p.split(/[\\/]/).every((x) => segmentOk(x) && segmentOk(x.replace(IGNORABLE_RE, '')));
+/* Why a manifest path cannot be restored, or null. UNSAFE: it could escape, alias or disguise another name.
+   NOT_PORTABLE: a name some systems cannot hold. The same rules apply on every destination, so a Mac restore also
+   refuses legal Mac names such as Icon\r (custom folder icons), aux.c or a name with ':'; each is reported. */
+function pathProblem(p) {
+  if (typeof p !== 'string' || !p || p.length > 4096 || !p.isWellFormed()) return UNSAFE;  // a lone surrogate encodes as U+FFFD
+  if (/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/.test(p)) return UNSAFE;  // bidi controls and marks reorder how a name displays
+  const segs = p.split(/[\\/]/).flatMap((x) => [x, x.replace(IGNORABLE_RE, '')]);
+  if (segs.some(segmentUnsafe)) return UNSAFE;
+  // Control characters (C0, DEL, C1, line and paragraph separators) and ':' (a drive or an NTFS stream).
+  if (/[\x00-\x1f\x7f-\x9f\u2028\u2029:]/.test(p) || segs.some(segmentNotPortable)) return NOT_PORTABLE;
+  return null;
 }
 
 /* The key two entries collide on: invisible characters dropped, NFC, lower-, upper- then lower-cased (so final sigma
@@ -51,10 +59,10 @@ function safeRel(p) {
    duties. */
 const collisionKey = (p) => toSinkPath(p).replace(IGNORABLE_RE, '')
   .normalize('NFC').toLowerCase().toUpperCase().toLowerCase().normalize('NFC');
-/* safeRel and collisionKey read '\' as a separator, so the sink is handed the same reading. */
+/* pathProblem and collisionKey read '\' as a separator, so the sink is handed the same reading. */
 const toSinkPath = (p) => p.replace(/\\/g, '/');
 /* A manifest path as reported back: bounded, since a refused entry's path is not length-checked. */
-const forReport = (p) => (p.length > 300 ? `${p.slice(0, 300)}...` : p);
+const forReport = (p) => (p.length > 300 ? `${p.slice(0, 300).replace(/[\ud800-\udbff]$/, '')}...` : p);
 
 /** Every manifest path that must not be restored because another entry collides with it (see collisionKey): the
  *  same key, or a key that is another's folder. A trie of key segments, so the cost is linear in the paths' length. */
@@ -82,13 +90,15 @@ function collidingPaths(entries) {
 
 /**
  * Restore one snapshot. Resolves to { restored: [path], failed: [{ path, why }] (the first 10000), failedNotListed
- * (how many more failed), skippedAtBackup: [...] }, or null
- * when the manifest itself does not verify and open (wrong device key for the time, wrong context, tampering), or
- * exceeds maxManifestObject bytes or maxFiles entries. maxTotalBytes is REQUIRED (the caller sets it from free disk) and caps the
+ * (how many more failed), skippedAtBackup: [...] }; or { overBound: 'maxManifestObject' | 'maxFiles' } when the
+ * manifest is larger than the caller allowed (raise the bound and retry; the object-size bound is checked before the
+ * signature, so it says nothing about authenticity); or null
+ * when the manifest itself does not verify and open (wrong device key for the time, wrong context, tampering). maxTotalBytes is REQUIRED (the caller sets it from free disk) and caps the
  * bytes committed: a file that would pass it fails before anything is fetched. Every fetched object's bytes count
  * against twice that, plus 8 KiB for each entry that is tried (sealing overhead), whether or not it verifies; and
  * one object may be at most twice its file's recorded size plus 8 KiB. So a hostile store or files that fail late
- * cost at most 2 x maxTotalBytes + 8 KiB x maxFiles (4 GiB at the default maxFiles) of download.
+ * cost at most 2 x maxTotalBytes + 8 KiB x maxFiles (4 GiB at the default maxFiles) of download, with a fetch that
+ * honours maxBytes (one that does not can overdraw by one object).
  *
  *   fetchChunk(name, { maxBytes }) -> Buffer, Uint8Array or ArrayBuffer | null, or a promise of one (null: the chunk is not
  *     stored). It should refuse to download more than maxBytes; restore refuses a larger object before decrypting it.
@@ -123,17 +133,21 @@ async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, 
     if (!Number.isSafeInteger(v) || v < 0) throw new Error(`backuprestore: ${k} must be a non-negative integer`);
   }
   const mo = toBuffer(manifestObject);
-  if (mo.length > maxManifestObject) return null;
+  if (mo.length > maxManifestObject) return { overBound: 'maxManifestObject' };
   const manifest = openManifest(memberSk, devicePubAtSnapshot, ctx, mo);
-  if (!manifest || !Array.isArray(manifest.files) || manifest.files.length > maxFiles) return null;
+  if (!manifest || !Array.isArray(manifest.files)) return null;
+  if (manifest.files.length > maxFiles) return { overBound: 'maxFiles' };
   const restored = [], failed = [];
   const wellFormed = [];
   for (const f of manifest.files) {
+    const shown = f && typeof f.path === 'string' ? forReport(f.path) : '(unnamed)';
+    const problem = f ? pathProblem(f.path) : UNSAFE;
     // Every chunk holds at least one byte, so a file has no more chunks than bytes.
-    if (!f || !safeRel(f.path) || !Array.isArray(f.chunks) || typeof f.sha256 !== 'string' || !SHA256_RE.test(f.sha256) || !Number.isSafeInteger(f.size) || f.size < 0
-      || f.chunks.length > f.size) {
-      failed.push({ path: f && typeof f.path === 'string' ? forReport(f.path) : '(unnamed)', why: 'malformed entry or unsafe path' });
-    } else wellFormed.push(f);
+    if (problem === UNSAFE || !Array.isArray(f.chunks) || typeof f.sha256 !== 'string' || !SHA256_RE.test(f.sha256) || !Number.isSafeInteger(f.size) || f.size < 0
+      || f.chunks.length > f.size) failed.push({ path: shown, why: UNSAFE });
+    else if (problem) failed.push({ path: shown, why: problem });
+    else if (!f.chunks.every((n) => typeof n === 'string' && CHUNK_NAME_RE.test(n))) failed.push({ path: shown, why: 'a chunk name is malformed' });
+    else wellFormed.push(f);
   }
   const clash = collidingPaths(wellFormed);
   // Two budgets: bytes committed (maxTotalBytes), and bytes FETCHED whether or not they verify or their file commits
@@ -155,7 +169,6 @@ async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, 
 
 /* One file: null when committed, otherwise why it was not. Never leaves a file committed that did not verify. */
 async function restoreFile(f, { memberSk, namingKey, fetchChunk, sink, maxChunkObject, work }) {
-  if (!f.chunks.every((n) => typeof n === 'string' && CHUNK_NAME_RE.test(n))) return 'a chunk name is malformed';
   let out = null;
   try {
     out = await sink.begin(toSinkPath(f.path));

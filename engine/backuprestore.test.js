@@ -78,9 +78,9 @@ test('#5536 restore refuses: another device key, another context, another member
   assert.equal(await go({ devicePubAtSnapshot: k.dev2.publicKey }), null, 'a device key not enrolled at the snapshot time');
   assert.equal(await go({ ctx: { ...k.ctx, member: 'someone-else' } }), null, 'replayed into another member');
   assert.equal(await go({ memberSk: k.other.sk }), null, 'another member\'s key reads nothing');
-  assert.equal(await go({ maxManifestObject: k.manifestObject.length - 1 }), null, 'a manifest object over the bound is not opened');
+  assert.deepEqual(await go({ maxManifestObject: k.manifestObject.length - 1 }), { overBound: 'maxManifestObject' }, 'a manifest object over the bound is not opened, and is not called tampering');
   assert.ok(await go({ maxManifestObject: k.manifestObject.length, maxFiles: 1 }), 'CONTROL: exactly at both bounds opens');
-  assert.equal(await go({ maxFiles: 0 }), null, 'a manifest listing more files than the bound is refused');
+  assert.deepEqual(await go({ maxFiles: 0 }), { overBound: 'maxFiles' }, 'a manifest listing more files than the bound is refused, and is not called tampering');
 });
 
 test('#5536 per file, fail closed: a missing, foreign, swapped or unfetchable chunk fails that file only, aborted never committed', async () => {
@@ -117,14 +117,18 @@ test('#5536 a sink that fails to write aborts the file and does not commit it', 
 });
 
 test('#5536 unsafe paths are refused before anything is fetched (control: a plain path restores)', async () => {
-  const bad = ['../escape.md', '..\\escape.md', 'a/../../b', '/etc/x', '\\\\server\\share', 'C:/x', 'a/C:/x', 'file.txt:ads', 'a//b', '.', 'a/./b',
-    'nul\0.md', 'tab\there', 'lone\ud800.md', 'nel\u0085.md', 'line\u2028sep.md', 'exe\u202etxt.md', 'ok2\u200f.md', 'x\u061c.md', '..\u200b', '.\u200c/x', '\u200b', 'a/\u3164', 'x\ufeff./y', 'nul .txt', 'CON .md', 'LONGFI~1.MD', 'PROGRA~1/x', 'conin$', 'COM\u00b9.txt', 'lpt\u00b2', 'CON', 'nul.txt', 'a/com1.log', 'trailing.', 'trailing ', ' ..', ''];
+  const unsafe = ['../escape.md', '..\\escape.md', 'a/../../b', '/etc/x', '\\\\server\\share', 'a//b', '.', 'a/./b', 'lone\ud800.md',
+    'exe\u202etxt.md', 'ok2\u200f.md', 'x\u061c.md', '..\u200b', '.\u200c/x', '\u200b', 'a/\u3164', ''];
+  const notPortable = ['C:/x', 'a/C:/x', 'file.txt:ads', 'nul\0.md', 'tab\there', 'Icon\r', 'nel\u0085.md', 'line\u2028sep.md', 'x\ufeff./y',
+    'nul .txt', 'CON .md', 'LONGFI~1.MD', 'PROGRA~1/x', 'conin$', 'COM\u00b9.txt', 'lpt\u00b2', 'CON', 'nul.txt', 'a/com1.log', 'aux.c', 'trailing.', 'trailing ', ' ..'];
+  const bad = [...unsafe, ...notPortable];
   const { run, fetched } = handMade((entry) => [...bad.map((p) => entry(p)), entry('ok.md'), entry('.hidden/fine.md'), entry('family\u{1f469}\u200d\u{1f467}.md'), entry('heart\u2764\ufe0f.md'), entry('notes~draft.md'), entry('backup~1.tar.gz')]);
   const { r, sink } = await run();
   assert.deepEqual(r.restored, ['ok.md', '.hidden/fine.md', 'family\u{1f469}\u200d\u{1f467}.md', 'heart\u2764\ufe0f.md', 'notes~draft.md', 'backup~1.tar.gz'],
     'CONTROL: plain relative paths restore, emoji names with a joiner or a variation selector, and a ~ that is not a short name');
   assert.deepEqual(r.failed.map((f) => f.path), bad);
-  assert.ok(r.failed.every((f) => f.why === 'malformed entry or unsafe path'));
+  assert.deepEqual(r.failed.filter((f) => f.why === 'malformed entry or unsafe path').map((f) => f.path), unsafe, 'could escape, alias or disguise a name');
+  assert.deepEqual(r.failed.filter((f) => f.why === 'a name not every system accepts').map((f) => f.path), notPortable, 'refused everywhere, reported as a portability loss, not as tampering');
   assert.equal(sink.calls.filter((c) => c.startsWith('begin')).length, 6, 'no sink is opened for a refused path');
   assert.equal(fetched.length, 6, 'nothing is fetched for a refused path');
 });
@@ -224,6 +228,10 @@ test('#5536 the sink is handed / separators; an empty file restores; a refused l
   assert.equal(sink.committed.get('empty.md').length, 0);
   assert.equal(r.failed.length, 1);
   assert.equal(r.failed[0].path, `${'z'.repeat(300)}...`);
+  const { run: run2 } = handMade((entry) => [entry(`${'a'.repeat(299)}\u{1F600}/../x`)]);
+  const { r: r2 } = await run2();
+  assert.ok(r2.failed[0].path.isWellFormed(), 'truncation never splits a surrogate pair');
+  assert.equal(r2.failed[0].path, `${'a'.repeat(299)}...`);
 });
 
 test('#5536 an empty chunk is refused, and a deep manifest is checked for collisions in linear time', async () => {
@@ -317,7 +325,7 @@ test('#5536 the failed list is capped at 10000, with a count of the rest; an obj
   assert.equal(r.failed.length, 10000);
   assert.equal(r.failedNotListed, 5);
   assert.deepEqual(r.restored, ['a.md'], 'CONTROL');
-  const tiny = handMade((entry) => [entry('t.md', { size: 1, chunks: [entry('x').chunks[0]] })]);
+  const tiny = handMade((entry, name) => [entry('t.md', { size: 1, chunks: [name] })]);
   const big = Buffer.alloc(2 + 8192 + 1);
   const { r: rt } = await tiny.run(memorySink(), { fetchChunk: () => big });
   assert.equal(rt.failed[0].why, 'a chunk is larger than any real chunk', 'a 1-byte file cannot draw an object over 8194 bytes');
