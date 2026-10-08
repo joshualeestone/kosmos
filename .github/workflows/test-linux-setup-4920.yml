@@ -12,18 +12,10 @@
 name: linux-setup
 
 on:
-  # #5519 stopgap: each run's two boards count as installs, so pull requests run this only when they change a path
-  # below; otherwise run it by hand. What it does and does not cover: the cipathstop-5519 plan (kosmos#5519). Remove
-  # the filter once #5519 lands.
+  # #5519 landed here: this job's boards send their install ping to a dead local address (see the environment step), so
+  # it no longer counts as installs and runs on every pull request again (the #5526 paths filter is removed).
   pull_request:
-    paths:
-      - 'install/**'
-      - 'tools/test-installer-runnable-guard.sh'
-      - 'tools/test-plist-heredoc-clean.sh'
-      - 'tools/test-install-static*.sh'
-      - 'tools/lib/install-static-checks.sh'
-      - 'tools/test-install.sh'
-      - '.github/workflows/test-linux-setup-4920.yml'
+  # Run by hand on a branch (gh workflow run test-linux-setup-4920.yml --ref <branch>) without opening a PR.
   workflow_dispatch:
 
 permissions:
