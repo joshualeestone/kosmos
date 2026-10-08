@@ -163,3 +163,13 @@ company, and `thisComputer` cannot tell them apart.
 - FIXED: the header says the bare print function is exported only under a tests-only name; the todo names printFor.
 - DOCUMENTED (decided): the raw id lives in a module variable for the process lifetime; after giving up, the reader
   still tries once a minute, so a recovered reader is noticed.
+
+## Review 14 (blind, sonnet)
+- FIXED (from my reviews 11 and 13): the guard's loose words are anchored to how a read is made (a quoted or
+  path-ended `ioreg`, `ioreg -x`, a call of parseIoreg or gethostuuid or IORegistryEntryCreateCFProperty,
+  `.identifierForVendor`, `Secure.ANDROID_ID`), so a comment that merely mentions them in another lane's file does not
+  redden the suite. Measured both ways: a planted mention passes, a planted ioreg invocation fails.
+- DOCUMENTED: one enrollment can see 'none' and later a print (the reader recovered); an enroll with no print pins
+  nothing, so the later print cannot mismatch.
+- FIXED: the ioreg dump (which also holds the serial number) is dropped as soon as it is read.
+- DUPLICATE: the never-log rule is prose until a caller lands (pinned test.todo, on #5532).

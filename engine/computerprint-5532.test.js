@@ -95,7 +95,7 @@ test('#5532 v1.5: no file but computerprint.js uses a known spelling of a raw ha
   /* The spellings covered (review 3 listed the ones an earlier version missed): ioreg's keys, system_profiler's hardware
      page, sysctl's kern.uuid, WMI's computer-system product, Linux's machine-id, and the Windows registry key, whole or
      split into arguments. A read by another spelling is not caught: this is a guard on the known ways, not a proof. */
-  const READ = /IOPlatformUUID|IOPlatformExpertDevice|IOPlatformSerialNumber|MachineGuid|Microsoft\\+Cryptography|SPHardwareDataType|Hardware UUID:|kern\.uuid|Win32_ComputerSystemProduct|wmic\s+csproduct|\/etc\/machine-id|\bioreg\b|parseIoreg|gethostuuid|IORegistryEntryCreateCFProperty|kIOPlatformUUIDKey|identifierForVendor|ANDROID_ID|['"]Cryptography['"]/;
+  const READ = /IOPlatformUUID|IOPlatformExpertDevice|IOPlatformSerialNumber|MachineGuid|Microsoft\\+Cryptography|SPHardwareDataType|Hardware UUID:|kern\.uuid|Win32_ComputerSystemProduct|wmic\s+csproduct|\/etc\/machine-id|['"\/]ioreg['"]|\bioreg\s+-[a-zA-Z]|parseIoreg\s*\(|gethostuuid\s*\(|IORegistryEntryCreateCFProperty\s*\(|kIOPlatformUUIDKey|\.identifierForVendor\b|Secure\.ANDROID_ID|['"]Cryptography['"]/;
   const hits = [];
   const swaps = [];
   for (const f of files) {

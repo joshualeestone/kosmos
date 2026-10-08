@@ -36,7 +36,9 @@
  *
  * In memory: the raw id is kept in a module variable for the life of the board process once read (a heap snapshot or a
  * core dump would hold it), and a dump that failed to parse is dropped at once. Nothing writes either anywhere.
- * After GIVE_UP_AFTER the reader still tries once a minute (decided, review 13): a reader that recovers is noticed.
+ * After GIVE_UP_AFTER the reader still tries once a minute (decided, review 13): a reader that recovers is noticed. So
+ * one enrollment can see 'none' and later a print (review 14). That is expected: an enroll with no print pins nothing
+ * (the coordinator confirmed), so the later print cannot mismatch; enrolling again with the print pins it.
  *
  * The print does not rotate within one company: a computer that leaves and joins again, or is handed to someone else,
  * is recognisable to that company and to the coordinator for as long as that account's salt lives (review 11).
@@ -107,6 +109,7 @@ function hardwareId() {
   /* "No id here" only when ioreg answered WITH its hardware block and that block has no UUID key at all (review 9):
      a truncated or garbled answer is a failed read to retry, never a reason to send without a print. */
   const blockWithoutId = ran && /^\+-o .*<class IOPlatformExpertDevice\b/m.test(out) && !/"IOPlatformUUID"\s*=/.test(out);   // the block's own header line
+  out = '';   // the dump also holds the serial number: drop it as soon as it has been read (review 14)
   noIdStreak = blockWithoutId ? noIdStreak + 1 : 0;
   noIdHere = noIdStreak >= 2;   // the same answer twice, a minute apart: a lasting "no id", not a dump cut short
   return null;
