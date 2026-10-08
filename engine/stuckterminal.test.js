@@ -53,9 +53,38 @@ test('#5154-C: read advances the on-disk clock while stuck, and peek reads it wi
   assert.equal(st.read(k, 'auth_failed', t0 + AUTH - 1).stuck, false, 'under threshold: not stuck');
   assert.equal(st.read(k, 'auth_failed', t0 + AUTH).stuck, true, 'at threshold: stuck');
   // peek sees the same anchor (sinceAt stayed t0) without moving it.
-  const p = st.peek(k, t0 + AUTH + 60_000);
+  const p = st.peek(k, 'auth_failed', t0 + AUTH + 60_000);
   assert.equal(p.stuck, true); assert.equal(p.sinceAt, t0, 'the anchor stayed at first-seen');
   assert.equal(st.readAnchor(k).sinceAt, t0, 'persisted on disk');
+});
+
+test('#5154-C review 4 (W2): peek returns not-stuck unless the anchor matches the CURRENT state', () => {
+  const k = 'switch'; const t0 = 20_000_000;
+  st.read(k, 'rate_limited', t0);
+  // 40m later the anchor would be "stuck" on rate_limited, but the agent is NOW auth_failed (a switch
+  // between sweeps). peek(auth_failed) must NOT report the stale rate_limited stuck state.
+  const p = st.peek(k, 'auth_failed', t0 + RATE);
+  assert.deepEqual(p, { stuck: false, state: null, sinceAt: null, forMs: 0 }, 'no stale state on a mid-sweep switch');
+  assert.equal(st.peek(k, 'rate_limited', t0 + RATE).stuck, true, 'peek still reports it for the matching state');
+  assert.equal(st.peek(k, 'working', t0 + RATE).stuck, false, 'and not for a non-terminal state');
+});
+
+test('#5154-C review 4 (W3): clearAll wipes every anchor (a restart re-anchors from the live state)', () => {
+  st.read('ca1', 'auth_failed', 21_000_000);
+  st.read('ca2', 'rate_limited', 21_000_000);
+  assert.ok(st.keys().length >= 2);
+  st.clearAll();
+  assert.deepEqual(st.keys(), [], 'all anchors gone after clearAll');
+});
+
+test('#5154-C review 4 (W1): tellStuck prunes the TOLD mark of a departed agent, so a return re-pushes', () => {
+  const told = new Set(); const t0 = 22_000_000;
+  const rows = [{ key: 'tp', state: 'auth_failed', shown: 'T' }];
+  sweepOnce(told, rows, t0);
+  sweepOnce(told, rows, t0 + AUTH);   // now stuck + told
+  assert.ok(told.has('tp'), 'told while stuck');
+  sweepOnce(told, [{ key: 'z', state: 'working', shown: 'Z' }], t0 + AUTH + 1);   // tp left the roster (good roster)
+  assert.equal(told.has('tp'), false, 'told-mark pruned when the agent left');
 });
 
 test('#5154-C: recovery clears the on-disk anchor and never fires again', () => {

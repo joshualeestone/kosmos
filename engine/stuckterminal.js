@@ -114,10 +114,23 @@ function read(key, state, now) {
   return assess(next, now);
 }
 
-/* READ-ONLY: the current assessment without advancing the clock. /api/status calls this every poll. */
-function peek(key, now) {
+/* READ-ONLY: the current assessment without advancing the clock, but ONLY if the stored anchor matches the
+   agent's CURRENT state. /api/status (every 5s) passes the live state, so a just-switched (rate_limited ->
+   auth_failed) or just-recovered agent stops showing the stale state's sentence/clock at once, rather than
+   waiting up to a 60s sweep to rewrite the anchor. Never advances the clock. */
+function peek(key, state, now) {
   if (now === undefined) now = Date.now();
-  return assess(readAnchor(key), now);
+  const a = readAnchor(key);
+  if (!a || a.state !== state) return { stuck: false, state: null, sinceAt: null, forMs: 0 };
+  return assess(a, now);
+}
+
+/* Wipe every anchor. Called once at board boot so a RESTART re-anchors from the live state (the plan's
+   intended property): the anchor is a derived clock, not ground truth, so a board that was down must not
+   judge an agent stuck on a clock from before the downtime. Never throws. */
+function clearAll() {
+  try { for (const f of fs.readdirSync(dir())) { try { fs.unlinkSync(path.join(dir(), f)); } catch { /* already gone */ } } }
+  catch { /* no dir yet: nothing to clear */ }
 }
 
 /* Drop an agent's anchor (a removed/recreated agent never inherits an old episode -- as crashloop.forget).
@@ -139,9 +152,13 @@ function keys() {
  *   - now: the clock.
  *   - tell(key, assessment, shown): the side effect (log + phone push). Called at most ONCE per episode.
  * Behaviour: advance/clear each agent's stored anchor; tell once when it first crosses the threshold;
- * clear the told-mark the moment it recovers, so a later episode tells again. Lifecycle cleanup of a
- * removed agent is `forget` (called from create/remove/delete), not a roster prune here -- so a failed
- * roster read (empty `rows`) never wipes a genuinely-stuck agent's clock.
+ * clear the told-mark the moment it recovers, so a later episode tells again. Then, because the caller
+ * invokes this ONLY on a GOOD roster (it skips on roster === null), prune the anchor AND the told-mark of
+ * any agent no longer in `rows`: an agent that LEFT the roster without a remove event (a world closed, a
+ * pause, a dead session) must not return later in the same terminal state and be judged stuck on its old
+ * clock. forget-on-create/remove/delete covers an explicit removal; this covers the rest. A genuinely
+ * empty roster correctly prunes everything (no agents, no anchors); a FAILED read is null and never reaches
+ * here, so a transient enumerate failure never wipes a genuinely-stuck clock.
  */
 function tellStuck({ rows, told, now, tell }) {
   if (now === undefined) now = Date.now();
@@ -163,6 +180,9 @@ function tellStuck({ rows, told, now, tell }) {
   // clock (the chief risk). forget-on-remove covers an explicit removal; this covers the rest. Safe
   // because it runs only on a good roster; a transient enumerate failure never reaches here to wipe a clock.
   for (const dk of keys()) if (!liveSafe.has(dk)) { try { fs.unlinkSync(path.join(dir(), dk + '.json')); } catch { /* already gone */ } }
+  // Prune the told-mark too, or a departed-then-returned agent's new episode never re-pushes (its key
+  // stays in told) and the Set grows without bound. told is keyed by sessionName; compare via safeKey.
+  for (const tk of Array.from(told)) if (!liveSafe.has(store.safeKey(tk))) told.delete(tk);
 }
 
-module.exports = { TERMINAL_STATES, STUCK_MS, isTerminal, dir, fileFor, readAnchor, writeAnchor, nextAnchor, sameAnchor, assess, read, peek, forget, keys, tellStuck };
+module.exports = { TERMINAL_STATES, STUCK_MS, isTerminal, dir, fileFor, readAnchor, writeAnchor, nextAnchor, sameAnchor, assess, read, peek, forget, keys, clearAll, tellStuck };
