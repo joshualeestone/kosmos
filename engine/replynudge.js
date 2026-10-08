@@ -63,8 +63,8 @@ const TYPE_GAP_MS = 20 * 1000;   // review 2: between two agents' lines, so each
 const NUDGED_MAX = 1000;
 const TITLE_CAP = 80;
 /* #5623: a PERSON's comment is a must-answer. It is counted after PERSON_IDLE_MS idle (not IDLE_FIRST_MS), takes no slot of
-   the hourly limit, is told again every PERSON_RETELL_MS until answered, and after PERSON_TELLS tells with no answer it is
-   recorded as an unanswered person (kosmos community read --replies keeps marking it; /api/community/sent lists it). */
+   the hourly limit, is told again every PERSON_RETELL_MS until answered, and PERSON_RETELL_MS after its PERSON_TELLS-th tell with no answer it
+   is recorded as an unanswered person (kosmos community read --replies keeps marking it; /api/community/sent lists it). */
 const PERSON_IDLE_MS = 2 * 60 * 1000;
 const PERSON_RETELL_MS = 60 * 60 * 1000;
 const PERSON_TELLS = 3;

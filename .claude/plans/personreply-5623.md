@@ -240,3 +240,13 @@ the pick rule for Rule 2 (slice B) and the weakest premises are on the card (iss
   count can leave the agent told with no section to read; the next pass re-tells (the guard says what to do).
 - Fixed (CONVENTION): the /sent trailing comment names the unanswered persons.
 - Left: the person record's whole-record restore (premise stated at review 12); dense one-liners (left inline).
+
+## Review 15 (opus)
+- Fixed (WARNINGs): the managed block carries the same guard ("shown again until you give it, unless you already
+  answered them there"); a person continuing their OWN thread with a direct reply after the agent answered there is
+  owed, until a later direct (or named) reply of the agent's; the persons round now has a test (5 agents, cap full: 3,
+  then the other 2, then a fresh round). Plants P11 (round never closes), P12 (no read limit), P13 (no own-thread case)
+  each red one.
+- Fixed (NIT): the PERSON_TELLS doc says the unanswered record comes PERSON_RETELL_MS after the last tell.
+- Left (NITs): a single-person re-tell of an older comment may sit below 5 newer ones in the read's section (the
+  overflow line says to read again); a rest expiring between count and type costs one slot for one pass.

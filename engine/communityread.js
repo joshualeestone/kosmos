@@ -495,8 +495,13 @@ function personOwed(comments, me, answered) {
       // Review 2: addressed to the agent (reply_to names it) in ANY thread, or a reply under the agent's own comment.
       // Review 4: under the agent's own comment, unless it names someone else it answers.
       const toMe = r.replyToKey === me || (c.nameKey === me && !r.replyToKey);
-      if (!toMe) continue;
-      if (!laterMine(r)) out.push({ x: r, parent: c.id }); else if (done) done.push(r.id);
+      /* Review 15: a person continuing their OWN thread (a direct reply, no reply-to) after the agent answered there is
+         talking to the agent too; a later direct reply of the agent's in that thread answers it, as a named one does. */
+      const at = replies.indexOf(r);
+      const ownThread = !toMe && c.person && Boolean(c.nameKey) && r.nameKey === c.nameKey && !r.replyToKey && replies.slice(0, at).some(mine);
+      if (!toMe && !ownThread) continue;
+      const laterDirect = ownThread && replies.some((o, i) => i > at && mine(o) && !o.replyToKey);
+      if (!laterMine(r) && !laterDirect) out.push({ x: r, parent: c.id }); else if (done) done.push(r.id);
     }
   }
   return out;

@@ -22,7 +22,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 const rn = require('./replynudge');
 const cr = require('./communityread');
 const fleet = require('../test-support/fleet');
-const BOARD = fleet.install(['kim', 'ann'].map((n) => fleet.agent(n, { state: 'idle' })));
+const BOARD = fleet.install(['kim', 'ann', 'bo', 'cy', 'di'].map((n) => fleet.agent(n, { state: 'idle' })));
 test.after(() => BOARD.restore());
 
 const D = { PLACED: 'placed', UNCONFIRMED: 'unconfirmed', COULD_NOT: 'could_not' };
@@ -243,4 +243,31 @@ test('#5623 review 13: the person line\'s rest survives the regular line, and a 
   o.deliver = (s, text) => { typed.push(text); return { state: D.COULD_NOT, busy: true }; };
   await rn.sweepOnce(o);
   assert.equal(o.book.get('kim').personGivenAt, given, 'a busy pane on the retry restarted the rest');
+});
+
+test('#5623 review 15: a person continuing their own answered thread with a direct reply is owed, until a later direct answer', () => {
+  const top = cm(PC, 'Dana', 10, { person: true, replies: [cm('k1', 'Kim', 20), cm('p2', 'Dana', 30, { person: true })] });
+  assert.deepEqual(cr.personOwed([top], 'kim').map((o) => o.x.id), ['p2'], 'her follow-up after the agent answered was not owed');
+  top.replies.push(cm('k2', 'Kim', 40));
+  assert.deepEqual(cr.personOwed([top], 'kim'), [], 'a later direct answer did not count');
+  const before = cm(PC, 'Dana', 10, { person: true, replies: [cm('p2', 'Dana', 15, { person: true }), cm('b1', 'Bo', 20)] });
+  assert.deepEqual(cr.personOwed([before], 'kim').map((o) => o.x.id), [PC], 'a follow-up before the agent ever answered was owed twice');
+});
+
+test('#5623 review 15: past a full cap, persons-only reads take a round of 3 a pass and close it at the end of the roster', async () => {
+  const names = ['kim', 'ann', 'bo', 'cy', 'di'];
+  const reads = [];
+  const rotation = {};
+  const { o } = rig({ roster: names.map(card), rotation, limit: { on: true, perHour: 1 }, sent: [Date.now()],
+    fresh: async (s) => { reads.push(s); return { ok: true, posts: [], persons: [] }; } });
+  await rn.sweepOnce(o);
+  const p1 = reads.splice(0);
+  await rn.sweepOnce(o);
+  const p2 = reads.splice(0);
+  await rn.sweepOnce(o);
+  const p3 = reads.splice(0);
+  assert.equal(p1.length, 3, 'pass 1 read ' + p1.length + ' past the cap');
+  assert.equal(new Set(p1.concat(p2)).size, p1.length + p2.length, 'pass 2 re-read an agent of this round: ' + p2);
+  assert.equal(p2.length, 2, 'pass 2 did not read the rest of the roster: ' + p2);
+  assert.deepEqual(p3, p1, 'the round did not close at the end of the roster, so pass 3 did not start a fresh one');
 });
