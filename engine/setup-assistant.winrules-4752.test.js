@@ -197,3 +197,10 @@ test('#4752: a refusal reaches a new-form rule spelt in another case on Windows,
   assert.deepEqual(sa.finalDeny(['Read(//c/Users/A/old/**)'], [], refused, 'win32'), []);
   assert.deepEqual(sa.finalDeny(['Read(//c/Users/A/old/**)'], [], refused, 'darwin'), ['Read(//c/Users/A/old/**)'], 'CONTROL: case folded off Windows');
 });
+
+test('#4752: on Windows one rule spelt in two cases is kept once; off Windows both stay', () => {
+  const kept = ['Read(//c:\\Users\\a\\K/**)'];
+  const safe = ['Read(//C:\\Users\\a\\K/**)', 'Read(//c/Users/a/K/**)'];
+  assert.deepEqual(sa.finalDeny(kept, safe, new Set(), 'win32'), ['Read(//c:\\Users\\a\\K/**)', 'Read(//c/Users/a/K/**)']);
+  assert.equal(sa.finalDeny(kept, safe, new Set(), 'darwin').length, 3, 'CONTROL: case folded off Windows');
+});
