@@ -108,15 +108,14 @@ path in deploy-site.sh transient-aware is wider than this card.
 
 ## One-time setup on Mortals (before the site workflow merges)
 
-    git clone --reference ~/work/chaoskosmos-site <site remote> ~/work/chaoskosmos-site-autodeploy
+    git clone <site remote> ~/work/chaoskosmos-site-autodeploy
     cp -R ~/work/chaoskosmos-site/.vercel ~/work/chaoskosmos-site-autodeploy/
 
-Not `--dissociate` (a round-1 suggestion I first took): it repacks the new clone, and repacking this
-repo's 2.7 GB of gzipped tarball blobs ran 6 to 16 minutes at load 20+ on 2026-08-25 and reclaimed
-nothing. The borrowed objects mean ~/work/chaoskosmos-site must never be gc'd or repacked, which was
-already the rule for it.
-
-The workflow creates the agent-workforce tools worktree itself on its first run.
+A plain, self-contained clone (about 40 s and 2.8 GB on Mortals, done 2026-10-08). Corrected on
+redonce-5589: this section first said `git clone --reference`, borrowing the cut checkout's objects.
+That was rejected in the site workflow's review: a borrowing clone can depend on objects the other
+checkout holds only through a feature branch, which a gc there may prune. The workflow makes its own
+shallow tools clone on its first run (not a worktree; the site repo's plan has why).
 
 ## Validation
 
