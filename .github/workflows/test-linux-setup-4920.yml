@@ -12,8 +12,9 @@ name: linux-setup
 
 on:
   # #5519 stopgap: each run installs a real board whose install beacon counts on the live counter, so pull requests
-  # run this only when they change a file listed below (the installer, the files this job's guards read, the Linux
-  # board modules, this file). Anything else: run it by hand. Remove the filter once #5519 lands.
+  # run this only when they change the installer, the files this job's guards read, or this file. It installs the
+  # PUBLISHED release, so a new release is not checked automatically either: run it by hand after a cut, and for any
+  # other change that could break a Linux install. Remove the filter once #5519 lands.
   pull_request:
     paths:
       - 'install/**'
@@ -22,8 +23,6 @@ on:
       - 'tools/test-install-static*.sh'
       - 'tools/lib/install-static-checks.sh'
       - 'tools/test-install.sh'
-      - 'engine/linuxboard.js'
-      - 'engine/linuxjob.js'
       - '.github/workflows/test-linux-setup-4920.yml'
   workflow_dispatch:
 
