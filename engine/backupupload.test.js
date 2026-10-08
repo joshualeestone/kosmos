@@ -117,6 +117,7 @@ test('a grant that does not bind OUR bytes, or does not name its key, is refused
     ['one upload short', (d) => { d.uploads.pop(); }, 'one upload per chunk'],
     ['a repeated key', (d) => { d.uploads[1].key = d.uploads[0].key; }, 'repeats a key'],
     ['no expiry', (d) => { delete d.expires_at; }, 'expires_at'],
+    ['a url that lasts under a minute', (d) => { d.uploads[0].url = d.uploads[0].url.replace('X-Amz-Expires=900', 'X-Amz-Expires=30'); }, 'under a minute'],
     // Every upload under the same TWO segments: one prefix (so the one-path check passes), but not the key under one
     // bucket segment, so the map would record a key that is not the stored object's.
     ['every url two segments above its key', (d) => { for (const u of d.uploads) u.url = u.url.replace('/bucket/', '/bucket/extra/'); }, 'bucket segment'],
@@ -453,13 +454,26 @@ test('a refusal stops the run and still names the chunks that met trouble on the
   } finally { await b.close(); }
 });
 
-test('an S3 error body is read only up to 8 KB', async () => {
-  const b = await bucket();
+test('an S3 error body is read only up to 8 KB: a body that never ends still gives an answer at once', async () => {
+  // This server sends an error code, then body bytes forever. Only a bounded read returns with the code.
+  const srv = http.createServer((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(400);
+      res.write('<Error><Code>BadDigest</Code></Error>');
+      const t = setInterval(() => { if (!res.write('x'.repeat(4096))) { /* backpressure: keep trying */ } }, 1);
+      res.on('close', () => clearInterval(t));
+    });
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
   try {
-    b.script.set(keyN(1), [[400, '<Error><Code>BadDigest</Code></Error>' + 'x'.repeat(2 * 1024 * 1024)]]);
-    const r = await up.uploadChunks(deps(coordinator(b)), [chunk(1)]);
-    assert.strictEqual(r.ok, false); assert.match(r.because, /HTTP 400 BadDigest/);
-  } finally { await b.close(); }
+    let t = Date.now();
+    const ck = { now: () => t, sleep: async () => { t += 10 * 60 * 1000; } };   // a retry would run the grant out at once
+    const c = coordinator({ base: `http://127.0.0.1:${srv.address().port}` });
+    const r = await up.uploadChunks(deps(c, ck), [chunk(1)], { putTimeoutMs: 300 });
+    assert.strictEqual(r.ok, false);
+    assert.match(r.because, /HTTP 400 BadDigest/, `the body was not read in bounded time: ${r.because}`);
+  } finally { srv.closeAllConnections(); await new Promise((r) => srv.close(r)); }
 });
 
 test('S3 400 RequestTimeout and IncompleteBody are retried on the same url (nothing was committed); 501 is refused', async () => {
@@ -659,6 +673,18 @@ test('a 412 after only pre-connect failures, or after S3 said it committed nothi
       assert.strictEqual(r.keys.size, 0, what);
     } finally { await b.close(); }
   }
+});
+
+test('every grant of a run must name the first grant\'s bucket', async () => {
+  const b = await bucket();
+  try {
+    let calls = 0;
+    const c = coordinator(b, { tamper: (d) => { if (++calls === 2) for (const u of d.uploads) u.url = u.url.replace('/bucket/', '/bucket2/'); } });
+    b.script.set(keyN(1), [[403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>']]);
+    const r = await up.uploadChunks(deps(c), [chunk(1)]);
+    assert.strictEqual(r.ok, false); assert.match(r.because, /another bucket/);
+    assert.strictEqual(b.puts, 1);
+  } finally { await b.close(); }
 });
 
 test('never throws: a throwing injected clock still resolves to ok: false', async () => {

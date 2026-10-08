@@ -121,7 +121,7 @@ function expiryMs(v) {
    { ok: false, because }. Every upload must bind exactly the bytes we asked to write. `seenKeys` (optional) holds
    every key granted earlier in this run: a grant repeating one is refused, since the 412-on-retry rule rests on keys
    being unique across the run, not only within one grant. */
-function parseGrant(data, objects, seenKeys) {
+function parseGrant(data, objects, seenKeys, runBucket) {
   const allowHttp = httpForTests;
   if (!data || typeof data !== 'object') return { ok: false, because: 'the grant answer is not an object' };
   const expiresAtMs = expiryMs(data.expires_at);
@@ -158,6 +158,7 @@ function parseGrant(data, objects, seenKeys) {
     if (virtualHosted && pre !== '/') return { ok: false, because: `upload ${i}'s url path is not its key (a virtual-hosted bucket)` };
     // A path-style S3 host takes the FIRST segment as the bucket, so there the key must follow exactly one segment.
     if (!virtualHosted && !allowHttp && !/^\/[^/]+\/$/.test(pre)) return { ok: false, because: `upload ${i}'s url path is not one bucket segment and its key (a path-style host)` };
+    // (For an https S3 host the two checks above already decide; this one is reached only by the test setter's urls.)
     if (!(pre === '/' || /^\/[^/]+\/$/.test(pre))) return { ok: false, because: `upload ${i}'s url path is not its key under one bucket segment` };
     const prefix = `${url.host}${pre}`;
     if (i === 0) bucketPrefix = prefix; else if (prefix !== bucketPrefix) return { ok: false, because: `upload ${i}'s url is not under the grant's bucket path` };
@@ -174,6 +175,9 @@ function parseGrant(data, objects, seenKeys) {
     // The url itself must not outlive a grant: X-Amz-Expires (seconds) at most the window.
     const xe = Number(url.searchParams.get('X-Amz-Expires'));
     if (!Number.isInteger(xe) || xe <= 0 || xe * 1000 > GRANT_WINDOW_MS) return { ok: false, because: `upload ${i}'s url lasts longer than a grant` };
+    // And not uselessly short: under a minute, the deadline's 10 s margin leaves no time to send anything, and each
+    // such grant would spend allowance for nothing.
+    if (xe < 60) return { ok: false, because: `upload ${i}'s url lasts under a minute` };
     minExpiresS = Math.min(minExpiresS, xe);
     if (Math.abs(signedAtMs + xe * 1000 - expiresAtMs) > 60 * 1000) return { ok: false, because: `upload ${i}'s signed time does not match the grant's expires_at` };
     for (const h of SIGNED_NEEDED) if (!signed.includes(h)) return { ok: false, because: `upload ${i} does not sign ${h}` };
@@ -205,7 +209,12 @@ function parseGrant(data, objects, seenKeys) {
     if (!Number.isFinite(retainMs) || lockFor < LOCK_MIN_MS || lockFor > LOCK_MAX_MS) return { ok: false, because: `upload ${i}'s lock is not 29 to 39 days` };
     uploads.push({ key: u.key, url: url.toString(), headers });
   }
-  return { ok: true, expiresAtMs, lifetimeMs: minExpiresS * 1000, uploads };
+  // One bucket for the whole run (runBucket: { prefix } set by the first grant), so a later grant cannot move this run's
+  // locked objects to another bucket that the run's key map does not name.
+  if (runBucket) {
+    if (runBucket.prefix && runBucket.prefix !== bucketPrefix) return { ok: false, because: `the grant names another bucket (${bucketPrefix}) than this run's first (${runBucket.prefix})` };
+  }
+  return { ok: true, expiresAtMs, lifetimeMs: minExpiresS * 1000, uploads, bucketPrefix };
 }
 
 /* One PUT. Never thrown; returns { kind, status, code }:
@@ -227,7 +236,8 @@ async function putOne(fetchFn, up, bytes, mayHaveLanded, timeoutMs) {
     const r = await fetchFn(up.url, { method: 'PUT', headers: up.headers, body: bytes, redirect: 'manual', signal: ac.signal });
     // Only S3's <Code> and <Message> are read: at most the first 8 KB of a body from a host the grant named.
     let text = '';
-    try { text = await headOf(r, 8192); } catch { /* the code is optional */ }
+    if (r.status !== 200) { try { text = await headOf(r, 8192); } catch { /* the code is optional */ } }
+    else { try { await r.body?.cancel(); } catch { /* nothing to read */ } }
     const code = (/<Code>([A-Za-z]+)<\/Code>/.exec(text) || [])[1] || null;
     const s = r.status;
     if (s === 200) return { kind: 'stored', status: s, code };
@@ -277,7 +287,7 @@ async function headOf(r, max) {
 async function uploadChunks(deps, objects, opts) {
   const keys = new Map();
   // Run-wide: chunks that met trouble and are not stored (their write may have landed), and every key granted.
-  const run = { troubled: new Map(), seenKeys: new Set() };
+  const run = { troubled: new Map(), seenKeys: new Set(), bucket: { prefix: null } };
   try {
     return await uploadInner(deps, objects, opts, keys, run);
   } catch (err) {
@@ -319,9 +329,10 @@ async function uploadInner(deps, objects, opts, keys, run) {
     // The grant's clock starts when it is ASKED for (the coordinator signs between then and its answer), on this Mac's
     // clock, so the deadline below never runs past the real expiry because the answer was slow.
     const asked = now();
-    const g = await askGrant(deps.macRequest, pending, run.seenKeys);
+    const g = await askGrant(deps.macRequest, pending, run.seenKeys, run.bucket);
     if (!g.ok) return Object.assign({ ok: false, keys }, g.out);
     for (const u of g.uploads) run.seenKeys.add(u.key);
+    if (!run.bucket.prefix) run.bucket.prefix = g.bucketPrefix;
     // A grant already over when it arrives is not a slow network but a clock ahead of the coordinator's: a new grant
     // would be "expired" too, and each spends allowance. Stop and say so.
     // Both directions get the same hour: within it, a Mac clock that is off still works, since the deadline below is
@@ -393,12 +404,12 @@ async function uploadInner(deps, objects, opts, keys, run) {
 
 /* One grant request, with one fresh-nonce retry for a replayed body. { ok: true, expiresAtMs, uploads } or
    { ok: false, out: { because, code, retryLater } }. */
-async function askGrant(macRequest, batch, seenKeys) {
+async function askGrant(macRequest, batch, seenKeys, runBucket) {
   for (let i = 0; i < 2; i++) {
     let r;
     try { r = await macRequest('POST', GRANT_ROUTE, grantBody(batch)); } catch (err) { r = { ok: false, because: (err && err.message) || 'the grant request failed' }; }
     if (r && r.ok) {
-      const p = parseGrant(r.data, batch, seenKeys);
+      const p = parseGrant(r.data, batch, seenKeys, runBucket);
       return p.ok ? p : { ok: false, out: { because: p.because } };
     }
     const because = (r && r.because) || 'Kosmos+ did not answer';
