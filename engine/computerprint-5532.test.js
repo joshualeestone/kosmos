@@ -88,7 +88,7 @@ test('#5532 v1.5: no file but computerprint.js uses a known spelling of a raw ha
   // Needs git (it lists tracked files); outside a checkout it throws, and the count below keeps it from passing empty.
   const files = require('node:child_process').execFileSync('git', ['-C', root, 'ls-files', '-z'], { encoding: 'utf8' }).split('\0')
     .filter((f) => /\.(js|mjs|cjs|sh|ps1|html)$/.test(f) && !/^engine\/computerprint(-5532\.test)?\.js$/.test(f));
-  assert.ok(files.length > 300, 'the repo was not listed (' + files.length + ' files)');
+  assert.ok(files.includes('server.js') && files.includes('engine/store.js'), 'the repo was not listed (' + files.length + ' files)');
   /* The spellings covered (review 3 listed the ones an earlier version missed): ioreg's keys, system_profiler's hardware
      page, sysctl's kern.uuid, WMI's computer-system product, Linux's machine-id, and the Windows registry key, whole or
      split into arguments. A read by another spelling is not caught: this is a guard on the known ways, not a proof. */
@@ -121,8 +121,10 @@ test('#5532 v1.5 reviews 7 to 9: printFor gives ONE answer: send the print, send
   const ok = cp.printFor(SALT, ORG);
   assert.equal(ok.send, 'print'); assert.equal(ok.print, cp.fingerprint(SALT, ORG));
   // Review 9: 'ok' is only ever said WITH a print, so a bad salt or company defers rather than sending none.
-  assert.deepEqual(cp.printFor('bad', ORG), { send: 'later' }, 'a malformed salt would send a print-less request, read as a copy');
-  assert.deepEqual(cp.printFor(SALT, 'no spaces allowed'), { send: 'later' });
+  // Review 10: a malformed salt or company is an error to say, never a silent wait forever and never a print-less send.
+  assert.equal(cp.printFor('bad', ORG).send, 'error', 'a malformed salt would wait forever, or send a print-less request read as a copy');
+  assert.equal(cp.printFor(SALT, 'no spaces allowed').send, 'error');
+  assert.equal(/[0-9A-F]{8}-|[0-9a-f]{64}/.test(JSON.stringify(cp.printFor('bad', ORG))), false, 'an error carried an id or a print');
   cp._testRunner(() => { throw new Error('ioreg timed out'); }, { platform: 'darwin', now: 5 });
   assert.deepEqual(cp.printFor(SALT, ORG), { send: 'later' }, 'a failed read on the real computer must defer, not send print-less');
   cp._testRunner(() => SAMPLE, { platform: 'win32' });
@@ -133,6 +135,9 @@ test('#5532 v1.5 reviews 7 to 9: printFor gives ONE answer: send the print, send
   // Review 9: a truncated or garbled answer is a failed read to retry, never 'none'.
   cp._testRunner(() => 'garbage, cut off', { platform: 'darwin', now: 5 });
   assert.deepEqual(cp.printFor(SALT, ORG), { send: 'later' }, 'one odd ioreg answer would flag a pinned computer as a copy');
+  // Review 10: a mention of the class inside a value is not the block's header line.
+  cp._testRunner(() => '  "note" = "see <class IOPlatformExpertDevice> docs"\n', { platform: 'darwin', now: 5 });
+  assert.deepEqual(cp.printFor(SALT, ORG), { send: 'later' }, 'a quoted mention read as the hardware block');
 });
 
 test('#5532 v1.5 review 9: an ioreg that always fails stops deferring after GIVE_UP_AFTER reads, never waits forever', (t) => {

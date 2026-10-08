@@ -35,6 +35,10 @@
  *      could otherwise simply send none and pass as an older board. SO A CALLER MUST NOT SEND A PRINT-LESS REQUEST WHILE
  *      THE READER IS WAITING (reviews 7 to 9): printFor() answers { send: 'later' } after a failed read, and the request
  *      is deferred. It answers { send: 'none' } only when no print can ever come from this computer.
+ * 🛑 RESIDUAL, on the coordinator's side (review 10): a print is compared only once one is pinned. A computer that
+ * pinned none (a Mac with no hardware id, a platform with no reader yet, or a read that gave up at enroll) can be
+ * copied, and the copy, which also sends none, passes. Only a pin closes that; nothing here can.
+ *
  * No function that READS the hardware is exported, so no caller can log or send the raw id by mistake. (parseIoreg is
  * exported for the tests; it returns an id only from text its caller already holds.)
  */
@@ -87,7 +91,7 @@ function hardwareId() {
   failures += 1;
   /* "No id here" only when ioreg answered WITH its hardware block and that block has no UUID key at all (review 9):
      a truncated or garbled answer is a failed read to retry, never a reason to send without a print. */
-  noIdHere = ran && /IOPlatformExpertDevice/.test(out) && !/"IOPlatformUUID"/.test(out);
+  noIdHere = ran && /^\+-o .*<class IOPlatformExpertDevice\b/m.test(out) && !/"IOPlatformUUID"\s*=/.test(out);   // the block's own header line
   return null;
 }
 
@@ -111,14 +115,18 @@ function fingerprint(salt, company) {
  *   { send: 'print', print }   send the print
  *   { send: 'none' }           send WITHOUT a print: no reader on this platform, a computer whose hardware block has no
  *                              id, or GIVE_UP_AFTER failed reads in a row
- *   { send: 'later' }          DEFER the request: a read failed and its wait is running, or the salt or company is not
- *                              well formed (a request without a print now would read as a copy to the company)
+ *   { send: 'later' }          DEFER the request: a read failed and its wait is running (a request without a print now
+ *                              would read as a copy to the company)
+ *   { send: 'error', because } the salt or the company is not well formed: a bug on one side, not a wait (review 10).
+ *                              Say so (log the `because`, which never holds a print or an id) and send nothing; never
+ *                              retry it silently forever.
  * Never reveals the id. fingerprint() alone answers only the print or null; callers should use this.
  */
 function printFor(salt, company) {
   const platform = testPlatform || process.platform;
   if (platform !== 'darwin') return { send: 'none' };
-  if (typeof salt !== 'string' || !SALT.test(salt) || typeof company !== 'string' || !COMPANY.test(company)) return { send: 'later' };
+  if (typeof salt !== 'string' || !SALT.test(salt)) return { send: 'error', because: 'the company served a salt this board cannot use' };
+  if (typeof company !== 'string' || !COMPANY.test(company)) return { send: 'error', because: 'the company id is not one this board can use' };
   const print = fingerprint(salt, company);
   if (print) return { send: 'print', print };
   if (noIdHere || failures >= GIVE_UP_AFTER) return { send: 'none' };

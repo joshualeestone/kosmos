@@ -119,3 +119,14 @@ company, and `thisComputer` cannot tell them apart.
 - FIXED: the merged comment line; withReader registers its cleanup first.
 - KEPT: the tests-only hooks on the export, guarded by the repo scan (decided in review 4; the guard says it is a guard,
   not a proof).
+
+## Review 10 (blind, sonnet)
+- FIXED: a malformed salt or company is `{ send: 'error', because }`, a bug to say, not a silent wait forever and not
+  a print-less send; the reason never holds an id or a print (mutation reddens).
+- FIXED: "no id here" needs the hardware block's own header line (`+-o ... <class IOPlatformExpertDevice`), so a
+  quoted mention elsewhere is a failed read to retry (fixture; mutation reddens).
+- STATED in the module header, not only here: the residual that a computer which pinned no print can be copied and the
+  copy passes; only a pin closes it, on the coordinator's side.
+- FIXED: the guard's listing check asserts known files are present instead of a count.
+- DUPLICATES / KEPT: the tests-only hooks on the export (review 4); module-wide retry counters (one computer, one
+  hardware answer, so one counter is right).
