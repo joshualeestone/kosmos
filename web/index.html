@@ -47134,8 +47134,10 @@ async function plusOrgCheck() {
   const r = await plusOrgPost('/api/org/preview', { code });
   PLUS_ORG.busy = false;
   if (!r.ok) { msg.textContent = r.because || 'That code could not be checked.'; return; }
-  PLUS_ORG.preview = { code, org: r.org };
-  document.getElementById('plus-org-ask').textContent = (r.org.name || 'Your company') + ' invites you to join' + (r.role === 'admin' ? ' as an admin' : r.role === 'recovery' ? ' in its recovery role' : '') + '. If you join, this Kosmos becomes your work Kosmos and this is what happens:';
+  PLUS_ORG.preview = { code: r.move ? null : code, org: r.org };   // a member moving here enrolls with no code
+  document.getElementById('plus-org-ask').textContent = r.move
+    ? 'You are already in ' + (r.org.name || 'your company') + '. Make this Kosmos your work Kosmos? If you do, this is what happens:'
+    : (r.org.name || 'Your company') + ' invites you to join' + (r.role === 'admin' ? ' as an admin' : r.role === 'recovery' ? ' in its recovery role' : '') + '. If you join, this Kosmos becomes your work Kosmos and this is what happens:';
   plusOrgList('plus-org-reports', r.consent.reports);
   plusOrgList('plus-org-backsup', r.consent.backsUp);
   plusOrgList('plus-org-readers', r.consent.readers);
@@ -47150,7 +47152,7 @@ async function plusOrgJoin() {
   const join = document.getElementById('plus-org-join');
   join.disabled = true;
   PLUS_ORG.busy = true;
-  const r = await plusOrgPost('/api/org/enroll', { code: p.code, accepted: true });
+  const r = await plusOrgPost('/api/org/enroll', p.code ? { code: p.code, accepted: true } : { accepted: true });
   PLUS_ORG.busy = false; join.disabled = false;
   if (!r.ok) { msg.textContent = r.because || 'Joining did not go through.'; return; }
   PLUS_ORG.preview = null;

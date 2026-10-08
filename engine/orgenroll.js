@@ -2,7 +2,7 @@
 /**
  * kosmos#5531 (Enterprise E0.2, umbrella #5529): enroll ONE Kosmos (a world) on this computer into a company, with
  * the consent stated before anything binds. The coordinator side is #5530 (E0.1); its routes and shapes are contract
- * v1.2, agreed 2026-10-07 with the coordinator's owner (orgs-5530.md on kosmos-relay).
+ * v1.3, agreed 2026-10-07 with the coordinator's owner (orgs-5530.md on kosmos-relay).
  *
  * 🔑 THE UNIT IS THE WORK KOSMOS, NOT THE PERSON (#5529 decision 1). Only the enrolled world ever reports or backs up;
  * the person's other Kosmoses on this computer never do. That holds three ways:
@@ -137,6 +137,18 @@ async function signed(method, route, body, opts) {
 async function preview(code, opts) {
   if (typeof code !== 'string' || !CODE.test(code.trim())) return { ok: false, because: 'that is not a join code' };
   const r = await signed('POST', ROUTES.redeem, { code: code.trim() }, opts);
+  /* Contract v1.3: already in that company, the preview is refused (409 org_already_member) and status carries the
+     consent for a member. Moving the enrollment to this world is still a bind, so it gets the same consent first:
+     `move: true` tells the page to enroll with no code. */
+  if (!r.ok && codeOf(r.because) === 'org_already_member') {
+    const st = await signed('POST', ROUTES.status, {}, opts);
+    const d = st.ok && st.data;
+    const org = d && d.member === true ? cleanOrg(d.org) : null;
+    const role = d ? cleanRole(d.role) : null;
+    const consent = d ? cleanConsent(d.consent) : null;
+    if (org && role && consent) return { ok: true, move: true, org, role, consent };
+    return { ok: false, code: 'org_already_member', because: SAY.org_already_member };
+  }
   if (!r.ok) return { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'the code could not be checked') };
   const org = cleanOrg(r.data && r.data.org);
   const role = cleanRole(r.data && r.data.role);

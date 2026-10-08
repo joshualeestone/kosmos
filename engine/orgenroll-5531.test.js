@@ -202,3 +202,27 @@ test('#5531 (#5530 review 2): a world whose id was copied to another Mac does no
   const e = await org.enroll('ACME-JOIN-1234', true, { root: b, remote: notThis });
   assert.equal(e.ok, false); assert.equal(org.isEnrolledHere({ root: b }), false, 'enrolled although the company named another Mac');
 });
+
+test('#5531 (contract v1.3): a member of that company moving here sees the consent from status, then enrolls with no code', async (t) => {
+  const { a } = sandbox(t);
+  const sent = [];
+  const remote = { macRequest: async (m, route, body) => {
+    sent.push({ route, body: JSON.parse(JSON.stringify(body)) });
+    if (route === org.ROUTES.redeem) return { ok: false, because: '409 org_already_member' };
+    if (route === org.ROUTES.status) return { ok: true, data: { member: true, org: ORG, role: 'member', enrolled: null, consent: CONSENT } };
+    if (route === org.ROUTES.enroll) return { ok: true, data: { ok: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } };
+    return { ok: false, because: 'unexpected' };
+  } };
+  const p = await org.preview('ACME-JOIN-1234', { root: a, remote });
+  assert.equal(p.ok, true, JSON.stringify(p)); assert.equal(p.move, true);
+  assert.deepEqual(p.consent.readers, CONSENT.readers, 'the move was offered without the consent');
+  assert.equal(org.readEnrollment({ root: a }), null, 'the preview bound something');
+  const e = await org.enroll(null, true, { root: a, remote });
+  assert.equal(e.ok, true);
+  assert.ok(!('code' in sent.at(-1).body), 'the move sent a code');
+  // CONTROL: a status without consent offers no move.
+  const { b } = sandbox(t);
+  const bare = { macRequest: async (m, route) => route === org.ROUTES.redeem ? { ok: false, because: '409 org_already_member' } : { ok: true, data: { member: true, org: ORG, role: 'member', enrolled: null } } };
+  const q = await org.preview('ACME-JOIN-1234', { root: b, remote: bare });
+  assert.equal(q.ok, false); assert.equal(q.because, org.SAY.org_already_member);
+});

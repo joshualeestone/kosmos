@@ -39,7 +39,7 @@ function harness() {
       const u = String(url);
       const body = init && init.body ? JSON.parse(init.body) : null;
       if (u.includes('/api/org')) window.__org.push({ path: u.replace(/^.*?(\/api\/org[^?]*).*$/, '$1'), method: (init && init.method) || 'GET', body });
-      if (u.endsWith('/api/org/preview')) return enc({ ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent });
+      if (u.endsWith('/api/org/preview')) return enc(Object.assign({ ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent }, window.__move ? { move: true } : {}));
       if (u.endsWith('/api/org/enroll')) return enc({ ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member' });
       if (u.endsWith('/api/org/leave')) return enc({ ok: true });
       if (u.endsWith('/api/org')) return enc({ enrolled: false, org: null, role: null, enrolledAt: null });
@@ -107,6 +107,18 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     await page.waitForFunction(() => !document.getElementById('plus-org-out').hidden);
     const o5 = await page.evaluate(() => ({ leave: window.__org.filter((r) => r.path === '/api/org/leave').length, msg: document.getElementById('plus-org-msg').textContent }));
     chk(asked && leftBefore === 0 && o5.leave === 1 && /You left/.test(o5.msg), 'O5 Leave asks first, then leaves, and the code field returns', JSON.stringify({ asked, leftBefore, ...o5 }));
+
+    // O7: already a member of that company: the same consent, worded as a move, and Join sends no code.
+    await page.evaluate(() => { window.__move = true; });
+    await page.fill('#plus-org-code', 'ACME-JOIN-9999');
+    await page.click('#plus-org-check');
+    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
+    const askMove = await page.evaluate(() => document.getElementById('plus-org-ask').textContent);
+    await page.click('#plus-org-join');
+    await page.waitForFunction(() => !document.getElementById('plus-org-in').hidden);
+    const lastEnroll = await page.evaluate(() => window.__org.filter((r) => r.path === '/api/org/enroll').at(-1));
+    chk(/already in Acme\. Make this Kosmos your work Kosmos/.test(askMove) && JSON.stringify(lastEnroll.body) === JSON.stringify({ accepted: true }),
+      'O7 a member moving here sees the consent as a move, and Join sends no code', JSON.stringify({ askMove, lastEnroll }));
 
     chk(errs.length === 0, 'O6 no page errors', errs.join(' | '));
   } finally {
