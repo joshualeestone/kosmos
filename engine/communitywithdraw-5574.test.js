@@ -291,7 +291,7 @@ test('review 3: a comment already held back answers as done on a retry, and a mo
   assert.deepEqual(cs.withdrawFor('ava', 'post', p.id), { ok: true, state: 'deleted' });
 });
 
-test('review 4: a post sent by a registration since replaced is not "taken back" (a DELETE as the new one would 404)', () => {
+test('review 4+6: a post that names a registration since replaced is not "taken back"; an older record without one is, as on main', () => {
   const sent = post('ava', 'Sent by the old registration');
   const lost = post('ava', 'Unanswered under the old registration');
   const legacy = post('ava', 'An older record with no agentId');
@@ -301,15 +301,16 @@ test('review 4: a post sent by a registration since replaced is not "taken back"
     [legacy.id]: { state: 'sent', agent: 'ava', remoteId: crypto.randomUUID(), sentAt: '2026-10-01T00:00:00.000Z' },
   });
   writeJson(cs._paths.keysFile(), { ava: { apiKey: 'kc_key_new', remoteId: 'r-new', name: 'ava-2', registeredAt: '2026-10-05T00:00:00.000Z' } });
-  for (const p of [sent, lost, legacy]) {
+  for (const p of [sent, lost]) {
     const r = cs.withdrawFor('ava', 'post', p.id);
     assert.equal(r.notEligible, true, p.id + ' ' + JSON.stringify(r));
-    assert.match(r.because, /cannot be sure the registration it holds sent this post/);
+    assert.match(r.because, /no longer holds the registration that sent this post/);
   }
   assert.deepEqual(readJson(cs._paths.deletesFile()), {});
-  // CONTROL: the registration that sent them (by agentId, or for the older record one no newer than its send) can.
+  assert.equal(cs.withdrawFor('ava', 'post', legacy.id).ok, true, 'an older record is treated as the held registration\'s, as main does');
+  // CONTROL: the registration that sent them can.
   writeJson(cs._paths.keysFile(), { ava: { apiKey: 'kc_key_old', remoteId: 'r-old', name: 'ava', registeredAt: '2026-09-01T00:00:00.000Z' } });
-  for (const p of [sent, lost, legacy]) assert.equal(cs.withdrawFor('ava', 'post', p.id).ok, true, p.id);
+  for (const p of [sent, lost]) assert.equal(cs.withdrawFor('ava', 'post', p.id).ok, true, p.id);
 });
 
 test('review 4: a post the sweep really sends records which service agent sent it, so it can be taken back', async () => {
@@ -335,4 +336,30 @@ test('review 5: a registration replaced between the take-back and the sweep send
   await cs.sweep();
   assert.equal(dels().length, 0, 'no DELETE goes out as another service agent');
   assert.notEqual(readJson(cs._paths.sentFile())[p.id].state, 'deleted', 'not marked removed while it is still public');
+});
+
+test('review 6: the person\'s Delete still takes down an older post whose registration was made in the same sweep (no regression)', async () => {
+  await on();
+  const p = post('ava', 'First post, sent before #5574');
+  await cs.sweep();
+  // As main wrote it: no agentId, and sentAt is the sweep START, earlier than the registration made inside that sweep.
+  const sent = readJson(cs._paths.sentFile());
+  const k = readJson(cs._paths.keysFile()).ava;
+  const { agentId: _a, ...legacy } = sent[p.id];
+  legacy.sentAt = new Date(Date.parse(k.registeredAt) - 1000).toISOString();
+  writeJson(cs._paths.sentFile(), { ...sent, [p.id]: legacy });
+  assert.equal(cs.requestDelete(p.id).ok, true, 'the owner\'s Delete is accepted');
+  await cs.sweep();
+  assert.equal(dels().length, 1, 'the DELETE goes out, as it did on main');
+  assert.equal(readJson(cs._paths.sentFile())[p.id].state, 'deleted');
+});
+
+test('review 6: the person is told up front when a post\'s sending registration is known to be gone', () => {
+  const p = post('ava', 'Sent by a registration since replaced');
+  writeJson(cs._paths.sentFile(), { [p.id]: { state: 'sent', agent: 'ava', agentId: 'r-old', remoteId: crypto.randomUUID(), sentAt: '2026-10-01T00:00:00.000Z' } });
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'kc_key_new', remoteId: 'r-new', name: 'ava', registeredAt: '2026-10-05T00:00:00.000Z' } });
+  const r = cs.requestDelete(p.id);
+  assert.equal(r.notEligible, true, JSON.stringify(r));
+  assert.match(r.because, /no longer holds the registration that sent this post/);
+  assert.deepEqual(readJson(cs._paths.deletesFile()), {}, 'nothing recorded, so the list never says "Deleting" for it');
 });
