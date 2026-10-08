@@ -20511,7 +20511,7 @@ function federateOut(projectId, delivery, operator) {
 function orgEnrollRefresh() {
   try {
     const oe = require('./engine/orgenroll');
-    if (!oe.readEnrollment()) return;
+    if (!oe.readEnrollment() && !oe.leavePending()) return;   // never joined: nothing is sent
     oe.refresh().catch(() => { /* best effort: an unreachable company changes nothing */ });
   } catch { /* best effort */ }
 }

@@ -1,6 +1,6 @@
 # orgenroll-5531: enroll one work Kosmos into a company, with consent before anything binds (#5531, Enterprise E0.2)
 
-Umbrella #5529 (read its Decisions first). Coordinator side: #5530 (E0.1, PigeonPete), contract v1.2 in
+Umbrella #5529 (read its Decisions first). Coordinator side: #5530 (E0.1, PigeonPete), contract v1.3 in
 kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two owners.
 
 ## The contract the board builds against (Mac-signed POSTs, through the tunnel's mac-request)
@@ -12,7 +12,8 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
 - Review 2 there: status and enroll carry `enrolled.thisComputer`; a world reports only when `enrolled.world` is its id AND
   `thisComputer` is true (a world's id copied to a second Mac with its data must not report there). The preview refuses
   an existing member of that company (409 `org_already_member`); how such a member sees the consent before moving the
-  enrollment to a new world is OPEN with #5530's owner (proposed: consent in that 409 body).
+  enrollment to a new world: v1.3, status carries the consent for a member; the board shows it and enrolls with no
+  code (preview returns move: true).
 - `/v1/mac/org/leave {}`, and `/v1/mac/org/status {}` -> `{member:false}` or `{member:true, org, role, enrolled:{computer,world}|null}`.
 - Public error codes: org_code_unknown, org_code_used, org_code_expired, org_other_org, org_wrong_domain,
   org_not_accepted, org_bad_world, org_not_member, org_last_admin, org_already_member.
@@ -27,7 +28,8 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
     reader, is refused, so the page never offers Join on it.
   - `enroll(code, accepted)` sends NOTHING unless `accepted === true`. It records the enrollment only when the company
     confirms THIS world's id. On `org_already_member` it retries once without the code.
-  - `leave()` clears the record first, so the world stops even when the request fails.
+  - `leave()` clears the record first, so the world stops at once. Refused as the last admin (org_last_admin): the record
+    comes back (still joined). org_not_member: left. No answer: a pending leave, sent again on start and daily.
   - `refresh()` runs on start and daily. It clears the record on `member:false`, or when the company names another
     world. An unreachable coordinator changes nothing.
   - `isEnrolledHere()` is the gate for every later sender (E0.3 telemetry, E0.6 backup).
@@ -66,8 +68,13 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
   - Mutations of the accepted check and of refresh's world match each turn it red.
 - `server.orgenroll-5531.test.js`: agents refused (removing the guard turns it red), decline and preview from the
   screen, and GET /api/org.
-- `docs/browser-checks/render-orgenroll-5531.js` O1 to O6, on the real page. Rendering the consent as markup turns O2 red.
+- `docs/browser-checks/render-orgenroll-5531.js` O1 to O7 (O7: a member moving here), on the real page. Rendering the consent as markup turns O2 red.
 
 ## Not done here
 - The join link (`login.kosmosplus.com/org/join#code=...`) opening the board: the code is typed or pasted for now.
 - A live round trip against Pete's coordinator: it waits on his dev branch and on a connector that carries the paths.
+
+## Review 1 (blind, opus)
+- FIXED: leave reconciliation (last admin stays joined; a pending leave is retried); company name and consent lines
+  cleaned with engine/externalname.js and bounded; codeOf matches only the public codes (an org_id field is not the
+  error); the page throttles failed /api/org reads; a terminal enroll refusal returns to the code field; Mona's 16px.

@@ -11216,6 +11216,7 @@ body.plus-active:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.att
 #s-sec-plus .plus-org-g { margin-top: 12px; }
 #s-sec-plus .plus-org-h { font-weight: 600; color: #E6EBF7; font-size: .8125rem; margin: 0 0 4px; }
 #s-sec-plus .plus-org-lists ul { margin: 0; padding-left: 20px; }
+#s-sec-plus .plus-org-box .frow { margin-top: 16px; }   /* Mona's NIT: room above the two buttons */
 @media (max-width: 600px) {
   #s-sec-plus .plus-org-lists { grid-template-columns: 1fr; }
   #s-sec-plus #plus-org-code { min-height: 44px; }
@@ -47109,7 +47110,7 @@ async function paintPlus() {
 var PLUS_ORG = { at: 0, busy: false, state: null, preview: null };
 function plusOrgMaybe() {
   if (PLUS_ORG.busy || PLUS_ORG.preview) return;
-  if (PLUS_ORG.state && Date.now() - PLUS_ORG.at < 60000) { plusOrgPaint(); return; }
+  if (Date.now() - PLUS_ORG.at < 60000) { if (PLUS_ORG.state) plusOrgPaint(); return; }   // at most once a minute, failed reads included
   PLUS_ORG.at = Date.now();
   fetch('/api/org').then((res) => res.json()).then((j) => { PLUS_ORG.state = j; plusOrgPaint(); }).catch(() => { /* the next minute tries again */ });
 }
@@ -47162,7 +47163,12 @@ async function plusOrgJoin() {
   PLUS_ORG.busy = true;
   const r = await plusOrgPost('/api/org/enroll', p.code ? { code: p.code, accepted: true } : { accepted: true });
   PLUS_ORG.busy = false; join.disabled = false;
-  if (!r.ok) { msg.textContent = r.because || 'Joining did not go through.'; return; }
+  if (!r.ok) {
+    msg.textContent = r.because || 'Joining did not go through.';
+    // A code that is used, expired, or for another company will not work on a second press: back to the code field.
+    if (['org_code_used', 'org_code_expired', 'org_code_unknown', 'org_other_org', 'org_wrong_domain'].includes(r.code)) { PLUS_ORG.preview = null; plusOrgPaint(); }
+    return;
+  }
   PLUS_ORG.preview = null;
   document.getElementById('plus-org-code').value = '';
   PLUS_ORG.state = { enrolled: true, org: r.org, role: r.role };
@@ -47188,9 +47194,10 @@ async function plusOrgLeave() {
   const r = await plusOrgPost('/api/org/leave', {});
   PLUS_ORG.busy = false; yes.disabled = false;
   plusOrgLeaveArm(false);
-  PLUS_ORG.state = { enrolled: false, org: null, role: null };
+  // The company refused while you are still in it (the last admin): you are still joined, and the screen says so.
+  if (!r.still) PLUS_ORG.state = { enrolled: false, org: null, role: null };
   PLUS_ORG.at = Date.now();
-  document.getElementById('plus-org-msg').textContent = r.ok ? 'You left. This Kosmos no longer reports to your company.' : (r.because || 'Leaving could not be confirmed; this Kosmos has already stopped reporting.');
+  document.getElementById('plus-org-msg').textContent = r.ok ? 'You left. This Kosmos no longer reports to your company.' : (r.because || 'Leaving could not be confirmed yet; this Kosmos has stopped reporting.');
   plusOrgPaint();
 }
 document.getElementById('plus-org-check').addEventListener('click', plusOrgCheck);

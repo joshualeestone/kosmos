@@ -226,3 +226,41 @@ test('#5531 (contract v1.3): a member of that company moving here sees the conse
   const q = await org.preview('ACME-JOIN-1234', { root: b, remote: bare });
   assert.equal(q.ok, false); assert.equal(q.because, org.SAY.org_already_member);
 });
+
+test('#5531 review 1: leave is reconciled: refused as the last admin you stay joined; no answer is retried later; not a member is left', async (t) => {
+  const { a } = sandbox(t);
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
+  const lastAdmin = { macRequest: async () => ({ ok: false, because: '409 {"because":"org_last_admin"}' }) };
+  const r1 = await org.leave({ root: a, remote: lastAdmin });
+  assert.equal(r1.still, true); assert.match(r1.because, /last admin/);
+  assert.equal(org.isEnrolledHere({ root: a }), true, 'the last admin was silently un-enrolled');
+  assert.equal(org.leavePending({ root: a }), false);
+  const sent = [];
+  let up = false;
+  const flaky = { macRequest: async (m, route) => { sent.push(route); return up ? { ok: true, data: { ok: true } } : { ok: false, because: 'offline' }; } };
+  const r2 = await org.leave({ root: a, remote: flaky });
+  assert.equal(r2.pending, true);
+  assert.equal(org.isEnrolledHere({ root: a }), false, 'still reporting while a leave is pending');
+  assert.equal(org.leavePending({ root: a }), true);
+  up = true;
+  const r3 = await org.refresh({ root: a, remote: flaky });
+  assert.equal(r3.ok, true); assert.equal(sent.at(-1), org.ROUTES.leave, 'the pending leave was not sent again');
+  assert.equal(org.leavePending({ root: a }), false, 'the confirmed leave stayed pending');
+  const { b } = sandbox(t);
+  await org.enroll('ACME-JOIN-1234', true, { root: b, remote: fakeRemote({}) });
+  const gone = await org.leave({ root: b, remote: { macRequest: async () => ({ ok: false, because: '404 org_not_member' }) } });
+  assert.equal(gone.ok, true); assert.equal(org.leavePending({ root: b }), false);
+});
+
+test('#5531 review 1: the company name and consent lines are cleaned as outside names (no bidi override, no zero-width, bounded)', async (t) => {
+  const { a } = sandbox(t);
+  const RLO = String.fromCharCode(0x202e), ZWSP = String.fromCharCode(0x200b);
+  const sly = { macRequest: async () => ({ ok: true, data: { org: { id: 'org_1', name: 'Ac' + ZWSP + 'me' + RLO + 'evil', slug: 'acme' }, role: 'member', consent: {
+    reports: ['x'.repeat(5000)].concat(Array.from({ length: 40 }, (_, i) => 'line ' + i)), backsUp: ['files'], readers: ['you'], never: ['keys'] } } }) };
+  const p = await org.preview('ACME-JOIN-1234', { root: a, remote: sly });
+  assert.equal(p.ok, true);
+  assert.equal(p.org.name.includes(RLO) || p.org.name.includes(ZWSP), false, 'a bidi override or zero-width character reached the page: ' + JSON.stringify(p.org.name));
+  assert.ok(p.consent.reports.length <= 12, 'an unbounded list: ' + p.consent.reports.length);
+  assert.ok(p.consent.reports[0].length <= 300, 'an unbounded line');
+  assert.equal(org.codeOf('409 {"org_id":"org_1","because":"org_already_member"}'), 'org_already_member', 'a field named org_id was read as the error');
+});

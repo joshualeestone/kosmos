@@ -34,6 +34,10 @@ const ROUTES = Object.freeze({
 });
 const WORLD_ID_FILE = 'org-world-id';
 const ENROLLMENT_FILE = 'org-enrollment.json';
+const LEAVE_PENDING_FILE = 'org-leave-pending';   // a leave the company has not confirmed yet; retried on start and daily
+const NAME_MAX = 120;      // a company name or slug, as the page shows it
+const LINE_MAX = 300;      // one consent line
+const LINES_MAX = 12;      // lines in one consent list
 const WORLD_ID = /^[0-9a-f]{32}$/;
 /* A code is typed or pasted by a person (or comes from the join link's #code=). Kept to a bounded, plain shape so
    nothing else is ever signed and sent in its place. */
@@ -94,11 +98,19 @@ function isEnrolledHere(opts) {
 }
 
 /* The coordinator's answers are not trusted for shape: kept to what the page shows, and only plain strings. */
+/* A company admin chose these words, and they are shown in a sentence the person decides on ("X invites you to join"):
+   cleaned as every outside name is (engine/externalname.js strips format and invisible characters, bidi overrides
+   included, and bounds the length), so the screen cannot read differently from what was sent. */
 function cleanOrg(o) {
-  if (!o || typeof o !== 'object' || typeof o.id !== 'string' || !o.id) return null;
-  return { id: o.id, name: typeof o.name === 'string' ? o.name : '', slug: typeof o.slug === 'string' ? o.slug : '' };
+  if (!o || typeof o !== 'object' || typeof o.id !== 'string' || !o.id || o.id.length > 128) return null;
+  const { externalName } = require('./externalname');
+  return { id: o.id, name: externalName(o.name, NAME_MAX), slug: externalName(o.slug, NAME_MAX) };
 }
-function cleanList(a) { return Array.isArray(a) ? a.filter((s) => typeof s === 'string' && s.trim()).map((s) => s.trim()) : []; }
+function cleanList(a) {
+  if (!Array.isArray(a)) return [];
+  const { externalName } = require('./externalname');
+  return a.map((s) => externalName(s, LINE_MAX)).filter(Boolean).slice(0, LINES_MAX);
+}
 function cleanConsent(c) {
   if (!c || typeof c !== 'object') return null;
   const out = { reports: cleanList(c.reports), backsUp: cleanList(c.backsUp), readers: cleanList(c.readers), never: cleanList(c.never) };
@@ -121,7 +133,13 @@ const SAY = Object.freeze({
   org_bad_world: 'This Kosmos could not be named to your company. Try again.',
   org_already_member: 'You are already in this company.',
 });
-function codeOf(because) { const m = /\borg_[a-z_]+\b/.exec(String(because || '')); return m ? m[0] : null; }
+/* Only the PUBLIC codes count: a field such as org_id elsewhere in the line must not be read as the error. */
+const CODES = Object.freeze(Object.keys(SAY).concat(['org_not_accepted']));
+function codeOf(because) {
+  const text = String(because || '');
+  for (const c of CODES) if (new RegExp('\\b' + c + '\\b').test(text)) return c;
+  return null;
+}
 function sayFor(because, fallback) { const c = codeOf(because); return (c && SAY[c]) || because || fallback; }
 
 async function signed(method, route, body, opts) {
@@ -187,16 +205,39 @@ async function enroll(code, accepted, opts) {
   return { ok: true, ...rec };
 }
 
-/* Leave the company. The record is cleared first, so this world stops reporting even if the request fails. */
+function setLeavePending(on, opts) {
+  const file = path.join(storeRoot(opts), LEAVE_PENDING_FILE);
+  try { if (on) fs.writeFileSync(file, new Date().toISOString() + '\n', { mode: 0o600 }); else fs.rmSync(file, { force: true }); } catch { /* best effort */ }
+}
+function leavePending(opts) { return fs.existsSync(path.join(storeRoot(opts), LEAVE_PENDING_FILE)); }
+
+/* Leave the company. The record is cleared first, so this world stops reporting at once, whatever the answer.
+   - The company refused for good while you are still in it (org_last_admin): the record comes back, and the page
+     keeps showing you joined, because you are.
+   - Already not a member (org_not_member): left.
+   - No answer: a pending leave is kept, and the next start or daily pass sends it again. */
 async function leave(opts) {
+  const before = readEnrollment(opts);
   clearEnrollment(opts);
   const r = await signed('POST', ROUTES.leave, {}, opts);
-  return r.ok ? { ok: true } : { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'leaving could not be confirmed; this Kosmos has already stopped reporting') };
+  const code = r.ok ? null : codeOf(r.because);
+  if (r.ok || code === 'org_not_member') { setLeavePending(false, opts); return { ok: true }; }
+  if (code === 'org_last_admin') {
+    if (before) { try { writeEnrollment(before, opts); } catch { /* the next refresh restores it */ } }
+    setLeavePending(false, opts);
+    return { ok: false, still: true, code, because: SAY.org_last_admin };
+  }
+  setLeavePending(true, opts);
+  return { ok: false, pending: true, code, because: sayFor(r.because, 'leaving could not be confirmed yet; this Kosmos has stopped reporting, and it will tell your company again') };
 }
 
 /* On start and daily: ask the coordinator. member:false, or an enrollment naming another world, clears this world's
    record (removed, left, or moved elsewhere). An unreachable coordinator changes nothing. */
 async function refresh(opts) {
+  if (leavePending(opts)) {   // a leave the company has not confirmed: send it again, report nothing meanwhile
+    const r = await leave(opts);
+    return { ok: r.ok, enrolled: false, stopped: true, pending: !!r.pending, because: r.because };
+  }
   const before = readEnrollment(opts);
   const r = await signed('POST', ROUTES.status, {}, opts);
   if (!r.ok || !r.data || typeof r.data !== 'object') return { ok: false, because: (r && r.because) || 'not checked', enrolled: !!before };
@@ -216,6 +257,6 @@ async function refresh(opts) {
 }
 
 module.exports = {
-  ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, CODE, SAY, codeOf,
-  worldId, readEnrollment, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh,
+  ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, codeOf,
+  worldId, readEnrollment, leavePending, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh,
 };
