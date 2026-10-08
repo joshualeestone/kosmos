@@ -11,12 +11,9 @@
 name: linux-setup
 
 on:
-  # #5519 stopgap (Josh 10-07: do not count our own Linux installs): every run installs a real board, and until #5519
-  # points its install beacon at a dead address, each run adds 2 to the live install counter. So pull requests run it
-  # only when they touch the installer, the guards this job runs, or this file. The two engine modules are listed for
-  # #5485, which makes this job install the checkout's own engine (today it installs the published bundle). Run it by
-  # hand (workflow_dispatch) for anything else that could break a Linux install. On main it also catches a published
-  # release that breaks Linux, so REMOVE this filter once #5519 lands (its runs no longer count as installs).
+  # #5519 stopgap: each run installs a real board whose install beacon counts on the live counter, so pull requests
+  # run this only when they change a file listed below (the installer, the files this job's guards read, the Linux
+  # board modules, this file). Anything else: run it by hand. Remove the filter once #5519 lands.
   pull_request:
     paths:
       - 'install/**'
