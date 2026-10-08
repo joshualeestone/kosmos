@@ -22,6 +22,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 
 const BRIDGE_FILE = path.join(__dirname, '..', 'bin', 'agy-report-bridge.js');
+const TRACE_FILE = path.join(__dirname, '..', 'test-support', 'agy-bridge-trace.js');   // #5576
 const bridge = require(BRIDGE_FILE);
 
 function standInBoard() {
@@ -44,10 +45,11 @@ function standInBoard() {
 function runOnce(event, env, spawnFn = spawn) {
   return new Promise((resolve) => {
     let child;
-    /* #5576: the child runs with Node's own debug lines for its sockets, streams and fetch, on stderr only (the
-       bridge's answer is stdout), so a libuv abort that only a loaded CI runner shows says what the child was doing
-       just before it. The lines cost nothing on a pass: stderr is read only into a failure's message. */
-    const childEnv = { ...env, NODE_DEBUG: env.NODE_DEBUG || 'net,stream,fetch' };
+    /* #5576: the child carries a preload that marks, straight to fd 2, its stdio fds at start and exit, its fetch and
+       its exit (test-support/agy-bridge-trace.js), so a libuv abort that only a loaded CI runner shows says which
+       path it died on. Not NODE_DEBUG: that opens a stream on fd 2 the bridge never has, the kind of handle the
+       abort is about, so it could change what it measures. A quiet stretch after this lands is still not evidence. */
+    const childEnv = { ...env, NODE_OPTIONS: ((env.NODE_OPTIONS || '') + ' --require ' + TRACE_FILE).trim() };
     try { child = spawnFn(process.execPath, [BRIDGE_FILE, event], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] }); }   // </dev/null, as the supervisor runs it
     catch (err) { resolve({ code: null, signal: null, error: String(err && err.code || err), out: '', err: '' }); return; }
     let out = '';
@@ -97,7 +99,7 @@ async function runBridge(event, env, run = runOnce, wait = (ms) => new Promise((
   }
   return { ...tries[tries.length - 1], tries };
 }
-/* #5576: the head AND the tail of stderr. With the debug lines on, an abort's own line comes LAST, after them. */
+/* #5576: the head AND the tail of stderr. With the trace markers on, an abort's own line comes LAST, after them. */
 const stderrOf = (t) => (t.length <= 1600 ? t : t.slice(0, 300) + ' [...] ' + t.slice(-1200));
 const howItEnded = (r) => JSON.stringify((r.tries || [r]).map((x) => ({ code: x.code, signal: x.signal, error: x.error, stderr: stderrOf(String(x.err || '')) })));
 
@@ -285,5 +287,29 @@ test('#5576: a failure message keeps the END of a long stderr, where the abort l
   assert.ok(said.startsWith('NET 1: connect'), 'the head was dropped');
   assert.ok(said.length < 1600, 'the message is not bounded');
   assert.equal(JSON.parse(howItEnded({ code: 1, signal: null, error: null, err: 'short' }))[0].stderr, 'short', 'CONTROL: a short stderr is kept whole');
+});
+
+test('#5576: the bridge child carries the trace preload, and it marks start, fetch and exit on stderr only', async () => {
+  // The setting reaches the child (a fake spawn sees the options it was given).
+  let seen = null;
+  await runOnce('x', { NODE_OPTIONS: '--max-old-space-size=64' }, (_bin, _args, opts) => {
+    seen = opts.env.NODE_OPTIONS;
+    throw Object.assign(new Error('fake'), { code: 'ENOENT' });
+  });
+  assert.match(String(seen), /^--max-old-space-size=64 --require \S+agy-bridge-trace\.js$/, 'the preload did not reach the child, or replaced its options');
+  // A real run: the markers are on stderr, the bridge's answer on stdout is unchanged.
+  const board = await standInBoard();
+  const data = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'aw-agyseed-trace-'));
+  try {
+    const r = await runOnce('Stop', { ...process.env, AGENT_WORKFORCE_DATA: data, KOSMOS_PORT: String(board.port), TMUX_PANE: '%trace-' + process.pid });
+    assert.equal(r.code, 0, howItEnded(r));
+    assert.match(r.err, /^agy-trace start 0:\w+ 1:\w+ 2:\w+$/m, 'no start marker: ' + r.err.slice(0, 300));
+    assert.match(r.err, /^agy-trace exit called 0$/m, 'no exit marker');
+    assert.match(r.err, /^agy-trace exit 0 0:\w+ 1:\w+ 2:\w+$/m, 'no fd record at exit');
+    assert.ok(!/agy-trace/.test(r.out), 'a marker reached stdout, the hook\'s answer');
+  } finally {
+    board.server.close();
+    fs.rmSync(data, { recursive: true, force: true });
+  }
 });
 
