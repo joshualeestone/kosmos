@@ -338,7 +338,8 @@ function ruleAbs(p, platform = process.platform) {
    path it names. On Windows `c/Users/x` is `C:\Users\x`; a rule in the older native form (`C:\Users\x`, written
    before this change) is read as it is. Elsewhere it is `/` plus the rest. Not handled: a UNC path (\\server\share),
    whose rule reads back as a drive-less path (a one-letter host even as a drive), so the own-folder check does not
-   apply to a store on a network share; Claude Code's docs say such a share cannot be a working folder anyway. */
+   apply to a store on a network share (Claude Code's permissions docs: "You can't add most network paths, such as the
+   UNC share \\server\share, as working directories"). */
 function rulePath(inner, platform = process.platform) {
   const t = String(inner);
   if (platform === 'win32') {
