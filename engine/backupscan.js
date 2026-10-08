@@ -17,7 +17,11 @@
  *       is masked. When secretmask withholds it (its known-secret search could not finish), the file is skipped:
  *       no fallback, because every partial pass loses detection secretmask has across lines.
  *     - Binary: stored only if scans of its bytes as Latin-1, and with NULs removed, find nothing.
- *  3. By real path: the walker's check that a file's real path (symlinks resolved) stays inside the work
+ *  3. FINAL CHECK, whatever path decided the file: the bytes about to be stored are scanned again RAW (as Latin-1,
+ *     and with NULs removed). Anything key-shaped left, or a scan that cannot finish, skips the file. Every view a
+ *     decode can get wrong (a UTF-32 BOM read as UTF-16, a false BOM in front of ASCII, NUL-interleaved text after
+ *     the first 8 KiB) leaves the raw bytes readable here, so "nothing key-shaped is stored" holds by construction.
+ *  4. By real path: the walker's check that a file's real path (symlinks resolved) stays inside the work
  *     Kosmos, so a link cannot sweep ~/.ssh in.
  *
  * KNOWN, TESTED LOSS when something is removed: secretmask rewrites the text it masks, so a redacted file also
@@ -32,17 +36,21 @@ const { mask, WITHHELD, UNCHECKED } = require('./secretmask');
 
 const CONFIGISH = '(json|ya?ml|toml|ini|txt|conf|cfg|xml|properties)';
 // Credential-shaped paths, matched case-insensitively on a forward-slash relative path.
+// Templates hold placeholders, not secrets: kept (the final content check still runs on them).
+const TEMPLATE = /\.(example|sample|template|dist)$/i;
 const DENY = [
   [/(^|\/)\.env(\.[^/]*)?$/i, 'environment file'],
   [/(^|\/)\.envrc$/i, 'environment file'],
   [/(^|\/)[^/]+\.env$/i, 'environment file'],
-  [/\.(pem|key|p8|p12|pfx|jks|keystore|kdbx|keychain|keychain-db|ppk|gpg|asc|ovpn|tfstate|tfstate\.backup)$/i, 'key, keystore or state file'],
+  [/\.(pem|key|p8|p12|pfx|jks|keystore|kdbx|keychain|keychain-db|ppk|gpg|asc|ovpn|tfstate|tfstate\.backup|tfvars|secret|token)$/i, 'key, keystore, state or secret file'],
+  [/(^|\/)(authorized_keys|\.terraformrc|\.dockercfg|\.my\.cnf|logins\.json|key4\.db|cookies\.sqlite|\.(bash|zsh|sh|python|node_repl|psql|mysql)_history|\.histfile)$/i, 'credential or history file'],
+  [/(^|\/)service[-_]?account[^/]*\.json$/i, 'service account key'],
   [/(^|\/)id_(rsa|dsa|ecdsa|ed25519)(\.pub)?$/i, 'ssh key'],
   [/(^|\/)\.(ssh|gnupg|aws|azure|kube|docker|m2|terraform\.d)\//i, 'credential folder'],
   [/(^|\/)(\.netrc|_netrc|\.npmrc|\.pypirc|\.git-credentials|\.pgpass|\.htpasswd|\.vault-token|\.boto|\.s3cfg|\.yarnrc\.yml|pip\.conf|rclone\.conf|kubeconfig)$/i, 'credential file'],
   [/(^|\/)\.git\//i, 'git internals (objects and packs carry every committed secret; config carries remote tokens)'],
   [/(^|\/)\.git$/i, 'git internals'],
-  [/(^|\/)\.config\/(gh|gcloud|hub|rclone)\//i, 'tool auth folder'],
+  [/(^|\/)\.config\/(gh|gcloud|hub|rclone|op|doctl)\//i, 'tool auth folder'],
   [/(^|\/)\.claude\/\.credentials\.json$/i, 'provider sign-in'],
   [/(^|\/)\.(codex|gemini|grok)\/(auth|oauth_creds|credentials)[^/]*$/i, 'provider sign-in'],
   [new RegExp(`(^|\\/)(credentials?|secrets?|tokens?|auth)(\\.[a-z0-9]+)*\\.${CONFIGISH}$`, 'i'), 'credential-named config file'],
@@ -58,6 +66,7 @@ function pathDecision(rel) {
   if (typeof rel !== 'string' || !rel || rel.includes('\0')) return { include: false, why: 'unusable path' };
   const p = rel.split(path.sep).join('/');
   if (p.startsWith('/') || p.split('/').includes('..')) return { include: false, why: 'path outside the work Kosmos' };
+  if (TEMPLATE.test(p)) return { include: true };
   for (const [re, why] of DENY) if (re.test(p)) return { include: false, why };
   return { include: true };
 }
@@ -77,15 +86,23 @@ const withheld = (t) => t === WITHHELD || t === UNCHECKED;
 function addFired(into, fired) { for (const f of fired || []) into.set(f.kind, (into.get(f.kind) || 0) + (f.count || 1)); }
 
 function compressed(b) {
-  if (b.length >= 4 && b[0] === 0x50 && b[1] === 0x4b && (b[2] === 3 || b[2] === 5 || b[2] === 7)) return true;  // zip family
-  if (b.length >= 2 && b[0] === 0x1f && b[1] === 0x8b) return true;                                          // gzip
-  if (b.length >= 2 && b[0] === 0x78 && [0x01, 0x5e, 0x9c, 0xda].includes(b[1])) return true;                // zlib (git loose objects)
-  if (b.length >= 3 && b.subarray(0, 3).toString('latin1') === 'BZh') return true;                           // bzip2
-  if (b.length >= 6 && b.subarray(0, 6).equals(Buffer.from([0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00]))) return true;  // xz
-  if (b.length >= 4 && b.readUInt32LE(0) === 0xfd2fb528) return true;                                        // zstd
-  if (b.length >= 6 && b.subarray(0, 6).equals(Buffer.from([0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c]))) return true;  // 7z
-  if (b.length >= 4 && b.subarray(0, 4).toString('latin1') === 'PACK') return true;                         // git pack
-  if (b.subarray(0, 5).toString('latin1') === '%PDF-' && b.includes('/FlateDecode')) return true;            // PDF with deflated streams
+  const at = (i, hex) => b.length >= i + hex.length / 2 && b.subarray(i, i + hex.length / 2).equals(Buffer.from(hex, 'hex'));
+  if (at(0, '504b0304') || at(0, '504b0506') || at(0, '504b0708') || at(0, '504b0102')) return true;  // zip family
+  if (at(0, '1f8b') || at(0, '1f9d')) return true;                                                    // gzip, compress (.Z)
+  if (/^BZh[1-9]/.test(b.subarray(0, 4).toString('latin1')) && at(4, '314159265359')) return true;    // bzip2
+  if (at(0, 'fd377a585a00')) return true;                                                             // xz
+  if (at(0, '28b52ffd')) return true;                                                                 // zstd
+  if (at(0, '377abcaf271c')) return true;                                                             // 7z
+  if (at(0, '04224d18')) return true;                                                                 // lz4 frame
+  if (at(0, '526172211a07')) return true;                                                             // rar
+  if (at(0, '5041434b') && (at(4, '00000002') || at(4, '00000003'))) return true;                     // git pack
+  if (b.subarray(0, 5).toString('latin1') === '%PDF-' && b.includes('/FlateDecode')) return true;     // PDF with deflated streams
+  if (isBinary(b)) {
+    // zlib (git loose objects) and lzma have weak magic: trusted only on a file that is binary anyway.
+    if (b.length >= 2 && (b[0] & 0x0f) === 8 && ((b[0] << 8) | b[1]) % 31 === 0) return true;
+    if (at(0, '5d0000')) return true;
+    if (b.includes(Buffer.from('504b0304', 'hex')) || b.includes(Buffer.from('504b0506', 'hex'))) return true;  // a zip after a stub
+  }
   return false;
 }
 
@@ -126,13 +143,26 @@ function maskText(text, kinds) {
   return whole.text;
 }
 
+/* The FINAL check on the bytes about to be stored, whatever path produced them: raw Latin-1, and with NULs removed. */
+function rawClean(bytes) {
+  // secretmask's own placeholder (U+2022) reads as three Latin-1 characters in the raw view and would itself look
+  // like a password (in a URL, say): map it back, so the raw view sees the same mark the masked text carries.
+  const latin = bytes.toString('latin1').replace(/\u00e2\u0080\u00a2/g, '\u2022');
+  for (const s of [latin, latin.replace(/\0/g, '')]) {
+    const m = mask(s);
+    if (m.fired.length || withheld(m.text) || KEY_OPEN.test(s)) return false;
+  }
+  return true;
+}
+
 function storeOrSkip(buf, text, kinds, encode) {
   const masked = maskText(text, kinds);
   if (masked === null) return { action: 'skip', why: 'text that could not be fully checked' };
   const redacted = [...kinds].map(([kind, count]) => ({ kind, count })).sort((a, b) => a.kind.localeCompare(b.kind));
-  if (!redacted.length) return { action: 'store', data: buf, redacted };
-  const data = encode(masked);
-  return data ? { action: 'store', data, redacted } : { action: 'skip', why: 'could not write the redacted text back' };
+  const data = redacted.length ? encode(masked) : buf;
+  if (!data) return { action: 'skip', why: 'could not write the redacted text back' };
+  if (!rawClean(data)) return { action: 'skip', why: 'something shaped like a credential is still readable in the bytes' };
+  return { action: 'store', data, redacted };
 }
 
 /**
@@ -160,11 +190,7 @@ function scanFile(rel, buf) {
       });
     }
     if (isBinary(buf)) {
-      const latin = buf.toString('latin1');
-      for (const s of [latin, latin.replace(/\0/g, '')]) {
-        const m = mask(s);
-        if (m.fired.length || withheld(m.text) || KEY_OPEN.test(s)) return { action: 'skip', why: 'binary file holding something shaped like a credential, or that could not be checked' };
-      }
+      if (!rawClean(buf)) return { action: 'skip', why: 'binary file holding something shaped like a credential, or that could not be checked' };
       return { action: 'store', data: buf, redacted: [] };
     }
     return storeOrSkip(buf, buf.toString('utf8'), kinds, (s) => Buffer.from(s, 'utf8'));
