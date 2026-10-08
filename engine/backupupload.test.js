@@ -1038,13 +1038,19 @@ test('a manifest grant naming one of its chunks\' keys, or a key an earlier mani
   let b = await bucket();
   try {
     const r = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b, { chunkKeys: [keyN(9), mKey(1)] }));
-    assert.strictEqual(r.ok, false); assert.match(r.because, /already given/);
+    assert.strictEqual(r.ok, false); assert.match(r.because, /must not write/);
     assert.strictEqual(b.puts, 0);
     // CONTROL: other chunk keys pass.
     const ok = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b, { chunkKeys: new Set([keyN(9)]) }));
     assert.strictEqual(ok.ok, true, ok.because);
     const bad = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b, { chunkKeys: 'org1/acct1' }));
     assert.strictEqual(bad.ok, false); assert.match(bad.because, /no list of the manifest's chunk keys/);
+    // uploadChunks' keys Map itself (not its values) would iterate [name, key] pairs and never match: refused.
+    const asMap = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b, { chunkKeys: new Map([['n', mKey(1)]]) }));
+    assert.strictEqual(asMap.ok, false); assert.match(asMap.because, /no list of the manifest's chunk keys/);
+    const pairs = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b, { chunkKeys: [['n', mKey(1)]] }));
+    assert.strictEqual(pairs.ok, false); assert.match(pairs.because, /not all key strings/);
+    assert.strictEqual(b.puts, 1, 'only the control PUT');
   } finally { await b.close(); }
   b = await bucket();
   try {
@@ -1053,19 +1059,31 @@ test('a manifest grant naming one of its chunks\' keys, or a key an earlier mani
     const mc = manifestCoordinator(b, { tamper: (d) => { if (++n === 2) { d.upload.key = mKey(1); d.upload.url = d.upload.url.replace('mK2', 'mK1'); } } });
     b.script.set(mKey(1), [[403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>'], [500], [412, '<Error><Code>PreconditionFailed</Code></Error>']]);
     const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b));
-    assert.strictEqual(r.ok, false); assert.match(r.because, /already given/);
+    assert.strictEqual(r.ok, false); assert.match(r.because, /must not write/);
     assert.strictEqual(mc.bodies.length, 2);
     assert.strictEqual(b.puts, 1);
   } finally { await b.close(); }
 });
 
-test('a chunk stored through a 412 (after a lost answer) still reports its lock end', async () => {
+test('each chunk reports the lock date its OWN upload signed, stored by a 200 or through a 412 after a lost answer', async () => {
   const b = await bucket();
   try {
+    // Two chunks, each signed a DIFFERENT lock date, so a lock end taken from the wrong upload (or made up) fails.
+    // Chunk 1 is stored through a 412 after a 503 (present), chunk 2 by a plain 200.
     b.script.set(keyN(1), [[503], [412, '<Error><Code>PreconditionFailed</Code></Error>']]);
-    const cs = [chunk(1)];
-    const r = await up.uploadChunks(deps(coordinator(b)), cs);
+    const signed = [];
+    const c = coordinator(b, { tamper: (d) => {
+      d.uploads.forEach((u, i) => {
+        const t = Date.parse(u.headers['x-amz-object-lock-retain-until-date']) + i * 86400 * 1000;
+        u.headers['x-amz-object-lock-retain-until-date'] = iso(t);
+        signed.push(t);
+      });
+    } });
+    const cs = [chunk(1), chunk(2)];
+    const r = await up.uploadChunks(deps(c), cs);
     assert.strictEqual(r.ok, true, r.because);
-    assert.ok(Number.isFinite(r.lockedUntil.get(cs[0].name)), 'no lock end for a chunk stored through present');
+    assert.notStrictEqual(signed[0], signed[1]);
+    assert.strictEqual(r.lockedUntil.get(cs[0].name), signed[0], 'present: not the lock date its own upload signed');
+    assert.strictEqual(r.lockedUntil.get(cs[1].name), signed[1], 'stored: not the lock date its own upload signed');
   } finally { await b.close(); }
 });

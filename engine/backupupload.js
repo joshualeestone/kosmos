@@ -528,8 +528,13 @@ async function uploadManifestInner(deps, bytes, o) {
   // Every key this call must not write: the chunks' (when given) and each earlier manifest grant's. The 412 rule rests
   // on a key being this upload's alone, as in uploadChunks.
   const avoid = new Set();
-  if (o.chunkKeys == null || typeof o.chunkKeys[Symbol.iterator] !== 'function' || typeof o.chunkKeys === 'string') return { ok: false, because: "no list of the manifest's chunk keys" };
-  for (const k of o.chunkKeys) avoid.add(k);
+  // A list of key strings: not a string, and not uploadChunks' keys Map itself (iterating it gives [name, key] pairs,
+  // which would never match a key and silently disarm this guard).
+  if (o.chunkKeys == null || typeof o.chunkKeys[Symbol.iterator] !== 'function' || typeof o.chunkKeys === 'string' || o.chunkKeys instanceof Map) return { ok: false, because: "no list of the manifest's chunk keys" };
+  for (const k of o.chunkKeys) {
+    if (typeof k !== 'string' || !k) return { ok: false, because: "the manifest's chunk keys are not all key strings" };
+    avoid.add(k);
+  }
   for (let grants = 0; grants <= MAX_REGRANTS; grants++) {
     const asked = now();
     const g = await askSigned(deps.macRequest, MANIFEST_ROUTE,
@@ -539,7 +544,7 @@ async function uploadManifestInner(deps, bytes, o) {
     const skew = clockSkew(now(), g.expiresAtMs);
     if (skew) return { ok: false, because: skew };
     const up = g.upload;
-    if (avoid.has(up.key)) return { ok: false, because: 'the manifest grant names a key this run was already given; nothing was sent (this grant\'s allowance is spent)' };
+    if (avoid.has(up.key)) return { ok: false, because: 'the manifest grant names a key it must not write (one of its chunks\', or an earlier manifest grant\'s); nothing was sent (this grant\'s allowance is spent)' };
     avoid.add(up.key);
     if (up.retainMs > floor) return { ok: false, outlastsChunks: true, because: `the manifest grant locks until ${new Date(up.retainMs).toISOString()}, past the earliest chunk it names (${new Date(floor).toISOString()}); nothing was sent (this grant's allowance is spent)` };
     const deadline = asked + g.lifetimeMs - 10 * 1000;
