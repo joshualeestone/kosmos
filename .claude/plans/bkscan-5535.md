@@ -96,3 +96,7 @@ That secretmask's shape patterns plus known values catch the credentials a work 
 - **Ogg voice notes over-skipped** (35 of 62 real files; also 4 of 89 .ico, 1 .bmp; WASM 16 of 20 in the NIT). Added strict magics: Ogg (version byte 0) and FLAC as audio; BMP (a valid DIB header size) and ICO (a sane image count) as image; WebAssembly v1 as code. Each format has a noise-kept test; an Ogg with a provider key skips; OggS with a non-zero version is not audio.
 - **The audio arms were not pinned** (widening the audio exemption, dropping WAVE/AIFF form checks, dropping ID3 or caff all stayed green). Now: an assigned password and a URL credential inside a WAV skip (audio ignores only long_token); RIFF+AVI and FORM+8SVX are not audio; ID3 and caff keep their noise.
 - Measurement note: the reviewer's sweep read real media on this machine. Only counts left the sweep; nothing was copied.
+
+## Review round 8 (sonnet): no BLOCKER, 1 WARNING (untested deny entries), fixed
+- The reviewer removed each of the 20 deny entries in turn; 17 went red. The three that did not (provider sign-ins for Codex, Gemini and Grok; bare `credentials`/`secrets` files; a `.git` gitfile) now each have a skip assertion, with near-miss controls (`.codex/config.toml`, `x/credentials-guide.md`, `x/secretary.md`, `.gitignore`, `.github/`).
+- NIT taken: ID3 needs a plausible version byte (2 to 4).
