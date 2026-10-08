@@ -465,3 +465,12 @@ test('#5535 XMP in media: only xmpDM:key noise is ignored; a key or password els
   const pw = '<x:xmpmeta><rdf:Description password="Hunter2Hunter2xyz99"/></x:xmpmeta>';
   if (require('./secretmask').mask('password="Hunter2Hunter2xyz99"').fired.length) assert.equal(bs.scanFile('agents/a/p.mov', vid(pw)).action, 'skip', 'a password attribute inside the XMP packet');
 });
+
+test('#5535 the xmpDM:key carve-out removes only the name: a key in its value, in another field, in a non-media file, or past an unclosed quote still skips', () => {
+  const vid = (packet) => Buffer.concat([Buffer.from([0, 0, 0, 20]), Buffer.from('ftypqt  '), Buffer.alloc(8), Buffer.from(packet), Buffer.alloc(8)]);
+  assert.equal(bs.scanFile('agents/a/a.mov', vid(`<rdf:li xmpDM:key="${KEY}"/>`)).action, 'skip', 'a provider key inside an xmpDM:key value');
+  assert.equal(bs.scanFile('agents/a/b.mov', vid(`<rdf:li xmpDM:logComment="${KEY}"/>`)).action, 'skip', 'a key in another xmpDM field');
+  const db = Buffer.concat([Buffer.from('SQLite format 3\0'), Buffer.alloc(8), Buffer.from(`xmpDM:key="${KEY}"`), Buffer.alloc(8)]);
+  assert.equal(bs.scanFile('agents/a/c.db', db).action, 'skip', 'the carve-out does not apply to a non-media binary');
+  assert.equal(bs.scanFile('agents/a/d.mov', vid(`<rdf:li xmpDM:key="${'x'.repeat(600)} ${KEY}`)).action, 'skip', 'a key far past an unclosed xmpDM:key quote');
+});
