@@ -731,18 +731,22 @@ test('#5531 review 27: mayReport needs the consent recorded here; a record witho
   assert.equal(org.mayReport({ root: b }), false, 'a record with no consent recorded here may report');
 });
 
-test('#5531 review 27: an undo refused as the last admin leaves no "your leave was refused" note (the person asked for no leave)', async (t) => {
+test('#5531 review 31: an undo refused as the last admin keeps the consent the person accepted, and says so once in undo words', async (t) => {
   const { a } = sandbox(t);
+  const HASH = 'a1'.repeat(32);
   const co = { macRequest: async (m, route, body) => {
-    if (route === org.ROUTES.enroll) return { ok: true, data: { ok: true, org: ORG, role: 'member', enrolled: { computer: 'c2', world: body.world, thisComputer: false } } };
+    if (route === org.ROUTES.enroll) return { ok: true, data: { ok: true, org: ORG, role: 'admin', enrolled: { computer: 'c2', world: body.world, thisComputer: false } } };
     if (route === org.ROUTES.leave) return { ok: false, because: 'offline' };
     return { ok: false, because: 'unexpected ' + route }; } };
-  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: co });
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: co, consentHash: HASH });
   assert.equal(org.leavePending({ root: a }), true, 'CONTROL: a pending undo');
   // The company now names this world HERE and refuses the undo as the last admin: the record is rebuilt.
   await org.refresh({ root: a, remote: here(a, { macRequest: async () => ({ ok: false, because: '409 {"because":"org_last_admin"}' }) }) });
   assert.equal(org.isEnrolledHere({ root: a }), true, 'CONTROL: the record was rebuilt');
-  assert.equal(org.leaveRefusedFor({ root: a }), null, 'the screen would say "your leave was refused" for a leave the person never asked for');
+  assert.equal(org.readEnrollment({ root: a }).consentHash, HASH, 'the consent the person accepted was dropped, so this Kosmos can never report');
+  assert.equal(org.mayReport({ root: a }), true);
+  assert.equal(org.leaveRefusedFor({ root: a }), 'Acme', 'the person was told "not reporting", it reports again, and nothing says so');
+  assert.equal(org.leaveRefusedKind({ root: a }), 'undo', 'the note would say "your leave was refused" for a leave the person never asked for');
 });
 
 test('#5531 review 28: a consent hash is never carried onto a record for another world; "no world enrolled" is not undone', async (t) => {

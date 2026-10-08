@@ -47116,12 +47116,17 @@ function plusOrgMaybe() {
   if (Date.now() - PLUS_ORG.at < 60000) { if (PLUS_ORG.state) plusOrgPaint(); return; }   // at most once a minute, failed reads included
   PLUS_ORG.at = Date.now();
   fetch('/api/org').then((res) => res.json()).then((j) => {
+    const was = !!(PLUS_ORG.state && PLUS_ORG.state.enrolled === true);
     PLUS_ORG.state = j; plusOrgPaint();
     const msg = document.getElementById('plus-org-msg');
+    // A line about the old state ("not known yet", "left") must not sit under the new one (review 31).
+    if (j && (j.enrolled === true) !== was) msg.textContent = '';
     // The server shows this note once, so it replaces whatever line is there rather than waiting for an empty one.
     if (j && j.enrolled !== true && j.stoppedFor) msg.textContent = 'This Kosmos is no longer the work Kosmos for ' + j.stoppedFor + ', so it has stopped reporting.';
     // #5531 review 21: a leave the person was told would be sent again was refused, so this Kosmos reports again.
-    if (j && j.enrolled === true && j.leaveRefused) msg.textContent = 'Your leave from ' + j.leaveRefused + ' was refused: you are its last admin. This Kosmos is your work Kosmos again and reports to it.';
+    if (j && j.enrolled === true && j.leaveRefused) msg.textContent = j.leaveRefusedUndo === true
+      ? 'Your company could not undo joining ' + j.leaveRefused + ': you are its last admin. This Kosmos is your work Kosmos and reports to it.'
+      : 'Your leave from ' + j.leaveRefused + ' was refused: you are its last admin. This Kosmos is your work Kosmos again and reports to it.';
   }).catch(() => { /* the next minute tries again */ });
 }
 function plusOrgList(id, items) {
@@ -47137,6 +47142,7 @@ function plusOrgPaint() {
   document.getElementById('plus-org-in').hidden = !here;
   document.getElementById('plus-org-out').hidden = !!here || !!PLUS_ORG.preview;
   document.getElementById('plus-org-consent').hidden = !PLUS_ORG.preview;
+  if (!here) plusOrgLeaveArm(false);   // a Leave confirmation never stays open under a view that is gone (review 31)
   if (here) document.getElementById('plus-org-say').textContent = 'This Kosmos is your work Kosmos for ' + (st.org.name || 'your company') + '. Your other Kosmoses on this computer are not part of it.';
 }
 /* #5531: one POST to the board's org routes. Each URL is written out as a literal (web.api-routes-3957.test.js checks

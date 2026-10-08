@@ -378,3 +378,16 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
 - A marker whose time could not be read never settled (its age was NaN) and the fast follow-up polled it forever.
   An unreadable time now counts as old (settled on the first clear answer), and the fast follow-up skips it (the daily
   pass remains). Pinned; the NaN mutation reddens it. Two stranded comments moved onto their functions.
+
+## Review 31
+- An undo refused as the last admin rebuilt the record WITHOUT the consent the person had accepted (the pending undo
+  kept none), leaving a Kosmos that could not report, leave, or show the consent again. The pending undo now keeps the
+  consent hash for its world, and the rebuild restores it (mayReport is then true). The person, last told "not
+  reporting", gets a one-time note in undo words ("Your company could not undo joining X..."), never "your leave was
+  refused" (a note kind; GET /api/org adds leaveRefusedUndo). Review 27's "no note for an undo" is superseded: the
+  note now exists and says the right thing. Pinned in the engine and on the page (O12 undo arm); each mutation reddens.
+- Page: a line about the old state is cleared when enrolled flips between two reads; a Leave confirmation closes when
+  the joined view goes.
+- Not done (recorded): a join that lands at the company more than 2 minutes after its timeout is settled here as not
+  made; the person recovers by checking the code again (the move consent). The first local-only branch of leaveNow is
+  a defensive copy of the route's own refusal (reachable only by a race).

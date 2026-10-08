@@ -230,7 +230,7 @@ async function undoFirstJoin(lead, opts) {
   const undo = await signed('POST', ROUTES.leave, {}, opts);
   // org_code_used: the code is spent, so the route keeps no ticket for it and the page goes back to the code field.
   if (undo.ok || codeOf(undo.because) === 'org_not_member') return { ok: false, code: 'org_code_used', because: lead + ' Joining was undone, so nothing was joined. That code is used up: ask your company for a new one.' };
-  setLeavePending(true, opts, null, true);   // an undo, retried on the next pass if this file, at least, can be written
+  setLeavePending(true, opts, null, true, opts && opts.consentHash);   // an undo, retried on the next pass if this file, at least, can be written
   // A code: the code may be spent, so no ticket is kept for it and the page goes back to the code field (review 25).
   return { ok: false, code: 'org_undo_pending', because: lead + ' Joining could not be undone yet, so your company may still list this Kosmos. It is not reporting.' };
 }
@@ -315,9 +315,14 @@ async function enrollNow(code, accepted, opts) {
    `undo` marks the leave that takes back this Kosmos's OWN first join (one it could not keep): that one is sent while the
    account is a member at all, not only when the company names this world, since the company's not naming it here is
    exactly why it is being undone (#5531 review 21). */
-function setLeavePending(on, opts, rec, undo) {
+function setLeavePending(on, opts, rec, undo, consentHash) {
   const file = path.join(storeRoot(opts), LEAVE_PENDING_FILE);
-  try { if (on) fs.writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), rec: rec || null, undo: undo === true }) + '\n', { mode: 0o600 }); else fs.rmSync(file, { force: true }); } catch { /* best effort */ }
+  // An undo keeps the consent the person accepted, so a join that cannot be undone is recorded WITH it (review 31).
+  const hash = typeof consentHash === 'string' && /^[0-9a-f]{64}$/.test(consentHash) ? consentHash : null;
+  try { if (on) fs.writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), rec: rec || null, undo: undo === true, consentHash: hash, world: readWorldId(opts) }) + '\n', { mode: 0o600 }); else fs.rmSync(file, { force: true }); } catch { /* best effort */ }
+}
+function pendingConsentHash(opts) {
+  try { const j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_PENDING_FILE), 'utf8')); return j && j.consentHash && j.world === readWorldId(opts) ? j.consentHash : null; } catch { return null; }
 }
 function pendingUndo(opts) {
   try { return JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_PENDING_FILE), 'utf8')).undo === true; } catch { return false; }
@@ -342,9 +347,12 @@ function leaveRefusedFor(opts) {
   try { const j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_REFUSED_FILE), 'utf8')); return j && typeof j.name === 'string' ? j.name : null; }
   catch { return null; }
 }
-function setLeaveRefused(name, opts) {
+function setLeaveRefused(name, opts, kind) {
   const file = path.join(storeRoot(opts), LEAVE_REFUSED_FILE);
-  try { if (name == null) fs.rmSync(file, { force: true }); else fs.writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), name }) + '\n', { mode: 0o600 }); } catch { /* the screen just does not say it */ }
+  try { if (name == null) fs.rmSync(file, { force: true }); else fs.writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), name, kind: kind === 'undo' ? 'undo' : 'leave' }) + '\n', { mode: 0o600 }); } catch { /* the screen just does not say it */ }
+}
+function leaveRefusedKind(opts) {
+  try { return JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_REFUSED_FILE), 'utf8')).kind === 'undo' ? 'undo' : 'leave'; } catch { return null; }
 }
 function clearLeaveRefused(opts) { setLeaveRefused(null, opts); }
 function pendingRecord(opts) {
@@ -479,11 +487,14 @@ async function leaveNow(opts, retry) {
     const org = cleanOrg(d.org), role = cleanRole(d.role);
     // Rebuilt only when the company named this world HERE: an undo's notHere must never become a record (review 23).
     const back = before || (verdict === 'here' && org && role ? { org, role, world: readWorldId(opts), enrolledAt: new Date().toISOString() } : null);
+    // An undo refused: the person DID accept the words for this world, so the record carries them (review 31).
+    const hashBefore = pendingConsentHash(opts);
+    if (back && !before && undo && hashBefore) back.consentHash = hashBefore;
     let kept = false;
     if (back) { try { writeEnrollment(back, opts); kept = true; } catch { /* below */ } }
-    setLeavePending(!kept, opts, back, undo);
-    // Told "stopped" earlier: say it is not. Only for the person's own leave: an undo is not one they asked for (review 27).
-    if (kept && retry && !undo) setLeaveRefused((back.org && back.org.name) || 'your company', opts);
+    setLeavePending(!kept, opts, back, undo, hashBefore);
+    // Told "stopped" (or "not reporting") earlier: say once that it reports again, in words for what was refused (reviews 27, 31).
+    if (kept && retry) setLeaveRefused((back.org && back.org.name) || 'your company', opts, undo ? 'undo' : 'leave');
     return { ok: false, still: true, code, because: SAY.org_last_admin };
   }
   setLeavePending(true, opts, before, undo);
@@ -537,5 +548,5 @@ async function refreshNow(opts) {
 
 module.exports = {
   ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, codeOf,
-  worldId, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh,
+  worldId, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh,
 };

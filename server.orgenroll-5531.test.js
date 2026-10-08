@@ -76,7 +76,7 @@ test('#5531: from the screen, a decline sends nothing and records nothing; a pre
 
 test('#5531: GET /api/org reports this world\'s own record, and only one that names this world', async () => {
   const none = await call('/api/org', { method: 'GET', headers: SCREEN });
-  assert.deepEqual(none.json, { enrolled: false, stoppedFor: null, leaveRefused: null, org: null, role: null, enrolledAt: null });
+  assert.deepEqual(none.json, { enrolled: false, stoppedFor: null, leaveRefused: null, leaveRefusedUndo: false, org: null, role: null, enrolledAt: null });
   const world = oe.worldId();
   fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', world, enrolledAt: '2026-10-07T00:00:00.000Z' }));
   const yes = await call('/api/org', { method: 'GET', headers: SCREEN });
