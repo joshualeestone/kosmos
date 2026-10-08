@@ -17,7 +17,7 @@ const USAGE_MODEL_PRICES = Object.freeze({
   'claude-opus-5-5': Object.freeze({ in: 4, out: 20, cw: 5.00, cr: 0.20 }),
   'claude-opus-5': Object.freeze({ in: 5, out: 25, cw: 6.25, cr: 0.50 }),
   'claude-opus-4-8': Object.freeze({ in: 5, out: 25, cw: 6.25, cr: 0.50 }),
-  'claude-sonnet-5-5': Object.freeze({ in: 2, out: 10, cw: 2.50, cr: 0.20 }),
+  'claude-sonnet-5-5': Object.freeze({ in: 2, out: 10, cw: 2.50, cr: 0.10 }),   // #5627: cache hits are 0.05x input (published)
   'claude-sonnet-5': Object.freeze({ in: 2, out: 10, cw: 2.50, cr: 0.20 }),
   'claude-sonnet-4-6': Object.freeze({ in: 3, out: 15, cw: 3.75, cr: 0.30 }),
   'claude-haiku-4-5': Object.freeze({ in: 1, out: 5, cw: 1.25, cr: 0.10 }),

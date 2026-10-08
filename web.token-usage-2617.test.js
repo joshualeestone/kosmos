@@ -286,13 +286,13 @@ test('#3460: claude-opus-5-5 is priced (in the cost figure), not unpriced', () =
   assert.ok(U.usageModelPrice('claude-opus-5-5-20260401'), 'dated opus-5-5 id resolves via strip');
 });
 
-test('#4439: claude-sonnet-5-5 is priced like claude-sonnet-5 (tier_2_10), not unpriced', () => {
-  // Claude Code 2.1.284's model catalog gives sonnet-5-5 pricing tier_2_10: in 2 / out 10 /
-  // 5-minute write 2.5 / cache read 0.2, the same tier as sonnet-5 (source on #4439).
+test('#4439/#5627: claude-sonnet-5-5 is priced at its published rates, not unpriced', () => {
+  // Published Anthropic pricing (2026-10-08): in 2 / out 10 / 5-minute write 2.5 / cache hits 0.10, which is 0.05x of
+  // input (#5627 corrected the 0.2 first taken from Claude Code 2.1.284's tier_2_10 catalog entry, #4439).
   const p = U.usageModelPrice('claude-sonnet-5-5');
-  assert.deepEqual(p, { in: 2, out: 10, cw: 2.50, cr: 0.20 }, 'tier_2_10 rates');
+  assert.deepEqual(p, { in: 2, out: 10, cw: 2.50, cr: 0.10 }, 'published Sonnet 5.5 rates');
   const r = U.usageApiCost({ d: { 'claude-sonnet-5-5': { input_tokens: 1e6, output_tokens: 1e6, cache_creation_input_tokens: 1e6, cache_read_input_tokens: 1e6 } } });
-  assert.ok(Math.abs(r.cost - 14.70) < 1e-9, 'sonnet-5-5 1M-each -> $14.70, got ' + r.cost);
+  assert.ok(Math.abs(r.cost - 14.60) < 1e-9, 'sonnet-5-5 1M-each -> $14.60, got ' + r.cost);
   assert.deepEqual(r.unpriced, [], 'sonnet-5-5 is not in unpriced');
   assert.deepEqual(U.usageModelPrice('claude-sonnet-5-5-20260601'), p, 'a dated sonnet-5-5 id resolves to the same row');
   // CONTROL: the two ids resolve to their OWN rows. The rates are equal, so a deepEqual could not
@@ -300,6 +300,8 @@ test('#4439: claude-sonnet-5-5 is priced like claude-sonnet-5 (tier_2_10), not u
   const p5 = U.usageModelPrice('claude-sonnet-5');
   assert.ok(p5, 'claude-sonnet-5 is still priced');
   assert.notStrictEqual(p5, p, 'claude-sonnet-5 and claude-sonnet-5-5 resolved to the same row');
+  // CONTROL (#5627): Sonnet 5 keeps its published 0.20 cache hits (the 0.05x multiplier is Sonnet 5.5 and Opus 5.5 only).
+  assert.equal(p5.cr, 0.20);
 });
 
 /* #2840: the scrollable usage-history list. FIXTURE per-row 4-class totals:
