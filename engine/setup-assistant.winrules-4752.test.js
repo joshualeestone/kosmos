@@ -189,11 +189,11 @@ test('#4752: an old rule for a drive root maps to the same rule ruleAbs writes n
   assert.equal(sa.legacyWinEquivalent('Read(//D:\\/**)'), `Read(${sa.ruleAbs('D:\\', 'win32')}/**)`);
 });
 
-test('#4752: on Windows a path that is not a drive path gets no rule (said), off Windows the same strings are ordinary', () => {
-  for (const p of ['\\\\.\\C:\\x', 'c:foo', 'C:', '\\rooted\\nodrive']) {
-    assert.equal(sa.ruleUnwritable(p, 'win32'), true, 'written as a rule that matches nothing on Windows: ' + p);
+test('#4752: on Windows every path is written as it is unless it has rule syntax (as on main); a bare C: is never the whole drive', () => {
+  for (const p of ['C:\\Users\\a', 'd:/data', '\\\\?\\C:\\Users\\a', '\\\\srv\\share\\K', '\\\\s\\share\\K', '\\\\?\\UNC\\srv\\share\\K', '\\\\srv\\share', '\\\\.\\C:\\x', 'c:foo']) {
+    assert.equal(sa.ruleUnwritable(p, 'win32'), false, 'refused, so this folder would have no rule at all: ' + p);
   }
-  for (const p of ['C:\\Users\\a', 'd:/data', '\\\\?\\C:\\Users\\a', '\\\\srv\\share\\K', '\\\\s\\share\\K', '\\\\?\\UNC\\srv\\share\\K']) assert.equal(sa.ruleUnwritable(p, 'win32'), false, 'a drive path or a share was refused (a share is written; review 21): ' + p);
+  assert.equal(sa.ruleUnwritable('\\\\?\\Volume{0000}\\x', 'win32'), true, 'a path with rule syntax (braces) was not refused');
   assert.equal(sa.ruleAbs('\\\\srv\\share\\K', 'win32'), '//srv/share/K');
   assert.equal(sa.ruleAbs('C:', 'win32').includes('//c'), false, 'a bare drive-relative C: was written as the whole drive');
   assert.equal(sa.ruleUnwritable('/srv/share/K', 'darwin'), false, 'CONTROL: an ordinary POSIX path refused');
