@@ -257,3 +257,12 @@ test('#4752: a path with a parenthesis (a folder like `Jo (work)`) still gets it
   assert.equal(twins[1], 'Read(//C:\\Users\\Jo (work)\\AppData\\Roaming\\Kosmos/**)');
   assert.equal(sa.legacyWinEquivalent(twins[1]), r, 'the twin does not map back to its rule');
 });
+
+test('#4752: a share reading is never resolved (no network lookup), only compared as text', () => {
+  const real = () => { throw new Error('a share path was resolved'); };
+  assert.equal(sa.readingsHoldGuide(sa.rulePaths('srv/share/K', 'win32'), '\\\\srv\\share\\K\\guide', real, '\\'), true);
+  assert.equal(sa.readingsHoldGuide(sa.rulePaths('srv/share/K', 'win32'), 'C:\\elsewhere', real, '\\'), false, 'CONTROL');
+  let resolved = 0;
+  sa.readingsHoldGuide(sa.rulePaths('c/Users', 'win32'), 'C:\\Users\\a', (p) => { resolved += 1; return p; }, '\\');
+  assert.equal(resolved, 1, 'CONTROL: a drive reading is still resolved (links on a local disk are seen through)');
+});
