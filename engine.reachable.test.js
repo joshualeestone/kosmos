@@ -259,10 +259,11 @@ const TRIAGED_5548 = {
   setDescription: ['engine/projects.js', SUPERSEDED + ' (the PUT route moved to one-write edit())'],
   setArchived: ['engine/projects.js', SUPERSEDED + ' (as setDescription; also a fixture helper in six test files)'],
   labelForMember: ['engine/fedmembers.js', SUPERSEDED + ' (a convenience over labelsFor that no screen uses)'],
-  minInterval: ['engine/inflight.js', SUPERSEDED + ' (built for /api/agent/connections, #1645, which uses inflight.collapse)'],
   labelFor: ['engine/communityindustry.js', 'pending: slice 2 of OPEN #4375 (the public label for an owner\'s industry)'],
   HANDOFF_CHECK_FOR_SERVING_AFTER_MS: ['engine/win32handoff.js', 'mirrored by tools/windows/KosmosLauncher.cs (CheckForServingAfterMs), pinned equal by tools.win-launcher-native.test.js'],
   exportAgent: ['engine/agentfile.js', 'an UNREACHABLE capability (the export half of #1652): wire or delete on #5581'],
+  // Review 2: NOT superseded (collapse does not bound a sequential loop): an unwired cost defence.
+  minInterval: ['engine/inflight.js', 'an UNREACHABLE capability (the connections-sweep guard of #1645, never wired): wire or delete on #5583'],
 };
 
 const engineDir = path.join(__dirname, 'engine');
