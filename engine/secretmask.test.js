@@ -1994,3 +1994,26 @@ test('#5558: a path of plain segments is not a long token; a token chopped into 
   assert.equal(mask('x a8f3k2m9x7q1z0b4c6d8e2f5g7h9j1k3 y').text, `x ${MASK} y`, 'CONTROL: a random token is still masked');
   assert.equal(mask('dir/a8f3K2m9x7Q1z0b4c6d8e2f5g7h9j1k3x').text, MASK, 'a random segment inside a path passed as plain');
 });
+
+test('#5558 review 1: random lowercase-and-digit tokens behind a path prefix are still masked', () => {
+  // Seeded, so the test is the same every run: a small linear generator over the lowercase-and-digit alphabet.
+  const alpha = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let seed = 5558;
+  const next = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed; };
+  // The high bits: a linear generator's low bits cycle, and the first version of this test drew only nine characters.
+  const token = (n) => Array.from({ length: n }, () => alpha[(next() >>> 16) % alpha.length]).join('');
+  let kept = 0;
+  for (let i = 0; i < 400; i++) {
+    for (const prefix of ['keys/prod/', 'example.com/api/v1/']) {
+      const t = token(32);
+      if (!(/[0-9]/.test(t) && /[a-z]/.test(t))) continue;
+      // What this change controls: a token the detector masks ON ITS OWN must stay masked behind a path prefix.
+      // (Some random tokens are not masked even alone, digits in one place say; that gap predates #5558.)
+      if (mask(t).text === t) continue;
+      const input = prefix + t;
+      if (mask(input).text === input) kept++;
+    }
+  }
+  assert.equal(kept, 0, kept + ' tokens masked alone passed unmasked behind a path prefix');
+  assert.equal(mask('keys/prod/shtwyqrchpxh4ho7s75pbot6mgjoujth').text, MASK);
+});
