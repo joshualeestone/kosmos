@@ -57,12 +57,20 @@ function reachFrom({ runner, agentClaudeDir, personClaudeHome } = {}) {
   const r = typeof runner === 'string' ? runner.trim().toLowerCase() : '';
   if (r === 'codex') return { reaches: false, reason: CODEX_ISOLATED };
   if (r === 'claude') {
-    if (typeof personClaudeHome !== 'string' || !personClaudeHome) return { reaches: null, reason: UNKNOWN };
-    // Clean default launch: CLAUDE_CONFIG_DIR unset -> effective dir is the person's home.
+    // The person's home must be a usable ABSOLUTE path, or reach cannot be judged for ANY agent on this
+    // runner -- INCLUDING a default launch, which shares exactly this home. A relative or empty home is an
+    // anomalous environment (e.g. a relative AGENT_WORKFORCE_HOME), so answer UNKNOWN, never guess. This
+    // guard is deliberately ABOVE the default-launch return: a default launch on a non-absolute home would
+    // otherwise report a reaches:true the signal cannot stand behind (kosmos#5309 review, Sonya).
+    // (typeof check first: path.isAbsolute throws on a non-string.)
+    if (typeof personClaudeHome !== 'string' || !path.isAbsolute(personClaudeHome)) {
+      return { reaches: null, reason: UNKNOWN };
+    }
+    // Clean default launch: CLAUDE_CONFIG_DIR unset -> effective dir is the person's (absolute) home.
     if (agentClaudeDir == null || agentClaudeDir === '') return { reaches: true, reason: REACHES };
-    // A non-string or non-absolute dir cannot be compared reliably (path.resolve would resolve a
-    // relative value against the process cwd and could spuriously match): report UNKNOWN, never guess.
-    if (typeof agentClaudeDir !== 'string' || !path.isAbsolute(agentClaudeDir) || !path.isAbsolute(personClaudeHome)) {
+    // The agent dir must also be a usable absolute path to compare (path.resolve would resolve a relative
+    // value against the process cwd and could spuriously match): report UNKNOWN, never guess.
+    if (typeof agentClaudeDir !== 'string' || !path.isAbsolute(agentClaudeDir)) {
       return { reaches: null, reason: UNKNOWN };
     }
     // Compare RESOLVED paths so 'h/./.claude' and 'h/.claude/' are not read as different folders.

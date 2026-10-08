@@ -86,6 +86,22 @@ test('#5309 p2: an unreadable/non-string runner or missing person-home is UNKNOW
     { reaches: null, reason: UNKNOWN });
 });
 
+test('#5309 p2: a DEFAULT launch with a non-absolute/empty/non-string person-home is UNKNOWN, not reaches:true', () => {
+  // Regression (Sonya review, m4778): the default-launch return must sit BELOW the person-home
+  // absoluteness guard, so an anomalous relative/empty/non-string homeDir() (e.g. a relative
+  // AGENT_WORKFORCE_HOME) does not yield a reaches:true the signal cannot stand behind. agentClaudeDir
+  // null is the default launch (CLAUDE_CONFIG_DIR unset).
+  assert.deepEqual(reachFrom({ runner: 'claude', agentClaudeDir: null, personClaudeHome: 'relative/.claude' }),
+    { reaches: null, reason: UNKNOWN });
+  assert.deepEqual(reachFrom({ runner: 'claude', agentClaudeDir: null, personClaudeHome: '' }),
+    { reaches: null, reason: UNKNOWN });
+  assert.deepEqual(reachFrom({ runner: 'claude', agentClaudeDir: null, personClaudeHome: {} }),
+    { reaches: null, reason: UNKNOWN });
+  // Positive control: a default launch on an ABSOLUTE person-home still reaches.
+  assert.deepEqual(reachFrom({ runner: 'claude', agentClaudeDir: null, personClaudeHome: HOME }),
+    { reaches: true, reason: REACHES });
+});
+
 // --- resolver (injected deps, no real plist) ---
 
 function deps({ job, home = '/Users/person' }) {
