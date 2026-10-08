@@ -806,7 +806,7 @@ function manifestCoordinator(b, opts) {
 const mKey = (n) => `org1/acct1/1/2026-W41/mK${n}`;
 const manifestBytes = () => crypto.randomBytes(up.MIN_OBJECT + 100);
 // The opts a caller passes: the chunks' bucket path (the local bucket's) and a lock end no manifest here outlasts.
-const mOpts = (b, extra) => Object.assign({ bucket: `${new URL(b.base).host}/bucket/`, chunksLockedUntilMs: Date.now() + 40 * DAY }, extra || {});
+const mOpts = (b, extra) => Object.assign({ bucket: `${new URL(b.base).host}/bucket/`, chunksLockedUntilMs: Date.now() + 40 * DAY, chunkKeys: [] }, extra || {});
 const sha256hex = (b) => crypto.createHash('sha256').update(b).digest('hex');
 
 test('chunks then their manifest: uploadChunks returns each lock end and the bucket, and the manifest is stored there under its SHA-256', async () => {
@@ -819,7 +819,7 @@ test('chunks then their manifest: uploadChunks returns each lock end and the buc
     for (const x of cs) assert.ok(Number.isFinite(r.lockedUntil.get(x.name)), 'each chunk has its lock end');
     const m = manifestBytes();
     const mc = manifestCoordinator(b);
-    const mr = await up.uploadManifest(deps(mc), m, { bucket: r.bucket, chunksLockedUntilMs: Math.min(...r.lockedUntil.values()) });
+    const mr = await up.uploadManifest(deps(mc), m, { bucket: r.bucket, chunksLockedUntilMs: Math.min(...r.lockedUntil.values()), chunkKeys: r.keys.values() });
     assert.strictEqual(mr.ok, true, mr.because);
     assert.strictEqual(mr.key, mKey(1));
     assert.strictEqual(mr.sha256, sha256hex(m));
@@ -902,13 +902,15 @@ test('chunks whose lock ends within 30 days are refused before any grant is aske
   } finally { await b.close(); }
 });
 
-test('a manifest call without its bucket or its chunks lock end, or outside the size range, asks for nothing', async () => {
+test('a manifest call without its bucket, its chunks lock end or its chunk keys, or outside the size range, asks for nothing', async () => {
   const b = await bucket();
   try {
     const mc = manifestCoordinator(b);
     const cases = [
-      [manifestBytes(), { chunksLockedUntilMs: Date.now() + 40 * DAY }, /no bucket/],
-      [manifestBytes(), { bucket: mOpts(b).bucket }, /no lock end/],
+      [manifestBytes(), { chunksLockedUntilMs: Date.now() + 40 * DAY, chunkKeys: [] }, /no bucket/],
+      [manifestBytes(), { bucket: mOpts(b).bucket, chunkKeys: [] }, /no lock end/],
+      [manifestBytes(), { bucket: mOpts(b).bucket, chunksLockedUntilMs: Date.now() + 40 * DAY }, /no list of the manifest's chunk keys/],
+      [manifestBytes(), mOpts(b, { chunkKeys: null }), /no list of the manifest's chunk keys/],
       [manifestBytes(), mOpts(b, { chunksLockedUntilMs: NaN }), /no lock end/],
       [crypto.randomBytes(up.MIN_OBJECT - 1), mOpts(b), /outside/],
       ['not bytes', mOpts(b), /not bytes/],
@@ -1024,7 +1026,7 @@ test('an unreachable bucket for the manifest is retried until expiry, then ends 
   const b = await bucket();
   const base = b.base; await b.close();   // nothing listens there now
   const mc = manifestCoordinator({ base });
-  const r = await up.uploadManifest(deps(mc, clock()), manifestBytes(), { bucket: `${new URL(base).host}/bucket/`, chunksLockedUntilMs: Date.now() + 40 * DAY });
+  const r = await up.uploadManifest(deps(mc, clock()), manifestBytes(), { bucket: `${new URL(base).host}/bucket/`, chunksLockedUntilMs: Date.now() + 40 * DAY, chunkKeys: [] });
   assert.strictEqual(r.ok, false);
   assert.strictEqual(r.retryLater, true);
   assert.match(r.because, /could not be reached/);
@@ -1042,7 +1044,7 @@ test('a manifest grant naming one of its chunks\' keys, or a key an earlier mani
     const ok = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b, { chunkKeys: new Set([keyN(9)]) }));
     assert.strictEqual(ok.ok, true, ok.because);
     const bad = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b, { chunkKeys: 'org1/acct1' }));
-    assert.strictEqual(bad.ok, false); assert.match(bad.because, /not a list/);
+    assert.strictEqual(bad.ok, false); assert.match(bad.because, /no list of the manifest's chunk keys/);
   } finally { await b.close(); }
   b = await bucket();
   try {
