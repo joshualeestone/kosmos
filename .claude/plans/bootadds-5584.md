@@ -8,7 +8,7 @@ least four times: .world-confirmed.json, ping.json, prompter-nudges.json, and bo
 ## Decided (PigeonPete): the card's option 1, made exact
 - **A node test, `install.boot-adds-5584.test.js`.** It boots the real `server.js` the way the gate's smoke boot
   does: the gate's exported variables pointed into a sandbox, the gate's seeded person data, DRY_RUN, and the
-  gate's first request to `/`. It waits until the added set is stable for 3s, bounded at 20s, then compares it with
+  gate's first request to `/`. It waits until the added set is stable for 3s, bounded at 45s (a first-answer snapshot is kept too, as the gate diffs there), then compares it with
   `EXPECTED_ADDS`. The list is read live from `tools/test-install.sh`, so there is one list, not two.
 - **Rejected: the card's static writer scan.** Finding every boot-path writer by reading code misses writers
   reached indirectly. Booting the real start path cannot.
@@ -16,7 +16,7 @@ least four times: .world-confirmed.json, ping.json, prompter-nudges.json, and bo
   too heavy and too network-bound for every PR. The added-files half needs only the board's start.
 - **The test's own exceptions:**
   - `source-channel` is written by setup.sh, not the board, so it is set aside, named.
-  - `ping.json` is written only outside a test runner, because engine/ping.js is inert under NODE_TEST_CONTEXT.
+  - `ping.json` is written only outside a test runner, because the install ping that mints it (engine/createdbeacon.js, at listen) is inert under NODE_TEST_CONTEXT.
     The child keeps that variable: about twenty modules (updating, remote, connect) go inert on it, and a test must
     not wake them. The test asserts that this reason still holds.
 - **This PR also blesses board-alive.json.** It is the same change as the 0.7.28 cut's `installgate-5359` branch.

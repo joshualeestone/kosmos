@@ -24,9 +24,10 @@ const { stopBoard } = require('./test-support/board-child');
 // What setup.sh writes into the data folder itself; the board never does. Keep in step with the gate's comment
 // ("plus Kosmos/source-channel, which setup.sh writes to record which channel pointer the build was fetched from").
 const INSTALLER_WRITES = ['./Kosmos/source-channel'];
-// Board-start writes that are deliberately inert under a test runner. engine/ping.js mints ping.json only when
-// NODE_TEST_CONTEXT is unset (ping.underTest()), and this test cannot unset it for its child: some twenty modules
-// (updating, remote, connect...) stay inert on the same variable, and a test must not wake them. The gate boots
+// Board-start writes that are deliberately inert under a test runner. ping.json is minted by the install ping the
+// board sends at listen (server.js -> createdbeacon.pingInstall -> ping.installId), and createdbeacon returns early
+// under a test runner (`if (!sender && underTest()) return;`). The child keeps NODE_TEST_CONTEXT on purpose: some
+// twenty modules (updating, remote, connect...) stay inert on the same variable, and a test must not wake them. The gate boots
 // outside a test runner, so it sees these; this test does not. A new board-start file guarded the same way is the
 // one thing this test cannot see (it then fails only in the cut, as before).
 const WRITTEN_ONLY_OUTSIDE_TESTS = ['./Kosmos/ping.json'];
@@ -61,9 +62,11 @@ test('the list the gate reads is found, sorted, and names the installer\'s own w
   for (const f of WRITTEN_ONLY_OUTSIDE_TESTS) {
     assert.ok(list.includes(f), f + ' is no longer in EXPECTED_ADDS; update WRITTEN_ONLY_OUTSIDE_TESTS here');
   }
-  // The reason ping.json is set aside: its writer is inert under a test runner. If that ever changes, it is back in.
-  const ping = fs.readFileSync(path.join(__dirname, 'engine', 'ping.js'), 'utf8');
-  assert.match(ping, /process\.env\.NODE_TEST_CONTEXT/, 'engine/ping.js no longer goes inert under test; drop ping.json from WRITTEN_ONLY_OUTSIDE_TESTS');
+  // The reason ping.json is set aside (review 2: the guard that actually holds it back is createdbeacon's, at listen).
+  const beacon = fs.readFileSync(path.join(__dirname, 'engine', 'createdbeacon.js'), 'utf8');
+  assert.match(beacon, /if \(!sender && underTest\(\)\) return;/,
+    'engine/createdbeacon.js no longer skips its install ping under test; ping.json may now be written here, so ' +
+      'drop it from WRITTEN_ONLY_OUTSIDE_TESTS if the boot test reports it');
 });
 
 test('#5584: a board start adds exactly the gate\'s expected files, so a new one fails here and not in the cut', async () => {
@@ -99,6 +102,9 @@ test('#5584: a board start adds exactly the gate\'s expected files, so a new one
       AGENT_WORKFORCE_PERSON_LOCALE: 'en',
       AGENT_WORKFORCE_DRY_RUN: '1',
       AGENT_WORKFORCE_TMUX_BIN: path.join(__dirname, 'test-support', 'fake-tmux.sh'),
+      // Review 2: set, not inherited. The board's network-touching modules stay inert on this variable, so it must
+      // hold even when this file is run some other way than `node --test`.
+      NODE_TEST_CONTEXT: process.env.NODE_TEST_CONTEXT || 'child-v8',
       // Review 1: the rest of the gate's sandbox, so a test-booted board can reach nothing of the real home: the
       // Claude config file and root (else trust and onboarding read and write the operator's ~/.claude.json),
       // the shell profile, the system app folder, no browser, and a Claude binary path inside the sandbox.
@@ -116,6 +122,7 @@ test('#5584: a board start adds exactly the gate\'s expected files, so a new one
   child.stdout.on('data', (c) => { out += c; });
   child.stderr.on('data', (c) => { out += c; });
   let added;
+  let atAnswer = new Set();
   try {
     const upAt = Date.now();
     while (!/Kosmos on http/.test(out)) {
@@ -132,6 +139,9 @@ test('#5584: a board start adds exactly the gate\'s expected files, so a new one
       if (ok) break;
       await new Promise((r) => setTimeout(r, 500));
     }
+    // Review 2: what the gate itself diffs, at the board's first answer. A file that lands only after this is not
+    // one the gate can rely on seeing, so it is reported apart below, not as something to bless.
+    atAnswer = new Set(filesUnder(data).filter((f) => !before.has(f)));
     // The gate diffs once the board answers; some start writes (the supervisor install, the first runner tick) land
     // just after listen. Wait until the added set has not changed for 3s (bounded), so a late write is counted
     // rather than raced: a file the board writes at start belongs in the list whether or not one cut saw it.
@@ -157,8 +167,21 @@ test('#5584: a board start adds exactly the gate\'s expected files, so a new one
   }
 
   const expected = expectedAdds().filter((f) => !INSTALLER_WRITES.includes(f) && !WRITTEN_ONLY_OUTSIDE_TESTS.includes(f));
-  const extra = added.filter((f) => !expected.includes(f));
-  const missing = expected.filter((f) => !added.includes(f));
+  // A file this test holds aside as "never written under test" that appears anyway is its own message (review 2):
+  // it is already in EXPECTED_ADDS, so "bless it" would be the wrong advice.
+  const heldAsideButWritten = added.filter((f) => WRITTEN_ONLY_OUTSIDE_TESTS.includes(f));
+  assert.deepEqual(heldAsideButWritten, [], 'written under test after all; drop these from WRITTEN_ONLY_OUTSIDE_TESTS here');
+  const others = added.filter((f) => !WRITTEN_ONLY_OUTSIDE_TESTS.includes(f));
+  const newFiles = others.filter((f) => !expected.includes(f));
+  // Review 2: a new file the gate would see (it is there at the first answer) is one to bless; one that lands only
+  // later is not, since the cut would then see it only sometimes.
+  const extra = newFiles.filter((f) => atAnswer.has(f));
+  const lateExtra = newFiles.filter((f) => !atAnswer.has(f));
+  const missing = expected.filter((f) => !others.includes(f));
+  assert.deepEqual(lateExtra, [],
+    'written at start, but only AFTER the board first answers (where the gate takes its diff): blessing these in ' +
+      'EXPECTED_ADDS would make the cut pass only when it happens to diff late. Write them before listen, or make the ' +
+      'gate wait for them.');
   assert.deepEqual(
     { extra, missing },
     { extra: [], missing: [] },
