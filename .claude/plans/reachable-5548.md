@@ -31,3 +31,12 @@ two blind spots from the card cannot come back.
 - engine.reachable.test.js: 4 tests (guard, reads-every-block, pending-only-shrinks, self-test).
 - Mutations, each red: drop a pending name (guard); list a non-orphan as pending (ratchet); count comments again
   (ratchet + self-test); restore the old regex (reads-every-block + ratchet + self-test).
+
+## Review 1 (sonnet, blind): NOT CONVERGED, 4 WARNING + 1 NIT
+- [WARNING] lexer read `/` after `}`, a postfix `++`/`--`, or `x.return` as a regex start; division there could leave a following comment visible as code (an orphan read as called) --> FIXED: `}` and postfix read as values, a keyword after `.` is a property; fixtures one case per line.
+- [WARNING] some definition forms counted as calls: `module.exports.x = name` after the block, `name = function`/arrow --> FIXED (re-export statements blanked; assignment definitions subtracted, declarations not double-counted). Residual, as before #5548: self-recursion, destructured definitions and same-named class methods still count as calls.
+- [WARNING] exemptions by name only: a pending name hid any orphan of that name in any module --> FIXED: PENDING_5548 is keyed by file (test "a pending name covers only its own file"); EXCUSED stays by name, as designed.
+- [WARNING] modules with no literal exports block were silently unread --> FIXED: NO_LITERAL_EXPORTS names the five with why; the reads-every-block test compares the unread set to it.
+- [NIT] generator/quoted/computed keys skipped --> recorded; the old regex skipped them too.
+- Correction to "255 of 255": 260 engine files, 255 with a literal block; the other five are now named.
+Mutations re-proven red: `}` as regex start; no postfix rule; no dot rule; re-exports counted; pending by name only.
