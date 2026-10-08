@@ -244,10 +244,10 @@ test('#4752: on Windows a rule starting with one letter is checked as a drive AN
 test('#4752: the own-folder test sees a guide on a one-letter share through the share reading (text, never resolved)', () => {
   const real = (p) => p;   // a resolver that changes nothing: the drive reading S:\share does not hold the guide
   const backs = sa.rulePaths('s/share', 'win32');
-  assert.equal(sa.readingsHoldGuide(backs, '\\\\s\\share\\guide', real, '\\'), true, 'a guide under \\\\s\\share was not seen');
-  assert.equal(sa.readingsHoldGuide(backs, '\\\\S\\SHARE\\guide', real, '\\'), true, 'the share reading is not case-blind');
+  assert.equal(sa.readingsHoldGuide(backs, '\\\\s\\share\\guide', real, '\\'), '\\\\s\\share', 'a guide under \\\\s\\share was not seen, or the reading is not named');
+  assert.ok(sa.readingsHoldGuide(backs, '\\\\S\\SHARE\\guide', real, '\\'), 'the share reading is not case-blind');
   assert.equal(sa.readingsHoldGuide(backs, 'C:\\other\\guide', real, '\\'), false, 'CONTROL: a guide elsewhere was seen');
-  assert.equal(sa.readingsHoldGuide(sa.rulePaths('c/Users', 'win32'), 'C:\\Users\\a\\guide', real, '\\'), true, 'CONTROL: the drive reading');
+  assert.ok(sa.readingsHoldGuide(sa.rulePaths('c/Users', 'win32'), 'C:\\Users\\a\\guide', real, '\\'), 'CONTROL: the drive reading');
 });
 
 test('#4752: a path with a parenthesis (a folder like `Jo (work)`) still gets its native twin and maps back', () => {
@@ -260,7 +260,7 @@ test('#4752: a path with a parenthesis (a folder like `Jo (work)`) still gets it
 
 test('#4752: a share reading is never resolved (no network lookup), only compared as text', () => {
   const real = () => { throw new Error('a share path was resolved'); };
-  assert.equal(sa.readingsHoldGuide(sa.rulePaths('srv/share/K', 'win32'), '\\\\srv\\share\\K\\guide', real, '\\'), true);
+  assert.ok(sa.readingsHoldGuide(sa.rulePaths('srv/share/K', 'win32'), '\\\\srv\\share\\K\\guide', real, '\\'));
   assert.equal(sa.readingsHoldGuide(sa.rulePaths('srv/share/K', 'win32'), 'C:\\elsewhere', real, '\\'), false, 'CONTROL');
   let resolved = 0;
   sa.readingsHoldGuide(sa.rulePaths('c/Users', 'win32'), 'C:\\Users\\a', (p) => { resolved += 1; return p; }, '\\');
