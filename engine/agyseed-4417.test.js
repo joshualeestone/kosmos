@@ -44,7 +44,11 @@ function standInBoard() {
 function runOnce(event, env, spawnFn = spawn) {
   return new Promise((resolve) => {
     let child;
-    try { child = spawnFn(process.execPath, [BRIDGE_FILE, event], { env, stdio: ['ignore', 'pipe', 'pipe'] }); }   // </dev/null, as the supervisor runs it
+    /* #5576: the child runs with Node's own debug lines for its sockets, streams and fetch, on stderr only (the
+       bridge's answer is stdout), so a libuv abort that only a loaded CI runner shows says what the child was doing
+       just before it. The lines cost nothing on a pass: stderr is read only into a failure's message. */
+    const childEnv = { ...env, NODE_DEBUG: env.NODE_DEBUG || 'net,stream,fetch' };
+    try { child = spawnFn(process.execPath, [BRIDGE_FILE, event], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] }); }   // </dev/null, as the supervisor runs it
     catch (err) { resolve({ code: null, signal: null, error: String(err && err.code || err), out: '', err: '' }); return; }
     let out = '';
     let errText = '';
@@ -93,7 +97,9 @@ async function runBridge(event, env, run = runOnce, wait = (ms) => new Promise((
   }
   return { ...tries[tries.length - 1], tries };
 }
-const howItEnded = (r) => JSON.stringify((r.tries || [r]).map((x) => ({ code: x.code, signal: x.signal, error: x.error, stderr: String(x.err || '').slice(0, 600) })));
+/* #5576: the head AND the tail of stderr. With the debug lines on, an abort's own line comes LAST, after them. */
+const stderrOf = (t) => (t.length <= 1600 ? t : t.slice(0, 300) + ' [...] ' + t.slice(-1200));
+const howItEnded = (r) => JSON.stringify((r.tries || [r]).map((x) => ({ code: x.code, signal: x.signal, error: x.error, stderr: stderrOf(String(x.err || '')) })));
 
 test('#4417: the launch event reports idle from the new pane, with its launch token', async (t) => {
   const board = await standInBoard();
@@ -270,3 +276,14 @@ test('#5560 review 11: every member of the retry sets is pinned, both ways', asy
     "node: ../deps/uv/src/unix/core.c:646: uv__close: Assertion `fd > STDERR_FILENO' failed."]) assert.equal(await tried({ ...base, signal: 'SIGABRT', err: line }), true, 'not retried: ' + line);
   assert.equal(await tried({ ...base, signal: 'SIGABRT', err: 'bridge: something else' }), false, 'a bridge abort was retried');
 });
+
+test('#5576: a failure message keeps the END of a long stderr, where the abort line is', () => {
+  const abort = 'Assertion failed: (fd > STDERR_FILENO), function uv__close, file core.c, line 646.';
+  const long = 'NET 1: connect '.repeat(400) + abort;
+  const said = JSON.parse(howItEnded({ code: null, signal: 'SIGABRT', error: null, err: long }))[0].stderr;
+  assert.ok(said.includes(abort), 'the abort line at the end of a long stderr was cut from the message');
+  assert.ok(said.startsWith('NET 1: connect'), 'the head was dropped');
+  assert.ok(said.length < 1600, 'the message is not bounded');
+  assert.equal(JSON.parse(howItEnded({ code: 1, signal: null, error: null, err: 'short' }))[0].stderr, 'short', 'CONTROL: a short stderr is kept whole');
+});
+
