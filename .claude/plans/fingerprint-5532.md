@@ -95,3 +95,12 @@ company, and `thisComputer` cannot tell them apart.
 - FIXED: the doc comment and this plan described the old sha256 formula; "only fingerprint() leaves the module" now
   reads "the raw id is not exported"; tests register their cleanup first; three guard spellings are anchored to how
   they are invoked (/etc/machine-id, wmic csproduct, "Hardware UUID:"), so a mere mention does not redden the suite.
+
+## Review 8 (blind, sonnet)
+- FIXED: a Mac where ioreg answers but has no hardware id (some VMs) is 'none' (send without a print), not a
+  'waiting' that never ends and so never lets it enroll or leave. A print is only compared once one was pinned, and
+  none ever is for such a computer (mutation reddens). Asked PigeonPete to confirm an absent print at enroll pins
+  nothing.
+- ON THE CARD (a repeat of the kept synchronous read): callers compute the print off any request hot path.
+- FIXED: the header claims what holds ("no function that READS the hardware is exported"); the repo-wide guard skips,
+  with its reason, outside a git checkout.

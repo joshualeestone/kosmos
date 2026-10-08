@@ -81,7 +81,7 @@ test('#5532 v1.5: a read that fails is tried again after a minute, not at once a
   assert.equal(n, 2, 'a successful read was not kept (read again)');
 });
 
-test('#5532 v1.5: no file but computerprint.js uses a known spelling of a raw hardware read, and nothing outside tests swaps its reader', () => {
+test('#5532 v1.5: no file but computerprint.js uses a known spelling of a raw hardware read, and nothing outside tests swaps its reader', { skip: !require('node:fs').existsSync(require('node:path').join(__dirname, '..', '.git')) && 'needs a git checkout (it lists tracked files)' }, () => {
   const fs = require('node:fs');
   const path = require('node:path');
   const root = path.join(__dirname, '..');
@@ -123,6 +123,9 @@ test('#5532 v1.5 review 7: printState tells a caller to send, to send without a 
   assert.equal(cp.fingerprint(SALT, ORG), null);
   cp._testRunner(() => SAMPLE, { platform: 'win32' });
   assert.equal(cp.printState(), 'none');
+  // Review 8: ioreg answers, but with no hardware id (some VMs): a lasting 'none', not a 'waiting' that never ends.
+  cp._testRunner(() => '+-o VM <class IOPlatformExpertDevice>\n  {\n    "model" = "VMware"\n  }\n', { platform: 'darwin', now: 5 });
+  assert.equal(cp.printState(), 'none', 'a computer with no hardware id would wait forever and never enroll or leave');
 });
 
 test.todo('#5532 the first caller of fingerprint() lands with a guard that its file never logs the print or a request body carrying it (rule 1; review 7)');

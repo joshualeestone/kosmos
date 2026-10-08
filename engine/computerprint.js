@@ -35,7 +35,8 @@
  *      could otherwise simply send none and pass as an older board. SO A CALLER MUST NOT SEND A PRINT-LESS REQUEST WHILE
  *      THE READER IS WAITING (review 7): printState() says 'waiting' after a failed read, and the request is deferred
  *      until it says 'ok'. Only 'none' (a platform with no reader yet) sends without a print.
- * The raw id is not exported, so no caller can log or send it by mistake.
+ * No function that READS the hardware is exported, so no caller can log or send the raw id by mistake. (parseIoreg is
+ * exported for the tests; it returns an id only from text its caller already holds.)
  */
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
@@ -49,7 +50,8 @@ let defaultRun = realRun;   // replaced only by tests, through _testRunner below
 /* After a failed read, wait this long before asking ioreg again (review 2): a hung ioreg must not block the board for
    five seconds on every call. */
 const RETRY_AFTER_FAIL_MS = 60 * 1000;
-let failedAt = null;   // when the last read failed, or null (never 0 as a sentinel: a clock can read 0 in a test)
+let failedAt = null;
+let noIdHere = false;   // ioreg ran and has no IOPlatformUUID on this computer (some VMs): a lasting answer, not a wait   // when the last read failed, or null (never 0 as a sentinel: a clock can read 0 in a test)
 
 /* The raw IOPlatformUUID out of ioreg's text, or null. Pure, so the parse is tested on fixtures. */
 function parseIoreg(text) {
@@ -71,9 +73,10 @@ function hardwareId() {
   const now = testNow != null ? testNow : Number(process.hrtime.bigint() / 1000000n);
   if (failedAt !== null && now - failedAt < RETRY_AFTER_FAIL_MS) return null;   // but not at once (review 2)
   let id = null;
+  let ran = false;
   // 🛑 Never log this error: on a timeout or a non-zero exit its .stdout is the full ioreg dump, raw id and serial number.
-  try { id = parseIoreg(defaultRun()); } catch { id = null; }
-  if (id) { cached = id; failedAt = null; } else failedAt = now;
+  try { const out = defaultRun(); ran = true; id = parseIoreg(out); } catch { id = null; }
+  if (id) { cached = id; failedAt = null; noIdHere = false; } else { failedAt = now; noIdHere = ran; }
   return id;
 }
 
@@ -98,7 +101,10 @@ function fingerprint(salt, company) {
 function printState() {
   const platform = testPlatform || process.platform;
   if (platform !== 'darwin') return 'none';
-  return hardwareId() ? 'ok' : 'waiting';
+  if (hardwareId()) return 'ok';
+  /* ioreg answered and this computer has no hardware id (review 8): waiting would never end, so it is 'none' (send
+     without a print). A print is only compared once one was pinned, and none ever is for this computer. */
+  return noIdHere ? 'none' : 'waiting';
 }
 
 /* TESTS ONLY: swap the reader, the platform and the clock, and clear the cache and the retry state. Call with no
@@ -111,6 +117,7 @@ function _testRunner(fn, opts) {
   testNow = o.now != null ? o.now : null;
   cached = undefined;
   failedAt = null;
+  noIdHere = false;
 }
 /* TESTS ONLY: move the test clock without clearing the cache (for the retry-wait test). */
 function _testClock(now) { testNow = now; }
