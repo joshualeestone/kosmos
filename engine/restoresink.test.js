@@ -74,6 +74,14 @@ test('#5536 sink: the root must be a fresh, real, absolute folder (control: an e
     const readable = fresh(t); fs.chmodSync(readable, 0o755);
     fs.chmodSync = (p2, m) => { if (p2 !== fs.realpathSync.native(readable)) realChmod1(p2, m); };
     try { assert.throws(() => createRestoreSink(readable), /could not be made private \(the drive ignored/); } finally { fs.chmodSync = realChmod1; }
+    assert.deepEqual(fs.readdirSync(readable), [], 'and nothing was written into it either');
+    // The root swapped between the chmod and the read-back (another folder's dev/ino): refused.
+    const swapped = fresh(t);
+    const realLstat = fs.lstatSync;
+    let calls = 0;
+    // The resolved root is lstat'ed twice: the first check (st2) and the read-back after the chmod (the 2nd call).
+    fs.lstatSync = (p2, o) => { const st = realLstat(p2, o); if (p2 === fs.realpathSync.native(swapped) && ++calls === 2) st.ino += 1n; return st; };
+    try { assert.throws(() => createRestoreSink(swapped), /the root changed while it was being checked/); } finally { fs.lstatSync = realLstat; }
     // A folder in the root that belongs to someone else is not written into.
     const own = fresh(t), so = createRestoreSink(own);
     const first = so.begin('shared/a.md'); first.write(Buffer.from('a')); first.commit();
@@ -316,4 +324,39 @@ test('#5536 sink: on macOS an ACL that cannot be removed refuses with the tool\'
     const fresh2 = require('./restoresink');
     assert.throws(() => fresh2.createRestoreSink(fresh(t)), /chmod -N exited 1: Operation not supported\); choose a folder on this Mac's own disk/);
   } finally { cp.spawnSync = realSpawn; delete require.cache[require.resolve('./restoresink')]; }
+});
+
+test('#5536 sink (macOS): a root on a volume that ignores ownership (noowners) is refused before anything is written', { skip: process.platform !== 'darwin' }, (t) => {
+  // Through /sbin/mount stubbed to report the root's folder as a noowners mount: a fresh copy of the module picks up
+  // the stub (it binds spawnSync at load).
+  const cp = require('child_process');
+  const realSpawn = cp.spawnSync;
+  const root = fresh(t); fs.chmodSync(root, 0o775);   // mkdtemp makes 0700; start elsewhere so a chmod would show
+  const rootReal = fs.realpathSync.native(root);
+  cp.spawnSync = (cmd, args, o) => (cmd === '/sbin/mount'
+    ? { status: 0, stdout: `/dev/disk3s1s1 on / (apfs, sealed, local, read-only, journaled)\n/dev/disk9s1 on ${path.dirname(rootReal)} (apfs, local, nodev, nosuid, journaled, noowners)\n` }
+    : realSpawn(cmd, args, o));
+  const key = require.resolve('./restoresink');
+  const saved = require.cache[key];
+  delete require.cache[key];
+  try {
+    const { createRestoreSink: sinkWithStub } = require('./restoresink');
+    assert.throws(() => sinkWithStub(root), /ignores ownership/);
+    assert.deepEqual(fs.readdirSync(root), [], 'nothing was written into it');
+    assert.equal(fs.statSync(root).mode & 0o777, 0o775, 'refused BEFORE the chmod');
+  } finally { cp.spawnSync = realSpawn; delete require.cache[key]; if (saved) require.cache[key] = saved; }
+  // CONTROL: the same root with the real mount table (the boot volume does not ignore ownership) is accepted.
+  createRestoreSink(fresh(t)).close();
+});
+
+test('#5536 sink (macOS): measured on a real noowners volume when this Mac has one (skipped otherwise)', { skip: process.platform !== 'darwin' }, (t) => {
+  const { spawnSync } = require('child_process');
+  const out = String(spawnSync('/sbin/mount', [], { encoding: 'utf8' }).stdout || '');
+  const vol = out.split('\n').map((l) => / on (\/Volumes\/[^(]+?) \(([^)]*)\)$/.exec(l)).find((m) => m && m[2].split(', ').includes('noowners') && !m[2].includes('read-only'));
+  if (!vol) { t.skip('no writable noowners volume mounted here'); return; }
+  let d;
+  try { d = fs.mkdtempSync(path.join(vol[1], 'kosmos-sink-')); } catch { t.skip(`cannot write on ${vol[1]}`); return; }
+  // Refused either way: by this check, or (as on the volume measured 2026-10-08) already by the ancestor walk, when
+  // the volume's own root lets other users replace folders.
+  try { assert.throws(() => createRestoreSink(d), /ignores ownership|lets other users replace it/); } finally { fs.rmSync(d, { recursive: true, force: true }); }
 });
