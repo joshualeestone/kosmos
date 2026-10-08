@@ -74,7 +74,8 @@ function chunkBuffer(buf, opts = CDC) {
 
 /**
  * The same chunking over a stream: push(piece) returns the chunks completed so far (copies), finish() the rest.
- * Holds at most one max-size chunk plus the latest piece in memory, so a file larger than memory can be backed up.
+ * Holds just under max bytes plus the pieces collected since the last join (itself under max) plus the latest piece,
+ * so a file larger than memory can be backed up.
  * A cut is made only once max bytes past the chunk start are held, which is exactly when chunkBuffer would see
  * the same window: the boundaries are identical to chunkBuffer's on the whole input (tested, golden vector too).
  */
