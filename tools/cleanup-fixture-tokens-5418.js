@@ -32,7 +32,7 @@
  *     offline one would look orphaned). Its age is its NEWEST sign of life: the latest token mintedAt or the
  *     file's mtime, whichever is later;
  *   - a writer's leftover temp file, named in the shape the store's writer uses
- *     (`<file>.kosmos-<pid>-[t<thread>-]<started>-<seq>.tmp`), last written before the cutoff;
+ *     (`<file>.kosmos-<pid>-[t<thread>-]<started>-<seq>.tmp`), last written before the cutoff by a writer that is provably gone;
  *   - a symlink whose target does not exist (a security fixture planted one), named like a token file or the
  *     writer's temp, unless its name is a live agent's. At ANY age and without the lock: a link that points at
  *     nothing holds no credential, and the store's writer refuses to write through a link.
@@ -288,8 +288,8 @@ function parseArgs(argv) {
   const ms = /^\d{4}-\d{2}-\d{2}([T ][\d:.]+(Z|[+-]\d{2}:?\d{2}))?$/.test(String(out.cutoff || '')) ? Date.parse(out.cutoff) : NaN;
   if (!Number.isFinite(ms)) throw new Error('--cutoff is required, as an ISO date');
   if (ms > Date.now()) throw new Error('--cutoff is in the future, which would make every file old');
-  /* Temps are removed on age alone, without the store's lock (a dangling link holds nothing and is not aged): a cutoff
-     at least an hour old keeps any writer's in-flight temp out of reach. */
+  /* Temps are removed without the store's lock, only when old AND their writer is provably gone (a dangling link holds
+     nothing and is not aged): a cutoff at least an hour old is a second margin for any writer's in-flight temp. */
   if (ms > Date.now() - CUTOFF_MARGIN_MS) throw new Error('--cutoff must be at least an hour in the past, so nothing in flight is old enough to plan');
   out.cutoffMs = ms;
   if (out.apply && !out.confirm) throw new Error('--apply needs --confirm <the digest the dry run printed>');
@@ -306,6 +306,16 @@ function expectedPort(env = process.env) {
   const uid = typeof process.getuid === 'function' ? process.getuid() : null;
   if (uid === null) return null;   // no uid (Windows): only KOSMOS_PORT can say, and it is not set
   return portForUid(uid);
+}
+/* The agent names that have a startup job on Windows (Scheduled Tasks) or Linux (systemd units), each a keep signal;
+   null when the jobs could not be read (the caller stops). `reader` is register.jobReader(platform). macOS's launchd
+   jobs are read from the LaunchAgents folder by the caller, which also sees the fleet's com.<name>.discord jobs. */
+function jobKeepNames(platform, tokenKeys, reader) {
+  if (platform === 'darwin') return [];
+  if (!reader || reader.known === false) return null;
+  if (platform === 'win32') return reader.fleet ? [...reader.fleet] : null;
+  if (platform === 'linux') return tokenKeys.filter((k) => { try { return reader.of(k) === true; } catch { return true; } });
+  return [];
 }
 /* install/kosmos's derivation, for one uid (its test reads the formula out of install/kosmos). */
 function portForUid(uid) { return uid === 501 ? 16180 : 16180 + 1 + (uid % 3999); }
@@ -391,6 +401,10 @@ async function main(argv, { armFromCommandLine = false } = {}) {
       return m ? m[1].split('+')[0].replace(/\.discord$/, '') : null;   // a stray .discord stays a keep (over-keep is safe)
     }).filter(Boolean) : [];
   } catch (e) { console.error('Stopped, nothing changed: ' + e.message + '.'); return 2; }
+  // Windows Scheduled Tasks and Linux systemd units, read the way the board's own survey reads them (register.jobReader)
+  const otherJobs = jobKeepNames(process.platform, tokenKeys, require('../engine/register').jobReader(process.platform));
+  if (otherJobs === null) { console.error('Stopped, nothing changed: this computer\'s startup jobs could not be read, so offline agents cannot be told apart.'); return 2; }
+  jobNames = jobNames.concat(otherJobs);
   for (const raw of workerNames.concat(jobNames)) {
     for (const n of spellingsOf({ sessionName: raw })) { try { liveKeys.add(store.safeKey(n)); } catch { /* not a key */ } }
   }
@@ -424,7 +438,7 @@ async function main(argv, { armFromCommandLine = false } = {}) {
     return 2;
   }
   const plan = planCleanup(entries, liveKeys, args.cutoffMs, store.safeKey);
-  console.log(`Also kept: ${workerNames.length} worker folders, ${jobNames.length} launchd jobs.`);
+  console.log(`Keep records read: ${workerNames.length} worker folders, ${jobNames.length} startup jobs.`);
   console.log(`Board: ${rows.length} agents, matching ${tokenKeys.filter((k) => rosterKeys.has(k)).length} of ${tokenKeys.length} token files. Other keep records: ${removed.length} removal records, ${heartbeats.length} heartbeats, ${profiled} token files with a profile.`);
   console.log(`Would remove ${plan.remove.length}, keep ${plan.keep.length}:`);
   if (plan.remove.some((r) => r.kind === 'token' && !(r.launchers || []).length)) console.log('  (NO LAUNCHER is expected on most fixture lines: fixture, adopted and Windows tokens all mint without one. Read each name.)');
@@ -470,4 +484,4 @@ if (require.main === module) {
     (e) => { console.error('Stopped: ' + ((e && e.message) || e)); process.exitCode = 2; });
 }
 
-module.exports = { planCleanup, listEntries, tokenInfo, backup, applyPlan, parseArgs, getJson, fetchRoster, spellingsOf, expectedPort, portForUid, planDigest, BACKUP_PREFIX, main };
+module.exports = { planCleanup, listEntries, tokenInfo, backup, applyPlan, parseArgs, getJson, fetchRoster, spellingsOf, expectedPort, portForUid, jobKeepNames, planDigest, BACKUP_PREFIX, main };
