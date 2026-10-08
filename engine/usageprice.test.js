@@ -27,7 +27,7 @@ test('#5532: the engine price table is exactly the page\'s (same models, same fo
 test('#5532: the engine and the page resolve every id the same way (exact, dated, unpriced, odd)', () => {
   const ids = Object.keys(PAGE.USAGE_MODEL_PRICES)
     .flatMap((id) => [id, id + '-20251001', id + '-2025'])
-    .concat(['gpt-5.1-codex', 'totally-unknown', '']);
+    .concat(['gpt-5.1-codex', 'totally-unknown', '', 'claude-opus-5-99999999', 'claude-opus-5-20251001-20251001', 'anthropic/claude-opus-5', 'CLAUDE-OPUS-5']);
   for (const id of ids) {
     assert.deepEqual(plain(up.modelPrice(id)), plain(PAGE.usageModelPrice(id)), 'the two resolvers disagree on ' + JSON.stringify(id));
   }
