@@ -127,6 +127,7 @@ red_once() {  # <cause> <message>
     _ann=$(printf '%s' "$_msg" | sed -e 's/%/%25/g' | tr '\r\n' '  ')
     echo "::warning::still failing, reported red earlier today: $_ann"
     # date -r <epoch> is BSD/macOS date (GNU reads -r as a file); this script runs on macOS only.
+    _msg=$(printf '%s' "$_msg" | tr '\r\n' '  ')   # one line: no newline can start a workflow command
     say "STILL FAILING (reported): $_msg (red already reported at $(date -r "$at" '+%Y-%m-%d %H:%M'); green until it recovers, changes, or a day passes; remove $f to make it red again now)"
     exit 0
   fi
@@ -180,7 +181,13 @@ now > "$STATE/heartbeat"
 # ours, since a pid is never handed out again while a process group of that id exists. Start times are
 # read with a fixed locale and zone, so a tick run by hand compares the same text the runner wrote.
 psq() { LC_ALL=C TZ=UTC ps "$@" 2>/dev/null; }
-if read -r opg osha ostart 2>/dev/null < "$STATE/deploy.pid" && [ -n "$opg" ]; then
+opg=""; read -r opg osha ostart 2>/dev/null < "$STATE/deploy.pid" || true
+# A damaged pgid is never signalled: 0 would be this tick's own group, 1 is launchd's.
+case "$opg" in
+  '') ;;
+  *[!0-9]*|0*|1) say "a damaged $STATE/deploy.pid ('$opg') was removed unread"; rm -f "$STATE/deploy.pid"; opg="" ;;
+esac
+if [ -n "$opg" ]; then
   lead=$(psq -o lstart= -p "$opg" | tr -s ' ' _); ours=""
   # The whole list is read, then matched with no pipe left open: a grep -q at the end of a pipeline exits
   # on its match and, under pipefail, a writer still writing makes the pipeline 141 (a miss), the trap
@@ -220,7 +227,7 @@ grouped_timeout() {  # <seconds> <cmd...>: run cmd in its own process group; on 
     # Handlers before the fork, so a signal right after it cannot kill perl and leave git running.
     # The child sets its own group too (setpgid from both sides), so the group exists before any kill.
     $SIG{$_} = sub { if ($p) { kill "TERM", -$p; sleep 2; kill "KILL", -$p } exit 143 } for qw(TERM INT HUP);   # a killed tick takes the git group too
-    $p = fork; defined $p or exit 126; if (!$p) { setpgrp(0, 0); exec @ARGV or exit 127 }
+    $p = fork; defined $p or exit 126; if (!$p) { setpgrp(0, 0); exec { $ARGV[0] } @ARGV or exit 127 }   # the block form never goes through a shell
     setpgrp($p, $p);
     $SIG{ALRM} = sub { kill "TERM", -$p; sleep 2; kill "KILL", -$p; waitpid($p, 0); exit 142 };
     alarm $t; waitpid($p, 0); my $s = $?; exit(($s & 127) ? 128 + ($s & 127) : $s >> 8)' "$@"
