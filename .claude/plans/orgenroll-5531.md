@@ -242,3 +242,13 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
 - Not taken: scrubbing company names from the local log (it stays on this computer, decided in review 6). Whether
   that log file is shared between this person's Kosmoses was not measured; if it is, another Kosmos's agents could
   read a company name there. Recorded as a known residual.
+
+## Review 17 (on c678010ed, after the full browser checks)
+- A first join this Kosmos could not record, whose undo leave also failed, left a pending leave with no record. A later
+  pass refused as the last admin cleared it, leaving neither, so this Kosmos never asked again while the company named
+  it as the work Kosmos. Now the record is rebuilt from the status answer that just confirmed this world; if it cannot
+  be written, the leave stays pending so the next pass asks again (this also covers a failed restore of an existing
+  record). Pinned in both arms (each mutation reddens its own assertion).
+- render-plus-blue-1615 again counts every #plus-flow field except the one known dark one (#plus-org-code), with the
+  control that it is dark: the painted-white count let a near-white field through.
+- Messages shown on the page are full sentences.

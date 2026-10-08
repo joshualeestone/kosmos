@@ -47145,8 +47145,8 @@ async function plusOrgPost(kind, body) {
     const res = kind === 'preview' ? await fetch('/api/org/preview', init)
       : kind === 'enroll' ? await fetch('/api/org/enroll', init)
       : await fetch('/api/org/leave', init);
-    return (await res.json().catch(() => null)) || { ok: false, because: 'no answer' };
-  } catch { return { ok: false, because: 'this computer could not reach its own engine' }; }
+    return (await res.json().catch(() => null)) || { ok: false, because: 'No answer came back. Try again in a minute.' };
+  } catch { return { ok: false, because: 'This computer could not reach its own engine.' }; }
 }
 async function plusOrgCheck() {
   const msg = document.getElementById('plus-org-msg');

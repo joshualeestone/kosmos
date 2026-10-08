@@ -95,8 +95,8 @@ const GRADIENT_RE = /gradient/i;      /* the body ground is a radial-gradient on
         if (!f) return 'no field';
         f.classList.add('bad'); const v = getComputedStyle(f).borderTopColor; f.classList.remove('bad'); return v;
       };
-      /* #5531: the company join code is a #plus-flow field painted as the dark field, so count what is PAINTED white. */
-      const whiteFields = [...document.querySelectorAll('#plus-flow .tk-inp:not(select)')].filter((f) => getComputedStyle(f).backgroundColor === 'rgb(255, 255, 255)').length;
+      /* #5531: the company join code is the one #plus-flow field, painted as the dark field (the control below checks it). */
+      const whiteFields = document.querySelectorAll('#plus-flow .tk-inp:not(select):not(#plus-org-code)').length;   // every field but the one known dark one (review 17)
       const orgField = document.getElementById('plus-org-code') ? getComputedStyle(document.getElementById('plus-org-code')).backgroundColor : 'no field';
       const darkFieldDanger = painted(document.querySelector('#plus-state2 .tk-inp:not(select)'));
       const toastTone = () => { const t = document.createElement('div'); t.className = 'utoast'; document.body.appendChild(t); const v = getComputedStyle(t).getPropertyValue('--utone').trim().toLowerCase(); t.remove(); return v; };

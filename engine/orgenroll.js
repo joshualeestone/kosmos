@@ -182,7 +182,7 @@ async function signed(method, route, body, opts) {
 
 /* What a code is for: the company, the role, and the consent words. Binds nothing. */
 async function preview(code, opts) {
-  if (typeof code !== 'string' || !CODE.test(code.trim())) return { ok: false, because: 'that is not a join code' };
+  if (typeof code !== 'string' || !CODE.test(code.trim())) return { ok: false, because: 'That is not a join code. Check it and try again.' };
   const r = await signed('POST', ROUTES.redeem, { code: code.trim() }, opts);
   /* Contract v1.3: already in that company, the preview is refused (409 org_already_member) and status carries the
      consent for a member. Moving the enrollment to this world is still a bind, so it gets the same consent first:
@@ -200,7 +200,7 @@ async function preview(code, opts) {
   const org = cleanOrg(r.data && r.data.org);
   const role = cleanRole(r.data && r.data.role);
   const consent = cleanConsent(r.data && r.data.consent);
-  if (!org || !role || !consent) return { ok: false, because: 'the answer was not complete, so nothing was joined' };
+  if (!org || !role || !consent) return { ok: false, because: 'Your company\'s answer was not complete, so nothing was joined.' };
   return { ok: true, org, role, consent };
 }
 
@@ -213,12 +213,12 @@ function oneAtATime(fn) { const run = queue.then(fn, fn); queue = run.catch(() =
 
 async function enroll(code, accepted, opts) { return oneAtATime(() => enrollNow(code, accepted, opts)); }
 async function enrollNow(code, accepted, opts) {
-  if (accepted !== true) return { ok: false, declined: true, because: 'not accepted, so nothing was sent' };
+  if (accepted !== true) return { ok: false, declined: true, because: 'Not accepted, so nothing was sent.' };
   const world = worldId(opts);
   if (!world) return { ok: false, because: "this Kosmos's data folder cannot be written" };
   const body = { world, accepted: true };
   if (code != null) {
-    if (typeof code !== 'string' || !CODE.test(code.trim())) return { ok: false, because: 'that is not a join code' };
+    if (typeof code !== 'string' || !CODE.test(code.trim())) return { ok: false, because: 'That is not a join code. Check it and try again.' };
     body.code = code.trim();
   }
   let r = await signed('POST', ROUTES.enroll, body, opts);
@@ -238,7 +238,7 @@ async function enrollNow(code, accepted, opts) {
   /* #5530 review 2: thisComputer says the CALLING signer is the enrolled one. It catches a world id copied WITHOUT the
      Kosmos+ key, or a computer that registered its own key. A full copy of the data folder also carries the key
      (<world root>/remote), and is then the same signer to the company: this check cannot tell it apart (review 13). */
-  if (!org || !role || !en || en.world !== world || en.thisComputer !== true) return { ok: false, because: 'the company did not confirm this Kosmos, so it is not enrolled' };
+  if (!org || !role || !en || en.world !== world || en.thisComputer !== true) return { ok: false, because: 'Your company did not confirm this Kosmos, so it is not joined.' };
   const rec = { org, role, world, enrolledAt: new Date().toISOString() };
   // The consent the person was shown, as a hash: what they accepted is then a checkable fact on this side (#5531 review 10).
   if (opts && typeof opts.consentHash === 'string' && /^[0-9a-f]{64}$/.test(opts.consentHash)) rec.consentHash = opts.consentHash;
@@ -347,8 +347,15 @@ async function leaveNow(opts) {
     return { ok: true };
   }
   if (code === 'org_last_admin') {
-    if (before) { try { writeEnrollment(before, opts); } catch { /* the next refresh restores it */ } }
-    setLeavePending(false, opts);
+    /* Still enrolled here: the record goes back. With none left (a first join this Kosmos could not record, whose undo
+       also failed), it is rebuilt from the status answer that just confirmed this world. If it cannot be written, the
+       leave stays pending, so the next pass asks again rather than nothing ever asking (#5531 review 17). */
+    const d = st.data || {};
+    const org = cleanOrg(d.org), role = cleanRole(d.role);
+    const back = before || (org && role ? { org, role, world: readWorldId(opts), enrolledAt: new Date().toISOString() } : null);
+    let kept = false;
+    if (back) { try { writeEnrollment(back, opts); kept = true; } catch { /* below */ } }
+    setLeavePending(!kept, opts, back);
     return { ok: false, still: true, code, because: SAY.org_last_admin };
   }
   setLeavePending(true, opts, before);
@@ -370,7 +377,7 @@ async function refreshNow(opts) {
      (cleared here, sent nothing); one that exists but cannot be read is left alone, like any unclear answer. */
   if (!readWorldId(opts)) {
     if (before && !fs.existsSync(path.join(storeRoot(opts), WORLD_ID_FILE))) clearEnrollment(opts);
-    return { ok: false, because: 'this Kosmos has no id of its own', enrolled: false };
+    return { ok: false, because: 'This Kosmos has no id of its own.', enrolled: false };
   }
   const r = await signed('POST', ROUTES.status, {}, opts);
   if (!r.ok || !r.data || typeof r.data !== 'object') return { ok: false, because: sayFor(r && r.because, 'not checked'), enrolled: !!before };
@@ -380,13 +387,13 @@ async function refreshNow(opts) {
      unreachable coordinator: one odd reply must not end an enrollment the company still holds, with no way back. */
   const verdict = statusVerdict(d, world);
   if (verdict !== 'here') {
-    if (verdict === 'unclear') return { ok: false, because: 'the answer was not complete', enrolled: !!before };
+    if (verdict === 'unclear') return { ok: false, because: 'Your company\'s answer was not complete.', enrolled: !!before };
     if (before) { clearEnrollment(opts); setStopped((before.org && before.org.name) || 'your company', opts); retireWorldId(opts); }
     return { ok: true, enrolled: false, member: d.member === true, stopped: !!before, org: d.member === true ? cleanOrg(d.org) : null };
   }
   const org = cleanOrg(d.org);
   const role = cleanRole(d.role);
-  if (!org || !role) return { ok: false, because: 'the answer was not complete', enrolled: !!before };
+  if (!org || !role) return { ok: false, because: 'Your company\'s answer was not complete.', enrolled: !!before };
   const rec = { org, role, world, enrolledAt: (before && before.enrolledAt) || new Date().toISOString() };
   if (before && before.consentHash) rec.consentHash = before.consentHash;
   try { writeEnrollment(rec, opts); } catch { /* keep the old record; the next refresh tries again */ }

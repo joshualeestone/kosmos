@@ -368,7 +368,7 @@ test('#5531 review 7: refresh stops only on a clear answer, and says why; an odd
   assert.equal(org.stoppedFor({ root: a }), null, 'a new join kept the old stopped note');
 });
 
-test('#5531 review 7: a confirmed leave retires this world id, so a later join is not linkable to the old one', async (t) => {
+test('#5531 review 7: a confirmed leave retires this world id, so the old id is never sent again', async (t) => {
   const { a } = sandbox(t);
   await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
   const first = org.worldId({ root: a });
@@ -489,6 +489,30 @@ test('#5531 review 13: an unrecordable MOVE is never undone with a leave, and a 
   assert.equal(r.ok, false);
   assert.match(r.because, /could not be undone yet/, 'a failed undo was reported as undone: ' + r.because);
   assert.equal(/Joining was undone/.test(r.because), false);
+});
+
+test('#5531 review 17: an unrecorded join whose undo failed, then refused as the last admin, is joined here again and never forgotten', async (t) => {
+  const { b } = sandbox(t);
+  const block = path.join(b, org.ENROLLMENT_FILE);
+  fs.mkdirSync(block);   // the record cannot be written
+  const stuck = { macRequest: async (m, route, body) => (route === org.ROUTES.enroll
+    ? { ok: true, data: { ok: true, org: ORG, role: 'admin', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } }
+    : { ok: false, because: 'offline' }) };
+  const r = await org.enroll('ACME-JOIN-1234', true, { root: b, remote: stuck });
+  assert.match(r.because, /could not be undone yet/);
+  assert.equal(org.leavePending({ root: b }), true, 'CONTROL: the failed undo left no pending leave, so this test drives nothing');
+  const lastAdmin = { macRequest: async () => ({ ok: false, because: '409 {"because":"org_last_admin"}' }) };
+  // Still unwritable: the leave stays pending, so the next pass asks again (nothing is forgotten).
+  const r1 = await org.refresh({ root: b, remote: here(b, lastAdmin) });
+  assert.equal(r1.still, true, JSON.stringify(r1));
+  assert.equal(org.leavePending({ root: b }), true, 'with no record and no pending leave, this Kosmos would never ask again');
+  // The folder is fixed: the record is rebuilt from the confirmed status, and this world is the work Kosmos again.
+  fs.rmdirSync(block);
+  const r2 = await org.refresh({ root: b, remote: here(b, lastAdmin) });
+  assert.equal(r2.still, true, JSON.stringify(r2));
+  assert.equal(org.isEnrolledHere({ root: b }), true, 'the company\'s last admin is enrolled here and this Kosmos says not joined');
+  assert.equal(org.leavePending({ root: b }), false);
+  assert.equal(org.readEnrollment({ root: b }).org.name, 'Acme');
 });
 
 test('#5531 review 14: a record whose world id file is gone is stale: cleared, and nothing is asked', async (t) => {
