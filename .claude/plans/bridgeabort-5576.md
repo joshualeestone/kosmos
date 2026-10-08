@@ -41,3 +41,13 @@ socket, stream and fetch operations before the abort line. The cause itself is t
 - NITs fixed: the fetch markers are asserted; trailing blank line. NIT left: os stays a local require, the file's
   convention.
 - 10/10 (08:26 CDT 2026-10-08).
+### Review 3 (opus): 3 WARNINGs, 2 CONVENTIONs
+- Fixed: the header claimed the last marker separates the two causes; the abort comes at the CLOSE, possibly at
+  teardown after the last line either way. Every line now carries fds 0-2 as type@inode, fetch begin and end too, so
+  WHERE a stdio fd's record first changes is the finding. Header rewritten to say so.
+- Fixed: type alone could not show a reuse (fds 1 and 2 are sockets from the start); the inode is recorded.
+- Fixed: dev and ino compared as Numbers lose precision past 2^53 (a socket's ino measured above it); fstat bigint.
+- Fixed: the real-run test now goes through runBridge (the same retry as the other real runs).
+- Fixed: the fd-2 guard had no test; a child closes fd 2 and opens a file in its place, and no line reaches the
+  file (control: the file took fd 2). Removing the guard turns it red (measured).
+- 11/11 (08:29 CDT 2026-10-08).
