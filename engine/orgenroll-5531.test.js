@@ -152,3 +152,37 @@ test('#5531: the world id is minted once, kept, owner-only, and the enrollment f
   await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
   assert.equal(fs.statSync(path.join(a, org.ENROLLMENT_FILE)).mode & 0o777, 0o600);
 });
+
+test('#5531: the coordinator\'s public error codes are said in plain words; an unknown error keeps its own', async (t) => {
+  const { a } = sandbox(t);
+  const said = (because) => ({ macRequest: async () => ({ ok: false, because }) });
+  const used = await org.preview('ACME-JOIN-1234', { root: a, remote: said('HTTP 400: {"because":"org_code_used"}') });
+  assert.equal(used.code, 'org_code_used'); assert.equal(used.because, org.SAY.org_code_used);
+  const dom = await org.enroll('ACME-JOIN-1234', true, { root: a, remote: said('403 org_wrong_domain') });
+  assert.match(dom.because, /own email address/);
+  const odd = await org.preview('ACME-JOIN-1234', { root: a, remote: said('the tunnel program did not answer in time') });
+  assert.equal(odd.code, null); assert.equal(odd.because, 'the tunnel program did not answer in time');
+  const last = await org.leave({ root: a, remote: said('409 org_last_admin') });
+  assert.match(last.because, /last admin/);
+});
+
+test('#5531: already in that company, a code is refused (org_already_member) and the enrollment moves the member way, with no code', async (t) => {
+  const { a } = sandbox(t);
+  const sent = [];
+  const remote = { macRequest: async (m, route, body) => {
+    sent.push(JSON.parse(JSON.stringify(body)));
+    if (body.code) return { ok: false, because: '409 {"because":"org_already_member"}' };
+    return { ok: true, data: { ok: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: body.world } } };
+  } };
+  const r = await org.enroll('ACME-JOIN-1234', true, { root: a, remote });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(sent.length, 2, 'not exactly one retry: ' + JSON.stringify(sent));
+  assert.ok(!('code' in sent[1]), 'the retry sent the code again');
+  assert.equal(org.isEnrolledHere({ root: a }), true);
+  // CONTROL: any other refusal is not retried.
+  const { b } = sandbox(t);
+  let n = 0;
+  const other = { macRequest: async () => { n += 1; return { ok: false, because: '400 org_code_used' }; } };
+  await org.enroll('ACME-JOIN-1234', true, { root: b, remote: other });
+  assert.equal(n, 1, 'a used code was retried');
+});

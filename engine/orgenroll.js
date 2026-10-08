@@ -108,6 +108,21 @@ function cleanConsent(c) {
 const ROLES = new Set(['member', 'recovery', 'admin']);
 function cleanRole(r) { return ROLES.has(r) ? r : null; }
 
+/* The coordinator's public error codes (#5530), said in plain words. The tunnel passes its answer through on the last
+   line of `because`, so the code is found anywhere in it; anything unrecognised keeps its own words. */
+const SAY = Object.freeze({
+  org_code_unknown: 'That code is not one your company made. Check it, or ask your company for a new one.',
+  org_code_used: 'That code has already been used. Ask your company for a new one.',
+  org_code_expired: 'That code has expired. Ask your company for a new one.',
+  org_other_org: 'This Kosmos+ account is already in another company.',
+  org_wrong_domain: "Your company only takes accounts with its own email address, and this account's address is different.",
+  org_not_member: 'You are not in a company.',
+  org_last_admin: 'You are the last admin of your company, so you cannot leave until someone else is made an admin.',
+  org_bad_world: 'This Kosmos could not be named to your company. Try again.',
+});
+function codeOf(because) { const m = /\borg_[a-z_]+\b/.exec(String(because || '')); return m ? m[0] : null; }
+function sayFor(because, fallback) { const c = codeOf(because); return (c && SAY[c]) || because || fallback; }
+
 async function signed(method, route, body, opts) {
   const remote = remoteFor(opts);
   if (!remote || typeof remote.macRequest !== 'function') return { ok: false, because: 'Kosmos+ is not available here' };
@@ -121,7 +136,7 @@ async function signed(method, route, body, opts) {
 async function preview(code, opts) {
   if (typeof code !== 'string' || !CODE.test(code.trim())) return { ok: false, because: 'that is not a join code' };
   const r = await signed('POST', ROUTES.redeem, { code: code.trim() }, opts);
-  if (!r.ok) return { ok: false, because: r.because || 'the code could not be checked' };
+  if (!r.ok) return { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'the code could not be checked') };
   const org = cleanOrg(r.data && r.data.org);
   const role = cleanRole(r.data && r.data.role);
   const consent = cleanConsent(r.data && r.data.consent);
@@ -140,8 +155,14 @@ async function enroll(code, accepted, opts) {
     if (typeof code !== 'string' || !CODE.test(code.trim())) return { ok: false, because: 'that is not a join code' };
     body.code = code.trim();
   }
-  const r = await signed('POST', ROUTES.enroll, body, opts);
-  if (!r.ok) return { ok: false, because: r.because || 'joining did not go through' };
+  let r = await signed('POST', ROUTES.enroll, body, opts);
+  /* #5530 review 1: already in that company, a code is refused (409 org_already_member) and NOT spent, since it may be
+     someone else's. The person has just accepted, so move the enrollment to this world the member's way: no code. */
+  if (!r.ok && body.code && codeOf(r.because) === 'org_already_member') {
+    delete body.code;
+    r = await signed('POST', ROUTES.enroll, body, opts);
+  }
+  if (!r.ok) return { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'joining did not go through') };
   const org = cleanOrg(r.data && r.data.org);
   const role = cleanRole(r.data && r.data.role);
   const named = r.data && r.data.enrolled && r.data.enrolled.world;
@@ -155,7 +176,7 @@ async function enroll(code, accepted, opts) {
 async function leave(opts) {
   clearEnrollment(opts);
   const r = await signed('POST', ROUTES.leave, {}, opts);
-  return r.ok ? { ok: true } : { ok: false, because: r.because || 'leaving could not be confirmed; this Kosmos has already stopped reporting' };
+  return r.ok ? { ok: true } : { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'leaving could not be confirmed; this Kosmos has already stopped reporting') };
 }
 
 /* On start and daily: ask the coordinator. member:false, or an enrollment naming another world, clears this world's
@@ -180,6 +201,6 @@ async function refresh(opts) {
 }
 
 module.exports = {
-  ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, CODE,
+  ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, CODE, SAY, codeOf,
   worldId, readEnrollment, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh,
 };

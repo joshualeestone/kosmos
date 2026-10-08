@@ -11211,6 +11211,9 @@ body.plus-active:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.att
 /* The section is the positioning context for the ambient star field, which sits
    behind everything else in the pane. Every direct child is lifted above it. */
 #s-sec-plus { position: relative; }
+.plus-org-lists { margin: 8px 0 12px; }
+.plus-org-h { font-weight: 600; margin: 8px 0 2px; }
+.plus-org-lists ul { margin: 0 0 4px; padding-left: 20px; }
 #plus-stars { position: absolute; inset: 0; width: 100%; height: 100%;
   display: block; z-index: 0; pointer-events: none; }
 #s-sec-plus > *:not(#plus-stars) { position: relative; z-index: 1; }
@@ -18813,6 +18816,45 @@ window.kosmosMeasureScrollbarWidth();
              would not have looked for their own device on it. -->
         <p class="fhint" id="plus-devempty" hidden>None yet. The first time you sign in from another device, it asks here.</p>
         <p class="fmsg" id="plus-devmsg" role="alert" aria-live="assertive"></p>
+      </div>
+      <!-- #5531 (Enterprise E0.2): joining a company makes THIS Kosmos the work Kosmos (#5529 decision 1). The consent
+           words come from the company's side (the coordinator), so every board shows the same ones: the page renders
+           them as text, never as markup. Checking a code sends only the code; nothing joins until the person has read
+           what the company would see and pressed Join. Connected computers only: joining is a signed request. -->
+      <div id="plus-org" hidden style="margin-top:16px;">
+        <p class="setname">Your company</p>
+        <div id="plus-org-in" hidden>
+          <p class="fhint" id="plus-org-say"></p>
+          <div class="frow" id="plus-org-leave-row"><button class="btn" type="button" id="plus-org-leave">Leave company</button></div>
+          <div id="plus-org-leave-ask" hidden>
+            <p class="fhint" id="plus-org-leave-sure"></p>
+            <div class="frow">
+              <button class="btn danger-btn" type="button" id="plus-org-leave-yes">Leave</button>
+              <button class="btn" type="button" id="plus-org-leave-no">Cancel</button>
+            </div>
+          </div>
+        </div>
+        <div id="plus-org-out">
+          <p class="fhint">Have a join code from your company? Joining makes this Kosmos your work Kosmos. Checking a code sends only the code; nothing joins until you have read what your company would see and pressed Join.</p>
+          <div class="frow">
+            <input type="text" id="plus-org-code" autocomplete="off" spellcheck="false" maxlength="128" aria-label="Join code" placeholder="Join code">
+            <button class="btn" type="button" id="plus-org-check">Check code</button>
+          </div>
+        </div>
+        <div id="plus-org-consent" hidden>
+          <p class="fhint" id="plus-org-ask"></p>
+          <div class="plus-org-lists">
+            <p class="plus-org-h">What your company sees</p><ul id="plus-org-reports"></ul>
+            <p class="plus-org-h">What is backed up</p><ul id="plus-org-backsup"></ul>
+            <p class="plus-org-h">Who can read it</p><ul id="plus-org-readers"></ul>
+            <p class="plus-org-h">Never</p><ul id="plus-org-never"></ul>
+          </div>
+          <div class="frow">
+            <button class="btn uprime" type="button" id="plus-org-join">Join with this Kosmos</button>
+            <button class="btn" type="button" id="plus-org-notnow">Not now</button>
+          </div>
+        </div>
+        <p class="fmsg" id="plus-org-msg" role="alert" aria-live="assertive"></p>
       </div>
       <!-- #4079, named "Remove this computer" by Josh's design (#4080, 22:22). (Josh, 22:03: "Is there a way to disconnect my computer running Kosmos from this Kosmos Plus
            account somehow?"): the engine's Forget (#793, /api/remote/forget) finally has a button. The switch
@@ -47051,8 +47093,103 @@ async function paintPlus() {
      Connected again (any way), an earlier "disconnected" result is no longer true: it goes. */
   { const f = document.getElementById('plus-forgot-msg'); if (f && !f.hidden) { f.hidden = true; f.textContent = ''; } }
   { const fg = document.getElementById('plus-forget'); if (fg) fg.hidden = r.enrolled !== true; }
+  { const og = document.getElementById('plus-org'); if (og) { og.hidden = r.enrolled !== true; if (!og.hidden) plusOrgMaybe(); } }   // #5531
   paintDevices();
 }
+/* ---- #5531 (Enterprise E0.2): this Kosmos joining a company. The 5-second repaint above asks at most once a minute,
+   and never while the person is reading a consent or a call is out. */
+var PLUS_ORG = { at: 0, busy: false, state: null, preview: null };
+function plusOrgMaybe() {
+  if (PLUS_ORG.busy || PLUS_ORG.preview) return;
+  if (PLUS_ORG.state && Date.now() - PLUS_ORG.at < 60000) { plusOrgPaint(); return; }
+  PLUS_ORG.at = Date.now();
+  fetch('/api/org').then((res) => res.json()).then((j) => { PLUS_ORG.state = j; plusOrgPaint(); }).catch(() => { /* the next minute tries again */ });
+}
+function plusOrgList(id, items) {
+  const ul = document.getElementById(id);
+  ul.textContent = '';
+  for (const t of items || []) { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); }   // text, never markup
+  ul.previousElementSibling.hidden = ul.hidden = !(items && items.length);
+}
+function plusOrgPaint() {
+  const st = PLUS_ORG.state || {};
+  const here = st.enrolled === true && st.org;
+  document.getElementById('plus-org-in').hidden = !here;
+  document.getElementById('plus-org-out').hidden = !!here || !!PLUS_ORG.preview;
+  document.getElementById('plus-org-consent').hidden = !PLUS_ORG.preview;
+  if (here) document.getElementById('plus-org-say').textContent = 'This Kosmos is your work Kosmos for ' + (st.org.name || 'your company') + '. Your other Kosmoses on this computer are not part of it.';
+}
+async function plusOrgPost(path, body) {
+  try {
+    const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
+    return (await res.json().catch(() => null)) || { ok: false, because: 'no answer' };
+  } catch { return { ok: false, because: 'this computer could not reach its own engine' }; }
+}
+async function plusOrgCheck() {
+  const msg = document.getElementById('plus-org-msg');
+  const code = document.getElementById('plus-org-code').value.trim();
+  msg.textContent = '';
+  if (!code) { msg.textContent = 'Type or paste the join code your company sent you.'; return; }
+  PLUS_ORG.busy = true;
+  const r = await plusOrgPost('/api/org/preview', { code });
+  PLUS_ORG.busy = false;
+  if (!r.ok) { msg.textContent = r.because || 'That code could not be checked.'; return; }
+  PLUS_ORG.preview = { code, org: r.org };
+  document.getElementById('plus-org-ask').textContent = (r.org.name || 'Your company') + ' invites you to join' + (r.role === 'admin' ? ' as an admin' : r.role === 'recovery' ? ' in its recovery role' : '') + '. If you join, this Kosmos becomes your work Kosmos and this is what happens:';
+  plusOrgList('plus-org-reports', r.consent.reports);
+  plusOrgList('plus-org-backsup', r.consent.backsUp);
+  plusOrgList('plus-org-readers', r.consent.readers);
+  plusOrgList('plus-org-never', r.consent.never);
+  plusOrgPaint();
+  document.getElementById('plus-org-join').focus();
+}
+async function plusOrgJoin() {
+  const msg = document.getElementById('plus-org-msg');
+  const p = PLUS_ORG.preview;
+  if (!p) return;
+  const join = document.getElementById('plus-org-join');
+  join.disabled = true;
+  PLUS_ORG.busy = true;
+  const r = await plusOrgPost('/api/org/enroll', { code: p.code, accepted: true });
+  PLUS_ORG.busy = false; join.disabled = false;
+  if (!r.ok) { msg.textContent = r.because || 'Joining did not go through.'; return; }
+  PLUS_ORG.preview = null;
+  document.getElementById('plus-org-code').value = '';
+  PLUS_ORG.state = { enrolled: true, org: r.org, role: r.role };
+  PLUS_ORG.at = Date.now();
+  msg.textContent = '';
+  plusOrgPaint();
+}
+function plusOrgNotNow() {
+  PLUS_ORG.preview = null;
+  document.getElementById('plus-org-msg').textContent = 'Not joined. Nothing about this Kosmos was sent.';
+  plusOrgPaint();
+}
+function plusOrgLeaveArm(on) {
+  const st = PLUS_ORG.state || {};
+  document.getElementById('plus-org-leave-row').hidden = on;
+  document.getElementById('plus-org-leave-ask').hidden = !on;
+  if (on) document.getElementById('plus-org-leave-sure').textContent = 'Leave ' + ((st.org && st.org.name) || 'your company') + '? This Kosmos stops reporting to it now. Backups already taken stay with your company, under its rules.';
+}
+async function plusOrgLeave() {
+  const yes = document.getElementById('plus-org-leave-yes');
+  yes.disabled = true;
+  PLUS_ORG.busy = true;
+  const r = await plusOrgPost('/api/org/leave', {});
+  PLUS_ORG.busy = false; yes.disabled = false;
+  plusOrgLeaveArm(false);
+  PLUS_ORG.state = { enrolled: false, org: null, role: null };
+  PLUS_ORG.at = Date.now();
+  document.getElementById('plus-org-msg').textContent = r.ok ? 'You left. This Kosmos no longer reports to your company.' : (r.because || 'Leaving could not be confirmed; this Kosmos has already stopped reporting.');
+  plusOrgPaint();
+}
+document.getElementById('plus-org-check').addEventListener('click', plusOrgCheck);
+document.getElementById('plus-org-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); plusOrgCheck(); } });
+document.getElementById('plus-org-join').addEventListener('click', plusOrgJoin);
+document.getElementById('plus-org-notnow').addEventListener('click', plusOrgNotNow);
+document.getElementById('plus-org-leave').addEventListener('click', () => plusOrgLeaveArm(true));
+document.getElementById('plus-org-leave-no').addEventListener('click', () => plusOrgLeaveArm(false));
+document.getElementById('plus-org-leave-yes').addEventListener('click', plusOrgLeave);
 /* ---- kosmos#4794 slice 1: this computer JOINING (Mona Lisa's design, 2026-10-03). Both computers show one six-digit
    code; the person checks they match, presses Allow on the other computer and "The codes match" here. The pill above
    still says "Waiting to be allowed"; this block replaces the coordinator's sentence under it while held. */
