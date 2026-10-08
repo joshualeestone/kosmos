@@ -460,7 +460,8 @@ async function askSigned(macRequest, route, makeBody, parse) {
     try { r = await macRequest('POST', route, makeBody()); } catch (err) { r = { ok: false, because: (err && err.message) || 'the grant request failed' }; }
     if (r && r.ok) {
       const p = parse(r.data);
-      return p.ok ? p : { ok: false, out: { because: p.because } };
+      // An answer we refuse still spent the grant's allowance (and, for a manifest, left a recorded hash).
+      return p.ok ? p : { ok: false, out: { because: p.because, grantSpent: true } };
     }
     const because = (r && r.because) || 'Kosmos+ did not answer';
     const { status, code } = refusalOf(because);
@@ -502,7 +503,8 @@ function parseManifestGrant(data, bytes, runPrefix) {
    PUT of a 64 MiB manifest holds the call about 70 minutes before it ends retryLater. The bytes are copied on entry,
    so a caller reusing its buffer meanwhile cannot change what is sent. Resolves { ok: true, key, sha256,
    lockedUntilMs } or { ok: false, because, code?, retryLater?, unsure?, outlastsChunks?, grantSpent? }, unsure being
-   [{ key }] when a write may have landed. Never throws.
+   [{ key }] when a write may have landed. grantSpent: true on every refusal made after a grant answered (its
+   allowance is spent; a manifest's hash is recorded), false or absent when nothing was granted. Never throws.
    outlastsChunks is NOT a retry-later: the caller must upload the old chunks again first, never retry the same call.
    It comes with grantSpent: false when refused before any grant (this Mac's clock already showed it), or true when
    refused as the grant arrived: that spent one of the period's 50 manifest grants and left the coordinator a
@@ -526,6 +528,9 @@ async function uploadManifestInner(deps, bytes, o) {
   bytes = Buffer.from(bytes);   // our own copy: what is hashed is what is sent, whatever the caller does meanwhile
   if (bytes.length < MIN_OBJECT || bytes.length > MAX_MANIFEST) return { ok: false, because: `the manifest is ${bytes.length} bytes, outside ${MIN_OBJECT} to ${MAX_MANIFEST}` };
   if (typeof o.bucket !== 'string' || !o.bucket) return { ok: false, because: "no bucket for the manifest (its chunks' bucket path)" };
+  // The shape uploadChunks returns, host/ or host/bucket/, checked before any grant: a bare bucket name would be
+  // refused only after a grant had been spent on it.
+  if (!/^[A-Za-z0-9.:-]+\/([^/]+\/)?$/.test(o.bucket)) return { ok: false, because: `the manifest's bucket (${o.bucket}) is not a bucket path as uploadChunks returns it (host/ or host/bucket/)` };
   // Every chunk it names, as { key, lockedUntilMs }: not a string, and not a Map (uploadChunks' keys Map iterates
   // [name, key] pairs). From them: the keys this call must not write, and the earliest lock end.
   const list = o.chunks;
@@ -537,6 +542,10 @@ async function uploadManifestInner(deps, bytes, o) {
   for (const c of list) {
     if (!c || typeof c !== 'object' || typeof c.key !== 'string' || !c.key) return { ok: false, because: "the manifest's chunks are not all { key, lockedUntilMs }" };
     if (typeof c.lockedUntilMs !== 'number' || !Number.isFinite(c.lockedUntilMs)) return { ok: false, because: `no lock end for the manifest's chunk ${c.key}` };
+    // No real lock ends later than its grant's signed time plus LOCK_MAX_MS, and that grant was made in the past (an
+    // hour of clock tolerance, as clockSkew): a later value is the wrong unit or never a lock date, and it would raise
+    // the floor until the outlast check could not fire.
+    if (c.lockedUntilMs > now() + LOCK_MAX_MS + 60 * 60 * 1000) return { ok: false, because: `the lock end given for the manifest's chunk ${c.key} (${c.lockedUntilMs}) is later than any lock a grant can set: not a lock date in milliseconds` };
     avoid.add(c.key);
     floor = Math.min(floor, c.lockedUntilMs);
   }
@@ -551,9 +560,9 @@ async function uploadManifestInner(deps, bytes, o) {
       (d) => parseManifestGrant(d, bytes, o.bucket));
     if (!g.ok) return Object.assign({ ok: false }, g.out);
     const skew = clockSkew(now(), g.expiresAtMs);
-    if (skew) return { ok: false, because: skew };
+    if (skew) return { ok: false, because: skew, grantSpent: true };
     const up = g.upload;
-    if (avoid.has(up.key)) return { ok: false, because: 'the manifest grant names a key it must not write (one of its chunks\', or an earlier manifest grant\'s); nothing was sent (this grant\'s allowance is spent)' };
+    if (avoid.has(up.key)) return { ok: false, grantSpent: true, because: 'the manifest grant names a key it must not write (one of its chunks\', or an earlier manifest grant\'s); nothing was sent (this grant\'s allowance is spent)' };
     avoid.add(up.key);
     if (up.retainMs > floor) return { ok: false, outlastsChunks: true, grantSpent: true, because: `the manifest grant locks until ${new Date(up.retainMs).toISOString()}, past the earliest chunk it names (${new Date(floor).toISOString()}); nothing was sent (this grant's allowance is spent)` };
     const deadline = asked + g.lifetimeMs - 10 * 1000;

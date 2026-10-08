@@ -806,8 +806,8 @@ function manifestCoordinator(b, opts) {
 const mKey = (n) => `org1/acct1/1/2026-W41/mK${n}`;
 const manifestBytes = () => crypto.randomBytes(up.MIN_OBJECT + 100);
 // The opts a caller passes: the chunks' bucket path (the local bucket's) and a lock end no manifest here outlasts.
-// One chunk it names (a key no stub hands out) locked 40 days, so no manifest here outlasts it.
-const oneChunk = (lockedUntilMs, key) => [{ key: key || 'org1/acct1/1/2026-W41/chunk-x', lockedUntilMs: lockedUntilMs === undefined ? Date.now() + 40 * DAY : lockedUntilMs }];
+// One chunk it names (a key no stub hands out) locked 38 days (a real lock is at most 39), so no manifest here outlasts it.
+const oneChunk = (lockedUntilMs, key) => [{ key: key || 'org1/acct1/1/2026-W41/chunk-x', lockedUntilMs: lockedUntilMs === undefined ? Date.now() + 38 * DAY : lockedUntilMs }];
 const mOpts = (b, extra) => Object.assign({ bucket: `${new URL(b.base).host}/bucket/`, chunks: oneChunk() }, extra || {});
 const sha256hex = (b) => crypto.createHash('sha256').update(b).digest('hex');
 
@@ -1125,7 +1125,7 @@ test('the manifest takes the EARLIEST lock end among its chunks itself (a later 
   try {
     const floor = Math.floor((Date.now() + 35 * DAY) / 1000) * 1000;
     const mc = manifestCoordinator(b, { retainMs: () => floor + 1000 });
-    const chunks = [...oneChunk(floor + 10 * DAY, 'org1/late'), ...oneChunk(floor, 'org1/early')];
+    const chunks = [...oneChunk(floor + 2 * DAY, 'org1/late'), ...oneChunk(floor, 'org1/early')];
     const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunks }));
     assert.strictEqual(r.ok, false); assert.strictEqual(r.outlastsChunks, true); assert.strictEqual(r.grantSpent, true);
     assert.strictEqual(b.puts, 0);
@@ -1143,5 +1143,42 @@ test('the manifest bytes are copied on entry: changing the caller\'s buffer duri
     const r = await up.uploadManifest(deps(mc), m, mOpts(b));
     assert.strictEqual(r.ok, true, r.because);
     assert.ok(b.stored.get(mKey(1)).equals(sent));
+  } finally { await b.close(); }
+});
+
+test('a chunk lock end later than any grant can set (a wrong unit, or not a lock date) is refused before any grant', async () => {
+  const b = await bucket();
+  try {
+    const mc = manifestCoordinator(b);
+    for (const bad of [(Date.now() + 38 * DAY) * 1000, Date.now() + 40 * DAY]) {
+      const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunks: [...oneChunk(), ...oneChunk(bad, 'org1/bad')] }));
+      assert.strictEqual(r.ok, false); assert.match(r.because, /later than any lock a grant can set/);
+    }
+    assert.strictEqual(mc.bodies.length, 0);
+    // CONTROL: 39 days (the most a grant sets) asks.
+    const ok = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunks: oneChunk(Date.now() + 39 * DAY) }));
+    assert.strictEqual(ok.ok, true, ok.because);
+  } finally { await b.close(); }
+});
+
+test('a bucket that is not host/ or host/bucket/ is refused before any grant; every refusal after a grant says grantSpent', async () => {
+  const b = await bucket();
+  try {
+    const mc = manifestCoordinator(b);
+    for (const bad of ['kosmos-backup', 'host', 'https://h/b/', 'h/b/c/']) {
+      const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { bucket: bad }));
+      assert.strictEqual(r.ok, false, bad); assert.match(r.because, /not a bucket path/, bad);
+    }
+    assert.strictEqual(mc.bodies.length, 0);
+    // After a grant: another bucket (a parse refusal), a reused key, a clock far off.
+    const other = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { bucket: 's3.us-east-1.amazonaws.com/other/' }));
+    assert.strictEqual(other.grantSpent, true);
+    const reused = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b, { chunks: oneChunk(undefined, mKey(1)) }));
+    assert.strictEqual(reused.grantSpent, true);
+    const skew = await up.uploadManifest(deps(manifestCoordinator(b, { expiresAt: Date.now() + 3 * 60 * 60 * 1000 })), manifestBytes(), mOpts(b));
+    assert.strictEqual(skew.grantSpent, true);
+    // CONTROL: a refusal before any grant does not.
+    const none = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunks: [] }));
+    assert.strictEqual(none.grantSpent, undefined);
   } finally { await b.close(); }
 });
