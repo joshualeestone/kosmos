@@ -272,6 +272,8 @@ function revokeIfUnchanged(sessionName, mtimeMs, newestMintMs) {
       // mount) still adds a newer token, and that keeps the file.
       const newest = readTokens(sessionName).reduce((m, t) => { const ms = Date.parse((t && t.mintedAt) || ''); return Number.isFinite(ms) && ms > m ? ms : m; }, -Infinity);
       const mintedSincePlanned = typeof newestMintMs === 'number' && newest > newestMintMs;
+      // no mint was recorded at plan time: a mint at or after the planned mtime is newer than the plan (>= because a
+      // coarse-mtime mount rounds the mtime down; erring here keeps the file)
       const mintedWhereNoneWasPlanned = typeof newestMintMs !== 'number' && newest > -Infinity && newest >= mtimeMs;
       if (mintedSincePlanned || mintedWhereNoneWasPlanned) {
         return { ok: false, because: 'a token was minted since the plan was made: kept' };

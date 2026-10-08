@@ -234,6 +234,9 @@ function getJson(port, route, headers, timeoutMs = BOARD_TIMEOUT_MS) {
       res.on('end', () => { let json = null; try { json = JSON.parse(body); } catch { json = null; } resolve({ status: res.statusCode, json }); });
     });
     req.on('timeout', () => req.destroy(new Error('the board did not answer in time')));
+    // `timeout` above is an IDLE timeout; this is the whole-answer deadline, so a board dripping bytes cannot hold it
+    const deadline = setTimeout(() => req.destroy(new Error('the board did not answer in time')), timeoutMs);
+    req.on('close', () => clearTimeout(deadline));
     req.on('error', reject);
     req.end();
   });
@@ -303,7 +306,8 @@ function expectedPort(env = process.env) {
 /* install/kosmos's derivation, for one uid (its test reads the formula out of install/kosmos). */
 function portForUid(uid) { return uid === 501 ? 16180 : 16180 + 1 + (uid % 3999); }
 
-/* A short digest of exactly what a plan removes (name, kind, mtime), so --apply can require the plan a person read. */
+/* A short digest of exactly what a plan removes (name, kind, key, mtime, newest mint, launchers, token names; a temp
+   or a link has no mtime here), so --apply can require the plan a person read. */
 function planDigest(plan) {
   const lines = plan.remove.map((r) => JSON.stringify([r.name, r.kind, r.key || '', r.mtimeMs === undefined ? null : r.mtimeMs,
     r.newestMintMs === undefined ? null : r.newestMintMs, (r.launchers || []).slice().sort(), (r.names || []).slice().sort()])).sort();
@@ -353,8 +357,9 @@ async function main(argv) {
       return 2;
     }
   }
-  // heartbeat files are keyed by safeKey(session); keep its -discord-stripped spelling too (a `+world` is already
-  // folded away by safeKey, but the only heartbeat writer runs after a token check, so its key matches the token's)
+  // heartbeat files are keyed by safeKey(session); keep its -discord-stripped spelling too. A `+world` is already
+  // folded away by safeKey, so a world session's heartbeat may not reach its token key: REASONED (the only heartbeat
+  // writer runs after a token check), not measured; the roster, profiles and folders are the other keeps for it.
   for (const k of heartbeats) for (const n of spellingsOf({ sessionName: k })) { try { liveKeys.add(store.safeKey(n)); } catch { /* not a key */ } }
   const dir = sendertoken.DIR;
   if (!fs.existsSync(dir)) { console.log('Nothing to clean: this store has no sender-token folder.'); return 0; }
@@ -385,9 +390,14 @@ async function main(argv) {
   }
   /* The board's offline rows come from these same profile files (register.known); one it cannot list silently
      empties that part of its roster, so a profiles folder that is there but cannot be read stops the tool. */
-  if (!require('../engine/register').known().ok) {
+  const knownProfiles = require('../engine/register').known();
+  if (!knownProfiles.ok) {
     console.error('Stopped, nothing changed: the agent profiles could not be read, so offline agents cannot be told apart.');
     return 2;
+  }
+  // every spelling of every profile's name, as for the roster (a profile `sam-discord` keeps the tokens in `sam`)
+  for (const raw of knownProfiles.names) {
+    for (const n of spellingsOf({ sessionName: raw })) { try { liveKeys.add(store.safeKey(n)); } catch { /* not a key */ } }
   }
   /* Any key the store keeps a profile for is kept, whatever the profile says. An adopted or a Windows agent's token is
      minted with no launcher, and an offline one is not on the board; a profile is the store's own record of an agent.
@@ -398,7 +408,7 @@ async function main(argv) {
     try { prof = store.readProfile(k) || {}; } catch { prof = {}; }
     let present = prof && typeof prof === 'object' && Object.keys(prof).length > 0;
     // readProfile answers {} for a file it cannot read: a profile that is THERE but unreadable still keeps the key
-    if (!present) { try { present = fs.existsSync(path.join(store.ROOT, store.PROFILES_DIRNAME, store.profileFileName(k))); } catch { present = true; } }
+    if (!present) { try { present = fs.existsSync(path.join(store.PROFILES, store.profileFileName(k))); } catch { present = true; } }
     if (present) { liveKeys.add(k); profiled += 1; }
   }
   /* The backstop counts the ROSTER only: this store's own heartbeat and removal records would match it on any real
