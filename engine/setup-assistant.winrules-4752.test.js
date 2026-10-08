@@ -17,7 +17,7 @@ const { removeTree } = require('../test-support/remove-tree');
 
 test('#4752: a Windows drive path is written in the POSIX form Claude Code matches', () => {
   assert.equal(sa.ruleAbs('C:\\Users\\alice\\AppData\\Roaming\\Kosmos', 'win32'), '//c/Users/alice/AppData/Roaming/Kosmos');
-  assert.equal(sa.ruleAbs('D:\\', 'win32'), '//d', 'a drive root keeps a trailing slash (its folder rule would be //d//**)');
+  assert.equal(sa.ruleAbs('D:\\', 'win32'), '//d', 'a drive root has no trailing slash (its folder rule would be //d//**)');
   assert.equal(sa.ruleAbs('E:/mixed\\seps', 'win32'), '//e/mixed/seps');
   assert.equal(sa.ruleAbs('\\\\?\\C:\\Users\\a\\K', 'win32'), '//c/Users/a/K', 'an extended-length path was not written as its plain path (its ? is a glob)');
   assert.equal(sa.ruleAbs('\\\\?\\UNC\\srv\\share\\K', 'win32'), sa.ruleAbs('\\\\srv\\share\\K', 'win32'), 'an extended-length UNC path is not written as the same share');
@@ -30,17 +30,21 @@ test('#4752: CONTROL, a macOS or Linux path is unchanged', () => {
   assert.equal(sa.ruleAbs('/tmp/a\\b', 'darwin'), '//tmp/a\\b');
 });
 
-test('#4752: on THIS host (meaningful on the Windows job; trivially true elsewhere) no Read rule carries a backslash or a drive colon', (t) => {
+test('#4752: on THIS host (meaningful on the Windows job; trivially true elsewhere) every rule is in the documented form, and on Windows also has its native twin', (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'winrules-'));
   t.after(() => removeTree(home));
   const rules = sa.guideDenyRules({ home, dataRoot: path.join(home, 'data'), worldsBase: path.join(home, 'base'), legacyRoots: [] });
-  const abs = rules.filter((r) => r.startsWith('Read(//'));
+  const isTwin = (r) => /^Read\(\/\/[A-Za-z]:\\/.test(r);   // the deliberate old native spelling (Windows only)
+  const abs = rules.filter((r) => r.startsWith('Read(//') && !isTwin(r));
   assert.ok(abs.length > 0, 'no absolute rule was written, so this arm tests nothing');
   for (const r of abs) {
-    if (process.platform === 'win32') assert.match(r, /^Read\(\/\/[a-z]\//, 'a Windows rule is not in the //c/ form: ' + r);
-    assert.equal(r.includes('\\'), false, 'a rule keeps a native backslash: ' + r);
-    assert.equal(/^Read\(\/\/[A-Za-z]:/.test(r), false, 'a rule keeps a drive colon: ' + r);
+    if (process.platform === 'win32') {
+      assert.match(r, /^Read\(\/\/[a-z]\//, 'a Windows rule is not in the //c/ form: ' + r);
+      assert.ok(rules.some((x) => isTwin(x) && sa.legacyWinEquivalent(x) === r), 'a Windows rule has no native twin: ' + r);
+    }
+    assert.equal(r.includes('\\'), false, 'a documented-form rule keeps a native backslash: ' + r);
   }
+  if (process.platform !== 'win32') assert.equal(rules.some(isTwin), false, 'CONTROL: a native twin was written off Windows');
 });
 
 test('#4752: rulePath reads a written rule back to the exact path, so the own-folder check compares real paths', () => {
@@ -147,4 +151,24 @@ test('#4752 on a Windows host: guardGuideFolder leaves out a rule taking in the 
 test('#4752: a Windows rule with no drive (a share) reads back as nothing, never as a path on the current drive', () => {
   assert.equal(sa.rulePath('host/share/K', 'win32'), null);
   assert.equal(sa.rulePath('Users/a', 'darwin'), '/Users/a', 'CONTROL: off Windows a rule reads back as its POSIX path');
+});
+
+test('#4752: on Windows every absolute rule is also written in the old native spelling (pure; any host)', () => {
+  const rules = ['Read(~/.ssh/**)', 'Read(//c/Users/a/Kosmos/**)', 'Read(//c/b/.board-token.*)', 'Read(//c/b/worlds/*/Kosmos/**)', 'Read(//c/b/token)'];
+  assert.deepEqual(sa.withNativeTwins(rules, 'win32'), [
+    'Read(~/.ssh/**)',
+    'Read(//c/Users/a/Kosmos/**)', 'Read(//C:\\Users\\a\\Kosmos/**)',
+    'Read(//c/b/.board-token.*)', 'Read(//C:\\b\\.board-token.*)',
+    'Read(//c/b/worlds/*/Kosmos/**)', 'Read(//C:\\b\\worlds/*/Kosmos/**)',
+    'Read(//c/b/token)', 'Read(//C:\\b\\token)',
+  ]);
+  // each twin maps back to its own new-form rule, so migrateKept and finalDeny treat it as that rule's old spelling
+  for (const r of sa.withNativeTwins(rules, 'win32').filter((x) => x.includes(':\\'))) {
+    assert.ok(rules.includes(sa.legacyWinEquivalent(r)), 'a twin does not map back to its rule: ' + r);
+  }
+  assert.deepEqual(sa.withNativeTwins(rules, 'darwin'), rules, 'CONTROL: off Windows nothing is added');
+});
+
+test('#4752: an old rule for a drive root maps to the same rule ruleAbs writes now', () => {
+  assert.equal(sa.legacyWinEquivalent('Read(//D:\\/**)'), `Read(${sa.ruleAbs('D:\\', 'win32')}/**)`);
 });

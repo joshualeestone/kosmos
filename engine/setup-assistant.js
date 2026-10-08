@@ -270,7 +270,8 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
      starts `./`: refused the same way, rather than written as a rule that matches nothing. */
   const plain = (p) => {
     const w = ruleAbs(p).slice(2);
-    if (!RULE_SYNTAX.test(w) && !(process.platform === 'win32' && (/:/.test(w) || /^\.\//.test(w)))) return true;
+    // on Windows: any colon left after the drive conversion, a `./` device form, or no drive at all (a share) is refused
+    if (!RULE_SYNTAX.test(w) && !(process.platform === 'win32' && (/:/.test(w) || /^\.\//.test(w) || !/^[a-z](\/|$)/.test(w)))) return true;
     process.stderr.write(`#4752: no rule for ${p}: its path has a character the rule syntax reads as a pattern, or a form it cannot write\n`);
     return false;
   };
@@ -317,7 +318,7 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
        so a guide written without them can be told apart from one written with them. */
     process.stderr.write(`#4752: the setup guide's rules for the older data folder and the other worlds' stores were left out: ${(err && err.message) || err}\n`);
   }
-  return { rules, entryBase, extra };
+  return { rules: withNativeTwins(rules), entryBase, extra };
 }
 /* The characters the rule syntax reads as a pattern or a bracket (and a backslash): a path with one gets no rule. */
 const RULE_SYNTAX = /[*?[\](){}!\\]/;
@@ -363,11 +364,28 @@ function rulePath(inner, platform = process.platform) {
    equivalent is a per-entry rule for an entry that is gone; finalDeny leaves it out when its equivalent was refused.
    Uses the win32 conversion on any host. */
 function legacyWinEquivalent(rule) {
-  // a drive, then a backslash (the native form) or a slash (a path given as C:/...); ruleAbs only touches the
-  // separators and the drive, so the whole inside converts in one go, suffix included
-  const m = /^Read\(\/\/([A-Za-z]:[\\/][^)]*)\)$/.exec(String(rule));
+  // a drive, then a backslash (the native form) or a slash (a path given as C:/...), then the suffix the writer adds
+  // (`/**`, `/*/...`, `.*`): the path is converted alone, as ruleAbs converts it (so a drive root maps to `//c/**`)
+  const m = /^Read\(\/\/([A-Za-z]:[\\/][^)]*?)((?:\/\*\*|\/\*\/[^)]*|\.\*)?)\)$/.exec(String(rule));
   if (!m) return null;
-  return `Read(${ruleAbs(m[1], 'win32')})`;
+  return `Read(${ruleAbs(m[1], 'win32')}${m[2]})`;
+}
+/* #4752: on Windows every absolute rule is ALSO written in the older native spelling, beside the //c/ form Claude
+   Code's docs say it matches: these are deny rules, the new form is not measured on Windows here, and an extra deny
+   costs nothing (a new install then has the same belt-and-braces an older one keeps through migrateKept). The twin
+   is exactly what the writer before this change wrote, so migrateKept and finalDeny already treat it as the old form
+   of its rule. Pure, with the platform passed in. */
+function withNativeTwins(rules, platform = process.platform) {
+  if (platform !== 'win32') return rules;
+  const out = [];
+  for (const r of rules) {
+    out.push(r);
+    const m = /^Read\(\/\/([a-z]\/[^)]*?)((?:\/\*\*|\/\*\/[^)]*|\.\*)?)\)$/.exec(r);
+    if (!m) continue;
+    const native = rulePath(m[1], 'win32');
+    if (native) { const twin = `Read(//${native}${m[2]})`; if (!out.includes(twin)) out.push(twin); }
+  }
+  return out;
 }
 /* #4752: is `rule` one this code writes for a single entry directly in `base` (either form), for a name
    baseEntryToName lets through? Built from ruleAbs over the platform's own join (the writer's on that platform), so it
@@ -963,6 +981,7 @@ module.exports = {
   ruleAbs,   // #4752 follow-up: exported so the Windows form is pinned from any host
   rulePath,
   legacyWinEquivalent,
+  withNativeTwins,
   migrateKept,
   finalDeny,
   SETUP_ROLE_KEY,
