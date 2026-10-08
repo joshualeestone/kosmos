@@ -20426,7 +20426,7 @@ function stateReason(a, opts) {
      card's look or pill. auth_failed and rate_limited already render attn:true pills ("Sign-in isn't working" /
      "Paused"), so a stuck card already reads as an issue; restyling cardStOf/stateCopyOf would recolour those
      paused states wholesale, which is out of this slice's scope. */
-  if (a && a.stuckError && a.stuckError.stuck === true) {
+  if (a && a.stuckError && a.stuckError.stuck === true && a.state === a.stuckError.state) {   // state-match: never a stale sentence on a mid-sweep switch
     const mins = Math.max(1, Math.round((Number(a.stuckError.forMs) || 0) / 60000));
     if (a.stuckError.state === 'auth_failed') return 'Kosmos has seen this agent unable to sign in for about ' + mins + ' minutes. It cannot work until you reconnect its account. Open Settings to reconnect it.';
     if (a.stuckError.state === 'rate_limited') return 'Kosmos has seen this agent paused by a rate limit for about ' + mins + ' minutes. It will keep trying when the limit lifts. You can wait, or switch its model.';

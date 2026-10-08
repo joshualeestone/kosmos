@@ -2437,7 +2437,7 @@ function safeRoster() {
       return a.isNamedOurs
         ? Object.assign({}, withReconnect, {
             crashLoop: crashloop.read(a.sessionName),
-            stuckError: stuckterminal.isTerminal(a.state) ? stuckterminal.peek(a.sessionName, Date.now()) : { stuck: false, state: null, sinceAt: null, forMs: 0 },
+            stuckError: stuckterminal.peek(a.sessionName, a.state, Date.now()),   // peek returns not-stuck unless the anchor matches the CURRENT state
           })
         : withReconnect;
     });
@@ -5340,10 +5340,11 @@ const server = http.createServer(async (req, res) => {
            SHORT_RUN_MS (engine/crashloop.js). Only for an agent we started (its supervisor writes the run file). */
         crashLoop: a.isNamedOurs ? crashloop.read(a.sessionName) : null,
         /* #5154 slice C: whether this agent is stuck on a recurring terminal error (an expired login or a
-           rate limit that has not lifted). READ-ONLY (stuckterminal.peek); the 60s sweep is the only
-           writer of the anchor, so the board cannot advance the clock by polling. Gated on the CURRENT
-           state still being terminal, so a just-recovered agent drops "stuck" immediately. */
-        stuckError: (a.isNamedOurs && stuckterminal.isTerminal(a.state)) ? stuckterminal.peek(a.sessionName, Date.now()) : null,
+           rate limit that has not lifted). READ-ONLY (stuckterminal.peek); the 60s sweep is the only writer
+           of the anchor, so the board cannot advance the clock by polling. peek returns the not-stuck shape
+           unless the stored anchor matches the agent's CURRENT state, so a just-recovered or just-switched
+           agent drops "stuck" (and the stale sentence) immediately. */
+        stuckError: a.isNamedOurs ? stuckterminal.peek(a.sessionName, a.state, Date.now()) : null,
         // The name only. `plannedModelArg` returns null for "we do not know",
         // and null travels as null: the screen must not be able to tell a
         // missing job from a default.
@@ -21298,6 +21299,11 @@ function start(port = PORT) {
          can be tuned from real boards. Reading the run files only; it never restarts or stops anything. unref'd. */
       const CRASHLOOP_TOLD = new Set();
       const STUCK_TOLD = new Set();   // #5154 slice C: told once per stuck-terminal episode (cleared on recovery)
+      // #5154 slice C: wipe stuck-terminal anchors once at boot so a RESTART re-anchors from the live state.
+      // The anchor is a derived clock, not ground truth: a board that was down must not judge an agent stuck
+      // on a clock from before the downtime (the chief false-alarm risk). This runs only on real startup
+      // (requiring server.js in a test does not reach this block).
+      try { stuckterminal.clearAll(); } catch { /* never block boot */ }
       const crashLoopTick = setInterval(() => {
         try {
           /* Review 1: read the run files themselves, not the live roster. Between crashes a looping agent has no
