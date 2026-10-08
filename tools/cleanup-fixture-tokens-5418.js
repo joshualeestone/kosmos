@@ -24,8 +24,8 @@
  *
  * What it may remove, and only all of these together:
  *   - a token file whose agent is NOT on the running board's roster (GET /api/status, the board's own list),
- *     is NOT in the board's removal records, has no heartbeat record, no profile, no worker folder and (on macOS) no
- *     launchd job, was last written BEFORE the
+ *     is NOT in the board's removal records, has no heartbeat record, no profile, no worker folder and no startup
+ *     job (launchd on macOS, a Scheduled Task on Windows, a systemd unit on Linux), was last written BEFORE the
  *     cutoff (at least an hour ago), and is named exactly as the
  *     store names its files (a name the store could not have written is listed and left alone), and holds
  *     no `launcher: 'remote'` token (a remote agent is on the roster only while its heartbeat is fresh, so an
@@ -40,7 +40,7 @@
  * whatever its date.
  *
  * 🛑 THE ROSTER IS THE FIRST GUARD FOR A LIVE AGENT, with the store's own records as the others (heartbeats,
- * profiles, worker folders, launchd jobs on macOS, remote tokens, removal records); the cutoff is in the past for
+ * profiles, worker folders, startup jobs, remote tokens, removal records); the cutoff is in the past for
  * every live file, so it guards nothing here. So:
  *   - a roster row counts under EVERY spelling a token file can carry: its session name (the key tokens are
  *     minted under, by the supervisor's token_roster_name: +world stripped, then -discord), that stripped form,
@@ -325,7 +325,8 @@ function jobKeepNames(platform, tokenKeys, reader) {
   if (platform === 'win32') return reader.fleet ? [...reader.fleet] : null;
   // a unit folder that cannot be listed stops the tool (presence() alone reads EACCES as "no unit")
   if (platform === 'linux' && reader.dirReadable && reader.dirReadable() === false) return null;
-  if (platform === 'linux') return tokenKeys.filter((k) => { try { return reader.of(k) === true; } catch { return true; } });
+  // a unit is named for the session, so a key's -discord session (whose tokens sit under the key) is asked too
+  if (platform === 'linux') return tokenKeys.filter((k) => { try { return reader.of(k) === true || reader.of(k + '-discord') === true; } catch { return true; } });
   return [];
 }
 /* install/kosmos's derivation, for one uid (its test reads the formula out of install/kosmos). */

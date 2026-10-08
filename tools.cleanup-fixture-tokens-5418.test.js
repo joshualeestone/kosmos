@@ -26,6 +26,15 @@ const { safeKey } = require('./engine/store');
 process.env.AGENT_WORKFORCE_WORKERS = fs.mkdtempSync(path.join(os.tmpdir(), 'tokclean-workers-'));
 test.after(() => fs.rmSync(process.env.AGENT_WORKFORCE_WORKERS, { recursive: true, force: true }));
 const fleet = require('./test-support/fleet');
+/* Startup jobs are read as keeps on every platform. A test process never runs schtasks (win32job refuses, which would
+   read as "could not look" and stop every end-to-end arm on the Windows job), so it answers "no such task"; the
+   Linux unit folder is this file's sandbox. */
+const win32job = require('./engine/win32job');
+win32job.setRunner(() => ({ ok: false, out: 'ERROR: The system cannot find the file specified.', code: 1 }));
+test.after(() => win32job.setRunner(null));
+const linuxjob = require('./engine/linuxjob');
+linuxjob.setSystemdDirForTests(() => path.join(process.env.AGENT_WORKFORCE_WORKERS, 'systemd-user'));
+test.after(() => linuxjob.setSystemdDirForTests(null));
 /* --apply needs live execution, which only the tool's command line turns on. Only a call that applies is armed, for
    that call alone (the store is a throwaway, #5418 ask 1); two arms check the refusal unarmed. */
 const liveExecution = require('./engine/live-execution');
@@ -85,7 +94,7 @@ test('#5418: the plan keeps a live agent at any age and removes only old orphans
   assert.equal(plan.remove.find((r) => r.name === 'fixture-a.json').key, 'fixture-a');
 });
 
-test('#5418: an unreadable or unknown-age file is never removed', () => {
+test('#5418: a file of unknown age is never removed', () => {
   const plan = tool.planCleanup([{ name: 'odd.json', isSymlink: false, mtimeMs: null }], new Set(), CUTOFF, safeKey);
   assert.deepEqual(plan.remove, []);
 });
@@ -837,4 +846,14 @@ test('#5418: a dangling link whose target folder is missing (an unmounted drive?
   ], new Set(), CUTOFF, (k) => k);
   assert.deepEqual(plan.remove.map((r) => r.name), ['gone.json']);
   assert.deepEqual(plan.keep.map((k) => k.name).sort(), ['onvolume.json', 'unknown.json']);
+});
+
+test('#5418: in a test process the Windows job read is "known, none" (the runner stub), so the end-to-end arms run on the Windows job', () => {
+  const reader = require('./engine/register').jobReader('win32');
+  assert.equal(reader.known, true, 'the Windows job reader could not look, so main would stop every end-to-end arm');
+  assert.deepEqual(tool.jobKeepNames('win32', ['sam'], reader), []);
+});
+
+test('#5418: on Linux a key\'s -discord unit keeps its token too', () => {
+  assert.deepEqual(tool.jobKeepNames('linux', ['sam', 'pat'], { known: true, of: (n) => n === 'sam-discord', dirReadable: () => true }), ['sam']);
 });
