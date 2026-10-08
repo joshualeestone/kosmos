@@ -96,6 +96,7 @@ const {
 const removal = require('./engine/remove');
 const worldstarts = require('./engine/worldstarts'); // #1704 PR3: pause/resume a Kosmos's agents across a switch
 const worldimport = require('./engine/worldimport'); // #1704 PR4: copy agents from one Kosmos into another
+const worldview = require('./engine/worldview'); // #5393: one view across worlds (tasks nobody is on, provider state)
 
 /* #5223: the question clause for an agent that is asking with no words of its own, when the viewport
    said it has NO window (a Windows agent, `view.noWindow`). Both routes compose it after "<name> is
@@ -394,7 +395,7 @@ function agentRunawayRefusal(times, noun, now = Date.now(), limit = agentRunaway
 // `roster`: the caller's already-fetched snapshot, never a fresh
 // safeRoster() of our own -- snapshot() fans out a real tmux capture-pane
 // per agent, and every call site here already has one in scope.
-function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver) {
+function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver, note = '') {
   const name = typeof who === 'string' && who.trim() ? who.trim() : null;
   if (!name || !t || typeof t.number !== 'number') return undefined;
   /* #3564: a swarm switched off in this project is not told it was given work here. */
@@ -406,7 +407,7 @@ function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver) {
   /* #1307: a webhook task's words are marked and quoted as outside text, here where they reach
      the agent (tasks.forAgent). */
   const line = '[Kosmos: you were given task ' + t.number + ' in "' + String(title).replace(/[\r\n"]/g, ' ') + '": '
-    + tasks.forAgent(t, sentence || '') + '. When you take it up, say "task ' + t.number + ' of ' + String(title).replace(/[\r\n"]/g, ' ')
+    + tasks.forAgent(t, sentence || '') + '. ' + (note ? note + ' ' : '') + 'When you take it up, say "task ' + t.number + ' of ' + String(title).replace(/[\r\n"]/g, ' ')
     + '" in what you report (every project numbers from 1, so the name matters; #779); the room is: kosmos post ' + projectId + ']';
   const answer = (sent) => ({ who: name, state: sent.state, because: sent.because || null });
   const failed = (err2) => answer({ state: chat.DELIVERY.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') });
@@ -447,11 +448,24 @@ function tellEveryoneOn(t, roster) {
      pane line spends the assignee's paging allowance (heardBudgetAllows, per assignee).
    - assigner: the Kosmos Assigner. Its own provenance ('assigner'), so neither the parts
      valve nor the paging allowance is charged (the Assigner has its own hourly caps);
-     the part must still be free at the moment of the write (onlyIfFree); the pane line is
+     the part must still be free at the moment of the write (onlyIfFree), or, for a #5382
+     failover move (`from`), still on that agent (onlyIfWho); the pane line is
      always sent, and if it could not reach the agent at all (COULD_NOT) the assignment is
-     taken back, so nobody is left on a task they were never told about.
+     taken back (to `from` for a failover move), so nobody is left on a task they were never told about.
    Returns the route's body fields plus `ok`/`status`/`because`; never throws for a refusal. */
-function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDelivery, noPage } = {}) {
+/* #5382 (review 8): the runner the failover compares, or null when nothing recorded says. A non-claude value on the
+   card is a recorded or command-read fact; 'claude' there can be a default (status reads an absent marker as claude),
+   so the launch job's runner, else the profile's provider, answers; with neither, null, which the failover never moves
+   from or to. (create.recordedRunner floors at claude, so it is not used here: an unrecorded Antigravity agent read as
+   claude could hand its part to a Gemini CLI agent on the same Google account.) */
+function failoverRunnerOf(card) {
+  if (!card || !card.sessionName) return null;
+  if (card.runner && card.runner !== 'claude') return card.runner;
+  try { const j = create.readJob(card.sessionName); if (j && j.runner) return j.runner; } catch { /* no job */ }
+  try { const prov = store.readProfile(card.sessionName).provider; if (prov) return create.providerRunner(prov); } catch { /* no profile */ }
+  return null;
+}
+function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDelivery, noPage, from } = {}) {
   if (!screen && !assigner) {
     const v = tasks.partValve();
     if (v.refused) return { ok: false, status: 429, because: v.because, retryAfterSecs: v.retryAfterSecs };
@@ -473,8 +487,14 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     // Reserve now, before the part is assigned and told, so the next givePart in this same tick counts it.
     try { capSlot = agyq.noteCapStart(who, r, now); } catch { capSlot = null; }
   }
-  const made = assigner ? { via: 'assigner', onlyIfFree: true } : { via: screen ? 'screen' : 'process' };
-  const out = tasks.assignPart(projectId, n, partId, who, made);
+  /* #5382: a failover move (`from`: the rate-limited agent the Assigner takes the part from) is refused unless the part is
+     still on that agent and still open, not held and not built, at the moment of the write (tasks.assignPart). */
+  const failoverFrom = assigner && typeof from === 'string' && from ? from : null;
+  const made = failoverFrom ? { via: 'assigner', onlyIfWho: failoverFrom, failover: true }
+    : assigner ? { via: 'assigner', onlyIfFree: true } : { via: screen ? 'screen' : 'process' };
+  let out;
+  try { out = tasks.assignPart(projectId, n, partId, who, made); }
+  catch (err) { require('./engine/agyquota').releaseCapStart(capSlot); throw err; }   // a write that threw gave nothing
   if (!out.ok) { require('./engine/agyquota').releaseCapStart(capSlot); return { ok: false, status: 400, because: out.because }; }
   if (!out.changed) require('./engine/agyquota').releaseCapStart(capSlot);   // nothing new was given, so no slot is held
   const r = roster || safeRoster();
@@ -483,7 +503,13 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     heard = undefined;   // #4914: an agent that gave the part to itself is not paged about it
   } else if (out.changed && (screen || assigner || heardBudgetAllows(who, r))) {
     const sentence = (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partId)) || {}).sentence;
-    try { heard = heardBy(projectId, out.task, who, sentence, r, asyncDelivery ? chat.deliverAsync : chat.deliver); }
+    /* #5382: a failover move says where the part came from, so the new agent looks before starting over (review 6). */
+    // Review 15: the source by the name the person sees, not its session key.
+    const fromCard = failoverFrom && Array.isArray(r) ? r.find((c) => c && c.sessionName === failoverFrom) : null;
+    const fromName = String((fromCard && fromCard.name) || failoverFrom).replace(/[\r\n"]/g, ' ');   // the name the page shows, one line
+    const note = failoverFrom ? 'It was moved to you from ' + fromName + ', which hit its provider\'s usage limit and may'
+      + ' already have started it: read the task\'s room and ' + fromName + '\'s work on it before you begin.' : '';
+    try { heard = heardBy(projectId, out.task, who, sentence, r, asyncDelivery ? chat.deliverAsync : chat.deliver, note); }
     catch (err) { require('./engine/agyquota').releaseCapStart(capSlot); throw err; }   // #4588 ask 3: a throw reached nothing
   } else if (out.changed) {
     heard = heardBudgetSkipped(who); // only a process reaches here: screen and assigner always pass
@@ -492,8 +518,17 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     if (heardResult && heardResult.state === chat.DELIVERY.PLACED && !screen && !assigner) heardBudgetRecord(who, r);
     if (assigner && out.changed && !(heardResult && heardResult.state !== chat.DELIVERY.COULD_NOT)) {
       // Only if it is still ours: the pane line took time, and somebody may have taken the part since.
-      const back = tasks.assignPart(projectId, n, partId, null, { via: 'assigner', onlyIfWho: who });
-      require('./engine/agyquota').releaseCapStart(capSlot);   // nothing reached the pane: the slot is free again
+      // #5382: a failover move goes back to the agent it was taken from. If that is refused (it has left the project
+      // since), the part goes to nobody, as an ordinary give's does, rather than staying on an agent never told.
+      // Nothing reached the pane, so the slot is free again FIRST: a take-back that throws must not keep it (merge review).
+      require('./engine/agyquota').releaseCapStart(capSlot);
+      // keepBuilt: a task marked built meanwhile is not un-built by moving the part back; it goes to nobody instead.
+      const takeBack = (to) => {
+        try { return tasks.assignPart(projectId, n, partId, to, { via: 'assigner', onlyIfWho: who, keepBuilt: true }); }
+        catch (err) { return { ok: false, because: String((err && err.message) || err) }; }
+      };
+      let back = takeBack(failoverFrom);
+      if (failoverFrom && !back.ok) back = takeBack(null);
       return { ok: false, status: 409, because: 'we could not reach ' + who + ', so the task was not given' + (back.ok ? '' : ' (and taking it back failed: ' + back.because + ')'), heard: heardResult };
     }
     return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r), heard: heardResult };
@@ -5561,8 +5596,9 @@ const server = http.createServer(async (req, res) => {
                      words (Mona Lisa's ruling: a person who installed Kosmos
                      has no reason to have heard "tmux"). */
                   ? 'something is off about this agent: this computer says its background job is running, but no session for it is visible from here, so Kosmos cannot show or reach whatever that job started'
-                  : (!create.jobMissing(k.name) && switchedOff.has(k.name))
-                    ? 'this agent is not running because its background job was switched off, probably in System Settings under Login Items. Switch it back on there and it can start again'
+                  : (!create.jobMissing(k.name) && create.switchedOffSentence(k.name, switchedOff))
+                    // #5445: one function words the switched-off cause per platform (Linux: systemd, a masked unit), tested
+                    ? create.switchedOffSentence(k.name, switchedOff)
                     : !create.jobMissing(k.name)
                     /* #671: the one offline cause whose sentence ended at the
                        diagnosis. The agent has a job, is not removed (filtered
@@ -5580,9 +5616,9 @@ const server = http.createServer(async (req, res) => {
                        promising: "where to look" holds whether or not the pane has
                        content, and naming what the tab SHOWS would over-promise for an
                        agent that genuinely has no session. Sentence shared with
-                       remove.js's restart refusal via create.SELF_STARTS. */
+                       remove.js's restart refusal via create.selfStartsSentence (create.SELF_STARTS, linger-aware on Linux; #5445). */
                     ? 'this agent is not running: nothing on this computer has a session for it. '
-                      + create.SELF_STARTS.charAt(0).toUpperCase() + create.SELF_STARTS.slice(1)
+                      + create.selfStartsSentence().slice(0, -1)   // #5445: true on Linux with linger off too
                       // #5127: there is no Terminal tab. The place is named (AI Settings on its page), never what
                       // it shows, for the reason above: with no session there may be nothing there to see.
                       + '; if it stays off, look under AI Settings on its page'
@@ -6138,6 +6174,21 @@ const server = http.createServer(async (req, res) => {
         activeWorldId: worlds.activeWorld(base).id,
         bootedWorldId: require('./engine/worldenv').bootedWorld(),
       });
+    } catch (_e) {
+      sendJson(res, 500, { because: 'the world registry is not readable on this machine' });
+    }
+    return;
+  }
+  /* #5393: one view across worlds. Every Kosmos's count of tasks nobody is on (read from its own projects.json,
+     engine/worldview.js), and each provider's state for the Kosmos this board is running (from safeRoster()).
+     Read-only and token-gated like GET /api/worlds. */
+  if (pathname === '/api/worlds/overview' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let base;
+    try { base = worldBase(); } catch (_e) { sendJson(res, 500, { because: 'the world registry is not readable on this machine' }); return; }
+    const cards = safeRoster();   // null when the cards could not be read
+    try {
+      const runningId = require('./engine/worldenv').bootedWorld() || worlds.DEFAULT_ID;
+      sendJson(res, 200, { worlds: worldview.overview({ base, runningId, cards }) });
     } catch (_e) {
       sendJson(res, 500, { because: 'the world registry is not readable on this machine' });
     }
@@ -8038,7 +8089,7 @@ const server = http.createServer(async (req, res) => {
     if (!session) { sendJson(res, 409, { error: 'this agent is not running, so there is no session to write a handoff' }); return; }
     const snap = handoffFileSnap(session);
     let delivery;
-    try { delivery = await chat.deliverAsync(name, handoffRestart.handoffForRestartPrompt(snap.path), safeRoster(), undefined, undefined); }
+    try { delivery = await chat.deliverAsync(name, handoffRestart.handoffForRestartPrompt(snap.path), safeRoster(), undefined, undefined, { movedNote: false }); }   // #5400 review 3: the note rides the restarted session's pickup line
     catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
     sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, {
       delivery,
@@ -9062,7 +9113,7 @@ const server = http.createServer(async (req, res) => {
         // #4939: asked BEFORE the store write, as the comment route does: it records the ON period's start, which must
         // not be later than this post (the sweep sends only posts made at or after it), and says whether it will go.
         let will = { sends: false, later: false };
-        try { will = communitysend.willSend(agentId, Date.now(), 'post'); } catch { will = { sends: false, later: false }; }
+        try { will = communitysend.willSend(agentId, Date.now(), 'post'); } catch { will = { sends: false, later: false, why: 'records' }; }
         // The agent path sets a board only from the site's controlled inventory, never free text: kosmos_bug (#5062) and
         // a channel from communitysend.CHANNELS (#5171), both checked above.
         let r;
@@ -9083,7 +9134,10 @@ const server = http.createServer(async (req, res) => {
         // keeps the true status for the moderator surface.
         // A held post is not going yet at all (#4947): it is neither sent nor waiting until it is released.
         const going = r.status === 'published' && will.sends;
-        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends: going, later: going && will.later });
+        const postAnswer = { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends: going, later: going && will.later };
+        // #5435: why a published post is not going, in words both CLIs print (an older CLI ignores the field).
+        if (r.status === 'published' && !going) postAnswer.notSending = communitysend.notSendingWords('post', will.why);
+        sendJson(res, 200, postAnswer);
         if (r.status === 'published') communitySendSoon();   // #4938
       })
       .catch((e) => { console.error('FAIL /api/community/post (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); });
@@ -9161,7 +9215,7 @@ const server = http.createServer(async (req, res) => {
         // Asked BEFORE the store write: it may record the ON period's start, which must not be later than this row.
         // (That can move the posts' window earlier too, which only sends posts made while the person had it ON.)
         let will = { sends: false, later: false };
-        try { will = communitysend.willSend(agentId); } catch { will = { sends: false, later: false }; }
+        try { will = communitysend.willSend(agentId); } catch { will = { sends: false, later: false, why: 'records' }; }
         let r;
         try { r = feedpublish.publishServiceComment(content, { agentId }); }
         catch (e) { console.error('FAIL /api/community/service-comment: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); return; }
@@ -9179,6 +9233,7 @@ const server = http.createServer(async (req, res) => {
         }
         // Quarantined reads as held to the submitter, as for a post (not a scrubber oracle).
         const answer = { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends, later: sends && will.later };
+        if (r.status === 'published' && !sends) answer.notSending = communitysend.notSendingWords('comment', will.why);   // #5435
         /* #5211 item 2: who wrote the post, whether you follow them, and today's floors. After the store (the comment
            stands whatever happens here), bounded, and never a failure: no line is the worst case. */
         // #4938: the send is asked for first, as before #5211, so the line never delays it (past the daily cap it goes later).
@@ -9538,9 +9593,10 @@ const server = http.createServer(async (req, res) => {
         if (!list.ok) { sendJson(res, 500, { error: list.because }); return; }
         const pending = remote.pendingDevices();
         /* #4610: nor in the ALLOWED list. Josh: "never display to the user"; shown there it also carried a Remove
-           the automatic grant would quietly undo. Matched by the id this board minted for its own sign-in. */
-        const self = typeof remote.read().device_id === 'string' ? remote.read().device_id : '';
-        const allowed = (Array.isArray(list.data.devices) ? list.data.devices : []).filter((d) => !self || !d || d.device_id !== self);
+           the automatic grant would quietly undo. Matched by every id this board has signed in with (kosmos#5422: the
+           key's id and the ones before it, which stay at the coordinator). */
+        const selves = remote.ownDeviceIds();
+        const allowed = (Array.isArray(list.data.devices) ? list.data.devices : []).filter((d) => !d || !selves.includes(d.device_id));
         sendJson(res, 200, { pending: pending.devices, allowed, email: pending.email, on: remote.read().on === true });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the devices' }));
@@ -9736,7 +9792,7 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/assigner-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
       const r = assignerSetting.read();
-      sendJson(res, 200, { on: r.on, ok: r.ok });
+      sendJson(res, 200, { on: r.on, failover: r.failover === true, ok: r.ok });
     } catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
     return;
   }
@@ -9750,11 +9806,16 @@ const server = http.createServer(async (req, res) => {
            Recommender, refuse a caller isViaScreen reads as a process. ADVISORY (a local process
            can send the header); it stops the default CLI path only. */
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
-        if (typeof body.on !== 'boolean') { sendJson(res, 400, { error: 'that has to be on or off' }); return; }
-        const saved = assignerSetting.setOn(body.on);
+        /* #5382: one change per PUT, `on` or `failover`, as the Recommender's guards are. */
+        if (typeof body.on === 'boolean' && typeof body.failover === 'boolean') {
+          sendJson(res, 400, { error: 'change one setting at a time' }); return;   // review 6: never drop one silently
+        }
+        const field = typeof body.on === 'boolean' ? 'on' : typeof body.failover === 'boolean' ? 'failover' : null;
+        if (!field) { sendJson(res, 400, { error: 'that has to be on or off' }); return; }
+        const saved = field === 'on' ? assignerSetting.setOn(body.on) : assignerSetting.setFailover(body.failover);
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         const r = assignerSetting.read();
-        sendJson(res, 200, { on: r.on, ok: r.ok });
+        sendJson(res, 200, { on: r.on, failover: r.failover === true, ok: r.ok });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
@@ -15928,6 +15989,21 @@ const server = http.createServer(async (req, res) => {
     } catch { sendJson(res, 500, { error: 'we could not set your agents to start on their own' }); }
     return;
   }
+  /* #5359: the note that this computer restarted while Kosmos was running and Kosmos came back by itself
+     (engine/restartnote.js says when one is made). Read once by the page; dismissed by the person. */
+  if (pathname === '/api/board/restart-note' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let note = null;
+    try { note = require('./engine/restartnote').current(); } catch { note = null; }
+    sendJson(res, 200, { note });
+    return;
+  }
+  if (pathname === '/api/board/restart-note/dismiss' && req.method === 'POST') {
+    let ok = false;
+    try { ok = require('./engine/restartnote').dismiss(); } catch { ok = false; }
+    if (!ok) { sendJson(res, 500, { error: 'we could not record that the note was dismissed' }); return; }
+    sendJson(res, 200, { dismissed: true });
+    return;
+  }
   /* --- engineering mode (whether the raw session is shown) ---------------- */
   /* The automatic-updates switch. Same shape as /api/engmode deliberately:
      one preference, GET to learn it, PUT to set it, and the READ is echoed
@@ -16926,7 +17002,7 @@ const server = http.createServer(async (req, res) => {
                         roster read and one commitments reading per agent for
                         the whole request
          waitingOnPerson tasks.waitingOnPerson: its agent needs the person about it (#3949)
-         state          tasks.taskState: closed / decision / held / built / nobody / working / assigned
+         state          tasks.taskState: closed / decision / held / built / scheduled / nobody / working / assigned
          projectPaused  its project is paused (#4771; with the task's own onHold, the held state)
          lastActivityAt the newest transcript event, else created/closed
        A task's own builtAt / builtBy / builtNote (#3951, set by POST .../built) ride every row as stored.
@@ -20408,6 +20484,9 @@ function start(port = PORT) {
   /* #5254: cached first pages whose PDF, project or agent is gone are removed now and hourly (engine/filepreview.js). */
   try { filepreview.sweep(); } catch { /* best effort */ }
   setInterval(() => { try { filepreview.sweep(); } catch { /* best effort */ } }, 60 * 60 * 1000).unref();
+  /* #5359: read when this board was last alive BEFORE it says it is alive now, so a restart of the computer under a
+     running Kosmos is noticed; then say so once a minute. Best effort: a courtesy, never a reason not to start. */
+  try { const rn = require('./engine/restartnote'); rn.atStart(); rn.startBeating(); } catch { /* best effort */ }
   /* #4408: what this board is running, taken now, before anything can edit the app folder under it. The
      restart module is loaded first: it is otherwise required lazily, and the button depends on it. */
   try { require('./engine/boardrestart'); } catch { /* the restart route reports its own failure */ }
@@ -20692,6 +20771,9 @@ function start(port = PORT) {
         roster: () => safeRoster(),
         book: AGY_QUOTA_BOOK,
         deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
+        // #5382 (review 8): the parts the failover gave away that this agent was not yet told about, marked once told.
+        movedAway: (session, roster) => require('./engine/failovertell').owedFor(session, projects.readAll(), roster),
+        movedTold: (session, items) => require('./engine/failovertell').markAll(session, items, tasks.markMoveTold),
         DELIVERY: chat.DELIVERY,
         log: (r) => process.stdout.write(`agy-quota-resume: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}${r.waiting ? '; ' + r.waiting + ' more waiting' : ''}\n`),
       });
@@ -20795,6 +20877,31 @@ function start(port = PORT) {
       /* #5161: the goal-ask memory is read back from disk, so a restart does not forget which projects were asked about
          (and in what state); written back only when it changes. */
       let assignerPrev = assigner.loadMemory(Date.now());
+      const FAILOVER_TELL_SEEN = new Set();   // #5382: cards idle at the previous tell sweep (engine/failovertell.js)
+      /* #5400: and on whatever Kosmos next types into an owed agent (a person's message at the reset, a room post),
+         so it is told before it can carry on with a moved part; marked told once that line may have reached it. */
+      /* Review 1 NIT: the records are read at most once every few seconds, not once per line typed (a room post to N
+         members), and anyOwed answers the common case (nothing owed anywhere) first; a told() drops the cached read. */
+      const movedRecs = { at: 0, recs: null, roster: null };
+      const movedRecords = () => {
+        if (!movedRecs.recs || Date.now() - movedRecs.at > 5000) { movedRecs.recs = projects.readAll(); movedRecs.roster = null; movedRecs.at = Date.now(); }
+        return movedRecs.recs;
+      };
+      /* #5382 review 3 x #5400 (rebase): the note names the agent now holding the part as the board shows it, so it needs
+         the roster; read only when something is owed, and cached with the records. */
+      const movedRoster = () => {
+        if (!movedRecs.roster) { try { movedRecs.roster = safeRoster(); } catch { movedRecs.roster = []; } }
+        return movedRecs.roster;
+      };
+      chat.setMovedTell({
+        owed: (session) => {
+          const ft = require('./engine/failovertell');
+          const recs = movedRecords();
+          return ft.anyOwed(recs) ? ft.owedFor(session, recs, movedRoster()) : [];
+        },
+        note: (items) => require('./engine/failovertell').noteFor(items),
+        told: (session, items) => { movedRecs.recs = null; require('./engine/failovertell').markAll(session, items, tasks.markMoveTold); },
+      });
       let assignerSaved = null;
       const assignerSweep = setInterval(() => {
         if (!liveExecution.liveExecutionAllowed()) return; // inert under test / before opt-in
@@ -20805,14 +20912,32 @@ function start(port = PORT) {
             readRoster: () => safeRoster(),
             readRecords: () => projects.readAll(),
             readCommitment: (session) => commitments.read(session),
+            readRunner: (card) => failoverRunnerOf(card),   // #5382: the runner the failover compares (null: unknown)
             readGoal: (project) => brief.readGoal(project && project.folder),
-            give: (projectId, n, partId, who, roster) => givePart(projectId, n, partId, who, { assigner: true, roster }),
+            give: (projectId, n, partId, who, roster, from) => givePart(projectId, n, partId, who, { assigner: true, roster, from }),
             ask: (session, text, roster) => chat.deliverAutomatic(session, text, roster),
             DELIVERY: chat.DELIVERY,
           });
           assignerPrev = out.next;
+          /* #5382 (review 8): tell each idle agent which of its parts the failover gave away (the record is on the part,
+             engine/failovertell.js), whatever the failover setting says now: the parts were already moved. */
+          try {
+            const ft = require('./engine/failovertell');
+            const records = projects.readAll();
+            // Review 9: on almost every board nothing is owed, and then no roster is read at all.
+            const owed = ft.anyOwed(records);
+            if (!owed) FAILOVER_TELL_SEEN.clear();   // review 11: no stale "idle last pass" outlives a quiet spell
+            const told = !owed ? [] : ft.sweepOnce({ roster: safeRoster(), records, DELIVERY: chat.DELIVERY,
+              isIdle: (c) => c.state === 'idle', seenIdle: FAILOVER_TELL_SEEN, markTold: tasks.markMoveTold,
+              /* An Antigravity agent whose quota resume is still due is left to agyquota's carry-on line, which names the
+                 same parts (review 11); once that is not pending (sent, given up, switched off), it is told here plainly. */
+              skip: (c) => failoverRunnerOf(c) === 'antigravity' && agyQuota.resumePending(c.sessionName,
+                { now: Date.now(), env: process.env, allowed: liveExecution.liveExecutionAllowed(), book: AGY_QUOTA_BOOK }),
+              deliver: (session, text, r) => chat.deliverAutomatic(session, text, r) });
+            for (const t of told) process.stdout.write(`assigner: told ${t.session} that ${t.n} of its parts went to another agent while it was limited: ${t.verdict || 'threw'}\n`);
+          } catch { /* best-effort, like the tick */ }
           assignerSaved = assigner.saveMemory(assignerPrev, assignerSaved);
-          for (const a of out.acted) process.stdout.write(`assigner: ${a.name} (${a.session}) task ${a.n} of ${a.projectId}: ${a.ok ? 'given, pane line ' + ((a.heard && a.heard.state) || 'none') : 'not given: ' + a.because}\n`);
+          for (const a of out.acted) process.stdout.write(`assigner: ${a.name} (${a.session}) task ${a.n} of ${a.projectId}${a.from ? ' (moved from ' + a.from + ', rate-limited)' : ''}: ${a.ok ? 'given, pane line ' + ((a.heard && a.heard.state) || 'none') : 'not given: ' + a.because}\n`);
           for (const a of out.asks) process.stdout.write(`assigner: asked ${a.name} (${a.session}) to draft tasks toward ${a.projectId}'s goal: ${a.verdict || 'threw'}\n`);
         } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_ASSIGNER_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_ASSIGNER_MS) : 60 * 1000); // the env is the test seam only

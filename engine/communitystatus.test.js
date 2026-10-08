@@ -128,6 +128,37 @@ test('review 1/2: a corrupt send record is "cannot say", never every sent post r
   assert.equal(stateOfTitle('ava', 'Sent one'), 'sent', 'CONTROL: restored, it answers again');
 });
 
+test('#5435 review 2: a switch file that cannot be read is not "switched off": status says it cannot read, as the post command did', () => {
+  post('ava', 'Torn switch');
+  writeJson(cs._paths.stateFile(), { since: '2000-01-01T00:00:00Z' });
+  cs.setSwitch(() => ({ ok: false, on: false }));   // communityswitch's answer for a file it cannot read
+  try {
+    assert.equal(stateOfTitle('ava', 'Torn switch'), 'switch_unreadable');
+    // Review 5: and once the sweep has ended the period (it does for an unreadable switch), the same words.
+    writeJson(cs._paths.stateFile(), {});
+    assert.equal(stateOfTitle('ava', 'Torn switch'), 'switch_unreadable');
+    assert.doesNotMatch(status.statusText('ava').text, /switched off|was not sending to the community when it was made/);
+    assert.match(status.statusText('ava').text, /could not read this board's community switch/);
+    writeJson(cs._paths.stateFile(), { since: '2000-01-01T00:00:00Z' });
+    assert.doesNotMatch(status.statusText('ava').text, /not sending to the community right now|switched off/);
+  } finally { cs.setSwitch(() => ({ ok: true, on: switchOn })); }
+  switchOn = false;
+  try { assert.equal(stateOfTitle('ava', 'Torn switch'), 'paused', 'CONTROL: a switch the person turned off still says so'); }
+  finally { switchOn = true; }
+});
+
+test('#5435 review 6: with an address Kosmos does not send to and no start, a post says it was not sent, never "switched off"', () => {
+  post('ava', 'Bad address');
+  writeJson(cs._paths.stateFile(), {});
+  const was = process.env.AGENT_WORKFORCE_COMMUNITY_URL;
+  try {
+    process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'http://example.com';
+    assert.equal(stateOfTitle('ava', 'Bad address'), 'not_sent');
+    assert.doesNotMatch(status.statusText('ava').text, /switched off/);
+  } finally { if (was === undefined) delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; else process.env.AGENT_WORKFORCE_COMMUNITY_URL = was; }
+  assert.equal(stateOfTitle('ava', 'Bad address'), 'before_on', 'CONTROL: a good address with no start is before the period');
+});
+
 test('review 2: switched off with the ON period still recorded (ending it is best effort), an unsent post waits; it is never "post it again"', () => {
   post('ava', 'Paused');
   writeJson(cs._paths.stateFile(), { since: '2000-01-01T00:00:00Z' });

@@ -158,7 +158,8 @@ test('#4774 follow-up (Josh 10-02 14:45: at least once a day): two comments, one
   assert.equal(prefix, 'Reply to: ', 'fixture: asPost no longer titles a reply "Reply to: <title>"');
   assert.ok(flat.includes('titled "' + prefix + '..."'), 'the block names a reply prefix asPost does not emit');
   // #5372: and the words before a reply quoted inside a Following entry, as communityfollow writes them.
-  assert.ok(flat.includes('("[1.1] ' + require('./communityread').QUOTED_REPLY + ' ...")'), 'the block names a reply label communityread.frame does not emit');
+  // #5463: the block's reply-label example now carries the comment id, matching what frame emits ("(comment <id>)").
+  assert.ok(flat.includes('("[1.1] ' + require('./communityread').QUOTED_REPLY + ' ... (comment <id>)")'), 'the block names a reply label communityread.frame does not emit');
   // kosmos#5211: comments (step 3) now come before follows (step 4), so the comment rule names the command for the
   // Following feed itself, in the same sentence that uses it.
   assert.ok(flat.includes('a post from your Following feed (kosmos community read --following)'),
@@ -374,7 +375,10 @@ test('#4884: the block names the vote verbs, where comment ids come from, and as
   assert.ok(flat.includes('comment ids show in kosmos community read --post <post-id>'), 'where comment ids come from is missing');
   assert.ok(flat.includes('Vote honestly: never on your own work, never on work by another agent on this computer, never to meet the count, and never as a favour to another agent.'),
     'the honesty rule is missing (the same-computer clause stands in for #4922 until the board sends install_group)');
-  assert.ok(flat.includes('An item titled "Reply to: ..." carries its post\'s id, not the reply\'s'), 'the Reply to: id warning is missing');
+  // #5463: the Following feed now shows a reply's OWN comment id on its line, so the rule points there to vote
+  // (the old "carries its post's id, find it with read --post" advice failed for a deep reply not on the first page).
+  assert.ok(flat.includes('a reply shows its OWN comment id on its line'), 'the feed-reply comment-id rule is missing');
+  assert.ok(flat.includes('Vote on a reply with the comment id on its line, straight away'), 'the vote-straight-away rule is missing');
 });
 
 test('#4913: the block names both endorse verbs, in the heredoc form, and asks for honest endorsements only', () => {

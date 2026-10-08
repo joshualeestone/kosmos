@@ -6,6 +6,9 @@
 // that name" -- the launch directory had been resolved once, to the real one.
 // Same warning create.test.js opens with, learned again the hard way.
 const test = require('node:test');
+/* #5432: on a Linux host an agent's job is a systemd user unit. These tests read the job with create.readJob, which
+   reads either, so they run on Linux too. */
+const jobfix = require('../test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -14,6 +17,9 @@ const path = require('node:path');
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'pete-adoptroot-'));
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'LaunchAgents');
+// #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too (a sandboxed board without it refuses
+// every systemd call, so a create ends partial on a Linux runner). macOS and Windows never read it.
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = require('node:path').join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 process.env.AGENT_WORKFORCE_HOME = path.join(SANDBOX, 'home');
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'support');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
@@ -135,7 +141,7 @@ const store = require('./store');
    variable is doing the work. */
 const outsideSandbox = [
   ['AGENT_WORKFORCE_DATA (engine/store.js)', store.ROOT],
-  ['AGENT_WORKFORCE_LAUNCH (engine/create.js)', create.plistPath('sandboxprobe')],
+  ['AGENT_WORKFORCE_LAUNCH (engine/create.js)', jobfix.jobPath('sandboxprobe')],
   ['AGENT_WORKFORCE_CODEX_BIN (engine/runners.js)', require('./runners').resolveBin('openai').bin],
   ['AGENT_WORKFORCE_CLAUDE_BIN (engine/runners.js)', require('./runners').resolveBin('claude').bin],
   // #3519: the gemini and grok runner binaries, same guard as codex above.
@@ -181,8 +187,6 @@ const agentFolder = (name, file, text) => {
   fs.writeFileSync(path.join(d, file), text);
   return d;
 };
-const plistOf = (name) =>
-  fs.readFileSync(path.join(SANDBOX, 'LaunchAgents', `com.kosmos.agent.${name}.plist`), 'utf8');
 const codexState = () => ({
   version: JSON.parse(fs.readFileSync(path.join(SANDBOX, 'home/.codex/version.json'), 'utf8')),
   toml: (() => { try { return fs.readFileSync(path.join(SANDBOX, 'home/.codex/config.toml'), 'utf8'); } catch { return ''; } })(),
@@ -226,8 +230,9 @@ test('#1159 CONTROL: a Claude agent is still adopted as Claude', () => {
   const dir = agentFolder('scoutclaude', 'CLAUDE.md', '# You are Scout Claude\n');
   const r = discover.connect(dir);
   assert.equal(r.ok, true, r.because);
-  const p = plistOf('scoutclaude');
-  assert.doesNotMatch(p, /<string>codex<\/string>/, 'a Claude agent was adopted as a Codex one');
+  /* #5432: the runner read from the platform's own job (a plist on macOS, a unit on Linux), so the control runs on
+     Linux too, where its positive arms above already run. */
+  assert.equal(create.readJob('scoutclaude').runner, 'claude', 'a Claude agent was adopted as a Codex one');
   /* 🛑 AND THE BINARY, WHICH THE LABEL CHECK ABOVE CANNOT SEE. This test's own
      comment says it stops "a change that makes EVERYTHING a codex job" - true of
      the label assertion it was written for, and NOT true of the binary assertion
@@ -247,7 +252,7 @@ test('#1159: CLAUDE.md wins when a folder has both', () => {
   fs.writeFileSync(path.join(dir, 'AGENTS.md'), '# You are Scout Both\n');
   const r = discover.connect(dir);
   assert.equal(r.ok, true, r.because);
-  assert.doesNotMatch(plistOf('scoutboth'), /<string>codex<\/string>/);
+  assert.equal(create.readJob('scoutboth').runner, 'claude');
 });
 
 /* #3519: adopting a Gemini agent. foundGemini already OFFERS a GEMINI.md folder as
@@ -362,7 +367,7 @@ test('#3519 CONTROL: a non-claude provider hint on a CLAUDE.md folder is ignored
   const dir = agentFolder('scoutclaudehint', 'CLAUDE.md', '# You are Scout ClaudeHint\n');
   const r = discover.connect(dir, { provider: 'xai' });
   assert.equal(r.ok, true, r.because);
-  assert.doesNotMatch(plistOf('scoutclaudehint'), /<string>codex<\/string>/,
+  assert.equal(create.readJob('scoutclaudehint').runner, 'claude',
     'a CLAUDE.md folder was hinted into a non-claude runner');
   assert.equal(create.readJob('scoutclaudehint').claude, path.join(SANDBOX, 'bin', 'claude'),
     'the claude folder did not get the claude binary');
@@ -486,7 +491,7 @@ test('#1159 CONTROL: a CODEX agent is refused when Codex is missing, and nothing
     const dir = agentFolder('scoutneedscodex', 'AGENTS.md', '# You are Scout NeedsCodex\n');
     const r = discover.connect(dir);
     assert.equal(r.ok, false, 'a Codex agent was adopted with no Codex on the machine');
-    assert.equal(fs.existsSync(create.plistPath('scoutneedscodex')), false,
+    assert.equal(fs.existsSync(jobfix.jobPath('scoutneedscodex')), false,
       'a job was written pointing at a binary that is not there, so launchd would respawn it forever');
     const left = store.readProfile('scoutneedscodex');
     assert.ok(!left || !left.dir, 'a refused codex adoption left a profile behind');

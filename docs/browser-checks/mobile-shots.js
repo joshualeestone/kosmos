@@ -190,6 +190,12 @@ async function joinWaiting(page) {
   await page.route('**/api/remote/join', (r) => r.fulfill({ status: 200, contentType: 'application/json',
     body: JSON.stringify({ supported: true, held: true, join_code: '482 915', on: 'homemac', asked_of: ['homemac'], failed: false, confirmed: false, confirm_expired: false }) }));
 }
+/* #5359: a restart note made seven minutes ago, on this page's own route (engine/restartnote.js makes the real one). */
+async function stubRebootNote(page) {
+  const now = Date.now();
+  const note = { lastAliveAt: new Date(now - 9 * 60000).toISOString(), bootAt: new Date(now - 7 * 60000).toISOString(), upAt: new Date(now - 60000).toISOString() };
+  await page.route('**/api/board/restart-note', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ note }) }).catch(() => {}));
+}
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
   { name: 'home', owner: 'Raiden', go: async () => {} },
@@ -206,6 +212,33 @@ const SCREENS = [
     });
     await at(page, '');
     await page.waitForSelector('#login-adv-slot .login-adv', { state: 'visible', timeout: 12000 });
+  } },
+  /* #5359: the note that this computer restarted under a running Kosmos, floating in #topnotes. Its route is stubbed
+     on this screen's own page (gone with it). Mona Lisa asked for it alone, under the login notice, and over the
+     Settings tabs on a phone (#5301). */
+  { name: 'reboot-notice', owner: 'Renet Tilley', noServiceWorker: true, go: async (page) => {
+    await stubRebootNote(page);
+    await at(page, '');
+    await page.waitForSelector('#reboot-slot .utoast.reboot', { state: 'visible', timeout: 12000 });
+  } },
+  { name: 'reboot-with-login', owner: 'Renet Tilley', noServiceWorker: true, go: async (page) => {
+    await stubRebootNote(page);
+    await page.route('**/api/status', async (route) => {
+      let res, data;
+      try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+      data.loginAdvisories = [{ agents: ['roo-lane'], names: ['Roo'], provider: 'Claude', service: 'Claude Code-credentials',
+        email: 'owner@example.com', daysLeft: 5, severity: 'notice', expired: false }];
+      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+    });
+    await at(page, '');
+    await page.waitForSelector('#login-adv-slot .login-adv', { state: 'visible', timeout: 12000 });
+    await page.waitForSelector('#reboot-slot .utoast.reboot', { state: 'visible', timeout: 12000 });
+  } },
+  { name: 'reboot-over-settings', owner: 'Renet Tilley', noServiceWorker: true, go: async (page) => {
+    await stubRebootNote(page);
+    await at(page, '?tab=settings');
+    await page.waitForSelector('#panel-settings', { state: 'visible', timeout: 5000 });
+    await page.waitForSelector('#reboot-slot .utoast.reboot', { state: 'visible', timeout: 12000 });
   } },
   /* Both assert they got there: a renamed control must fail the shot, not
      quietly photograph the home screen again. */
@@ -240,6 +273,21 @@ const SCREENS = [
     await at(page, '?agent=' + data.chatAgent);
     await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
     await page.waitForSelector('#d-sec-talk', { state: 'visible', timeout: 5000 });
+  } },
+  // #5481: the Mac app's refused mic, which becomes [X   Turn on in Settings] in the mic's place. A stand-in bridge
+  // (the app's message handler) answers the press with the refusal the app sends; nothing reaches System Settings.
+  { name: 'agent-chat-mic-settings', owner: 'Renet Tilley', go: async (page, data) => {
+    await at(page, '?agent=' + data.chatAgent);
+    await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
+    await page.waitForSelector('#d-sec-talk', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => {
+      window.webkit = { messageHandlers: { kosmosVoice: { postMessage() {} } } };
+      document.documentElement.classList.add('has-voice');
+      document.getElementById('d-mic').click();
+      window.kosmosVoiceEvent({ kind: 'error', reason: 'speech-denied', canOpenSettings: true });
+      window.kosmosVoiceEvent({ kind: 'stopped' });
+    });
+    await page.waitForSelector('.voice-pill', { state: 'visible', timeout: 5000 });
   } },
   // Kano: projects, a room, and the waiting-on-you ask.
   { name: 'projects', owner: 'Kano', go: async (page) => openTab(page, 'projects') },
@@ -451,6 +499,29 @@ const SCREENS = [
       { data: { on: false }, headers: { 'sec-fetch-site': 'same-origin' } });
     if (put.status() !== 200) throw new Error('settings-recommender: could not turn the Recommender back off (' + put.status() + ')');
   } },
+  /* #5382: the Assigner section with its failover row (shown while the Assigner is on, which is the default), with
+     failover off (its default) and on. The second puts it back off after its shot. */
+  { name: 'settings-assigner', owner: 'Mona Lisa', go: async (page) => {
+    await at(page, '?tab=settings&sec=automation');
+    await page.waitForSelector('#asg-fo-toggle[aria-checked="false"]', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => document.getElementById('asg-row').closest('.dbox').scrollIntoView({ block: 'center' }));
+    await page.mouse.move(1, 1);
+    await page.waitForTimeout(300);
+  } },
+  { name: 'settings-assigner-failover', owner: 'Mona Lisa', go: async (page) => {
+    const put = await page.request.put(page.url().split('?')[0].replace(/\/$/, '') + '/api/assigner-setting',
+      { data: { failover: true }, headers: { 'sec-fetch-site': 'same-origin' } });
+    if (put.status() !== 200) throw new Error('settings-assigner-failover: could not turn failover on (' + put.status() + ')');
+    await at(page, '?tab=settings&sec=automation');
+    await page.waitForSelector('#asg-fo-toggle[aria-checked="true"]', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => document.getElementById('asg-row').closest('.dbox').scrollIntoView({ block: 'center' }));
+    await page.mouse.move(1, 1);
+    await page.waitForTimeout(300);
+  }, after: async (page) => {
+    const put = await page.request.put(page.url().split('?')[0].replace(/\/$/, '') + '/api/assigner-setting',
+      { data: { failover: false }, headers: { 'sec-fetch-site': 'same-origin' } });
+    if (put.status() !== 200) throw new Error('settings-assigner-failover: could not turn failover back off (' + put.status() + ')');
+  } },
   /* The #718 phone-ready sweep's remaining screens (Raiden, 2026-09-25). Each
      asserts it arrived, for the same reason as the frame shots above. */
   { name: 'org-chart', owner: 'unowned', go: async (page) => {
@@ -592,6 +663,26 @@ const SCREENS = [
   { name: 'tasks', owner: 'Mona Lisa / April', go: async (page) => {
     await at(page, '?tab=tasks');
     await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
+  } },
+  /* #5456: the Tasks view with a repeating task nobody is named on, under On a schedule (not Unassigned). The task is made
+     and given its rule here, and the rule is cleared after the shot. The task is made ONCE per run and reused by every
+     size and theme (there is no task delete), so each shot shows the same counts. */
+  { name: 'tasks-scheduled', owner: 'Angel', go: async (page, data) => {
+    const n = typeof data.scheduledTask === 'number' ? data.scheduledTask : await page.evaluate(async (id) => {
+      const r = await fetch('/api/project/' + encodeURIComponent(id) + '/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sentence: 'Check the price list every morning' }) });
+      const j = await r.json().catch(() => ({}));
+      return r.status === 200 ? ((j.task && j.task.number) || j.number || null) : 'status ' + r.status;
+    }, data.projectId);
+    if (typeof n !== 'number') throw new Error('could not add the task (' + n + ')');
+    const st = await page.evaluate(([id, num]) => fetch('/api/project/' + encodeURIComponent(id) + '/task/' + num + '/repeat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ every: 'day', at: '09:00' }) }).then((r) => r.status), [data.projectId, n]);
+    if (st !== 200) throw new Error('could not set the repeat rule (' + st + ')');
+    data.scheduledTask = n;
+    await at(page, '?tab=tasks');
+    await page.waitForSelector('#tsk-tiles [data-tile="scheduled"]', { state: 'visible', timeout: 8000 });
+  }, after: async (page, data) => {
+    if (typeof data.scheduledTask !== 'number') return;
+    const st = await page.evaluate(([id, num]) => fetch('/api/project/' + encodeURIComponent(id) + '/task/' + num + '/repeat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clear: true }) }).then((r) => r.status), [data.projectId, data.scheduledTask]);
+    if (st !== 200) throw new Error('could not clear the repeat rule after the shot (' + st + ')');
   } },
   /* #5053: one project's Tasks view, with its back chevron beside the title. The built-in seed's project name is long
      enough to wrap on a phone, so the shot shows the title wrapping beside the chevron (a store data set's may not). */

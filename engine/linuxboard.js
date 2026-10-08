@@ -85,7 +85,6 @@ function boardUnitFor(kosmosHome, port) {
 
   return `[Unit]
 Description=Kosmos Board
-After=network.target
 ConditionPathExists=!${stopMarker}
 
 [Service]

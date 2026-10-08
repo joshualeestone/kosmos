@@ -117,12 +117,57 @@ function unitName(name, worldId) {
 
 /* #4918 review 8: the world a unit name belongs to, read back from the name itself (the inverse of unitName), so
    a record that kept only the label acts on THAT world's unit, not the current one. null when it is not ours. */
-function worldFromUnitName(label) {
+function keyFromUnitName(label) {
   const m = /^kosmos-agent-(.+)\.service$/.exec(String(label || ''));
   if (!m) return null;
-  const key = m[1].replace(/((?:\\x[0-9a-f]{2})+)/gi, (seq) => Buffer.from(seq.replace(/\\x/gi, ''), 'hex').toString('utf8'));
-  return launchidentity.parseKey(key).worldId;
+  return m[1].replace(/((?:\\x[0-9a-f]{2})+)/gi, (seq) => Buffer.from(seq.replace(/\\x/gi, ''), 'hex').toString('utf8'));
 }
+function worldFromUnitName(label) {
+  const key = keyFromUnitName(label);
+  return key === null ? null : launchidentity.parseKey(key).worldId;
+}
+
+/* #5445 (display parity): every Kosmos agent unit in the unit folder, as { name, worldId, file }, read back from the
+   unit name (the inverse of unitName). The Mac's listings read the LaunchAgents folder's .plist names the same way.
+   A name that does not round-trip (unitName of what it decodes to is not the file) is not ours. Throws when the folder
+   cannot be read for any reason but its absence, so a caller can tell "none" from "could not look". */
+function listUnits() {
+  let files;
+  try { files = fs.readdirSync(systemdDir()); } catch (e) { if (e && e.code === 'ENOENT') return []; throw e; }
+  const out = [];
+  for (const f of files) {
+    const key = keyFromUnitName(f);
+    if (key === null) continue;
+    const { name, worldId } = launchidentity.parseKey(key);
+    let back;
+    try { back = unitName(name, worldId); } catch { continue; }
+    if (back !== f) continue;
+    out.push({ name, worldId, file: path.join(systemdDir(), f) });
+  }
+  return out;
+}
+
+/* #5445: a unit file that is a link to /dev/null is masked. fs.existsSync follows the link and finds /dev/null, so it
+   read as present; reading it gave an empty file, which read as a broken unit. NOT measured on a real systemd: a mask
+   made while Kosmos's own file sits at this path is expected to be refused there, or to land under /run as a runtime
+   mask, which this does not see (the file stays ordinary; create.disabledJobsResult reads it as masked-runtime, off).
+   So this catches the link left by a hand-made mask or a mask made after the file was deleted. Masked is the person's
+   choice: the name stays held and the agent stays listed, and the sentence says how to undo it. */
+function masked(name, worldId) {
+  let st;
+  try { st = fs.lstatSync(unitPath(name, worldId)); } catch { return false; }
+  if (!st.isSymbolicLink()) return false;
+  try { return fs.readlinkSync(unitPath(name, worldId)) === '/dev/null'; } catch { return false; }
+}
+/* Two pieces, so each caller places them in its own sentence (review 8): the FACT continues "... because", the REMEDY
+   is a sentence of its own. "it is masked", not "you masked it": a package or an administrator can mask a unit too
+   (review 6). Quoted: a named Kosmos's unit name carries a \x2b escape, which an unquoted shell word loses (review 2).
+   Unmasking removes the link and leaves no unit file, so the agent is set up again afterwards (review 2). */
+function maskedFact(subject) { return `${subject || 'it'} is masked in systemd, so it does not start`; }   // subject: review 9
+function maskedRemedy(name, worldId) {
+  return `To undo that, run systemctl --user unmask '${unitName(name, worldId)}' and then set the agent up again in Kosmos (unmasking leaves it with no unit to start).`;
+}
+function maskedSentence(name, worldId) { return `${maskedFact()}. ${maskedRemedy(name, worldId)}`; }
 
 function unitPath(name, worldId) {
   return path.join(systemdDir(), unitName(name, worldId));
@@ -141,9 +186,20 @@ function enableLinger() {
      consulted only outside a test process (create runs through its own runner, so "is the runner real" is the wrong
      question), so a test's faked "Linger=no" is never overruled by a CI runner that has linger on. */
   if (!require('./live-execution').inTestProcess()) {
-    try { if (fs.existsSync(path.join('/var/lib/systemd/linger', os.userInfo().username))) return { lingering: true }; } catch { /* off */ }
+    if (lingerFileOn() === true) return { lingering: true };   // #5445: the one read of logind's record
   }
   return { lingering: false };
+}
+
+/* #5445: whether linger is on, read from logind's own record without running anything (the create path asks loginctl
+   through enableLinger, which turns it on; a sentence about an agent that is not running must not change anything).
+   undefined when it cannot be read. */
+function lingerFileOn() {
+  if (typeof process.getuid !== 'function') return undefined;
+  // A test never reads the host's linger (a Linux runner's would decide the wording), as enableLinger (review 24).
+  if (require('./live-execution').inTestProcess()) return undefined;
+  try { fs.statSync(path.join('/var/lib/systemd/linger', os.userInfo().username)); return true; }
+  catch (e) { return e && e.code === 'ENOENT' ? false : undefined; }   // only a proven absence is "off"
 }
 
 /* A value written into a unit file. systemd expands "%" specifiers in most directives and "$" in ExecStart, unescapes
@@ -156,7 +212,6 @@ function unitSafe(val, what) {
   if (UNIT_UNSAFE.test(s)) throw new Error(`${what || 'a value'} cannot go into a systemd unit (it contains a quote, backslash, $, % or a control character)`);
   return s;
 }
-function escapeUnitValue(val) { return unitSafe(val); }
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/;
 
 /**
@@ -200,14 +255,14 @@ function unitFor(name, runnerBin, tmuxBin, modelArg, configDir, runnerName) {
   const pathVal = `${binDir}:${tmuxDir}:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`;
 
   const envLines = [
-    `Environment="HOME=${escapeUnitValue(home)}"`,
-    `Environment="PATH=${escapeUnitValue(pathVal)}"`,
+    `Environment="HOME=${unitSafe(home, 'the home folder')}"`,
+    `Environment="PATH=${unitSafe(pathVal, 'the PATH')}"`,
     'Environment="LANG=C.UTF-8"',
   ];
 
   if (configDir) {
     const key = accountenv.accountEnvVar(runnerName);
-    envLines.push(`Environment="${key}=${escapeUnitValue(configDir)}"`);
+    envLines.push(`Environment="${key}=${unitSafe(configDir, 'the account folder')}"`);
   }
 
   if (port !== create.DEFAULT_BOARD_PORT) {
@@ -216,16 +271,15 @@ function unitFor(name, runnerBin, tmuxBin, modelArg, configDir, runnerName) {
 
   const tmuxSock = typeof process.env.TMUX_TMPDIR === 'string' ? process.env.TMUX_TMPDIR : '';
   if (tmuxSock) {
-    envLines.push(`Environment="TMUX_TMPDIR=${escapeUnitValue(tmuxSock)}"`);
+    envLines.push(`Environment="TMUX_TMPDIR=${unitSafe(tmuxSock, 'the tmux folder')}"`);
   }
 
   if (!launchidentity.isDefaultWorld(world)) {
-    envLines.push(`Environment="KOSMOS_WORLD=${escapeUnitValue(world)}"`);
+    envLines.push(`Environment="KOSMOS_WORLD=${unitSafe(world, 'the Kosmos name')}"`);
   }
 
   return `[Unit]
 Description=Kosmos agent ${unitSafe(session, 'the agent name')}
-After=network.target
 
 [Service]
 ExecStart=${execLine}
@@ -320,6 +374,12 @@ function refuseRealUnitDirInTests(targetPath) {
 
 function writeUnitFile(targetPath, content) {
   refuseRealUnitDirInTests(targetPath);
+  // #5445 review 12: a masked unit is a link to /dev/null; a write would follow it, land nowhere and report success.
+  let st = null;
+  try { st = fs.lstatSync(targetPath); } catch { st = null; }
+  if (st && st.isSymbolicLink() && (() => { try { return fs.readlinkSync(targetPath) === '/dev/null'; } catch { return false; } })()) {
+    throw new Error('the agent\'s systemd unit is masked, so Kosmos cannot write it (unmask it first)');
+  }
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
   fs.writeFileSync(targetPath, content, 'utf8');
 }
@@ -386,6 +446,32 @@ function enabledState(name, worldId) {
   if (/^(enabled|enabled-runtime|linked|alias|static)$/.test(out)) return { known: true, enabled: true };
   if (/^(disabled|masked|masked-runtime)$/.test(out)) return { known: true, enabled: false };
   return { known: false };
+}
+
+/* #5445 (display parity): every Kosmos agent unit file and its state, in one call, for the board's "switched off"
+   set (create.disabledJobsResult). No name pattern: systemctl exits non-zero on a pattern that matches nothing on some
+   versions, which would read as "could not look". { ok:false } when systemd could not answer. */
+function listUnitFiles() {
+  const r = runner('systemctl', ['--user', 'list-unit-files', '--type=service', '--no-legend', '--no-pager']);
+  if (!r || r.ok === false) return { ok: false };
+  const rows = [];
+  for (const line of String(r.stdout || '').split('\n')) {
+    const [unit, state] = line.trim().split(/\s+/);
+    if (unit && state && unit.startsWith('kosmos-agent-')) rows.push({ unit, state });
+  }
+  return { ok: true, rows };
+}
+
+/* #5445: the Kosmos agent units systemd has active (running), for create.runningJobs. */
+function activeUnits() {
+  const r = runner('systemctl', ['--user', 'list-units', '--type=service', '--state=active', '--no-legend', '--no-pager', '--plain']);
+  if (!r || r.ok === false) return { ok: false };
+  const units = [];
+  for (const line of String(r.stdout || '').split('\n')) {
+    const unit = line.trim().replace(/^●\s*/, '').split(/\s+/)[0];   // review 11: systemd marks a unit whose file is gone with a bullet
+    if (unit && unit.startsWith('kosmos-agent-')) units.push(unit);
+  }
+  return { ok: true, units };
 }
 
 function loaded(name, worldId) {
@@ -456,8 +542,17 @@ module.exports = {
   presence,
   remove,
   enableLinger,
+  lingerFileOn,
   enabledState,
   worldFromUnitName,
+  listUnits,
+  listUnitFiles,
+  activeUnits,
+  keyFromUnitName,
+  masked,
+  maskedSentence,
+  maskedFact,
+  maskedRemedy,
   stoppedOrNotLoaded,
   unitSafe,
   escapeUnitNamePart,

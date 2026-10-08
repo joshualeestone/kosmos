@@ -26,6 +26,7 @@ function harness(over) {
   const inconsistent = o.inconsistent === true;
   const calls = { readdir: 0, readJob: [], stat: [] };
   const src = createdroster.make({
+    platform: o.platform || 'darwin',   // #5445: the plist arm on any runner (a Linux one lists systemd units)
     fs: {
       readdirSync: (d) => { calls.readdir++; if (o.readdirThrows) throw new Error('boom'); return plists; },
       statSync: (p) => {

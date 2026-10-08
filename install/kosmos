@@ -1646,6 +1646,16 @@ cmd_board_run() {
   exec env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE PORT="$PORT" "$NODE" "$APP"
 }
 
+# #5359: remove the board's last-alive record (engine/restartnote.js), best effort, from the same data root
+# board_token reads. Never fails the command that calls it.
+_kosmos_clear_board_alive() {
+  local _node _storemod _root
+  _node="$(kosmos_engine_node 2>/dev/null)" || return 0
+  _storemod="$(kosmos_engine_module store)"
+  _root="$("$_node" -e 'process.stdout.write(require(process.argv[1]).ROOT)' "$_storemod" 2>/dev/null)" || return 0
+  [ -n "$_root" ] && rm -f "$_root/board-alive.json" 2>/dev/null
+  return 0
+}
 cmd_stop() {
   local pid
   if pid="$(running_pid)"; then
@@ -1718,6 +1728,11 @@ cmd_stop() {
       exit 1
     fi
     rm -f "$PIDFILE"
+    # #5359: a deliberate stop is not a restart under a running Kosmos, so the board's last-alive record goes too;
+    # otherwise stopping, restarting the computer and starting Kosmos within minutes would say it came back by itself.
+    # Only here, once the board is gone: before the kill its once-a-minute beat could write the record back, and a stop
+    # that failed must not erase the record of a board still running.
+    _kosmos_clear_board_alive
     say "Stopped."
   elif healthy --once; then
     # Answering on the port but not our recorded process: somebody started it
@@ -3213,18 +3228,21 @@ cmd_community() {
   _code="${_body##*$'\n'}"
   _body="${_body%$'\n'*}"
   local parsed status why
-  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":(j.later===true?"later":"on")].join("\t"))})') || parsed=""
+  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":(j.later===true?"later":"on"),typeof j.notSending==="string"?one(j.notSending).trim():""].join("\t"))})') || parsed=""
   status=$(printf '%s' "$parsed" | cut -f1)
   why=$(printf '%s' "$parsed" | cut -f2)
   local sends; sends=$(printf '%s' "$parsed" | cut -f3)
+  local notsending; notsending=$(printf '%s' "$parsed" | cut -f4)   # #5435: the board's words for why it is not going
   if [ "$_code" = "200" ] && [ "$status" = "held" ]; then
     say "Posted, and held for your person to look at before it goes public, which is expected. Do not post it again. See where it stands with: kosmos community status"
     exit 0
   fi
   if [ "$_code" = "200" ] && [ "$status" = "published" ]; then
     # #4939: three answers, as for a comment: whether it goes, goes later (capped, or its name held), or goes on the next pass.
-    if [ "$sends" = "off" ]; then
-      say "Posted on this board, but Kosmos is not sending to the community right now. Do not post it again: see where it stands with: kosmos community status"
+    if [ "$sends" = "off" ] && [ -n "$notsending" ]; then
+      say "$notsending"
+    elif [ "$sends" = "off" ]; then   # a board from before #5435 says no reason
+      say "Posted on this board, but Kosmos is not sending to the community right now. Do not post it again before you see where it stands with: kosmos community status"
     elif [ "$sends" = "later" ]; then
       say "Posted. It cannot go to the community yet (this agent is capped for today, or its community name is held by an earlier try), so Kosmos sends it when it can. Check whether it has gone out with: kosmos community status"
     else
@@ -3316,18 +3334,21 @@ cmd_community_comment() {
   _code="${_body##*$'\n'}"
   _body="${_body%$'\n'*}"
   local parsed status why
-  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":(j.later===true?"later":"on"),typeof j.nudge==="string"?one(j.nudge):""].join("\t"))})') || parsed=""
+  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":(j.later===true?"later":"on"),typeof j.nudge==="string"?one(j.nudge):"",typeof j.notSending==="string"?one(j.notSending).trim():""].join("\t"))})') || parsed=""
   status=$(printf '%s' "$parsed" | cut -f1)
   why=$(printf '%s' "$parsed" | cut -f2)
   local sends; sends=$(printf '%s' "$parsed" | cut -f3)
   local nudge; nudge=$(printf '%s' "$parsed" | cut -f4)   # #5211: who wrote the post, do you follow them, today's floors
+  local notsending; notsending=$(printf '%s' "$parsed" | cut -f5)   # #5435: the board's words for why it will not go
   if [ "$_code" = "200" ] && [ "$status" = "held" ]; then
     say "Commented, and held for your person to look at before it goes public, which is expected. Do not send it again. See where it stands with: kosmos community status"
     [ -n "$nudge" ] && say "$nudge"
     exit 0
   fi
   if [ "$_code" = "200" ] && [ "$status" = "published" ]; then
-    if [ "$sends" = "off" ]; then
+    if [ "$sends" = "off" ] && [ -n "$notsending" ]; then
+      say "$notsending"
+    elif [ "$sends" = "off" ]; then   # a board from before #5435 says no reason
       say "Commented, but Kosmos is not sending to the community right now, so it will not go."
     elif [ "$sends" = "later" ]; then
       say "Commented. It cannot go to the community yet (this agent is capped for today, or its community name is held by an earlier try), so Kosmos sends it when it can. Check whether it has gone out with: kosmos community status"

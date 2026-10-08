@@ -1,0 +1,168 @@
+'use strict';
+/*
+ * #5393: engine/worldview.js, the one view across worlds. Pure counting, the per-world reader, and the provider
+ * summary from cards.
+ *
+ *   node --test engine/worldview-5393.test.js
+ */
+require('../test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
+const { test } = require('node:test');
+const assert = require('node:assert');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+// Sandboxed before anything requires the store, so nothing here can reach the real one.
+process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-worldview-data-'));
+
+const worldview = require('./worldview');
+
+const open = (n, extra) => ({ number: n, sentence: 't' + n, ...extra });
+const given = (n, who) => ({ number: n, sentence: 't' + n, parts: [{ id: 'p' + n, sentence: 't' + n, who }] });
+
+test('#5393 unassignedIn counts open tasks nobody is on (wider than the Assigner: see the last test)', () => {
+  const records = [
+    { id: 'a', tasks: [
+      open(1),                                   // waiting
+      open(2, { closedAt: '2026-10-01T00:00:00Z' }), // closed: not counted
+      given(3, 'alice'),                         // somebody is on it: not counted
+      open(4, { builtAt: '2026-10-01T00:00:00Z' }),  // marked built: not counted
+      open(5, { onHold: true }),                 // held
+      open(6, { dueDate: '2026-10-09' }),        // waiting
+    ] },
+    { id: 'b', paused: true, tasks: [open(1), given(2, 'bob')] },   // paused project: held
+    { id: 'c', archived: true, tasks: [open(1), open(2)] },         // archived: left out
+  ];
+  assert.deepEqual(worldview.unassignedIn(records), { waiting: 2, held: 2 });
+  assert.deepEqual(worldview.unassignedIn([]), { waiting: 0, held: 0 });
+  assert.deepEqual(worldview.unassignedIn(null), { waiting: 0, held: 0 });
+});
+
+test('#5393 readProjectsAt: absent is a real zero, unreadable and damaged are said', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-worldview-read-'));
+  assert.deepEqual(worldview.readProjectsAt(dir), { ok: true, records: [] }, 'no projects.json: none yet');
+
+  fs.writeFileSync(path.join(dir, worldview.PROJECTS_FILE), JSON.stringify([{ id: 'x', tasks: [open(1)] }]));
+  const ok = worldview.readProjectsAt(dir);
+  assert.equal(ok.ok, true);
+  assert.equal(ok.records.length, 1);
+
+  fs.writeFileSync(path.join(dir, worldview.PROJECTS_FILE), '{not json');
+  const bad = worldview.readProjectsAt(dir);
+  assert.equal(bad.ok, false);
+  assert.match(bad.because, /cannot make sense of it/);
+
+  fs.writeFileSync(path.join(dir, worldview.PROJECTS_FILE), JSON.stringify({ not: 'a list' }));
+  assert.equal(worldview.readProjectsAt(dir).ok, false, 'an object is not a list of projects');
+
+  // A projects.json that is a FOLDER cannot be read: said, never a zero.
+  const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-worldview-read2-'));
+  fs.mkdirSync(path.join(dir2, worldview.PROJECTS_FILE));
+  const unread = worldview.readProjectsAt(dir2);
+  assert.equal(unread.ok, false);
+  assert.match(unread.because, /cannot read the projects/);
+});
+
+test('#5393 providersFrom groups the cards by runner; paused only from rate_limited, until only when stated', () => {
+  const NOW = Date.parse('2026-10-06T14:00:00.000Z');   // before every stated time below except the expired one
+  const rows = worldview.providersFrom([
+    { runner: 'claude', state: 'working' },
+    { runner: 'claude', state: 'idle' },
+    { runner: 'claude', state: 'auth_failed' },
+    { runner: 'codex', state: 'rate_limited' },
+    { runner: 'grok', state: 'rate_limited', quotaUntil: '2026-10-06T15:00:00.000Z' },
+    { runner: 'grok', state: 'rate_limited', poolUntil: '2026-10-06T16:30:00.000Z' },
+    { runner: 'antigravity', state: 'rate_limited', quotaUntil: '2026-10-06T15:00:00.000Z' },
+    { runner: 'antigravity', state: 'rate_limited', poolUntil: '2026-10-06T16:30:00.000Z' },
+    { runner: 'antigravity', state: 'rate_limited', quotaUntil: 'not a time' },
+    { runner: 'gemini', state: 'rate_limited' },
+    { runner: 'gemini', state: 'working' },
+    { runner: 'codex', state: 'stopped' },          // stopped: not on the provider
+    { runner: 'mistral', state: 'stopped' },        // only stopped agents: the provider reads 'stopped'
+    { runner: 'qwen', state: 'rate_limited', poolUntil: '2026-10-06T13:00:00.000Z' },   // a time already past
+    { runner: 'xai', state: 'rate_limited', quotaUntil: '2026-10-06T13:00:00.000Z' },   // past for this one...
+    { runner: 'xai', state: 'rate_limited', poolUntil: '2026-10-06T16:30:00.000Z' },    // ...so this one's time is no provider time
+    { runner: 'zai', state: 'rate_limited', quotaUntil: '2026-10-06T15:00:00.000Z', poolUntil: '2026-10-06T17:00:00.000Z' },   // both on one card: the later
+    { paneless: true, state: 'stopped' },          // no runner: left out
+    { runner: '', state: 'idle' },                 // no runner: left out
+  ], NOW);
+  assert.deepEqual(rows, [
+    // One of antigravity's three paused agents states no time, so no provider-wide time is claimed.
+    { provider: 'antigravity', agents: 3, stopped: 0, paused: 3, signInFailed: 0, until: null, state: 'paused' },
+    { provider: 'claude', agents: 3, stopped: 0, paused: 0, signInFailed: 1, until: null, state: 'not_paused' },
+    { provider: 'codex', agents: 1, stopped: 1, paused: 1, signInFailed: 0, until: null, state: 'paused' },
+    { provider: 'gemini', agents: 2, stopped: 0, paused: 1, signInFailed: 0, until: null, state: 'some_paused' },
+    // Every paused agent states a time: the latest of them.
+    { provider: 'grok', agents: 2, stopped: 0, paused: 2, signInFailed: 0, until: '2026-10-06T16:30:00.000Z', state: 'paused' },
+    { provider: 'mistral', agents: 0, stopped: 1, paused: 0, signInFailed: 0, until: null, state: 'stopped' },
+    // qwen's only stated time is already past, so no time is claimed.
+    { provider: 'qwen', agents: 1, stopped: 0, paused: 1, signInFailed: 0, until: null, state: 'paused' },
+    { provider: 'xai', agents: 2, stopped: 0, paused: 2, signInFailed: 0, until: null, state: 'paused' },
+    { provider: 'zai', agents: 1, stopped: 0, paused: 1, signInFailed: 0, until: '2026-10-06T17:00:00.000Z', state: 'paused' },
+  ]);
+  for (const r of rows) assert.ok(!('quota' in r) && !('remaining' in r) && !('untimed' in r), 'no quota figure, and no internal field (untimed), is ever reported');
+});
+
+test('#5393 overview: the running world has providers, the others say why not; a bad world never stops the rest', () => {
+  const worlds = require('./worlds');
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-worldview-base-'));
+  const second = worlds.createWorld(base, 'Second');
+  const third = worlds.createWorld(base, 'Third');
+  fs.writeFileSync(path.join(base, worldview.PROJECTS_FILE), JSON.stringify([{ id: 'd', tasks: [open(1), open(2)] }]));
+  fs.writeFileSync(path.join(worlds.worldStoreRoot(base, second), worldview.PROJECTS_FILE), JSON.stringify([{ id: 's', tasks: [open(1, { onHold: true })] }]));
+  fs.writeFileSync(path.join(worlds.worldStoreRoot(base, third), worldview.PROJECTS_FILE), 'garbage');
+
+  const view = worldview.overview({ base, runningId: second.id, cards: [
+    { runner: 'codex', state: 'rate_limited' },
+    { paneless: true, runner: null, state: 'rate_limited' },   // a Windows agent: no runner, still said
+    { paneless: true, runner: null, state: 'stopped' },        // stopped: not counted
+  ] });
+  const by = Object.fromEntries(view.map((w) => [w.name, w]));
+  assert.equal(view.length, 3);
+
+  assert.deepEqual(by.Second.unassigned, { waiting: 0, held: 1 });
+  assert.equal(by.Second.running, true);
+  assert.deepEqual(by.Second.providers.map((p) => [p.provider, p.state]), [['codex', 'paused']]);
+  assert.equal(by.Second.providersBecause, null);
+  assert.equal(by.Second.agentsWithoutProvider, 1, 'a live agent with no known provider is counted, not dropped');
+  assert.equal(by.Third.agentsWithoutProvider, null, 'not the running world: not known');
+
+  const def = view.find((w) => w.id === worlds.DEFAULT_ID);
+  assert.deepEqual(def.unassigned, { waiting: 2, held: 0 }, 'the default world reads the base root');
+  assert.equal(def.running, false);
+  assert.equal(def.providers, null);
+  assert.match(def.providersBecause, /only while this Kosmos is open/);
+
+  assert.equal(by.Third.unassigned, null, 'a damaged file is never a zero');
+  assert.match(by.Third.unassignedBecause, /cannot make sense of it/);
+
+  const blind = worldview.overview({ base, runningId: second.id, cards: null });
+  const s2 = blind.find((w) => w.id === second.id);
+  assert.equal(s2.providers, null, 'unreadable cards are not "no providers"');
+  assert.match(s2.providersBecause, /cannot read the agents/);
+});
+
+test('#5393 overview: a task the counter cannot read is said on its own world, never a 500 for every world', () => {
+  const worlds = require('./worlds');
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-worldview-part-'));
+  const broken = worlds.createWorld(base, 'Broken');
+  fs.writeFileSync(path.join(base, worldview.PROJECTS_FILE), JSON.stringify([{ id: 'd', tasks: [open(1)] }]));
+  // A hand-damaged part: parses as JSON, then throws inside the count.
+  fs.writeFileSync(path.join(worlds.worldStoreRoot(base, broken), worldview.PROJECTS_FILE),
+    JSON.stringify([{ id: 'b', tasks: [{ number: 1, sentence: 't1', parts: [null] }] }]));
+  assert.throws(() => worldview.unassignedIn([{ id: 'b', tasks: [{ number: 1, parts: [null] }] }]), 'CONTROL: the count itself throws on it');
+
+  const view = worldview.overview({ base, runningId: worlds.DEFAULT_ID, cards: [] });
+  const by = Object.fromEntries(view.map((w) => [w.id, w]));
+  assert.equal(by[broken.id].unassigned, null, 'never a zero');
+  assert.match(by[broken.id].unassignedBecause, /cannot read the projects/);
+  assert.deepEqual(by[worlds.DEFAULT_ID].unassigned, { waiting: 1, held: 0 }, 'the healthy world still counts');
+});
+
+test('#5393 unassignedIn is wider than the Assigner: webhook and unnumbered tasks nobody is on count as waiting', () => {
+  const records = [{ id: 'a', tasks: [
+    open(1, { addedVia: 'webhook' }),    // the Assigner never hands this out; nobody is on it
+    { sentence: 'no number' },           // the Assigner skips a task with no number
+  ] }];
+  assert.deepEqual(worldview.unassignedIn(records), { waiting: 2, held: 0 });
+});

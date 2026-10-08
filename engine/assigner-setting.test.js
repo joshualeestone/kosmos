@@ -57,3 +57,15 @@ test('a stored file missing the flag reads on, as an absent one does; only expli
   fs.writeFileSync(asg.FILE, JSON.stringify({ on: false }) + '\n');
   assert.equal(asg.read().on, false);
 });
+
+test('#5382: setFailover refuses on a corrupt file and writes nothing; CONTROL: on a good file it writes', () => {
+  const corrupt = '{not json';
+  fs.writeFileSync(asg.FILE, corrupt);
+  assert.equal(asg.read().ok, false, 'fixture: the corrupt file read cleanly');
+  const r = asg.setFailover(true);
+  assert.equal(r.ok, false, 'saved failover over a file it could not read');
+  assert.equal(fs.readFileSync(asg.FILE, 'utf8'), corrupt, 'the refused call rewrote the file');
+  fs.writeFileSync(asg.FILE, JSON.stringify({ on: true }));
+  assert.deepEqual(asg.setFailover(true), { ok: true });
+  assert.deepEqual(JSON.parse(fs.readFileSync(asg.FILE, 'utf8')), { on: true, failover: true });
+});

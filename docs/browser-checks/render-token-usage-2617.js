@@ -542,6 +542,33 @@ function readUsage(page) {
     const failed = await spinState();
     ok(failed.spin === false && failed.text === 'We could not read token usage just now.',
       `a failed read leaves no spinner beside the error (got ${JSON.stringify(failed)})`);
+    /* #5444 (Mona Lisa): an empty usage history draws nothing. Its bordered box with no rows was two hairlines stacked
+       over the method footnote's own, which read as broken for the minute a first read takes (and after a failed read).
+       A failed read, then a first load held open: the box is not drawn, while its heading is (so the section is on
+       screen and only the empty rule can hide the box). Control: once the read answers, the box is drawn. */
+    const histDrawn = () => p.evaluate(() => {
+      const h = document.getElementById('usage-history'); const head = document.querySelector('.usage-hist h4');
+      return { drawn: !!(h && h.getClientRects().length), heading: !!(head && head.getClientRects().length), rows: h ? h.querySelectorAll('.uhrow').length : -1 }; });
+    const afterFail = await histDrawn();
+    ok(afterFail.heading === true && afterFail.drawn === false, `after a failed read the empty usage history draws no box under its heading (got ${JSON.stringify(afterFail)})`);
+    let release2;
+    const held2 = new Promise((r) => { release2 = r; });
+    await p.unroute('**/api/usage*');
+    await p.route('**/api/usage*', async (r) => { await held2; await r.fulfill({ json: USAGE }); });
+    // Not networkidle: the reloaded address reopens Token Usage itself, so the held read keeps the network busy. The
+    // reading below proves the section is on screen at that moment instead (its heading has client rects).
+    await p.reload({ waitUntil: 'load' });
+    await p.evaluate(() => showTab('settings'));
+    await p.click('#s-nav button[data-go="usage"]');
+    await p.waitForSelector('#s-sec-usage:not([hidden])');
+    await p.waitForFunction(() => USAGE_BUSY === true);
+    const firstLoad = await histDrawn();
+    ok(firstLoad.heading === true && firstLoad.drawn === false && firstLoad.rows === 0, `while a first read loads, the empty usage history draws no box under its heading (got ${JSON.stringify(firstLoad)})`);
+    release2();
+    await p.waitForSelector('#usage-history .uhrow');
+    const loaded = await histDrawn();
+    // The fixture's two days of one model: two rows and the header row.
+    ok(loaded.drawn === true && loaded.rows === 3, `CONTROL: once the read answers, the usage history is drawn with its rows (got ${JSON.stringify(loaded)})`);
     await ctx.close();
   } finally {
     await browser.close();

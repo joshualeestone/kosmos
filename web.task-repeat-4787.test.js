@@ -62,6 +62,12 @@ test('#4787 slice 2: a missed run leads the sentence; more than one is counted; 
   assert.match(tskRepeatSentence(t, NOW), /^Repeats every day at 9am\./, 'CONTROL: nothing missed, nothing said about it');
   assert.match(tskRepeatSentence({ ...t, lastRunLate: true, lastRunNote: 'done' }, NOW), / by Ada, late: done\./);
   assert.doesNotMatch(tskRepeatSentence({ ...t, lastRunNote: 'done' }, NOW), /late/, 'CONTROL: an on-time run never says late');
+  // #5444: a miss with no run ever reported says the miss once, not "No run reported yet" after it.
+  const never = { ...t, lastRunAt: undefined, lastRunBy: undefined };
+  assert.equal(tskRepeatSentence({ ...never, repeatMissed: 3, repeatMissedMore: false, repeatMissedWords: 'today at 9am' }, NOW),
+    'Missed 3 runs, the latest due today at 9am. Repeats every day at 9am. Next tomorrow at 9am.');
+  assert.equal(tskRepeatSentence(never, NOW), 'Repeats every day at 9am. No run reported yet. Next tomorrow at 9am.',
+    'CONTROL: with nothing missed, a task never run still says so');
 });
 
 test('#4787 slice 2: the row\'s repeat line is red (class missed) only while a run is missed', () => {

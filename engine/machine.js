@@ -1712,7 +1712,7 @@ function agentAutostartCheck(runner, opts) {
   // The injected runner reaches create.disabledJobsResult so the launchctl read
   // goes through the same seam boardAutostartCheck uses; opts.disabled short-
   // circuits it for a pure aggregation test.
-  const disRes = ('disabled' in o) ? o.disabled : create.disabledJobsResult(runner);
+  const disRes = ('disabled' in o) ? o.disabled : create.disabledJobsResult(runner, platform);   // #5445: the platform this check was asked about
   if (!disRes || disRes.ok === false) {
     return { key: 'agentautostart', state: STATE.UNKNOWN,
       title: 'We could not check whether your agents start at login',

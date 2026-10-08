@@ -28,6 +28,8 @@ const RECORD = nodePath.join(SANDBOX, 'tunnel-calls.jsonl');
 const FAKE_BIN = nodePath.join(SANDBOX, 'fake-kosmos-tunnel');
 fs.writeFileSync(FAKE_BIN, `#!/usr/bin/env node
 require('node:fs').appendFileSync(${JSON.stringify(RECORD)}, JSON.stringify(process.argv.slice(2)) + '\\n');
+// kosmos#5422: an older tunnel, which refuses the device-key verb as a usage error (exit 2).
+if (process.argv[2] === 'signin' && process.argv[3] === 'device-id') { process.stderr.write("error: unrecognized subcommand 'device-id'\\n"); process.exit(2); }
 process.stdout.write('{}\\n');
 `, { mode: 0o755 });
 process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_BIN;

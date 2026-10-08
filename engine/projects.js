@@ -3305,8 +3305,16 @@ function blockRules(sessionName, cliShown) {
        tasks is the likeliest to be asked). Resuming is the person's, on the screen, so no verb for it exists. */
     member: [
       `When your person asks to pause a whole project, pause it: \`${cliShown} project pause <project-id>\`.`,
-      'Nobody is then nudged about its tasks or handed them, and the room is told you paused it. It is resumed on the',
-      'screen, by your person: do not resume it yourself; if they ask you to, tell them it is on the project\'s page.',
+      'Nobody is then nudged about its tasks or handed them, and the room is told you paused it (unless it already was).',
+      'It is resumed on the screen, by your person: do not resume it yourself; if they ask you to, tell them to press',
+      'Resume beside the project\'s name, at the top of its page.',
+      /* kosmos#5320 part 2: an agent unsure whether its person means the whole project asks, and points at the one-click
+         control (#5391) instead of guessing. "The same place they asked": the request can come in the room or
+         directly. The Pause pointer is given while asking (afterwards the button reads Resume). */
+      'If you cannot tell whether your person means the whole project, ask them in the same place they asked, and tell',
+      'them they can also press Pause beside the project\'s name, at the top of its page. When they answer: if they',
+      'pressed it, nothing more is needed; if they say yes, pause it; if they want nothing paused, leave it as it is; if',
+      `they mean only some tasks, put those on hold: \`${cliShown} task hold <project-id> <task-number>\`.`,
       /* #5300: every member showed its agent's one role (five Project Managers on one project). */
       '',
       `Say in a few words what you do on each project, so \`${cliShown} project show <project-id>\` lists it beside you:`,

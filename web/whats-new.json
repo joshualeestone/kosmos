@@ -1,36 +1,30 @@
 {
-  "version": "0.7.27",
+  "version": "0.7.28",
   "highlights": [
     {
-      "icon": "shield",
-      "title": "Refresh a login from its notice",
-      "line": "The login notice now has a Refresh login button, and AI Models marks each Claude login that needs signing in again.",
-      "platforms": [
-        "mac"
-      ]
+      "icon": "chat",
+      "title": "Agents see what you attach",
+      "line": "An agent now sees each file you attach with its type and size, and an image's dimensions, before it opens it."
     },
     {
       "icon": "tasks",
-      "title": "Pause a project in one click",
-      "line": "A Pause button now sits beside the name on each project's page. A paused project says so there and on its card."
-    },
-    {
-      "icon": "swarm",
-      "title": "Pick the model when you switch provider",
-      "line": "Switching an agent to Claude or OpenAI now lets you pick its model in the same step, with one restart."
-    },
-    {
-      "icon": "chat",
-      "title": "See messages waiting for a busy agent",
-      "line": "When a Gemini agent on a Google subscription is mid-task, its card now says how many messages are waiting for it.",
-      "platforms": [
-        "mac"
-      ]
+      "title": "Choose who hears about a missed run",
+      "line": "A repeating task can now name who to tell when a run is missed: you, or an agent on the project."
     },
     {
       "icon": "shield",
-      "title": "Codex agents in their own space",
-      "line": "From their next start, Codex agents run with their own settings, so the plugins and settings of your own Codex app no longer reach them.",
+      "title": "Claude agents stop pausing for permission",
+      "line": "From their next start, Claude agents go ahead past permission prompts. What you set to never allow stays blocked; their questions show."
+    },
+    {
+      "icon": "tasks",
+      "title": "Scheduled tasks no longer read as unassigned",
+      "line": "A repeating task with nobody on it now shows under On a schedule in Tasks, not Unassigned. If an agent should run it, give it to one."
+    },
+    {
+      "icon": "chat",
+      "title": "The mic button opens the setting it needs",
+      "line": "If the microphone or speech recognition is turned off for Kosmos, the mic button becomes Turn on in Settings and opens the right page.",
       "platforms": [
         "mac"
       ]

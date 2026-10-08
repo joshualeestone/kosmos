@@ -398,11 +398,11 @@ test('R1 (b): launchd\'s fleet probes answer in THIS Kosmos\'s names; Kosmos 1\'
   });
   create.setDryRun(false);
   try {
-    assert.deepEqual([...create.disabledJobs()], ['bo'], 'a named Kosmos read another Kosmos\'s switched-off job as its own');
-    assert.deepEqual([...create.runningJobs()], ['bo'], 'a named Kosmos read another Kosmos\'s running job as its own');
+    assert.deepEqual([...create.disabledJobs('darwin')], ['bo'], 'a named Kosmos read another Kosmos\'s switched-off job as its own');
+    assert.deepEqual([...create.runningJobs('darwin')], ['bo'], 'a named Kosmos read another Kosmos\'s running job as its own');
     asKosmos1(() => {
-      assert.deepEqual([...create.disabledJobs()], ['ava'], 'the control: Kosmos 1 keeps its own');
-      assert.deepEqual([...create.runningJobs()], ['ava']);
+      assert.deepEqual([...create.disabledJobs('darwin')], ['ava'], 'the control: Kosmos 1 keeps its own');
+      assert.deepEqual([...create.runningJobs('darwin')], ['ava']);
     });
   } finally {
     create.setRunner(null);

@@ -59,7 +59,7 @@ test('unitFor generates valid systemd unit with all parameters', () => {
 
   assert.match(content, /^\[Unit\]/m);
   assert.match(content, /^Description=Kosmos agent subzero/m);
-  assert.match(content, /^After=network.target/m);
+  assert.doesNotMatch(content, /^After=/m, '#5445: After=network.target orders nothing in a user manager');
   assert.match(content, /^\[Service\]/m);
   assert.match(content, /^ExecStart="\/bin\/bash" .* "subzero" .* "\/usr\/bin\/claude" "\/usr\/bin\/tmux" .* "claude-3-5-sonnet-20241022"/m);
   assert.match(content, /^Restart=always/m);
@@ -289,4 +289,50 @@ test('#4918 enableLinger says whether linger is on, read back from loginctl', ()
 test('#4918 review 24: in a test process a faked Linger=no is never overruled by the machine', () => {
   linuxjob.setRunnerForTests((cmd, args) => (args[0] === 'show-user' ? { ok: true, stdout: 'Linger=no\n' } : { ok: true, stdout: '' }));
   try { assert.equal(linuxjob.enableLinger().lingering, false); } finally { linuxjob.setRunnerForTests(null); }
+});
+
+/* #5445 (display parity): the unit folder listed as the Mac's LaunchAgents folder is, by name and world. */
+test('#5445 listUnits lists Kosmos agent units by name and world, and nothing else', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'systemd-list-'));
+  try {
+    linuxjob.setSystemdDirForTests(() => tmp);
+    assert.deepEqual(linuxjob.listUnits(), [], 'an empty folder lists nothing');
+    for (const [n, w] of [['scorpion', ''], ['subzero', 'testworld']]) fs.writeFileSync(linuxjob.unitPath(n, w), '[Unit]\n');
+    fs.writeFileSync(path.join(tmp, 'kosmos-board.service'), '[Unit]\n');            // the board's unit: not an agent
+    fs.writeFileSync(path.join(tmp, 'other.service'), '[Unit]\n');                   // someone else's unit
+    fs.writeFileSync(path.join(tmp, 'kosmos-agent-bad name.service'), '[Unit]\n');   // not a name unitName writes
+    const got = linuxjob.listUnits().map((u) => [u.name, u.worldId, path.basename(u.file)]).sort();
+    assert.deepEqual(got, [
+      ['scorpion', launchidentity.parseKey('scorpion').worldId, 'kosmos-agent-scorpion.service'],
+      ['subzero', 'testworld', 'kosmos-agent-subzero\\x2btestworld.service'],
+    ]);
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('#5445 listUnits says it could not look, and a missing folder is none', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'systemd-list-'));
+  try {
+    linuxjob.setSystemdDirForTests(() => path.join(tmp, 'absent'));
+    assert.deepEqual(linuxjob.listUnits(), [], 'no folder yet: none');
+    fs.writeFileSync(path.join(tmp, 'afile'), 'x');
+    linuxjob.setSystemdDirForTests(() => path.join(tmp, 'afile'));   // not a folder: ENOTDIR
+    assert.throws(() => linuxjob.listUnits(), /ENOTDIR/);
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('#5445 a masked unit (a link to /dev/null) reads as masked, with how to undo it', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'systemd-mask-'));
+  try {
+    linuxjob.setSystemdDirForTests(() => tmp);
+    assert.equal(linuxjob.masked('scorpion', ''), false, 'no unit: not masked');
+    fs.writeFileSync(linuxjob.unitPath('scorpion', ''), '[Unit]\n');
+    assert.equal(linuxjob.masked('scorpion', ''), false, 'CONTROL: an ordinary unit file is not masked');
+    fs.rmSync(linuxjob.unitPath('scorpion', ''));
+    fs.symlinkSync('/dev/null', linuxjob.unitPath('scorpion', ''));
+    assert.equal(linuxjob.masked('scorpion', ''), true);
+    assert.match(linuxjob.maskedSentence('scorpion', ''), /systemctl --user unmask 'kosmos-agent-scorpion\.service'/);
+    // A named Kosmos's unit name carries a \x2b escape: quoted, so a pasted command keeps the backslash.
+    assert.match(linuxjob.maskedSentence('scorpion', 'testworld'), /unmask 'kosmos-agent-scorpion\\x2btestworld\.service'/);
+    assert.match(linuxjob.maskedSentence('scorpion', ''), /set the agent up again/);
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });

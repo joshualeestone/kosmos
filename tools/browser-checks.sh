@@ -1456,6 +1456,9 @@ if boot_board "$sb7" "$P8"; then
   # #3532: the login-expiry advisory pill. Stubs data.loginAdvisories at the network
   # edge (warn/urgent/expired + an empty control), so any board serves; headless-fine.
   run_one "render-login-expiry-3532" env KOSMOS_URL="$B8" node docs/browser-checks/render-login-expiry-3532.js "$sb7/shots-login-expiry"
+  # #5359: the note that this computer restarted under a running Kosmos. Stubs GET /api/board/restart-note at the
+  # network edge (today, yesterday, older, an empty control, and the dismiss), so any board serves; headless-fine.
+  run_one "render-reboot-note-5359" env KOSMOS_URL="$B8" node docs/browser-checks/render-reboot-note-5359.js "$sb7/shots-reboot-note"
   run_one "render-switch-states" env KOSMOS_URL="$B8" node docs/browser-checks/render-switch-states.js
   # #2020/#2047: the two restored telemetry opt-out switches are 403-safe (a gated
   # read draws could-not-read, never a false Off). The 403 arm is simulated with

@@ -78,6 +78,71 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  # #5488: a pull_request push that changed ONLY plain plan files under .claude/plans/ (a proof
+  # or plan commit) since the newest green run on this head BRANCH whose suite actually ran reuses
+  # that run's verdict instead of taking three macOS runners. The decision and its reasons are in
+  # tools/ci-plans-only-reuse.sh; it prints nothing on any doubt, and nothing means the suite runs.
+  # Never on push: main always runs (#4021). Measured on #5488: about 4% of runs, at a time the
+  # macOS queue was 19 deep. Cost: the suite now waits for this ubuntu job (a blobless checkout;
+  # NOT treeless, the diff needs trees); a failed or timed-out scope job still runs the suite.
+  scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      reuse: ${{ steps.decide.outputs.reuse }}
+      mac_runner: ${{ steps.decide.outputs.mac_runner }}
+    steps:
+      # Full history without PAST file contents (only the checked-out tree's files download): the
+      # decider diffs trees (--raw needs no blobs), and the one blob `git show` reads is fetched on
+      # demand with the credentials checkout leaves. Keeps the job the suite waits on short.
+      - uses: actions/checkout@v4
+        if: ${{ github.event_name == 'pull_request' }}
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - id: decide
+        name: reuse an earlier green verdict? (plans-only change)
+        # Values arrive through env, never pasted into the script: a branch name can hold shell syntax.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
+          CI_RUNNER: ${{ vars.KOSMOS_CI_RUNNER }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          THIS_REPO: ${{ github.repository }}
+        # The decider runs from the BASE branch, never from this PR's checkout, so a PR's own mistake
+        # in the decider cannot skip that PR's suite. (Not a security boundary: a PR can edit this
+        # workflow too.) No copy on the base (the PR that adds it, or a fetch problem) means nothing
+        # to run, and the suite runs.
+        run: |
+          reuse=""
+          if [ "$EVENT_NAME" = pull_request ] &&
+             git show "origin/$BASE_REF:tools/ci-plans-only-reuse.sh" > "$RUNNER_TEMP/decide.sh" 2>/dev/null &&
+             [ -s "$RUNNER_TEMP/decide.sh" ]; then
+            reuse="$(bash "$RUNNER_TEMP/decide.sh" "$HEAD_SHA" "$HEAD_REF")" || reuse=""
+          fi
+          case "$reuse" in ''|*[!0-9]*) reuse="" ;; esac
+          echo "reuse=$reuse" >> "$GITHUB_OUTPUT"
+          # #5488 part b: where the macOS suite runs. The self-hosted Mac (label kosmos-ci) ONLY when the repo
+          # variable KOSMOS_CI_RUNNER is `on` AND the code is this repo's own (a push to main, or a PR whose head
+          # is this repo); anything else, including the variable unset, is GitHub's macos-latest. This only routes
+          # the HONEST path: a fork's PR runs its OWN copy of this file and could name the label itself. What keeps
+          # fork code off that machine is its job-started hook (tools/ci-runner-job-guard.sh, installed from main),
+          # which refuses any job that is not this repo's own, plus approval of outside contributors' runs. The
+          # variable is the kill switch: a routed job with no runner online waits in the queue (up to GitHub's
+          # 24 hours), red to nobody, until the variable is set to anything but `on`.
+          mac='"macos-latest"'
+          if [ "$CI_RUNNER" = on ] && { [ "$EVENT_NAME" = push ] || { [ "$EVENT_NAME" = pull_request ] && [ -n "$HEAD_REPO" ] && [ "$HEAD_REPO" = "$THIS_REPO" ]; }; }; then
+            mac='["self-hosted","macOS","arm64","kosmos-ci"]'
+          fi
+          echo "mac_runner=$mac" >> "$GITHUB_OUTPUT"
+
   # #4317: the suite runs as parallel jobs, so no one job sits near its limit. On main the one job
   # took 24-28 min (the node part 517 s and test:shell 1,021 s when timed apart on this runner,
   # probe run 36412608975). Now: the node suite in one job, and test:shell split by
@@ -88,6 +153,9 @@ jobs:
   # about exactly those runners). Queue time is not part of timeout-minutes, so it cannot cancel a
   # job; it can only delay the result.
   suite:
+    # #5488: !cancelled() so a failed or timed-out scope job still runs the suite (fail toward testing).
+    needs: scope
+    if: ${{ !cancelled() && needs.scope.outputs.reuse == '' }}
     name: suite (${{ matrix.part }}${{ matrix.shard && format(' {0}', matrix.shard) || '' }})
     strategy:
       fail-fast: false
@@ -107,7 +175,12 @@ jobs:
     # the fix is the runner, not the tests. macos-latest matches the developer Macs,
     # where the suite is green. (A first attempt on ubuntu-latest went red on exactly
     # these platform tests; recorded so nobody re-picks ubuntu for this suite.)
-    runs-on: macos-latest
+    # #5488 part b: scope's choice (see there); macos-latest whenever scope gave none (it failed or timed out).
+    # #5488 part c: ONLY the node part may take scope's choice; the shell shards always run on macos-latest.
+    # Measured 2026-10-07: the self-hosted Mac runs the node part in 4.3 min (GitHub: 22.2) but is ONE runner,
+    # and every Mac job routed to it ran serially (about 1.8 runs an hour, against about 4.2 on GitHub's 5).
+    # Node only keeps the self-hosted Mac short of being the queue (numbers on #5488).
+    runs-on: ${{ fromJSON(matrix.part == 'node' && needs.scope.outputs.mac_runner || '"macos-latest"') }}
     # run-tests.sh boots boards and servers; bound a hung run rather than let it
     # sit on the 360-minute default. The suite now runs ~14m (#3499; it has grown well
     # past the old "~2-3 min"), so 15 left almost no margin -- a single slow run could
@@ -139,7 +212,10 @@ jobs:
       # macos-latest ships no tmux, so without this that test cannot start a server.
       # (The no-server path is covered in engine/status.test.js.)
       - name: install tmux (#1794)
-        run: brew install tmux
+        # #5488 part b: the self-hosted Mac has tmux installed once (its runner user may not own Homebrew).
+        # #5488 part c: never brew install on the self-hosted runner. Its Homebrew belongs to the machine's owner,
+        # and the runner user can write to it through the admin group. tmux is installed there once, by hand.
+        run: command -v tmux || { [ "$RUNNER_ENVIRONMENT" != self-hosted ] || { echo "::error::tmux is missing on the self-hosted runner (or not on its PATH); not installing into the machine owner's Homebrew, card 5488"; exit 1; }; brew install tmux; }
       # PIN THE NODE. Nothing else here declares a version at all (fixed by the
       # .nvmrc and the engines field this branch adds), and the version is not
       # cosmetic. A related repo (#1462, kosmos-relay) was bitten by an OUTPUT
@@ -201,20 +277,33 @@ jobs:
             echo "$line" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-  # #4317: the one check named `test`, as it always was: green only when every suite job is green.
+  # #4317: the one check named `test`, as it always was: green when every suite job is green, or
+  # (#5488) when the suite was skipped because scope succeeded and named a green run to reuse, which
+  # it prints. Any other skip is red.
   # !cancelled(), not always(): a failed shard still gives a red `test`. A superseded run shows its
   # suite jobs as cancelled and `test` as SKIPPED. No check is required on this repo today (see the
   # top of this file); if `test` is ever made required, note that GitHub counts a skipped job as
   # passing.
-  # It runs no tests, only reads needs.suite.result, so it is on ubuntu-latest on purpose: the
+  # It runs no tests, only reads needs.suite and needs.scope, so it is on ubuntu-latest on purpose: the
   # macOS rule above is for the suite, and a fourth macOS runner per run would be waste.
   test:
-    needs: suite
+    needs: [scope, suite]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: every suite job passed
+        env:
+          SUITE_RESULT: ${{ needs.suite.result }}
+          SCOPE_RESULT: ${{ needs.scope.result }}
+          REUSE: ${{ needs.scope.outputs.reuse }}
+          RUN_BASE: ${{ github.server_url }}/${{ github.repository }}/actions/runs
         run: |
-          echo "suite: ${{ needs.suite.result }}"
-          [ "${{ needs.suite.result }}" = success ]
+          echo "suite: $SUITE_RESULT"
+          # #5488: skipped ONLY because scope named a green run (a number) to reuse; any other skip stays red.
+          if [ "$SUITE_RESULT" = skipped ] && [ "$SCOPE_RESULT" = success ] && [[ "$REUSE" =~ ^[0-9]+$ ]]; then
+            echo "only plan files changed since green run $REUSE; reusing its verdict:"
+            echo "  $RUN_BASE/$REUSE"
+            exit 0
+          fi
+          [ "$SUITE_RESULT" = success ]

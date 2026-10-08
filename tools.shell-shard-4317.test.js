@@ -101,9 +101,14 @@ test('test.yml runs the node part once and every shell shard once, and `test` ne
   assert.equal(run.env.KOSMOS_SHELL_SHARD, '${{ matrix.shard }}');
   const agg = wf.jobs.test;
   assert.ok(agg, 'the check named test is gone');
-  assert.equal(agg.needs, 'suite');
+  // #5488: `test` also needs `scope`, which may name a green run whose verdict a plans-only push reuses.
+  assert.deepEqual([].concat(agg.needs).sort(), ['scope', 'suite']);
   assert.equal(agg.if, '${{ !cancelled() }}', 'a failed shard must still give a red test check, and a cancel must read as a cancel');
-  assert.match(agg.steps.map((s) => s.run).join('\n'), /needs\.suite\.result \}\}" = success/);
+  // #5488: the result arrives through env (never pasted into the script), and success is still required.
+  const step = agg.steps.find((s) => s.env && s.env.SUITE_RESULT);
+  assert.ok(step, 'the test job reads the suite result');
+  assert.equal(step.env.SUITE_RESULT, '${{ needs.suite.result }}');
+  assert.match(step.run, /\[ "\$SUITE_RESULT" = success \]\s*$/);
 });
 
 test('the 70% warning reads the same limit as the timeout, and fires at 70%', NEEDS_RUBY, () => {

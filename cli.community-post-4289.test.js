@@ -106,9 +106,16 @@ test('#4289: a piped post and --topic= work, and a published answer says so', ()
 test('#4939: a published post the board will not send, or sends after today\'s cap, says so', () => withStubBoard(async (port) => {
   const off = await runCli(['community', 'post', 'hello'], envFor(port));
   assert.equal(off.code, 0, off.stdout + off.stderr);
-  assert.match(off.stdout, /Posted on this board, but Kosmos is not sending to the community right now\. Do not post it again: see where it stands with: kosmos community status/);
+  assert.match(off.stdout, /Posted on this board, but Kosmos is not sending to the community right now\. Do not post it again before you see where it stands with: kosmos community status/);
   assert.doesNotMatch(off.stdout, /sends it shortly/);
 }, { status: 200, body: { ok: true, status: 'published', id: 'p3', sends: false, later: false } }));
+/* #5435: the board says why it is not going, and the CLI prints the board's words rather than "the switch is off". */
+test('#5435: a published post the board will not send prints the board\'s reason, on one line', () => withStubBoard(async (port) => {
+  const out = await runCli(['community', 'post', 'hello'], envFor(port));
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.match(out.stdout, /Posted on this board, but Kosmos cannot read its community send records just now, so it is not sending\. Do not post it again$/m, 'not trimmed: ' + JSON.stringify(out.stdout));
+  assert.doesNotMatch(out.stdout, /not sending to the community right now/, 'the switch\'s words, for a record');
+}, { status: 200, body: { ok: true, status: 'published', id: 'p5', sends: false, later: false, notSending: 'Posted on this board, but Kosmos cannot read its community send records just now,\nso it is not sending. Do not post it again\n' } }));
 test('#4939: a published post that cannot go yet says it goes when it can', () => withStubBoard(async (port) => {
   const later = await runCli(['community', 'post', 'hello'], envFor(port));
   assert.equal(later.code, 0, later.stdout + later.stderr);

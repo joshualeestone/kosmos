@@ -12,13 +12,16 @@ const path = require('node:path');
 const page = require('./test-support/page');
 
 const SCRIPT = page.scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'));
-const FNS = page.liftAll(SCRIPT, ['paintAssigner', 'saveAssigner']);
+const FNS = page.liftAll(SCRIPT, ['paintAssigner', 'paintFailover', 'saveAssigner']);
 
 /* A stub paintSwitch that behaves like the page's: null hides and strips, a boolean shows. */
 function harness(fetchImpl) {
   const tog = { hidden: true, attrs: {}, getAttribute(k) { return this.attrs[k] === undefined ? null : this.attrs[k]; } };
   const msg = { textContent: '' };
-  const el = { 'asg-toggle': tog, 'asg-msg': msg };
+  // #5382: the failover row and its switch.
+  const foRow = { hidden: true };
+  const foTog = { hidden: true, attrs: {}, getAttribute(k) { return this.attrs[k] === undefined ? null : this.attrs[k]; } };
+  const el = { 'asg-toggle': tog, 'asg-msg': msg, 'asg-fo-row': foRow, 'asg-fo-toggle': foTog };
   const document = { getElementById: (id) => el[id] || null };
   const paintSwitch = (id, on) => {
     const t = el[id];
@@ -28,7 +31,7 @@ function harness(fetchImpl) {
   const make = new Function('document', 'fetch', 'paintSwitch',
     'let ASG_EPOCH = 0; let ASG_SAVING = false;\n' + FNS
     + '\nreturn { paintAssigner, saveAssigner, setSaving: (v) => { ASG_SAVING = v; } };');
-  return { tog, msg, api: make(document, fetchImpl, paintSwitch) };
+  return { tog, msg, foRow, foTog, api: make(document, fetchImpl, paintSwitch) };
 }
 const settle = () => new Promise((res) => setImmediate(res));
 
@@ -51,7 +54,7 @@ test('a refused save repaints from the store, and says why', async () => {
   const h = harness(async (url, opts) => (opts && opts.method === 'PUT'
     ? { ok: false, json: async () => ({ error: 'no' }) } : { ok: true, json: async () => ({ on: true, ok: true }) }));
   h.tog.attrs['aria-checked'] = 'false'; h.tog.hidden = false; // the screen showed it as off
-  await h.api.saveAssigner(false);
+  await h.api.saveAssigner({ on: false });
   await settle();
   assert.equal(h.tog.getAttribute('aria-checked'), 'true', 'the toggle still shows a value the store does not hold');
   assert.equal(h.msg.textContent, 'no', 'the repaint wiped the reason the save was refused');
@@ -65,7 +68,7 @@ test('an unreachable save repaints from the store', async () => {
     return { ok: true, json: async () => ({ on: true, ok: true }) };
   });
   h.tog.attrs['aria-checked'] = 'false';
-  await h.api.saveAssigner(false);
+  await h.api.saveAssigner({ on: false });
   await settle();
   assert.equal(calls, 2, 'no repaint read after the failed save');
   assert.equal(h.tog.getAttribute('aria-checked'), 'true');
@@ -76,14 +79,54 @@ test('a click while a save is in flight is refused and says so', async () => {
   let calls = 0;
   const h = harness(async () => { calls++; return { ok: true, json: async () => ({ on: true }) }; });
   h.api.setSaving(true);
-  await h.api.saveAssigner(false);
+  await h.api.saveAssigner({ on: false });
   assert.equal(calls, 0);
   assert.match(h.msg.textContent, /Still saving/);
 });
 
 test('control: a successful save shows the saved value', async () => {
   const h = harness(async () => ({ ok: true, json: async () => ({ on: false, ok: true }) }));
-  await h.api.saveAssigner(false);
+  await h.api.saveAssigner({ on: false });
   assert.equal(h.tog.getAttribute('aria-checked'), 'false');
   assert.equal(h.msg.textContent, '');
+});
+
+/* #5382: the failover switch. */
+test('failover: shown only while the Assigner reads on, with its stored value; an older board without the field hides it', async () => {
+  const read = (body) => harness(async () => ({ ok: true, json: async () => body }));
+  let h = read({ on: true, failover: false, ok: true });
+  await h.api.paintAssigner();
+  assert.equal(h.foRow.hidden, false);
+  assert.equal(h.foTog.getAttribute('aria-checked'), 'false');
+  h = read({ on: true, failover: true, ok: true });
+  await h.api.paintAssigner();
+  assert.equal(h.foTog.getAttribute('aria-checked'), 'true');
+  h = read({ on: false, failover: true, ok: true });
+  await h.api.paintAssigner();
+  assert.equal(h.foRow.hidden, true, 'the failover row showed while the Assigner is off (it does nothing then)');
+  assert.equal(h.foTog.getAttribute('aria-checked'), null);
+  h = read({ on: true, ok: true });
+  await h.api.paintAssigner();
+  assert.equal(h.foRow.hidden, true, 'a read with no failover field painted a confident Off');
+  assert.equal(h.foTog.getAttribute('aria-checked'), null);
+});
+
+test('failover: a failed read hides the row too', async () => {
+  const h = harness(async () => ({ ok: false, json: async () => ({}) }));
+  h.foRow.hidden = false; h.foTog.attrs['aria-checked'] = 'true';
+  await h.api.paintAssigner();
+  assert.equal(h.foRow.hidden, true);
+  assert.equal(h.foTog.getAttribute('aria-checked'), null);
+});
+
+test('failover: a save sends only the field it changes and paints the answer', async () => {
+  const sent = [];
+  const h = harness(async (url, opts) => {
+    if (opts && opts.method === 'PUT') sent.push(JSON.parse(opts.body));
+    return { ok: true, json: async () => ({ on: true, failover: true, ok: true }) };
+  });
+  await h.api.saveAssigner({ failover: true });
+  assert.deepEqual(sent, [{ failover: true }]);
+  assert.equal(h.foTog.getAttribute('aria-checked'), 'true');
+  assert.equal(h.tog.getAttribute('aria-checked'), 'true');
 });

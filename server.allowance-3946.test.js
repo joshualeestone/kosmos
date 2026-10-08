@@ -9,6 +9,7 @@
  */
 
 const fs = require('node:fs');
+const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const os = require('node:os');
 const path = require('node:path');
 
@@ -19,6 +20,9 @@ process.env.AGENT_WORKFORCE_DATA = mk('data');
 process.env.AGENT_WORKFORCE_WORKERS = mk('workers');
 process.env.AGENT_WORKFORCE_PROJECTS = mk('projects');
 process.env.AGENT_WORKFORCE_LAUNCH = mk('launch');
+// #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too (a sandboxed board without it refuses
+// every systemd call, so a create ends partial on a Linux runner). macOS and Windows never read it.
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = require('node:path').join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
@@ -37,9 +41,9 @@ function lead(name, profile, configDir) {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'CLAUDE.md'), `# ${name}\n\n${swarm.START}\n${swarm.blockBody(3)}\n${swarm.END}\n`);
   store.writeProfile(name, profile);
-  const pp = create.plistPath(name);
+  const pp = jobfix.jobPath(name);
   fs.mkdirSync(path.dirname(pp), { recursive: true });
-  fs.writeFileSync(pp, create.plistFor(name, '/bin/claude', '/bin/tmux', 'opus', configDir, 'claude'));
+  fs.writeFileSync(pp, jobfix.jobFor(name, '/bin/claude', '/bin/tmux', 'opus', configDir, 'claude'));
 }
 const FUTURE = Math.floor(Date.now() / 1000) + 3 * 86400;
 function account(name, { calibrated } = {}) {
@@ -147,10 +151,10 @@ test('#3946 claudeAccountDirOf: the job\'s account, the default home when it nam
   assert.equal(status.claudeAccountDirOf('dirof-named'), acct);
   lead('dirof-default', { role: 'pm' }, null);
   assert.equal(status.claudeAccountDirOf('dirof-default'), path.join(accounts.HOME_FOR_TEST, '.claude'));
-  const pp = create.plistPath('dirof-codex');
+  const pp = jobfix.jobPath('dirof-codex');
   fs.mkdirSync(path.dirname(pp), { recursive: true });
   fs.mkdirSync(create.workerDir('dirof-codex'), { recursive: true });
-  fs.writeFileSync(pp, create.plistFor('dirof-codex', '/bin/codex', '/bin/tmux', 'gpt', acct, 'codex'));
+  fs.writeFileSync(pp, jobfix.jobFor('dirof-codex', '/bin/codex', '/bin/tmux', 'gpt', acct, 'codex'));
   assert.equal(create.readJob('dirof-codex').runner, 'codex', 'CONTROL: the fixture job is not a codex one');
   assert.equal(status.claudeAccountDirOf('dirof-codex'), null, 'a codex agent was given a Claude account');
 });

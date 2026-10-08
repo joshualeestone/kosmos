@@ -53,6 +53,7 @@ test('boardUnitFor generates systemd unit with ConditionPathExists and board-run
 
   assert.match(content, /^\[Unit\]/m);
   assert.match(content, /^Description=Kosmos Board/m);
+  assert.doesNotMatch(content, /^After=/m, '#5445: After=network.target orders nothing in a user manager');
   assert.match(content, /^ConditionPathExists=!\/home\/user\/\.local\/share\/kosmos\/board\.stopped/m);
   assert.match(content, /^\[Service\]/m);
   assert.match(content, /^ExecStart=\/bin\/bash "\/home\/user\/\.local\/share\/kosmos\/bin\/kosmos" board-run/m);

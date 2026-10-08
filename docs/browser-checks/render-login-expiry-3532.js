@@ -1,3 +1,4 @@
+// Browser-check-surface: topnotes uabort-slot login-adv-slot utoast-slot uchip utxt
 'use strict';
 
 /**
@@ -298,6 +299,120 @@ const CASES = [
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
     chk(await shown(), '5018: after a renewal, the same notice later shows again (the dismissal was forgotten)');
     chk(errs.length === 0, '5018: no console errors', errs.join(' | '));
+    await pg.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+    await pg.close();
+  }
+
+  /* #5443 (Mona Lisa): notice cards showing at once read as one column. The update-abort card and a short login card
+     sit in different slots, and whichever is narrower takes the width of the wider: on desktop that is the login card
+     (the abort card's long line wraps at the stack's cap); at 375 the abort card's second line is hidden, so it is the
+     abort card. The login card's Refresh login and close X stay at its right edge (measured on desktop). The update chip
+     is a pill and stays one, centred under the column (measured on desktop). Each layout claim has a control in the
+     same page that undoes the rule under test. */
+  {
+    let feed = { abort: { count: 2 }, update: null };
+    const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
+    const errs = [];
+    pg.on('pageerror', (e) => errs.push(e.message));
+    await pg.route('**/api/status', async (route) => {
+      let res, data;
+      try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+      data.loginAdvisories = [{ agents: ['leo'], daysLeft: 0, severity: 'urgent', expired: false }];
+      data.updateAbort = feed.abort;
+      data.update = feed.update;
+      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+    });
+    await pg.goto(URL, { waitUntil: 'networkidle' });
+    if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+    await pg.waitForFunction(() => document.querySelector('#login-adv-slot .utoast') && document.querySelector('#uabort-slot .utoast'),
+      null, { timeout: 12000 }).catch(() => {});
+    const r1 = (v) => Math.round(v * 10) / 10;
+    const edges = () => pg.evaluate(() => {
+      const a = document.querySelector('#uabort-slot .utoast'); const l = document.querySelector('#login-adv-slot .utoast');
+      if (!a || !l) return null;
+      const ra = a.getBoundingClientRect(); const rl = l.getBoundingClientRect();
+      const x = l.querySelector('.ux').getBoundingClientRect(); const go = l.querySelector('.uacts');
+      const rg = go ? go.getBoundingClientRect() : null;
+      return { abort: [ra.left, ra.right], login: [rl.left, rl.right], xGap: rl.right - x.right, goToX: rg ? x.left - rg.right : null };
+    }).then((e) => e && { abort: e.abort.map(r1), login: e.login.map(r1), xGap: Math.round(e.xGap), goToX: e.goToX === null ? null : Math.round(e.goToX) });
+    const lined = (e) => !!e && Math.abs(e.abort[0] - e.login[0]) < 1 && Math.abs(e.abort[1] - e.login[1]) < 1;
+    const wide = (e, k) => e[k][1] - e[k][0];
+    // Centred (the old rule), the two cards' own widths: how much spare width the narrower one has. Every control below
+    // is measured against this, not against a number fitted to one machine's fonts.
+    const centredSpare = async () => {
+      await pg.evaluate(() => { document.getElementById('topnotes').style.alignItems = 'center'; });
+      const e = await edges();
+      await pg.evaluate(() => { document.getElementById('topnotes').style.alignItems = ''; });
+      return e ? { e, spare: Math.abs(wide(e, 'abort') - wide(e, 'login')) } : null;
+    };
+    const now = await edges();
+    chk(!!now, '5443: precondition: the update-abort and login cards both render', JSON.stringify(now));
+    chk(lined(now), '5443: on desktop the two cards share both edges (one column)', JSON.stringify(now));
+    // On desktop the login card is the narrower one, so it is the one stretched: its close X keeps its own 8px padding from the
+    // right edge, and Refresh login sits just before the X, not where the words end.
+    chk(!!now && now.xGap <= 12 && now.goToX !== null && now.goToX >= 0 && now.goToX <= 16,
+      '5443: the stretched login card keeps Refresh login and its close X at its right edge', JSON.stringify(now));
+    const box = await pg.$('#topnotes');
+    if (box) await box.screenshot({ path: path.join(OUT, 'login-expiry-two-notices-5443.png') });
+    // CONTROL for the line-up, and the fixture's precondition: centred instead, the two cards are at least 8px apart in
+    // width. If a runner's fonts made the login card fill the column, the line-up above would pass on the text alone;
+    // this red then names the fixture, not the rule.
+    const centred = await centredSpare();
+    chk(!!centred && centred.spare >= 8,
+      '5443: CONTROL / precondition: centred instead, the two cards differ by 8px or more (else this fixture cannot show a line-up: check the fonts before the rule)', JSON.stringify(centred));
+    // CONTROL for the right edge: stretched, but the words not taking the spare width, the X moves in by that spare width.
+    const unGrow = await pg.addStyleTag({ content: '#login-adv-slot .utoast .utxt { flex: 0 1 auto !important; }' });
+    const packed = await edges();
+    chk(!!packed && !!now && !!centred && packed.xGap >= now.xGap + centred.spare - 2,
+      '5443: CONTROL: stretched with the words not growing, the X moves in from the right edge by the spare width', JSON.stringify({ packed, spare: centred && centred.spare }));
+    await unGrow.evaluate((el) => el.remove());
+    const restored = await edges();
+    chk(lined(restored) && restored.xGap <= 12, '5443: the control style is gone, so the X is back at the right edge before the next arm', JSON.stringify(restored));
+
+    // On a phone the stack is capped at the header's width; the same two cards still share both edges (here the abort
+    // card, its second line hidden under 720px, is the narrower one and is stretched).
+    await pg.setViewportSize({ width: 375, height: 812 });
+    await pg.waitForTimeout(300);
+    const phone = await edges();
+    chk(lined(phone) && phone.login[0] >= 0 && phone.login[1] <= 375, '5443: at 375 the two cards share both edges and stay on screen', JSON.stringify(phone));
+    const phoneCentred = await centredSpare();
+    chk(!!phoneCentred && phoneCentred.spare >= 8, '5443: CONTROL: at 375, centred instead, the same two cards are different widths', JSON.stringify(phoneCentred));
+    await pg.setViewportSize({ width: 1400, height: 800 });
+    await pg.waitForTimeout(300);
+
+    // The update chip beside the login card: still a pill (narrower than the card, one line tall), centred under it.
+    feed = { abort: null, update: { version: '9.9.9' } };
+    await pg.waitForFunction(() => document.querySelector('#utoast-slot .uchip') && !document.querySelector('#uabort-slot .utoast'),
+      null, { timeout: 12000 }).catch(() => {});
+    const chip = () => pg.evaluate(() => {
+      const c = document.querySelector('#utoast-slot .uchip'); const l = document.querySelector('#login-adv-slot .utoast');
+      if (!c || !l) return null;
+      const rc = c.getBoundingClientRect(); const rl = l.getBoundingClientRect();
+      const rs = document.getElementById('utoast-slot').getBoundingClientRect();
+      return { chipMid: (rc.left + rc.right) / 2, cardMid: (rl.left + rl.right) / 2, chipW: rc.width, cardW: rl.width, chipH: rc.height,
+        slotH: rs.height, chipL: rc.left, chipR: rc.right, vw: document.documentElement.clientWidth };
+    }).then((e) => e && Object.fromEntries(Object.entries(e).map(([k, v]) => [k, r1(v)])));
+    const ch = await chip();
+    chk(!!ch, '5443: precondition: the update chip and the login card both render', JSON.stringify(ch));
+    chk(!!ch && Math.abs(ch.chipMid - ch.cardMid) < 1 && ch.chipW < ch.cardW - 40 && ch.chipH <= 34,
+      '5443: the update chip stays a one-line pill, centred under the login card', JSON.stringify(ch));
+    // Its slot is exactly as tall as the chip, so the stack height the header and nav clear by (--topnotes-h,
+    // topnotesTrack) is the chip's own. An invariant, not this change's claim: measured, the old inline chip gave the
+    // same 30px slot, so the box change moved nothing here.
+    chk(!!ch && Math.abs(ch.slotH - ch.chipH) < 1, '5443: the chip\'s slot is exactly the chip\'s height', JSON.stringify(ch));
+    if (box) await box.screenshot({ path: path.join(OUT, 'login-expiry-chip-and-card-5443.png') });
+    // CONTROL: without the centring the stretched slot leaves the chip at the column's left edge.
+    const unCentre = await pg.addStyleTag({ content: '#utoast-slot > .uchip { display: inline-flex !important; margin-inline: 0 !important; }' });
+    const left = await chip();
+    chk(!!left && Math.abs(left.chipMid - left.cardMid) >= 20, '5443: CONTROL: not centred, the chip sits off the column centre', JSON.stringify(left));
+    await unCentre.evaluate((el) => el.remove());
+    // At 375 the chip may wrap (its phone rule); it stays on screen, centred under the card, its slot its own height.
+    await pg.setViewportSize({ width: 375, height: 812 });
+    await pg.waitForTimeout(300);
+    const chPhone = await chip();
+    chk(!!chPhone && chPhone.chipL >= 0 && chPhone.chipR <= chPhone.vw && Math.abs(chPhone.chipMid - chPhone.cardMid) < 1
+      && Math.abs(chPhone.slotH - chPhone.chipH) < 1, '5443: at 375 the chip stays on screen, centred under the card, its slot its own height', JSON.stringify(chPhone));
+    chk(errs.length === 0, '5443: no console errors', errs.join(' | '));
     await pg.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
     await pg.close();
   }

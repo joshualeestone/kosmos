@@ -55,6 +55,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { start, server } = require('./server');
 const connect = require('./engine/connect');
+// #5419: download() and sign-in refuse on a real Linux host with no tmux; pinned to "present" so a Linux box without
+// tmux still runs these tests for what they name.
+connect.setTmuxCheckForTests(() => false);
+connect.setMuslLibsCheckForTests(() => false);   // #5419: nor the host's musl libraries
 const accounts = require('./engine/accounts');
 
 let base;
@@ -1528,6 +1532,59 @@ test('#996: and it is not offered at all when there is nothing to run', () => {
   const html = els['fr-sub'].innerHTML;
   assert.doesNotMatch(html, /Terminal/,
     'a person with no Claude on disk was told to type a command that cannot run');
+  assert.match(html, /carry on and connect later from Settings/);
+});
+
+/* --------------------------------------------------------------------------
+   #5449: the Linux arm of the stuck card. A headless Linux server reached from a
+   browser has no Terminal app; the way out is a shell on the server itself (over
+   SSH), then `claude`. The platform is INJECTED (publicView serves it), so this
+   runs from any box. Mac and Windows copy are unchanged (controls below).
+   -------------------------------------------------------------------------- */
+
+test('#5449: on Linux the stuck card names a way out a headless-server person can take', () => {
+  const { els } = connectHarness({ phase: 'stuck', because: 'x', platform: 'linux',
+    canRunClaude: true, progress: { got: 0, total: null } });
+  const html = els['fr-sub'].innerHTML;
+  const note = html.slice(html.indexOf('fr-note'));
+  /* The way out is behind a CLOSED disclosure, like the Mac one. */
+  assert.match(note, /<details class="fr-hatch"><summary>Have a shell on the server\?<\/summary>/,
+    'the Linux escape hatch is missing or not behind a disclosure');
+  assert.doesNotMatch(note, /<details class="fr-hatch"[^>]*\sopen/,
+    'the Linux hatch renders already open, so it addresses everybody');
+  assert.match(note, /connect over SSH/,
+    'the Linux hatch does not name the way onto a headless server');
+  assert.match(note, /type <b>claude<\/b>/,
+    'the Linux hatch lost the command it exists to carry');
+  /* The Mac imperative must not reach a Linux reader: there is no Terminal app. */
+  assert.doesNotMatch(note, /open Terminal, type <b>claude<\/b>/,
+    'a headless Linux server is told to open a Terminal app it does not have');
+});
+
+test('#5449 CONTROL: the Linux hatch appears nowhere on a Mac, and the Mac hatch nowhere on Linux', () => {
+  /* Same painter, same phase, one field different, so neither arm leaks into the
+     other. Without this both hatches could render on every platform. */
+  const mac = connectHarness({ phase: 'stuck', because: 'x', platform: 'darwin',
+    canRunClaude: true, progress: { got: 0, total: null } }).els['fr-sub'].innerHTML;
+  assert.doesNotMatch(mac, /Have a shell on the server|connect over SSH/,
+    'the Linux way out is shown on a Mac');
+  assert.match(mac, /open Terminal, type <b>claude<\/b>/,
+    'the Mac arm lost its own way out');
+
+  const linux = connectHarness({ phase: 'stuck', because: 'x', platform: 'linux',
+    canRunClaude: true, progress: { got: 0, total: null } }).els['fr-sub'].innerHTML;
+  assert.doesNotMatch(linux, /Already use Terminal\?/,
+    'the Mac hatch is shown on Linux');
+});
+
+test('#5449: and the Linux hatch is not offered when there is nothing to run', () => {
+  /* Same canRunClaude gate as Mac: three of five stuck causes mean Claude was
+     never installed, so the command would answer `command not found` (#205). */
+  const { els } = connectHarness({ phase: 'stuck', because: 'x', platform: 'linux',
+    canRunClaude: false, progress: { got: 0, total: null } });
+  const html = els['fr-sub'].innerHTML;
+  assert.doesNotMatch(html, /Have a shell on the server|connect over SSH/,
+    'a Linux box with no Claude on disk is told to run a command that cannot run');
   assert.match(html, /carry on and connect later from Settings/);
 });
 

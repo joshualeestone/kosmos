@@ -229,6 +229,25 @@ test('3. with the switch OFF nothing is sent, including a post that was due', as
   assert.equal(be.st.seen.length, 0);
 });
 
+/* #5435 review 5: a switch file that cannot be read ends the period (as OFF does): a post made while the board's pages
+   show OFF never goes, even after the switch is repaired; one made after the repair does. */
+test('#5435: a post made while the switch could not be read never goes; one made after the repair does', async () => {
+  const tick = () => new Promise((r) => setTimeout(r, 5));
+  await on();
+  SW = { on: false, ok: false };                 // community.json torn: the page paints OFF
+  await cs.sweep();
+  await tick();
+  agentPost('ed', { topic: 'during', body: 'made while the page showed off' });
+  await cs.sweep();
+  await tick();
+  SW = { on: true, ok: true };                   // repaired
+  await cs.sweep();
+  await tick();
+  agentPost('ed', { topic: 'after', body: 'made after the repair' });
+  await cs.sweep();
+  assert.deepEqual(posts().map((x) => x.body.title), ['after'], 'the post made while the page showed OFF went, or the one after the repair did not');
+});
+
 test('posts published before the switch first went on are never sent', async () => {
   agentPost('dee', { topic: 'old', body: 'released into the board-local feed' });
   await new Promise((r) => setTimeout(r, 5));

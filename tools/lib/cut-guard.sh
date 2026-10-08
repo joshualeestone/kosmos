@@ -14,6 +14,46 @@ if ! . "$_kosmos_cut_guard_lib_dir/process-fixture.sh"; then
 fi
 unset _kosmos_cut_guard_lib_dir
 
+# --- Shared: is <script> RUNNING, as opposed to queued or merely mentioned? (#5470) -----
+# `pgrep -f <script>` matches every process whose command line CONTAINS the name: a run, but also a
+# tools/queued-heavy.sh waiter that carries it as an argument, the `sh -c "... bash <script>"` shell that
+# started that waiter, and any command that only names it. On the 0.7.27 cut a wait written that way
+# held the machine for a waiter that was waiting for the same machine (#5467). A run's command line
+# STARTS with the interpreter and the script: `[path/](ba)sh [options] [path/]<script>[ args]`, where the
+# options are flags like -x, +x, -e or --norc, a bare --, the value-taking -o/-O NAME (also as the end of
+# a cluster like -eo NAME) and --rcfile/--init-file FILE, but never a cluster holding c (a command string,
+# which only mentions the script) or n (a syntax check, which never runs it). A few shapes that are not
+# runs also match (`bash -s <script>`, `bash --rcfile <script>`, a script given as an option's value): all
+# fail toward busy.
+# LC_ALL=C on the grep inside kosmos_running_lines as well, belt and braces (the option letters are spelled out, see _KOSMOS_SH_OPTS). A queued-heavy waiter needs no rule of its own here: its
+# command starts with tools/queued-heavy.sh, not with <script>, so it never matches.
+# CALL IT INSIDE `if` OR AFTER `||`: 1 is the ordinary "nothing running" answer, and as a bare statement
+# under `set -e` (release.sh, test-install.sh) it would end the caller silently.
+# NOT SEEN: a run started from inside tools/ (`cd tools && bash release.sh`, `bash ./browser-checks.sh`),
+# because the match needs the tools/ path (tools/heavy-gate.sh counts those, by a cwd ending in /tools;
+# the cut and the page layer are always started as tools/...). NOT SEEN either: a run whose script path contains a space, because pgrep prints it split at the space (the
+# guards this replaced had the same gap; tools/heavy-gate.sh does count it). Every checkout this fleet
+# cuts or tests from has a space-free path. This prints the
+# "<pid> <command>" lines of exactly those, from `pgrep -fl`, and returns 0 when there is one, 1 when
+# there is none, 2 when pgrep itself failed (so a caller can tell "nothing" from "could not tell").
+# <script> is a path like tools/browser-checks.sh (letters, digits, . _ / - only; anything else returns 2);
+# its dots are matched literally. macOS only: there `pgrep -fl` prints the whole command line, where Linux
+# prints only the process name, so on Linux this finds nothing (as the guards it replaced did).
+# The shell options a run may carry before its script (shared with _kosmos_drop_test_fixtures so the two
+# read the same command shapes). Letters are SPELLED OUT, not ranged (every letter but c, a command string,
+# and n, a syntax check): ranges are collation-dependent, and `[[ =~ ]]` runs in the caller's locale.
+_KOSMOS_SH_OPTS='( +([-+][ABCDEFGHIJKLMNOPQRSTUVWXYZabdefghijklmopqrstuvwxyz]*[oO] +[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_]+|--(rcfile|init-file) +[^ ]+|[-+][ABCDEFGHIJKLMNOPQRSTUVWXYZabdefghijklmopqrstuvwxyz]+|--[abcdefghijklmnopqrstuvwxyz][abcdefghijklmnopqrstuvwxyz-]*|--))*'
+kosmos_running_lines() {   # <script path>
+  local script="${1:-}" raw rc re lines
+  case "$script" in ''|*[!A-Za-z0-9._/-]*) return 2 ;; esac   # a path, nothing a regex would read as syntax
+  re="${script//./\\.}"
+  raw="$(pgrep -fl "$re" 2>/dev/null)"; rc=$?
+  [ "$rc" -ge 2 ] && return 2
+  lines="$(printf '%s\n' "$raw" | LC_ALL=C grep -E "^[0-9]+ +([^ ]*/)?(ba)?sh${_KOSMOS_SH_OPTS} +([^ ]*/)?${re}( |$)" || true)"
+  [ -n "$lines" ] || return 1
+  printf '%s\n' "$lines"
+}
+
 # --- Shared: is a matched process THIS run, or a separate one? (#1391) -------
 # Both guards below match a process by its command line and must then exclude
 # the caller's OWN run so it does not refuse itself. A single-pid exclusion is
@@ -69,15 +109,17 @@ _kosmos_drop_self_subtree() {
 # a cwd or script in the run-tests.sh sandbox (the same path rule heavy-gate uses). A pid whose ancestry
 # and cwd cannot be read stays in the list unless its script path is in the sandbox, which preserves
 # the guard's refuse-rather-than-guess posture.
+# (#5470: it reads a fixture's script with the same _KOSMOS_SH_OPTS as kosmos_running_lines, so the two
+# agree on an option-bearing command line.)
 _kosmos_drop_test_fixtures() {
   # The interpreter is ([^ ]*/)?(ba)?sh, as wide as _kosmos_suite_candidates's, so a fixture started by
   # a Homebrew bash is dropped by its script path too (#4410 review 13).
-  local line pid script re='^[0-9]+ +([^ ]*/)?(ba)?sh +(([^ ]*/)?tools/(release|browser-checks|test-install|run-tests)\.sh)( |$)'
+  local line pid script re="^[0-9]+ +([^ ]*/)?(ba)?sh${_KOSMOS_SH_OPTS} +(([^ ]*/)?tools/(release|browser-checks|test-install|run-tests)\.sh)( |$)"
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     pid="${line%% *}"
     script=""
-    [[ "$line" =~ $re ]] && script="${BASH_REMATCH[3]}"
+    [[ "$line" =~ $re ]] && script="${BASH_REMATCH[6]}"   # groups 3-5 are _KOSMOS_SH_OPTS
     _kosmos_pid_is_test_fixture "$pid" "$script" && continue
     printf '%s\n' "$line"
   done
@@ -248,13 +290,13 @@ _kosmos_marker_other_live() {
 # release outage that reads exactly like the guard working. The seam is an
 # env var so the tests can drive it; it defaults to the caller's own pid.
 # 🛑 CALLING CONTRACT for the pgrep-probing kosmos_refuse_if_* guards below (#4410 review): call as
-# `kosmos_refuse_if_x "what" || exit 1`, or inside an `if`. Each runs `raw="$(pgrep ...)"; rc=$?`,
-# and pgrep exits 1 when nothing matches, which is the ordinary nothing-running case. Called as a
+# `kosmos_refuse_if_x "what" || exit 1`, or inside an `if`. Each asks kosmos_running_lines (#5470),
+# which returns 1 when nothing matches, the ordinary nothing-running case. Called as a
 # bare statement under `set -e` (release.sh and test-install.sh both set it), that exit 1 would end
 # the caller silently at the very moment the answer is "go ahead". The `||` or `if` suspends -e for
 # the whole call, which is why every call site in this repo is written that way.
 kosmos_refuse_if_cut_live() {
-  local what="${1:-this run}" probe="${KOSMOS_CUT_PROBE:-}" raw out rc self marker_other
+  local what="${1:-this run}" probe="${KOSMOS_CUT_PROBE:-}" out rc self marker_other
   self="${KOSMOS_CUT_SELF_PID:-$$}"
   # #1796: the reliable arm -- a marked cut that is not this caller's own run. A
   # mention/edit/worktree never marks, so it is never a candidate; self-exclusion is
@@ -267,13 +309,9 @@ kosmos_refuse_if_cut_live() {
     # ⚠️ THE PROCESS, NOT THE WORDS: a peer's shell whose command text merely
     # mentions release.sh (a git log, a grep, an eval) matched the first
     # draft and would have refused every run on a busy Mac. Only a bash/sh
-    # whose own command line starts with the script counts. pgrep's status
-    # is read from its own line, never after a pipe (#632).
-    raw="$(pgrep -fl 'release\.sh' 2>/dev/null)"; rc=$?
-    out="$(printf '%s\n' "$raw" | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/release\.sh( |$)' || true)"
-    # pgrep: 0 matched, 1 nothing matched, 2+ could not run. After the
-    # filter, an empty list is a clean "no cut" whichever of 0/1 pgrep said.
-    if [ "$rc" -le 1 ]; then rc=0; [ -n "$out" ] || rc=1; fi
+    # whose own command line starts with the script counts (kosmos_running_lines
+    # reads pgrep's status from its own line, never after a pipe, #632).
+    out="$(kosmos_running_lines tools/release.sh)"; rc=$?   # #5470: the shared anchored match; 0 run, 1 none, 2 could not tell
   fi
   # Drop the caller's own line, in BOTH paths, so the probe seam exercises the
   # same exclusion the real pgrep gets. An `out` emptied by this is a clean
@@ -322,7 +360,7 @@ kosmos_refuse_if_cut_live() {
 # Same posture as above: a probe that cannot answer is a refusal, and the
 # seam exists so this can be shown red and green without a real run.
 kosmos_refuse_if_browser_run_live() {
-  local what="${1:-this run}" probe="${KOSMOS_BC_PROBE:-}" raw out rc self marker_other
+  local what="${1:-this run}" probe="${KOSMOS_BC_PROBE:-}" out rc self marker_other
   self="${KOSMOS_BC_SELF_PID:-$$}"
   # #1796: the reliable arm. This guard is the one whose caller (browser-checks.sh)
   # genuinely self-matches -- it forks subshells inheriting `bash tools/browser-
@@ -332,9 +370,7 @@ kosmos_refuse_if_browser_run_live() {
   if [ -n "$probe" ]; then
     out="$("$probe" 2>/dev/null)"; rc=$?
   else
-    raw="$(pgrep -fl 'browser-checks\.sh' 2>/dev/null)"; rc=$?
-    out="$(printf '%s\n' "$raw" | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/browser-checks\.sh( |$)' || true)"
-    if [ "$rc" -le 1 ]; then rc=0; [ -n "$out" ] || rc=1; fi
+    out="$(kosmos_running_lines tools/browser-checks.sh)"; rc=$?   # #5470: the shared anchored match
   fi
   # ⚠️ EXCLUDE THE CALLER'S OWN SUBTREE, NOT JUST ITS PID (#1391). browser-checks.sh
   # IS a `bash tools/browser-checks.sh` and forks subshells that inherit that
@@ -402,7 +438,7 @@ kosmos_refuse_if_browser_run_live() {
 # tools/test-cut-guard.sh can prove the real pgrep detects a stand-in that every OTHER guard on
 # the Mac drops. Left set by mistake it only refuses more, never less.
 kosmos_refuse_if_harness_live() {
-  local what="${1:-this run}" override="${2:-KOSMOS_CUT_IGNORE_HARNESS=1 cuts anyway}" probe="${KOSMOS_HARNESS_PROBE:-}" raw out rc self marker_other
+  local what="${1:-this run}" override="${2:-KOSMOS_CUT_IGNORE_HARNESS=1 cuts anyway}" probe="${KOSMOS_HARNESS_PROBE:-}" out rc self marker_other
   self="${KOSMOS_HARNESS_SELF_PID:-$$}"
   # #1796: the reliable arm -- a marked harness that is not this caller's own. This
   # is the guard the card measured firing during a cut: a real test-install.sh RUN
@@ -414,9 +450,7 @@ kosmos_refuse_if_harness_live() {
   if [ -n "$probe" ]; then
     out="$("$probe" 2>/dev/null)"; rc=$?
   else
-    raw="$(pgrep -fl 'test-install\.sh' 2>/dev/null)"; rc=$?
-    out="$(printf '%s\n' "$raw" | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/test-install\.sh( |$)' || true)"
-    if [ "$rc" -le 1 ]; then rc=0; [ -n "$out" ] || rc=1; fi
+    out="$(kosmos_running_lines tools/test-install.sh)"; rc=$?   # #5470: the shared anchored match
   fi
   if [ -n "$out" ] && [ -n "$self" ]; then
     out="$(printf '%s\n' "$out" | _kosmos_drop_self_subtree "$self" || true)"
@@ -456,17 +490,14 @@ kosmos_refuse_if_harness_live() {
 # The name arm on its own, so tools/test-cut-guard.sh can prove the real pgrep and filter see a
 # stand-in suite even while other agents' real suites are live (a refusal alone could not tell whose
 # suite it saw). Prints the matching `pid command` lines; exits 1 for none, 2+ when pgrep failed.
-# Its interpreter pattern, ([^ ]*/)?(ba)?sh, is deliberately wider than the older guards' (/bin/)?(ba)?sh:
-# a suite started by a Homebrew bash is still a suite (review 11). Only more candidates, never fewer.
+# A suite started by a Homebrew bash is still a suite, so the interpreter may sit at any path
+# (kosmos_running_lines, shared by every "is X running" guard here since #5470).
 _kosmos_suite_candidates() {
-  local raw rc
-  raw="$(pgrep -fl 'run-tests\.sh' 2>/dev/null)"; rc=$?
-  [ "$rc" -ge 2 ] && return "$rc"
-  printf '%s\n' "$raw" | grep -E '^[0-9]+ +([^ ]*/)?(ba)?sh +([^ ]*/)?tools/run-tests\.sh( |$)' || return 1
+  kosmos_running_lines tools/run-tests.sh   # #5470: the shared anchored match (0 lines, 1 none, 2 could not tell)
 }
 
 kosmos_refuse_if_suite_live() {
-  local what="${1:-this run}" override="${2:-KOSMOS_HARNESS_IGNORE_SUITE=1 runs anyway}" probe="${KOSMOS_SUITE_PROBE:-}" raw out rc self
+  local what="${1:-this run}" override="${2:-KOSMOS_HARNESS_IGNORE_SUITE=1 runs anyway}" probe="${KOSMOS_SUITE_PROBE:-}" out rc self
   self="${KOSMOS_SUITE_SELF_PID:-$$}"
   # The source differs (the seam or the real name arm); everything after it is shared, so the
   # probe arms in tools/test-cut-guard.sh exercise the same code a live read does, and the real
@@ -1489,8 +1520,7 @@ kosmos_light_side_intruder() {
   if [ -n "${KOSMOS_BC_PROBE:-}" ]; then lines="$("$KOSMOS_BC_PROBE" 2>/dev/null)"; rc=$?
   else
     # Review 6: pgrep's own status, not the filter's (a pgrep that failed read as "nothing live").
-    lines="$(pgrep -fl 'browser-checks\.sh' 2>/dev/null)"; rc=$?; [ "$rc" -le 1 ] && rc=0
-    lines="$(printf '%s\n' "$lines" | grep -E '^[0-9]+ +([^ ]*/)?(ba)?sh +([^ ]*/)?tools/browser-checks\.sh( |$)' || true)"
+    lines="$(kosmos_running_lines tools/browser-checks.sh)"; rc=$?; [ "$rc" -le 1 ] && rc=0   # #5470: the shared anchored match
   fi
   [ "$rc" -ge 2 ] && { echo "could not tell whether a browser run is live"; return 0; }
   [ -n "$lines" ] && lines="$(printf '%s\n' "$lines" | _kosmos_drop_test_fixtures || true)"   # a suite's fixture is not a run

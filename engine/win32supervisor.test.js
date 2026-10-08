@@ -1086,6 +1086,7 @@ test('#570 7c-2 THE TASK SUPERVISES THE STREAMING AGENT -- the detached one cann
     exitLater: (ms) => exits.push(ms),
     hostAlive: () => { hostChecks += 1; return true; },
     agentBrowser: () => 'browser-config.json',
+    agentPermission: () => 'perm.json',   // #5406
   });
   /* 🛑 CLEANUP RUNS HOWEVER THE ASSERTIONS GO. main() opens the agent's pipe
      server, and a failed assertion that skipped handle.stop() left it listening,
@@ -1102,6 +1103,8 @@ test('#570 7c-2 THE TASK SUPERVISES THE STREAMING AGENT -- the detached one cann
     assert.ok(spawned[0].argv.includes('--input-format'), 'and it is a STREAMING session');
     assert.ok(spawned[0].argv.includes('stream-json'));
     /* The agent's own browser (engine/agentbrowser.js) is wired in main() and only there. */
+    assert.equal(spawned[0].argv[spawned[0].argv.indexOf('--settings') + 1], 'perm.json',
+      '#5406: main() wires the permission settings into the launch');
     assert.equal(spawned[0].argv[spawned[0].argv.indexOf('--mcp-config') + 1], 'browser-config.json',
       'main() hands a claude agent its browser config');
     assert.equal(typeof handle.send, 'function', 'so the supervisor can be told things');

@@ -43,9 +43,11 @@ const cp = require('node:child_process');
 // Files without "win32" in their name that still speak about Windows behaviour. The engine ones
 // are named bare; root ones carry no prefix. Every test file that branches on a win32 HOST must
 // be selected here or excluded in HOST_BRANCH_EXCLUDED, or the Mac-side test goes red (#1777).
-const ALSO = ['platform.test.js', 'store.test.js', 'windows-coupling-audit-1732.test.js', 'runners.win-runnable-2270.test.js',
+const ALSO = ['agentpermission-5406.test.js', 'platform.test.js', 'store.test.js', 'windows-coupling-audit-1732.test.js', 'runners.win-runnable-2270.test.js',
   'create.test.js', 'outbox.test.js', 'remove.test.js', 'world-guard-lift-1704.test.js', 'personalinstr.test.js',
-  'securewrite.fsync-5434.test.js'];   // #5434: its Windows-only skips (EPERM, EISDIR) run only there
+  'securewrite.fsync-5434.test.js',   // #5434: its Windows-only skips (EPERM, EISDIR) run only there
+  'accounts.fsync-5434.test.js',   // #5434 slice 2: the account stores' saves must work on Windows too
+  'store.real-root-5418.test.js'];   // #5418: the test-process root rule is live in this job, so its own test runs here too
 // test-support.remove-tree.test.js (#5074): the shared win32 cleanup retry's own tests, which ran here inside the
 // shims file before the helper moved.
 const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.js', 'test-support.remove-tree.test.js'];
@@ -56,6 +58,7 @@ const HOST_BRANCH_EXCLUDED = {
   'engine/status.codex-model-switch-4416.test.js': 'the guard it tests is Mac-only by design: it compares a rollout with the launch plist\'s mtime, and a Windows Scheduled Task has no file to compare',
   'engine/geminisettings.test.js': 'its win32 branch only skips a POSIX file-mode arm',
   'engine/communitysend.test.js': 'its win32 branch (#5431) only skips a POSIX file-mode arm',
+  'engine/communitysend-why-5435.test.js': 'its win32 branch (#5435) skips the read-only-folder arm; its other arms are platform-free and run on the Mac',
   'engine/attachments.facts-5448.test.js': 'its win32 branch only skips the mkfifo arm (Windows has no FIFOs); its sibling attachments.test.js is not run on Windows either',
   'engine/groksettings.test.js': 'its win32 branch only skips a POSIX file-mode arm',
   'engine/securewrite.test.js': 'POSIX file-mode assertions, measured red on Windows (#1777)',

@@ -430,3 +430,58 @@ test('#4012 turnEnv: gemini and grok turns are marked per-turn for the report br
   assert.equal(keyed.turnEnv('gemini', {}, null, { geminiAccounts: fakeAccounts(root, {}), doorDir: null, keyHome: null }).KOSMOS_PER_TURN, '1');
   assert.equal(keyed.turnEnv('grok', {}, null, { grokAccounts: fakeAccounts(root, {}), doorDir: null }).KOSMOS_PER_TURN, '1');
 });
+
+test('#5358: turnEnv sets and removes the key whatever spelling the environment carries it in', () => {
+  const root = path.join(SANDBOX, 'xenv-5358');
+  const keyAcct = path.join(root, 'key1');
+  const subAcct = path.join(root, 'sub1');
+  fs.mkdirSync(keyAcct, { recursive: true });
+  fs.mkdirSync(subAcct, { recursive: true });
+  fs.writeFileSync(path.join(keyAcct, '.key'), 'XAI-ACCOUNT\n');
+  const mod = fakeAccounts(root, { [keyAcct]: 'apikey', [subAcct]: 'subscription' });
+  const named = (env, n) => Object.keys(env).filter((k) => k.toUpperCase() === n).map((k) => env[k]);
+  const k = keyed.turnEnv('grok', { xai_api_key: 'STALE', Claude_Config_Dir: 'C:\\engine' }, keyAcct, { grokAccounts: mod, doorDir: null });
+  assert.deepEqual(named(k, 'XAI_API_KEY'), ['XAI-ACCOUNT'], 'the stale inherited spelling survived beside the account key');
+  assert.deepEqual(named(k, 'CLAUDE_CONFIG_DIR'), []);
+  const s = keyed.turnEnv('grok', { xai_api_key: 'STALE' }, subAcct, { grokAccounts: mod, doorDir: null });
+  assert.deepEqual(named(s, 'XAI_API_KEY'), [], 'a subscription account kept an inherited key');
+});
+
+test('#5358 review 13: a Gemini key the environment carried in another spelling still gets NO_BROWSER and one canonical key', () => {
+  const root = path.join(SANDBOX, 'genv-5358');
+  const acct = path.join(root, 'work1');
+  fs.mkdirSync(acct, { recursive: true });
+  fs.writeFileSync(path.join(acct, '.key'), 'ACCOUNT-KEY\n');
+  const mod = fakeAccounts(root, {});
+  const named = (env, n) => Object.keys(env).filter((k) => k.toUpperCase() === n);
+  for (const base of [{ GEMINI_API_KEY: 'OLD' }, { gemini_api_key: 'OLD' }]) {
+    const env = keyed.turnEnv('gemini', base, acct, { geminiAccounts: mod, doorDir: null, keyHome: null });
+    const spelled = Object.keys(base)[0];
+    assert.deepEqual(named(env, 'GEMINI_API_KEY'), ['GEMINI_API_KEY'], spelled + ': one key, spelled as the code reads it');
+    assert.equal(env.GEMINI_API_KEY, 'ACCOUNT-KEY', spelled);
+    assert.equal(env.NO_BROWSER, 'true', spelled + ': a keyed Gemini agent would wait on a browser login');
+  }
+});
+
+test('#5358 review 14: an inherited key in another spelling, with no account key or door, is still read as the key', () => {
+  const root = path.join(SANDBOX, 'genv-5358b');
+  fs.mkdirSync(root, { recursive: true });
+  const mod = fakeAccounts(root, {});
+  const env = keyed.turnEnv('gemini', { gemini_api_key: 'AMBIENT' }, null, { geminiAccounts: mod, doorDir: null, keyHome: null });
+  assert.deepEqual(Object.keys(env).filter((k) => k.toUpperCase() === 'GEMINI_API_KEY'), ['GEMINI_API_KEY']);
+  assert.equal(env.GEMINI_API_KEY, 'AMBIENT');
+  assert.equal(env.NO_BROWSER, 'true', 'a keyed Gemini agent would wait on a browser login');
+  const none = keyed.turnEnv('gemini', {}, null, { geminiAccounts: mod, doorDir: null, keyHome: null });
+  assert.equal('GEMINI_API_KEY' in none, false, 'control: nothing inherited, nothing set');
+});
+
+test('#5358 review 18: every name this module reads back by a fixed spelling is canonicalised first', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'win32keyed.js'), 'utf8')
+    .split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');   // code, not comments
+  const read = new Set([...src.matchAll(/\benv\.([A-Z][A-Z0-9_]*)\b(?!\s*=[^=])/g)].map((m) => m[1]));
+  assert.ok(read.has('GEMINI_API_KEY'), 'control: the scan finds the reads it is meant to find');
+  for (const n of read) assert.ok(keyed.CANON_READS.includes(n), n + ' is read back by a fixed spelling but not in CANON_READS');
+  // Two spellings at once: the one Node would pass the child (the sorted-first) is the value kept.
+  const env = require('./win32env').envCanon({ gemini_api_key: 'lower', GEMINI_API_KEY: 'upper' }, 'GEMINI_API_KEY');
+  assert.deepEqual(env, { GEMINI_API_KEY: 'upper' });
+});

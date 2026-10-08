@@ -575,6 +575,10 @@ if [ "${KOSMOS_CUT_LIVE_HOME:-0}" != 1 ]; then
 fi
 
 step "== 1. main, clean, and carrying what you mean to ship =="
+# #5471: refuse a mistyped step-8 landed-check override NOW, before anything is built, signed or pushed
+# (step 8 checks again, as a backstop, before it deploys).
+. "$REPO/tools/lib/site-deploy.sh"
+site_deploy_landed_args_ok "${KOSMOS_DEPLOY_LANDED_TRIES:-24}" "${KOSMOS_DEPLOY_LANDED_WAIT_S:-15}" || { echo "nothing was built"; exit 1; }
 git -C "$REPO" fetch origin -q
 [ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD)" = main ] || { echo "not on main"; exit 1; }
 [ -z "$(git -C "$REPO" status --porcelain)" ] || { echo "main is dirty"; exit 1; }
@@ -1593,8 +1597,48 @@ if [ "$_dep_frc" = 1 ]; then echo "the export has no .vercelignore; nothing was 
 elif [ "$_dep_frc" != 0 ]; then echo "could not evaluate the export's .vercelignore (rc=$_dep_frc); nothing was deployed"; exit 1
 elif [ -n "$_dep_dropped" ]; then echo "the export's .vercelignore would drop $_dep_dropped; nothing was deployed"; exit 1
 fi
-( cd "$_site_export" && vercel deploy --prod --yes )
-
+# #5471: refuse a mistyped landed-check override now, while nothing has been deployed.
+site_deploy_landed_args_ok "${KOSMOS_DEPLOY_LANDED_TRIES:-24}" "${KOSMOS_DEPLOY_LANDED_WAIT_S:-15}" || { echo "nothing was deployed"; exit 1; }
+# #5471: the record, BEFORE deploying, so it is in the log on every path (a Ctrl-C reaches this shell's
+# own INT trap as well as vercel, and the trap deletes the local copy).
+_my_sha="$(awk 'NR==1 {print $1}' "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256" 2>/dev/null || true)"   # set -e: a missing file must not end the cut here
+echo "   (#5471 record) THIS cut's build is sha256 ${_my_sha:-<unreadable>}; once deployed it is served as ${HOST:-https://installkosmos.com}/dist/kosmos-$V-arm64.tar.gz.sha256 (equal: this cut landed; different: another build of $V is served)."
+_vdep_rc=0
+( cd "$_site_export" && vercel deploy --prod --yes ) || _vdep_rc=$?
+if [ "$_vdep_rc" != 0 ]; then
+  # #5471: the CLI's own failure is not the answer; what is served is. LANDED means the served
+  # kosmos-$V-arm64.tar.gz.sha256 is the one this cut wrote. Only a deploy carrying this cut's files can serve it: an
+  # earlier attempt at $V passes a pointer check but not this, because no two bundles share bytes (see
+  # site_deploy_serves_this_build). One Vercel deploy goes live as a whole (pages, pointer, installer and
+  # artifacts together), so this cut's .sha256 being served means its deploy is live. That is the same
+  # position as a CLI success, so DEPLOYED=1 follows and
+  # step 9 verifies everything a user receives, with its own retries. One host serves every channel (a
+  # staging cut differs only in its pointer file), so this reads the HOST step 9 reads. Asked up to
+  # KOSMOS_DEPLOY_LANDED_TRIES times, KOSMOS_DEPLOY_LANDED_WAIT_S apart (default 24 x 15 s: about 6 min,
+  # up to about 18 min if every fetch times out at -m 30). Not seen landing: DEPLOYED stays unset and the
+  # trap restores, exactly as before.
+  echo "   vercel deploy exited $_vdep_rc (#5471). Before any revert or re-cut, compare the served .sha256 with this cut's sha, printed above."
+  # An interrupt or terminate that reached vercel alone (130/143): somebody meant to stop, so do not wait.
+  # A terminal Ctrl-C usually also reaches this script's own INT trap, which ends the cut before this line.
+  # 137 (KILL, often out of memory) is NOT here: a vercel killed after its upload is the case this card
+  # is about, so it is polled like any other failure.
+  case "$_vdep_rc" in
+    130|143) echo "vercel deploy was stopped by a signal (exit $_vdep_rc); not waiting to see whether it landed"; exit "$_vdep_rc" ;;
+  esac
+  [ -n "$_my_sha" ] || { echo "this cut's own kosmos-$V-arm64.tar.gz.sha256 cannot be read, so whether it landed cannot be checked"; exit "$_vdep_rc"; }
+  echo "   checking whether this cut's build is served anyway before calling it a failure (up to about $((10#${KOSMOS_DEPLOY_LANDED_TRIES:-24} * 10#${KOSMOS_DEPLOY_LANDED_WAIT_S:-15}))s of waiting plus each check's fetch; a failure before any upload waits too, and Ctrl-C ends the wait safely: the trap restores as on any failure)"
+  if site_deploy_landed "${KOSMOS_DEPLOY_LANDED_TRIES:-24}" "${KOSMOS_DEPLOY_LANDED_WAIT_S:-15}" \
+       site_deploy_serves_this_build "${HOST:-https://installkosmos.com}" "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256" "kosmos-$V-arm64.tar.gz"; then
+    echo "   THE DEPLOY LANDED although vercel deploy exited $_vdep_rc: the served kosmos-$V-arm64.tar.gz.sha256 is this cut's. Continuing as a successful deploy; step 9 verifies the rest (#5471)."
+  else
+    # 10# is safe here only because step 1 and step 8 validated the value (site_deploy_landed_args_ok).
+    echo "vercel deploy exited $_vdep_rc and this cut's $V build was not seen served after $((10#${KOSMOS_DEPLOY_LANDED_TRIES:-24})) checks. It may still land."
+    echo "   Before any revert or re-cut: compare the served .sha256 with this cut's sha, printed above ($_my_sha). The local copy is about to be removed."
+    echo "   If it did land: do not revert or re-cut; before any promote, fast-forward $SITE to origin and fetch the served tarball pair back into its dist (docs/releasing.md, after a failed cut)."
+    echo "   This cut now restores the site checkout and removes its local tarball if it created it, as on any failure before step 8 finished; its \"removed: ... (this cut created it and never served it ...)\" lines mean \"not seen served\"."
+    exit "$_vdep_rc"
+  fi
+fi
 DEPLOYED=1   # step 8 finished: the site checkout now claims what is served, so the trap leaves it
 # #1548: the pre-cut pointer backup lives under BUILD_ROOT, which the EXIT trap removes
 # on every path, so there is nothing to clean up in the site checkout here. (On a

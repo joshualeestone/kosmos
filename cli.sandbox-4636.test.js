@@ -94,11 +94,11 @@ const HAVE_LISTPIDS = fs.existsSync('/usr/bin/sandbox-exec') && (() => {
 // The CLI stops a board it launched from a blocked shell only on this evidence of a sandbox (ps denied).
 const PS_DENIED_IN_SANDBOX = HAVE_SANDBOX && require('node:child_process').spawnSync('/usr/bin/sandbox-exec', ['-p', SANDBOX, '/bin/ps', '-p', String(process.pid)], { timeout: 20000 }).status !== 0;
 
-function env(port, extra = {}, homeOut, pid) {
+function env(port, extra = {}, homeOut, pid, homeIn) {
   const e = { ...process.env, AGENT_WORKFORCE_DATA: path.join(ROOT, 'data') };
   for (const k of ['KOSMOS_AGENT_TOKEN', 'KOSMOS_AGENT_SESSION', 'TMUX_PANE', 'KOSMOS_RECLAIM_BUSY', 'http_proxy', 'HTTP_PROXY',
     'https_proxy', 'HTTPS_PROXY', 'ALL_PROXY', 'all_proxy', 'NO_PROXY', 'no_proxy']) delete e[k];
-  const home = fs.mkdtempSync(path.join(ROOT, 'home-'));
+  const home = homeIn || fs.mkdtempSync(path.join(ROOT, 'home-'));   // homeIn: a home the board already runs from
   if (homeOut) homeOut.home = home;
   // A real board's pid is in board.pid (board-run writes it); the unreachable words say "Kosmos" only for it.
   if (pid) fs.writeFileSync(path.join(home, 'board.pid'), String(pid));
@@ -116,9 +116,9 @@ function run(cli, args, e, sandboxed) {   // sandboxed: true (SANDBOX) or a prof
   }));
 }
 /** A stub board in its own process; fn(port) runs while it is up. Returns fn's result and whether the board died. */
-async function withBoard(mode, fn) {
+async function withBoard(mode, fn, script = STUB) {
   // exit code not read (#3628): this is the stub BOARD, not the CLI under test; an early exit is caught below.
-  const child = spawn(process.execPath, [STUB, mode], { stdio: ['ignore', 'pipe', 'ignore'] });
+  const child = spawn(process.execPath, [script, mode], { stdio: ['ignore', 'pipe', 'ignore'] });
   let died = false;
   child.on('exit', () => { died = true; });
   try {
@@ -156,12 +156,28 @@ async function makeInstall() {
 }
 const START_ADVICE = /Start it with|kosmos start|kosmos restart/;
 
+/* #4679 (merged after this test was written) reclaims only THIS install's board: one running
+   $KOSMOS_HOME/app/server.js. A stale board of ours runs from there, so the hung stub is copied into the home it is
+   reclaimed from and run from that path. */
+function ownBoardHome() {
+  const home = fs.mkdtempSync(path.join(ROOT, 'home-'));
+  fs.mkdirSync(path.join(home, 'app'), { recursive: true });
+  fs.copyFileSync(STUB, path.join(home, 'app', 'server.js'));
+  return home;
+}
+
 test('a truly HUNG board is still reclaimed by the watchdog start, with or without a proxy', async () => {
   for (const extra of [{}, { http_proxy: DEAD_PROXY }]) {
-    const r = await withBoard('hang', (p) => run(CLI, ['start'], env(p, { KOSMOS_RECLAIM_BUSY: '1', ...extra })));
+    const home = ownBoardHome();
+    const r = await withBoard('hang', (p) => run(CLI, ['start'], env(p, { KOSMOS_RECLAIM_BUSY: '1', ...extra }, null, null, home)),
+      path.join(home, 'app', 'server.js'));
     assert.equal(r.died, true, JSON.stringify(extra) + ': a hung board was not recovered: ' + r.out);
     assert.match(r.out, /stale Kosmos/);
   }
+  // CONTROL (#4679): the same hung board NOT recorded by this install is another install's, and is left alone.
+  const other = await withBoard('hang', (p) => run(CLI, ['start'], env(p, { KOSMOS_RECLAIM_BUSY: '1' })));
+  assert.equal(other.died, false, 'another install\'s hung board was killed: ' + other.out);
+  assert.match(other.out, /Another Kosmos install of yours/);
 });
 
 test('a person\'s start on a hung board still says busy and leaves it alone (the #4466 rule, unchanged)', async () => {
@@ -393,6 +409,7 @@ source "${CLI}"
   case " $* " in *" -i4TCP:"*) printf '%s' "$LSOF_OUT" ;; *) printf 'p999\\ncnode\\nn*:%s\\n' "$PORT" ;; esac
 }
 _lsof_present() { return 0; }
+_lsof_cmd() { printf '/usr/sbin/lsof'; }   # #5432: name the stub; Linux keeps lsof at /usr/bin, which the lookup would pick
 if o="$(_ipv4_listener)"; then echo "found=[$o]"; else echo "none"; fi
 `;
   // exit code not read (#3628): asserts stdout / stderr output of bash script, not its exit code

@@ -85,7 +85,7 @@ board-auth model, install/update, multi-world ("Kosmos") switching, and provider
 | See which browser checks a page PR runs, and why (#4119) | `node tools/bc-pr-select.js origin/main HEAD`; the PR job runs the fixed allowlist plus that selection. How a check is selected: the tool's header and `docs/browser-checks/README.md` |
 | Find the data root / Application Support path | `engine/store.js` (`store.ROOT`) |
 | Work on multi-Kosmos switching | `engine/worlds.js`, `engine/worldenv.js`, `engine/worldbootguard.js`, `engine/boardrestart.js`; the switch route in `server.js` (`/api/worlds/active`) |
-| Work on a Kosmos's agents (named worlds) | `engine/launchidentity.js` (the world-keyed task / label / session key), `engine/worldstarts.js` (starting a Kosmos's paused and imported agents when it opens), `engine/worldimport.js` (copying agents from one Kosmos into another), `engine/outbox.js` (a kept-running agent's sends, kept in its own Kosmos until that Kosmos is open again); the routes `/api/worlds/import` and `/api/worlds/list` in `server.js` |
+| Work on a Kosmos's agents (named worlds) | `engine/launchidentity.js` (the world-keyed task / label / session key), `engine/worldstarts.js` (starting a Kosmos's paused and imported agents when it opens), `engine/worldimport.js` (copying agents from one Kosmos into another), `engine/outbox.js` (a kept-running agent's sends, kept in its own Kosmos until that Kosmos is open again), `engine/worldview.js` (one view across every Kosmos: tasks nobody is on, and the open one's provider state); the routes `/api/worlds/import`, `/api/worlds/list` and `/api/worlds/overview` in `server.js` |
 | Add a provider (account module or session reader) | Per-account creds + live check: `engine/claudeaccounts.js`, `engine/openaiaccounts.js`, `engine/geminiaccounts.js`, `engine/grokaccounts.js` (each an account = a directory with a key file / sign-in). Session transcript readers: `engine/codexsession.js`, `engine/geminisession.js`, `engine/groksession.js`, `engine/agysession.js` (Antigravity's conversation SQLite, read-only, #4039). A Gemini model's assumed window: `assumedGeminiWindow` in `engine/status.js`. Live auth probe: `engine/authprobe.js`. The account env var per runner is `engine/accountenv.js`; the supervisor injects a per-account key in `bin/agent-supervisor.sh`. Antigravity (`agy`, #3568, behind `AGENT_WORKFORCE_ANTIGRAVITY=1`): its Google sign-in is driven out of sight by `engine/agysignin.js` (a tmux session on its own socket; the person pastes Google's code into Kosmos, #3998; the hidden-tmux plumbing it shares with other sign-ins, such as the socket, the tmux call and the live-execution gate, is `engine/tmuxsignin.js`, #4195), and Settings lists it as a Gemini subscription row from `engine/agystatus.js`'s remembered last answer; its folder-trust pre-answer is `engine/agytrust.js`, which also holds agy's dir (`agyHome`, the one derivation); its status hooks (Working / Idle / Needs you, #4043) are written into the agent folder's `.agents/hooks.json` by `engine/agyhooks.js` (the supervisor calls it before each launch), and for agents already running at board start by `engine/agyrefresh.js` (#4353) |
 | Warn before an agent's login expires | `engine/loginexpiry.js` (reads the keychain refresh-token expiry per account, keyed on CLAUDE_CONFIG_DIR set-vs-unset; per-account advisories); wired into `snapshot()` in `engine/status.js` as `loginAdvisories`; the board pill is `paintLoginAdvisories` in `web/index.html` |
 | Read a Claude account's weekly usage | `engine/kosmos-statusline.js` (the status line Claude Code runs; records `rate_limits.seven_day` into `<account dir>/kosmos-weekly.json`, forward-only, prints nothing), `engine/allowance.js` (`ensureStatusLine`, merge-only wiring; `readWeekly`; the tokens-per-point calibration, `calibrate` / `readCalibration`, stored in `<account dir>/kosmos-weekly-calibration.json`); wired by `accounts.prepare` and the report-hook block of `install/setup.sh`, named on uninstall (#3946). Which account an agent is on: `status.claudeAccountDirOf` |
@@ -227,13 +227,22 @@ from a night in this codebase, kosmos#2616.)
    (`grep -q 'only must come first' tools/run-tests.sh` finds nothing), it would run the whole suite, in either
    spelling.
 
-2. **Sandbox every root before any `require`.** Roughly two dozen modules freeze `store.ROOT`
-   at require time (the ONE data-root derivation, `engine/store.js`, kosmos#1848/#1856). Set
-   the `AGENT_WORKFORCE_*` root env before the first `require` of a store-using module, or
-   the module captures the wrong root. `engine/worldenv.js`'s header enumerates the ~26 frozen
-   modules across both capture shapes (`const BASE = store.ROOT` and
-   `path.join(store.ROOT, ...)`), and `engine/updating.js` (kosmos#988) documents the
-   require-ordering trap for consumers; `engine/store.js` owns the `store.ROOT` getter itself.
+2. **Sandbox every root before any `require`.** Dozens of modules freeze `store.ROOT` at require
+   time (38 module-level captures in 35 files, measured 2026-10-06 for #5418; the derivation is
+   `engine/store.js`, kosmos#1848/#1856). Set the `AGENT_WORKFORCE_*` root env before the first
+   `require` of a store-using module, or the module captures the wrong root. Since #5418 a test
+   process (`node --test`, or `tools/run-tests.sh`) that reaches this machine's real root is given a
+   throwaway data root instead, so a missing sandbox no longer writes to a person's data root, but it
+   also no longer reads your fixtures: sandbox first. `KOSMOS_ALLOW_REAL_ROOT=1` lets a test read
+   the real root on purpose (`test-support/real-root-allowed.js`). It is inherited where
+   a marker is (NODE_TEST_CONTEXT, KOSMOS_TEST_RUN): a node board or CLI started from inside a test
+   also gets a throwaway data root, except under a direct `node --test --test-isolation=none`. Not covered: the
+   workers, projects and per-account roots, and shell code that derives the root itself
+   (`bin/agent-supervisor.sh`; #5428). `engine/worldenv.js`'s
+   header enumerates ~26 frozen modules (an incomplete list) across both capture shapes
+   (`const BASE = store.ROOT` and `path.join(store.ROOT, ...)`), and `engine/updating.js` (kosmos#988)
+   documents the require-ordering trap for consumers; `engine/store.js` owns the
+   `store.ROOT` getter itself.
 
 3. **Destructive/live actions fail closed by default; production opts in once.** A module that
    performs a real side effect (a `launchctl`/`tmux kill-session`, a delete) calls
