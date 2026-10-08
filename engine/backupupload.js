@@ -492,10 +492,17 @@ function parseManifestGrant(data, bytes, runPrefix) {
   return { ok: true, expiresAtMs, lifetimeMs: c.expiresS * 1000, upload: Object.assign(c.upload, { retainMs: c.retainMs }) };
 }
 
+/* A key's <org>/<account> (its first two segments), or null when it has fewer than three. */
+function ownerOf(key) {
+  const parts = String(key).split('/');
+  return parts.length >= 3 && parts[0] && parts[1] ? `${parts[0]}/${parts[1]}` : null;
+}
+
 /* Upload one sealed manifest. deps as uploadChunks. opts (both required):
      bucket   the bucket path its chunks are under (uploadChunks' `bucket`); the manifest goes there too
      chunks   every chunk it names, as [{ key, lockedUntilMs }] (for this run's chunks, uploadChunks' keys and
-              lockedUntil; for chunks stored by an earlier run, the caller's record), at least one. From these the
+              lockedUntil; for chunks stored by an earlier run, the caller's record), at least one, all under one
+              <org>/<account> key path (the manifest's own key must be under it too). From these the
               uploader takes the EARLIEST lock end itself (a manifest locked past it would name chunks that can be
               gone) and the keys (a manifest grant naming one is refused, since a 412 on it would read as the
               manifest stored). The lock check refuses before the grant when THIS MAC'S clock already shows it,
@@ -519,12 +526,12 @@ function parseManifestGrant(data, bytes, runPrefix) {
 async function uploadManifest(deps, bytes, opts) {
   // What has happened so far, for an unexpected throw: a grant answered (its allowance spent), and the key of an
   // upload whose write may have landed, so the caller is never told less than the inner code knew.
-  const st = { granted: false, unsureKey: null };
+  const st = { asked: false, granted: false, unsureKey: null };
   try {
     return await uploadManifestInner(deps, bytes, opts || {}, st);
   } catch (err) {
     return Object.assign({ ok: false, because: `the manifest uploader failed: ${(err && err.message) || err}` },
-      st.granted ? { grantSpent: true } : {}, st.unsureKey ? { unsure: [{ key: st.unsureKey }] } : {});
+      st.granted ? { grantSpent: true } : st.asked ? {} : { grantSpent: false }, st.unsureKey ? { unsure: [{ key: st.unsureKey }] } : {});
   }
 }
 async function uploadManifestInner(deps, bytes, o, st) {
@@ -563,11 +570,19 @@ async function uploadManifestInner(deps, bytes, o, st) {
     floor = Math.min(floor, c.lockedUntilMs);
   }
   if (!avoid.size) return { ok: false, grantSpent: false, because: 'a manifest must name at least one chunk' };
+  // Every key the coordinator builds is <org>/<account>/<epoch>/<period>/<random>, from the authenticated member. The
+  // chunks must share one <org>/<account>, and the manifest's key must too (checked as it arrives): a coordinator bug
+  // cannot file this member's manifest under another member's path. (Not the epoch or period: a manifest may name
+  // chunks from the period before.)
+  const owners = new Set([...avoid].map(ownerOf));
+  if (owners.has(null) || owners.size !== 1) return { ok: false, grantSpent: false, because: "the manifest's chunk keys are not all under one <org>/<account> path" };
+  const owner = [...owners][0];
   if (floor < now() + MANIFEST_LOCK_FLOOR_MS + GRANT_WINDOW_MS) return { ok: false, outlastsChunks: true, grantSpent: false, because: `a manifest granted now stays locked past ${new Date(floor).toISOString()}, when the earliest chunk it names may be gone; upload those chunks again first` };
   const timeoutMs = Number.isFinite(o.putTimeoutMs) && o.putTimeoutMs > 0 ? o.putTimeoutMs : putTimeoutFor(bytes.length, 1);
   const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
   for (let grants = 0; grants <= MAX_REGRANTS; grants++) {
     const asked = now();
+    st.asked = true;
     const g = await askSigned(deps.macRequest, MANIFEST_ROUTE,
       () => ({ sha256, size: bytes.length, nonce: crypto.randomBytes(16).toString('hex') }),
       (d) => parseManifestGrant(d, bytes, o.bucket));
@@ -580,6 +595,7 @@ async function uploadManifestInner(deps, bytes, o, st) {
     const up = g.upload;
     if (avoid.has(up.key)) return { ok: false, grantSpent: true, because: 'the manifest grant names a key it must not write (a chunk key, or a key an earlier manifest grant gave); nothing was sent (this grant\'s allowance is spent)' };
     avoid.add(up.key);
+    if (ownerOf(up.key) !== owner) return { ok: false, grantSpent: true, because: `the manifest grant's key is not under its chunks' path (${owner}/); nothing was sent (this grant's allowance is spent)` };
     if (up.retainMs > floor) return { ok: false, outlastsChunks: true, grantSpent: true, because: `the manifest grant locks until ${new Date(up.retainMs).toISOString()}, past the earliest chunk it names (${new Date(floor).toISOString()}); nothing was sent (this grant's allowance is spent)` };
     const deadline = asked + g.lifetimeMs - 10 * 1000;
     let troubled = false, preOnly = false, cleanRanOut = false;

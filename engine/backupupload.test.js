@@ -1128,7 +1128,7 @@ test('the manifest takes the EARLIEST lock end among its chunks itself (a later 
   try {
     const floor = Math.floor((Date.now() + 35 * DAY) / 1000) * 1000;
     const mc = manifestCoordinator(b, { retainMs: () => floor + 1000 });
-    const chunks = [...oneChunk(floor + 2 * DAY, 'org1/late'), ...oneChunk(floor, 'org1/early')];
+    const chunks = [...oneChunk(floor + 2 * DAY, 'org1/acct1/1/2026-W41/late'), ...oneChunk(floor, 'org1/acct1/1/2026-W41/early')];
     const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunks }));
     assert.strictEqual(r.ok, false); assert.strictEqual(r.outlastsChunks, true); assert.strictEqual(r.grantSpent, true);
     assert.strictEqual(b.puts, 0);
@@ -1279,13 +1279,13 @@ test('an unexpected throw after a write that may have landed still reports grant
     assert.deepStrictEqual(r.unsure, [{ key: mKey(1) }]);
   } finally { await b.close(); }
   // CONTROL: a throw that escapes before any grant (deps.now, which askSigned does not wrap) reaches the same catch
-  // and reports neither.
+  // and reports no spend (grantSpent false) and no unsure key.
   let asked = 0;
   const r2 = await up.uploadManifest({ macRequest: async () => { asked++; return { ok: false, because: 'x' }; }, fetch, sleep: async () => {}, now: () => { throw new Error('early'); } },
     manifestBytes(), { bucket: '127.0.0.1:1/bucket/', chunks: oneChunk() });
   assert.strictEqual(r2.ok, false); assert.match(r2.because, /manifest uploader failed: early/);
   assert.strictEqual(asked, 0);
-  assert.strictEqual(r2.grantSpent, undefined); assert.strictEqual(r2.unsure, undefined);
+  assert.strictEqual(r2.grantSpent, false); assert.strictEqual(r2.unsure, undefined);
 });
 
 test('a re-grant request that fails after a grant ran out cleanly still says grantSpent (the first grant answered)', async () => {
@@ -1300,5 +1300,41 @@ test('a re-grant request that fails after a grant ran out cleanly still says gra
     assert.strictEqual(r.ok, false); assert.strictEqual(r.code, 'backup_quota');
     assert.strictEqual(r.grantSpent, true);
     assert.strictEqual(n, 2);
+  } finally { await b.close(); }
+});
+
+test('a manifest key under another <org>/<account> than its chunks is refused before its PUT; chunks under two owners are refused before any grant', async () => {
+  let b = await bucket();
+  try {
+    const mc = manifestCoordinator(b, { tamper: (d) => { d.upload.key = d.upload.key.replace('org1/acct1/', 'org1/acct2/'); d.upload.url = d.upload.url.replace('org1/acct1/', 'org1/acct2/'); } });
+    const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b));
+    assert.strictEqual(r.ok, false); assert.match(r.because, /not under its chunks' path \(org1\/acct1\/\)/);
+    assert.strictEqual(r.grantSpent, true); assert.strictEqual(b.puts, 0);
+    // CONTROL: the same key layout under the chunks' own path is stored.
+    const ok = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b));
+    assert.strictEqual(ok.ok, true, ok.because);
+  } finally { await b.close(); }
+  b = await bucket();
+  try {
+    const mc = manifestCoordinator(b);
+    const two = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunks: [...oneChunk(undefined, 'org1/acct1/1/W/a'), ...oneChunk(undefined, 'org1/acct2/1/W/b')] }));
+    assert.strictEqual(two.ok, false); assert.match(two.because, /not all under one <org>\/<account> path/); assert.strictEqual(two.grantSpent, false);
+    const short = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunks: oneChunk(undefined, 'org1/a') }));
+    assert.strictEqual(short.ok, false); assert.match(short.because, /not all under one/);
+    assert.strictEqual(mc.bodies.length, 0);
+  } finally { await b.close(); }
+});
+
+test('an unexpected throw before any grant was asked for says grantSpent: false; after asking, absent', async () => {
+  // now() throws on its first call (the plausibility check), before any grant.
+  const r = await up.uploadManifest({ macRequest: async () => ({ ok: false, because: 'x' }), fetch, sleep: async () => {}, now: () => { throw new Error('early'); } },
+    manifestBytes(), { bucket: '127.0.0.1:1/bucket/', chunks: oneChunk() });
+  assert.strictEqual(r.ok, false); assert.strictEqual(r.grantSpent, false);
+  // The parser throwing on the grant's answer: asked, answer not accepted, so absent (it may have spent one).
+  const b = await bucket();
+  try {
+    const r2 = await up.uploadManifest(deps({ macRequest: async () => ({ ok: true, data: { get expires_at() { throw new Error('bad answer'); } } }) }), manifestBytes(), mOpts(b));
+    assert.strictEqual(r2.ok, false); assert.match(r2.because, /manifest uploader failed: bad answer/);
+    assert.strictEqual(r2.grantSpent, undefined);
   } finally { await b.close(); }
 });
