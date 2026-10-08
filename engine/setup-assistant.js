@@ -991,8 +991,9 @@ function refreshTokenOnlyGuards(deps = {}) {
     if (g.ok) out.guarded.push(name); else out.unguarded.push({ name, because: g.because });
   }
   /* Review 21: the person's own user settings (~/.claude, ~/.claude-<label>) also reach a token-only agent. They are
-     the person's, so the guard never edits them; it says when one holds a key that weakens the sandbox. */
-  if (out.guarded.length) {
+     the person's, so the guard never edits them; it says when one holds a key that weakens the sandbox. Board start
+     only, not at each launch (review 22). */
+  if (out.guarded.length && !deps.only) {
     for (const h of accountConfigHomes(deps.home || kosmosHome())) {
       for (const f of ['settings.json', 'settings.local.json']) {
         let j = null;
@@ -1020,7 +1021,7 @@ function refreshTokenOnlyGuards(deps = {}) {
   if (noFolder.length) process.stderr.write('#4491 note: listed as token-only but no agent folder (nothing to guard yet): ' + noFolder.map((u) => u.name).join(', ') + '\n');
   // The managed-belt warning is a macOS-only concern: off darwin no sandbox block is written and
   // managed-settings does not apply, so warning there would be misleading.
-  if (out.guarded.length && platform === 'darwin' && !out.managed) {
+  if (out.guarded.length && platform === 'darwin' && !out.managed && !deps.only) {   // board start only, not each launch (review 22)
     process.stderr.write('#4491: ' + out.guarded.length + ' token-only agent(s) guarded by per-agent settings only; the root-owned managed-settings belt is absent, so the guard is defense-in-depth (see card #4491).\n');
   }
   return out;

@@ -547,3 +547,27 @@ test('#4491 review 22: refreshTokenOnlyGuards({ only }) guards just that listed 
   assert.equal(fs.existsSync(path.join(a, '.claude', 'settings.json')), false, 'the other listed agent was guarded too');
   assert.equal(fs.existsSync(path.join(b, '.claude', 'settings.json')), true, 'CONTROL: the named agent was not guarded');
 });
+
+test('#4491 review 22: the supervisor guards a listed agent at launch (its own snippet, run as written)', () => {
+  const sup = fs.readFileSync(path.join(__dirname, '..', 'bin', 'agent-supervisor.sh'), 'utf8');
+  const at = sup.indexOf('#4491 review 22: write (or confirm) its guard now');
+  assert.ok(at > 0, 'the launch-time guard is gone from the supervisor');
+  const sw = sup.lastIndexOf('SECRET_ENV+=("KOSMOS_AGENT_TOKEN_ONLY=1")', at);
+  assert.ok(sw > 0 && at - sw < 400, 'the launch-time guard is not beside the token-only switch');
+  const open = sup.indexOf("-e '", at) + 4;
+  const close = sup.indexOf("' \"$_eng/setup-assistant.js\" \"$_roster\"", open);
+  assert.ok(open > 4 && close > open, 'could not find the snippet');
+  const snippet = sup.slice(open, close);
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['r22sup'] }) + '\n');
+  const dir = agentDir('r22sup');
+  fs.mkdirSync(dir, { recursive: true });
+  const shim = path.join(SANDBOX, 'r22shim.js');
+  // The board resolves the agent folder and runner itself; the shim points them at this sandbox.
+  fs.writeFileSync(shim, `const s = require(${JSON.stringify(path.join(__dirname, 'setup-assistant.js'))}); const real = s.refreshTokenOnlyGuards;
+    s.refreshTokenOnlyGuards = (d) => real({ ...d, ...${JSON.stringify({ platform: 'darwin', home: process.env.AGENT_WORKFORCE_HOME })}, runnerOf: () => 'claude', workerDir: () => ${JSON.stringify(dir)} }); module.exports = s;`);
+  const r = require('child_process').spawnSync(process.execPath, ['-e', snippet, shim, 'r22sup'], { env: process.env, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stderr, '', 'the launch said the agent is not guarded: ' + r.stderr);
+  assert.ok(fs.existsSync(path.join(dir, '.claude', 'settings.json')), 'the launch did not write the guard');
+  fs.rmSync(shim, { force: true });
+});
