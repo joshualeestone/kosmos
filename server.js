@@ -21523,18 +21523,18 @@ function start(port = PORT) {
               phonenotify.happened({ kind: 'needs_you', id: 'crashloop:' + key + ':' + c.firstAt, agent: shown, session: key, project: null });
             },
           });
-          /* #5154 slice C: the stuck-terminal sweep, over the SAME roster read. stuckterminal.tellStuck is the
-             ONLY writer of the on-disk anchor: it advances/clears each agent's terminal-error anchor, tells the
-             person ONCE per episode when it crosses the threshold (naming the error), and clears the told-mark on
-             recovery. Lifecycle-forget of a removed agent is stuckterminal.forget (wired into create/remove/
-             delete-leftover beside crashloop.forget), NOT a roster prune -- so a failed roster read never wipes a
-             stuck agent's clock. Skipped entirely on a failed snapshot (roster === null). Precedence is
-             structural: an agent showing its OWN needs_you is, by status.js's classification, not in a terminal
-             error here, so this can never mask the agent's own question. */
-          if (Array.isArray(roster)) stuckterminal.tellStuck({
-            rows: roster.filter((a) => a && a.sessionName && a.isNamedOurs)
-                        .map((a) => ({ key: a.sessionName, state: a.state, shown: a.name || a.sessionName })),
-            told: STUCK_TOLD, now: Date.now(),
+          /* #5154 slice C: the stuck-terminal sweep, over the SAME roster read. sweepRoster is the single
+             entry point (pinned by stuckterminal.test.js, review 5): it owns the null-skip SAFETY INVARIANT
+             (a FAILED snapshot, roster === null, never advances or prunes an anchor -- only a genuinely empty
+             [] prunes) and the our-own-named-agents filter, then hands the mapped rows to tellStuck, the ONLY
+             writer of the on-disk anchor -- which advances/clears each anchor, tells the person ONCE per
+             episode at the threshold (naming the error), clears the told-mark on recovery, and prunes a
+             departed agent's anchor on a good roster. Lifecycle-forget of a removed agent is
+             stuckterminal.forget (wired into create/remove/delete-leftover beside crashloop.forget).
+             Precedence is structural: an agent showing its OWN needs_you is, by status.js's classification,
+             not in a terminal error here, so this can never mask the agent's own question. */
+          stuckterminal.sweepRoster({
+            roster: roster, told: STUCK_TOLD, now: Date.now(),
             tell: (key, r, shown) => {
               process.stdout.write(`stuck-terminal: ${shown} (${key}) stuck on ${r.state} for ${Math.round(r.forMs / 60000)} min; told the person\n`);
               phonenotify.happened({ kind: 'needs_you', id: 'stuckterminal:' + key + ':' + r.sinceAt, agent: shown, session: key, project: null });
