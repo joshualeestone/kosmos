@@ -47153,9 +47153,9 @@ async function plusOrgPost(kind, body) {
 async function plusOrgCheck() {
   const msg = document.getElementById('plus-org-msg');
   const code = document.getElementById('plus-org-code').value.trim();
+  if (PLUS_ORG.busy) return;   // one check at a time; a second press leaves the message as it is (review 29)
   msg.textContent = '';
   if (!code) { msg.textContent = 'Type or paste the join code your company sent you.'; return; }
-  if (PLUS_ORG.busy) return;   // one check at a time
   PLUS_ORG.busy = true;
   const r = await plusOrgPost('preview', { code });
   PLUS_ORG.busy = false;

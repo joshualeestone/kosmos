@@ -20588,7 +20588,8 @@ function start(port = PORT) {
      stops reporting at once if not. Only a world with an enrollment asks: one that never joined sends nothing. */
   orgEnrollRefresh();
   setInterval(orgEnrollRefresh, ORG_REFRESH_MS).unref();
-  setInterval(() => { try { if (require('./engine/orgenroll').joinUnknown()) orgEnrollRefresh(); } catch { /* best effort */ } }, ORG_UNSURE_MS).unref();
+  // Fast only for a day: a marker that stays unclear that long (Kosmos+ switched off, say) falls back to the daily pass.
+  setInterval(() => { try { const oe = require('./engine/orgenroll'); const age = oe.joinUnknownAge(); if (oe.joinUnknown() && (age === null || age < 24 * 60 * 60 * 1000)) orgEnrollRefresh(); } catch { /* best effort */ } }, ORG_UNSURE_MS).unref();
   /* #4408: what this board is running, taken now, before anything can edit the app folder under it. The
      restart module is loaded first: it is otherwise required lazily, and the button depends on it. */
   try { require('./engine/boardrestart'); } catch { /* the restart route reports its own failure */ }

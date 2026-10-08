@@ -685,6 +685,12 @@ test('#5531 review 25: a join whose outcome is unknown is kept, and the next pas
   await org.enroll('ACME-JOIN-1234', true, { root: b, remote: co(b) });
   assert.ok(org.joinUnknown({ root: b }), 'CONTROL: the second world has a marker');
   status = () => ({ ok: true, data: { member: false } });
+  // Review 29: too soon after the timeout, "not bound" is not final: the marker stays.
+  await org.refresh({ root: b, remote: co(b) });
+  assert.ok(org.joinUnknown({ root: b }), 'a status read straight after the timeout settled the join as never made');
+  // Old enough: settled as not made.
+  const mk = path.join(b, 'org-join-unknown.json');
+  fs.writeFileSync(mk, JSON.stringify(Object.assign(JSON.parse(fs.readFileSync(mk, 'utf8')), { at: new Date(Date.now() - org.SETTLE_AFTER_MS - 1000).toISOString() })));
   await org.refresh({ root: b, remote: co(b) });
   assert.equal(org.joinUnknown({ root: b }), null, 'a join the company never made kept being asked about');
   assert.equal(org.isEnrolledHere({ root: b }), false);

@@ -363,3 +363,13 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
   now (the timed-out path then stays UNKNOWN and is settled later). Both pinned; each mutation reddens.
 - Kept (nits): a re-adopted record shows as joined though it may not report (no sender exists yet; E0.3 decides how
   to show it); no Leave while a join is unknown (consistent: nothing is recorded); the stopped note is said once.
+
+## Review 29
+- The 2-minute timer counts from board start, so a settle could run seconds after the timeout and take "not bound" as
+  final: the read review 27 guarded against. A marker is settled as NOT made only once it is SETTLE_AFTER_MS (2 min)
+  old; "made here" is still recorded at once. Pinned (a fresh marker survives a member:false answer; an aged one is
+  cleared); removing the age gate reddens it.
+- The "not known yet" sentence promised the screen would show what the follow-up learns, but only "joined" shows.
+  It now says: if joining went through, this screen will show it.
+- The fast follow-up stops after a day (an unclear marker that long, say Kosmos+ off, falls back to the daily pass).
+- A second Check while one is out no longer clears the message first.

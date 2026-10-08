@@ -302,5 +302,5 @@ test('#5531 review 26: an unknown join is asked about every few minutes while it
   const val = Function('return ' + ms[1])();
   assert.ok(val > 0 && val <= 5 * 60 * 1000, 'the follow-up is slower than the few minutes the person is told: ' + val);
   const start = src.slice(src.indexOf('function start(port = PORT)'));
-  assert.match(start.slice(0, 4000), /setInterval\(\(\) => \{ try \{ if \(require\('\.\/engine\/orgenroll'\)\.joinUnknown\(\)\) orgEnrollRefresh\(\);/, 'start() does not run the short follow-up only while the marker exists');
+  assert.match(start.slice(0, 4000), /if \(oe\.joinUnknown\(\) && \(age === null \|\| age < 24 \* 60 \* 60 \* 1000\)\) orgEnrollRefresh\(\);/, 'start() does not run the short follow-up only while the marker exists (and only for a day)');
 });

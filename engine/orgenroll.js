@@ -35,6 +35,9 @@ const ROUTES = Object.freeze({
 });
 const WORLD_ID_FILE = 'org-world-id';
 const ENROLLMENT_FILE = 'org-enrollment.json';
+/* A join's outcome is settled as NOT made only once the marker is this old: a status read sooner can come before the
+   company saved the join (review 29). A join found made here is recorded at once. */
+const SETTLE_AFTER_MS = 2 * 60 * 1000;
 const JOIN_UNKNOWN_FILE = 'org-join-unknown.json';   // { at, consentHash, move }: a join whose outcome is not known yet (review 25)
 const LEAVE_REFUSED_FILE = 'org-leave-refused.json';   // { at, name }: a retried leave was refused as the last admin (the screen says so once)
 const STOPPED_FILE = 'org-stopped.json';   // { at, name }: the company stopped naming this world (the screen says so once)
@@ -272,7 +275,7 @@ async function enrollNow(code, accepted, opts) {
     if (verdict !== 'here') {
       const hash = opts && typeof opts.consentHash === 'string' && /^[0-9a-f]{64}$/.test(opts.consentHash) ? opts.consentHash : null;
       setJoinUnknown({ consentHash: hash, move }, opts);
-      return { ok: false, unknown: true, code: 'org_join_unknown', because: 'It is not known yet whether joining went through. This Kosmos will ask your company again in a few minutes, and this screen will show what it learns.' };
+      return { ok: false, unknown: true, code: 'org_join_unknown', because: 'It is not known yet whether joining went through. This Kosmos will ask your company again in a few minutes; if joining went through, this screen will show it.' };
     }
     r = { ok: true, data: st.data };
   }
@@ -330,6 +333,7 @@ function setJoinUnknown(info, opts) {
     fs.writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), consentHash: info.consentHash || null, move: info.move === true }) + '\n', { mode: 0o600 });
   } catch { /* best effort */ }
 }
+function joinUnknownAge(opts) { const j = joinUnknown(opts); const t = j ? Date.parse(j.at || '') : NaN; return Number.isFinite(t) ? Date.now() - t : null; }
 function joinUnknown(opts) {
   try { const j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), JOIN_UNKNOWN_FILE), 'utf8')); return j && typeof j === 'object' ? j : null; }
   catch { return null; }
@@ -378,6 +382,8 @@ async function settleUnknownJoin(unsure, opts) {
   const d = st.ok ? st.data : null;
   const verdict = statusVerdict(d, world);
   if (verdict === 'unclear') return { ok: false, enrolled: false, because: "Your company's answer was not complete." };
+  const age = Date.now() - Date.parse(unsure.at || '');
+  if (verdict !== 'here' && !(age >= SETTLE_AFTER_MS)) return { ok: false, enrolled: false, because: 'Too soon to say the join was not made.' };   // kept
   setJoinUnknown(null, opts);
   if (verdict === 'here') {
     const org = cleanOrg(d.org), role = cleanRole(d.role);
@@ -530,5 +536,5 @@ async function refreshNow(opts) {
 
 module.exports = {
   ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, codeOf,
-  worldId, readEnrollment, leavePending, joinUnknown, mayReport, stoppedFor, clearStopped, leaveRefusedFor, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh,
+  worldId, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh,
 };
