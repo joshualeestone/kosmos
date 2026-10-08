@@ -334,8 +334,8 @@ function realOr(p) { try { return fs.realpathSync.native(p); } catch { return pa
    On Windows Claude Code matches a rule against the path in POSIX form (its permissions docs: C:\Users\alice
    becomes /c/Users/alice), so a drive path is written that way: C:\Users\x becomes //c/Users/x. The native
    spelling (//C:\Users\x) is not a form its docs say it matches (not measured on Windows here). The extended-length
-   forms \\?\C:\ and \\?\UNC\host\share are written as their plain paths; the device form \\.\C:\ is not handled
-   (not a likely store). */
+   forms \\?\C:\ and \\?\UNC\host\share are written as their plain paths; the device form \\.\C:\ is refused by ruleUnwritable (said;
+   not a likely store). */
 function ruleAbs(p, platform = process.platform) {
   let s = String(p);
   if (platform === 'win32') {
@@ -414,13 +414,17 @@ function wasEntryRule(rule, base, platform = process.platform) {
 function finalDeny(kept, safe, refused, platform = process.platform) {
   // on Windows a path's case does not matter, so an old rule spelt in another case still reaches its refused new form
   const refusedLower = new Set([...refused].map((x) => x.toLowerCase()));
-  const seen = new Set();
+  // the native spellings the guide writes now, case-folded: a KEPT native rule equal to one of them but for case is the
+  // same rule spelt by an earlier writer, and the current spelling is the one kept. Only native rules (the old
+  // writer's spelling) are folded: a Bash rule or a new-form path is never folded into another rule.
+  const safeNative = new Set(safe.filter((r) => platform === 'win32' && /^Read\(\/\/[A-Za-z]:\\/.test(r)).map((r) => r.toLowerCase()));
+  const safeSet = new Set(safe);
   return [...new Set([...kept, ...safe])].filter((r) => {
     if (refused.has(r)) return false;
     if (platform === 'win32' && refusedLower.has(r.toLowerCase())) return false;   // a new-form rule spelt in another case
     if (platform === 'win32') { const eq = legacyWinEquivalent(r); if (eq && refusedLower.has(eq.toLowerCase())) return false; }
-    // on Windows one rule spelt in two cases (an old `//c:\` beside its `//C:\` twin) is kept once, so they do not pile up
-    if (platform === 'win32') { const k = r.toLowerCase(); if (seen.has(k)) return false; seen.add(k); }
+    // on Windows an old `//c:\` rule beside the `//C:\` twin written now is kept once, in the current spelling
+    if (platform === 'win32' && !safeSet.has(r) && safeNative.has(r.toLowerCase())) return false;
     return true;
   });
 }
@@ -511,6 +515,7 @@ function guardGuideFolder(dir, agentName, deps = {}) {
       const back = rulePath(m[1], plat);   // the inverse of ruleAbs, so a Windows rule reads back with its drive
       if (back === null) return true;      // a share's rule: the own-folder check does not apply (recorded in the plan)
       const target = realOr(back);
+      // case-sensitive is safe: an existing target is a realpath like `own`; a missing one cannot contain the guide
       if (own !== target && !own.startsWith(target.endsWith(path.sep) ? target : target + path.sep)) return true;
       process.stderr.write(`#4752: a rule that would take in the guide's own folder was left out: ${r}\n`);
       return false;

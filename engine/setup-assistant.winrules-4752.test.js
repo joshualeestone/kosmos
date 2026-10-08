@@ -30,7 +30,7 @@ test('#4752: CONTROL, a macOS or Linux path is unchanged', () => {
   assert.equal(sa.ruleAbs('/tmp/a\\b', 'darwin'), '//tmp/a\\b');
 });
 
-test('#4752: on THIS host (meaningful on the Windows job; trivially true elsewhere) every rule is in the documented form, and on Windows also has its native twin', (t) => {
+test('#4752: on THIS host every rule (its Windows assertions run on the Windows job only) is in the documented form, and on Windows also has its native twin', (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'winrules-'));
   t.after(() => removeTree(home));
   const rules = sa.guideDenyRules({ home, dataRoot: path.join(home, 'data'), worldsBase: path.join(home, 'base'), legacyRoots: [] });
@@ -201,6 +201,11 @@ test('#4752: a refusal reaches a new-form rule spelt in another case on Windows,
 test('#4752: on Windows one rule spelt in two cases is kept once; off Windows both stay', () => {
   const kept = ['Read(//c:\\Users\\a\\K/**)'];
   const safe = ['Read(//C:\\Users\\a\\K/**)', 'Read(//c/Users/a/K/**)'];
-  assert.deepEqual(sa.finalDeny(kept, safe, new Set(), 'win32'), ['Read(//c:\\Users\\a\\K/**)', 'Read(//c/Users/a/K/**)']);
+  assert.deepEqual(sa.finalDeny(kept, safe, new Set(), 'win32'), ['Read(//C:\\Users\\a\\K/**)', 'Read(//c/Users/a/K/**)'], 'the current spelling is not the one kept');
   assert.equal(sa.finalDeny(kept, safe, new Set(), 'darwin').length, 3, 'CONTROL: case folded off Windows');
+});
+
+test('#4752: on Windows a person\'s rule equal to a fresh one but for case is never folded into it (Bash, new-form paths)', () => {
+  const out = sa.finalDeny(['Bash(SET)', 'Read(//c/users/a/k/**)'], ['Bash(set)', 'Read(//c/Users/a/K/**)'], new Set(), 'win32');
+  for (const r of ['Bash(SET)', 'Read(//c/users/a/k/**)', 'Bash(set)', 'Read(//c/Users/a/K/**)']) assert.ok(out.includes(r), 'dropped: ' + r);
 });
