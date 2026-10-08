@@ -17,11 +17,16 @@
  * two terminal states below are, because they do not clear on their own on any useful timescale
  * (an expired login never self-heals; a rate limit can outlast a person's patience).
  *
- * ANCHOR IS IN-MEMORY: `a.state` is only the CURRENT state, so the caller keeps a Map (a "book", like
- * server.js's CONNLOST_BOOK) recording when each agent entered its current terminal state. read()
- * updates that book each poll; no per-poll disk write (this runs on the 5s status path). Nothing here
- * freezes store.ROOT at require time, so the sandbox-every-root trap (convention #2) does not apply.
+ * ON DISK, like crashloop's run files (store.ROOT/stuck/<key>.json holding {state, sinceAt}), for ONE
+ * reason: `forget` must be reachable from engine/create.js, remove.js and delete-leftover.js so a
+ * removed-and-recreated agent of the same name never inherits the old episode's clock (the chief risk,
+ * and what slice A's forget-on-create guards). An in-memory Map in server.js cannot be reached from
+ * those modules. `dir()` reads store.ROOT at call time, never at require (convention #2): nothing here
+ * freezes the root.
  */
+const fs = require('node:fs');
+const path = require('node:path');
+const store = require('./store');
 
 // The terminal states this bounds. NOT connection_lost (transient) and NOT needs_you (the agent's own
 // question, which must never be masked -- precedence rule). Spellings match status.js STATE constants.
@@ -39,9 +44,32 @@ const STUCK_MS = Object.freeze({
 
 function isTerminal(state) { return TERMINAL_STATES.indexOf(state) !== -1; }
 
+function dir() { return path.join(store.ROOT, 'stuck'); }
+function fileFor(key) { return path.join(dir(), store.safeKey(key) + '.json'); }
+
+// The stored anchor for one agent, or null (absent/unreadable/malformed). Never throws.
+function readAnchor(key) {
+  let text;
+  try { text = fs.readFileSync(fileFor(key), 'utf8'); } catch { return null; }
+  try {
+    const a = JSON.parse(text);
+    if (a && isTerminal(a.state) && Number.isFinite(a.sinceAt)) return { state: a.state, sinceAt: a.sinceAt };
+  } catch { /* a malformed file reads as no anchor */ }
+  return null;
+}
+
+// Write the anchor (or delete the file when null). Never throws.
+function writeAnchor(key, anchor) {
+  try {
+    if (!anchor) { try { fs.unlinkSync(fileFor(key)); } catch { /* already gone */ } return; }
+    fs.mkdirSync(dir(), { recursive: true });
+    fs.writeFileSync(fileFor(key), JSON.stringify({ state: anchor.state, sinceAt: anchor.sinceAt }));
+  } catch { /* a board that cannot write its own data dir simply does not escalate; never fatal */ }
+}
+
 /*
  * The next anchor for an agent, given its recorded anchor and its CURRENT state. Pure.
- *  - not in a terminal state  -> null  (recovered, or never stuck: the caller clears the book entry)
+ *  - not in a terminal state  -> null  (recovered, or never stuck: the caller clears the file)
  *  - terminal, same as before  -> the SAME anchor (the error is continuing; the clock keeps running)
  *  - terminal, new/switched    -> a fresh anchor at `now` (a different error is a different episode)
  * An anchor is `{ state, sinceAt }`.
@@ -50,6 +78,12 @@ function nextAnchor(anchor, state, now) {
   if (!isTerminal(state)) return null;
   if (anchor && anchor.state === state) return anchor;
   return { state: state, sinceAt: now };
+}
+
+function sameAnchor(a, b) {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return a.state === b.state && a.sinceAt === b.sinceAt;
 }
 
 /*
@@ -64,47 +98,50 @@ function assess(anchor, now) {
 }
 
 /*
- * Update the in-memory book for this agent and return its assessment. The one call the 5s status path
- * makes. `book` is a Map the caller owns (so the state survives across polls but not across a restart,
- * which is correct: a restart re-reads the live state and re-anchors).
+ * Advance the stored anchor for this agent to its current state and return its assessment. The WRITER:
+ * only the 60s sweep calls this (via tellStuck). Writes only on a transition (enter / switch / recover),
+ * so a continuously-stuck agent costs one read and no write per tick.
  */
-function read(book, key, state, now) {
+function read(key, state, now) {
   if (now === undefined) now = Date.now();
-  const anchor = nextAnchor(book.get(key) || null, state, now);
-  if (anchor) book.set(key, anchor); else book.delete(key);
-  return assess(anchor, now);
+  const prev = readAnchor(key);
+  const next = nextAnchor(prev, state, now);
+  if (!sameAnchor(prev, next)) writeAnchor(key, next);
+  return assess(next, now);
 }
 
-/* Drop an agent's anchor (a removed/recreated agent never inherits an old episode -- as crashloop.forget). */
-function forget(book, key) { book.delete(key); }
+/* READ-ONLY: the current assessment without advancing the clock. /api/status calls this every poll. */
+function peek(key, now) {
+  if (now === undefined) now = Date.now();
+  return assess(readAnchor(key), now);
+}
+
+/* Drop an agent's anchor (a removed/recreated agent never inherits an old episode -- as crashloop.forget).
+   Wired into engine/create.js, remove.js and delete-leftover.js beside the crashloop.forget calls. */
+function forget(key) { writeAnchor(key, null); }
 
 /*
  * The once-per-episode sweep, encapsulated here so it is unit-testable (mirrors crashloop.tellLoops).
  * The caller (server.js, from the 60s tick) passes:
  *   - rows: the agents it runs this tick, each `{ key, state, shown }` (only agents we started).
- *   - book: the anchor Map (this is the ONE place it is written).
  *   - told: a Set tracking which agents have already been told THIS episode.
  *   - now: the clock.
  *   - tell(key, assessment, shown): the side effect (log + phone push). Called at most ONCE per episode.
- * Behaviour: advance/clear each agent's anchor; tell once when it first crosses the threshold; clear the
- * told-mark the moment it recovers, so a later episode tells again. Then prune the book and the told set of
- * any agent not in `rows` (removed/gone) -- this is slice C's lifecycle-forget, since the in-memory book is
- * reachable only from the sweep.
+ * Behaviour: advance/clear each agent's stored anchor; tell once when it first crosses the threshold;
+ * clear the told-mark the moment it recovers, so a later episode tells again. Lifecycle cleanup of a
+ * removed agent is `forget` (called from create/remove/delete), not a roster prune here -- so a failed
+ * roster read (empty `rows`) never wipes a genuinely-stuck agent's clock.
  */
-function tellStuck({ rows, book, told, now, tell }) {
-  const liveKeys = new Set();
+function tellStuck({ rows, told, now, tell }) {
   for (const row of rows || []) {
     if (!row || !row.key) continue;
-    liveKeys.add(row.key);
-    const r = read(book, row.key, row.state, now);
+    const r = read(row.key, row.state, now);
     if (r.stuck) {
       if (!told.has(row.key)) { told.add(row.key); tell(row.key, r, row.shown || row.key); }
     } else {
       told.delete(row.key);
     }
   }
-  for (const key of Array.from(book.keys())) if (!liveKeys.has(key)) book.delete(key);
-  for (const key of Array.from(told)) if (!liveKeys.has(key)) told.delete(key);
 }
 
-module.exports = { TERMINAL_STATES, STUCK_MS, isTerminal, nextAnchor, assess, read, forget, tellStuck };
+module.exports = { TERMINAL_STATES, STUCK_MS, isTerminal, dir, fileFor, readAnchor, writeAnchor, nextAnchor, sameAnchor, assess, read, peek, forget, tellStuck };
