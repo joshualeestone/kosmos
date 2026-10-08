@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: orgpolicy-5534
-diff_hash: 5213aa0f706db8efc09f3372176a56494d8fd6193c091c2a3c2f14f29d5ebf59
+diff_hash: ad28aab0ea89a2eceb90a5a7798d149802e095f571fe1b4d5cfa532df443b239
 validation: passed (focused: the 6 touched test files in full and 8 file-scanning guards, rebased on origin/main; the full suite runs in CI before merge)
 subdir_audit: passed
 timestamp: 2026-10-08T05:37:26Z
@@ -53,6 +53,9 @@ The change (Enterprise E0.5, board side, slice 1, #5534): the board verifies the
 
 #### Iteration 6 (sonnet)
 - Nothing above NIT. 23 of 24 mutations red. NITs stated in the plan.
+
+### After convergence
+- Windows CI: two switch tests now carry WIN_TASK_STUB like their siblings (test guard only; plan notes it). diff_hash recomputed.
 
 ### Not in this slice (on the card)
 Enrollment gate and leaving a company (E0.2), the coordinator storing the reported version (needs a consent line, E0.3), the AI policy text, the console (E0.4 #5533).
