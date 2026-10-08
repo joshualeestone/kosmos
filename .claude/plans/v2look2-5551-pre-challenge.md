@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: v2look2-5551
-diff_hash: b3672029610a9d5dea6423cb3e0b75803a01225df31cf994272c88c68819e1f3
+diff_hash: 8f623bfdb38f01af6a32efcbe7489b9881461606d8f0e00267eefef61611ec83
 validation: passed (validation_log PASSED for stack=typescript hash=b3672029610a, full tools/run-tests.sh incl. browser-check gates; render-newlook-4470.js 313/313 headless)
 subdir_audit: passed
-timestamp: 2026-10-08T20:54:19Z
+timestamp: 2026-10-08T22:03:28Z
 iterations: 2
 converged: true
 ---
@@ -29,3 +29,9 @@ converged: true
 **After review:** rebased onto main twice, after #5579's squash merge and again after #5600. Full validation passed on this head.
 
 **Weakest premise:** phone width. At 390px the 40px cog takes about 12px more from the project name, which already truncates.
+
+**Rebased onto main after #5620 (17:02):** CI's node suite had failed only on main's own break (#5554 vs #5534's tests:
+create.test.js and server.switch-model-5429.test.js would not load). A re-run would re-test the same broken merge
+commit, so this is a fresh push. This branch's own lines are unchanged; the local full validation ran on the previous
+base, and CI's full run on this head validates the rebased diff.
+
