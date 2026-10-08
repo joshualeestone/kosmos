@@ -124,7 +124,7 @@ red_once() {  # <cause> <message>
 # Read "<sha> <n>" from a count file; a damaged or foreign line counts from zero, never evaluates its text.
 count_for() {
   local f="$1" csha="" cn=""
-  read -r csha cn < "$f" 2>/dev/null || true
+  read -r csha cn 2>/dev/null < "$f" || true
   case "$cn" in ''|*[!0-9]*) cn=0 ;; esac
   if [ "$csha" = "$TARGET" ]; then echo "$cn"; else echo 0; fi
 }
@@ -163,7 +163,7 @@ now > "$STATE/heartbeat"
 # was gone). The deploy runs in its own process group, so it outlives such a kill. deploy.pid holds
 # "<pgid> <sha> <leader start time>", written at launch and removed when a tick accounts for the deploy,
 # so a file still here means nobody did. The start time is the identity check: a reused pid has another.
-if read -r opg osha ostart < "$STATE/deploy.pid" 2>/dev/null && [ -n "$opg" ]; then
+if read -r opg osha ostart 2>/dev/null < "$STATE/deploy.pid" && [ -n "$opg" ]; then
   if [ -n "$ostart" ] && [ "$(ps -o lstart= -p "$opg" 2>/dev/null | tr -s ' ' _)" = "$ostart" ]; then
     if [ $(( $(date +%s) - $(stat -f %m "$STATE/deploy.pid") )) -lt 1200 ]; then
       say "skip: the deploy of ${osha:0:9} from an earlier tick (process group $opg) is still running; this tick waits"
@@ -397,7 +397,7 @@ killed_tick() {
     stop_deploy
   fi
   rm -f "$STATE/deploy.pid"   # accounted for (above, or it had already ended)
-  tee -a "$LOG" < "$DOUT" 2>/dev/null
+  tee -a "$LOG" 2>/dev/null < "$DOUT"
   [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"
 }
 trap killed_tick EXIT

@@ -49,6 +49,7 @@ tick
 # 3) main unchanged: no deploy.
 tick
 { [ "$RC" = 0 ] && [ "$(ndeploys)" = 1 ]; } && pass "main unchanged: no deploy" || bad "redeployed an unchanged main (deploys=$(ndeploys))"
+printf '%s' "$OUT" | command grep -q "No such file" && bad "a quiet tick printed a missing-file error: $OUT" || pass "a quiet tick prints no error for the state files it has not made yet"
 
 # 4) a version pruned in the cut checkout is pruned here too; a non-versioned file here is kept.
 H2=$(advance two)
