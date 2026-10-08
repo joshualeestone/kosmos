@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: allowreport-5495
-diff_hash: bb82c9a20c7a643d51d3b9ee937859fb479f8e396e72a2bdbbfddcc534e902e9
+diff_hash: 9cb5ce239afb3f498eac23f05d5bdb4eecd9bc694a6c1e865fdc978c19673ce8
 validation: passed (full suite 16504 tests, 0 fail; its one shell red, the installer runnable-guard on this change, fixed and re-run clean; focused hook, guard and shell tests on the rebased head)
 subdir_audit: passed (no subdirectory CLAUDE.md in the diff)
 timestamp: 2026-10-07T23:36:28Z
@@ -87,3 +87,4 @@ node path (a folder passes) --> FIXED (d5244b70b) with a folder-as-node test; re
 - One source of truth: both hooks ask the real decide(); no copy of the protected-place rule (all)
 - Every failure falls back to needs-you, each with its own test (all)
 - Real hooks driven in tests, each allowed case with a no-env control (all)
+- Rebased onto origin/main after #5563 (13:22 CDT 2026-10-08). One conflict, tools/windows-tests.js ALSO_ROOT: main added tools.cleanup-fixture-tokens-5418.test.js, this branch added report-hook-allowed-5495.test.js; both kept. Built main + this branch with git merge-tree: engine.reachable adds nothing (only main's known costOf, #5600). diff_hash recomputed.
