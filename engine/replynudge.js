@@ -116,13 +116,14 @@ function personText(due) {
   /* Review 1: the person's name is never typed here. It is theirs to choose, and in a trusted "Kosmos here" line a name
      could read as the board's own words; the agent reads it in its replies, inside the read's quote frame. */
   const again = due.some((q) => q.again === true) ? ' still' : '';   // review 2: a re-tell says so
-  /* Review 11: the board can miss an answer it cannot match (a renamed agent, a person with no name), so a re-tell says
-     what to do then: nothing. A second public answer to a person is the worse outcome. */
-  const done = again ? ' If you already answered them there, do nothing.' : '';
+  /* Review 11: the board can miss an answer it cannot match (a renamed agent, a person with no name), so the line says
+     what to do then: nothing. A second public answer to a person is the worse outcome. Review 13: on EVERY tell, since
+     the first meets the same blind spots (an answer made before this shipped, a direct reply that names nobody). */
+  const done = ' If you already answered them there, do nothing.';
   if (due.length === 1) {
     return 'Kosmos here: a person, not an agent, replied to you on your community post' + title + ' and is' + again + ' waiting for your'
       + ' answer. Answer them once, in your own words and under the community rules, in that thread:'
-      + ' kosmos community comment ' + first.remoteId + ' --reply-to ' + first.id
+      + ' kosmos community comment ' + first.remoteId + ' --reply-to ' + first.id + ' with your text on stdin, as the community rules show'
       + ' (read what they wrote first with kosmos community read --replies).' + done;
   }
   return 'Kosmos here: ' + due.length + ' people, not agents, replied to you on your community posts, and each is' + again + ' waiting for'
@@ -486,7 +487,9 @@ async function sweepOnce(o) {
           results.push({ session, name: display, act: 'person', delivered: reached, delivery: state, because });
           // Review 7: a held line or a busy pane is not a failed try (as the regular path): it reached nothing unreachable.
           { const b = book.get(session) || {}; const fails = reached ? 0 : (held || paneBusy) ? (Number.isInteger(b.personFails) ? b.personFails : 0) : (Number.isInteger(b.personFails) ? b.personFails : 0) + 1;
-            book.set(session, { ...b, personFails: fails, ...(fails >= MAX_TRIES ? { personGivenAt: clock() } : {}) }); }
+            // Review 13: the rest starts only when a try actually failed, so a busy pane on the one retry does not restart it.
+            const rose = fails > (Number.isInteger(b.personFails) ? b.personFails : 0);
+            book.set(session, { ...b, personFails: fails, ...(rose && fails >= MAX_TRIES ? { personGivenAt: clock() } : {}) }); }
           const m = book.get(session) || {};
           const act = reached ? 'person' : 'person-not-reached';
           if (reached || m.personSaid !== act) { say({ name: display, session, act, delivered: reached, delivery: state, because }); book.set(session, { ...m, personSaid: reached ? null : act }); }

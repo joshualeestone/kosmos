@@ -221,3 +221,12 @@ the pick rule for Rule 2 (slice B) and the weakest premises are on the card (iss
   person record's whole-record restore states its premise (the pass is its only writer, deliver is not awaited).
 - Fixed (NIT): a shadowed name in the told-record rollback.
 - Left (NITs): the person record is rewritten each pass for lastSeen (small); the dense person branch (left inline).
+
+## Review 13 (opus)
+- Fixed (WARNINGs): every tell (not only a re-tell) says "If you already answered them there, do nothing.", since the
+  first meets the matcher's blind spots too; the person line's rest restarts only when a try actually failed (a busy
+  retry no longer restarts it). Tests: both, plus keepPersonBook across the regular path. Plants P7 (rest restarted on
+  busy), P8 (regular path wipes the person book), P9 (guard only on re-tells) each red one.
+- Fixed (NIT): the tell names the stdin form for the comment text.
+- Left (NITs): a failed told-record write lets the regular line name the top comment once more; a removed agent's
+  persons file stays on disk; the record is rewritten each pass.

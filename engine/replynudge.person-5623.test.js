@@ -225,3 +225,22 @@ test('#5623 review 5: the agent\'s later reply answers a person only when it is 
   const top = cm(PC, 'Dana', 10, { person: true, replies: [cm('b1', 'Bo', 15), cm('k4', 'Kim', 20, { replyToKey: 'bo' })] });
   assert.deepEqual(cr.personOwed([top], 'kim').map((o) => o.x.id), [PC], 'answering another agent in her thread counted as answering her');
 });
+
+test('#5623 review 13: every tell, first or again, says to do nothing if the agent already answered', () => {
+  for (const due of [[{ remoteId: POST, title: 'x', id: PC }], [{ remoteId: POST, id: PC, again: true }, { remoteId: POST, id: 'c2' }]]) {
+    assert.match(rn.personText(due), /If you already answered them there, do nothing\./, JSON.stringify(due));
+  }
+});
+
+test('#5623 review 13: the person line\'s rest survives the regular line, and a busy retry does not restart it', async () => {
+  let n = 0; let now = 1e12;
+  const { o, typed } = rig({ clock: () => now, deliver: (s, text) => { typed.push(text); n += 1; return { state: n <= rn.MAX_TRIES ? D.COULD_NOT : D.PLACED }; } });
+  for (let i = 0; i < rn.MAX_TRIES + 1; i += 1) await rn.sweepOnce(o);
+  const b = o.book.get('kim') || {};
+  assert.ok(b.personFails >= rn.MAX_TRIES && Number.isFinite(b.personGivenAt), 'the regular line wiped the person line\'s rest: ' + JSON.stringify(b));
+  const given = b.personGivenAt;
+  now += rn.GIVE_UP_FOR_MS + 1;
+  o.deliver = (s, text) => { typed.push(text); return { state: D.COULD_NOT, busy: true }; };
+  await rn.sweepOnce(o);
+  assert.equal(o.book.get('kim').personGivenAt, given, 'a busy pane on the retry restarted the rest');
+});
