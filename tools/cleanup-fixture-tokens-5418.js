@@ -26,8 +26,10 @@
  *     and its display name. A spelling too many keeps a file; a spelling too few would delete a live one.
  *   - beyond the roster, a key with a heartbeat (liveness) record of ANY age is kept: a remote agent reports
  *     through that path, and one minted before #4530 carries no launcher tag to keep it by.
- *   - no roster, an empty one, or no board token to send stops the tool before planning. The real tie between
- *     the board on that port and this store is the board token: a board refuses a token that is not its own.
+ *   - no roster, an empty one, or no board token to send stops the tool before planning. The tie between the
+ *     board on that port and this store is the board token, and it is only as strong as that board's enforcement
+ *     of it: a board that does not enforce its token (a sandbox) would answer anyone. Hence the backstop below, and
+ *     the person reading every "remove" line.
  *     A roster matching NONE of the store's token files also stops it, as a backstop for a board that does not
  *     enforce its token. The port is required, never assumed.
  *   - each token file is removed only if, under the store's lock, it is still the file the plan looked at
@@ -122,9 +124,14 @@ function tokenInfo(file) {
   return out;
 }
 
-/* Copy the named entries, links as links and modes kept, into a new folder. Throws on any failure. */
+/* Copy the named entries, links as links and modes kept, into a NEW folder. Throws on any failure; an error after
+   the folder was made carries `backupCreated`, so the caller removes only a folder this call made (never one that
+   was already there). A copy sits at the umask mode for a moment before its chmod: inside the 0700 folder. */
 function backup(dir, dest, names) {
   fs.mkdirSync(dest, { recursive: false, mode: 0o700 });
+  try { copyInto(dir, dest, names); } catch (e) { if (e && typeof e === 'object') { try { e.backupCreated = true; } catch { /* frozen */ } } throw e; }
+}
+function copyInto(dir, dest, names) {
   for (const name of names) {
     const from = path.join(dir, name);
     const to = path.join(dest, name);
@@ -187,6 +194,7 @@ function spellingsOf(row) {
   return [...out];
 }
 
+const CUTOFF_MARGIN_MS = 60 * 60 * 1000;
 function parseArgs(argv) {
   const out = { apply: false };
   for (let i = 0; i < argv.length; i += 1) {
@@ -199,6 +207,9 @@ function parseArgs(argv) {
   const ms = Date.parse(out.cutoff || '');
   if (!Number.isFinite(ms)) throw new Error('--cutoff is required, as an ISO date');
   if (ms > Date.now()) throw new Error('--cutoff is in the future, which would make every file old');
+  /* Temps and links are removed on age alone, without the store's lock: a cutoff at least an hour old keeps any
+     writer's in-flight temp out of reach. */
+  if (ms > Date.now() - CUTOFF_MARGIN_MS) throw new Error('--cutoff must be at least an hour in the past, so nothing in flight is old enough to plan');
   out.cutoffMs = ms;
   return out;
 }
@@ -232,13 +243,14 @@ async function main(argv) {
   const dir = sendertoken.DIR;
   const entries = listEntries(dir);
   const tokenKeys = entries.filter((e) => !e.isSymlink && !e.other && e.name.endsWith('.json')).map((e) => e.name.slice(0, -'.json'.length));
-  /* An adopted agent's token is minted once, with no launcher, and an offline one is not on the board: keep any key
-     whose profile says it was adopted. */
-  let adopted = 0;
+  /* Any key the store keeps a profile for is kept, whatever the profile says. An adopted or a Windows agent's token is
+     minted with no launcher, and an offline one is not on the board; a profile is the store's own record of an agent.
+     Fixture profiles leaked too, so this keeps some leftovers: a keep signal only, never a reason to remove. */
+  let profiled = 0;
   for (const k of tokenKeys) {
     let prof = {};
     try { prof = store.readProfile(k) || {}; } catch { prof = {}; }
-    if (prof && prof.origin === 'adopted') { liveKeys.add(k); adopted += 1; }
+    if (prof && typeof prof === 'object' && Object.keys(prof).length > 0) { liveKeys.add(k); profiled += 1; }
   }
   /* The backstop counts the ROSTER only: this store's own heartbeat and removal records would match it on any real
      machine, whichever board answered. */
@@ -247,7 +259,7 @@ async function main(argv) {
     return 2;
   }
   const plan = planCleanup(entries, liveKeys, args.cutoffMs, store.safeKey);
-  console.log(`Kept by name: ${rows.length} agents on the board (${tokenKeys.filter((k) => rosterKeys.has(k)).length} of ${tokenKeys.length} token files match one), ${removed.length} in the removal records, ${heartbeats.length} with a heartbeat record, ${adopted} adopted.`);
+  console.log(`Kept by name: ${rows.length} agents on the board (${tokenKeys.filter((k) => rosterKeys.has(k)).length} of ${tokenKeys.length} token files match one), ${removed.length} in the removal records, ${heartbeats.length} with a heartbeat record, ${profiled} with a profile.`);
   console.log(`Would remove ${plan.remove.length}, keep ${plan.keep.length}:`);
   for (const r of plan.remove) {
     const detail = r.kind === 'token' ? `; token names: ${r.names.join(', ') || 'none'}; launchers: ${r.launchers.join(', ') || 'none'}; newest mint: ${r.newestMintMs ? new Date(r.newestMintMs).toISOString() : 'none'}` : '';
@@ -261,11 +273,13 @@ async function main(argv) {
   catch (e) {
     /* The half-made backup holds copies of tokens: take it back, or name it so a person can. */
     let left = '';
-    try { fs.rmSync(dest, { recursive: true, force: true }); } catch { left = ' A partial backup is left at ' + dest + ' (it holds token copies): delete it.'; }
+    if (e && e.backupCreated) {
+      try { fs.rmSync(dest, { recursive: true, force: true }); } catch { left = ' A partial backup is left at ' + dest + ' (it holds token copies): delete it.'; }
+    }
     console.error('Stopped, nothing removed: the backup failed (' + e.message + '). If a file it names is gone, the store changed since the plan was made: run it again.' + left);
     return 3;
   }
-  console.log('Backed up to ' + dest + ' (it holds the planned tokens, including any kept below because they changed: delete it once the result is checked).');
+  console.log('Backed up to ' + dest + ' (it holds the planned tokens, including any kept because they changed: delete it once the result is checked).');
   const res = applyPlan(dir, plan, sendertoken.revokeIfUnchanged);
   console.log(`Removed ${res.removed.length}.`);
   for (const f of res.failed) console.log(`  not removed  ${f.name}  (${f.because})`);
