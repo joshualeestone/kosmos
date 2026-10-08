@@ -11211,9 +11211,15 @@ body.plus-active:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.att
 /* The section is the positioning context for the ambient star field, which sits
    behind everything else in the pane. Every direct child is lifted above it. */
 #s-sec-plus { position: relative; }
-.plus-org-lists { margin: 8px 0 12px; }
-.plus-org-h { font-weight: 600; margin: 8px 0 2px; }
-.plus-org-lists ul { margin: 0 0 4px; padding-left: 20px; }
+#s-sec-plus .plus-org-box { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); border-radius: 10px; padding: 12px 14px; margin-top: 8px; }
+#s-sec-plus .plus-org-lists { display: grid; grid-template-columns: 1fr 1fr; column-gap: 20px; margin: 0 0 12px; }
+#s-sec-plus .plus-org-g { margin-top: 12px; }
+#s-sec-plus .plus-org-h { font-weight: 600; color: #E6EBF7; font-size: .8125rem; margin: 0 0 4px; }
+#s-sec-plus .plus-org-lists ul { margin: 0; padding-left: 20px; }
+@media (max-width: 600px) {
+  #s-sec-plus .plus-org-lists { grid-template-columns: 1fr; }
+  #s-sec-plus #plus-org-code { min-height: 44px; }
+}
 #plus-stars { position: absolute; inset: 0; width: 100%; height: 100%;
   display: block; z-index: 0; pointer-events: none; }
 #s-sec-plus > *:not(#plus-stars) { position: relative; z-index: 1; }
@@ -18837,17 +18843,19 @@ window.kosmosMeasureScrollbarWidth();
         <div id="plus-org-out">
           <p class="fhint">Have a join code from your company? Joining makes this Kosmos your work Kosmos. Checking a code sends only the code; nothing joins until you have read what your company would see and pressed Join.</p>
           <div class="frow">
-            <input type="text" id="plus-org-code" autocomplete="off" spellcheck="false" maxlength="128" aria-label="Join code" placeholder="Join code">
+            <input type="text" class="tk-inp" id="plus-org-code" autocomplete="off" spellcheck="false" maxlength="128" aria-label="Join code" placeholder="Join code">
             <button class="btn" type="button" id="plus-org-check">Check code</button>
           </div>
         </div>
-        <div id="plus-org-consent" hidden>
+        <!-- Mona Lisa (#5531, 20:49): the invitation, the four lists and the buttons in ONE inset box, so the consent reads as
+             one decision; the four groups two by two on desktop (Who can read it beside Never), one column on a phone. -->
+        <div id="plus-org-consent" class="plus-org-box" hidden>
           <p class="fhint" id="plus-org-ask"></p>
           <div class="plus-org-lists">
-            <p class="plus-org-h">What your company sees</p><ul id="plus-org-reports"></ul>
-            <p class="plus-org-h">What is backed up</p><ul id="plus-org-backsup"></ul>
-            <p class="plus-org-h">Who can read it</p><ul id="plus-org-readers"></ul>
-            <p class="plus-org-h">Never</p><ul id="plus-org-never"></ul>
+            <div class="plus-org-g"><p class="plus-org-h">What your company sees</p><ul id="plus-org-reports"></ul></div>
+            <div class="plus-org-g"><p class="plus-org-h">What is backed up</p><ul id="plus-org-backsup"></ul></div>
+            <div class="plus-org-g"><p class="plus-org-h">Who can read it</p><ul id="plus-org-readers"></ul></div>
+            <div class="plus-org-g"><p class="plus-org-h">Never</p><ul id="plus-org-never"></ul></div>
           </div>
           <div class="frow">
             <button class="btn uprime" type="button" id="plus-org-join">Join with this Kosmos</button>
@@ -47109,7 +47117,7 @@ function plusOrgList(id, items) {
   const ul = document.getElementById(id);
   ul.textContent = '';
   for (const t of items || []) { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); }   // text, never markup
-  ul.previousElementSibling.hidden = ul.hidden = !(items && items.length);
+  ul.parentElement.hidden = !(items && items.length);   // the whole group, heading and list
 }
 function plusOrgPaint() {
   const st = PLUS_ORG.state || {};
@@ -47136,8 +47144,8 @@ async function plusOrgCheck() {
   if (!r.ok) { msg.textContent = r.because || 'That code could not be checked.'; return; }
   PLUS_ORG.preview = { code: r.move ? null : code, org: r.org };   // a member moving here enrolls with no code
   document.getElementById('plus-org-ask').textContent = r.move
-    ? 'You are already in ' + (r.org.name || 'your company') + '. Make this Kosmos your work Kosmos? If you do, this is what happens:'
-    : (r.org.name || 'Your company') + ' invites you to join' + (r.role === 'admin' ? ' as an admin' : r.role === 'recovery' ? ' in its recovery role' : '') + '. If you join, this Kosmos becomes your work Kosmos and this is what happens:';
+    ? 'You are already in ' + (r.org.name || 'your company') + '. Make this Kosmos your work Kosmos? Here is what that means:'
+    : (r.org.name || 'Your company') + ' invites you to join' + (r.role === 'admin' ? ' as an admin' : r.role === 'recovery' ? ' in its recovery role' : '') + '. Joining makes this Kosmos your work Kosmos. Here is what that means:';
   plusOrgList('plus-org-reports', r.consent.reports);
   plusOrgList('plus-org-backsup', r.consent.backsUp);
   plusOrgList('plus-org-readers', r.consent.readers);

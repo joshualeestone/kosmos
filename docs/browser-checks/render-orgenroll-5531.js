@@ -80,7 +80,7 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
       outHidden: document.getElementById('plus-org-out').hidden,
     }));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'orgenroll-consent.png') });
-    chk(/Acme invites you to join/.test(o2.ask) && o2.reports.length === 2 && o2.reports[1].includes('<b>bold?</b>') && o2.bold === 0
+    chk(/Acme invites you to join\. Joining makes this Kosmos your work Kosmos\. Here is what that means:/.test(o2.ask) && o2.reports.length === 2 && o2.reports[1].includes('<b>bold?</b>') && o2.bold === 0
         && o2.readers === 2 && o2.never === 2 && o2.focus === 'plus-org-join' && o2.outHidden,
       'O2 Check code shows the company and the four lists as text (markup stays text), with focus on Join', JSON.stringify(o2));
 
