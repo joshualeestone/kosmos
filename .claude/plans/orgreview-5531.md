@@ -48,3 +48,7 @@
 - FIXED: the engine now refuses a review for a Kosmos that already reports (mayReport), instead of relying on the page hiding the button. Pinned; mutation makes it fail.
 - NITs taken: no sayFor call that never logs; a refusal because the account is no longer in the company says so, instead of pointing at a Review that would be refused too (pinned).
 - NITs kept: a first join's page state leaves `reporting` unset until the next read (older than this branch); a re-armed ticket after org_bad_world is unused (harmless); O-list order in the header.
+
+## Review 4 (blind, Sonnet)
+- TAKEN as a guard rather than a comment: the enroll trusted a ticket's `review` flag on its own. It now counts as a review only when this Kosmos holds a record for this world; otherwise a lost answer takes the ordinary join path. Pinned; mutation makes it fail.
+- NITs kept: no hint when the company names another org; two ifs on one condition in the page; the page's optimistic `reporting: true` (the next read corrects it).

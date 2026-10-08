@@ -329,7 +329,9 @@ async function enrollNow(code, accepted, opts) {
      below fit it (orgreview reviews 1 and 2): every refusal is said in review words, and points at Accept or at the
      Review button, never at a code. A lost answer: a status read cannot tell whether the re-acceptance landed, because
      "here" was true either way, so nothing is recorded; accepting again is harmless. */
-  const review = !!(opts && opts.review === true && move);
+  // The flag counts only for a Kosmos already enrolled HERE (review 4): it is never trusted on its own, whoever issued it.
+  const held = readEnrollment(opts);
+  const review = !!(opts && opts.review === true && move && held && held.world === world);
   if (!r.ok && review) {
     const c = codeOf(r.because);
     if (c === 'org_consent_changed') return { ok: false, code: c, because: 'Your company changed what it asks of this Kosmos since you read it. Nothing changed here. Press Review what your company sees to read the new words.' };
@@ -387,7 +389,7 @@ async function enrollNow(code, accepted, opts) {
     return undoFirstJoin(NOCONFIRM, opts);
   }
   // A review's Accept is not a new enrollment: it keeps the date this Kosmos joined (orgreview review 1).
-  const prior = review ? readEnrollment(opts) : null;
+  const prior = review ? held : null;
   const rec = { org, role, world, enrolledAt: prior && prior.world === world && typeof prior.enrolledAt === 'string' ? prior.enrolledAt : new Date().toISOString() };
   // The consent the person was shown, as a hash: what they accepted is then a checkable fact on this side (#5531 review 10).
   if (opts && typeof opts.consentHash === 'string' && /^[0-9a-f]{64}$/.test(opts.consentHash)) rec.consentHash = opts.consentHash;

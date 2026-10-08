@@ -998,6 +998,10 @@ test('#5531 follow-up: reviewHere shows this record\'s company\'s words, and acc
   const withConsent = (over) => ({ macRequest: async (m, route, body) => {
     const r = await fr.macRequest(m, route, body);
     return route === org.ROUTES.status && r.ok && r.data.member ? { ok: true, data: Object.assign({}, r.data, { consent: CONSENT, consentHash: SERVED }, over || {}) } : r; } });
+  // A review flag on a Kosmos with no record here is not a review (review 4): a lost answer takes the ordinary path.
+  const bare = await org.enroll(null, true, { root: b, review: true, consentHash: SERVED, orgId: ORG.id, remote: { macRequest: async (m, route) => (route === org.ROUTES.enroll
+    ? { ok: false, because: 'the tunnel program did not answer in time' } : { ok: false, because: 'offline' }) } });
+  assert.equal(bare.code, 'org_join_unknown', 'a review flag was trusted with no record here: ' + JSON.stringify(bare));
   // Not enrolled here: nothing to review, and the company is not asked.
   const before = fr.sent.length;
   const none = await org.reviewHere({ root: b, remote: withConsent() });
