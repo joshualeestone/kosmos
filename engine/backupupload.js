@@ -461,7 +461,9 @@ async function askSigned(macRequest, route, makeBody, parse) {
     let r;
     try { r = await macRequest('POST', route, makeBody()); } catch (err) { r = { ok: false, because: (err && err.message) || 'the grant request failed' }; }
     if (r && r.ok) {
-      const p = parse(r.data);
+      // A parser that throws on an answer is a refusal of that answer like any other.
+      let p;
+      try { p = parse(r.data); } catch (err) { p = { ok: false, because: `the grant answer could not be read: ${(err && err.message) || err}` }; }
       // An answer we refuse still spent the grant's allowance (and, for a manifest, left a recorded hash).
       return p.ok ? p : { ok: false, out: { because: p.because, grantSpent: true } };
     }
@@ -600,6 +602,8 @@ async function uploadManifestInner(deps, bytes, o, st) {
     const deadline = asked + g.lifetimeMs - 10 * 1000;
     let troubled = false, preOnly = false, cleanRanOut = false;
     for (let attempt = 0; ; attempt++) {
+      // Out of time after only pre-connect failures: the bucket cannot be reached, and a new grant could not reach it
+      // either, so no re-grant (below). Unlike S3 answering "expired" (next arm), which proves the bucket answers.
       if (deadline - now() <= 0) { cleanRanOut = !troubled && !preOnly; break; }
       const r = await putOne(fetchFn, up, bytes, troubled, timeoutMs);
       if (r.kind === 'stored' || r.kind === 'present') return { ok: true, key: up.key, sha256, lockedUntilMs: up.retainMs };

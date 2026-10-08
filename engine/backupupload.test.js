@@ -1325,16 +1325,16 @@ test('a manifest key under another <org>/<account> than its chunks is refused be
   } finally { await b.close(); }
 });
 
-test('an unexpected throw before any grant was asked for says grantSpent: false; after asking, absent', async () => {
+test('an unexpected throw before any grant was asked for says grantSpent: false; a parser throwing on an answer says true', async () => {
   // now() throws on its first call (the plausibility check), before any grant.
   const r = await up.uploadManifest({ macRequest: async () => ({ ok: false, because: 'x' }), fetch, sleep: async () => {}, now: () => { throw new Error('early'); } },
     manifestBytes(), { bucket: '127.0.0.1:1/bucket/', chunks: oneChunk() });
   assert.strictEqual(r.ok, false); assert.strictEqual(r.grantSpent, false);
-  // The parser throwing on the grant's answer: asked, answer not accepted, so absent (it may have spent one).
+  // The parser throwing on the grant's answer: a grant answered, so it is a refusal of that answer, grantSpent true.
   const b = await bucket();
   try {
     const r2 = await up.uploadManifest(deps({ macRequest: async () => ({ ok: true, data: { get expires_at() { throw new Error('bad answer'); } } }) }), manifestBytes(), mOpts(b));
-    assert.strictEqual(r2.ok, false); assert.match(r2.because, /manifest uploader failed: bad answer/);
-    assert.strictEqual(r2.grantSpent, undefined);
+    assert.strictEqual(r2.ok, false); assert.match(r2.because, /grant answer could not be read: bad answer/);
+    assert.strictEqual(r2.grantSpent, true);
   } finally { await b.close(); }
 });
