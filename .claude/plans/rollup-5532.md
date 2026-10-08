@@ -339,3 +339,16 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
 - NITs kept: `at` defaults to the wall clock (tick always passes it); the pre-send re-check guards less than its comment
   says while gather() has no await (the coordinator's refusal and refresh cover the real window).
 
+## Review 23 (blind, Sonnet): no new code; two limits DECIDED
+- ACCEPTED LIMIT: a computer whose print was pinned and whose id later becomes unreadable cannot finish a leave from
+  here (pinnedWait keeps it pending). Sending it without the print would have the company log a copy against the real
+  computer. The way out is another computer of the account (the coordinator lets a non-enrolled Mac leave) or the
+  company's console. Raised as a NIT in review 19; kept for the same reason.
+- ACCEPTED LIMIT: a join settled later from a lost answer, or a move that re-reads status, records "pinned" from "a
+  print was sent", because the status answer carries no printPinned. If the company did not pin it: with no earlier
+  pin the coordinator accepts any print (print_matches), so nothing changes; with an earlier pin made with another salt,
+  rollups are refused as not enrolled, each refusal is logged once (review 18), and refresh acts on it. Rare (one salt
+  per account) and fails closed.
+- NITs kept: reportPrint on ticks between dailies (bounded by the reader's backoff); the print added after fit() (64
+  characters against 4 KB of headroom under the coordinator's 60 KB).
+
