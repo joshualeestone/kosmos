@@ -575,3 +575,24 @@ test('#881: no user-facing checkLive()/listLive() sentence uses developer jargon
     assert.ok(!JARGON.test(t), `user-facing sentence uses jargon: "${t}"`);
   }
 });
+
+test('#5386: checkLive drops or sets the account folder whatever spelling the environment carries it in', async () => {
+  let seenEnv = null;
+  sub.setRunner(async (env) => { seenEnv = env; return { stdout: JSON.stringify({ loggedIn: true }), err: null }; });
+  const hadAmbient = Object.prototype.hasOwnProperty.call(process.env, 'CLAUDE_CONFIG_DIR');
+  const ambient = process.env.CLAUDE_CONFIG_DIR;
+  delete process.env.CLAUDE_CONFIG_DIR;
+  process.env.Claude_Config_Dir = '/the-engine-account';
+  const spelled = (env) => Object.keys(env).filter((k) => k.toUpperCase() === 'CLAUDE_CONFIG_DIR');
+  try {
+    await sub.checkLive();
+    assert.deepEqual(spelled(seenEnv), [], 'an oddly spelled account folder reached a default-account check');
+    await sub.checkLive({ configDir: '/acct' });
+    assert.deepEqual(spelled(seenEnv), ['CLAUDE_CONFIG_DIR']);
+    assert.equal(seenEnv.CLAUDE_CONFIG_DIR, '/acct');
+  } finally {
+    sub.setRunner(null);
+    delete process.env.Claude_Config_Dir;
+    if (hadAmbient) process.env.CLAUDE_CONFIG_DIR = ambient;
+  }
+});

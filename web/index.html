@@ -12663,7 +12663,7 @@ window.kosmosMeasureScrollbarWidth();
         </div>
       </div>
     </div>
-    <p class="dhint d-current-hint" style="margin:12px 0 0;">Changing the model restarts the agent. It comes back with nothing in its memory, and anything it was part way through ends, including anything it agreed to and has not done yet. Its instructions and its files are untouched.</p>
+    <p class="dhint d-current-hint" id="d-model-restart-hint" style="margin:12px 0 0;">Changing the model restarts the agent. It comes back with nothing in its memory, and anything it was part way through ends, including anything it agreed to and has not done yet. Its instructions and its files are untouched.</p>
     <p class="dhint d-current-hint" style="margin:8px 0 0;">Moving it to another account takes everything it has done with it. Moving is how you take an agent off an account that is running out.</p>
   </section>
   </section>
@@ -18815,7 +18815,7 @@ window.kosmosMeasureScrollbarWidth();
            session on the spot. -->
       <div id="plus-devices" hidden style="margin-top:16px;">
         <p class="setname">Devices that can reach this computer</p>
-        <p class="fhint" id="plus-devices-off" hidden>Plus is off, so no device can reach Kosmos on this computer right now. Your devices are kept for when you turn it back on.</p>
+        <p class="fhint" id="plus-devices-off" hidden>Remote access is off, so no device can reach Kosmos on this computer right now. Your devices are kept for when you turn it back on. Shared projects and phone notifications stay connected.</p>
         <div id="plus-devlist"></div>
         <!-- 🛑 NOT "from a phone" (Josh, 2026-08-29 14:04). Every device that reaches
              this computer asks here, and this sentence named one kind. Somebody
@@ -48508,14 +48508,9 @@ async function paintOpenaiDetailModel(a, forWhom) {
   const gen = ++OPENAI_DETAIL_GEN;
   const ours = !!(a && a.isNamedOurs);
   const usable = ours && !(a && a.neverRecorded === true);
-  /* The disabled-reason, OpenAI's own and DELIBERATELY NOT the Claude picker's
-     "Made before Kosmos recorded how it starts / cannot change what it runs on"
-     sentences: those name the Claude launch-file + Found-agents migration story
-     (#149/#150/#362), which does not belong on an OpenAI panel, and reusing them
-     verbatim also collided the web.made-before pins that anchor on that copy. */
-  const refusal = !ours
-    ? 'Kosmos did not start this agent, so it cannot change its model.'
-    : 'Kosmos did not record how this agent starts, so there is no model to change here.';
+  /* The disabled-reason, OpenAI's own. A never-recorded agent never reaches here (#5491: paintModelPicker hides the
+     model block for it), so the one refusal left is an agent Kosmos did not start. */
+  const refusal = 'Kosmos did not start this agent, so it cannot change its model.';
   const currentKey = (a && typeof a.plannedModelId === 'string') ? a.plannedModelId : '';   // #4416: the raw id, not the readable name
   const acctDir = (a && a.account && a.account.dir && !a.account.isDefault) ? a.account.dir : '';
   if (row) row.hidden = false;
@@ -48599,6 +48594,21 @@ async function paintModelPicker(a) {
      openDetail's clear. Same class as TALK_FLIGHT: bail when the panel has
      moved on. */
   const forWhom = a && a.sessionName;
+  /* #5491 (Mona Lisa): an agent Kosmos never recorded the launch of cannot change its model here, and the Runs on card
+     already says so: its heading names the state and #d-runson-why gives the way in. The model block (menu, button,
+     why-note and refusal) could only say both again, so it is not shown for that agent; the line about changing the
+     model (#d-model-restart-hint) is hidden by paintProviderPicker and fillSwitchAccounts, which own those lines. Set on every paint, before any
+     provider's path, so the next agent's block comes back. */
+  const modelStep = document.getElementById('d-model-row') && document.getElementById('d-model-row').closest('.mstep');
+  const neverRec = !!(a && a.neverRecorded === true);
+  if (modelStep) modelStep.hidden = neverRec;
+  if (neverRec) {
+    OPENAI_DETAIL_GEN += 1;   // an OpenAI models fetch for the previous agent must not land in the hidden block
+    sel.disabled = true;
+    go.disabled = true;
+    if (msg) msg.textContent = '';
+    return;
+  }
   /* #2140 Surface 2: an OpenAI agent gets the per-account picker, NEVER the Claude
      model list. The Claude flow below matches by label against CREATE_MODELS (Claude
      models), so an OpenAI agent would show Claude Sonnet 5 etc. as switchable options
@@ -48670,9 +48680,8 @@ async function paintModelPicker(a) {
      write and cannot rewrite, and the engine refuses it — so the control says so
      by being unavailable rather than by failing after a click. */
   const ours = !!(a && a.isNamedOurs);
-  /* #149/#150: an agent with no launch file has nothing for setModel to
-     rewrite, and the engine would refuse the click. The control says so
-     before the click, in the state's own words, not the stranger's. */
+  /* #149/#150: an agent with no launch file has nothing for setModel to rewrite. Since #5491 that agent returns at
+     the top and never reaches here; the neverRecorded clause stays only as a backstop if that return is ever loosened. */
   const usable = ours && !(a && a.neverRecorded === true);
   sel.disabled = !usable;
   /* kosmos#990: the SAME compare as the change handler, and it has to be here
@@ -48686,16 +48695,8 @@ async function paintModelPicker(a) {
      with their own path deliberately: hiding in one place and revealing in
      another is how a control goes missing for the agent you switch TO. */
   { const row = document.getElementById('d-model-row'); if (row) row.hidden = false; }
-  if (msg && !usable && !msg.textContent) {
-    msg.textContent = ours
-      ? 'Made before Kosmos recorded how it starts, so its model cannot change here. '
-        + (a && a.profile && a.profile.dir
-          ? 'There is no control here to re-record that yet.'
-          : (a && a.running === false
-            ? 'Add it from Found agents in Settings to bring it in.'
-            : 'Stop it, then add it from Found agents in Settings to bring it in.'))
-      : 'Kosmos did not start this one, so it cannot change what it runs on.';
-  }
+  /* A never-recorded agent returned at the top (#5491), so the only refusal left here is an agent Kosmos did not start. */
+  if (msg && !usable && !msg.textContent) msg.textContent = 'Kosmos did not start this one, so it cannot change what it runs on.';
 }
 
 /* ---- which Claude account this agent runs on -------------------------
@@ -49521,7 +49522,7 @@ function paintProviderPicker(a) {
   SWITCH_MODEL_GEN += 1;   // review 2: an OpenAI list still loading for the agent before never lands on this one
   /* #5091: the menu is about to show this agent's own provider, so its own rows show: synchronously, for every runner
      (an Antigravity or Muse agent's account picker returns early, before the refill that would also do this). */
-  { const cur0 = document.getElementById('d-current-rows'); if (cur0) cur0.hidden = false; for (const h of document.querySelectorAll('.d-current-hint')) h.hidden = false; }
+  { const cur0 = document.getElementById('d-current-rows'); if (cur0) cur0.hidden = false; for (const h of document.querySelectorAll('.d-current-hint')) h.hidden = h.id === 'd-model-restart-hint' && !!a && a.neverRecorded === true; }   // #5491: no model control, so no line about changing it
   const current = providerOf(a);
   /* kosmos#990: the row states what the agent IS on. The two real providers
      are both selectable -- the current one has to be, or it could not be
@@ -49809,7 +49810,7 @@ function fillSwitchAccounts() {
     const other = !!CURRENT && !!prov.value && prov.value !== providerOf(CURRENT);
     const cur = document.getElementById('d-current-rows'); if (cur) cur.hidden = other;
     // Round 2: the two lines under the block describe ITS controls (model change, account move); they go with it.
-    for (const h of document.querySelectorAll('.d-current-hint')) h.hidden = other;
+    for (const h of document.querySelectorAll('.d-current-hint')) h.hidden = other || (h.id === 'd-model-restart-hint' && !!CURRENT && CURRENT.neverRecorded === true);   // #5491
   }
 
   /* Hidden for THREE reasons, and the condition below names all of them because a

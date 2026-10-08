@@ -247,6 +247,23 @@ test('nothing starts on a Mac that is not connected to Kosmos+, or for a project
   assert.strictEqual(h.spawned.length, 0);
 });
 
+test('#4318: federation seats gate on enrollment and project link, independent of Remote access', async () => {
+  // Ruling (Pigeon Pete for Splinter, kosmos#4318): enrollment plus the per-project link
+  // is the consent for federation, independent of Remote access (remote.read().on).
+  // An enrolled board seats linked shared projects even when Remote access is off.
+  federation.recordLink('proj-fed-remote-off', { role: 'member', edge_id: 'edge-remote-off' });
+  const h = harness({ enrolled: true });
+  await fedseats.ensure('proj-fed-remote-off');
+  assert.strictEqual(h.spawned.length, 1);
+  assert.strictEqual(h.spawned[0].edge, 'edge-remote-off');
+
+  // Conversely, when not enrolled, no seat starts regardless of project link.
+  federation.recordLink('proj-fed-not-enrolled', { role: 'member', edge_id: 'edge-not-enrolled' });
+  const hNotEnrolled = harness({ enrolled: false });
+  await fedseats.ensure('proj-fed-not-enrolled');
+  assert.strictEqual(hNotEnrolled.spawned.length, 0);
+});
+
 test('two overlapping ensure calls for an owner start one seat, not two', async () => {
   federation.recordLink('proj-race', { role: 'owner', ref: 'ref-race' });
   let open;

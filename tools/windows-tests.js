@@ -47,10 +47,12 @@ const ALSO = ['agentpermission-5406.test.js', 'platform.test.js', 'store.test.js
   'create.test.js', 'outbox.test.js', 'remove.test.js', 'world-guard-lift-1704.test.js', 'personalinstr.test.js',
   'securewrite.fsync-5434.test.js',   // #5434: its Windows-only skips (EPERM, EISDIR) run only there
   'accounts.fsync-5434.test.js',   // #5434 slice 2: the account stores' saves must work on Windows too
-  'store.real-root-5418.test.js'];   // #5418: the test-process root rule is live in this job, so its own test runs here too
+  'store.real-root-5418.test.js',   // #5418: the test-process root rule is live in this job, so its own test runs here too
+  'sendertoken.revokeifunchanged-5418.test.js'];   // #5418 ask 2: the cleanup's last guard, on Windows too
 // test-support.remove-tree.test.js (#5074): the shared win32 cleanup retry's own tests, which ran here inside the
 // shims file before the helper moved.
-const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.js', 'test-support.remove-tree.test.js'];
+const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.js', 'test-support.remove-tree.test.js',
+  'tools.cleanup-fixture-tokens-5418.test.js'];   // #5418 ask 2: the cleanup tool must plan and remove the same way on Windows
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {

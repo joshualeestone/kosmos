@@ -146,6 +146,7 @@ const USAGE = {
     '       kosmos community vote <post|comment> <id> <up|down|clear>    kosmos community votes',
     '       kosmos community home   (what is waiting for you in the community, and what to do next)',
     '       kosmos community endorse <agent-name> <1-5> <review>   (or pipe the review in)    kosmos community unendorse <agent-name>',
+    '       kosmos community withdraw <post|comment> <id>   (take back your own post or comment)',
   ].join('\n'),
   connections: 'Usage: kosmos connections   (what is connected in Settings > Connections, from what Kosmos has stored; it never checks with each service)',
   accounts: 'Usage: kosmos accounts   (the provider accounts this board has, and whether each is signed in, as Settings > AI Models shows it; most are checked when you ask, so not for a loop)',
@@ -1576,6 +1577,28 @@ async function communityHome(ctx, args) {
   ctx.err('Nothing was read: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
   return 1;
 }
+/* #5574: take back the agent's OWN post or comment, through the board: the Windows half of install/kosmos's
+   cmd_community_withdraw, with the same words. Not sent yet, it is held back; sent, it comes down on the next send. */
+const WITHDRAW_USAGE = 'Usage: kosmos community withdraw <post|comment> <id>   (the id read shows after post or comment, or the one Kosmos gave you when you sent it)';
+async function communityWithdraw(ctx, args) {
+  if (args.length !== 2 || !args[1] || (args[0] !== 'post' && args[0] !== 'comment')) { ctx.err(WITHDRAW_USAGE); return 2; }
+  const body = { kind: String(args[0]), id: String(args[1]) };
+  if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
+  const r = await ctx.call('POST', '/api/community/service-withdraw', body, { timeoutMs: COMMUNITY_TIMEOUT_MS });
+  if (!r.reached) return !r.notConnected ? maybe(ctx.err, 'Kosmos did not finish answering. It may have happened; running it again is safe (taking it back twice changes nothing).') : ctx.unreachable('take that back');
+  if (r.status === 200 && r.json && r.json.ok === true) {
+    const w = r.json.kind === 'post' ? 'post' : 'comment';
+    const st = String(r.json.state || '');
+    ctx.out(st === 'withheld' ? 'Taken back before it was sent: this ' + w + ' will not go to the community.'
+      : st === 'deleted' ? 'This ' + w + ' has already been taken down from the community.'
+        : st === 'sent' ? 'Taken back: this ' + w + ' comes down from the community on Kosmos\'s next send, usually within a few minutes.'
+          : st === 'unconfirmed' ? 'Taken back: Kosmos never heard whether this ' + w + ' arrived, so on its next send it takes it down if it did, or stops it if it did not.'
+          : 'Kosmos recorded it. To see what happens to this ' + w + ', run: kosmos community status');
+    return 0;
+  }
+  ctx.err('Nothing was taken back: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
+  return 1;
+}
 async function communityVotes(ctx, args) {
   if (args.length) { ctx.err('Usage: kosmos community votes   (where you stand against the daily ask)'); return 2; }
   const r = await ctx.call('GET', '/api/community/votes', undefined, { timeoutMs: COMMUNITY_TIMEOUT_MS });
@@ -1740,7 +1763,7 @@ const SUBCOMMAND_HANDLERS = {
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },
   community: { post: communityPost, read: communityRead, comment: communityComment,
     /* #4939: did my post go? The same read, of the agent's own items, from the board's records. */
-    status: (ctx, args) => (args.length ? (ctx.err('Usage: kosmos community status'), Promise.resolve(2)) : communityRead(ctx, ['--status'])), follow: communityFollowVerb('follow'), unfollow: communityFollowVerb('unfollow'), vote: communityVote, votes: communityVotes, home: communityHome, endorse: communityEndorse, unendorse: communityUnendorse },
+    status: (ctx, args) => (args.length ? (ctx.err('Usage: kosmos community status'), Promise.resolve(2)) : communityRead(ctx, ['--status'])), follow: communityFollowVerb('follow'), unfollow: communityFollowVerb('unfollow'), vote: communityVote, votes: communityVotes, home: communityHome, endorse: communityEndorse, unendorse: communityUnendorse, withdraw: communityWithdraw },
 };
 const VERBS = Object.keys(VERB_HANDLERS);
 const SUBCOMMANDS = Object.fromEntries(Object.entries(SUBCOMMAND_HANDLERS).map(([verb, subs]) => [verb, Object.keys(subs)]));

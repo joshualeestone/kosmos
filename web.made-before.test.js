@@ -2,8 +2,9 @@
 
 /**
  * #149/#150: an agent with no launch file says "Made before Kosmos recorded
- * this" instead of "Unknown Model", and the model picker refuses in the
- * state's own words with the way in.
+ * this" instead of "Unknown Model", and its Runs on card says the state and
+ * the way in once: since #5491 the model block, which said both again, is not
+ * shown for that agent.
  *
  * The server decides `neverRecorded` (tied pane, no plist: engine/status.js);
  * these pins hold the SCREEN's half: every surface splits on the flag rather
@@ -90,16 +91,25 @@ test('the memory panel says never recorded, for a running context and for a stop
     'the stopped note (page words) and the running note (engine words) have drifted apart');
 });
 
-test('the picker and the explainer both name the way in, and only for the never-recorded state', () => {
+test('the explainer names the way in, once, and only for the never-recorded state', () => {
   /* Text-level pins on the page: the wording ruled on card #150, the
      migration path, and the #362 reason the path is gated. Each pin anchors
      on text UNIQUE to its surface: the first version of the explainer pin
      matched the picker's sentence too, so deleting the explainer's path
      left it green while its failure message named the wrong survivor. */
-  assert.match(PAGE, /Made before Kosmos recorded how it starts, so its model cannot change here\. /,
-    'the picker refusal no longer names the state');
-  assert.match(PAGE, /add it from Found agents in Settings to bring it in/,
-    'the picker refusal no longer names the way in');
+  /* #5491: the model block said the state and the way in a second time, under the explainer that already does. For a
+     never-recorded agent it is now hidden whole, and its repeat of the sentence is gone (an absence pin, so it cannot
+     quietly come back). */
+  assert.match(PAGE, /if \(modelStep\) modelStep\.hidden = neverRec;/,
+    'the model block is no longer hidden for a never-recorded agent, so the card says the state twice again');
+  assert.doesNotMatch(PAGE, /so its model cannot change here/,
+    'the model block repeats the explainer again (#5491)');
+  assert.doesNotMatch(PAGE, /so there is no model to change here/,
+    'the OpenAI model block repeats the explainer again (#5491)');
+  /* The line about changing the model goes too, from the two painters that own those lines. */
+  assert.match(PAGE, /id="d-model-restart-hint"/, 'the model restart line lost the id its hiding keys on');
+  assert.equal((PAGE.match(/h\.id === 'd-model-restart-hint'/g) || []).length, 2,
+    'paintProviderPicker and fillSwitchAccounts must both keep the model restart line hidden for a never-recorded agent');
   assert.match(PAGE, /waiting will not add one\. /,
     'the runs-on explainer no longer says the state is permanent');
   assert.match(PAGE, /To bring it in: stop it, then add it from Found agents in Settings/,
@@ -120,11 +130,11 @@ test('the picker and the explainer both name the way in, and only for the never-
     'the recorded-folder state lost its sentence');
   assert.match(PAGE, /, so it will not start on its own\./,
     'the stopped recorded-folder arm lost its consequence clause');
-  /* BOTH surfaces carry this sentence, so the count is pinned at two:
-     deleting it from either one alone must fail, not hide behind the
-     other (the same both-surfaces trap the preamble above records). */
-  assert.equal((PAGE.match(/There is no control here to re-record that yet\./g) || []).length, 2,
-    'a surface lost the stated reason no path is offered, which reopens the 149 done-when');
+  /* Since #5491 only the explainer carries this sentence (the model block that repeated it is hidden for a
+     never-recorded agent), so the count is pinned at one: losing it reopens the 149 done-when, and a second copy is
+     the repetition #5491 removed. */
+  assert.equal((PAGE.match(/There is no control here to re-record that yet\./g) || []).length, 1,
+    'the explainer lost the stated reason no path is offered (149), or the model block repeats it again (#5491)');
   /* Scoped to the two assignment regions: a page-wide quoted-string sweep
      cannot tell copy from comments (apostrophes in prose make the quotes
      span arbitrary code, measured: 168 false spans). The region END is a
@@ -134,11 +144,8 @@ test('the picker and the explainer both name the way in, and only for the never-
      canonical regression (proven by mutation before this anchor change). */
   for (const [label, anchor, until, inclusive] of [
     ['explainer', 'drunWhy.textContent = a.neverRecorded', 'drunWhy.hidden', false],
-    /* Inclusive end ON the statement's own terminator: an exclusive anchor
-       chosen from inside the stranger string cut the region mid-sentence,
-       and a tracker number appended to that string's tail escaped the
-       sweep (proven by mutation). */
-    ['picker refusal', 'msg.textContent = ours', "cannot change what it runs on.';", true],
+    /* The picker refusal's region was swept here too until #5491 hid the model block for a never-recorded agent and
+       removed that copy; the absence pin above keeps it from coming back. */
   ]) {
     const at = PAGE.indexOf(anchor);
     assert.ok(at > 0, 'the ' + label + ' assignment moved; re-anchor this pin');
@@ -148,10 +155,9 @@ test('the picker and the explainer both name the way in, and only for the never-
     assert.ok(region.length > 200, 'the ' + label + ' region collapsed; the sweep below checks almost nothing');
     assert.doesNotMatch(region, /#\d{2,}/,
       'a tracker number leaked into the ' + label + ' user copy');
-    /* Surface-aware: the count-of-two above cannot tell WHICH surfaces
-       hold the copies; each region must hold its own. */
+    /* Surface-aware: the explainer's region must hold the sentence the count above pins. */
     assert.match(region, /There is no control here to re-record that yet\./,
-      'the ' + label + ' lost its stated reason while the global count stayed at two');
+      'the ' + label + ' lost its stated reason');
   }
 
   /* And the model-message slot is cleared at the switch moment, so one
