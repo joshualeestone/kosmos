@@ -26,3 +26,16 @@ instructions tell them how. (Slice 1, the service's PATCH, is kosmos-community#5
 - server.agent-token-gate-4491.test.js: refused on an agent token alone; past the gate with the board token.
 - tools.windows-kosmos-cli-verbs-parity.test.js: pinned community subcommands include withdraw.
 - Every test loading engine/communityblock.js: 470 passed.
+
+## Review 1 (sonnet, blind): 3 WARNING + 3 NIT
+- [WARNING] posts: the owner removal (#4287) records a removal in every state, so a refused post, or one whose send got
+  no answer, read "Taken back." though nothing would come down --> FIXED: refused, deleted, unconfirmed and sent-without-id
+  posts are refused up front in words, nothing recorded; the CLIs' fallback line no longer says "Taken back".
+- [WARNING] a removed agent's sent records are renamed retired:..., its board rows are not, so a new agent with the same
+  name could reach the old agent's words by board id --> FIXED: a board id counts only when no sent record names
+  another owner. Test with a control.
+- [WARNING] untested: those post states, cross-kind ids --> FIXED (3 tests). Mutations: post guards removed -> red;
+  retired check removed -> red.
+- [NIT] a non-retryable read failure maps to 500 --> kept (the delete route does the same).
+- [NIT] Retry-After ignored by both CLIs --> kept; the 503 sentence says to try again.
+- [NIT] the instruction line: a resend counts toward limits --> FIXED (it says so).
