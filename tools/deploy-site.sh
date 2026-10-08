@@ -373,6 +373,8 @@ live_pointer_snapshot() {
       case "$_lps_code" in ''|*[!0-9]*) _lps_code=000 ;; esac
       case "$_lps_code" in 000|429|5[0-9][0-9]) [ "$_lps_try" = 3 ] || sleep "$_lps_sleep" ;; *) break ;; esac
     done
+    # A 429 or 5xx that outlasted the retries never said what the pointer is, so it counts as unread.
+    case "$_lps_code" in 429|5[0-9][0-9]) _lps_code=000 ;; esac
     # Only a 200's body is compared: a 404 page can differ per request, and absent is absent.
     if [ "$_lps_code" = 200 ]; then printf '%s 200 %s;' "$_lps" "$(_sha256_of "$_lps_tmp")"; else printf '%s %s -;' "$_lps" "$_lps_code"; fi
     rm -f "$_lps_tmp"

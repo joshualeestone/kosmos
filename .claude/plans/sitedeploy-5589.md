@@ -22,9 +22,9 @@ safe beside a cut, not building a new deploy.
 2. **tools/site-autodeploy.sh: one tick of an automatic deploy.** If site origin/main moved past
    the last deployed sha, fast-forward the job's OWN site checkout and run deploy-site.sh
    --publish. Skips beside a running release.sh (anchored match on the command column; checked
-   against the live 0.7.28 cut on Mortals), one tick at a time (pid lock), does not retry a failed
-   sha until main moves, keeps a heartbeat. Test: test-site-autodeploy-5589.sh, wired into the
-   shell suite in package.json.
+   against the live 0.7.28 cut on Mortals), one tick at a time (pid lock), retries a failed
+   sha once and then parks it until main moves, keeps a heartbeat. Test: test-site-autodeploy-5589.sh,
+   wired into the shell suite in package.json.
 
 ## Site half (separate PR, chaoskosmos-site branch sitedeploy-5589)
 
