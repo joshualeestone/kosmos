@@ -1,7 +1,7 @@
 ---
 method: challenge-loop
 branch: linux-setup-board-4920
-diff_hash: 71f9747ee52eee6566598c97141d94d34047daa4feea0eaec1c2776548be612a
+diff_hash: a627184d2f6b339156c860ce8285d71b45548c5361b06b87ba7b974d304c52be
 timestamp: 2026-10-07T14:28:48Z
 converged: true
 ---
@@ -155,3 +155,6 @@ validation helper otherwise clean; subdir audit rc 0.
 - [BLOCKER] install/setup.sh: the KillMode line sat between the #5033 marker-set and the pause stop, so tools/test-update-putback-4818.sh (CI shell shard 1/2) went red --> FIXED 446a8e90c (moved above the marker). My earlier full validation ran the node suite only (yarn test); `yarn test:shell` was then run locally at 446a8e90c: rc 0.
 
 Merged origin/main 2026-10-07 (c7fb44406): main's new tools/test-setup-pause-sandbox-4651.sh stubs _kosmos_linux_unit_killmode; the order test pins KillMode, the #5033 marker, the stop. Queued shell suite rc 0 and the two node files 38/0 at c7fb44406 (00:10). Disclosure: fb6261edb edited another branch's proof (1329-acceptance) by mistake; restored byte-identical in the next commit.
+
+### Merge with main (after convergence)
+- Merged origin/main (#5526 stopgap): the one conflict was the workflow on: block; took main's (its paths filter plus workflow_dispatch, which covers this branch's workflow_dispatch). install/** is in the filter, so this workflow still runs on this PR. Known gap, mine (#5526): the filter omits engine/linuxboard.js; closes when #5525 removes the filter.
