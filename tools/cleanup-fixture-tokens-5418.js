@@ -181,6 +181,18 @@ function backup(dir, dest, names) {
   fs.mkdirSync(dest, { recursive: false, mode: 0o700 });
   try { copyInto(dir, dest, names); } catch (e) { if (e && typeof e === 'object') { try { e.backupCreated = true; } catch { /* frozen */ } } throw e; }
 }
+/* Flush one backup copy to disk. Opened read-write (Windows refuses to flush a read-only handle); where the platform
+   still cannot flush (EPERM or EISDIR on Windows, as securewrite's flushOrThrow allows) the copy stands as written. */
+function flushCopy(file, platform = process.platform) {
+  const fd = fs.openSync(file, 'r+');
+  try { fs.fsyncSync(fd); }
+  catch (e) {
+    // as securewrite's flushOrThrow: a filesystem with no flush, and Windows's EPERM/EISDIR, leave the copy as written
+    const unsupported = e && ['EINVAL', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS'].includes(e.code);
+    if (!(unsupported || (platform === 'win32' && e && (e.code === 'EPERM' || e.code === 'EISDIR')))) throw e;
+  }
+  finally { fs.closeSync(fd); }
+}
 function copyInto(dir, dest, names) {
   for (const name of names) {
     const from = path.join(dir, name);
@@ -195,8 +207,7 @@ function copyInto(dir, dest, names) {
     else if (st.isFile()) {
       fs.copyFileSync(from, to, fs.constants.COPYFILE_EXCL);
       fs.chmodSync(to, st.mode & 0o777);
-      // on disk before any original is removed (#5434): a crash right after --apply cannot lose both copies
-      const fd = fs.openSync(to, 'r'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+      flushCopy(to);   // on disk before any original is removed (#5434): a crash right after --apply cannot lose both
       if (fs.statSync(to).size !== st.size) throw new Error('the backup of ' + name + ' is not the same size as the file');
     }
     // anything else (a folder swapped in since the plan) is not backed up, so the run stops rather than go on without it
@@ -514,4 +525,4 @@ if (require.main === module) {
     (e) => { console.error('Stopped: ' + ((e && e.message) || e)); process.exitCode = 2; });
 }
 
-module.exports = { planCleanup, listEntries, tokenInfo, backup, applyPlan, parseArgs, getJson, fetchRoster, spellingsOf, expectedPort, portForUid, jobKeepNames, planDigest, BACKUP_PREFIX, main };
+module.exports = { planCleanup, listEntries, tokenInfo, backup, applyPlan, parseArgs, getJson, fetchRoster, spellingsOf, expectedPort, portForUid, jobKeepNames, flushCopy, planDigest, BACKUP_PREFIX, main };
