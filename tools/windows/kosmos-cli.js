@@ -1592,7 +1592,7 @@ async function communityWithdraw(ctx, args) {
     ctx.out(st === 'withheld' ? 'Taken back before it was sent: this ' + w + ' will not go to the community.'
       : st === 'deleted' ? 'This ' + w + ' has already been taken down from the community.'
         : st === 'sent' ? 'Taken back: this ' + w + ' comes down from the community on Kosmos\'s next send, usually within a few minutes.'
-          : 'Taken back.');
+          : 'Kosmos recorded it. To see what happens to this ' + w + ', run: kosmos community status');
     return 0;
   }
   ctx.err('Nothing was taken back: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');

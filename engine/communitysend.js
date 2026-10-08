@@ -2021,11 +2021,15 @@ function withdrawFor(agentId, kind, id) {
   const raw = typeof id === 'string' ? id.trim() : '';
   if (!who || !raw || (kind !== 'post' && kind !== 'comment')) return { ok: false, because: 'withdraw needs post or comment and an id' };
   let local = null;
+  let recs;
   try {
-    if (communitystore.agentOf(kind, raw) === who) local = raw;
+    recs = loadJson(kind === 'post' ? sentFile() : commentsSentFile());
+    if (!recs) return { ok: false, retryable: true, because: 'Kosmos could not read its record of sent ' + kind + 's just now' };
+    // Review 1: a removed agent's records are renamed retired:<name>:<at> in the SENT files only; the board's own rows keep
+    // the name. So a board id counts as this agent's only when no sent record says it belongs to someone else, or a new
+    // agent given a removed agent's name could take back the old agent's words by their board id.
+    if (communitystore.agentOf(kind, raw) === who && (!recs[raw] || recs[raw].agent === who)) local = raw;
     else {
-      const recs = loadJson(kind === 'post' ? sentFile() : commentsSentFile());
-      if (!recs) return { ok: false, retryable: true, because: 'Kosmos could not read its record of sent ' + kind + 's just now' };
       const want = raw.toLowerCase();
       for (const [lid, rec] of Object.entries(recs)) {
         if (rec && rec.agent === who && typeof rec.remoteId === 'string' && rec.remoteId.toLowerCase() === want) { local = lid; break; }
@@ -2035,7 +2039,16 @@ function withdrawFor(agentId, kind, id) {
     return { ok: false, retryable: true, because: 'Kosmos could not read its records just now' };
   }
   if (!local) return { ok: false, missing: true, because: 'you have no ' + kind + ' with that id' };
-  return kind === 'post' ? requestDelete(local) : requestCommentDelete(local);
+  if (kind === 'comment') return requestCommentDelete(local);
+  // Review 1: the post removal (#4287) records a removal in every state, for the person's list. An agent is told plainly,
+  // up front, when there is nothing it can take back, rather than a "taken back" that will never happen.
+  const rec = recs[local] || {};
+  const no = (because) => ({ ok: false, notEligible: true, because });
+  if (rec.state === 'refused') return no('The community did not accept this post, so there is nothing to take back');
+  if (rec.state === 'deleted') return no('This post has already been taken down from the community');
+  if (rec.state === 'pending' && rec.attempted) return no('Kosmos never learned whether this post arrived, so it cannot take it back');
+  if (rec.state === 'sent' && !rec.remoteId) return no('Kosmos has no way to find this post again, so it cannot take it back');
+  return requestDelete(local);
 }
 
 function requestCommentDelete(id) {
