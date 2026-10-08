@@ -21,6 +21,10 @@ const CHUNK_NAME_RE = /^[0-9a-f]{64}$/;
 // is refused before it is decrypted.
 const MAX_CHUNK_OBJECT = 2 * CDC.max + 4096;
 const MAX_SKIPPED_REPORTED = 10000;
+// Bounds on the manifest itself, refused before it is decrypted or walked (both can be raised by the caller).
+const MAX_MANIFEST_OBJECT = 512 * 1024 * 1024;
+const MAX_FILES = 2_000_000;
+const SHA256_RE = /^[0-9a-f]{64}$/;
 // Windows device names, with or without an extension, and with spaces before it (CON, nul.txt, COM1.log, nul .txt).
 const WIN_RESERVED_RE = /^(con|prn|aux|nul|conin\$|conout\$|com[0-9¹²³]|lpt[0-9¹²³]) *(\..*)?$/i;
 // The shape of an NTFS 8.3 short name (PROGRA~1, LONGFI~1.MD), which can name another entry's file.
@@ -76,7 +80,8 @@ function collidingPaths(entries) {
 
 /**
  * Restore one snapshot. Resolves to { restored: [path], failed: [{ path, why }], skippedAtBackup: [...] }, or null
- * when the manifest itself does not verify and open (wrong device key for the time, wrong context, tampering).
+ * when the manifest itself does not verify and open (wrong device key for the time, wrong context, tampering), or
+ * exceeds maxManifestObject bytes or maxFiles entries.
  *
  *   fetchChunk(name) -> Buffer or Uint8Array | null, or a promise of one (null: the chunk is not stored). It should
  *     refuse to download an object larger than maxChunkObject; restore refuses one before decrypting it.
@@ -92,23 +97,25 @@ function collidingPaths(entries) {
  * Paths in failed and skippedAtBackup come from the manifest and may hold any printable text: escape them for
  * display.
  */
-async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, manifestObject, fetchChunk, sink, maxChunkObject = MAX_CHUNK_OBJECT }) {
+async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, manifestObject, fetchChunk, sink,
+  maxChunkObject = MAX_CHUNK_OBJECT, maxManifestObject = MAX_MANIFEST_OBJECT, maxFiles = MAX_FILES }) {
+  if (!(manifestObject instanceof Uint8Array) || manifestObject.length > maxManifestObject) return null;
   const manifest = openManifest(memberSk, devicePubAtSnapshot, ctx, manifestObject);
-  if (!manifest || !Array.isArray(manifest.files)) return null;
+  if (!manifest || !Array.isArray(manifest.files) || manifest.files.length > maxFiles) return null;
   const restored = [], failed = [];
   const wellFormed = [];
   for (const f of manifest.files) {
     // Every chunk holds at least one byte, so a file has no more chunks than bytes.
-    if (!f || !safeRel(f.path) || !Array.isArray(f.chunks) || typeof f.sha256 !== 'string' || !Number.isSafeInteger(f.size) || f.size < 0
+    if (!f || !safeRel(f.path) || !Array.isArray(f.chunks) || typeof f.sha256 !== 'string' || !SHA256_RE.test(f.sha256) || !Number.isSafeInteger(f.size) || f.size < 0
       || f.chunks.length > f.size) {
       failed.push({ path: f && typeof f.path === 'string' ? forReport(f.path) : '(unnamed)', why: 'malformed entry or unsafe path' });
     } else wellFormed.push(f);
   }
   const clash = collidingPaths(wellFormed);
   for (const f of wellFormed) {
-    if (clash.has(f.path)) { failed.push({ path: f.path, why: 'another entry lands on the same file or folder' }); continue; }
+    if (clash.has(f.path)) { failed.push({ path: forReport(f.path), why: 'another entry lands on the same file or folder' }); continue; }
     const why = await restoreFile(f, { memberSk, namingKey, fetchChunk, sink, maxChunkObject });
-    if (why) failed.push({ path: f.path, why });
+    if (why) failed.push({ path: forReport(f.path), why });
     else restored.push(f.path);
   }
   const skippedAtBackup = (Array.isArray(manifest.skipped) ? manifest.skipped : [])

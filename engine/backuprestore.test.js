@@ -75,6 +75,9 @@ test('#5536 restore refuses: another device key, another context, another member
   assert.equal(await go({ devicePubAtSnapshot: k.dev2.publicKey }), null, 'a device key not enrolled at the snapshot time');
   assert.equal(await go({ ctx: { ...k.ctx, member: 'someone-else' } }), null, 'replayed into another member');
   assert.equal(await go({ memberSk: k.other.sk }), null, 'another member\'s key reads nothing');
+  assert.equal(await go({ maxManifestObject: k.manifestObject.length - 1 }), null, 'a manifest object over the bound is not opened');
+  assert.ok(await go({ maxManifestObject: k.manifestObject.length, maxFiles: 1 }), 'CONTROL: exactly at both bounds opens');
+  assert.equal(await go({ maxFiles: 0 }), null, 'a manifest listing more files than the bound is refused');
 });
 
 test('#5536 per file, fail closed: a missing, foreign, swapped or unfetchable chunk fails that file only, aborted never committed', async () => {
@@ -112,7 +115,7 @@ test('#5536 a sink that fails to write aborts the file and does not commit it', 
 
 test('#5536 unsafe paths are refused before anything is fetched (control: a plain path restores)', async () => {
   const bad = ['../escape.md', '..\\escape.md', 'a/../../b', '/etc/x', '\\\\server\\share', 'C:/x', 'a/C:/x', 'file.txt:ads', 'a//b', '.', 'a/./b',
-    'nul\0.md', 'tab\there', 'lone\ud800.md', 'nel\u0085.md', 'line\u2028sep.md', 'exe\u202etxt.md', '..\u200b', '.\u200c/x', '\u200b', 'a/\u3164', 'x\ufeff./y', 'nul .txt', 'CON .md', 'LONGFI~1.MD', 'PROGRA~1/x', 'CON', 'nul.txt', 'a/com1.log', 'trailing.', 'trailing ', ' ..', ''];
+    'nul\0.md', 'tab\there', 'lone\ud800.md', 'nel\u0085.md', 'line\u2028sep.md', 'exe\u202etxt.md', '..\u200b', '.\u200c/x', '\u200b', 'a/\u3164', 'x\ufeff./y', 'nul .txt', 'CON .md', 'LONGFI~1.MD', 'PROGRA~1/x', 'conin$', 'COM\u00b9.txt', 'lpt\u00b2', 'CON', 'nul.txt', 'a/com1.log', 'trailing.', 'trailing ', ' ..', ''];
   const { run, fetched } = handMade((entry) => [...bad.map((p) => entry(p)), entry('ok.md'), entry('.hidden/fine.md'), entry('family\u{1f469}\u200d\u{1f467}.md'), entry('heart\u2764\ufe0f.md'), entry('notes~draft.md'), entry('backup~1.tar.gz')]);
   const { r, sink } = await run();
   assert.deepEqual(r.restored, ['ok.md', '.hidden/fine.md', 'family\u{1f469}\u200d\u{1f467}.md', 'heart\u2764\ufe0f.md', 'notes~draft.md', 'backup~1.tar.gz'],
@@ -144,7 +147,7 @@ test('#5536 a malformed chunk name is never handed to fetchChunk', async () => {
 });
 
 test('#5536 a recorded size or hash that does not match the content is refused, and a repeated chunk cannot inflate a file', async () => {
-  const { run, data, fetched } = handMade((entry, name) => [entry('wrong-hash.md', { sha256: '0'.repeat(64) }), entry('too-big.md', { size: 10 ** 12 }),
+  const { run, data, fetched } = handMade((entry, name) => [entry('wrong-hash.md', { sha256: '0'.repeat(64) }), entry('bad-hash-shape.md', { sha256: 'A'.repeat(64) }), entry('too-big.md', { size: 10 ** 12 }),
     entry('too-small.md', { size: 1 }), entry('negative.md', { size: -1 }), entry('repeated.md', { chunks: Array(3).fill(name), size: 150 }),
     entry('more-chunks-than-bytes.md', { chunks: Array(1000).fill(name) }), entry('ok.md')]);
   const { r, sink } = await run();
@@ -154,6 +157,7 @@ test('#5536 a recorded size or hash that does not match the content is refused, 
   assert.equal(why['too-big.md'], 'the file does not match the size recorded at upload');
   assert.equal(why['too-small.md'], 'the file does not match the size recorded at upload');
   assert.equal(why['negative.md'], 'malformed entry or unsafe path');
+  assert.equal(why['bad-hash-shape.md'], 'malformed entry or unsafe path', 'a recorded hash that is not 64 lowercase hex');
   assert.equal(why['repeated.md'], 'the file does not match the size recorded at upload');
   assert.equal(why['more-chunks-than-bytes.md'], 'malformed entry or unsafe path', 'refused before any fetch');
   assert.equal(sink.calls.filter((c) => c === 'abort repeated.md').length, 1);
