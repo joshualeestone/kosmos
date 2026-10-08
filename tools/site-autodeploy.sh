@@ -90,7 +90,7 @@ park() { echo "$TARGET" > "$STATE/parked"; mark_reported parked; }
 # Josh's account. Each sha and cause has its OWN record (reported.d/<sha>-<cause>, holding the time),
 # so two causes taking turns never re-arm each other. The records for the states with a clean "it is
 # over" moment (wedged lock, fetch, origin/main) are removed the moment that is seen, so a new incident
-# after it is red at once. The retry-type causes (pointer, unread, mirror, checksum, moving, timeout)
+# after it is red at once. The retry-type causes (pointer, unread, mirror, checksum, moving)
 # are removed only when a deploy succeeds or main is found already live: until then the sha has not
 # shipped, so a second incident of the same cause on it within the day is the SAME problem still open,
 # and is reported green ("STILL FAILING") rather than emailed again. Clearing those on any passing check
@@ -157,7 +157,14 @@ if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 5000000 ]; then tail -n 5000 "$LOG
 # Bounded: no prompt, and a 120 s wall clock (perl's alarm; macOS has no timeout(1)), so a stalled
 # transfer or a keychain helper that never answers is a failed fetch, not a tick hung until the runner's
 # job timeout (which would be red every tick, past red_once).
-GIT_TERMINAL_PROMPT=0 perl -e 'alarm shift; exec @ARGV' 120 git -C "$SITE" fetch -q origin main 2>>"$LOG" \
+# The git runs in its own process group and the whole group is stopped at the limit, so its helpers
+# (git-remote-https, a credential helper waiting on the keychain) cannot outlive it.
+grouped_timeout() {  # <seconds> <cmd...>: run cmd in its own process group; on expiry TERM then KILL the group, exit 142
+  perl -e 'my $t = shift; my $p = fork; if (!$p) { setpgrp(0, 0); exec @ARGV or exit 127 }
+    $SIG{ALRM} = sub { kill "TERM", -$p; sleep 2; kill "KILL", -$p; waitpid($p, 0); exit 142 };
+    alarm $t; waitpid($p, 0); my $s = $?; exit(($s & 127) ? 128 + ($s & 127) : $s >> 8)' "$@"
+}
+GIT_TERMINAL_PROMPT=0 grouped_timeout 120 git -C "$SITE" fetch -q origin main 2>>"$LOG" \
   || red_once fetch "FAIL: could not fetch site origin/main in $SITE (failed or timed out)"
 clear_reported fetch   # (TARGET is still empty here: the "none" records)
 TARGET=$(git -C "$SITE" rev-parse --verify -q origin/main) || { TARGET=""; red_once noref "FAIL: no origin/main in $SITE"; }
@@ -318,19 +325,19 @@ if publisher_running; then
   exit 0
 fi
 now > "$STATE/heartbeat"   # fresh before the long part, so a slow deploy never reads as a wedged lock
-say "deploying site main ${TARGET:0:9} (last deployed ${LAST:0:9})"
+say "deploying site main ${TARGET:0:9} (last deployed ${LAST:0:9}); its output is printed when it ends, and kept in $STATE/deploy.out"
 # The deploy's output goes to this run's output and the log once it ends; rc is the deploy's own.
 # KOSMOS_REPO pins deploy-site.sh's libraries to THIS checkout; without it they load from
 # ~/work/agent-workforce, which on Mortals is the cut's checkout, at whatever sha a cut left it.
 export KOSMOS_REPO="$REPO"
 # The deploy has its own wall-clock limit, well inside the workflow's 30-minute job timeout, so a hung
-# deploy is THIS script's to account for (a retry, counted, alarmed once) instead of the runner killing
+# deploy is THIS script's to account for (a failure: retried once, then parked) instead of the runner killing
 # the job with nothing recorded and the next tick hanging the same way. Measured 2026-10-08: the 0.7.28
 # prod promote's deploy-site.sh --promote took 2 min 18 s on Mortals; 15 minutes is about 6 times that.
 # The deploy runs in its own process group (set -m), so the limit stops vercel and every other child too,
 # not just the subshell.
 DEPLOY_MAX_S="${KOSMOS_AUTODEPLOY_DEPLOY_MAX_S:-900}"
-case "$DEPLOY_MAX_S" in ''|*[!0-9]*|0) DEPLOY_MAX_S=900 ;; esac   # 0 would kill every deploy at once
+case "$DEPLOY_MAX_S" in ''|*[!0-9]*|0*) DEPLOY_MAX_S=900 ;; esac   # 0 kills every deploy at once; a leading 0 reads as octal
 if [ -n "${KOSMOS_AUTODEPLOY_DEPLOY:-}" ]; then DCMD=(sh -c "$KOSMOS_AUTODEPLOY_DEPLOY"); else DCMD=(bash "$REPO/tools/deploy-site.sh" --publish); fi
 DOUT="$STATE/deploy.out"; : > "$DOUT"
 dpid=""   # set the moment the deploy starts; the traps below are in place BEFORE it starts
@@ -352,7 +359,10 @@ tenths=0   # polled every 0.2 s, counted in tenths of a second
 while kill -0 "$dpid" 2>/dev/null && [ "$tenths" -lt $((DEPLOY_MAX_S * 10)) ]; do sleep 0.2; tenths=$((tenths + 2)); done
 if kill -0 "$dpid" 2>/dev/null; then
   stop_deploy
-  wait "$dpid" 2>/dev/null; rc=75
+  # NOT 75: a deploy can be stopped AFTER vercel deploy has published (its served checks were running), so
+  # this is a failure like any other (retried once, then parked), and the "already live" shortcut will not
+  # bless the sha while the failure count stands.
+  wait "$dpid" 2>/dev/null; rc=124
   timedout=1
 else
   wait "$dpid"; rc=$?; timedout=""
@@ -360,7 +370,7 @@ fi
 # Printed whole once it has ended (not streamed: a live tail could be orphaned by a killed tick, and
 # could cut off the last lines). The run and the log get the same complete output.
 tee -a "$LOG" < "$DOUT"
-[ -n "$timedout" ] && say "the deploy ran past its ${DEPLOY_MAX_S}s limit and was stopped; counted as a retry"
+[ -n "$timedout" ] && say "the deploy ran past its ${DEPLOY_MAX_S}s limit and was stopped (exit 124, a failure)"
 trap '[ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"' EXIT   # the deploy is over: back to the plain trap
 if [ "$rc" = 0 ]; then
   echo "$TARGET" > "$STATE/last-deployed"; rm -f "$STATE/failures" "$STATE/retries" "$STATE/parked"; rm -rf "$REPORTED"
@@ -374,16 +384,8 @@ fi
 # host that stays unreachable never reads green with no report; it keeps retrying.
 if [ "$rc" = 75 ]; then
   n=$(( $(count_for "$STATE/retries") + 1 )); echo "$TARGET $n" > "$STATE/retries"
-  if [ -n "$timedout" ]; then
-    [ "$n" -ge "$RETRY_ALARM" ] && red_once timeout "FAIL: the deploy of ${TARGET:0:9} has run past its ${DEPLOY_MAX_S}s limit $n ticks in a row; still retrying"
-  else
-    [ "$n" -ge "$RETRY_ALARM" ] && red_once moving "FAIL: ${TARGET:0:9} has hit a moving or unreadable live site $n ticks in a row; still retrying"
-  fi
-  if [ -n "$timedout" ]; then
-    say "retry: the deploy of ${TARGET:0:9} ran past its limit ($n in a row); the next tick tries again"
-  else
-    say "retry: the live site moved or could not be read during the deploy of ${TARGET:0:9} ($n in a row); the next tick tries again"
-  fi
+  [ "$n" -ge "$RETRY_ALARM" ] && red_once moving "FAIL: ${TARGET:0:9} has hit a moving or unreadable live site $n ticks in a row; still retrying"
+  say "retry: the live site moved or could not be read during the deploy of ${TARGET:0:9} ($n in a row); the next tick tries again"
   exit 0
 fi
 printf '%s rc=%s %s\n' "$TARGET" "$rc" "$(now)" > "$STATE/last-failure"
