@@ -25,9 +25,6 @@ future-dated record counts as never reported.
 
 ## Weakest premise
 
-(A deploy that hangs is stopped at its 15-minute limit and counted as a FAILURE: red, retried once, then
-parked. A hang is a fault to fix, not to retry around.)
-
 
 Green ticks during a known failure: someone looking only at the latest run's colour sees green. The
 run's own output says FAIL and "red already reported", and a red run exists for that sha and cause
@@ -42,6 +39,10 @@ with nothing recorded. Measured 2026-10-08: the 0.7.28 prod promote's deploy-sit
 min 18 s on Mortals. The deploy runs in its own process group with stdin from /dev/null; at the limit,
 or if the tick itself is killed (the runner cancelling the job), the whole group is stopped, vercel
 included.
+
+A deploy that hangs is stopped at its 15-minute limit (by the clock, capped at 25 minutes so it stays
+inside the job timeout) and counted as a FAILURE: red, retried once, then parked. A tick killed mid-deploy
+also records a failure (rc 143), since the deploy may have published. A hang is a fault to fix.
 
 ## Records and recovery (review rounds 1 and 2)
 

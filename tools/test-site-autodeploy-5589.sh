@@ -303,6 +303,13 @@ kill -TERM "$tick23"; wait "$tick23" 2>/dev/null; sleep 1
 hp2=$(cat "$HANG2" 2>/dev/null)
 { [ -n "$hp2" ] && ! kill -0 "$hp2" 2>/dev/null && [ ! -e "$ST/lock" ] && command grep -q "^started-23" "$ST/log"; } && pass "a tick killed mid-deploy takes its deploy's children with it, keeps its output in the log, and frees the lock" \
   || { bad "killed tick left its deploy (child $hp2 alive=$(kill -0 "$hp2" 2>/dev/null && echo yes || echo no), lock=$([ -e "$ST/lock" ] && echo held || echo free))"; [ -n "$hp2" ] && kill "$hp2" 2>/dev/null; }
+# ...and it recorded a FAILURE (it may have published before the kill), so a marker naming the sha on
+# the next tick does not get it recorded as deployed.
+{ grep -q "^$H23 rc=143 " "$ST/last-failure" && grep -q "^$H23 1$" "$ST/failures"; } && pass "a killed tick records a failure (rc 143) for its sha" || bad "killed tick recorded no failure: $(cat "$ST/last-failure" "$ST/failures" 2>/dev/null)"
+printf 'kosmos-release-export\ncommit=%s\n' "$H23" > "$SERVED/.kosmos-release-export"
+KOSMOS_AUTODEPLOY_DEPLOY='exit 1' tick
+[ "$(cat "$ST/last-deployed")" != "$H23" ] && pass "after a killed deploy, a marker naming the sha does not bless it" || bad "killed deploy's sha blessed as deployed"
+rm -f "$ST/parked" "$ST/failures"; rm -rf "$ST/reported.d"
 
 # 24) a report time in the future (a clock step, a hand edit) counts as never reported: red.
 H24=$(advance twentyfour); mkdir -p "$ST/reported.d"; echo "$H24" > "$ST/parked"; printf '%s rc=1 x\n' "$H24" > "$ST/last-failure"
