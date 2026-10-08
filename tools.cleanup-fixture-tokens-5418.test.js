@@ -857,3 +857,10 @@ test('#5418: in a test process the Windows job read is "known, none" (the runner
 test('#5418: on Linux a key\'s -discord unit keeps its token too', () => {
   assert.deepEqual(tool.jobKeepNames('linux', ['sam', 'pat'], { known: true, of: (n) => n === 'sam-discord', dirReadable: () => true }), ['sam']);
 });
+
+test('#5418: an entry that is no longer a file or a link stops the backup (nothing removed without one)', (t) => {
+  const root = scratch(t);
+  const dir = path.join(root, 'tokens');
+  fs.mkdirSync(path.join(dir, 'swapped.json'), { recursive: true });   // a folder where the plan saw a file
+  assert.throws(() => tool.backup(dir, path.join(root, 'backup'), ['swapped.json']), /no longer a file or a link/);
+});

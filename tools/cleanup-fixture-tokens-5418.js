@@ -196,6 +196,8 @@ function copyInto(dir, dest, names) {
       fs.chmodSync(to, st.mode & 0o777);
       if (fs.statSync(to).size !== st.size) throw new Error('the backup of ' + name + ' is not the same size as the file');
     }
+    // anything else (a folder swapped in since the plan) is not backed up, so the run stops rather than go on without it
+    else throw new Error(name + ' is no longer a file or a link, so it was not backed up');
   }
 }
 
@@ -416,6 +418,9 @@ async function main(argv, { armFromCommandLine = false } = {}) {
   // Windows Scheduled Tasks and Linux systemd units, read the way the board's own survey reads them (register.jobReader)
   const jobReader = require('../engine/register').jobReader(process.platform);
   if (process.platform === 'linux') {
+    // one unit file read here, not through presence() (existsSync reads EACCES as "no unit"): unreadable keeps the key
+    const lj = require('../engine/linuxjob');
+    jobReader.of = (name) => { try { fs.statSync(lj.unitPath(name)); return true; } catch (e) { return !(e && e.code === 'ENOENT'); } };
     jobReader.dirReadable = () => {
       try { fs.readdirSync(require('../engine/linuxjob').systemdDir()); return true; } catch (e) { return !!e && e.code === 'ENOENT'; }
     };
