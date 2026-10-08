@@ -5611,11 +5611,9 @@ function createAgentInner(opts) {
      by a sandbox guard in its folder, written BEFORE it can start for the same reason as the guide's.
      Any role (the list is not role-scoped). Gating like the guide: an unguarded token-only agent is
      exactly what this card forbids, so a guard that could not be written refuses the creation. */
-  // tokenOnlyFor never throws (it swallows a bad/absent file), but compute it defensively so a future
-  // throw cannot escape createAgent uncaught, outside the rollback gate (the guide's gate is a pure
-  // roleKey comparison, which cannot throw; this one calls into another module).
+  // tokenOnlyFor never throws today (it swallows a bad or absent file). If a future version did, the throw stays inside
+  // the rollback gate and fails closed: the agent is treated as token-only and guarded (review 11).
   let isTokenOnly = false;
-  // Defensive only: tokenOnlyFor never throws today. If a future version did, fail closed and try to guard (review 11).
   try { isTokenOnly = require('./sendertoken').tokenOnlyFor(name); } catch { isTokenOnly = true; }
   const guardedTokenOnly = DRY_RUN || !isTokenOnly || step('kept the board token out of its reach', () => {
     // #4491 review WARNING 1: the runner is named, so a non-Claude agent is refused with the reason rather than

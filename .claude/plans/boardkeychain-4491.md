@@ -211,3 +211,6 @@ copy (settings.json.unreadable-<time>) and the board log says so before the guar
 token-only agent's SHELL can no longer create anything in its own .claude (skills, plans, hooks), because the sandbox
 write-denies the whole folder; that is deliberate (the folder is its guard's). Reviewer names removed from code comments.
 Nineteenth review (opus), no blocker; fixed: move-aside re-checks the folder right before the move (as restore does before its rename), tested by a swap at the move itself; undo's switch file is in the protected set.
+Twentieth review (sonnet), no security hole; fixed: an unchanged guard is not rewritten at every board start; create's
+two comments merged. Over-refusal stated in full: undo compares every protected path and folder without case, so on a
+case-sensitive disk a file differing only in case from a protected one is refused too (safe direction, accepted).
