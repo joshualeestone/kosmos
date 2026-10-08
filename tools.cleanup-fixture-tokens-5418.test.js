@@ -13,6 +13,11 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
+/* A data root of this file's own (#4796: a test that runs a stub board must never let the real board token reach it),
+   set before anything reads the store. #5418 ask 1 would give a throwaway anyway; this says so in the file. */
+const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'tokclean-data-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SB, 'data');
+test.after(() => fs.rmSync(SB, { recursive: true, force: true }));
 const tool = require('./tools/cleanup-fixture-tokens-5418');
 const { safeKey } = require('./engine/store');
 /* test-support/fleet writes a worker instruction file for a display name, and refuses unless the workers folder is a
@@ -511,12 +516,16 @@ test('#5418: a token minted in the same mtime tick is kept (mintedAt is checked 
   assert.deepEqual(res.gone, ['never-there.json']);
 });
 
-test('#5418: a redirect from the health check never carries the board token anywhere', async (t) => {
+test('#5418: a redirect on the call that carries the board token is refused, so the token goes nowhere else', async (t) => {
   const elsewhere = [];
   const sink = http.createServer((req, res) => { elsewhere.push(req.headers['x-kosmos-board-token'] || null); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"app":"kosmos","agents":[]}'); });
   await new Promise((ok) => sink.listen(0, '127.0.0.1', ok));
   t.after(() => sink.close());
-  const hop = http.createServer((req, res) => { res.writeHead(302, { location: `http://127.0.0.1:${sink.address().port}${req.url}` }); res.end(); });
+  // the hop answers the health check as a board, then redirects the call that carries the token
+  const hop = http.createServer((req, res) => {
+    if (req.url === '/api/health') { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"app":"kosmos","ok":true}'); return; }
+    res.writeHead(302, { location: `http://127.0.0.1:${sink.address().port}${req.url}` }); res.end();
+  });
   await new Promise((ok) => hop.listen(0, '127.0.0.1', ok));
   t.after(() => hop.close());
   await assert.rejects(tool.fetchRoster(hop.address().port, 'secret-board-token'));
