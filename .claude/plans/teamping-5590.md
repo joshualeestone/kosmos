@@ -86,3 +86,13 @@ Neighbours green: createdbeacon-3038 (unit and route), no-phone-home-4253, brows
   before it, shown and fixed during it. Untested still: the open reset on the three error exits (fetch throw,
   unreadable body, no outcome); the over-cap refusal arm covers the same call.
 - Plan: review 4's lock marked superseded.
+
+## Review 7 (opus): no blockers
+- Fixed (WARNING): a refused import reopened the box beside "No agents were created". Any result on screen now hides it
+  (orgchartTell('gone') at the end of every create); Back to the list then Preview offers the choice again. The browser
+  check asserts it is gone after the refused arm.
+- Taken (NITs): the three error exits reopen the box only while the person is still on that preview, otherwise it is
+  gone; the label says "an agent" for one row, as #tc-tell does; the comment states the three states; the check
+  waits for the created count rather than a fixed sleep.
+- Left (NIT): the restored-result assertion cannot single out orgchartRestoreCreated's own 'gone' (the reset hides it
+  first); kept as a guard on the outcome, not the line.

@@ -15511,10 +15511,11 @@ window.kosmosMeasureScrollbarWidth();
           </div>
           <!-- #5590: the import tells installkosmos.com the agent count moved, so the sheet's "Let Kosmos know" choice is
                shown where it is made, as the team step does (Review 27, #tc-tell): kept equal to #create-tell, which
-               stays the one the creates read. Shown only with a preview, before its create (orgchartTell). -->
+               stays the one the creates read. orgchartTell: open with a preview that can be created, fixed while its create
+               runs, gone once any result is on screen. -->
           <label class="tellrow" for="orgchart-tell" id="orgchart-tell-row">
             <input type="checkbox" id="orgchart-tell">
-            <span>Let Kosmos know these agents were created</span>
+            <span id="orgchart-tell-say">Let Kosmos know these agents were created</span>
           </label>
           <!-- #4559: more than the usual team size is started only on this explicit yes (Liu Kang m3436). -->
           <div class="orgchart-consent" id="orgchart-many" role="group" aria-labelledby="orgchart-many-say" hidden>
@@ -53523,6 +53524,8 @@ function orgchartPaint() {
   /* #5590: a new preview is the create about to be made, so its choice is shown and open; a repaint while a create
      runs (a "reports to" change mid-flight) keeps it fixed, since that create's choice was already sent. */
   orgchartTell(ORGCHART_CREATING ? 'locked' : 'open');
+  document.getElementById('orgchart-tell-say').textContent = rows.length === 1   // as #tc-tell-say reads
+    ? 'Let Kosmos know an agent was created' : 'Let Kosmos know these agents were created';
   const loops = orgchartLoops(rows);
   const open = rows.filter((r, i) => (r.why && !r.confirmed) || loops.has(i)).length;
   const count = document.getElementById('orgchart-count');
@@ -53860,7 +53863,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
     /* Still CREATING: the reporting-line fix-ups below are part of this create, and a Preview or a file read
        during them would supersede the screen and lose this batch's Undo. Released after them. */
   } catch (err) {
-    ORGCHART_CREATING = false; previewBtn.disabled = false; orgchartTell('open');
+    ORGCHART_CREATING = false; previewBtn.disabled = false; orgchartTell(gen === ORGCHART_GEN ? 'open' : 'gone');
     if (gen !== ORGCHART_GEN) { orgchartCreateWaitEnded('We could not reach Kosmos to create the team. Try again.'); return; }   // superseded during the fetch
     btn.disabled = false;
     msg.hidden = false;
@@ -53872,7 +53875,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
      the panel), but a team that WAS created still gets its reporting-line fix-ups, which correct data (create stores reportsTo as sent) rather than the screen. */
   const superseded = gen !== ORGCHART_GEN;
   if (!result) {
-    ORGCHART_CREATING = false; previewBtn.disabled = false; orgchartTell('open');
+    ORGCHART_CREATING = false; previewBtn.disabled = false; orgchartTell(gen === ORGCHART_GEN ? 'open' : 'gone');
     if (superseded) { orgchartCreateWaitEnded('Kosmos did not answer in a way we could read. Try again.'); return; }
     btn.disabled = false;
     msg.hidden = false;
@@ -53887,7 +53890,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
      and read as a bare "No agents were created", hiding the real reason on a 15-20 person
      import. So: no `outcome` means it is not a team result -- surface its error plainly. */
   if (result.outcome === undefined) {
-    ORGCHART_CREATING = false; previewBtn.disabled = false; orgchartTell('open');
+    ORGCHART_CREATING = false; previewBtn.disabled = false; orgchartTell(gen === ORGCHART_GEN ? 'open' : 'gone');
     if (superseded) { orgchartCreateWaitEnded(result.error ? String(result.error) : 'Kosmos refused the request.'); return; }
     btn.disabled = false;
     msg.hidden = false;
@@ -53935,7 +53938,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
     else if (!f.to) orphans.push(f.name);
   }
   ORGCHART_CREATING = false; previewBtn.disabled = false;
-  orgchartTell(created.length > 0 ? 'gone' : 'open');   // #5590: a result is on screen; nothing made, the choice is open again
+  orgchartTell('gone');   // #5590: a result is on screen (made or refused); Back to the list and Preview offer the choice again
   /* #4688: the result is worked out as text first, whether or not the person is still here, so a create that
      answers after they left the panel still records its agents and its Undo (they come back with the panel). */
   let countText;

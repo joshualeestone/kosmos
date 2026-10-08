@@ -169,7 +169,7 @@ function check(name, pass, detail) {
   await page.waitForTimeout(200);
   const tellDuring = await page.evaluate(() => { const b = document.getElementById('orgchart-tell'); return Boolean(b && b.disabled && !document.getElementById('orgchart-tell-row').hidden); });
   check('#5590: while the create runs, the box is shown but fixed (its choice was sent)', tellDuring, String(tellDuring));
-  await page.waitForTimeout(1400);
+  await page.waitForFunction(() => /Created 3 agents/.test(document.getElementById('orgchart-count').textContent), null, { timeout: 8000 }).catch(() => {});
   teamDelayMs = 0;
   const created = await page.evaluate(() => document.getElementById('orgchart-count').textContent);
   check('a successful create surfaces the created count', /Created 3 agents/.test(created), JSON.stringify(created));
@@ -307,10 +307,10 @@ function check(name, pass, detail) {
   await page.waitForTimeout(300);
   check('#5590: an unticked box makes the import send notifyCreated false',
     Boolean(lastTeamBody) && lastTeamBody.notifyCreated === false, JSON.stringify(lastTeamBody && lastTeamBody.notifyCreated));
-  // Ticked again for the arms after this one: set to a stated state, not toggled (a toggle would invert silently).
-  if (!(await page.evaluate(() => document.getElementById('orgchart-tell').checked))) await page.click('#orgchart-tell');
-  const restored = await page.evaluate(() => document.getElementById('orgchart-tell').checked && document.getElementById('create-tell').checked);
-  check('#5590: the box is ticked again after a refused import (nothing was created, so it was free)', restored, String(restored));
+  const refusedGone = await page.evaluate(() => document.getElementById('orgchart-tell-row').hidden === true);
+  check('#5590: a refused import is a result too, so the box is gone (nothing on screen to apply it to)', refusedGone, String(refusedGone));
+  // The sheet's choice ticked again for the arms after this one (stated, not toggled); the next preview shows it.
+  await page.evaluate(() => { document.getElementById('create-tell').checked = true; });
   const overcap = await page.evaluate(() => document.getElementById('orgchart-count').textContent);
   const overcapUndo = await page.evaluate(() => document.getElementById('orgchart-undo').hidden);
   check('nothing created, so no Undo is offered', overcapUndo);
