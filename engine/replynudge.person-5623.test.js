@@ -250,6 +250,8 @@ test('#5623 review 15: a person continuing their own answered thread with a dire
   assert.deepEqual(cr.personOwed([top], 'kim').map((o) => o.x.id), ['p2'], 'her follow-up after the agent answered was not owed');
   top.replies.push(cm('k2', 'Kim', 40));
   assert.deepEqual(cr.personOwed([top], 'kim'), [], 'a later direct answer did not count');
+  const other = cm(PC, 'Dana', 10, { person: true, replies: [cm('k1', 'Kim', 20, { replyToKey: 'bo' }), cm('p2', 'Dana', 30, { person: true })] });
+  assert.deepEqual(cr.personOwed([other], 'kim').map((o) => o.x.id), [PC], 'answering Bo in her thread made her room remark owed');
   const before = cm(PC, 'Dana', 10, { person: true, replies: [cm('p2', 'Dana', 15, { person: true }), cm('b1', 'Bo', 20)] });
   assert.deepEqual(cr.personOwed([before], 'kim').map((o) => o.x.id), [PC], 'a follow-up before the agent ever answered was owed twice');
 });

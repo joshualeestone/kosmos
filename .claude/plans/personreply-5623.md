@@ -250,3 +250,12 @@ the pick rule for Rule 2 (slice B) and the weakest premises are on the card (iss
 - Fixed (NIT): the PERSON_TELLS doc says the unanswered record comes PERSON_RETELL_MS after the last tell.
 - Left (NITs): a single-person re-tell of an older comment may sit below 5 newer ones in the read's section (the
   overflow line says to read again); a rest expiring between count and type costs one slot for one pass.
+
+## Review 16 (sonnet)
+- Fixed (WARNING): the own-thread follow-up is owed only when the agent's earlier reply there answered HER (direct or
+  naming her), not someone else; stated as a heuristic (no reply-to is both a direct reply and a reply to a removed
+  target). Tested.
+- Stated (WARNINGs): an entry whose thread later grows past what the read sees, or whose comment the person deletes, is
+  never seen answered, so /sent may list it as unanswered for up to 14 days (the safe side: never a re-tell); without
+  o.rotation the cap-full reads have no round (server.js always passes one; said in the code).
+- Left (NITs): the dense person block (left inline); personOwed computed more than once per thread in the read.

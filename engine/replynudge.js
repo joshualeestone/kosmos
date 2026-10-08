@@ -336,7 +336,8 @@ async function sweepOnce(o) {
       if (capFull && typeof o.readPersons !== 'function') break;
       /* Review 6: past the cap the count goes on for persons only, and for at most PERSONS_CAPFULL_READS agents a pass, so
          a full cap no longer reads the whole roster from the service every pass. */
-      /* Review 8: those few reads take their own turn across passes (rot.personsDone), so the same first agents are not
+      /* Without o.rotation (server.js always passes one) there is no round: the first PERSONS_CAPFULL_READS are read each pass.
+         Review 8: those few reads take their own turn across passes (rot.personsDone), so the same first agents are not
          the only ones read while the cap stays full; once every agent has had its turn the round starts again. */
       if (capFull) {
         if (rot) { if (!(rot.personsDone instanceof Set)) rot.personsDone = new Set(); if (rot.personsDone.has(session)) { capFullSeen = true; continue; } }
