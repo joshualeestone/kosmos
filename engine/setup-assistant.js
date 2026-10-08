@@ -354,14 +354,10 @@ function rulePaths(inner, platform = process.platform) {
   const back = rulePath(inner, platform);
   if (back !== null) out.push(back);
   const t = String(inner);
+  // for an ordinary drive rule (c/Users/x) this reading never matches: `own` is a drive path, compared as text
   if (platform === 'win32' && /^[A-Za-z]\/[^/]+/.test(t)) out.push('\\\\' + t.replace(/\//g, '\\'));
   return out;
 }
-/* The inverse, for code that reads a rule back as a path: what follows `Read(//` (without a trailing `/**`) to the
-   path it names. On Windows `c/Users/x` is `C:\Users\x`; a rule in the older native form (`C:\Users\x`, written
-   before this change) is read as it is. Elsewhere it is `/` plus the rest. A share's rule (host/share/...) reads back as
-   its UNC path (\\host\share\...), so the own-folder check compares real paths; a one-letter host reads back as a drive
-   (S:), the one form that cannot be told apart. */
 /* Whether any reading of a rule (rulePaths) holds the guide's own folder `own`. The first reading is resolved with
    `real` (realpath; case-sensitive is safe, since `own` is a realpath too and a missing folder cannot contain the
    guide); every further reading (a one-letter share) is compared as TEXT, case-blind, and never resolved: resolving
@@ -372,6 +368,11 @@ function readingsHoldGuide(backs, own, real, sep) {
   if (under(own, real(backs[0]))) return true;
   return backs.slice(1).some((t) => under(own.toLowerCase(), t.toLowerCase()));
 }
+/* The inverse, for code that reads a rule back as a path: what follows `Read(//` (without a trailing `/**`) to the
+   path it names. On Windows `c/Users/x` is `C:\Users\x`; a rule in the older native form (`C:\Users\x`, written
+   before this change) is read as it is. Elsewhere it is `/` plus the rest. A share's rule (host/share/...) reads back as
+   its UNC path (\\host\share\...), so the own-folder check compares real paths; a one-letter host reads back as a drive
+   (S:), the one form that cannot be told apart. */
 function rulePath(inner, platform = process.platform) {
   const t = String(inner);
   if (platform === 'win32') {
