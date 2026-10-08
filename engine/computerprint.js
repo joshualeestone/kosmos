@@ -13,7 +13,9 @@
  * for one computer, EVEN IF a coordinator served the same salt to both (review 3): unlinkability across companies
  * does not rest on the coordinator's salt alone. Within ONE company the print is a pseudonym that company can resolve:
  * it holds the salt and its own id, so with a list of candidate hardware ids (an MDM inventory often has them) it can
- * tell which computer a print is. It hides the id from everyone else, not from the company (review 5).
+ * tell which computer a print is. The same is true of the coordinator's side (it serves every salt, knows every company
+ * id and receives every print), and with candidate hardware ids it could also link one computer across companies. It is
+ * NOT anonymous to the company or to Kosmos+; it hides the id from everyone else (reviews 5 and 7).
  *
  * WHERE THE HARDWARE ID COMES FROM.
  *   macOS: IOPlatformUUID, from `ioreg -rd1 -c IOPlatformExpertDevice` (no permission prompt, no entitlement).
@@ -30,8 +32,10 @@
  *      not in board.log, activity records or any other log. A copied folder or a copied log would carry it and replay
  *      it (review 5). Compute it fresh for each request from the salt and the hardware.
  *   2. The COORDINATOR must treat a missing print, after one has been pinned for that enrollment, as a mismatch: a copy
- *      could otherwise simply send none and pass as an older board.
- * The raw id is not exported: only fingerprint() leaves this module, so no caller can log or send the id by mistake.
+ *      could otherwise simply send none and pass as an older board. SO A CALLER MUST NOT SEND A PRINT-LESS REQUEST WHILE
+ *      THE READER IS WAITING (review 7): printState() says 'waiting' after a failed read, and the request is deferred
+ *      until it says 'ok'. Only 'none' (a platform with no reader yet) sends without a print.
+ * The raw id is not exported, so no caller can log or send it by mistake.
  */
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
@@ -73,7 +77,7 @@ function hardwareId() {
   return id;
 }
 
-/* The print the company pins: sha256(salt:company:hardware id), or null when any is missing or malformed. `company` is
+/* The print the company pins: HMAC-SHA256(key = salt, company + ':' + hardware id), or null. `company` is
    the enrolled org's id. The print is a stable identifier for this computer WITHIN one company: personal data, held by
    that company under its own policy, and never stored in a form that links companies (it cannot be: the company id is
    in the hash). */
@@ -86,6 +90,15 @@ function fingerprint(salt, company) {
   // HMAC, the standard keyed construction (review 5), chosen before any company has pinned a print: changing it later
   // would change every print. The salt is the key, lower-cased so a coordinator's hex case cannot change the print.
   return crypto.createHmac('sha256', Buffer.from(salt.toLowerCase(), 'hex')).update(company + ':' + id).digest('hex');
+}
+
+/* What a caller should do now (review 7): 'ok' (send the print), 'none' (no reader on this platform: send without a
+   print, as an older board), or 'waiting' (a read failed and the retry wait is running: DEFER the request; a print-less
+   request now would read as a copy to the company). Never reveals the id. */
+function printState() {
+  const platform = testPlatform || process.platform;
+  if (platform !== 'darwin') return 'none';
+  return hardwareId() ? 'ok' : 'waiting';
 }
 
 /* TESTS ONLY: swap the reader, the platform and the clock, and clear the cache and the retry state. Call with no
@@ -103,4 +116,4 @@ function _testRunner(fn, opts) {
 function _testClock(now) { testNow = now; }
 
 // parseIoreg is exported for the fixture tests: it returns an id only from text the caller already holds.
-module.exports = { parseIoreg, fingerprint, UUID, SALT, RETRY_AFTER_FAIL_MS, _testRunner, _testClock };
+module.exports = { parseIoreg, fingerprint, printState, UUID, SALT, RETRY_AFTER_FAIL_MS, _testRunner, _testClock };

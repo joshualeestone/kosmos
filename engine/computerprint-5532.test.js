@@ -39,13 +39,13 @@ test('#5532 v1.5: the print is HMAC-SHA256(salt, company:id); the raw id never a
 });
 
 test('#5532 v1.5: no hardware id, a failing ioreg, Windows and Linux all give null; another platform records no failure', (t) => {
+  t.after(() => cp._testRunner());
   cp._testRunner(() => '', { platform: 'darwin' });
   assert.equal(cp.fingerprint(SALT, ORG), null, 'a print with no hardware id');
   cp._testRunner(() => { throw new Error('ioreg missing'); }, { platform: 'darwin' });
   assert.equal(cp.fingerprint(SALT, ORG), null);
   let reads = 0;
   cp._testRunner(() => { reads += 1; return SAMPLE; }, { platform: 'win32' });
-  t.after(() => cp._testRunner());
   assert.equal(cp.fingerprint(SALT, ORG), null, 'Windows answers null until its owner builds MachineGuid');
   assert.equal(reads, 0, 'ioreg was run on Windows');
   cp._testRunner(() => SAMPLE, { platform: 'linux' });
@@ -53,6 +53,7 @@ test('#5532 v1.5: no hardware id, a failing ioreg, Windows and Linux all give nu
 });
 
 test('#5532 v1.5: on a Mac, this computer\'s real print exists and is stable (nothing about the id is printed)', { skip: process.platform !== 'darwin' }, (t) => {
+  t.after(() => cp._testRunner());
   cp._testRunner();
   const a = cp.fingerprint(SALT, ORG);
   assert.ok(typeof a === 'string' && /^[0-9a-f]{64}$/.test(a), 'no print on this Mac (ioreg gave no IOPlatformUUID)');
@@ -62,7 +63,6 @@ test('#5532 v1.5: on a Mac, this computer\'s real print exists and is stable (no
   const b = cp.fingerprint(SALT, ORG);
   cp._testRunner(fresh, { platform: 'darwin' });
   const c = cp.fingerprint(SALT, ORG);
-  t.after(() => cp._testRunner());
   assert.ok(a === b && b === c, 'the print changed between reads on one computer');
   assert.equal('hardwareId' in cp, false, 'the raw hardware id is exported, so any caller could log or send it');
 });
@@ -92,7 +92,7 @@ test('#5532 v1.5: no file but computerprint.js uses a known spelling of a raw ha
   /* The spellings covered (review 3 listed the ones an earlier version missed): ioreg's keys, system_profiler's hardware
      page, sysctl's kern.uuid, WMI's computer-system product, Linux's machine-id, and the Windows registry key, whole or
      split into arguments. A read by another spelling is not caught: this is a guard on the known ways, not a proof. */
-  const READ = /IOPlatformUUID|IOPlatformExpertDevice|IOPlatformSerialNumber|MachineGuid|Microsoft\\+Cryptography|SPHardwareDataType|Hardware UUID|kern\.uuid|Win32_ComputerSystemProduct|csproduct|machine-id|['"]Cryptography['"]/;
+  const READ = /IOPlatformUUID|IOPlatformExpertDevice|IOPlatformSerialNumber|MachineGuid|Microsoft\\+Cryptography|SPHardwareDataType|Hardware UUID:|kern\.uuid|Win32_ComputerSystemProduct|wmic\s+csproduct|\/etc\/machine-id|['"]Cryptography['"]/;
   const hits = [];
   const swaps = [];
   for (const f of files) {
@@ -113,3 +113,16 @@ test('#5532 v1.5 review 6: a failure at clock 0 still starts the wait', (t) => {
   assert.equal(cp.fingerprint(SALT, ORG), null);
   assert.equal(n, 1, 'a failure at clock 0 was not recorded, so ioreg was asked again at once');
 });
+
+test('#5532 v1.5 review 7: printState tells a caller to send, to send without a print, or to wait', (t) => {
+  t.after(() => cp._testRunner());
+  cp._testRunner(() => SAMPLE, { platform: 'darwin' });
+  assert.equal(cp.printState(), 'ok');
+  cp._testRunner(() => { throw new Error('ioreg timed out'); }, { platform: 'darwin', now: 5 });
+  assert.equal(cp.printState(), 'waiting', 'a failed read on the real computer must defer the request, not send it print-less');
+  assert.equal(cp.fingerprint(SALT, ORG), null);
+  cp._testRunner(() => SAMPLE, { platform: 'win32' });
+  assert.equal(cp.printState(), 'none');
+});
+
+test.todo('#5532 the first caller of fingerprint() lands with a guard that its file never logs the print or a request body carrying it (rule 1; review 7)');

@@ -9,7 +9,8 @@ company, and `thisComputer` cannot tell them apart.
   - `hardwareId()`: macOS IOPlatformUUID from `ioreg -rd1 -c IOPlatformExpertDevice` (measured: no prompt, no
     entitlement), read once per run. Windows: null until the Windows owner builds MachineGuid (spec on #5532, per the
     fleet's Windows rule). Anything else: null.
-  - `fingerprint(salt, company)`: sha256(salt + ':' + company + ':' + hardware id), or null when the salt (hex from
+  - `fingerprint(salt, company)`: HMAC-SHA256(key = salt bytes, message = company + ':' + hardware id), lowercase hex,
+    or null when the salt (hex from
     the coordinator's status, whole bytes), the company (the enrolled org's id) or the hardware id is missing. The raw id never leaves the computer; a per-account salt keeps prints from matching
     across accounts.
 - Nothing calls it yet: enroll, leave and the rollup send it once the coordinator accepts the field (v1.5).
@@ -47,7 +48,7 @@ company, and `thisComputer` cannot tell them apart.
   text the caller already holds); `_testRunner` is marked tests-only and guarded.
 
 ## Review 3 (blind, opus)
-- FIXED: the print is sha256(salt:company:hardware id), the company being the enrolled org's id. Two companies always
+- FIXED: the company (the enrolled org's id) is in the print (then sha256; review 5 made it an HMAC). Two companies always
   get different prints for one computer, even if a coordinator served them the same salt; unlinkability across
   companies no longer rests on the coordinator alone (mutation reddens). Told PigeonPete: the board computes it, the
   coordinator only pins and compares, so the coordinator needs no change.
@@ -82,3 +83,15 @@ company, and `thisComputer` cannot tell them apart.
 - ON THE CARD for whoever wires enroll, leave and the rollup (a repeat of reviews 4 and 5): the print is a pseudonym
   the company can resolve, and it is never stored or logged, nor a request body that carries it.
 - KEPT: UUID and SALT stay exported for the tests; the guard sees tracked files only (it says so).
+
+## Review 7 (blind, opus)
+- FIXED: `printState()` tells a caller what to do: 'ok' (send the print), 'none' (no reader on this platform: send
+  without one, as an older board), 'waiting' (a read failed and the retry wait runs: DEFER the request). Without it,
+  one ioreg timeout on the real computer would send a print-less request, which the coordinator reads as a copy.
+- CORRECTED: the coordinator's side can resolve prints too (it serves every salt, knows every company id and receives
+  every print), and with candidate hardware ids could link one computer across companies. Not anonymous to Kosmos+.
+- PINNED as test.todo: the first caller of fingerprint() must come with a guard that its file never logs the print or
+  a body carrying it (the rule is prose until a caller exists). Also on #5532.
+- FIXED: the doc comment and this plan described the old sha256 formula; "only fingerprint() leaves the module" now
+  reads "the raw id is not exported"; tests register their cleanup first; three guard spellings are anchored to how
+  they are invoked (/etc/machine-id, wmic csproduct, "Hardware UUID:"), so a mere mention does not redden the suite.
