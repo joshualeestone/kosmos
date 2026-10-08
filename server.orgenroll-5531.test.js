@@ -131,3 +131,16 @@ test('#5531 review 5: a ticket from a preview IS accepted once, for the code tha
   assert.match(again.json.because || '', REFUSED, 'a ticket was used twice');
   await call('/api/org/leave', { body: {}, headers: SCREEN });
 });
+
+test('#5531 review 6: an agent reading /api/org learns which company, and not the role or when', async (t) => {
+  const b = fleet.install([fleet.agent('leo', { state: 'idle' })]);
+  t.after(() => { b.restore(); fs.rmSync(enrollmentFile(), { force: true }); });
+  fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'admin', world: oe.worldId(), enrolledAt: '2026-10-07T00:00:00.000Z' }));
+  const asLeo = await call('/api/org', { method: 'GET', headers: { 'x-kosmos-agent-token': sendertoken.mint('leo').token } });
+  assert.equal(asLeo.json.enrolled, true);
+  assert.equal(asLeo.json.org.name, 'Acme');
+  assert.equal(asLeo.json.role, null, 'an agent read the role: ' + JSON.stringify(asLeo.json));
+  assert.equal(asLeo.json.enrolledAt, null, 'an agent read the enrollment date');
+  const screen = await call('/api/org', { method: 'GET' });
+  assert.equal(screen.json.role, 'admin', 'the screen lost the role');
+});

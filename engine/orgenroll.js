@@ -65,8 +65,8 @@ function worldId(opts) {
   try {
     fs.mkdirSync(root, { recursive: true });
     const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
-    fs.writeFileSync(tmp, id + '\n', { mode: 0o600 });
-    fs.renameSync(tmp, file);
+    try { fs.writeFileSync(tmp, id + '\n', { mode: 0o600 }); fs.renameSync(tmp, file); }
+    catch (e) { try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to remove */ } throw e; }
     return id;
   } catch { return null; }
 }
@@ -81,9 +81,9 @@ function readEnrollment(opts) {
 }
 function writeEnrollment(rec, opts) {
   const file = path.join(storeRoot(opts), ENROLLMENT_FILE);
-  const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(rec) + '\n', { mode: 0o600 });
-  fs.renameSync(tmp, file);
+  const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  try { fs.writeFileSync(tmp, JSON.stringify(rec) + '\n', { mode: 0o600 }); fs.renameSync(tmp, file); }
+  catch (e) { try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to remove */ } throw e; }
 }
 function clearEnrollment(opts) {
   try { fs.rmSync(path.join(storeRoot(opts), ENROLLMENT_FILE), { force: true }); } catch { /* already gone */ }
@@ -225,7 +225,8 @@ async function enrollNow(code, accepted, opts) {
   return { ok: true, ...rec };
 }
 
-/* The pending leave keeps the record it cleared, so a retry the company refuses (the last admin) can put it back. */
+/* The pending leave keeps the record it cleared, so a retry the company refuses (the last admin) can put it back.
+   Owner-only, read by this module alone: no route hands it, or the org id and world id inside it, to the page. */
 function setLeavePending(on, opts, rec) {
   const file = path.join(storeRoot(opts), LEAVE_PENDING_FILE);
   try { if (on) fs.writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), rec: rec || null }) + '\n', { mode: 0o600 }); else fs.rmSync(file, { force: true }); } catch { /* best effort */ }

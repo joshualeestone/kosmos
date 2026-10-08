@@ -114,3 +114,14 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
   fixed-sentence path.
 - DECIDED: a pending leave is retried on every start and daily with no end. Until the company confirms, the person is
   still a member there, so giving up would leave them listed with nothing reporting. Nothing reports meanwhile.
+
+## Review 6 (blind, sonnet)
+- FIXED: an agent reading GET /api/org gets the company's name and slug only (no role, no enrollment date); the
+  screen still gets both. Temp files for the world id and the enrollment are unique and removed when a write fails.
+- DEFERRED, measured: "the block hides while an enrolled Kosmos keeps reporting". The block shows exactly when this
+  computer is connected to Kosmos+, and a computer that is not connected cannot sign anything (engine/remote.js
+  macRequest refuses), so a hidden block means nothing can be sent.
+- DUPLICATES: a stale record after removal (review 3; the coordinator now refuses it server-side as org_not_enrolled,
+  per #5532's contract); isViaScreen as the only person check (review 2).
+- DECIDED: a failure's raw line is written to this board's own log, cleaned and bounded. That log stays on this
+  computer; nothing in the engine sends it anywhere.

@@ -9569,6 +9569,10 @@ const server = http.createServer(async (req, res) => {
       const rec = here ? oe.readEnrollment() : null;   // a record naming another world says nothing here
       /* Readable by this board's agents on purpose: an agent on a work Kosmos reports to that company, so which company
          it is is not a secret from it. Only the name and slug go out; the org id and the world id stay in the engine. */
+      if (presentedAgentToken(req, {})) {   // an agent learns which company, and no more: not the role, not when
+        sendJson(res, 200, { enrolled: here, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug } : null, role: null, enrolledAt: null });
+        return;
+      }
       sendJson(res, 200, { enrolled: here, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
     } catch { sendJson(res, 200, { enrolled: false, org: null, role: null, enrolledAt: null }); }
     return;
