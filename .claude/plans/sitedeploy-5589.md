@@ -82,8 +82,10 @@ Mortals has to be up for merges to deploy. If it is down they wait, and the manu
 pointers) to site main, and step 8 deploys them. If the cut dies in between, main holds a pointer move
 that was never published or checked by the cut's step 9. **A website deploy never publishes a release
 pointer**: before each deploy the tick compares main's `dist/latest.json` and `dist/latest-staging.json`
-with what live serves, byte for byte, and parks (red) on any difference, saying a cut or promote has
-not published it. Tested (case 14, with a control where live serves the same bytes). This matters
+with what live serves, byte for byte, and on any difference does not deploy, saying a cut or promote
+has not published it. It retries rather than parks, because a promote pushes its pointer commit
+before deploying it (a tick in between must clear itself once the deploy lands); an aborted cut never
+catches up, so its ticks go red from the fourth on and stay red. Tested (case 14, with a control where live serves the same bytes). This matters
 because the mirror of older downloads would otherwise supply the aborted build's tarball, and
 deploy-site.sh lets a committed staging pointer newer than live through as a publish not yet deployed.
 The Windows pointers are not compared: live serves them from R2 through a redirect (measured

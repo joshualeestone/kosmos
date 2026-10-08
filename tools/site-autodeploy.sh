@@ -90,8 +90,9 @@ mkdir -p "$STATE" || { echo "site-autodeploy: cannot make $STATE" >&2; exit 2; }
 
 # One tick at a time. The workflow's concurrency group is what serialises ticks in practice; this lock
 # is the backstop for a tick run by hand beside it. A lock left by a tick that died is taken over once
-# its pid is gone (two ticks racing to take over the same dead lock is possible and harmless: each then
-# runs deploy-site.sh, whose own pointer checks refuse the second if the first moved anything).
+# its pid is gone. Two ticks racing to take over the same dead lock is possible and NOT harmless (both
+# would mirror into the same dist/); what prevents it in practice is the workflow's concurrency group,
+# and a second tick would usually see the first's deploy-site.sh in its second publisher check.
 LOCK="$STATE/lock"
 if ! mkdir "$LOCK" 2>/dev/null; then
   holder=$(cat "$LOCK/pid" 2>/dev/null || true)
@@ -212,7 +213,7 @@ for _p in latest.json latest-staging.json; do
   rm -f "$STATE/ptr.tmp"
   case "$HOST" in
     file://*) if [ -f "${HOST#file://}/dist/$_p" ]; then cp "${HOST#file://}/dist/$_p" "$STATE/ptr.tmp"; _lc=200; else _lc=404; fi ;;   # tests
-    *) _lc=$(curl -sSL --max-time 20 -H 'Cache-Control: no-cache' -o "$STATE/ptr.tmp" -w '%{http_code}' "$HOST/dist/$_p" 2>/dev/null) || _lc=000 ;;   # -L, as deploy-site.sh reads them
+    *) _lc=$(curl -sSL --connect-timeout 10 --max-time 20 -H 'Cache-Control: no-cache' -o "$STATE/ptr.tmp" -w '%{http_code}' "$HOST/dist/$_p" 2>/dev/null) || _lc=000 ;;   # -L, as deploy-site.sh reads them
   esac
   _l=""; [ -f "$STATE/ptr.tmp" ] && _l=$(shasum -a 256 < "$STATE/ptr.tmp" | cut -c1-64); rm -f "$STATE/ptr.tmp"
   if [ "$_lc" = 404 ]; then
@@ -221,8 +222,13 @@ for _p in latest.json latest-staging.json; do
   fi
   case "$_lc" in
     200) [ "$_c" = "$_l" ] && continue
-         say "FAIL: site main's dist/$_p is not what live serves: a release pointer move that a cut or promote has not published. A website deploy does not publish it (parked)"
-         printf '%s rc=%s %s\n' "$TARGET" pointer "$(now)" > "$STATE/last-failure"; park; exit 1 ;;
+         # Retried, not parked: a promote pushes its pointer commit and THEN deploys it, so a tick in
+         # between sees exactly this, and the next tick after the deploy finds the commit already live.
+         # An aborted cut never catches up, and goes red from the RETRY_ALARM-th tick until it is resolved.
+         n=$(( $(count_for "$STATE/retries") + 1 )); echo "$TARGET $n" > "$STATE/retries"
+         printf '%s rc=%s %s\n' "$TARGET" pointer "$(now)" > "$STATE/last-failure"
+         say "skip: site main's dist/$_p is not what live serves, a release pointer move a cut or promote has not published (a website deploy never publishes one); $n in a row"
+         [ "$n" -ge "$RETRY_ALARM" ] && exit 1; exit 0 ;;
     *) n=$(( $(count_for "$STATE/retries") + 1 )); echo "$TARGET $n" > "$STATE/retries"
        say "retry: could not read the live $_p (HTTP $_lc); the next tick tries again ($n in a row)"
        [ "$n" -ge "$RETRY_ALARM" ] && exit 1; exit 0 ;;
