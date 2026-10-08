@@ -11,7 +11,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-process.env.AGENT_WORKFORCE_DATA = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'revokeif-')), 'data');
+const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'revokeif-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SB, 'data');
+test.after(() => fs.rmSync(SB, { recursive: true, force: true }));
 const sendertoken = require('./sendertoken');
 
 const OLD = Date.parse('2026-08-28T00:00:00Z');
@@ -41,16 +43,16 @@ test('#5418: a file already gone is reported as such, not as removed', () => {
   assert.deepEqual(sendertoken.revokeIfUnchanged('never-was', OLD, null), { ok: true, already: true });
 });
 
-test('#5418: a link where the file was is not followed or removed', { skip: process.platform === 'win32' && 'symlinks need privilege on Windows' }, () => {
+test('#5418: a link where the file was is not followed or removed', { skip: process.platform === 'win32' && 'symlinks need privilege on Windows' }, (t) => {
   fs.mkdirSync(sendertoken.DIR, { recursive: true });
-  const target = path.join(os.tmpdir(), 'revokeif-target-' + process.pid);
+  const target = path.join(SB, 'revokeif-target');
+  t.after(() => { fs.rmSync(fileOf('linked'), { force: true }); fs.rmSync(target, { force: true }); });
   fs.writeFileSync(target, 'keep me');
   fs.symlinkSync(target, fileOf('linked'));
   const r = sendertoken.revokeIfUnchanged('linked', fs.lstatSync(fileOf('linked')).mtimeMs, null);
   assert.equal(r.ok, false);
   assert.equal(fs.lstatSync(fileOf('linked')).isSymbolicLink(), true);
   assert.equal(fs.readFileSync(target, 'utf8'), 'keep me');
-  fs.unlinkSync(fileOf('linked')); fs.unlinkSync(target);
 });
 
 test('#5418: a rewrite with NO new mint (a retire leaving an empty list) keeps the file: the mtime check alone', () => {

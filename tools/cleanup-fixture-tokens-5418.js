@@ -289,8 +289,10 @@ function expectedPort(env = process.env) {
   }
   const uid = typeof process.getuid === 'function' ? process.getuid() : null;
   if (uid === null) return null;   // no uid (Windows): only KOSMOS_PORT can say, and it is not set
-  return uid === 501 ? 16180 : 16180 + 1 + (uid % 3999);
+  return portForUid(uid);
 }
+/* install/kosmos's derivation, for one uid (its test reads the formula out of install/kosmos). */
+function portForUid(uid) { return uid === 501 ? 16180 : 16180 + 1 + (uid % 3999); }
 
 /* A short digest of exactly what a plan removes (name, kind, mtime), so --apply can require the plan a person read. */
 function planDigest(plan) {
@@ -303,7 +305,7 @@ async function main(argv) {
   const args = parseArgs(argv);
   const want = expectedPort();
   if (want === null) {
-    console.error('Stopped, nothing changed: this account\'s board port cannot be worked out here; set KOSMOS_PORT to it (as the kosmos command uses) and pass the same --port.');
+    console.error('Stopped, nothing changed: this account\'s board port cannot be worked out here (on Windows nothing sets it); set KOSMOS_PORT to the board\'s port (16180 unless it was changed) and pass the same --port.');
     return 2;
   }
   if (args.port !== want) {
@@ -342,7 +344,8 @@ async function main(argv) {
       return 2;
     }
   }
-  // heartbeat files are keyed by session; a token file by token_roster_name: keep every spelling, as for the roster
+  // heartbeat files are keyed by safeKey(session); keep its -discord-stripped spelling too (a `+world` is already
+  // folded away by safeKey, but the only heartbeat writer runs after a token check, so its key matches the token's)
   for (const k of heartbeats) for (const n of spellingsOf({ sessionName: k })) { try { liveKeys.add(store.safeKey(n)); } catch { /* not a key */ } }
   const dir = sendertoken.DIR;
   if (!fs.existsSync(dir)) { console.log('Nothing to clean: this store has no sender-token folder.'); return 0; }
@@ -439,4 +442,4 @@ if (require.main === module) {
     (e) => { console.error('Stopped: ' + ((e && e.message) || e)); process.exitCode = 2; });
 }
 
-module.exports = { planCleanup, listEntries, tokenInfo, backup, applyPlan, parseArgs, getJson, fetchRoster, spellingsOf, expectedPort, planDigest, BACKUP_PREFIX, main };
+module.exports = { planCleanup, listEntries, tokenInfo, backup, applyPlan, parseArgs, getJson, fetchRoster, spellingsOf, expectedPort, portForUid, planDigest, BACKUP_PREFIX, main };
