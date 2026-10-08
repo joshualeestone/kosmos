@@ -217,3 +217,14 @@ company, and `thisComputer` cannot tell them apart.
 - HMAC-SHA256(key = salt bytes, company + ':' + hardware id). Company id from this board's own record.
 - No file outside the tests may load the module until its first caller is allowlisted with its no-logging and
   company-source tests; no file but this one may read the hardware.
+
+## Review 19 (blind, opus)
+- FIXED (my review-15 guard): the loader guard catches require or import(), with any path and a .js/.cjs/.mjs
+  suffix; it checks itself against five spellings (and that it does not catch its own test file), and a planted
+  suffixed require reddens it.
+- FIXED: a whole hardware block whose id key holds something that is not a UUID is "no id here" (after two reads),
+  not a ten-minute wait on every board start (fixture; the key-absent-only mutation reddens).
+- DUPLICATE, now raised in six reviews and kept as decided (review 4): the tests-only hooks on the export. They cannot
+  reveal the id; gating them on the test runner's environment would rest on runtime self-detection, which differs
+  between Node versions; the repo scan stays, and says it is a guard on names, not a proof.
+- NIT kept: the synchronous read (decided in review 1; the first caller runs printFor off the request path).

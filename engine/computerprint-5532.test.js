@@ -144,6 +144,12 @@ test('#5532 v1.5 reviews 7 to 9: printFor gives ONE answer: send the print, send
   assert.deepEqual(cp.printFor(SALT, ORG), { send: 'later' }, 'one block without an id (possibly a cut-off dump) was taken as lasting (review 12)');
   cp._testClock(5 + cp.RETRY_AFTER_FAIL_MS + 1);
   assert.deepEqual(cp.printFor(SALT, ORG), { send: 'none' }, 'a computer with no hardware id would wait forever');
+  // Review 19: a whole block whose id key holds something that is not a UUID is 'none' after two reads, not 'later'.
+  const JUNK = '+-o VM <class IOPlatformExpertDevice>\n  {\n    "IOPlatformUUID" = ""\n  }\n';
+  cp._testRunner(() => JUNK, { platform: 'darwin', now: 5 });
+  cp.printFor(SALT, ORG);
+  cp._testClock(5 + cp.RETRY_AFTER_FAIL_MS + 1);
+  assert.deepEqual(cp.printFor(SALT, ORG), { send: 'none' }, 'a junk id value held every enroll and leave for ten minutes');
   // Review 16: a block cut off before its closing brace, twice in a row, is still a failed read, never 'none'.
   const CUT = '+-o VM <class IOPlatformExpertDevice>\n  {\n    "model" = "VMw';
   const CUT_AFTER_BRACE = '+-o VM <class IOPlatformExpertDevice>\n  {\n    "a" = {\n    }\n    "model" = "VMw';
@@ -199,6 +205,12 @@ test('#5532 v1.5 review 15: nothing outside the tests loads computerprint until 
      coordinator's answer (see the header of engine/computerprint.js). And it calls printFor off any request path (at
      start, or in the background): a read can block the board for up to five seconds. */
   const ALLOWED = [];
-  const loaders = files.filter((f) => /require\(\s*['"][^'"]*computerprint['"]\s*\)|from\s+['"][^'"]*computerprint['"]/.test(fs.readFileSync(path.join(root, f), 'utf8')));
+  // Any way of naming the module (review 19): require or import(), with or without a path or a .js/.cjs/.mjs suffix.
+  const LOADS = /(require|import)\s*\(\s*['"`][^'"`]*computerprint(\.[cm]?js)?['"`]\s*\)|from\s+['"][^'"]*computerprint(\.[cm]?js)?['"]/;
+  for (const spelling of ["require('./computerprint')", "require('./computerprint.js')", "require('../engine/computerprint.js')", "import('./computerprint')", "import x from './computerprint.mjs'"]) {
+    assert.ok(LOADS.test(spelling), 'the loader guard misses: ' + spelling);
+  }
+  assert.equal(LOADS.test("require('./computerprint-5532.test.js')"), false, 'the loader guard catches the test file itself');
+  const loaders = files.filter((f) => LOADS.test(fs.readFileSync(path.join(root, f), 'utf8')));
   assert.deepEqual(loaders.filter((f) => !ALLOWED.includes(f)), [], 'loads computerprint without being allowed: add it to ALLOWED only together with its no-logging and company-source tests');
 });

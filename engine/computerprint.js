@@ -124,8 +124,9 @@ function hardwareId() {
   // "}" as the very last line of the text (review 17: the end of the TEXT, not of any line).
   const head = out.search(/(^|\n)\+-o [^\n]*<class IOPlatformExpertDevice\b/);
   const lines = out.replace(/\s+$/, '').split('\n');
-  const blockWithoutId = ran && head !== -1 && out.indexOf('{', head) !== -1 && lines.length > 1 && lines[lines.length - 1].trim() === '}'
-    && !/"IOPlatformUUID"\s*=/.test(out);
+  // A whole block that yields no valid id is "no id here", whether the key is absent or holds something that is not a
+  // UUID (some VMs; review 19): either way no read will ever produce a print.
+  const blockWithoutId = ran && head !== -1 && out.indexOf('{', head) !== -1 && lines.length > 1 && lines[lines.length - 1].trim() === '}';
   noIdStreak = blockWithoutId ? noIdStreak + 1 : 0;
   noIdHere = noIdStreak >= 2;   // the same answer twice, a minute apart: a lasting "no id", not a dump cut short
   return null;
