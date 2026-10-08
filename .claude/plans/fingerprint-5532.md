@@ -23,3 +23,16 @@ company, and `thisComputer` cannot tell them apart.
 - `engine/computerprint-5532.test.js`: the ioreg parse on fixtures (serial number and malformed values refused); the
   print's formula, salt separation, null on a bad salt, a missing id, a failing ioreg, Windows and Linux; this Mac's
   real id checked for shape only (never printed). Mutations of the salt, the salt check and the parse each redden.
+
+## Review 1 (blind, opus)
+- FIXED: only a successful read is cached (a single ioreg timeout no longer silences the print for the whole run);
+  any test seam bypasses the cache. Tested on the real, unseamed path through a test-only runner hook; the two cache
+  guards back each other up, so each alone does not redden, and removing both does.
+- FIXED: the raw hardware id is no longer exported (only fingerprint() leaves the module), and a guard test fails if
+  any other engine file reads IOPlatformUUID or MachineGuid.
+- DOCUMENTED, the two rules the guarantee rests on: never store the print under a data root (a copy would replay it);
+  and the coordinator treats a missing print after a pin as a mismatch (told PigeonPete).
+- FIXED: the stability test compares prints from fresh reads, as a boolean, so a failure can never print a value; the
+  fixture no longer looks like a home path.
+- KEPT: a synchronous read, once per board run until it succeeds (decided; an async read would add a state for one
+  five-second worst case).

@@ -20,6 +20,13 @@
  * IOPlatformUUID. Both end at the consent prompt to make this computer the enrolled one, never at lost data.
  *
  * Null means "cannot say", and a caller must treat it as such: send no print (an older board), never a made-up one.
+ *
+ * 🛑 TWO RULES THE GUARANTEE RESTS ON (review 1), because the print is reported by this computer, not proven:
+ *   1. NEVER store the print (or the raw id) under a world's data root: a copied folder would carry it and replay it.
+ *      Compute it fresh for each request from the salt and the hardware.
+ *   2. The COORDINATOR must treat a missing print, after one has been pinned for that enrollment, as a mismatch: a copy
+ *      could otherwise simply send none and pass as an older board.
+ * The raw id is not exported: only fingerprint() leaves this module, so no caller can log or send the id by mistake.
  */
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
@@ -27,7 +34,9 @@ const { execFileSync } = require('node:child_process');
 const UUID = /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i;
 const SALT = /^[0-9a-f]{32,128}$/;   // the coordinator's per-account salt: hex, 16 to 64 bytes
 
-let cached;   // the hardware does not change while the board runs; read once
+let cached;   // the hardware does not change while the board runs; a successful read is kept
+const realRun = () => execFileSync('/usr/sbin/ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice'], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] });
+let defaultRun = realRun;   // replaced only by tests, through _testRunner below
 
 /* The raw IOPlatformUUID out of ioreg's text, or null. Pure, so the parse is tested on fixtures. */
 function parseIoreg(text) {
@@ -35,20 +44,22 @@ function parseIoreg(text) {
   return m && UUID.test(m[1]) ? m[1].toUpperCase() : null;
 }
 
-/* This computer's hardware id, or null. opts.platform and opts.run are test seams. */
+/* This computer's hardware id, or null. Module-private on purpose (see rule above). opts.platform and opts.run are test
+   seams; any seam bypasses the cache, so a fake platform never becomes this process's cached answer. */
 function hardwareId(opts) {
   const o = opts || {};
-  if (!o.run && cached !== undefined) return cached;
+  const seamed = !!(o.run || o.platform);
+  if (!seamed && cached) return cached;   // only a SUCCESSFUL read is kept (review 1): a failed one is tried again
   const platform = o.platform || process.platform;
   let id = null;
   if (platform === 'darwin') {
     try {
-      const run = o.run || (() => execFileSync('/usr/sbin/ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice'], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }));
+      const run = o.run || defaultRun;
       id = parseIoreg(run());
     } catch { id = null; }
   }
   // win32: MachineGuid, by the Windows owner (spec on #5532). Until then: null, never a guess.
-  if (!o.run) cached = id;
+  if (!seamed && id) cached = id;
   return id;
 }
 
@@ -61,4 +72,7 @@ function fingerprint(salt, opts) {
   return crypto.createHash('sha256').update(salt + ':' + id).digest('hex');
 }
 
-module.exports = { parseIoreg, hardwareId, fingerprint, UUID, SALT };
+/* Tests only: swap the unseamed reader and clear the cache, so the cache rule itself can be tested. Pass null to restore. */
+function _testRunner(fn) { defaultRun = fn || realRun; cached = undefined; }
+
+module.exports = { parseIoreg, fingerprint, UUID, SALT, _testRunner };
