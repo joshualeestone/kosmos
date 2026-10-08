@@ -26,6 +26,7 @@
  */
 
 const fs = require('node:fs');
+const { envSet } = require('./win32env');   // #5386: env copies keep names as spelled; on Windows any spelling counts
 const os = require('node:os');
 const path = require('node:path');
 
@@ -296,7 +297,7 @@ const ENV_KEEP = new Set(['PATH', 'HOME', 'TMPDIR', 'TMP', 'TEMP', 'LANG', 'LC_A
 function childEnv(from, accountDir) {
   const env = {};
   for (const [k, v] of Object.entries(from || {})) if (ENV_KEEP.has(k.toUpperCase())) env[k] = v;
-  env.CODEX_HOME = accountDir;
+  envSet(env, 'CODEX_HOME', accountDir);
   return env;
 }
 
@@ -352,8 +353,8 @@ function readChecked(reader, prompt, media, buf, signal, bin) {
      say). Measured: a ChatGPT read signs in from CODEX_HOME alone, and writes nothing to this folder. */
   const home = path.join(dir, 'home');
   try { fs.mkdirSync(home, { mode: 0o700 }); } catch { cleanup(); return Promise.resolve({ ok: false, because: 'the read failed' }); }
-  env.HOME = home;
-  if (process.platform === 'win32') env.USERPROFILE = home;
+  envSet(env, 'HOME', home);
+  if (process.platform === 'win32') envSet(env, 'USERPROFILE', home);   // childEnv keeps USERPROFILE in any spelling
   return new Promise((resolve) => {
     let done = false;
     let child;

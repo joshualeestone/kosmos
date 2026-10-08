@@ -24,6 +24,7 @@ process.env.AGENT_WORKFORCE_RUNNERS_DIR = nodePath.join(SANDBOX, 'runners');
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 delete process.env.AGENT_WORKFORCE_GEMINI_BIN;
 delete process.env.AGENT_WORKFORCE_GROK_BIN;
+delete process.env.AGENT_WORKFORCE_CODEX_BIN;   // #5419: this file installs Codex on Linux too
 const runners = require('./runners');
 test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
@@ -77,6 +78,70 @@ test('#3713: Grok installs from its compressed binary, expanded after the checks
   assert.equal(fs.existsSync(nodePath.join(SANDBOX, 'runners', 'grok', 'pkg', 'bin', 'grok.br')), false, 'the compressed copy is not kept');
   const r = runners.resolveBin('grok', { legacyBin: LEGACY_GROK });
   assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed }, { bin: MANAGED_GROK, present: true, managed: true });
+  clean();
+});
+
+test('#5419: on Linux, Grok installs the same way: expanded after the checksum, made executable, found afterwards', async () => {
+  // The Linux path through install() is the Mac's POSIX one; this drives it end to end with platform 'linux'.
+  clean();
+  const program = '#!/bin/sh\necho "grok 1.0.41 $1"\n';
+  const { tgz, integrity } = tarball([['package/bin/grok.br', zlib.brotliCompressSync(Buffer.from(program))],
+    ['package/package.json', '{"name":"@xai-official/grok-linux-x64","version":"1.0.41"}']]);
+  let askedUrl = null;
+  const job = runners.install('grok', {
+    platform: 'linux', arch: 'x64', legacyBin: LEGACY_GROK, integrity,
+    download: (url, file, j) => { askedUrl = url; return downloadFrom(tgz)(url, file, j); },
+    prove: (bin, done) => execFileSyncDone(bin, done),
+  });
+  await job.settled;
+  assert.equal(job.phase, 'installed', job.because || '');
+  assert.equal(askedUrl, 'https://registry.npmjs.org/@xai-official/grok-linux-x64/-/grok-linux-x64-1.0.41.tgz', 'not the Linux tarball');
+  const native = nodePath.join(SANDBOX, 'runners', 'grok', 'pkg', 'bin', 'grok-native');
+  assert.equal(fs.readFileSync(native, 'utf8'), program, 'grok.br was expanded byte for byte');
+  assert.ok((fs.statSync(native).mode & 0o111) !== 0, 'and made executable');
+  const r = runners.resolveBin('grok', { legacyBin: LEGACY_GROK, platform: 'linux', arch: 'x64' });   // resolved as Linux
+  assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed }, { bin: MANAGED_GROK, present: true, managed: true });
+  clean();
+});
+
+for (const [arch, triple] of [['x64', 'x86_64-unknown-linux-musl'], ['arm64', 'aarch64-unknown-linux-musl']]) {
+  test(`#5419: on Linux ${arch}, Codex installs its ${arch} musl build, runs from the managed path, and is found afterwards`, async () => {
+    fs.rmSync(nodePath.join(SANDBOX, 'runners', 'openai'), { recursive: true, force: true });
+    const program = '#!/bin/sh\necho "codex-cli 0.149.1 $1"\n';
+    const { tgz, integrity } = tarball([[`package/vendor/${triple}/bin/codex`, program, 0o755],
+      ['package/package.json', `{"name":"@openai/codex","version":"0.149.1-linux-${arch}"}`]]);
+    let askedUrl = null;
+    const legacy = nodePath.join(SANDBOX, 'legacy', 'codex');
+    const job = runners.install('openai', {
+      platform: 'linux', arch, legacyBin: legacy, integrity,
+      download: (url, file, j) => { askedUrl = url; return downloadFrom(tgz)(url, file, j); },
+      prove: (bin, done) => execFileSyncDone(bin, done),
+    });
+    await job.settled;
+    assert.equal(job.phase, 'installed', job.because || '');
+    assert.equal(askedUrl, `https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-linux-${arch}.tgz`, 'not the Linux tarball for this CPU');
+    assert.equal(job.proved, 'codex-cli 0.149.1 --version', 'the binary path inside the tarball for this CPU is the one that ran');
+    const r = runners.resolveBin('openai', { legacyBin: legacy, platform: 'linux', arch });
+    assert.equal(r.present, true, 'not found afterwards on Linux');
+    assert.equal(r.managed, true);
+    fs.rmSync(nodePath.join(SANDBOX, 'runners', 'openai'), { recursive: true, force: true });
+  });
+}
+
+test('#5419: on Linux, Gemini installs as the POSIX launcher running its bundle with the board\'s node', async () => {
+  clean();
+  const bundle = "console.log('gemini ' + process.argv.slice(2).join(' '));\n";
+  const { tgz, integrity } = tarball([['package/bundle/gemini.js', bundle],
+    ['package/package.json', '{"name":"@google/gemini-cli","version":"0.61.0"}']]);
+  const job = runners.install('gemini', {
+    platform: 'linux', arch: 'x64', legacyBin: LEGACY_GEMINI, download: downloadFrom(tgz), integrity, nodeBin: process.execPath,
+  });
+  await job.settled;
+  assert.equal(job.phase, 'installed', job.because || '');
+  assert.equal(job.proved, 'gemini --version');
+  assert.match(fs.readFileSync(MANAGED_GEMINI, 'utf8'), /^#!\/bin\/sh\n/, 'the POSIX launcher, not the Windows .cmd');
+  const r = runners.resolveBin('gemini', { legacyBin: LEGACY_GEMINI, platform: 'linux', arch: 'x64' });
+  assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed }, { bin: MANAGED_GEMINI, present: true, managed: true });
   clean();
 });
 
@@ -165,13 +230,14 @@ test('#3713: the pins: one Gemini tarball for every Mac, a Grok build per CPU, a
   assert.equal(xX64.arch, 'x64', 'an Intel Mac gets the Intel build, not a refusal');
   assert.equal(xX64.brotliFrom, 'bin/grok.br', 'and the same expand step');
   /* Windows installs both now (its own Grok build, the same Gemini bundle): see
-     runners.win32-gemini-grok.test.js. Linux is still refused before a byte moves. */
+     runners.win32-gemini-grok.test.js. Linux has its own builds since #5419 slice 2; FreeBSD is still refused before a
+     byte moves. */
   for (const p of ['gemini', 'grok']) {
     let fetched = false;
-    const job = runners.install(p, { platform: 'linux', arch: 'x64', download: () => { fetched = true; return Promise.resolve(); } });
+    const job = runners.install(p, { platform: 'freebsd', arch: 'x64', download: () => { fetched = true; return Promise.resolve(); } });
     assert.equal(job.phase, 'failed');
-    assert.match(job.because, /not supported on this kind of computer \(linux\)/);
-    assert.equal(fetched, false, p + ': nothing was downloaded on Linux');
+    assert.match(job.because, /not supported on this kind of computer \(freebsd\)/);
+    assert.equal(fetched, false, p + ': nothing was downloaded on FreeBSD');
   }
   // status() now reports both, so a screen can read their size and progress.
   const st = runners.status();

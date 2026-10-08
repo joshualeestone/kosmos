@@ -209,6 +209,10 @@ DATA_PATHS_BEFORE="$(data_paths)"
 #   gate boots the installed board, so the store lands on first boot -- the same boot-marker case as
 #   .world-confirmed.json / ping.json above. #3508 added the boot-time write without updating this
 #   list, so the first cut carrying it (0.6.90) red-flagged prompter-nudges.json here; blessed now.
+# ⇒ board-alive.json (#5359 part 1, #5497, kosmos): the restart note's last-alive beat. At board start
+#   engine/restartnote.js atStart() reads the previous beat, then writes store.ROOT/board-alive.json ({ at }) and
+#   rewrites it once a minute, so it lands on first boot like the boot markers above. It holds only a timestamp.
+#   #5497 added the boot-time write without updating this list, so the 0.7.28 cut red-flagged it here; blessed now.
 # Order matters: ADDED is `find . | sort`ed and compared as a literal string, so
 # EXPECTED_ADDS must be in sort order too. `.world-confirmed.json` sorts FIRST
 # (the leading '.' 0x2E collates before 'bin' 0x62), so it leads the list; ping.json ('p')
@@ -222,7 +226,7 @@ DATA_PATHS_BEFORE="$(data_paths)"
 # #4350: the board records the setup guide's last outcome on first boot so the
 # existing install ping can report whether setup assistance was seeded or which
 # gate stopped it. That deliberate runtime record is created by guidestate.js.
-EXPECTED_ADDS="$(printf '%s\n' ./Kosmos/.world-confirmed.json ./Kosmos/bin/agent-supervisor.sh ./Kosmos/bin/agy-report-bridge.js ./Kosmos/bin/codex-report-bridge.js ./Kosmos/bin/engine-path ./Kosmos/bin/gemini-report-bridge.js ./Kosmos/bin/grok-report-bridge.js ./Kosmos/community.json ./Kosmos/ping.json ./Kosmos/prompter-nudges.json ./Kosmos/setup-guide-state.json ./Kosmos/source-channel)"
+EXPECTED_ADDS="$(printf '%s\n' ./Kosmos/.world-confirmed.json ./Kosmos/bin/agent-supervisor.sh ./Kosmos/bin/agy-report-bridge.js ./Kosmos/bin/codex-report-bridge.js ./Kosmos/bin/engine-path ./Kosmos/bin/gemini-report-bridge.js ./Kosmos/bin/grok-report-bridge.js ./Kosmos/board-alive.json ./Kosmos/community.json ./Kosmos/ping.json ./Kosmos/prompter-nudges.json ./Kosmos/setup-guide-state.json ./Kosmos/source-channel)"
 
 # ⚠️ THE PRODUCT'S DEFAULT PORT, RECORDED BEFORE ANYTHING RUNS, and checked
 # again at the end. Found by Splinter, 2026-08-21: a test run left a board

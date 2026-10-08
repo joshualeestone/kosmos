@@ -18,6 +18,7 @@
  * which is what codex's own `login status` shows.
  */
 const fs = require('node:fs');
+const { envSet } = require('./win32env');   // #5386: env copies keep names as spelled; on Windows any spelling counts
 const os = require('node:os');
 const path = require('node:path');
 const codexupdate = require('./codexupdate');
@@ -581,7 +582,7 @@ function addWithKey({ key, label, codexBin }) {
   catch { return { ok: false, because: 'we could not make a place for that account on this computer' }; }
   const run = spawnSync(bin, ['login', '--with-api-key'], {
     input: String(key).trim(),
-    env: { ...process.env, CODEX_HOME: spot.dir },
+    env: envSet({ ...process.env }, 'CODEX_HOME', spot.dir),
     encoding: 'utf8',
     timeout: 20000,
     // stdout and stderr are DROPPED: codex's own messages could echo the key.
@@ -1049,7 +1050,7 @@ function startChatgptLogin({ label, mode, codexBin, reauthDir, platform } = {}) 
   const args = m === 'device' ? ['login', '--device-auth'] : ['login'];
   let child;
   try {
-    child = spawn(bin, args, { env: { ...process.env, CODEX_HOME: spot.dir }, stdio: ['ignore', 'pipe', 'pipe'] });
+    child = spawn(bin, args, { env: envSet({ ...process.env }, 'CODEX_HOME', spot.dir), stdio: ['ignore', 'pipe', 'pipe'] });
   } catch {
     activeChatgptDirs.delete(spot.dir);
     if (reauth) activeChatgptDirs.delete(reauth.dir);

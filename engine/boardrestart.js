@@ -42,6 +42,7 @@
  * dies on the port. So the same conservative rule holds, on a different proof.
  */
 const fs = require('node:fs');
+const { envDelete } = require('./win32env');   // #5386: env copies keep names as spelled; on Windows any spelling counts
 const path = require('node:path');
 const { execFileSync, spawn } = require('node:child_process');
 const { installedKosmosCli } = require('./clipath');
@@ -290,22 +291,22 @@ function win32CanRestart() {
  * @returns {{ok:boolean, because?:string}}
  */
 function kosmosRestart(cli) {
-  const env = { ...process.env };
-  for (const k of worlds.WORLD_ROOT_ENV_VARS) delete env[k];
+  const env = { ...process.env };   // #5386: names below go through envDelete, every spelling of each
+  for (const k of worlds.WORLD_ROOT_ENV_VARS) envDelete(env, k);
   /* #1704: and the world itself. A fresh board that inherited KOSMOS_WORLD or the
      pre-world marker would hand the OLD world to every agent it launches, the same
-     bleed the three deletes above prevent for the data roots. */
-  delete env[worlds.PRE_WORLD_ROOTS_ENV_VAR];
-  delete env[launchidentity.WORLD_ENV_VAR];
+     bleed the three root envDeletes above prevent for the data roots. */
+  envDelete(env, worlds.PRE_WORLD_ROOTS_ENV_VAR);
+  envDelete(env, launchidentity.WORLD_ENV_VAR);
   /* #4466: this restart is the board's own (a person pressed Restart, or a Kosmos switch), never an
      agent's. `kosmos` refuses an AGENT's stop/restart of a board that answers, and a board started
      from an agent's pane inherits that pane's markers, so they are removed and --force says so. */
-  delete env.KOSMOS_AGENT_SESSION;
-  delete env.KOSMOS_AGENT_TOKEN;
-  delete env.TMUX_PANE;
+  envDelete(env, 'KOSMOS_AGENT_SESSION');
+  envDelete(env, 'KOSMOS_AGENT_TOKEN');
+  envDelete(env, 'TMUX_PANE');
   /* The reclaim flag is for the one start that set it (setup.sh, the watchdog); a board that inherited
      it must not pass it on to its own restart. */
-  delete env.KOSMOS_RECLAIM_BUSY;
+  envDelete(env, 'KOSMOS_RECLAIM_BUSY');
   let child;
   try {
     child = spawner(cli, ['restart', '--force'], { detached: true, stdio: 'ignore', env });

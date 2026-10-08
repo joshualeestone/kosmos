@@ -227,6 +227,8 @@ function contextBytes(ctx) {
 // A fixed tag FIRST, so a device signature over a backup manifest can never double as a signature in any other
 // protocol the same device key signs for (device auth, after E0.1).
 const SIG_DOMAIN = Buffer.from(`kosmos-backup v${FORMAT} manifest-signature\0`);
+/** Throws when ctx is not a valid manifest context (the same rule sealing and opening apply). */
+function checkBackupContext(ctx) { contextBytes(ctx); }
 function signedBytes(sealed, ctx) {
   return Buffer.concat([SIG_DOMAIN, crypto.createHash('sha256').update(sealed).digest(), contextBytes(ctx)]);
 }
@@ -288,4 +290,5 @@ module.exports = {
   sealManifest,
   verifyManifestSignature,
   openManifest,
+  checkBackupContext,
 };
