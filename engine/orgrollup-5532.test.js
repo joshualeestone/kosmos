@@ -553,3 +553,11 @@ test('#5532 rollup review 11: a "words changed" refusal only drops the words the
   assert.equal(await oe.consentWithdrawn({ root }, now), true, 'CONTROL: the words the report was sent under are dropped');
   assert.equal(oe.mayReport({ root }), false);
 });
+
+test('#5532 rollup review 13: usage with a model id the board cannot vouch for is dropped AND said, never an undercount that looks whole', () => {
+  const b = r.build({ world: 'w', usageByDay: { [DAY(0)]: { 'claude-opus-5-5': { input_tokens: 10 }, 'gpt-5.1-codex-max-preview-x': { input_tokens: 5 } } } });
+  assert.deepEqual(b.usage.map((u) => u.model), ['claude-opus-5-5']);
+  assert.equal(b.truncated, true, 'a dropped usage row was not said');
+  const ok = r.build({ world: 'w', usageByDay: { [DAY(0)]: { 'claude-opus-5-5': { input_tokens: 10 }, 'claude-sonnet-5-5': { input_tokens: 0 } } } });
+  assert.equal(ok.truncated, false, 'CONTROL: a row with no tokens is not a trim');
+});

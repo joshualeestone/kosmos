@@ -204,7 +204,7 @@ const CONSENT_FILE = 'org-consent.json';
 /* Whether the accepted words name token usage. The coordinator refuses usage rows until its own words do
    (CONSENT_NAMES_USAGE, pinned on token/usage/cost), so the board keys on the same words: no line naming them, no
    usage leaves, whatever a reader could read. */
-const NAMES_USAGE = /\b(tokens?|usage|costs?)\b/i;   // whole words: deliberately NARROWER than the coordinator's substring match, so a disagreement only withholds
+const NAMES_USAGE = /\b(tokens?|usage|costs?)\b/i;   // whole words: deliberately NARROWER than the coordinator's substring match, so a disagreement only withholds. It cannot see negation ("never your token usage"); report lines describe what IS sent, and the coordinator's own rule decides what it takes
 /* Keyed BY HASH, a few kept (rollup review 10): a join that fails, or one from a stale page, must not overwrite the
    words held for the hash an existing record carries. */
 const CONSENT_KEEP = 8;
@@ -635,7 +635,8 @@ async function leaveNow(opts, retry) {
     return { ok: false, pending: true, because: 'Leaving could not be confirmed yet. This Kosmos has stopped reporting, and it will tell your company again.' };
   }
   // #5532: the print the company pinned, or the leave is refused as a copy's. A read still retrying keeps it pending.
-  const from = pendingPrintFrom(opts);
+  // From the pending-leave file, else the record's own (that file is written best-effort; review 13).
+  const from = pendingPrintFrom(opts) || (before && before.computerSalt && before.org ? { salt: before.computerSalt, orgId: before.org.id } : null);
   const pf = from ? printFields(from.salt, from.orgId) : { send: 'none', fields: {} };
   if (pf.send === 'later' || pf.send === 'error') {
     setLeavePending(true, opts, before, undo);

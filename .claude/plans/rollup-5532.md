@@ -219,3 +219,11 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
 - NITs taken: the servedHash comment is back above its function; NAMES_USAGE says it is deliberately narrower than the
   coordinator's substring match (a disagreement only withholds); the print tests use gather()'s real source shape; the
   field-coverage todo is now a decided note.
+
+## Review 13 (blind, Sonnet)
+- FIXED (latent until usage is consented): a usage row with tokens and no model id the board vouches for is dropped,
+  and now the body says it was trimmed, so the company never reads an undercount as whole. Test; the mutation makes it fail.
+- NITs taken: a leave falls back to the record's salt if the pending-leave file could not be written; NAMES_USAGE says
+  it cannot see negation.
+- NITs kept: gather() every five minutes (it is the change detection); an offline agent with no shown name is sent by its
+  profile name (skipping it could drop real agents; `profile === true` rows only).

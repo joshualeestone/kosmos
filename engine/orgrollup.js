@@ -141,7 +141,7 @@ function build(input) {
   const usage = [];
   for (const day of days.slice(0, USAGE_DAYS)) {
     const models = byDay[day] && typeof byDay[day] === 'object' ? byDay[day] : {};
-    const rows = Object.keys(models).map((model) => {
+    let rows = Object.keys(models).map((model) => {
       const b = models[model] || {};
       const row = {
         // The same rule as an agent's model (review 8): a usage key that is not a model id is dropped below.
@@ -152,7 +152,12 @@ function build(input) {
       };
       if (row.costUsd != null) row.costUsd = Math.round(row.costUsd * 1e6) / 1e6;
       return row;
-    }).filter((r) => r.model && (r.input || r.output || r.cacheWrite || r.cacheRead));
+    });
+    /* A row with tokens but no model id we can vouch for is dropped (a null model would collide on the company's
+       day/provider/model key), and the body says it was trimmed, so the company never reads an undercount as whole
+       (rollup review 13). */
+    if (rows.some((r) => !r.model && (r.input || r.output || r.cacheWrite || r.cacheRead))) truncated = true;
+    rows = rows.filter((r) => r.model && (r.input || r.output || r.cacheWrite || r.cacheRead));
     rows.sort((x, y) => (y.costUsd || 0) - (x.costUsd || 0) || (y.input + y.output) - (x.input + x.output));
     if (rows.length > USAGE_ROWS_PER_DAY) truncated = true;
     usage.push(...rows.slice(0, USAGE_ROWS_PER_DAY));
