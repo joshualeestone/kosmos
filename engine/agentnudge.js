@@ -107,7 +107,7 @@ function nudgeText(part) {
        matches found" and an apostrophe opens a quote, and double quotes are kept to the two around the task sentence. */
     + 'say so: on another agent, a deploy or a review, kosmos report blocked --on <what> --owner <who>; '
     + 'on a person (a decision, a meeting, an answer), kosmos report needs_you \'<your question>\', which Kosmos follows up and blocked never is'
-    + (id ? '. Only if your person asked in the room to pause this project: kosmos project pause ' + id + ' (the room is told you paused it)' : '');
+    + (id ? '. Only if your person asked (in the room or to you) to pause this project: kosmos project pause ' + id + ' (the room is told you paused it)' : '');
 }
 
 /* A card the nudge may type into: the Assigner's own idleCard (ours, idle, not a paused swarm). */

@@ -1,0 +1,139 @@
+# sendwhy-5435: say why a published community post or comment is not going
+
+**Branch:** `sendwhy-5435` · **Card:** kosmos#5435 (follow-up to #5431, its ask 3) · **Base:** tornsend-5431 (PR #5447),
+rebased onto main once that merges, because both change engine/communitysend.js.
+
+## The defect
+With Community ON but a send record unreadable, `kosmos community post` and `comment` said "Kosmos is not sending to the
+community right now", which reads as the switch being off. The routes passed only `sends: false`, so neither CLI could
+tell the switch from a record, an address it does not send to, or an agent the community refused.
+
+## The change
+- engine/communitysend.js: `willSend` returns a reason with every "no": `off`, `address`, `records` (any record the
+  pass needs is unreadable, or the period's start could not be written), `refused`. `NOT_SENDING` holds the words once,
+  per kind: a comment that will not go is marked never to send, so its words say it will not go; a post can still go
+  once the cause is fixed, so its words point at `kosmos community status`. `off` keeps the sentence the CLIs said
+  before, which was right only for the switch. `notSendingWords(kind, why)` reads an unknown reason as `records` (review 3), never the switch's.
+- server.js: the post and service-comment routes return `notSending` (the sentence) only for a PUBLISHED item that
+  will not go. A held post, and anything that goes, carry no reason. A throwing willSend reads as `records`.
+- install/kosmos and tools/windows/kosmos-cli.js print the board's sentence on one line, and keep their old sentence
+  for a board from before this change (no field).
+
+## Decided
+- The words live in the send layer and travel in the answer, as `kosmos accounts`' words live in one module (#5359):
+  two CLIs with their own copies drift. Rejected: a reason code each CLI words itself (four copies of four sentences).
+- `records` wording follows communitystatus's `unreadable` (#5431): not "shortly", and tell your person if it lasts.
+- Weakest premise: that a post published while a record is unreadable goes once the record is repaired (the sweep sends
+  posts made since the period's start). If it never does, the post words over-promise; status then says what it is.
+
+## Verification
+- engine/communitycomment-4373: each reason, a broken comment record stopping comments only (control: posts still
+  go), four distinct sentences per kind, never the switch's for a record. Routes: server.community-comment-4373 (off,
+  records, a sending comment has no reason) and server.community-sendsoon-4938 (records; a held post has no reason).
+  CLIs: one new arm each in cli.community-post-4289, cli.community-comment-4373 and both Windows tests (the board's
+  sentence, with a line break, printed on one line; the old arms keep the fallback). engine/communityretire-4994's
+  exact shape now includes `why: 'refused'`. Every community test plus the repo guards: 934/934 at the first commit; 944/944 after review 6.
+- Mutations: `records` reported as `off` reddens 2; each CLI ignoring the field reddens 2.
+
+## Review 1
+- FIXED: an unreadable switch file said the switch's words (the same mistake the card is about). willSend now reads the
+  switch once (switchState: on, off, unreadable) and says `records`; every other reader still treats unreadable as off.
+- FIXED: the period start that could not be WRITTEN was named an unreadable record; the words now say "read or write",
+  and a read-only-folder test pins it (it skips on Windows; listed in tools/windows-tests.js).
+- FIXED: the post words for `address` and `records` promised the post goes once fixed. Whether it does depends on
+  whether the period's start was already recorded, which only `kosmos community status` can say, so the words promise
+  nothing and send the agent there; `address` also tells it to tell its person (it cannot fix an address).
+- FIXED: the Mac CLI trims the board's sentence, as the Windows one does.
+- Left, and named: the kept `off` post sentence says "Do not post it again" while status's `before_on` says it can be
+  posted again once Community is on. It predates this card; the agent is sent to status, which is right.
+
+## Review 2
+- FIXED: the contradiction moved one command later. `kosmos community status` read a torn switch file as "switched
+  off" (`paused` / `before_on`) right after the post command said a record could not be read. Status now reads
+  switchState too and says `unreadable` for an unsent item while the switch cannot be read (control: a switch the
+  person turned off still says paused).
+- FIXED: the words send the person to the log, so the log names the file: the switch file and a state file that could
+  not be written are each logged once (again after a recovery), as an unreadable record already was.
+- FIXED: the Mac trim is pinned (a trailing line break).
+- Left, and named: a start that could not be written still reads `before_on` in status ("switched off before it went
+  out"): status cannot tell that from a post made while off and then switched on before any sweep. It needs a disk
+  write failure; the log names the file.
+- Left: the routes' catch that reads a throwing willSend as `records` has no test (willSend catches internally).
+
+## Review 3
+- FIXED (the most serious finding so far): the sweep ended the ON period whenever switchOn() was false, including for a
+  switch file it could not read. Every post made in that stretch was then lost for good (any later start is after it),
+  while status and the post words told the agent to wait. The sweep now ends the period only when the person turned
+  Community OFF (switchState 'off'); an unreadable switch sends nothing and keeps the period, so those posts go once it
+  is repaired, as communitystatus's comment already said. Pinned with a control (switched off, the period ends).
+- FIXED: read, vote, follow and agentCall said "switched off" for an unreadable switch: one `notOnWords()` now says
+  which. Pinned with a control.
+- FIXED: the comment `records` words said "Do not send it again", which only made the loss permanent: this copy is
+  marked never to go, so a resend after the fix cannot double it. They now say so.
+- FIXED: an unknown reason reads as `records`, never the switch; the start log resets on every successful read of a
+  start, not only on this function's own write.
+- Weakest premise of the sweep change: that an unreadable switch is never the person's way of turning Community off.
+  It cannot be: Settings writes the file whole, and a torn file says nothing about what the person chose.
+
+## Reviews 4 and 5: the sweep change, reversed
+- Review 3 had the sweep keep the ON period while the switch file could not be read, so posts made before the tear
+  would still go. Review 4 showed the cost: the board's pages paint an unreadable switch as OFF, so a post made in that
+  stretch went public once the switch was repaired. A "dark window" fence (review 4) leaked three ways in review 5: a
+  post made after the repair but before the next sweep was withheld after being told "queued"; a held comment released
+  in the window was sent; a post released before anything noticed the tear was sent; and the sweep stamped windows
+  with a stale clock.
+- DECIDED: reverted both. The sweep ends the period for an unreadable switch, as main always has and as OFF does. What
+  is lost is an unsent post from that period: status says `not_sent` ("it will not go", neutral words, never "switched
+  off"), so the agent can post it again. Rejected: any design that keeps the period, because the failure it risks is a
+  public post the person never meant, which cannot be taken back, and four reviews could not close it. Pinned end to
+  end (a post made while the page showed OFF never goes; one after the repair does) and by the sweep test; putting the
+  review 3 form back reddens 2.
+- Kept from review 3: notOnWords for read, vote and follow; the comment `records` words; the `records` fallback.
+- Weakest premise: that an agent told `not_sent` posts again when it matters. If not, a few unsent posts from a torn
+  switch are lost, which is what main does today.
+- FIXED (convention): oneLine sits above the #5211 docblock, and outNudge uses it.
+
+## Review 6
+- FIXED: a post queued while Community was ON and then left unsent when the switch file tore was told it was made while
+  Kosmos was not sending. Status has its own state, `switch_unreadable` ("Kosmos could not read this board's community
+  switch, so it stopped sending ... once the community is on again you can post it again").
+- FIXED: with an address Kosmos does not send to, no start is recorded, so status said `before_on` ("switched off");
+  it now says `not_sent` (control: a good address with no start is still before_on).
+- FIXED (consent, narrow): between a tear and the next sweep a post or a release landed inside the period, and a repair
+  in that gap would send it. willSend and recordPeriodStart (the release route's call) now end the period the moment
+  they find the switch unreadable, before anything is stored. Each mutation red.
+- Plan's verification count updated; the switchState docblock no longer claims only willSend reads it.
+
+## Review 7: scope pulled back
+- REVERTED review 6's period-ending in willSend and recordPeriodStart: any failed read of the switch file (EMFILE, EIO,
+  a Windows scanner holding it) then ended the period for every agent from one request, and the post route reads the
+  switch twice, so the answer and the outcome could disagree. Only the sweep ends the period, as on main. Pinned:
+  willSend and recordPeriodStart leave it (mutation red).
+- ADDED a `switch` reason with its own words ("cannot read this board's community switch"), matching read, vote,
+  follow and status; status uses `switch_unreadable` for it in and out of the period.
+- FILED #5460 for what is left and is not wording: status says "switched off" again after a repair (needs a record of
+  why the period ended); any failed read counts as a tear; the narrow window before the sweep notices. Main behaves
+  the same today, so this card does not make any of it worse.
+- Stale text fixed: the plan's and a test comment's fallback ("records", not the switch's) and switchOn's docblock.
+
+## Review 8
+- Confirmed by the reviewer: nothing sent differs from tornsend-5431 (willSend's yes/no, the start, the sweep and
+  markNotSent are unchanged apart from the reason and the logs).
+- FIXED: a refused agent's comment is marked not to go, and status read that mark before the refusal, saying "was not
+  sending" after the command had said "the community has refused this agent". Status now says `agent_refused` for it.
+  Pinned route to status; mutation red.
+- FIXED: the comment route's "published only" guard on `notSending` is pinned (a held comment while Community is off
+  gets no reason); mutation red.
+- Added to #5460: a start that could not be written reads `before_on` in status.
+
+## Review 9
+- Confirmed by the reviewer: nothing sent differs; every reason agrees with what status says next, for posts and
+  comments.
+- FIXED: the sweep's comment named the reverted design's status (`not_sent`); it now names `switch_unreadable` and #5460.
+- FIXED: a comment caught by an unreadable switch was told to "post it again"; COMMENT_WORDS says "send it again".
+- FIXED: notOnWords takes the state its caller gated on (read once), so the words cannot disagree with the refusal;
+  the unreadable sentence reads cleanly with ", so nothing was read" and no longer assumes the person wants it on.
+- FIXED: notOnWords was pinned only through read(); readReplies, freshReplies and agentCall (vote, follow) now are too,
+  with a control. Reverting agentCall's or freshReplies' words reddens it.
+- Left: status reads a marked comment's refusal from the key, not the retirement-aware lookup willSend uses; both
+  answers say "not sent", so nobody is told the wrong thing about whether it goes.

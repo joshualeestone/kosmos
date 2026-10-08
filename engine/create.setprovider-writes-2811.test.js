@@ -32,6 +32,7 @@
  */
 
 const test = require('node:test');
+const jobfix = require('../test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -63,6 +64,9 @@ process.env.AGENT_WORKFORCE_HOME = HOME;
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'launch');
+// #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too (a sandboxed board without it refuses
+// every systemd call, so a create ends partial on a Linux runner). macOS and Windows never read it.
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = require('node:path').join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 delete process.env.AGENT_WORKFORCE_CODEX_HOME;
 delete process.env.CODEX_HOME;
 
@@ -80,6 +84,10 @@ fs.writeFileSync(nodePath.join(SIGNIN, 'auth.json'),
 
 const create = require('./create');
 const store = require('./store');
+/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that seeds, reads or drives the job as a
+   launchd plist cannot run unchanged there. Skipped on Linux only; its reason says whether a Linux test covers it, or
+   that it is not tested on Linux yet (#5500). macOS and Windows unchanged. */
+const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS launchd fixture on a Linux host (#5432): the test seeds or reads the agent's job as a macOS plist, or its runner stub answers launchctl only. What it asserts is platform-neutral and is tested on macOS, but NOT yet on Linux: #5500 ports it." } : {};
 
 /* Seeded DIRECTLY rather than through `createAgent`, which calls the REAL
    /bin/launchctl and loads live services on the developer's Mac. Same seam as
@@ -87,8 +95,8 @@ const store = require('./store');
 function born(name) {
   fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
   fs.mkdirSync(create.workerDir(name), { recursive: true });
-  fs.writeFileSync(create.plistPath(name),
-    create.plistFor(name, CLAUDE_BIN, TMUX_BIN, null, null, 'claude'), 'utf8');
+  fs.writeFileSync(jobfix.jobPath(name),
+    jobfix.jobFor(name, CLAUDE_BIN, TMUX_BIN, null, null, 'claude'), 'utf8');
   store.writeProfile(name, { provider: 'anthropic' });
   fs.writeFileSync(nodePath.join(create.workerDir(name), 'CLAUDE.md'), '# brief\n', 'utf8');
   return name;
@@ -149,7 +157,7 @@ test('#2811: the EXACT SET of paths setProvider writes, enumerated by measuremen
     `CREATED ${rel(nodePath.join(SIGNIN, 'config.toml'))}`,
     `CREATED ${rel(nodePath.join(dir, 'AGENTS.md'))}`,
     `DELETED ${rel(nodePath.join(dir, 'CLAUDE.md'))}`,
-    `MODIFIED ${rel(create.plistPath(name))}`,
+    `MODIFIED ${rel(jobfix.jobPath(name))}`,
     `MODIFIED ${rel(PROFILE_FILE(name))}`,
   ].sort(), 'setProvider wrote a different set of paths than this test documents');
 
@@ -266,7 +274,7 @@ test('#2811: WHICH of the four writes can abort the switch, asserted rather than
   assert.equal(fs.existsSync(nodePath.join(dir, 'CLAUDE.md')), true, 'the brief was renamed despite the refusal');
 });
 
-test('#2811: the PLIST write is the second gate, and the trust write has already landed when it fires', (t) => {
+test('#2811: the PLIST write is the second gate, and the trust write has already landed when it fires', LINUX_PLIST_5432, (t) => {
   /* 🛑 WHY THIS ARM EXISTS. The header names TWO gates and round 25 converted only
      ONE of them, so "the plist rewrite ... Also gating" was a true sentence with
      nothing holding it. Measured before writing this: no test anywhere drove
@@ -299,10 +307,10 @@ test('#2811: the PLIST write is the second gate, and the trust write has already
   if (!fs.existsSync(cfg)) fs.writeFileSync(cfg, '', 'utf8');
   const before = snapshot(SANDBOX);
 
-  fs.chmodSync(create.plistPath(name), 0o400);
+  fs.chmodSync(jobfix.jobPath(name), 0o400);
   let sw;
   try { sw = create.setProvider(name, 'openai', { ...BINS, codexBin: CODEX_BIN }); }
-  finally { fs.chmodSync(create.plistPath(name), 0o600); }
+  finally { fs.chmodSync(jobfix.jobPath(name), 0o600); }
 
   assert.equal(sw.outcome, create.OUTCOME.REFUSED,
     'a failing PLIST write no longer aborts the switch: setProvider reported ' + sw.outcome);

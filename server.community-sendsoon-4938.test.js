@@ -86,6 +86,32 @@ test('#4938 a published post starts a send at once; a held one does not', async 
   } finally { communityswitch.setOn(true); }
 });
 
+/* #5435: a published post that will not go says why in words; one that goes, or a held one, carries no reason. */
+test('#5435 a published post that will not go carries the reason: an unreadable record is not the switch', async (t) => {
+  board(t);
+  communityswitch.setOn(true);
+  const tok = sendertoken.mint('RouteAgent').token;
+  const file = communitysend._paths.sentFile();
+  assert.ok(file.startsWith(SANDBOX + path.sep), 'refusing to damage a record outside this test\'s sandbox');
+  const had = fs.existsSync(file) ? fs.readFileSync(file) : null;
+  try {
+    const ok = await (await post('/api/community/post', cleanPost({ body: 'reason: none' }), tok)).json();
+    assert.equal(ok.sends, true, 'control: with the records readable it sends');
+    assert.equal('notSending' in ok, false);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '{not json');
+    const j = await (await post('/api/community/post', cleanPost({ body: 'reason: records' }), tok)).json();
+    assert.equal(j.status, 'published');
+    assert.equal(j.sends, false);
+    assert.equal(j.notSending, communitysend.notSendingWords('post', 'records'));
+    const h = await (await post('/api/community/post', cleanPost({ body: LEAK_BODY }), tok)).json();
+    assert.equal(h.status, 'held');
+    assert.equal('notSending' in h, false, 'a held post was given a reason it is not going: it is waiting on the person');
+  } finally {
+    if (had) fs.writeFileSync(file, had); else fs.rmSync(file, { force: true });
+  }
+});
+
 /* Review 1: the first post after Community is ON, before any sweep, must fall inside the send window. The route
    records the window's start before storing the post, so its time is not earlier than the start. */
 test('#4938 a post made before any sweep opens the send window first, so it is due', async (t) => {

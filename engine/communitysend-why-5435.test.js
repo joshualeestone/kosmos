@@ -1,0 +1,153 @@
+'use strict';
+/**
+ * #5435 review 1: two "no"s willSend must not call the switch. A switch file that cannot be read is not the person
+ * switching Community off, and an ON period whose start cannot be WRITTEN is a record fault, not an unreadable one
+ * the words used to name. engine/communitycomment-4373.test.js covers the other reasons.
+ *
+ *   node --test engine/communitysend-why-5435.test.js
+ */
+require('../test-support/tmpscope');
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-sendwhy-5435-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+const cs = require('./communitysend');
+
+test.after(() => { cs.setSwitch(null); fs.rmSync(SANDBOX, { recursive: true, force: true }); });
+
+function fresh() {
+  const data = process.env.AGENT_WORKFORCE_DATA;
+  assert.ok(data.startsWith(SANDBOX + path.sep), 'refusing to touch a data root outside this test\'s sandbox');
+  fs.rmSync(data, { recursive: true, force: true });
+}
+
+test('#5435: an unreadable switch file has its own reason, not the switch\'s; an OFF switch is still the switch', () => {
+  fresh();
+  cs.setSwitch(() => ({ on: false, ok: false }));   // communityswitch's answer for a file it cannot read
+  assert.equal(cs.willSend('ava').why, 'switch');
+  assert.equal(cs.switchOn(), false, 'every other reader must still treat an unreadable switch as off');
+  cs.setSwitch(() => ({ on: false, ok: true }));
+  assert.equal(cs.willSend('ava').why, 'off', 'control: a switch the person turned off');
+  cs.setSwitch(() => { throw new Error('torn'); });
+  assert.equal(cs.willSend('ava').why, 'switch', 'a switch read that throws is not the person\'s choice either');
+  cs.setSwitch(null);
+});
+
+test('#5435: an ON period whose start cannot be written says records, in words that say read or write', (t) => {
+  if (process.platform === 'win32') { t.skip('a read-only folder does not stop a write on Windows'); return; }
+  fresh();
+  cs.setSwitch(() => ({ on: true, ok: true }));
+  const dir = path.dirname(cs._paths.stateFile());
+  fs.mkdirSync(dir, { recursive: true });
+  // Every record readable, the state with no start yet, and the folder read-only so the start cannot be written.
+  for (const f of [cs._paths.stateFile(), cs._paths.keysFile(), cs._paths.sentFile(), cs._paths.deletesFile(), cs._paths.commentsSentFile(), cs._paths.commentDeletesFile()]) {
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.writeFileSync(f, '{}\n');
+  }
+  assert.equal(cs.willSend('ava').sends, true, 'control: with the folder writable it sends (and records the start)');
+  fs.writeFileSync(cs._paths.stateFile(), '{}\n');   // the start forgotten again
+  fs.chmodSync(dir, 0o500);
+  const lines = [];
+  const real = console.error;
+  console.error = (...a) => { lines.push(a.join(' ')); };
+  try {
+    assert.equal(cs.willSend('ava').why, 'records', 'a start that could not be written read as something else');
+    // Review 2: the words send the person to the log, so the log names the file it could not write.
+    assert.ok(lines.some((l) => l.includes('cannot write ' + cs._paths.stateFile())), 'the log does not name the state file: ' + JSON.stringify(lines));
+  } finally { console.error = real; fs.chmodSync(dir, 0o700); }
+  assert.match(cs.notSendingWords('post', 'records'), /cannot read or write/);
+  assert.match(cs.notSendingWords('comment', 'records'), /cannot read or write/);
+  cs.setSwitch(null);
+});
+
+test('#5435: a post\'s words promise nothing about later and send the agent to status; an address tells it to tell its person', () => {
+  for (const why of ['address', 'records']) {
+    const words = cs.notSendingWords('post', why);
+    assert.match(words, /before you see where it stands with: kosmos community status/, why + ': not sent to status');
+    assert.doesNotMatch(words, /until that is fixed|goes once|will go/, why + ': promised a post goes later');
+  }
+  assert.match(cs.notSendingWords('post', 'address'), /Tell your person/);
+  assert.match(cs.notSendingWords('comment', 'address'), /Tell your person/);
+});
+
+test('#5435 review 2: the log names the switch file, once, when it cannot be read (the words send the person there)', () => {
+  fresh();
+  const lines = [];
+  const real = console.error;
+  console.error = (...a) => { lines.push(a.join(' ')); };
+  try {
+    cs.setSwitch(() => ({ on: false, ok: false }));
+    cs.willSend('ava');
+    cs.willSend('ava');
+    const named = lines.filter((l) => /cannot read the community switch file \(.*community\.json\)/.test(l));
+    assert.equal(named.length, 1, 'not named once: ' + JSON.stringify(lines));
+    cs.setSwitch(() => ({ on: true, ok: true }));
+    cs.willSend('ava');   // readable again: the next failure is said again
+    cs.setSwitch(() => ({ on: false, ok: false }));
+    cs.willSend('ava');
+    assert.equal(lines.filter((l) => /cannot read the community switch file/.test(l)).length, 2, 'a second failure after a recovery was not logged');
+  } finally { console.error = real; cs.setSwitch(null); }
+});
+
+test('#5435 review 5: a sweep ends the ON period for an unreadable switch, as for OFF (nothing made while the page shows OFF goes)', async () => {
+  fresh();
+  const since = '2026-01-01T00:00:00.000Z';
+  fs.mkdirSync(path.dirname(cs._paths.stateFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.stateFile(), JSON.stringify({ since }) + '\n');
+  cs.setSender(() => { throw new Error('this test sends nothing'); });   // nothing may reach the network
+  try {
+    cs.setSwitch(() => ({ on: true, ok: true }));
+    await cs.sweep();
+    assert.equal(JSON.parse(fs.readFileSync(cs._paths.stateFile(), 'utf8')).since, since, 'CONTROL: on, the period stays');
+    cs.setSwitch(() => ({ on: false, ok: false }));
+    await cs.sweep();
+    assert.equal(JSON.parse(fs.readFileSync(cs._paths.stateFile(), 'utf8')).since, undefined, 'an unreadable switch kept the period, so a post made while the page showed OFF could go');
+  } finally { cs.setSender(null); cs.setSwitch(null); }
+});
+
+test('#5435 review 3: read, vote and follow say a switch file cannot be read, not that the community is switched off', async () => {
+  fresh();
+  const read = require('./communityread');
+  cs.setSwitch(() => ({ on: false, ok: false }));
+  try {
+    assert.match(cs.notOnWords(), /cannot read this board's community switch/);
+    const r = await read.read({});
+    assert.equal(r.ok, false);
+    assert.match(r.because, /cannot read this board's community switch/);
+    assert.doesNotMatch(r.because, /switched off/);
+    // Review 9: every caller of the words, not only read(): replies, fresh replies, and agentCall (vote and follow).
+    for (const [name, call] of [['readReplies', () => read.readReplies('ava', {})], ['freshReplies', () => read.freshReplies('ava', {})],
+      ['agentCall', () => cs.agentCall('ava', 'GET', '/agents/me')]]) {
+      const why = String(((await call()) || {}).because || '');
+      assert.match(why, /cannot read this board's community switch/, name + ' said: ' + why);
+      assert.doesNotMatch(why, /switched off/, name);
+    }
+    cs.setSwitch(() => ({ on: false, ok: true }));
+    assert.match((await read.read({})).because, /switched off on this board/, 'CONTROL: a switch turned off says so');
+    assert.match(String((await cs.agentCall('ava', 'GET', '/agents/me')).because || ''), /switched off on this board/, 'CONTROL: agentCall');
+  } finally { cs.setSwitch(null); }
+});
+
+test('#5435 review 7: willSend does not end the period on a failed switch read (the sweep does, as on main)', () => {
+  fresh();
+  const since = '2026-01-01T00:00:00.000Z';
+  fs.mkdirSync(path.dirname(cs._paths.stateFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.stateFile(), JSON.stringify({ since }) + '\n');
+  cs.setSwitch(() => ({ on: false, ok: false }));
+  try {
+    assert.equal(cs.willSend('ava', Date.now(), 'post').why, 'switch');
+    assert.equal(JSON.parse(fs.readFileSync(cs._paths.stateFile(), 'utf8')).since, since, 'one request ended the period for every agent on a read that may be transient');
+    assert.equal(cs.recordPeriodStart(), false);
+    assert.equal(JSON.parse(fs.readFileSync(cs._paths.stateFile(), 'utf8')).since, since);
+  } finally { cs.setSwitch(null); }
+});
+
+test('#5435 review 9: a comment caught by an unreadable switch is told to send it again, not post it', () => {
+  const status = require('./communitystatus');
+  assert.match(status.COMMENT_WORDS.switch_unreadable, /send it again$/);
+  assert.match(status.POST_WORDS.switch_unreadable, /post it again$/);
+});

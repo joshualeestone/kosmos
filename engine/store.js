@@ -239,11 +239,199 @@ function maybeMigrateLegacyStore() {
   }
 }
 
+/* #5418: a test process never gets this machine's real data root. Test runs wrote fixture
+   records (sender tokens and more) into a fleet Mac's real store and left them there for
+   weeks, through a module that froze `store.ROOT` at require time before its test set the
+   sandbox (38 module-level captures in 35 files, measured 2026-10-06 by a git grep for
+   `const|let|var X = ...store.ROOT|AVATARS|PROFILES` in engine/, server.js, lib/, cli*.js,
+   leaving out per-call arrow functions). So the rule is HERE, on the derivation every one of them
+   reads, not in each of them.
+
+   A test process is one `node --test` started (NODE_TEST_CONTEXT, or --test in execArgv) or
+   one tools/run-tests.sh started (KOSMOS_TEST_RUN naming that run's own temp folder, which also
+   reaches its shell tests; see inThisTestRun). "Real" is the root this user would get with no override at all, from the
+   account's home in the user database (os.userInfo), NOT os.homedir(): that follows $HOME,
+   which a test may point at a sandbox, and comparing against it would refuse exactly the
+   tests that sandboxed correctly. KOSMOS_ALLOW_REAL_ROOT=1 is the explicit way out for a
+   process that must read the real store under a test runner.
+
+   Two outcomes, measured on the full suite before choosing them (about 60 test files set no
+   sandbox at all and only load modules that freeze the root):
+   - NO sandbox variable set: the store answers ONE throwaway root of this process's own, which is
+     what a CI runner's empty real root already gives those tests. The store sets no environment
+     variable, so nothing else in the process (agystatus, accounts, the workers root) changes, and
+     a test that sets HOME later is honoured from then on. (worlds.applyWorldEnv, given a named
+     world, does export that world's path under the throwaway, as it would under any root.) A child
+     process the test starts is a test process too when it inherits a marker (NODE_TEST_CONTEXT, or
+     KOSMOS_TEST_RUN), and then gets a throwaway of its own; under a direct
+     `node --test --test-isolation=none` the parent is known only by its own execArgv, which a
+     child does not inherit, so that child is NOT covered. Removed at
+     exit, best effort; a process that was killed leaves it, and the next test process to make a
+     throwaway removes the ones whose process is gone (sweepDeadTestHomes, any platform). The
+     legacy migration is skipped for it, since its own target would be the real store
+     (maybeMigrateLegacyStore derives both roots itself and is safe only because root() is its one
+     caller and returns before it for a throwaway).
+   - A sandbox variable that still resolves to the real root or inside it (a symlink to the real
+     home, a named world's DATA an agent inherits from its world) gets the same throwaway. It is
+     not refused: an inherited world variable cannot be told from a test's own, and a refusal
+     would fail every unsandboxed test an agent in a named world runs.
+   Every caller that derives the current or legacy root to READ or WRITE it goes through
+   resolveDataRoot below (create.supportDir, worlds.baseRoot, boardauth's legacy token, the
+   silence monitor, and win32anchor's runtime anchor off Windows, where it sits inside the data
+   root). Not routed: setup-assistant's deny-rule paths (named, never read), win32uninstall (its
+   delete is behind liveExecutionAllowed, which a test does not grant), install/setup.sh's consult
+   (an installer) and win32anchor on Windows (AppData\Local, not the store).
+   Protected is this account's OS-default root (the user database's home), equal or inside; a
+   store a shell's inherited non-default AGENT_WORKFORCE_DATA/HOME names is not (the shell side
+   is #5428). With no user-database home (os.userInfo throws) the rule is off. */
+/* `node --test --test-isolation=none` runs the files in this very process and sets no
+   NODE_TEST_CONTEXT (measured, node 26.8.1), but its own execArgv carries --test: that half is
+   live-execution's inTestProcess, reused rather than re-derived (updating.js's second-derivation
+   rule). */
+function isTestProcess(env) {
+  // live-execution requires nothing, so this lazy require cannot form a cycle with the store.
+  return !!env.NODE_TEST_CONTEXT || require('./live-execution').inTestProcess() || inThisTestRun(env);   // cheapest first
+}
+/* tools/run-tests.sh sets KOSMOS_TEST_RUN to its own private temp folder. It counts only for a
+   process whose temp folder is that one or inside it, so the variable alone, left in a shell
+   whose temp folder is the usual one, does not turn a real board into a test. */
+let runSeen = null;   // [KOSMOS_TEST_RUN, os.tmpdir(), answer]: the walks once per pair
+function inThisTestRun(env) {
+  const run = env.KOSMOS_TEST_RUN;
+  if (!run || !path.isAbsolute(run)) return false;
+  const tmp = os.tmpdir();
+  if (runSeen && runSeen[0] === run && runSeen[1] === tmp) return runSeen[2];
+  const r = realish(run, process.platform, { fresh: true });
+  const t = realish(tmp, process.platform, { fresh: true });
+  const answer = t === r || t.startsWith(r.endsWith(path.sep) ? r : r + path.sep);
+  runSeen = [run, tmp, answer];
+  return answer;
+}
+let accountHome;   // os.userInfo().homedir, looked up once per process ('' when it cannot be)
+function realDefaultRoot(platform, app) {
+  if (accountHome === undefined) { try { accountHome = os.userInfo().homedir || ''; } catch { accountHome = ''; } }
+  const home = accountHome;
+  if (!home) return null;
+  // No APPDATA from the environment (a test may point it at a sandbox): on Windows the real root is
+  // the account home's AppData\Roaming. A machine whose AppData is redirected elsewhere is not seen.
+  return dataRootFor(platform, home, {}, app);
+}
+/* The nearest existing ancestor's realpath with the rest re-attached, so two spellings of one
+   directory (a symlinked /var, a home reached through a link) compare equal even before the
+   root exists; lower-cased where the default volume ignores case (macOS, Windows). Cached per
+   spelling, since store.ROOT is read often (a symlink made later under a cached spelling is not
+   seen). Reached in a test process, by inThisTestRun when KOSMOS_TEST_RUN is set, and by
+   test-support/data-root-sandbox.js. */
+const realishSeen = new Map();
+function realish(p, platform, { fresh = false } = {}) {
+  const key = platform + '\0' + p;
+  if (!fresh && realishSeen.has(key)) return realishSeen.get(key);
+  let head = path.resolve(p); const rest = [];
+  let out = null;
+  for (;;) {
+    try { out = path.join(fs.realpathSync(head), ...rest); break; } catch { /* not there yet */ }
+    const up = path.dirname(head);
+    if (up === head) { out = path.resolve(p); break; }
+    rest.unshift(path.basename(head)); head = up;
+  }
+  if (platform === 'darwin' || platform === 'win32') out = out.toLowerCase();
+  if (realishSeen.size > 256) realishSeen.clear();
+  realishSeen.set(key, out);
+  return out;
+}
+/* Equal to or inside this account's real root, current leaf or legacy, whichever leaf was asked
+   for (a named world hangs off the current one; a sandbox variable can aim into the legacy one). */
+function isRealRoot(resolved, platform) {
+  const at = realish(resolved, platform);
+  for (const leaf of [APP, LEGACY_APP]) {
+    const real = realDefaultRoot(platform, leaf);
+    if (!real) continue;
+    const r = realish(real, platform);
+    if (at === r || at.startsWith(r.endsWith(path.sep) ? r : r + path.sep)) return true;
+  }
+  return false;
+}
+/* Only this machine's own platform: another platform's path (a Mac asking what Windows would use)
+   cannot be this machine's real root, and the host's realpath cannot judge it. */
+function isRealRootInTests(resolved, platform, env) {
+  if (platform !== process.platform) return false;
+  if (!isTestProcess(env) || env.KOSMOS_ALLOW_REAL_ROOT === '1') return false;
+  return isRealRoot(resolved, platform);
+}
+const TEST_HOME_PREFIX = 'kosmos-test-home-';
+/* Written into every throwaway when it is made: its pid and this machine's host name. The sweep
+   removes only a folder carrying one that names a gone pid on this host, so a folder that merely
+   matches the name pattern, or another machine's (a container sharing this tmp), is kept. */
+const TEST_HOME_MARK = '.kosmos-test-home';
+/* Remove throwaway homes in `dir` whose process is gone: kosmos-test-home-<pid>-XXXXXX where
+   signalling <pid> says no such process (ESRCH). A live pid, another user's (EPERM), a name with
+   no numeric pid and anything without the prefix are kept. */
+function sweepDeadTestHomes(dir) {
+  let names = [];
+  try { names = fs.readdirSync(dir); } catch { return; }
+  for (const n of names) {
+    if (!n.startsWith(TEST_HOME_PREFIX)) continue;
+    const m = /^(\d+)-/.exec(n.slice(TEST_HOME_PREFIX.length));
+    if (!m) continue;
+    const pid = Number(m[1]);
+    if (pid === process.pid) continue;
+    const at = path.join(dir, n);
+    // Only a real folder this user owns: never a link, a file, or someone else's.
+    let st;
+    try { st = fs.lstatSync(at); } catch { continue; }
+    if (!st.isDirectory() || (typeof process.getuid === 'function' && st.uid !== process.getuid())) continue;
+    let mark = null;
+    try { mark = JSON.parse(fs.readFileSync(path.join(at, TEST_HOME_MARK), 'utf8')); } catch { continue; }
+    if (!mark || mark.pid !== pid || mark.host !== os.hostname()) continue;
+    let gone = false;
+    try { process.kill(pid, 0); } catch (e) { gone = e && e.code === 'ESRCH'; }
+    if (gone) { try { fs.rmSync(at, { recursive: true, force: true }); } catch { /* next time */ } }
+  }
+}
+let testHome = null;            // this process's one throwaway home
+// The throwaway roots handed out, so root() can skip migrating them. (Comment on its own line:
+// tools/check-frozen-roots.js reads a const up to the first line ending in `;`.)
+const testRoots = new Set();
+function throwawayRootForThisProcess(platform, app) {
+  if (!testHome) {
+    // The pid is in the name so sweepDeadTestHomes can remove only the ones whose process is gone.
+    sweepDeadTestHomes(os.tmpdir());
+    testHome = fs.mkdtempSync(path.join(os.tmpdir(), TEST_HOME_PREFIX + process.pid + '-'));
+    try { fs.writeFileSync(path.join(testHome, TEST_HOME_MARK), JSON.stringify({ pid: process.pid, host: os.hostname() })); } catch { /* unmarked: never swept, removed at exit */ }
+    const made = testHome;
+    process.on('exit', () => { try { fs.rmSync(made, { recursive: true, force: true }); } catch { /* swept later */ } });
+  }
+  const r = dataRootFor(platform, testHome, {}, app);
+  testRoots.add(r);
+  return r;
+}
+/**
+ * #5418: the data root with the test-process rule applied and NO migration. Every caller that
+ * derives the store's root to read or write it (root() below, create.supportDir, worlds.baseRoot,
+ * boardauth's legacy token, the silence monitor, win32anchor off Windows) goes through this, so
+ * one process always agrees on one root, throwaway or real.
+ * `env` supplies the sandbox variables (worlds passes the launch's original env); whether this
+ * is a test process is always read from process.env.
+ */
+function resolveDataRoot(platform, home, env, app = APP) {
+  const e = env || process.env;
+  const resolved = dataRootFor(platform, home, e, app);
+  if (!isRealRootInTests(resolved, platform, process.env)) return resolved;
+  return throwawayRootForThisProcess(platform, app);
+}
+
 function root() {
-  /* Migrate BEFORE resolving, so the very first store access (a read as often as
+  const env = process.env;
+  const resolved = resolveDataRoot(process.platform, env.AGENT_WORKFORCE_HOME || os.homedir(), env);
+  // #5418: a throwaway root is not migrated (the migration's own target is the real store), and
+  // neither is the REAL root when a test process allowed it only to read it (KOSMOS_ALLOW_REAL_ROOT);
+  // a sandbox in that same process still migrates as usual.
+  if (testRoots.has(resolved)) return resolved;
+  if (env.KOSMOS_ALLOW_REAL_ROOT === '1' && isTestProcess(env) && isRealRoot(resolved, process.platform)) return resolved;
+  /* Migrate BEFORE returning, so the very first store access (a read as often as
      a write) moves the legacy data before anything reads an empty new root. */
   maybeMigrateLegacyStore();
-  return dataRootFor(process.platform, process.env.AGENT_WORKFORCE_HOME || os.homedir(), process.env);
+  return resolved;
 }
 /* The store's two per-agent folders, named ONCE (#1704 PR4). worlds.js builds the
    same folders for a Kosmos this process is not serving (worldProfilesDir /
@@ -641,8 +829,14 @@ function writeSettings(patch) {
  * agent is restored. Nothing outside this file needs the path, so nothing gets
  * it. A symbol whose only justification is symmetry is a symbol somebody will
  * eventually use for the deletion this feature exists not to do.
+ *
+ * #5418's exports are a deliberate exception to that rule, stated so it is a choice: TEST_HOME_PREFIX,
+ * TEST_HOME_MARK, realDefaultRoot and realish are read-only, and sweepDeadTestHomes deletes only
+ * what its own guards allow (a real folder this user owns, named with the prefix, carrying a mark
+ * that names a gone pid on this host). Its test and test-support/data-root-sandbox.js are the
+ * callers; nothing in the product calls it but the store itself.
  */
-module.exports = { APP, LEGACY_APP, dataRootFor, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
+module.exports = { APP, LEGACY_APP, dataRootFor, resolveDataRoot, TEST_HOME_PREFIX, TEST_HOME_MARK, sweepDeadTestHomes, realDefaultRoot, realish, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
 
 /* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
    `store.ROOT` still reads like a constant at every call site and now answers

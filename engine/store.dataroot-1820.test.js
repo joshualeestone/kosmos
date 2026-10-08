@@ -109,12 +109,14 @@ test('CONTROL: the normal Mac and win32 answers are unchanged', () => {
     'the win32 answer moved');
 });
 
+const { withRealRootAllowed } = require('../test-support/real-root-allowed');   // #5418
+
 test('CONTROL: the live ROOT is built by the guarded function and does not throw', () => {
   /* Proves the guard is inside the function the product actually calls (ROOT is
      a getter over root() -> dataRootFor), and that normal operation -- an
      absolute homedir -- never trips the refusal. */
   let live;
-  assert.doesNotThrow(() => { live = store.ROOT; },
+  assert.doesNotThrow(() => { live = withRealRootAllowed(() => store.ROOT); },
     'store.ROOT threw under a normal absolute home; the guard is too eager');
   assert.equal(
     live,

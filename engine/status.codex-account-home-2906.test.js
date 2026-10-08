@@ -19,6 +19,7 @@
  */
 
 const test = require('node:test');
+const jobfix = require('../test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -48,6 +49,9 @@ process.env.AGENT_WORKFORCE_DATA = STORE;
 // writes agent plists into the sandbox, never the operator's real
 // ~/Library/LaunchAgents (which would spawn phantom codex* agents on the board).
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SB, 'LaunchAgents');
+// #5432: on Linux the agent's job is a systemd user unit, kept in this sandbox too (a sandboxed board without it refuses
+// every systemd call, so a create ends partial on a Linux runner). macOS and Windows never read it.
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = require('node:path').join(process.env.AGENT_WORKFORCE_LAUNCH, 'systemd', 'user');
 fs.mkdirSync(process.env.AGENT_WORKFORCE_LAUNCH, { recursive: true });
 
 const store = require('./store');
@@ -91,8 +95,8 @@ function codexAgent(name, workdir, configDir) {
   store.writeProfile(name, { dir: workdir, provider: 'openai' });
   fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
   fs.writeFileSync(
-    create.plistPath(name),
-    create.plistFor(name, CLAUDE_BIN, TMUX_BIN, null, configDir, 'codex'),
+    jobfix.jobPath(name),
+    jobfix.jobFor(name, CLAUDE_BIN, TMUX_BIN, null, configDir, 'codex'),
     'utf8',
   );
 }
@@ -162,7 +166,7 @@ test('#2906/4: a missing or malformed launch job FAILS CLOSED and never reads th
   fs.mkdirSync(wm, { recursive: true });
   store.writeProfile('malformed', { dir: wm, provider: 'openai' });
   fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
-  fs.writeFileSync(create.plistPath('malformed'), '<plist/>', 'utf8');
+  fs.writeFileSync(jobfix.jobPath('malformed'), '<plist/>', 'utf8');
   writeRolloutIn(HOME_BOARD, wm, 66666, 258400);
   assert.equal(status.readCodexContext('malformed').tokens, null, 'malformed job -> no board-account leak');
 });
@@ -210,8 +214,8 @@ test('#2906/8: a NON-codex runner FAILS CLOSED and never reads a codex rollout u
   store.writeProfile('india', { dir: wd, provider: 'anthropic' });
   fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
   fs.writeFileSync(
-    create.plistPath('india'),
-    create.plistFor('india', CLAUDE_BIN, TMUX_BIN, null, null, 'claude'), // runner = claude, not codex
+    jobfix.jobPath('india'),
+    jobfix.jobFor('india', CLAUDE_BIN, TMUX_BIN, null, null, 'claude'), // runner = claude, not codex
     'utf8',
   );
   writeRolloutIn(HOME_BOARD, wd, 99999, 258400);   // a real codex rollout in the board account

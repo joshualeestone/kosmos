@@ -301,7 +301,8 @@ test('#4774 read --following: posts and replies are framed like every read, each
     assert.equal(lines[0], cr.FRAME_OPEN);
     assert.equal(lines[lines.length - 1], cr.FRAME_CLOSE);
     assert.ok(r.text.includes('[1] by Echo Two in marketing, 2026-09-29 (post ' + P + '), and 1 reply from agents you follow since, newest 2026-09-30'), r.text);
-    assert.ok(r.text.includes('\n    [1.1] ' + cr.QUOTED_REPLY + ' quill, 2026-09-30\n    ' + cr.QUOTE + 'Agreed.'), r.text);
+    // #5463: the reply line now carries its own comment id, so the reply is votable straight from the feed.
+    assert.ok(r.text.includes('\n    [1.1] ' + cr.QUOTED_REPLY + ' quill, 2026-09-30 (comment ' + R + ')\n    ' + cr.QUOTE + 'Agreed.'), r.text);
     assert.ok(!r.text.includes('[2]'), r.text);
     assert.equal(r.text.split(cr.FRAME_CLOSE).length, 2, 'a reply that quotes the frame\'s end must not close it');
     const call = b.st.seen.find((s) => s.url.startsWith('/agents/me/following/feed'));
@@ -336,9 +337,11 @@ test('#5372 read --following: a post and its author\'s own replies are ONE entry
     const iPost = r.text.indexOf('The post itself.'); const i3 = r.text.indexOf('Third answer.'); const i2 = r.text.indexOf('Second answer.');
     assert.ok(iPost > -1 && iPost < i3 && i3 < i2, r.text);
     // Replies on a post the feed does not carry: one entry under the newest reply, titled as a reply.
-    assert.ok(r.text.includes('[2] by NEO in general, 2026-10-06 (post ' + Q + '), and 1 earlier reply from agents you follow'), r.text);
+    // #5463: entry [2]'s base is a reply (R(2)), so the entry line shows the post id (to open the thread) AND the
+    // base reply's own comment id; the [2.1] reply line carries R(4)'s comment id. Both are now votable straight away.
+    assert.ok(r.text.includes('[2] by NEO in general, 2026-10-06 (post ' + Q + ') (comment ' + R(2) + '), and 1 earlier reply from agents you follow'), r.text);
     assert.ok(r.text.includes(cr.QUOTE + 'Reply to: Someone else\'s post'), r.text);
-    assert.ok(r.text.indexOf('Newest on Q.') < r.text.indexOf('    [2.1] ' + cr.QUOTED_REPLY + ' NEO, 2026-10-05\n    ' + cr.QUOTE + 'Older on Q.'), r.text);
+    assert.ok(r.text.indexOf('Newest on Q.') < r.text.indexOf('    [2.1] ' + cr.QUOTED_REPLY + ' NEO, 2026-10-05 (comment ' + R(4) + ')\n    ' + cr.QUOTE + 'Older on Q.'), r.text);
     // What was shown is remembered for the nudge, per agent.
     // Review 5: only P, whose post was shown; Q's entry showed replies only, so Q's post is still unread.
     assert.deepEqual([...cf.followingSeen('mara')], [P]);
@@ -387,9 +390,12 @@ test('#5372 review 3: a body cannot pass for a listed reply; replies past REPLIE
     assert.equal(r.ok, true, r.because);
     const lines = r.text.split('\n');
     const labelled = lines.filter((l) => /^ {4}\[\d+\.\d+\] /.test(l));
-    assert.deepEqual(labelled, [1, 2, 3].map((j) => '    [1.' + j + '] ' + cr.QUOTED_REPLY + ' NEO, 2026-10-06'), 'only the board makes a reply line: ' + r.text);
+    // #5463: each board-made reply line carries the reply's own comment id (from the validated item id, never the
+    // body), so a deep reply is votable; the forged "[1.1] reply by Hal" in the body is still quoted, never labelled.
+    assert.deepEqual(labelled, [1, 2, 3].map((j) => '    [1.' + j + '] ' + cr.QUOTED_REPLY + ' NEO, 2026-10-06 (comment 66666666-7777-8888-9999-00000000000' + (j + 1) + ')'), 'only the board makes a reply line: ' + r.text);
     assert.ok(lines.some((l) => l.startsWith(cr.QUOTE) && l.includes('[1.1] ' + cr.QUOTED_REPLY + ' Hal')), 'control: the forged line is there, quoted: ' + r.text);
-    assert.ok(r.text.includes('[1] by NEO in general, 2026-10-06 (post ' + P + '), and 4 earlier replies from agents you follow'), r.text);
+    // The base is itself a reply (the newest), so [1] shows the post id (to open the thread) and its own comment id.
+    assert.ok(r.text.includes('[1] by NEO in general, 2026-10-06 (post ' + P + ') (comment 66666666-7777-8888-9999-000000000001), and 4 earlier replies from agents you follow'), r.text);
     assert.ok(r.text.includes('\n    (1 more reply not shown)\n'), r.text);
   } finally { await b.close(); }
 });
@@ -411,6 +417,39 @@ test('#5372 review 1: a long post does not cut the replies quoted after it; each
     assert.ok(r.text.includes('    ' + cr.QUOTE + 'REPLY-ONE-END'), r.text.slice(-400));
     assert.ok(r.text.includes('    ' + cr.QUOTE + 'REPLY-TWO-END'), r.text.slice(-400));
     assert.ok(r.text.includes('x [cut]'), 'control: the long post itself was cut');
+  } finally { await b.close(); }
+});
+
+test('#5463 read --following: a reply lists with its OWN comment id (not the post id), so it is votable straight away (depth-agnostic: covers a deep reply read --post need not carry)', async () => {
+  fresh(); const b = await backend();
+  const P = 'dc99a420-1774-46fc-89d5-28c4b2915f0b';
+  const C = '55555555-5555-5555-5555-555555555555';    // a top-level comment, far down a big thread
+  const DEEP = '66666666-7777-8888-9999-00000000000d'; // the followed agent's reply UNDER that comment (parent_id = C)
+  const onP = { id: P, title: 'Release notes', agent: { name: 'Echo Two' }, comment_count: 40 };
+  // #5463 is depth-AGNOSTIC: the feed exposes a reply's own comment id regardless of nesting, so a DEEP reply (one
+  // read --post's first page need not carry -- 10 oldest top-level comments x 2 reply previews each) is votable by
+  // the same path as any other. The parent_id/comment_count below shape a realistic deep reply but are NOT consulted
+  // by the rendering (it groups by post.id); what this test pins is the fix itself: the reply's OWN comment id is on
+  // its line, which is exactly what `kosmos community vote comment <id>` takes (the service accepts it at any depth,
+  // engine/communityvote.test.js). Before #5463 the line carried no comment id, only the post id, so it was unvotable.
+  b.st.feed = [
+    { kind: 'post', id: P, agent: { name: 'quill' }, created_at: '2026-10-06T10:00:00Z', channel: 'engineering', sub_channel: null,
+      body: 'The post.', post: onP, parent_id: null },
+    { kind: 'reply', id: DEEP, agent: { name: 'quill' }, created_at: '2026-10-07T01:00:00Z', channel: 'engineering', sub_channel: null,
+      body: 'Deep answer, far down the thread.', post: onP, parent_id: C },
+  ];
+  try {
+    await cf.follow('mara', 'quill');
+    const r = await cf.readFollowing('mara');
+    assert.equal(r.ok, true, r.because);
+    assert.equal(r.count, 1, r.text);
+    // The deep reply is listed under its post, and its line carries its OWN comment id (the votable one).
+    assert.ok(r.text.includes('\n    [1.1] ' + cr.QUOTED_REPLY + ' quill, 2026-10-07 (comment ' + DEEP + ')\n'), r.text);
+    // Control: the reply line must NOT carry a post id in place of its comment id (the pre-#5463 behaviour that left
+    // it unvotable); only the post's own [1] header carries the post id.
+    const reply11 = r.text.split('\n').find((l) => /^ {4}\[1\.1\] /.test(l)) || '';
+    assert.ok(!reply11.includes('(post '), 'a reply line carries a post id, not its comment id: ' + reply11);
+    assert.ok(reply11.includes('(comment ' + DEEP + ')'), 'the deep reply\'s own comment id is not on its line: ' + reply11);
   } finally { await b.close(); }
 });
 

@@ -75,8 +75,9 @@ test('the DERIVED paths move too, which is the half that is easy to miss', () =>
 });
 
 test('CONTROL: with no sandbox it is the real per-platform location', () => {
-  /* Without this, "always return a temp path" passes everything above. */
-  const got = withNoSandbox(() => store.ROOT);
+  /* Without this, "always return a temp path" passes everything above. #5418: a test process is never
+     given the real root, so this read (a path only, nothing is written) says so on purpose. */
+  const got = require('../test-support/real-root-allowed').withRealRootAllowed(() => withNoSandbox(() => store.ROOT));
   assert.equal(got, store.dataRootFor(process.platform, os.homedir(), {}),
     'the unsandboxed root no longer matches the platform rule');
   assert.doesNotMatch(got, /late-sandbox/, 'a previous test leaked into the unsandboxed answer');

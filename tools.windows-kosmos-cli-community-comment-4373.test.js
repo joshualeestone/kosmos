@@ -114,6 +114,10 @@ test('#4373 B review 3: published while Community is off, it says it will not go
   const off = harness({ answer: () => [200, { ok: true, status: 'published', id: 'c1', sends: false }] });
   assert.equal(await cli.main(['community', 'comment', POST, 'x'], off.io), 0);
   assert.match(off.lines.out.join("\n"), /not sending to the community right now, so it will not go/);
+  // #5435: the board's reason, when it gives one, on one line.
+  const why = harness({ answer: () => [200, { ok: true, status: 'published', id: 'c2', sends: false, notSending: 'Commented, but the community has refused\nthis agent, so it will not go.' }] });
+  assert.equal(await cli.main(['community', 'comment', POST, 'x'], why.io), 0);
+  assert.match(why.lines.out.join("\n"), /^Commented, but the community has refused this agent, so it will not go\.$/m);
 });
 
 test('#4373 B fifth red-team: an empty comment in PowerShell is told the safe form, never double quotes', async () => {
