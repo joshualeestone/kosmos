@@ -84,25 +84,20 @@ const check = (ok, label, got) => results.push({ ok: !!ok, label, got });
       const lines = Array.from(document.querySelectorAll('#wv-list .wv-world')).map((d) => (d.textContent || '').replace(/\s+/g, ' ').trim());
       return { open: !document.getElementById('wv-modal').hidden, back: [back.left, back.top, back.width, back.height],
         box: [box.left, box.right, box.top, box.bottom], vw: innerWidth, vh: innerHeight,
-        // The viewport a fixed inset-0 overlay can cover: without a classic scrollbar (CI's Chromium has one, 15px).
-        cw: document.documentElement.clientWidth, ch: document.documentElement.clientHeight, lines,
-        // What the overlay sits in, printed only when the cover arm fails (CI drew it 15px narrow; no local repro).
-        where: (() => {
-          const out = [];
-          for (let e = document.getElementById('wv-modal'); e; e = e.parentElement) {
-            const cs = getComputedStyle(e);
-            const r = e.getBoundingClientRect();
-            out.push([e.id || e.className || e.tagName, Math.round(r.left), Math.round(r.width), e.clientWidth, cs.position,
-              cs.overflowY, cs.scrollbarGutter, cs.transform !== 'none', cs.contain, cs.backdropFilter || '']);
-          }
-          return out;
-        })(),
+        lines,
         menuHidden: document.getElementById('worldsw-menu').hidden, focus: document.activeElement && document.activeElement.id,
-        sideways: document.documentElement.scrollWidth > innerWidth };
+        sideways: document.documentElement.scrollWidth > innerWidth,
+        // The tab layout reserves a scrollbar strip on <html> that no fixed layer can paint over (classic scrollbars:
+        // CI, the Windows app). While the sheet is up the page must reserve none, as the other full-window layers do.
+        // Asserted directly, because a Mac's overlay scrollbars hide the strip from the geometry arm.
+        gutter: getComputedStyle(document.documentElement).scrollbarGutter,
+        rootOverflow: getComputedStyle(document.documentElement).overflowY };
     });
     check(got.open && got.menuHidden, `@${w}: At a glance opens the sheet and closes the menu`, got);
-    check(got.back[0] <= 0 && got.back[1] <= 0 && got.back[2] >= got.cw && got.back[3] >= got.ch,
-      `@${w}: the overlay covers the window from inside the header`, { back: got.back, cw: got.cw, vw: got.vw, where: got.where });
+    check(got.back[0] <= 0 && got.back[1] <= 0 && got.back[2] >= got.vw && got.back[3] >= got.vh,
+      `@${w}: the overlay covers the window from inside the header`, got.back);
+    check(got.gutter === 'auto' && got.rootOverflow === 'hidden',
+      `@${w}: while the sheet is up the page reserves no scrollbar strip it cannot cover`, [got.gutter, got.rootOverflow]);
     check(got.box[0] >= 0 && got.box[1] <= got.vw && !got.sideways, `@${w}: the sheet fits the width, nothing scrolls sideways`, got.box);
     check(got.focus === 'wv-close', `@${w}: focus starts on Close`, got.focus);
     // The sheet is inside the sticky header (its own stacking context): it must still be ON TOP of floating UI, not
@@ -188,8 +183,7 @@ const check = (ok, label, got) => results.push({ ok: !!ok, label, got });
       const hit = (x, y) => { const e = document.elementFromPoint(x, y); return !!(e && e.closest('#wv-modal')); };
       const back = document.getElementById('wv-modal').getBoundingClientRect();
       const out = { centre: hit(box.left + box.width / 2, box.top + box.height / 2), corner: hit(innerWidth - 20, innerHeight - 20),
-        covers: back.left <= 0 && back.top <= 0 && back.width >= document.documentElement.clientWidth
-          && back.height >= document.documentElement.clientHeight };
+        covers: back.left <= 0 && back.top <= 0 && back.width >= innerWidth && back.height >= innerHeight };
       f.remove();
       return out;
     });
