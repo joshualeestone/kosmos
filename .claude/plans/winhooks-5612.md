@@ -33,7 +33,7 @@
   win32launch deletes it for a default-account agent anyway.
 
 ## Verified
-- engine/accounts.wiredefaulthooks-5612.test.js (5 tests at first, 7 after review 1), platform injected so they run on any OS:
+- engine/accounts.wiredefaulthooks-5612.test.js (11 tests after review 5; count with grep, it grows), platform injected so they run on any OS:
   - every hook event is wired in the exec form, and a second run changes nothing;
   - a person's own hook and settings survive;
   - it is a no-op off Windows;
@@ -96,3 +96,10 @@
   trust.defaultAgentSettings().
 - Left (NIT): the retry timers have no test of their own; busy (which drives them) is tested, and they are unref'd and
   bounded.
+
+## Review 5 (opus): no blockers
+- Fixed (WARNING): a retry ran withFileLock's 2 s wait (Atomics.wait) inside a serving board, so a collision could
+  stall every request for 2 s. Retries pass waitMs 0, because the minute between tries is the wait. Tested: a held
+  lock with waitMs 0 refuses at once, as busy.
+- Fixed (NITs): the comment says every agent launch writes the consent (win32launch), not just logon; a missing script
+  refuses before making the .claude folder (tested); the plan's test count.

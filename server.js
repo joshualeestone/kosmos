@@ -21616,11 +21616,13 @@ if (require.main === module) {
      a refusal is logged, never fatal. Agents pick the hooks up when they next start. A supervisor writing its bypass
      consent holds the same file lock for a moment at logon, so a busy lock is tried again a minute later (up to 5 more times),
      rather than leaving the account unwired until the next board start. */
-  const wireDefaultHooksTry = (left) => {
+  const wireDefaultHooksTry = (left, retry) => {
     try {
-      const hooks = accounts.wireDefaultHooks();
+      // A retry runs in a serving board: wait 0 for the lock (withFileLock's wait blocks the event loop); the minute
+      // between tries is the wait.
+      const hooks = accounts.wireDefaultHooks(retry ? { waitMs: 0 } : undefined);
       if (hooks.busy === true && left > 0) {
-        const again = setTimeout(() => wireDefaultHooksTry(left - 1), 60 * 1000);
+        const again = setTimeout(() => wireDefaultHooksTry(left - 1, true), 60 * 1000);
         if (again && typeof again.unref === 'function') again.unref();
       } else if (!hooks.skipped && hooks.wired !== true) {
         process.stderr.write(`Kosmos could not set up the reporting hooks for this computer's Claude agents: ${hooks.because || 'no reason given'}\n`);

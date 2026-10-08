@@ -483,23 +483,25 @@ function prepare(label) {
  * never thrown. Anywhere else it does nothing, because setup.sh owns the Mac. Note: the person's own Claude Code
  * sessions read this file too, so they run the hook as well, as they always have on a Mac (#561).
  *   { wired, changed?, because?, skipped, busy? }   busy: the lock was held, so the caller may try again soon
- * `platform`, `script`, `node` are injectable for tests.
+ * `platform`, `script`, `node` are injectable for tests. `waitMs` is withFileLock's wait for a held lock (its default
+ * when absent); a caller that retries on its own passes 0, since withFileLock's wait blocks the event loop.
  */
 function wireDefaultHooks(opts) {
   const o = opts || {};
   const plat = o.platform || process.platform;
   if (plat !== 'win32') return { wired: false, skipped: true, because: 'setup.sh wires the hooks on this platform' };
   try {
-    /* The SAME file and the same <target>.lock as trust.preacceptBypass (#3088): each Windows agent's supervisor
-       writes its bypass consent into this file at logon, as the board starts, and two unlocked read-modify-writes
-       would drop one change. Required here, not at the top, so loading accounts.js never loads trust.js. */
+    /* The SAME file and the same <target>.lock as trust.preacceptBypass (#3088): each Windows agent launch writes its
+       bypass consent into this file (win32launch preacceptClaudeFirstRun), and two unlocked read-modify-writes would
+       drop one change. Required here, not at the top, so loading accounts.js never loads trust.js. */
     const settings = require('./trust').defaultAgentSettings();
     const script = o.script !== undefined ? o.script : reporthook.hookScriptPath(plat);
+    if (!script) return { wired: false, skipped: false, because: 'the reporting hook script is not on this machine' };
     fs.mkdirSync(path.dirname(settings), { recursive: true });
     const BUSY = 'another writer held the settings file';
     const locked = require('./filelock').withFileLock(settings,
       () => reporthook.ensureWired(settings, script, { platform: plat, node: o.node }),
-      { busy: BUSY, cannotAccess: 'the settings folder refused the lock file, so the hooks were not written' });
+      { busy: BUSY, cannotAccess: 'the settings folder refused the lock file, so the hooks were not written', waitMs: o.waitMs });
     if (!locked || locked.ok !== true) {
       // Only a held lock is worth trying again; a folder that refuses the lock file will refuse it next time too.
       // withFileLock returns opts.busy verbatim for a held lock; the lock test runs the real filelock, so drift reds it.
