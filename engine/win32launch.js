@@ -340,6 +340,21 @@ function preacceptClaudeFirstRun(s) {
   if (r && r.ok === false) {
     process.stderr.write('[win32launch] ' + String(s.name || 'agent') + ': could not pre-accept its Claude settings (' + r.because + '); it starts anyway\n');
   }
+  /* kosmos#5612: a default-account agent reads <home>\.claude\settings.json once, as its Claude starts, and only the
+     reporting hooks in it make the agent report idle and needs-you. The board wires them at its own start, but the
+     board and the supervisors are separate logon tasks with no order between them, so an agent launched before the
+     board's write would run its whole session without them. So wire them here too, just before this agent's Claude
+     reads the file. Keyed on the REAL platform (process.platform, never the injected s.platform), so a test that
+     injects win32 on a Mac never writes the real settings file. Idempotent, fail-soft: a refusal is said and the
+     agent starts anyway. An added account (configDir) was wired by accounts.prepare. */
+  if (!s.configDir) {
+    let h;
+    try { h = require('./accounts').wireDefaultHooks(); }
+    catch { h = { wired: false, skipped: false, because: 'the hooks could not be wired' }; }
+    if (h && !h.skipped && h.wired !== true) {
+      process.stderr.write('[win32launch] ' + String(s.name || 'agent') + ': could not set up its reporting hooks (' + h.because + '); it starts anyway\n');
+    }
+  }
 }
 
 /* The spawn seam. Tests replace it; nothing else does. Mirrors the

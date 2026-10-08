@@ -24,9 +24,13 @@
 - win32 only. Rejected: running it on every platform. On a Mac setup.sh wires every account folder at install and
   update, and a board-start rewrite could fight it over the script path (installed bin/ against the source checkout).
   Weakest premise: setup.sh runs on every Mac update. If a Mac ever updates without it, this does not cover that.
-- Board start, not each agent launch. Rejected: wiring inside win32launch (per launch). One idempotent write per boot
-  is enough: the hooks live in the shared settings file, not per agent. Weakest premise: the board starts before any
-  agent on that boot. An agent already running keeps its old settings until it restarts, which is said in the comment.
+- Board start AND each default-account agent launch (REVERSED at review 7; the first version did board start only).
+  The premise "the board starts before any agent" is false on Windows by design: the board and the supervisors are
+  separate logon Scheduled Tasks with no order, and Claude Code reads its hooks once, at start. So an agent launched
+  before the board's write ran its whole session unreported. win32launch's preacceptClaudeFirstRun now wires them too,
+  just before the agent's Claude reads the file (the place it already writes the bypass consent, under the same lock),
+  keyed on the REAL platform so a test injecting win32 on a Mac writes nothing. Weakest premise now: an agent ALREADY
+  running when this ships reports nothing until its next start.
 - The default folder comes from trust.defaultAgentSettings() (AGENT_WORKFORCE_CLAUDE_SETTINGS, else
   <AGENT_WORKFORCE_HOME or home>/.claude/settings.json), the file preacceptBypass writes for a default-account agent, so
   both writers lock the same path. Not handled: a person who set CLAUDE_CONFIG_DIR for their default account;
@@ -110,3 +114,12 @@
 - Stated (WARNING): the FIRST attempt keeps withFileLock's default wait (up to 2 s, Atomics.wait) at board start. That
   is acceptable only because it runs before the board listens; retries (in a serving board) wait 0.
 - Fixed (NIT): the redundant no-script test is merged into its twin, which now also asserts no .claude folder is made.
+
+## Review 7 (opus): no blockers
+- Fixed (WARNING, a reversed decision): board start alone left agents launched in the same moment unwired for their
+  whole session. Each default-account Windows launch wires the hooks too (win32launch preacceptClaudeFirstRun), on the
+  real platform. Plants: P7 (no launch call) and P8 (the injected platform passed) red the new source check.
+  win32launch suites 53/53, and the real ~/.claude/settings.json is unchanged by the run (stat + sha compared).
+- Fixed (NIT): the server.js comment says every agent launch (not logon), and that launches now wire the hooks too.
+- Left (NITs): the file mode a fresh settings.json gets depends on which writer creates it (irrelevant on Windows);
+  long lines match neighbours.

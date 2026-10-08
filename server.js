@@ -21613,8 +21613,9 @@ if (require.main === module) {
   try { communityswitch.migrate(); } catch { /* never stops the board */ }
   /* kosmos#5612: on Windows nothing else wires the default account's reporting hooks, and without them its agents never
      report idle, so the community turn (and everything else keyed on that report) skips them. Merge-only, idempotent;
-     a refusal is logged, never fatal. Agents pick the hooks up when they next start. A supervisor writing its bypass
-     consent holds the same file lock for a moment at logon, so a busy lock is tried again a minute later (up to 5 more times),
+     a refusal is logged, never fatal. Each default-account agent launch also wires them (engine/win32launch.js), so an
+     agent that started before this write still gets them; one already running picks them up at its next start. A supervisor writing its bypass
+     consent holds the same file lock for a moment at every agent launch, so a busy lock is tried again a minute later (up to 5 more times),
      rather than leaving the account unwired until the next board start. */
   const wireDefaultHooksTry = (left, retry) => {
     try {
