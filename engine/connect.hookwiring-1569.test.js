@@ -40,6 +40,10 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json'
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = nodePath.join(SANDBOX, 'claude-config-dir');
 
 const connect = require('./connect');
+// #5419: download() and sign-in refuse on a real Linux host with no tmux; pinned to "present" so a Linux box without
+// tmux still runs these tests for what they name.
+connect.setTmuxCheckForTests(() => false);
+connect.setMuslLibsCheckForTests(() => false);   // #5419: nor the host's musl libraries
 
 /* 🛑 WITHOUT THIS, `start()` RETURNS `connected` IMMEDIATELY AND NEVER REACHES
    THE DOWNLOAD. Measured: on a signed-in machine it short-circuits before the

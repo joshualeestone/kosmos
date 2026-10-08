@@ -29,6 +29,16 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const connect = require('./connect');
+/* #5419: download() refuses on a real Linux host with no tmux. Pinned to "present" for this whole file, so a Linux box
+   without tmux still runs these tests for what they name; the tests about the guard set their own answer and put this
+   one back. */
+const TMUX_PRESENT = () => false;
+connect.setTmuxCheckForTests(TMUX_PRESENT);
+/* #5419 review 24's musl library check likewise reads the host's /usr/lib on a real Linux box (a glibc runner keeps
+   libstdc++ in a multiarch folder, so a test that forces musl on would hit the library refusal there). Pinned to
+   "present" for this file; the tests about that check set their own answer and put this one back. */
+const MUSL_LIBS_PRESENT = () => false;
+connect.setMuslLibsCheckForTests(MUSL_LIBS_PRESENT);
 const subscription = require('./subscription');
 const store = require('./store');
 
@@ -2895,4 +2905,419 @@ driverTest('#248: a plain start still reads the global account and reports no di
 
 test('#248: a relative configDir is refused loudly before any state moves', async () => {
   await assert.rejects(() => connect.start({ configDir: 'relative/place' }), /absolute/);
+});
+
+// #5419: Linux fetches Anthropic's own linux build, verified against the manifest's checksum, executable, with the
+// musl build where the C library is musl. Driven with the `linux` platform seam so it runs on this Mac.
+test('#5419 a linux download fetches the linux build (glibc), verified and executable', async (t) => {
+  connect.setMuslDetectForTests(() => false);
+  connect.setTmuxCheckForTests(() => false);   // not the host's tmux (a Linux runner may have none)
+  t.after(() => { connect.setMuslDetectForTests(null); connect.setTmuxCheckForTests(TMUX_PRESENT); });
+  const binary = crypto.randomBytes(160 * 1024);
+  const checksum = crypto.createHash('sha256').update(binary).digest('hex');
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(t, { version: '9.9.4', binary, checksum, platform: 'linux' });
+  t.after(() => { delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; });
+  const got = await connect.download(() => {}, undefined, 'linux');
+  assert.match(nodePath.basename(got.path), /^claude-9\.9\.4-linux-(x64|arm64)$/, 'not the linux build: ' + got.path);
+  assert.equal(crypto.createHash('sha256').update(fs.readFileSync(got.path)).digest('hex'), checksum);
+  assert.ok(fs.statSync(got.path).mode & 0o100, 'the binary is not executable');
+});
+
+test('#5419 the linux key follows the C library: linux-<arch> on glibc, linux-<arch>-musl on musl', () => {
+  try {
+    connect.setMuslDetectForTests(() => false);
+    assert.match(connect.platformKey('linux'), /^linux-(x64|arm64)$/);
+    connect.setMuslDetectForTests(() => true);
+    assert.match(connect.platformKey('linux'), /^linux-(x64|arm64)-musl$/);
+    assert.match(connect.platformKey('darwin'), /^darwin-(x64|arm64)$/, 'CONTROL: the Mac key ignores the musl seam');
+  } finally { connect.setMuslDetectForTests(null); }
+});
+
+test('#5419: an arch Anthropic does not build keeps its own name on linux, a key no manifest carries', () => {
+  try {
+    connect.setMuslDetectForTests(() => false);
+    assert.equal(connect.platformKey('linux', 'riscv64'), 'linux-riscv64');
+    assert.equal(connect.platformKey('linux', 'arm'), 'linux-arm');
+    assert.equal(connect.platformKey('linux', 'x64'), 'linux-x64', 'CONTROL: x64 is x64');
+    assert.equal(connect.platformKey('linux', 'arm64'), 'linux-arm64', 'CONTROL: arm64 is arm64');
+  } finally { connect.setMuslDetectForTests(null); }
+});
+
+test('#5419: musl detection, every branch (report with glibc, report without, no report)', () => {
+  const none = () => false;
+  assert.equal(connect.detectMusl({ platform: 'darwin', report: { header: {} }, exists: () => true }), false, 'off Linux, never musl');
+  assert.equal(connect.detectMusl({ platform: 'linux', report: { header: { glibcVersionRuntime: '2.35' } }, exists: () => true }), false, 'glibc named: glibc');
+  assert.equal(connect.detectMusl({ platform: 'linux', report: { header: {} }, exists: (f) => f === '/lib/ld-musl-aarch64.so.1' }), true, 'no glibc in the report and musl\'s loader: musl');
+  assert.equal(connect.detectMusl({ platform: 'linux', report: { header: {} }, exists: none }), false, 'no glibc field but no musl loader either: glibc, not a guess at musl');
+  assert.equal(connect.detectMusl({ platform: 'linux', report: () => { throw new Error('no report'); }, exists: (f) => f === '/lib/ld-musl-x86_64.so.1' }), true, 'no report: musl\'s loader decides');
+  assert.equal(connect.detectMusl({ platform: 'linux', report: null, exists: none }), false, 'no report, no musl loader: glibc');
+});
+
+test('#5419 a manifest with no build for this linux key refuses before anything is placed', async (t) => {
+  connect.setTmuxCheckForTests(() => false);   // not the host's tmux
+  t.after(() => { connect.setMuslDetectForTests(null); connect.setTmuxCheckForTests(TMUX_PRESENT); });
+  const binary = crypto.randomBytes(64 * 1024);
+  const checksum = crypto.createHash('sha256').update(binary).digest('hex');
+  connect.setMuslDetectForTests(() => false);
+  const base = await serveRelease(t, { version: '9.9.3', binary, checksum, platform: 'linux' });
+  connect.setMuslDetectForTests(() => true);
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = base;
+  t.after(() => { delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; });
+  // the matcher, so only the no-build refusal passes (a bare message argument accepted any throw).
+  await assert.rejects(() => connect.download(() => {}, undefined, 'linux'), /no build for this kind of computer \(linux-(x64|arm64)-musl\)/);
+});
+
+test('#5419: on Linux the tmux for sign-in is create\'s picker (PATH, then the usual folders), never Homebrew\'s', () => {
+  // literal expectations, with the picker's PATH and runnable check injected, so a return of the hardcoded
+  // Homebrew path fails here (on this Mac the real picker would find /opt/homebrew/bin/tmux and hide it).
+  const onPath = '/opt/custom/bin/tmux';
+  const runnable = (f) => f === onPath || f === '/usr/bin/tmux';
+  assert.equal(connect.tmuxBinPath('linux', { PATH: '/opt/custom/bin' }, runnable), onPath, 'the tmux on PATH comes first');
+  assert.equal(connect.tmuxBinPath('linux', { PATH: '/nowhere' }, runnable), '/usr/bin/tmux', 'then /usr/bin, under a minimal PATH');
+  assert.equal(connect.tmuxBinPath('linux', { PATH: '/nowhere' }, () => false), 'tmux', 'none found: the bare name');
+  assert.equal(connect.tmuxBinPath('linux', { AGENT_WORKFORCE_TMUX_BIN: '/x/tmux', PATH: '/opt/custom/bin' }, (f) => f === '/x/tmux' || runnable(f)), '/x/tmux', 'a runnable launcher pick wins');
+  assert.equal(connect.tmuxBinPath('darwin', {}), '/opt/homebrew/bin/tmux', 'CONTROL: the Mac default is unchanged');
+  assert.equal(connect.tmuxBinPath('win32', {}, () => false), '/opt/homebrew/bin/tmux', 'the Windows default is unchanged too');
+});
+
+test('#5419: with no report, a glibc box that also has musl installed (Debian musl package) is glibc', () => {
+  const at = (...files) => (f) => files.includes(f);
+  assert.equal(connect.detectMusl({ platform: 'linux', report: null, exists: at('/lib/ld-musl-x86_64.so.1', '/lib64/ld-linux-x86-64.so.2') }), false, 'x64 glibc + musl pkg');
+  assert.equal(connect.detectMusl({ platform: 'linux', report: null, exists: at('/lib/ld-musl-aarch64.so.1', '/lib/ld-linux-aarch64.so.1') }), false, 'arm64 glibc + musl pkg');
+  assert.equal(connect.detectMusl({ platform: 'linux', report: null, exists: at('/lib/ld-musl-x86_64.so.1', '/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2') }), false, 'multiarch glibc loader');
+  assert.equal(connect.detectMusl({ platform: 'linux', report: null, exists: at('/lib/ld-musl-x86_64.so.1') }), true, 'CONTROL: musl loader alone (Alpine) is musl');
+});
+
+test('#5419: a readable report naming no glibc is musl even beside a glibc-named loader (Alpine with gcompat)', () => {
+  const at = (...files) => (f) => files.includes(f);
+  const muslNode = { header: {} };   // Alpine's nodejs: a report with no glibcVersionRuntime
+  assert.equal(connect.detectMusl({ platform: 'linux', report: muslNode, exists: at('/lib/ld-musl-aarch64.so.1', '/lib/ld-linux-aarch64.so.1') }), true, 'gcompat vetoed a musl Node');
+  assert.equal(connect.detectMusl({ platform: 'linux', report: muslNode, exists: at('/lib/ld-musl-x86_64.so.1', '/lib64/ld-linux-x86-64.so.2') }), true);
+  assert.equal(connect.detectMusl({ platform: 'linux', report: { header: { glibcVersionRuntime: '2.39' } }, exists: at('/lib/ld-musl-x86_64.so.1') }), false, 'CONTROL: a report naming glibc is glibc');
+});
+
+test('#5419: on a real glibc Linux host the real detection picks the glibc build and asks for no musl libraries', (t) => {
+  // Every other key test replaces detection with the seam, and the test servers build their key with platformKey itself,
+  // so only this catches a regression that makes a glibc host read as musl. It runs on the Linux lane (ubuntu-latest,
+  // glibc); a musl Linux host would need the opposite answer, so it is skipped there.
+  if (process.platform !== 'linux') { t.skip('needs a real Linux host (the Linux lane)'); return; }
+  if (['/lib/ld-musl-x86_64.so.1', '/lib/ld-musl-aarch64.so.1'].some((f) => fs.existsSync(f)) && !(process.report && process.report.getReport().header.glibcVersionRuntime)) { t.skip('a musl host'); return; }
+  connect.setMuslDetectForTests(null);
+  connect.setMuslLibsCheckForTests(null);
+  try {
+    assert.equal(connect.platformKey('linux'), 'linux-' + require('node:os').arch(), 'a glibc host read as musl');
+    assert.equal(connect.muslLibsMissing('linux'), false, 'a glibc host was asked for musl libraries');
+  } finally {
+    connect.setMuslDetectForTests(null);
+    connect.setMuslLibsCheckForTests(MUSL_LIBS_PRESENT);
+  }
+});
+
+test('#5419: the C-library report is read with network handles excluded, and the setting is put back', () => {
+  if (!process.report) return;   // a Node built without report support has nothing to read
+  const prevGet = process.report.getReport;
+  const prevEx = process.report.excludeNetwork;
+  let seen = null;
+  process.report.getReport = () => { seen = process.report.excludeNetwork; return { header: {} }; };
+  try {
+    connect.readReportQuietly();
+    assert.equal(seen, true, 'the report walked network handles');
+    assert.equal(process.report.excludeNetwork, prevEx, 'excludeNetwork was not put back');
+  } finally { process.report.getReport = prevGet; }
+});
+
+test('#5419: on Linux a missing tmux is caught before a download, not at sign-in', () => {
+  const none = () => false;
+  assert.equal(connect.tmuxMissingOnLinux({ PATH: '/nowhere' }, none), true, 'no tmux anywhere: missing');
+  assert.equal(connect.tmuxMissingOnLinux({ AGENT_WORKFORCE_TMUX_BIN: '/k/tmux/bin/tmux', PATH: '/nowhere' }, none), true, 'the launcher named a tmux that is not there (a bundle with no Linux tmux): missing');
+  assert.equal(connect.tmuxMissingOnLinux({ PATH: '/nowhere' }, (f) => f === '/usr/bin/tmux'), false, 'CONTROL: /usr/bin/tmux is found');
+  assert.equal(connect.tmuxMissingOnLinux({ AGENT_WORKFORCE_TMUX_BIN: '/k/tmux', PATH: '/nowhere' }, (f) => f === '/k/tmux'), false, 'CONTROL: the launcher\'s runnable pick');
+});
+
+test('#5419: on Linux a launcher tmux pick that is not there falls through to the real picker', () => {
+  const runnable = (f) => f === '/usr/bin/tmux';
+  const env = { AGENT_WORKFORCE_TMUX_BIN: '/home/u/.local/share/kosmos/tmux/bin/tmux', PATH: '/nowhere' };
+  assert.equal(connect.tmuxBinPath('linux', env, runnable), '/usr/bin/tmux', 'a missing bundle path won over an installed tmux');
+  assert.equal(connect.tmuxMissingOnLinux(env, runnable), false, 'an installed tmux was reported missing');
+  assert.equal(connect.tmuxBinPath('darwin', env, runnable), env.AGENT_WORKFORCE_TMUX_BIN, 'CONTROL: on a Mac the launcher pick is used as before');
+});
+
+test('#5419: download refuses a Linux host with no tmux before any request is made', async (t) => {
+  let requests = 0;
+  const http = require('node:http');
+  const server = http.createServer((req, res) => { requests += 1; res.writeHead(404); res.end(); });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const prev = process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = `http://127.0.0.1:${server.address().port}`;
+  connect.setTmuxCheckForTests(() => true);
+  t.after(() => {
+    connect.setTmuxCheckForTests(TMUX_PRESENT);
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; else process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = prev;
+    server.close();
+  });
+  await assert.rejects(() => connect.download(() => {}, undefined, 'linux'), /needs tmux on this computer/);
+  assert.equal(requests, 0, 'the download service was asked before the tmux check');
+  connect.setTmuxCheckForTests(() => false);
+  await assert.rejects(() => connect.download(() => {}, undefined, 'linux'), (e) => !/needs tmux/.test(e.message), 'CONTROL: with tmux present it goes on to the service');
+  assert.ok(requests > 0, 'CONTROL: with tmux present the service is asked');
+});
+
+test('#5419: download refuses a musl host missing libstdc++/libgcc before any request; present, it goes on', async (t) => {
+  let requests = 0;
+  const http = require('node:http');
+  const server = http.createServer((req, res) => { requests += 1; res.writeHead(404); res.end(); });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const prev = process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = `http://127.0.0.1:${server.address().port}`;
+  connect.setTmuxCheckForTests(() => false);
+  connect.setMuslLibsCheckForTests(() => true);
+  t.after(() => {
+    connect.setMuslLibsCheckForTests(MUSL_LIBS_PRESENT);
+    connect.setTmuxCheckForTests(TMUX_PRESENT);
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; else process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = prev;
+    server.close();
+  });
+  await assert.rejects(() => connect.download(() => {}, undefined, 'linux'), /needs libstdc\+\+ and libgcc there.*apk add libstdc\+\+ libgcc/);
+  assert.equal(requests, 0, 'the download service was asked before the library check');
+  connect.setMuslLibsCheckForTests(() => false);
+  await assert.rejects(() => connect.download(() => {}, undefined, 'linux'), (e) => !/libstdc/.test(e.message), 'CONTROL: with the libraries it goes on');
+  assert.ok(requests > 0, 'CONTROL: with the libraries the service is asked');
+});
+
+test('#5419: muslLibsPresent needs both libraries, in any of the usual folders; off Linux nothing is asked', () => {
+  const at = (...files) => (p) => files.includes(p);
+  assert.equal(connect.muslLibsPresent(at('/usr/lib/libstdc++.so.6', '/usr/lib/libgcc_s.so.1')), true);
+  assert.equal(connect.muslLibsPresent(at('/usr/lib/libstdc++.so.6', '/lib/libgcc_s.so.1')), true, 'split across folders');
+  assert.equal(connect.muslLibsPresent(at('/usr/lib/libstdc++.so.6')), false, 'libgcc_s missing');
+  assert.equal(connect.muslLibsPresent(at('/usr/lib/libgcc_s.so.1')), false, 'libstdc++ missing');
+  assert.equal(connect.muslLibsPresent(at()), false);
+  for (const p of ['darwin', 'win32']) assert.equal(connect.muslLibsMissing(p), false, p + ' is never asked');
+  if (process.platform !== 'linux') assert.equal(connect.muslLibsMissing('linux'), false, 'a test host that is not Linux never reads its own folders');
+});
+
+test('#5419: the real Linux tmux pick is held between sign-in ticks, and a new launcher value is asked again', () => {
+  const create = require('./create');
+  const runners = require('./runners');
+  const orig = create.linuxTmuxBin;
+  const origRunnable = runners.isRunnable;
+  const saved = process.env.AGENT_WORKFORCE_TMUX_BIN;
+  let asked = 0;
+  create.linuxTmuxBin = () => { asked += 1; return '/usr/bin/tmux'; };
+  // a held pick is re-checked on every hit, so the stubbed path must read as runnable on this machine too
+  runners.isRunnable = (f) => (f === '/usr/bin/tmux' ? true : origRunnable(f));
+  try {
+    connect.resetForTests();   // no held pick from an earlier test, whatever its key
+    process.env.AGENT_WORKFORCE_TMUX_BIN = '/nowhere/tmux-a';   // not runnable, so the picker is asked
+    connect.tmuxBinPath('linux'); connect.tmuxBinPath('linux'); connect.tmuxBinPath('linux');
+    assert.equal(asked, 1, 'the picker walked PATH on every tick');
+    process.env.AGENT_WORKFORCE_TMUX_BIN = '/nowhere/tmux-b';
+    connect.tmuxBinPath('linux');
+    assert.equal(asked, 2, 'a changed launcher value reused the old answer');
+  } finally {
+    connect.resetForTests();   // and none left for a later test
+    create.linuxTmuxBin = orig;
+    runners.isRunnable = origRunnable;
+    if (saved === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = saved;
+  }
+});
+
+driverTest('#5419: a tmux that goes away after the flow started is caught before sign-in launches a session', async () => {
+  // runFlow asks first (tmux present), launchSignin asks again (now gone): only launchSignin's check can go stuck here.
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  connect.setSigninPlatformForTests('linux');
+  let asks = 0;
+  connect.setTmuxCheckForTests(() => { asks += 1; return asks > 1; });
+  try {
+    await connect.start();
+    await until(() => connect.state().phase === connect.PHASE.STUCK, 5000);
+    assert.match(connect.state().because, /needs tmux on this computer to sign Claude in/);
+    assert.equal(term.made, 0, 'a sign-in session was launched with no tmux: ' + JSON.stringify(term.all));
+  } finally {
+    connect.setSigninPlatformForTests('darwin');
+    connect.setTmuxCheckForTests(TMUX_PRESENT);
+  }
+});
+
+test('#5419: a "no tmux found" answer is not held, so a tmux installed after a refusal is found at once', () => {
+  const create = require('./create');
+  const orig = create.linuxTmuxBin;
+  const saved = process.env.AGENT_WORKFORCE_TMUX_BIN;
+  let found = null;
+  create.linuxTmuxBin = () => found;
+  try {
+    process.env.AGENT_WORKFORCE_TMUX_BIN = '/nowhere/tmux-c';
+    assert.equal(connect.tmuxBinPath('linux'), 'tmux', 'CONTROL: nothing found is the bare name');
+    found = '/usr/bin/tmux';   // the person installs tmux and tries again within 30 s
+    assert.equal(connect.tmuxBinPath('linux'), '/usr/bin/tmux', 'the cached "not found" hid a tmux installed since');
+  } finally {
+    connect.resetForTests();   // the held /usr/bin/tmux must not reach a later test
+    create.linuxTmuxBin = orig;
+    if (saved === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = saved;
+  }
+});
+
+driverTest('#5419: with no Claude on a musl host missing its libraries, the headline says so and nothing is downloaded', async (t) => {
+  let requests = 0;
+  const http = require('node:http');
+  const server = http.createServer((req, res) => { requests += 1; res.writeHead(404); res.end(); });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const prevBase = process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = `http://127.0.0.1:${server.address().port}`;
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = nodePath.join(SANDBOX, 'no-such-claude');   // nothing installed
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  connect.setSigninPlatformForTests('linux');
+  connect.setTmuxCheckForTests(() => false);
+  connect.setMuslLibsCheckForTests(() => true);
+  t.after(() => {
+    connect.setSigninPlatformForTests('darwin');
+    connect.setTmuxCheckForTests(TMUX_PRESENT);
+    connect.setMuslLibsCheckForTests(MUSL_LIBS_PRESENT);
+    if (prevBase === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; else process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = prevBase;
+    server.close();
+  });
+  await connect.start();
+  await until(() => connect.state().phase === connect.PHASE.STUCK, 5000);
+  assert.match(connect.state().because, /needs libstdc\+\+ and libgcc there/, 'the cause is not in the headline: ' + connect.state().because);
+  assert.equal(requests, 0, 'the download service was asked before the library check');
+});
+
+driverTest('#5419: with no Claude and no tmux on Linux, the headline is the tmux sentence and nothing is downloaded', async (t) => {
+  let requests = 0;
+  const http = require('node:http');
+  const server = http.createServer((req, res) => { requests += 1; res.writeHead(404); res.end(); });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const prevBase = process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = `http://127.0.0.1:${server.address().port}`;
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = nodePath.join(SANDBOX, 'no-such-claude');   // nothing installed
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  connect.setSigninPlatformForTests('linux');
+  connect.setTmuxCheckForTests(() => true);
+  t.after(() => {
+    connect.setSigninPlatformForTests('darwin');
+    connect.setTmuxCheckForTests(TMUX_PRESENT);
+    if (prevBase === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; else process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = prevBase;
+    server.close();
+  });
+  await connect.start();
+  await until(() => connect.state().phase === connect.PHASE.STUCK, 5000);
+  assert.match(connect.state().because, /needs tmux on this computer to sign Claude in/, 'the cause is not in the headline: ' + connect.state().because);
+  assert.equal(requests, 0, 'the download service was asked before the tmux check');
+});
+
+test('#5419: a found tmux pick is held: a second ask within the window does not search again', () => {
+  const create = require('./create');
+  const runners = require('./runners');
+  const origPick = create.linuxTmuxBin;
+  const origRunnable = runners.isRunnable;
+  const saved = process.env.AGENT_WORKFORCE_TMUX_BIN;
+  let searches = 0;
+  create.linuxTmuxBin = () => { searches += 1; return '/opt/held2/tmux'; };
+  runners.isRunnable = (f) => (f === '/opt/held2/tmux' ? true : origRunnable(f));
+  try {
+    connect.resetForTests();
+    process.env.AGENT_WORKFORCE_TMUX_BIN = '/nowhere/tmux-e';
+    assert.equal(connect.tmuxBinPath('linux'), '/opt/held2/tmux');
+    assert.equal(connect.tmuxBinPath('linux'), '/opt/held2/tmux');
+    assert.equal(searches, 1, 'the found pick was not held: create.linuxTmuxBin ran ' + searches + ' times');
+    process.env.AGENT_WORKFORCE_TMUX_BIN = '/nowhere/tmux-f';   // a different launcher value is a different key
+    connect.tmuxBinPath('linux');
+    assert.equal(searches, 2, 'CONTROL: a new launcher value searches again');
+  } finally {
+    create.linuxTmuxBin = origPick; runners.isRunnable = origRunnable;
+    connect.resetForTests();
+    if (saved === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = saved;
+  }
+});
+
+test('#5419: a held tmux pick that has since gone away is not handed back', () => {
+  const create = require('./create');
+  const runners = require('./runners');
+  const origPick = create.linuxTmuxBin;
+  const origRunnable = runners.isRunnable;
+  const saved = process.env.AGENT_WORKFORCE_TMUX_BIN;
+  let present = true;
+  create.linuxTmuxBin = () => (present ? '/opt/held/tmux' : null);
+  runners.isRunnable = (f) => (f === '/opt/held/tmux' ? present : origRunnable(f));
+  try {
+    connect.resetForTests();   // no held pick from an earlier test, whatever its key
+    process.env.AGENT_WORKFORCE_TMUX_BIN = '/nowhere/tmux-d';
+    assert.equal(connect.tmuxBinPath('linux'), '/opt/held/tmux', 'CONTROL: found and held');
+    present = false;   // tmux removed within 30 s
+    assert.equal(connect.tmuxBinPath('linux'), 'tmux', 'a tmux that is gone was handed back from the cache');
+  } finally {
+    connect.resetForTests();   // and none left for a later test
+    create.linuxTmuxBin = origPick; runners.isRunnable = origRunnable;
+    if (saved === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = saved;
+  }
+});
+
+driverTest('#5419: with Claude installed and no tmux at the start, the flow stops at once with the tmux sentence', async () => {
+  // Decided: every Kosmos agent runs in tmux, so a signed-in person reinstalling Claude without tmux is told now, plainly.
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  connect.setSigninPlatformForTests('linux');
+  connect.setTmuxCheckForTests(() => true);
+  try {
+    await connect.start();
+    await until(() => connect.state().phase === connect.PHASE.STUCK, 5000);
+    assert.match(connect.state().because, /needs tmux on this computer to sign Claude in/);
+    assert.equal(term.made, 0, 'a sign-in session was launched with no tmux');
+  } finally {
+    connect.setSigninPlatformForTests('darwin');
+    connect.setTmuxCheckForTests(TMUX_PRESENT);
+  }
+});
+
+driverTest('#5419: with Claude installed, a musl host missing its libraries still signs in (they matter to a download only)', async () => {
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  connect.setSigninPlatformForTests('linux');
+  connect.setTmuxCheckForTests(() => false);
+  connect.setMuslLibsCheckForTests(() => true);
+  try {
+    await connect.start();
+    await until(() => term.made > 0 || connect.state().phase === connect.PHASE.STUCK, 5000);
+    assert.doesNotMatch(String(connect.state().because || ''), /libstdc/, 'an installed Claude was refused over download-only libraries');
+    assert.ok(term.made > 0, 'CONTROL: the flow reached sign-in: ' + JSON.stringify(connect.state()));
+  } finally {
+    connect.setSigninPlatformForTests('darwin');
+    connect.setTmuxCheckForTests(TMUX_PRESENT);
+    connect.setMuslLibsCheckForTests(MUSL_LIBS_PRESENT);
+  }
+});
+
+test('#5419: the real (unseamed) no-tmux check: true on a Linux host with no tmux, false off Linux', (t) => {
+  const create = require('./create');
+  const runners = require('./runners');
+  const origPick = create.linuxTmuxBin;
+  const origRunnable = runners.isRunnable;
+  const saved = process.env.AGENT_WORKFORCE_TMUX_BIN;
+  connect.setTmuxCheckForTests(null);   // the production branch, not the seam
+  t.after(() => {
+    connect.setTmuxCheckForTests(TMUX_PRESENT);
+    create.linuxTmuxBin = origPick; runners.isRunnable = origRunnable;
+    if (saved === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = saved;
+  });
+  if (process.platform !== 'linux') {
+    // Off Linux the real branch must never refuse (a Mac or Windows board is not asked about Linux tmux).
+    assert.equal(connect.tmuxMissingForSignin('linux'), false, 'a non-Linux host was refused for Linux tmux');
+    assert.equal(connect.tmuxMissingForSignin(process.platform), false);
+    return;
+  }
+  // On the Linux lane: no launcher pick that runs, and a picker that finds nothing, so the real answer is "missing".
+  process.env.AGENT_WORKFORCE_TMUX_BIN = '/nowhere/tmux-real';
+  create.linuxTmuxBin = () => null;
+  runners.isRunnable = (f) => (f === '/nowhere/tmux-real' ? false : origRunnable(f));
+  assert.equal(connect.tmuxMissingForSignin('linux'), true, 'the wired check said tmux is there when nothing runs');
+  create.linuxTmuxBin = () => '/usr/bin/tmux';
+  runners.isRunnable = (f) => (f === '/usr/bin/tmux' ? true : f === '/nowhere/tmux-real' ? false : origRunnable(f));
+  assert.equal(connect.tmuxMissingForSignin('linux'), false, 'CONTROL: a found tmux is not missing');
 });

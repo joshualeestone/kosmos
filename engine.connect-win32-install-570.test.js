@@ -45,8 +45,9 @@ test('#3159: publicView tells a screen Kosmos CAN install Claude Code here -- wi
 
   /* CONTROL. Without it this file passes for a contract that hard-codes true. A
      platform with no published Claude build is still served false. */
-  const linux = connect.publicView({ phase: 'stuck', because: 'x' }, 'linux');
-  assert.equal(linux.canInstallClaude, false, 'linux has no published Claude build, so Connect cannot install one');
+  // #5419: linux is published now, so the control is a platform that is not.
+  const bsd = connect.publicView({ phase: 'stuck', because: 'x' }, 'freebsd');
+  assert.equal(bsd.canInstallClaude, false, 'freebsd has no published Claude build, so Connect cannot install one');
 });
 
 test('#3159: canInstallClaude is the gate\'s answer (canDownloadClaude), not a second copy of it', () => {
@@ -138,9 +139,9 @@ test('#3159: the guardrail holds -- win32 fetches the WINDOWS build, never a Mac
    *    network seam needed -- the throw is on the first line, ahead of downloadBase()).
    */
   await assert.rejects(
-    () => connect.download(undefined, undefined, 'linux'),
+    () => connect.download(undefined, undefined, 'freebsd'),
     /no published Claude Code build/,
-    'linux must still refuse -- there is no Claude build for it, and we fetch nothing speculative');
+    'freebsd must still refuse -- there is no Claude build for it, and we fetch nothing speculative (#5419: linux is published)');
 
   /* 📌 CODEX ON WIN32 NOW FETCHES ITS OWN WINDOWS BUILD, never the Mac tarball: the
      guardrail this arm defends ("no Mac binary onto Windows") holds by the manifest

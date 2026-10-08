@@ -69,11 +69,14 @@ const SUPPORTED = Object.freeze(['darwin', 'win32', 'linux']);
  * build happened -- the same discipline SUPPORTED and SELF_INSTALL state.
  *
  * ⇒ One list per runner. `RUNNER_DOWNLOADS` is the codex/vendored-runner gate
- * (darwin only, unchanged); `CLAUDE_DOWNLOADS` is Claude Code's, which win32 joins
- * because a checksum-verifiable Windows build is published. A platform on neither
- * list fetches nothing and says so honestly. */
+ * (darwin only, unchanged); `CLAUDE_DOWNLOADS` is Claude Code's, which win32 and (#5419)
+ * linux join because checksum-verifiable builds are published for them. A platform on
+ * neither list fetches nothing and says so honestly. */
 const RUNNER_DOWNLOADS = Object.freeze(['darwin']);
-const CLAUDE_DOWNLOADS = Object.freeze(['darwin', 'win32']);
+/* #5419: linux joins too. Anthropic's release manifest publishes linux-x64, linux-arm64 and their -musl builds, each
+   with the sha256 the download is verified against before anything runs, as on the Mac and Windows (the measurement
+   is in the #5419 plan). */
+const CLAUDE_DOWNLOADS = Object.freeze(['darwin', 'win32', 'linux']);
 
 /* 🔑 AND CODEX NOW HAS ITS OWN LIST TOO, for the same reason Claude got one. The
  * comment above says "Codex ships only that macOS tarball". That was a fact about
@@ -163,7 +166,7 @@ function canDownloadKeyedRunner(platform = process.platform) {
 }
 
 /** True only where Claude Code publishes a checksum-verifiable build Kosmos can
- *  fetch (darwin and, since the vendor shipped Windows builds, win32). Same
+ *  fetch (darwin and, since the vendor shipped Windows and (#5419) Linux builds, win32 and linux). Same
  *  fail-closed shape as its siblings. connect.js's download gate and the
  *  `canInstallClaude` web capability both read this -- NOT canDownloadRunner, which
  *  is codex-only and would wrongly refuse Claude on Windows. */
@@ -183,7 +186,7 @@ function canSelfInstall(platform = process.platform) {
  *  Each capability is reported SEPARATELY because they diverge: a platform can run
  *  agents (`supported`) while being unable to fetch the codex runner
  *  (`runnerDownloads`, darwin-only), yet still able to fetch Claude Code
- *  (`claudeDownloads`, darwin+win32). A screen that read only one of these could not
+ *  (`claudeDownloads`, darwin+win32+linux). A screen that read only one of these could not
  *  express win32, where claudeDownloads is true but runnerDownloads is false -- and a
  *  consumer that reused runnerDownloads to decide "can Kosmos install Claude here"
  *  would silently suppress the win32 auto-install. `claudeDownloads` is the one to

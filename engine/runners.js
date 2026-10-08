@@ -1309,6 +1309,8 @@ function install(provider, opts) {
      fetches no Windows build, so no part of Windows is made to look functional.
      `o.platform` is the test seam (defaults to process.platform); the polished
      user-facing wording is the operator's to refine (see engine/platform.js). */
+  /* #5419: Claude on Linux and Windows is installed by connect.download (checksum-verified per platform), not here,
+     so 'claude' keeps the darwin-only canDownloadRunner on purpose; provider runners on Linux are #5419 slice 2. */
   /* 📌 openai reads its OWN list (canDownloadCodex: darwin + win32), because OpenAI
      publishes a Windows Codex build and it is pinned above. Every other arm keeps the
      darwin-only canDownloadRunner, including Claude's Mac-shaped link path. The
