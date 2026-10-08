@@ -12,8 +12,9 @@
  * printed (an agent missing from a degraded roster, a token file changed), it stops. The digest covers each token
  * file's name, key, mtime, newest mint, launchers and token names; for a temp or a link, its name and kind (each is
  * re-checked to still be a file or a dangling link just before it goes). --port must equal this account's own
- * board port, derived as the kosmos CLI derives it, so the board token can only reach this account's board (with no uid
- * to derive it from, KOSMOS_PORT must say). And --apply needs live execution, which this file's command line opens:
+ * board port, derived as the kosmos CLI derives it (KOSMOS_PORT if set, else from the uid; with no uid KOSMOS_PORT
+ * must say), so the board token reaches only the board this account's kosmos command would talk to. A KOSMOS_PORT
+ * set to another account's board would send it there, exactly as it would send the kosmos command there. And --apply needs live execution, which this file's command line opens:
  * a process that never opened it (one that only requires this file) cannot remove anything by calling main. A
  * process that did open it for its own reasons can; there the --confirm digest and the port check still hold.
  *
@@ -103,6 +104,8 @@ function planCleanup(entries, liveKeys, cutoffMs, safeKey) {
       else remove.push({ name: e.name, kind: 'token', key, mtimeMs: e.mtimeMs, launchers: info.launchers, names: info.names || [], newestMintMs: info.newestMintMs, why: 'no such agent on the board, nothing newer than the cutoff' });
       continue;
     }
+    // A temp is planned whatever its key: it is over an hour old (the cutoff margin), and a writer's temp lives
+    // only for the moment of one write, so no live agent's write can still be using it.
     if (TEMP_SHAPE.test(e.name)) {
       if (old) remove.push({ name: e.name, kind: 'temp', why: 'a leftover temp written before the cutoff' });
       else keep.push({ name: e.name, why: 'a temp written on or after the cutoff (may be in flight)' });
