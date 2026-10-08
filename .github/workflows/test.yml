@@ -176,7 +176,11 @@ jobs:
     # where the suite is green. (A first attempt on ubuntu-latest went red on exactly
     # these platform tests; recorded so nobody re-picks ubuntu for this suite.)
     # #5488 part b: scope's choice (see there); macos-latest whenever scope gave none (it failed or timed out).
-    runs-on: ${{ fromJSON(needs.scope.outputs.mac_runner || '"macos-latest"') }}
+    # #5488 part c: ONLY the node part may take scope's choice; the shell shards always run on macos-latest.
+    # Measured 2026-10-07: the self-hosted Mac runs the node part in 4.3 min (GitHub: 22.2) but is ONE runner,
+    # and every Mac job routed to it ran serially (about 1.8 runs an hour, against about 4.2 on GitHub's 5).
+    # Node only keeps the self-hosted Mac short of being the queue (numbers on #5488).
+    runs-on: ${{ fromJSON(matrix.part == 'node' && needs.scope.outputs.mac_runner || '"macos-latest"') }}
     # run-tests.sh boots boards and servers; bound a hung run rather than let it
     # sit on the 360-minute default. The suite now runs ~14m (#3499; it has grown well
     # past the old "~2-3 min"), so 15 left almost no margin -- a single slow run could
@@ -209,7 +213,9 @@ jobs:
       # (The no-server path is covered in engine/status.test.js.)
       - name: install tmux (#1794)
         # #5488 part b: the self-hosted Mac has tmux installed once (its runner user may not own Homebrew).
-        run: command -v tmux || brew install tmux
+        # #5488 part c: never brew install on the self-hosted runner. Its Homebrew belongs to the machine's owner,
+        # and the runner user can write to it through the admin group. tmux is installed there once, by hand.
+        run: command -v tmux || { [ "$RUNNER_ENVIRONMENT" != self-hosted ] || { echo "::error::tmux is missing on the self-hosted runner; not installing into the machine owner's Homebrew, card 5488"; exit 1; }; brew install tmux; }
       # PIN THE NODE. Nothing else here declares a version at all (fixed by the
       # .nvmrc and the engines field this branch adds), and the version is not
       # cosmetic. A related repo (#1462, kosmos-relay) was bitten by an OUTPUT

@@ -23,12 +23,13 @@ if ! ruby -ryaml -e '
   raise "the switch is read from vars" unless d["env"]["CI_RUNNER"] == "${{ vars.KOSMOS_CI_RUNNER }}"
   raise "head repo from the PR" unless d["env"]["HEAD_REPO"] == "${{ github.event.pull_request.head.repo.full_name }}"
   raise "this repo" unless d["env"]["THIS_REPO"] == "${{ github.repository }}"
-  raise "suite runs-on" unless j["suite"]["runs-on"] == %q{${{ fromJSON(needs.scope.outputs.mac_runner || '"'"'"macos-latest"'"'"') }}}
+  raise "suite runs-on: only the node part takes scope'"'"'s choice" unless j["suite"]["runs-on"] == %q{${{ fromJSON(matrix.part == '"'"'node'"'"' && needs.scope.outputs.mac_runner || '"'"'"macos-latest"'"'"') }}}
   raise "test stays on ubuntu" unless j["test"]["runs-on"] == "ubuntu-latest" && j["scope"]["runs-on"] == "ubuntu-latest"
   tmux = j["suite"]["steps"].find { |x| x["name"].to_s.include?("tmux") }
-  raise "tmux installed only when missing" unless tmux && tmux["run"].strip == "command -v tmux || brew install tmux"
+  raise "tmux installed only when missing, and never by brew on the self-hosted runner" unless tmux && tmux["run"].strip == %q{command -v tmux || { [ "$RUNNER_ENVIRONMENT" != self-hosted ] || { echo "::error::tmux is missing on the self-hosted runner; not installing into the machine owner'"'"'s Homebrew, card 5488"; exit 1; }; brew install tmux; }}
   File.write(ARGV[1], d["run"])
-' "$WF" "$T/decide.sh" 2>"$T/rb.err"; then
+  File.write(ARGV[2], tmux["run"])
+' "$WF" "$T/decide.sh" "$T/tmux.sh" 2>"$T/rb.err"; then
   fail "test.yml wiring: $(head -2 "$T/rb.err")"
 else
   pass "test.yml wiring (parsed): scope picks the runner from vars and the head repo; suite falls back to macos-latest; scope and test stay on ubuntu"
@@ -62,6 +63,36 @@ for v in "$SELF" "$HOSTED"; do
   if printf '%s' "$v" | ruby -rjson -e 'JSON.parse(STDIN.read, quirks_mode: true)' >/dev/null 2>&1; then pass "valid JSON for fromJSON: $v"
   else fail "not valid JSON for fromJSON: $v"; fi
 done
+
+# #5488 part c: the REAL tmux step body, under GitHub's shell flags, on a PATH with no tmux and a stub brew
+# that records being called. A self-hosted runner must refuse WITHOUT calling brew (its Homebrew is the
+# machine owner's); a GitHub-hosted one installs as before. Controls: with tmux present, neither calls brew.
+tmux_step() { # <RUNNER_ENVIRONMENT> <with-tmux: 0|1> -> prints "rc=<n> brew=<called|not>"
+  rm -rf "$T/bin"; mkdir -p "$T/bin"; : > "$T/brew.log"
+  printf '#!/bin/sh\necho called >> "%s"\n' "$T/brew.log" > "$T/bin/brew"; chmod +x "$T/bin/brew"
+  if [ "$2" = 1 ]; then printf '#!/bin/sh\nexit 0\n' > "$T/bin/tmux"; chmod +x "$T/bin/tmux"; fi
+  local rc=0
+  RUNNER_ENVIRONMENT="$1" PATH="$T/bin:/usr/bin:/bin" bash --noprofile --norc -eo pipefail "$T/tmux.sh" >/dev/null 2>&1 || rc=$?
+  if [ -s "$T/brew.log" ]; then echo "rc=$rc brew=called"; else echo "rc=$rc brew=not"; fi
+}
+# /usr/bin and /bin must not hold a tmux, or the no-tmux arms would test nothing.
+if [ -x /usr/bin/tmux ] || [ -x /bin/tmux ]; then
+  fail "precondition: a tmux in /usr/bin or /bin makes the no-tmux arms vacuous"
+else
+  got="$(tmux_step self-hosted 0)"
+  case "$got" in
+    "rc=0 brew=not"|*"brew=called") fail "self-hosted, no tmux: must refuse without brew, got $got" ;;
+    *) pass "self-hosted, no tmux: refuses and never calls brew ($got)" ;;
+  esac
+  got="$(tmux_step github-hosted 0)"
+  [ "$got" = "rc=0 brew=called" ] && pass "github-hosted, no tmux: brew install as before" || fail "github-hosted, no tmux: want rc=0 brew=called, got $got"
+  got="$(tmux_step "" 0)"
+  [ "$got" = "rc=0 brew=called" ] && pass "RUNNER_ENVIRONMENT unset (older runner): brew install as before" || fail "unset env, no tmux: want rc=0 brew=called, got $got"
+fi
+got="$(tmux_step self-hosted 1)"
+[ "$got" = "rc=0 brew=not" ] && pass "CONTROL self-hosted, tmux present: passes, no brew" || fail "control self-hosted with tmux: got $got"
+got="$(tmux_step github-hosted 1)"
+[ "$got" = "rc=0 brew=not" ] && pass "CONTROL github-hosted, tmux present: passes, no brew" || fail "control github-hosted with tmux: got $got"
 
 if [ "$fails" -eq 0 ]; then echo "test-ci-runner-route-5488: 0 failures"; exit 0; fi
 echo "test-ci-runner-route-5488: $fails failure(s)"; exit 1
