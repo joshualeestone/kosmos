@@ -139,7 +139,7 @@ DEPLOY_RC=1 tick
 DEPLOY_RC=1 tick
 { [ "$RC" = 1 ] && [ "$(ndeploys)" = 8 ] && [ "$(cat "$ST/parked")" = "$H7" ]; } && pass "a second failure on the same sha parks it" || bad "second failure (rc=$RC, deploys=$(ndeploys))"
 tick
-{ [ "$RC" = 0 ] && [ "$(ndeploys)" = 8 ] && printf '%s' "$OUT" | grep -q "FAIL (parked): site main" && printf '%s' "$OUT" | grep -q "red already reported"; } && pass "a parked sha is not retried; its ticks say why, green after the park's own red (no email storm)" || bad "parked tick (deploys=$(ndeploys)) $OUT"
+{ [ "$RC" = 0 ] && [ "$(ndeploys)" = 8 ] && printf '%s' "$OUT" | grep -q "STILL FAILING (reported): parked: site main" && printf '%s' "$OUT" | grep -q "red already reported"; } && pass "a parked sha is not retried; its ticks say why, green after the park's own red (no email storm)" || bad "parked tick (deploys=$(ndeploys)) $OUT"
 H8=$(advance eight)
 tick
 { [ "$RC" = 0 ] && [ "$(ndeploys)" = 9 ] && [ "$(cat "$ST/last-deployed")" = "$H8" ] && [ ! -e "$ST/failures" ]; } \
