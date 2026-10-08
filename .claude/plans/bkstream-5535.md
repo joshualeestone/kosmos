@@ -24,3 +24,7 @@
 - "finish twice" (which would duplicate the tail) and createChunker's size validation are now tested.
 - NIT taken: pieces are collected and joined only once at least max bytes are held, so 64 KiB reads no longer copy the pending tail about 30 times per chunk. The weakest premise above (the concat cost) is resolved. Behaviour is unchanged: every equivalence test still passes, including the reused-buffer one.
 - The copy into the held list is pinned by a test that overwrites a piece still held (under max, not yet joined); its mutation goes red.
+
+## Review round 3 (opus): CONVERGED (no BLOCKER, WARNING or CONVENTION)
+- 6,000 random differential cases against chunkBuffer (edge sizes, empty pieces, pieces over max, reused buffers): 0 mismatches. Mutation controls fail as they should (dropping held parts: 2,683 of 6,000; cutting early: 2,380).
+- NIT taken: the memory-bound comment now states the real bound.
