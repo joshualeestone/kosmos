@@ -212,11 +212,13 @@ for _p in latest.json latest-staging.json; do
   rm -f "$STATE/ptr.tmp"
   case "$HOST" in
     file://*) if [ -f "${HOST#file://}/dist/$_p" ]; then cp "${HOST#file://}/dist/$_p" "$STATE/ptr.tmp"; _lc=200; else _lc=404; fi ;;   # tests
-    *) _lc=$(curl -sS --max-time 20 -H 'Cache-Control: no-cache' -o "$STATE/ptr.tmp" -w '%{http_code}' "$HOST/dist/$_p" 2>/dev/null) || _lc=000 ;;
+    *) _lc=$(curl -sSL --max-time 20 -H 'Cache-Control: no-cache' -o "$STATE/ptr.tmp" -w '%{http_code}' "$HOST/dist/$_p" 2>/dev/null) || _lc=000 ;;   # -L, as deploy-site.sh reads them
   esac
   _l=""; [ -f "$STATE/ptr.tmp" ] && _l=$(shasum -a 256 < "$STATE/ptr.tmp" | cut -c1-64); rm -f "$STATE/ptr.tmp"
-  [ "$_lc" = 404 ] && [ "$_has" = 0 ] && continue   # absent on main and live alike
-  [ "$_lc" = 404 ] && _lc=200 && _l=absent           # on main, not live: a move like any other
+  if [ "$_lc" = 404 ]; then
+    [ "$_has" = 0 ] && continue   # absent on main and live alike
+    _lc=200; _l=absent            # on main, not live: a move like any other
+  fi
   case "$_lc" in
     200) [ "$_c" = "$_l" ] && continue
          say "FAIL: site main's dist/$_p is not what live serves: a release pointer move that a cut or promote has not published. A website deploy does not publish it (parked)"
