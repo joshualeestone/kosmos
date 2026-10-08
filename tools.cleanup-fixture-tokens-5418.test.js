@@ -55,7 +55,8 @@ test('#5418: the plan keeps a live agent at any age and removes only old orphans
     { name: 'alice.json', isSymlink: false, mtimeMs: OLD },            // live, old: KEEP
     { name: 'fixture-a.json', isSymlink: false, mtimeMs: OLD },        // orphan, old: remove
     { name: 'fixture-b.json', isSymlink: false, mtimeMs: NEW },        // orphan, new: keep
-    { name: 'x.json.kosmos-1-t0-1-1.tmp', isSymlink: false, mtimeMs: OLD },  // old temp: remove
+    { name: 'x.json.kosmos-2147483646-t0-1-1.tmp', isSymlink: false, mtimeMs: OLD },  // old temp, writer gone: remove
+    { name: `w.json.kosmos-${process.ppid}-t0-1-1.tmp`, isSymlink: false, mtimeMs: OLD },  // old temp, writer alive (this run's parent): keep
     { name: 'y.json.kosmos-2-t0-1-1.tmp', isSymlink: false, mtimeMs: NEW },  // new temp: keep
     { name: 'planted.json', isSymlink: true, targetExists: false, mtimeMs: OLD },  // dangling: remove
     { name: 'linked.json', isSymlink: true, targetExists: true, mtimeMs: OLD },    // live link: keep
@@ -65,12 +66,12 @@ test('#5418: the plan keeps a live agent at any age and removes only old orphans
     { name: 'remote-a.json', isSymlink: false, mtimeMs: OLD, tokens: { launchers: ['remote'], newestMintMs: OLD } },  // offline remote agent: keep
     { name: 'recent-mint.json', isSymlink: false, mtimeMs: OLD, tokens: { launchers: [], newestMintMs: NEW } },        // minted after the cutoff: keep
     { name: 'notes.tmp', isSymlink: false, mtimeMs: OLD },              // not the writer's temp shape: keep
-    { name: 'z.json.kosmos-3-1690000000000-2.tmp', isSymlink: false, mtimeMs: OLD },  // the pre-thread temp shape: remove
+    { name: 'z.json.kosmos-2147483646-1690000000000-2.tmp', isSymlink: false, mtimeMs: OLD },  // the pre-thread temp shape: remove
     { name: 'alice.json.dangling', isSymlink: true, targetExists: false, mtimeMs: OLD },  // dangling, not a store name: keep
   ];
   const plan = tool.planCleanup(entries, live, CUTOFF, safeKey);
-  assert.deepEqual(plan.remove.map((r) => r.name).sort(), ['fixture-a.json', 'planted.json', 'x.json.kosmos-1-t0-1-1.tmp', 'z.json.kosmos-3-1690000000000-2.tmp']);
-  assert.deepEqual(plan.keep.map((k) => k.name).sort(), ['My.Agent.json', 'alice.json', 'alice.json.dangling', 'dir.json', 'fixture-b.json', 'linked.json', 'notes.tmp', 'notes.txt', 'recent-mint.json', 'remote-a.json', 'y.json.kosmos-2-t0-1-1.tmp']);
+  assert.deepEqual(plan.remove.map((r) => r.name).sort(), ['fixture-a.json', 'planted.json', 'x.json.kosmos-2147483646-t0-1-1.tmp', 'z.json.kosmos-2147483646-1690000000000-2.tmp']);
+  assert.deepEqual(plan.keep.map((k) => k.name).sort(), ['My.Agent.json', 'alice.json', 'alice.json.dangling', 'dir.json', 'fixture-b.json', 'linked.json', 'notes.tmp', 'notes.txt', 'recent-mint.json', 'remote-a.json', `w.json.kosmos-${process.ppid}-t0-1-1.tmp`, 'y.json.kosmos-2-t0-1-1.tmp']);
   // a DANGLING link named for a live agent is left alone
   const live2 = tool.planCleanup([{ name: 'alice.json', isSymlink: true, targetExists: false, mtimeMs: OLD }], live, CUTOFF, safeKey);
   assert.deepEqual(live2.remove, []);
@@ -789,4 +790,21 @@ test('#5418: a planned token removal that names no launcher is flagged loudly in
   const line = lines.find((l) => l.includes('remove  nolauncher.json'));
   assert.ok(line, 'the orphan was not planned: ' + lines.join('\n'));
   assert.match(line, /NO LAUNCHER/);
+});
+
+test('#5418: a named-world session\'s heartbeat (sam+w is stored as samw) does NOT keep the token sam: a pinned, recorded gap', async (t) => {
+  const { dir, write } = e2eStore(t);
+  const liveness = require('./engine/liveness');
+  assert.ok(liveness.DIR.startsWith(process.env.AGENT_WORKFORCE_DATA), 'the heartbeat folder is not in the throwaway store');
+  write('anchor.json', OLD);
+  write('sam.json', OLD);
+  assert.equal(liveness.seen('sam+w').seen, true, 'the heartbeat was not written, so this arm tests nothing');
+  t.after(() => { try { fs.rmSync(liveness.DIR, { recursive: true, force: true }); } catch { /* none */ } });
+  const f = fleet.install([fleet.agent('anchor')]);
+  t.after(() => f.restore());
+  const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
+  quiet(t);
+  assert.equal(await applyConfirmed(port), 0);
+  // if this turns red, the gap closed: update the plan's weakest premise 1 and this arm
+  assert.equal(fs.readdirSync(dir).includes('sam.json'), false, 'a world heartbeat now keeps its token: the recorded gap closed');
 });
