@@ -34,7 +34,8 @@
  *   - a writer's leftover temp file, named in the shape the store's writer uses
  *     (`<file>.kosmos-<pid>-[t<thread>-]<started>-<seq>.tmp`), last written before the cutoff by a writer that is provably gone;
  *   - a symlink whose target does not exist (a security fixture planted one), named like a token file or the
- *     writer's temp, unless its name is a live agent's. At ANY age and without the lock: a link that points at
+ *     writer's temp, unless its name is a live agent's, and only while the folder it pointed into still exists (a
+ *     missing one may be an unmounted drive: kept). At ANY age and without the lock: a link that points at
  *     nothing holds no credential, and the store's writer refuses to write through a link.
  * Anything else in the folder is listed and left alone. A live agent's file is never a candidate,
  * whatever its date.
@@ -58,8 +59,8 @@
  *   - a cutoff less than an hour in the past (or in the future) is refused.
  *   - assumed, and stated: any live use of a token file rewrites it (a mint, a retire), which moves its mtime and
  *     newest mint, so a file in use between the plan and its removal is kept by the locked re-check.
- * 🛑 BACKUP FIRST. --apply copies exactly the entries it is about to remove (files with their modes, links as
- * links) to a new timestamped folder beside the store, and stops if the copy fails. Only those: a copy of every
+ * 🛑 BACKUP FIRST. --apply copies exactly the entries it is about to remove (files with their modes, flushed to
+ * disk; links as links, or on Windows without the privilege a LINKS.txt note) to a new timestamped folder beside the store, and stops if the copy fails. Only those: a copy of every
  * live agent's token would be a second set of live credentials left lying around.
  * Prints names and counts only, never a token.
  */
@@ -84,7 +85,7 @@ const TEMP_SHAPE = { test: (name) => tempWriterGone(name) !== null };
 
 /* The decision, pure: `entries` is what is in the folder ({ name, isSymlink, targetExists, mtimeMs, tokens }),
    `liveKeys` the safeKey'd names to keep (every spelling of the roster's rows, the removal records, the heartbeat
-   records and every profile). Returns { remove: [{ name, kind, why }], keep: [{ name, why }] }. Every entry lands
+   records, every profile, worker folders and startup jobs). Returns { remove: [{ name, kind, why }], keep: [{ name, why }] }. Every entry lands
    in exactly one list. */
 function planCleanup(entries, liveKeys, cutoffMs, safeKey) {
   const canon = (k) => { try { return safeKey(k); } catch { return null; } };
@@ -194,6 +195,8 @@ function copyInto(dir, dest, names) {
     else if (st.isFile()) {
       fs.copyFileSync(from, to, fs.constants.COPYFILE_EXCL);
       fs.chmodSync(to, st.mode & 0o777);
+      // on disk before any original is removed (#5434): a crash right after --apply cannot lose both copies
+      const fd = fs.openSync(to, 'r'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
       if (fs.statSync(to).size !== st.size) throw new Error('the backup of ' + name + ' is not the same size as the file');
     }
     // anything else (a folder swapped in since the plan) is not backed up, so the run stops rather than go on without it
@@ -220,6 +223,10 @@ function applyPlan(dir, plan, revoke) {
         let targetMissing = false;
         try { fs.statSync(p); } catch (e) { targetMissing = e && e.code === 'ENOENT'; }
         if (!targetMissing) throw new Error('its target exists now, or cannot be checked: kept');
+        // the plan's rule again: only when the folder it pointed into is still there (else an unmounted drive?)
+        let parentThere = false;
+        try { fs.statSync(path.dirname(path.resolve(dir, fs.readlinkSync(p)))); parentThere = true; } catch { parentThere = false; }
+        if (!parentThere) throw new Error('the folder its target was in is missing now (an unmounted drive?): kept');
         fs.unlinkSync(p);
       } else if (r.kind === 'temp') {
         if (!fs.lstatSync(p).isFile()) throw new Error('no longer a file');
