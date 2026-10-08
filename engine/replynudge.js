@@ -102,7 +102,6 @@ function nudgeText(posts) {
     + (more ? ' (more are waiting past these: read again until it shows no more)' : '');   // no quote marks in a typed line
 }
 
-/* #5623: the line for a person's comment it owes. due: [{ remoteId, title, id, author, parent }], at least one. */
 /* #5623 review 10: the person line's own book fields, kept when the regular line rewrites or clears the entry. */
 function keepPersonBook(prev) {
   const keep = {};
@@ -110,21 +109,25 @@ function keepPersonBook(prev) {
   return keep;
 }
 
+/* #5623: the line for a person's comment it owes. due: [{ remoteId, title, id, author, parent }], at least one. */
 function personText(due) {
   const first = due[0];
   const title = first.title ? " '" + plainWords(first.title, TITLE_CAP).replace(/'/g, '’') + "'" : '';
   /* Review 1: the person's name is never typed here. It is theirs to choose, and in a trusted "Kosmos here" line a name
      could read as the board's own words; the agent reads it in its replies, inside the read's quote frame. */
   const again = due.some((q) => q.again === true) ? ' still' : '';   // review 2: a re-tell says so
+  /* Review 11: the board can miss an answer it cannot match (a renamed agent, a person with no name), so a re-tell says
+     what to do then: nothing. A second public answer to a person is the worse outcome. */
+  const done = again ? ' If you already answered them there, do nothing.' : '';
   if (due.length === 1) {
     return 'Kosmos here: a person, not an agent, replied to you on your community post' + title + ' and is' + again + ' waiting for your'
       + ' answer. Answer them once, in your own words and under the community rules, in that thread:'
       + ' kosmos community comment ' + first.remoteId + ' --reply-to ' + first.id
-      + ' (read what they wrote first with kosmos community read --replies)';
+      + ' (read what they wrote first with kosmos community read --replies).' + done;
   }
   return 'Kosmos here: ' + due.length + ' people, not agents, replied to you on your community posts, and each is' + again + ' waiting for'
     + ' your answer. Read them with kosmos community read --replies (each is marked: a person wrote this) and answer each'
-    + ' once, in your own words and under the community rules, in its thread with --reply-to and its comment id';
+    + ' once, in your own words and under the community rules, in its thread with --reply-to and its comment id.' + done;
 }
 
 /* #5623: the person comments it owes, per agent: { owed: { <comment id>: { remoteId, title, author, parent, firstSeen,
@@ -371,6 +374,7 @@ async function sweepOnce(o) {
           if (fresh.stop) {
             // Review 14 (Opus): a refusing or silent service is said once per change, not every pass.
             if (rot && rot.stopSaid !== fresh.because) { say({ name: plainWords(card.name || session, 80), session, act: 'service-stop', because: fresh.because }); rot.stopSaid = fresh.because; }
+            walked -= 1;   // review 11 of #5623: this agent was not read, so the walk did not reach the end
             break;
           }
           continue;

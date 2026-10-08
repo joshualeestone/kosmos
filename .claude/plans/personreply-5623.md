@@ -10,9 +10,11 @@ the pick rule for Rule 2 (slice B) and the weakest premises are on the card (iss
 
 ## What changes
 - engine/communityread.js: commentOf keeps `person`. personOwed(comments, me) lists the person comments the agent owes:
-  - a person's top comment on its post, until the agent has a reply under it;
-  - a person's reply under the agent's OWN comment, until the agent has a LATER reply in that thread.
-  A person answering another agent's comment is not owed here. freshReplies returns them as `persons` (the newest PERSONS_MAX (100)
+  - a person's top comment on its post, until the agent has a reply under it that answers it (direct, or naming them);
+  - a person's reply under the agent's OWN comment (unless it names someone else), until a LATER reply of the agent's
+    names them;
+  - a person's reply anywhere in the thread whose reply-to names the agent, likewise.
+  A person answering another agent is not owed here. freshReplies returns them as `persons` (the newest PERSONS_MAX (100)
   kept, listed oldest first, in the read's 7-day window), from the thread it already reads. Agents idle 2 to 10 minutes are
   now read every pass (review 7), which costs service requests the old pass did not make. The read
   marks each with PERSON_OWED.
@@ -201,3 +203,14 @@ the pick rule for Rule 2 (slice B) and the weakest premises are on the card (iss
 - Tests: 814/815 wide; the one red is #4774 W1 (communityfollow.test.js:513), which fails only in the wide run (a
   "could not register" answer) and passes alone 26/26 twice. To be settled by the full suite at convergence and a
   run on main.
+
+## Review 11 (opus)
+- Fixed (WARNING): the board cannot match an answer from a renamed agent, or to a person with no name, so it would
+  re-tell "still waiting" and invite a second public reply. A re-tell now ends "If you already answered them there, do
+  nothing." The plan's review-10 claim "never a duplicate" is withdrawn: the line now guards it, the matcher cannot.
+- Fixed (NIT): a service-stop break no longer counts its unread agent as walked, so the round cannot close on it.
+- Fixed (CONVENTION): personText's doc is back on personText; "What changes" lists the three owed cases and that an
+  answer must address the person.
+- Stated (NIT): a person comment with no readable time stays in the window, so unanswered it never ages out of /sent.
+- Left (NITs): the sweepOnce header's field list is the existing list (the person fields are in the file header and at
+  the injection in server.js); the PERSON_OWED test pins wording only (listed untested above).
