@@ -44,12 +44,12 @@ function safeRel(p) {
   return p.split(/[\\/]/).every((x) => segmentOk(x) && segmentOk(x.replace(IGNORABLE_RE, '')));
 }
 
-/* The key two entries collide on: invisible characters dropped, NFC, upper- then lower-cased (so final sigma folds
-   with sigma), NFC again, with '\' read as '/'. An approximation of APFS and NTFS name matching, not their exact
+/* The key two entries collide on: invisible characters dropped, NFC, lower-, upper- then lower-cased (so final sigma
+   folds with sigma, and capital sharp s with ss), NFC again, with '\' read as '/'. An approximation of APFS and NTFS name matching, not their exact
    folding; where it differs it mostly over-refuses (straße and strasse collide here, not on APFS); see the sink
    duties. */
 const collisionKey = (p) => toSinkPath(p).replace(IGNORABLE_RE, '')
-  .normalize('NFC').toUpperCase().toLowerCase().normalize('NFC');
+  .normalize('NFC').toLowerCase().toUpperCase().toLowerCase().normalize('NFC');
 /* safeRel and collisionKey read '\' as a separator, so the sink is handed the same reading. */
 const toSinkPath = (p) => p.replace(/\\/g, '/');
 /* A manifest path as reported back: bounded, since a refused entry's path is not length-checked. */
@@ -82,7 +82,7 @@ function collidingPaths(entries) {
 /**
  * Restore one snapshot. Resolves to { restored: [path], failed: [{ path, why }], skippedAtBackup: [...] }, or null
  * when the manifest itself does not verify and open (wrong device key for the time, wrong context, tampering), or
- * exceeds maxManifestObject bytes or maxFiles entries. maxTotalBytes (the caller sets it from free disk) caps the
+ * exceeds maxManifestObject bytes or maxFiles entries. maxTotalBytes is REQUIRED (the caller sets it from free disk) and caps the
  * bytes committed: a file that would pass it fails before anything is fetched. Each file's own size is bounded by
  * the size its entry records, so this is what bounds a manifest that records huge sizes.
  *
@@ -104,7 +104,8 @@ function collidingPaths(entries) {
  * display.
  */
 async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, manifestObject, fetchChunk, sink,
-  maxChunkObject = MAX_CHUNK_OBJECT, maxManifestObject = MAX_MANIFEST_OBJECT, maxFiles = MAX_FILES, maxTotalBytes = Infinity }) {
+  maxChunkObject = MAX_CHUNK_OBJECT, maxManifestObject = MAX_MANIFEST_OBJECT, maxFiles = MAX_FILES, maxTotalBytes }) {
+  if (!Number.isSafeInteger(maxTotalBytes) || maxTotalBytes < 0) throw new Error('backuprestore: maxTotalBytes (a byte budget, from free disk) is required');
   if (!(manifestObject instanceof Uint8Array) || manifestObject.length > maxManifestObject) return null;
   const mo = Buffer.isBuffer(manifestObject) ? manifestObject : Buffer.from(manifestObject.buffer, manifestObject.byteOffset, manifestObject.length);
   const manifest = openManifest(memberSk, devicePubAtSnapshot, ctx, mo);
