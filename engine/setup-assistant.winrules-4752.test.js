@@ -123,8 +123,8 @@ test('#4752: on Windows a refused rule (it would take in the guide\'s own folder
 });
 
 /* The Windows-only arm below is the one proof that guardGuideFolder writes twins and refuses both spellings on a real
-   Windows host. tools/windows-tests.js passes a file in which some tests skip, so on win32 a skip must fail HERE. */
-// (it would misfire only under --test-name-pattern on Windows; tools/windows-tests.js runs each file whole)
+   Windows host. tools/windows-tests.js passes a file in which some tests skip, so on win32 a skip must fail HERE.
+   (It would misfire only under --test-name-pattern on Windows; tools/windows-tests.js runs each file whole.) */
 let windowsArmRan = false;
 test.after(() => { if (process.platform === 'win32' && !windowsArmRan) throw new Error('#4752: the Windows-only guardGuideFolder arm did not run on a Windows host'); });
 
