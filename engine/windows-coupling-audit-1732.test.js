@@ -300,6 +300,7 @@ const INVENTORY = [
   // --- benign non-path ':' (IPv6 hextets in the SSRF guard) ---
   { file: 'engine/unfurl.js', family: 'path-delimiter-literal', count: 1, contains: "hex.split(':').filter(Boolean)", disposition: 'benign-nonpath', why: 'IPv6 hextet parse; : is the v6 separator' },
   { file: 'engine/unfurl.js', family: 'path-delimiter-literal', count: 1, contains: "const parts = low.split(':')", disposition: 'benign-nonpath', why: 'IPv6 hextet parse; : is the v6 separator' },
+  { file: 'engine/restoresink.js', family: 'path-delimiter-literal', count: 1, contains: "const [name, , id, members = ''] = line.split(':')", disposition: 'benign-nonpath', why: "an /etc/group line (name:password:gid:members); ':' is that file's field separator, not a path list. isPrivateGroup is called only on the non-win32 branch of restoresink's root check (#5536)" },
   // --- name sanitizer (already handles backslash) ---
   { file: 'engine/projects.js', family: 'path-delimiter-literal', count: 1, contains: ".split('/').join('-').split('\\\\').join('-').split(':').join('-')", disposition: 'sanitizer', why: 'name sanitizer; replaces / \\ : with -, Windows-aware' },
   { file: 'engine/projects.js', family: 'path-delimiter-literal', count: 1, contains: ".split('/').join('').split('\\\\').join('').split(':').join('')", disposition: 'sanitizer', why: 'name sanitizer; strips / \\ :, Windows-aware' },
