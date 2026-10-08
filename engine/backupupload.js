@@ -330,7 +330,8 @@ function clockSkew(nowMs, expiresAtMs) {
 /* Upload sealed chunk objects ([{ name, object }]). deps: { macRequest, fetch?, now?, sleep? }.
    Resolves { ok: true, keys, lockedUntil, bucket }: keys a Map from each chunk's name to the key it is stored under,
    lockedUntil a Map from each name to its lock's end (ms), bucket the bucket path they are all under. Or
-   { ok: false, because, code?, retryLater?, keys } with the chunks stored so far. Never throws. */
+   { ok: false, because, code?, retryLater?, grantSpent?, keys } with the chunks stored so far (grantSpent: true when
+   a grant answered but was refused, its allowance spent). Never throws. */
 async function uploadChunks(deps, objects, opts) {
   const keys = new Map();
   // Run-wide: chunks that met trouble and are not stored (their write may have landed), and every key granted.
@@ -505,7 +506,9 @@ function parseManifestGrant(data, bytes, runPrefix) {
    so a caller reusing its buffer meanwhile cannot change what is sent. Resolves { ok: true, key, sha256,
    lockedUntilMs } or { ok: false, because, code?, retryLater?, unsure?, outlastsChunks?, grantSpent? }, unsure being
    [{ key }] when a write may have landed. grantSpent: true on every refusal made after a grant answered (its
-   allowance is spent; a manifest's hash is recorded), false or absent when nothing was granted. Never throws.
+   allowance is spent; a manifest's hash is recorded); false when refused before any grant was asked for; absent
+   when the grant request got no answer we accepted as one, which may still have spent a grant (the coordinator
+   takes the allowance before it answers, so a lost answer can cost one). Never throws.
    outlastsChunks is NOT a retry-later: the caller must upload the old chunks again first, never retry the same call.
    It comes with grantSpent: false when refused before any grant (this Mac's clock already showed it), or true when
    refused as the grant arrived: that spent one of the period's 50 manifest grants and left the coordinator a
