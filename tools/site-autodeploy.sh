@@ -51,6 +51,7 @@
 #   retries        "<sha> <n>" consecutive retried ticks for that sha, whatever the cause (exit 75, a
 #                  checksum mismatch, an unreadable live pointer): one count, one alarm, because each
 #                  means the same thing to the person reading the run, the site is not settling
+#   deploy.out     the last deploy's output (printed and logged when it ends, or when the tick is killed)
 #   reported.d/    one file per "<sha>-<cause>" already reported red, holding the time (see red_once);
 #                  removing a file makes that state red again on its next tick
 #   mirror-count   how many versioned tarballs the last successful deploy mirrored (the floor the
@@ -324,21 +325,25 @@ export KOSMOS_REPO="$REPO"
 # The deploy runs in its own process group (set -m), so the limit stops vercel and every other child too,
 # not just the subshell.
 DEPLOY_MAX_S="${KOSMOS_AUTODEPLOY_DEPLOY_MAX_S:-900}"
-case "$DEPLOY_MAX_S" in ''|*[!0-9]*) DEPLOY_MAX_S=900 ;; esac
+case "$DEPLOY_MAX_S" in ''|*[!0-9]*|0) DEPLOY_MAX_S=900 ;; esac   # 0 would kill every deploy at once
 if [ -n "${KOSMOS_AUTODEPLOY_DEPLOY:-}" ]; then DCMD=(sh -c "$KOSMOS_AUTODEPLOY_DEPLOY"); else DCMD=(bash "$REPO/tools/deploy-site.sh" --publish); fi
 DOUT="$STATE/deploy.out"; : > "$DOUT"
 # </dev/null: under set -m a background job keeps the terminal as stdin, and a read would stop it (SIGTTIN).
 set -m; KOSMOS_SITE="$SITE" "${DCMD[@]}" < /dev/null > "$DOUT" 2>&1 & dpid=$!; set +m
 # If this tick is killed (the runner cancels the job, or its timeout), take the deploy group with it,
 # so no orphaned deploy keeps publishing beside the next tick.
-trap 'kill -TERM -- "-$dpid" 2>/dev/null; [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"' EXIT
+stop_deploy() {   # TERM the deploy group, give it up to 5 s, then KILL whatever is left (a child that ignores TERM)
+  kill -TERM -- "-$dpid" 2>/dev/null
+  for _i in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$dpid" 2>/dev/null || break; sleep 0.5; done
+  kill -KILL -- "-$dpid" 2>/dev/null
+}
+# On the way out of a killed tick: stop the deploy, keep its output (run + log), free the lock.
+trap 'stop_deploy; tee -a "$LOG" < "$DOUT" 2>/dev/null; [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"' EXIT
 trap 'exit 143' TERM INT HUP   # (stays for the rest of the tick: exit runs whichever EXIT trap is current)
 tenths=0   # polled every 0.2 s, counted in tenths of a second
 while kill -0 "$dpid" 2>/dev/null && [ "$tenths" -lt $((DEPLOY_MAX_S * 10)) ]; do sleep 0.2; tenths=$((tenths + 2)); done
 if kill -0 "$dpid" 2>/dev/null; then
-  kill -TERM -- "-$dpid" 2>/dev/null
-  for _i in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$dpid" 2>/dev/null || break; sleep 0.5; done
-  kill -KILL -- "-$dpid" 2>/dev/null
+  stop_deploy
   wait "$dpid" 2>/dev/null; rc=75
   timedout=1
 else
@@ -366,7 +371,11 @@ if [ "$rc" = 75 ]; then
   else
     [ "$n" -ge "$RETRY_ALARM" ] && red_once moving "FAIL: ${TARGET:0:9} has hit a moving or unreadable live site $n ticks in a row; still retrying"
   fi
-  say "retry: the live site moved or could not be read during the deploy of ${TARGET:0:9} ($n in a row); the next tick tries again"
+  if [ -n "$timedout" ]; then
+    say "retry: the deploy of ${TARGET:0:9} ran past its limit ($n in a row); the next tick tries again"
+  else
+    say "retry: the live site moved or could not be read during the deploy of ${TARGET:0:9} ($n in a row); the next tick tries again"
+  fi
   exit 0
 fi
 printf '%s rc=%s %s\n' "$TARGET" "$rc" "$(now)" > "$STATE/last-failure"
