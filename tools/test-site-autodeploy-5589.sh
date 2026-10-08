@@ -279,14 +279,20 @@ git -C "$T/site" remote set-url origin "$T/origin.git"
 { [ "$f1" = 1 ] && [ "$f2" = 0 ] && [ "$f3" = 0 ] && [ "$f4" = 1 ]; } \
   && pass "fetch outage: red, then reported; a new outage after recovery is red again" || bad "fetch sequence $f1$f2$f3$f4 (want 1001)"
 
-# 22) a deploy that hangs is stopped at its limit, with its children, and counted as a retry (not a park).
-H22=$(advance twentytwo); rm -f "$ST/retries"
+# 22) a deploy that hangs is stopped at its limit, with its children. It is a FAILURE (it may have
+#     published before hanging), not a retry: red, retried once, then parked; never blessed as live.
+H22=$(advance twentytwo); rm -f "$ST/retries" "$ST/failures"
 HANGPID="$T/hang.pid"
 KOSMOS_AUTODEPLOY_DEPLOY_MAX_S=2 KOSMOS_AUTODEPLOY_DEPLOY='sleep 300 & echo $! > '"$HANGPID"'; wait' tick
 hp=$(cat "$HANGPID" 2>/dev/null); sleep 1
-{ [ "$RC" = 0 ] && [ -n "$hp" ] && ! kill -0 "$hp" 2>/dev/null && grep -q "^$H22 1$" "$ST/retries" && [ ! -e "$ST/parked" ] && printf '%s' "$OUT" | grep -q "past its 2s limit"; } \
-  && pass "a hung deploy is stopped at its limit with its child, counted as a retry, not parked" || { bad "hung deploy (rc=$RC, child $hp alive=$(kill -0 "$hp" 2>/dev/null && echo yes || echo no), retries=$(cat "$ST/retries" 2>/dev/null)) $OUT"; [ -n "$hp" ] && kill "$hp" 2>/dev/null; }
-rm -f "$ST/retries"
+{ [ "$RC" = 1 ] && [ -n "$hp" ] && ! kill -0 "$hp" 2>/dev/null && grep -q "^$H22 rc=124 " "$ST/last-failure" && [ ! -e "$ST/parked" ] && printf '%s' "$OUT" | grep -q "past its 2s limit"; } \
+  && pass "a hung deploy is stopped with its child and counted as a failure (rc 124), not parked yet" || { bad "hung deploy (rc=$RC, child $hp alive=$(kill -0 "$hp" 2>/dev/null && echo yes || echo no)) $OUT"; [ -n "$hp" ] && kill "$hp" 2>/dev/null; }
+printf 'kosmos-release-export\ncommit=%s\n' "$H22" > "$SERVED/.kosmos-release-export"   # as if it published, then hung
+KOSMOS_AUTODEPLOY_DEPLOY_MAX_S=2 KOSMOS_AUTODEPLOY_DEPLOY='sleep 300 & echo $! > '"$HANGPID"'; wait' tick
+hp=$(cat "$HANGPID" 2>/dev/null); sleep 1; [ -n "$hp" ] && kill -0 "$hp" 2>/dev/null && kill "$hp"
+{ [ "$RC" = 1 ] && [ "$(cat "$ST/parked" 2>/dev/null)" = "$H22" ] && [ "$(cat "$ST/last-deployed")" != "$H22" ]; } \
+  && pass "a second hang parks the sha, and a marker naming it does not bless it as deployed" || bad "second hang (rc=$RC, parked=$(cat "$ST/parked" 2>/dev/null))"
+rm -f "$ST/parked" "$ST/failures"; rm -rf "$ST/reported.d"
 
 # 23) the tick itself is killed mid-deploy (the runner cancels the job): its deploy group goes with it.
 H23=$(advance twentythree); HANG2="$T/hang2.pid"
@@ -305,6 +311,7 @@ echo "$(( $(date +%s) + 86400 ))" > "$ST/reported.d/$H24-parked"; tick
 rm -f "$ST/parked"; rm -rf "$ST/reported.d"
 
 # 25) each remaining cause reports under its own name at the alarm: red once, then reported green.
+#     (A timeout is a failure, not a retry cause: test 22.)
 #     (noref is not reproduced: a fetch of main always restores origin/main in a real clone.)
 H25=$(advance twentyfive)
 # unread: the live pointers cannot be read at all (nothing listens on port 9).
@@ -322,12 +329,6 @@ tick; c1=$RC; OUTC=$OUT; tick; c2=$RC; chmod 644 "$CUTDIST/kosmos-0.7.22-arm64.t
 rm -f "$CUTDIST/kosmos-0.7.22-arm64.tar.gz" "$CUTDIST/kosmos-0.7.22-arm64.tar.gz.sha256"
 { [ "$c1" = 1 ] && [ "$c2" = 0 ] && printf '%s' "$OUTC" | grep -q "could not mirror" && [ -e "$ST/reported.d/$H25-mirror" ]; } \
   && pass "mirror: red once at the alarm under its own cause, then reported" || bad "mirror cause (c1=$c1 c2=$c2) $OUTC"
-# timeout: a deploy that hangs at the alarm reports as a timeout, not as a moving site.
-H25b=$(advance twentyfive-b); echo "$H25b 3" > "$ST/retries"; HANG3="$T/hang3.pid"
-KOSMOS_AUTODEPLOY_DEPLOY_MAX_S=1 KOSMOS_AUTODEPLOY_DEPLOY='sleep 300 & echo $! > '"$HANG3"'; wait' tick
-{ [ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q "run past its 1s limit 4 ticks" && ! printf '%s' "$OUT" | grep -q "moving or unreadable" && [ -e "$ST/reported.d/$H25b-timeout" ]; } \
-  && pass "timeout: at the alarm it is red as a timeout, not as a moving site" || bad "timeout cause (rc=$RC) $OUT"
-hp3=$(cat "$HANG3" 2>/dev/null); [ -n "$hp3" ] && kill -0 "$hp3" 2>/dev/null && { bad "timeout left its child $hp3"; kill "$hp3"; }
 rm -f "$ST/retries"; tick
 # wedged re-arm: a wedge reported, the lock freed (a tick takes it), then a NEW wedge is red at once.
 mkdir "$ST/lock"; sleep 300 & w1=$!; echo "$w1" > "$ST/lock/pid"; touch -t "$(date -v-2H +%Y%m%d%H%M)" "$ST/heartbeat"

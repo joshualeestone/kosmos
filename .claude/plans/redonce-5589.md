@@ -15,7 +15,7 @@ and records the time in `$STATE/reported.d/<sha>-<cause>` (one file per sha and 
 the same sha and cause within a rolling 24 hours print "STILL FAILING (reported): ..." and exit 0. A new
 sha, a new cause, a successful deploy (all records removed), or 24 hours passing makes it red again. The
 states with a clean recovery moment (wedged lock, fetch, origin/main) also clear the moment they
-recover. The retry-type causes (pointer, unread, mirror, checksum, moving, timeout) clear only on a
+recover. The retry-type causes (pointer, unread, mirror, checksum, moving) clear only on a
 successful deploy: until then that sha has not shipped, so a second incident of the same cause on it
 within the day is the same open problem, reported green; clearing on any passing check would let two
 alternating causes re-arm each other every tick (review round 4 considered both; this is the choice).
@@ -25,9 +25,8 @@ future-dated record counts as never reported.
 
 ## Weakest premise
 
-(Also accepted: a deploy that hangs on the same sha every time is retried every tick, each attempt up
-to its 15-minute limit, red once a day. A hang is a fault to fix, not to retry around; the daily red
-names it as a timeout.)
+(A deploy that hangs is stopped at its 15-minute limit and counted as a FAILURE: red, retried once, then
+parked. A hang is a fault to fix, not to retry around.)
 
 
 Green ticks during a known failure: someone looking only at the latest run's colour sees green. The
@@ -36,12 +35,13 @@ within the day. That trade is the point: one email per problem per day instead o
 
 ## Also on this branch (from the site workflow's review round 3)
 
-**The deploy has its own wall-clock limit** (KOSMOS_AUTODEPLOY_DEPLOY_MAX_S, default 900 s), well inside the
-workflow's 30-minute job timeout, so a hang is counted here (a retry, cause `timeout`, reported once a
-day) instead of the runner killing the job with nothing recorded. Measured 2026-10-08: the 0.7.28 prod
-promote's deploy-site.sh --promote took 2 min 18 s on Mortals. The deploy runs in its own process group
-with stdin from /dev/null; at the limit, or if the tick itself is killed (the runner cancelling the job),
-the whole group is stopped, vercel included.
+**The deploy has its own wall-clock limit** (KOSMOS_AUTODEPLOY_DEPLOY_MAX_S, default 900 s), well inside
+the workflow's 30-minute job timeout, so a hang is counted here (a FAILURE, exit 124: retried once, then
+parked; not a retry, because it may have published before hanging) instead of the runner killing the job
+with nothing recorded. Measured 2026-10-08: the 0.7.28 prod promote's deploy-site.sh --promote took 2
+min 18 s on Mortals. The deploy runs in its own process group with stdin from /dev/null; at the limit,
+or if the tick itself is killed (the runner cancelling the job), the whole group is stopped, vercel
+included.
 
 ## Records and recovery (review rounds 1 and 2)
 
