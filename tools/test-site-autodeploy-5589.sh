@@ -290,11 +290,12 @@ rm -f "$ST/retries"
 
 # 23) the tick itself is killed mid-deploy (the runner cancels the job): its deploy group goes with it.
 H23=$(advance twentythree); HANG2="$T/hang2.pid"
-KOSMOS_AUTODEPLOY_DEPLOY='sleep 300 & echo $! > '"$HANG2"'; wait' bash "$AD" > "$T/tick23.out" 2>&1 & tick23=$!
-for i in $(seq 1 50); do [ -s "$HANG2" ] && break; sleep 0.1; done
+KOSMOS_AUTODEPLOY_DEPLOY='echo started-23; sleep 300 & echo $! > '"$HANG2"'; wait' bash "$AD" > "$T/tick23.out" 2>&1 & tick23=$!
+# Signal only once the tick has said it is deploying (its traps are set by then), not on the child alone.
+for i in $(seq 1 100); do [ -s "$HANG2" ] && command grep -q "deploying site main" "$T/tick23.out" && break; sleep 0.1; done; sleep 0.3
 kill -TERM "$tick23"; wait "$tick23" 2>/dev/null; sleep 1
 hp2=$(cat "$HANG2" 2>/dev/null)
-{ [ -n "$hp2" ] && ! kill -0 "$hp2" 2>/dev/null && [ ! -e "$ST/lock" ]; } && pass "a tick killed mid-deploy takes its deploy's children with it and frees the lock" \
+{ [ -n "$hp2" ] && ! kill -0 "$hp2" 2>/dev/null && [ ! -e "$ST/lock" ] && command grep -q "^started-23" "$ST/log"; } && pass "a tick killed mid-deploy takes its deploy's children with it, keeps its output in the log, and frees the lock" \
   || { bad "killed tick left its deploy (child $hp2 alive=$(kill -0 "$hp2" 2>/dev/null && echo yes || echo no), lock=$([ -e "$ST/lock" ] && echo held || echo free))"; [ -n "$hp2" ] && kill "$hp2" 2>/dev/null; }
 
 # 24) a report time in the future (a clock step, a hand edit) counts as never reported: red.
