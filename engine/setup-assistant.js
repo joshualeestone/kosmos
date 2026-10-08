@@ -865,7 +865,7 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     if (rules.rootsMissed && rules.rootsMissed.length) return { ok: false, because: 'Kosmos could not work out where ' + rules.rootsMissed.join(', ') + ' keep the board token, so the guard cannot be written whole' };
     if (rules.tokenRuleDropped) return { ok: false, because: 'a folder path (the agent, its home or Kosmos) has a character the permission rules cannot carry, so the guard cannot be written whole' };
     // Review 16: off macOS no sandbox block is written: said at create time as well as at board start.
-    if ((deps.platform || process.platform) !== 'darwin') process.stderr.write('#4491 note: off macOS ' + agentName + ' gets permission rules only (its shell is not sandboxed)\n');
+    if ((deps.platform || process.platform) !== 'darwin' && !deps.atLaunch) process.stderr.write('#4491 note: off macOS ' + agentName + ' gets permission rules only (its shell is not sandboxed)\n');
     const perms = cur.permissions && typeof cur.permissions === 'object' && !Array.isArray(cur.permissions) ? cur.permissions : {};
     const had = Array.isArray(perms.deny) ? perms.deny.filter((r) => typeof r === 'string') : [];
     const deny = [...new Set([...had, ...rules.deny])];
@@ -948,17 +948,22 @@ function cleanLocalSettings(file) {
      #5516's scope; Kosmos never writes this file, so any here was put there by someone. Said, not removed. */
   const starts = STARTS_A_PROCESS.filter((k) => cur[k] !== undefined);
   if (starts.length) process.stderr.write(`#4491: ${file} has ${starts.join(', ')}, which start a process outside the sandbox when the agent starts; Kosmos left them\n`);
-  if (!cur.sandbox || typeof cur.sandbox !== 'object') return;
-  const sb = cur.sandbox;
+  if (cur.sandbox === undefined) return;
+  /* Review 23: an ALLOWLIST, not a list of known-bad keys and values: this file outranks the guard's settings.json,
+     so a value of another type ("false", 0) or a sandbox key Claude Code adds later could still undo it. The guard
+     writes the whole sandbox block in settings.json; all this file may add is more denies. */
   const dropped = [];
-  if (sb.enabled === false) { delete sb.enabled; dropped.push('sandbox.enabled false'); }
-  if (sb.allowUnsandboxedCommands === true) { delete sb.allowUnsandboxedCommands; dropped.push('sandbox.allowUnsandboxedCommands'); }
-  if (sb.excludedCommands !== undefined) { delete sb.excludedCommands; dropped.push('sandbox.excludedCommands'); }
-  if (sb.filesystem && typeof sb.filesystem === 'object') {
-    for (const k of ['allowRead', 'allowWrite']) if (sb.filesystem[k] !== undefined) { delete sb.filesystem[k]; dropped.push('sandbox.filesystem.' + k); }
-  }
-  if (sb.network && typeof sb.network === 'object') {
-    for (const k of ['allowUnixSockets', 'allowAllUnixSockets']) if (sb.network[k] !== undefined) { delete sb.network[k]; dropped.push('sandbox.network.' + k); }
+  const sb = cur.sandbox && typeof cur.sandbox === 'object' && !Array.isArray(cur.sandbox) ? cur.sandbox : null;
+  if (!sb) { delete cur.sandbox; dropped.push('sandbox'); } else {
+    for (const k of Object.keys(sb)) {
+      if (k !== 'filesystem') { delete sb[k]; dropped.push('sandbox.' + k); continue; }
+      const f = sb.filesystem;
+      if (!f || typeof f !== 'object' || Array.isArray(f)) { delete sb.filesystem; dropped.push('sandbox.filesystem'); continue; }
+      for (const fk of Object.keys(f)) {
+        if ((fk === 'denyRead' || fk === 'denyWrite') && Array.isArray(f[fk])) continue;
+        delete f[fk]; dropped.push('sandbox.filesystem.' + fk);
+      }
+    }
   }
   if (!dropped.length) return;
   const tmp = `${file}.${process.pid}.new`;
@@ -977,7 +982,7 @@ function refreshTokenOnlyGuards(deps = {}) {
   let names;
   try { names = require('./sendertoken').tokenOnlyList(); } catch { return out; }   // the roster's own reader (#4491)
   // Review 22: the supervisor guards ONE listed agent at its launch (a name listed after board start), not them all.
-  if (deps.only) names = names.filter((n) => n === deps.only);
+  if (deps.only) { names = names.filter((n) => n === deps.only); deps = { ...deps, atLaunch: true }; }   // review 23: notes said at board start, not each launch
   const toDir = deps.workerDir || create.workerDir;
   for (const name of names) {
     let dir = null;

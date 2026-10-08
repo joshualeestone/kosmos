@@ -597,6 +597,8 @@ if [ -z "$adopt" ]; then
               for (const u of out.unguarded) process.stderr.write("#4491: " + u.name + " is listed token-only but is NOT guarded: " + u.because + "\n");
             } catch (e) { process.stderr.write("#4491: the token-only guard could not be checked at launch: " + ((e && e.message) || e) + "\n"); }
           ' "$_eng/setup-assistant.js" "$_roster" || true
+        else
+          echo "#4491: $_roster is listed token-only but its guard could not be checked at launch (no setup-assistant.js)" >&2
         fi
       fi
       # Kept only in this shell for Antigravity's one launch-time status report.
