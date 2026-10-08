@@ -751,6 +751,7 @@ test('#1401: a pre-existing provider is RESTORED, not blanked', () => {
 
 test('#5534: a company policy that does not allow a folder\'s provider refuses connecting it, before anything is written', () => {
   const orgpolicy = require('./orgpolicy');
+  fs.mkdirSync(path.dirname(orgpolicy.APPLIED()), { recursive: true });
   fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 1, applied_at: 1,
     policy: { providers_allowed: ['anthropic'], models_allowed: null } }));
   try {

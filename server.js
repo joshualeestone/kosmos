@@ -8351,6 +8351,7 @@ const server = http.createServer(async (req, res) => {
            engine states a default and names it, exactly as before. */
         const wrote = create.setProvider(name, body && body.provider, {
           accountDir: body && typeof body.account === 'string' ? body.account : null,
+          model: wantModel,   // #5534: the company policy is asked about the model the switch will run
           /* WHETHER A PERSON CHOSE, sent separately from WHICH. The account is
              honoured whenever the page shows the menu; only this decides whether
              the answer says "you picked" rather than "we picked and are telling

@@ -530,7 +530,13 @@ function firstStartOfImport(entry, platform) {
   /* #5534: an imported agent is new to this Kosmos, so a company policy that does not allow its provider or model
      keeps it from starting here (it is not stopped where it came from). */
   const allowed = create.policyAllows(create.runnerProvider(runner), entry.model);
-  if (!allowed.ok) return `${entry.name} was not started here: ${allowed.because}`;
+  /* Marked on its profile, so Repair (which restores agents that lost their job, and is not gated) does not start
+     the agent the policy just held; the mark clears when the policy allows it. */
+  if (!allowed.ok) {
+    try { store.writeProfile(entry.name, { policyHeld: true }); } catch { /* the held entry still retries here */ }
+    return `${entry.name} was not started here: ${allowed.because}`;
+  }
+  try { if ((store.readProfile(entry.name) || {}).policyHeld) store.writeProfile(entry.name, { policyHeld: false }); } catch { /* best effort */ }
   const configDir = typeof entry.configDir === 'string' && entry.configDir ? entry.configDir : null;
   /* The folder-trust pre-answer is a CLAUDE `.claude.json` concept, so it runs for
      claude only. codex was already excluded; gemini/grok/antigravity are excluded for the same

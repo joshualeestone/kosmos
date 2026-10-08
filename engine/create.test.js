@@ -6639,3 +6639,26 @@ test('#5534: a company policy in force refuses creating or switching an agent on
   const plain = create.createAgent({ ...BINS, name: 'policynone', role: 'pm' });
   assert.equal(plain.outcome, create.OUTCOME.CREATED, 'CONTROL: with no policy an ordinary create succeeds: ' + plain.because);
 });
+
+test('#5534 review 2: a provider without its own model list has no known default, and a switch is asked about the model picked with it', () => {
+  recorder();
+  create.setDryRun(false);
+  const orgpolicy = require('./orgpolicy');
+  fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 1, applied_at: 1,
+    policy: { providers_allowed: null, models_allowed: { google: ['gemini-2.5-pro'], anthropic: ['opus'] } } }));
+  try {
+    const g = create.policyAllows('google', '');
+    assert.equal(g.ok, false);
+    assert.doesNotMatch(g.because, /sonnet/, 'a Claude model was named as Gemini\'s default');
+    assert.equal(create.policyAllows('google', 'gemini-2.5-pro').ok, true, 'CONTROL: the listed Gemini model');
+    const made = create.createAgent({ ...BINS, name: 'switchpick', role: 'pm', model: 'opus' });
+    assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+    const noPick = create.setProvider('switchpick', 'anthropic', BINS);
+    assert.equal(noPick.outcome, create.OUTCOME.REFUSED, 'a switch onto the default model, which the list leaves out, went through');
+    assert.match(noPick.because, /does not allow the model sonnet/);
+    const picked = create.setProvider('switchpick', 'anthropic', { ...BINS, model: 'opus' });
+    assert.doesNotMatch(String(picked.because || ''), /policy/, 'CONTROL: a switch with a listed model is not refused for policy');
+  } finally {
+    fs.rmSync(orgpolicy.APPLIED(), { force: true });
+  }
+});
