@@ -266,9 +266,8 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
   const same = (a, b) => !!a && !!b && (path.resolve(a) === path.resolve(b) || realOr(a) === realOr(b));
   /* A folder whose rule the syntax would misread (`* ? [ ] ( ) { } !`) gets no rule here: said, not guessed. Checked on
      what ruleAbs writes (its leading // taken off), so the check and the rule are one spelling (the platform's own
-     separator is gone by then; an extended-length \\?\ path is checked after its `?` is gone). On Windows a path
-     that is not a drive path (a share, the device form \\.\C:\, a drive-relative C:foo) is refused too, by
-     ruleUnwritable's drive-path test, rather than written as a rule that matches nothing. */
+     separator is gone by then; an extended-length \\?\ path is checked after its `?` is gone). On Windows the device
+     form \\.\C:\ and a drive-relative C:foo are refused too, by ruleUnwritable (a share IS written, review 21). */
   const plain = (p) => {
     if (!ruleUnwritable(p)) return true;
     process.stderr.write(`#4752: no rule for ${p}: its path has a character the rule syntax reads as a pattern, or a form it cannot write\n`);
@@ -363,7 +362,10 @@ function rulePath(inner, platform = process.platform) {
     if (/^[A-Za-z]:/.test(t)) return t;   // already native: only a round trip reaches this today, kept for a reader
     const d = /^([A-Za-z])(\/|$)/.exec(t);
     if (d) return d[1].toUpperCase() + ':\\' + t.slice(d[0].length).replace(/\//g, '\\');
-    return null;   // no drive: a share (or a form not handled); never resolved against the current drive
+    // no drive: a share (host/share/...) reads back as its UNC path, so the own-folder check compares real paths
+    // (review 23); anything shorter is not a form ruleAbs writes, and is never resolved against the current drive
+    if (/^[^/]+\/[^/]+/.test(t)) return '\\\\' + t.replace(/\//g, '\\');
+    return null;
   }
   return '/' + t;
 }
@@ -514,7 +516,7 @@ function guardGuideFolder(dir, agentName, deps = {}) {
       const m = /^Read\(\/\/([^*?]*?)(\/\*\*)?\)$/.exec(r);
       if (!m) return true;
       const back = rulePath(m[1], plat);   // the inverse of ruleAbs, so a Windows rule reads back with its drive
-      if (back === null) return true;      // a share's rule: the own-folder check does not apply (recorded in the plan)
+      if (back === null) return true;      // not a form ruleAbs writes: nothing to compare
       const target = realOr(back);
       // case-sensitive is safe: an existing target is a realpath like `own`; a missing one cannot contain the guide
       if (own !== target && !own.startsWith(target.endsWith(path.sep) ? target : target + path.sep)) return true;
@@ -527,7 +529,7 @@ function guardGuideFolder(dir, agentName, deps = {}) {
     const deny = finalDeny(kept, withNativeTwins(safe, plat), refused, plat);
     // an earlier rule (the guide's, or a person's own) removed because it equals a refused one is said, never silent
     const written = new Set(deny);
-    for (const r of kept) if (!written.has(r)) process.stderr.write(`#4752: an earlier rule that would take in the guide's own folder was removed: ${r}\n`);
+    for (const r of new Set(kept)) if (!written.has(r)) process.stderr.write(`#4752: an earlier rule that would take in the guide's own folder was removed: ${r}\n`);
     const next = { ...cur, permissions: { ...perms, deny } };
     /* Sandboxed Bash (Ice Cream Kitty's review): the deny rules above bind Claude Code's own tools, and
        a shell command such as `node -e readFileSync('.env')` or `grep -r` is a subprocess they do not

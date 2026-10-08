@@ -33,7 +33,7 @@ test('#4752: CONTROL, a macOS or Linux path is unchanged', () => {
   assert.equal(sa.ruleAbs('/Users/a/K', 'darwin'), '//Users/a/K', 'CONTROL: an ordinary POSIX path changed');
 });
 
-test('#4752: on THIS host every rule (its Windows assertions run on the Windows job only) is in the documented form, and on Windows also has its native twin', (t) => {
+test('#4752: on THIS host every rule (weak off Windows; the pure arms carry the Windows answers) is in the documented form, and on Windows also has its native twin', (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'winrules-'));
   t.after(() => removeTree(home));
   const rules = sa.guideDenyRules({ home, dataRoot: path.join(home, 'data'), worldsBase: path.join(home, 'base'), legacyRoots: [] });
@@ -162,8 +162,10 @@ test('#4752 on a Windows host: guardGuideFolder leaves out a rule taking in the 
   assert.ok(dataTwin && deny.includes(dataTwin), 'the data folder rule\'s old native spelling was not written: ' + dataTwin);
 });
 
-test('#4752: a Windows rule with no drive (a share) reads back as nothing, never as a path on the current drive', () => {
-  assert.equal(sa.rulePath('host/share/K', 'win32'), null);
+test('#4752: a Windows rule with no drive reads back as its share (UNC) path, never as a path on the current drive', () => {
+  assert.equal(sa.rulePath('host/share/K', 'win32'), '\\\\host\\share\\K', 'a share rule does not read back as its UNC path, so the own-folder check skips it');
+  assert.equal(sa.rulePath(sa.ruleAbs('\\\\srv\\share\\K', 'win32').slice(2), 'win32'), '\\\\srv\\share\\K', 'a written share rule does not round-trip');
+  assert.equal(sa.rulePath('host', 'win32'), null, 'a lone name read back as a path');
   assert.equal(sa.rulePath('Users/a', 'darwin'), '/Users/a', 'CONTROL: off Windows a rule reads back as its POSIX path');
 });
 
