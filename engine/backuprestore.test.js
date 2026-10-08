@@ -238,3 +238,14 @@ test('#5536 an empty chunk is refused, and a deep manifest is checked for collis
   assert.deepEqual(rd.failed.map((f) => f.why).sort(), ['another entry lands on the same file or folder', 'another entry lands on the same file or folder'],
     'CONTROL: the deep folder clash is still found');
 });
+
+test('#5536 maxTotalBytes caps what a restore commits, before fetching (control: exactly the budget restores)', async () => {
+  const { run, fetched } = handMade((entry) => [entry('a.md'), entry('b.md'), entry('c.md')]);
+  const { r, sink } = await run(memorySink(), { maxTotalBytes: 250 });
+  assert.deepEqual(r.restored, ['a.md', 'b.md'], 'CONTROL: 200 of 250 bytes');
+  assert.deepEqual(r.failed, [{ path: 'c.md', why: 'the restore is over its byte budget' }]);
+  assert.equal(fetched.length, 2, 'the file over budget is never fetched');
+  assert.equal(sink.calls.filter((c) => c.startsWith('begin')).length, 2);
+  const { r: exact } = await run(memorySink(), { maxTotalBytes: 300 });
+  assert.deepEqual(exact.restored, ['a.md', 'b.md', 'c.md']);
+});

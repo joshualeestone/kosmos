@@ -17,13 +17,14 @@ const crypto = require('crypto');
 const { CDC, openManifest, openVerifiedChunk } = require('./backupformat');
 
 const CHUNK_NAME_RE = /^[0-9a-f]{64}$/;
-// A format-1 chunk holds at most CDC.max bytes; sealed and padded it stays well under twice that. A bigger object
-// is refused before it is decrypted.
+// The format-1 uploader chunks with CDC, so a chunk holds at most CDC.max bytes; sealed and padded it stays well
+// under twice that. A bigger object is refused before it is decrypted (raise maxChunkObject for other chunk sizes).
 const MAX_CHUNK_OBJECT = 2 * CDC.max + 4096;
 const MAX_SKIPPED_REPORTED = 10000;
-// Bounds on the manifest itself, refused before it is decrypted or walked (both can be raised by the caller).
-const MAX_MANIFEST_OBJECT = 512 * 1024 * 1024;
-const MAX_FILES = 2_000_000;
+// Bounds on the manifest: its object is refused before it is decrypted, its entry count before it is walked. A
+// manifest is parsed whole, so these stay modest (about 270 bytes an entry); the caller can raise both.
+const MAX_MANIFEST_OBJECT = 128 * 1024 * 1024;
+const MAX_FILES = 500_000;
 const SHA256_RE = /^[0-9a-f]{64}$/;
 // Windows device names, with or without an extension, and with spaces before it (CON, nul.txt, COM1.log, nul .txt).
 const WIN_RESERVED_RE = /^(con|prn|aux|nul|conin\$|conout\$|com[0-9¹²³]|lpt[0-9¹²³]) *(\..*)?$/i;
@@ -81,7 +82,9 @@ function collidingPaths(entries) {
 /**
  * Restore one snapshot. Resolves to { restored: [path], failed: [{ path, why }], skippedAtBackup: [...] }, or null
  * when the manifest itself does not verify and open (wrong device key for the time, wrong context, tampering), or
- * exceeds maxManifestObject bytes or maxFiles entries.
+ * exceeds maxManifestObject bytes or maxFiles entries. maxTotalBytes (the caller sets it from free disk) caps the
+ * bytes committed: a file that would pass it fails before anything is fetched. Each file's own size is bounded by
+ * the size its entry records, so this is what bounds a manifest that records huge sizes.
  *
  *   fetchChunk(name) -> Buffer or Uint8Array | null, or a promise of one (null: the chunk is not stored). It should
  *     refuse to download an object larger than maxChunkObject; restore refuses one before decrypting it.
@@ -95,12 +98,13 @@ function collidingPaths(entries) {
  *       - refuse a path whose folders resolve outside the restore root, such as through a symlink already there;
  *       - use the operating system's Unicode file APIs (on Windows, never an ANSI or best-fit conversion, which
  *         turns a fullwidth '．．' into '..').
+ *     Paths may name dotfiles (.ssh, .zshrc, .git/hooks): restore into a root the person chose, not over live config.
  *
  * Paths in failed and skippedAtBackup come from the manifest and may hold any printable text: escape them for
  * display.
  */
 async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, manifestObject, fetchChunk, sink,
-  maxChunkObject = MAX_CHUNK_OBJECT, maxManifestObject = MAX_MANIFEST_OBJECT, maxFiles = MAX_FILES }) {
+  maxChunkObject = MAX_CHUNK_OBJECT, maxManifestObject = MAX_MANIFEST_OBJECT, maxFiles = MAX_FILES, maxTotalBytes = Infinity }) {
   if (!(manifestObject instanceof Uint8Array) || manifestObject.length > maxManifestObject) return null;
   const mo = Buffer.isBuffer(manifestObject) ? manifestObject : Buffer.from(manifestObject.buffer, manifestObject.byteOffset, manifestObject.length);
   const manifest = openManifest(memberSk, devicePubAtSnapshot, ctx, mo);
@@ -115,11 +119,13 @@ async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, 
     } else wellFormed.push(f);
   }
   const clash = collidingPaths(wellFormed);
+  let budget = maxTotalBytes;
   for (const f of wellFormed) {
     if (clash.has(f.path)) { failed.push({ path: forReport(f.path), why: 'another entry lands on the same file or folder' }); continue; }
+    if (f.size > budget) { failed.push({ path: forReport(f.path), why: 'the restore is over its byte budget' }); continue; }
     const why = await restoreFile(f, { memberSk, namingKey, fetchChunk, sink, maxChunkObject });
     if (why) failed.push({ path: forReport(f.path), why });
-    else restored.push(f.path);
+    else { restored.push(f.path); budget -= f.size; }
   }
   const skippedAtBackup = (Array.isArray(manifest.skipped) ? manifest.skipped : [])
     .filter((x) => x && typeof x.path === 'string' && typeof x.why === 'string').slice(0, MAX_SKIPPED_REPORTED)
