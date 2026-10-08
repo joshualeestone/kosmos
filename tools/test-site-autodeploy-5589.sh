@@ -21,7 +21,7 @@ advance() { echo "$1" > "$T/work/index.html"; git -C "$T/work" commit -q -am "$1
 
 # The cut checkout's dist/: two older versioned downloads, plus a file the mirror must not touch.
 CUTDIST="$T/cutdist"; mkdir -p "$CUTDIST"
-for v in 0.7.20 0.7.21; do printf 'tar %s\n' "$v" > "$CUTDIST/kosmos-$v-arm64.tar.gz"; printf 'sha %s\n' "$v" > "$CUTDIST/kosmos-$v-arm64.tar.gz.sha256"; done
+for v in 0.7.20 0.7.21; do printf 'tar %s\n' "$v" > "$CUTDIST/kosmos-$v-arm64.tar.gz"; printf '%s  kosmos-%s-arm64.tar.gz\n' "$(shasum -a 256 "$CUTDIST/kosmos-$v-arm64.tar.gz" | cut -c1-64)" "$v" > "$CUTDIST/kosmos-$v-arm64.tar.gz.sha256"; done
 printf 'pkg\n' > "$CUTDIST/Kosmos.pkg"
 SERVED="$T/served"; mkdir -p "$SERVED"   # file:// stand-in for the live host; no marker yet
 
@@ -58,51 +58,62 @@ tick
 { [ "$(ndeploys)" = 2 ] && [ ! -e "$T/site/dist/kosmos-0.7.20-arm64.tar.gz" ] && [ -f "$T/site/dist/kosmos-0.7.21-arm64.tar.gz" ] && [ -f "$T/site/dist/kosmos-arm64.tar.gz" ]; } \
   && pass "a pruned version is removed here too, and the unversioned alias is left alone" || bad "mirror prune: $(ls "$T/site/dist" | tr '\n' ' ')"
 
+# 4b) a mirrored tarball that does not match its own .sha256 (a cut part-way through writing it) is
+#     not deployed and not parked; once it matches, the next tick deploys.
+H2b=$(advance two-b)
+cp "$CUTDIST/kosmos-0.7.21-arm64.tar.gz" "$T/good21"; printf 'half-writ' > "$CUTDIST/kosmos-0.7.21-arm64.tar.gz"
+tick
+{ [ "$RC" = 0 ] && [ "$(ndeploys)" = 2 ] && [ ! -e "$ST/parked" ] && printf '%s' "$OUT" | grep -q "does not match its .sha256"; } \
+  && pass "a mirrored tarball that fails its checksum holds the deploy, unparked" || bad "checksum mismatch (rc=$RC, deploys=$(ndeploys)) $OUT"
+cp "$T/good21" "$CUTDIST/kosmos-0.7.21-arm64.tar.gz"
+tick
+{ [ "$(ndeploys)" = 3 ] && [ "$(cat "$ST/last-deployed")" = "$H2b" ]; } && pass "once it matches, the next tick deploys (control)" || bad "no deploy after the checksum matched (deploys=$(ndeploys))"
+
 # 5) no source for the older downloads: parked before any deploy (deploying would take them off the site).
 H3=$(advance three)
 KOSMOS_AUTODEPLOY_DIST_FROM="$T/nope" tick
-{ [ "$RC" = 1 ] && [ "$(ndeploys)" = 2 ] && [ "$(cat "$ST/parked")" = "$H3" ]; } && pass "a missing source of the older downloads parks the sha with nothing deployed" || bad "missing dist source (rc=$RC, deploys=$(ndeploys))"
+{ [ "$RC" = 1 ] && [ "$(ndeploys)" = 3 ] && [ "$(cat "$ST/parked")" = "$H3" ]; } && pass "a missing source of the older downloads parks the sha with nothing deployed" || bad "missing dist source (rc=$RC, deploys=$(ndeploys))"
 rm -f "$ST/parked"
 
 # 6) already live: the served export marker names main, so it is recorded with no deploy.
 H4=$(advance four)
 printf 'kosmos-release-export\ncommit=%s\nexported=x\n' "$H4" > "$SERVED/.kosmos-release-export"
 tick
-{ [ "$RC" = 0 ] && [ "$(ndeploys)" = 2 ] && [ "$(cat "$ST/last-deployed")" = "$H4" ]; } && pass "a commit the live site already serves is recorded without a second deploy" || bad "already-live (rc=$RC, deploys=$(ndeploys))"
+{ [ "$RC" = 0 ] && [ "$(ndeploys)" = 3 ] && [ "$(cat "$ST/last-deployed")" = "$H4" ]; } && pass "a commit the live site already serves is recorded without a second deploy" || bad "already-live (rc=$RC, deploys=$(ndeploys))"
 H5=$(advance five)
 tick
-{ [ "$(ndeploys)" = 3 ] && [ "$(cat "$ST/last-deployed")" = "$H5" ]; } && pass "a marker naming an older commit does not stop the deploy (control)" || bad "stale marker held the deploy (deploys=$(ndeploys))"
+{ [ "$(ndeploys)" = 4 ] && [ "$(cat "$ST/last-deployed")" = "$H5" ]; } && pass "a marker naming an older commit does not stop the deploy (control)" || bad "stale marker held the deploy (deploys=$(ndeploys))"
 
 # 7) a running release.sh, deploy-site.sh or promote-channel.sh holds the tick; a mention does not.
 H6=$(advance six)
 for p in '/bin/bash tools/release.sh 0.7.28' 'bash -x tools/release.sh 0.7.28' 'bash tools/deploy-site.sh --publish' '/bin/bash /Users/x/work/agent-workforce/tools/promote-channel.sh /site --force'; do
   KOSMOS_AUTODEPLOY_PS="printf %s\\n '$p'" tick
-  { [ "$RC" = 0 ] && [ "$(ndeploys)" = 3 ]; } && pass "held by: $p" || bad "not held by: $p (deploys=$(ndeploys))"
+  { [ "$RC" = 0 ] && [ "$(ndeploys)" = 4 ]; } && pass "held by: $p" || bad "not held by: $p (deploys=$(ndeploys))"
 done
 KOSMOS_AUTODEPLOY_PS="printf %s\\n 'grep tools/release.sh' 'vim tools/release.sh'" tick
-{ [ "$(ndeploys)" = 4 ] && [ "$(cat "$ST/last-deployed")" = "$H6" ]; } \
+{ [ "$(ndeploys)" = 5 ] && [ "$(cat "$ST/last-deployed")" = "$H6" ]; } \
   && pass "a grep or an editor naming release.sh is not a cut (control: the deploy goes ahead)" || bad "a mention of release.sh held the deploy (deploys=$(ndeploys))"
 
 # 8) a failed deploy is retried once, then parked; a new merge tries again and clears it.
 H7=$(advance seven)
 DEPLOY_RC=1 tick
-{ [ "$RC" = 1 ] && [ "$(ndeploys)" = 5 ] && [ ! -e "$ST/parked" ] && grep -q "^$H7 rc=1 " "$ST/last-failure" \
+{ [ "$RC" = 1 ] && [ "$(ndeploys)" = 6 ] && [ ! -e "$ST/parked" ] && grep -q "^$H7 rc=1 " "$ST/last-failure" \
   && printf '%s' "$OUT" | grep -q deploy-said-this && printf '%s' "$OUT" | grep -q "retried once"; } \
   && pass "a first failure is red, shows the deploy output, and is not parked" || bad "first failure (rc=$RC) $OUT"
 DEPLOY_RC=1 tick
-{ [ "$RC" = 1 ] && [ "$(ndeploys)" = 6 ] && [ "$(cat "$ST/parked")" = "$H7" ]; } && pass "a second failure on the same sha parks it" || bad "second failure (rc=$RC, deploys=$(ndeploys))"
+{ [ "$RC" = 1 ] && [ "$(ndeploys)" = 7 ] && [ "$(cat "$ST/parked")" = "$H7" ]; } && pass "a second failure on the same sha parks it" || bad "second failure (rc=$RC, deploys=$(ndeploys))"
 tick
-{ [ "$RC" = 0 ] && [ "$(ndeploys)" = 6 ]; } && pass "a parked sha is not retried" || bad "retried a parked sha (deploys=$(ndeploys))"
+{ [ "$RC" = 0 ] && [ "$(ndeploys)" = 7 ]; } && pass "a parked sha is not retried" || bad "retried a parked sha (deploys=$(ndeploys))"
 H8=$(advance eight)
 tick
-{ [ "$RC" = 0 ] && [ "$(ndeploys)" = 7 ] && [ "$(cat "$ST/last-deployed")" = "$H8" ] && [ ! -e "$ST/failures" ]; } \
+{ [ "$RC" = 0 ] && [ "$(ndeploys)" = 8 ] && [ "$(cat "$ST/last-deployed")" = "$H8" ] && [ ! -e "$ST/failures" ]; } \
   && pass "a new merge after a park deploys and clears the failure count" || bad "no retry after main moved (deploys=$(ndeploys))"
 
 # 9) exit 75 (deploy-site.sh: the live site moved or could not be read) is retried, never parked;
 #    the 4th in a row for one sha turns the run red once; a success clears the count.
 H9=$(advance nine)
 rcs=""; for i in 1 2 3 4 5; do DEPLOY_RC=75 tick; rcs="$rcs$RC"; done
-{ [ "$rcs" = 00010 ] && [ ! -e "$ST/parked" ] && [ "$(ndeploys)" = 12 ]; } && pass "75 is retried every tick; the 4th in a row exits 1 once" || bad "75 sequence '$rcs' (want 00010), deploys=$(ndeploys)"
+{ [ "$rcs" = 00010 ] && [ ! -e "$ST/parked" ] && [ "$(ndeploys)" = 13 ]; } && pass "75 is retried every tick; the 4th in a row exits 1 once" || bad "75 sequence '$rcs' (want 00010), deploys=$(ndeploys)"
 tick
 { [ "$RC" = 0 ] && [ ! -e "$ST/retries" ] && [ "$(cat "$ST/last-deployed")" = "$H9" ]; } && pass "a success after 75s deploys and clears the count" || bad "after 75s (rc=$RC)"
 
