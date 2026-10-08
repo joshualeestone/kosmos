@@ -2144,6 +2144,17 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 .worldsw-new:hover { color: var(--gold-edge); }
 .worldsw-new:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
 .worldsw-plus { font-weight: 700; font-size: 1.05em; line-height: 1; }
+/* kosmos#5393 slice 2: the "At a glance" entry and its sheet. */
+.worldsw-glance { display: block; width: 100%; padding: 6px 8px 7px; border: 0; background: none; cursor: pointer;
+  font: var(--text-callout) var(--font-ui); color: var(--k-ink); text-align: left; border-radius: 0 0 7px 7px; }
+.worldsw-glance:hover { color: var(--gold-edge); }
+.worldsw-glance:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
+.wv-list { display: flex; flex-direction: column; gap: var(--space-4); margin-top: var(--space-4); max-height: 60vh; overflow-y: auto; }
+.wv-world { border: 0.5px solid var(--separator); border-radius: 9px; padding: 10px 12px; }
+.wv-name { font-weight: 600; margin: 0 0 6px; overflow-wrap: anywhere; }
+.wv-here { font-weight: 400; color: var(--label-2); }
+.wv-line { margin: 2px 0; overflow-wrap: anywhere; }
+.wv-muted { color: var(--label-2); }
 /* #2563: the create-time "add my agents from an existing Kosmos" control. Reuses the
    modal field tokens; the list scrolls if the person has many Kosmoses. Each row is a
    clickable label wrapping its checkbox. */
@@ -11919,6 +11930,8 @@ window.kosmosMeasureScrollbarWidth();
         <button class="worldsw-new" id="worldsw-new" type="button">
           <span class="worldsw-plus" aria-hidden="true">+</span> New Kosmos
         </button>
+        <!-- kosmos#5393 slice 2: every Kosmos at a glance (wvOpen). -->
+        <button class="worldsw-glance" id="worldsw-glance" type="button">At a glance</button>
         <!-- kosmos#4648 (weekend goal #4647): the other computers on this Kosmos+ account.
              Filled by computersFetch/computersRender when the menu opens; hidden unless the
              board is signed in to Kosmos+ and the account has another computer. Each other
@@ -11931,6 +11944,25 @@ window.kosmosMeasureScrollbarWidth();
           <div class="worldsw-list" id="worldsw-computers-list" role="group" aria-labelledby="worldsw-computers-h"></div>
         </div>
       </div>
+        <!-- kosmos#5393 slice 2: "At a glance". Every Kosmos on this computer, from GET /api/worlds/overview (slice 1): how
+             each AI provider is doing in the open one, and the tasks nobody is on in each. Read once per open, plus Refresh: no
+             background poll, because the route builds a fresh roster on every call. No quota figure: no provider gives Kosmos one.
+             The words are wvWorldHtml and the helpers above it, which are node-tested (web.worldview-5393.test.js).
+             It sits INSIDE #worldsw, not as a direct child of <body>: the consolidated grid reserves 40 rows for body's
+             children (web.consolidated-980.test.js) and main already has 40, as #plus-lost-modal does inside its section.
+             Nothing above it sets a transform or filter, so the fixed overlay still covers the window. -->
+        <div class="rm-back" id="wv-modal" hidden>
+          <div class="rm-box rm-box-form" role="dialog" aria-modal="true" aria-labelledby="wv-t" aria-describedby="wv-in">
+            <h2 class="rm-title" id="wv-t">At a glance</h2>
+            <p class="rm-small" id="wv-in">Each Kosmos on this computer: how its AI providers are doing, and the tasks nobody is on yet.</p>
+            <div class="wv-list" id="wv-list" role="status" aria-live="polite"></div>
+            <div class="rm-acts" style="margin-top: var(--space-6);">
+              <button class="btn" id="wv-refresh" type="button">Refresh</button>
+              <button class="btn uprime" id="wv-close" type="button">Close</button>
+            </div>
+          </div>
+        </div>
+
     </div>
     <!-- HISTORY: from 2026-08-17 (Josh, pack 2e4e100) to #5018 the update notice sat in the flow beside the mark,
          because an earlier absolute float covered the agent-status stamp. The current placement is the next
@@ -29154,6 +29186,82 @@ function worldAddClose() {
   document.getElementById('world-add-modal').hidden = true;
   document.getElementById('worldsw-btn').focus();
 }
+/* kosmos#5393 slice 2: "At a glance". The words for one provider row, one world, and the whole list. Pure and
+   node-tested. They say only what GET /api/worlds/overview knows: 'not_paused' is "Not paused", never "Working" (an
+   idle or unknown agent is not paused either); another Kosmos's providers are known only while it is open, and that
+   is said rather than left blank; an unreadable task list is said, never shown as 0; and there is no quota figure,
+   because no provider gives Kosmos one. */
+const WV_PROVIDER = { claude: 'Claude', codex: 'OpenAI Codex', gemini: 'Gemini', grok: 'Grok',
+  antigravity: 'Gemini (Google subscription)', muse: 'Meta Muse' };
+function wvCount(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
+function wvTime(iso) {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return '';
+  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+function wvProviderLine(r) {
+  const name = WV_PROVIDER[r.provider] || String(r.provider || 'An AI provider');
+  let state;
+  if (r.state === 'stopped') state = 'Stopped';
+  else if (r.state === 'paused') state = r.until && wvTime(r.until) ? 'Paused until ' + wvTime(r.until) : 'Paused';
+  else if (r.state === 'some_paused') state = r.paused + ' of ' + wvCount(r.agents, 'agent', 'agents') + ' paused';
+  else state = 'Not paused';
+  const failed = r.signInFailed > 0 ? '. ' + wvCount(r.signInFailed, 'agent', 'agents') + ' could not sign in' : '';
+  return name + ': ' + state + failed;
+}
+function wvTasksLine(w) {
+  if (!w.unassigned) return w.unassignedBecause ? 'Tasks: ' + String(w.unassignedBecause) : 'Tasks: not known';
+  const { waiting, held } = w.unassigned;
+  if (!waiting && !held) return 'No tasks waiting for someone';
+  return wvCount(waiting, 'task', 'tasks') + ' waiting for someone' + (held ? ', and ' + held + ' on hold' : '');
+}
+function wvWorldHtml(w) {
+  const lines = [];
+  if (Array.isArray(w.providers)) {
+    if (!w.providers.length && !w.agentsWithoutProvider) lines.push('<p class="wv-line wv-muted">No agents running an AI provider</p>');
+    for (const r of w.providers) lines.push('<p class="wv-line">' + esc(wvProviderLine(r)) + '</p>');
+    if (w.agentsWithoutProvider > 0) lines.push('<p class="wv-line wv-muted">' + esc(wvCount(w.agentsWithoutProvider, 'agent', 'agents')
+      + ' on another computer, so their provider is not shown here') + '</p>');
+  } else {
+    lines.push('<p class="wv-line wv-muted">AI providers: ' + esc(String(w.providersBecause || 'not known')) + '</p>');
+  }
+  lines.push('<p class="wv-line">' + esc(wvTasksLine(w)) + '</p>');
+  return '<div class="wv-world"><p class="wv-name">' + esc(String(w.name || 'Kosmos'))
+    + (w.running ? ' <span class="wv-here">(open now)</span>' : '') + '</p>' + lines.join('') + '</div>';
+}
+function wvListHtml(body) {
+  const worlds = body && Array.isArray(body.worlds) ? body.worlds : null;
+  if (!worlds) return '<p class="wv-line wv-muted">' + esc(String((body && body.because) || 'Kosmos could not read your Kosmoses just now.')) + '</p>';
+  return worlds.map(wvWorldHtml).join('');
+}
+let wvGen = 0;
+async function wvLoad() {
+  const gen = ++wvGen;
+  const list = document.getElementById('wv-list');
+  list.innerHTML = '<p class="wv-line wv-muted">Reading your Kosmoses...</p>';
+  let html;
+  try {
+    const res = await fetch('/api/worlds/overview', { cache: 'no-store' });
+    let body = null;
+    try { body = await res.json(); } catch (_e) {}
+    html = res.ok ? wvListHtml(body) : wvListHtml({ because: (body && body.because) || 'Kosmos could not read your Kosmoses just now.' });
+  } catch (_e) {
+    html = wvListHtml({ because: 'Kosmos could not be reached just now.' });
+  }
+  if (gen !== wvGen) return;   // a newer Refresh or open owns the list
+  list.innerHTML = html;
+}
+function wvOpen() {
+  worldswClose();
+  document.getElementById('wv-modal').hidden = false;
+  document.getElementById('wv-close').focus();
+  wvLoad();
+}
+function wvClose() {
+  wvGen += 1;   // a read still out does not paint a closed sheet
+  document.getElementById('wv-modal').hidden = true;
+  document.getElementById('worldsw-btn').focus();
+}
 async function worldAddSubmit() {
   const input = document.getElementById('world-add-name');
   const go = document.getElementById('world-add-go');
@@ -29507,6 +29615,10 @@ async function worldHideSubmit() {
   if (!btn) return;
   btn.addEventListener('click', (e) => { e.stopPropagation(); worldswToggle(); });
   document.getElementById('worldsw-new').addEventListener('click', worldAddOpen);
+  document.getElementById('worldsw-glance').addEventListener('click', wvOpen);
+  document.getElementById('wv-close').addEventListener('click', wvClose);
+  document.getElementById('wv-refresh').addEventListener('click', wvLoad);
+  document.getElementById('wv-modal').addEventListener('click', (e) => { if (e.target.id === 'wv-modal') wvClose(); });
   document.getElementById('world-add-cancel').addEventListener('click', worldAddClose);
   document.getElementById('world-add-go').addEventListener('click', worldAddSubmit);
   const input = document.getElementById('world-add-name');
@@ -29558,6 +29670,7 @@ async function worldHideSubmit() {
     if (!document.getElementById('world-switch-modal').hidden) { worldswSwitchCancel(); return; }
     if (!document.getElementById('world-rename-modal').hidden) { worldRenameClose(); return; }
     if (!document.getElementById('world-add-modal').hidden) { worldAddClose(); return; }
+    if (!document.getElementById('wv-modal').hidden) { wvClose(); return; }
     const menu = document.getElementById('worldsw-menu');
     if (menu && !menu.hidden) { worldswClose(); btn.focus(); }
   });
@@ -61225,6 +61338,8 @@ document.addEventListener('keydown', (e) => {
        while it is disabled on an empty name, so Tab cycles name<->Cancel until a
        name is typed, then includes Create. */
     ['world-add-modal', ['world-add-name', 'world-add-cancel', 'world-add-go'], 'world-add-name'],
+    /* kosmos#5393 slice 2: "At a glance" is aria-modal, so it gets the trap too. Home is Close. */
+    ['wv-modal', ['wv-refresh', 'wv-close'], 'wv-close'],
     /* #6: the switch-confirm dialog declares aria-modal, so it gets a real trap, in DOM
        order. Home is Cancel -- the safe/back choice, matching doc-keep -- and
        worldswConfirmSwitch also opens initial focus on Cancel (a reflexive Enter cancels
