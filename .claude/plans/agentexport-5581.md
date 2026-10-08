@@ -42,3 +42,7 @@ share. Agents (token-only callers) cannot fetch it.
 ### Review 4 (sonnet): nothing above NIT. CONVERGED.
 - NITs left (follow-up on the card): a Download click clears an unrelated Save message on the line; the check URL is built from CURRENT, not the link (equivalent today); navigation-204 asserted on the 404 branch only.
 - web.* 2527/2527, web.api-routes 29/29, reason-grep 7/7, wired 11/11, server '5581' and gate '5581' green (07:27 CDT 2026-10-08). Browser check: queued.
+
+## Validation (07:59 CDT 2026-10-08)
+- Browser check render-agent-export-5581: 13/13 against the real server (real click download, refusal said on the panel, failed-load and untied resets, Save paint), screenshot taken. Its first queued runs failed to start: the worktree has no Playwright; the runner's NODE_PATH (~/work/pw-runtime/node_modules) fixes it.
+- Rebased onto origin/main (with #5564). server.test 356/356, gate 28/28, agent-import 18/18, agentfile 9/9; guards fixture-discipline, cli.sandbox-data-4796, engine.reachable, no-brand-refs, no-name-refs, win32-separator, windows-coupling-1732, windows-tests-1777, reason-grep, api-routes-3957, browser-checks-wired: all green.
