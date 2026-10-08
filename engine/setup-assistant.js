@@ -223,7 +223,7 @@ function kosmosHome() { return process.env.AGENT_WORKFORCE_HOME || require('os')
    default is), and production passes none of these. `home` reaches the older folder of this world (when
    AGENT_WORKFORCE_DATA is unset: dataRootFor ignores the home otherwise); the
    worlds' base comes from the environment the process was started with (`preWorldEnv`), whatever `home` says. */
-function guideDenyRules(opts = {}) { return withNativeTwins(guideDenyRulesFor(opts).rules); }   // with Windows twins, as written
+function guideDenyRules(opts = {}) { return withNativeTwins(guideDenyRulesFor(opts).rules); }   // with Windows twins, before the own-folder check
 /* The rules, and the default world's store they name entry by entry (null when none is), so guardGuideFolder
    can drop earlier per-entry rules for that store instead of keeping one for every entry that ever existed. */
 function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsBase, legacyRoots } = {}) {
@@ -266,8 +266,8 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
   /* A folder whose rule the syntax would misread (`* ? [ ] ( ) { } !`) gets no rule here: said, not guessed. Checked on
      what ruleAbs writes (its leading // taken off), so the check and the rule are one spelling (the platform's own
      separator is gone by then; an extended-length \\?\ path is checked after its `?` is gone). On Windows a path
-     ruleAbs cannot write as a drive or share (the device form \\.\C:\, a drive-relative C:foo) still carries a `:` or
-     starts `./`: refused the same way, rather than written as a rule that matches nothing. */
+     that is not a drive path (a share, the device form \\.\C:\, a drive-relative C:foo) is refused too, by
+     ruleUnwritable's drive-path test, rather than written as a rule that matches nothing. */
   const plain = (p) => {
     if (!ruleUnwritable(p)) return true;
     process.stderr.write(`#4752: no rule for ${p}: its path has a character the rule syntax reads as a pattern, or a form it cannot write\n`);
@@ -356,7 +356,7 @@ function ruleAbs(p, platform = process.platform) {
 function rulePath(inner, platform = process.platform) {
   const t = String(inner);
   if (platform === 'win32') {
-    if (/^[A-Za-z]:/.test(t)) return t;
+    if (/^[A-Za-z]:/.test(t)) return t;   // already native: only a round trip reaches this today, kept for a reader
     const d = /^([A-Za-z])(\/|$)/.exec(t);
     if (d) return d[1].toUpperCase() + ':\\' + t.slice(d[0].length).replace(/\//g, '\\');
     return null;   // no drive: a share (or a form not handled); never resolved against the current drive
@@ -415,6 +415,7 @@ function finalDeny(kept, safe, refused, platform = process.platform) {
   const refusedLower = new Set([...refused].map((x) => x.toLowerCase()));
   return [...new Set([...kept, ...safe])].filter((r) => {
     if (refused.has(r)) return false;
+    if (platform === 'win32' && refusedLower.has(r.toLowerCase())) return false;   // a new-form rule spelt in another case
     if (platform === 'win32') { const eq = legacyWinEquivalent(r); if (eq && refusedLower.has(eq.toLowerCase())) return false; }
     return true;
   });
