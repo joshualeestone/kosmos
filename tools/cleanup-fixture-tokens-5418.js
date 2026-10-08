@@ -14,8 +14,9 @@
  *     no `launcher: 'remote'` token (a remote agent is on the roster only while its heartbeat is fresh, so an
  *     offline one would look orphaned). Its age is its NEWEST sign of life: the latest token mintedAt or the
  *     file's mtime, whichever is later;
- *   - a writer's leftover temp file (`*.tmp`) last written before the cutoff;
- *   - a symlink whose target does not exist (a security fixture planted one).
+ *   - a writer's leftover temp file, named in the shape the store's writer uses
+ *     (`<file>.kosmos-<pid>-[t<thread>-]<started>-<seq>.tmp`), last written before the cutoff;
+ *   - a symlink whose target does not exist (a security fixture planted one), unless its name is a live agent's.
  * Anything else in the folder is listed and left alone. A live agent's file is never a candidate,
  * whatever its date.
  *
@@ -43,6 +44,10 @@ const path = require('node:path');
 /* The decision, pure: `entries` is what is in the folder ({ name, isSymlink, targetExists, mtimeMs }), `liveKeys`
    the safeKey'd names to keep (roster plus removal records). Returns { remove: [{ name, kind, why }], keep: [{ name,
    why }] }. Every entry lands in exactly one list. */
+/* The writer's own temp shape (securewrite's tempPath, and sendertoken's before #1787), anchored at the end. Any
+   other name is not a temp this store wrote, so it is listed and left alone. */
+const TEMP_SHAPE = /\.kosmos-\d+-(?:t\d+-)?\d+-\d+\.tmp$/;
+
 function planCleanup(entries, liveKeys, cutoffMs, safeKey) {
   const canon = (k) => { try { return safeKey(k); } catch { return null; } };
   const remove = [];
@@ -51,8 +56,11 @@ function planCleanup(entries, liveKeys, cutoffMs, safeKey) {
     if (e.other) { keep.push({ name: e.name, why: 'not a file or a link: left alone' }); continue; }
     const old = typeof e.mtimeMs === 'number' && e.mtimeMs < cutoffMs;
     if (e.isSymlink) {
-      if (e.targetExists === false) remove.push({ name: e.name, kind: 'symlink', why: 'a link pointing at nothing' });
-      else keep.push({ name: e.name, why: 'a link to something that exists: not ours to judge' });
+      const linkKey = e.name.endsWith('.json') ? e.name.slice(0, -'.json'.length) : null;
+      if (linkKey !== null && liveKeys.has(canon(linkKey))) keep.push({ name: e.name, why: 'a link named for a live agent: left alone' });
+      else if (e.targetExists === false) remove.push({ name: e.name, kind: 'symlink', why: 'a link pointing at nothing' });
+      else if (e.targetExists === true) keep.push({ name: e.name, why: 'a link to something that exists: not ours to judge' });
+      else keep.push({ name: e.name, why: 'a link whose target could not be checked: left alone' });
       continue;
     }
     if (e.name.endsWith('.json')) {
@@ -68,7 +76,7 @@ function planCleanup(entries, liveKeys, cutoffMs, safeKey) {
       else remove.push({ name: e.name, kind: 'token', key, mtimeMs: e.mtimeMs, launchers: info.launchers, newestMintMs: info.newestMintMs, why: 'no such agent on the board, nothing newer than the cutoff' });
       continue;
     }
-    if (e.name.endsWith('.tmp')) {
+    if (TEMP_SHAPE.test(e.name)) {
       if (old) remove.push({ name: e.name, kind: 'temp', why: 'a leftover temp written before the cutoff' });
       else keep.push({ name: e.name, why: 'a temp written on or after the cutoff (may be in flight)' });
       continue;
@@ -148,6 +156,12 @@ function applyPlan(dir, plan, revoke) {
 }
 
 async function fetchRoster(port, boardToken) {
+  /* Ask, WITHOUT the token, whether a Kosmos board answers on that port at all, so a wrong --port never hands
+     this store's board token to some other local program. */
+  const health = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(10000) });
+  let h = null;
+  try { h = await health.json(); } catch { h = null; }
+  if (!health.ok || !h || h.app !== 'kosmos') throw new Error('nothing on that port answers as a Kosmos board');
   const res = await fetch(`http://127.0.0.1:${port}/api/status`, {
     headers: boardToken ? { 'x-kosmos-board-token': boardToken } : {},
     signal: AbortSignal.timeout(10000),
@@ -225,7 +239,7 @@ async function main(argv) {
     console.log(`  remove  ${r.name}  (${r.why}${detail})`);
   }
   for (const k of plan.keep) console.log(`  keep    ${k.name}  (${k.why})`);
-  if (!args.apply) { console.log('Dry run: nothing changed. Add --apply to back up and remove.'); return 0; }
+  if (!args.apply) { console.log('Dry run: nothing changed. Read every "remove" line against the agents you know, then add --apply to back up and remove.'); return 0; }
   if (plan.remove.length === 0) { console.log('Nothing to remove.'); return 0; }
   const dest = path.join(path.dirname(dir), 'sendertokens.backup-5418-' + new Date().toISOString().replace(/[:.]/g, '-'));
   try { backup(dir, dest, plan.remove.map((r) => r.name)); }
@@ -233,7 +247,7 @@ async function main(argv) {
     console.error('Stopped, nothing removed: the backup failed (' + e.message + '). If a file it names is gone, the store changed since the plan was made: run it again.');
     return 3;
   }
-  console.log('Backed up to ' + dest);
+  console.log('Backed up to ' + dest + ' (it holds the removed tokens: delete it once the result is checked).');
   const res = applyPlan(dir, plan, sendertoken.revokeIfUnchanged);
   console.log(`Removed ${res.removed.length}.`);
   for (const f of res.failed) console.log(`  not removed  ${f.name}  (${f.because})`);
