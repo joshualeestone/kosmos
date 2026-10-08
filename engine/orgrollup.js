@@ -371,7 +371,9 @@ async function tick(opts) {
   if (st.enrolledAs !== enrolledAs) st = { enrolledAs };
   /* A time after now (a clock that was wrong once, then corrected) counts as never (rollup review 15): kept, it would hold
      "waiting after a failure" or "nothing due" until the clock caught up, days of silence with no signal. */
-  for (const k of ['failAt', 'lastAt', 'dailyAt']) if (typeof st[k] === 'number' && st[k] > now) delete st[k];
+  /* And anything that is not a sane time at all (rollup review 19): a string, NaN, or a number outside [0, now] from a
+     cut-off or hand-edited file would make toISOString() throw on every tick, silently and for good. */
+  for (const k of ['failAt', 'lastAt', 'dailyAt', 'printWaitAt']) if (k in st && !(Number.isFinite(st[k]) && st[k] >= 0 && st[k] <= now)) delete st[k];
   if (st.failAt && now - st.failAt < RETRY_AFTER_FAIL_MS) return { sent: false, because: 'waiting after a failure' };
   /* The daily send has its own clock (rollup review 11): a change send carries no status or model, so it must not push
      the next daily (the only send that does) further out on a board that changes every day. Older state without it
@@ -441,7 +443,13 @@ async function tick(opts) {
 
 /* Whether the last tick waited for this computer's print (review 18), so the joined view does not claim it reports.
    Read from the rollup's own state, never by reading the hardware in a request. */
-function waitingForPrint(root) { const st = readState(root || require('./store').ROOT); return !!st.printWaitAt; }
+function waitingForPrint(root) {
+  const st = readState(root || require('./store').ROOT);
+  // Only this enrollment's (review 19): a note left by an earlier one does not belong to a Kosmos that joined again.
+  const rec = require('./orgenroll').readEnrollment(root ? { root } : undefined);
+  const enrolledAs = rec ? rec.world + '|' + ((rec.org && rec.org.id) || '') + '|' + (rec.enrolledAt || '') : null;
+  return !!st.printWaitAt && st.enrolledAs === enrolledAs;
+}
 
 module.exports = {
   waitingForPrint,

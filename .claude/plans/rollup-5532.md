@@ -123,8 +123,8 @@ sections above it disagree with it, they describe the dormant branch.
 
 ## Review 9 (blind, opus)
 - FIXED (both from my own fixes): the change signature is agent NAMES and projects only (a provider differs between a
-  running card, read from its pane, and a stopped agent with nothing recorded, so it moved on start and stop); and the
-  (SUPERSEDED 2026-10-08, as above) refresh keeps consent fields from one list (`CONSENT_FIELDS`: consentHash, reports, usageConsented), since
+  running card, read from its pane, and a stopped agent with nothing recorded, so it moved on start and stop); and (superseded on
+  2026-10-08, as above) the refresh keeps consent fields from one list (`CONSENT_FIELDS`: consentHash, reports, usageConsented), since
   usageConsented, added in review 8, was dropped the same way reports had been in review 7.
 - FIXED: stale wording (test title, the plan's truncated-for-withheld sentences, the module header); `tryAt` is
   documented as a write probe.
@@ -296,4 +296,13 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
   this branch leaves as "accepted words not recorded here": a print sent and not pinned, a refusal because the words
   changed, and an enrollment written before org-consent.json existed. Until a0 merges, that way back is leave and
   join again with a new code.
+
+## Review 19 (blind, Sonnet)
+- FIXED (the gap my review-15 clamp left): any saved time that is not a finite number in [0, now] (a string, NaN, a
+  huge value from a cut-off or edited file) counts as unset; before, toISOString() threw on every tick and the rollup
+  stopped for good in silence. Test with a string and a huge negative; mutation makes it fail.
+- NIT taken: `waitingForPrint` reads only the current enrollment's note.
+- NITs kept: a pinned record whose id never becomes readable cannot leave from here (the coordinator lets another
+  computer of the account leave; the plan's weakest premise); the usage rule's two-sided test waits for the usage
+  reader to be wired.
 

@@ -626,3 +626,17 @@ test('#5532 rollup review 18: a refused rollup logs its code once; usage days mu
   const b = r.build({ world: 'w', usageByDay: { '2026-02-30': { 'claude-opus-5-5': { input_tokens: 1 } }, '2999-01-01': { 'claude-opus-5-5': { input_tokens: 1 } }, [DAY(0)]: { 'claude-opus-5-5': { input_tokens: 1 } } } });
   assert.deepEqual([...new Set(b.usage.map((u) => u.day))], [DAY(0)], 'a day the company refuses reached the body');
 });
+
+test('#5532 rollup review 19: a state file with times that are not times never stops the rollup', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root);
+  const rec = oe.readEnrollment({ root });
+  const enrolledAs = rec.world + '|' + rec.org.id + '|' + rec.enrolledAt;
+  for (const bad of ['yesterday', -9e15, Number.MAX_VALUE]) {
+    fs.writeFileSync(path.join(root, r.STATE_FILE), JSON.stringify({ enrolledAs, lastAt: bad, dailyAt: bad, failAt: bad }));
+    const res = await r.tick({ root, remote: c, sources: sources(), now: Date.UTC(2026, 9, 7, 12) });
+    assert.equal(res.sent, true, 'a state file holding ' + JSON.stringify(bad) + ' stopped the rollup: ' + JSON.stringify(res));
+  }
+});
