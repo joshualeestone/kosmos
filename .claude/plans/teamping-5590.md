@@ -22,7 +22,7 @@
 - notifyCreated:false: the team is made, no ping.
 Plants: the ping removed (tests 1 and 2 red); the box ignored (test 4 red).
 Neighbours green: createdbeacon-3038 (unit and route), no-phone-home-4253, browser-checks-quiet-4253, team routes
-(1279), guidestate-4350: 78/78.
+(1279), guidestate-4350: 79/79 at 6f11afb64 (8 files, run from the repo root; 78 before review 1 added the agent-branch test).
 
 ## Decided
 - One ping per team, not per member (the card; the total is what the site records).
@@ -105,3 +105,9 @@ Neighbours green: createdbeacon-3038 (unit and route), no-phone-home-4253, brows
   for that retry, which sends its own count. Weakest premise: that the first attempt's agents and ping are a separate,
   older matter (a retry after a lost answer may duplicate agents today, with or without this change). Would change my
   mind: a design where the page re-reads what was made before offering Try again.
+
+## Review 9 (opus): converged
+- No blockers. Its two warnings repeat ledger entries: the retry after a lost answer (review 8's decision, which it
+  calls not wrong) and the restored-result assertion that guards the outcome, not the line (review 7). Nits left: the
+  50 ms settle (harmless), the two routes' gate shapes (CREATED only vs any created; createdCount counts both).
+- Taken (NIT): the neighbour count above restated with its configuration.
