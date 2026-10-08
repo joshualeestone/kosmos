@@ -32,7 +32,7 @@ if ! ruby -ryaml -e '
 ' "$WF" "$T/decide.sh" "$T/tmux.sh" 2>"$T/rb.err"; then
   fail "test.yml wiring: $(head -2 "$T/rb.err")"
 else
-  pass "test.yml wiring (parsed): scope picks the runner from vars and the head repo; suite falls back to macos-latest; scope and test stay on ubuntu"
+  pass "test.yml wiring (parsed): scope picks the runner from vars and the head repo; only the node part takes scope's choice (shell shards stay on macos-latest); tmux never brew-installs on self-hosted; scope and test stay on ubuntu"
 fi
 
 SELF='["self-hosted","macOS","arm64","kosmos-ci"]'
@@ -67,32 +67,32 @@ done
 # #5488 part c: the REAL tmux step body, under GitHub's shell flags, on a PATH with no tmux and a stub brew
 # that records being called. A self-hosted runner must refuse WITHOUT calling brew (its Homebrew is the
 # machine owner's); a GitHub-hosted one installs as before. Controls: with tmux present, neither calls brew.
-tmux_step() { # <RUNNER_ENVIRONMENT> <with-tmux: 0|1> -> prints "rc=<n> brew=<called|not>"
+# PATH is ONLY the stub directory: the step body uses shell builtins plus brew and tmux, so no system tmux
+# can make a no-tmux arm vacuous. bash itself is named by absolute path, never looked up on that PATH.
+tmux_step() { # <RUNNER_ENVIRONMENT> <with-tmux: 0|1> -> prints "rc=<n> brew=<called|not> err=<yes|no>"
   rm -rf "$T/bin"; mkdir -p "$T/bin"; : > "$T/brew.log"
   printf '#!/bin/sh\necho called >> "%s"\n' "$T/brew.log" > "$T/bin/brew"; chmod +x "$T/bin/brew"
   if [ "$2" = 1 ]; then printf '#!/bin/sh\nexit 0\n' > "$T/bin/tmux"; chmod +x "$T/bin/tmux"; fi
-  local rc=0
-  RUNNER_ENVIRONMENT="$1" PATH="$T/bin:/usr/bin:/bin" bash --noprofile --norc -eo pipefail "$T/tmux.sh" >/dev/null 2>&1 || rc=$?
-  if [ -s "$T/brew.log" ]; then echo "rc=$rc brew=called"; else echo "rc=$rc brew=not"; fi
+  local rc=0 err=no
+  RUNNER_ENVIRONMENT="$1" PATH="$T/bin" /bin/bash --noprofile --norc -eo pipefail "$T/tmux.sh" > "$T/step.out" 2>&1 || rc=$?
+  grep -q '^::error::tmux is missing on the self-hosted runner' "$T/step.out" && err=yes
+  if [ -s "$T/brew.log" ]; then echo "rc=$rc brew=called err=$err"; else echo "rc=$rc brew=not err=$err"; fi
 }
-# /usr/bin and /bin must not hold a tmux, or the no-tmux arms would test nothing.
-if [ -x /usr/bin/tmux ] || [ -x /bin/tmux ]; then
-  fail "precondition: a tmux in /usr/bin or /bin makes the no-tmux arms vacuous"
+# Without the step body (the wiring parse failed above), every arm here would pass or fail for the wrong reason.
+if [ ! -s "$T/tmux.sh" ]; then
+  fail "the tmux step body was not extracted from test.yml, so its behaviour arms cannot run"
 else
   got="$(tmux_step self-hosted 0)"
-  case "$got" in
-    "rc=0 brew=not"|*"brew=called") fail "self-hosted, no tmux: must refuse without brew, got $got" ;;
-    *) pass "self-hosted, no tmux: refuses and never calls brew ($got)" ;;
-  esac
+  [ "$got" = "rc=1 brew=not err=yes" ] && pass "self-hosted, no tmux: exits 1 with the ::error:: line and never calls brew" || fail "self-hosted, no tmux: want rc=1 brew=not err=yes, got $got"
   got="$(tmux_step github-hosted 0)"
-  [ "$got" = "rc=0 brew=called" ] && pass "github-hosted, no tmux: brew install as before" || fail "github-hosted, no tmux: want rc=0 brew=called, got $got"
+  [ "$got" = "rc=0 brew=called err=no" ] && pass "github-hosted, no tmux: brew install as before" || fail "github-hosted, no tmux: want rc=0 brew=called err=no, got $got"
   got="$(tmux_step "" 0)"
-  [ "$got" = "rc=0 brew=called" ] && pass "RUNNER_ENVIRONMENT unset (older runner): brew install as before" || fail "unset env, no tmux: want rc=0 brew=called, got $got"
+  [ "$got" = "rc=0 brew=called err=no" ] && pass "RUNNER_ENVIRONMENT unset (older runner): brew install as before" || fail "unset env, no tmux: want rc=0 brew=called err=no, got $got"
+  got="$(tmux_step self-hosted 1)"
+  [ "$got" = "rc=0 brew=not err=no" ] && pass "CONTROL self-hosted, tmux present: passes, no brew" || fail "control self-hosted with tmux: got $got"
+  got="$(tmux_step github-hosted 1)"
+  [ "$got" = "rc=0 brew=not err=no" ] && pass "CONTROL github-hosted, tmux present: passes, no brew" || fail "control github-hosted with tmux: got $got"
 fi
-got="$(tmux_step self-hosted 1)"
-[ "$got" = "rc=0 brew=not" ] && pass "CONTROL self-hosted, tmux present: passes, no brew" || fail "control self-hosted with tmux: got $got"
-got="$(tmux_step github-hosted 1)"
-[ "$got" = "rc=0 brew=not" ] && pass "CONTROL github-hosted, tmux present: passes, no brew" || fail "control github-hosted with tmux: got $got"
 
 if [ "$fails" -eq 0 ]; then echo "test-ci-runner-route-5488: 0 failures"; exit 0; fi
 echo "test-ci-runner-route-5488: $fails failure(s)"; exit 1
