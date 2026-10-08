@@ -78,4 +78,33 @@ function read(book, key, state, now) {
 /* Drop an agent's anchor (a removed/recreated agent never inherits an old episode -- as crashloop.forget). */
 function forget(book, key) { book.delete(key); }
 
-module.exports = { TERMINAL_STATES, STUCK_MS, isTerminal, nextAnchor, assess, read, forget };
+/*
+ * The once-per-episode sweep, encapsulated here so it is unit-testable (mirrors crashloop.tellLoops).
+ * The caller (server.js, from the 60s tick) passes:
+ *   - rows: the agents it runs this tick, each `{ key, state, shown }` (only agents we started).
+ *   - book: the anchor Map (this is the ONE place it is written).
+ *   - told: a Set tracking which agents have already been told THIS episode.
+ *   - now: the clock.
+ *   - tell(key, assessment, shown): the side effect (log + phone push). Called at most ONCE per episode.
+ * Behaviour: advance/clear each agent's anchor; tell once when it first crosses the threshold; clear the
+ * told-mark the moment it recovers, so a later episode tells again. Then prune the book and the told set of
+ * any agent not in `rows` (removed/gone) -- this is slice C's lifecycle-forget, since the in-memory book is
+ * reachable only from the sweep.
+ */
+function tellStuck({ rows, book, told, now, tell }) {
+  const liveKeys = new Set();
+  for (const row of rows || []) {
+    if (!row || !row.key) continue;
+    liveKeys.add(row.key);
+    const r = read(book, row.key, row.state, now);
+    if (r.stuck) {
+      if (!told.has(row.key)) { told.add(row.key); tell(row.key, r, row.shown || row.key); }
+    } else {
+      told.delete(row.key);
+    }
+  }
+  for (const key of Array.from(book.keys())) if (!liveKeys.has(key)) book.delete(key);
+  for (const key of Array.from(told)) if (!liveKeys.has(key)) told.delete(key);
+}
+
+module.exports = { TERMINAL_STATES, STUCK_MS, isTerminal, nextAnchor, assess, read, forget, tellStuck };
