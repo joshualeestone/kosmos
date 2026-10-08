@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: youav-5551
-diff_hash: ac9f37ba3d595099681dd69d42982fe7b5055d55ff9af4d0a141cfd2a4b77fff
+diff_hash: 12966705a5307168529ccfb22454fad5019ad4bb5c6f3cf5c40b1477a7ee82bc
 validation: passed (validation_log PASSED for stack=typescript hash=ac9f37ba3d59, full tools/run-tests.sh incl. browser-check gates, 17103 node tests 0 failing; render-newlook-4470.js 301/301 headless)
 subdir_audit: passed
-timestamp: 2026-10-08T21:29:32Z
+timestamp: 2026-10-08T22:03:33Z
 iterations: 2
 converged: true
 ---
@@ -29,3 +29,9 @@ converged: true
 **After review:** rebased onto main after #5600 fixed main's red guard test. The first validation had stopped on that test alone (1 of 17017). Full validation passed on this head.
 
 **Weakest premise:** that a person with a photo set will not miss it on each message. The photo still shows in the top bar and outside these two threads.
+
+**Rebased onto main after #5620 (17:02):** CI's node suite had failed only on main's own break (#5554 vs #5534's tests:
+create.test.js and server.switch-model-5429.test.js would not load). A re-run would re-test the same broken merge
+commit, so this is a fresh push. This branch's own lines are unchanged; the local full validation ran on the previous
+base, and CI's full run on this head validates the rebased diff.
+
