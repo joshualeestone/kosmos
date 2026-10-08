@@ -549,6 +549,9 @@ async function uploadManifestInner(deps, bytes, o) {
     // No real lock ends later than its grant's signed time plus LOCK_MAX_MS, and that grant was made in the past (an
     // hour of clock tolerance, as clockSkew): a later value is the wrong unit or never a lock date, and it would raise
     // the floor until the outlast check could not fire.
+    // And none is before 2020 (the product did not exist): a value that small is seconds, not milliseconds, and would
+    // otherwise read as chunks long gone.
+    if (c.lockedUntilMs < Date.UTC(2020, 0, 1)) return { ok: false, because: `the lock end given for the manifest's chunk ${c.key} (${c.lockedUntilMs}) is before 2020: not a lock date in milliseconds` };
     if (c.lockedUntilMs > now() + LOCK_MAX_MS + 60 * 60 * 1000) return { ok: false, because: `the lock end given for the manifest's chunk ${c.key} (${c.lockedUntilMs}) is later than any lock a grant can set: not a lock date in milliseconds` };
     avoid.add(c.key);
     floor = Math.min(floor, c.lockedUntilMs);
