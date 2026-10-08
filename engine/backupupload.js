@@ -54,8 +54,9 @@ const INITIAL_BATCH = 8;                // the first grant's size; it doubles wh
 const BACKOFF_MAX_MS = 30 * 1000;      // a retry of the same url waits at most this long (it retries until expiry)
 const DEFAULT_CONCURRENCY = 4;
 const MAX_CONCURRENCY = 32;
-// A PUT may take 60 s plus the time to send its bytes at 16 KB/s (5 MiB: about 6 minutes), never past its grant.
-const putTimeoutFor = (size) => 60 * 1000 + Math.ceil(size / 16);
+// A PUT may take 60 s plus the time to send its bytes at 16 KB/s shared by the workers sending at once (5 MiB with
+// four workers: about 22 minutes). Not capped at the grant: S3 checks expiry when a request arrives.
+const putTimeoutFor = (size, workers) => 60 * 1000 + Math.ceil((size * Math.max(1, workers || 1)) / 16);
 const SIGNED_NEEDED = ['content-length', 'content-md5', 'host', 'if-none-match', 'x-amz-object-lock-mode', 'x-amz-object-lock-retain-until-date'];
 // The only headers a grant may ask the Mac to send (the coordinator lists four; Content-Length is tolerated if listed).
 const HEADER_ALLOWED = new Set(['content-md5', 'if-none-match', 'x-amz-object-lock-mode', 'x-amz-object-lock-retain-until-date', 'content-length']);
@@ -113,6 +114,7 @@ function parseGrant(data, objects, allowHttpAsked) {
   if (!Array.isArray(data.uploads) || data.uploads.length !== objects.length) return { ok: false, because: 'the grant answer does not have one upload per chunk' };
   const uploads = [];
   const keys = new Set(), urls = new Set();
+  let bucketPrefix = null, minExpiresS = Infinity;
   for (let i = 0; i < objects.length; i++) {
     const u = data.uploads[i], o = objects[i].object;
     if (!u || typeof u !== 'object') return { ok: false, because: `upload ${i} is not an object` };
@@ -125,6 +127,9 @@ function parseGrant(data, objects, allowHttpAsked) {
     let path;
     try { path = decodeURIComponent(url.pathname); } catch { return { ok: false, because: `upload ${i} has an undecodable url path` }; }
     if (!path.endsWith('/' + u.key)) return { ok: false, because: `upload ${i}'s url does not carry its key` };
+    // Every upload of one grant sits under one bucket path, so a longer key ending in this one cannot slip through.
+    const prefix = `${url.host}${path.slice(0, path.length - u.key.length)}`;
+    if (i === 0) bucketPrefix = prefix; else if (prefix !== bucketPrefix) return { ok: false, because: `upload ${i}'s url is not under the grant's bucket path` };
     if (urls.has(url.toString())) return { ok: false, because: `upload ${i} repeats a url` };
     urls.add(url.toString());
     const qnames = [...url.searchParams.keys()];
@@ -140,6 +145,7 @@ function parseGrant(data, objects, allowHttpAsked) {
     // The url itself must not outlive a grant: X-Amz-Expires (seconds) at most the window.
     const xe = Number(url.searchParams.get('X-Amz-Expires'));
     if (!Number.isInteger(xe) || xe <= 0 || xe * 1000 > GRANT_WINDOW_MS) return { ok: false, because: `upload ${i}'s url lasts longer than a grant` };
+    minExpiresS = Math.min(minExpiresS, xe);
     if (Math.abs(signedAtMs + xe * 1000 - expiresAtMs) > 60 * 1000) return { ok: false, because: `upload ${i}'s signed time does not match the grant's expires_at` };
     for (const h of SIGNED_NEEDED) if (!signed.includes(h)) return { ok: false, because: `upload ${i} does not sign ${h}` };
     if (!u.headers || typeof u.headers !== 'object' || Array.isArray(u.headers)) return { ok: false, because: `upload ${i} has no headers` };
@@ -167,7 +173,7 @@ function parseGrant(data, objects, allowHttpAsked) {
     if (!Number.isFinite(retainMs) || lockFor < LOCK_MIN_MS || lockFor > LOCK_MAX_MS) return { ok: false, because: `upload ${i}'s lock is not 29 to 39 days` };
     uploads.push({ key: u.key, url: url.toString(), headers });
   }
-  return { ok: true, expiresAtMs, uploads };
+  return { ok: true, expiresAtMs, lifetimeMs: minExpiresS * 1000, uploads };
 }
 
 /* One PUT. Never thrown; returns { kind, status, code }:
@@ -249,7 +255,7 @@ async function uploadInner(deps, objects, opts, keys) {
   const sleep = deps.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
   const conc = Number.isInteger(o.concurrency) && o.concurrency > 0 ? Math.min(o.concurrency, MAX_CONCURRENCY) : DEFAULT_CONCURRENCY;
   // A test seam; a value that is not a positive number falls back to the size-based timeout.
-  const timeoutFor = (size) => (Number.isFinite(o.putTimeoutMs) && o.putTimeoutMs > 0 ? o.putTimeoutMs : putTimeoutFor(size));
+  const timeoutFor = (size) => (Number.isFinite(o.putTimeoutMs) && o.putTimeoutMs > 0 ? o.putTimeoutMs : putTimeoutFor(size, conc));
   if (!Array.isArray(objects)) return { ok: false, because: 'no chunks', keys };
   for (const c of objects) {
     if (!c || typeof c.name !== 'string' || !Buffer.isBuffer(c.object)) return { ok: false, because: 'a chunk is not { name, object }', keys };
@@ -264,9 +270,8 @@ async function uploadInner(deps, objects, opts, keys) {
     byName.set(c.name, c); todo.push(c);
   }
 
-  // Grants are sized to what one window can carry: they start at INITIAL_BATCH and double while every chunk of a
-  // grant is stored in time; a grant that runs out of time shrinks the next to about what it did carry. So a slow
-  // uplink is charged for roughly what it sends, not for 500 chunks per window it cannot reach.
+  // Grants are sized to what one window can carry: they start at INITIAL_BATCH, and each next grant is sized from the
+  // rate the last one achieved (see below). So a slow uplink is charged for roughly what it sends.
   let queue = todo.slice();
   let batch = Math.min(INITIAL_BATCH, MAX_PER_GRANT);
   let fruitless = 0;
@@ -281,6 +286,11 @@ async function uploadInner(deps, objects, opts, keys) {
     // (An hour of tolerance: a Mac a few minutes slow still backs up; S3 itself refuses a request whose signing time is
     // more than 15 minutes off its own clock.)
     if (g.expiresAtMs - now() > GRANT_WINDOW_MS + 60 * 60 * 1000) return { ok: false, because: `the grant expires ${new Date(g.expiresAtMs).toISOString()}, over an hour further ahead of this computer's clock than a grant lasts: one of the two clocks is wrong (this grant's allowance is spent)`, keys };
+    // This grant's deadline on THIS Mac's clock: its arrival plus the url's own lifetime, less a 10 s margin for the
+    // trip here. So a Mac clock that is minutes off does not end a grant early or late (the skew checks above catch a
+    // clock that is far off). The PUTs are bounded by S3's own check on arrival either way.
+    const arrival = now();
+    const deadline = arrival + g.lifetimeMs - 10 * 1000;
     const left = [], stuck = [];   // stuck: [{ chunk, key }], a write that may have landed under key
     const troubledNow = new Map(); // name -> { c, key } for chunks that met trouble and are not (yet) stored
     let stop = null, stored = 0;
@@ -290,7 +300,7 @@ async function uploadInner(deps, objects, opts, keys) {
         if (stop) return;
         // Out of time on this grant. A chunk that met bucket or network trouble does NOT get a new grant (that spends
         // allowance and could write a second locked copy if an answer was lost): the run ends retryLater.
-        const remaining = g.expiresAtMs - now();
+        const remaining = deadline - now();
         if (remaining <= 0) { if (troubled) stuck.push({ c, key: up.key }); else left.push(c); return; }
         // NOT capped at the grant's remaining time: S3 checks a presigned url's expiry when the request ARRIVES, so a PUT
         // started in time may finish after it. Aborting it at the deadline would turn a landed write into an unknown.
@@ -313,15 +323,17 @@ async function uploadInner(deps, objects, opts, keys) {
     // unsure: chunks whose write may have landed under these keys (an answer was lost). A later run uploads them again
     // under new keys, so a landed one becomes a locked orphan until its lock ends; the caller may record them.
     if (stuck.length) return { ok: false, retryLater: true, because: `${stuck.length} chunks met bucket or network trouble until their grant expired; try again later`, keys, unsure: stuck.map((x) => ({ name: x.c.name, key: x.key })) };
+    // The next grant is sized from the RATE this one achieved: about 80% of what the link carries in one window,
+    // never more than double this grant (so it settles instead of swinging), at least 1, at most MAX_PER_GRANT.
+    const elapsed = Math.max(1, now() - arrival);
+    const fits = Math.floor((stored * g.lifetimeMs * 0.8) / elapsed);
+    batch = Math.max(1, Math.min(MAX_PER_GRANT, batch * 2, fits));
     if (left.length) {
-      // Ran out of time with chunks never stored: the next grant is about what this one carried.
       fruitless = stored ? 0 : fruitless + 1;
       if (fruitless > MAX_REGRANTS) return { ok: false, retryLater: true, because: `${MAX_REGRANTS + 1} grants in a row stored nothing before they expired; try again later`, keys };
-      batch = Math.max(1, Math.floor(stored * 0.8));
       queue = left.concat(queue);
     } else {
       fruitless = 0;
-      batch = Math.min(MAX_PER_GRANT, batch * 2);
     }
   }
   // Every chunk asked for has a key, or this is not a success.
