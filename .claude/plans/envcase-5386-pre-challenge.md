@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: envcase-5386
-diff_hash: 9df68fd61deba276b006b0090882aff19dfa18c733b2e6b2194ea8d6af013d44
+diff_hash: 337ff3ae836ac3d04bce160e0e8a546b095238396409074d152fc4bd69f40ce7
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-08T00:52:40Z
@@ -42,3 +42,5 @@ converged: true
 ### Strengths (across iterations)
 - One helper (win32env) for every env copy; process.env keeps plain access; the scan covers every non-test engine module with per-form controls and pinned before-lines, so it stays armed after merge.
 - Every behaviour fix carries a test that was planted red on the code before it.
+
+Merged origin/main 2026-10-07 22:40 (one seam-list conflict in engine.reachable.test.js, both kept); on the merged tree main's 87 changed test files: 2347 tests, 0 fail; engine.reachable and envcase-5386 pass.
