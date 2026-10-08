@@ -1043,6 +1043,10 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    as a stub next to it, and the known cost is that the row wraps. #5429: `#d-provider-model`, the switch's model,
    sits beside it on the same terms. */
 #create-model, #create-account, #create-reports, #d-reports, #d-provider-account, #d-provider-model, #pj-one-add, #pj-thread-who { flex: 1; min-width: 220px; }
+/* #5510: the kind-of-business select sizes to its longest option ("A construction or trades business", 290px), which
+   ran 3px past the Settings panel on a 360px phone. It may be no wider than its row; a long option is then shortened
+   in the closed select only (the open list shows it whole). render-settings-fit-5510.js holds it. */
+#community-industry { max-width: 100%; }
 /* #2697 (Josh, design channel 2026-09-10, on the agent Profile tab): the three
    Profile fields each ran the full container width. Josh asked for Name ~25%,
    What they do ~50%, Reports to ~25%, each left-aligned on its own row. Scoped to
@@ -2144,6 +2148,27 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 .worldsw-new:hover { color: var(--gold-edge); }
 .worldsw-new:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
 .worldsw-plus { font-weight: 700; font-size: 1.05em; line-height: 1; }
+/* kosmos#5393 slice 2: the "At a glance" entry and its sheet. */
+.worldsw-glance { display: block; width: 100%; padding: 6px 8px 7px; border: 0; background: none; cursor: pointer;
+  font: var(--text-callout) var(--font-ui); color: var(--k-ink); text-align: left; border-radius: 0; }
+.worldsw-glance:hover { color: var(--gold-edge); }
+.worldsw-glance:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
+.wv-list { display: flex; flex-direction: column; gap: var(--space-4); margin-top: var(--space-4); max-height: 60vh; overflow-y: auto; }
+.wv-world { border: 0.5px solid var(--separator); border-radius: 9px; padding: 10px 12px; }
+.wv-name { font-weight: 600; margin: 0 0 6px; overflow-wrap: anywhere; }
+.wv-here { font-weight: 400; color: var(--label-2); }
+.wv-line { margin: 2px 0; overflow-wrap: anywhere; }
+.wv-muted { color: var(--label-2); }
+/* The sheet sits inside .apphead. In the tab layout .apphead is sticky with z-index 20, its own stacking context, so
+   the sheet's z-index 50 only counted inside the header and floating UI (the assistant button, toasts, menus at
+   40-46) drew over it. While it is open the header takes the layer every other modal has, 50. In the consolidated
+   layout .apphead is static and makes no stacking context, so this rule does nothing there and the sheet's own 50
+   counts at the root, like any modal (render-worldview-5393 measures both). */
+.apphead:has(#wv-modal:not([hidden])) { z-index: 50; }
+/* #5393: the tab layout reserves a scrollbar strip on <html> that no fixed layer paints over (classic scrollbars: the
+   Windows app, CI), so the sheet's dark stopped 15px short of the right edge. While it is up the page does not
+   scroll and reserves nothing, as the restart screen, the first run and the preview do. */
+html:has(#wv-modal:not([hidden])) { overflow: hidden; scrollbar-gutter: auto; }
 /* #2563: the create-time "add my agents from an existing Kosmos" control. Reuses the
    modal field tokens; the list scrolls if the person has many Kosmoses. Each row is a
    clickable label wrapping its checkbox. */
@@ -6583,6 +6608,12 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
    descenders (the "g" in "Sourcing"). Same fix as #3415 on the agent name: a
    proportional line-height that clears descenders, unitless so it tracks the size. */
 .pjtitle #pj-one-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
+/* #5510: on a phone the name gets two lines before it is cut: one line held 14 characters at 360px ("Launch the
+   spring c..."), so most real project names never showed whole. Three-plus lines still end in an ellipsis. */
+@media (max-width: 40rem) {
+  .pjtitle #pj-one-name { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2; line-clamp: 2; }
+}
 .pjmidhead .pjhead #pj-one-made { font-size: .75rem; margin: 1px 0 0; max-width: none; line-height: 1.35; }
 /* kosmos#5287: the joined project's "Shared by" block takes its own row under the made line in every header layout, and
    the owner's description (up to DESC_MAX, newlines kept) wraps even a long unbroken word and scrolls past ~8 lines
@@ -7397,6 +7428,9 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
   font: var(--text-caption) var(--font-ui); }
 .pv-msg { color: #ffb4a8; font: var(--text-caption) var(--font-ui); }
 .att.haspic[data-att] { cursor: zoom-in; }
+/* #5510: a phone's own keyboard has emoji, so on a phone touchscreen the room's emoji button gives its 34px back to
+   the text box, where the hint was being cut after "Write something c". The picker stays on every other screen. */
+@media (max-width: 40rem) and (hover: none) { #pj-emoji-btn { display: none; } }
 .attachbtn { flex: 0 0 auto; display: grid; place-items: center; width: 34px; height: 34px;
   border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
 .attachbtn:hover { background: rgba(20,22,26,.07); color: var(--k-ink); }
@@ -10582,6 +10616,13 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .msg.you .msg-bd { background-color: var(--nl-grey); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .msg:not(.you) .msg-bd { background-color: var(--k-bg); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .msg .msg-bd::after { background: var(--k-bg); }
+/* #5551: an agent's question in the project room, toward the Sep 28 drawing's "Needs you" card: the corners as soft
+   as the look's other boxes. The hairline and the warm tint STAY, though the drawing has no hairline: #3692 marks a
+   warning by both, and the tint alone is about 1.1:1 against the white page, a box a person can miss. */
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-question { border-radius: 24px; padding: 16px 20px; }
+/* The screen inside: corners eased to match (outer 24 less the inset), so the two curves read as one shape. Seen in a real
+   board: at today's 8px padding the label crowded the 24px curve. */
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-question .pj-screen { border-radius: 12px; }
 /* The composer: a grey pill on the page ground in both themes (the drawing's #f5f5f7 / #2c2c2e),
    no black strip around it. Scoped through #pj-one-view so it outranks the dark composer rules
    AND their generated forced-dark twins, which sit later in the sheet at the same weight. */
@@ -11714,6 +11755,10 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   html.kremote #boardbar.boardbar > .viewctl { flex-wrap: nowrap; gap: 12px; }
   /* Two ids: the new look's toolbar rules carry one id and up to six classes, and two ids beat any of them. */
   html.kremote #boardbar#boardbar .sortctl select { height: 44px; padding: 0 36px 0 14px; border-radius: 10px; }
+  /* #5510: the sort menu fills the row between + and the view buttons. At its own width it sat 3px from the + on a
+     360px phone and 55px from it on a 412px one; filling, the gaps are the row's own 12px at every width. */
+  html.kremote #boardbar#boardbar .sortctl { flex: 1 1 auto; min-width: 0; }
+  html.kremote #boardbar#boardbar .sortctl select { width: 100%; }
   html.kremote #boardbar#boardbar .viewtoggle { border-radius: 10px; }
   html.kremote #boardbar#boardbar .viewtoggle .vt { width: 44px; height: 44px; border-radius: 0; }
   /* With the grid button gone the list button is the first one shown, so it loses the separator it drew from it. */
@@ -11930,6 +11975,8 @@ window.kosmosMeasureScrollbarWidth();
         <button class="worldsw-new" id="worldsw-new" type="button">
           <span class="worldsw-plus" aria-hidden="true">+</span> New Kosmos
         </button>
+        <!-- kosmos#5393 slice 2: every Kosmos at a glance (wvOpen). -->
+        <button class="worldsw-glance" id="worldsw-glance" type="button">At a glance</button>
         <!-- kosmos#4648 (weekend goal #4647): the other computers on this Kosmos+ account.
              Filled by computersFetch/computersRender when the menu opens; hidden unless the
              board is signed in to Kosmos+ and the account has another computer. Each other
@@ -11942,6 +11989,27 @@ window.kosmosMeasureScrollbarWidth();
           <div class="worldsw-list" id="worldsw-computers-list" role="group" aria-labelledby="worldsw-computers-h"></div>
         </div>
       </div>
+        <!-- kosmos#5393 slice 2: "At a glance". Every Kosmos on this computer, from GET /api/worlds/overview (slice 1): how
+             each AI provider is doing in the open one, and the tasks nobody is on in each. Read once per open, plus Refresh: no
+             background poll, because the route builds a fresh roster on every call. No quota figure: no provider gives Kosmos one.
+             The words are wvWorldHtml and the helpers above it, which are node-tested (web.worldview-5393.test.js).
+             It sits INSIDE #worldsw, not as a direct child of <body>: the consolidated grid reserves 40 rows for body's
+             children (web.consolidated-980.test.js) and main already has 40, as #plus-lost-modal does inside its section.
+             Nothing above it sets a transform or filter, so the fixed overlay still covers the window. -->
+        <div class="rm-back" id="wv-modal" hidden>
+          <div class="rm-box rm-box-form" role="dialog" aria-modal="true" aria-labelledby="wv-t" aria-describedby="wv-in">
+            <h2 class="rm-title" id="wv-t">At a glance</h2>
+            <p class="rm-small" id="wv-in">Each Kosmos on this computer: how its AI providers are doing, and the tasks nobody is on yet.</p>
+            <div class="wv-list" id="wv-list" role="group" tabindex="0" aria-label="Your Kosmoses at a glance"></div>
+            <!-- One short sentence on how the last read went, announced; the rows themselves are not re-read on Refresh. -->
+            <p class="vh" id="wv-status" role="status" aria-live="polite"></p>
+            <div class="rm-acts" style="margin-top: var(--space-6);">
+              <button class="btn" id="wv-refresh" type="button">Refresh</button>
+              <button class="btn uprime" id="wv-close" type="button">Close</button>
+            </div>
+          </div>
+        </div>
+
     </div>
     <!-- HISTORY: from 2026-08-17 (Josh, pack 2e4e100) to #5018 the update notice sat in the flow beside the mark,
          because an earlier absolute float covered the agent-status stamp. The current placement is the next
@@ -15520,6 +15588,14 @@ window.kosmosMeasureScrollbarWidth();
             <button class="btn uprime" type="button" id="orgchart-undo-go" hidden>Remove them</button>
             <button class="btn" type="button" id="orgchart-undo-keep" hidden>Keep them</button>
           </div>
+          <!-- #5590: the import tells installkosmos.com the agent count moved, so the sheet's "Let Kosmos know" choice is
+               shown where it is made, as the team step does (Review 27, #tc-tell): kept equal to #create-tell, which
+               stays the one the creates read. orgchartTell: open with a preview that can be created, fixed while its create
+               runs, gone once any result is on screen. -->
+          <label class="tellrow" for="orgchart-tell" id="orgchart-tell-row">
+            <input type="checkbox" id="orgchart-tell">
+            <span id="orgchart-tell-say">Let Kosmos know these agents were created</span>
+          </label>
           <!-- #4559: more than the usual team size is started only on this explicit yes (Liu Kang m3436). -->
           <div class="orgchart-consent" id="orgchart-many" role="group" aria-labelledby="orgchart-many-say" hidden>
             <p id="orgchart-many-say"></p>
@@ -19776,6 +19852,21 @@ function pnavThemeRove() {
   const on = opts.find((b) => b.getAttribute('aria-checked') === 'true') || opts[0];
   for (const b of opts) b.tabIndex = b === on ? 0 : -1;
 }
+/* #5510: on a phone the room composer's hint, "Write something or @name to message someone...", is cut after "Write
+   something c". There it reads as the agent chat's does; wider screens keep the @name tip. The query is the portrait
+   phone width only, the same as the CSS that hides the room's emoji button on a phone; not PNAV_PHONE_MQ, which also
+   takes a phone turned sideways, where the row has room for the long hint. */
+const ROOM_HINT_MQ = '(max-width: 40rem)';
+(function roomHintFits() {
+  const box = document.getElementById('pj-post');
+  if (!box || !window.matchMedia) return;
+  const long = box.placeholder;
+  const mq = window.matchMedia(ROOM_HINT_MQ);
+  const fit = () => { box.placeholder = mq.matches ? 'Write something\u2026' : long; };
+  fit();
+  if (mq.addEventListener) mq.addEventListener('change', fit);
+  else if (mq.addListener) mq.addListener(fit);   // Safari before 14
+})();
 /* The board's phone (PHONE_WIDTH, #3969), the same query as this menu's CSS. */
 const PNAV_PHONE_MQ = '(max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem)';
 /* The level on screen, and the trail back to the first one. */
@@ -29236,6 +29327,102 @@ function worldAddClose() {
   document.getElementById('world-add-modal').hidden = true;
   document.getElementById('worldsw-btn').focus();
 }
+/* kosmos#5393 slice 2: "At a glance". The words for one provider row, one world, and the whole list. Pure and
+   node-tested. They say only what GET /api/worlds/overview knows: 'not_paused' is "Not paused", never "Working" (an
+   idle or unknown agent is not paused either); another Kosmos's providers are known only while it is open, and that
+   is said rather than left blank; an unreadable task list is said, never shown as 0; and there is no quota figure,
+   because no provider gives Kosmos one. */
+const WV_PROVIDER = { claude: 'Claude', codex: 'OpenAI Codex', gemini: 'Gemini', grok: 'Grok',
+  antigravity: 'Gemini (Google subscription)', muse: 'Meta Muse' };
+function wvCount(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
+function wvTime(iso, now = new Date()) {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return '';
+  const t = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  // A time on another day says which day: a pool or quota reset can be hours or days away.
+  if (d.toDateString() === now.toDateString()) return t;
+  // Six days or more away, the weekday alone could read as today's, so the date comes with it.
+  const far = d.getTime() - now.getTime() >= 6 * 86400e3;
+  return d.toLocaleDateString([], far ? { weekday: 'short', month: 'short', day: 'numeric' } : { weekday: 'short' }) + ' ' + t;
+}
+function wvProviderLine(r) {
+  const name = WV_PROVIDER[r.provider] || String(r.provider || 'An AI provider');
+  let state;
+  if (r.state === 'stopped') state = 'Stopped';
+  else if (r.state === 'paused') state = r.until && wvTime(r.until) ? 'Paused until ' + wvTime(r.until) : 'Paused';
+  else if (r.state === 'some_paused') state = r.paused + ' of ' + wvCount(r.agents, 'agent', 'agents') + ' paused';
+  else state = 'Not paused';
+  const failed = r.signInFailed > 0 ? '. ' + wvCount(r.signInFailed, 'agent', 'agents') + ' could not sign in' : '';
+  return name + ': ' + state + failed;
+}
+function wvTasksLine(w) {
+  if (!w.unassigned) return w.unassignedBecause ? 'Tasks: ' + String(w.unassignedBecause) : 'Tasks: not known';
+  const waiting = Number(w.unassigned.waiting) || 0;
+  const held = Number(w.unassigned.held) || 0;
+  if (!waiting && !held) return 'No tasks waiting for someone';
+  if (!waiting) return wvCount(held, 'task', 'tasks') + ' on hold, none waiting for someone';
+  return wvCount(waiting, 'task', 'tasks') + ' waiting for someone' + (held ? ', and ' + held + ' on hold' : '');
+}
+function wvWorldHtml(w) {
+  const lines = [];
+  if (Array.isArray(w.providers)) {
+    if (!w.providers.length && !w.agentsWithoutProvider) lines.push('<p class="wv-line wv-muted">No agents running an AI provider</p>');
+    for (const r of w.providers) lines.push('<p class="wv-line">' + esc(wvProviderLine(r)) + '</p>');
+    if (w.agentsWithoutProvider > 0) lines.push('<p class="wv-line wv-muted">' + esc(wvCount(w.agentsWithoutProvider, 'agent', 'agents')
+      + ' with no AI provider shown here') + '</p>');
+  } else {
+    lines.push('<p class="wv-line wv-muted">AI providers: ' + esc(String(w.providersBecause || 'not known')) + '</p>');
+  }
+  lines.push('<p class="wv-line">' + esc(wvTasksLine(w)) + '</p>');
+  return '<div class="wv-world"><p class="wv-name">' + esc(String(w.name || 'Kosmos'))
+    + (w.running ? ' <span class="wv-here">(open now)</span>' : '') + '</p>' + lines.join('') + '</div>';
+}
+function wvListHtml(body) {
+  const worlds = body && Array.isArray(body.worlds) ? body.worlds : null;
+  if (!worlds) return '<p class="wv-line wv-muted">' + esc(String((body && body.because) || 'Kosmos could not read your Kosmoses just now.')) + '</p>';
+  if (!worlds.length) return '<p class="wv-line wv-muted">No Kosmoses found on this computer.</p>';
+  return worlds.map(wvWorldHtml).join('');
+}
+let wvGen = 0;
+async function wvLoad() {
+  const gen = ++wvGen;
+  const list = document.getElementById('wv-list');
+  list.setAttribute('aria-busy', 'true');
+  document.getElementById('wv-status').textContent = '';   // cleared, so the same outcome twice is still announced
+  list.innerHTML = '<p class="wv-line wv-muted">Reading your Kosmoses...</p>';
+  let html;
+  let said = 'Read just now.';
+  try {
+    const res = await fetch('/api/worlds/overview', { cache: 'no-store' });
+    let body = null;
+    try { body = await res.json(); } catch (_e) {}
+    // The route is token-gated: a board that is not signed in answers 401/403 with `error`, not `because`, and
+    // Refresh will not fix that, so it is said as what it is.
+    if (res.status === 401 || res.status === 403) said = 'Sign in to this Kosmos to see your Kosmoses at a glance.';
+    else if (!res.ok) said = asSentence(body && (body.because || body.error)) || 'Kosmos could not read your Kosmoses just now.';
+    else if (!body || !Array.isArray(body.worlds)) said = 'Kosmos could not read your Kosmoses just now.';
+    else if (!body.worlds.length) said = 'No Kosmoses found on this computer.';
+    html = res.ok && body && Array.isArray(body.worlds) ? wvListHtml(body) : wvListHtml({ because: said });
+  } catch (_e) {
+    said = 'Kosmos could not be reached just now.';
+    html = wvListHtml({ because: said });
+  }
+  if (gen !== wvGen) return;   // a newer Refresh or open owns the list
+  list.innerHTML = html;
+  list.setAttribute('aria-busy', 'false');
+  document.getElementById('wv-status').textContent = said;
+}
+function wvOpen() {
+  worldswClose();
+  document.getElementById('wv-modal').hidden = false;
+  document.getElementById('wv-close').focus();
+  wvLoad();
+}
+function wvClose() {
+  wvGen += 1;   // a read still out does not paint a closed sheet
+  document.getElementById('wv-modal').hidden = true;
+  document.getElementById('worldsw-btn').focus();
+}
 async function worldAddSubmit() {
   const input = document.getElementById('world-add-name');
   const go = document.getElementById('world-add-go');
@@ -29589,6 +29776,10 @@ async function worldHideSubmit() {
   if (!btn) return;
   btn.addEventListener('click', (e) => { e.stopPropagation(); worldswToggle(); });
   document.getElementById('worldsw-new').addEventListener('click', worldAddOpen);
+  document.getElementById('worldsw-glance').addEventListener('click', wvOpen);
+  document.getElementById('wv-close').addEventListener('click', wvClose);
+  document.getElementById('wv-refresh').addEventListener('click', wvLoad);
+  document.getElementById('wv-modal').addEventListener('click', (e) => { if (e.target.id === 'wv-modal') wvClose(); });
   document.getElementById('world-add-cancel').addEventListener('click', worldAddClose);
   document.getElementById('world-add-go').addEventListener('click', worldAddSubmit);
   const input = document.getElementById('world-add-name');
@@ -29640,6 +29831,7 @@ async function worldHideSubmit() {
     if (!document.getElementById('world-switch-modal').hidden) { worldswSwitchCancel(); return; }
     if (!document.getElementById('world-rename-modal').hidden) { worldRenameClose(); return; }
     if (!document.getElementById('world-add-modal').hidden) { worldAddClose(); return; }
+    if (!document.getElementById('wv-modal').hidden) { wvClose(); return; }
     const menu = document.getElementById('worldsw-menu');
     if (menu && !menu.hidden) { worldswClose(); btn.focus(); }
   });
@@ -52648,6 +52840,12 @@ document.getElementById('tc-tell').addEventListener('change', (e) => {
   const tellBox = document.getElementById('create-tell');
   if (tellBox) tellBox.checked = e.currentTarget.checked;   // one choice for the sheet, whichever step it was made on
 });
+/* #5590: the import's box, the same as #tc-tell's handler: #create-tell is the one choice the creates read. The box is
+   set from #create-tell each time a preview is painted (orgchartTell('open') in orgchartPaint). */
+document.getElementById('orgchart-tell').addEventListener('change', (e) => {
+  const tellBox = document.getElementById('create-tell');
+  if (tellBox) tellBox.checked = e.currentTarget.checked;
+});
 
 /* #4936 "Go to your team": the agents view with the members marked (tcGoToTeam), not one agent's page. */
 document.getElementById('tc-hello').addEventListener('click', () => {
@@ -53442,6 +53640,21 @@ let ORGCHART_RESULT_RESTORED = false;
 let ORGCHART_RESULT = null;
 // True while /api/team is answering: Preview waits, so a late create result is never thrown away.
 let ORGCHART_CREATING = false;
+/* #5590: the import's "Let Kosmos know" box is the choice for the create about to be made, so it is shown only then:
+   'open' with a preview (set from #create-tell, the one the creates read), 'locked' while that create runs (as #tc-tell
+   is fixed once a team run starts), 'gone' once a result is on screen, so it never shows a choice beside agents it
+   may not have been made with (a kept result reappears after the sheet's choice could have changed). */
+function orgchartTell(state) {
+  const b = document.getElementById('orgchart-tell');
+  const row = document.getElementById('orgchart-tell-row');
+  if (!b || !row) return;
+  if (state === 'open') {
+    const tellBox = document.getElementById('create-tell');
+    b.checked = tellBox ? tellBox.checked === true : true;
+  }
+  b.disabled = state !== 'open';
+  row.hidden = state === 'gone';
+}
 // #4559: true while Undo asks or removes (orgchartUndoAsking), so a file read waits.
 let ORGCHART_UNDO_BUSY = false;
 /* #4559: the file flow's state, declared here, above resetOrgchartPreview, which clears it (a let read before its
@@ -53474,6 +53687,7 @@ function orgchartEndFileFlow() {
   if (note && note.dataset.idle) note.textContent = note.dataset.idle;
 }
 function resetOrgchartPreview() {
+  orgchartTell('gone');
   ORGCHART_PARSED = null;
   ORGCHART_MANY_OK = false;
   const many = document.getElementById('orgchart-many');
@@ -53537,6 +53751,7 @@ function orgchartSayUndoExpired() {
    removed. Used when the panel is reopened (and by openCreate's reset, into the still-hidden panel), and when a create answered after the person had left lands while the
    panel is open again and idle. A no-op otherwise. */
 function orgchartRestoreCreated() {
+  orgchartTell('gone');   // #5590: a kept result is on screen (or nothing is kept and the preview box stays hidden)
   if (orgchartDropExpiredUndo()) ORGCHART_RESULT = null;
   if (!ORGCHART_CREATED.length || !ORGCHART_RESULT) return false;
   const box = document.getElementById('orgchart-preview-box');
@@ -53678,12 +53893,18 @@ function orgchartPaint() {
   document.getElementById('orgchart-many').hidden = true;
   const rows = ORGCHART_PARSED || [];
   if (rows.length > ORGCHART_TEAM_MAX) {
+    orgchartTell('gone');   // #5590: a list past the limit cannot be created, so there is no choice to make
     document.getElementById('orgchart-count').textContent = 'This list has ' + rows.length + ' people. Kosmos makes at most '
       + ORGCHART_TEAM_MAX + ' agents at a time, so remove some or split the file, then preview again.';
     document.getElementById('orgchart-list').replaceChildren();
     document.getElementById('orgchart-create').disabled = true;
     return;
   }
+  /* #5590: a new preview is the create about to be made, so its choice is shown and open; a repaint while a create
+     runs (a "reports to" change mid-flight) keeps it fixed, since that create's choice was already sent. */
+  orgchartTell(ORGCHART_CREATING ? 'locked' : 'open');
+  document.getElementById('orgchart-tell-say').textContent = rows.length === 1   // as #tc-tell-say reads
+    ? 'Let Kosmos know an agent was created' : 'Let Kosmos know these agents were created';
   const loops = orgchartLoops(rows);
   const open = rows.filter((r, i) => (r.why && !r.confirmed) || loops.has(i)).length;
   const count = document.getElementById('orgchart-count');
@@ -54003,20 +54224,25 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
   const previewBtn = document.getElementById('orgchart-preview');
   ORGCHART_CREATING = true;
   previewBtn.disabled = true;
+  orgchartTell('locked');
   try {
+    const tellBox = document.getElementById('create-tell');
     const res = await fetch('/api/team', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       /* cap only after the person's yes above: #2972's raise (the board token may, an agent never), to this chart's
          size. orgchartPaint already refused a chart past ORGCHART_TEAM_MAX. */
-      body: JSON.stringify(Object.assign({ creator: 'operator', purpose: 'Imported from an org chart', members },
+      /* #5590: the "Let Kosmos know an agent was created" box is the person's choice for this create too (the team
+         route now tells the agent count; without this an import ignored an unticked box). As the seeded team does. */
+      body: JSON.stringify(Object.assign({ creator: 'operator', purpose: 'Imported from an org chart', members,
+        notifyCreated: tellBox ? tellBox.checked === true : true },
         raise ? { cap: Math.min(members.length, ORGCHART_TEAM_MAX) } : {})),
     });
     result = await res.json().catch(() => null);
     /* Still CREATING: the reporting-line fix-ups below are part of this create, and a Preview or a file read
        during them would supersede the screen and lose this batch's Undo. Released after them. */
   } catch (err) {
-    ORGCHART_CREATING = false; previewBtn.disabled = false;
+    ORGCHART_CREATING = false; previewBtn.disabled = false; orgchartTell(gen === ORGCHART_GEN ? 'open' : 'gone');
     if (gen !== ORGCHART_GEN) { orgchartCreateWaitEnded('We could not reach Kosmos to create the team. Try again.'); return; }   // superseded during the fetch
     btn.disabled = false;
     msg.hidden = false;
@@ -54028,7 +54254,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
      the panel), but a team that WAS created still gets its reporting-line fix-ups, which correct data (create stores reportsTo as sent) rather than the screen. */
   const superseded = gen !== ORGCHART_GEN;
   if (!result) {
-    ORGCHART_CREATING = false; previewBtn.disabled = false;
+    ORGCHART_CREATING = false; previewBtn.disabled = false; orgchartTell(gen === ORGCHART_GEN ? 'open' : 'gone');
     if (superseded) { orgchartCreateWaitEnded('Kosmos did not answer in a way we could read. Try again.'); return; }
     btn.disabled = false;
     msg.hidden = false;
@@ -54043,7 +54269,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
      and read as a bare "No agents were created", hiding the real reason on a 15-20 person
      import. So: no `outcome` means it is not a team result -- surface its error plainly. */
   if (result.outcome === undefined) {
-    ORGCHART_CREATING = false; previewBtn.disabled = false;
+    ORGCHART_CREATING = false; previewBtn.disabled = false; orgchartTell(gen === ORGCHART_GEN ? 'open' : 'gone');
     if (superseded) { orgchartCreateWaitEnded(result.error ? String(result.error) : 'Kosmos refused the request.'); return; }
     btn.disabled = false;
     msg.hidden = false;
@@ -54091,6 +54317,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
     else if (!f.to) orphans.push(f.name);
   }
   ORGCHART_CREATING = false; previewBtn.disabled = false;
+  orgchartTell('gone');   // #5590: a result is on screen (made or refused); Back to the list and Preview offer the choice again
   /* #4688: the result is worked out as text first, whether or not the person is still here, so a create that
      answers after they left the panel still records its agents and its Undo (they come back with the panel). */
   let countText;
@@ -61448,6 +61675,8 @@ document.addEventListener('keydown', (e) => {
        while it is disabled on an empty name, so Tab cycles name<->Cancel until a
        name is typed, then includes Create. */
     ['world-add-modal', ['world-add-name', 'world-add-cancel', 'world-add-go'], 'world-add-name'],
+    /* kosmos#5393 slice 2: "At a glance" is aria-modal, so it gets the trap too. Home is Close. */
+    ['wv-modal', ['wv-list', 'wv-refresh', 'wv-close'], 'wv-close'],
     /* #6: the switch-confirm dialog declares aria-modal, so it gets a real trap, in DOM
        order. Home is Cancel -- the safe/back choice, matching doc-keep -- and
        worldswConfirmSwitch also opens initial focus on Cancel (a reflexive Enter cancels

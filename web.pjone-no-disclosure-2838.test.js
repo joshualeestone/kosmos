@@ -58,6 +58,8 @@ test('the header title still truncates to one line after the arrow removal', () 
   // The disclosure used to expand a title that was clamped in its closed state.
   // With the disclosure gone the clamp becomes unconditional, so a long project
   // name elides on one line rather than reflowing the compact header row.
+  // #5510: that is the desktop rule; on a phone the name gets two lines first (one held 14 characters at 360px),
+  // pinned by docs/browser-checks/render-phone-pass-5510.js. This pin is on the base rule, which still holds.
   // Open tail (no closing-brace anchor), per the #1430 convention: appending a
   // future declaration to this rule must not red this pin.
   assert.match(PAGE, /\.pjtitle #pj-one-name \{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis;/,
