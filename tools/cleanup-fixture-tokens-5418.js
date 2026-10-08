@@ -326,7 +326,8 @@ async function main(argv) {
       return 2;
     }
   }
-  for (const k of heartbeats) liveKeys.add(k);
+  // heartbeat files are keyed by session; a token file by token_roster_name: keep every spelling, as for the roster
+  for (const k of heartbeats) for (const n of spellingsOf({ sessionName: k })) { try { liveKeys.add(store.safeKey(n)); } catch { /* not a key */ } }
   const dir = sendertoken.DIR;
   const entries = listEntries(dir);
   const tokenKeys = entries.filter((e) => !e.isSymlink && !e.other && e.name.endsWith('.json')).map((e) => e.name.slice(0, -'.json'.length));
@@ -350,7 +351,9 @@ async function main(argv) {
       return m ? m[1].split('+')[0] : null;
     }).filter(Boolean) : [];
   } catch (e) { console.error('Stopped, nothing changed: ' + e.message + '.'); return 2; }
-  for (const n of workerNames.concat(jobNames)) { try { liveKeys.add(store.safeKey(n)); } catch { /* not a key */ } }
+  for (const raw of workerNames.concat(jobNames)) {
+    for (const n of spellingsOf({ sessionName: raw })) { try { liveKeys.add(store.safeKey(n)); } catch { /* not a key */ } }
+  }
   /* The board's offline rows come from these same profile files (register.known); one it cannot list silently
      empties that part of its roster, so a profiles folder that is there but cannot be read stops the tool. */
   if (!require('../engine/register').known().ok) {

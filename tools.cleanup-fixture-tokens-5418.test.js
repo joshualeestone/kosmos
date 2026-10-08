@@ -194,10 +194,13 @@ test('#5418 end to end: a dry run changes nothing; --apply backs up, then remove
   assert.ok(cards.some((c) => c.name === 'Splinter'), 'the fixture did not give claudebot its display name');
   const port = await stubBoard(t, 200, { agents: cards });
   const before = fs.readdirSync(dir).sort();
+  const times = () => fs.readdirSync(dir).sort().map((n) => n + '@' + fs.lstatSync(path.join(dir, n)).mtimeMs);
+  const timesBefore = times();
   quiet(t);
   const argv = ['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString()];
   assert.equal(await tool.main(argv), 0);
   assert.deepEqual(fs.readdirSync(dir).sort(), before, 'a dry run changed the store');
+  assert.deepEqual(times(), timesBefore, 'a dry run touched a token file (its digest would no longer match)');
   assert.equal(await tool.main(argv.concat('--apply', '--confirm', await digestOf(argv))), 0);
   assert.deepEqual(fs.readdirSync(dir).sort(), ['My.Agent.json', 'claudebot.json', 'sam.json'], 'a live agent was removed, or the orphan was kept');
   const backups = fs.readdirSync(path.dirname(dir)).filter((n) => n.startsWith(tool.BACKUP_PREFIX));
@@ -654,4 +657,23 @@ test('#5418: an offline remote agent\'s token is kept end to end', async (t) => 
   quiet(t);
   assert.equal(await applyConfirmed(port), 0);
   assert.deepEqual(fs.readdirSync(dir).filter((n) => n.endsWith('.json')).sort(), ['anchor.json', 'remote-off.json']);
+});
+
+test('#5418: a -discord job, worker folder or heartbeat keeps the token keyed without the suffix', async (t) => {
+  const { dir, write } = e2eStore(t);
+  const liveness = require('./engine/liveness');
+  write('anchor.json', OLD);
+  write('sam.json', OLD);      // token key for session sam-discord
+  write('pat.json', OLD);      // token key for heartbeat session pat-discord
+  write('fixture-d.json', OLD);
+  const workers = process.env.AGENT_WORKFORCE_WORKERS;
+  fs.mkdirSync(path.join(workers, 'sam-discord'), { recursive: true });
+  liveness.seen('pat-discord', new Date(OLD).toISOString());
+  t.after(() => { fs.rmSync(path.join(workers, 'sam-discord'), { recursive: true, force: true }); fs.rmSync(liveness.fileFor('pat-discord'), { force: true }); });
+  const f = fleet.install([fleet.agent('anchor')]);
+  t.after(() => f.restore());
+  const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
+  quiet(t);
+  assert.equal(await applyConfirmed(port), 0);
+  assert.deepEqual(fs.readdirSync(dir).filter((n) => n.endsWith('.json')).sort(), ['anchor.json', 'pat.json', 'sam.json']);
 });
