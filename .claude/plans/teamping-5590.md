@@ -26,7 +26,8 @@ Neighbours green: createdbeacon-3038 (unit and route), no-phone-home-4253, brows
 
 ## Decided
 - One ping per team, not per member (the card; the total is what the site records).
-- The org-chart import sends no notifyCreated, so it pings (#3038's default ON); its sheet has no box today.
+- The org-chart import shows its own "Let Kosmos know" box (#orgchart-tell), kept equal to the sheet's #create-tell,
+  and sends notifyCreated from it (final design: reviews 1, 3, 5, 6, 7; orgchartTell open / locked / gone).
 
 ## Review 1 (opus)
 - Fixed (WARNING): the org-chart import ignored the create-agent box, which the create sheet shares across every
@@ -96,3 +97,11 @@ Neighbours green: createdbeacon-3038 (unit and route), no-phone-home-4253, brows
   waits for the created count rather than a fixed sleep.
 - Left (NIT): the restored-result assertion cannot single out orgchartRestoreCreated's own 'gone' (the reset hides it
   first); kept as a guard on the outcome, not the line.
+
+## Review 8 (sonnet): no blockers
+- Fixed (WARNING): the Decided section now states the final design (it still said the import had no box).
+- DECIDED (WARNING): the two error exits that may follow a create the server did make (an unreadable answer, a lost
+  response) reopen the box beside "Try again". Kept: Try again IS a create about to be made, and the box's choice is
+  for that retry, which sends its own count. Weakest premise: that the first attempt's agents and ping are a separate,
+  older matter (a retry after a lost answer may duplicate agents today, with or without this change). Would change my
+  mind: a design where the page re-reads what was made before offering Try again.
