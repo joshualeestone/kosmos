@@ -627,6 +627,28 @@ test('a lock date given as a number (not an ISO string) is refused', () => {
   assert.strictEqual(up.parseGrant(data, [c]).ok, true, 'control');
 });
 
+test('a 412 after only pre-connect failures, or after S3 said it committed nothing, is refused (none of ours could be there)', async () => {
+  for (const [what, first] of [
+    ['ECONNREFUSED', 'refused'],
+    ['400 IncompleteBody', 'incomplete'],
+  ]) {
+    const b = await bucket();
+    try {
+      let n = 0;
+      const f = async (url, init) => {
+        if (n++ === 0) {
+          if (first === 'refused') { const e = new TypeError('fetch failed'); e.cause = { code: 'ECONNREFUSED' }; throw e; }
+          return new Response('<Error><Code>IncompleteBody</Code></Error>', { status: 400 });
+        }
+        return new Response('<Error><Code>PreconditionFailed</Code></Error>', { status: 412 });
+      };
+      const r = await up.uploadChunks(deps(coordinator(b), { fetch: f }), [chunk(1)]);
+      assert.strictEqual(r.ok, false, `${what}: a 412 was recorded as ours`);
+      assert.strictEqual(r.keys.size, 0, what);
+    } finally { await b.close(); }
+  }
+});
+
 test('never throws: a throwing injected clock still resolves to ok: false', async () => {
   const b = await bucket();
   try {
