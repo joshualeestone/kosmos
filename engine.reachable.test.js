@@ -241,7 +241,7 @@ const TRIAGED_5548 = {
   codexLastCompletionAt: ['engine/status.js', TEST_SEAM + ' (its comment: snapshot() does not use it; production uses codexCompletionAt)'],
   geminiLastCompletionAt: ['engine/status.js', TEST_SEAM + ' (same as codexLastCompletionAt, #3296)'],
   grokLastCompletionAt: ['engine/status.js', TEST_SEAM + ' (same as codexLastCompletionAt, #3391)'],
-  IMPORT_CONTRACT: ['engine/agentfile.js', INTERNAL + ' (the frozen contract the wired importAgent reads)'],
+  IMPORT_CONTRACT: ['engine/agentfile.js', INTERNAL + ' (a declarative contract: its tests assert the wired importAgent enforces what it says)'],
   // Review 1: these three are NOT used in their module either: test helpers of #5346's capture hardening.
   ALLOWED_TOOLS: ['engine/orgchartcodex.js', TEST_SEAM + ' (the hardening policy list the capture test asserts; nothing in the module reads it)'],
   deriveCatalog: ['engine/orgchartcodex.js', TEST_SEAM + ' (a wrapper over catalogFor for the capture test; production calls catalogFor)'],
