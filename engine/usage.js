@@ -351,10 +351,11 @@ function worldAgentDirs() {
  * every Claude config folder on the computer, so its totals include the person's other Kosmoses and their sessions
  * outside Kosmos; the company rollup must never send those.
  *
- * A row counts only when its transcript's launch folder IS one of `agentDirs` (compared after realpath, as byAgent
- * compares; but unlike byAgent, a home folder, a root, a shared parent and an orphaned subagent claim nothing here, so the
- * usage screen's per-agent totals can be larger than this for the same agents; a subfolder is not claimed, so an agent on a broad folder cannot absorb the person's own sessions
- * beneath it). Read fresh each time, frozen nowhere: the per-day files the usage screen keeps are untouched.
+ * MATCHING. A row counts only when its transcript's launch folder IS one of `agentDirs`, compared after realpath as
+ * byAgent compares. A subfolder is not claimed, so an agent on a broad folder cannot absorb the person's own sessions
+ * beneath it. Unlike byAgent, a home folder, a root, a shared parent and an orphaned subagent claim nothing here, so the
+ * usage screen's per-agent totals can be larger than this for the same agents.
+ * Read fresh each time, frozen nowhere: the per-day files the usage screen keeps are untouched.
  *
  * Returns { byDay: { day: { model: bucket } }, complete } where complete is false when any provider was only partly
  * read, a Claude transcript could not be read, or a scan failed outright (never thrown): the caller then says so rather
@@ -362,8 +363,9 @@ function worldAgentDirs() {
  * this server's own folder). A message found in two transcripts counts once, for the copy whose path sorts first, so an
  * agent can be UNDER-counted when a person's own transcript holds the same message: the safe direction.
  * An agent folder that is the home folder, a filesystem root, not absolute or unresolvable claims nothing AND makes the
- * result incomplete (that agent's own sessions are left out); so does one that no longer exists (its past sessions
- * cannot be matched by real path).
+ * result incomplete (that agent's own sessions are left out). One that no longer exists also makes it incomplete: its
+ * sessions recorded under the same spelling still match, but any reached through a link cannot be resolved (review 11).
+ * The rollup decides what an incomplete count means; a roster profile that outlives its folder keeps it incomplete.
  * 🛑 The folders are this Kosmos's own roster (worldAgentDirs: register.known() through create.workerDir, as the usage
  * screen builds it), NEVER a listing of the workers folder: in the default world several Kosmoses on one computer share that folder,
  * and a listing would sweep in another Kosmos's agents (review 3).
@@ -395,7 +397,9 @@ async function worldUsageByModel(days, deps) {
   /* Never a folder that holds the person's own work too (review 2): the home folder or a filesystem root as an
      agent's folder would claim every session started there. */
   // The home Kosmos uses (AGENT_WORKFORCE_HOME, as store.js reads it) AND the account's own: either claims nothing (review 8).
-  const broad = new Set(await Promise.all([d.home || process.env.AGENT_WORKFORCE_HOME || os.homedir(), os.homedir()].map((h) => realpath(h))));   // a filesystem root is caught per folder below
+  // A filesystem root is caught per folder below.
+  const homes = [d.home || process.env.AGENT_WORKFORCE_HOME || os.homedir(), os.homedir()];
+  const broad = new Set(await Promise.all(homes.map((h) => realpath(h))));
   const reals = [];
   for (const dir of agentDirs) {
     if (typeof dir !== 'string' || !path.isAbsolute(dir)) { droppedAgent = true; continue; }

@@ -108,3 +108,15 @@ sessions outside Kosmos. This branch adds the reader the rollup needs to send us
   parent and orphan subagent claim nothing here, so the usage screen's per-agent totals can be larger.
 - Kept: "(review N)" labels in comments (the codebase's convention, declined before). Minor: NOPROV moved up; the
   Antigravity home scrubbed in the test; the guard regex says it is an accident net.
+
+## Review 11 (on the post-convergence guard registrations)
+- The real provider reader's folderModels split had no test (every provider test stubbed scanProviders). A test now
+  writes two real Codex rollouts (one launched in the agent folder, one in a personal folder), runs the REAL
+  scanProviders (homes pointed at the sandbox), and asserts only the agent's model counts, with a control that both
+  were read. Mutation: dropping folderModels from Acc's `into` list reddens it.
+- Docblock: a gone agent folder still matches sessions recorded under the same spelling; only link-reached ones are
+  lost. The flag stays (safe direction); the rollup decides what an incomplete count means. MATCHING rules split into
+  short sentences; the long `broad` line wrapped.
+- The review 8 env-home test also asserts complete is false.
+- Kept (nits): unreadable files in other roots make this world incomplete (review 7 decision); cwd as the relative
+  control; the git ls-files guard needs a git tree; Windows path arms untested, as byAgent's.

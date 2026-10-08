@@ -246,10 +246,33 @@ test('#5532 review 8: the home Kosmos uses (AGENT_WORKFORCE_HOME) claims nothing
   assert.ok((asOther.byDay[TODAY] || {})['claude-env-home-session'], 'CONTROL: the session in that folder was not read at all');
   const w = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [home] }, NOPROV));
   assert.equal((w.byDay[TODAY] || {})['claude-env-home-session'], undefined, 'the home Kosmos uses, as an agent folder, claimed the person\'s own session');
+  assert.equal(w.complete, false, 'the dropped env home left the count looking whole');
 });
 
 test('#5532 review 8: a provider result that does not say complete is not complete', async () => {
   await wholeBefore('the provider answer lost its complete field');
   const w = await usage.worldUsageByModel(1, { agentDirs: [AGENT], scanProviders: async () => ({ folderModels: {} }) });
   assert.equal(w.complete, false, 'a provider result with no complete field was read as the whole count');
+});
+
+test('#5532 review 11: the REAL provider reader scopes by launch folder (a Codex rollout from an agent folder and one from elsewhere)', async () => {
+  const { scanProviders } = require('./usageproviders');
+  const home = path.join(SANDBOX, 'codex-home');
+  const [y, m, d] = TODAY.split('-');
+  const dir = path.join(home, 'sessions', y, m, d);
+  fs.mkdirSync(dir, { recursive: true });
+  const rollout = (name, cwd, model, output) => fs.writeFileSync(path.join(dir, name), [
+    { timestamp: TODAY + 'T01:00:00Z', type: 'session_meta', payload: { cwd } },
+    { timestamp: TODAY + 'T01:00:00Z', type: 'turn_context', payload: { model } },
+    { timestamp: TODAY + 'T01:00:05Z', type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: { input_tokens: 100, cached_input_tokens: 0, output_tokens: output } } } },
+  ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+  rollout('rollout-' + TODAY + 'T01-00-00-agent.jsonl', AGENT, 'gpt-agent-model', 7);
+  rollout('rollout-' + TODAY + 'T01-00-00-mine.jsonl', PERSONAL, 'gpt-personal-model', 9);
+  const real = (o) => scanProviders(Object.assign({}, o, { homes: { codex: [home], gemini: [], grok: [] } }));
+  // CONTROL: the real reader read both rollouts, so a missing personal model below is the scoping, not an empty read.
+  const all = await real({ sinceDay: TODAY, untilDay: TODAY });
+  assert.ok(all.days[TODAY] && all.days[TODAY]['gpt-agent-model'] && all.days[TODAY]['gpt-personal-model'], 'CONTROL: the rollouts were not read: ' + JSON.stringify(all.days));
+  const w = await usage.worldUsageByModel(1, { agentDirs: [AGENT], scanProviders: real });
+  assert.equal(((w.byDay[TODAY] || {})['gpt-agent-model'] || {}).output_tokens, 7, 'the agent\'s own Codex session was not counted: ' + JSON.stringify(w.byDay));
+  assert.equal((w.byDay[TODAY] || {})['gpt-personal-model'], undefined, 'a Codex session launched outside the agent\'s folder was counted for it');
 });
