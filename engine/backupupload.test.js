@@ -1181,8 +1181,15 @@ test('a bucket that is not host/ or host/bucket/ is refused before any grant; ev
     const skew = await up.uploadManifest(deps(manifestCoordinator(b, { expiresAt: Date.now() + 3 * 60 * 60 * 1000 })), manifestBytes(), mOpts(b));
     assert.strictEqual(skew.grantSpent, true);
     // CONTROL: a refusal before any grant does not.
-    const none = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunks: [] }));
-    assert.strictEqual(none.grantSpent, undefined);
+    for (const opts of [mOpts(b, { chunks: [] }), mOpts(b, { bucket: 'x' }), mOpts(b, { chunks: oneChunk(Date.now() + 29 * DAY) })]) {
+      const none = await up.uploadManifest(deps(mc), manifestBytes(), opts);
+      assert.strictEqual(none.ok, false); assert.strictEqual(none.grantSpent, false, none.because);
+    }
+    const notBytes = await up.uploadManifest(deps(mc), 'x', mOpts(b));
+    assert.strictEqual(notBytes.grantSpent, false);
+    // A grant request refused outright (no answer we accepted): absent, since it may still have been spent.
+    const q = await up.uploadManifest(deps(manifestCoordinator(b, { refuse: ['refused (HTTP 429 on /v1/org/backup/manifest, code backup_quota)'] })), manifestBytes(), mOpts(b));
+    assert.strictEqual(q.ok, false); assert.strictEqual(q.grantSpent, undefined);
   } finally { await b.close(); }
 });
 
@@ -1194,7 +1201,7 @@ test('every manifest exit after a grant answered says grantSpent: a refused PUT,
     const refused = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b));
     assert.match(refused.because, /refused the manifest/); assert.strictEqual(refused.grantSpent, true);
     b.script.get = () => [[503]];
-    const trouble = await up.uploadManifest(deps(manifestCoordinator(b, { tag: 't' }), clock()), manifestBytes(), mOpts(b));
+    const trouble = await up.uploadManifest(deps(manifestCoordinator(b), clock()), manifestBytes(), mOpts(b));
     assert.strictEqual(trouble.retryLater, true); assert.ok(trouble.unsure); assert.strictEqual(trouble.grantSpent, true);
     b.script.get = () => [expired];
     const cap = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b));
@@ -1235,4 +1242,29 @@ test('a chunk lock end in seconds (before 2020 as milliseconds) is refused as th
     assert.strictEqual(r.outlastsChunks, undefined);
     assert.strictEqual(mc.bodies.length, 0);
   } finally { await b.close(); }
+});
+
+test('a chunk grant refused for its clock says grantSpent, like a chunk grant that fails its checks', async () => {
+  const b = await bucket();
+  try {
+    const r = await up.uploadChunks(deps(coordinator(b, { expiresAt: Date.now() + 3 * 60 * 60 * 1000 })), [chunk(1)]);
+    assert.strictEqual(r.ok, false); assert.match(r.because, /clocks is wrong/); assert.strictEqual(r.grantSpent, true);
+    const bad = await up.uploadChunks(deps(coordinator(b, { tamper: (d) => { d.uploads[0].headers['if-none-match'] = 'x'; } })), [chunk(2)]);
+    assert.strictEqual(bad.ok, false); assert.strictEqual(bad.grantSpent, true);
+    assert.strictEqual(b.puts, 0);
+  } finally { await b.close(); }
+});
+
+test('a bucket path with a port is refused before any grant outside the test seam (checkOne would refuse it after)', async () => {
+  up.allowHttpForTests(false);
+  try {
+    let asked = 0;
+    const r = await up.uploadManifest({ macRequest: async () => { asked++; return { ok: false, because: 'x' }; }, fetch, sleep: async () => {} },
+      crypto.randomBytes(up.MIN_OBJECT), { bucket: 's3.us-east-1.amazonaws.com:443/b1/', chunks: oneChunk() });
+    assert.strictEqual(r.ok, false); assert.match(r.because, /not a bucket path/); assert.strictEqual(asked, 0);
+    // CONTROL: without the port it asks.
+    await up.uploadManifest({ macRequest: async () => { asked++; return { ok: false, because: 'x' }; }, fetch, sleep: async () => {} },
+      crypto.randomBytes(up.MIN_OBJECT), { bucket: 's3.us-east-1.amazonaws.com/b1/', chunks: oneChunk() });
+    assert.strictEqual(asked, 1);
+  } finally { up.allowHttpForTests(true); }
 });
