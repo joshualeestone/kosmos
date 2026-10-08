@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: consenthash-5531
-diff_hash: c05849de3f86bac06239ecd0c9bbf713d7419cd403077dae0a547514a52da35d
-validation: passed (Mortals full suite at 0ec7df4d9, hash c05849de3f86)
+diff_hash: a7b93e5e20802b2d563c88c4fd64b637297ee9fa76f766a7280c49f774f7e168
+validation: passed (Mortals full suite at 0ec7df4d9, hash c05849de3f86) (main merged at fc8df2192 after #5600 turned main green; changed lines identical, measured)
 subdir_audit: passed
 timestamp: 2026-10-08T17:12:35Z
 iterations: 6
