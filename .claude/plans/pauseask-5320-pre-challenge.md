@@ -3,9 +3,9 @@ pre_challenge: true
 method: challenge-loop
 branch: pauseask-5320
 diff_hash: 765befc15e5ef9d2b3224bceb7001409280ba569f58808688b114b2ea956fdea
-validation: pending (the Mortals full suite gave up in its queue twice, at 01:05 and 09:16, without running; this PR's GitHub CI, which runs the full node and shell suites, is the validation, and this line is updated when it reports. By hand, rebased onto main after #5395 merged: engine/projects.test.js + engine/agentnudge.test.js 191/191, including the merge-order test that was red on main by design until #5395's Pause button existed)
+validation: passed (FULL LOCAL SUITE on Agent1s at 6413e3280, this head rebased onto main: tools/run-tests.sh rc=0, node 16505 tests 0 fail 0 cancelled, then the whole shell part ran to its end, 17:27-17:56 CDT 10-07, a queued-heavy turn. The PR head since then adds only empty commits used to route fresh CI to the self-hosted Mac for #5488 (tree identical, checked). GitHub's hosted macOS jobs sat queued for hours; ubuntu and windows checks green)
 subdir_audit: passed
-timestamp: 2026-10-07T15:55:00Z
+timestamp: 2026-10-08T01:33:00Z
 iterations: 7
 converged: true
 ---
