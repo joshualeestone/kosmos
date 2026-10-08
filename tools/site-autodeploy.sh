@@ -52,7 +52,7 @@
 #   parked         the sha not retried until main moves (red once, then reported; see red_once)
 #   paused         made by a PERSON to stop the job (e.g. while a deliberate site rollback is live,
 #                  which the job would otherwise undo by redeploying main); remove it to resume
-#   retries        "<sha> <n>" consecutive retried ticks for that sha, whatever the cause (exit 75, a
+#   retries        "<sha> <n>" retried ticks for that sha since its last success (a failure between them does not reset it), whatever the cause (exit 75, a
 #                  checksum mismatch, an unreadable live pointer, a pointer move not yet live, a failed
 #                  mirror copy): one count, one alarm, because each
 #                  means the same thing to the person reading the run, the site is not settling
@@ -70,7 +70,7 @@
 # Env: KOSMOS_AUTODEPLOY_SITE (the job's own site checkout, required), KOSMOS_AUTODEPLOY_STATE,
 # KOSMOS_AUTODEPLOY_DIST_FROM (default ~/work/chaoskosmos-site/dist), KOSMOS_AUTODEPLOY_DEPLOY_MAX_S (the
 # deploy's wall-clock limit in seconds: default 900, at most 1200; empty, non-numeric, 0 or a leading 0
-# means 900), KOSMOS_AUTODEPLOY_FETCH_MAX_S (the fetch's limit: default 120, at most 600, same fallbacks),
+# means 900), KOSMOS_AUTODEPLOY_FETCH_MAX_S (the fetch's limit: default 120, at most 300, same fallbacks),
 # KOSMOS_SITE_URL (default
 # https://installkosmos.com, the same variable deploy-site.sh reads).
 # Test seams, TEST ONLY (each is run with sh -c, so never set them in the job's environment):
@@ -231,6 +231,8 @@ LAST=$(cat "$STATE/last-deployed" 2>/dev/null || true)
 [ -e "$STATE/paused" ] && { say "paused: $STATE/paused exists; nothing is deployed until it is removed"; exit 0; }
 # Parked: not deployed again; reported red once (red_once), then each tick says so, until main moves
 # or someone removes the file.
+# (Checked before the "already live" shortcut below, so a parked sha deployed by hand stays parked, and is
+# never recorded as deployed, until main moves or the file is removed.)
 [ "$(cat "$STATE/parked" 2>/dev/null || true)" = "$TARGET" ] && red_once parked "FAIL (parked): site main ${TARGET:0:9} ($(cut -d' ' -f2 "$STATE/last-failure" 2>/dev/null | sed 's/^rc=//')); waiting for the next merge (or remove $STATE/parked)"
 
 # What the live site serves: the export marker deploy-site.sh and release.sh ship names the site commit
