@@ -634,7 +634,9 @@ function tokenOnlyTokenRoots(dataRoot, home, deps = {}, missed = null) {
   try {
     if (base) {
       const worlds = deps.worlds || require('./worlds');
-      for (const w of worlds.listWorlds(base)) { try { add(worlds.worldStoreRoot(base, w)); } catch { miss('world ' + w); } }
+      // Review 24: hidden worlds too (hiding is not revoking: the board keeps their tokens valid), and a miss names the id.
+      const all = typeof worlds.readRegistry === 'function' ? worlds.readRegistry(base).worlds : worlds.listWorlds(base);
+      for (const w of all) { try { add(worlds.worldStoreRoot(base, w)); } catch { miss('world ' + ((w && w.id) || '?')); } }
     }
   } catch { miss('the list of worlds'); }
   return roots;
@@ -839,6 +841,10 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     // unknown one is not assumed to be Claude.
     const runner = deps.runner;
     if (runner !== 'claude') return { ok: false, unsupported: true, because: 'only Claude agents can be kept from reading the board token so far; this agent runs on ' + (runner || 'an unknown runner') };
+    /* Review 24: on Windows Claude Code matches rules against a POSIX form of the path (//c/...), and the rules here
+       are written with the native spelling, so a deny may never match. Not measured on Windows, so the guard says it
+       cannot keep the token out there yet rather than reporting a guard that may hold nothing. */
+    if ((deps.platform || process.platform) === 'win32') return { ok: false, unsupported: true, because: 'on Windows this guard has not been shown to hold yet, so Kosmos does not claim it' };
     const settingsDir = path.join(dir, '.claude');
     fs.mkdirSync(settingsDir, { recursive: true });
     const file = path.join(settingsDir, 'settings.json');
@@ -869,7 +875,11 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     const perms = cur.permissions && typeof cur.permissions === 'object' && !Array.isArray(cur.permissions) ? cur.permissions : {};
     const had = Array.isArray(perms.deny) ? perms.deny.filter((r) => typeof r === 'string') : [];
     const deny = [...new Set([...had, ...rules.deny])];
-    const next = { ...cur, permissions: { ...perms, deny } };
+    /* Review 24: permissions.additionalDirectories widens where the sandboxed shell may write, as allowWrite does, so
+       it goes too (Kosmos never writes it for an agent) and the board log says so. */
+    const { additionalDirectories: _dropDirs, ...permsKept } = perms;
+    if (_dropDirs !== undefined) console.error(`token-only guard: removed permissions.additionalDirectories from ${file}; a token-only agent's shell may not write outside its folder`);
+    const next = { ...cur, permissions: { ...permsKept, deny } };
     if ((deps.platform || process.platform) === 'darwin') {
       const sb = cur.sandbox && typeof cur.sandbox === 'object' && !Array.isArray(cur.sandbox) ? cur.sandbox : {};
       const net = sb.network && typeof sb.network === 'object' && !Array.isArray(sb.network) ? sb.network : {};
@@ -914,7 +924,7 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     if (text !== raw) {   // review 20: an unchanged guard is not rewritten at every board start
       const tmp = `${file}.${process.pid}.new`;
       fs.writeFileSync(tmp, text, 'utf8');
-      fs.renameSync(tmp, file);
+      try { fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* gone */ } throw e; }   // review 24
     }
     cleanLocalSettings(path.join(settingsDir, 'settings.local.json'));
     return { ok: true };
@@ -948,13 +958,15 @@ function cleanLocalSettings(file) {
      #5516's scope; Kosmos never writes this file, so any here was put there by someone. Said, not removed. */
   const starts = STARTS_A_PROCESS.filter((k) => cur[k] !== undefined);
   if (starts.length) process.stderr.write(`#4491: ${file} has ${starts.join(', ')}, which start a process outside the sandbox when the agent starts; Kosmos left them\n`);
-  if (cur.sandbox === undefined) return;
+  const dropped = [];
+  if (cur.permissions && typeof cur.permissions === 'object' && cur.permissions.additionalDirectories !== undefined) {
+    delete cur.permissions.additionalDirectories; dropped.push('permissions.additionalDirectories');   // review 24
+  }
   /* Review 23: an ALLOWLIST, not a list of known-bad keys and values: this file outranks the guard's settings.json,
      so a value of another type ("false", 0) or a sandbox key Claude Code adds later could still undo it. The guard
      writes the whole sandbox block in settings.json; all this file may add is more denies. */
-  const dropped = [];
-  const sb = cur.sandbox && typeof cur.sandbox === 'object' && !Array.isArray(cur.sandbox) ? cur.sandbox : null;
-  if (!sb) { delete cur.sandbox; dropped.push('sandbox'); } else {
+  const sb = cur.sandbox === undefined ? undefined : cur.sandbox && typeof cur.sandbox === 'object' && !Array.isArray(cur.sandbox) ? cur.sandbox : null;
+  if (sb === undefined) { /* no sandbox block */ } else if (!sb) { delete cur.sandbox; dropped.push('sandbox'); } else {
     for (const k of Object.keys(sb)) {
       if (k !== 'filesystem') { delete sb[k]; dropped.push('sandbox.' + k); continue; }
       const f = sb.filesystem;
@@ -968,7 +980,7 @@ function cleanLocalSettings(file) {
   if (!dropped.length) return;
   const tmp = `${file}.${process.pid}.new`;
   fs.writeFileSync(tmp, JSON.stringify(cur, null, 2) + '\n', 'utf8');
-  fs.renameSync(tmp, file);
+  try { fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* gone */ } throw e; }   // review 24
   console.error(`token-only guard: removed ${dropped.join(', ')} from ${file}; they would undo the guard`);
 }
 
@@ -1003,9 +1015,9 @@ function refreshTokenOnlyGuards(deps = {}) {
       for (const f of ['settings.json', 'settings.local.json']) {
         let j = null;
         try { j = JSON.parse(fs.readFileSync(path.join(h, f), 'utf8')); } catch { continue; }
-        const sb = j && j.sandbox && typeof j.sandbox === 'object' ? j.sandbox : null;
-        if (!sb) continue;
+        const sb = j && j.sandbox && typeof j.sandbox === 'object' ? j.sandbox : {};
         const weak = [];
+        if (j && j.permissions && j.permissions.additionalDirectories !== undefined) weak.push('permissions.additionalDirectories');   // review 24
         // Review 22: only the list keys, which merge across files; enabled and allowUnsandboxedCommands are single values
         // the agent's own guard sets, and it outranks these files.
         if (sb.excludedCommands !== undefined) weak.push('excludedCommands');

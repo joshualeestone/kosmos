@@ -590,3 +590,49 @@ test('#4491 review 23: the supervisor says so when the guard code is missing at 
   const block = sup.slice(at, sup.indexOf('\n      fi', at));
   assert.ok(/else\n\s+echo "#4491: \$_roster is listed token-only but its guard could not be checked at launch/.test(block), block.slice(-400));
 });
+
+test('#4491 review 24: on Windows the guard says it cannot hold yet, and writes nothing', () => {
+  const dir = agentDir('r24win');
+  fs.mkdirSync(dir, { recursive: true });
+  const g = setup.guardTokenOnlyFolder(dir, 'r24win', { ...DEPS, platform: 'win32' });
+  assert.equal(g.ok, false, 'a Windows guard was reported in place');
+  assert.equal(g.unsupported, true);
+  assert.equal(fs.existsSync(path.join(dir, '.claude', 'settings.json')), false, 'a Windows guard wrote a settings file');
+  assert.equal(setup.guardTokenOnlyFolder(dir, 'r24win', { ...DEPS, platform: 'darwin' }).ok, true, 'CONTROL: the same folder guards on macOS');
+});
+
+test('#4491 review 24: permissions.additionalDirectories is removed from both agent files and said in the person\'s', () => {
+  const dir = agentDir('r24dirs');
+  fs.mkdirSync(path.join(dir, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.claude', 'settings.json'), JSON.stringify({ permissions: { additionalDirectories: [store.ROOT], allow: ['Read'] } }));
+  fs.writeFileSync(path.join(dir, '.claude', 'settings.local.json'), JSON.stringify({ permissions: { additionalDirectories: ['/x'], allow: ['Bash'] } }));
+  assert.equal(setup.guardTokenOnlyFolder(dir, 'r24dirs', DEPS).ok, true);
+  const main = readSettings(dir).permissions;
+  const local = JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.local.json'), 'utf8')).permissions;
+  assert.equal(main.additionalDirectories, undefined, 'additionalDirectories survived in settings.json');
+  assert.equal(local.additionalDirectories, undefined, 'additionalDirectories survived in settings.local.json');
+  assert.deepEqual([main.allow, local.allow], [['Read'], ['Bash']], 'CONTROL: other permission keys were touched');
+  const home = fs.mkdtempSync(path.join(SANDBOX, 'home24-'));
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'settings.json'), JSON.stringify({ permissions: { additionalDirectories: ['/y'] } }));
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['r24dirs'] }) + '\n');
+  const errs = []; const real = process.stderr.write;
+  process.stderr.write = (t) => { errs.push(String(t)); return true; };
+  try { setup.refreshTokenOnlyGuards({ ...DEPS, home, workerDir: () => dir }); } finally { process.stderr.write = real; }
+  assert.ok(errs.join('').includes('permissions.additionalDirectories'), 'not said for the person\'s own settings: ' + errs.join(''));
+});
+
+test('#4491 review 24: a hidden world\'s token is denied too (hiding does not revoke it)', () => {
+  const base = path.join(SANDBOX, 'worldsbase24');
+  const shown = path.join(SANDBOX, 'w24', 'shown', 'Kosmos'); const hidden = path.join(SANDBOX, 'w24', 'hidden', 'Kosmos');
+  for (const d of [base, shown, hidden]) fs.mkdirSync(d, { recursive: true });
+  const real = require('./worlds');
+  const all = [{ id: 'shown' }, { id: 'hidden', hiddenAt: 1 }];
+  const worlds = { readRegistry: () => ({ worlds: all }), listWorlds: () => all.filter((w) => !w.hiddenAt),
+    worldStoreRoot: (b, w) => (w.id === 'shown' ? shown : hidden), registryPath: real.registryPath, WORLDS_SUBDIR: real.WORLDS_SUBDIR };
+  const dir = agentDir('r24hidden');
+  assert.equal(setup.guardTokenOnlyFolder(dir, 'r24hidden', { ...DEPS, legacyRoots: [], worldsBase: base, worlds }).ok, true);
+  const deny = readSettings(dir).permissions.deny;
+  assert.ok(deny.includes(`Read(${ruleAbs(path.join(hidden, TOKEN_FILE))})`), 'a hidden world\'s token is readable');
+  assert.ok(deny.includes(`Read(${ruleAbs(path.join(shown, TOKEN_FILE))})`), 'CONTROL: the shown world\'s token is readable');
+});
