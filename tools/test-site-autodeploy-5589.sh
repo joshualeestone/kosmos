@@ -73,7 +73,7 @@ tick
 H2c=$(advance two-c)
 printf 'stuck\n' > "$CUTDIST/kosmos-0.7.21-arm64.tar.gz"
 rcs=""; for i in 1 2 3 4 5; do tick; rcs="$rcs$RC"; done
-{ [ "$rcs" = 00011 ] && [ ! -e "$ST/parked" ]; } && pass "a mirrored tarball that never matches goes red from the 4th tick on, unparked" || bad "checksum alarm sequence '$rcs' (want 00011)"
+{ [ "$rcs" = 00010 ] && [ ! -e "$ST/parked" ] && printf '%s' "$OUT" | grep -q "red already reported"; } && pass "a mirrored tarball that never matches goes red on the 4th tick, then says so green (no email storm), unparked" || bad "checksum alarm sequence '$rcs' (want 00010)"
 cp "$T/good21" "$CUTDIST/kosmos-0.7.21-arm64.tar.gz"; tick
 
 # 5) no source for the older downloads: parked before any deploy (deploying would take them off the site).
@@ -139,7 +139,7 @@ DEPLOY_RC=1 tick
 DEPLOY_RC=1 tick
 { [ "$RC" = 1 ] && [ "$(ndeploys)" = 8 ] && [ "$(cat "$ST/parked")" = "$H7" ]; } && pass "a second failure on the same sha parks it" || bad "second failure (rc=$RC, deploys=$(ndeploys))"
 tick
-{ [ "$RC" = 1 ] && [ "$(ndeploys)" = 8 ] && printf '%s' "$OUT" | grep -q "FAIL (parked): site main"; } && pass "a parked sha is not retried, and every tick on it stays red and says why" || bad "parked tick (deploys=$(ndeploys)) $OUT"
+{ [ "$RC" = 0 ] && [ "$(ndeploys)" = 8 ] && printf '%s' "$OUT" | grep -q "FAIL (parked): site main" && printf '%s' "$OUT" | grep -q "red already reported"; } && pass "a parked sha is not retried; its ticks say why, green after the park's own red (no email storm)" || bad "parked tick (deploys=$(ndeploys)) $OUT"
 H8=$(advance eight)
 tick
 { [ "$RC" = 0 ] && [ "$(ndeploys)" = 9 ] && [ "$(cat "$ST/last-deployed")" = "$H8" ] && [ ! -e "$ST/failures" ]; } \
@@ -149,7 +149,7 @@ tick
 #    the 4th in a row for one sha turns the run red once; a success clears the count.
 H9=$(advance nine)
 rcs=""; for i in 1 2 3 4 5; do DEPLOY_RC=75 tick; rcs="$rcs$RC"; done
-{ [ "$rcs" = 00011 ] && [ ! -e "$ST/parked" ] && [ "$(ndeploys)" = 14 ]; } && pass "75 is retried every tick; from the 4th in a row each tick is red" || bad "75 sequence '$rcs' (want 00011), deploys=$(ndeploys)"
+{ [ "$rcs" = 00010 ] && [ ! -e "$ST/parked" ] && [ "$(ndeploys)" = 14 ]; } && pass "75 is retried every tick; red on the 4th in a row, then green with a note" || bad "75 sequence '$rcs' (want 00010), deploys=$(ndeploys)"
 tick
 { [ "$RC" = 0 ] && [ ! -e "$ST/retries" ] && [ "$(cat "$ST/last-deployed")" = "$H9" ]; } && pass "a success after 75s deploys and clears the count" || bad "after 75s (rc=$RC)"
 
@@ -205,8 +205,8 @@ mkdir -p "$T/work/dist"; printf '{"version":"0.7.99"}\n' > "$T/work/dist/latest-
 git -C "$T/work" add dist/latest-staging.json; git -C "$T/work" commit -q -m ptr; git -C "$T/work" push -q origin main
 H14=$(git -C "$T/work" rev-parse HEAD)
 rcs=""; for i in 1 2 3 4 5; do tick; rcs="$rcs$RC"; done
-{ [ "$rcs" = 00011 ] && [ "$(ndeploys)" = "$nb" ] && [ ! -e "$ST/parked" ] && printf '%s' "$OUT" | grep -q "release pointer move"; } \
-  && pass "a release pointer on main that live does not serve is never published; red from the 4th tick, not parked" || bad "pointer move (rcs=$rcs, deploys=$(ndeploys)) $OUT"
+{ [ "$rcs" = 00010 ] && [ "$(ndeploys)" = "$nb" ] && [ ! -e "$ST/parked" ] && printf '%s' "$OUT" | grep -q "release pointer move"; } \
+  && pass "a release pointer on main that live does not serve is never published; red on the 4th tick, not parked" || bad "pointer move (rcs=$rcs, deploys=$(ndeploys)) $OUT"
 cp "$T/work/dist/latest-staging.json" "$SERVED/dist/latest-staging.json"
 tick
 { [ "$RC" = 0 ] && [ "$(ndeploys)" = $((nb + 1)) ]; } && pass "once live serves the same pointer bytes (a promote's deploy landed), it clears itself and deploys" || bad "equal pointer held the deploy (rc=$RC)"
@@ -242,6 +242,17 @@ printf 'tar 0.7.100\n' > "$CUTDIST/kosmos-0.7.100-arm64.tar.gz"; printf '%s  x\n
 H18=$(advance eighteen); tick
 { [ ! -e "$T/site/dist/kosmos-0.7.100-arm64.tar.gz" ] && [ -f "$T/site/dist/kosmos-0.7.21-arm64.tar.gz" ] && printf '%s' "$OUT" | grep -q "newer than any release pointer"; } \
   && pass "a build newer than every release pointer on main (0.7.100 > 0.7.99) is not mirrored; 0.7.21 is" || bad "unreleased build mirrored: $(ls "$T/site/dist" | tr '\n' ' ')"
+
+# 19) red once per sha and cause per DAY: a report older than a day, or a different cause, is red again.
+H19=$(advance nineteen)
+printf '%s parked|%s\n' "$H19" "$(( $(date +%s) - 90000 ))" > "$ST/reported"; echo "$H19" > "$ST/parked"
+printf '%s rc=1 x\n' "$H19" > "$ST/last-failure"
+tick; r1=$RC; tick; r2=$RC
+printf '%s wedged|%s\n' "$H19" "$(date +%s)" > "$ST/reported"; tick; r3=$RC
+{ [ "$r1" = 1 ] && [ "$r2" = 0 ] && [ "$r3" = 1 ]; } && pass "a red reported over a day ago is red again; then green; a different cause is red again" || bad "red-once day/cause (r1=$r1 r2=$r2 r3=$r3)"
+printf '%s parked|garbage\n' "$H19" > "$ST/reported"; tick
+[ "$RC" = 1 ] && pass "a damaged report time is treated as never reported (red)" || bad "damaged report time (rc=$RC)"
+rm -f "$ST/parked" "$ST/reported"
 
 # 13) no site configured: a usage error, never a deploy.
 nfinal=$(ndeploys); KOSMOS_AUTODEPLOY_SITE="" bash "$AD" 2>/dev/null; RC=$?

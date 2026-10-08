@@ -75,7 +75,26 @@ LOG="$STATE/log"
 now() { date '+%Y-%m-%d %H:%M:%S %Z'; }
 # Everything a tick says goes to the log AND to stdout, so a run in GitHub Actions shows why it did what it did.
 say() { printf '%s %s\n' "$(now)" "$*" | tee -a "$LOG"; }
-park() { echo "$TARGET" > "$STATE/parked"; }
+park() { echo "$TARGET" > "$STATE/parked"; printf '%s parked|%s\n' "$TARGET" "$(date +%s)" > "$STATE/reported"; }
+# A state that would be red on every tick (a parked sha, a retry alarm, a wedged lock, an unreachable
+# origin) goes red ONCE per sha and cause per day, then each further tick says so and stays green.
+# GitHub emails the account that last edited the workflow's cron on EVERY failed scheduled run, so
+# red-every-tick on a 15-minute schedule would mean up to 96 emails a day to Josh's account; a new
+# sha, a new cause, or a day passing makes it red again. (A state CHANGE, like a first failure or the
+# failure that parks, is always red; park() records itself as reported so its next tick is not a
+# second email.)
+red_once() {  # <cause> <message>
+  local key="${TARGET:-none} $1" line at
+  line=$(cat "$STATE/reported" 2>/dev/null || true); at=${line##*|}
+  case "$at" in ''|*[!0-9]*) at=0 ;; esac
+  if [ "${line%|*}" = "$key" ] && [ $(( $(date +%s) - at )) -lt 86400 ]; then
+    say "$2 (red already reported at $(date -r "$at" '+%Y-%m-%d %H:%M'); green until it changes or a day passes)"
+    exit 0
+  fi
+  printf '%s|%s\n' "$key" "$(date +%s)" > "$STATE/reported"
+  say "$2"
+  exit 1
+}
 # Read "<sha> <n>" from a count file; a damaged or foreign line counts from zero, never evaluates its text.
 count_for() {
   local f="$1" csha="" cn=""
@@ -100,7 +119,7 @@ if ! mkdir "$LOCK" 2>/dev/null; then
     # A tick takes minutes. A lock held past an hour of heartbeat silence is wedged (a reused pid,
     # say): go red so somebody looks, rather than skip green forever.
     beat=$(stat -f %m "$STATE/heartbeat" 2>/dev/null || date +%s)
-    if [ $(( $(date +%s) - beat )) -gt 3600 ]; then say "FAIL: the lock (pid $holder) has been held with no heartbeat for over an hour; remove $LOCK if no tick is running"; exit 1; fi
+    if [ $(( $(date +%s) - beat )) -gt 3600 ]; then red_once wedged "FAIL: the lock (pid $holder) has been held with no heartbeat for over an hour; remove $LOCK if no tick is running"; fi
     say "skip: another tick (pid $holder) holds the lock"; exit 0
   fi
   # No pid yet: a tick that has just made the lock and not written its pid. Held, unless that was
@@ -114,14 +133,14 @@ trap '[ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"' EXIT   # on
 now > "$STATE/heartbeat"
 if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 5000000 ]; then tail -n 5000 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"; fi
 
-git -C "$SITE" fetch -q origin main 2>>"$LOG" || { say "FAIL: could not fetch site origin/main in $SITE"; exit 1; }
+git -C "$SITE" fetch -q origin main 2>>"$LOG" || red_once fetch "FAIL: could not fetch site origin/main in $SITE"
 TARGET=$(git -C "$SITE" rev-parse --verify -q origin/main) || { say "FAIL: no origin/main in $SITE"; exit 1; }
 LAST=$(cat "$STATE/last-deployed" 2>/dev/null || true)
 # Paused by a person (a deliberate site rollback, say): nothing is deployed until the file is removed.
 [ -e "$STATE/paused" ] && { say "paused: $STATE/paused exists; nothing is deployed until it is removed"; exit 0; }
 # Parked: not deployed again, and the run stays RED every tick until main moves or someone removes
 # the file, so a finding is not covered over by green runs.
-[ "$(cat "$STATE/parked" 2>/dev/null || true)" = "$TARGET" ] && { say "FAIL (parked): site main ${TARGET:0:9} ($(cut -d' ' -f2 "$STATE/last-failure" 2>/dev/null | sed 's/^rc=//')); waiting for the next merge (or remove $STATE/parked)"; exit 1; }
+[ "$(cat "$STATE/parked" 2>/dev/null || true)" = "$TARGET" ] && red_once parked "FAIL (parked): site main ${TARGET:0:9} ($(cut -d' ' -f2 "$STATE/last-failure" 2>/dev/null | sed 's/^rc=//')); waiting for the next merge (or remove $STATE/parked)"
 
 # What the live site serves: the export marker deploy-site.sh and release.sh ship names the site commit
 # it was built from. Empty when it cannot be read, which proves nothing either way.
@@ -227,11 +246,11 @@ for _p in latest.json latest-staging.json; do
          # An aborted cut never catches up, and goes red from the RETRY_ALARM-th tick until it is resolved.
          n=$(( $(count_for "$STATE/retries") + 1 )); echo "$TARGET $n" > "$STATE/retries"
          printf '%s rc=%s %s\n' "$TARGET" pointer "$(now)" > "$STATE/last-failure"
-         say "skip: site main's dist/$_p is not what live serves, a release pointer move a cut or promote has not published (a website deploy never publishes one); $n in a row"
-         [ "$n" -ge "$RETRY_ALARM" ] && exit 1; exit 0 ;;
+         _m="site main's dist/$_p is not what live serves, a release pointer move a cut or promote has not published (a website deploy never publishes one); $n in a row"
+         [ "$n" -ge "$RETRY_ALARM" ] && red_once pointer "FAIL: $_m"; say "skip: $_m"; exit 0 ;;
     *) n=$(( $(count_for "$STATE/retries") + 1 )); echo "$TARGET $n" > "$STATE/retries"
-       say "retry: could not read the live $_p (HTTP $_lc); the next tick tries again ($n in a row)"
-       [ "$n" -ge "$RETRY_ALARM" ] && exit 1; exit 0 ;;
+       [ "$n" -ge "$RETRY_ALARM" ] && red_once unread "FAIL: could not read the live $_p (HTTP $_lc), $n ticks in a row"
+       say "retry: could not read the live $_p (HTTP $_lc); the next tick tries again ($n in a row)"; exit 0 ;;
   esac
 done
 
@@ -244,8 +263,8 @@ rsync -a --delete ${TOO_NEW[@]+"${TOO_NEW[@]}"} --include='kosmos-*-arm64.tar.gz
 if [ "${PIPESTATUS[0]}" != 0 ]; then
   # Counted with the other retries (not parked: a copy failing says nothing about this sha).
   n=$(( $(count_for "$STATE/retries") + 1 )); echo "$TARGET $n" > "$STATE/retries"
-  say "retry: could not mirror the versioned downloads from $DIST_FROM ($n in a row)"
-  [ "$n" -ge "$RETRY_ALARM" ] && exit 1; exit 0
+  [ "$n" -ge "$RETRY_ALARM" ] && red_once mirror "FAIL: could not mirror the versioned downloads from $DIST_FROM, $n ticks in a row"
+  say "retry: could not mirror the versioned downloads from $DIST_FROM ($n in a row)"; exit 0
 fi
 # Every mirrored tarball must match its own .sha256, or it is not deployed. deploy-site.sh checks only
 # the current build, and a cut that started after the check above could be writing one right now. A
@@ -260,7 +279,7 @@ if [ -n "${MISMATCH:-}" ]; then
   # Counted with the exit-75 retries: a cut writing it clears within a tick or two; one that never
   # matches (no sidecar, a corrupt copy at the source) goes red on the 4th tick instead of green forever.
   n=$(( $(count_for "$STATE/retries") + 1 )); echo "$TARGET $n" > "$STATE/retries"
-  if [ "$n" -ge "$RETRY_ALARM" ]; then say "FAIL: the mirrored $MISMATCH has not matched its .sha256 for $n ticks; fix it at $DIST_FROM"; exit 1; fi
+  [ "$n" -ge "$RETRY_ALARM" ] && red_once checksum "FAIL: the mirrored $MISMATCH has not matched its .sha256 for $n ticks; fix it at $DIST_FROM"
   say "skip: the mirrored $MISMATCH does not match its .sha256 (a cut writing it?); the next tick tries again ($n in a row)"
   exit 0
 fi
@@ -294,10 +313,7 @@ fi
 # while it lasts (a host that stays unreachable would otherwise read green forever); it keeps retrying.
 if [ "$rc" = 75 ]; then
   n=$(( $(count_for "$STATE/retries") + 1 )); echo "$TARGET $n" > "$STATE/retries"
-  if [ "$n" -ge "$RETRY_ALARM" ]; then
-    say "FAIL: ${TARGET:0:9} has hit a moving or unreadable live site $n ticks in a row; still retrying"
-    exit 1
-  fi
+  [ "$n" -ge "$RETRY_ALARM" ] && red_once moving "FAIL: ${TARGET:0:9} has hit a moving or unreadable live site $n ticks in a row; still retrying"
   say "retry: the live site moved or could not be read during the deploy of ${TARGET:0:9} ($n in a row); the next tick tries again"
   exit 0
 fi
