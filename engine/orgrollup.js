@@ -322,13 +322,15 @@ async function tick(opts) {
   const o = opts || {};
   const oe = require('./orgenroll');
   const eo = { root: o.root, remote: o.remote };
-  if (!oe.isEnrolledHere(eo)) return { sent: false, because: 'not the enrolled Kosmos' };   // THE gate: nothing otherwise
+  /* THE gate (#5531): the work Kosmos with the consent recorded on this computer (mayReport), never merely enrolled. */
+  if (!oe.mayReport(eo)) return { sent: false, because: 'not the enrolled Kosmos, or no accepted words recorded here' };
   const rec = oe.readEnrollment(eo);
   if (!rec || typeof rec.world !== 'string') return { sent: false, because: 'not the enrolled Kosmos' };   // left meanwhile
-  /* Sent only under a consent that said reports happen (rollup review 3): the enrollment must carry the report lines
-     the person accepted. A record without them (every record #5531 writes today) sends NOTHING until the board keeps
-     the accepted lines with the enrollment. Safe by default: a missing consent is never read as a yes. */
-  if (!Array.isArray(rec.reports) || rec.reports.length === 0) return { sent: false, because: 'no accepted report lines on this enrollment' };
+  /* Sent only under a consent that said reports happen (rollup review 3): the report lines the person accepted, found
+     by the hash on this record (engine/orgenroll.js acceptedConsent). None found sends NOTHING: a missing consent is
+     never read as a yes. */
+  const accepted = oe.acceptedConsent(eo);
+  if (!accepted || accepted.reports.length === 0) return { sent: false, because: 'no accepted report lines on this enrollment' };
   const root = o.root || require('./store').ROOT;
   const now = o.now || Date.now();
   /* The timing belongs to ONE enrollment: a new one (another company, or joined again) starts fresh (review 4). */
@@ -340,7 +342,7 @@ async function tick(opts) {
   /* Usage leaves only under a consent that named it (review 8): a reader added to the sources later cannot turn it on
      by itself. Until the enrollment records `usageConsented` (set by the consent follow-up when the accepted words name
      usage), any usage read is dropped and the body says usageWithheld. */
-  if (rec.usageConsented !== true) { g.usageByDay = {}; g.usageWithheld = true; }
+  if (accepted.usageConsented !== true) { g.usageByDay = {}; g.usageWithheld = true; }
   const due = !st.lastAt || now - st.lastAt >= DAILY_MS;
   // A partial read is never a change (review 5): only the daily send may carry an incomplete body.
   const sig = signature(build(Object.assign({ world: rec.world }, g)));
@@ -350,7 +352,7 @@ async function tick(opts) {
   /* Again, right before the send: a leave may have landed while gather() read the board (rollup review 3). The person
      has been told this Kosmos stopped reporting; nothing may go after that. */
   const now2 = oe.readEnrollment(eo);
-  if (!oe.isEnrolledHere(eo) || !now2 || now2.world !== rec.world) return { sent: false, because: 'left while the rollup was read' };
+  if (!oe.mayReport(eo) || !now2 || now2.world !== rec.world || now2.consentHash !== rec.consentHash) return { sent: false, because: 'left while the rollup was read' };
   /* Record the attempt BEFORE sending (review 5): a data folder that cannot keep the timing would otherwise send a
      full daily body on every tick. No record, no send. */
   // tryAt is not read back: writing it proves the timing can be kept. A crash between this send and the success write
@@ -364,6 +366,12 @@ async function tick(opts) {
     return { sent: true, reason: body.reason };
   }
   writeState(root, Object.assign({}, st, { failAt: now }));
+  /* The company holds other words for this member than the ones accepted here (contract v1.5, 409 org_consent_changed):
+     stop reporting until the person accepts the new words (the joined view then says it sends nothing). */
+  if (r && /\borg_consent_changed\b/.test(String(r.because || ''))) {
+    await oe.consentWithdrawn(eo);
+    return { sent: false, because: 'the company\'s words changed; nothing more is sent until they are accepted here' };
+  }
   /* The company no longer takes this world's reports: ask it at once (refresh stops this world on a clear answer). */
   if (r && /\borg_not_enrolled\b|\borg_not_member\b/.test(String(r.because || ''))) {
     try { await oe.refresh(eo); } catch { /* the daily refresh tries again */ }

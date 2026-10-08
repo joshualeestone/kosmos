@@ -172,8 +172,44 @@ function cleanConsent(c) {
   // A consent with nothing in it is no consent: the page must never offer Join on an empty statement.
   return (out.reports.length || out.backsUp.length) && out.readers.length ? out : null;
 }
-/* The enrollment fields that record what the person accepted (#5532): kept across refresh. */
-const CONSENT_FIELDS = Object.freeze(['consentHash', 'reports', 'usageConsented']);
+/* #5532: what the person accepted, kept BY ITS HASH in its own file, so every path that carries the hash (a lost answer
+   settled later, an undo refused and rebuilt, the daily refresh) finds the same words without carrying them. The
+   rollup sends only report lines found here for the hash on the enrollment record; no file, or another hash, sends
+   nothing. Written before the enroll is sent, from the words the screen showed (the server's ticket). */
+const CONSENT_FILE = 'org-consent.json';
+/* Whether the accepted words name token usage. The coordinator refuses usage rows until its own words do
+   (CONSENT_NAMES_USAGE, pinned on token/usage/cost), so the board keys on the same words: no line naming them, no
+   usage leaves, whatever a reader could read. */
+const NAMES_USAGE = /\b(tokens?|usage|costs?)\b/i;
+function rememberConsent(hash, consent, opts) {
+  if (typeof hash !== 'string' || !/^[0-9a-f]{64}$/.test(hash) || !consent || !Array.isArray(consent.reports)) return false;
+  const reports = consent.reports.filter((l) => typeof l === 'string' && l);
+  try {
+    writeWhole(path.join(storeRoot(opts), CONSENT_FILE), JSON.stringify({ consentHash: hash, reports, usageConsented: reports.some((l) => NAMES_USAGE.test(l)) }) + '\n');
+    return true;
+  } catch { return false; }
+}
+/* The accepted words for the hash on this world's record, or null: only while it may report (mayReport), and only when
+   the remembered words are for exactly that hash. */
+function acceptedConsent(opts) {
+  if (!mayReport(opts)) return null;
+  const rec = readEnrollment(opts);
+  let j = null;
+  try { j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), CONSENT_FILE), 'utf8')); } catch { return null; }
+  if (!j || j.consentHash !== rec.consentHash || !Array.isArray(j.reports)) return null;
+  return { reports: j.reports.filter((l) => typeof l === 'string' && l), usageConsented: j.usageConsented === true };
+}
+/* The company refused a report because the words it holds for this member changed (rollup 409 org_consent_changed):
+   the words on record here are no longer accepted words, so this Kosmos stops reporting until the person accepts the
+   new ones (the joined view then says it sends nothing). The membership is untouched. */
+function consentWithdrawn(opts) {
+  return oneAtATime(async () => {
+    const rec = readEnrollment(opts);
+    if (!rec || !rec.consentHash) return false;
+    const next = Object.assign({}, rec); delete next.consentHash;
+    try { writeEnrollment(next, opts); return true; } catch { return false; }
+  });
+}
 const ROLES = new Set(['member', 'recovery', 'admin']);
 function cleanRole(r) { return ROLES.has(r) ? r : null; }
 
@@ -277,6 +313,8 @@ async function enrollNow(code, accepted, opts) {
      that fact: sent here and recorded below, so what is recorded is always what was sent (consenthash review 3). The
      contract says boards echo it and never recompute it (the two encodings could drift). */
   if (opts && typeof opts.consentHash === 'string' && /^[0-9a-f]{64}$/.test(opts.consentHash)) body.consentHash = opts.consentHash;
+  // The words go on disk before anything is sent, so whichever path later records this hash finds them (#5532).
+  if (body.consentHash) rememberConsent(body.consentHash, opts.consent, opts);
   if (code != null) {
     if (typeof code !== 'string' || !CODE.test(code.trim())) return { ok: false, because: 'That is not a join code. Check it and try again.' };
     body.code = code.trim();
@@ -497,6 +535,8 @@ function retireWorldId(opts) {
   try { fs.rmSync(path.join(storeRoot(opts), WORLD_ID_FILE), { force: true }); } catch { /* kept; harmless */ }
   // A join marker for the retired id can never settle (no id to match), so it goes with it (review 36).
   setJoinUnknown(null, opts);
+  // And the words accepted for it (#5532): a later join remembers its own before it sends.
+  try { fs.rmSync(path.join(storeRoot(opts), CONSENT_FILE), { force: true }); } catch { /* unread without a matching record */ }
 }
 
 async function leaveNow(opts, retry) {
@@ -615,14 +655,13 @@ async function refreshNow(opts) {
   const role = cleanRole(d.role);
   if (!org || !role) return { ok: false, because: 'Your company\'s answer was not complete.', enrolled: !!before };
   const rec = { org, role, world, enrolledAt: (before && before.enrolledAt) || new Date().toISOString() };
-  /* What the person accepted survives a refresh, field by field from ONE list (#5532 rollup reviews 7 and 9), and only for
-     the world it was shown for: never carried onto a record for another world (#5531 review 28). */
-  if (before && before.world === world) for (const k of CONSENT_FIELDS) if (before[k] !== undefined) rec[k] = before[k];
+  // The consent belongs to the world it was shown for: never carried onto a record for another world (review 28).
+  if (before && before.consentHash && before.world === world) rec.consentHash = before.consentHash;
   try { writeEnrollment(rec, opts); } catch { /* keep the old record; the next refresh tries again */ }
   return { ok: true, enrolled: true, member: true, ...rec };
 }
 
 module.exports = {
   ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, codeOf,
-  worldId, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh,
+  worldId, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, CONSENT_FILE, acceptedConsent, consentWithdrawn,
 };

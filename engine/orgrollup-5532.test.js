@@ -172,12 +172,16 @@ const os = require('node:os');
 const path = require('node:path');
 const oe = require('./orgenroll');
 
-/* What the coming follow-up will do at enroll: keep the report lines the person accepted with the enrollment. */
-function accept(root, reports) {
+/* What an accepted join leaves on disk: the company's served hash on the enrollment record, and the words shown,
+   remembered by that hash (engine/orgenroll.js rememberConsent; the real enroll path is pinned in the consent tests). */
+const HASH = 'ab'.repeat(32);
+function accept(root, reports, usageConsented) {
   const f = path.join(root, oe.ENROLLMENT_FILE);
   const rec = JSON.parse(fs.readFileSync(f, 'utf8'));
-  rec.reports = reports || ['agent names, the AI provider and model each uses, and whether each is working, waiting or stopped'];
+  rec.consentHash = HASH;
   fs.writeFileSync(f, JSON.stringify(rec));
+  fs.writeFileSync(path.join(root, oe.CONSENT_FILE), JSON.stringify({ consentHash: HASH,
+    reports: reports || ['agent names, the AI provider and model each uses, and whether each is working, waiting or stopped'], usageConsented: usageConsented === true }));
 }
 function world(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orgrollup-5532-'));
@@ -385,16 +389,51 @@ test('#5532 rollup review 7: a project linked from another Kosmos is never repor
   }
 });
 
-test('#5532 rollup review 7: a refresh keeps the accepted report lines on the enrollment', async (t) => {
+test('#5532 rollup review 7: a refresh keeps the accepted words (found by the hash it keeps on the record)', async (t) => {
   const root = world(t);
   const c = coordinator();
   await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
-  accept(root, ['agent names']);
-  const f = path.join(root, oe.ENROLLMENT_FILE);
-  const rec0 = JSON.parse(fs.readFileSync(f, 'utf8')); rec0.usageConsented = true; fs.writeFileSync(f, JSON.stringify(rec0));
+  accept(root, ['agent names'], true);
   await oe.refresh({ root, remote: c });
-  assert.deepEqual(oe.readEnrollment({ root }).reports, ['agent names'], 'a refresh dropped the accepted lines, so the rollup would stop with no reason given');
-  assert.equal(oe.readEnrollment({ root }).usageConsented, true, 'a refresh dropped usageConsented (review 9)');
+  assert.deepEqual(oe.acceptedConsent({ root }), { reports: ['agent names'], usageConsented: true }, 'a refresh lost the accepted words, so the rollup would stop with no reason given');
+});
+
+test('#5532 wiring: the words are found only for the hash on the record, and only while it may report', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  assert.equal(oe.acceptedConsent({ root }), null, 'CONTROL: no accepted words before the person accepted any');
+  accept(root);
+  assert.ok(oe.acceptedConsent({ root }), 'CONTROL: found for the hash on the record');
+  // Remembered words for another hash (a newer join's, say) are not this record's words: nothing is sent under them.
+  fs.writeFileSync(path.join(root, oe.CONSENT_FILE), JSON.stringify({ consentHash: 'cd'.repeat(32), reports: ['agent names'], usageConsented: false }));
+  assert.equal(oe.acceptedConsent({ root }), null, 'words for another hash were taken as this record\'s');
+  const sent = await r.tick({ root, remote: c, sources: sources(), now: Date.UTC(2026, 9, 7, 12) });
+  assert.equal(sent.sent, false, 'a rollup went out under words remembered for another hash');
+});
+
+test('#5532 wiring: the real enroll path remembers the words shown, and usage is consented only by words naming it', async (t) => {
+  for (const [lines, usage] of [[['agent names', 'an update when your agents change'], false], [['agent names', 'token usage from sessions launched in your agents\' folders'], true]]) {
+    const root = world(t);
+    const c = coordinator();
+    const r0 = await oe.enroll('ACME-JOIN-1234', true, { root, remote: c, consentHash: HASH, consent: { reports: lines, backsUp: [], readers: ['you'], never: [] } });
+    assert.equal(r0.ok, true, JSON.stringify(r0));
+    assert.deepEqual(oe.acceptedConsent({ root }), { reports: lines, usageConsented: usage }, JSON.stringify(lines));
+  }
+});
+
+test('#5532 wiring: a rollup refused because the company\'s words changed stops reporting until they are accepted here', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root);
+  const refusing = { sent: [], macRequest: async (m, route, body) => (route === r.ROUTE ? { ok: false, because: '409 {"because":"org_consent_changed"}' } : c.macRequest(m, route, body)) };
+  const t1 = await r.tick({ root, remote: refusing, sources: sources(), now: Date.UTC(2026, 9, 7, 12) });
+  assert.equal(t1.sent, false);
+  assert.equal(oe.mayReport({ root }), false, 'the Kosmos kept reporting on words the company no longer holds');
+  assert.equal(oe.isEnrolledHere({ root }), true, 'the membership was touched');
+  const t2 = await r.tick({ root, remote: c, sources: sources(), now: Date.UTC(2026, 9, 9, 12) });
+  assert.equal(t2.sent, false, 'a rollup went out after the words changed and before they were accepted again');
 });
 
 test('#5532 rollup review 9: an agent whose provider is known only while it runs is still not a change on start or stop', async (t) => {
