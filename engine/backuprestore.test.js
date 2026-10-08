@@ -185,8 +185,10 @@ test('#5536 a fetched object larger than any real chunk is refused; a Uint8Array
   assert.deepEqual(ok.r.restored, ['a.md'], 'CONTROL: exactly at the cap restores');
   const u8 = await run(memorySink(), { fetchChunk: () => new Uint8Array(object) });
   assert.deepEqual(u8.r.restored, ['a.md'], 'a Uint8Array from a fetch wrapper restores');
+  const ab = await run(memorySink(), { fetchChunk: () => object.buffer.slice(object.byteOffset, object.byteOffset + object.length) });
+  assert.deepEqual(ab.r.restored, ['a.md'], 'an ArrayBuffer (res.arrayBuffer()) restores');
   const str = await run(memorySink(), { fetchChunk: () => 'not bytes' });
-  assert.equal(str.r.failed[0].why, 'a chunk did not verify (forged, swapped or damaged)');
+  assert.equal(str.r.failed[0].why, 'the fetch returned something that is not bytes', 'a caller bug is not reported as tampering');
 });
 
 test('#5536 a commit that throws fails the file and aborts it, even when the abort throws too', async () => {
@@ -265,8 +267,10 @@ test('#5536 a restore with no byte budget is refused, and a sink that cannot beg
 });
 
 test('#5536 every fetched byte counts against the work budget, so a hostile store cannot make a restore churn', async () => {
-  // 50 one-chunk entries of 100 bytes under maxTotalBytes 100: work budget 2 x 100 + 50 x 8192 = 409,800 bytes.
-  const { run, object } = handMade((entry) => Array.from({ length: 50 }, (_, i) => entry(`f${i}.md`)));
+  // 50 one-chunk entries of 100 bytes under maxTotalBytes 100: work budget 2 x 100 + 50 x 8192 = 409,800 bytes. The
+  // 100 colliding entries are refused before fetching and earn no allowance.
+  const { run, object } = handMade((entry) => [...Array.from({ length: 50 }, (_, i) => entry(`f${i}.md`)),
+    ...Array.from({ length: 100 }, (_, i) => entry(`pad${i >> 1}.md`))]);
   const junk = crypto.randomBytes(100_000);
   let n = 0, bytes = 0;
   const limits = [];
@@ -275,6 +279,7 @@ test('#5536 every fetched byte counts against the work budget, so a hostile stor
   assert.ok(bytes <= 5 * junk.length);
   assert.deepEqual(limits.slice(0, 2), [409800, 309800], 'fetchChunk is told how much it may download');
   assert.equal(r.failed.filter((f) => f.why === 'the restore is over its byte budget').length, 46);
+  assert.equal(r.failed.filter((f) => f.why === 'another entry lands on the same file or folder').length, 100);
   const ok = await run(memorySink(), { maxTotalBytes: 100, fetchChunk: () => object });
   assert.deepEqual(ok.r.restored, ['f0.md'], 'CONTROL: a real chunk restores within the same budget');
 });
@@ -290,6 +295,11 @@ test('#5536 caller mistakes throw instead of reading as tampering', async () => 
   await assert.rejects(br.restoreSnapshot({ ...args, maxFiles: NaN }), /maxFiles/, 'an explicit NaN does not erase a bound');
   await assert.rejects(br.restoreSnapshot({ ...args, maxManifestObject: undefined + 1 }), /maxManifestObject/);
   await assert.rejects(br.restoreSnapshot({ ...args, maxChunkObject: -1 }), /maxChunkObject/);
+  await assert.rejects(br.restoreSnapshot({ ...args, ctx: { ...k.ctx, member: 'bad id!' } }), /context/);
+  await assert.rejects(br.restoreSnapshot({ ...args, devicePubAtSnapshot: k.dev.privateKey }), /devicePubAtSnapshot/);
+  await assert.rejects(br.restoreSnapshot({ ...args, manifestObject: 'bytes?' }), /manifestObject/);
+  const ab = k.manifestObject.buffer.slice(k.manifestObject.byteOffset, k.manifestObject.byteOffset + k.manifestObject.length);
+  assert.ok(await br.restoreSnapshot({ ...args, manifestObject: ab, sink: memorySink() }), 'CONTROL: a manifest as an ArrayBuffer opens');
 });
 
 test('#5536 a manifest whose files is not a list opens to nothing; a skipped that is not a list reports none', async () => {

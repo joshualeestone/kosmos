@@ -14,7 +14,7 @@
  *    aborted otherwise.
  */
 const crypto = require('crypto');
-const { CDC, openManifest, openVerifiedChunk } = require('./backupformat');
+const { CDC, openManifest, openVerifiedChunk, checkBackupContext } = require('./backupformat');
 
 const CHUNK_NAME_RE = /^[0-9a-f]{64}$/;
 // The format-1 uploader chunks with CDC, so a chunk holds at most CDC.max bytes; sealed and padded it stays well
@@ -41,7 +41,6 @@ function safeRel(p) {
   // Control characters (C0, DEL, C1, line and paragraph separators), bidi controls and marks (they reorder how a
   // name displays), and ':' (a drive or an NTFS stream).
   if (/[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069:]/.test(p)) return false;
-  if (p.startsWith('/') || p.startsWith('\\')) return false;
   return p.split(/[\\/]/).every((x) => segmentOk(x) && segmentOk(x.replace(IGNORABLE_RE, '')));
 }
 
@@ -88,7 +87,7 @@ function collidingPaths(entries) {
  * against twice that (plus 8 KiB an entry for sealing overhead) whether or not it verifies, so a hostile store or
  * files that fail late are bounded too.
  *
- *   fetchChunk(name, { maxBytes }) -> Buffer or Uint8Array | null, or a promise of one (null: the chunk is not
+ *   fetchChunk(name, { maxBytes }) -> Buffer, Uint8Array or ArrayBuffer | null, or a promise of one (null: the chunk is not
  *     stored). It should refuse to download more than maxBytes; restore refuses a larger object before decrypting it.
  *   sink.begin(path) -> { write(buf), commit(), abort() } (each may return a promise). Bytes are written BEFORE the
  *     file is verified, so the sink must write somewhere other than the final path, leave any existing file there
@@ -112,11 +111,16 @@ async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, 
   if (!sink || typeof sink.begin !== 'function') throw new Error('backuprestore: sink.begin is required');
   if (typeof fetchChunk !== 'function') throw new Error('backuprestore: fetchChunk is required');
   if (!Buffer.isBuffer(namingKey) || namingKey.length !== 32) throw new Error('backuprestore: namingKey must be a 32-byte Buffer');
+  checkBackupContext(ctx);
+  if (!(devicePubAtSnapshot instanceof crypto.KeyObject) || devicePubAtSnapshot.type !== 'public' || devicePubAtSnapshot.asymmetricKeyType !== 'ed25519') {
+    throw new Error('backuprestore: devicePubAtSnapshot must be an Ed25519 public key');
+  }
+  if (!(manifestObject instanceof Uint8Array) && !(manifestObject instanceof ArrayBuffer)) throw new Error('backuprestore: manifestObject must be bytes');
   for (const [k, v] of Object.entries({ maxChunkObject, maxManifestObject, maxFiles })) {
     if (!Number.isSafeInteger(v) || v < 0) throw new Error(`backuprestore: ${k} must be a non-negative integer`);
   }
-  if (!(manifestObject instanceof Uint8Array) || manifestObject.length > maxManifestObject) return null;
-  const mo = Buffer.isBuffer(manifestObject) ? manifestObject : Buffer.from(manifestObject.buffer, manifestObject.byteOffset, manifestObject.length);
+  const mo = toBuffer(manifestObject);
+  if (mo.length > maxManifestObject) return null;
   const manifest = openManifest(memberSk, devicePubAtSnapshot, ctx, mo);
   if (!manifest || !Array.isArray(manifest.files) || manifest.files.length > maxFiles) return null;
   const restored = [], failed = [];
@@ -132,7 +136,7 @@ async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, 
   // Two budgets: bytes committed (maxTotalBytes), and bytes FETCHED whether or not they verify or their file commits
   // (twice that, plus room for each entry's sealing overhead: a small chunk is padded to a 4 KiB frame).
   let budget = maxTotalBytes;
-  const work = { left: 2 * maxTotalBytes + WORK_PER_ENTRY * wellFormed.length };
+  const work = { left: 2 * maxTotalBytes + WORK_PER_ENTRY * wellFormed.filter((f) => !clash.has(f.path)).length };
   for (const f of wellFormed) {
     if (clash.has(f.path)) { failed.push({ path: forReport(f.path), why: 'another entry lands on the same file or folder' }); continue; }
     if (f.size > budget || f.size > work.left) { failed.push({ path: forReport(f.path), why: 'the restore is over its byte budget' }); continue; }
@@ -158,11 +162,11 @@ async function restoreFile(f, { memberSk, namingKey, fetchChunk, sink, maxChunkO
       let obj;
       try { obj = await fetchChunk(name, { maxBytes: Math.min(maxChunkObject, work.left) }); } catch { return await abortWith(out, 'a chunk could not be fetched'); }
       if (obj == null) return await abortWith(out, 'a chunk is missing');
-      if (!(obj instanceof Uint8Array)) return await abortWith(out, 'a chunk did not verify (forged, swapped or damaged)');
+      if (!(obj instanceof Uint8Array) && !(obj instanceof ArrayBuffer)) return await abortWith(out, 'the fetch returned something that is not bytes');
+      obj = toBuffer(obj);
       if (obj.length > maxChunkObject) return await abortWith(out, 'a chunk is larger than any real chunk');
       if (obj.length > work.left) { work.left = 0; return await abortWith(out, 'the restore is over its byte budget'); }
       work.left -= obj.length;
-      if (!Buffer.isBuffer(obj)) obj = Buffer.from(obj.buffer, obj.byteOffset, obj.length);
       const pt = openVerifiedChunk(memberSk, namingKey, name, obj);
       if (!pt || !pt.length) return await abortWith(out, 'a chunk did not verify (forged, swapped or damaged)');
       size += pt.length;
@@ -178,6 +182,9 @@ async function restoreFile(f, { memberSk, namingKey, fetchChunk, sink, maxChunkO
     return await abortWith(out, 'the file could not be written');
   }
 }
+
+/* A Buffer view of bytes handed over as a Buffer, another Uint8Array or an ArrayBuffer (no copy). */
+const toBuffer = (b) => (Buffer.isBuffer(b) ? b : b instanceof ArrayBuffer ? Buffer.from(b) : Buffer.from(b.buffer, b.byteOffset, b.length));
 
 async function abortWith(out, why) {
   try { if (out) await out.abort(); } catch { /* the reason already names the failure */ }
