@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: startedby-5450
-diff_hash: 7f6c84fab829ae38600e00f2340e728f82d0f77b56da36e43a3f6594451f1c96
+diff_hash: 5d1e0359745435c635ef540d97732abc74b538f72f87d96ee6dce4bffa95d886
 validation: passed (Mortals full suite at 0cd505494, hash 7f6c84fab829); no web/ change, so no browser check applies
 subdir_audit: passed
 timestamp: 2026-10-08T01:12:31Z
@@ -56,3 +56,9 @@ CLI, install and watchdog tests and the repo guards (fixture-discipline included
   (engine/logstamp.test.js), which requires the stamp to come right after the bootstrap. The stamp starts no process,
   so the values are still taken out of the environment before anything could inherit them. The stamp pin, the
   world-order guard and this branch's tests pass (38). This fix was not re-reviewed.
+
+## Re-hash after merging main (2026-10-08 00:20 CDT)
+CI's shell shard 1/2 failed twice on the suite's leak check (tunnelgate-test.srl, a file this change does not touch;
+all 115 tests passed both times). Main had moved, so origin/main was merged in, with no conflict. The change is
+unchanged: the added and removed lines against the base (8 files, 446/12) hash the same before and after
+(249678f172ebd5fd); only line numbers and context moved, which is what changed the diff hash above.
