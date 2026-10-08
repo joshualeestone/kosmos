@@ -496,13 +496,19 @@ function wireDefaultHooks(opts) {
     const settings = require('./trust').defaultAgentSettings();
     const script = o.script !== undefined ? o.script : reporthook.hookScriptPath(plat);
     fs.mkdirSync(path.dirname(settings), { recursive: true });
-    const locked = require('./filelock').withFileLock(settings, () => reporthook.ensureWired(settings, script, { platform: plat, node: o.node }));
+    const BUSY = 'another writer held the settings file';
+    const locked = require('./filelock').withFileLock(settings,
+      () => reporthook.ensureWired(settings, script, { platform: plat, node: o.node }),
+      { busy: BUSY, cannotAccess: 'the settings folder refused the lock file, so the hooks were not written' });
     if (!locked || locked.ok !== true) {
-      return { wired: false, skipped: false, busy: true, because: 'another writer held the settings file' };
+      // Only a held lock is worth trying again; a folder that refuses the lock file will refuse it next time too.
+      return { wired: false, skipped: false, busy: Boolean(locked) && locked.because === BUSY,
+        because: (locked && locked.because) || 'the hooks could not be wired' };
     }
     return { ...locked.value, skipped: false };
-  } catch (err) {
-    return { wired: false, skipped: false, because: (err && err.message) || 'the hooks could not be wired' };
+  } catch {
+    // A fixed sentence: an error's own message carries the home folder's path into the board's log.
+    return { wired: false, skipped: false, because: 'the settings folder could not be prepared, so the hooks were not written' };
   }
 }
 

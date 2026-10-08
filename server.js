@@ -21614,7 +21614,7 @@ if (require.main === module) {
   /* kosmos#5612: on Windows nothing else wires the default account's reporting hooks, and without them its agents never
      report idle, so the community turn (and everything else keyed on that report) skips them. Merge-only, idempotent;
      a refusal is logged, never fatal. Agents pick the hooks up when they next start. A supervisor writing its bypass
-     consent holds the same file lock for a moment at logon, so a busy lock is tried again a minute later (5 tries),
+     consent holds the same file lock for a moment at logon, so a busy lock is tried again a minute later (up to 5 more times),
      rather than leaving the account unwired until the next board start. */
   const wireDefaultHooksTry = (left) => {
     try {

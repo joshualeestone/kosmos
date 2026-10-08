@@ -36,7 +36,8 @@
   - a person's own hook and settings survive;
   - it is a no-op off Windows;
   - with no script it refuses without throwing;
-  - server.js calls it on the real start path.
+  - server.js has the call right after the community switch step (a source-position check: it cannot prove the start
+    path runs it; the Windows-box checks do).
 - Plants: P1 (always skip) reds 3; P2 (no server call) reds the wiring test.
 - accounts*.test.js and reporthook*.test.js: 90 of 90.
 
@@ -76,3 +77,10 @@
   trust.defaultAgentSettings() reads first and other tests set.
 - Fixed (NITs): the lock test uses withFileLock's AGENT_WORKFORCE_LOCK_MS seam (0.1 s, not 2 s) and asserts busy; the
   wiring test asserts the board starts the retrying call; the plan's test count.
+
+## Review 3 (opus): no blockers
+- Fixed (WARNING): every withFileLock refusal was reported busy, including the immediate one where the folder refuses
+  the lock file (a non-EEXIST mkdir error); the board then retried 5 minutes for nothing and named the wrong cause.
+  wireDefaultHooks passes withFileLock its busy and cannotAccess sentences and marks busy only for the held lock.
+- Fixed (NITs): the comment says "up to 5 more times" (1 + 5 attempts); a throw returns a fixed sentence (an error
+  message carried the home path into the log); the plan says the wiring test is a source-position check.

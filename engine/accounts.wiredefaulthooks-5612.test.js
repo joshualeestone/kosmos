@@ -99,6 +99,27 @@ test('#5612: it takes the settings file lock that trust.preacceptBypass takes, s
   assert.equal(fs.existsSync(s.settings), false, 'it wrote while another writer held the lock');
 });
 
+test('#5612: a settings folder that refuses the lock file is a plain refusal, not busy (so the board does not retry it)', (t) => {
+  const s = sandbox(t);
+  const dir = path.dirname(s.settings);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.chmodSync(dir, 0o555);   // the lock folder cannot be made inside it: EACCES, which withFileLock does not wait on
+  t.after(() => { try { fs.chmodSync(dir, 0o755); } catch { /* the sandbox may already be gone */ } });
+  const r = accounts.wireDefaultHooks({ platform: 'win32', script: s.script, node: s.node });
+  assert.equal(r.wired, false, JSON.stringify(r));
+  assert.equal(r.busy, false, 'a refusal that will repeat was marked busy, so the board would retry it for nothing');
+  assert.match(String(r.because), /refused the lock file/);
+});
+
+test('#5612: a settings folder that cannot be made is a fixed sentence that names no path', (t) => {
+  const s = sandbox(t);
+  fs.writeFileSync(path.dirname(s.settings), 'a file where the .claude folder goes');
+  const r = accounts.wireDefaultHooks({ platform: 'win32', script: s.script, node: s.node });
+  assert.equal(r.wired, false, JSON.stringify(r));
+  assert.notEqual(r.busy, true);
+  assert.equal(String(r.because).includes(s.home), false, 'the reason leaks the home folder path');
+});
+
 test('#5612: off Windows it does nothing (setup.sh owns the Mac), and writes no file', (t) => {
   const s = sandbox(t);
   for (const platform of ['darwin', 'linux']) {
