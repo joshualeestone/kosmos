@@ -700,3 +700,33 @@ test('#5532 rollup review 22: an unknown runner or provider is sent as no provid
   assert.equal(src.providerOf('codex'), 'openai', 'CONTROL');
   assert.equal(r.KNOWN_PROVIDERS.has('anthropic'), true);
 });
+
+test('#5532 rollup review 24: on a board over the size cap, agents starting and stopping still make no change send', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root);
+  const names = Array.from({ length: 120 }, (_, i) => 'agent-' + String(i).padStart(3, '0') + '-' + 'x'.repeat(100));
+  const sessions = names.map((n, i) => 's' + i);
+  const projects = Array.from({ length: 40 }, (_, p) => ({ id: 'p' + p, name: 'Project ' + p + ' ' + 'y'.repeat(100), agents: sessions.slice((p * 3) % 108, (p * 3) % 108 + 12) }));
+  const running = (on) => sources({
+    snapshot: () => ({ counts: { unreadableLines: 0 }, agents: on ? sessions.map((s, i) => ({ sessionName: s, name: names[i], runner: 'claude', model: 'claude-opus-5-5', state: 'working', isNamedOurs: true })) : [] }),
+    survey: () => ({ ok: true, agents: sessions.map((s, i) => ({ name: s, shownAs: names[i], folder: true, job: true, profile: true })) }),
+    removed: () => [], projects: () => projects, lastActiveOf: () => null,
+  });
+  const T0 = Date.UTC(2026, 9, 7, 1);
+  assert.equal((await r.tick({ root, remote: c, sources: running(false), now: T0 })).sent, true, 'CONTROL: the first daily goes');
+  const body0 = c.sent.filter((x) => x.route === r.ROUTE)[0].body;
+  assert.equal(body0.truncated, true, 'CONTROL: the board is over the cap, so the body was trimmed');
+  const t2 = await r.tick({ root, remote: c, sources: running(true), now: T0 + 15 * 60e3 });
+  assert.equal(t2.sent, false, 'agents starting made a change send on a trimmed board: ' + JSON.stringify(t2));
+  const t3 = await r.tick({ root, remote: c, sources: running(false), now: T0 + 30 * 60e3 });
+  assert.equal(t3.sent, false, 'agents stopping made a change send on a trimmed board');
+});
+
+test('#5532 rollup review 24: a tag-block character the company refuses never reaches a name', () => {
+  const b = r.build({ world: 'w', agents: [{ name: 'Leo\u{E0001}\u{E0010}', state: 'working' }], projects: [{ name: 'P\u{E007F}', agents: ['Leo\u{E0005}'] }] });
+  assert.equal(b.agents[0].name, 'Leo');
+  assert.equal(b.projects[0].name, 'P');
+  assert.deepEqual(b.projects[0].agents, ['Leo']);
+});

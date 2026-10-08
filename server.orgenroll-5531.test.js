@@ -405,3 +405,28 @@ test('#5532 rollup review 10: the joined view says "reports" only when the rollu
   fs.writeFileSync(path.join(store.ROOT, oe.CONSENT_FILE), JSON.stringify({ order: [H], byHash: { [H]: { reports: ['agent names'], usageConsented: false } } }));
   assert.equal((await st()).reporting, true, 'CONTROL: with the words remembered, it reports');
 });
+
+test('#5532 rollup review 24: start() arms the rollup tick, and the joined view says it waits when the rollup waits for a print', async (t) => {
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const start = src.slice(src.indexOf('function start(port = PORT)'));
+  const body = start.slice(0, start.indexOf('\n}\n'));
+  assert.match(body, /setTimeout\(orgRollupTick, /, 'start() never runs the first rollup');
+  assert.match(body, /setInterval\(orgRollupTick, ORG_ROLLUP_TICK_MS\)/, 'start() never runs the rollup on its tick');
+  // The route: words remembered, but the rollup's own state says it waits for a print: not "reports".
+  const rollup = require('./engine/orgrollup');
+  const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
+  const H = 'ab'.repeat(32);
+  const stateFile = path.join(store.ROOT, rollup.STATE_FILE);
+  t.after(() => { for (const f of [enrollmentFile(), path.join(store.ROOT, oe.CONSENT_FILE), stateFile]) fs.rmSync(f, { force: true }); });
+  const rec = { org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-08T00:00:00.000Z', consentHash: H };
+  fs.writeFileSync(enrollmentFile(), JSON.stringify(rec));
+  fs.writeFileSync(path.join(store.ROOT, oe.CONSENT_FILE), JSON.stringify({ order: [H], byHash: { [H]: { reports: ['agent names'], usageConsented: false } } }));
+  const enrolledAs = rec.world + '|' + ACME.id + '|' + rec.enrolledAt;
+  const remote = require('./engine/remote'); const orig = remote.macRequest;
+  remote.macRequest = async () => ({ ok: true, data: { member: true, org: ACME, role: 'member', enrolled: { computer: 'c1', world: oe.worldId(), thisComputer: true } } });
+  t.after(() => { remote.macRequest = orig; });
+  fs.writeFileSync(stateFile, JSON.stringify({ enrolledAs }));
+  assert.equal((await call('/api/org', { method: 'GET', headers: SCREEN })).json.reporting, true, 'CONTROL: with the words and no wait, it reports');
+  fs.writeFileSync(stateFile, JSON.stringify({ enrolledAs, printWaitAt: Date.now() - 1000 }));
+  assert.equal((await call('/api/org', { method: 'GET', headers: SCREEN })).json.reporting, false, 'the view said it reports while the rollup waited for a print');
+});

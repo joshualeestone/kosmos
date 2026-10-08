@@ -54,7 +54,9 @@ function statusWord(state) {
 const MODEL_PART = '(\\d+(\\.\\d+)*[a-z]?|opus|sonnet|haiku|fable|mini|nano|flash|pro|lite|codex|turbo|preview|latest|exp|\\d{8})';
 const MODEL_ID = new RegExp('^(claude|gpt|o[134]|codex|gemini|grok|llama)(-' + MODEL_PART + '){0,6}$');
 const PROVIDERS = new Set(['anthropic', 'openai', 'google', 'xai', 'meta', 'antigravity']);
-const clean = (v) => externalName(v, NAME_MAX) || null;
+/* The whole tag block too (rollup review 24): the coordinator refuses U+E0000 to U+E007F, and externalName leaves the
+   unassigned ones; one such name would lose the whole rollup. */
+const clean = (v) => externalName(typeof v === 'string' ? v.replace(/[\u{E0000}-\u{E007F}]/gu, '') : v, NAME_MAX) || null;
 const iso = (v) => (typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? new Date(v).toISOString() : null);
 const day = (v) => { const t = iso(v); return t ? t.slice(0, 10) + 'T00:00:00.000Z' : null; };
 /* A day after tomorrow (UTC) is a wrong clock, and the coordinator refuses the whole rollup for it: send no day instead. */
@@ -421,7 +423,9 @@ async function tick(opts) {
     if (now - since < PARTIAL_HOLD_MS) return { sent: false, because: 'the board could not be read in full; waiting before the daily' };
   }
   // A partial read is never a change (review 5): only the daily send may carry an incomplete body.
-  const sig = signature(build(Object.assign({ world: rec.world, nowMs: now }, g)));
+  /* From a CHANGE-shaped body (rollup review 24): model and status are null there, so on a board over the size cap the
+     trim cannot keep more or fewer rows depending on which agents are running. */
+  const sig = signature(build(Object.assign({ world: rec.world, nowMs: now, reason: 'change' }, g)));
   const changed = !g.partial && st.lastSig && sig !== st.lastSig;
   if (!due && !(changed && (!st.lastAt || now - st.lastAt >= CHANGE_MIN_MS)))   // no last send on record: long ago (review 16)
     return { sent: false, because: 'nothing due' };
@@ -446,7 +450,8 @@ async function tick(opts) {
     writeState(root, { enrolledAs, lastAt: now, dailyAt: body.reason === 'daily' ? now : (st.dailyAt || st.lastAt || null), lastSig: g.partial ? (st.lastSig || null) : sig });
     return { sent: true, reason: body.reason };
   }
-  writeState(root, Object.assign({}, st, { failAt: now }));
+  const failed = Object.assign({}, st, { failAt: now }); delete failed.partialSince;   // a hold belongs to one day's daily (review 24)
+  writeState(root, failed);
   /* Said once per failure (review 18): a refusal every hour must leave a trace. Only the code: never the body or a print. */
   const code = (String((r && r.because) || '').match(/\borg_[a-z_]+\b/) || [])[0] || 'no answer';
   console.error('orgrollup: the company did not take the rollup (' + code + ')');

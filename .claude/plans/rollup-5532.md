@@ -352,3 +352,15 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
 - NITs kept: reportPrint on ticks between dailies (bounded by the reader's backoff); the print added after fit() (64
   characters against 4 KB of headroom under the coordinator's 60 KB).
 
+## Review 24 (blind, Opus)
+- FIXED: the change signature came from a daily-shaped body after the 56 KB trim, so on a board over the cap a running
+  agent's model id changed how many rows survived, and agents starting or stopping made a change send (review 5's
+  defect, back by size). The signature now comes from a change-shaped body (no model, no status). Tick-level test on a
+  trimmed board; mutation makes it fail. One change send may follow the upgrade (old signatures), names only.
+- FIXED: the server wiring was untested. A source check that start() arms the rollup (first run and tick), and a route
+  test that a print wait for the current enrollment turns "reports" off (with its control). Each mutation makes them fail.
+- NITs taken: a failure clears the partial-read hold (it belongs to one day's daily); clean() strips the whole tag block
+  U+E0000 to U+E007F, as the coordinator refuses it (test; mutation makes it fail).
+- RECORDED: change detection is NARROWER than the consent line ("when your agents, their providers, or your projects
+  change"): names and projects only (review 9), so a provider change alone sends nothing until the daily.
+
