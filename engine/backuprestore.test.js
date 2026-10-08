@@ -125,10 +125,12 @@ test('#5536 unsafe paths are refused before anything is fetched (control: a plai
 test('#5536 entries that land on the same file or folder are all refused (control: distinct paths restore)', async () => {
   const nfc = 'caf\u00e9.md', nfd = 'cafe\u0301.md';
   const { run } = handMade((entry) => [entry('dup.md'), entry('dup.md'), entry('Readme.md'), entry('README.md'), entry(nfc), entry(nfd),
-    entry('x'), entry('X/y.md'), entry('a\\b.md'), entry('a/b.md'), entry('keep/one.md'), entry('keep/two.md')]);
+    entry('x'), entry('X/y.md'), entry('a\\b.md'), entry('a/b.md'), entry('ab\u03c2.md'), entry('AB\u03a3.md'), entry('\u03c3.md'), entry('\u03c2.md'),
+    entry('keep/one.md'), entry('keep/two.md')]);
   const { r } = await run();
   assert.deepEqual(r.restored, ['keep/one.md', 'keep/two.md'], 'CONTROL');
-  assert.deepEqual(r.failed.map((f) => f.path).sort(), ['dup.md', 'dup.md', 'Readme.md', 'README.md', nfc, nfd, 'x', 'X/y.md', 'a\\b.md', 'a/b.md'].sort());
+  assert.deepEqual(r.failed.map((f) => f.path).sort(), ['dup.md', 'dup.md', 'Readme.md', 'README.md', nfc, nfd, 'x', 'X/y.md', 'a\\b.md', 'a/b.md',
+    'ab\u03c2.md', 'AB\u03a3.md', '\u03c3.md', '\u03c2.md'].sort(), 'final sigma folds with sigma, as APFS and NTFS fold it');
   assert.ok(r.failed.every((f) => f.why === 'another entry lands on the same file or folder'));
 });
 
@@ -190,4 +192,15 @@ test('#5536 skippedAtBackup keeps only well-formed { path, why } entries', async
   const { run } = handMade((entry) => [entry('a.md')], { skipped: [{ path: '.env', why: 'environment file', extra: 1 }, { path: 5 }, null, 'x', { path: 'k', why: 'key' }] });
   const { r } = await run();
   assert.deepEqual(r.skippedAtBackup, [{ path: '.env', why: 'environment file' }, { path: 'k', why: 'key' }]);
+});
+
+test('#5536 the sink is handed / separators; an empty file restores; a refused long path is reported bounded', async () => {
+  const long = 'z'.repeat(5000);
+  const { run } = handMade((entry) => [entry('dir\\f.md'), entry('empty.md', { chunks: [], size: 0, sha256: sha(Buffer.alloc(0)) }), entry(long)]);
+  const { r, sink } = await run();
+  assert.deepEqual(r.restored, ['dir\\f.md', 'empty.md'], 'the report keeps the manifest spelling');
+  assert.ok(sink.committed.has('dir/f.md'), 'the sink sees the separator safeRel and collisionKey read');
+  assert.equal(sink.committed.get('empty.md').length, 0);
+  assert.equal(r.failed.length, 1);
+  assert.equal(r.failed[0].path, `${'z'.repeat(300)}...`);
 });
