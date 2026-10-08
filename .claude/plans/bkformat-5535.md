@@ -10,7 +10,7 @@ Design v2.1 on #5535 (two blind review rounds) fixes the backup's format: what a
   - Masks test the HIGH bits. Bit k of a gear hash depends only on the last k+1 bytes, so low-bit masks would cut on a few bytes of local content.
 - **`chunkName(namingKey, pt)`:** hex HMAC-SHA256 under the period's naming key (v2: per period, wrapped in the member key). It lives only in manifests and associated data; storage sees the coordinator's random object key (v2.1 item 7).
 - **`padme(L)`:** the Padme padding of Nikitin et al. (PURBs, 2019), overhead at most about 12%. Chunk plaintext is framed as u32 length, data, then zero padding to `padme(4 + len)`. Unframing checks the length and that the padding is zero.
-- **`sealChunk` / `openChunk`:** `KBC1 | enc(32) | ct`, HPKE to the member's backup public key, info `kosmos-backup v1 chunk`, **associated data = the chunk name**, so a chunk stored under the wrong name does not open (v2 integrity). `chunkMatchesName` lets restore check content against the name (constant-time compare).
+- **`sealNamedChunk` / `openVerifiedChunk`** (the only entries; `sealChunk` / `openChunk` are internal): `KBC1 | enc(32) | ct`, HPKE to the member's backup public key, info `kosmos-backup v1 chunk`, **associated data = the chunk name**, so a chunk stored under the wrong name does not open (v2 integrity). `chunkMatchesName` lets restore check content against the name (constant-time compare).
 - **`sealManifest` / `verifyManifestSignature` / `openManifest`:**
   - The manifest is canonical JSON, HPKE-sealed to the member with the snapshot context (org, member, epoch, period, snapshot) as associated data.
   - It is then **signed by the member device's Ed25519 key** over `sha256(KBM1 | enc | ct)` plus the context bytes.
@@ -20,7 +20,7 @@ Design v2.1 on #5535 (two blind review rounds) fixes the backup's format: what a
 - **`canonicalJson`:** keys sorted at every depth, arrays in order, NaN and Infinity refused.
 - Every open and verify returns null (or false) on any failure and never throws.
 
-## Tests: `engine/backupformat.test.js` (14, each with a control)
+## Tests: `engine/backupformat.test.js` (15, each with a control)
 - reassembly, min/max, determinism;
 - content-defined: after a 1-byte insert near the start, at most 3 chunks differ (control: fixed-size slicing loses its chunks);
 - empty, tiny and 6 MB real-size inputs; bad sizes refused;
@@ -31,7 +31,7 @@ Design v2.1 on #5535 (two blind review rounds) fixes the backup's format: what a
 - canonical JSON.
 
 ## Checks
-backupformat 14/14, hpke 11/11, engine.reachable (6 exports excused by name with their caller slices; the 5 others have real internal callers), plus every engine/ and tracked-file walker green. **Red-check:** a fixed associated data in place of the chunk name makes exactly the wrong-name test fail.
+backupformat 15/15, hpke 11/11, engine.reachable (10 exports: 5 excused by name with their caller slices, the other 5 have real internal callers), plus every engine/ and tracked-file walker green. **Red-check:** a fixed associated data in place of the chunk name makes exactly the wrong-name test fail.
 
 ## Not in scope
 Redaction and the credential scan (slice 3, with the walker), quotas, grants, POST policy (coordinator), restore orchestration (slice 4).
@@ -63,3 +63,8 @@ The 1 MiB average and the content-defined boundaries are tuned by reasoning, not
 - The reviewer mutated two guards away and every test still passed. **The devicePub guard** now also requires a PUBLIC key (a private key was accepted), with a test that catches its removal; the Ed25519-type half is named as defence in depth (an Ed25519 signature never verifies under another type anyway). **The plain-object return of openManifest** is tested with hand-built, validly signed manifests whose content is null, an array, a number or a string (the control: the same builder's plain object opens), plus wrong magic, truncation and a non-Buffer.
 - `sealNamedChunk(memberPk, namingKey, pt)` is the uploader's only entry: it derives the name, so a chunk cannot be sealed under a wrong name and never restore. `sealChunk` is internal; the tests forge chunks with raw HPKE, as an attacker with the public key would.
 - A note on own `__proto__` keys in manifests (data, round-trips; restore must not merge blindly).
+
+## Review round 5 (opus): no BLOCKER, 1 WARNING, fixed
+- The reviewer removed each of 26 guards in a scratch copy, and 16 went red. **The only security guard with no test was the naming-key length check**, the thing that stops an empty or short key letting anyone forge valid chunk names. It is now tested: empty, 16-byte, 33-byte and string keys are refused on seal and on open, a forgery under an empty-key name is refused, and the round trip is the control.
+- The remaining untested guards are unreachable behind other checks. Each is now labelled defence in depth in the code (the read-back check, the signature length, the frame length half), so the next reviewer does not report them again.
+- The plan's export counts and entry names are corrected.

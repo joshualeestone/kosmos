@@ -214,3 +214,16 @@ test('#5535 openManifest: a validly signed manifest whose content is not a plain
   assert.equal(bf.openManifest(k.sk, dev.publicKey, ctx, good.subarray(0, 50)), null, 'truncated');
   assert.equal(bf.openManifest(k.sk, dev.publicKey, ctx, 'not a buffer'), null, 'not a Buffer');
 });
+
+test('#5535 the naming key must be exactly 32 bytes (a short or empty key would let anyone forge valid names)', () => {
+  const k = hpkeKeyPair(), nk = crypto.randomBytes(32), pt = Buffer.from('agent file');
+  const { name, object } = bf.sealNamedChunk(k.pk, nk, pt);
+  assert.deepEqual(bf.openVerifiedChunk(k.sk, nk, name, object), pt, 'CONTROL: a 32-byte key seals and opens');
+  for (const [what, bad] of [['empty', Buffer.alloc(0)], ['16 bytes', crypto.randomBytes(16)], ['33 bytes', crypto.randomBytes(33)], ['a 32-character string', 'x'.repeat(32)]]) {
+    assert.throws(() => bf.sealNamedChunk(k.pk, bad, pt), /32 bytes/, `seal with a ${what} naming key`);
+    assert.equal(bf.openVerifiedChunk(k.sk, bad, name, object), null, `open with a ${what} naming key`);
+  }
+  // The attack the check stops: with an EMPTY key anyone can compute the name, so a forged chunk would verify.
+  const emptyName = crypto.createHmac('sha256', Buffer.alloc(0)).update(Buffer.from('evil')).digest('hex');
+  assert.equal(bf.openVerifiedChunk(k.sk, Buffer.alloc(0), emptyName, forgeChunk(k.pk, emptyName, Buffer.from('evil'))), null, 'a forgery under an empty-key name is refused');
+});
