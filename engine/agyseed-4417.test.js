@@ -290,7 +290,7 @@ test('#5576: a failure message keeps the END of a long stderr, where the abort l
   assert.equal(JSON.parse(howItEnded({ code: 1, signal: null, error: null, err: 'short' }))[0].stderr, 'short', 'CONTROL: a short stderr is kept whole');
 });
 
-test('#5576: the bridge child carries the trace preload, and it marks start, fetch and exit on stderr only', async () => {
+test('#5576: the bridge child carries the trace preload, and it records the fds at start, fetch and exit on stderr only', async () => {
   // The setting reaches the child (a fake spawn sees the options it was given).
   let seen = null;
   await runOnce('x', { NODE_OPTIONS: '--max-old-space-size=64' }, (_bin, _args, opts) => {
@@ -298,20 +298,40 @@ test('#5576: the bridge child carries the trace preload, and it marks start, fet
     throw Object.assign(new Error('fake'), { code: 'ENOENT' });
   });
   assert.match(String(seen), /^--max-old-space-size=64 --require "[^"]+agy-bridge-trace\.js"$/, 'the preload did not reach the child quoted, or replaced its options');
-  // A real run: the markers are on stderr, the bridge's answer on stdout is unchanged.
-  const board = await standInBoard();
+  // A real run, through the same retry as the other real runs here (review 3: it can meet the very abort it hunts).
   const data = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'aw-agyseed-trace-'));   // a local require, as the file's other tests do
+  let board = null;
   try {
-    const r = await runOnce('Stop', { ...process.env, AGENT_WORKFORCE_DATA: data, KOSMOS_PORT: String(board.port), TMUX_PANE: '%trace-' + process.pid });
+    board = await standInBoard();
+    const r = await runBridge('Stop', { ...process.env, AGENT_WORKFORCE_DATA: data, KOSMOS_PORT: String(board.port), TMUX_PANE: '%trace-' + process.pid });
     assert.equal(r.code, 0, howItEnded(r));
-    assert.match(r.err, /^agy-trace start 0:\w+ 1:\w+ 2:\w+$/m, 'no start marker: ' + r.err.slice(0, 300));
-    assert.match(r.err, /^agy-trace fetch begin$/m, 'no fetch-begin marker (the fetch wrapper did not install)');
-    assert.match(r.err, /^agy-trace fetch end ok$/m, 'no fetch-end marker');
-    assert.match(r.err, /^agy-trace exit called 0$/m, 'no exit marker');
-    assert.match(r.err, /^agy-trace exit 0 0:\w+ 1:\w+ 2:\w+$/m, 'no fd record at exit');
-    assert.ok(!/agy-trace/.test(r.out), 'a marker reached stdout, the hook\'s answer');
+    const fds = '0:\\w+@\\d+ 1:\\w+@\\d+ 2:\\w+@\\d+';
+    for (const step of ['start', 'fetch begin', 'fetch end ok', 'exit called 0', 'exit 0']) {
+      assert.match(r.err, new RegExp('^agy-trace ' + step + ' \\| ' + fds + '$', 'm'), 'no "' + step + '" line with the fd record: ' + r.err.slice(0, 400));
+    }
+    assert.ok(!/agy-trace/.test(r.out), 'a line reached stdout, the hook\'s answer');
   } finally {
-    board.server.close();
+    if (board) board.server.close();
     fs.rmSync(data, { recursive: true, force: true });
+  }
+});
+
+test('#5576: a line is never written into fd 2 once its number belongs to something else', async () => {
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'aw-agyseed-fd2-'));
+  try {
+    const file = path.join(dir, 'took-fd-2.txt');
+    // The child closes fd 2 and opens a file, which takes the lowest free number, 2; then it exits (an exit line is due).
+    const script = 'const fs=require("node:fs");fs.closeSync(2);const fd=fs.openSync(' + JSON.stringify(file) + ',"w");'
+      + 'process.stdout.write(String(fd),()=>process.exit(0));';
+    const out = await new Promise((resolve) => {
+      const c = spawn(process.execPath, ['-e', script], { env: { ...process.env, NODE_OPTIONS: '--require ' + JSON.stringify(TRACE_FILE) }, stdio: ['ignore', 'pipe', 'pipe'] });
+      let text = '';
+      c.stdout.on('data', (d) => { text += d; });
+      c.on('close', () => resolve(text));
+    });
+    assert.equal(out, '2', 'CONTROL: the file did not take fd 2, so this test cannot see a write into it');
+    assert.equal(fs.readFileSync(file, 'utf8'), '', 'a trace line was written into the file that took fd 2');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
