@@ -18,7 +18,10 @@ it moved agents' avatars to the top; it records no reason to keep the dot.
 - CSS only, new look only, room and DM only (the two threads the look restyles): `.msg.you > .msg-av { display: none }`.
 - The time stays INSIDE the bubble. The drawing puts it outside, to the left, but timestamp-inside is an existing ruling
   that checks enforce (render checks: "the user timestamp is INSIDE the bubble"). Rejected: moving it.
-- The bubble's tail wing stays (#3267 / the iMessage read, #3134). Measured: at the column's right edge it is whole, not clipped.
+- The bubble's tail wing stays (#3267 / the iMessage read, #3134). With the avatar gone the bubble keeps 14px clear on its
+  right (the wing reaches 8px past it, its ground mask 14px), so neither is clipped by the thread and the thread does not
+  scroll sideways. (Corrected in review 1: the first version claimed the tail was whole from a desktop zoom; in the DM
+  it was cut at 4px and the mask overflowed.)
 - Rejected: hiding your photo only when there is none. The drawing has no avatar either way, and the side plus the grey
   already say whose it is.
 - Weakest premise: that a person with a photo set will not miss seeing it on each message. It still shows in the top bar
@@ -31,3 +34,15 @@ it moved agents' avatars to the top; it records no reason to keep the dot.
 - render-shell-noscroll-4872 (uses the look) 72/72; render-agentdm-3414 (reads your avatar) all passed.
 - Surface gate: 16 named checks; 15 never turn the look on (trailers say so), the 16th was run. Both gates rc 0.
 - Screens: agent chat in both looks, desktop and android, light and dark, 0 overflow.
+
+## Review 1 (opus, blind): 1 BLOCKER + 2 WARNING + 3 NIT, all fixed
+- [BLOCKER] in the DM your bubble's tail tip was cut: the bubble ended at the thread's content edge with only 4px of
+  padding --> FIXED: `.msg.you > .msg-b { margin-right: 14px }` under the look (room and DM).
+- [WARNING] the wing's ground mask made #d-dmthread (every width) and #pj-room (phone) scroll sideways, invisible to the
+  page-level overflow checks --> FIXED by the same margin; PHONE_LOOK now measures, per thread, the room right of your
+  bubble (tailRoom >= 14) and the thread's own sideways overflow (<= 0). Measured DM: tailRoom 18, sideways 0.
+  Mutation (margin removed) -> 3 FAILs.
+- [WARNING] the plan stated the tail as measured and whole --> corrected above.
+- [NIT] #4470's comment said yours keep the foot avatar --> corrected. [NIT] the check's docblocks still said "the
+  foot" --> corrected. [NIT] the Off arm checked the room's foot only --> the DM's too.
+Re-run after the fixes: render-newlook-4470 301/301; screens re-shot (tails whole at 412 and 1280).
