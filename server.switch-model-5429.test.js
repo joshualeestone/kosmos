@@ -243,7 +243,7 @@ test('#5429 review 2: when the switch is partial (the picked Claude account coul
 });
 
 
-test('#5534: under a company model list, a switch WITH a listed model goes through and one without is refused, before anything changes', LINUX_PLIST_5432, async () => {
+test('#5534: under a company model list, a switch WITH a listed model goes through and one without is refused, before anything changes', async () => {
   const orgpolicy = require('./engine/orgpolicy');
   const name = born('srv-sm-policy');
   let r = await switchTo(name, { provider: 'google' });

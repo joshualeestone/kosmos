@@ -6830,7 +6830,7 @@ test('#5534 review 2/3: Gemini without a model is its pinned default, and a swit
   }
 });
 
-test('#5534 review 4: a Gemini agent set back to its default is the pinned model; Grok too; a failing policy never blocks', LX(WIN_LAUNCHD, LINUX_UNPORTED_WHY), () => {
+test('#5534 review 4: a Gemini agent set back to its default is the pinned model; Grok too; a failing policy never blocks', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const orgpolicy = require('./orgpolicy');
