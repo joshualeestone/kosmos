@@ -11372,11 +11372,11 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #plus-state2 .plus-si-lead { color: var(--k-ink-2); margin: .5rem 0 0; }
 #plus-state2 .flabel { color: var(--k-ink-2); font-weight: 500; margin-top: 1rem; }
 #plus-state2 .plus-si-lead b { color: #E6EBF7; font-weight: 600; overflow-wrap: anywhere; }
-#plus-state2 .tk-inp:not(select) { --danger: #E8705E; background: #16223e; color: #E6EBF7; -webkit-text-fill-color: #E6EBF7;
+#plus-state2 .tk-inp:not(select), #plus-org .tk-inp:not(select) { --danger: #E8705E; background: #16223e; color: #E6EBF7; -webkit-text-fill-color: #E6EBF7;
   caret-color: #E6EBF7; border: 1px solid #5c78a6; border-radius: 10px; }
-#plus-state2 .tk-inp::placeholder { color: #8fa0c4; -webkit-text-fill-color: #8fa0c4; opacity: 1; }
-#plus-state2 .tk-inp:-webkit-autofill { -webkit-box-shadow: 0 0 0 1000px #16223e inset; }
-#plus-state2 .tk-inp:focus { outline: 2px solid #7ea0f0; outline-offset: 1px; border-color: #7ea0f0; }
+#plus-state2 .tk-inp::placeholder, #plus-org .tk-inp::placeholder { color: #8fa0c4; -webkit-text-fill-color: #8fa0c4; opacity: 1; }
+#plus-state2 .tk-inp:-webkit-autofill, #plus-org .tk-inp:-webkit-autofill { -webkit-box-shadow: 0 0 0 1000px #16223e inset; }
+#plus-state2 .tk-inp:focus, #plus-org .tk-inp:focus { outline: 2px solid #7ea0f0; outline-offset: 1px; border-color: #7ea0f0; }
 #plus-state2 .plus-si-wide { width: 75%; min-width: min(100%, 15rem); }
 /* The plain field look below is what a code field shows until the script draws its boxes (#3942,
    .otp-boxes further down), and what it keeps if the boxes are ever not drawn. Inside the boxes
@@ -47137,9 +47137,14 @@ function plusOrgPaint() {
   document.getElementById('plus-org-consent').hidden = !PLUS_ORG.preview;
   if (here) document.getElementById('plus-org-say').textContent = 'This Kosmos is your work Kosmos for ' + (st.org.name || 'your company') + '. Your other Kosmoses on this computer are not part of it.';
 }
-async function plusOrgPost(path, body) {
+/* #5531: one POST to the board's org routes. Each URL is written out as a literal (web.api-routes-3957.test.js checks
+   every /api path the page fetches against a board route, and a URL held in a variable cannot be checked). */
+async function plusOrgPost(kind, body) {
+  const init = { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) };
   try {
-    const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
+    const res = kind === 'preview' ? await fetch('/api/org/preview', init)
+      : kind === 'enroll' ? await fetch('/api/org/enroll', init)
+      : await fetch('/api/org/leave', init);
     return (await res.json().catch(() => null)) || { ok: false, because: 'no answer' };
   } catch { return { ok: false, because: 'this computer could not reach its own engine' }; }
 }
@@ -47150,7 +47155,7 @@ async function plusOrgCheck() {
   if (!code) { msg.textContent = 'Type or paste the join code your company sent you.'; return; }
   if (PLUS_ORG.busy) return;   // one check at a time
   PLUS_ORG.busy = true;
-  const r = await plusOrgPost('/api/org/preview', { code });
+  const r = await plusOrgPost('preview', { code });
   PLUS_ORG.busy = false;
   if (!r.ok) { msg.textContent = r.because || 'That code could not be checked.'; return; }
   PLUS_ORG.preview = { code: r.move ? null : code, org: r.org, ticket: r.ticket };   // a member moving here enrolls with no code
@@ -47171,7 +47176,7 @@ async function plusOrgJoin() {
   const join = document.getElementById('plus-org-join');
   join.disabled = true; document.getElementById('plus-org-notnow').disabled = true;
   PLUS_ORG.busy = true;
-  const r = await plusOrgPost('/api/org/enroll', p.code ? { code: p.code, accepted: true, ticket: p.ticket } : { accepted: true, ticket: p.ticket });
+  const r = await plusOrgPost('enroll', p.code ? { code: p.code, accepted: true, ticket: p.ticket } : { accepted: true, ticket: p.ticket });
   PLUS_ORG.busy = false; join.disabled = false; document.getElementById('plus-org-notnow').disabled = false;
   if (!r.ok) {
     msg.textContent = r.because || 'Joining did not go through.';
@@ -47202,7 +47207,7 @@ async function plusOrgLeave() {
   yes.disabled = true;
   PLUS_ORG.busy = true;
   const st0 = PLUS_ORG.state;
-  const r = await plusOrgPost('/api/org/leave', {});
+  const r = await plusOrgPost('leave', {});
   PLUS_ORG.busy = false; yes.disabled = false;
   plusOrgLeaveArm(false);
   // The company refused while you are still in it (the last admin): you are still joined, and the screen says so.

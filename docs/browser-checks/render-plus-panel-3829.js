@@ -256,8 +256,10 @@ const STATES = {
              "Devices that can reach this computer" sits close under the sign-in box and the bottom row follows the list. */
           const gap = await page.evaluate(() => { const r = (el) => el.getBoundingClientRect(); const rows = [...document.querySelectorAll('#plus-devlist > *')].filter((e) => r(e).height > 0);
             return { top: Math.round(r(document.querySelector('#plus-devices .setname')).top - r(document.getElementById('plus-chip')).bottom),
-              bottom: rows.length ? Math.round(r(document.getElementById('plus-forget')).top - r(rows[rows.length - 1]).bottom) : null }; });
-          chk(gap.top <= 20 && gap.bottom !== null && gap.bottom <= 22, `${t} the pane keeps the mock's spacing: no empty gap above the devices or below the list`, JSON.stringify(gap));
+              /* #5531: the company section sits between the list and the foot; measure the foot from it when it shows, and it from the list. */
+              org: (() => { const o = document.getElementById('plus-org'); return o && r(o).height > 0 && rows.length ? Math.round(r(o).top - r(rows[rows.length - 1]).bottom) : null; })(),
+              bottom: rows.length ? Math.round(r(document.getElementById('plus-forget')).top - (() => { const o = document.getElementById('plus-org'); return o && r(o).height > 0 ? r(o) : r(rows[rows.length - 1]); })().bottom) : null }; });
+          chk(gap.top <= 20 && gap.bottom !== null && gap.bottom <= 22 && (gap.org === null || gap.org <= 22), `${t} the pane keeps the mock's spacing: no empty gap above the devices or below the list`, JSON.stringify(gap));
           /* #4080: the bottom row, left to right: Remove this computer (red), Lost your phone?, View account. */
           const foot = await page.evaluate(() => {
             const r = (id) => { const e = document.getElementById(id); if (!e || e.closest('[hidden]')) return null; const b = e.getBoundingClientRect(); return { x: Math.round(b.left), y: Math.round(b.top), text: e.textContent.trim(), color: getComputedStyle(e).color }; };
