@@ -370,9 +370,11 @@ test('#5536 sink (macOS): a volume check that cannot read df or find the mount l
   const cp = require('child_process');
   const realSpawn = cp.spawnSync;
   const key = require.resolve('./restoresink');
-  for (const [what, fake] of [
-    ['df fails', (cmd) => (cmd === '/bin/df' ? { status: 1, stdout: '' } : null)],
-    ['no mount line for the mount point', (cmd) => (cmd === '/sbin/mount' ? { status: 0, stdout: '/dev/x on /elsewhere (apfs, local)\n' } : null)],
+  for (const [what, fake, want] of [
+    ['df fails', (cmd) => (cmd === '/bin/df' ? { status: 1, stdout: '' } : null), /\/bin\/df: exited 1/],
+    ['df cannot be run (timeout)', (cmd) => (cmd === '/bin/df' ? { status: null, error: { code: 'ETIMEDOUT' } } : null), /\/bin\/df: ETIMEDOUT/],
+    ['df names no mount point', (cmd) => (cmd === '/bin/df' ? { status: 0, stdout: 'Filesystem\ngarbage\n' } : null), /df named no mount point/],
+    ['no mount line for the mount point', (cmd) => (cmd === '/sbin/mount' ? { status: 0, stdout: '/dev/x on /elsewhere (apfs, local)\n' } : null), /no mount line for /],
   ]) {
     const root = fresh(t);
     cp.spawnSync = (cmd, args, o) => fake(cmd) || realSpawn(cmd, args, o);
@@ -380,7 +382,26 @@ test('#5536 sink (macOS): a volume check that cannot read df or find the mount l
     delete require.cache[key];
     try {
       const { createRestoreSink: sinkWithStub } = require('./restoresink');
-      assert.throws(() => sinkWithStub(root), /could not check the root's volume/, what);
+      assert.throws(() => sinkWithStub(root), want, what);
     } finally { cp.spawnSync = realSpawn; delete require.cache[key]; if (saved) require.cache[key] = saved; }
   }
+});
+
+test('#5536 sink (macOS): the mount line must be EXACTLY the root\'s mount point ("/x (bar)" is not "/x")', { skip: process.platform !== 'darwin' }, (t) => {
+  const cp = require('child_process');
+  const realSpawn = cp.spawnSync;
+  const key = require.resolve('./restoresink');
+  const root = fresh(t); fs.chmodSync(root, 0o775);
+  const mp = path.dirname(fs.realpathSync.native(root));
+  // A volume mounted at "<mp> (bar)" comes first and is NOT noowners; the root's own mount <mp> is.
+  cp.spawnSync = (cmd, args, o) => (cmd === '/sbin/mount'
+    ? { status: 0, stdout: `/dev/disk5s1 on ${mp} (bar) (apfs, local, journaled)\n/dev/disk6s1 on ${mp} (msdos, local, noowners)\n` }
+    : cmd === '/bin/df' ? { status: 0, stdout: `Filesystem 512-blocks Used Available Capacity  Mounted on\n/dev/disk6s1 100 1 99 1%    ${mp}\n` }
+      : realSpawn(cmd, args, o));
+  const saved = require.cache[key];
+  delete require.cache[key];
+  try {
+    const { createRestoreSink: sinkWithStub } = require('./restoresink');
+    assert.throws(() => sinkWithStub(root), /ignores ownership/);
+  } finally { cp.spawnSync = realSpawn; delete require.cache[key]; if (saved) require.cache[key] = saved; }
 });
