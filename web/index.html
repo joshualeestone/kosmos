@@ -47385,7 +47385,7 @@ async function paintPlus() {
 /* ---- #5531 (Enterprise E0.2): this Kosmos joining a company. The 5-second repaint above asks at most once a minute,
    and never while the person is reading a consent or a call is out. */
 var PLUS_ORG = { at: 0, busy: false, state: null, preview: null, open: false };   // open: the person opened the company block (10-08)
-function plusOrgMaybe() {
+function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state stays when the state turns out changed
   if (PLUS_ORG.busy || PLUS_ORG.preview) return;
   if (Date.now() - PLUS_ORG.at < 60000) { if (PLUS_ORG.state) plusOrgPaint(); return; }   // at most once a minute, failed reads included
   PLUS_ORG.at = Date.now();
@@ -47394,7 +47394,7 @@ function plusOrgMaybe() {
     PLUS_ORG.state = j;
     const msg = document.getElementById('plus-org-msg');
     // A line about the old state ("not known yet", "left") must not sit under the new one (review 31).
-    if (j && (j.enrolled === true) !== was) msg.textContent = '';
+    if (j && (j.enrolled === true) !== was && keepMsg !== true) msg.textContent = '';
     // The server shows this note once, so it replaces whatever line is there rather than waiting for an empty one.
     if (j && j.enrolled !== true && j.stoppedFor) msg.textContent = 'This Kosmos is no longer the work Kosmos for ' + j.stoppedFor + ', so it has stopped reporting.';
     // #5531 review 21: a leave the person was told would be sent again was refused, so this Kosmos reports again.
@@ -47483,7 +47483,8 @@ async function plusOrgJoin() {
     // A review has no code to check again: its way back is the Review button (orgreview review 1).
     if (p.review && r.code === 'org_ticket') msg.textContent = 'These words were open too long. Press Review what your company sees to read them again.';
     // A review refused with a reason points at the Review button, so the joined view (and that button) comes back.
-    if (p.review && r.code) { PLUS_ORG.preview = null; plusOrgPaint(); return; }
+    // The view is read back too (review 7): a refusal like org_not_here means the joined view above it is no longer true.
+    if (p.review && r.code) { PLUS_ORG.preview = null; plusOrgPaint(); PLUS_ORG.at = 0; plusOrgMaybe(true); return; }
     // A code that is used, expired, or for another company will not work on a second press: back to the code field.
     // Also an outcome not known yet, or an undo still to send (review 25): the code may be spent, and "Not now" would say nothing was joined.
     if (['org_code_used', 'org_code_expired', 'org_code_unknown', 'org_other_org', 'org_wrong_domain', 'org_ticket', 'org_not_accepted', 'org_already_member', 'org_join_unknown', 'org_undo_pending', 'org_consent_changed'].includes(r.code)) { PLUS_ORG.preview = null; plusOrgPaint(); }

@@ -335,7 +335,7 @@ async function enrollNow(code, accepted, opts) {
      below fit it (orgreview reviews 1 and 2): every refusal is said in review words, and points at Accept or at the
      Review button, never at a code. A lost answer: a status read cannot tell whether the re-acceptance landed, because
      "here" was true either way, so nothing is recorded; accepting again is harmless. */
-  const review = asReview && move;   // checked against this world's record before sending (above)
+  const review = asReview;   // no code, so always a move; checked against this world's record before sending (above)
   if (!r.ok && review) {
     const c = codeOf(r.because);
     if (c === 'org_consent_changed') return { ok: false, code: c, because: 'Your company changed what it asks of this Kosmos since you read it. Nothing changed here. Press Review what your company sees to read the new words.' };

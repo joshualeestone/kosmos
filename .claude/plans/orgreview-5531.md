@@ -63,3 +63,9 @@
 - FIXED: after an accepted review the page set `reporting: true` itself, a second copy of the engine's mayReport rule. It now reads the state back from the engine (O15 asserts the re-read, the Review button gone, and no "sends nothing"; removing the re-read makes it fail).
 - DECLINED, with reasons: clearing the board's one ticket when a review preview is refused. A refused code preview already leaves the previous ticket. The board holds one ticket, so clearing it could cancel another screen's valid ticket. And enroll re-checks the record (`org_not_here`), so the worst case is a refused Accept.
 - NITs kept: an Accept clears a refused-leave note (the record is enrolled here and reporting resumes, so the note is stale); the Review button is not disabled while out; reviewHere is not serialized (enrollNow is, and re-checks).
+
+## Review 7 (blind, Opus)
+- FIXED: a review refused with a reason repainted from the old state, so `org_not_here` said "no longer your work Kosmos" under a joined view that said it was, and a Review button that could only be refused. A coded refusal now reads the state back too, and the refusal's own line is kept when the state turns out changed (`plusOrgMaybe(true)`). O15 arm for org_not_here; removing the re-read, or the keep, each makes it fail.
+- NIT taken: `asReview && move` was always `asReview` (the comment says so now).
+- NITs kept: "press Accept again" when the cause may last (the move path's shape); `!rec.org` unreachable; the screen right after an accepted review reads off an unset value until the read-back lands (it is right in this path); header order.
+- The weakest premise (the coordinator's codeless same-world enroll is a pure re-acceptance) is checked against relay main's `mac_enroll`, outside this repo: `code: None` calls `org_reenroll` for the same Mac and world, records the audit row when a consentHash is sent, and `org_bind_set` stores the hash as sent.

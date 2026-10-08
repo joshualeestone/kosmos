@@ -298,6 +298,9 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     const offeredWhenReporting = await shown(page, 'plus-org-review');
     await joined(false);
     const offered = await shown(page, 'plus-org-review');
+    // What the engine answers when the page reads back after a refusal: still joined, still sending nothing.
+    const JOINED_SILENT = { enrolled: true, reporting: false, stoppedFor: null, leaveRefused: null, org: { name: 'Acme', slug: 'acme' }, role: 'member', enrolledAt: '2026-10-01T00:00:00.000Z' };
+    await page.evaluate((st) => { window.__orgState = st; }, JOINED_SILENT);
     await page.evaluate(() => { window.__review = true; });
     await page.click('#plus-org-review');
     await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
@@ -324,6 +327,18 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     await page.waitForFunction(() => document.getElementById('plus-org-msg').textContent !== '');
     const other = await page.evaluate(() => ({ consent: !document.getElementById('plus-org-consent').hidden,
       review: (() => { const el = document.getElementById('plus-org-review'); return !el.hidden && el.getClientRects().length > 0; })() }));
+    // org_not_here (the record went while the words were open): the view is read back, so the joined view and its
+    // Review button go, and the refusal's own line stays (review 7).
+    await page.evaluate(() => { window.__enrollAnswer = { ok: false, code: 'org_not_here', because: 'This Kosmos is no longer your work Kosmos, so nothing was sent.' };
+      window.__orgState = { enrolled: false, stoppedFor: null, leaveRefused: null, org: null, role: null, enrolledAt: null };
+      PLUS_ORG.state = { enrolled: true, reporting: false, org: { name: 'Acme', slug: 'acme' }, role: 'member' }; PLUS_ORG.at = Date.now(); plusOrgPaint(); });
+    await page.click('#plus-org-review');
+    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
+    await page.click('#plus-org-join');
+    await page.waitForFunction(() => document.getElementById('plus-org-in').hidden && document.getElementById('plus-org-consent').hidden, null, { timeout: 5000 }).catch(() => {});
+    const gone = await page.evaluate(() => ({ msg: document.getElementById('plus-org-msg').textContent, inView: !document.getElementById('plus-org-in').hidden,
+      codeField: !document.getElementById('plus-org-out').hidden }));
+    await page.evaluate((st) => { window.__orgState = st; }, JOINED_SILENT);
     await page.evaluate(() => { window.__enrollAnswer = null; PLUS_ORG.state = { enrolled: true, reporting: false, org: { name: 'Acme', slug: 'acme' }, role: 'member' }; plusOrgPaint(); });
     const enrollsBefore = await page.evaluate(() => window.__org.filter((x) => x.path === '/api/org/enroll').length);
     await page.click('#plus-org-review');
@@ -344,10 +359,11 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
       && nn.msg === 'Nothing changed.' && nn.inView && !nn.consent
       && late.msg === 'These words were open too long. Press Review what your company sees to read them again.' && late.review
       && !other.consent && other.review
+      && gone.msg === 'This Kosmos is no longer your work Kosmos, so nothing was sent.' && !gone.inView && gone.codeField
       && acc.enroll.length === enrollsBefore + 1 && last.body.accepted === true && !('code' in last.body) && typeof last.body.ticket === 'string'
       && acc.inView && acc.join === 'Join with this Kosmos' && acc.reread && acc.reviewGone && !/sends your company nothing/.test(acc.say),
       'O15 a Kosmos that sends nothing reviews its company\'s words and accepts them with no code; Not now changes nothing; one that reports is not offered it',
-      JSON.stringify({ offeredWhenReporting, offered, rv, nn, late, other, last, acc: { inView: acc.inView, join: acc.join, reread: acc.reread, reviewGone: acc.reviewGone, say: acc.say } }));
+      JSON.stringify({ offeredWhenReporting, offered, rv, nn, late, other, gone, last, acc: { inView: acc.inView, join: acc.join, reread: acc.reread, reviewGone: acc.reviewGone, say: acc.say } }));
     await page.evaluate(() => { window.__review = false; window.__orgState = null; PLUS_ORG.state = { enrolled: false, org: null, role: null }; PLUS_ORG.preview = null; plusOrgPaint(); });
 
     chk(errs.length === 0, 'O6 no page errors', errs.join(' | '));
