@@ -65,6 +65,10 @@ jobs:
           # #5519: this job's boards must not count as installs (Josh 10-07). The install beacon goes to a dead local
           # address; setup.sh's unit carries it, and the steps below assert the unit and the running board have it.
           echo "AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created" >> "$GITHUB_ENV"
+          # The other two senders aimed at nothing too, as tools/test-install.sh and run-tests.sh do (neither sends in this
+          # job today: no report is written and no post is published).
+          echo "AGENT_WORKFORCE_FEEDBACK_URL=http://127.0.0.1:9/api/feedback" >> "$GITHUB_ENV"
+          echo "AGENT_WORKFORCE_COMMUNITY_URL=http://127.0.0.1:9" >> "$GITHUB_ENV"
 
       - name: Stage this checkout as the bundle setup.sh installs
         # ⚠️ A hand copy of tools/build-kosmos-bundle.sh's file list (that script is Mac-only). If the bundle gains a
@@ -297,6 +301,7 @@ jobs:
           rm -f "$KOSMOS_HOME/board.stopped"
           # #5519: 0.7.27's unit cannot carry the beacon address, so the test adds it before systemd starts that board.
           sed -i "/^\[Service\]$/a Environment=AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL" "$UNIT"
+          grep -qxF "Environment=AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL" "$UNIT"   # sed exits 0 on no match
           systemctl --user daemon-reload
           systemctl --user start kosmos-board.service
           sleep 3
@@ -340,6 +345,7 @@ jobs:
           UNIT_FILE="$HOME/.config/systemd/user/kosmos-board.${HASH}.service"
           test -f "$UNIT_FILE"
           grep -qF "Environment=\"KOSMOS_HOME=$CUSTOM_HOME\"" "$UNIT_FILE"
+          grep -qxF "Environment=\"AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL\"" "$UNIT_FILE"   # #5519: this board too
           AGENT_WORKFORCE_DATA="$CUSTOM_HOME/data" KOSMOS_HOME="$CUSTOM_HOME" sh install/setup.sh --uninstall
           test ! -f "$UNIT_FILE"
           test ! -e "$HOME/.config/systemd/user/default.target.wants/kosmos-board.${HASH}.service"
