@@ -328,10 +328,16 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     const enrollsBefore = await page.evaluate(() => window.__org.filter((x) => x.path === '/api/org/enroll').length);
     await page.click('#plus-org-review');
     await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
+    // The engine now says it reports; the page must learn that by reading it back, not by assuming it (review 6).
+    const readsBefore = await page.evaluate(() => { window.__orgState = { enrolled: true, reporting: true, stoppedFor: null, leaveRefused: null, org: { name: 'Acme', slug: 'acme' }, role: 'member', enrolledAt: '2026-10-01T00:00:00.000Z' };
+      return window.__org.filter((x) => x.path === '/api/org' && x.method === 'GET').length; });
     await page.click('#plus-org-join');
     await page.waitForFunction(() => document.getElementById('plus-org-consent').hidden);
-    const acc = await page.evaluate(() => ({ enroll: window.__org.filter((x) => x.path === '/api/org/enroll'), inView: !document.getElementById('plus-org-in').hidden,
-      join: document.getElementById('plus-org-join').textContent }));
+    await page.waitForFunction((n) => window.__org.filter((x) => x.path === '/api/org' && x.method === 'GET').length > n, readsBefore, { timeout: 5000 }).catch(() => {});
+    await page.waitForFunction(() => document.getElementById('plus-org-review').hidden, null, { timeout: 5000 }).catch(() => {});
+    const acc = await page.evaluate((n) => ({ enroll: window.__org.filter((x) => x.path === '/api/org/enroll'), inView: !document.getElementById('plus-org-in').hidden,
+      join: document.getElementById('plus-org-join').textContent, reread: window.__org.filter((x) => x.path === '/api/org' && x.method === 'GET').length > n,
+      reviewGone: document.getElementById('plus-org-review').hidden, say: document.getElementById('plus-org-say').textContent }), readsBefore);
     const last = acc.enroll[acc.enroll.length - 1];
     chk(!offeredWhenReporting && offered && JSON.stringify(rv.sent.body) === '{"review":true}' && rv.join === 'Accept' && !rv.inView && !rv.codeField
       && /^This is what Acme asks of this Kosmos/.test(rv.ask)
@@ -339,10 +345,10 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
       && late.msg === 'These words were open too long. Press Review what your company sees to read them again.' && late.review
       && !other.consent && other.review
       && acc.enroll.length === enrollsBefore + 1 && last.body.accepted === true && !('code' in last.body) && typeof last.body.ticket === 'string'
-      && acc.inView && acc.join === 'Join with this Kosmos',
+      && acc.inView && acc.join === 'Join with this Kosmos' && acc.reread && acc.reviewGone && !/sends your company nothing/.test(acc.say),
       'O15 a Kosmos that sends nothing reviews its company\'s words and accepts them with no code; Not now changes nothing; one that reports is not offered it',
-      JSON.stringify({ offeredWhenReporting, offered, rv, nn, late, other, last, acc: { inView: acc.inView, join: acc.join } }));
-    await page.evaluate(() => { window.__review = false; PLUS_ORG.state = { enrolled: false, org: null, role: null }; PLUS_ORG.preview = null; plusOrgPaint(); });
+      JSON.stringify({ offeredWhenReporting, offered, rv, nn, late, other, last, acc: { inView: acc.inView, join: acc.join, reread: acc.reread, reviewGone: acc.reviewGone, say: acc.say } }));
+    await page.evaluate(() => { window.__review = false; window.__orgState = null; PLUS_ORG.state = { enrolled: false, org: null, role: null }; PLUS_ORG.preview = null; plusOrgPaint(); });
 
     chk(errs.length === 0, 'O6 no page errors', errs.join(' | '));
   } finally {

@@ -58,3 +58,8 @@
 - FIXED: the plan's review-4 line overstated the guard (C).
 - NITs kept: the org_bad_world re-armed ticket vs the page's way back; the Review button not disabled while out (busy already ignores a second press).
 
+
+## Review 6 (blind, Sonnet)
+- FIXED: after an accepted review the page set `reporting: true` itself, a second copy of the engine's mayReport rule. It now reads the state back from the engine (O15 asserts the re-read, the Review button gone, and no "sends nothing"; removing the re-read makes it fail).
+- DECLINED, with reasons: clearing the board's one ticket when a review preview is refused. A refused code preview already leaves the previous ticket. The board holds one ticket, so clearing it could cancel another screen's valid ticket. And enroll re-checks the record (`org_not_here`), so the worst case is a refused Accept.
+- NITs kept: an Accept clears a refused-leave note (the record is enrolled here and reporting resumes, so the note is stale); the Review button is not disabled while out; reviewHere is not serialized (enrollNow is, and re-checks).

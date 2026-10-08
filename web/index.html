@@ -47491,10 +47491,12 @@ async function plusOrgJoin() {
   }
   PLUS_ORG.preview = null;
   document.getElementById('plus-org-code').value = '';
-  PLUS_ORG.state = { enrolled: true, org: r.org, role: r.role, reporting: p.review === true ? true : undefined };   // an accepted review reports (its words are now recorded)
+  PLUS_ORG.state = { enrolled: true, org: r.org, role: r.role };
   PLUS_ORG.at = Date.now();
   msg.textContent = '';
   plusOrgPaint();
+  // An accepted review: whether this Kosmos now reports is the engine's answer, not a copy of its rule (review 6).
+  if (p.review) { PLUS_ORG.at = 0; plusOrgMaybe(); }
 }
 function plusOrgNotNow() {
   const review = !!(PLUS_ORG.preview && PLUS_ORG.preview.review);
