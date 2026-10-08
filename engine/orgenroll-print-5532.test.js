@@ -60,11 +60,11 @@ test('#5532 print guard 2: the company in every print is the one on this board\'
   assert.notEqual(printOf(ACME.id), printOf(OTHER.id), 'CONTROL: the two companies give different prints');
   // The rollup: the record's company, whatever status says.
   fs.writeFileSync(path.join(root, oe.CONSENT_FILE), JSON.stringify({ order: [HASH], byHash: { [HASH]: { reports: ['agent names'], usageConsented: false } } }));
-  const sources = { agents: () => [], offline: () => [], projects: () => [], linkedProject: () => false };
+  const sources = { snapshot: () => ({ counts: {}, agents: [] }), survey: () => ({ ok: true, agents: [] }), removed: () => [], projects: () => [], linkedProject: () => false };
   const tk = await rollup.tick({ root, remote: co, sources, now: Date.UTC(2026, 9, 8, 12) });
   assert.equal(tk.sent, true, JSON.stringify(tk));
   assert.equal(co.sent.find((x) => x.route === rollup.ROUTE).body.computerPrint, printOf(ACME.id), 'the rollup\'s print followed another company');
-  // The leave: the record's company too (status here names OTHER; the leave asks status first).
+  // The leave (its print is asserted in the next test).
   const lv = await oe.leave({ root, remote: company(root, ACME) });
   assert.equal(lv.ok, true, JSON.stringify(lv));
 });
@@ -77,7 +77,7 @@ test('#5532 print guard 2: a leave sends the print for the record\'s company, an
   await oe.leave({ root, remote: leaving });
   assert.equal(leaving.sent.find((x) => x.route === oe.ROUTES.leave).body.computerPrint, printOf(ACME.id), 'the leave did not carry the pinned print, so the company would refuse it as a copy');
   // An undo of a first join this Kosmos could not record: there is no record, so the join's own salt and company.
-  const { a } = { a: sandbox(t) };
+  const a = sandbox(t);
   const undoing = { sent: [], macRequest: async (m, route, body) => {
     undoing.sent.push({ route, body });
     if (route === oe.ROUTES.enroll) return { ok: true, data: { ok: true, org: ACME, role: 'member', enrolled: { computer: 'c9', world: 'f'.repeat(32), thisComputer: false } } };
@@ -118,7 +118,7 @@ test('#5532 print guard 1: nothing this caller logs carries a print, the hardwar
   const co = company(root);
   await join(root, co);
   fs.writeFileSync(path.join(root, oe.CONSENT_FILE), JSON.stringify({ order: [HASH], byHash: { [HASH]: { reports: ['agent names'], usageConsented: false } } }));
-  await rollup.tick({ root, remote: co, sources: { agents: () => [], offline: () => [], projects: () => [], linkedProject: () => false }, now: Date.UTC(2026, 9, 8, 12) });
+  await rollup.tick({ root, remote: co, sources: { snapshot: () => ({ counts: {}, agents: [] }), survey: () => ({ ok: true, agents: [] }), removed: () => [], projects: () => [], linkedProject: () => false }, now: Date.UTC(2026, 9, 8, 12) });
   // The one line this caller does log: a malformed salt (printFor's `because`).
   const bad = sandbox(t);
   await join(bad, company(bad), { computerSalt: 'not-hex' });
@@ -136,4 +136,25 @@ test('#5532 print guard 1: nothing this caller logs carries a print, the hardwar
       assert.equal(/computerPrint|\bprint\b|fields|\bbody\b/.test(call.replace(/'[^']*'/g, "''")), false, f + ' logs a print or a body: ' + call);
     }
   }
+});
+
+test('#5532 rollup review 12: a record rebuilt after an undo refused as the last admin keeps the print\'s salt, so its rollups carry the print', async (t) => {
+  const root = sandbox(t);
+  // A first join the company bound to another world: undone, but the undo gets no answer: pending.
+  const co = { macRequest: async (m, route, body) => {
+    if (route === oe.ROUTES.enroll) return { ok: true, data: { ok: true, org: ACME, role: 'admin', enrolled: { computer: 'c2', world: body.world, thisComputer: false } } };
+    return { ok: false, because: 'offline' }; } };
+  const r0 = await join(root, co);
+  assert.equal(r0.code, 'org_undo_pending', JSON.stringify(r0));
+  // The company now names this world HERE and refuses the undo as the last admin: the record is rebuilt from status.
+  const rebuild = { macRequest: async (m, route) => (route === oe.ROUTES.status
+    ? { ok: true, data: { member: true, org: ACME, role: 'admin', enrolled: { computer: 'c1', world: oe.worldId({ root }), thisComputer: true } } }
+    : { ok: false, because: '409 {"because":"org_last_admin"}' }) };
+  await oe.refresh({ root, remote: rebuild });
+  assert.equal(oe.isEnrolledHere({ root }), true, 'CONTROL: the record was rebuilt');
+  assert.equal(oe.readEnrollment({ root }).computerSalt, SALT, 'the rebuilt record lost the salt its print was pinned with');
+  const sent = company(root);
+  const tk = await rollup.tick({ root, remote: sent, sources: { snapshot: () => ({ counts: {}, agents: [] }), survey: () => ({ ok: true, agents: [] }), removed: () => [], projects: () => [], linkedProject: () => false }, now: Date.UTC(2026, 9, 8, 12) });
+  assert.equal(tk.sent, true, JSON.stringify(tk));
+  assert.equal(sent.sent.find((x) => x.route === rollup.ROUTE).body.computerPrint, printOf(ACME.id), 'the rebuilt record\'s rollup went without the pinned print');
 });

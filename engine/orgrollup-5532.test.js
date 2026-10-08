@@ -372,7 +372,7 @@ test('#5532 rollup review 8: usage needs its own consent, and a usage key that i
   assert.deepEqual(b.usage.map((u) => u.model), ['claude-opus-5-5'], 'a usage key that is not a model id was sent');
 });
 
-test.todo('#5532 consent follow-up: tick() must refuse unless the accepted report lines cover EVERY field build() sends (rollup reviews 5 and 6), bound to the served consentHash (v1.4); a non-empty list is not enough');
+// Field coverage (rollup reviews 5 and 6): DECIDED, not built: the coordinator's hash binding is the guard (see the plan's "Field coverage").
 // The per-computer print (rollup review 6) is wired and pinned in engine/orgenroll-print-5532.test.js.
 
 test('#5532 rollup review 7: a project linked from another Kosmos is never reported; an alias named after a client is not a model', async () => {

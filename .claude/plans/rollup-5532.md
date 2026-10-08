@@ -209,3 +209,13 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
 - NITs taken: one read each in the /api/org reporting check and in rememberConsent; superseded plan lines marked;
   refresh keeps the print's salt only for the same company id.
 
+
+## Review 12 (blind, Opus)
+- FIXED: the record rebuilt after an undo is refused as the last admin got its consent hash but not the print's salt.
+  Its rollups then went without the print, which the company refuses and logs against the real computer as a copy,
+  hourly. It now takes the salt from the pending-leave file (same company only). Every record-building path was checked
+  for the class: the join, the lost answer settled later, refresh (same company), and this rebuild all carry the salt.
+  Test; the mutation makes it fail.
+- NITs taken: the servedHash comment is back above its function; NAMES_USAGE says it is deliberately narrower than the
+  coordinator's substring match (a disagreement only withholds); the print tests use gather()'s real source shape; the
+  field-coverage todo is now a decided note.

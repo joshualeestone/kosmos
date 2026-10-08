@@ -141,8 +141,6 @@ function cleanList(a) {
   const { externalName } = require('./externalname');
   return a.map((s) => externalName(s, LINE_MAX)).filter(Boolean).slice(0, LINES_MAX);
 }
-/* The hash the COMPANY served with its words (contract v1.4): boards echo it, never recompute it, and the company
-   compares the one an enroll sends with the one its rollup expects. Null from a company that serves none. */
 /* #5532 (contract v1.5): the salt the company serves for the computer print, from redeem or status, echoed on enroll.
    Hex, 16 to 64 whole bytes (engine/computerprint.js checks it again). */
 function servedSalt(d) {
@@ -167,6 +165,8 @@ function reportPrint(opts) {
   const rec = readEnrollment(opts);
   return rec && rec.computerSalt && rec.org ? printFields(rec.computerSalt, rec.org.id) : { send: 'none', fields: {} };
 }
+/* The hash the COMPANY served with its words (contract v1.4): boards echo it, never recompute it, and the company
+   compares the one an enroll sends with the one its rollup expects. Null from a company that serves none. */
 function servedHash(d) {
   const h = d && typeof d.consentHash === 'string' ? d.consentHash : '';
   if (!/^[0-9a-f]{64}$/.test(h)) return null;
@@ -204,7 +204,7 @@ const CONSENT_FILE = 'org-consent.json';
 /* Whether the accepted words name token usage. The coordinator refuses usage rows until its own words do
    (CONSENT_NAMES_USAGE, pinned on token/usage/cost), so the board keys on the same words: no line naming them, no
    usage leaves, whatever a reader could read. */
-const NAMES_USAGE = /\b(tokens?|usage|costs?)\b/i;
+const NAMES_USAGE = /\b(tokens?|usage|costs?)\b/i;   // whole words: deliberately NARROWER than the coordinator's substring match, so a disagreement only withholds
 /* Keyed BY HASH, a few kept (rollup review 10): a join that fails, or one from a stale page, must not overwrite the
    words held for the hash an existing record carries. */
 const CONSENT_KEEP = 8;
@@ -659,6 +659,10 @@ async function leaveNow(opts, retry) {
     // An undo refused: the person DID accept the words for this world, so the record carries them (review 31).
     const hashBefore = pendingConsentHash(opts);
     if (back && !before && undo && hashBefore) back.consentHash = hashBefore;
+    /* And the salt its print was pinned with (rollup review 12): without it every rollup goes without the print, which
+       the company refuses as a copy's and logs against the real computer. Only for the same company. */
+    const pf0 = pendingPrintFrom(opts);
+    if (back && !back.computerSalt && pf0 && back.org && pf0.orgId === back.org.id) back.computerSalt = pf0.salt;
     let kept = false;
     if (back) { try { writeEnrollment(back, opts); kept = true; } catch { /* below */ } }
     setLeavePending(!kept, opts, back, undo, hashBefore);
