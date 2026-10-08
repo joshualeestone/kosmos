@@ -19,7 +19,7 @@ test('#5532 v1.5: the IOPlatformUUID is read out of ioreg text, and nothing else
 });
 
 /* Every reader swap goes through the tests-only hook; fingerprint() itself takes only a salt and a company. */
-function withReader(t, run, opts) { cp._testRunner(run, opts); t.after(() => cp._testRunner()); }
+function withReader(t, run, opts) { t.after(() => cp._testRunner()); cp._testRunner(run, opts); }
 
 test('#5532 v1.5: the print is HMAC-SHA256(salt, company:id); the raw id never appears in it; anything missing gives null', (t) => {
   withReader(t, () => SAMPLE, { platform: 'darwin' });
@@ -114,18 +114,38 @@ test('#5532 v1.5 review 6: a failure at clock 0 still starts the wait', (t) => {
   assert.equal(n, 1, 'a failure at clock 0 was not recorded, so ioreg was asked again at once');
 });
 
-test('#5532 v1.5 review 7: printState tells a caller to send, to send without a print, or to wait', (t) => {
+test('#5532 v1.5 reviews 7 to 9: printFor gives ONE answer: send the print, send none, or later', (t) => {
   t.after(() => cp._testRunner());
+  const VM = '+-o VM <class IOPlatformExpertDevice>\n  {\n    "model" = "VMware"\n  }\n';
   cp._testRunner(() => SAMPLE, { platform: 'darwin' });
-  assert.equal(cp.printState(), 'ok');
+  const ok = cp.printFor(SALT, ORG);
+  assert.equal(ok.send, 'print'); assert.equal(ok.print, cp.fingerprint(SALT, ORG));
+  // Review 9: 'ok' is only ever said WITH a print, so a bad salt or company defers rather than sending none.
+  assert.deepEqual(cp.printFor('bad', ORG), { send: 'later' }, 'a malformed salt would send a print-less request, read as a copy');
+  assert.deepEqual(cp.printFor(SALT, 'no spaces allowed'), { send: 'later' });
   cp._testRunner(() => { throw new Error('ioreg timed out'); }, { platform: 'darwin', now: 5 });
-  assert.equal(cp.printState(), 'waiting', 'a failed read on the real computer must defer the request, not send it print-less');
-  assert.equal(cp.fingerprint(SALT, ORG), null);
+  assert.deepEqual(cp.printFor(SALT, ORG), { send: 'later' }, 'a failed read on the real computer must defer, not send print-less');
   cp._testRunner(() => SAMPLE, { platform: 'win32' });
-  assert.equal(cp.printState(), 'none');
-  // Review 8: ioreg answers, but with no hardware id (some VMs): a lasting 'none', not a 'waiting' that never ends.
-  cp._testRunner(() => '+-o VM <class IOPlatformExpertDevice>\n  {\n    "model" = "VMware"\n  }\n', { platform: 'darwin', now: 5 });
-  assert.equal(cp.printState(), 'none', 'a computer with no hardware id would wait forever and never enroll or leave');
+  assert.deepEqual(cp.printFor(SALT, ORG), { send: 'none' });
+  // Review 8: ioreg answers WITH its hardware block and no id (some VMs): a lasting 'none', not an endless wait.
+  cp._testRunner(() => VM, { platform: 'darwin', now: 5 });
+  assert.deepEqual(cp.printFor(SALT, ORG), { send: 'none' }, 'a computer with no hardware id would wait forever');
+  // Review 9: a truncated or garbled answer is a failed read to retry, never 'none'.
+  cp._testRunner(() => 'garbage, cut off', { platform: 'darwin', now: 5 });
+  assert.deepEqual(cp.printFor(SALT, ORG), { send: 'later' }, 'one odd ioreg answer would flag a pinned computer as a copy');
+});
+
+test('#5532 v1.5 review 9: an ioreg that always fails stops deferring after GIVE_UP_AFTER reads, never waits forever', (t) => {
+  let n = 0;
+  withReader(t, () => { n += 1; throw new Error('ioreg missing'); }, { platform: 'darwin', now: 0 });
+  let last;
+  for (let k = 0; k < cp.GIVE_UP_AFTER + 2; k += 1) {
+    cp._testClock(k * (cp.RETRY_AFTER_FAIL_MS + 1));
+    last = cp.printFor(SALT, ORG);
+    if (k < cp.GIVE_UP_AFTER - 1) assert.equal(last.send, 'later', 'gave up too early, at read ' + (k + 1));
+  }
+  assert.equal(n, cp.GIVE_UP_AFTER + 2, 'reads were not retried once a minute');
+  assert.deepEqual(last, { send: 'none' }, 'a Mac whose ioreg always fails would defer enroll and leave forever');
 });
 
 test.todo('#5532 the first caller of fingerprint() lands with a guard that its file never logs the print or a request body carrying it (rule 1; review 7)');

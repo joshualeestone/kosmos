@@ -104,3 +104,18 @@ company, and `thisComputer` cannot tell them apart.
 - ON THE CARD (a repeat of the kept synchronous read): callers compute the print off any request hot path.
 - FIXED: the header claims what holds ("no function that READS the hardware is exported"); the repo-wide guard skips,
   with its reason, outside a git checkout.
+
+## Review 9 (blind, opus)
+- FIXED (all three from my reviews 7 and 8): `printFor(salt, company)` replaces printState and answers ONCE:
+  { send: 'print', print } | { send: 'none' } | { send: 'later' }. 'print' always carries a print, so a malformed salt
+  or company defers instead of sending a print-less request that reads as a copy. "No id here" is said only when
+  ioreg's hardware block is there with no UUID key at all; a garbled or cut-off answer is a failed read to retry. An
+  ioreg that always fails stops deferring after GIVE_UP_AFTER (10) failed reads, about ten minutes: then 'none', and a
+  pinned computer is asked by its company to re-enroll with consent, a recoverable end instead of an endless wait.
+  Each of the three mutations reddens.
+- SCOPE (PigeonPete confirmed in code): an enroll with no print pins nothing and clears an earlier pin; a print is
+  compared only while one is pinned. So the print stops a COPY of a data folder from reporting unseen; it does not stop
+  the person from moving their own enrollment to another computer, which is the consented codeless enroll by design.
+- FIXED: the merged comment line; withReader registers its cleanup first.
+- KEPT: the tests-only hooks on the export, guarded by the repo scan (decided in review 4; the guard says it is a guard,
+  not a proof).

@@ -33,8 +33,8 @@
  *      it (review 5). Compute it fresh for each request from the salt and the hardware.
  *   2. The COORDINATOR must treat a missing print, after one has been pinned for that enrollment, as a mismatch: a copy
  *      could otherwise simply send none and pass as an older board. SO A CALLER MUST NOT SEND A PRINT-LESS REQUEST WHILE
- *      THE READER IS WAITING (review 7): printState() says 'waiting' after a failed read, and the request is deferred
- *      until it says 'ok'. Only 'none' (a platform with no reader yet) sends without a print.
+ *      THE READER IS WAITING (reviews 7 to 9): printFor() answers { send: 'later' } after a failed read, and the request
+ *      is deferred. It answers { send: 'none' } only when no print can ever come from this computer.
  * No function that READS the hardware is exported, so no caller can log or send the raw id by mistake. (parseIoreg is
  * exported for the tests; it returns an id only from text its caller already holds.)
  */
@@ -50,8 +50,13 @@ let defaultRun = realRun;   // replaced only by tests, through _testRunner below
 /* After a failed read, wait this long before asking ioreg again (review 2): a hung ioreg must not block the board for
    five seconds on every call. */
 const RETRY_AFTER_FAIL_MS = 60 * 1000;
-let failedAt = null;
-let noIdHere = false;   // ioreg ran and has no IOPlatformUUID on this computer (some VMs): a lasting answer, not a wait   // when the last read failed, or null (never 0 as a sentinel: a clock can read 0 in a test)
+let failedAt = null;   // when the last read failed, or null (never 0 as a sentinel: a clock can read 0 in a test)
+let failures = 0;      // failed reads in a row
+let noIdHere = false;  // ioreg's hardware block was there and has no IOPlatformUUID (some VMs): a lasting answer
+/* After this many failed reads in a row (about ten minutes at one a minute), stop deferring and send without a print
+   (review 9). On a computer that had a print pinned, the company then asks the person to make this computer the work
+   Kosmos again, with consent: a recoverable end, where an endless wait would never let it enroll or leave. */
+const GIVE_UP_AFTER = 10;
 
 /* The raw IOPlatformUUID out of ioreg's text, or null. Pure, so the parse is tested on fixtures. */
 function parseIoreg(text) {
@@ -75,9 +80,15 @@ function hardwareId() {
   let id = null;
   let ran = false;
   // 🛑 Never log this error: on a timeout or a non-zero exit its .stdout is the full ioreg dump, raw id and serial number.
-  try { const out = defaultRun(); ran = true; id = parseIoreg(out); } catch { id = null; }
-  if (id) { cached = id; failedAt = null; noIdHere = false; } else { failedAt = now; noIdHere = ran; }
-  return id;
+  let out = '';
+  try { out = String(defaultRun() || ''); ran = true; id = parseIoreg(out); } catch { id = null; }
+  if (id) { cached = id; failedAt = null; failures = 0; noIdHere = false; return id; }
+  failedAt = now;
+  failures += 1;
+  /* "No id here" only when ioreg answered WITH its hardware block and that block has no UUID key at all (review 9):
+     a truncated or garbled answer is a failed read to retry, never a reason to send without a print. */
+  noIdHere = ran && /IOPlatformExpertDevice/.test(out) && !/"IOPlatformUUID"/.test(out);
+  return null;
 }
 
 /* The print the company pins: HMAC-SHA256(key = salt, company + ':' + hardware id), or null. `company` is
@@ -95,16 +106,23 @@ function fingerprint(salt, company) {
   return crypto.createHmac('sha256', Buffer.from(salt.toLowerCase(), 'hex')).update(company + ':' + id).digest('hex');
 }
 
-/* What a caller should do now (review 7): 'ok' (send the print), 'none' (no reader on this platform: send without a
-   print, as an older board), or 'waiting' (a read failed and the retry wait is running: DEFER the request; a print-less
-   request now would read as a copy to the company). Never reveals the id. */
-function printState() {
+/**
+ * What a caller sends, in ONE answer (review 9: a separate state and print could disagree):
+ *   { send: 'print', print }   send the print
+ *   { send: 'none' }           send WITHOUT a print: no reader on this platform, a computer whose hardware block has no
+ *                              id, or GIVE_UP_AFTER failed reads in a row
+ *   { send: 'later' }          DEFER the request: a read failed and its wait is running, or the salt or company is not
+ *                              well formed (a request without a print now would read as a copy to the company)
+ * Never reveals the id. fingerprint() alone answers only the print or null; callers should use this.
+ */
+function printFor(salt, company) {
   const platform = testPlatform || process.platform;
-  if (platform !== 'darwin') return 'none';
-  if (hardwareId()) return 'ok';
-  /* ioreg answered and this computer has no hardware id (review 8): waiting would never end, so it is 'none' (send
-     without a print). A print is only compared once one was pinned, and none ever is for this computer. */
-  return noIdHere ? 'none' : 'waiting';
+  if (platform !== 'darwin') return { send: 'none' };
+  if (typeof salt !== 'string' || !SALT.test(salt) || typeof company !== 'string' || !COMPANY.test(company)) return { send: 'later' };
+  const print = fingerprint(salt, company);
+  if (print) return { send: 'print', print };
+  if (noIdHere || failures >= GIVE_UP_AFTER) return { send: 'none' };
+  return { send: 'later' };
 }
 
 /* TESTS ONLY: swap the reader, the platform and the clock, and clear the cache and the retry state. Call with no
@@ -117,10 +135,11 @@ function _testRunner(fn, opts) {
   testNow = o.now != null ? o.now : null;
   cached = undefined;
   failedAt = null;
+  failures = 0;
   noIdHere = false;
 }
 /* TESTS ONLY: move the test clock without clearing the cache (for the retry-wait test). */
 function _testClock(now) { testNow = now; }
 
 // parseIoreg is exported for the fixture tests: it returns an id only from text the caller already holds.
-module.exports = { parseIoreg, fingerprint, printState, UUID, SALT, RETRY_AFTER_FAIL_MS, _testRunner, _testClock };
+module.exports = { parseIoreg, fingerprint, printFor, UUID, SALT, RETRY_AFTER_FAIL_MS, GIVE_UP_AFTER, _testRunner, _testClock };
