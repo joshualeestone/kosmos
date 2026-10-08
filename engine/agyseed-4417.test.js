@@ -41,20 +41,26 @@ function standInBoard() {
 /* #5560: one run of the bridge, and everything about how it ended. On a loaded CI runner (GitHub-hosted; the same run
    logged EAGAIN from another test) the failing run's child ended with code null after 56 ms: a SIGNAL ended it (a
    refused start gives an `error` and a negative code instead, measured on node 26). The old helper heard neither. */
-function runOnce(event, env) {
+function runOnce(event, env, spawnFn = spawn) {
   return new Promise((resolve) => {
     let child;
-    try { child = spawn(process.execPath, [BRIDGE_FILE, event], { env, stdio: ['ignore', 'pipe', 'pipe'] }); }   // </dev/null, as the supervisor runs it
+    try { child = spawnFn(process.execPath, [BRIDGE_FILE, event], { env, stdio: ['ignore', 'pipe', 'pipe'] }); }   // </dev/null, as the supervisor runs it
     catch (err) { resolve({ code: null, signal: null, error: String(err && err.code || err), out: '', err: '' }); return; }
     let out = '';
     let errText = '';
     let spawnError = null;
-    child.stdout.on('data', (d) => { out += d; });
-    child.stderr.on('data', (d) => { errText += d; });
-    child.on('error', (e) => { spawnError = String((e && e.code) || e); });
-    /* A spawn refused for lack of file handles can return before stdio exists, and `close` may never come: a try that
-       has not closed in 10 s is ended and reported as a hang (`signal: 'timeout'`, never retried), not left hanging. */
-    const hung = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* gone */ } resolve({ code: null, signal: 'timeout', error: spawnError, out, err: errText }); }, 10000);
+    let hung = null;
+    /* The error listener goes on FIRST (review 5): a spawn refused for lack of file handles (EMFILE, ENFILE) returns
+       before stdio exists, so `child.stdout` is undefined and `close` may never come. That try ends on its error at
+       once and is reported, rather than throwing on stdout or waiting out the 10 s. */
+    child.on('error', (e) => {
+      spawnError = String((e && e.code) || e);
+      if (!child.stdout || !child.stderr) { if (hung) clearTimeout(hung); resolve({ code: null, signal: null, error: spawnError, out, err: errText }); }
+    });
+    if (child.stdout) child.stdout.on('data', (d) => { out += d; });
+    if (child.stderr) child.stderr.on('data', (d) => { errText += d; });
+    /* A try that has not closed in 10 s is ended and reported as a hang (`signal: 'timeout'`, never retried). */
+    hung = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* gone */ } resolve({ code: null, signal: 'timeout', error: spawnError, out, err: errText }); }, 10000);
     child.on('close', (code, signal) => { clearTimeout(hung); resolve({ code, signal, error: spawnError, out, err: errText }); });
   });
 }
@@ -66,7 +72,7 @@ const RUNNER_SIGNALS = new Set(['SIGKILL', 'SIGTERM']);
    create error on stderr (review 3: the likeliest cause of a 56 ms death on a runner logging EAGAIN). Only that abort
    is the runner's; any other SIGABRT is the bridge's. The set is a reasoned guess: what this change surely adds is the
    signal and stderr in the message, so the next red names its cause. */
-const STARTUP_ABORT = /uv_thread_create|pthread_create|Check failed|Resource temporarily unavailable|EAGAIN/;
+const STARTUP_ABORT = /uv_thread_create|pthread_create|Check failed:/;   // Node's own startup lines only, never a bare EAGAIN (review 5)
 const RUNNER_SPAWN_ERRORS = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);   // short of resources; never ENOENT/EACCES (review 4)
 const neverRan = (r) => RUNNER_SPAWN_ERRORS.has(r.error) || (r.code === null && (RUNNER_SIGNALS.has(r.signal)
   || (r.signal === 'SIGABRT' && STARTUP_ABORT.test(String(r.err || '')))));
@@ -210,4 +216,24 @@ test('#5560: only a bridge child that never ran is tried again; one that exited 
   f = fake([killed, killed, killed, ok]);
   assert.equal((await runBridge('x', {}, f.run, async () => {})).code, null, 'more than three tries');
   assert.equal(f.calls.length, 3);
+  // A SIGABRT whose stderr merely mentions EAGAIN is the bridge's, not Node's startup (review 5).
+  f = fake([{ code: null, signal: 'SIGABRT', error: null, out: '', err: 'bridge: write failed EAGAIN' }, ok]);
+  assert.equal((await runBridge('x', {}, f.run, async () => {})).code, null, 'a bridge abort mentioning EAGAIN was retried into a pass');
+  assert.equal(f.calls.length, 1);
+});
+
+test('#5560 review 5: a spawn refused before stdio exists (EMFILE) ends at once with its error, not a throw or a 10 s wait', async () => {
+  const { EventEmitter } = require('node:events');
+  const noStdio = () => {
+    const child = new EventEmitter();
+    child.stdout = undefined; child.stderr = undefined; child.kill = () => {};
+    process.nextTick(() => child.emit('error', Object.assign(new Error('spawn EMFILE'), { code: 'EMFILE' })));
+    return child;
+  };
+  const started = Date.now();
+  const r = await runOnce('x', {}, noStdio);
+  assert.ok(Date.now() - started < 5000, 'the try waited out the hang timer instead of ending on its error');
+  assert.equal(r.error, 'EMFILE');
+  assert.equal(r.code, null);
+  assert.notEqual(r.signal, 'timeout');
 });

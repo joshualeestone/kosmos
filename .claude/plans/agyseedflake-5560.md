@@ -54,3 +54,11 @@
   EACCES fails at once (unit test; mutation reddens).
 - KEPT: the real runOnce is exercised by the main test's normal path; its signal and hang branches are decided by the
   unit-tested neverRan; a close after the 10 s timer re-resolves a settled promise, which is a no-op.
+
+## Review 5
+- runOnce attaches its error listener first and guards stdout/stderr: a spawn refused before stdio exists (EMFILE,
+  ENFILE) ends at once on its error instead of throwing on `child.stdout`. Pinned by a fake child with no stdio.
+- STARTUP_ABORT matches only Node's own startup lines (uv_thread_create, pthread_create, `Check failed:`), never a bare
+  EAGAIN. Pinned by a bridge SIGABRT whose stderr mentions EAGAIN, which is not retried.
+- Accepted residual: a retry that rescues the run is only a t.diagnostic line. An intermittent outside kill caused by
+  the bridge itself (an OOM kill) could pass green once; a deterministic one still fails all three tries.
