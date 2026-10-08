@@ -14,8 +14,8 @@ to 96 emails a day to Josh's account, which buries the one that matters.
 and records the time in `$STATE/reported.d/<sha>-<cause>` (one file per sha and cause). Later ticks of
 the same sha and cause within a rolling 24 hours print "STILL FAILING (reported): ..." and exit 0. A new
 sha, a new cause, a successful deploy (all records removed), or 24 hours passing makes it red again. The
-states with a clean recovery moment (wedged lock, fetch, origin/main) also clear the moment they
-recover. The retry-type causes (pointer, unread, mirror, checksum, moving) clear only on a
+states with a clean recovery moment (wedged lock, origin/main) also clear the moment they recover
+(the fetch did too until round 17; see below). The retry-type causes (pointer, unread, mirror, checksum, moving) clear only on a
 successful deploy: until then that sha has not shipped, so a second incident of the same cause on it
 within the day is the same open problem, reported green; clearing on any passing check would let two
 alternating causes re-arm each other every tick (review round 4 considered both; this is the choice).
@@ -45,7 +45,7 @@ limit is measured on the clock and capped at 20 minutes; it bounds the deploy ph
 ## Records and recovery (review rounds 1 and 2)
 
 One record per sha and cause (`reported.d/<sha>-<cause>`), removed when its cause is seen to recover
-(fetch works, lock taken, origin/main found) and all removed on a successful deploy or main found live.
+(lock taken, origin/main found; not the fetch since round 17) and all removed on a successful deploy or main found live.
 A future-dated record counts as never reported.
 
 ## Orphans, signals and limits (review rounds 11 and 12)
@@ -93,3 +93,9 @@ A future-dated record counts as never reported.
   lasts its day or until a deploy succeeds. Test 21 now asserts 10001 (red, reported, ok, still
   reported, red after a day); the old clear-on-recovery gives 10011. Weakest premise: a genuinely NEW
   fetch outage within the day of an earlier one is green-with-warning, not red.
+- **The cut check fails closed** (round 18): a process list that cannot be read (command fails or prints
+  nothing) can no longer read as "no cut running"; nothing deploys and it is red once a day (psread).
+  Test 35 (red without the fix: it deployed twice). The records keyed "none" (made before the sha is
+  known) cover a new push the same day too; written in the header. Not airtight, and said so: the
+  leaderless-group rule cannot tell a recycled pid whose own group outlived its leader; the leader-alive
+  start-time check covers the common case.
