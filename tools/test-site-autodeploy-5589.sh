@@ -256,6 +256,11 @@ tick; r1=$RC; tick; r2=$RC
   && pass "a red reported over a day ago is red again, then green with STILL FAILING" || bad "day-old report (r1=$r1 r2=$r2)"
 echo garbage > "$ST/reported.d/$H19-parked"; tick
 [ "$RC" = 1 ] && pass "a damaged report time is treated as never reported (red)" || bad "damaged report time (rc=$RC)"
+# A leading zero with an 8 or 9 is not a number to bash (octal): it must count as never reported too,
+# not abort the tick (which also exits 1, so the record being rewritten is what tells them apart).
+echo 0899999999 > "$ST/reported.d/$H19-parked"; tick
+rec=$(cat "$ST/reported.d/$H19-parked" 2>/dev/null)
+{ [ "$RC" = 1 ] && [ "$rec" != 0899999999 ] && ! printf '%s' "$OUT" | grep -q "value too great"; } && pass "a report time with a leading zero counts as never reported, not an abort" || bad "leading-zero report time (rc=$RC rec=$rec) $OUT"
 rm -f "$ST/parked"; rm -rf "$ST/reported.d"
 
 # 20) two causes taking turns on one sha (a checksum mismatch, then the live site moving, then again):
