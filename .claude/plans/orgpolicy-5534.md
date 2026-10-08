@@ -49,3 +49,12 @@ re-verifies the bundle each time it is asked (inForce), so a bundle written sinc
 - CONVENTION fixed: the connect test makes its folder first, so it passes run alone.
 - NITs left: the applied record is trusted as written (stated in the header); exp == now accepted (matches the format doc).
 - Focused: register 23/23, create 225/225, worldstarts 48/48, discover.adopt 29/29, orgpolicy 7/7 (00:04 CDT 2026-10-08).
+### Review 3 (opus): 1 BLOCKER, 5 WARNINGs
+- BLOCKER fixed: a Claude agent with no model does not run sonnet (that is only the form's preselection); Claude Code picks per account. A model-less Claude or Codex agent is now refused under a model list (no list can name what it runs). Decided: strict, so connecting a Claude folder under an Anthropic model list is refused until a model can be picked there; weakest premise: a pilot company may list models and still expect folders to connect.
+- WARNING fixed: Gemini and Grok are pinned by the supervisor; policyAllows asks about win32keyed.DEFAULT_MODEL for them.
+- WARNING fixed: Repair now clears policyHeld once it has started the agent (an agent that ran is never blocked later).
+- WARNING fixed: tests for the mark being written and cleared, the route passing the picked model (server.switch-model-5429.test.js), version 0. Each measured red under its mutation, and the pinned-default lookup too.
+- WARNING fixed: the header states plainly what this is not trusted for (another org's valid bundle, editing the record, replacing the pinned key) until E0.2/E0.3.
+- WARNING left (low): if setModel fails after a switch for a non-policy reason, the route restarts on the runner's own pick. Rare; stated here.
+- NITs left: policy sentence before "already runs on X"; the applied.org mark line is redundant for records written by this code (kept for any record without marks).
+- Focused: orgpolicy 7, create 225, worldstarts 48, register 23, discover.adopt 29, server.switch-model-5429 9, all green (00:13 CDT 2026-10-08).
