@@ -78,14 +78,25 @@ treats 75 as retry, every other non-zero as a failure.
 Mortals has to be up for merges to deploy. If it is down they wait, and the manual
 `deploy-site.sh --publish` still works from Mortals or anywhere with a Vercel login.
 
-**Second premise: a cut that aborts between step 7b and step 8.** 7b pushes the site's release
-files (the moved pointers) to site main, and step 8 deploys them. If the cut dies in between, the next
-tick sees no cut running and tries to publish pointers naming artifacts that were never served. What
-stops it is deploy-site.sh itself: a moved prod latest.json is refused by the committed-vs-live guard
-(test-deploy-site-promote.sh case 2 is that exact refusal under --publish), and a staging pointer
-naming a build that is not live fails its fetch (#4819, test-deploy-site-staged-mac-4819.sh). The
-tick then fails (red), retries once on the next tick, fails again (red) and parks the sha, which is the signal to finish or roll back
-the cut by hand. Reasoned from those tests, not run end to end through site-autodeploy.sh.
+**A cut that aborts between step 7b and step 8.** 7b pushes the site's release files (the moved
+pointers) to site main, and step 8 deploys them. If the cut dies in between, main holds a pointer move
+that was never published or checked by the cut's step 9. **A website deploy never publishes a release
+pointer**: before each deploy the tick compares main's `dist/latest.json` and `dist/latest-staging.json`
+with what live serves, byte for byte, and parks (red) on any difference, saying a cut or promote has
+not published it. Tested (case 14, with a control where live serves the same bytes). This matters
+because the mirror of older downloads would otherwise supply the aborted build's tarball, and
+deploy-site.sh lets a committed staging pointer newer than live through as a publish not yet deployed.
+The Windows pointers are not compared: live serves them from R2 through a redirect (measured
+2026-10-08: both differ from the committed copies), so a site deploy never moves them.
+
+**Other self-healing.** A deploy that failed after publishing (its served checks) is retried even
+though its marker now names main; and if live goes back to an older commit of main after this job
+deployed main, the next tick deploys main again (only for a marker naming a strict ancestor of main,
+so an unreadable or unrelated marker cannot make it redeploy every tick).
+
+**Accepted, not fixed:** most of deploy-site.sh's own fetch failures still exit 1, not 75, so two
+network blips in a row on one sha park it until the next merge (red both times). Making every fetch
+path in deploy-site.sh transient-aware is wider than this card.
 
 ## One-time setup on Mortals (before the site workflow merges)
 

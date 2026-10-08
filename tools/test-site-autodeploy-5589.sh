@@ -192,9 +192,49 @@ git -C "$T/site" checkout -q -b feature
 tick
 { [ "$RC" = 1 ] && [ "$(ndeploys)" = "$n12" ] && grep -q "is on 'feature', not main" "$ST/log"; } && pass "a checkout off main is parked before any deploy" || bad "off-main checkout (rc=$RC)"
 
+# --- fresh state and checkout for the round-11 checks ----------------------------------------------
+git -C "$T/site" checkout -q main
+export KOSMOS_AUTODEPLOY_STATE="$T/state3"; ST="$T/state3"
+mkdir -p "$SERVED/dist"
+tick   # baseline: deploy current main
+nb=$(ndeploys)
+
+# 14) a release pointer on main that live does not serve (a cut aborted after pushing it) is parked,
+#     never published by a website deploy; with live serving the same bytes (control) it deploys.
+mkdir -p "$T/work/dist"; printf '{"version":"0.7.99"}\n' > "$T/work/dist/latest-staging.json"
+git -C "$T/work" add dist/latest-staging.json; git -C "$T/work" commit -q -m ptr; git -C "$T/work" push -q origin main
+H14=$(git -C "$T/work" rev-parse HEAD)
+tick
+{ [ "$RC" = 1 ] && [ "$(ndeploys)" = "$nb" ] && [ "$(cat "$ST/parked")" = "$H14" ] && printf '%s' "$OUT" | grep -q "release pointer move"; } \
+  && pass "a release pointer on main that live does not serve is parked, not published" || bad "pointer move published (rc=$RC, deploys=$(ndeploys)) $OUT"
+tick
+printf '%s' "$OUT" | grep -q "parked: site main ${H14:0:9} (pointer)" && pass "the parked tick names why (pointer)" || bad "parked reason missing: $OUT"
+rm -f "$ST/parked"; cp "$T/work/dist/latest-staging.json" "$SERVED/dist/latest-staging.json"
+tick
+{ [ "$RC" = 0 ] && [ "$(ndeploys)" = $((nb + 1)) ]; } && pass "the same pointer bytes live (control): the deploy goes ahead" || bad "equal pointer held the deploy (rc=$RC)"
+
+# 15) a deploy that failed AFTER publishing (its served checks), whose marker now names main: the
+#     "already live" shortcut does not clear it; it is retried.
+H15=$(advance fifteen)
+DEPLOY_RC=1 tick
+printf 'kosmos-release-export\ncommit=%s\n' "$H15" > "$SERVED/.kosmos-release-export"
+n15=$(ndeploys); tick
+{ [ "$(ndeploys)" = $((n15 + 1)) ] && [ "$(cat "$ST/last-deployed")" = "$H15" ]; } \
+  && pass "a failed attempt is retried even when the marker already names main" || bad "marker cleared a failed deploy (deploys=$(ndeploys))"
+
+# 16) main already deployed by this job, but live has gone back to an older commit of main: redeploy.
+#     A marker naming a commit that is not an ancestor of main does not cause a redeploy (control).
+printf 'kosmos-release-export\ncommit=%s\n' "$H14" > "$SERVED/.kosmos-release-export"
+n16=$(ndeploys); tick
+{ [ "$(ndeploys)" = $((n16 + 1)) ] && printf '%s' "$OUT" | grep -q "behind site main"; } \
+  && pass "live gone back to an older commit of main is redeployed" || bad "regressed live not healed (deploys=$(ndeploys)) $OUT"
+printf 'kosmos-release-export\ncommit=%s\n' "0123456789abcdef0123456789abcdef01234567" > "$SERVED/.kosmos-release-export"
+n16=$(ndeploys); tick; tick
+[ "$(ndeploys)" = "$n16" ] && pass "an unrelated marker does not cause a redeploy (control)" || bad "unrelated marker redeployed (deploys=$(ndeploys))"
+
 # 13) no site configured: a usage error, never a deploy.
-KOSMOS_AUTODEPLOY_SITE="" bash "$AD" 2>/dev/null; RC=$?
-{ [ "$RC" = 2 ] && [ "$(ndeploys)" = "$n12" ]; } && pass "no KOSMOS_AUTODEPLOY_SITE: exit 2, nothing deployed" || bad "unset site (rc=$RC)"
+nfinal=$(ndeploys); KOSMOS_AUTODEPLOY_SITE="" bash "$AD" 2>/dev/null; RC=$?
+{ [ "$RC" = 2 ] && [ "$(ndeploys)" = "$nfinal" ]; } && pass "no KOSMOS_AUTODEPLOY_SITE: exit 2, nothing deployed" || bad "unset site (rc=$RC)"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-site-autodeploy-5589: ALL PASS"; else echo "test-site-autodeploy-5589: FAILURES above"; exit 1; fi
