@@ -94,7 +94,8 @@ park() { echo "$TARGET" > "$STATE/parked"; mark_reported parked; }
 # are removed only when a deploy succeeds or main is found already live: until then the sha has not
 # shipped, so a second incident of the same cause on it within the day is the SAME problem still open,
 # and is reported green ("STILL FAILING") rather than emailed again. Clearing those on any passing check
-# would let two causes taking turns re-arm each other every tick. A state CHANGE (a first
+# would let two causes taking turns re-arm each other every tick. (Records for a sha that main has since
+# moved past linger until the next successful deploy empties the folder; they are tiny and harmless.) A state CHANGE (a first
 # failure, the failure that parks, a checkout fault, an emptied dist) is always red; park() records
 # itself, so its next tick is not a second email.
 REPORTED="$STATE/reported.d"
@@ -107,7 +108,10 @@ red_once() {  # <cause> <message>
   local now; now=$(date +%s)
   if [ "$at" != 0 ] && [ "$at" -le "$now" ] && [ $(( now - at )) -lt 86400 ]; then   # a future time counts as never
     _msg="${2#FAIL: }"; _msg="${_msg/#FAIL (parked)/parked}"
-    echo "::warning::still failing, reported red earlier today: $_msg"   # an annotation on the green run (GitHub Actions)
+    # An annotation on the green run (GitHub Actions). Workflow-command text is escaped (% CR LF), so no
+    # message can break the annotation or start a second command.
+    _ann=$(printf '%s' "$_msg" | sed -e 's/%/%25/g' | tr '\r\n' '  ')
+    echo "::warning::still failing, reported red earlier today: $_ann"
     say "STILL FAILING (reported): $_msg (red already reported at $(date -r "$at" '+%Y-%m-%d %H:%M'); green until it recovers, changes, or a day passes; remove $f to make it red again now)"
     exit 0
   fi
