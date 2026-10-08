@@ -47,3 +47,24 @@ limit is measured on the clock and capped at 20 minutes; it bounds the deploy ph
 One record per sha and cause (`reported.d/<sha>-<cause>`), removed when its cause is seen to recover
 (fetch works, lock taken, origin/main found) and all removed on a successful deploy or main found live.
 A future-dated record counts as never reported.
+
+## Orphans, signals and limits (review rounds 11 and 12)
+
+- **A tick killed outright** (SIGKILL; no EXIT trap) leaves its deploy running in its own group. The
+  launch writes `deploy.pid` ("<pgid> <sha> <leader start time>"); the next tick that finds it waits while
+  it is under 1200 s, then stops it, and counts it a failure either way (rc 137), so the "already live"
+  shortcut never blesses its sha. Identity: while the leader lives only the same start time (read with
+  LC_ALL=C TZ=UTC) is ours; once the leader is gone, a group that still has members is ours, since a pid
+  is not reused while its process group exists. A deploy.pid with no start time never signals a live leader.
+- **The launch cannot be cut**: from just before the fork until deploy.pid is written a signal is only
+  noted (trapped, not ignored, so the deploy itself stays signalable), then acted on.
+- **killed_tick** ignores further signals and records the failure before the slow stop, so a runner's
+  escalating cancel cannot cut out the record. Group liveness (kill -0 -pgid) throughout; a child the
+  deploy leaves running after it exits is stopped.
+- **The fetch** has a seam (KOSMOS_AUTODEPLOY_FETCH_MAX_S, default 120, at most 600) and perl stops its
+  group TERM then KILL on the alarm AND on a signal. Not changed: a TERM to the tick's pid alone waits for
+  the fetch (bash runs a trap after the foreground command), at most the limit; the runner's cancel
+  signals the whole tree.
+- **Every new test was red-checked** against a copy with its fix removed.
+- Not tested: the launch window itself (microseconds wide; not reproducible on demand), and a mirror
+  arm under root (the runner is not root).
