@@ -10719,8 +10719,8 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead > .pjhead,
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead .pjtitle { display: contents; }
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmid .pjmidhead > .pj-crumbrow { flex: 1 1 0; min-width: 0; }   /* .pjmid: outweighs the look's later flex: 1 1 auto */
-  /* 4px of room on the right: on touch the cog's tap area is 36px centred on its 28px (#4663, "room all round"),
-     and at the row's end it would reach 4px past the page. */
+  /* 4px of room on the right: on touch the cog's tap area is at least 36px centred on it (#4663, "room all round").
+     Under this look the cog is 40px (#5551), so the area is its own box and the margin is only breathing room. */
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead .pjtitle-row { flex: none; margin-right: 4px; }
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-made,
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-shared,
@@ -10754,6 +10754,11 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 .pj-crumb-rootwrap { display: none; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead > .pj-crumbrow { margin: 0; gap: 0; flex: 1 1 auto; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-back { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--k-rule); display: grid; place-items: center; flex: none; margin-right: 14px; }
+/* #5551: the project's settings cog is the same round 40px button as Back, as the drawing pairs them; a plain
+   button on the white page keeps its edge in this look (the create-flow note above). The search field is NOT
+   turned into the drawing's icon: that is a behaviour change (a button that opens a field), and fields keep
+   their edge in the look. */
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-settings-cog { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--k-rule); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-crumb-rootwrap { display: inline-flex; align-items: baseline; flex: none; font-size: 1.625rem; line-height: 1.2; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-crumb-root { font: inherit; color: var(--nl-ink-3); padding: 0; text-decoration: none; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-crumb-root:hover { color: var(--k-ink); text-decoration: underline; text-underline-offset: 4px; }

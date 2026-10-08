@@ -160,6 +160,13 @@ const QUESTION_LOOK = `(() => {
   q.hidden = was;
   return out;
 })()`;
+/* #5551: the project header's two round buttons, Back and the settings cog, read side by side. */
+const HEAD_BUTTONS = `(() => {
+  const b = document.getElementById('pj-back'), c = document.getElementById('pj-settings-link');
+  if (!b || !c) return { found: false };
+  const rd = (e) => { const cs = getComputedStyle(e); return { w: cs.width, h: cs.height, radius: cs.borderTopLeftRadius, edgeW: cs.borderTopWidth, edge: cs.borderTopColor }; };
+  return { found: true, back: rd(b), cog: rd(c) };
+})()`;
 /* #4470, an agent's page: its conversation read off the DM's own elements (they exist, hidden, before any agent is
    opened, and computed style still answers): the talk box's ground, a hand-made message of yours and of an agent's,
    and the composer box (in .dmbar). Messages are removed after. */
@@ -744,6 +751,9 @@ const AGENTS_LOOK = `(() => {
       }
       const dmOn = await page.evaluate(DM_LOOK);
       const qOn = await page.evaluate(QUESTION_LOOK);
+      const hbOn = await page.evaluate(HEAD_BUTTONS);
+      chk(hbOn.found && hbOn.cog.w === '40px' && hbOn.cog.h === '40px' && hbOn.cog.radius === '50%' && hbOn.cog.edgeW === '1px' && hbOn.cog.edge !== 'rgba(0, 0, 0, 0)' && JSON.stringify(hbOn.cog) === JSON.stringify(hbOn.back),
+        `${tag} On: the settings cog is the same round 40px button as Back, edge and all (#5551)`, JSON.stringify(hbOn));
       const warmOf = { light: 'rgba(176, 116, 0, 0.1)', dark: 'rgba(255, 190, 60, 0.12)' };   // --warn-bg, today's ground (the Off read shows the same)
       chk(qOn.found && qOn.radius === '24px' && qOn.edge !== 'rgba(0, 0, 0, 0)' && parseFloat(qOn.edgeW) > 0 && qOn.bg === warmOf[theme] && qOn.padL >= 16 && qOn.padT >= 16 && qOn.screenRadius === '12px',
         `${tag} On: an agent's question in the room keeps its warm ground and its hairline (#3692), with 24px corners, room inside them and the screen's corners eased (#5551)`, JSON.stringify(qOn));
@@ -1073,6 +1083,9 @@ const AGENTS_LOOK = `(() => {
       const stOff = await page.evaluate(MEMBER_WORD);
       const hdOff = await page.evaluate(HEAD_PLACE);
       const qOff = await page.evaluate(QUESTION_LOOK);
+      const hbOff = await page.evaluate(HEAD_BUTTONS);
+      chk(hbOff.found && hbOff.cog.w === '28px' && hbOff.cog.radius === '8px' && hbOff.cog.edgeW === '0px',
+        `${tag} Off: the settings cog is today's 28px icon (the control, #5551)`, JSON.stringify(hbOff));
       chk(hdOff.aboveCols && !hdOff.rootShown && hdOff.nameShown, `${tag} Off: the crumb row is back above the columns, no "Projects" root, the name shows`, JSON.stringify(hdOff));
       chk(!stOff.shown, `${tag} Off: the member row prints no state word, as today (#3212)`, JSON.stringify(stOff));
       chk(qOff.found && qOff.radius !== '24px' && qOff.edge !== 'rgba(0, 0, 0, 0)' && parseFloat(qOff.edgeW) > 0 && qOff.padL < 16 && qOff.screenRadius !== '12px',
