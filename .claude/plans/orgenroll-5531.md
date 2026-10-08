@@ -333,3 +333,11 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
   nothing was joined. Browser check O14 pins both.
 - Kept (nits): the page keys "joined" on the org name too (the screen always gets it); a refused join leaves its world
   id (sent once, harmless); a daily log line while Kosmos+ is off. Plan name without timestamp (decided at review 9).
+
+## Review 26
+- "This screen will show what it learns" promised more than a daily pass: while org-join-unknown.json exists, the
+  server now asks every 2 minutes (ORG_UNSURE_MS; only while the marker exists, so a world that never joined still
+  sends nothing), and the sentence says "in a few minutes". A start() source pin holds the interval at 5 minutes or
+  less; setting it to a day reddens it.
+- Kept (nits): an undo refused as the last admin after an unknown join is retried daily without a note (narrow);
+  the small marker files are written directly (a torn write reads as no marker); repeated inline requires.

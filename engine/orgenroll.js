@@ -256,7 +256,7 @@ async function enrollNow(code, accepted, opts) {
       // Kept on disk, so the next start or daily pass asks once more and records or clears it (review 25).
       const hash = opts && typeof opts.consentHash === 'string' && /^[0-9a-f]{64}$/.test(opts.consentHash) ? opts.consentHash : null;
       setJoinUnknown({ consentHash: hash, move }, opts);
-      return { ok: false, unknown: true, code: 'org_join_unknown', because: 'It is not known yet whether joining went through. This Kosmos will ask your company again, and this screen will show what it learns.' };
+      return { ok: false, unknown: true, code: 'org_join_unknown', because: 'It is not known yet whether joining went through. This Kosmos will ask your company again in a few minutes, and this screen will show what it learns.' };
     }
     /* A first join the company bound to this world on another computer (or to no computer) went through and is not
        kept: undone, as the answered path does (review 23). */

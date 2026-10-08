@@ -20567,6 +20567,8 @@ let ORG_TICKET = null;
 const ORG_TICKET_MS = 10 * 60 * 1000;
 /** How often an enrolled world asks the company whether it is still enrolled (also once at start). */
 const ORG_REFRESH_MS = 24 * 60 * 60 * 1000;
+/** While a join's outcome is not known (org-join-unknown.json), it is asked about this often, not daily (review 26). */
+const ORG_UNSURE_MS = 2 * 60 * 1000;
 function orgEnrollRefresh() {
   try {
     const oe = require('./engine/orgenroll');
@@ -20586,6 +20588,7 @@ function start(port = PORT) {
      stops reporting at once if not. Only a world with an enrollment asks: one that never joined sends nothing. */
   orgEnrollRefresh();
   setInterval(orgEnrollRefresh, ORG_REFRESH_MS).unref();
+  setInterval(() => { try { if (require('./engine/orgenroll').joinUnknown()) orgEnrollRefresh(); } catch { /* best effort */ } }, ORG_UNSURE_MS).unref();
   /* #4408: what this board is running, taken now, before anything can edit the app folder under it. The
      restart module is loaded first: it is otherwise required lazily, and the button depends on it. */
   try { require('./engine/boardrestart'); } catch { /* the restart route reports its own failure */ }

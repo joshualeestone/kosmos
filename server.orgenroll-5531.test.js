@@ -285,3 +285,13 @@ test('#5531 review 14: a page on another website cannot leave, join or preview (
   }
   assert.deepEqual(sent, [], 'a cross-site request reached the company');
 });
+
+test('#5531 review 26: an unknown join is asked about every few minutes while its marker exists, not only daily (start() source pin)', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const ms = src.match(/const ORG_UNSURE_MS = ([0-9* ]+);/);
+  assert.ok(ms, 'no short follow-up interval for an unknown join');
+  const val = Function('return ' + ms[1])();
+  assert.ok(val > 0 && val <= 5 * 60 * 1000, 'the follow-up is slower than the few minutes the person is told: ' + val);
+  const start = src.slice(src.indexOf('function start(port = PORT)'));
+  assert.match(start.slice(0, 4000), /setInterval\(\(\) => \{ try \{ if \(require\('\.\/engine\/orgenroll'\)\.joinUnknown\(\)\) orgEnrollRefresh\(\);/, 'start() does not run the short follow-up only while the marker exists');
+});

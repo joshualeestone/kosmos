@@ -193,7 +193,7 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     await page.click('#plus-org-notnow');
 
     // O14: an unknown outcome and an undo still to send each go back to the code field, with the engine's sentence.
-    for (const ans of [{ ok: false, unknown: true, code: 'org_join_unknown', because: 'It is not known yet whether joining went through. This Kosmos will ask your company again, and this screen will show what it learns.' },
+    for (const ans of [{ ok: false, unknown: true, code: 'org_join_unknown', because: 'It is not known yet whether joining went through. This Kosmos will ask your company again in a few minutes, and this screen will show what it learns.' },
       { ok: false, code: 'org_undo_pending', because: 'Your company did not confirm this Kosmos, so it is not your work Kosmos. Joining could not be undone yet, so your company may still list this Kosmos. It is not reporting.' }]) {
       await page.evaluate((a) => { window.__enrollAnswer = a; document.getElementById('plus-org-msg').textContent = ''; }, ans);
       await page.fill('#plus-org-code', 'ACME-JOIN-8888');
