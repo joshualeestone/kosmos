@@ -443,7 +443,8 @@ async function uploadInner(deps, objects, opts, keys, run) {
   // Every chunk asked for has a key, or this is not a success.
   for (const c of todo) if (!keys.has(c.name)) return { ok: false, because: 'a chunk was left without a stored key', keys };
   // lockedUntil: each chunk's lock end (ms), so the caller can give uploadManifest the earliest one its manifest names;
-  // bucket: the bucket path every key is under, which the manifest must share.
+  // bucket: the bucket path every key is under, which the manifest must share (null when nothing was asked for, every
+  // chunk being a duplicate or the list empty: uploadManifest then refuses with "no bucket").
   return { ok: true, keys, lockedUntil: new Map(todo.map((c) => [c.name, run.locked.get(c.name)])), bucket: run.bucket.prefix };
 }
 
@@ -484,18 +485,23 @@ function parseManifestGrant(data, bytes, runPrefix) {
   return { ok: true, expiresAtMs, lifetimeMs: c.expiresS * 1000, upload: Object.assign(c.upload, { retainMs: c.retainMs }) };
 }
 
-/* Upload one sealed manifest. deps as uploadChunks. opts (both required):
+/* Upload one sealed manifest. deps as uploadChunks. opts (all three required):
      bucket               the bucket path its chunks are under (uploadChunks' `bucket`); the manifest goes there too
      chunksLockedUntilMs  the EARLIEST lock end among the chunks it names (from uploadChunks' lockedUntil, or the
                           caller's record for chunks stored by an earlier run): a manifest locked past it would name
                           chunks that can be gone, so it is refused (before the grant when THIS MAC'S clock already
                           shows it, which errs toward refusing when that clock runs fast; else as the grant arrives,
                           its allowance spent, before any byte is sent)
-   and optionally chunkKeys, the keys its chunks are stored under (uploadChunks' keys.values()): a manifest grant that
-   names one of them is refused, since a 412 on it would read as the manifest stored. Plus putTimeoutMs, as
+     chunkKeys            the keys its chunks are stored under (the manifest lists them anyway; for this run's chunks,
+                          uploadChunks' keys.values()): a manifest grant naming one is refused, since a 412 on it would
+                          read as the manifest stored. Required, like the two above: an optional guard is skipped.
+   Plus putTimeoutMs, as
    uploadChunks; by default one PUT may take a minute plus its bytes at 16 KB/s, so a black-holed PUT of a 64 MiB
    manifest holds the call about 70 minutes before it ends retryLater. Resolves { ok: true, key, sha256, lockedUntilMs } or { ok: false, because,
    code?, retryLater?, unsure?, outlastsChunks? }, unsure being [{ key }] when a write may have landed. Never throws.
+   outlastsChunks is NOT a retry-later: a refusal after the grant spent one of the period's 50 manifest grants (and the
+   coordinator recorded a hash that was never stored), so a caller must upload the old chunks again first, never
+   retry the same call.
    The PUT is retried and classified exactly as a chunk's: the same url until the grant runs out, a 412 counted as
    stored only after an attempt that may have written it, a new grant only when one ran out cleanly. */
 async function uploadManifest(deps, bytes, opts) {
@@ -522,10 +528,8 @@ async function uploadManifestInner(deps, bytes, o) {
   // Every key this call must not write: the chunks' (when given) and each earlier manifest grant's. The 412 rule rests
   // on a key being this upload's alone, as in uploadChunks.
   const avoid = new Set();
-  if (o.chunkKeys !== undefined) {
-    if (o.chunkKeys === null || typeof o.chunkKeys[Symbol.iterator] !== 'function' || typeof o.chunkKeys === 'string') return { ok: false, because: 'chunkKeys is not a list of keys' };
-    for (const k of o.chunkKeys) avoid.add(k);
-  }
+  if (o.chunkKeys == null || typeof o.chunkKeys[Symbol.iterator] !== 'function' || typeof o.chunkKeys === 'string') return { ok: false, because: "no list of the manifest's chunk keys" };
+  for (const k of o.chunkKeys) avoid.add(k);
   for (let grants = 0; grants <= MAX_REGRANTS; grants++) {
     const asked = now();
     const g = await askSigned(deps.macRequest, MANIFEST_ROUTE,
