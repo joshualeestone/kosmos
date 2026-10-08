@@ -102,7 +102,8 @@ test('#5535 binary files: stored as-is when nothing is found; skipped when they 
   const pemBin = Buffer.concat([Buffer.alloc(10), Buffer.from(PEM)]);
   assert.equal(bs.scanFile('agents/a/blob.bin', pemBin).action, 'skip', 'a PEM key inside a binary');
   const notUtf8 = Buffer.from([0x68, 0x69, 0xff, 0xfe, 0x20, ...Buffer.from(KEY)]);
-  assert.equal(bs.scanFile('agents/a/odd.txt', notUtf8).action, 'skip', 'bytes that are not UTF-8 are treated as binary');
+  const nu = bs.scanFile('agents/a/odd.txt', notUtf8);  // invalid UTF-8 with no NUL: read as Latin-1 and redacted
+  assert.ok(nu.action === 'skip' || !nu.data.toString('latin1').includes(KEY), 'bytes that are not UTF-8 never keep the key');
 });
 
 test('#5535 the design\'s case set: base64, line-split, git remote URL, archive (each decided, each with a control)', () => {
@@ -194,7 +195,7 @@ test('#5535 known, documented loss: a redacted file loses invisible format chara
     'the stated loss no longer happens: update the header comment and this test');
 });
 
-test('#5535 binary scan: a NUL-split key and a withheld scan both skip; a clean binary is stored', () => {
+test('#5535 binary scan: a NUL-split key never stored readable; a clean binary is stored', () => {
   const nulSplit = Buffer.concat([Buffer.from('xx\0'), Buffer.from(KEY.split('').join('\0'))]);  // every character NUL-separated
   const ns = bs.scanFile('agents/a/b.bin', nulSplit);  // every character NUL-separated: read as UTF-16 and masked, or skipped
   assert.ok(ns.action === 'skip' || !ns.data.toString('latin1').replace(/\0/g, '').includes(KEY), 'a NUL-separated key is never stored readable');
@@ -241,4 +242,57 @@ test('#5535 deny-list round 2: more credential files skipped; templates kept', (
   }
   const tpl = bs.scanFile('.env.example', Buffer.from(`API_KEY=${KEY}\n`));
   assert.ok(tpl.action === 'skip' || !tpl.data.toString().includes(KEY), 'a template holding a REAL key is still masked or skipped');
+});
+
+test('#5535 content cannot hide a password behind the masking placeholder (secretmask trusts a value starting with it)', () => {
+  const bin = Buffer.concat([Buffer.from([0, 1, 2]), Buffer.from('password=••••Hunter2Real!pass9', 'utf8')]);
+  const r = bs.scanFile('agents/a/blob.bin', bin);
+  assert.ok(r.action === 'skip' || !r.data.toString('latin1').includes('Hunter2Real'), 'a binary hiding a password behind bullets');
+  assert.equal(bs.scanFile('agents/a/a.txt', Buffer.from('password=••••Hunter2Real!pass9\n')).action, 'skip', 'a text file hiding a password behind bullets');
+  assert.equal(bs.scanFile('agents/a/list.md', Buffer.from('• one\n• two\n')).action, 'store', 'CONTROL: ordinary bullet lists are kept');
+  const url = bs.scanFile('agents/a/notes.md', Buffer.from(`clone https://x:${GH}@github.com/o/r\n`));
+  assert.ok(url.action === 'store' && !url.data.toString().includes(GH), 'CONTROL: our OWN placeholder in a URL still passes the final check');
+});
+
+test('#5535 the binary scan reads printable runs, so real images and libraries are kept, and a key in one is still caught', () => {
+  const fs = require('fs');
+  const real = [];
+  for (const dir of ['/System/Library/Desktop Pictures', '/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources']) {
+    try { for (const f of fs.readdirSync(dir).filter((n) => /\.(heic|icns|png)$/i.test(n)).slice(0, 12)) real.push(`${dir}/${f}`); } catch { /* not on this machine */ }
+  }
+  for (const p of ['/usr/lib/dyld']) { try { fs.accessSync(p); real.push(p); } catch { /* absent */ } }
+  let checked = 0;
+  for (const p of real) {
+    let buf; try { buf = fs.readFileSync(p); } catch { continue; }
+    if (buf.length > 40 * 1024 * 1024) continue;
+    checked++;
+    const r = bs.scanFile('agents/a/' + require('path').basename(p), buf);
+    assert.equal(r.action, 'store', `a real ${p} was skipped as credential-shaped: ${r.why}`);
+  }
+  if (real.length) assert.ok(checked > 0, 'PRECONDITION: some real files were checked');
+  const png = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.alloc(64, 7), Buffer.from(`tEXt key=${GH}`), Buffer.alloc(64, 9)]);
+  assert.equal(bs.scanFile('agents/a/shot.png', png).action, 'skip', 'a token in a PNG text chunk is still caught');
+});
+
+test('#5535 the binary scan withholds and skips; a lone private-key opening inside UTF-32 skips', () => {
+  const sm = require('./secretmask');
+  const held = Array.from({ length: 2000 }, (_, i) => `hq7x-vzlq-${String(i).padStart(8, '0')}-k9z`);
+  sm.setKnownSecrets(held);
+  try {
+    const rows = Array.from({ length: 1000 }, (_, i) => `| hq7x-vzlq- | 0000 | ${i % 10} | 00 | -k9z |`).join('\n');
+    const bin = Buffer.concat([Buffer.from([0, 1, 2, 0]), Buffer.from(rows)]);
+    assert.equal(bs.scanFile('agents/a/blob.bin', bin).action, 'skip', 'a binary whose scan withholds is skipped');
+  } finally { sm.setKnownSecrets([]); }
+  const u32 = Buffer.concat([...'-----BEGIN RSA PRIVATE KEY-----\n'].map((c) => { const b = Buffer.alloc(4); b.writeUInt32LE(c.codePointAt(0)); return b; }));
+  assert.equal(bs.scanFile('agents/a/k.dat', u32).action, 'skip', 'a private-key opening alone, inside UTF-32');
+});
+
+test('#5535 Latin-1 (Windows-1252) text is redacted in place, not skipped whole', () => {
+  const buf = Buffer.concat([Buffer.from('caf', 'latin1'), Buffer.from([0xe9]), Buffer.from(` note\nkey ${KEY}\nend.\n`, 'latin1')]);
+  const r = bs.scanFile('agents/a/j.txt', buf);
+  assert.equal(r.action, 'store');
+  assert.ok(!r.data.toString('latin1').includes(KEY), 'the key is gone');
+  assert.equal(r.data[3], 0xe9, 'the Latin-1 byte is kept as it was');
+  const clean = Buffer.concat([Buffer.from('caf', 'latin1'), Buffer.from([0xe9, 0x0a])]);
+  assert.ok(bs.scanFile('agents/a/k.txt', clean).data.equals(clean), 'CONTROL: clean Latin-1 is stored byte for byte');
 });
