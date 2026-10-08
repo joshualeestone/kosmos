@@ -342,7 +342,7 @@ function supportDir() {
   // rename always happens before recordBirth()'s mkdirSync(supportDir()) could pre-create
   // the new leaf. A future early-writer that runs a create BEFORE boot would need to touch
   // store.ROOT first; the migrate test + review guard that, and it is not reachable today.
-  return store.dataRootFor(process.platform, homeDir(), process.env);
+  return store.resolveDataRoot(process.platform, homeDir(), process.env);   // #5418: a test process never gets the real root
 }
 const OUTCOME = { CREATED: 'created', REFUSED: 'refused', PARTIAL: 'partial' };
 
