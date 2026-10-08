@@ -116,6 +116,8 @@ test('#4752: on Windows a refused rule (it would take in the guide\'s own folder
 });
 
 test('#4752 on a Windows host: guardGuideFolder leaves out a rule taking in the guide\'s folder in BOTH spellings, end to end', { skip: process.platform !== 'win32' && 'measures the real Windows path through guardGuideFolder; runs on the Windows job' }, (t) => {
+  // On a Windows runner os.tmpdir() is an 8.3 short name (RUNNER~1). That still works: the rules are written from the
+  // same short-name strings this test builds, and both sides of the own-folder comparison go through realpath.
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'winrules-e2e-'));
   t.after(() => removeTree(root));
   const workers = path.join(root, 'home', 'workers');
