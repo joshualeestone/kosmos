@@ -477,8 +477,14 @@ test('#5418: the derived port is KOSMOS_PORT when set and usable, nothing when i
   assert.equal(tool.expectedPort({ KOSMOS_PORT: 'abc' }), null);
   assert.equal(tool.expectedPort({ KOSMOS_PORT: '70000' }), null);
   if (typeof process.getuid === 'function') {
-    const uid = process.getuid();
-    assert.equal(tool.expectedPort({}), uid === 501 ? 16180 : 16180 + 1 + (uid % 3999), 'not the derivation install/kosmos uses');
+    // the formula is READ from install/kosmos, so a change there turns this red (one derivation, CLAUDE.md #5)
+    const cli = fs.readFileSync(path.join(__dirname, 'install', 'kosmos'), 'utf8');
+    const special = /if \[ "\$_kosmos_uid" = (\d+) \]; then\s+_kosmos_default_port=(\d+)/.exec(cli);
+    const general = /_kosmos_default_port=\$\(\((\d+) \+ (\d+) \+ \(_kosmos_uid % (\d+)\)\)\)/.exec(cli);
+    assert.ok(special && general, 'install/kosmos no longer derives the port the way this test reads it');
+    const fromCli = (uid) => (uid === Number(special[1]) ? Number(special[2]) : Number(general[1]) + Number(general[2]) + (uid % Number(general[3])));
+    for (const uid of [501, 502, 503, 1000, 7000, 65534]) assert.equal(tool.portForUid(uid), fromCli(uid), 'not the derivation install/kosmos uses, uid ' + uid);
+    assert.equal(tool.expectedPort({}), fromCli(process.getuid()));
   }
 });
 
