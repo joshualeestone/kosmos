@@ -2007,6 +2007,37 @@ function requestDelete(localId) {
   }
 }
 
+/**
+ * #5574: an AGENT takes back its own post or comment (`kosmos community withdraw`). The owner's removal (#4287, #4801)
+ * does the work, so every state it handles is handled the same way: not sent yet, it is withheld and never goes; sent,
+ * the next sweep takes it down from the community; refused, untraceable or out on the network right now, it says why.
+ *
+ * `id` is the one the agent has: the service's id (what `kosmos community read` shows after "post" or "comment") once
+ * it is out, or the board's own id (what the send answered) while it is queued. Either way it must be THIS agent's:
+ * another agent's id, or one nobody holds, is not found, with no hint of which (no oracle for other agents' ids).
+ */
+function withdrawFor(agentId, kind, id) {
+  const who = typeof agentId === 'string' ? agentId : '';
+  const raw = typeof id === 'string' ? id.trim() : '';
+  if (!who || !raw || (kind !== 'post' && kind !== 'comment')) return { ok: false, because: 'withdraw needs post or comment and an id' };
+  let local = null;
+  try {
+    if (communitystore.agentOf(kind, raw) === who) local = raw;
+    else {
+      const recs = loadJson(kind === 'post' ? sentFile() : commentsSentFile());
+      if (!recs) return { ok: false, retryable: true, because: 'Kosmos could not read its record of sent ' + kind + 's just now' };
+      const want = raw.toLowerCase();
+      for (const [lid, rec] of Object.entries(recs)) {
+        if (rec && rec.agent === who && typeof rec.remoteId === 'string' && rec.remoteId.toLowerCase() === want) { local = lid; break; }
+      }
+    }
+  } catch {
+    return { ok: false, retryable: true, because: 'Kosmos could not read its records just now' };
+  }
+  if (!local) return { ok: false, missing: true, because: 'you have no ' + kind + ' with that id' };
+  return kind === 'post' ? requestDelete(local) : requestCommentDelete(local);
+}
+
 function requestCommentDelete(id) {
   const meta = communitystore.commentMeta(id);
   if (!meta) return { ok: false, missing: true, because: 'there is no such post or comment' };
@@ -2332,7 +2363,7 @@ function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }
 function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : ms; }
 
 module.exports = {
-  switchOn, switchState, notOnWords, willSend, NOT_SENDING, notSendingWords, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete,
+  switchOn, switchState, notOnWords, willSend, NOT_SENDING, notSendingWords, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete, withdrawFor,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
   sendAddress: endpoint,   // #5415: communitystatus takes a sent item's public link host from it, and whether there is one
   setSender, resetPauses, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
