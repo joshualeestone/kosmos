@@ -2,10 +2,20 @@
 
 Two highlights, each resting on code merged to main after the 0.7.28 cut froze (ad53c44f1):
 1. **Kosmos fits a phone screen better** (phonepass-5510, settingsfit-5510): a project's name gets two lines on a
-   phone, the message box hint is no longer cut off, Settings no longer runs off the side. Untagged: the board page
+   phone, the PROJECT ROOM's message box hint is no longer cut off (the room's emoji button is hidden on a phone
+   touchscreen; the keyboard's covers it), and Settings' Community section (the business-kind select) fits. Review
+   round 1: at 320 px in WebKit the Settings panel still scrolls 10 px sideways from its section strip, so the text
+   names the Community section rather than all of Settings. Untagged: the board page
    is the same page on Mac and Windows boards.
-2. **Other sites open in your browser** (#5169, native-app/main.swift, PR #5482; mac only): on a computer that runs
-   agents, a CLICKED link to another site opens in the browser instead of replacing the board. Weakest premise: an
+2. **Your board stays in its window** (#5169, native-app/main.swift, PR #5482; mac only): on a computer that runs
+   agents, another site can no longer replace the board in the Kosmos window (a redirect or a script is refused; a
+   clicked link opens in the browser). Review round 1: board links already opened in the browser before (target
+   _blank), so the change is the protection, and the text now says that rather than implying clicks used to
+   replace the board.
+   **Also shipping, not announced:** on a CONNECT computer, an unclicked navigation to another https site used to open
+   in the browser and is now refused (the same #5169 rule), except the Kosmos+ site's own checkout hand-off
+   (isKosmosPlusSiteURL). Recorded here so a "nothing happened after sign-in / checkout" report from a connect Mac
+   can be triaged. Weakest premise: an
    UNCLICKED navigation to another site (a redirect or script) is now refused, with only the Kosmos+ checkout
    hand-off excepted; a provider sign-in that navigates the window that way on a run computer would now be blocked.
 
