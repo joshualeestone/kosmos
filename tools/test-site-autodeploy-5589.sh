@@ -279,6 +279,15 @@ git -C "$T/site" remote set-url origin "$T/origin.git"
 { [ "$f1" = 1 ] && [ "$f2" = 0 ] && [ "$f3" = 0 ] && [ "$f4" = 1 ]; } \
   && pass "fetch outage: red, then reported; a new outage after recovery is red again" || bad "fetch sequence $f1$f2$f3$f4 (want 1001)"
 
+# 22) a deploy that hangs is stopped at its limit, with its children, and counted as a retry (not a park).
+H22=$(advance twentytwo); rm -f "$ST/retries"
+HANGPID="$T/hang.pid"
+KOSMOS_AUTODEPLOY_DEPLOY_MAX_S=2 KOSMOS_AUTODEPLOY_DEPLOY='sleep 300 & echo $! > '"$HANGPID"'; wait' tick
+hp=$(cat "$HANGPID" 2>/dev/null); sleep 1
+{ [ "$RC" = 0 ] && [ -n "$hp" ] && ! kill -0 "$hp" 2>/dev/null && grep -q "^$H22 1$" "$ST/retries" && [ ! -e "$ST/parked" ] && printf '%s' "$OUT" | grep -q "past its 2s limit"; } \
+  && pass "a hung deploy is stopped at its limit with its child, counted as a retry, not parked" || { bad "hung deploy (rc=$RC, child $hp alive=$(kill -0 "$hp" 2>/dev/null && echo yes || echo no), retries=$(cat "$ST/retries" 2>/dev/null)) $OUT"; [ -n "$hp" ] && kill "$hp" 2>/dev/null; }
+rm -f "$ST/retries"
+
 # 13) no site configured: a usage error, never a deploy.
 nfinal=$(ndeploys); KOSMOS_AUTODEPLOY_SITE="" bash "$AD" 2>/dev/null; RC=$?
 { [ "$RC" = 2 ] && [ "$(ndeploys)" = "$nfinal" ]; } && pass "no KOSMOS_AUTODEPLOY_SITE: exit 2, nothing deployed" || bad "unset site (rc=$RC)"

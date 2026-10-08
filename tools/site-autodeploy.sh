@@ -306,11 +306,30 @@ say "deploying site main ${TARGET:0:9} (last deployed ${LAST:0:9})"
 # KOSMOS_REPO pins deploy-site.sh's libraries to THIS checkout; without it they load from
 # ~/work/agent-workforce, which on Mortals is the cut's checkout, at whatever sha a cut left it.
 export KOSMOS_REPO="$REPO"
-if [ -n "${KOSMOS_AUTODEPLOY_DEPLOY:-}" ]; then
-  KOSMOS_SITE="$SITE" sh -c "$KOSMOS_AUTODEPLOY_DEPLOY" 2>&1 | tee -a "$LOG"; rc=${PIPESTATUS[0]}
+# The deploy has its own wall-clock limit, well inside the workflow's 30-minute job timeout, so a hung
+# deploy is THIS script's to account for (a retry, counted, alarmed once) instead of the runner killing
+# the job with nothing recorded and the next tick hanging the same way. Measured 2026-10-08: the 0.7.28
+# prod promote's deploy-site.sh --promote took 2 min 18 s on Mortals; 15 minutes is about 6 times that.
+# The deploy runs in its own process group (set -m), so the limit stops vercel and every other child too,
+# not just the subshell.
+DEPLOY_MAX_S="${KOSMOS_AUTODEPLOY_DEPLOY_MAX_S:-900}"
+case "$DEPLOY_MAX_S" in ''|*[!0-9]*) DEPLOY_MAX_S=900 ;; esac
+if [ -n "${KOSMOS_AUTODEPLOY_DEPLOY:-}" ]; then DCMD=(sh -c "$KOSMOS_AUTODEPLOY_DEPLOY"); else DCMD=(bash "$REPO/tools/deploy-site.sh" --publish); fi
+DOUT="$STATE/deploy.out"; : > "$DOUT"
+set -m; KOSMOS_SITE="$SITE" "${DCMD[@]}" > "$DOUT" 2>&1 & dpid=$!; set +m
+tail -n +1 -f "$DOUT" 2>/dev/null & tpid=$!   # stream it to this run's output as it happens
+tenths=0   # polled every 0.2 s, counted in tenths of a second
+while kill -0 "$dpid" 2>/dev/null && [ "$tenths" -lt $((DEPLOY_MAX_S * 10)) ]; do sleep 0.2; tenths=$((tenths + 2)); done
+if kill -0 "$dpid" 2>/dev/null; then
+  kill -TERM -- "-$dpid" 2>/dev/null; sleep 5; kill -KILL -- "-$dpid" 2>/dev/null
+  wait "$dpid" 2>/dev/null; rc=75
+  timedout=1
 else
-  KOSMOS_SITE="$SITE" bash "$REPO/tools/deploy-site.sh" --publish 2>&1 | tee -a "$LOG"; rc=${PIPESTATUS[0]}
+  wait "$dpid"; rc=$?; timedout=""
 fi
+sleep 0.3; kill "$tpid" 2>/dev/null; wait "$tpid" 2>/dev/null   # let tail print the last lines first
+cat "$DOUT" >> "$LOG"
+[ -n "$timedout" ] && say "the deploy ran past its ${DEPLOY_MAX_S}s limit and was stopped; counted as a retry"
 if [ "$rc" = 0 ]; then
   echo "$TARGET" > "$STATE/last-deployed"; rm -f "$STATE/failures" "$STATE/retries" "$STATE/parked"; rm -rf "$REPORTED"
   echo "$src_n" > "$STATE/mirror-count"
