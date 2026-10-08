@@ -279,7 +279,7 @@ test('#4491 review 7: the check right before the rename is pinned on its own, an
   fs.unlinkSync(sub); fs.renameSync(sub + '.was', sub);
   // Move-aside: a created file whose folder is swapped for the guard folder at the start is refused, nothing moved.
   fs.writeFileSync(path.join(guard, 'made.txt'), 'the guard folder file');
-  undo._setBeforeWriteForTests((p, stage) => { if (stage === 'start' && p === made) { fs.renameSync(sub, sub + '.was'); fs.symlinkSync(guard, sub); } });
+  undo._setBeforeWriteForTests((p, stage) => { if (stage === 'move' && p === made) { fs.renameSync(sub, sub + '.was'); fs.symlinkSync(guard, sub); } });   // review 19: at the move itself
   try { r = undo.apply('lt', { number: 1, closedAt: T('11:00') }, [made], { now: ms('12:05') }); } finally { undo._setBeforeWriteForTests(null); }
   assert.deepEqual(r.skipped.find((x) => x.path === made), { path: made, why: 'protected' }, 'move-aside went through the link');
   assert.equal(fs.readFileSync(path.join(guard, 'made.txt'), 'utf8'), 'the guard folder file', 'a file in the guarded folder was moved');
