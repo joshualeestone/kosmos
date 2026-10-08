@@ -99,11 +99,17 @@ function unframe(f) {
 /* ---------------- chunk objects ---------------- */
 const chunkInfo = () => Buffer.from(`kosmos-backup v${FORMAT} chunk`);
 const NAME_RE = /^[0-9a-f]{64}$/;
-/** Seal one chunk to the member's backup public key. Returns the object bytes to upload. */
+/* Seal one chunk under a GIVEN name: internal. A well-formed but wrong name would upload fine and never restore,
+   so the uploader seals only through sealNamedChunk, which derives the name itself. */
 function sealChunk(memberPk, name, plaintext) {
   if (typeof name !== 'string' || !NAME_RE.test(name)) throw new Error('backupformat: a chunk name is 64 lowercase hex characters');
   const { enc, ct } = hpkeSeal(memberPk, chunkInfo(), Buffer.from(name), frame(plaintext));
   return Buffer.concat([CHUNK_MAGIC, enc, ct]);
+}
+/** The uploader's entry: derive the chunk's name from its content, seal it. Returns { name, object }. */
+function sealNamedChunk(memberPk, namingKey, plaintext) {
+  const name = chunkName(namingKey, plaintext);
+  return { name, object: sealChunk(memberPk, name, plaintext) };
 }
 /* Open one chunk object WITHOUT checking its content against its name: internal only. A forged chunk (sealed
    by anyone holding the public key, under a real name) opens here; openVerifiedChunk is the restore entry. */
@@ -154,6 +160,8 @@ function canonicalJson(v) {
     const keys = Object.keys(v);
     // Symbol keys and non-enumerable properties would be dropped without a word: refuse them.
     if (Reflect.ownKeys(v).length !== keys.length) throw new Error('backupformat: a manifest object cannot have symbol keys or hidden properties');
+    // An own "__proto__" key is data and round-trips as an own property; restore must not merge a manifest into
+    // another object with Object.assign or spread without knowing that.
     return '{' + keys.sort().map((k) => JSON.stringify(k) + ':' + canonicalJson(v[k])).join(',') + '}';
   }
   throw new Error(`backupformat: a manifest cannot hold a ${typeof v}`);
@@ -199,7 +207,9 @@ function sealManifest(memberPk, deviceKey, ctx, manifest) {
  *  the uploader: the signature proves "this device signed it", and only that binding makes it "this member". */
 function verifyManifestSignature(devicePub, ctx, object) {
   try {
-    if (!devicePub || devicePub.asymmetricKeyType !== 'ed25519') return false;
+    // A PUBLIC Ed25519 key only. (An Ed25519 signature never verifies under another key type anyway, so the
+    // type half is defence in depth; the public half is what a caller can actually get wrong.)
+    if (!devicePub || devicePub.type !== 'public' || devicePub.asymmetricKeyType !== 'ed25519') return false;
     if (!Buffer.isBuffer(object) || object.length < 4 + SIG_LEN + ENC_LEN + 16 || !object.subarray(0, 4).equals(MANIFEST_MAGIC)) return false;
     const sig = object.subarray(4, 4 + SIG_LEN);
     const sealed = Buffer.concat([MANIFEST_MAGIC, object.subarray(4 + SIG_LEN)]);
@@ -223,7 +233,7 @@ module.exports = {
   chunkBuffer,
   chunkName,
   padme,
-  sealChunk,
+  sealNamedChunk,
   openVerifiedChunk,
   canonicalJson,
   sealManifest,

@@ -9,6 +9,12 @@ const bf = require('./backupformat');
 const { hpkeKeyPair } = require('./hpke');
 
 const SMALL = { min: 512, avg: 2048, max: 8192 };
+// What anyone holding the member's public key can do: seal any content under any name, bypassing sealNamedChunk.
+const forgeChunk = (pk, name, pt) => {
+  const f = Buffer.alloc(Math.max(4096, bf.padme(4 + pt.length))); f.writeUInt32BE(pt.length, 0); pt.copy(f, 4);
+  const { enc, ct } = require('./hpke').hpkeSeal(pk, Buffer.from('kosmos-backup v1 chunk'), Buffer.from(name), f);
+  return Buffer.concat([Buffer.from('KBC1'), enc, ct]);
+};
 const rand = (n, seed) => {  // deterministic bytes, so a failure reproduces
   const out = Buffer.alloc(n); let off = 0, ctr = 0;
   while (off < n) { const b = crypto.createHash('sha256').update(seed + ':' + ctr++).digest(); off += b.copy(out, off); }
@@ -66,28 +72,29 @@ test('#5535 padme: never smaller, overhead at most about 12%, and sizes collapse
 
 test('#5535 chunk objects: seal and open, the name binds, the size is bucketed', () => {
   const k = hpkeKeyPair(), nk = crypto.randomBytes(32);
-  const pt = rand(5000, 'd'), name = bf.chunkName(nk, pt);
-  const obj = bf.sealChunk(k.pk, name, pt);
+  const pt = rand(5000, 'd');
+  const { name, object: obj } = bf.sealNamedChunk(k.pk, nk, pt);
+  assert.equal(name, bf.chunkName(nk, pt), 'sealNamedChunk derives the name from the content');
   assert.deepEqual(bf.openVerifiedChunk(k.sk, nk, name, obj), pt, 'round trip');
   const other = bf.chunkName(nk, Buffer.from('other'));
   assert.equal(bf.openVerifiedChunk(k.sk, nk, other, obj), null, 'a chunk stored under the wrong name does not open');
   assert.equal(bf.openVerifiedChunk(k.sk, crypto.randomBytes(32), name, obj), null, 'another period\'s naming key does not vouch for it');
   // A FORGED chunk: anyone with the public key can seal any content under a real name. The name check refuses it.
-  const forged = bf.sealChunk(k.pk, name, Buffer.from('evil'));
+  const forged = forgeChunk(k.pk, name, Buffer.from('evil'));
   assert.equal(bf.openVerifiedChunk(k.sk, nk, name, forged), null, 'a forged chunk under a real name is refused');
   assert.equal(bf.openVerifiedChunk(k.sk, nk, name.toUpperCase(), obj), null, 'a non-canonical (uppercase) name is refused');
   assert.equal(bf.openVerifiedChunk(k.sk, nk, name + 'zz', obj), null, 'a name with trailing junk is refused');
   // Two plaintexts of different exact sizes in one padme bucket seal to objects of the same size.
-  const a = bf.sealChunk(k.pk, name, rand(5000, 'e')), b = bf.sealChunk(k.pk, name, rand(5100, 'f'));  // padme(5004) = padme(5104) = 5120
+  const a = bf.sealNamedChunk(k.pk, nk, rand(5000, 'e')).object, b = bf.sealNamedChunk(k.pk, nk, rand(5100, 'f')).object;  // padme(5004) = padme(5104) = 5120
   assert.equal(a.length, b.length, 'neighbouring sizes share a bucket');
-  assert.notEqual(bf.sealChunk(k.pk, name, rand(9000, 'g')).length, a.length, 'CONTROL: a much larger chunk is a larger object');
-  const tiny = [1, 20, 300, 4000].map((n) => bf.sealChunk(k.pk, name, rand(n, 't' + n)).length);
+  assert.notEqual(bf.sealNamedChunk(k.pk, nk, rand(9000, 'g')).object.length, a.length, 'CONTROL: a much larger chunk is a larger object');
+  const tiny = [1, 20, 300, 4000].map((n) => bf.sealNamedChunk(k.pk, nk, rand(n, 't' + n)).object.length);
   assert.equal(new Set(tiny).size, 1, `small chunks must all be one size (the 4 KiB floor), got ${tiny}`);
 });
 
 test('#5535 openVerifiedChunk returns null, never throws, on every wrong input (shared control: the real object opens)', () => {
   const k = hpkeKeyPair(), other = hpkeKeyPair(), nk = crypto.randomBytes(32);
-  const pt = Buffer.from('agent file'), name = bf.chunkName(nk, pt), obj = bf.sealChunk(k.pk, name, pt);
+  const pt = Buffer.from('agent file'); const { name, object: obj } = bf.sealNamedChunk(k.pk, nk, pt);
   assert.deepEqual(bf.openVerifiedChunk(k.sk, nk, name, obj), pt, 'CONTROL');
   const flip = (b, i) => { const c = Buffer.from(b); c[i] ^= 1; return c; };
   const cases = {
@@ -172,6 +179,7 @@ test('#5535 manifests: anything that would not read back is refused before seali
     assert.throws(() => bf.sealManifest(k.pk, kp.privateKey, ctx, { ok: 1 }), /Ed25519/, `a ${kind} device key would seal an unverifiable manifest`);
     assert.equal(bf.verifyManifestSignature(kp.publicKey, ctx, obj), false, `a ${kind} public key verifies nothing`);
   }
+  assert.equal(bf.verifyManifestSignature(dev.privateKey, ctx, obj), false, 'a PRIVATE key passed as devicePub is refused');
   assert.throws(() => bf.sealManifest(k.pk, dev.privateKey, { ...ctx, org: '\ud800' }, { ok: 1 }), /letters, digits/, 'a lone surrogate id is refused');
   assert.throws(() => bf.sealManifest(k.pk, dev.privateKey, { ...ctx, org: 'a b' }, { ok: 1 }), /letters, digits/, 'a space in an id is refused');
   assert.ok(bf.sealManifest(k.pk, dev.privateKey, { ...ctx, period: '2026-W41', snapshot: 's.1:a_b' }, { ok: 1 }), 'CONTROL: ordinary ids seal');
@@ -183,4 +191,26 @@ test('#5535 manifests are padded: very different file counts in one bucket seal 
   const ctx = { org: 'o', member: 'm', epoch: 'e', period: 'p', snapshot: 's' };
   const m = (n) => ({ files: Array.from({ length: n }, (_, i) => ({ path: 'a/' + i, size: i })) });
   assert.equal(bf.sealManifest(k.pk, dev.privateKey, ctx, m(1)).length, bf.sealManifest(k.pk, dev.privateKey, ctx, m(40)).length, 'small manifests all sit at the 4 KiB floor');
+});
+
+test('#5535 openManifest: a validly signed manifest whose content is not a plain object, or whose bytes are malformed, opens to null', () => {
+  const { hpkeSeal } = require('./hpke');
+  const k = hpkeKeyPair(), dev = crypto.generateKeyPairSync('ed25519');
+  const ctx = { org: 'o', member: 'm', epoch: 'e', period: 'p', snapshot: 's' };
+  const ctxBytes = Buffer.from('kosmos-backup v1 manifest\n' + ['org', 'member', 'epoch', 'period', 'snapshot'].map((f) => `${f}=${ctx[f]}`).join('\n'));
+  // Built by hand, as a compromised-but-enrolled signer could: a correct signature over arbitrary content.
+  const craft = (json) => {
+    const f = Buffer.alloc(4096); f.writeUInt32BE(Buffer.byteLength(json), 0); f.write(json, 4);
+    const { enc, ct } = hpkeSeal(k.pk, Buffer.from('kosmos-backup v1 manifest'), ctxBytes, f);
+    const sealed = Buffer.concat([Buffer.from('KBM1'), enc, ct]);
+    const sig = crypto.sign(null, Buffer.concat([Buffer.from('kosmos-backup v1 manifest-signature\0'), crypto.createHash('sha256').update(sealed).digest(), ctxBytes]), dev.privateKey);
+    return Buffer.concat([Buffer.from('KBM1'), sig, enc, ct]);
+  };
+  assert.deepEqual(bf.openManifest(k.sk, dev.publicKey, ctx, craft('{"ok":1}')), { ok: 1 }, 'CONTROL: the hand-built object opens, so the builder is right');
+  for (const json of ['null', '[1]', '5', '"s"']) assert.equal(bf.openManifest(k.sk, dev.publicKey, ctx, craft(json)), null, `content ${json}`);
+  const good = craft('{"ok":1}');
+  const flipMagic = Buffer.from(good); flipMagic[0] ^= 1;
+  assert.equal(bf.openManifest(k.sk, dev.publicKey, ctx, flipMagic), null, 'wrong magic');
+  assert.equal(bf.openManifest(k.sk, dev.publicKey, ctx, good.subarray(0, 50)), null, 'truncated');
+  assert.equal(bf.openManifest(k.sk, dev.publicKey, ctx, 'not a buffer'), null, 'not a Buffer');
 });
