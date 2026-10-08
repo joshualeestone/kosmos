@@ -27,3 +27,14 @@ Neighbours green: createdbeacon-3038 (unit and route), no-phone-home-4253, brows
 ## Decided
 - One ping per team, not per member (the card; the total is what the site records).
 - The org-chart import sends no notifyCreated, so it pings (#3038's default ON); its sheet has no box today.
+
+## Review 1 (opus)
+- Fixed (WARNING): the org-chart import ignored the create-agent box, which the create sheet shares across every
+  create (the defect "Review 25" fixed for the seeded team). The import now sends notifyCreated from #create-tell
+  (default true). Browser check render-orgchart-import-1280 asserts both arms (ticked: true; unticked: false) and
+  declares create-tell in its surface. Retracted from the plan: "its sheet has no box today" was wrong.
+- Fixed (WARNING): a test for an AGENT building a team (the creator-lock branch: one ping) and the per-creator cap
+  refusal (no ping). Planted red: the ping limited to operator callers.
+- Fixed (NIT): the capture keeps count > 0 only (an install ping carries 0), true by construction; the server comment
+  says the #3038 block is IN POST /api/agents.
+- Stated: the CLI's `kosmos agent create` already pings by #3038's default, unchanged here.

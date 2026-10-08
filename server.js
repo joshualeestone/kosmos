@@ -7855,7 +7855,7 @@ const server = http.createServer(async (req, res) => {
         }
 
         /* #5590: a team create tells installkosmos.com the agent count moved, as the single create does (the
-           #3038 block above POST /api/agents): ONE ping per team carrying the install's total ever created
+           #3038 block in POST /api/agents): ONE ping per team carrying the install's total ever created
            (create.createdCount, which already includes every member just born), never one per member. Sent when
            at least one member was created (a whole or partial team; a refused team creates nobody), unless the
            request turned the create-agent box off (notifyCreated: false). Best-effort: the beacon never affects

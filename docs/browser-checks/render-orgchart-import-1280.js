@@ -23,7 +23,7 @@
  *
  * Run: see the README in this directory (same shape as render-found-undo.js).
  *
- * // Browser-check-surface: team-orgchart-open cstep-team orgchartpick orgchart-text orgchart-usenames orgchart-preview orgchart-preview-box orgchart-count orgchart-list orgchart-create orgchart-edit orgchart-msg orgchart-undo orgchart-undo-go orgchart-undo-keep
+ * // Browser-check-surface: team-orgchart-open cstep-team orgchartpick orgchart-text orgchart-usenames orgchart-preview orgchart-preview-box orgchart-count orgchart-list orgchart-create orgchart-edit orgchart-msg orgchart-undo orgchart-undo-go orgchart-undo-keep create-tell
  */
 'use strict';
 
@@ -172,6 +172,8 @@ function check(name, pass, detail) {
       && lastTeamBody.members[0].label === 'Marketing Lead'
       && lastTeamBody.members[0].name === 'marketing-lead',
     JSON.stringify(lastTeamBody && lastTeamBody.members));
+  check('#5590: the import carries the create-agent box, ticked by default (notifyCreated true)',
+    Boolean(lastTeamBody) && lastTeamBody.notifyCreated === true, JSON.stringify(lastTeamBody && lastTeamBody.notifyCreated));
 
   // ---- #1280 Undo: offered after a create, NAMES and COUNTS before it acts ----
   const undoShown = await page.evaluate(() => {
@@ -284,8 +286,13 @@ function check(name, pass, detail) {
     refused: [],
     because: 'that is 20 agents in one request and the cap is 12. Kosmos holds this bound rather than the prompt. Have the OPERATOR raise the cap (up to 50).',
   };
+  // #5590: the box unticked -> the import says notifyCreated false (restored after).
+  await page.evaluate(() => { document.getElementById('create-tell').checked = false; });
   await page.click('#orgchart-create');
   await page.waitForTimeout(300);
+  check('#5590: an unticked create-agent box makes the import send notifyCreated false',
+    Boolean(lastTeamBody) && lastTeamBody.notifyCreated === false, JSON.stringify(lastTeamBody && lastTeamBody.notifyCreated));
+  await page.evaluate(() => { document.getElementById('create-tell').checked = true; });
   const overcap = await page.evaluate(() => document.getElementById('orgchart-count').textContent);
   const overcapUndo = await page.evaluate(() => document.getElementById('orgchart-undo').hidden);
   check('nothing created, so no Undo is offered', overcapUndo);

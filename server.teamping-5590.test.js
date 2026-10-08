@@ -33,7 +33,10 @@ fs.mkdirSync(path.join(HOME, '.claude', 'projects'), { recursive: true });
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { start, server } = require('./server');
+const { start, server, boardAuthState } = require('./server');
+const sendertoken = require('./engine/sendertoken');
+const liveness = require('./engine/liveness');
+const fleet = require('./test-support/fleet');
 const create = require('./engine/create');
 const createdbeacon = require('./engine/createdbeacon');
 
@@ -46,20 +49,21 @@ test.after(() => {
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 
-async function postTeam(body) {
+async function postTeam(body, headers = {}) {
   const res = await fetch(base + '/api/team', {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    method: 'POST', headers: Object.assign({ 'content-type': 'application/json' }, headers), body: JSON.stringify(body),
   });
   let json = null; try { json = await res.json(); } catch { json = null; }
   return { status: res.status, json };
 }
 
-/* The agent-created pings only (the install ping at start is blocked by the underTest guard). */
+/* The agent-created pings only: an install ping also carries a count (0), so the filter is count > 0, which holds by
+   construction rather than by the install ping happening to fire before a sender is injected. */
 function captureCreated() {
   const calls = [];
   createdbeacon.setSender((url, init) => {
     let b = null; try { b = JSON.parse(init && init.body); } catch { b = null; }
-    if (b && Object.prototype.hasOwnProperty.call(b, 'count')) calls.push(b);
+    if (b && typeof b.count === 'number' && b.count > 0) calls.push(b);
     return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true }) });
   });
   return calls;
@@ -119,4 +123,36 @@ test('#5590: notifyCreated:false (the create-agent box off) sends no ping, thoug
     await settle();
     assert.equal(calls.length, 0, 'the box was off and a ping went anyway');
   } finally { create.setClaudeProbe(null); createdbeacon.setSender(null); }
+});
+
+test('#5590: an AGENT building a team (the creator-lock branch) pings once; a per-creator cap refusal pings none', async () => {
+  const calls = captureCreated();
+  create.setClaudeProbe(LIVE);
+  const TOK = 'BOARDTOKEN_teamping_0123456789abcdef';
+  const wasOn = boardAuthState.on; const wasTok = boardAuthState.token;
+  boardAuthState.on = true; boardAuthState.token = TOK;
+  const prevCap = process.env.AGENT_WORKFORCE_CREATOR_AGENT_CAP;
+  const board = fleet.install([]);
+  try {
+    const tok = sendertoken.mint('tpagent').token;
+    liveness.seen('tpagent');
+    const r = await postTeam({ purpose: 'an agent builds a team', members: [{ name: 'tpagentone', role: 'pm' }, { name: 'tpagenttwo', role: 'pm' }] },
+      { 'x-kosmos-agent-token': tok });
+    assert.equal(r.json && r.json.outcome, 'created', JSON.stringify(r.json));
+    await settle();
+    assert.equal(calls.length, 1, 'an agent-built team must ping once');
+    assert.equal(calls[0].count, create.createdCount());
+    // The per-creator cap: two already made, a cap of 2, one more refused before anything is created.
+    process.env.AGENT_WORKFORCE_CREATOR_AGENT_CAP = '2';
+    const capped = await postTeam({ purpose: 'one too many', members: [{ name: 'tpagentthree', role: 'pm' }] },
+      { 'x-kosmos-agent-token': tok });
+    assert.equal(capped.status, 400, JSON.stringify(capped.json));
+    assert.match(String(capped.json && capped.json.because), /per-creator cap/, JSON.stringify(capped.json));
+    await settle();
+    assert.equal(calls.length, 1, 'a team refused at the per-creator cap sent a ping');
+  } finally {
+    if (prevCap === undefined) delete process.env.AGENT_WORKFORCE_CREATOR_AGENT_CAP; else process.env.AGENT_WORKFORCE_CREATOR_AGENT_CAP = prevCap;
+    board.restore(); boardAuthState.on = wasOn; boardAuthState.token = wasTok;
+    create.setClaudeProbe(null); createdbeacon.setSender(null);
+  }
 });
