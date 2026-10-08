@@ -11,7 +11,8 @@
 # Who runs a tick: chaoskosmos-site's .github/workflows/site-deploy.yml, on the site repo's self-hosted
 # runner on Mortals (the box with the working Vercel login, and the box cuts run on, so the cut check
 # below sees them). It runs on every push to site main, and every 15 minutes as a backstop for a tick
-# that skipped beside a cut. A tick that fails exits 1, so the run goes red in GitHub.
+# that skipped beside a cut. A failing tick exits 1 (red); a failure that REPEATS is red once per sha and
+# cause per day and then reported green (red_once), because GitHub emails every failed scheduled run.
 #
 # 🔑 Why its own checkout. A release cut populates the site checkout's gitignored dist/ and leaves
 # versions.html dirty behind it. A checkout nobody else uses is never the one a cut is writing, and
@@ -61,7 +62,8 @@
 #                  last 5000 lines once it passes 5 MB)
 #
 # Env: KOSMOS_AUTODEPLOY_SITE (the job's own site checkout, required), KOSMOS_AUTODEPLOY_STATE,
-# KOSMOS_AUTODEPLOY_DIST_FROM (default ~/work/chaoskosmos-site/dist), KOSMOS_SITE_URL (default
+# KOSMOS_AUTODEPLOY_DIST_FROM (default ~/work/chaoskosmos-site/dist), KOSMOS_AUTODEPLOY_DEPLOY_MAX_S (the
+# deploy's wall-clock limit, default 900), KOSMOS_SITE_URL (default
 # https://installkosmos.com, the same variable deploy-site.sh reads).
 # Test seams, TEST ONLY (each is run with sh -c, so never set them in the job's environment):
 # KOSMOS_AUTODEPLOY_DEPLOY (the deploy command, default this repo's deploy-site.sh --publish),
@@ -95,7 +97,8 @@ red_once() {  # <cause> <message>
   local f="$REPORTED/${TARGET:-none}-$1" at
   at=$(cat "$f" 2>/dev/null || true)
   case "$at" in ''|*[!0-9]*) at=0 ;; esac
-  if [ "$at" != 0 ] && [ $(( $(date +%s) - at )) -lt 86400 ]; then
+  local now; now=$(date +%s)
+  if [ "$at" != 0 ] && [ "$at" -le "$now" ] && [ $(( now - at )) -lt 86400 ]; then   # a future time counts as never
     say "STILL FAILING (reported): ${2#FAIL: } (red already reported at $(date -r "$at" '+%Y-%m-%d %H:%M'); green until it recovers, changes, or a day passes)"
     exit 0
   fi
@@ -145,6 +148,7 @@ if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 5000000 ]; then tail -n 5000 "$LOG
 git -C "$SITE" fetch -q origin main 2>>"$LOG" || red_once fetch "FAIL: could not fetch site origin/main in $SITE"
 clear_reported fetch   # (TARGET is still empty here: the "none" records)
 TARGET=$(git -C "$SITE" rev-parse --verify -q origin/main) || { TARGET=""; red_once noref "FAIL: no origin/main in $SITE"; }
+_t="$TARGET"; TARGET=""; clear_reported noref; TARGET="$_t"   # recovered: the "none" record goes
 LAST=$(cat "$STATE/last-deployed" 2>/dev/null || true)
 # Paused by a person (a deliberate site rollback, say): nothing is deployed until the file is removed.
 [ -e "$STATE/paused" ] && { say "paused: $STATE/paused exists; nothing is deployed until it is removed"; exit 0; }
@@ -302,7 +306,7 @@ if publisher_running; then
 fi
 now > "$STATE/heartbeat"   # fresh before the long part, so a slow deploy never reads as a wedged lock
 say "deploying site main ${TARGET:0:9} (last deployed ${LAST:0:9})"
-# The deploy's output goes to the log and to stdout (PIPESTATUS keeps the deploy's own exit status).
+# The deploy's output goes to stdout as it happens (tail -f) and to the log afterwards; rc is the deploy's own.
 # KOSMOS_REPO pins deploy-site.sh's libraries to THIS checkout; without it they load from
 # ~/work/agent-workforce, which on Mortals is the cut's checkout, at whatever sha a cut left it.
 export KOSMOS_REPO="$REPO"
@@ -316,12 +320,19 @@ DEPLOY_MAX_S="${KOSMOS_AUTODEPLOY_DEPLOY_MAX_S:-900}"
 case "$DEPLOY_MAX_S" in ''|*[!0-9]*) DEPLOY_MAX_S=900 ;; esac
 if [ -n "${KOSMOS_AUTODEPLOY_DEPLOY:-}" ]; then DCMD=(sh -c "$KOSMOS_AUTODEPLOY_DEPLOY"); else DCMD=(bash "$REPO/tools/deploy-site.sh" --publish); fi
 DOUT="$STATE/deploy.out"; : > "$DOUT"
-set -m; KOSMOS_SITE="$SITE" "${DCMD[@]}" > "$DOUT" 2>&1 & dpid=$!; set +m
+# </dev/null: under set -m a background job keeps the terminal as stdin, and a read would stop it (SIGTTIN).
+set -m; KOSMOS_SITE="$SITE" "${DCMD[@]}" < /dev/null > "$DOUT" 2>&1 & dpid=$!; set +m
+# If this tick is killed (the runner cancels the job, or its timeout), take the deploy group with it,
+# so no orphaned deploy keeps publishing beside the next tick.
+trap 'kill -TERM -- "-$dpid" 2>/dev/null; [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"' EXIT
+trap 'exit 143' TERM INT HUP
 tail -n +1 -f "$DOUT" 2>/dev/null & tpid=$!   # stream it to this run's output as it happens
 tenths=0   # polled every 0.2 s, counted in tenths of a second
 while kill -0 "$dpid" 2>/dev/null && [ "$tenths" -lt $((DEPLOY_MAX_S * 10)) ]; do sleep 0.2; tenths=$((tenths + 2)); done
 if kill -0 "$dpid" 2>/dev/null; then
-  kill -TERM -- "-$dpid" 2>/dev/null; sleep 5; kill -KILL -- "-$dpid" 2>/dev/null
+  kill -TERM -- "-$dpid" 2>/dev/null
+  for _i in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$dpid" 2>/dev/null || break; sleep 0.5; done
+  kill -KILL -- "-$dpid" 2>/dev/null
   wait "$dpid" 2>/dev/null; rc=75
   timedout=1
 else
@@ -330,6 +341,7 @@ fi
 sleep 0.3; kill "$tpid" 2>/dev/null; wait "$tpid" 2>/dev/null   # let tail print the last lines first
 cat "$DOUT" >> "$LOG"
 [ -n "$timedout" ] && say "the deploy ran past its ${DEPLOY_MAX_S}s limit and was stopped; counted as a retry"
+trap '[ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"' EXIT   # the deploy is over: back to the plain trap
 if [ "$rc" = 0 ]; then
   echo "$TARGET" > "$STATE/last-deployed"; rm -f "$STATE/failures" "$STATE/retries" "$STATE/parked"; rm -rf "$REPORTED"
   echo "$src_n" > "$STATE/mirror-count"
@@ -342,7 +354,11 @@ fi
 # host that stays unreachable never reads green with no report; it keeps retrying.
 if [ "$rc" = 75 ]; then
   n=$(( $(count_for "$STATE/retries") + 1 )); echo "$TARGET $n" > "$STATE/retries"
-  [ "$n" -ge "$RETRY_ALARM" ] && red_once moving "FAIL: ${TARGET:0:9} has hit a moving or unreadable live site $n ticks in a row; still retrying"
+  if [ -n "$timedout" ]; then
+    [ "$n" -ge "$RETRY_ALARM" ] && red_once timeout "FAIL: the deploy of ${TARGET:0:9} has run past its ${DEPLOY_MAX_S}s limit $n ticks in a row; still retrying"
+  else
+    [ "$n" -ge "$RETRY_ALARM" ] && red_once moving "FAIL: ${TARGET:0:9} has hit a moving or unreadable live site $n ticks in a row; still retrying"
+  fi
   say "retry: the live site moved or could not be read during the deploy of ${TARGET:0:9} ($n in a row); the next tick tries again"
   exit 0
 fi

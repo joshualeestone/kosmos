@@ -288,6 +288,21 @@ hp=$(cat "$HANGPID" 2>/dev/null); sleep 1
   && pass "a hung deploy is stopped at its limit with its child, counted as a retry, not parked" || { bad "hung deploy (rc=$RC, child $hp alive=$(kill -0 "$hp" 2>/dev/null && echo yes || echo no), retries=$(cat "$ST/retries" 2>/dev/null)) $OUT"; [ -n "$hp" ] && kill "$hp" 2>/dev/null; }
 rm -f "$ST/retries"
 
+# 23) the tick itself is killed mid-deploy (the runner cancels the job): its deploy group goes with it.
+H23=$(advance twentythree); HANG2="$T/hang2.pid"
+KOSMOS_AUTODEPLOY_DEPLOY='sleep 300 & echo $! > '"$HANG2"'; wait' bash "$AD" > "$T/tick23.out" 2>&1 & tick23=$!
+for i in $(seq 1 50); do [ -s "$HANG2" ] && break; sleep 0.1; done
+kill -TERM "$tick23"; wait "$tick23" 2>/dev/null; sleep 1
+hp2=$(cat "$HANG2" 2>/dev/null)
+{ [ -n "$hp2" ] && ! kill -0 "$hp2" 2>/dev/null && [ ! -e "$ST/lock" ]; } && pass "a tick killed mid-deploy takes its deploy's children with it and frees the lock" \
+  || { bad "killed tick left its deploy (child $hp2 alive=$(kill -0 "$hp2" 2>/dev/null && echo yes || echo no), lock=$([ -e "$ST/lock" ] && echo held || echo free))"; [ -n "$hp2" ] && kill "$hp2" 2>/dev/null; }
+
+# 24) a report time in the future (a clock step, a hand edit) counts as never reported: red.
+H24=$(advance twentyfour); mkdir -p "$ST/reported.d"; echo "$H24" > "$ST/parked"; printf '%s rc=1 x\n' "$H24" > "$ST/last-failure"
+echo "$(( $(date +%s) + 86400 ))" > "$ST/reported.d/$H24-parked"; tick
+[ "$RC" = 1 ] && pass "a future report time counts as never reported (red)" || bad "future report time stayed green (rc=$RC)"
+rm -f "$ST/parked"; rm -rf "$ST/reported.d"
+
 # 13) no site configured: a usage error, never a deploy.
 nfinal=$(ndeploys); KOSMOS_AUTODEPLOY_SITE="" bash "$AD" 2>/dev/null; RC=$?
 { [ "$RC" = 2 ] && [ "$(ndeploys)" = "$nfinal" ]; } && pass "no KOSMOS_AUTODEPLOY_SITE: exit 2, nothing deployed" || bad "unset site (rc=$RC)"

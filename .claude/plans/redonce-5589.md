@@ -22,3 +22,18 @@ fault, an emptied dist) stay red every time. A damaged report time counts as nev
 Green ticks during a known failure: someone looking only at the latest run's colour sees green. The
 run's own output says FAIL and "red already reported", and a red run exists for that sha and cause
 within the day. That trade is the point: one email per problem per day instead of 96.
+
+## Also on this branch (from the site workflow's review round 3)
+
+**The deploy has its own wall-clock limit** (KOSMOS_AUTODEPLOY_DEPLOY_MAX_S, default 900 s), well inside the
+workflow's 30-minute job timeout, so a hang is counted here (a retry, cause `timeout`, reported once a
+day) instead of the runner killing the job with nothing recorded. Measured 2026-10-08: the 0.7.28 prod
+promote's deploy-site.sh --promote took 2 min 18 s on Mortals. The deploy runs in its own process group
+with stdin from /dev/null; at the limit, or if the tick itself is killed (the runner cancelling the job),
+the whole group is stopped, vercel included.
+
+## Records and recovery (review rounds 1 and 2)
+
+One record per sha and cause (`reported.d/<sha>-<cause>`), removed when its cause is seen to recover
+(fetch works, lock taken, origin/main found) and all removed on a successful deploy or main found live.
+A future-dated record counts as never reported.
