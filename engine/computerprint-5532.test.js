@@ -90,7 +90,9 @@ test('#5532 v1.5: no file but computerprint.js uses a known spelling of a raw ha
   const root = path.join(__dirname, '..');
   // Needs git (it lists tracked files); outside a checkout it throws, and the count below keeps it from passing empty.
   const files = require('node:child_process').execFileSync('git', ['-C', root, 'ls-files', '-z'], { encoding: 'utf8' }).split('\0')
-    .filter((f) => !/^engine\/computerprint(-5532\.test)?\.js$/.test(f))
+    // engine/orgenroll-print-5532.test.js: the first caller's guards, whose fake ioreg text reaches the module only
+    // through its tests-only _testRunner (no file there reads the hardware).
+    .filter((f) => !/^engine\/(computerprint(-5532\.test)?|orgenroll-print-5532\.test)\.js$/.test(f))
     .filter((f) => /\.(js|mjs|cjs|sh|ps1|html|swift|m|mm|c|h|java|kt|py|yml|yaml|plist|gradle|json|xml)$/.test(f)
       // and extensionless scripts, found by their first line (install/kosmos, install/pkg-scripts/postinstall; review 15)
       || (!/\.[^/]+$/.test(f) && (() => { try { return /^#!/.test(fs.readFileSync(path.join(root, f), 'utf8').slice(0, 2)); } catch { return false; } })()));

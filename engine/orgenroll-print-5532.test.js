@@ -59,7 +59,7 @@ test('#5532 print guard 2: the company in every print is the one on this board\'
   assert.equal(oe.readEnrollment({ root }).computerSalt, SALT, 'the salt was not recorded, so leave and rollup could not make the print');
   assert.notEqual(printOf(ACME.id), printOf(OTHER.id), 'CONTROL: the two companies give different prints');
   // The rollup: the record's company, whatever status says.
-  fs.writeFileSync(path.join(root, oe.CONSENT_FILE), JSON.stringify({ consentHash: HASH, reports: ['agent names'], usageConsented: false }));
+  fs.writeFileSync(path.join(root, oe.CONSENT_FILE), JSON.stringify({ order: [HASH], byHash: { [HASH]: { reports: ['agent names'], usageConsented: false } } }));
   const sources = { agents: () => [], offline: () => [], projects: () => [], linkedProject: () => false };
   const tk = await rollup.tick({ root, remote: co, sources, now: Date.UTC(2026, 9, 8, 12) });
   assert.equal(tk.sent, true, JSON.stringify(tk));
@@ -117,7 +117,7 @@ test('#5532 print guard 1: nothing this caller logs carries a print, the hardwar
   const root = sandbox(t);
   const co = company(root);
   await join(root, co);
-  fs.writeFileSync(path.join(root, oe.CONSENT_FILE), JSON.stringify({ consentHash: HASH, reports: ['agent names'], usageConsented: false }));
+  fs.writeFileSync(path.join(root, oe.CONSENT_FILE), JSON.stringify({ order: [HASH], byHash: { [HASH]: { reports: ['agent names'], usageConsented: false } } }));
   await rollup.tick({ root, remote: co, sources: { agents: () => [], offline: () => [], projects: () => [], linkedProject: () => false }, now: Date.UTC(2026, 9, 8, 12) });
   // The one line this caller does log: a malformed salt (printFor's `because`).
   const bad = sandbox(t);

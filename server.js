@@ -9658,7 +9658,8 @@ const server = http.createServer(async (req, res) => {
       const refused = here ? oe.leaveRefusedFor() : null;   // a retried leave refused as the last admin: said ONCE (review 21)
       const refusedUndo = refused ? oe.leaveRefusedKind() === 'undo' : false;   // an undo, not the person's leave (review 31)
       if (refused && req.method === 'GET') oe.clearLeaveRefused();
-      sendJson(res, 200, { enrolled: here, reporting: here ? oe.mayReport() : false, stoppedFor: stopped, leaveRefused: refused, leaveRefusedUndo: refusedUndo, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
+      sendJson(res, 200, { enrolled: here, reporting: here ? !!(oe.acceptedConsent() && oe.acceptedConsent().reports.length) : false,   // #5532: what tick() itself requires (rollup review 10)
+       stoppedFor: stopped, leaveRefused: refused, leaveRefusedUndo: refusedUndo, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
     } catch { sendJson(res, 200, { enrolled: false, org: null, role: null, enrolledAt: null }); }
     return;
   }
@@ -9682,8 +9683,8 @@ const server = http.createServer(async (req, res) => {
               // with the enrollment. None served (or a malformed one): nothing is recorded, so mayReport fails closed
               // rather than report on words the company cannot match (consenthash review 2).
               consentHash: r.served || null,
-              consent: r.consent,
-              computerSalt: r.salt || null,   // #5532 (v1.5): the salt the join's computer print is made with   // #5532: the words shown, remembered by their hash so the rollup sends only the accepted report lines
+              consent: r.consent,   // #5532: the words shown, remembered by their hash so the rollup sends only the accepted report lines
+              computerSalt: r.salt || null,   // #5532 (v1.5): the salt the join's computer print is made with
               orgId: r.org && typeof r.org.id === 'string' ? r.org.id : null };   // WHICH company they were for (review 37)
             r.ticket = ORG_TICKET.value;
             if (!r.served) console.error('orgenroll: no consent hash to echo (none served, malformed, or for words cleaned before showing); a join records none, and this Kosmos will not report');

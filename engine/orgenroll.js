@@ -205,22 +205,32 @@ const CONSENT_FILE = 'org-consent.json';
    (CONSENT_NAMES_USAGE, pinned on token/usage/cost), so the board keys on the same words: no line naming them, no
    usage leaves, whatever a reader could read. */
 const NAMES_USAGE = /\b(tokens?|usage|costs?)\b/i;
+/* Keyed BY HASH, a few kept (rollup review 10): a join that fails, or one from a stale page, must not overwrite the
+   words held for the hash an existing record carries. */
+const CONSENT_KEEP = 8;
+function readConsents(opts) {
+  try { const j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), CONSENT_FILE), 'utf8')); return j && typeof j.byHash === 'object' && j.byHash ? j : { byHash: {}, order: [] }; } catch { return { byHash: {}, order: [] }; }
+}
 function rememberConsent(hash, consent, opts) {
   if (typeof hash !== 'string' || !/^[0-9a-f]{64}$/.test(hash) || !consent || !Array.isArray(consent.reports)) return false;
   const reports = consent.reports.filter((l) => typeof l === 'string' && l);
-  try {
-    writeWhole(path.join(storeRoot(opts), CONSENT_FILE), JSON.stringify({ consentHash: hash, reports, usageConsented: reports.some((l) => NAMES_USAGE.test(l)) }) + '\n');
-    return true;
-  } catch { return false; }
+  const all = readConsents(opts);
+  const order = (Array.isArray(all.order) ? all.order : []).filter((h) => h !== hash && all.byHash[h]);
+  order.push(hash);
+  // The record's own hash is never dropped to make room.
+  const keep = readEnrollment(opts) && readEnrollment(opts).consentHash;
+  while (order.length > CONSENT_KEEP) { const i = order.findIndex((h) => h !== keep && h !== hash); if (i < 0) break; order.splice(i, 1); }
+  const byHash = {};
+  for (const h of order) byHash[h] = h === hash ? { reports, usageConsented: reports.some((l) => NAMES_USAGE.test(l)) } : all.byHash[h];
+  try { writeWhole(path.join(storeRoot(opts), CONSENT_FILE), JSON.stringify({ byHash, order }) + '\n'); return true; } catch { return false; }
 }
 /* The accepted words for the hash on this world's record, or null: only while it may report (mayReport), and only when
    the remembered words are for exactly that hash. */
 function acceptedConsent(opts) {
   if (!mayReport(opts)) return null;
   const rec = readEnrollment(opts);
-  let j = null;
-  try { j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), CONSENT_FILE), 'utf8')); } catch { return null; }
-  if (!j || j.consentHash !== rec.consentHash || !Array.isArray(j.reports)) return null;
+  const j = readConsents(opts).byHash[rec.consentHash];
+  if (!j || !Array.isArray(j.reports)) return null;
   return { reports: j.reports.filter((l) => typeof l === 'string' && l), usageConsented: j.usageConsented === true };
 }
 /* The company refused a report because the words it holds for this member changed (rollup 409 org_consent_changed):
@@ -339,6 +349,11 @@ async function enrollNow(code, accepted, opts) {
      that fact: sent here and recorded below, so what is recorded is always what was sent (consenthash review 3). The
      contract says boards echo it and never recompute it (the two encodings could drift). */
   if (opts && typeof opts.consentHash === 'string' && /^[0-9a-f]{64}$/.test(opts.consentHash)) body.consentHash = opts.consentHash;
+  // The code first (review 10): a malformed one costs no hardware read.
+  if (code != null) {
+    if (typeof code !== 'string' || !CODE.test(code.trim())) return { ok: false, because: 'That is not a join code. Check it and try again.' };
+    body.code = code.trim();
+  }
   // The words go on disk before anything is sent, so whichever path later records this hash finds them (#5532).
   if (body.consentHash) rememberConsent(body.consentHash, opts.consent, opts);
   /* #5532 (v1.5): the computer print, made with the salt the company served and the company being joined. A read that
@@ -350,10 +365,6 @@ async function enrollNow(code, accepted, opts) {
     if (pf.send === 'later') return { ok: false, because: 'This Kosmos could not read this computer just now. Nothing was sent; press Join again in a minute.' };
     if (pf.send === 'error') return { ok: false, because: 'This Kosmos could not make its computer print, so nothing was sent.' };
     Object.assign(body, pf.fields, { computerSalt: salt });
-  }
-  if (code != null) {
-    if (typeof code !== 'string' || !CODE.test(code.trim())) return { ok: false, because: 'That is not a join code. Check it and try again.' };
-    body.code = code.trim();
   }
   let r = await signed('POST', ROUTES.enroll, body, opts);
   /* #5530 review 1: already in that company, a code is refused (409 org_already_member) and NOT spent, since it may be

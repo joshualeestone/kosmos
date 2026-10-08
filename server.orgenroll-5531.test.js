@@ -387,3 +387,21 @@ test('#5531 follow-up b review 1: a malformed served hash is never echoed or rec
   assert.equal(oe.mayReport(), false, 'a malformed served hash left a join that may report');
   await call('/api/org/leave', { body: {}, headers: SCREEN });
 });
+
+test('#5532 rollup review 10: the joined view says "reports" only when the rollup has accepted words to send under', async (t) => {
+  const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
+  t.after(() => { fs.rmSync(enrollmentFile(), { force: true }); fs.rmSync(path.join(store.ROOT, oe.CONSENT_FILE), { force: true }); });
+  const H = 'ab'.repeat(32);
+  // An enrollment with a consent hash but no remembered words (one written before the words were kept, say).
+  fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-08T00:00:00.000Z', consentHash: H }));
+  const st = async () => {
+    const remote = require('./engine/remote'); const orig = remote.macRequest;
+    remote.macRequest = async () => ({ ok: true, data: { member: true, org: ACME, role: 'member', enrolled: { computer: 'c1', world: oe.worldId(), thisComputer: true } } });
+    try { return (await call('/api/org', { method: 'GET', headers: SCREEN })).json; } finally { remote.macRequest = orig; }
+  };
+  const before = await st();
+  assert.equal(before.enrolled, true, JSON.stringify(before));
+  assert.equal(before.reporting, false, 'the view said it reports, but the rollup has no accepted words and sends nothing');
+  fs.writeFileSync(path.join(store.ROOT, oe.CONSENT_FILE), JSON.stringify({ order: [H], byHash: { [H]: { reports: ['agent names'], usageConsented: false } } }));
+  assert.equal((await st()).reporting, true, 'CONTROL: with the words remembered, it reports');
+});

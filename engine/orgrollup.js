@@ -92,26 +92,46 @@ function build(input) {
   const agentsIn = Array.isArray(i.agents) ? i.agents : [];
   if (agentsIn.length > AGENTS_MAX) truncated = true;
   const agents = [];
+  /* Once each by name, AFTER cleaning (rollup review 10): the coordinator refuses the WHOLE rollup when an agent is
+     listed twice, and two different names can clean to one (two long names sharing their first characters). The first
+     wins and the body says it was trimmed. */
+  const change = i.reason === 'change';
+  const agentSeen = new Set();
   for (const a of agentsIn.slice(0, AGENTS_MAX)) {
     const name = clean(a && a.name);
     if (!name) continue;
+    if (agentSeen.has(name)) { truncated = true; continue; }
+    agentSeen.add(name);
     const provider = PROVIDERS.has(a.provider) ? a.provider : null;
     /* A model is sent only when it names a known provider's family: the running model is read off a pane, so any
        other string is not a model id we can vouch for (rollup review 2). */
     const model = MODEL_ID.test(String(a.model || '')) && providerOfModel(a.model) ? a.model : null;
-    agents.push({ name, provider, model, status: statusWord(a.state) });
+    /* A change send carries no status and no model (rollup review 10, as the contract says): those ride on the daily
+       send only, so a change is not a record of when this person's agents run. */
+    agents.push({ name, provider, model: change ? null : model, status: change ? null : statusWord(a.state) });
   }
 
   const projectsIn = Array.isArray(i.projects) ? i.projects : [];
   if (projectsIn.length > PROJECTS_MAX) truncated = true;
   const projects = [];
+  /* Once each by name too (rollup review 10): two projects may share a name on the board (two sub-projects called
+     "Docs" under different parents), and the coordinator refuses a rollup listing a project twice. Same-named projects
+     are sent as one, with their agents together. */
+  const byName = new Map();
   for (const p of projectsIn.slice(0, PROJECTS_MAX)) {
     const name = clean(p && p.name);
     if (!name) continue;
     // Once each, after cleaning (two spellings can clean to one name): the coordinator refuses a project listing an agent twice.
-    const names = [...new Set((Array.isArray(p.agents) ? p.agents : []).map(clean).filter(Boolean))];
-    if (names.length > NAMES_MAX) truncated = true;
-    projects.push({ name, agents: names.slice(0, NAMES_MAX) });
+    const names = (Array.isArray(p.agents) ? p.agents : []).map(clean).filter(Boolean);
+    const into = byName.get(name);
+    if (into) { into.agents.push(...names); continue; }
+    const row = { name, agents: names };
+    byName.set(name, row);
+    projects.push(row);
+  }
+  for (const row of projects) {
+    row.agents = [...new Set(row.agents)];
+    if (row.agents.length > NAMES_MAX) { truncated = true; row.agents = row.agents.slice(0, NAMES_MAX); }
   }
 
   /* The last USAGE_DAYS days present, newest first; within a day the costliest rows first, so a trim drops the least. */

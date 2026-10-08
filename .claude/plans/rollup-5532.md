@@ -171,7 +171,31 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
   - **Allowlisted:** orgenroll.js is the print module's first allowed loader, with its two guards in
     `engine/orgenroll-print-5532.test.js`: nothing logged carries a print, the id or a body with one (captured, plus a
     source scan); every print is for the record's company. The print's FIRST_CALLER_5532 excuse is gone.
+- **Field coverage (review 6's todo), decided rather than built:** the board does not match consent lines to body
+  fields. The words are the coordinator's: it serves them with their hash, writes them for the contract's fixed field
+  set, refuses a rollup unless the hash accepted here is the one it serves now (v1.4), and stores only the worded
+  fields. A board-side text match would be a second, drifting copy of that rule. The todo stays as the record of the
+  question. Weakest premise: that the coordinator's words keep naming every field the contract carries; a field added
+  to the contract without a consent line is the coordinator's to refuse.
 - **Weakest premise:** a synchronous ioreg read can block the board for up to five seconds on a join, a leave or a
   rollup tick, at most once a minute while reads fail and once an hour after giving up. Accepted here; an
   asynchronous read is the alternative if it is measured as a problem.
 
+
+## Review 10 (blind, Opus), on the carried and wired branch
+- FIXED (BLOCKER, mine): the print guard test's fake ioreg text tripped the repo-wide raw-read guard. My earlier green
+  run was before the file was tracked, and that guard lists TRACKED files. The test is now a named exclusion with its
+  reason (its fake text reaches the module only through `_testRunner`).
+- FIXED (BLOCKER): duplicate names. The coordinator refuses a whole rollup listing an agent or a project twice, and the
+  board allows both, which meant a silent hourly refusal forever. Agents are now kept once by cleaned name (the first
+  wins; the body says it was trimmed), and same-named projects are sent as one with their agents together. A test uses
+  the coordinator's own refusals as the oracle.
+- FIXED: the joined view said "reports" for a record with a hash but no remembered words. It now asks the same question
+  tick() does (`acceptedConsent`).
+- FIXED: the words file had one slot, so a failed or stale join attempt could take away the words the record reports
+  on. It is now keyed by hash, with a few kept, and the record's own hash is never dropped.
+- FIXED: a change send carried status and model. It now carries neither: they ride on the daily send only, as the
+  contract and the comments say.
+- DECIDED (field coverage, see above): the coordinator's hash binding, not a board-side text match.
+- NITs taken: the comment placement in the ticket; the CLAUDE.md row; the join code is checked before the hardware read.
+- Each fix's mutation makes it fail.

@@ -14,7 +14,7 @@ const DAY = (n) => new Date(Date.UTC(2026, 9, 7 - n)).toISOString().slice(0, 10)
 
 test('#5532: the body has the contract shape, the three status words, and names only', () => {
   const b = r.build({
-    world: 'a'.repeat(32), at: '2026-10-07T12:00:00Z', reason: 'change', lastActive: '2026-10-07T11:00:00Z',
+    world: 'a'.repeat(32), at: '2026-10-07T12:00:00Z', reason: 'daily', lastActive: '2026-10-07T11:00:00Z',
     agents: [
       { name: 'Leo', provider: 'anthropic', model: 'claude-opus-5-5', state: 'working' },
       { name: 'Raph', provider: 'openai', model: 'gpt-5.1', state: 'needs_trust' },
@@ -26,7 +26,7 @@ test('#5532: the body has the contract shape, the three status words, and names 
     usageByDay: { [DAY(0)]: { 'claude-opus-5-5': { input_tokens: 1e6, output_tokens: 1e6 }, 'gpt-5.1-codex': { output_tokens: 5 } } },
   });
   assert.deepEqual(Object.keys(b).sort(), ['agents', 'at', 'backup', 'lastActive', 'policyVersion', 'projects', 'reason', 'truncated', 'usage', 'usageWithheld', 'v', 'world'].sort());
-  assert.equal(b.v, 1); assert.equal(b.reason, 'change'); assert.equal(b.truncated, false);
+  assert.equal(b.v, 1); assert.equal(b.reason, 'daily'); assert.equal(b.truncated, false);
   assert.deepEqual(b.agents.map((a) => a.status), ['working', 'waiting', 'waiting', 'waiting', 'stopped'], 'the consent names three words: working, waiting, stopped');
   for (const a of b.agents) assert.deepEqual(Object.keys(a).sort(), ['model', 'name', 'provider', 'status']);
   assert.deepEqual(b.projects, [{ name: 'Launch', agents: ['Leo', 'Raph'] }]);
@@ -180,8 +180,8 @@ function accept(root, reports, usageConsented) {
   const rec = JSON.parse(fs.readFileSync(f, 'utf8'));
   rec.consentHash = HASH;
   fs.writeFileSync(f, JSON.stringify(rec));
-  fs.writeFileSync(path.join(root, oe.CONSENT_FILE), JSON.stringify({ consentHash: HASH,
-    reports: reports || ['agent names, the AI provider and model each uses, and whether each is working, waiting or stopped'], usageConsented: usageConsented === true }));
+  fs.writeFileSync(path.join(root, oe.CONSENT_FILE), JSON.stringify({ order: [HASH], byHash: { [HASH]: {
+    reports: reports || ['agent names, the AI provider and model each uses, and whether each is working, waiting or stopped'], usageConsented: usageConsented === true } } }));
 }
 function world(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orgrollup-5532-'));
@@ -406,7 +406,8 @@ test('#5532 wiring: the words are found only for the hash on the record, and onl
   accept(root);
   assert.ok(oe.acceptedConsent({ root }), 'CONTROL: found for the hash on the record');
   // Remembered words for another hash (a newer join's, say) are not this record's words: nothing is sent under them.
-  fs.writeFileSync(path.join(root, oe.CONSENT_FILE), JSON.stringify({ consentHash: 'cd'.repeat(32), reports: ['agent names'], usageConsented: false }));
+  const other = 'cd'.repeat(32);
+  fs.writeFileSync(path.join(root, oe.CONSENT_FILE), JSON.stringify({ order: [other], byHash: { [other]: { reports: ['agent names'], usageConsented: false } } }));
   assert.equal(oe.acceptedConsent({ root }), null, 'words for another hash were taken as this record\'s');
   const sent = await r.tick({ root, remote: c, sources: sources(), now: Date.UTC(2026, 9, 7, 12) });
   assert.equal(sent.sent, false, 'a rollup went out under words remembered for another hash');
@@ -474,4 +475,48 @@ test('#5532 (Pete, E0.3): no character the coordinator refuses reaches a name, a
     assert.deepEqual(bad(v).map((c) => c.codePointAt(0).toString(16)), [], 'a refused character reached the rollup in ' + JSON.stringify(v));
   }
   // U+200C/200D are allowed by the coordinator; whether they survive here does not matter, only that nothing refused does.
+});
+
+/* Rollup review 10: the coordinator's own refusals, as the oracle (kosmos-relay coordinator/src/org.rs check_rollup):
+   one row per agent name, one per project name, and no agent twice in a project. A body breaking any is refused whole. */
+function coordinatorRefuses(b) {
+  const dup = (xs) => new Set(xs).size !== xs.length;
+  if (dup(b.agents.map((a) => a.name))) return 'an agent is listed twice';
+  if (dup(b.projects.map((p) => p.name))) return 'a project is listed twice';
+  if (b.projects.some((p) => dup(p.agents))) return 'a project lists an agent twice';
+  return null;
+}
+test('#5532 rollup review 10: names that clash on the board, or after cleaning, never make the company refuse the rollup', () => {
+  const long = 'A'.repeat(130);
+  const b = r.build({ world: 'w', reason: 'daily',
+    agents: [{ name: 'Scout', state: 'working' }, { name: 'Scout', state: 'stopped' }, { name: long + 'x', state: 'working' }, { name: long + 'y', state: 'working' }],
+    projects: [{ name: 'Docs', agents: ['Scout'] }, { name: 'Docs', agents: ['Leo', 'Scout'] }, { name: 'Plan', agents: ['Leo', 'Leo'] }] });
+  assert.equal(coordinatorRefuses(b), null, 'the company would refuse this rollup: ' + coordinatorRefuses(b) + ' ' + JSON.stringify(b));
+  assert.equal(b.agents.filter((a) => a.name === 'Scout').length, 1);
+  assert.equal(b.agents[0].status, 'working', 'the first of two same-named agents was not the one kept');
+  assert.deepEqual(b.projects.find((p) => p.name === 'Docs').agents, ['Scout', 'Leo'], 'same-named projects were not sent as one, with their agents together');
+  assert.equal(b.truncated, true, 'a dropped agent was not said');
+  // CONTROL: the oracle can refuse.
+  assert.equal(coordinatorRefuses({ agents: [{ name: 'a' }, { name: 'a' }], projects: [] }), 'an agent is listed twice');
+});
+test('#5532 rollup review 10: a change send carries no status and no model (they ride on the daily send only)', () => {
+  const input = { world: 'w', agents: [{ name: 'Leo', provider: 'anthropic', model: 'claude-opus-5-5', state: 'working' }] };
+  const change = r.build(Object.assign({ reason: 'change' }, input)).agents[0];
+  assert.equal(change.status, null); assert.equal(change.model, null);
+  const daily = r.build(Object.assign({ reason: 'daily' }, input)).agents[0];
+  assert.equal(daily.status, 'working', 'CONTROL: the daily send carries the status'); assert.equal(daily.model, 'claude-opus-5-5');
+});
+
+
+test('#5532 rollup review 10: a join attempt that fails never takes away the words an existing record reports on', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root);
+  // A second attempt (a stale page, or one while a leave is pending) under OTHER words, refused by the company.
+  const refused = { macRequest: async (m, route) => (route === oe.ROUTES.enroll ? { ok: false, because: '409 {"because":"org_already_member"}' } : { ok: false, because: 'offline' }) };
+  const other = 'ef'.repeat(32);
+  const r2 = await oe.enroll('BETA-JOIN-5678', true, { root, remote: refused, consentHash: other, consent: { reports: ['something else'], backsUp: [], readers: ['you'], never: [] } });
+  assert.equal(r2.ok, false, 'CONTROL: the attempt failed');
+  assert.ok(oe.acceptedConsent({ root }), 'the failed attempt overwrote the words the record reports on, so the rollup stopped silently');
 });
