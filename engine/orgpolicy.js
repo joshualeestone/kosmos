@@ -100,11 +100,17 @@ function current() {
   return a ? a.policy : null;
 }
 
+/** The policy in force after applying whatever bundle the tunnel has written since (two small reads and one
+ *  signature check, so it is asked fresh at every create and switch rather than on a timer). Never throws. */
+function inForce() {
+  try { const r = refresh(); return r.applied ? r.applied.policy : null; } catch { return current(); }
+}
+
 /**
  * Whether a new agent may run on this provider and model under the policy in force. No policy: allowed.
  * { ok: true } | { ok: false, because } (the sentence a person reads).
  */
-function allows({ provider, model } = {}, policy = current()) {
+function allows({ provider, model } = {}, policy = inForce()) {
   if (!policy) return { ok: true };
   // A model may come as several names for one model (its Kosmos key and its full id); any one listed allows it.
   const names = (Array.isArray(model) ? model : [model]).filter((x) => typeof x === 'string' && x !== '');
@@ -119,4 +125,4 @@ function allows({ provider, model } = {}, policy = current()) {
   return { ok: true };
 }
 
-module.exports = { refresh, current, allows, TYP, BUNDLE, PINNED, APPLIED };
+module.exports = { refresh, current, inForce, allows, TYP, BUNDLE, PINNED, APPLIED };
