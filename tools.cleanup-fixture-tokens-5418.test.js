@@ -684,3 +684,10 @@ test('#5418: a -discord job, worker folder or heartbeat keeps the token keyed wi
   assert.deepEqual(left.filter((n) => n !== 'kim.json'), ['anchor.json', 'pat.json', 'sam.json']);
   if (process.platform === 'darwin') assert.ok(left.includes('kim.json'), 'a fleet com.<name>.discord job did not keep its token');
 });
+
+test('#5418: a board that stalls part way through its answer is a clean refusal, not a crash or a hang', async (t) => {
+  const srv = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.write('{"agents":['); /* then nothing */ });
+  await new Promise((ok) => srv.listen(0, '127.0.0.1', ok));
+  t.after(() => { srv.closeAllConnections(); srv.close(); });
+  await assert.rejects(tool.getJson(srv.address().port, '/api/status', {}, 200));
+});
