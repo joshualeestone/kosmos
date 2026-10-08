@@ -6612,6 +6612,17 @@ test('#5534: a company policy in force refuses creating or switching an agent on
     const sw = create.setProvider('policyok', 'openai', BINS);
     assert.equal(sw.outcome, create.OUTCOME.REFUSED, 'a switch onto a disallowed provider went through');
     assert.match(sw.because, /policy does not allow openai/);
+    // Models: the policy lists one Claude model by its full id; its key is accepted for it, another model is not.
+    fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 2, applied_at: 1,
+      policy: { providers_allowed: ['anthropic'], models_allowed: { anthropic: ['claude-sonnet-5'] } } }));
+    const badModel = create.createAgent({ ...BINS, name: 'policymodel', role: 'pm', model: 'haiku' });
+    assert.equal(badModel.outcome, create.OUTCOME.REFUSED, 'an agent on a disallowed model was created');
+    assert.match(badModel.because, /does not allow the model haiku/);
+    const toHaiku = create.setModel('policyok', 'haiku');
+    assert.equal(toHaiku.outcome, create.OUTCOME.REFUSED, 'a switch onto a disallowed model went through');
+    assert.match(toHaiku.because, /does not allow the model haiku/);
+    const toSonnet = create.setModel('policyok', 'sonnet');
+    assert.equal(toSonnet.outcome, create.OUTCOME.CREATED, 'CONTROL: the listed model (by its key) is allowed: ' + toSonnet.because);
   } finally {
     fs.rmSync(orgpolicy.APPLIED(), { force: true });
   }

@@ -2369,6 +2369,12 @@ function setModel(name, modelKey, opts) {
     }
   }
 
+  /* #5534: switching onto a model the company policy does not allow is refused like creating an agent on it. */
+  {
+    let allowed = { ok: true };
+    try { allowed = require('./orgpolicy').allows({ provider: agentProvider, model: [m.key, m.arg] }); } catch { allowed = { ok: true }; }
+    if (!allowed.ok) return { outcome: OUTCOME.REFUSED, because: allowed.because };
+  }
   const unwritten = rewriteAgentJob(clean, spoken, {
     runnerBin: job.claude, tmux: job.tmux, model: m.arg, configDir: job.configDir, runner: job.runner,
   }, platform);
@@ -4379,7 +4385,12 @@ function createAgentInner(opts) {
   // before anything is written, with the policy's own sentence; agents already running are never stopped by it.
   {
     let allowed = { ok: true };
-    try { allowed = require('./orgpolicy').allows({ provider, model: opts && opts.model ? String(opts.model) : '' }); }
+    try {
+      const key = opts && opts.model ? String(opts.model) : '';
+      let full = '';
+      try { const mm = key ? modelFor(provider, key) : null; full = mm && mm.arg ? String(mm.arg) : ''; } catch { full = ''; }
+      allowed = require('./orgpolicy').allows({ provider, model: [key, full] });
+    }
     catch { allowed = { ok: true }; }   // an unreadable policy record is no policy (nothing is bricked)
     if (!allowed.ok) return { outcome: OUTCOME.REFUSED, because: allowed.because, steps };
   }
