@@ -20,6 +20,11 @@ const USAGE_MODEL_PRICES = Object.freeze({
   'claude-sonnet-5-5': Object.freeze({ in: 2, out: 10, cw: 2.50, cr: 0.20 }),
   'claude-sonnet-5': Object.freeze({ in: 2, out: 10, cw: 2.50, cr: 0.20 }),
   'claude-sonnet-4-6': Object.freeze({ in: 3, out: 15, cw: 3.75, cr: 0.30 }),
+  // #5626: claude-haiku-5-5 at the published Anthropic base rates (platform.claude.com pricing, 2026-10-08): input 0.10,
+  // 5-minute write 0.125, cache read 0.01, output 0.50. Haiku 5.5 is priced by PROMPT LENGTH and costs 5x past 100,000
+  // tokens. A usage day here carries no per-request prompt size, so the base rate is used and a long-context day is
+  // under-estimated. Said on #5626.
+  'claude-haiku-5-5': Object.freeze({ in: 0.10, out: 0.50, cw: 0.125, cr: 0.01 }),
   'claude-haiku-4-5': Object.freeze({ in: 1, out: 5, cw: 1.25, cr: 0.10 }),
   'claude-fable-5-1': Object.freeze({ in: 10, out: 50, cw: 12.50, cr: 0.25 }),
   'claude-fable-5': Object.freeze({ in: 10, out: 50, cw: 12.50, cr: 1.00 }),

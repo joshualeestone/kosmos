@@ -102,9 +102,9 @@ const launchidentity = require('./launchidentity'); // #1704: the per-Kosmos lau
  */
 /* #2140 (Josh, 0.6.35 feedback item 10): the Claude picker is ordered
    MOST-POWERFUL-FIRST, in Josh's exact order. #3459 (2026-09-23) added Opus 5.5
-   ahead of Opus 5, and #4439 (2026-09-28) added Sonnet 5.5 ahead of Sonnet 5, so
-   the order is now: Fable 5.1, Fable 5, Opus 5.5, Opus 5, Opus 4.8, Sonnet 5.5,
-   Sonnet 5, Haiku. The array order IS the display order (the picker
+   ahead of Opus 5, #4439 (2026-09-28) added Sonnet 5.5 ahead of Sonnet 5, and #5626
+   (2026-10-08) added Haiku 5.5 ahead of Haiku 4.5, so the order is now: Fable 5.1,
+   Fable 5, Opus 5.5, Opus 5, Opus 4.8, Sonnet 5.5, Sonnet 5, Haiku 5.5, Haiku 4.5. The array order IS the display order (the picker
    renders MODELS in sequence), so this list is the single source of that order;
    create.test.js and model-sort-order-2284.test.js assert it exactly. The DEFAULT
    is unchanged (Sonnet 5,
@@ -143,6 +143,12 @@ const MODELS = [
     why: 'The newest Sonnet, with more recent knowledge (to June 2026). Quick, and good at most work.' },
   { key: 'sonnet', provider: 'anthropic', label: 'Claude Sonnet 5', arg: 'claude-sonnet-5', default: true,
     why: 'The everyday choice. Quick, and good at most work.' },
+  // #5626 (Josh, 2026-10-08): add Haiku 5.5, the newest Haiku. Id claude-haiku-5-5, as Anthropic's models page and
+  // models API list it (released 2026-10-07; dateless, its own pinned snapshot). Placed ahead of Haiku 4.5 as the
+  // newest of its tier. Haiku 4.5 STAYS (Josh: "let's not delete any other Claude models"), and the DEFAULT stays
+  // Sonnet 5. Named in status.js MODEL_NAMES and priced in engine/usageprice.js and web/index.html too.
+  { key: 'haiku55', provider: 'anthropic', label: 'Claude Haiku 5.5', arg: 'claude-haiku-5-5',
+    why: 'The newest Haiku, with more recent knowledge (to June 2026). The quickest and the cheapest, for small jobs done often.' },
   { key: 'haiku', provider: 'anthropic', label: 'Claude Haiku 4.5', arg: 'claude-haiku-4-5-20251001',
     why: 'The quickest and the cheapest. For small, simple jobs done often.' },
 ];

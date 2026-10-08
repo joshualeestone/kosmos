@@ -302,6 +302,18 @@ test('#4439: claude-sonnet-5-5 is priced like claude-sonnet-5 (tier_2_10), not u
   assert.notStrictEqual(p5, p, 'claude-sonnet-5 and claude-sonnet-5-5 resolved to the same row');
 });
 
+test('#5626: claude-haiku-5-5 is priced at its published base rates, not unpriced and not as Haiku 4.5', () => {
+  // platform.claude.com pricing (2026-10-08), prompts up to 100,000 tokens: in 0.10 / out 0.50 / 5-minute write 0.125 /
+  // cache read 0.01. Longer prompts cost 5x; a usage day has no per-request size, so the base rate is used (on #5626).
+  const p = U.usageModelPrice('claude-haiku-5-5');
+  assert.deepEqual(p, { in: 0.10, out: 0.50, cw: 0.125, cr: 0.01 });
+  const r = U.usageApiCost({ d: { 'claude-haiku-5-5': { input_tokens: 1e6, output_tokens: 1e6, cache_creation_input_tokens: 1e6, cache_read_input_tokens: 1e6 } } });
+  assert.ok(Math.abs(r.cost - 0.735) < 1e-9, 'haiku-5-5 1M-each -> $0.735, got ' + r.cost);
+  assert.deepEqual(r.unpriced, [], 'haiku-5-5 is not in unpriced');
+  // CONTROL: Haiku 4.5 keeps its own, different row.
+  assert.deepEqual(U.usageModelPrice('claude-haiku-4-5-20251001'), { in: 1, out: 5, cw: 1.25, cr: 0.10 });
+});
+
 /* #2840: the scrollable usage-history list. FIXTURE per-row 4-class totals:
    2026-09-01: 2,140,559 + 760,331 + 9,401,220 + 1,023,445,990 = 1,035,748,100
    2026-08-31: 2,010,445 + 701,558 + 8,702,558 +   940,558,112 =   951,972,673 */
