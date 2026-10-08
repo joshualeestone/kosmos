@@ -411,3 +411,11 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
   to it" only when it may; otherwise it says it sends nothing until the words are accepted on this computer (O12c).
 - A marker time in the future (a clock set back) counts as old, in the settle and the fast follow-up (pinned). An undo
   that went through retires the world id. The connector comment covers enroll as well as preview.
+
+## Review 34
+- The note's "until you accept its words on this computer" promised a path the screen does not offer (while joined
+  it shows only Leave). It now says what is true: it sends your company nothing, its words were not accepted on this
+  computer. The joined view says the same whenever reporting is false (O12c checks both; dropping the line reddens it).
+- The pending file carries a consent hash forward only for an undo's own rewrite (review 33's keep, made narrower).
+- Not done here (follow-up): a "Review what your company sees" action in the joined view, so a person whose record has
+  no consent recorded can read and accept the words without leaving (the move path enrolls with no code).

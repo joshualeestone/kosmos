@@ -181,8 +181,10 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     await page.evaluate(() => { window.__notReporting = true; PLUS_ORG.at = 0; document.getElementById('plus-org-msg').textContent = 'an earlier line'; plusOrgMaybe(); });
     await page.waitForFunction(() => /sends your company nothing/.test(document.getElementById('plus-org-msg').textContent), null, { timeout: 5000 }).catch(() => {});
     const o12c = await page.evaluate(() => document.getElementById('plus-org-msg').textContent);
-    chk(/sends your company nothing until you accept its words on this computer\.$/.test(o12c) && !/reports to it/.test(o12c),
-      'O12 a Kosmos that may not report is never told it reports', JSON.stringify(o12c));
+    const say12c = await page.evaluate(() => document.getElementById('plus-org-say').textContent);
+    chk(/sends your company nothing: its words were not accepted on this computer\.$/.test(o12c) && !/reports to it/.test(o12c) && !/until you accept/.test(o12c)
+      && /It sends your company nothing/.test(say12c),
+      'O12 a Kosmos that may not report is never told it reports, and its joined view says it sends nothing', JSON.stringify({ o12c, say12c }));
     await page.evaluate(() => { window.__notReporting = false; window.__refused = null; window.__refusedUndo = false; PLUS_ORG.state = { enrolled: false, org: null, role: null }; plusOrgPaint(); });
 
     // O8: the company stopped naming this world. The next /api/org read carries stoppedFor; the block says so.

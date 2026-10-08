@@ -320,7 +320,7 @@ function setLeavePending(on, opts, rec, undo, consentHash) {
   // An undo keeps the consent the person accepted, so a join that cannot be undone is recorded WITH it (review 31).
   // A rewrite without a hash keeps the one already there (review 33): one unanswered retry must not drop it.
   const given = typeof consentHash === 'string' && /^[0-9a-f]{64}$/.test(consentHash) ? consentHash : null;
-  const hash = given || (on ? pendingConsentHash(opts) : null);
+  const hash = given || (on && undo === true && pendingUndo(opts) ? pendingConsentHash(opts) : null);   // only an undo's own, carried forward
   try { if (on) fs.writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), rec: rec || null, undo: undo === true, consentHash: hash, world: readWorldId(opts) }) + '\n', { mode: 0o600 }); else fs.rmSync(file, { force: true }); } catch { /* best effort */ }
 }
 function pendingConsentHash(opts) {

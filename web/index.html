@@ -47125,7 +47125,7 @@ function plusOrgMaybe() {
     if (j && j.enrolled !== true && j.stoppedFor) msg.textContent = 'This Kosmos is no longer the work Kosmos for ' + j.stoppedFor + ', so it has stopped reporting.';
     // #5531 review 21: a leave the person was told would be sent again was refused, so this Kosmos reports again.
     // "reports to it" only when it may (review 33): a record with no consent recorded here sends nothing.
-    const reports = j && j.reporting === true ? ' and reports to it.' : '. It sends your company nothing until you accept its words on this computer.';
+    const reports = j && j.reporting === true ? ' and reports to it.' : '. It sends your company nothing: its words were not accepted on this computer.';
     if (j && j.enrolled === true && j.leaveRefused) msg.textContent = j.leaveRefusedUndo === true
       ? 'Your company could not undo joining ' + j.leaveRefused + ': you are its last admin. This Kosmos is your work Kosmos' + reports
       : 'Your leave from ' + j.leaveRefused + ' was refused: you are its last admin. This Kosmos is your work Kosmos again' + reports;
@@ -47145,7 +47145,8 @@ function plusOrgPaint() {
   document.getElementById('plus-org-out').hidden = !!here || !!PLUS_ORG.preview;
   document.getElementById('plus-org-consent').hidden = !PLUS_ORG.preview;
   if (!here) plusOrgLeaveArm(false);   // a Leave confirmation never stays open under a view that is gone (review 31)
-  if (here) document.getElementById('plus-org-say').textContent = 'This Kosmos is your work Kosmos for ' + (st.org.name || 'your company') + '. Your other Kosmoses on this computer are not part of it.';
+  // A record with no consent recorded here sends nothing, and the joined view says so (review 34).
+  if (here) document.getElementById('plus-org-say').textContent = 'This Kosmos is your work Kosmos for ' + (st.org.name || 'your company') + '. ' + (st.reporting === false ? 'It sends your company nothing: its words were not accepted on this computer. ' : '') + 'Your other Kosmoses on this computer are not part of it.';
 }
 /* #5531: one POST to the board's org routes. Each URL is written out as a literal (web.api-routes-3957.test.js checks
    every /api path the page fetches against a board route, and a URL held in a variable cannot be checked). */
