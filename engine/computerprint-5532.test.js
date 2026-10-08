@@ -27,6 +27,7 @@ test('#5532 v1.5: the print is HMAC-SHA256(salt, company:id); the raw id never a
   assert.match(p, /^[0-9a-f]{64}$/);
   assert.equal(p.includes('0A1B2C3D'), false);
   assert.equal(p, require('node:crypto').createHmac('sha256', Buffer.from(SALT, 'hex')).update(ORG + ':0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9').digest('hex'));
+  // Pins Node's own behaviour (review 13): hex decoding reads either case alike, so a coordinator's case cannot change it.
   assert.equal(cp._testFingerprint(SALT.toUpperCase(), ORG), p, 'the coordinator serving upper-case hex changed the print');
   // Review 3: one salt served to two companies must still give two prints, so a computer cannot be linked across them.
   assert.notEqual(cp._testFingerprint(SALT, 'org_other_2'), p, 'a reused salt linked one computer across two companies');
@@ -89,12 +90,12 @@ test('#5532 v1.5: no file but computerprint.js uses a known spelling of a raw ha
   const root = path.join(__dirname, '..');
   // Needs git (it lists tracked files); outside a checkout it throws, and the count below keeps it from passing empty.
   const files = require('node:child_process').execFileSync('git', ['-C', root, 'ls-files', '-z'], { encoding: 'utf8' }).split('\0')
-    .filter((f) => /\.(js|mjs|cjs|sh|ps1|html)$/.test(f) && !/^engine\/computerprint(-5532\.test)?\.js$/.test(f));
+    .filter((f) => /\.(js|mjs|cjs|sh|ps1|html|swift|m|mm|c|h|java|kt|py)$/.test(f) && !/^engine\/computerprint(-5532\.test)?\.js$/.test(f));
   assert.ok(files.includes('server.js') && files.includes('engine/store.js'), 'the repo was not listed (' + files.length + ' files)');
   /* The spellings covered (review 3 listed the ones an earlier version missed): ioreg's keys, system_profiler's hardware
      page, sysctl's kern.uuid, WMI's computer-system product, Linux's machine-id, and the Windows registry key, whole or
      split into arguments. A read by another spelling is not caught: this is a guard on the known ways, not a proof. */
-  const READ = /IOPlatformUUID|IOPlatformExpertDevice|IOPlatformSerialNumber|MachineGuid|Microsoft\\+Cryptography|SPHardwareDataType|Hardware UUID:|kern\.uuid|Win32_ComputerSystemProduct|wmic\s+csproduct|\/etc\/machine-id|\bioreg\b|parseIoreg|['"]Cryptography['"]/;
+  const READ = /IOPlatformUUID|IOPlatformExpertDevice|IOPlatformSerialNumber|MachineGuid|Microsoft\\+Cryptography|SPHardwareDataType|Hardware UUID:|kern\.uuid|Win32_ComputerSystemProduct|wmic\s+csproduct|\/etc\/machine-id|\bioreg\b|parseIoreg|gethostuuid|IORegistryEntryCreateCFProperty|kIOPlatformUUIDKey|identifierForVendor|ANDROID_ID|['"]Cryptography['"]/;
   const hits = [];
   const swaps = [];
   for (const f of files) {
@@ -168,4 +169,4 @@ test('#5532 v1.5 review 9: an ioreg that always fails stops deferring after GIVE
   assert.deepEqual(last, { send: 'none' }, 'a Mac whose ioreg always fails would defer enroll and leave forever');
 });
 
-test.todo('#5532 the first caller of fingerprint() lands with a guard that its file never logs the print or a request body carrying it (rule 1; review 7)');
+test.todo('#5532 the first caller of printFor() lands with a guard that its file never logs the print or a request body carrying it (rule 1; review 7)');

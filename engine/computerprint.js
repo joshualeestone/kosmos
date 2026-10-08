@@ -26,12 +26,17 @@
  * IOPlatformUUID. Both end at the consent prompt to make this computer the enrolled one, never at lost data.
  *
  * CALLERS USE printFor() ONLY (review 11). It answers what to do: send the print, send none, wait, or report an error.
- * The bare print function is not exported, because its null is ambiguous: "this computer can never print" means send
+ * The bare print function is exported only under a tests-only name (`_testFingerprint`, kept out of the board by the
+ * repo scan), because its null is ambiguous: "this computer can never print" means send
  * none, but "a read just failed" means wait, and a print-less request then would read as a copy.
  *
  * 🛑 THE COMPANY ID MUST COME FROM THIS BOARD'S OWN ENROLLMENT RECORD, NEVER FROM A COORDINATOR'S ANSWER (review 11).
  * Otherwise a coordinator could ask a computer enrolled in company B for its print under company A's id and salt, and
  * link the two with no list of hardware ids at all.
+ *
+ * In memory: the raw id is kept in a module variable for the life of the board process once read (a heap snapshot or a
+ * core dump would hold it), and a dump that failed to parse is dropped at once. Nothing writes either anywhere.
+ * After GIVE_UP_AFTER the reader still tries once a minute (decided, review 13): a reader that recovers is noticed.
  *
  * The print does not rotate within one company: a computer that leaves and joins again, or is handed to someone else,
  * is recognisable to that company and to the coordinator for as long as that account's salt lives (review 11).
@@ -118,8 +123,8 @@ function fingerprint(salt, company) {
   const id = hardwareId();
   if (!id) return null;
   // HMAC, the standard keyed construction (review 5), chosen before any company has pinned a print: changing it later
-  // would change every print. The salt is the key, lower-cased so a coordinator's hex case cannot change the print.
-  return crypto.createHmac('sha256', Buffer.from(salt.toLowerCase(), 'hex')).update(company + ':' + id).digest('hex');
+  // would change every print. The salt's bytes are the key; Node's hex decoding reads either case alike (review 13).
+  return crypto.createHmac('sha256', Buffer.from(salt, 'hex')).update(company + ':' + id).digest('hex');
 }
 
 /**

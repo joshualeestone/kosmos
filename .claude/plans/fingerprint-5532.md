@@ -73,7 +73,9 @@ company, and `thisComputer` cannot tell them apart.
   root (a copied log replays as well as a copied folder). The same rule goes on the card for whoever wires enroll,
   leave and the rollup.
 - CHANGED before any print is pinned: HMAC-SHA256 with the salt as the key (the standard keyed construction); the salt
-  is accepted in either hex case and lower-cased, so a coordinator's case cannot change the print (mutation reddens);
+  is accepted in either hex case (CORRECTED by review 13: Node's hex decoding already reads both cases alike, so the
+  lower-casing did nothing and the mutation I recorded here reddened by changing the key's form, not its case; the
+  lower-casing is gone and the upper-case test pins Node's behaviour);
   the retry wait uses a clock that never runs backwards; the catch block says never to log its error (its stdout is
   the full ioreg dump).
 - DOCUMENTED: within one company the print is a pseudonym the company can resolve (it holds the salt and its own id,
@@ -152,3 +154,12 @@ company, and `thisComputer` cannot tell them apart.
   MachineGuid arm belongs there.
 - NOT TAKEN: skipping the real-ioreg arm when ioreg is blocked (on a Mac that cannot read it the failure is real and
   says so); trimming the UUID and SALT exports (the tests use them).
+
+## Review 13 (blind, opus)
+- CORRECTED (my own overclaim in review 5): see the salt-case line above.
+- FIXED: the guard scans the native app's languages too (swift, objective-c, c, java, kotlin, python) and more
+  spellings (gethostuuid, IORegistryEntryCreateCFProperty, kIOPlatformUUIDKey, identifierForVendor, ANDROID_ID);
+  measured with no other hits today.
+- FIXED: the header says the bare print function is exported only under a tests-only name; the todo names printFor.
+- DOCUMENTED (decided): the raw id lives in a module variable for the process lifetime; after giving up, the reader
+  still tries once a minute, so a recovered reader is noticed.
