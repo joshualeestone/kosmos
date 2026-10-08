@@ -305,14 +305,14 @@ test('#5418: applying removes a token only if, under the lock, it is still the f
   assert.equal(fs.existsSync(path.join(dir, 'changed.tmp')), true);
 });
 
-test('#5418: tokenInfo reads the launchers and newest mint, and an unreadable file says nothing', (t) => {
+test('#5418: tokenInfo reads the launchers and newest mint, and marks an unreadable file', (t) => {
   const dir = scratch(t);
   const a = path.join(dir, 'a.json');
   fs.writeFileSync(a, JSON.stringify({ tokens: [{ token: 'x', mintedAt: '2026-08-28T00:00:00Z', launcher: 'remote', name: 'Ada' }, { token: 'y', mintedAt: '2026-09-01T00:00:00Z' }] }));
   assert.deepEqual(tool.tokenInfo(a), { launchers: ['remote'], names: ['Ada'], newestMintMs: Date.parse('2026-09-01T00:00:00Z') });
   const b = path.join(dir, 'b.json');
   fs.writeFileSync(b, 'not json');
-  assert.deepEqual(tool.tokenInfo(b), { launchers: [], names: [], newestMintMs: null });
+  assert.deepEqual(tool.tokenInfo(b), { launchers: [], names: [], newestMintMs: null, unreadable: true }, 'an unreadable file is not marked unreadable (it would be aged by mtime alone)');
 });
 
 test('#5418: a key in the removal records or with a heartbeat record of any age is kept, though not on the board', async (t) => {
@@ -812,7 +812,7 @@ test('#5418: a planned token removal that names no launcher is flagged loudly in
   assert.match(line, /NO LAUNCHER/);
 });
 
-test('#5418: a named-world session\'s heartbeat (sam+w is stored as samw) does NOT keep the token sam: a pinned, recorded gap', async (t) => {
+test('#5418: a named-world session\'s heartbeat (sam+w is stored as samw) keeps the token sam (prefix keep)', async (t) => {
   const { dir, write } = e2eStore(t);
   const liveness = require('./engine/liveness');
   assert.ok(liveness.DIR.startsWith(process.env.AGENT_WORKFORCE_DATA), 'the heartbeat folder is not in the throwaway store');
@@ -825,8 +825,7 @@ test('#5418: a named-world session\'s heartbeat (sam+w is stored as samw) does N
   const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
   quiet(t);
   assert.equal(await applyConfirmed(port), 0);
-  // if this turns red, the gap closed: update the plan's weakest premise 1 and this arm
-  assert.equal(fs.readdirSync(dir).includes('sam.json'), false, 'a world heartbeat now keeps its token: the recorded gap closed');
+  assert.ok(fs.readdirSync(dir).includes('sam.json'), 'a world session\'s heartbeat did not keep its token');
 });
 
 test('#5418: startup jobs keep tokens on Windows (Scheduled Tasks) and Linux (systemd units); an unreadable list stops', () => {
@@ -953,4 +952,21 @@ test('#5418: a board answer larger than the limit is refused, not read whole', a
   await assert.rejects(tool.getJson(srv.address().port, '/api/status', {}, 2000, 1024), /larger than/);
   const ok = await tool.getJson(srv.address().port, '/api/status', {}, 2000, 1024 * 1024);
   assert.equal(ok.status, 200, 'CONTROL: under the limit the answer is read');
+});
+
+test('#5418: a token file that cannot be parsed is kept (it says nothing about itself)', () => {
+  const plan = tool.planCleanup([
+    { name: 'garbled.json', isSymlink: false, mtimeMs: OLD, tokens: { launchers: [], names: [], newestMintMs: null, unreadable: true } },
+    { name: 'orphan.json', isSymlink: false, mtimeMs: OLD, tokens: { launchers: [], names: [], newestMintMs: null } },
+  ], new Set(), CUTOFF, (k) => k);
+  assert.deepEqual(plan.remove.map((r) => r.name), ['orphan.json'], 'CONTROL failed, or the garbled file was planned');
+  assert.ok(plan.keep.some((k) => k.name === 'garbled.json'));
+});
+
+test('#5418: the command line DOES arm live execution from a real --apply (the positive control)', async (t) => {
+  liveExecution.resetForTests();
+  t.after(() => liveExecution.resetForTests());
+  quiet(t);
+  await tool.main(['--port', '1', '--cutoff', new Date(CUTOFF).toISOString(), '--apply', '--confirm', 'x'], { armFromCommandLine: true }).catch(() => 2);
+  assert.equal(liveExecution.liveExecutionAllowed(), true, 'a real --apply did not arm live execution');
 });
