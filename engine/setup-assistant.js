@@ -223,7 +223,8 @@ function kosmosHome() { return process.env.AGENT_WORKFORCE_HOME || require('os')
    default is), and production passes none of these. `home` reaches the older folder of this world (when
    AGENT_WORKFORCE_DATA is unset: dataRootFor ignores the home otherwise); the
    worlds' base comes from the environment the process was started with (`preWorldEnv`), whatever `home` says. */
-function guideDenyRules(opts = {}) { return withNativeTwins(guideDenyRulesFor(opts).rules); }   // with Windows twins, before the own-folder check
+// for inspection and tests only: twins of EVERY rule, before the own-folder check (guardGuideFolder twins only the safe ones)
+function guideDenyRules(opts = {}) { return withNativeTwins(guideDenyRulesFor(opts).rules); }
 /* The rules, and the default world's store they name entry by entry (null when none is), so guardGuideFolder
    can drop earlier per-entry rules for that store instead of keeping one for every entry that ever existed. */
 function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsBase, legacyRoots } = {}) {
@@ -413,10 +414,13 @@ function wasEntryRule(rule, base, platform = process.platform) {
 function finalDeny(kept, safe, refused, platform = process.platform) {
   // on Windows a path's case does not matter, so an old rule spelt in another case still reaches its refused new form
   const refusedLower = new Set([...refused].map((x) => x.toLowerCase()));
+  const seen = new Set();
   return [...new Set([...kept, ...safe])].filter((r) => {
     if (refused.has(r)) return false;
     if (platform === 'win32' && refusedLower.has(r.toLowerCase())) return false;   // a new-form rule spelt in another case
     if (platform === 'win32') { const eq = legacyWinEquivalent(r); if (eq && refusedLower.has(eq.toLowerCase())) return false; }
+    // on Windows one rule spelt in two cases (an old `//c:\` beside its `//C:\` twin) is kept once, so they do not pile up
+    if (platform === 'win32') { const k = r.toLowerCase(); if (seen.has(k)) return false; seen.add(k); }
     return true;
   });
 }
