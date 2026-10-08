@@ -343,9 +343,13 @@ test('#4920 before an update pause, an old unit without KillMode=process gets it
 });
 
 test('#4920 the update pause runs the KillMode fix before it stops the board', () => {
-  const i = SETUP.indexOf('  _kosmos_linux_unit_killmode   # #4920: before the stop');
-  const j = SETUP.indexOf('"$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true', i);
-  assert.ok(i > 0 && j > i && j - i < 200, 'the KillMode fix is not right before the update pause');
+  // Before the stop, with only the #5033 marker line between them (tools/test-update-putback-4818.sh pins the marker as
+  // the line right before the stop), so the fix always runs and the take-back window stays exactly #5033's.
+  const lines = SETUP.split('\n');
+  const k = lines.findIndex((l) => l.startsWith('  _kosmos_linux_unit_killmode   # #4920: before the stop'));
+  assert.ok(k > 0, 'the KillMode fix is gone from the update pause');
+  assert.match(lines[k + 1], /^  _kosmos_marker_ours="\$_kosmos_was_running"   # #5033/, 'the line after the KillMode fix is not the #5033 marker');
+  assert.equal(lines[k + 2], '  "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true', 'the update pause stop does not follow');
 });
 
 test('#4920 the sandbox sentence matches what the real installBoard says in a sandbox', () => {
