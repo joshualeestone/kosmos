@@ -499,7 +499,7 @@ function personOwed(comments, me, answered) {
   return out;
 }
 const OWED_SHOWN_MAX = 5;   // #5623 review 3: owed person comments the read repeats, in their own section
-const PERSONS_MAX = 100;   // #5623: owed person comments returned per count, oldest first (review 2: wide, so given-up ones cannot starve newer)
+const PERSONS_MAX = 100;   // #5623: owed person comments returned per count: the newest kept, listed oldest first (reviews 2 and 7)
 
 function afterMark(x, mark, firstLook) {
   if (!mark) return x.ts > firstLook;

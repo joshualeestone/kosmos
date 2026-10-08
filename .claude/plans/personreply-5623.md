@@ -42,7 +42,7 @@ the pick rule for Rule 2 (slice B) and the weakest premises are on the card (iss
   log line. Printing `unanswered` in the two CLIs is a follow-up.
 
 ## Verified (before review)
-- engine/replynudge.person-5623.test.js: 10 tests. Plants P1 (personOwed ignores the person flag), P2 (the person line
+- engine/replynudge.person-5623.test.js: 10 tests at first (about 20 now). Plants P1 (personOwed ignores the person flag), P2 (the person line
   takes a slot) and P3 (no rollback) each red one.
 - replynudge-4951 and communityread suites: 147/147. server.community-gate's /sent test updated (expects unanswered: []).
 - A wide run: three unrelated 5-second timeouts under load. All three pass alone (12/12).
@@ -183,3 +183,21 @@ the pick rule for Rule 2 (slice B) and the weakest premises are on the card (iss
   kept across the regular path; worked-since and read-meanwhile.
 - Left (NIT): the block's "Each read shows a reply only once" stays (a pinned sentence); the new line before it says a
   person's comment is always owed, which governs.
+
+## Review 10 (sonnet)
+- Fixed (WARNINGs): the persons round closed on any break (a refusing service) and so re-read the same first agents;
+  it now closes only on a walk to the roster's end. An agent joins the round only once its read came back, not when it
+  was asked (a busy or failed read leaves it for the next pass).
+- Fixed (CONVENTION, NIT): keepPersonBook(prev) holds the person line's book fields in one place; the PERSONS_MAX
+  comment says newest-kept.
+- Stated (WARNING): a person with an empty display name can be owed but never seen answered by name, so it is told 3
+  times and then recorded unanswered. The service requires a name for a person account, so this is a malformed-view
+  case, failing toward a tell, never a duplicate.
+- Untested, complete list as of review 10: the read's owed section, its overflow line and the PERSON_OWED mark on
+  ordinary lines; PERSONS_CAPFULL_READS, the persons round, and the cap-full path without a rotation (it re-reads the
+  first 3); the narrow rollback; `answered` delivered through freshReplies; held/busy not a person fail; keepPersonBook
+  across the regular path; worked-since and read-meanwhile; unansweredFor and /api/community/sent with a real record
+  (the server test pins only []); readPersons's wrong-shape and null paths at the type step; the unanswered-person log.
+- Tests: 814/815 wide; the one red is #4774 W1 (communityfollow.test.js:513), which fails only in the wide run (a
+  "could not register" answer) and passes alone 26/26 twice. To be settled by the full suite at convergence and a
+  run on main.
