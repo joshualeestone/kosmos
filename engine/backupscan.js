@@ -121,6 +121,16 @@ function utf16(buf) {
 }
 const swap16 = (b) => { if (b.length % 2) return null; const c = Buffer.from(b); c.swap16(); return c; };
 
+/* Latin-1 / Windows-1252 TEXT: no NUL at all, and almost no control bytes (other than tab, newline, carriage return
+   and form feed). A binary with no NUL (a contrived PNG, say) has control bytes and stays binary, so it is never
+   redacted in place, which would corrupt it. */
+function latin1Text(buf) {
+  if (buf.includes(0)) return false;
+  let ctl = 0;
+  for (const c of buf) if (c < 0x20 && c !== 9 && c !== 10 && c !== 13 && c !== 12) ctl++;
+  return ctl <= buf.length * 0.001;
+}
+
 function isBinary(buf) {
   if (buf.subarray(0, 8192).includes(0)) return true;
   return !Buffer.from(buf.toString('utf8'), 'utf8').equals(buf);  // not valid UTF-8 (a lossy decode changes it)
@@ -143,25 +153,54 @@ function maskText(text, kinds) {
   return whole.text;
 }
 
-/* The FINAL check on the bytes about to be stored, whatever path produced them: raw Latin-1, and with NULs removed. */
-function rawClean(bytes) {
-  // secretmask's own placeholder (U+2022) reads as three Latin-1 characters in the raw view and would itself look
-  // like a password (in a URL, say): map it back, so the raw view sees the same mark the masked text carries.
-  const latin = bytes.toString('latin1').replace(/\u00e2\u0080\u00a2/g, '\u2022');
+/* The FINAL check on bytes about to be stored, whatever path produced them: raw Latin-1, and with NULs removed.
+   ownPlaceholders: true only for text WE masked. secretmask's placeholder (U+2022) reads as three Latin-1
+   characters in the raw view and would itself look like a password (in a URL, say), so it is mapped back. That is
+   safe only because a text that ALREADY held the placeholder is skipped before masking (secretmask trusts a value
+   starting with it, so content could use it to hide a password). A binary is never mapped. */
+function rawClean(bytes, ownPlaceholders) {
+  let latin = bytes.toString('latin1');
+  if (ownPlaceholders) latin = latin.replace(/\u00e2\u0080\u00a2/g, '\u2022');
   for (const s of [latin, latin.replace(/\0/g, '')]) {
     const m = mask(s);
     if (m.fired.length || withheld(m.text) || KEY_OPEN.test(s)) return false;
   }
   return true;
 }
+/* A binary is scanned on its printable runs only (8 or more printable ASCII bytes, as strings(1) does): a key is
+   always such a run, while structured image data (HEIC, ICNS, Mach-O) made the shape patterns fire on noise and
+   dropped ordinary screenshots and icons from backups (review round 3 measured 11 of 151 real files). Runs are
+   taken from the raw bytes and from the bytes with NULs removed (UTF-16/32 text inside a binary). */
+// Public constants that look like tokens. The XMP packet id is fixed by Adobe's XMP spec and sits in nearly every
+// image or PDF with metadata (it fired long_token on this Mac's own wallpapers).
+const PUBLIC_CONSTANTS = /W5M0MpCehiHzreSzNTczkc9d/g;
+const PLACEHOLDER_BYTES = Buffer.from('\u2022\u2022\u2022\u2022', 'utf8');
+function binaryClean(bytes) {
+  // Content holding the masking placeholder could hide a password behind it (secretmask trusts it): fail closed.
+  if (bytes.includes(PLACEHOLDER_BYTES)) return false;
+  const runsOf = (s) => (s.match(/[\x20-\x7e\t]{8,}/g) || []).join('\n').replace(PUBLIC_CONSTANTS, '');
+  const latin = bytes.toString('latin1');
+  for (const s of [runsOf(latin), runsOf(latin.replace(/\0/g, ''))]) {
+    const m = mask(s);
+    // The generic high-entropy kind (long_token) is ignored inside a binary: image metadata embeds base64 blobs
+    // (a binary plist in this Mac's own wallpaper fired it). Every SPECIFIC detector still counts: provider keys,
+    // JWTs, URL credentials, assigned secrets, private keys, and the board's own held values.
+    if (m.fired.some((f) => f.kind !== 'long_token') || withheld(m.text) || KEY_OPEN.test(s)) return false;
+  }
+  return !KEY_OPEN.test(latin) && !KEY_OPEN.test(latin.replace(/\0/g, ''));
+}
 
+const PLACEHOLDER_RUN = '\u2022\u2022\u2022\u2022';
 function storeOrSkip(buf, text, kinds, encode) {
+  // Content already holding secretmask's placeholder could use it to hide a password (secretmask trusts a value
+  // that starts with it): fail closed.
+  if (text.includes(PLACEHOLDER_RUN)) return { action: 'skip', why: 'text that already holds the masking placeholder' };
   const masked = maskText(text, kinds);
   if (masked === null) return { action: 'skip', why: 'text that could not be fully checked' };
   const redacted = [...kinds].map(([kind, count]) => ({ kind, count })).sort((a, b) => a.kind.localeCompare(b.kind));
   const data = redacted.length ? encode(masked) : buf;
   if (!data) return { action: 'skip', why: 'could not write the redacted text back' };
-  if (!rawClean(data)) return { action: 'skip', why: 'something shaped like a credential is still readable in the bytes' };
+  if (!rawClean(data, true)) return { action: 'skip', why: 'something shaped like a credential is still readable in the bytes' };
   return { action: 'store', data, redacted };
 }
 
@@ -190,7 +229,12 @@ function scanFile(rel, buf) {
       });
     }
     if (isBinary(buf)) {
-      if (!rawClean(buf)) return { action: 'skip', why: 'binary file holding something shaped like a credential, or that could not be checked' };
+      // No NUL near the start and only invalid UTF-8: most likely Latin-1 / Windows-1252 text. Decode it as such
+      // and redact it (Latin-1 round-trips every byte), rather than skipping the whole file.
+      if (latin1Text(buf)) {
+        return storeOrSkip(buf, buf.toString('latin1'), kinds, (s) => Buffer.from(s, 'latin1'));
+      }
+      if (!binaryClean(buf)) return { action: 'skip', why: 'binary file holding something shaped like a credential, or that could not be checked' };
       return { action: 'store', data: buf, redacted: [] };
     }
     return storeOrSkip(buf, buf.toString('utf8'), kinds, (s) => Buffer.from(s, 'utf8'));
