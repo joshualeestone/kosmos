@@ -1,8 +1,8 @@
 'use strict';
 /**
  * #5418 ask 2: tools/cleanup-fixture-tokens-5418.js removes only what test runs left in the sender-token store:
- * a token file whose agent is neither on the board nor in the removal records and predates the cutoff, an old
- * temp, a dangling link. Never a live agent's file, never without a roster, never before a backup.
+ * a token file whose agent is not on the board, not in the removal records, has no heartbeat, profile, worker folder
+ * or launchd job, holds no remote token, and predates the cutoff; an old writer's temp; a dangling store-named link. Never a live agent's file, never without a roster, never before a backup.
  * This file runs in a test process, so (#5418 ask 1) the store root is this process's throwaway, never the real one.
  *
  *   node --test tools.cleanup-fixture-tokens-5418.test.js
@@ -17,6 +17,7 @@ const http = require('node:http');
    set before anything reads the store. #5418 ask 1 would give a throwaway anyway; this says so in the file. */
 const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'tokclean-data-'));
 process.env.AGENT_WORKFORCE_DATA = path.join(SB, 'data');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SB, 'LaunchAgents');   // never the real ~/Library/LaunchAgents
 test.after(() => fs.rmSync(SB, { recursive: true, force: true }));
 const tool = require('./tools/cleanup-fixture-tokens-5418');
 const { safeKey } = require('./engine/store');
@@ -152,7 +153,7 @@ async function applyConfirmed(port) {
   return tool.main(argv.concat('--apply', '--confirm', await digestOf(argv)));
 }
 
-test('#5418: no roster means nothing is planned or removed', async (t) => {
+test('#5418: fetchRoster rejects a non-OK board and one with no agent list', async (t) => {
   for (const [status, body] of [[500, {}], [200, { ok: true }]]) {
     const port = await stubBoard(t, status, body);
     await assert.rejects(tool.fetchRoster(port, null));
@@ -598,4 +599,59 @@ test('#5418: a profiles folder that cannot be listed stops the tool (the board\'
   assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString()]), 2);
   assert.match(String(err.mock.calls.at(-1).arguments[0]), /profiles could not be read/);
   assert.deepEqual(fs.readdirSync(dir).filter((n) => n.endsWith('.json')).sort(), ['anchor.json', 'offline-x.json']);
+});
+
+test('#5418: a key with a worker folder or a launchd job is kept though it has no profile and is not on the board', async (t) => {
+  const { dir, write } = e2eStore(t);
+  write('anchor.json', OLD);
+  write('has-folder.json', OLD);
+  write('has-job.json', OLD);
+  write('fixture-w.json', OLD);
+  const workers = process.env.AGENT_WORKFORCE_WORKERS;
+  fs.mkdirSync(path.join(workers, 'has-folder'), { recursive: true });
+  fs.mkdirSync(process.env.AGENT_WORKFORCE_LAUNCH, { recursive: true });
+  fs.writeFileSync(path.join(process.env.AGENT_WORKFORCE_LAUNCH, 'com.kosmos.agent.has-job.plist'), '<plist/>');
+  t.after(() => { fs.rmSync(path.join(workers, 'has-folder'), { recursive: true, force: true }); fs.rmSync(process.env.AGENT_WORKFORCE_LAUNCH, { recursive: true, force: true }); });
+  const f = fleet.install([fleet.agent('anchor')]);
+  t.after(() => f.restore());
+  const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
+  quiet(t);
+  assert.equal(await applyConfirmed(port), 0);
+  const left = fs.readdirSync(dir).filter((n) => n.endsWith('.json')).sort();
+  assert.ok(left.includes('has-folder.json'), 'a key with a worker folder was removed');
+  if (process.platform === 'darwin') assert.ok(left.includes('has-job.json'), 'a key with a launchd job was removed');
+  assert.equal(left.includes('fixture-w.json'), false, 'CONTROL: the orphan was kept');
+});
+
+test('#5418: a workers folder that is there but cannot be read stops the tool', async (t) => {
+  const { dir, write } = e2eStore(t);
+  write('anchor.json', OLD);
+  write('fixture-u.json', OLD);
+  const f = fleet.install([fleet.agent('anchor')]);   // the fleet reads the workers folder: build the cards first
+  t.after(() => f.restore());
+  const cards = JSON.parse(JSON.stringify(f.agents));
+  const prev = process.env.AGENT_WORKFORCE_WORKERS;
+  const notADir = path.join(SB, 'workers-is-a-file');
+  fs.writeFileSync(notADir, 'x');
+  process.env.AGENT_WORKFORCE_WORKERS = notADir;
+  t.after(() => { process.env.AGENT_WORKFORCE_WORKERS = prev; fs.rmSync(notADir, { force: true }); });
+  const port = await stubBoard(t, 200, { agents: cards });
+  const err = quiet(t);
+  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString()]), 2);
+  assert.match(String(err.mock.calls.at(-1).arguments[0]), /worker folders could not be read/);
+  assert.deepEqual(fs.readdirSync(dir).filter((n) => n.endsWith('.json')).sort(), ['anchor.json', 'fixture-u.json']);
+});
+
+test('#5418: an offline remote agent\'s token is kept end to end', async (t) => {
+  const { dir } = e2eStore(t);
+  const write2 = (name, launcher) => { const p = path.join(dir, name); fs.writeFileSync(p, JSON.stringify({ tokens: [{ token: 'x', instance: 'i', mintedAt: new Date(OLD).toISOString(), ...(launcher ? { launcher } : {}) }] })); fs.utimesSync(p, OLD / 1000, OLD / 1000); };
+  write2('anchor.json');
+  write2('remote-off.json', 'remote');
+  write2('fixture-r.json');
+  const f = fleet.install([fleet.agent('anchor')]);
+  t.after(() => f.restore());
+  const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
+  quiet(t);
+  assert.equal(await applyConfirmed(port), 0);
+  assert.deepEqual(fs.readdirSync(dir).filter((n) => n.endsWith('.json')).sort(), ['anchor.json', 'remote-off.json']);
 });

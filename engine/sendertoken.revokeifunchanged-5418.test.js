@@ -63,3 +63,16 @@ test('#5418: a rewrite with NO new mint (a retire leaving an empty list) keeps t
   assert.match(r.because, /written since the plan/);
   assert.equal(fs.existsSync(fileOf('retired')), true);
 });
+
+test('#5418: with no recorded mint time in the plan, a mintedAt at or after the planned mtime keeps the file (mtime unchanged)', () => {
+  fs.mkdirSync(sendertoken.DIR, { recursive: true });
+  const p = fileOf('nominted');
+  fs.writeFileSync(p, JSON.stringify({ tokens: [{ token: 'x', instance: 'i' }] }));   // no mintedAt at plan time
+  fs.utimesSync(p, OLD / 1000, OLD / 1000);
+  const m = fs.lstatSync(p).mtimeMs;
+  fs.writeFileSync(p, JSON.stringify({ tokens: [{ token: 'x', instance: 'i' }, { token: 'y', instance: 'j', mintedAt: new Date(OLD + 1000).toISOString() }] }));
+  fs.utimesSync(p, OLD / 1000, OLD / 1000);   // a coarse-mtime mount: the mtime reads the same
+  const r = sendertoken.revokeIfUnchanged('nominted', m, null);
+  assert.equal(r.ok, false);
+  assert.equal(fs.existsSync(p), true);
+});

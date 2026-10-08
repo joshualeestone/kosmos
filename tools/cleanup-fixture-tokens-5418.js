@@ -12,9 +12,9 @@
  * printed (an agent missing from a degraded roster, a token file changed), it stops. The digest covers each token
  * file's name, key, mtime, newest mint, launchers and token names; for a temp or a link, its name and kind (each is
  * re-checked to still be a file or a dangling link just before it goes). --port must equal this account's own
- * board port, derived as the kosmos CLI derives it (KOSMOS_PORT if set, else from the uid; with no uid KOSMOS_PORT
- * must say), so the board token reaches only the board this account's kosmos command would talk to. A KOSMOS_PORT
- * set to another account's board would send it there, exactly as it would send the kosmos command there. And --apply needs live execution, which this file's command line opens:
+ * board port, derived as the kosmos CLI derives it (KOSMOS_PORT if set, else from the uid; with no uid
+ * KOSMOS_PORT must say), so the board token reaches only the board this account's kosmos command would
+ * talk to. A KOSMOS_PORT set to another account's board would send it there, as it would the kosmos command. And --apply needs live execution, which this file's command line opens:
  * a process that never opened it (one that only requires this file) cannot remove anything by calling main. A
  * process that did open it for its own reasons can; there the --confirm digest and the port check still hold.
  *
@@ -330,6 +330,27 @@ async function main(argv) {
   const dir = sendertoken.DIR;
   const entries = listEntries(dir);
   const tokenKeys = entries.filter((e) => !e.isSymlink && !e.other && e.name.endsWith('.json')).map((e) => e.name.slice(0, -'.json'.length));
+  /* An agent can exist with no profile (a leftover with only a launchd job or a worker folder, #500) and still be
+     running where the board cannot see it (#668), and the board's offline rows can drop a row silently. So any key
+     with a worker folder or a launchd job is kept too; a folder that is there but cannot be read stops the tool. */
+  const homeDirOf = require('node:os').homedir();
+  const listed = (dir, what) => {
+    try { return fs.readdirSync(dir); } catch (e) {
+      if (e && e.code === 'ENOENT') return [];
+      throw new Error(what + ' could not be read (' + ((e && e.code) || e) + ')');
+    }
+  };
+  let workerNames;
+  let jobNames;
+  try {
+    workerNames = listed(store.workersRootFor(process.env, homeDirOf), 'the worker folders');
+    const agentsDir = process.env.AGENT_WORKFORCE_LAUNCH || path.join(homeDirOf, 'Library', 'LaunchAgents');
+    jobNames = process.platform === 'darwin' ? listed(agentsDir, 'the launchd jobs').map((f) => {
+      const m = /^com\.kosmos\.agent\.(.+)\.plist$/.exec(f) || /^com\.(.+)\.discord\.plist$/.exec(f);
+      return m ? m[1].split('+')[0] : null;
+    }).filter(Boolean) : [];
+  } catch (e) { console.error('Stopped, nothing changed: ' + e.message + '.'); return 2; }
+  for (const n of workerNames.concat(jobNames)) { try { liveKeys.add(store.safeKey(n)); } catch { /* not a key */ } }
   /* The board's offline rows come from these same profile files (register.known); one it cannot list silently
      empties that part of its roster, so a profiles folder that is there but cannot be read stops the tool. */
   if (!require('../engine/register').known().ok) {
@@ -355,6 +376,7 @@ async function main(argv) {
     return 2;
   }
   const plan = planCleanup(entries, liveKeys, args.cutoffMs, store.safeKey);
+  console.log(`Also kept: ${workerNames.length} worker folders, ${jobNames.length} launchd jobs.`);
   console.log(`Kept by name: ${rows.length} agents on the board (${tokenKeys.filter((k) => rosterKeys.has(k)).length} of ${tokenKeys.length} token files match one), ${removed.length} in the removal records, ${heartbeats.length} with a heartbeat record, ${profiled} with a profile.`);
   console.log(`Would remove ${plan.remove.length}, keep ${plan.keep.length}:`);
   for (const r of plan.remove) {
@@ -366,7 +388,7 @@ async function main(argv) {
   for (const k of plan.keep) console.log(`  keep    ${k.name}  (${k.why})`);
   const digest = planDigest(plan);
   console.log(`Plan digest: ${digest}`);
-  if (!args.apply) { console.log(`Dry run: no token was removed. Read every "remove" line against the agents you know, then run again with --apply --confirm ${digest}.`); return 0; }
+  if (!args.apply) { console.log(`Dry run: no token was removed (reading the store may run its usual one-time migration). Read every "remove" line against the agents you know, then run again with --apply --confirm ${digest}.`); return 0; }
   if (args.confirm !== digest) {
     console.error(`Stopped, nothing removed: this plan (${digest}) is not the one confirmed (${args.confirm}); something changed since the dry run. Run the dry run again and read it.`);
     return 4;
@@ -391,7 +413,8 @@ async function main(argv) {
 }
 
 if (require.main === module) {
-  require('../engine/live-execution').allowLiveExecution();   // the command line, run by a person, is the only opt-in
+  // the command line, run by a person, is the only opt-in, and only for --apply (a dry run removes nothing)
+  if (process.argv.includes('--apply')) require('../engine/live-execution').allowLiveExecution();
   main(process.argv.slice(2)).then((code) => { process.exitCode = code; },
     (e) => { console.error('Stopped: ' + ((e && e.message) || e)); process.exitCode = 2; });
 }
