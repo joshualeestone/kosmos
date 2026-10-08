@@ -50,5 +50,11 @@
 - NITs kept: a first join's page state leaves `reporting` unset until the next read (older than this branch); a re-armed ticket after org_bad_world is unused (harmless); O-list order in the header.
 
 ## Review 4 (blind, Sonnet)
-- TAKEN as a guard rather than a comment: the enroll trusted a ticket's `review` flag on its own. It now counts as a review only when this Kosmos holds a record for this world; otherwise a lost answer takes the ordinary join path. Pinned; mutation makes it fail.
+- TAKEN as a guard rather than a comment: the enroll trusted a ticket's `review` flag on its own. (Superseded by review 5: as first written, a flagged Accept with no record fell into the ordinary path, and a YES there completed a move on review words.)
 - NITs kept: no hint when the company names another org; two ifs on one condition in the page; the page's optimistic `reporting: true` (the next read corrects it).
+
+## Review 5 (blind, Opus)
+- FIXED, my review-4 guard (SELF): a review ticket whose record went while the words were open fell through into a codeless MOVE, and a yes bound a new world id on words that never described a move (the case #5531 review 15 closed for code joins; the reviewer measured it with a probe). A review's Accept with no record for this world is now refused BEFORE anything is sent or any world id is made (`org_not_here`, "nothing was sent"). Arms for a lost answer AND a yes each assert nothing was sent and no id was made; mutation makes them fail.
+- FIXED: the plan's review-4 line overstated the guard (C).
+- NITs kept: the org_bad_world re-armed ticket vs the page's way back; the Review button not disabled while out (busy already ignores a second press).
+

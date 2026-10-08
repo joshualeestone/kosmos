@@ -998,10 +998,18 @@ test('#5531 follow-up: reviewHere shows this record\'s company\'s words, and acc
   const withConsent = (over) => ({ macRequest: async (m, route, body) => {
     const r = await fr.macRequest(m, route, body);
     return route === org.ROUTES.status && r.ok && r.data.member ? { ok: true, data: Object.assign({}, r.data, { consent: CONSENT, consentHash: SERVED }, over || {}) } : r; } });
-  // A review flag on a Kosmos with no record here is not a review (review 4): a lost answer takes the ordinary path.
-  const bare = await org.enroll(null, true, { root: b, review: true, consentHash: SERVED, orgId: ORG.id, remote: { macRequest: async (m, route) => (route === org.ROUTES.enroll
-    ? { ok: false, because: 'the tunnel program did not answer in time' } : { ok: false, because: 'offline' }) } });
-  assert.equal(bare.code, 'org_join_unknown', 'a review flag was trusted with no record here: ' + JSON.stringify(bare));
+  // A review's Accept on a Kosmos with no record here (it went while the words were open) is refused BEFORE sending,
+  // whatever the company would answer: never a move on review words, never a new world id (reviews 4 and 5).
+  for (const answer of [{ ok: false, because: 'the tunnel program did not answer in time' },
+    { ok: true, data: { ok: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: 'x', thisComputer: true } } }]) {
+    const asked = [];
+    const bare = await org.enroll(null, true, { root: b, review: true, consentHash: SERVED, orgId: ORG.id, remote: { macRequest: async (m, route) => { asked.push(route); return answer; } } });
+    assert.equal(bare.ok, false, 'a review with no record here went through: ' + JSON.stringify(bare));
+    assert.equal(bare.code, 'org_not_here');
+    assert.deepEqual(asked, [], 'a review with no record here sent ' + JSON.stringify(asked));
+    assert.equal(fs.existsSync(path.join(b, org.WORLD_ID_FILE)), false, 'a review with no record here made a world id');
+    assert.equal(org.isEnrolledHere({ root: b }), false);
+  }
   // Not enrolled here: nothing to review, and the company is not asked.
   const before = fr.sent.length;
   const none = await org.reviewHere({ root: b, remote: withConsent() });

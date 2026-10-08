@@ -304,6 +304,12 @@ async function undoFirstJoin(lead, opts) {
 async function enroll(code, accepted, opts) { return oneAtATime(() => enrollNow(code, accepted, opts)); }
 async function enrollNow(code, accepted, opts) {
   if (accepted !== true) return { ok: false, declined: true, because: 'Not accepted, so nothing was sent.' };
+  /* A review's Accept is for a Kosmos already enrolled HERE. If its record went while the words were open (another
+     Kosmos took the enrollment and a refresh cleared it), the person read review words, never move words: refuse
+     BEFORE anything is sent or any id is made (reviews 4 and 5), never fall through into a move. */
+  const held = readEnrollment(opts);
+  const asReview = !!(opts && opts.review === true && code == null);
+  if (asReview && !(held && held.world === readWorldId(opts))) return { ok: false, code: 'org_not_here', because: 'This Kosmos is no longer your work Kosmos, so nothing was sent.' };
   const world = worldId(opts);
   if (!world) return { ok: false, because: "This Kosmos's data folder cannot be written, so nothing was sent." };
   const body = { world, accepted: true };
@@ -329,9 +335,7 @@ async function enrollNow(code, accepted, opts) {
      below fit it (orgreview reviews 1 and 2): every refusal is said in review words, and points at Accept or at the
      Review button, never at a code. A lost answer: a status read cannot tell whether the re-acceptance landed, because
      "here" was true either way, so nothing is recorded; accepting again is harmless. */
-  // The flag counts only for a Kosmos already enrolled HERE (review 4): it is never trusted on its own, whoever issued it.
-  const held = readEnrollment(opts);
-  const review = !!(opts && opts.review === true && move && held && held.world === world);
+  const review = asReview && move;   // checked against this world's record before sending (above)
   if (!r.ok && review) {
     const c = codeOf(r.because);
     if (c === 'org_consent_changed') return { ok: false, code: c, because: 'Your company changed what it asks of this Kosmos since you read it. Nothing changed here. Press Review what your company sees to read the new words.' };
