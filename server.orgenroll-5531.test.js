@@ -99,3 +99,35 @@ test('#5531 review 3: an accepted join needs the ticket a screen got from a prev
   assert.match(forged.json.because, /Check the code again first/, 'a made-up ticket was accepted');
   assert.equal(fs.existsSync(enrollmentFile()), false);
 });
+
+test('#5531 review 5: a ticket from a preview IS accepted once, for the code that was previewed, and for no other', async (t) => {
+  const remote = require('./engine/remote');
+  const orig = remote.macRequest;
+  const CONSENT = { reports: ['agent names'], backsUp: ['agent folders'], readers: ['you'], never: ['keys'] };
+  const sent = [];
+  remote.macRequest = async (method, route, body) => {
+    sent.push(route);
+    if (route === oe.ROUTES.redeem) return { ok: true, data: { org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: CONSENT } };
+    if (route === oe.ROUTES.enroll) return { ok: true, data: { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } };
+    if (route === oe.ROUTES.leave) return { ok: true, data: { ok: true } };
+    return { ok: false, because: 'unexpected ' + route };
+  };
+  t.after(() => { remote.macRequest = orig; fs.rmSync(enrollmentFile(), { force: true }); });
+  const REFUSED = /Check the code again first/;
+
+  const pv = await call('/api/org/preview', { body: { code: 'ACME-JOIN-1234' }, headers: SCREEN });
+  assert.equal(pv.json.ok, true, JSON.stringify(pv.json));
+  assert.equal(typeof pv.json.ticket, 'string');
+  assert.equal(JSON.stringify(pv.json).includes('org_1'), false, 'the preview handed the org id to the page');
+  const other = await call('/api/org/enroll', { body: { code: 'OTHER-CODE-9999', accepted: true, ticket: pv.json.ticket }, headers: SCREEN });
+  assert.match(other.json.because || '', REFUSED, 'a ticket for one code joined with another: ' + JSON.stringify(other.json));
+  assert.equal(sent.includes(oe.ROUTES.enroll), false, 'an enroll was sent on a mismatched ticket');
+
+  const pv2 = await call('/api/org/preview', { body: { code: 'ACME-JOIN-1234' }, headers: SCREEN });
+  const ok = await call('/api/org/enroll', { body: { code: 'ACME-JOIN-1234', accepted: true, ticket: pv2.json.ticket }, headers: SCREEN });
+  assert.equal(ok.json.ok, true, 'a real ticket for the previewed code was refused: ' + JSON.stringify(ok.json));
+  assert.equal(JSON.stringify(ok.json).includes('org_1') || 'world' in ok.json, false, 'an engine id reached the page: ' + JSON.stringify(ok.json));
+  const again = await call('/api/org/enroll', { body: { code: 'ACME-JOIN-1234', accepted: true, ticket: pv2.json.ticket }, headers: SCREEN });
+  assert.match(again.json.because || '', REFUSED, 'a ticket was used twice');
+  await call('/api/org/leave', { body: {}, headers: SCREEN });
+});

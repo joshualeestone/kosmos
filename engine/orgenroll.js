@@ -268,7 +268,7 @@ async function refreshNow(opts) {
   }
   const before = readEnrollment(opts);
   const r = await signed('POST', ROUTES.status, {}, opts);
-  if (!r.ok || !r.data || typeof r.data !== 'object') return { ok: false, because: (r && r.because) || 'not checked', enrolled: !!before };
+  if (!r.ok || !r.data || typeof r.data !== 'object') return { ok: false, because: sayFor(r && r.because, 'not checked'), enrolled: !!before };
   const d = r.data;
   const world = worldId(opts);
   const here = d.member === true && d.enrolled && world && d.enrolled.world === world && d.enrolled.thisComputer === true;

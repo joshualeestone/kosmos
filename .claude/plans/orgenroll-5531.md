@@ -104,3 +104,13 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
   the company's name and slug only, not its id.
 - DECIDED: GET /api/org stays readable by this board's agents. An agent on a work Kosmos reports to that company, so
   which company it is is not a secret from it; the writes stay person-only.
+
+## Review 5 (blind, opus)
+- FIXED: the ticket now carries what was previewed (the code, or null for a member's move), and an enroll with a
+  different code is refused before anything is sent. The comment says plainly that this is as strong as isViaScreen:
+  it guarantees no join skips the consent step, not that the caller is a person. A server test drives the accepting
+  arm through a stubbed remote (accepted once, refused on a second use and for another code). Every answer from the
+  org routes goes to the page with the company's name and slug only. Refresh's failure text goes through the same
+  fixed-sentence path.
+- DECIDED: a pending leave is retried on every start and daily with no end. Until the company confirms, the person is
+  still a member there, so giving up would leave them listed with nothing reporting. Nothing reports meanwhile.
