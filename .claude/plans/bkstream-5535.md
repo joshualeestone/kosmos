@@ -19,3 +19,8 @@
 - **The forced cut at max was never exercised** (random data always cuts before max): zeros streamed as one piece, in pieces crossing several max windows and in small pieces, each the same forced boundaries, with no chunk over max. Mutation `cutAt(pending, 0, pending.length)` now goes red.
 - **The copy on push was untested** (a walker reusing its read buffer would corrupt the held tail): a pushed piece is overwritten before finish, and the output must not change. Mutation dropping the copy now goes red.
 - **NIT, a tail under min:** the zeros input leaves a 100-byte tail (asserted as a precondition).
+
+## Review round 2 (sonnet): no BLOCKER, 2 WARNINGs (untested guards) and a performance NIT, fixed
+- "finish twice" (which would duplicate the tail) and createChunker's size validation are now tested.
+- NIT taken: pieces are collected and joined only once at least max bytes are held, so 64 KiB reads no longer copy the pending tail about 30 times per chunk. The weakest premise above (the concat cost) is resolved. Behaviour is unchanged: every equivalence test still passes, including the reused-buffer one.
+- The copy into the held list is pinned by a test that overwrites a piece still held (under max, not yet joined); its mutation goes red.

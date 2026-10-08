@@ -80,12 +80,16 @@ function chunkBuffer(buf, opts = CDC) {
  */
 function createChunker(opts = CDC) {
   const masks = checkSizes(opts);
-  let pending = Buffer.alloc(0), done = false;
+  // Pieces are collected and joined only once at least max bytes are held, so small reads do not copy the
+  // pending tail on every push. Each piece is copied in, so a caller may reuse its read buffer.
+  let pending = Buffer.alloc(0), parts = [], held = 0, done = false;
   return {
     push(piece) {
       if (done) throw new Error('backupformat: push after finish');
       if (!Buffer.isBuffer(piece)) throw new Error('backupformat: push takes a Buffer');
-      pending = pending.length ? Buffer.concat([pending, piece]) : Buffer.from(piece);
+      parts.push(Buffer.from(piece)); held += piece.length;
+      if (pending.length + held < opts.max) return [];
+      pending = Buffer.concat([pending, ...parts]); parts = []; held = 0;
       const out = [];
       while (pending.length >= opts.max) {
         const cut = cutAt(pending, 0, opts.max, opts, masks);
@@ -97,7 +101,7 @@ function createChunker(opts = CDC) {
     finish() {
       if (done) throw new Error('backupformat: finish twice');
       done = true;
-      return chunkBuffer(pending, opts).map((c) => Buffer.from(c));
+      return chunkBuffer(Buffer.concat([pending, ...parts]), opts).map((c) => Buffer.from(c));
     },
   };
 }

@@ -251,6 +251,9 @@ test('#5535 the streaming chunker cuts exactly where chunkBuffer does, whatever 
   assert.deepEqual(lens(stream(golden, bf.CDC, () => 1 << 20)), [286742, 1078049, 1781820, 1480926, 1131483, 441857, 90579], 'format-1 golden vector, streamed');
   const ch = bf.createChunker(SMALL); ch.finish();
   assert.throws(() => ch.push(Buffer.from('x')), /after finish/);
+  assert.throws(() => ch.finish(), /finish twice/, 'a second finish would return the tail again (duplicated data)');
+  assert.throws(() => bf.createChunker({ min: 0, avg: 1024, max: 4096 }), /chunk sizes/, 'createChunker validates its sizes');
+  assert.throws(() => bf.createChunker({ min: 5, avg: 3, max: 9 }), /chunk sizes/);
   assert.throws(() => bf.createChunker(SMALL).push('not a buffer'), /Buffer/);
   assert.deepEqual(bf.createChunker(SMALL).finish(), [], 'an empty stream gives no chunks');
 });
@@ -278,4 +281,11 @@ test('#5535 streaming: forced cuts at max on low-entropy input, a tail under min
   reused.fill(0x55);
   out.push(...ch.push(Buffer.from(data.subarray(2 * SMALL.max))), ...ch.finish());
   assert.ok(Buffer.concat(out).equals(data), 'overwriting a pushed piece does not change the output');
+  // The same while the piece is still only HELD (smaller than max, not yet joined), as a 64 KiB read would be.
+  const small = Buffer.from(data.subarray(0, 1000));
+  const ch2 = bf.createChunker(SMALL);
+  const out2 = [...ch2.push(small)];
+  small.fill(0x55);
+  out2.push(...ch2.push(Buffer.from(data.subarray(1000))), ...ch2.finish());
+  assert.ok(Buffer.concat(out2).equals(data), 'overwriting a held (not yet joined) piece does not change the output');
 });
