@@ -276,3 +276,12 @@ test('#5532 review 11: the REAL provider reader scopes by launch folder (a Codex
   assert.equal(((w.byDay[TODAY] || {})['gpt-agent-model'] || {}).output_tokens, 7, 'the agent\'s own Codex session was not counted: ' + JSON.stringify(w.byDay));
   assert.equal((w.byDay[TODAY] || {})['gpt-personal-model'], undefined, 'a Codex session launched outside the agent\'s folder was counted for it');
 });
+
+// Review 12: a recorded cwd that spells an existing agent folder in another case is the same folder on a
+// case-insensitive volume. fs.promises.realpath (native) returns the on-disk case there; the JS realpathSync does not.
+const CASE_INSENSITIVE = (() => { try { return fs.existsSync(AGENT.toUpperCase()) && AGENT.toUpperCase() !== AGENT; } catch { return false; } })();
+test('#5532 review 12: a session whose recorded folder differs from the agent folder only in case counts for it (case-insensitive volume)', { skip: !CASE_INSENSITIVE && 'this volume is case-sensitive' }, async () => {
+  const wrongCase = AGENT.toUpperCase();
+  const w = await usage.worldUsageByModel(1, { agentDirs: [AGENT], scanUsage: AT(wrongCase, 'claude-case-model'), scanProviders: NOPROV.scanProviders });
+  assert.ok((w.byDay[TODAY] || {})['claude-case-model'], 'a session recorded with another case of the agent folder was dropped: ' + JSON.stringify(w.byDay));
+});

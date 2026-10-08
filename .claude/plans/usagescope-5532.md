@@ -120,3 +120,9 @@ sessions outside Kosmos. This branch adds the reader the rollup needs to send us
 - The review 8 env-home test also asserts complete is false.
 - Kept (nits): unreadable files in other roots make this world incomplete (review 7 decision); cwd as the relative
   control; the git ls-files guard needs a git tree; Windows path arms untested, as byAgent's.
+
+## Review 12 (converged)
+- Declined, measured: "a recorded cwd in another case is dropped on a case-insensitive volume". fs.promises.realpath
+  (the native one this code uses) returns the on-disk case on macOS (LeoAgent from leoagent; the JS realpathSync does
+  not). Pinned by a test, skipped on a case-sensitive volume; swapping in the JS realpathSync reddens it.
+- Duplicate of review 11: a session folder that is gone falls back to path.resolve (a link-reached one is missed).
