@@ -1,4 +1,4 @@
-// Browser-check-surface: look-toggle look-row tsk-tile tsk-list d-talk-box d-dmthread
+// Browser-check-surface: look-toggle look-row tsk-tile tsk-list d-talk-box d-dmthread pj-question
 'use strict';
 /**
  * The new look's hidden switch (#4470, Josh 2026-09-28), on a real board in a real browser.
@@ -32,6 +32,8 @@
  *    strokes (the could-not-read dash at least 1.5:1 off its ground, measured by EDGE_RATIO); the Messages filter rests on the grey ground and keeps its width under the pointer; a board note is
  *    the grey box while a could-not-read note keeps its solid border (and a note in a project page keeps today's
  *    look); and with the look off, today's bordered card, tile and New agent tile (the control),
+ *  - an agent's question in the project room (QUESTION_LOOK, #5551): today's warm ground and hairline kept (#3692), 24px
+ *    corners; with the look off, today's corners (the control),
  *  - an agent's page in the new look (DM_LOOK): the conversation on the page's ground, your message grey, an agent's
  *    with no bubble, the composer a grey pill with no stroke; with the look off, today's (the control),
  *  - an agent's left column in the new look (DLEFT_LOOK): one grey box with 28px corners, the open section a tile in the
@@ -142,6 +144,20 @@ const BUBBLES = `(() => {
   const a = mk(true), b = mk(false);
   const out = { you: getComputedStyle(a.querySelector('.msg-bd')).backgroundColor, agent: getComputedStyle(b.querySelector('.msg-bd')).backgroundColor };
   a.remove(); b.remove();
+  return out;
+})()`;
+/* #5551: the project room's question box, unhidden for the read and put back (it is painted only while an agent asks).
+   Its thread section can itself be hidden at this point, so `shown` is reported, not required: computed style answers
+   either way, and the control below proves the read can tell the two looks apart. */
+const QUESTION_LOOK = `(() => {
+  const q = document.getElementById('pj-question');
+  if (!q) return { found: false };
+  const was = q.hidden; q.hidden = false;
+  const cs = getComputedStyle(q);
+  const scr = q.querySelector('.pj-screen');
+  const out = { found: true, shown: q.getClientRects().length > 0, bg: cs.backgroundColor, edge: cs.borderTopColor, edgeW: cs.borderTopWidth, radius: cs.borderTopLeftRadius,
+    padL: parseFloat(cs.paddingLeft), padT: parseFloat(cs.paddingTop), screenRadius: scr ? getComputedStyle(scr).borderTopLeftRadius : null };
+  q.hidden = was;
   return out;
 })()`;
 /* #4470, an agent's page: its conversation read off the DM's own elements (they exist, hidden, before any agent is
@@ -727,6 +743,10 @@ const AGENTS_LOOK = `(() => {
         chk(tabs.onUnderline === 'rgba(0, 0, 0, 0)' && tabs.onColor !== tabs.offColor && tabs.onWeight > tabs.offWeight, `${tag} On: the current tab is marked by ink and weight, not an underline`, JSON.stringify(tabs));
       }
       const dmOn = await page.evaluate(DM_LOOK);
+      const qOn = await page.evaluate(QUESTION_LOOK);
+      const warmOf = { light: 'rgba(176, 116, 0, 0.1)', dark: 'rgba(255, 190, 60, 0.12)' };   // --warn-bg, today's ground (the Off read shows the same)
+      chk(qOn.found && qOn.radius === '24px' && qOn.edge !== 'rgba(0, 0, 0, 0)' && parseFloat(qOn.edgeW) > 0 && qOn.bg === warmOf[theme] && qOn.padL >= 16 && qOn.padT >= 16 && qOn.screenRadius === '12px',
+        `${tag} On: an agent's question in the room keeps its warm ground and its hairline (#3692), with 24px corners, room inside them and the screen's corners eased (#5551)`, JSON.stringify(qOn));
       const bub = await page.evaluate(BUBBLES);
       const PAGE_OF = { light: 'rgb(255, 255, 255)', dark: 'rgb(0, 0, 0)' };
       chk(bub.you === GREY_OF[theme] && bub.agent === PAGE_OF[theme], `${tag} On: your message is grey, an agent's is the page's own ground (no bubble)`, JSON.stringify(bub));
@@ -1052,8 +1072,11 @@ const AGENTS_LOOK = `(() => {
       const pjOff = await page.evaluate(TASKS_PLACE);   // read with the project OPEN, where a stuck move would show
       const stOff = await page.evaluate(MEMBER_WORD);
       const hdOff = await page.evaluate(HEAD_PLACE);
+      const qOff = await page.evaluate(QUESTION_LOOK);
       chk(hdOff.aboveCols && !hdOff.rootShown && hdOff.nameShown, `${tag} Off: the crumb row is back above the columns, no "Projects" root, the name shows`, JSON.stringify(hdOff));
       chk(!stOff.shown, `${tag} Off: the member row prints no state word, as today (#3212)`, JSON.stringify(stOff));
+      chk(qOff.found && qOff.radius !== '24px' && qOff.edge !== 'rgba(0, 0, 0, 0)' && parseFloat(qOff.edgeW) > 0 && qOff.padL < 16 && qOff.screenRadius !== '12px',
+        `${tag} Off: an agent's question in the room is today's box, today's corners (the control, #5551)`, JSON.stringify(qOff));
       chk(pjOff.order === 'members,files' && pjOff.tasksLast, `${tag} Off: Tasks is back at the end of the project page, as today`, JSON.stringify(pjOff));
       chk(back.look === null && back.kbg === before.kbg, `${tag} Off and a reload give today's page back`, JSON.stringify(back));
       /* Control for the Agents arms: with the look off, the idle card keeps its border and New agent has no round. */
