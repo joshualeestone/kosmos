@@ -228,3 +228,10 @@ case-sensitive disk a file differing only in case from a protected one is refuse
 - DEFERRED to #5516 (named residual): other files Claude Code reads at start that the file tools can still write (user-level and agent-folder MCP server lists, the per-launch permission settings file and the hook script it names). Needs the measurement #5516 plans first.
 - DEFERRED to #5516 (named residual, NEW): the agent's private browser runs outside the sandbox; whether it can open or upload the token file is not measured. Measure before claiming either way.
 - NIT fixed: a test pins realOrLeaf (code and test copy) to a literal resolved path. NIT fixed: the user-settings warning no longer names enabled / allowUnsandboxedCommands, which the agent's own guard outranks.
+
+### Review 23 (sonnet)
+- WARNING decided, not changed: a listed agent whose guard cannot be written at launch still launches (with the switch on), and the supervisor log says it is NOT guarded at every launch. Rejected: refusing the launch, because a guard hiccup would stop the person's agent from starting at all; an unguarded listed agent is no worse off than every unlisted agent today, and create already refuses a brand-new one. Weakest premise: nobody reads the supervisor log. What would change it: a ruling that a listed agent must never run unguarded.
+- WARNING fixed: a missing setup-assistant.js at launch skipped the guard silently; it now says so.
+- WARNING fixed: settings.local.json was cleaned by known-bad keys and exact values ("false" or 0 survived). It now keeps only sandbox.filesystem.denyRead / denyWrite arrays; every other sandbox key goes, whatever its value (keys outside sandbox untouched).
+- WARNING deferred (named): denies only accumulate, so a path from a deleted world or a moved home stays denied. Over-denies only, never under-denies.
+- NIT fixed: the off-macOS note no longer prints at every launch. Other NITs (realOrLeaf on a dangling leaf link, concurrent writers, undo's per-file stat cost) noted, not changed.

@@ -531,8 +531,8 @@ test('#4491 review 22: Unix-socket allowances are removed from settings.local.js
   process.stderr.write = (t) => { errs.push(String(t)); return true; };
   try { assert.equal(setup.guardTokenOnlyFolder(dir, 'r22local', DEPS).ok, true); } finally { process.stderr.write = real; }
   const j = JSON.parse(fs.readFileSync(local, 'utf8'));
-  assert.equal(j.sandbox.network.allowAllUnixSockets, undefined, 'allowAllUnixSockets survived in settings.local.json');
-  assert.equal(j.sandbox.network.allowUnixSockets, undefined, 'allowUnixSockets survived in settings.local.json');
+  assert.equal(j.sandbox?.network?.allowAllUnixSockets, undefined, 'allowAllUnixSockets survived in settings.local.json');
+  assert.equal(j.sandbox?.network?.allowUnixSockets, undefined, 'allowUnixSockets survived in settings.local.json');
   assert.ok(j.hooks, 'the hooks key was removed (it is the person\'s call)');
   assert.ok(errs.join('').includes('hooks'), 'the hooks key was not said: ' + errs.join(''));
 });
@@ -570,4 +570,23 @@ test('#4491 review 22: the supervisor guards a listed agent at launch (its own s
   assert.equal(r.stderr, '', 'the launch said the agent is not guarded: ' + r.stderr);
   assert.ok(fs.existsSync(path.join(dir, '.claude', 'settings.json')), 'the launch did not write the guard');
   fs.rmSync(shim, { force: true });
+});
+
+test('#4491 review 23: settings.local.json keeps only sandbox deny lists, whatever the other values are', () => {
+  const dir = agentDir('r23local');
+  fs.mkdirSync(path.join(dir, '.claude'), { recursive: true });
+  const local = path.join(dir, '.claude', 'settings.local.json');
+  fs.writeFileSync(local, JSON.stringify({ model: 'x', sandbox: { enabled: 'false', allowUnsandboxedCommands: 1, someFutureKey: true,
+    network: { allowLocalBinding: true }, filesystem: { denyRead: ['/kept/r'], denyWrite: ['/kept/w'], allowRead: ['/x'], newKind: ['/y'] } } }));
+  assert.equal(setup.guardTokenOnlyFolder(dir, 'r23local', DEPS).ok, true);
+  const j = JSON.parse(fs.readFileSync(local, 'utf8'));
+  assert.deepEqual(j.sandbox, { filesystem: { denyRead: ['/kept/r'], denyWrite: ['/kept/w'] } }, JSON.stringify(j.sandbox));
+  assert.equal(j.model, 'x', 'CONTROL: a key outside the sandbox block was touched');
+});
+
+test('#4491 review 23: the supervisor says so when the guard code is missing at launch', () => {
+  const sup = fs.readFileSync(path.join(__dirname, '..', 'bin', 'agent-supervisor.sh'), 'utf8');
+  const at = sup.indexOf('#4491 review 22: write (or confirm) its guard now');
+  const block = sup.slice(at, sup.indexOf('\n      fi', at));
+  assert.ok(/else\n\s+echo "#4491: \$_roster is listed token-only but its guard could not be checked at launch/.test(block), block.slice(-400));
 });
