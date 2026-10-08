@@ -697,3 +697,28 @@ test('#5418: a board that stalls part way through its answer is a clean refusal,
   t.after(() => { srv.closeAllConnections(); srv.close(); });
   await assert.rejects(tool.getJson(srv.address().port, '/api/status', {}, 200));
 });
+
+test('#5418: applyPlan itself refuses while live execution is off', (t) => {
+  liveExecution.resetForTests();
+  t.after(() => liveExecution.allowLiveExecution());
+  const dir = scratch(t);
+  fs.writeFileSync(path.join(dir, 'x.json.kosmos-1-t0-1-1.tmp'), 'tmp');
+  assert.throws(() => tool.applyPlan(dir, { remove: [{ name: 'x.json.kosmos-1-t0-1-1.tmp', kind: 'temp' }] }, () => ({ ok: true })), /live execution is off/);
+  assert.equal(fs.existsSync(path.join(dir, 'x.json.kosmos-1-t0-1-1.tmp')), true);
+});
+
+test('#5418: a link the backup cannot re-make (EPERM, as on Windows) is noted, not fatal', (t) => {
+  const root = scratch(t);
+  const dir = path.join(root, 'tokens');
+  fs.mkdirSync(dir);
+  fs.writeFileSync(path.join(dir, 'a.json'), 'A', { mode: 0o600 });
+  const realLstat = fs.lstatSync;
+  const realReadlink = fs.readlinkSync;
+  t.mock.method(fs, 'lstatSync', (p, ...rest) => (String(p).endsWith('l.json') ? { isSymbolicLink: () => true, isFile: () => false } : realLstat(p, ...rest)));
+  t.mock.method(fs, 'readlinkSync', (p, ...rest) => (String(p).endsWith('l.json') ? 'D:\\gone' : realReadlink(p, ...rest)));
+  t.mock.method(fs, 'symlinkSync', () => { throw Object.assign(new Error('privilege'), { code: 'EPERM' }); });
+  const dest = path.join(root, 'backup');
+  tool.backup(dir, dest, ['a.json', 'l.json']);
+  assert.equal(fs.readFileSync(path.join(dest, 'a.json'), 'utf8'), 'A');
+  assert.match(fs.readFileSync(path.join(dest, 'LINKS.txt'), 'utf8'), /l\.json -> D:/);
+});
