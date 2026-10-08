@@ -321,6 +321,20 @@ KOSMOS_AUTODEPLOY_DEPLOY='exit 1' tick
 [ "$(cat "$ST/last-deployed")" != "$H23" ] && pass "after a killed deploy, a marker naming the sha does not bless it" || bad "killed deploy's sha blessed as deployed"
 rm -f "$ST/parked" "$ST/failures"; rm -rf "$ST/reported.d"
 
+# 23b) records are per sha: a record for an OLD sha does not quiet the same cause on a new one.
+#      The old record is written by the script itself (a real red on the old sha), so the key it uses is the
+#      one under test.
+H23a=$(advance twentythreea); echo "$H23a" > "$ST/parked"; printf '%s rc=1 x\n' "$H23a" > "$ST/last-failure"; tick; o23=$RC
+H23b=$(advance twentythreeb); echo "$H23b" > "$ST/parked"; printf '%s rc=1 x\n' "$H23b" > "$ST/last-failure"; tick
+[ "$o23" = 1 ] && [ "$RC" = 1 ] && pass "a record for an older sha does not quiet the same cause on a new sha" || bad "per-sha key (rc=$RC) $OUT"
+rm -f "$ST/parked"; rm -rf "$ST/reported.d"
+
+# 23c) a damaged deploy.pid (pgid 0: this tick's own group if signalled) is removed unread, never used.
+printf '0 %s x\n' "$H23b" > "$ST/deploy.pid"; touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
+H23c=$(advance twentythreec); tick
+{ [ "$RC" = 0 ] && [ ! -e "$ST/deploy.pid" ] && printf '%s' "$OUT" | grep -q "damaged .*deploy.pid" && [ "$(cat "$ST/last-deployed")" = "$H23c" ]; } \
+  && pass "a damaged deploy.pid (pgid 0) is removed unread and the tick goes on" || bad "damaged deploy.pid (rc=$RC) $OUT"
+
 # 24) a report time in the future (a clock step, a hand edit) counts as never reported: red.
 H24=$(advance twentyfour); mkdir -p "$ST/reported.d"; echo "$H24" > "$ST/parked"; printf '%s rc=1 x\n' "$H24" > "$ST/last-failure"
 echo "$(( $(date +%s) + 86400 ))" > "$ST/reported.d/$H24-parked"; tick
