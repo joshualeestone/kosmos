@@ -55,3 +55,14 @@ Neighbours green: createdbeacon-3038 (unit and route), no-phone-home-4253, brows
   asserts the box is visible and ticked, clicks it, asserts #create-tell follows and the import sends false.
 - Fixed (CONVENTION): the guide comment (above) and the struck Review 1 CLI line.
 - Left (NIT): the Claude config path in os.tmpdir(), as the #3038 harness has it.
+
+## Review 4 (sonnet): no blockers
+- Fixed (WARNING): the import's box was live while a create ran and after it created agents, so unticking it then
+  showed "off" for a ping already sent and flipped the sheet's choice. orgchartTellLock: fixed when the create starts,
+  freed on the three exits that create nothing, kept fixed when agents were created (and on a kept result restored
+  within the Undo window), freed for a new preview (orgchartPaint, resetOrgchartPreview); as #tc-tell is fixed once
+  the team run starts. The browser check asserts it is fixed after a created import and free (and re-ticked, set
+  explicitly rather than toggled) after a refused one.
+- Taken (WARNING, advisory): the sync runs only on the panel's open click, the only way the panel is shown today;
+  stated on the handler so a new way to show it sets it too.
+- Taken (NIT): the handler comment names #tc-tell and #create-tell.

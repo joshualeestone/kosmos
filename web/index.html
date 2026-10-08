@@ -52460,7 +52460,10 @@ document.getElementById('tc-tell').addEventListener('change', (e) => {
   const tellBox = document.getElementById('create-tell');
   if (tellBox) tellBox.checked = e.currentTarget.checked;   // one choice for the sheet, whichever step it was made on
 });
-document.getElementById('orgchart-tell').addEventListener('change', (e) => {   // #5590: the same, from the import
+/* #5590: the import's box, the same as #tc-tell's handler: #create-tell is the one choice the creates read. It is set
+   from #create-tell on the panel's open click, the only way the panel is shown (openCreate and resetTeamStep hide it);
+   a new way to show it must set it too. */
+document.getElementById('orgchart-tell').addEventListener('change', (e) => {
   const tellBox = document.getElementById('create-tell');
   if (tellBox) tellBox.checked = e.currentTarget.checked;
 });
@@ -53262,6 +53265,12 @@ let ORGCHART_RESULT_RESTORED = false;
 let ORGCHART_RESULT = null;
 // True while /api/team is answering: Preview waits, so a late create result is never thrown away.
 let ORGCHART_CREATING = false;
+/* #5590: the import's "Let Kosmos know" box describes THIS create: fixed while it runs and once it has created agents
+   (the choice was sent), free again for a new preview; as #tc-tell is fixed once the team run starts. */
+function orgchartTellLock(locked) {
+  const b = document.getElementById('orgchart-tell');
+  if (b) b.disabled = Boolean(locked);
+}
 // #4559: true while Undo asks or removes (orgchartUndoAsking), so a file read waits.
 let ORGCHART_UNDO_BUSY = false;
 /* #4559: the file flow's state, declared here, above resetOrgchartPreview, which clears it (a let read before its
@@ -53294,6 +53303,7 @@ function orgchartEndFileFlow() {
   if (note && note.dataset.idle) note.textContent = note.dataset.idle;
 }
 function resetOrgchartPreview() {
+  orgchartTellLock(false);
   ORGCHART_PARSED = null;
   ORGCHART_MANY_OK = false;
   const many = document.getElementById('orgchart-many');
@@ -53357,6 +53367,7 @@ function orgchartSayUndoExpired() {
    removed. Used when the panel is reopened (and by openCreate's reset, into the still-hidden panel), and when a create answered after the person had left lands while the
    panel is open again and idle. A no-op otherwise. */
 function orgchartRestoreCreated() {
+  orgchartTellLock(true);   // #5590: a kept result's agents were made with the choice already sent
   if (orgchartDropExpiredUndo()) ORGCHART_RESULT = null;
   if (!ORGCHART_CREATED.length || !ORGCHART_RESULT) return false;
   const box = document.getElementById('orgchart-preview-box');
@@ -53494,6 +53505,7 @@ const ORGCHART_TEAM_DEFAULT = 12;
 const ORGCHART_TEAM_MAX = 50;
 function orgchartPaint() {
   ORGCHART_RESULT_SHOWN = false;
+  orgchartTellLock(false);   // #5590: a new preview is a new create, so its choice is open again
   ORGCHART_MANY_OK = false;   // a changed list is asked about again
   document.getElementById('orgchart-many').hidden = true;
   const rows = ORGCHART_PARSED || [];
@@ -53823,6 +53835,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
   const previewBtn = document.getElementById('orgchart-preview');
   ORGCHART_CREATING = true;
   previewBtn.disabled = true;
+  orgchartTellLock(true);
   try {
     const tellBox = document.getElementById('create-tell');
     const res = await fetch('/api/team', {
@@ -53840,7 +53853,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
     /* Still CREATING: the reporting-line fix-ups below are part of this create, and a Preview or a file read
        during them would supersede the screen and lose this batch's Undo. Released after them. */
   } catch (err) {
-    ORGCHART_CREATING = false; previewBtn.disabled = false;
+    ORGCHART_CREATING = false; previewBtn.disabled = false; orgchartTellLock(false);
     if (gen !== ORGCHART_GEN) { orgchartCreateWaitEnded('We could not reach Kosmos to create the team. Try again.'); return; }   // superseded during the fetch
     btn.disabled = false;
     msg.hidden = false;
@@ -53852,7 +53865,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
      the panel), but a team that WAS created still gets its reporting-line fix-ups, which correct data (create stores reportsTo as sent) rather than the screen. */
   const superseded = gen !== ORGCHART_GEN;
   if (!result) {
-    ORGCHART_CREATING = false; previewBtn.disabled = false;
+    ORGCHART_CREATING = false; previewBtn.disabled = false; orgchartTellLock(false);
     if (superseded) { orgchartCreateWaitEnded('Kosmos did not answer in a way we could read. Try again.'); return; }
     btn.disabled = false;
     msg.hidden = false;
@@ -53867,7 +53880,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
      and read as a bare "No agents were created", hiding the real reason on a 15-20 person
      import. So: no `outcome` means it is not a team result -- surface its error plainly. */
   if (result.outcome === undefined) {
-    ORGCHART_CREATING = false; previewBtn.disabled = false;
+    ORGCHART_CREATING = false; previewBtn.disabled = false; orgchartTellLock(false);
     if (superseded) { orgchartCreateWaitEnded(result.error ? String(result.error) : 'Kosmos refused the request.'); return; }
     btn.disabled = false;
     msg.hidden = false;
@@ -53915,6 +53928,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
     else if (!f.to) orphans.push(f.name);
   }
   ORGCHART_CREATING = false; previewBtn.disabled = false;
+  orgchartTellLock(created.length > 0);   // #5590: agents were made with the choice sent; nothing made, it is open again
   /* #4688: the result is worked out as text first, whether or not the person is still here, so a create that
      answers after they left the panel still records its agents and its Undo (they come back with the panel). */
   let countText;

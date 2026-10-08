@@ -174,6 +174,8 @@ function check(name, pass, detail) {
     JSON.stringify(lastTeamBody && lastTeamBody.members));
   check('#5590: the import carries the create-agent box, ticked by default (notifyCreated true)',
     Boolean(lastTeamBody) && lastTeamBody.notifyCreated === true, JSON.stringify(lastTeamBody && lastTeamBody.notifyCreated));
+  const tellLocked = await page.evaluate(() => document.getElementById('orgchart-tell').disabled === true);
+  check('#5590: once the import has created agents, its box is fixed (the choice was sent)', tellLocked, String(tellLocked));
 
   // ---- #1280 Undo: offered after a create, NAMES and COUNTS before it acts ----
   const undoShown = await page.evaluate(() => {
@@ -296,7 +298,10 @@ function check(name, pass, detail) {
   await page.waitForTimeout(300);
   check('#5590: an unticked box makes the import send notifyCreated false',
     Boolean(lastTeamBody) && lastTeamBody.notifyCreated === false, JSON.stringify(lastTeamBody && lastTeamBody.notifyCreated));
-  await page.click('#orgchart-tell');   // ticked again for the arms after this one
+  // Ticked again for the arms after this one: set to a stated state, not toggled (a toggle would invert silently).
+  if (!(await page.evaluate(() => document.getElementById('orgchart-tell').checked))) await page.click('#orgchart-tell');
+  const restored = await page.evaluate(() => document.getElementById('orgchart-tell').checked && document.getElementById('create-tell').checked);
+  check('#5590: the box is ticked again after a refused import (nothing was created, so it was free)', restored, String(restored));
   const overcap = await page.evaluate(() => document.getElementById('orgchart-count').textContent);
   const overcapUndo = await page.evaluate(() => document.getElementById('orgchart-undo').hidden);
   check('nothing created, so no Undo is offered', overcapUndo);
