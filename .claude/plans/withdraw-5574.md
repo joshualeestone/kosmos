@@ -108,3 +108,10 @@ Reviewer verified the sendPost agentId line changes no other path (aliasing, set
   permanent-sounding 400 to the person --> FIXED: unreadable is retryable (503 with Retry-After), as withdrawFor does.
   Test with a control. Reviewer confirmed the person-path change fires only for a sent post with a known-other
   registration, and the web list shows the 400's sentence on the row.
+
+## Review 8 (opus, blind): CONVERGED (nothing above NIT); NIT folded
+- [NIT] a comment whose removal was already recorded (the person's Delete racing a send) skips requestCommentDelete's
+  unconfirmed/untraceable refusals, so withdraw would echo "Taken back" --> FIXED in withdrawFor (unconfirmed and
+  untraceable refused; unreadable registrations retryable). Test with a control.
+Final pass checked ownership (board id, service id, retired, cross-kind), every post and comment state, the person's
+Delete (only the known-other-registration refusal is new; older records as on main), both CLIs and the route.
