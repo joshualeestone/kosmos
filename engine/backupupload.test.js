@@ -820,7 +820,10 @@ test('chunks then their manifest: uploadChunks returns each lock end and the buc
     assert.strictEqual(r.bucket, `${new URL(b.base).host}/bucket/`);
     for (const x of cs) assert.ok(Number.isFinite(r.lockedUntil.get(x.name)), 'each chunk has its lock end');
     const m = manifestBytes();
-    const mc = manifestCoordinator(b);
+    // The real coordinator locks every object of a period to ONE date; the stubs each round their own clock, so a
+    // second boundary between the two grants would lock the manifest a second past its chunks (review 9: 1 in 80).
+    // The manifest stub therefore locks to the chunks' own date, as the coordinator does.
+    const mc = manifestCoordinator(b, { retainMs: () => Math.min(...r.lockedUntil.values()) });
     const mr = await up.uploadManifest(deps(mc), m, { bucket: r.bucket, chunks: cs.map((x) => ({ key: r.keys.get(x.name), lockedUntilMs: r.lockedUntil.get(x.name) })) });
     assert.strictEqual(mr.ok, true, mr.because);
     assert.strictEqual(mr.key, mKey(1));
@@ -1210,5 +1213,15 @@ test('a bucket path with an upper-case host is refused before any grant (a URL h
     const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { bucket: 'S3.us-east-1.amazonaws.com/b1/' }));
     assert.strictEqual(r.ok, false); assert.match(r.because, /not a bucket path/);
     assert.strictEqual(mc.bodies.length, 0);
+  } finally { await b.close(); }
+});
+
+test('a manifest grant already over an hour expired by this computer\'s clock (a clock far ahead) is refused before any PUT', async () => {
+  const b = await bucket();
+  try {
+    const r = await up.uploadManifest(deps(manifestCoordinator(b, { expiresAt: Date.now() - 2 * 60 * 60 * 1000 })), manifestBytes(), mOpts(b));
+    assert.strictEqual(r.ok, false); assert.match(r.because, /over an hour past the grant's expiry/);
+    assert.strictEqual(r.grantSpent, true);
+    assert.strictEqual(b.puts, 0);
   } finally { await b.close(); }
 });
