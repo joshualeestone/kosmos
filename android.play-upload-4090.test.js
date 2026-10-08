@@ -11,6 +11,7 @@
  *
  *   node --test android.play-upload-4090.test.js
  */
+require('./test-support/tmpscope'); // #4273: first, so every temp dir this file makes (via os.tmpdir) is contained and removed on exit
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
