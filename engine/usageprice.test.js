@@ -27,10 +27,13 @@ test('#5532: the engine price table is exactly the page\'s (same models, same fo
 test('#5532: the engine and the page resolve every id the same way (exact, dated, unpriced, odd)', () => {
   const ids = Object.keys(PAGE.USAGE_MODEL_PRICES)
     .flatMap((id) => [id, id + '-20251001', id + '-2025'])
-    .concat(['gpt-5.1-codex', 'totally-unknown', '', 'toString', '__proto__', 'constructor']);
+    .concat(['gpt-5.1-codex', 'totally-unknown', '']);
   for (const id of ids) {
     assert.deepEqual(plain(up.modelPrice(id)), plain(PAGE.usageModelPrice(id)), 'the two resolvers disagree on ' + JSON.stringify(id));
   }
+  /* Names on every object's prototype are not models. The engine reads own keys only, so they price as null. (The page's
+     usageModelPrice returns a built-in for these; no model is called that, so the usage screen never meets one.) */
+  for (const id of ['toString', '__proto__', 'constructor', 'hasOwnProperty']) assert.equal(up.modelPrice(id), null, id);
 });
 
 test('#5532: costOf matches the page\'s usageApiCost for a priced model, and is null (never 0) for an unpriced one', () => {
