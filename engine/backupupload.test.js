@@ -557,6 +557,44 @@ test('a later grant that repeats a key an earlier grant in the run gave is refus
   } finally { await b.close(); }
 });
 
+test('a Mac clock up to an hour ahead still uploads (S3 never reads the Mac clock)', async () => {
+  const b = await bucket();
+  try {
+    const r = await up.uploadChunks(deps(coordinator(b, { expiresAt: Date.now() - 20 * 60 * 1000 })), [chunk(1)]);
+    assert.strictEqual(r.ok, true, r.because);
+  } finally { await b.close(); }
+});
+
+test('S3 ending grants EARLY does not make sizing over-ask: allowance asked stays near what is stored', async () => {
+  const b = await bucket();
+  try {
+    const ck = clock();
+    let grantAt = 0;
+    // Each PUT costs 3 fake seconds; S3 answers "expired" to any PUT 10 s after its grant arrived.
+    const early = async (url, init) => {
+      await ck.sleep(3000);
+      if (ck.now() - grantAt > 10 * 1000) return new Response('<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>', { status: 403 });
+      return fetch(url, init);
+    };
+    const c = coordinator(b, { tag: 'early', expiresAt: () => ck.now() + 15 * 60 * 1000 });
+    const inner = c.macRequest;
+    c.macRequest = async (...a) => { const r = await inner(...a); grantAt = ck.now(); return r; };
+    const cs = Array.from({ length: 60 }, (_, i) => chunk(900 + i));
+    const r = await up.uploadChunks(deps(c, Object.assign({ fetch: early }, ck)), cs, { concurrency: 1 });
+    assert.strictEqual(r.ok, true, r.because);
+    const asked = c.bodies.reduce((x, bd) => x + bd.chunks.length, 0);
+    assert.ok(asked <= 1.6 * cs.length, `asked for ${asked} to store ${cs.length}: ${c.bodies.map((bd) => bd.chunks.length)}`);
+  } finally { await b.close(); }
+});
+
+test('a virtual-hosted S3 url must have the key as its whole path', () => {
+  const c = chunk(1);
+  const mk = (host, path) => ({ expires_at: '2030-01-01T00:15:00Z', uploads: [{ key: 'a/k', url: `https://${host}${path}?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=c&X-Amz-Date=20300101T000000Z&X-Amz-Expires=900&X-Amz-SignedHeaders=${encodeURIComponent(SIGNED)}&X-Amz-Signature=00`, headers: { 'content-md5': md5(c.object), 'if-none-match': '*', 'x-amz-object-lock-mode': 'COMPLIANCE', 'x-amz-object-lock-retain-until-date': '2030-02-03T00:00:00Z' } }] });
+  assert.strictEqual(up.parseGrant(mk('b1.s3.us-east-1.amazonaws.com', '/a/k'), [c]).ok, true);
+  assert.strictEqual(up.parseGrant(mk('b1.s3.us-east-1.amazonaws.com', '/x/a/k'), [c]).ok, false);
+  assert.strictEqual(up.parseGrant(mk('s3.us-east-1.amazonaws.com', '/b1/a/k'), [c]).ok, true, 'path-style keeps one bucket segment');
+});
+
 test('never throws: a throwing injected clock still resolves to ok: false', async () => {
   const b = await bucket();
   try {
@@ -565,10 +603,10 @@ test('never throws: a throwing injected clock still resolves to ok: false', asyn
   } finally { await b.close(); }
 });
 
-test('a grant already over when it arrives (a clock ahead of the coordinator) stops the run, with no second grant', async () => {
+test('a grant over an hour past its expiry when it arrives (a clock far off) stops the run, with no second grant', async () => {
   const b = await bucket();
   try {
-    const c = coordinator(b, { expiresAt: Date.now() - 1000 });
+    const c = coordinator(b, { expiresAt: Date.now() - 2 * 3600 * 1000 });
     const r = await up.uploadChunks(deps(c), [chunk(1)]);
     assert.strictEqual(r.ok, false);
     assert.match(r.because, /clock/);
