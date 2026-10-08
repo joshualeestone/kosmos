@@ -223,3 +223,19 @@ test('#5154-C review 5: sweepRoster tells once for OUR named stuck agent and ign
   assert.equal(tells[0].key, 'sr-leo');
   assert.equal(st.readAnchor('sr-foreign'), null, 'a not-ours row is never anchored');
 });
+
+test('#5154-C review 6 (W2): a throwing tell for one agent does NOT abort the sweep (matches crashloop.tellLoops)', () => {
+  const told = new Set(); const t0 = 33_000_000; const seen = [];
+  const rows = [
+    { sessionName: 'thrower', name: 'A', state: 'auth_failed', isNamedOurs: true },
+    { sessionName: 'after', name: 'B', state: 'auth_failed', isNamedOurs: true },
+  ];
+  st.sweepRoster({ roster: rows, told, now: t0, tell: () => {} });   // anchor both
+  // Past the threshold, tell throws (EPIPE on stdout / a phonenotify error) for the FIRST agent.
+  assert.doesNotThrow(() => st.sweepRoster({ roster: rows, told, now: t0 + AUTH,
+    tell: (key) => { if (key === 'thrower') throw new Error('EPIPE'); seen.push(key); } }),
+    'the sweep swallows a per-agent tell throw');
+  assert.ok(seen.includes('after'), 'a throw on an earlier agent does not skip a later one');
+  assert.ok(told.has('thrower'), 'the throwing agent is marked told (a failed push is not retried this episode, as crashloop)');
+  assert.ok(told.has('after'), 'the later agent is told normally');
+});

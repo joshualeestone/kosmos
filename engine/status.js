@@ -8576,9 +8576,14 @@ function snapshot() {
   }
 
   agents.sort((a, b) => a.name.localeCompare(b.name));
-  /* #5154 slice A: every row states crashLoop. The snapshot cannot know about runs (the supervisor's run file is
-     read by the route, engine/crashloop.js), so it says null; /api/status fills the real value for agents we started. */
-  for (const a of agents) if (a && !Object.prototype.hasOwnProperty.call(a, 'crashLoop')) a.crashLoop = null;
+  /* #5154 slice A+C: every row states crashLoop AND stuckError. The snapshot cannot know about runs (the
+     supervisor's run file is read by the route, engine/crashloop.js) or the terminal-error anchor (read by
+     safeRoster via stuckterminal.peek), so both say null here; /api/status fills the real values for agents we
+     started. Kept as a matched pair -- the two Issue signals (needsPerson/agentNeedsAttention) read both. */
+  for (const a of agents) {
+    if (a && !Object.prototype.hasOwnProperty.call(a, 'crashLoop')) a.crashLoop = null;
+    if (a && !Object.prototype.hasOwnProperty.call(a, 'stuckError')) a.stuckError = null;
+  }
 
   return {
     // Freshness is not decoration. An ambient display gets trusted passively,

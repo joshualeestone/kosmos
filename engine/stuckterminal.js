@@ -168,7 +168,13 @@ function tellStuck({ rows, told, now, tell }) {
     liveSafe.add(store.safeKey(row.key));
     const r = read(row.key, row.state, now);
     if (r.stuck) {
-      if (!told.has(row.key)) { told.add(row.key); tell(row.key, r, row.shown || row.key); }
+      if (!told.has(row.key)) {
+        told.add(row.key);
+        // tell writes stdout + fires a phone push; wrap it exactly as crashloop.tellLoops does, so a throw
+        // (EPIPE on stdout, a phonenotify error) for one agent neither aborts this tick's remaining rows and
+        // the two prune loops below, nor is retried this episode (told is already set -- the sibling's choice).
+        try { tell(row.key, r, row.shown || row.key); } catch { /* a failed push is not retried this episode */ }
+      }
     } else {
       told.delete(row.key);
     }
