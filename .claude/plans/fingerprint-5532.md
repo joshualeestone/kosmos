@@ -143,3 +143,12 @@ company, and `thisComputer` cannot tell them apart.
   hits today); salt and company are checked before the platform, so a malformed one is the same error everywhere; the
   give-up boundary is pinned at exactly GIVE_UP_AFTER; a test title now says what it checks; this plan's summary is
   current.
+
+## Review 12 (blind, sonnet)
+- FIXED (from my review-9/10 rule): "no id here" needs the hardware block without an id on TWO reads in a row, a
+  minute apart; one such answer can be a dump cut short after its header line, and a good read resets the streak
+  (tests; one-read mutation reddens).
+- FIXED: the guard's failure message says only engine/computerprint.js may read the hardware, and that the Windows
+  MachineGuid arm belongs there.
+- NOT TAKEN: skipping the real-ioreg arm when ioreg is blocked (on a Mac that cannot read it the failure is real and
+  says so); trimming the UUID and SALT exports (the tests use them).

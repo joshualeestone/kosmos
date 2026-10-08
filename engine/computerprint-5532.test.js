@@ -103,7 +103,8 @@ test('#5532 v1.5: no file but computerprint.js uses a known spelling of a raw ha
     if (READ.test(text)) hits.push(f);
     if (/_testRunner|_testClock|_testFingerprint/.test(text) && !/\.test\.js$/.test(f)) swaps.push(f);
   }
-  assert.deepEqual(hits, [], 'another file reads the raw hardware id: ' + hits.join(', '));
+  assert.deepEqual(hits, [], 'another file reads (or names a way to read) the raw hardware id: ' + hits.join(', ')
+    + '. Only engine/computerprint.js may; add a reader there (the Windows MachineGuid arm belongs there too).');
   assert.deepEqual(swaps, [], 'the test-only reader swap is called outside the tests: ' + swaps.join(', '));
 });
 
@@ -136,7 +137,15 @@ test('#5532 v1.5 reviews 7 to 9: printFor gives ONE answer: send the print, send
   assert.deepEqual(cp.printFor(SALT, ORG), { send: 'none' });
   // Review 8: ioreg answers WITH its hardware block and no id (some VMs): a lasting 'none', not an endless wait.
   cp._testRunner(() => VM, { platform: 'darwin', now: 5 });
+  assert.deepEqual(cp.printFor(SALT, ORG), { send: 'later' }, 'one block without an id (possibly a cut-off dump) was taken as lasting (review 12)');
+  cp._testClock(5 + cp.RETRY_AFTER_FAIL_MS + 1);
   assert.deepEqual(cp.printFor(SALT, ORG), { send: 'none' }, 'a computer with no hardware id would wait forever');
+  // A cut-off dump followed by a good one is a computer WITH an id: the streak resets.
+  let k = 0;
+  cp._testRunner(() => (k++ === 0 ? VM : SAMPLE), { platform: 'darwin', now: 5 });
+  assert.deepEqual(cp.printFor(SALT, ORG), { send: 'later' });
+  cp._testClock(5 + cp.RETRY_AFTER_FAIL_MS + 1);
+  assert.equal(cp.printFor(SALT, ORG).send, 'print');
   // Review 9: a truncated or garbled answer is a failed read to retry, never 'none'.
   cp._testRunner(() => 'garbage, cut off', { platform: 'darwin', now: 5 });
   assert.deepEqual(cp.printFor(SALT, ORG), { send: 'later' }, 'one odd ioreg answer would flag a pinned computer as a copy');

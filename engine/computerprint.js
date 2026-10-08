@@ -66,6 +66,7 @@ const RETRY_AFTER_FAIL_MS = 60 * 1000;
 let failedAt = null;   // when the last read failed, or null (never 0 as a sentinel: a clock can read 0 in a test)
 let failures = 0;      // failed reads in a row
 let noIdHere = false;  // ioreg's hardware block was there and has no IOPlatformUUID (some VMs): a lasting answer
+let noIdStreak = 0;    // such answers in a row: one can be a cut-off dump, so it takes two (review 12)
 /* After this many failed reads in a row (about ten minutes at one a minute), stop deferring and send without a print
    (review 9). On a computer that had a print pinned, the company then asks the person to make this computer the work
    Kosmos again, with consent: a recoverable end, where an endless wait would never let it enroll or leave. */
@@ -100,7 +101,9 @@ function hardwareId() {
   failures += 1;
   /* "No id here" only when ioreg answered WITH its hardware block and that block has no UUID key at all (review 9):
      a truncated or garbled answer is a failed read to retry, never a reason to send without a print. */
-  noIdHere = ran && /^\+-o .*<class IOPlatformExpertDevice\b/m.test(out) && !/"IOPlatformUUID"\s*=/.test(out);   // the block's own header line
+  const blockWithoutId = ran && /^\+-o .*<class IOPlatformExpertDevice\b/m.test(out) && !/"IOPlatformUUID"\s*=/.test(out);   // the block's own header line
+  noIdStreak = blockWithoutId ? noIdStreak + 1 : 0;
+  noIdHere = noIdStreak >= 2;   // the same answer twice, a minute apart: a lasting "no id", not a dump cut short
   return null;
 }
 
@@ -155,6 +158,7 @@ function _testRunner(fn, opts) {
   failedAt = null;
   failures = 0;
   noIdHere = false;
+  noIdStreak = 0;
 }
 /* TESTS ONLY: move the test clock without clearing the cache (for the retry-wait test). */
 function _testClock(now) { testNow = now; }
