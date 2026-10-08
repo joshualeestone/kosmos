@@ -12,7 +12,7 @@ const br = require('./backuprestore');
 const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
 
 /* A sink that records everything: committed files, aborted paths, and every call in order. */
-function memorySink({ failWriteOn } = {}) {
+function memorySink({ failWriteOn, failCommitOn, failAbortOn } = {}) {
   const committed = new Map(), aborted = [], calls = [];
   return {
     committed, aborted, calls,
@@ -21,8 +21,8 @@ function memorySink({ failWriteOn } = {}) {
       calls.push(`begin ${path}`);
       return {
         async write(buf) { if (path === failWriteOn) throw new Error('disk full'); parts.push(Buffer.from(buf)); },
-        async commit() { calls.push(`commit ${path}`); committed.set(path, Buffer.concat(parts)); },
-        async abort() { calls.push(`abort ${path}`); aborted.push(path); },
+        async commit() { calls.push(`commit ${path}`); if (path === failCommitOn) throw new Error('rename failed'); committed.set(path, Buffer.concat(parts)); },
+        async abort() { calls.push(`abort ${path}`); aborted.push(path); if (path === failAbortOn) throw new Error('unlink failed'); },
       };
     },
   };
@@ -43,17 +43,17 @@ function backup(files) {
 const rand = (n) => crypto.randomBytes(n);
 
 /* One sealed chunk, and a manifest over hand-written entries, for the entry-level refusals. */
-function handMade(entries) {
+function handMade(entries, { skipped } = {}) {
   const member = hpkeKeyPair(), nk = crypto.randomBytes(32), dev = crypto.generateKeyPairSync('ed25519');
   const ctx = { org: 'o', member: 'm', epoch: 'e', period: 'p', snapshot: 's' };
   const data = Buffer.from('x'.repeat(100));
   const { name, object } = bf.sealNamedChunk(member.pk, nk, data);
   const entry = (path, over = {}) => ({ path, chunks: [name], sha256: sha(data), size: data.length, ...over });
-  const m = bf.sealManifest(member.pk, dev.privateKey, ctx, { files: entries(entry, name) });
+  const m = bf.sealManifest(member.pk, dev.privateKey, ctx, skipped ? { files: entries(entry, name), skipped } : { files: entries(entry, name) });
   const fetched = [];
-  const run = (sink = memorySink()) => br.restoreSnapshot({ memberSk: member.sk, namingKey: nk, devicePubAtSnapshot: dev.publicKey, ctx, manifestObject: m,
-    fetchChunk: (n) => { fetched.push(n); return n === name ? object : null; }, sink }).then((r) => ({ r, sink }));
-  return { run, fetched, data };
+  const run = (sink = memorySink(), o = {}) => br.restoreSnapshot({ memberSk: member.sk, namingKey: nk, devicePubAtSnapshot: dev.publicKey, ctx, manifestObject: m,
+    fetchChunk: (n) => { fetched.push(n); return n === name ? object : null; }, sink, ...o }).then((r) => ({ r, sink }));
+  return { run, fetched, data, name, object };
 }
 
 test('#5536 a snapshot restores byte for byte through the sink, with what the backup skipped reported', async () => {
@@ -112,7 +112,7 @@ test('#5536 a sink that fails to write aborts the file and does not commit it', 
 
 test('#5536 unsafe paths are refused before anything is fetched (control: a plain path restores)', async () => {
   const bad = ['../escape.md', '..\\escape.md', 'a/../../b', '/etc/x', '\\\\server\\share', 'C:/x', 'a/C:/x', 'file.txt:ads', 'a//b', '.', 'a/./b',
-    'nul\0.md', 'tab\there', 'CON', 'nul.txt', 'a/com1.log', 'trailing.', 'trailing ', ' ..', ''];
+    'nul\0.md', 'tab\there', 'lone\ud800.md', 'zero\u200bwidth.md', 'CON', 'nul.txt', 'a/com1.log', 'trailing.', 'trailing ', ' ..', ''];
   const { run, fetched } = handMade((entry) => [...bad.map((p) => entry(p)), entry('ok.md'), entry('.hidden/fine.md')]);
   const { r, sink } = await run();
   assert.deepEqual(r.restored, ['ok.md', '.hidden/fine.md'], 'CONTROL: plain relative paths restore');
@@ -152,7 +152,7 @@ test('#5536 a recorded size or hash that does not match the content is refused, 
   assert.equal(why['negative.md'], 'malformed entry or unsafe path');
   assert.equal(why['repeated.md'], 'the file does not match the size recorded at upload', 'stops at the recorded size, not after 1000 chunks');
   assert.equal(sink.calls.filter((c) => c === 'abort repeated.md').length, 1);
-  assert.equal(fetched.length, 6, 'one fetch each for four files, none for the negative size, two for the repeated chunk');
+  assert.equal(fetched.length, 6, 'wrong-hash, too-big, too-small and ok fetch once each, negative never, repeated twice');
   assert.ok(sink.committed.get('ok.md').equals(data));
 });
 
@@ -163,4 +163,31 @@ test('#5536 shrinkWarning flags a sudden shrink and stays quiet otherwise', () =
   assert.equal(br.shrinkWarning(m(100, 10), m(95, 10)), null, 'CONTROL: a small change is not a warning');
   assert.equal(br.shrinkWarning(m(0, 0), m(5, 5)), null, 'growth from nothing is not a warning');
   assert.match(br.shrinkWarning(m(10, 1000), { files: [...m(9, 1).files, { size: -(10 ** 15) }] }) || '', /size fell from 10000 to 9 bytes/, 'a negative size is not counted');
+});
+
+test('#5536 a fetched object larger than any real chunk is refused; a Uint8Array is accepted (control)', async () => {
+  const { run, object } = handMade((entry) => [entry('a.md')]);
+  const big = await run(memorySink(), { maxChunkObject: object.length - 1 });
+  assert.deepEqual(big.r.failed, [{ path: 'a.md', why: 'a chunk is larger than any real chunk' }]);
+  const ok = await run(memorySink(), { maxChunkObject: object.length });
+  assert.deepEqual(ok.r.restored, ['a.md'], 'CONTROL: exactly at the cap restores');
+  const u8 = await run(memorySink(), { fetchChunk: () => new Uint8Array(object) });
+  assert.deepEqual(u8.r.restored, ['a.md'], 'a Uint8Array from a fetch wrapper restores');
+  const str = await run(memorySink(), { fetchChunk: () => 'not bytes' });
+  assert.equal(str.r.failed[0].why, 'a chunk did not verify (forged, swapped or damaged)');
+});
+
+test('#5536 a commit that throws fails the file and aborts it, even when the abort throws too', async () => {
+  const { run } = handMade((entry) => [entry('a.md'), entry('b.md'), entry('c.md')]);
+  const sink = memorySink({ failCommitOn: 'b.md', failAbortOn: 'b.md' });
+  const { r } = await run(sink);
+  assert.deepEqual(r.restored, ['a.md', 'c.md'], 'CONTROL: the others restore, and the restore carries on');
+  assert.deepEqual(r.failed, [{ path: 'b.md', why: 'the file could not be written' }]);
+  assert.deepEqual(sink.calls.filter((c) => c.endsWith('b.md')), ['begin b.md', 'commit b.md', 'abort b.md']);
+});
+
+test('#5536 skippedAtBackup keeps only well-formed { path, why } entries', async () => {
+  const { run } = handMade((entry) => [entry('a.md')], { skipped: [{ path: '.env', why: 'environment file', extra: 1 }, { path: 5 }, null, 'x', { path: 'k', why: 'key' }] });
+  const { r } = await run();
+  assert.deepEqual(r.skippedAtBackup, [{ path: '.env', why: 'environment file' }, { path: 'k', why: 'key' }]);
 });
