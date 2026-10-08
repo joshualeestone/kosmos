@@ -169,42 +169,46 @@ const EXCUSED = {
   // genuine caller existing, not the sweep. (forgetKey and unwireApiKeyHelper were
   // already reachable via server.js's failed-store cleanup.)
   _nextIdForTests: 'test seam (#4888): engine/messages.js says which id the NEXT post will get (the larger of the log\'s highest and the in-memory high mark, +1), so a test that predicts ids does not have to re-derive the minting rule; a refused send now burns its id, which broke tests that counted. Production mints through mintId and never calls it.',
-  // #5548: newly visible test seams. Before #5548 this guard could not read a one-line exports block (184 of 253
-  // modules), so these were never checked. Each is an injector or reset whose default restores the real behaviour,
-  // and only its own tests call it (measured when the guard first read the module).
-  allowSandboxInstallForTests: 'test seam (#5548): engine/agystatus.js lets its tests inject or reset it; production never calls it.',
-  setInstallerForTests: 'test seam (#5548): engine/agystatus.js lets its tests inject or reset it; production never calls it.',
-  setLastFileForTests: 'test seam (#5548): engine/agystatus.js lets its tests inject or reset it; production never calls it.',
-  _lock: 'test seam (#5548): engine/agytrust.js lets its tests inject or reset it; production never calls it.',
-  _setNonceClock: 'test seam (#5548): engine/boardauth.js lets its tests inject or reset it; production never calls it.',
-  setInstalledCli: 'test seam (#5548): engine/boardrestart.js lets its tests inject or reset it; production never calls it.',
-  setBoardOps: 'test seam (#5548): engine/boardrestart.js lets its tests inject or reset it; production never calls it.',
-  setUid: 'test seam (#5548): engine/boardrestart.js lets its tests inject or reset it; production never calls it.',
-  setReaderForTests: 'test seam (#5548): engine/claudeloginlive.js lets its tests inject or reset it; production never calls it.',
-  _resetRate: 'test seam (#5548): engine/communityfollow.js lets its tests inject or reset it; production never calls it.',
-  _freshDownReset: 'test seam (#5548): engine/communityread.js lets its tests inject or reset it; production never calls it.',
-  resetSleepPaneCache: 'test seam (#5548): engine/machine.js lets its tests inject or reset it; production never calls it.',
-  setAppRevealRunner: 'test seam (#5548): engine/machine.js lets its tests inject or reset it; production never calls it.',
-  setSystemConfigPaths: 'test seam (#5548): engine/orgchartcodex.js lets its tests inject or reset it; production never calls it.',
-  setVersion: 'test seam (#5548): engine/orgchartcodex.js lets its tests inject or reset it; production never calls it.',
-  setBin: 'test seam (#5548): engine/orgchartcodex.js lets its tests inject or reset it; production never calls it.',
-  setReaderForTest: 'test seam (#5548): engine/orgchartfile.js lets its tests inject or reset it; production never calls it.',
-  setModelRunner: 'test seam (#5548): engine/orgchartfile.js lets its tests inject or reset it; production never calls it.',
-  setModelAvailable: 'test seam (#5548): engine/orgchartfile.js lets its tests inject or reset it; production never calls it.',
-  _ageFallbackForTests: 'test seam (#5548): engine/personlanguage.js lets its tests inject or reset it; production never calls it.',
-  setAvailableForTests: 'test seam (#5548): engine/phonenotify.js lets its tests inject or reset it; production never calls it.',
-  setClock: 'test seam (#5548): engine/phonenotify.js lets its tests inject or reset it; production never calls it.',
-  resetCooldownForTests: 'test seam (#5548): engine/phonenotify.js lets its tests inject or reset it; production never calls it.',
-  _files: 'test seam (#5548): engine/restartnote.js lets its tests inject or reset it; production never calls it.',
-  _parseCmdlines: 'test seam (#5548): engine/runningas.js lets its tests inject or reset it; production never calls it.',
-  setPartsLimitForTests: 'test seam (#5548): engine/tasks.js lets its tests inject or reset it; production never calls it.',
-  setCatalogue: 'test seam (#5548): engine/teamseed.js lets its tests inject or reset it; production never calls it.',
-  setResolver: 'test seam (#5548): engine/unfurl.js lets its tests inject or reset it; production never calls it.',
-  _agyCache: 'test seam (#5548): engine/usageproviders.js lets its tests inject or reset it; production never calls it.',
-  setFileForTests: 'test seam (#5548): engine/whatsnew.js lets its tests inject or reset it; production never calls it.',
-  setLiveness: 'test seam (#5548): engine/win32job.js lets its tests inject or reset it; production never calls it.',
-  setRunningClock: 'test seam (#5548): engine/win32job.js lets its tests inject or reset it; production never calls it.',
-  setAlive: 'test seam (#5548): engine/win32stop.js lets its tests inject or reset it; production never calls it.',
+};
+
+/* #5548: test seams that became visible when this guard learned to read every exports block. Each is an injector
+   or reset whose default restores the real behaviour, and only its own tests call it (measured when the guard first
+   read the module). Keyed by FILE, like PENDING_5548, because several names are generic (setClock, setBin, _lock):
+   a by-name excuse would also hide a real orphan of the same name in another module (#5548 review 2). */
+const SEAMS_5548 = {
+  allowSandboxInstallForTests: 'engine/agystatus.js',
+  setInstallerForTests: 'engine/agystatus.js',
+  setLastFileForTests: 'engine/agystatus.js',
+  _lock: 'engine/agytrust.js',
+  _setNonceClock: 'engine/boardauth.js',
+  setInstalledCli: 'engine/boardrestart.js',
+  setBoardOps: 'engine/boardrestart.js',
+  setUid: 'engine/boardrestart.js',
+  setReaderForTests: 'engine/claudeloginlive.js',
+  _resetRate: 'engine/communityfollow.js',
+  _freshDownReset: 'engine/communityread.js',
+  resetSleepPaneCache: 'engine/machine.js',
+  setAppRevealRunner: 'engine/machine.js',
+  setSystemConfigPaths: 'engine/orgchartcodex.js',
+  setVersion: 'engine/orgchartcodex.js',
+  setBin: 'engine/orgchartcodex.js',
+  setReaderForTest: 'engine/orgchartfile.js',
+  setModelRunner: 'engine/orgchartfile.js',
+  setModelAvailable: 'engine/orgchartfile.js',
+  _ageFallbackForTests: 'engine/personlanguage.js',
+  setAvailableForTests: 'engine/phonenotify.js',
+  setClock: 'engine/phonenotify.js',
+  resetCooldownForTests: 'engine/phonenotify.js',
+  _files: 'engine/restartnote.js',
+  _parseCmdlines: 'engine/runningas.js',
+  setPartsLimitForTests: 'engine/tasks.js',
+  setCatalogue: 'engine/teamseed.js',
+  setResolver: 'engine/unfurl.js',
+  _agyCache: 'engine/usageproviders.js',
+  setFileForTests: 'engine/whatsnew.js',
+  setLiveness: 'engine/win32job.js',
+  setRunningClock: 'engine/win32job.js',
+  setAlive: 'engine/win32stop.js',
 };
 
 /* #5548 slice 1: exports that became visible when this guard learned to read every exports block, and that are
@@ -285,13 +289,14 @@ function codeOnly(src) {
   let depth = 0;
   let prev = ''; // last significant code char ('w' after a word)
   let lastWord = '', wordAfterDot = false, prevPrev = '';
+  let afterOpen = false; // just entered a template ${: what follows starts an expression
   function str(q) { const s = i; i++; while (i < n && src[i] !== q) { if (src[i] === '\\') i++; else if (src[i] === '\n') break; i++; } i++; blank(s, i); }
   function tmpl(resume) { // at a backtick, or (resume) just after the } that closes a ${...}
     let s = i; if (!resume) i++;
     while (i < n) {
       if (src[i] === '\\') { i += 2; continue; }
       if (src[i] === '`') { i++; blank(s, i); return; }
-      if (src[i] === '$' && src[i + 1] === '{') { blank(s, i); i += 2; stack.push(depth); depth++; return; }
+      if (src[i] === '$' && src[i + 1] === '{') { blank(s, i); i += 2; stack.push(depth); depth++; afterOpen = true; return; }
       i++;
     }
     blank(s, i);
@@ -301,7 +306,7 @@ function codeOnly(src) {
     if (c === '/' && d === '/') { const s = i; while (i < n && src[i] !== '\n') i++; blank(s, i); continue; }
     if (c === '/' && d === '*') { const s = i; i = src.indexOf('*/', i + 2); i = i < 0 ? n : i + 2; blank(s, i); continue; }
     if (c === '"' || c === "'") { str(c); prev = 'a'; continue; }
-    if (c === '`') { tmpl(); prev = 'a'; continue; }
+    if (c === '`') { tmpl(); prev = afterOpen ? '{' : 'a'; afterOpen = false; continue; }
     /* A `/` starts a regex after an operator or a keyword such as return; it is division after a value: a name,
        `)`, `]`, `}` (an object or a block, read as a value: rarer the other way), a postfix `++`/`--`, or a
        keyword used as a property (`x.return / 2`). Review 1 of #5548 found the `}`, `++` and `.return` cases. */
@@ -313,7 +318,7 @@ function codeOnly(src) {
       blank(s, i); prev = 'a'; continue;
     }
     if (c === '{') depth++;
-    if (c === '}') { depth--; if (stack.length && depth === stack[stack.length - 1]) { stack.pop(); i++; tmpl(true); prev = 'a'; continue; } }
+    if (c === '}') { depth--; if (stack.length && depth === stack[stack.length - 1]) { stack.pop(); i++; tmpl(true); prev = afterOpen ? '{' : 'a'; afterOpen = false; continue; } }
     if (/[A-Za-z_$]/.test(c)) {   // a word: remember it, so `return /re/` reads as a regex and `x / y` as division
       const s = i; while (i < n && /[\w$]/.test(src[i])) i++;
       wordAfterDot = prev === '.'; lastWord = src.slice(s, i); prevPrev = prev; prev = 'w'; continue;
@@ -389,11 +394,12 @@ function findOrphans(modules, callerSources, tests, skip) {
   return orphans;
 }
 
-const engineModules = engineFiles.map((f) => ({ rel: path.join('engine', f), text: read(path.join('engine', f)) }));
+// posix keys, so the file-keyed lists compare the same on Windows (#5548 review 2)
+const engineModules = engineFiles.map((f) => ({ rel: path.posix.join('engine', f), text: read(path.join('engine', f)) }));
 
-/* EXCUSED is by name (an excuse covers the name wherever it is exported); PENDING_5548 is by file, so a pending
+/* EXCUSED is by name (an excuse covers the name wherever it is exported); SEAMS_5548 and PENDING_5548 are by file, so a pending
    name cannot cover a new orphan of the same name in another module (#5548 review 1). */
-const skipped = (n, rel) => Boolean(EXCUSED[n]) || PENDING_5548[n] === rel;
+const skipped = (n, rel) => Boolean(EXCUSED[n]) || SEAMS_5548[n] === rel || PENDING_5548[n] === rel;
 
 test('no engine export is tested, excused by nobody, and reachable from nowhere', () => {
   const orphans = findOrphans(engineModules, sources, testBlob, skipped);
@@ -418,6 +424,12 @@ test('#5548: the guard reads every engine exports block', () => {
   assert.ok(engineModules.length > 200, 'found only ' + engineModules.length + ' engine modules; a moved directory looks like this');
 });
 
+test('#5548: every seam excused by file is still exported there', () => {
+  for (const [n, file] of Object.entries(SEAMS_5548)) {
+    assert.ok(exportedNames(read(file)).includes(n), file + ' no longer exports ' + n + ': remove it from SEAMS_5548');
+  }
+});
+
 test('#5548: a pending name covers only its own file', () => {
   const [name, file] = Object.entries(PENDING_5548)[0];
   assert.equal(skipped(name, file), true);
@@ -425,7 +437,7 @@ test('#5548: a pending name covers only its own file', () => {
 });
 
 test('#5548: the pending list only shrinks (a name that gained a caller comes off it)', () => {
-  const still = new Set(findOrphans(engineModules, sources, testBlob, (n) => EXCUSED[n]));
+  const still = new Set(findOrphans(engineModules, sources, testBlob, (n, rel) => Boolean(EXCUSED[n]) || SEAMS_5548[n] === rel));
   const fixed = Object.keys(PENDING_5548).filter((n) => !still.has(PENDING_5548[n] + ' exports ' + n));
   assert.deepEqual(fixed, [], 'no longer orphans: remove them from PENDING_5548 (and from the slice-2 list on #5548)');
   for (const [n, file] of Object.entries(PENDING_5548)) {
@@ -467,6 +479,9 @@ test('#5548 self-test: a one-line exports block, a comment mention and a string 
   // a real regex after return is still a regex: its quote must not swallow the call after it
   const re = 'function realCall() {}\nfunction user() { return /["]/.test(realCall()); }\nmodule.exports = { realCall, user };\n';
   assert.deepEqual(findOrphans([{ rel: 'engine/q.js', text: re }], [{ f: 'server.js', text: 'user()' }], 'realCall() user()', () => false), []);
+  // review 2: a regex at the start of a template ${} is a regex, so its quote does not hide the code after it
+  const tre = 'function viaTemplate() {}\nfunction user(s) { return `${/\'/.test(s) ? viaTemplate() : 0}`; }\nmodule.exports = { viaTemplate, user };\n';
+  assert.deepEqual(findOrphans([{ rel: 'engine/t.js', text: tre }], [{ f: 'server.js', text: 'user()' }], 'viaTemplate() user()', () => false), []);
   const multi2 = 'function lonelyExport() {}\nmodule.exports = {\n  lonelyExport, // lonelyExport\n};\n';
   assert.deepEqual(findOrphans([{ rel: 'engine/m.js', text: multi2 }], [], 'lonelyExport()', () => false), ['engine/m.js exports lonelyExport']);
 });
