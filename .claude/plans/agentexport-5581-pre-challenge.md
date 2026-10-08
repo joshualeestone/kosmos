@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: agentexport-5581
-diff_hash: b789bd3aeb6caca8c44ab46f76e6a312a080a3adb0f4aa16943e569e177cecb2
+diff_hash: d970a8bc32054ca5c3fbb2f3a99a50d791bd8d8523bc4d27ee500992a64b83ad
 validation: passed (browser check render-agent-export-5581 13/13; server.test 356, gate 28, agent-import 18, agentfile 9; 11 guard files green; rebased on origin/main)
 subdir_audit: passed
 timestamp: 2026-10-08T12:59:18Z
@@ -38,3 +38,4 @@ The change (#5581): an agent can be taken out of Kosmos as one file. GET /api/ag
 #### Iteration 4 (sonnet)
 - Nothing above NIT. NITs recorded in the plan and on the card.
 - Rebased onto origin/main (13:02 CDT 2026-10-08). Main had gained #5548's PENDING_5548 list in engine.reachable.test.js, which names exportAgent; this branch gives exportAgent its caller, so the list's only-shrinks ratchet failed on the main+PR tree (found by building that tree, not by CI, whose run predated #5548). One commit removes that single list entry; no product code changed. engine.reachable.test.js then fails only on main's own known costOf line (#5600). diff_hash recomputed.
+- Rebased onto origin/main after #5600 (15:27 CDT 2026-10-08). Conflict in engine.reachable.test.js: main replaced PENDING_5548 with TRIAGED_5548, which lists exportAgent as unreachable 'wire or delete on #5581'. This branch is that wiring, so main's version was taken and that one entry removed. Merge-tree check: engine.reachable adds nothing. diff_hash recomputed.
