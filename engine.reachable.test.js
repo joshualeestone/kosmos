@@ -152,7 +152,7 @@ const EXCUSED = {
   // genuine caller existing, not the sweep. (forgetKey and unwireApiKeyHelper were
   // already reachable via server.js's failed-store cleanup.)
   _nextIdForTests: 'test seam (#4888): engine/messages.js says which id the NEXT post will get (the larger of the log\'s highest and the in-memory high mark, +1), so a test that predicts ids does not have to re-derive the minting rule; a refused send now burns its id, which broke tests that counted. Production mints through mintId and never calls it.',
-  reachForAgent: 'the #5309 part 2 slice-1 signal: engine/pluginreach.js reachForAgent returns, per agent, whether the plugins the person installed in their own app reach that agent. Built ahead of its caller on purpose: slice 2 wires it onto the /api/status per-agent agents map and a board indicator (card #5309); no live caller until then. The pure reachFrom it wraps stays reachable through it.',
+  reachForAgent: 'the #5309 part 2 slice-1 signal: engine/pluginreach.js reachForAgent returns, per agent, whether the plugins the person installed in their own app reach that agent. Built ahead of its caller on purpose: slice 2 wires it onto the /api/status per-agent agents map and a board indicator (card #5309); no live caller until then. DELETE this entry when slice 2 adds that caller, so it cannot later mask a genuinely dead export. The pure reachFrom it wraps stays reachable through it.',
 };
 
 const engineDir = path.join(__dirname, 'engine');

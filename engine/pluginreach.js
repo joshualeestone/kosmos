@@ -42,40 +42,44 @@ const NOT_APPLICABLE = 'not-applicable';             // non-Claude/Codex runner:
 const UNKNOWN = 'unknown';                            // the agent's runner/home could not be read
 
 /*
- * Pure decision. Never throws for any input: a non-string or non-absolute home, or an unreadable
- * runner, yields UNKNOWN rather than a thrown TypeError or a spurious verdict.
+ * Pure decision. Never throws for ANY input: a null or non-object argument, a non-string / relative /
+ * '..'-bearing home or agent dir, or an unreadable runner all yield UNKNOWN (reaches: null), never a
+ * thrown TypeError or a spurious verdict.
  *
  *   runner           'claude' | 'codex' | 'gemini' | 'grok' | ... (case-insensitive, trimmed)
- *   agentClaudeDir   the agent's EFFECTIVE Claude config dir (absolute), or null/'' for a clean
+ *   agentClaudeDir   the agent's EFFECTIVE Claude config dir (absolute, no '..'), or null/'' for a clean
  *                    default launch (CLAUDE_CONFIG_DIR unset). Only read for a Claude agent.
  *                    Prefer the pane's live CLAUDE_CONFIG_DIR where available (slice 2): it catches the
  *                    EFFECTIVE_CCD leak-pin that a default-account plist does not record. The plist
  *                    configDir is the fallback.
  *   personClaudeHome the person's own Claude home (absolute, = accounts.homeDir()/.claude)
  */
-function reachFrom({ runner, agentClaudeDir, personClaudeHome } = {}) {
+function reachFrom(input) {
+  const { runner, agentClaudeDir, personClaudeHome } = (input && typeof input === 'object') ? input : {};
   const r = typeof runner === 'string' ? runner.trim().toLowerCase() : '';
   if (r === 'codex') return { reaches: false, reason: CODEX_ISOLATED };
   if (r === 'claude') {
-    // The person's home must be a usable ABSOLUTE path, or reach cannot be judged for ANY agent on this
-    // runner -- INCLUDING a default launch, which shares exactly this home. A relative or empty home is an
-    // anomalous environment (e.g. a relative AGENT_WORKFORCE_HOME), so answer UNKNOWN, never guess. This
-    // guard is deliberately ABOVE the default-launch return: a default launch on a non-absolute home would
-    // otherwise report a reaches:true the signal cannot stand behind (kosmos#5309 review, Sonya).
+    // The person's home must be a usable ABSOLUTE path with no '..' segment, or reach cannot be judged for
+    // ANY agent on this runner -- INCLUDING a default launch, which shares exactly this home. A relative,
+    // empty, or '..'-bearing home is an anomalous environment (e.g. a relative AGENT_WORKFORCE_HOME), so
+    // answer UNKNOWN, never guess. This guard sits ABOVE the default-launch return on purpose: a default
+    // launch on such a home would otherwise report a reaches:true the signal cannot stand behind.
     // (typeof check first: path.isAbsolute throws on a non-string.)
-    if (typeof personClaudeHome !== 'string' || !path.isAbsolute(personClaudeHome)) {
+    if (typeof personClaudeHome !== 'string' || !path.isAbsolute(personClaudeHome) || personClaudeHome.split(path.sep).includes('..')) {
       return { reaches: null, reason: UNKNOWN };
     }
     // Clean default launch: CLAUDE_CONFIG_DIR unset -> effective dir is the person's (absolute) home.
     if (agentClaudeDir == null || agentClaudeDir === '') return { reaches: true, reason: REACHES };
-    // The agent dir must also be a usable absolute path to compare (path.resolve would resolve a relative
-    // value against the process cwd and could spuriously match): report UNKNOWN, never guess.
-    if (typeof agentClaudeDir !== 'string' || !path.isAbsolute(agentClaudeDir)) {
+    // The agent dir must be a usable absolute path with NO '..' segment. path.resolve is purely lexical:
+    // it collapses '..' WITHOUT following symlinks, so a crafted '/p/link/../.claude' could otherwise
+    // resolve equal to the person home and yield a spurious reaches:true. Reject '..' (and a relative or
+    // non-string dir) as UNKNOWN rather than risk the dangerous direction.
+    if (typeof agentClaudeDir !== 'string' || !path.isAbsolute(agentClaudeDir) || agentClaudeDir.split(path.sep).includes('..')) {
       return { reaches: null, reason: UNKNOWN };
     }
-    // Compare RESOLVED paths so 'h/./.claude' and 'h/.claude/' are not read as different folders.
-    // (Not symlink- or case-resolved: a case/symlink difference reads as a separate folder, which is
-    // the safe direction -- it over-reports a mismatch, never a spurious reach.)
+    // Compare RESOLVED paths so 'h/./.claude' and 'h/.claude/' are not read as different folders. Both
+    // dirs are '..'-free absolute paths here, so a remaining case/symlink difference reads as a separate
+    // folder -- the safe direction: it over-reports a mismatch, never a spurious reach.
     if (path.resolve(agentClaudeDir) === path.resolve(personClaudeHome)) {
       return { reaches: true, reason: REACHES };
     }
@@ -88,8 +92,9 @@ function reachFrom({ runner, agentClaudeDir, personClaudeHome } = {}) {
 /*
  * Thin resolver for a live agent by name. Mirrors status.claudeAccountDirOf: the plist's configDir
  * when set, else (for Claude) the person's ~/.claude via the null-default in reachFrom. `deps` is
- * injectable so tests need no real plist. Runner interpretation is left entirely to reachFrom, so the
- * two never normalise the runner differently.
+ * injectable so tests need no real plist. Runner AND dir interpretation are left entirely to reachFrom,
+ * so the resolver and the core never judge the same input differently. A readJob or homeDir that throws,
+ * or no readable job, yields UNKNOWN (the tests lock this in).
  *
  * Slice 2: where the live pane env is available, pass the pane's CLAUDE_CONFIG_DIR as agentClaudeDir
  * instead of the plist value, to catch the EFFECTIVE_CCD leak-pin on a default-account agent (see the
@@ -104,9 +109,10 @@ function reachForAgent(agentName, deps = {}) {
   try { job = create.readJob(agentName); } catch { job = null; }
   if (!job) return { reaches: null, reason: UNKNOWN };
   const runner = job.runner || 'claude';
-  // Pass the plist configDir straight through (null when unset); reachFrom reads it only for Claude and
-  // treats null as the default home. No runner check here, so no second normalisation to drift.
-  const configDir = (typeof job.configDir === 'string' && job.configDir) ? job.configDir : null;
+  // Pass configDir through UNCHANGED (only null/undefined -> null); reachFrom judges its type and shape,
+  // so a non-string value becomes UNKNOWN there rather than a false default-launch here. Coercing a
+  // non-string to null here would make the resolver and the core disagree on the same input.
+  const configDir = (job.configDir === null || job.configDir === undefined) ? null : job.configDir;
   return reachFrom({ runner, agentClaudeDir: configDir, personClaudeHome });
 }
 

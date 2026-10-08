@@ -54,6 +54,20 @@ test('#5309 p2: a non-string agent dir or person-home is UNKNOWN and never throw
     { reaches: null, reason: UNKNOWN });
   assert.deepEqual(reachFrom({ runner: 'claude', agentClaudeDir: HOME, personClaudeHome: 123 }),
     { reaches: null, reason: UNKNOWN });
+  // A null or non-object argument must not throw (the `= {}` default only covers undefined).
+  assert.deepEqual(reachFrom(null), { reaches: null, reason: UNKNOWN });
+  assert.deepEqual(reachFrom(42), { reaches: null, reason: UNKNOWN });
+  assert.deepEqual(reachFrom(), { reaches: null, reason: UNKNOWN });
+});
+
+test('#5309 p2: a dir with a ".." segment is UNKNOWN, never a symlink-traversal spurious reach', () => {
+  // path.resolve is lexical: '/Users/person/x/../.claude' collapses to '/Users/person/.claude' WITHOUT
+  // following a symlink at x, so a crafted dir could otherwise compare equal to the person home. Reject
+  // '..' in either path.
+  assert.deepEqual(reachFrom({ runner: 'claude', agentClaudeDir: '/Users/person/x/../.claude', personClaudeHome: HOME }),
+    { reaches: null, reason: UNKNOWN });
+  assert.deepEqual(reachFrom({ runner: 'claude', agentClaudeDir: null, personClaudeHome: '/Users/person/x/../.claude' }),
+    { reaches: null, reason: UNKNOWN });
 });
 
 test('#5309 p2: Codex never reaches (isolated runtime, by design), whatever its dir', () => {
@@ -87,7 +101,7 @@ test('#5309 p2: an unreadable/non-string runner or missing person-home is UNKNOW
 });
 
 test('#5309 p2: a DEFAULT launch with a non-absolute/empty/non-string person-home is UNKNOWN, not reaches:true', () => {
-  // Regression (Sonya review, m4778): the default-launch return must sit BELOW the person-home
+  // Regression: the default-launch return must sit BELOW the person-home
   // absoluteness guard, so an anomalous relative/empty/non-string homeDir() (e.g. a relative
   // AGENT_WORKFORCE_HOME) does not yield a reaches:true the signal cannot stand behind. agentClaudeDir
   // null is the default launch (CLAUDE_CONFIG_DIR unset).
@@ -150,5 +164,15 @@ test('#5309 p2 resolver: no readable job, or homeDir throwing, is UNKNOWN', () =
   assert.deepEqual(reachForAgent('err', deps({ job: 'throw' })), { reaches: null, reason: UNKNOWN });
   // homeDir throwing -> personClaudeHome '' -> a Claude job cannot be judged -> UNKNOWN (not a guess).
   assert.deepEqual(reachForAgent('nohome', deps({ job: { runner: 'claude', configDir: '/Users/person/.claude-x' }, home: 'throw' })),
+    { reaches: null, reason: UNKNOWN });
+});
+
+test('#5309 p2 resolver: a non-string configDir is UNKNOWN, not a false default-launch reaches:true', () => {
+  // Regression: the resolver must pass configDir through unchanged and let reachFrom judge its type, so a
+  // non-string configDir (an object) does NOT get coerced to null and read as a default launch (which
+  // would be a false reaches:true). The resolver and the pure core must agree on the same input.
+  assert.deepEqual(reachForAgent('weird', deps({ job: { runner: 'claude', configDir: {} } })),
+    { reaches: null, reason: UNKNOWN });
+  assert.deepEqual(reachForAgent('weird2', deps({ job: { runner: 'claude', configDir: 7 } })),
     { reaches: null, reason: UNKNOWN });
 });
