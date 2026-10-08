@@ -18,45 +18,65 @@ test('#5532 v1.5: the IOPlatformUUID is read out of ioreg text, and nothing else
   assert.equal(cp.parseIoreg(''), null);
 });
 
-test('#5532 v1.5: the print is sha256(salt:id); the raw id never appears in it; a bad salt or no id gives null', () => {
-  const run = () => SAMPLE;
-  const p = cp.fingerprint(SALT, ORG, { platform: 'darwin', run });
+/* Every reader swap goes through the tests-only hook; fingerprint() itself takes only a salt and a company. */
+function withReader(t, run, opts) { cp._testRunner(run, opts); t.after(() => cp._testRunner()); }
+
+test('#5532 v1.5: the print is sha256(salt:company:id); the raw id never appears in it; anything missing gives null', (t) => {
+  withReader(t, () => SAMPLE, { platform: 'darwin' });
+  const p = cp.fingerprint(SALT, ORG);
   assert.match(p, /^[0-9a-f]{64}$/);
   assert.equal(p.includes('0A1B2C3D'), false);
   assert.equal(p, require('node:crypto').createHash('sha256').update(SALT + ':' + ORG + ':0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9').digest('hex'));
   // Review 3: one salt served to two companies must still give two prints, so a computer cannot be linked across them.
-  assert.notEqual(cp.fingerprint(SALT, 'org_other_2', { platform: 'darwin', run }), p, 'a reused salt linked one computer across two companies');
-  assert.equal(cp.fingerprint(SALT, '', { platform: 'darwin', run }), null, 'a print with no company');
-  assert.equal(cp.fingerprint(SALT, 'org with spaces', { platform: 'darwin', run }), null);
-  assert.notEqual(cp.fingerprint('cd'.repeat(16), ORG, { platform: 'darwin', run }), p, 'two accounts\' salts gave one print, so prints could be matched across accounts');
-  assert.equal(cp.fingerprint('short', ORG, { platform: 'darwin', run }), null, 'a malformed salt was used');
-  assert.equal(cp.fingerprint(SALT, ORG, { platform: 'darwin', run: () => '' }), null, 'a print with no hardware id');
-  assert.equal(cp.fingerprint(SALT, ORG, { platform: 'darwin', run: () => { throw new Error('ioreg missing'); } }), null);
-  assert.equal(cp.fingerprint(SALT, ORG, { platform: 'win32', run }), null, 'Windows answers null until the Windows owner builds MachineGuid');
-  assert.equal(cp.fingerprint(SALT, ORG, { platform: 'linux', run }), null);
+  assert.notEqual(cp.fingerprint(SALT, 'org_other_2'), p, 'a reused salt linked one computer across two companies');
+  assert.notEqual(cp.fingerprint('cd'.repeat(16), ORG), p, 'two salts gave one print');
+  assert.equal(cp.fingerprint('short', ORG), null, 'a malformed salt was used');
+  assert.equal(cp.fingerprint('abc'.repeat(11), ORG), null, 'an odd-length salt was used');
+  assert.equal(cp.fingerprint(SALT, ''), null, 'a print with no company');
+  assert.equal(cp.fingerprint(SALT, 'org with spaces'), null);
+  assert.equal(cp.fingerprint.length, 2, 'fingerprint() takes options again, so a caller could change how the hardware is read (review 4)');
 });
 
-test('#5532 v1.5: on a Mac, this computer\'s real print exists and is stable (nothing about the id is printed)', { skip: process.platform !== 'darwin' }, () => {
+test('#5532 v1.5: no hardware id, a failing ioreg, Windows and Linux all give null; another platform records no failure', (t) => {
+  cp._testRunner(() => '', { platform: 'darwin' });
+  assert.equal(cp.fingerprint(SALT, ORG), null, 'a print with no hardware id');
+  cp._testRunner(() => { throw new Error('ioreg missing'); }, { platform: 'darwin' });
+  assert.equal(cp.fingerprint(SALT, ORG), null);
+  let reads = 0;
+  cp._testRunner(() => { reads += 1; return SAMPLE; }, { platform: 'win32' });
+  t.after(() => cp._testRunner());
+  assert.equal(cp.fingerprint(SALT, ORG), null, 'Windows answers null until its owner builds MachineGuid');
+  assert.equal(reads, 0, 'ioreg was run on Windows');
+  cp._testRunner(() => SAMPLE, { platform: 'linux' });
+  assert.equal(cp.fingerprint(SALT, ORG), null);
+});
+
+test('#5532 v1.5: on a Mac, this computer\'s real print exists and is stable (nothing about the id is printed)', { skip: process.platform !== 'darwin' }, (t) => {
+  cp._testRunner();
   const a = cp.fingerprint(SALT, ORG);
   assert.ok(typeof a === 'string' && /^[0-9a-f]{64}$/.test(a), 'no print on this Mac (ioreg gave no IOPlatformUUID)');
   // Fresh reads, not the cache, and compared as a boolean so a failure can never print a value.
   const fresh = () => require('node:child_process').execFileSync('/usr/sbin/ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice'], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] });
-  const b = cp.fingerprint(SALT, ORG, { platform: 'darwin', run: fresh });
-  const c = cp.fingerprint(SALT, ORG, { platform: 'darwin', run: fresh });
+  cp._testRunner(fresh, { platform: 'darwin' });
+  const b = cp.fingerprint(SALT, ORG);
+  cp._testRunner(fresh, { platform: 'darwin' });
+  const c = cp.fingerprint(SALT, ORG);
+  t.after(() => cp._testRunner());
   assert.ok(a === b && b === c, 'the print changed between reads on one computer');
   assert.equal('hardwareId' in cp, false, 'the raw hardware id is exported, so any caller could log or send it');
 });
 
-test('#5532 v1.5: a read that fails is tried again, not remembered as "no print" for the whole run', { skip: process.platform !== 'darwin' }, (t) => {
+test('#5532 v1.5: a read that fails is tried again after a minute, not at once and not never; a good read is kept', (t) => {
   let n = 0;
-  cp._testRunner(() => { n += 1; if (n === 1) throw new Error('ioreg timed out'); return SAMPLE; });   // the UNSEAMED path, with its cache
-  t.after(() => cp._testRunner(null));
   const T = 1000000;
-  assert.equal(cp.fingerprint(SALT, ORG, { now: T }), null);
-  assert.equal(cp.fingerprint(SALT, ORG, { now: T + 1000 }), null, 'asked ioreg again at once after a failure');
+  withReader(t, () => { n += 1; if (n === 1) throw new Error('ioreg timed out'); return SAMPLE; }, { platform: 'darwin', now: T });
+  assert.equal(cp.fingerprint(SALT, ORG), null);
+  cp._testClock(T + 1000);
+  assert.equal(cp.fingerprint(SALT, ORG), null, 'asked ioreg again at once after a failure');
   assert.equal(n, 1, 'a hung ioreg would block the board on every call (review 2)');
-  assert.match(cp.fingerprint(SALT, ORG, { now: T + cp.RETRY_AFTER_FAIL_MS + 1 }) || '', /^[0-9a-f]{64}$/, 'a failed read was remembered for the whole run');
-  cp.fingerprint(SALT, ORG, { now: T + cp.RETRY_AFTER_FAIL_MS + 2 });
+  cp._testClock(T + cp.RETRY_AFTER_FAIL_MS + 1);
+  assert.match(cp.fingerprint(SALT, ORG) || '', /^[0-9a-f]{64}$/, 'a failed read was remembered for the whole run');
+  cp.fingerprint(SALT, ORG);
   assert.equal(n, 2, 'a successful read was not kept (read again)');
 });
 
@@ -64,6 +84,7 @@ test('#5532 v1.5: no file but computerprint.js uses a known spelling of a raw ha
   const fs = require('node:fs');
   const path = require('node:path');
   const root = path.join(__dirname, '..');
+  // Needs git (it lists tracked files); outside a checkout it throws, and the count below keeps it from passing empty.
   const files = require('node:child_process').execFileSync('git', ['-C', root, 'ls-files', '-z'], { encoding: 'utf8' }).split('\0')
     .filter((f) => /\.(js|mjs|cjs|sh|ps1|html)$/.test(f) && !/^engine\/computerprint(-5532\.test)?\.js$/.test(f));
   assert.ok(files.length > 300, 'the repo was not listed (' + files.length + ' files)');
@@ -77,7 +98,7 @@ test('#5532 v1.5: no file but computerprint.js uses a known spelling of a raw ha
     let text;
     try { text = fs.readFileSync(path.join(root, f), 'utf8'); } catch { continue; }
     if (READ.test(text)) hits.push(f);
-    if (text.includes('_testRunner') && !/\.test\.js$/.test(f)) swaps.push(f);
+    if (/_testRunner|_testClock/.test(text) && !/\.test\.js$/.test(f)) swaps.push(f);
   }
   assert.deepEqual(hits, [], 'another file reads the raw hardware id: ' + hits.join(', '));
   assert.deepEqual(swaps, [], 'the test-only reader swap is called outside the tests: ' + swaps.join(', '));

@@ -50,40 +50,50 @@ function parseIoreg(text) {
   return m && UUID.test(m[1]) ? m[1].toUpperCase() : null;
 }
 
-/* This computer's hardware id, or null. Module-private on purpose (see rule above). opts.platform and opts.run are test
-   seams; any seam bypasses the cache, so a fake platform never becomes this process's cached answer. */
-function hardwareId(opts) {
-  const o = opts || {};
-  const seamed = !!(o.run || o.platform);
-  if (!seamed && cached) return cached;   // only a SUCCESSFUL read is kept (review 1): a failed one is tried again,
-  if (!seamed && failedAt && (o.now || Date.now()) - failedAt < RETRY_AFTER_FAIL_MS) return null;   // but not at once
-  const platform = o.platform || process.platform;
+/* Test state, set ONLY through _testRunner (review 4: no option on fingerprint() can change how the hardware is read, so
+   no production caller can skip the cache or the retry wait). */
+let testPlatform = null;
+let testNow = null;
+
+/* This computer's hardware id, or null. Module-private on purpose (see the rules above). */
+function hardwareId() {
+  const platform = testPlatform || process.platform;
+  if (platform !== 'darwin') return null;   // no reader here (Windows: by its owner); not a failure, so no retry state
+  if (cached) return cached;   // only a SUCCESSFUL read is kept (review 1); a failed one is tried again,
+  const now = testNow != null ? testNow : Date.now();
+  if (failedAt && now - failedAt < RETRY_AFTER_FAIL_MS) return null;   // but not at once (review 2)
   let id = null;
-  if (platform === 'darwin') {
-    try {
-      const run = o.run || defaultRun;
-      id = parseIoreg(run());
-    } catch { id = null; }
-  }
-  // win32: MachineGuid, by the Windows owner (spec on #5532). Until then: null, never a guess.
-  if (!seamed && id) { cached = id; failedAt = 0; } else if (!seamed) failedAt = o.now || Date.now();
+  try { id = parseIoreg(defaultRun()); } catch { id = null; }
+  if (id) { cached = id; failedAt = 0; } else failedAt = now;
   return id;
 }
 
 /* The print the company pins: sha256(salt:company:hardware id), or null when any is missing or malformed. `company` is
-   the enrolled org's id. opts.run, opts.platform and opts.now are TESTS ONLY (now moves the shared retry window). */
+   the enrolled org's id. The print is a stable identifier for this computer WITHIN one company: personal data, held by
+   that company under its own policy, and never stored in a form that links companies (it cannot be: the company id is
+   in the hash). */
 const COMPANY = /^[A-Za-z0-9_-]{1,128}$/;
-function fingerprint(salt, company, opts) {
+function fingerprint(salt, company) {
   if (typeof salt !== 'string' || !SALT.test(salt)) return null;
   if (typeof company !== 'string' || !COMPANY.test(company)) return null;
-  const id = hardwareId(opts);
+  const id = hardwareId();
   if (!id) return null;
   return crypto.createHash('sha256').update(salt + ':' + company + ':' + id).digest('hex');
 }
 
-/* TESTS ONLY: swap the unseamed reader and clear the cache, so the cache rule itself can be tested. Pass null to restore.
-   Nothing in the board calls it; the guard test below fails if anything outside the tests does. */
-function _testRunner(fn) { defaultRun = fn || realRun; cached = undefined; failedAt = 0; }
+/* TESTS ONLY: swap the reader, the platform and the clock, and clear the cache and the retry state. Call with no
+   arguments to restore the real ones. Nothing in the board calls it; a guard test fails if anything outside the tests
+   does. */
+function _testRunner(fn, opts) {
+  const o = opts || {};
+  defaultRun = fn || realRun;
+  testPlatform = o.platform || null;
+  testNow = o.now != null ? o.now : null;
+  cached = undefined;
+  failedAt = 0;
+}
+/* TESTS ONLY: move the test clock without clearing the cache (for the retry-wait test). */
+function _testClock(now) { testNow = now; }
 
 // parseIoreg is exported for the fixture tests: it returns an id only from text the caller already holds.
-module.exports = { parseIoreg, fingerprint, UUID, SALT, RETRY_AFTER_FAIL_MS, _testRunner };
+module.exports = { parseIoreg, fingerprint, UUID, SALT, RETRY_AFTER_FAIL_MS, _testRunner, _testClock };
