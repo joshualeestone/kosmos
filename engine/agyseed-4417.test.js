@@ -324,7 +324,8 @@ test('#5576: a line is never written into fd 2 once its number belongs to someth
     const script = 'const fs=require("node:fs");fs.closeSync(2);const fd=fs.openSync(' + JSON.stringify(file) + ',"w");'
       + 'process.stdout.write(String(fd),()=>process.exit(0));';
     const out = await new Promise((resolve) => {
-      const c = spawn(process.execPath, ['-e', script], { env: { ...process.env, NODE_OPTIONS: '--require ' + JSON.stringify(TRACE_FILE) }, stdio: ['ignore', 'pipe', 'pipe'] });
+      // Its own data root (#4796), as every child here gets, though this one never reaches a board.
+      const c = spawn(process.execPath, ['-e', script], { env: { ...process.env, AGENT_WORKFORCE_DATA: dir, NODE_OPTIONS: '--require ' + JSON.stringify(TRACE_FILE) }, stdio: ['ignore', 'pipe', 'pipe'] });
       let text = '';
       c.stdout.on('data', (d) => { text += d; });
       c.on('close', () => resolve(text));
