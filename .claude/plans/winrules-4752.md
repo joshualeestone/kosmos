@@ -25,6 +25,10 @@ so on Windows those rules were at best unverified. The `~/` rules are unaffected
   in the guide's own folder) is left out in BOTH spellings, since the old one is now kept beside the new (review 5
   BLOCKER: otherwise the old copy of a refused rule stayed and could cut the guide off).
   A person's own rule elsewhere has no equivalent here and stays. `RULE_SYNTAX` is checked on the native path with its separator taken out first, as before.
+- `ruleAbs` strips the Windows extended-length prefix (`\\?\C:\...`): its `?` is a glob character in a rule.
+- Follow-up, not a regression: an old-form rule whose path is still made (the data root, the home folders, the
+  worlds pattern) stays for as long as that path is written; one for a data root a person later moved stays too,
+  as a new-form rule already does on main. A sunset for those (once Windows matching is measured) is its own card.
 - Not handled, recorded: on the writer side a UNC path with a one-letter host (`\\s\share`) is written `//s/share`,
   which in the documented form is also drive S: (a small over-deny, the safe way); a UNC store path (rulePath reads its rule back drive-less, so the own-folder check does not
   apply to a store on a network share); a path with a bracket or parenthesis in a home or data-root rule (as before).
@@ -39,7 +43,13 @@ Not done: running `engine/guide-deny-4752.test.js` (the own-folder arms) on Wind
 hand-written POSIX helper, so it would fail there for the wrong reason; making it host-neutral is its own change.
 The own-folder check's Windows half is pinned instead by the rulePath round trip above.
 
-## Weakest premise
+## Weakest premises
+- Claude Code's documented normalisation (below).
+- `guardGuideFolder`'s own Windows wiring (its platform, `rulePath`, `finalDeny`) is not driven end to end from any
+  host: on macOS and Linux a path never has a drive, so no Windows rule can be produced there. Every piece it calls
+  is a pure function with the platform passed in and pinned from any host, and the Windows job runs the host arm.
+
+## Weakest premise (detail)
 That Claude Code's documented normalisation is what the version a person runs does (the drive letter is written
 lower case, as the docs' example is; whether matching is case-blind is not documented). Not measured on a Windows
 machine here; the docs are the source. The old native form was not documented as matched at all, so this cannot
