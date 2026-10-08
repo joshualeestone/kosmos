@@ -18,13 +18,13 @@ const http = require('node:http');
 const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'tokclean-data-'));
 process.env.AGENT_WORKFORCE_DATA = path.join(SB, 'data');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SB, 'LaunchAgents');   // never the real ~/Library/LaunchAgents
+/* test-support/fleet writes a worker instruction file for a display name, and refuses unless the workers folder is a
+   sandbox. Every root is set before anything is required (convention #2). */
+process.env.AGENT_WORKFORCE_WORKERS = fs.mkdtempSync(path.join(os.tmpdir(), 'tokclean-workers-'));
 test.after(() => fs.rmSync(SB, { recursive: true, force: true }));
+test.after(() => fs.rmSync(process.env.AGENT_WORKFORCE_WORKERS, { recursive: true, force: true }));
 const tool = require('./tools/cleanup-fixture-tokens-5418');
 const { safeKey } = require('./engine/store');
-/* test-support/fleet writes a worker instruction file for a display name, and refuses unless the workers folder is a
-   sandbox. Set before it is required. */
-process.env.AGENT_WORKFORCE_WORKERS = fs.mkdtempSync(path.join(os.tmpdir(), 'tokclean-workers-'));
-test.after(() => fs.rmSync(process.env.AGENT_WORKFORCE_WORKERS, { recursive: true, force: true }));
 const fleet = require('./test-support/fleet');
 /* Startup jobs are read as keeps on every platform. A test process never runs schtasks (win32job refuses, which would
    read as "could not look" and stop every end-to-end arm on the Windows job), so it answers "no such task"; the
@@ -215,6 +215,10 @@ test('#5418 end to end: a dry run changes nothing; --apply backs up, then remove
   t.after(() => f.restore());
   const cards = JSON.parse(JSON.stringify(f.agents));
   assert.ok(cards.some((c) => c.name === 'Splinter'), 'the fixture did not give claudebot its display name');
+  // the fleet fixture also writes each agent's worker folder, which is a keep of its own: take them away, so ONLY the
+  // roster can keep claudebot.json and sam.json (else a display-name-only roster would pass here, review 27)
+  for (const n of fs.readdirSync(process.env.AGENT_WORKFORCE_WORKERS)) fs.rmSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, n), { recursive: true, force: true });
+  assert.deepEqual(fs.readdirSync(process.env.AGENT_WORKFORCE_WORKERS), [], 'a worker folder is left, so it, not the roster, keeps a token');
   const port = await stubBoard(t, 200, { agents: cards });
   const before = fs.readdirSync(dir).sort();
   const times = () => fs.readdirSync(dir).sort().map((n) => n + '@' + fs.lstatSync(path.join(dir, n)).mtimeMs);
@@ -863,4 +867,41 @@ test('#5418: an entry that is no longer a file or a link stops the backup (nothi
   const dir = path.join(root, 'tokens');
   fs.mkdirSync(path.join(dir, 'swapped.json'), { recursive: true });   // a folder where the plan saw a file
   assert.throws(() => tool.backup(dir, path.join(root, 'backup'), ['swapped.json']), /no longer a file or a link/);
+});
+
+test('#5418 on a Linux host: main keeps a token whose agent has a systemd unit (the real reader, not a fake)', { skip: process.platform !== 'linux' && 'reads the real Linux unit folder (sandboxed); runs on the Linux node job' }, async (t) => {
+  const { dir, write } = e2eStore(t);
+  write('anchor.json', OLD);
+  write('unitkept.json', OLD);
+  write('fixture-u.json', OLD);
+  const unit = linuxjob.unitPath('unitkept');
+  fs.mkdirSync(path.dirname(unit), { recursive: true });
+  fs.writeFileSync(unit, '[Unit]\n');
+  t.after(() => fs.rmSync(path.dirname(unit), { recursive: true, force: true }));
+  const f = fleet.install([fleet.agent('anchor')]);
+  t.after(() => f.restore());
+  for (const n of fs.readdirSync(process.env.AGENT_WORKFORCE_WORKERS)) if (n !== 'anchor') fs.rmSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, n), { recursive: true, force: true });
+  const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
+  quiet(t);
+  assert.equal(await applyConfirmed(port), 0);
+  const left = fs.readdirSync(dir);
+  assert.ok(left.includes('unitkept.json'), 'a token whose agent has a systemd unit was removed');
+  assert.equal(left.includes('fixture-u.json'), false, 'CONTROL: the orphan was kept');
+});
+
+test('#5418 on a Windows host: main keeps a token whose agent has a Scheduled Task (the real reader, stubbed schtasks)', { skip: process.platform !== 'win32' && 'reads Scheduled Tasks through win32job; runs on the Windows job' }, async (t) => {
+  const { dir, write } = e2eStore(t);
+  write('anchor.json', OLD);
+  write('taskkept.json', OLD);
+  write('fixture-w.json', OLD);
+  win32job.setRunner(() => ({ ok: true, out: '"\\Kosmos\\agent-taskkept","N/A","Ready"\n', code: 0 }));
+  t.after(() => win32job.setRunner(() => ({ ok: false, out: 'ERROR: The system cannot find the file specified.', code: 1 })));
+  const f = fleet.install([fleet.agent('anchor')]);
+  t.after(() => f.restore());
+  const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
+  quiet(t);
+  assert.equal(await applyConfirmed(port), 0);
+  const left = fs.readdirSync(dir);
+  assert.ok(left.includes('taskkept.json'), 'a token whose agent has a Scheduled Task was removed');
+  assert.equal(left.includes('fixture-w.json'), false, 'CONTROL: the orphan was kept');
 });

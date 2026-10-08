@@ -269,6 +269,8 @@ function revokeIfUnchanged(sessionName, mtimeMs, newestMintMs) {
       try { st = fs.lstatSync(fileFor(sessionName)); } catch (e) {
         return (e && e.code === 'ENOENT') ? { ok: true, already: true } : { ok: false, because: 'we could not look at that agent\'s tokens' };
       }
+      // the type first, before anything is read: a link or a FIFO swapped in is never followed or read under the lock
+      if (!st.isFile()) return { ok: false, because: 'written since the plan was made: kept' };
       // Also the newest mintedAt, read under the lock: a mint that lands in the same mtime tick (a coarse-mtime
       // mount) still adds a newer token, and that keeps the file.
       const newest = readTokens(sessionName).reduce((m, t) => { const ms = Date.parse((t && t.mintedAt) || ''); return Number.isFinite(ms) && ms > m ? ms : m; }, -Infinity);
@@ -281,7 +283,7 @@ function revokeIfUnchanged(sessionName, mtimeMs, newestMintMs) {
       }
       // A mint rewrites the file (temp then rename), so its mtime moves; the mintedAt check above covers a mount
       // whose mtime is too coarse to.
-      if (!st.isFile() || st.mtimeMs !== mtimeMs) return { ok: false, because: 'written since the plan was made: kept' };
+      if (st.mtimeMs !== mtimeMs) return { ok: false, because: 'written since the plan was made: kept' };
       return revokeUnlocked(sessionName);
     });
   } catch { return { ok: false, because: 'we could not remove that agent\'s tokens' }; }
