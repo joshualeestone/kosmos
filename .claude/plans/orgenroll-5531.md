@@ -260,3 +260,15 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
   test reused a world whose id an earlier pass had already retired, so the mutation did not redden it; rewritten).
 - Kept: refresh re-adopting a MOVE that could not be written (intended). Such a record carries no consentHash, and the
   rollup (E0.3) stays dormant without one, so a re-adopted enrollment never reports.
+
+## Review 19
+- An enroll with no answer (a tunnel timeout) said "Nothing was joined" though the company may have bound this world.
+  It now asks status once: bound here is recorded as the join the person accepted; not bound says nothing was joined;
+  an unclear answer says it is not known yet. Two server tests had a fake coordinator that named this world even when
+  no enroll went through; they now answer as a real one does.
+- A first join the company accepted but did not confirm for this Kosmos (thisComputer not true, or a broken answer)
+  is undone with a leave, through the same routine as an unrecordable one (undoFirstJoin). A move is never undone.
+- The page's Leave changes the view only on a real outcome (ok, or pending). A refusal before anything was done (the
+  route's "not your work Kosmos", the screen check's { error }) keeps the joined view and shows the refusal. Browser
+  check O11 pins both; mutating the condition back reddens it.
+- Each engine fix is pinned; each mutation reddens its own assertion.

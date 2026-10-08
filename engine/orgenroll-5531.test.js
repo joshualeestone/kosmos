@@ -339,8 +339,10 @@ test('#5531 review 4: a failure with no public code reaches the page as a fixed 
   for (const r of [p, e]) {
     assert.equal(r.ok, false);
     assert.equal(/Users|ENOENT|spawn/.test(r.because), false, 'raw transport text reached the page: ' + r.because);
-    assert.match(r.because, /Nothing was joined/);
   }
+  assert.match(p.because, /Nothing was joined/);
+  // Review 19: an enroll with no answer and no status says it is not known, never "nothing was joined".
+  assert.match(e.because, /not known yet/, e.because); assert.equal(e.unknown, true);
   assert.ok(errs.some((m) => m.includes('ENOENT')), 'the raw line was not kept in the log');
   const known = await org.preview('ACME-JOIN-1234', { root: a, remote: { macRequest: async () => ({ ok: false, because: '410 {"because":"org_code_used"}' }) } });
   assert.equal(known.code, 'org_code_used'); assert.equal(known.because, org.SAY.org_code_used);
@@ -531,6 +533,41 @@ test('#5531 review 18: a local-only leave retires the world id, so the next pass
   await org.refresh({ root: a, remote: naming });
   assert.equal(org.isEnrolledHere({ root: a }), false, 'a local-only leave was quietly taken back by the next pass, with no consent shown');
   assert.deepEqual(asked, [], 'a world that left still asked the company about itself');
+});
+
+test('#5531 review 19: an enroll with no answer asks status once: bound here is a join, not bound is nothing joined', async (t) => {
+  const { a, b } = sandbox(t);
+  const timeout = (statusData) => ({ sent: [], macRequest: async function (m, route) { this.sent.push(route);
+    if (route === org.ROUTES.enroll) return { ok: false, because: 'the tunnel program did not answer in time' };
+    if (route === org.ROUTES.status) return { ok: true, data: statusData(m) };
+    return { ok: false, because: 'unexpected ' + route }; } });
+  // The company bound this world before the answer was lost: the person accepted, so it is recorded.
+  const boundHere = timeout(() => ({ member: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: org.worldId({ root: a }), thisComputer: true } }));
+  const r1 = await org.enroll('ACME-JOIN-1234', true, { root: a, remote: boundHere });
+  assert.equal(r1.ok, true, 'a join the company made was reported as not joined: ' + JSON.stringify(r1));
+  assert.equal(org.isEnrolledHere({ root: a }), true);
+  assert.deepEqual(boundHere.sent, [org.ROUTES.enroll, org.ROUTES.status]);
+  // Not bound: nothing was joined, and it says so.
+  const none = timeout(() => ({ member: false }));
+  const r2 = await org.enroll('ACME-JOIN-1234', true, { root: b, remote: none });
+  assert.equal(r2.ok, false); assert.match(r2.because, /Nothing was joined/);
+  assert.equal(org.isEnrolledHere({ root: b }), false);
+});
+
+test('#5531 review 19: a first join the company did not confirm for this Kosmos is undone; a move is not', async (t) => {
+  const { a, b } = sandbox(t);
+  const other = (sent) => ({ macRequest: async (m, route, body) => { sent.push(route);
+    if (route === org.ROUTES.enroll) return { ok: true, data: { ok: true, org: ORG, role: 'member', enrolled: { computer: 'c2', world: body.world, thisComputer: false } } };
+    if (route === org.ROUTES.leave) return { ok: true, data: { ok: true } };
+    return { ok: false, because: 'unexpected ' + route }; } });
+  const sent = [];
+  const r = await org.enroll('ACME-JOIN-1234', true, { root: a, remote: other(sent) });
+  assert.equal(r.ok, false); assert.match(r.because, /Joining was undone/, r.because);
+  assert.deepEqual(sent, [org.ROUTES.enroll, org.ROUTES.leave], 'a code spent on a join this Kosmos will not keep was left bound');
+  const moved = [];
+  const m = await org.enroll(null, true, { root: b, remote: other(moved) });
+  assert.equal(m.ok, false);
+  assert.equal(moved.includes(org.ROUTES.leave), false, 'a move was undone with a leave, ending the membership');
 });
 
 test('#5531 review 14: a record whose world id file is gone is stale: cleared, and nothing is asked', async (t) => {

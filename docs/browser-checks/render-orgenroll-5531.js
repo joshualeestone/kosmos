@@ -15,6 +15,8 @@
  *   O8  a Kosmos the company stopped naming says so (stoppedFor from /api/org), as text.
  *   O9  a leave that ends only on this computer (localOnly) says the membership goes on, never "You left".
  *   O10 a company consent with an EMPTY never list still shows this Kosmos's own line: other Kosmoses are not part of it.
+ *   O11 a leave refused before anything was done (the route's "not your work Kosmos", the screen check's { error })
+ *       keeps the joined view and says why, never "stopped reporting" (#5531 review 19).
  */
 const path = require('node:path');
 const { chromium } = require('playwright');
@@ -45,7 +47,7 @@ function harness() {
       if (u.includes('/api/org')) window.__org.push({ path: u.replace(/^.*?(\/api\/org[^?]*).*$/, '$1'), method: (init && init.method) || 'GET', body });
       if (u.endsWith('/api/org/preview')) return enc(Object.assign({ ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: window.__noNever ? Object.assign({}, consent, { never: [] }) : consent, ticket: 't-' + Date.now() }, window.__move ? { move: true } : {}));
       if (u.endsWith('/api/org/enroll')) return enc({ ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member' });
-      if (u.endsWith('/api/org/leave')) return enc(window.__localOnly ? { ok: true, localOnly: true } : { ok: true });
+      if (u.endsWith('/api/org/leave')) return enc(window.__leaveRefused || (window.__localOnly ? { ok: true, localOnly: true } : { ok: true }));
       if (u.endsWith('/api/org')) return enc({ enrolled: false, stoppedFor: window.__stopped || null, org: null, role: null, enrolledAt: null });
       if (u.endsWith('/api/remote') && !(init && init.method)) return enc({ enrolled: true, on: true });   // a connected computer
       if (u.includes('/api/history')) return enc({ readable: false });   // Settings' history row, in the shape the engine sends when it has none
@@ -134,6 +136,28 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     chk(o9 === 'This Kosmos has stopped reporting. You are still in Acme: your work Kosmos is elsewhere, so leave from there.' && !/You left/.test(o9),
       'O9 a leave that ends only on this computer says the membership goes on', JSON.stringify(o9));
     await page.evaluate(() => { window.__localOnly = false; });
+
+    // O11: joined again, then each refusal that changed nothing: the joined view stays, and the message is the refusal.
+    for (const [refusal, want] of [[{ ok: false, because: 'This Kosmos is not your work Kosmos. Leave from your work Kosmos.' }, 'This Kosmos is not your work Kosmos. Leave from your work Kosmos.'],
+      [{ error: 'This screen could not be checked. Reload the page.' }, 'This screen could not be checked. Reload the page.']]) {
+      await page.fill('#plus-org-code', 'ACME-JOIN-1234');
+      await page.click('#plus-org-check');
+      await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
+      await page.click('#plus-org-join');
+      await page.waitForFunction(() => !document.getElementById('plus-org-in').hidden);
+      await page.evaluate((x) => { window.__leaveRefused = x; document.getElementById('plus-org-msg').textContent = ''; }, refusal);
+      await page.click('#plus-org-leave');
+      await page.click('#plus-org-leave-yes');
+      await page.waitForFunction(() => document.getElementById('plus-org-msg').textContent !== '');
+      const o11 = await page.evaluate(() => ({ msg: document.getElementById('plus-org-msg').textContent, joined: !document.getElementById('plus-org-in').hidden, out: !document.getElementById('plus-org-out').hidden }));
+      chk(o11.msg === want && o11.joined && !o11.out && !/stopped reporting/.test(o11.msg),
+        'O11 a leave refused before anything was done keeps the joined view and says why (' + Object.keys(refusal).join('+') + ')', JSON.stringify(o11));
+      // Back to not joined for the checks below.
+      await page.evaluate(() => { window.__leaveRefused = null; });
+      await page.click('#plus-org-leave');
+      await page.click('#plus-org-leave-yes');
+      await page.waitForFunction(() => !document.getElementById('plus-org-out').hidden);
+    }
 
     // O8: the company stopped naming this world. The next /api/org read carries stoppedFor; the block says so.
     await page.evaluate(() => { window.__stopped = 'Acme <i>Co</i>'; PLUS_ORG.at = 0; document.getElementById('plus-org-msg').textContent = 'an earlier line still on screen'; plusOrgMaybe(); });

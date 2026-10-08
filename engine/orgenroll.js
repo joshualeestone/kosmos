@@ -211,6 +211,15 @@ async function preview(code, opts) {
 let queue = Promise.resolve();
 function oneAtATime(fn) { const run = queue.then(fn, fn); queue = run.catch(() => {}); return run; }
 
+/* A first join the company made but this Kosmos will not keep (it cannot record it, or the company did not confirm this
+   Kosmos) is undone with a leave, and each says only what happened (reviews 12, 19). */
+async function undoFirstJoin(lead, opts) {
+  const undo = await signed('POST', ROUTES.leave, {}, opts);
+  if (undo.ok || codeOf(undo.because) === 'org_not_member') return { ok: false, because: lead + ' Joining was undone, so nothing was joined.' };
+  setLeavePending(true, opts, null);   // best effort: retried on the next pass if this file, at least, can be written
+  return { ok: false, because: lead + ' Joining could not be undone yet, so your company may still list this Kosmos. It is not reporting.' };
+}
+
 async function enroll(code, accepted, opts) { return oneAtATime(() => enrollNow(code, accepted, opts)); }
 async function enrollNow(code, accepted, opts) {
   if (accepted !== true) return { ok: false, declined: true, because: 'Not accepted, so nothing was sent.' };
@@ -231,14 +240,31 @@ async function enrollNow(code, accepted, opts) {
   if (!r.ok && body.code && codeOf(r.because) === 'org_already_member') {
     return { ok: false, code: 'org_already_member', because: SAY.org_already_member };
   }
-  if (!r.ok) return { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'Joining did not go through Kosmos+ just now. Nothing was joined; try again in a minute.', typeof code === 'string' ? code.trim() : null) };
+  const secretCode = typeof code === 'string' ? code.trim() : null;
+  if (!r.ok && codeOf(r.because)) return { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'Joining did not go through Kosmos+ just now. Nothing was joined; try again in a minute.', secretCode) };   // refused with a reason: nothing bound
+  if (!r.ok) {
+    /* #5531 review 19: no reason (a tunnel timeout) says nothing about whether the company already bound this world.
+       Ask once. Confirmed here: the person accepted, so it is recorded as a join. Unclear: say so, never "nothing". */
+    sayFor(r.because, '', secretCode);   // the raw line goes to the log, cleaned
+    const st = await signed('POST', ROUTES.status, {}, opts);
+    const verdict = statusVerdict(st.ok ? st.data : null, world);
+    if (verdict === 'unclear') return { ok: false, unknown: true, because: 'It is not known yet whether joining went through. Check the code again in a minute: it will say if this Kosmos is already your work Kosmos.' };
+    if (verdict !== 'here') return { ok: false, because: 'Joining did not go through Kosmos+ just now. Nothing was joined; try again in a minute.' };
+    r = { ok: true, data: st.data };
+  }
   const org = cleanOrg(r.data && r.data.org);
   const role = cleanRole(r.data && r.data.role);
   const en = r.data && r.data.enrolled;
   /* #5530 review 2: thisComputer says the CALLING signer is the enrolled one. It catches a world id copied WITHOUT the
      Kosmos+ key, or a computer that registered its own key. A full copy of the data folder also carries the key
      (<world root>/remote), and is then the same signer to the company: this check cannot tell it apart (review 13). */
-  if (!org || !role || !en || en.world !== world || en.thisComputer !== true) return { ok: false, because: 'Your company did not confirm this Kosmos, so it is not joined.' };
+  /* The company said yes but did not confirm THIS Kosmos, so it is not recorded. The code is spent, so a first join is
+     undone exactly as an unrecordable one is (review 19); a move is not (it would end the existing membership). */
+  if (!org || !role || !en || en.world !== world || en.thisComputer !== true) {
+    const NOCONFIRM = 'Your company did not confirm this Kosmos, so it is not your work Kosmos.';
+    if (move) return { ok: false, because: NOCONFIRM + ' Check the code again in a minute.' };
+    return undoFirstJoin(NOCONFIRM, opts);
+  }
   const rec = { org, role, world, enrolledAt: new Date().toISOString() };
   // The consent the person was shown, as a hash: what they accepted is then a checkable fact on this side (#5531 review 10).
   if (opts && typeof opts.consentHash === 'string' && /^[0-9a-f]{64}$/.test(opts.consentHash)) rec.consentHash = opts.consentHash;
@@ -249,10 +275,7 @@ async function enrollNow(code, accepted, opts) {
          leave would end that membership too (review 13). Each says only what actually happened. */
       const NOWRITE = "This Kosmos's data folder could not be written.";
       if (move) return { ok: false, because: NOWRITE + ' Your company now names this Kosmos as your work Kosmos, but it is not reporting. Fix the folder, then check the code again.' };
-      const undo = await signed('POST', ROUTES.leave, {}, opts);
-      if (undo.ok || codeOf(undo.because) === 'org_not_member') return { ok: false, because: NOWRITE + ' Joining was undone, so nothing was joined.' };
-      setLeavePending(true, opts, null);   // best effort: retried on the next pass if this file, at least, can be written
-      return { ok: false, because: NOWRITE + ' Joining could not be undone yet, so your company may still list this Kosmos. It is not reporting.' };
+      return undoFirstJoin(NOWRITE, opts);
     }
   }
   setLeavePending(false, opts);   // joined again after an unconfirmed leave: that old leave must never be sent now

@@ -47211,13 +47211,18 @@ async function plusOrgLeave() {
   PLUS_ORG.busy = false; yes.disabled = false;
   plusOrgLeaveArm(false);
   // The company refused while you are still in it (the last admin): you are still joined, and the screen says so.
-  if (!r.still) PLUS_ORG.state = { enrolled: false, org: null, role: null };
+  /* #5531 review 19: the joined view goes only on a real leave outcome (left, left here only, or pending). A refusal
+     before anything was done (the screen check, "not your work Kosmos") changed nothing, so the view stays and says why. */
+  const changed = r.ok === true || r.pending === true;
+  if (changed) PLUS_ORG.state = { enrolled: false, org: null, role: null };
   PLUS_ORG.at = Date.now();
   const name = (st0 && st0.org && st0.org.name) || 'your company';
   // localOnly: the company enrolls another world or computer, so the membership goes on; only this Kosmos stopped.
   document.getElementById('plus-org-msg').textContent = r.ok && r.localOnly
     ? 'This Kosmos has stopped reporting. You are still in ' + name + ': your work Kosmos is elsewhere, so leave from there.'
-    : r.ok ? 'You left. This Kosmos no longer reports to your company.' : (r.because || 'Leaving could not be confirmed yet; this Kosmos has stopped reporting.');
+    : r.ok ? 'You left. This Kosmos no longer reports to your company.'
+    : r.pending ? (r.because || 'Leaving could not be confirmed yet. This Kosmos has stopped reporting, and it will tell your company again.')
+    : (r.because || r.error || 'Leaving did not go through. Nothing changed; try again in a minute.');
   plusOrgPaint();
 }
 document.getElementById('plus-org-check').addEventListener('click', plusOrgCheck);

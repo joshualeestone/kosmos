@@ -154,12 +154,14 @@ test('#5531 review 7: a join that fails for a passing reason keeps its ticket; a
   const CONSENT = { reports: ['agent names'], backsUp: ['agent folders'], readers: ['you'], never: ['keys'] };
   const sent = [];
   let up = false;
+  let bound = null;
   remote.macRequest = async (method, route, body) => {
     sent.push(route);
     if (route === oe.ROUTES.redeem) return { ok: true, data: { org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: CONSENT } };
-    if (route === oe.ROUTES.enroll) return up ? { ok: true, data: { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } } : { ok: false, because: 'the tunnel program did not answer in time' };
+    if (route === oe.ROUTES.enroll) { if (up) bound = body.world; return up ? { ok: true, data: { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } } : { ok: false, because: 'the tunnel program did not answer in time' }; }
     if (route === oe.ROUTES.leave) return { ok: true, data: { ok: true } };
-    if (route === oe.ROUTES.status) { const w = oe.worldId(); return { ok: true, data: { member: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: w, thisComputer: true } } }; }
+    // A real coordinator names this world only once an enroll went through (#5531 review 19 asks status after a timeout).
+    if (route === oe.ROUTES.status) return { ok: true, data: bound ? { member: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: bound, thisComputer: true } } : { member: false } };
     return { ok: false, because: 'unexpected ' + route };
   };
   t.after(() => { remote.macRequest = orig; fs.rmSync(enrollmentFile(), { force: true }); });
@@ -214,14 +216,16 @@ test('#5531 review 11: a failed join does not put its old ticket back over a new
   const CONSENT = { reports: ['agent names'], backsUp: ['agent folders'], readers: ['you'], never: ['keys'] };
   let release; const held = new Promise((r) => { release = r; });
   let enrolls = 0;
+  let bound = null;
   remote.macRequest = async (method, route, body) => {
     if (route === oe.ROUTES.redeem) return { ok: true, data: { org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: CONSENT } };
     if (route === oe.ROUTES.enroll) {
       enrolls += 1;
       if (enrolls === 1) { await held; return { ok: false, because: 'the tunnel program did not answer in time' }; }
+      bound = body.world;
       return { ok: true, data: { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } };
     }
-    if (route === oe.ROUTES.status) return { ok: true, data: { member: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: oe.worldId(), thisComputer: true } } };
+    if (route === oe.ROUTES.status) return { ok: true, data: bound ? { member: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: bound, thisComputer: true } } : { member: false } };
     if (route === oe.ROUTES.leave) return { ok: true, data: { ok: true } };
     return { ok: false, because: 'unexpected ' + route };
   };
