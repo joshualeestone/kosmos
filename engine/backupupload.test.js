@@ -51,12 +51,14 @@ function coordinator(b, opts) {
     bodies.push(body);
     assert.strictEqual(method, 'POST'); assert.strictEqual(route, up.GRANT_ROUTE);
     if (o.refuse && o.refuse.length) return { ok: false, because: o.refuse.shift() };
+    const expMs = o.expiresAt || Date.now() + 15 * 60 * 1000;
+    const retain = iso(expMs - 15 * 60 * 1000 + 33 * 86400 * 1000);
     const uploads = body.chunks.map((c) => {
       const key = `org1/acct1/1/2026-W41/${o.tag || ''}k${++n}`;
       const url = `${b.base}/bucket/${key.split('/').map(encodeURIComponent).join('/')}?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-SignedHeaders=${encodeURIComponent(SIGNED)}&X-Amz-Signature=00`;
-      return { key, url, headers: { 'content-md5': c.md5, 'if-none-match': '*', 'x-amz-object-lock-mode': 'COMPLIANCE', 'x-amz-object-lock-retain-until-date': '2026-11-15T00:00:00Z' } };
+      return { key, url, headers: { 'content-md5': c.md5, 'if-none-match': '*', 'x-amz-object-lock-mode': 'COMPLIANCE', 'x-amz-object-lock-retain-until-date': retain } };
     });
-    const data = { epoch: 1, period: '2026-W41', retain_until: '2026-11-15T00:00:00Z', expires_at: iso(o.expiresAt || Date.now() + 15 * 60 * 1000), uploads };
+    const data = { epoch: 1, period: '2026-W41', retain_until: retain, expires_at: iso(expMs), uploads };
     if (o.tamper) o.tamper(data);
     return { ok: true, data };
   };
@@ -110,6 +112,18 @@ test('a grant that does not bind OUR bytes, or does not name its key, is refused
     ['one upload short', (d) => { d.uploads.pop(); }],
     ['a repeated key', (d) => { d.uploads[1].key = d.uploads[0].key; }],
     ['no expiry', (d) => { delete d.expires_at; }],
+    ['an extra header', (d) => { d.uploads[0].headers['x-anything'] = '1'; }],
+    ['a Host header', (d) => { d.uploads[0].headers.Host = 'evil.example'; }],
+    ['Transfer-Encoding', (d) => { d.uploads[0].headers['Transfer-Encoding'] = 'chunked'; }],
+    ['a header twice in another case', (d) => { d.uploads[0].headers['Content-MD5'] = md5(Buffer.from('x')); }],
+    // (Caught by the exact lock-mode check; the printable-ASCII rule is defense in depth, not isolable: every allowed
+    // header also has an exact-value check.)
+    ['a lock mode with CRLF in it', (d) => { d.uploads[0].headers['x-amz-object-lock-mode'] = 'COMPLIANCE\r\nX-Evil: 1'; }],
+    ['a GOVERNANCE lock', (d) => { d.uploads[0].headers['x-amz-object-lock-mode'] = 'GOVERNANCE'; }],
+    ['no lock mode', (d) => { delete d.uploads[0].headers['x-amz-object-lock-mode']; }],
+    ['a lock until 2099', (d) => { d.uploads[0].headers['x-amz-object-lock-retain-until-date'] = '2099-01-01T00:00:00Z'; }],
+    ['a 10-day lock', (d) => { d.uploads[0].headers['x-amz-object-lock-retain-until-date'] = iso(Date.now() + 10 * 86400 * 1000); }],
+    ['the lock date not signed', (d) => { d.uploads[0].url = d.uploads[0].url.replace(encodeURIComponent(';x-amz-object-lock-retain-until-date'), ''); }],
     ['a numeric-looking string expiry', (d) => { d.expires_at = '1700000000'; }],
   ]) {
     const b = await bucket();
@@ -133,7 +147,7 @@ test('the coordinator leaves Content-Length out of headers (fetch sets it): that
 
 test('an http (not https) upload url is refused unless the test seam allows it', () => {
   const c = chunk(1);
-  const data = { expires_at: '2030-01-01T00:00:00Z', uploads: [{ key: 'a/k', url: `http://bucket.example/b/a/k?X-Amz-SignedHeaders=${encodeURIComponent(SIGNED)}`, headers: { 'Content-MD5': md5(c.object), 'If-None-Match': '*' } }] };
+  const data = { expires_at: '2030-01-01T00:15:00Z', uploads: [{ key: 'a/k', url: `http://bucket.example/b/a/k?X-Amz-SignedHeaders=${encodeURIComponent(SIGNED)}`, headers: { 'Content-MD5': md5(c.object), 'If-None-Match': '*', 'X-Amz-Object-Lock-Mode': 'COMPLIANCE', 'X-Amz-Object-Lock-Retain-Until-Date': '2030-02-03T00:00:00Z' } }] };
   assert.strictEqual(up.parseGrant(data, [c]).ok, false);
   assert.strictEqual(up.parseGrant(data, [c], true).ok, true);
   data.uploads[0].url = data.uploads[0].url.replace('http:', 'https:');
@@ -219,15 +233,81 @@ test('a redirect is never followed: the body does not go to the address it names
   } finally { await b.close(); await other.close(); }
 });
 
-test('retries on one key run out, then the chunk gets a new grant (bounded: a chunk that never stores ends the run)', async () => {
+// A fake clock: sleep advances it, so "retry until the grant expires" runs in no real time.
+const clock = () => { let t = Date.now(); return { now: () => t, sleep: async (ms) => { t += ms; } }; };
+
+test('bucket trouble (503, SlowDown, 409) is retried on the SAME url until the grant expires, then the run ends retryLater with no new grant', async () => {
+  for (const [status, body] of [[503, '<Error><Code>SlowDown</Code></Error>'], [409, '<Error><Code>ConditionalRequestConflict</Code></Error>'], [500, '']]) {
+    const b = await bucket();
+    try {
+      const c = coordinator(b);
+      b.script.get = () => [[status, body]];   // every PUT answers this
+      const r = await up.uploadChunks(deps(c, clock()), [chunk(1)]);
+      assert.strictEqual(r.ok, false, String(status));
+      assert.strictEqual(r.retryLater, true, String(status));
+      assert.strictEqual(c.bodies.length, 1, `${status}: asked for another grant`);
+      assert.ok(b.puts > 5, `${status}: retried only ${b.puts} times`);
+    } finally { await b.close(); }
+  }
+});
+
+test('a 409 that clears is stored on the same key', async () => {
+  const b = await bucket();
+  try {
+    b.script.set(keyN(1), [[409, '<Error><Code>ConditionalRequestConflict</Code></Error>']]);
+    const c = coordinator(b);
+    const r = await up.uploadChunks(deps(c), [chunk(3)]);
+    assert.strictEqual(r.ok, true, r.because);
+    assert.strictEqual(c.bodies.length, 1);
+  } finally { await b.close(); }
+});
+
+test('an unreachable bucket (connection refused) is retried until expiry, then ends retryLater, with one grant', async () => {
+  const b = await bucket();
+  const base = b.base; await b.close();   // nothing listens there now
+  const c = coordinator({ base });
+  const r = await up.uploadChunks(deps(c, clock()), [chunk(1)]);
+  assert.strictEqual(r.ok, false); assert.strictEqual(r.retryLater, true);
+  assert.strictEqual(c.bodies.length, 1);
+});
+
+test('fetch refusing the request LOCALLY is not retried: the run stops at once, with one grant', async () => {
+  const b = await bucket();
+  try {
+    let calls = 0;
+    const bad = async () => { calls++; const e = new TypeError('fetch failed'); e.cause = { code: 'UND_ERR_REQ_CONTENT_LENGTH_MISMATCH' }; throw e; };
+    const c = coordinator(b);
+    const r = await up.uploadChunks(deps(c, Object.assign({ fetch: bad }, clock())), [chunk(1)]);
+    assert.strictEqual(r.ok, false); assert.ok(!r.retryLater);
+    assert.match(r.because, /locally/);
+    assert.strictEqual(calls, 1); assert.strictEqual(c.bodies.length, 1);
+  } finally { await b.close(); }
+});
+
+test('re-granting is bounded: a chunk whose grants keep expiring ends the run after MAX_REGRANTS more grants', async () => {
   const b = await bucket();
   try {
     const c = coordinator(b);
-    b.script.get = () => [[503]];   // every PUT, under every grant, answers 503
+    b.script.get = () => [[403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>']];
     const r = await up.uploadChunks(deps(c), [chunk(1)]);
     assert.strictEqual(r.ok, false);
     assert.strictEqual(c.bodies.length, up.MAX_REGRANTS + 1);
-    assert.strictEqual(b.puts, (up.MAX_REGRANTS + 1) * up.PUT_ATTEMPTS);
+  } finally { await b.close(); }
+});
+
+test('two chunks with one name but different bytes are refused (a caller bug), not silently deduped', async () => {
+  const c = coordinator({ base: 'http://127.0.0.1:9' });
+  const a = chunk(1), z = { name: a.name, object: crypto.randomBytes(a.object.length) };
+  const r = await up.uploadChunks(deps(c), [a, z]);
+  assert.strictEqual(r.ok, false); assert.match(r.because, /share a name/);
+  assert.strictEqual(c.bodies.length, 0);
+});
+
+test('never throws: a throwing injected clock still resolves to ok: false', async () => {
+  const b = await bucket();
+  try {
+    const r = await up.uploadChunks(deps(coordinator(b), { now: () => { throw new Error('clock broke'); } }), [chunk(1)]);
+    assert.strictEqual(r.ok, false); assert.match(r.because, /clock broke/);
   } finally { await b.close(); }
 });
 

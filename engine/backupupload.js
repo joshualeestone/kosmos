@@ -22,10 +22,14 @@
  *    bytes. (The uploader holds no read grant, so it cannot check the object's ETag as the coordinator's doc
  *    suggests; the url-to-key binding above is what makes the 412 rule sound instead.) A 412 on the FIRST attempt
  *    means the key was not ours to write: refused.
- *  - A lost answer is retried on the SAME key while the grant lasts, so a landed write shows up as that 412 rather
- *    than as a second copy. Only an upload a grant could not finish goes to a new grant under a new key; if its
- *    earlier write had in fact landed, that copy is orphaned, locked and charged. That is bounded: at most
- *    MAX_REGRANTS + 1 copies of one chunk per run.
+ *  - Bucket or network trouble (a lost answer, 5xx or SlowDown, 409 a write still in flight) is retried on the SAME
+ *    url until the grant expires, never with a new grant (Ice Cream Kitty, from S3's docs): a landed write shows up
+ *    as that 412 rather than as a second copy, and a chunk that met only such trouble until expiry ends the run
+ *    retryLater. Only a chunk the grant ran out on cleanly (a big batch, or a 403 that says expired) gets a new grant
+ *    under a new key, at most MAX_REGRANTS more per batch.
+ *  - Every grant must also set the lock the plan says (COMPLIANCE, 29 to 39 days from the grant's own start), may ask
+ *    for no header outside the four it is allowed (plus Content-Length), and none twice or with an unprintable
+ *    value: on a bucket nobody can delete from, a wrong lock or a malformed request is not recoverable.
  *  - It never retries a grant request as-is: each request carries a fresh nonce, and each new grant spends the
  *    member's allowance again (Kitty's uploader contract, point 2), so re-granting is bounded (MAX_REGRANTS) and
  *    nothing that a new grant cannot fix (a refused PUT, a clock far ahead of the coordinator's) asks for one.
@@ -45,11 +49,21 @@ const MAX_PER_GRANT = 500;              // the coordinator's limit per grant req
 const MIN_OBJECT = 4148;                // a sealed chunk's framing floor (backupformat's 4 KiB Padme floor plus framing)
 const MAX_OBJECT = 5 * 1024 * 1024;     // the coordinator's per-object ceiling
 const MAX_REGRANTS = 3;                 // new grants for uploads a grant could not finish, per batch
-const PUT_ATTEMPTS = 5;                 // tries per upload on one grant (same key), while the grant lasts
+const BACKOFF_MAX_MS = 30 * 1000;      // a retry of the same url waits at most this long (it retries until expiry)
 const DEFAULT_CONCURRENCY = 4;
 const MAX_CONCURRENCY = 32;
 const PUT_TIMEOUT_MS = 120 * 1000;
-const SIGNED_NEEDED = ['content-length', 'content-md5', 'host', 'if-none-match'];
+const SIGNED_NEEDED = ['content-length', 'content-md5', 'host', 'if-none-match', 'x-amz-object-lock-mode', 'x-amz-object-lock-retain-until-date'];
+// The only headers a grant may ask the Mac to send (the coordinator lists four; Content-Length is tolerated if listed).
+const HEADER_ALLOWED = new Set(['content-md5', 'if-none-match', 'x-amz-object-lock-mode', 'x-amz-object-lock-retain-until-date', 'content-length']);
+const GRANT_WINDOW_MS = 15 * 60 * 1000;                 // the coordinator's grant lifetime (GRANT_SECS)
+// The lock a grant may set, measured from the grant's own start (expires_at minus its window), never the Mac's clock:
+// the coordinator locks to the end of the week plus 30 days (plus the window), or the next week's end in a week's
+// last day, so 30 to about 38 days. Outside [29, 39] days is a coordinator bug that would lock data for the wrong time.
+const LOCK_MIN_MS = 29 * 86400 * 1000, LOCK_MAX_MS = 39 * 86400 * 1000;
+// Network-level failures worth another try (the bucket was not reached, or did not answer).
+const NETWORK_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN', 'ETIMEDOUT', 'EPIPE', 'EHOSTUNREACH', 'ENETUNREACH',
+  'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT', 'UND_ERR_CLOSED']);
 
 const md5b64 = (buf) => crypto.createHash('md5').update(buf).digest('base64');
 
@@ -106,8 +120,14 @@ function parseGrant(data, objects, allowHttp) {
     for (const h of SIGNED_NEEDED) if (!signed.includes(h)) return { ok: false, because: `upload ${i} does not sign ${h}` };
     if (!u.headers || typeof u.headers !== 'object' || Array.isArray(u.headers)) return { ok: false, because: `upload ${i} has no headers` };
     const headers = {};
+    const names = new Set();
     for (const [k, v] of Object.entries(u.headers)) {
+      const lk = k.toLowerCase();
+      if (!HEADER_ALLOWED.has(lk)) return { ok: false, because: `upload ${i} asks to send a header it may not (${k})` };
+      if (names.has(lk)) return { ok: false, because: `upload ${i} lists ${lk} twice` };
+      names.add(lk);
       if (typeof v !== 'string' && typeof v !== 'number') return { ok: false, because: `upload ${i} has a header that is not text` };
+      if (!/^[\x20-\x7e]*$/.test(String(v))) return { ok: false, because: `upload ${i} has a header value that is not printable ASCII` };
       headers[k] = String(v);
     }
     // The grant must bind OUR bytes: the MD5 it signed is the one we asked for, and it is write-once. Content-Length
@@ -116,6 +136,11 @@ function parseGrant(data, objects, allowHttp) {
     const cl = headerOf(headers, 'content-length');
     if (cl !== undefined && cl !== String(o.length)) return { ok: false, because: `upload ${i} does not bind this chunk's length` };
     if (headerOf(headers, 'if-none-match') !== '*') return { ok: false, because: `upload ${i} is not write-once` };
+    // And the lock must be the one the plan says: COMPLIANCE, for 29 to 39 days from the grant's own start.
+    if (headerOf(headers, 'x-amz-object-lock-mode') !== 'COMPLIANCE') return { ok: false, because: `upload ${i} is not a COMPLIANCE lock` };
+    const retainMs = expiryMs(String(headerOf(headers, 'x-amz-object-lock-retain-until-date') || ''));
+    const lockFor = retainMs - (expiresAtMs - GRANT_WINDOW_MS);
+    if (!Number.isFinite(retainMs) || lockFor < LOCK_MIN_MS || lockFor > LOCK_MAX_MS) return { ok: false, because: `upload ${i}'s lock is not 29 to 39 days` };
     uploads.push({ key: u.key, url: url.toString(), headers });
   }
   return { ok: true, expiresAtMs, uploads };
@@ -124,11 +149,14 @@ function parseGrant(data, objects, allowHttp) {
 /* One PUT. Never thrown; returns { kind, status, code }:
      stored   200: written now
      present  412 on a retry: an earlier attempt of ours on this key landed (see the header for why that is sound)
-     expired  403 whose S3 code says the request expired: needs a new grant
-     refused  412 on a first attempt, a redirect (never followed), any other 4xx or 403: the bucket refused these
-              bytes or this request, and a new grant would not change that
-     retry    5xx, 429, a network failure or a timeout: worth another try on the same key while the grant lasts */
+     expired  403 whose S3 body says the request expired: needs a new grant
+     refused  412 on a first attempt, a redirect (never followed), any other 4xx or 403, or a LOCAL failure (fetch
+              refusing the request itself: a bad header, a length mismatch, a bad url): nothing a retry or a new
+              grant would change
+     retry    5xx (SlowDown included), 429, 409 (a write to that key still in flight), a network failure or a
+              timeout: another try on the SAME url while the grant lasts, never a new grant */
 async function putOne(fetchFn, up, bytes, attempt, timeoutMs) {
+  // (Never thrown: every failure is classified below.)
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), timeoutMs || PUT_TIMEOUT_MS);
   try {
@@ -141,10 +169,14 @@ async function putOne(fetchFn, up, bytes, attempt, timeoutMs) {
     if (s === 200) return { kind: 'stored', status: s, code };
     if (s === 412) return { kind: attempt > 0 ? 'present' : 'refused', status: s, code };
     if (s === 403 && /expired/i.test(text)) return { kind: 'expired', status: s, code };
-    if (s === 429 || s >= 500) return { kind: 'retry', status: s, code };
+    if (s === 429 || s === 409 || s >= 500) return { kind: 'retry', status: s, code };
     return { kind: 'refused', status: s, code };
-  } catch {
-    return { kind: 'retry', status: null, code: null };
+  } catch (err) {
+    // A timeout (our abort) or a network-level failure is worth another try; anything else is fetch refusing the
+    // request locally, which no retry fixes.
+    const c = err && ((err.cause && err.cause.code) || err.code);
+    if ((err && err.name === 'AbortError') || ac.signal.aborted || NETWORK_CODES.has(c)) return { kind: 'retry', status: null, code: c || 'timeout' };
+    return { kind: 'refused', status: null, code: c || (err && err.name) || 'local' };
   } finally {
     clearTimeout(t);
   }
@@ -154,8 +186,15 @@ async function putOne(fetchFn, up, bytes, attempt, timeoutMs) {
    Resolves { ok: true, keys } with keys a Map from each chunk's name to the key it is stored under, or
    { ok: false, because, code?, retryLater?, keys } with the chunks stored so far. Never throws. */
 async function uploadChunks(deps, objects, opts) {
-  const o = opts || {};
   const keys = new Map();
+  try {
+    return await uploadInner(deps, objects, opts, keys);
+  } catch (err) {
+    return { ok: false, because: `the uploader failed: ${(err && err.message) || err}`, keys };
+  }
+}
+async function uploadInner(deps, objects, opts, keys) {
+  const o = opts || {};
   if (!deps || typeof deps.macRequest !== 'function') return { ok: false, because: 'no signed-request function', keys };
   const fetchFn = deps.fetch || globalThis.fetch;
   if (typeof fetchFn !== 'function') return { ok: false, because: 'no fetch here', keys };
@@ -169,8 +208,12 @@ async function uploadChunks(deps, objects, opts) {
   }
   // A name already stored (the same content twice in one run) is uploaded once.
   const todo = [];
-  const seen = new Set();
-  for (const c of objects) if (!seen.has(c.name)) { seen.add(c.name); todo.push(c); }
+  const byName = new Map();
+  for (const c of objects) {
+    const first = byName.get(c.name);
+    if (first) { if (!first.object.equals(c.object)) return { ok: false, because: 'two chunks share a name but not their bytes', keys }; continue; }
+    byName.set(c.name, c); todo.push(c);
+  }
 
   for (let at = 0; at < todo.length; at += MAX_PER_GRANT) {
     let pending = todo.slice(at, at + MAX_PER_GRANT);
@@ -181,21 +224,25 @@ async function uploadChunks(deps, objects, opts) {
       // A grant already over when it arrives is not a slow network but a clock ahead of the coordinator's: a new
       // grant would be "expired" too, and each spends allowance. Stop and say so.
       if (now() >= g.expiresAtMs) return { ok: false, because: `this computer's clock reads past the grant's expiry (${new Date(g.expiresAtMs).toISOString()}) as it arrives: check the clock`, keys };
-      const left = [];
+      const left = [], stuck = [];
       let stop = null;
       await eachLimited(g.uploads.map((up, i) => [up, pending[i]]), conc, async ([up, c]) => {
+        let troubled = false;
         for (let attempt = 0; ; attempt++) {
           if (stop) return;
-          if (now() >= g.expiresAtMs) { left.push(c); return; }
+          // Out of time on this grant. A chunk that met only bucket or network trouble does NOT get a new grant (that
+          // spends allowance and could write a second locked copy if an answer was lost): the run ends retryLater.
+          if (now() >= g.expiresAtMs) { (troubled ? stuck : left).push(c); return; }
           const r = await putOne(fetchFn, up, c.object, attempt, o.putTimeoutMs);
           if (r.kind === 'stored' || r.kind === 'present') { keys.set(c.name, up.key); return; }
           if (r.kind === 'expired') { left.push(c); return; }
-          if (r.kind === 'refused') { stop = stop || `the bucket refused a chunk (HTTP ${r.status}${r.code ? ' ' + r.code : ''}); a new grant would not change that`; return; }
-          if (attempt + 1 >= PUT_ATTEMPTS) { left.push(c); return; }
-          await sleep(500 * 2 ** attempt);
+          if (r.kind === 'refused') { stop = stop || `the bucket refused a chunk (${r.status ? 'HTTP ' + r.status : 'locally'}${r.code ? ' ' + r.code : ''}); a new grant would not change that`; return; }
+          troubled = true;
+          await sleep(Math.min(BACKOFF_MAX_MS, 500 * 2 ** attempt));
         }
       });
       if (stop) return { ok: false, because: stop, keys };
+      if (stuck.length) return { ok: false, retryLater: true, because: `${stuck.length} chunks met only bucket or network trouble until their grant expired; try again later`, keys };
       pending = left;
     }
   }
@@ -229,4 +276,4 @@ async function eachLimited(items, n, fn) {
   await Promise.all(Array.from({ length: Math.max(1, Math.min(n, items.length)) }, worker));
 }
 
-module.exports = { GRANT_ROUTE, MAX_PER_GRANT, MIN_OBJECT, MAX_OBJECT, MAX_REGRANTS, PUT_ATTEMPTS, grantBody, refusalOf, expiryMs, parseGrant, putOne, uploadChunks };
+module.exports = { GRANT_ROUTE, MAX_PER_GRANT, MIN_OBJECT, MAX_OBJECT, MAX_REGRANTS, BACKOFF_MAX_MS, grantBody, refusalOf, expiryMs, parseGrant, putOne, uploadChunks };
