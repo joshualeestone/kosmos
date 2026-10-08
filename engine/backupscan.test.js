@@ -296,3 +296,43 @@ test('#5535 Latin-1 (Windows-1252) text is redacted in place, not skipped whole'
   const clean = Buffer.concat([Buffer.from('caf', 'latin1'), Buffer.from([0xe9, 0x0a])]);
   assert.ok(bs.scanFile('agents/a/k.txt', clean).data.equals(clean), 'CONTROL: clean Latin-1 is stored byte for byte');
 });
+
+test('#5535 generic kinds are ignored only for media and fonts: a long_token key in a database is still caught', () => {
+  const azure = 'DefaultEndpointsProtocol=https;AccountName=acct;AccountKey=' + 'Zm9vYmFyYmF6cXV4'.repeat(5) + 'AbCdEf==';
+  const sqlite = Buffer.concat([Buffer.from('SQLite format 3\0'), Buffer.alloc(20), Buffer.from(azure), Buffer.alloc(20)]);
+  const sm = require('./secretmask');
+  assert.ok(sm.mask(azure).fired.length, 'PRECONDITION: secretmask fires on this key at all');
+  assert.equal(bs.scanFile('agents/a/app.db', sqlite).action, 'skip', 'an Azure-style key inside a SQLite file');
+  const sg = 'SG.' + 'aB3dE5fG7hJ9kL1mN3pQ5r'.slice(0, 22) + '.' + 'x'.repeat(10) + 'Y7z9A1b3C5d7E9f1G3h5J7k9L1m3N5p7Q9';
+  const plist = Buffer.concat([Buffer.from('bplist00'), Buffer.alloc(8), Buffer.from(sg), Buffer.alloc(8)]);
+  if (sm.mask(sg).fired.length) assert.equal(bs.scanFile('agents/a/prefs.plist', plist).action, 'skip', 'a SendGrid-style key inside a binary plist');
+});
+
+test('#5535 a key split by one control byte in a non-media binary is still caught', () => {
+  const key = 'sk-ant-api03-' + 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0';
+  const bin = Buffer.concat([Buffer.from([0, 0, 1]), Buffer.from('sk-ant-'), Buffer.from([1]), Buffer.from(key.slice(7)), Buffer.from([0, 0])]);
+  assert.equal(bs.scanFile('agents/a/blob.bin', bin).action, 'skip', 'sk-ant- then \\x01 then the rest');
+  const pw = Buffer.concat([Buffer.from([0, 2]), Buffer.from('password=Hunter'), Buffer.from([1]), Buffer.from('2Hunter2xyzQ'), Buffer.from([0])]);
+  const sm = require('./secretmask');
+  if (sm.mask('password=Hunter2Hunter2xyzQ').fired.length) assert.equal(bs.scanFile('agents/a/blob2.bin', pw).action, 'skip', 'an assigned password split by \\x01');
+});
+
+test('#5535 the binary guards each have a case: XMP-only metadata kept, UTF-16 key skipped, lone key opening skipped, one NUL keeps text binary', () => {
+  const xmp = Buffer.concat([Buffer.from([0, 1, 2, 3, 0]), Buffer.from('<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?><x:xmpmeta/>'), Buffer.from([0, 0])]);
+  assert.equal(bs.scanFile('agents/a/meta.dat', xmp).action, 'store', 'CONTROL: a non-media binary with ordinary XMP metadata is kept');
+  const u16 = Buffer.concat([Buffer.from([0, 1, 2, 3]), Buffer.from(`key ${KEY} x`, 'utf16le'), Buffer.from([7, 7, 7])]);
+  assert.equal(bs.scanFile('agents/a/u16.dat', u16).action, 'skip', 'a UTF-16 key inside a binary (the NUL-removed view)');
+  const open = Buffer.concat([Buffer.from([0, 1, 0, 1]), Buffer.from('-----BEGIN RSA PRIVATE KEY-----'), Buffer.from([0, 0, 0])]);
+  assert.equal(bs.scanFile('agents/a/k.dat', open).action, 'skip', 'a private-key opening alone inside a binary');
+  const longText = Buffer.from('x'.repeat(5000) + `\0key ${KEY}\n` + 'y'.repeat(5000));
+  const r = bs.scanFile('agents/a/t.txt', longText);
+  assert.equal(r.action, 'skip', 'text with a NUL stays binary (never redacted in place): skipped because it holds a key');
+});
+
+test('#5535 Latin-1 redaction writes an ASCII marker, never a quote', () => {
+  const buf = Buffer.concat([Buffer.from('caf'), Buffer.from([0xe9]), Buffer.from(` key ${KEY}\n`, 'latin1')]);
+  const r = bs.scanFile('agents/a/j.txt', buf);
+  assert.equal(r.action, 'store');
+  const out = r.data.toString('latin1');
+  assert.ok(!out.includes(KEY) && out.includes('****') && !out.includes('""""'), `marker written as asterisks: ${JSON.stringify(out)}`);
+});
