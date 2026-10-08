@@ -773,6 +773,9 @@ async function sendPost(post, keys, sent, now, from) {
   let body = payload(post, rec.channel);
   if (!body.title || !body.body) { sent[post.id] = settle(rec, { state: 'refused', reasons: ['empty'] }); return; }
   if (rec.attempted) return;                         // settleUnconfirmed could not tell this sweep: wait
+  // #5574 review 4: which service agent sends it, as a comment records (agentId), so a take-back is asked only by that
+  // same agent: after a re-registration a DELETE as the new one answers 404 ("not mine") and would read as removed.
+  if (k.remoteId) rec.agentId = k.remoteId;
   // Write-ahead: if the board stops while the POST is out, the next sweep finds this mark
   // and looks for the post on the server instead of sending it again.
   sent[post.id] = { ...rec, attempted: true };
@@ -2066,6 +2069,9 @@ function withdrawFor(agentId, kind, id) {
     const k = keys[rec.agent];
     if (k && k.refused) return no('The community refused this agent, so Kosmos cannot take its posts back');
     if (!k || !k.apiKey) return no('Kosmos no longer holds the registration that sent this post, so it cannot take it back');
+    // Review 4: and it must be the registration that SENT it (agentId, or for an older record a registration no newer than
+    // the send), or the take-down goes out as another service agent, gets a 404 and reads as removed while still public.
+    if (!sameServiceAgent(rec, k)) return no('Kosmos cannot be sure the registration it holds sent this post, so it cannot take it back');
   }
   // Review 2: a post whose send got no answer (or is out right now) is NOT refused: unlike a comment, a post can be found
   // again, so the next sweep settles it (settleUnconfirmed) and then takes it down if it arrived, or holds it if it did not.

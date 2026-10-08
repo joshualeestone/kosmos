@@ -203,7 +203,7 @@ test('review 1+2: a post the community refused, or whose agent it refused, is no
   writeJson(cs._paths.sentFile(), {
     [refused.id]: { state: 'refused', agent: 'ava', lastStatus: 422 },
     [byRefusedAgent.id]: { state: 'sent', agent: 'bo', remoteId: crypto.randomUUID() },
-    [fine.id]: { state: 'sent', agent: 'ava', remoteId: crypto.randomUUID() },
+    [fine.id]: { state: 'sent', agent: 'ava', agentId: 'ra', remoteId: crypto.randomUUID() },
   });
   writeJson(cs._paths.keysFile(), { ava: { apiKey: 'kc_key_ra', remoteId: 'ra', name: 'ava' }, bo: { refused: true, name: 'bo' } });
   const r1 = cs.withdrawFor('ava', 'post', refused.id);
@@ -219,7 +219,7 @@ test('review 1+2: a post the community refused, or whose agent it refused, is no
 
 test('review 2: a post whose send got no answer IS taken back: the next sweep settles it and takes it down or holds it', () => {
   const lost = post('ava', 'Lost');
-  writeJson(cs._paths.sentFile(), { [lost.id]: { state: 'pending', attempted: true, agent: 'ava' } });
+  writeJson(cs._paths.sentFile(), { [lost.id]: { state: 'pending', attempted: true, agent: 'ava', agentId: 'ra' } });
   writeJson(cs._paths.keysFile(), { ava: { apiKey: 'kc_key_ra', remoteId: 'ra', name: 'ava' } });
   const r = cs.withdrawFor('ava', 'post', lost.id);
   assert.equal(r.ok, true, JSON.stringify(r));
@@ -289,4 +289,36 @@ test('review 3: a comment already held back answers as done on a retry, and a mo
   const p = post('ava', 'Moderated');
   writeJson(cs._paths.sentFile(), { [p.id]: { state: 'sent', agent: 'ava', remoteId: crypto.randomUUID(), takenDown: true } });
   assert.deepEqual(cs.withdrawFor('ava', 'post', p.id), { ok: true, state: 'deleted' });
+});
+
+test('review 4: a post sent by a registration since replaced is not "taken back" (a DELETE as the new one would 404)', () => {
+  const sent = post('ava', 'Sent by the old registration');
+  const lost = post('ava', 'Unanswered under the old registration');
+  const legacy = post('ava', 'An older record with no agentId');
+  writeJson(cs._paths.sentFile(), {
+    [sent.id]: { state: 'sent', agent: 'ava', agentId: 'r-old', remoteId: crypto.randomUUID(), sentAt: '2026-10-01T00:00:00.000Z' },
+    [lost.id]: { state: 'pending', attempted: true, agent: 'ava', agentId: 'r-old' },
+    [legacy.id]: { state: 'sent', agent: 'ava', remoteId: crypto.randomUUID(), sentAt: '2026-10-01T00:00:00.000Z' },
+  });
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'kc_key_new', remoteId: 'r-new', name: 'ava-2', registeredAt: '2026-10-05T00:00:00.000Z' } });
+  for (const p of [sent, lost, legacy]) {
+    const r = cs.withdrawFor('ava', 'post', p.id);
+    assert.equal(r.notEligible, true, p.id + ' ' + JSON.stringify(r));
+    assert.match(r.because, /cannot be sure the registration it holds sent this post/);
+  }
+  assert.deepEqual(readJson(cs._paths.deletesFile()), {});
+  // CONTROL: the registration that sent them (by agentId, or for the older record one no newer than its send) can.
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'kc_key_old', remoteId: 'r-old', name: 'ava', registeredAt: '2026-09-01T00:00:00.000Z' } });
+  for (const p of [sent, lost, legacy]) assert.equal(cs.withdrawFor('ava', 'post', p.id).ok, true, p.id);
+});
+
+test('review 4: a post the sweep really sends records which service agent sent it, so it can be taken back', async () => {
+  await on();
+  const p = post('ava', 'First post of a new agent');
+  await cs.sweep();
+  const rec = readJson(cs._paths.sentFile())[p.id];
+  const k = readJson(cs._paths.keysFile()).ava;
+  assert.equal(rec.state, 'sent');
+  assert.ok(rec.agentId && rec.agentId === k.remoteId, 'the sent record names the registration that sent it: ' + JSON.stringify(rec));
+  assert.equal(cs.withdrawFor('ava', 'post', rec.remoteId).ok, true, 'a new agent\'s first post is not refused for registering in the same sweep');
 });
