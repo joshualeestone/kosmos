@@ -347,16 +347,18 @@ tick; r2=$RC; kill "$w2" 2>/dev/null; wait "$w2" 2>/dev/null; rm -rf "$ST/lock"
 { [ "$r1" = 1 ] && [ "$r2" = 1 ]; } && pass "wedged: after the lock is taken again, a new wedge is red at once" || bad "wedged re-arm (r1=$r1 r2=$r2)"
 
 # 26) a fetch that hangs is stopped at its limit with its whole process group, and is red_once fetch.
-#     (ext:: runs a command as the remote; "sleep 4711" is unique, so it can be looked for afterwards.)
+#     (ext:: runs a command as the remote; the sleep's length is unique to this run, so it can be looked
+#     for afterwards without counting another run's.)
+Z26=$(( 4000 + $$ % 900 ))
 git -C "$T/site" config protocol.ext.allow always
-git -C "$T/site" remote set-url origin 'ext::sleep 4711'
+git -C "$T/site" remote set-url origin "ext::sleep $Z26"
 t0=$SECONDS; KOSMOS_AUTODEPLOY_FETCH_MAX_S=2 tick; el=$((SECONDS - t0)); sleep 1
-left=$(ps -axo command= | command grep -c '^sleep 4711$')
+left=$(ps -axo command= | command grep -c "^sleep $Z26\$")
 git -C "$T/site" remote set-url origin "$T/origin.git"; git -C "$T/site" config --unset protocol.ext.allow
 { [ "$RC" = 1 ] && [ "$el" -lt 10 ] && [ "$left" = 0 ] && printf '%s' "$OUT" | grep -q "could not fetch"; } \
   && pass "a hanging fetch is stopped at its limit, its helpers with it, and reported red" || bad "hanging fetch (rc=$RC, ${el}s, $left left) $OUT"
 # (No cleanup kill on a failure: this is a shared user, and a pattern kill reaches other people's
-#  processes. A leftover "sleep 4711" ends by itself in 79 minutes.)
+#  processes. A leftover sleep ends by itself within 82 minutes.)
 tick   # recovered: clears the fetch record
 
 # 27) a SECOND signal while a killed tick is stopping a deploy that ignores TERM (a runner's cancel
