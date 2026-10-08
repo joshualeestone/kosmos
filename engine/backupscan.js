@@ -194,7 +194,8 @@ const PLACEHOLDER_BYTES = Buffer.from('••••', 'utf8');
    since Azure and SendGrid keys fire only as long_token. Magics are checked strictly (PNG needs IHDR, a font a
    sane table count, ISO media a known image brand), so a store cannot pass as media by a short prefix by chance.
    Residual, stated: a long_token-only key compiled into a Mach-O (or a Java .class, which shares cafebabe), a
-   url_credential inside a font, or a store crafted with real media headers, passes; the threat model is accidental secrets in ordinary work, not a user hiding them from their employer. */
+   url_credential inside a font, a store crafted with real media headers, or a zip appended to a real image
+   (a polyglot), passes; the threat model is accidental secrets in ordinary work, not a user hiding them from their employer. */
 const ISO_IMAGE_BRANDS = new Set(['heic', 'heix', 'hevc', 'hevx', 'mif1', 'msf1', 'avif', 'avis']);
 const ISO_AV_BRANDS = new Set(['M4A ', 'M4V ', 'mp41', 'mp42', 'isom', 'qt  ']);
 function mediaKind(b) {
@@ -223,9 +224,10 @@ function binaryClean(bytes) {
   if (bytes.includes(PLACEHOLDER_BYTES)) return false;
   const media = mediaKind(bytes);
   const runsOf = (s) => (s.match(/[\x20-\x7e\t]{8,}/g) || []).join('\n');
-  // Media metadata (Adobe XMP) carries key="..." attributes that fire assigned_secret (8 of 42 system .mov files):
-  // for media kinds the XMP packet is dropped from the views. The packet holds descriptive metadata, not content.
-  const dropXmp = (s) => (media ? s.replace(/<x:xmpmeta[\s\S]{0,262144}?<\/x:xmpmeta>/g, '') : s);
+  // Adobe XMP in media writes xmpDM:key="..." attributes, which fire assigned_secret (8 of 42 system .mov files).
+  // Only that attribute is removed, for media kinds: the rest of the packet is still scanned, so a key pasted into
+  // a description or keyword field skips the file. (Round 9 dropped the whole packet; round 10 measured the leak.)
+  const dropXmp = (s) => (media ? s.replace(/xmpDM:key="[^"]{0,512}"/g, '') : s);
   const latin = dropXmp(bytes.toString('latin1'));
   const noNul = latin.replace(/\0/g, '');
   const views = [runsOf(latin), runsOf(noNul)];
