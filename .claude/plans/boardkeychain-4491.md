@@ -214,3 +214,8 @@ Nineteenth review (opus), no blocker; fixed: move-aside re-checks the folder rig
 Twentieth review (sonnet), no security hole; fixed: an unchanged guard is not rewritten at every board start; create's
 two comments merged. Over-refusal stated in full: undo compares every protected path and folder without case, so on a
 case-sensitive disk a file differing only in case from a protected one is refused too (safe direction, accepted).
+
+### Review 21 (sonnet)
+- WARNING fixed: the person's own user settings (~/.claude, ~/.claude-<label>) reach a token-only agent and may hold sandbox keys that weaken the guard. Never edited (they are the person's); refreshTokenOnlyGuards now writes one board-log line per weakening key found. Test drives the real refresh with a user file holding excludedCommands, asserts the line and that the file is byte-identical; red with the warning disabled.
+- NIT fixed: the em-dash test could never fail (it read only rules); it now asserts the guard wrote, and scans setup-assistant.js and undo.js for all five spellings.
+- NIT fixed: guardTokenOnlyFolder doc comment said ~/.claude-* homes were permission-layer only; existing homes get concrete denies in both layers.
