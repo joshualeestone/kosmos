@@ -16,8 +16,9 @@
  *   Windows: MachineGuid, from `reg query HKLM\SOFTWARE\Microsoft\Cryptography /v MachineGuid /reg:64` (readable by a
  *     standard user, no elevation). /reg:64 so a 32-bit node would still read the 64-bit hive, not WOW6432Node's copy.
  *     When reg.exe refuses (the "Prevent access to registry editing tools" policy, an AppLocker rule: both common on the
- *     managed PCs this is for), the same value is read with PowerShell's Get-ItemPropertyValue, which those policies
- *     leave alone and which works in Constrained Language mode.
+ *     managed PCs this is for), the same value is read with PowerShell's Get-ItemPropertyValue, which works in
+ *     Constrained Language mode. That covers the registry-tools policy and AppLocker rules aimed at reg.exe alone; an
+ *     AppLocker rule that also blocks powershell.exe leaves no way in, and the answer is null.
  *   Anything else: null.
  * Known limits, stated on #5532: a cloned disk image or VM clone copies MachineGuid; a logic-board repair changes
  * IOPlatformUUID. Both end at the consent prompt to make this computer the enrolled one, never at lost data. A PC that
@@ -34,10 +35,14 @@ const SALT = /^[0-9a-f]{32,128}$/;   // the coordinator's per-account salt: hex,
 
 /* The hardware does not change while the board runs, so a read that SUCCEEDED is kept for the run. A failed one is not
    kept forever: a reg.exe or ioreg call that times out once (a logon-time Defender scan) would otherwise leave the board
-   with no print until it restarts. But it is not retried at once either: the read is a synchronous spawn of up to
-   seconds, so after a failure the answer is null for RETRY_AFTER_MS without spawning anything. */
-const RETRY_AFTER_MS = 5 * 60 * 1000;
+   with no print until it restarts. But the read is a synchronous spawn (up to 15s on Windows when both reads time out),
+   so a failure is retried only after RETRY_AFTER_MS[n] for the n-th failure in a row, and after the last one not again
+   this run: a PC that blocks the read for good pays for it a few times, not every five minutes forever. The window is
+   measured on the monotonic clock, so a logon-time clock correction cannot stretch or shrink it. Callers should still
+   read the print off any request path. */
+const RETRY_AFTER_MS = Object.freeze([5 * 60 * 1000, 15 * 60 * 1000, 60 * 60 * 1000]);
 let cached = null;
+let failures = 0;
 let failedAt = 0;
 
 /* The raw IOPlatformUUID out of ioreg's text, or null. Pure, so the parse is tested on fixtures. */
@@ -78,15 +83,30 @@ function attempt(run, parse) {
   try { return parse(run()); } catch { return null; }
 }
 
+/* The two real Windows reads, exactly as production runs them (exported so the real-registry test runs these, not
+   copies). Each returns the command's stdout or throws. */
+const QUIET = Object.freeze({ encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+function readRegistry() { return execFileSync(regExe(), REG_ARGS, { ...QUIET, timeout: 5000 }); }
+// PowerShell starts slower than reg.exe, hence its longer timeout; it runs only when reg.exe gave nothing.
+function readPowerShell() { return execFileSync(powershellExe(), PS_ARGS, { ...QUIET, timeout: 10000 }); }
+
+/* May a failed read be tried again at `now`? No while inside the window for the current failure count, and never
+   once every window has been used. */
+function mayRetry(now) {
+  if (!failures) return true;
+  if (failures > RETRY_AFTER_MS.length) return false;
+  return now - failedAt >= RETRY_AFTER_MS[failures - 1];
+}
+
 /* This computer's hardware id, or null. Test seams: opts.platform; opts.run (the first read: ioreg or reg.exe) and
    opts.runFallback (Windows' PowerShell read; with a stubbed run and no stubbed fallback, no fallback runs, so a test
    never spawns PowerShell); opts.now. A stubbed run bypasses the cache unless opts.useCache is true (its own test). */
 function hardwareId(opts) {
   const o = opts || {};
   const useCache = !o.run || o.useCache === true;
-  const now = typeof o.now === 'number' ? o.now : Date.now();
+  const now = typeof o.now === 'number' ? o.now : performance.now();   // monotonic: see RETRY_AFTER_MS
   if (useCache && cached) return cached;
-  if (useCache && failedAt && now - failedAt < RETRY_AFTER_MS) return null;
+  if (useCache && !mayRetry(now)) return null;
   const platform = o.platform || process.platform;
   let id = null;
   if (platform === 'darwin') {
@@ -96,21 +116,18 @@ function hardwareId(opts) {
     } catch { id = null; }
   }
   if (platform === 'win32') {
-    const quiet = { encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] };
-    const run = o.run || (() => execFileSync(regExe(), REG_ARGS, { ...quiet, timeout: 5000 }));
-    id = attempt(run, parseRegQuery);
-    // PowerShell starts slower than reg.exe, hence its longer timeout; it runs only when reg.exe gave nothing.
-    const fallback = o.runFallback || (o.run ? null : () => execFileSync(powershellExe(), PS_ARGS, { ...quiet, timeout: 10000 }));
+    id = attempt(o.run || readRegistry, parseRegQuery);
+    const fallback = o.runFallback || (o.run ? null : readPowerShell);
     if (!id && fallback) id = attempt(fallback, parsePsValue);
   }
   if (useCache) {
-    if (id) { cached = id; failedAt = 0; } else failedAt = now;
+    if (id) { cached = id; failures = 0; failedAt = 0; } else { failures += 1; failedAt = now; }
   }
   return id;
 }
 
-/* For tests only: forget the kept id and any failure, so the cache's own test starts empty. */
-function _resetCache() { cached = null; failedAt = 0; }
+/* For tests only: forget the kept id and any failures, so the cache's own test starts empty. */
+function _resetCache() { cached = null; failures = 0; failedAt = 0; }
 
 /* The print the company pins: sha256 of the served salt and this computer's hardware id, or null when either is
    missing or malformed. */
@@ -122,6 +139,6 @@ function fingerprint(salt, opts) {
 }
 
 module.exports = {
-  parseIoreg, parseRegQuery, parsePsValue, regExe, powershellExe, REG_ARGS, PS_ARGS, RETRY_AFTER_MS,
+  parseIoreg, parseRegQuery, parsePsValue, regExe, powershellExe, readRegistry, readPowerShell, REG_ARGS, PS_ARGS, RETRY_AFTER_MS,
   hardwareId, _resetCache, fingerprint, UUID, SALT,
 };

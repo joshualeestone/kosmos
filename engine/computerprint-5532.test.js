@@ -58,14 +58,12 @@ test('#5532 v1.5: on Windows, this computer\'s real MachineGuid has the GUID sha
   const id = cp.hardwareId();
   assert.ok(id && cp.UUID.test(id), 'reg query gave no MachineGuid on this PC');
   assert.ok(id === id.toUpperCase(), 'the MachineGuid was not upper-cased');
-  // Two fresh registry reads (a stubbed run that calls the real reg.exe bypasses the cache), so this is real stability.
-  const read = () => require('node:child_process').execFileSync(cp.regExe(), cp.REG_ARGS, { encoding: 'utf8', timeout: 5000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
-  assert.ok(cp.hardwareId({ platform: 'win32', run: read }) === id, 'a fresh read differs from the first');
-  assert.ok(cp.hardwareId({ platform: 'win32', run: read }) === id, 'two fresh reads differ');
-  // The PowerShell fallback, for real, as on a PC whose policy blocks reg.exe: it must read the same value.
-  const ps = () => require('node:child_process').execFileSync(cp.powershellExe(), cp.PS_ARGS, { encoding: 'utf8', timeout: 20000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+  // Two fresh reads through production's own reader (a stubbed run bypasses the cache), so this is real stability.
+  assert.ok(cp.hardwareId({ platform: 'win32', run: cp.readRegistry }) === id, 'a fresh read differs from the first');
+  assert.ok(cp.hardwareId({ platform: 'win32', run: cp.readRegistry }) === id, 'two fresh reads differ');
+  // Production's PowerShell fallback, for real, as on a PC whose policy blocks reg.exe: it must read the same value.
   const blocked = () => { throw new Error('Registry editing has been disabled by your administrator'); };
-  assert.ok(cp.hardwareId({ platform: 'win32', run: blocked, runFallback: ps }) === id, 'the PowerShell fallback read a different value, or none');
+  assert.ok(cp.hardwareId({ platform: 'win32', run: blocked, runFallback: cp.readPowerShell }) === id, 'the PowerShell fallback read a different value, or none');
 });
 
 test('#5532 v1.5: on Windows, PowerShell is the fallback when reg.exe refuses, and only then', () => {
@@ -84,19 +82,36 @@ test('#5532 v1.5: on Windows, PowerShell is the fallback when reg.exe refuses, a
   assert.equal(cp.parsePsValue(''), null);
 });
 
-test('#5532 v1.5: a successful read is kept for the run; a failed one is retried, but not before RETRY_AFTER_MS', () => {
-  const fail = () => { throw new Error('reg timed out'); };
-  const T = 1_000_000;
+test('#5532 v1.5: a successful read is kept for the run; a failed one is retried after a growing wait, then not at all', () => {
+  const [w1, w2, w3] = cp.RETRY_AFTER_MS;
+  assert.ok(cp.RETRY_AFTER_MS.length === 3 && w1 < w2 && w2 < w3, 'the waits grow');
+  let runs = 0;
+  const fail = () => { runs += 1; throw new Error('reg timed out'); };
+  const good = () => { runs += 1; return REG; };
+  const at = (now, run) => cp.hardwareId({ platform: 'win32', run, useCache: true, now });
+  const GUID = '0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9';
   cp._resetCache();
   try {
-    assert.equal(cp.hardwareId({ platform: 'win32', run: fail, useCache: true, now: T }), null);
-    let ran = false;
-    const good = () => { ran = true; return REG; };
-    assert.equal(cp.hardwareId({ platform: 'win32', run: good, useCache: true, now: T + cp.RETRY_AFTER_MS - 1 }), null, 'a failed read was retried at once');
-    assert.equal(ran, false, 'it spawned a read inside the retry window');
-    assert.equal(cp.hardwareId({ platform: 'win32', run: good, useCache: true, now: T + cp.RETRY_AFTER_MS }), '0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9', 'a failed read was kept for good');
-    assert.equal(cp.hardwareId({ platform: 'win32', run: fail, useCache: true, now: T + 2 * cp.RETRY_AFTER_MS }), '0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9', 'a good read was not kept');
+    // A transient failure: inside the first wait nothing is spawned; after it, a good read is found and kept.
+    assert.equal(at(0, fail), null);
+    assert.equal(at(w1 - 1, good), null, 'a failed read was retried at once');
+    assert.equal(runs, 1, 'it spawned a read inside the retry window');
+    assert.equal(at(w1, good), GUID, 'a failed read was kept for good');
+    assert.equal(at(w1 + 10 * w3, fail), GUID, 'a good read was not kept');
     assert.equal(cp.hardwareId({ platform: 'win32', run: fail }), null, 'a stubbed run without useCache read the cache');
+
+    // A PC that blocks the read for good: tried after each wait, then never again this run.
+    cp._resetCache();
+    runs = 0;
+    let t = 0;
+    assert.equal(at(t, fail), null);
+    assert.equal(at(t + w1 - 1, fail), null); assert.equal(runs, 1, 'retried inside the first wait');
+    t += w1; assert.equal(at(t, fail), null); assert.equal(runs, 2);
+    assert.equal(at(t + w2 - 1, fail), null); assert.equal(runs, 2, 'retried inside the second wait');
+    t += w2; assert.equal(at(t, fail), null); assert.equal(runs, 3);
+    t += w3; assert.equal(at(t, fail), null); assert.equal(runs, 4);
+    assert.equal(at(t + 100 * w3, good), null, 'it kept spawning after the last wait');
+    assert.equal(runs, 4, 'it kept spawning after the last wait');
   } finally { cp._resetCache(); }
 });
 
