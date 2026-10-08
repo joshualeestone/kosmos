@@ -27,7 +27,7 @@ test('#4752: CONTROL, a macOS or Linux path is unchanged', () => {
   assert.equal(sa.ruleAbs('/tmp/a\\b', 'darwin'), '//tmp/a\\b');
 });
 
-test('#4752: no Read rule the guide writes on THIS host carries a backslash or a drive colon', (t) => {
+test('#4752: on THIS host (meaningful on the Windows job; trivially true elsewhere) no Read rule carries a backslash or a drive colon', (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'winrules-'));
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   const rules = sa.guideDenyRules({ home, dataRoot: path.join(home, 'data'), worldsBase: path.join(home, 'base'), legacyRoots: [] });
@@ -42,8 +42,8 @@ test('#4752: no Read rule the guide writes on THIS host carries a backslash or a
 test('#4752: rulePath reads a written rule back to the exact path, so the own-folder check compares real paths', () => {
   for (const p of ['C:\\Users\\alice\\AppData\\Roaming\\Kosmos', 'D:\\data\\Kosmos\\worlds', 'c:\\lower\\drive']) {
     const back = sa.rulePath(sa.ruleAbs(p, 'win32').slice(2), 'win32');
-    assert.equal(back.toLowerCase(), p.toLowerCase(), 'the Windows round trip lost the path: ' + back);
-    assert.match(back, /^[A-Z]:\\/, 'the drive is not restored as a drive');
+    assert.equal(back.slice(1), p.slice(1), 'the Windows round trip changed the path past its drive letter: ' + back);
+    assert.equal(back[0], p[0].toUpperCase(), 'the drive is not restored as a drive');
   }
   assert.equal(sa.rulePath('C:\\written\\before', 'win32'), 'C:\\written\\before', 'a rule in the older native form is not read as it is');
   for (const p of ['/Users/alice/Library/Application Support/Kosmos', '/home/a/.local/share/Kosmos']) {
@@ -61,4 +61,34 @@ test('#4752: an older native-form Windows rule maps to its exact new-form equiva
   assert.equal(eq('Read(~/.ssh/**)'), null, 'CONTROL: a home rule is not a native-form rule');
   // the equivalent is exactly what ruleAbs writes for the same path, so `fresh.rules.includes(eq)` can be true
   assert.equal(eq('Read(//C:\\Users\\a\\x)'), `Read(${sa.ruleAbs('C:\\Users\\a\\x', 'win32')})`);
+});
+
+test('#4752: migrating a Windows guide keeps exactly the right rules (pure, so it runs from any host)', () => {
+  const base = 'C:\\Users\\a\\AppData\\Roaming\\Kosmos';
+  const nf = (p) => `Read(${sa.ruleAbs(p, 'win32')})`;   // a rule in the new form
+  const fresh = {
+    entryBase: base,
+    rules: [nf(base + '\\notes.json'), nf(base + '\\board-token'), 'Read(~/.ssh/**)'],
+  };
+  const had = [
+    'Read(//C:\\Users\\a\\AppData\\Roaming\\Kosmos\\notes.json)',   // old form, made again just now: dropped
+    'Read(//C:\\Users\\a\\AppData\\Roaming\\Kosmos\\gone.log)',     // old form, entry gone from the listed store: dropped
+    nf(base + '\\also-gone.log'),                                     // new form, entry gone: dropped (wasEntryRule)
+    'Read(//C:\\Users\\a\\Documents\\private)',                        // a person's own old-form rule elsewhere: kept
+    nf('C:\\Users\\a\\Documents\\other'),                              // a person's own new-form rule elsewhere: kept
+    'Read(~/.ssh/**)',
+  ];
+  assert.deepEqual(sa.migrateKept(had, fresh, 'win32'), [
+    'Read(//C:\\Users\\a\\Documents\\private)',
+    nf('C:\\Users\\a\\Documents\\other'),
+    'Read(~/.ssh/**)',
+  ]);
+  // with no complete listing (entryBase null), an old rule with no fresh equivalent stays: never a path left bare
+  assert.deepEqual(sa.migrateKept(['Read(//C:\\Users\\a\\AppData\\Roaming\\Kosmos\\gone.log)'], { entryBase: null, rules: [] }, 'win32'),
+    ['Read(//C:\\Users\\a\\AppData\\Roaming\\Kosmos\\gone.log)']);
+});
+
+test('#4752: CONTROL, off Windows no native-looking rule is touched by the Windows migration', () => {
+  const had = ['Read(//C:\\Users\\a\\x)', 'Read(//Users/a/y)'];
+  assert.deepEqual(sa.migrateKept(had, { entryBase: null, rules: ['Read(//c/Users/a/x)'] }, 'darwin'), had);
 });
