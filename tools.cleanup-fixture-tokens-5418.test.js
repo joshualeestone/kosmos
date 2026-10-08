@@ -33,7 +33,8 @@ const win32job = require('./engine/win32job');
 win32job.setRunner(() => ({ ok: false, out: 'ERROR: The system cannot find the file specified.', code: 1 }));
 test.after(() => win32job.setRunner(null));
 const linuxjob = require('./engine/linuxjob');
-linuxjob.setSystemdDirForTests(() => path.join(process.env.AGENT_WORKFORCE_WORKERS, 'systemd-user'));
+// beside the store, NOT in the workers folder (an arm that clears the workers folder would take the units with it)
+linuxjob.setSystemdDirForTests(() => path.join(SB, 'systemd-user'));
 test.after(() => linuxjob.setSystemdDirForTests(null));
 /* --apply needs live execution, which only the tool's command line turns on. Only a call that applies is armed, for
    that call alone (the store is a throwaway, #5418 ask 1); two arms check the refusal unarmed. */
@@ -917,4 +918,30 @@ test('#5418: a backup copy is flushed; on Windows a handle that cannot be flushe
   t.mock.method(fs, 'fsyncSync', () => { throw Object.assign(new Error('flush'), { code: 'EPERM' }); });
   assert.doesNotThrow(() => tool.flushCopy(f, 'win32'), 'EPERM on Windows stopped the backup');
   assert.throws(() => tool.flushCopy(f, 'darwin'), /flush/, 'CONTROL: off Windows a failed flush is not swallowed');
+});
+
+test('#5418: a read-only planned file is backed up (flushed before its mode goes back)', { skip: process.platform === 'win32' && 'POSIX modes' }, (t) => {
+  const root = scratch(t);
+  const dir = path.join(root, 'tokens');
+  fs.mkdirSync(dir);
+  fs.writeFileSync(path.join(dir, 'ro.json'), 'R');
+  fs.chmodSync(path.join(dir, 'ro.json'), 0o400);
+  const dest = path.join(root, 'backup');
+  tool.backup(dir, dest, ['ro.json']);
+  assert.equal(fs.readFileSync(path.join(dest, 'ro.json'), 'utf8'), 'R');
+  assert.equal(fs.statSync(path.join(dest, 'ro.json')).mode & 0o777, 0o400, 'the mode was not kept');
+});
+
+test('#5418: a token entry with no string token is not read (as the store reads it): its launcher keeps nothing', (t) => {
+  const f = path.join(scratch(t), 'x.json');
+  fs.writeFileSync(f, JSON.stringify({ tokens: [{ launcher: 'remote', mintedAt: '2026-10-01T00:00:00Z' }, { token: 'a', name: 'n', mintedAt: '2026-09-01T00:00:00Z' }] }));
+  const info = tool.tokenInfo(f);
+  assert.deepEqual(info.launchers, [], 'a malformed entry\'s launcher was read');
+  assert.equal(info.newestMintMs, Date.parse('2026-09-01T00:00:00Z'), 'a malformed entry\'s mintedAt was read');
+});
+
+test('#5418: a link\'s target is in the digest, so a link re-pointed after the dry run changes it', () => {
+  const a = tool.planDigest({ remove: [{ name: 'l.json', kind: 'symlink', linkTarget: '/x/a' }] });
+  const b = tool.planDigest({ remove: [{ name: 'l.json', kind: 'symlink', linkTarget: '/x/b' }] });
+  assert.notEqual(a, b);
 });
