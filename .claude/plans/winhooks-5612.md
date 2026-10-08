@@ -44,3 +44,26 @@
 - After this ships, on a Windows install: %USERPROFILE%\.claude\settings.json gains hooks.Stop and the other events
   pointing at node.exe plus kosmos-report-hook.js; after an agent restarts, its self-report shows idle; the board log
   shows "community-turn:" lines; the agent posts.
+- A permission prompt in a Windows agent turns its tile red. A plain `claude` started by hand shows what the hook prints
+  in a session Kosmos did not start.
+
+## Full suite (baseline, before review fixes)
+- 17107 tests, 16874 pass, 1 fail: the reachability guard naming engine/usageprice.js costOf, main's known red (fixed
+  by #5600). This branch adds nothing to it.
+
+## Review 1 (opus): no blockers
+- Confirmed end to end, from the source: the hook script ships in the Windows zip (build-kosmos-windows.sh requires
+  app/engine/kosmos-report-hook.js). process.execPath is the board's durable runtime\node.exe. The hook posts to the
+  win32 board port with the agent token win32launch sets. win32launch deletes CLAUDE_CONFIG_DIR for a default-account
+  agent, so the agent reads exactly <home>\.claude\settings.json.
+- Fixed (WARNING): a lost update. Each Windows agent's supervisor writes its bypass consent into the same file at logon
+  (trust.preacceptBypass, under the #3088 <target>.lock), as the board starts. wireDefaultHooks now takes the same
+  lock on the same path (trust.defaultAgentSettings()). A held lock is a refusal for this boot. Plant P3 (no lock)
+  reds the new lock test.
+- Stated (WARNING): the person's own Claude Code sessions on Windows read this file too, so they now run the hook, as
+  on a Mac since #561. A session Kosmos did not start may print the hook's "reporting is OFF" note. Parity, not a
+  regression. Added to the Windows-box checks: start a plain `claude` in a terminal and read what it prints.
+- Fixed (CONVENTION): server.js uses its existing `accounts` import.
+- Fixed (NIT): a test with nothing injected wires the real engine/kosmos-report-hook.js.
+- Left (NIT): accounts added earlier on Windows are not repointed (setup.sh does that on a Mac). prepare() re-wires on
+  reconnect, and #570's exec form predates every Windows release.

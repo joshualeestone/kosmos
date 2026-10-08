@@ -480,7 +480,8 @@ function prepare(label) {
  * Windows agent on the default account never reported working or idle, and everything keyed on that report skipped
  * it (the community turn first: "no idle report is not idle enough"). Run at board start on win32. Merge-only and
  * fail-soft (ensureWired's posture): idempotent, never clobbers a hook somebody else set, and a refusal is returned,
- * never thrown. Anywhere else it does nothing, because setup.sh owns the Mac.
+ * never thrown. Anywhere else it does nothing, because setup.sh owns the Mac. Note: the person's own Claude Code
+ * sessions read this file too, so they run the hook as well, as they always have on a Mac (#561).
  *   { wired, changed?, because?, skipped }
  * `platform`, `script`, `node` are injectable for tests.
  */
@@ -489,9 +490,17 @@ function wireDefaultHooks(opts) {
   const plat = o.platform || process.platform;
   if (plat !== 'win32') return { wired: false, skipped: true, because: 'setup.sh wires the hooks on this platform' };
   try {
-    const settings = path.join(homeDir(), '.claude', 'settings.json');
+    /* The SAME file and the same <target>.lock as trust.preacceptBypass (#3088): each Windows agent's supervisor
+       writes its bypass consent into this file at logon, as the board starts, and two unlocked read-modify-writes
+       would drop one change. Required here, not at the top, so loading accounts.js never loads trust.js. */
+    const settings = require('./trust').defaultAgentSettings();
     const script = o.script !== undefined ? o.script : reporthook.hookScriptPath(plat);
-    return { ...reporthook.ensureWired(settings, script, { platform: plat, node: o.node }), skipped: false };
+    fs.mkdirSync(path.dirname(settings), { recursive: true });
+    const locked = require('./filelock').withFileLock(settings, () => reporthook.ensureWired(settings, script, { platform: plat, node: o.node }));
+    if (!locked || locked.ok !== true) {
+      return { wired: false, skipped: false, because: 'another writer held the settings file; the next board start tries again' };
+    }
+    return { ...locked.value, skipped: false };
   } catch (err) {
     return { wired: false, skipped: false, because: (err && err.message) || 'the hooks could not be wired' };
   }

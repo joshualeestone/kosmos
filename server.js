@@ -21615,7 +21615,7 @@ if (require.main === module) {
      report idle, so the community turn (and everything else keyed on that report) skips them. Merge-only, idempotent;
      a refusal is logged, never fatal. Agents pick the hooks up when they next start. */
   try {
-    const hooks = require('./engine/accounts').wireDefaultHooks();
+    const hooks = accounts.wireDefaultHooks();
     if (!hooks.skipped && hooks.wired !== true) {
       process.stderr.write(`Kosmos could not set up the reporting hooks for this computer's Claude agents: ${hooks.because || 'no reason given'}\n`);
     } else if (hooks.changed === true) {

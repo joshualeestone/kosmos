@@ -69,6 +69,27 @@ test('#5612: a person\'s own hook and settings in the default file survive the w
   assert.ok(stop.some((h) => h.command === s.node), 'ours was not added beside it');
 });
 
+test('#5612: with nothing injected, win32 wires the real script beside the engine (the one the Windows zip ships)', (t) => {
+  const s = sandbox(t);
+  const r = accounts.wireDefaultHooks({ platform: 'win32', node: s.node });
+  assert.equal(r.wired, true, JSON.stringify(r));
+  const want = path.resolve(__dirname, 'kosmos-report-hook.js');
+  assert.ok(fs.existsSync(want), 'precondition: engine/kosmos-report-hook.js exists');
+  const stop = read(s.settings).hooks.Stop.flatMap((e) => e.hooks || []).filter((h) => h.command === s.node);
+  assert.deepEqual(stop.map((h) => h.args), [[want]]);
+});
+
+test('#5612: it takes the settings file lock that trust.preacceptBypass takes, so the two writers cannot drop each other', (t) => {
+  const s = sandbox(t);
+  fs.mkdirSync(path.dirname(s.settings), { recursive: true });
+  fs.mkdirSync(s.settings + '.lock');   // a writer holding it (a fresh lock, not a stale one)
+  t.after(() => fs.rmSync(s.settings + '.lock', { recursive: true, force: true }));
+  const r = accounts.wireDefaultHooks({ platform: 'win32', script: s.script, node: s.node });
+  assert.equal(r.wired, false, JSON.stringify(r));
+  assert.match(String(r.because), /another writer/);
+  assert.equal(fs.existsSync(s.settings), false, 'it wrote while another writer held the lock');
+});
+
 test('#5612: off Windows it does nothing (setup.sh owns the Mac), and writes no file', (t) => {
   const s = sandbox(t);
   for (const platform of ['darwin', 'linux']) {
@@ -91,7 +112,7 @@ test('#5612: with no hook script on the machine it refuses, with a reason, and n
 test('#5612: the board calls it on its real start path (beside the community switch\'s one-time step)', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const migrate = src.indexOf('communityswitch.migrate();');
-  const wire = src.indexOf("require('./engine/accounts').wireDefaultHooks()");
+  const wire = src.indexOf('accounts.wireDefaultHooks();');
   assert.ok(migrate > 0, 'the anchor moved: communityswitch.migrate() is not in server.js');
   assert.ok(wire > migrate && wire - migrate < 1200, 'server.js does not wire the default hooks right after the community switch step');
 });
