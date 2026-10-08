@@ -78,3 +78,13 @@ test('#5418: with no recorded mint time in the plan, a mintedAt at or after the 
   assert.equal(r.ok, false);
   assert.equal(fs.existsSync(p), true);
 });
+
+test('#5418: a mint since the plan keeps the file by mintedAt ALONE, the mtime put back as planned', () => {
+  const m = seed('minted-same-mtime');
+  assert.equal(sendertoken.mint('minted-same-mtime').ok, true);
+  fs.utimesSync(fileOf('minted-same-mtime'), m / 1000, m / 1000);   // the mtime guard now sees nothing
+  assert.equal(fs.lstatSync(fileOf('minted-same-mtime')).mtimeMs, m, 'the mtime was not put back, so this arm tests the mtime guard');
+  const r = sendertoken.revokeIfUnchanged('minted-same-mtime', m, OLD);
+  assert.equal(r.ok, false, 'removed though a token was minted after the plan');
+  assert.equal(fs.existsSync(fileOf('minted-same-mtime')), true);
+});

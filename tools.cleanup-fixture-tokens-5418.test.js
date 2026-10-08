@@ -41,6 +41,12 @@ function armedApply(...a) {
 const DAY = 24 * 3600 * 1000;
 const CUTOFF = Date.parse('2026-10-01T00:00:00Z');   // a fixed PAST date: the tool refuses a future cutoff
 const OLD = CUTOFF - 30 * DAY;
+/* A pid no process has, checked on THIS host (Windows answers a missing pid differently from POSIX): the temps'
+   'writer gone' arms depend on it. */
+const DEAD = 2147483646;
+test('#5418: the dead pid the temp arms use has no process on this host', () => {
+  assert.equal(require('./engine/securewrite').tempWriterGone(`x.json.kosmos-${DEAD}-t0-1-1.tmp`), true);
+});
 const NEW = CUTOFF + DAY;
 
 function scratch(t) {
@@ -55,7 +61,7 @@ test('#5418: the plan keeps a live agent at any age and removes only old orphans
     { name: 'alice.json', isSymlink: false, mtimeMs: OLD },            // live, old: KEEP
     { name: 'fixture-a.json', isSymlink: false, mtimeMs: OLD },        // orphan, old: remove
     { name: 'fixture-b.json', isSymlink: false, mtimeMs: NEW },        // orphan, new: keep
-    { name: 'x.json.kosmos-2147483646-t0-1-1.tmp', isSymlink: false, mtimeMs: OLD },  // old temp, writer gone: remove
+    { name: `x.json.kosmos-${DEAD}-t0-1-1.tmp`, isSymlink: false, mtimeMs: OLD },  // old temp, writer gone: remove
     { name: `w.json.kosmos-${process.ppid}-t0-1-1.tmp`, isSymlink: false, mtimeMs: OLD },  // old temp, writer alive (this run's parent): keep
     { name: 'y.json.kosmos-2-t0-1-1.tmp', isSymlink: false, mtimeMs: NEW },  // new temp: keep
     { name: 'planted.json', isSymlink: true, targetExists: false, mtimeMs: OLD },  // dangling: remove
@@ -66,11 +72,11 @@ test('#5418: the plan keeps a live agent at any age and removes only old orphans
     { name: 'remote-a.json', isSymlink: false, mtimeMs: OLD, tokens: { launchers: ['remote'], newestMintMs: OLD } },  // offline remote agent: keep
     { name: 'recent-mint.json', isSymlink: false, mtimeMs: OLD, tokens: { launchers: [], newestMintMs: NEW } },        // minted after the cutoff: keep
     { name: 'notes.tmp', isSymlink: false, mtimeMs: OLD },              // not the writer's temp shape: keep
-    { name: 'z.json.kosmos-2147483646-1690000000000-2.tmp', isSymlink: false, mtimeMs: OLD },  // the pre-thread temp shape: remove
+    { name: `z.json.kosmos-${DEAD}-1690000000000-2.tmp`, isSymlink: false, mtimeMs: OLD },  // the pre-thread temp shape: remove
     { name: 'alice.json.dangling', isSymlink: true, targetExists: false, mtimeMs: OLD },  // dangling, not a store name: keep
   ];
   const plan = tool.planCleanup(entries, live, CUTOFF, safeKey);
-  assert.deepEqual(plan.remove.map((r) => r.name).sort(), ['fixture-a.json', 'planted.json', 'x.json.kosmos-2147483646-t0-1-1.tmp', 'z.json.kosmos-2147483646-1690000000000-2.tmp']);
+  assert.deepEqual(plan.remove.map((r) => r.name).sort(), ['fixture-a.json', 'planted.json', `x.json.kosmos-${DEAD}-t0-1-1.tmp`, `z.json.kosmos-${DEAD}-1690000000000-2.tmp`]);
   assert.deepEqual(plan.keep.map((k) => k.name).sort(), ['My.Agent.json', 'alice.json', 'alice.json.dangling', 'dir.json', 'fixture-b.json', 'linked.json', 'notes.tmp', 'notes.txt', 'recent-mint.json', 'remote-a.json', `w.json.kosmos-${process.ppid}-t0-1-1.tmp`, 'y.json.kosmos-2-t0-1-1.tmp']);
   // a DANGLING link named for a live agent is left alone
   const live2 = tool.planCleanup([{ name: 'alice.json', isSymlink: true, targetExists: false, mtimeMs: OLD }], live, CUTOFF, safeKey);

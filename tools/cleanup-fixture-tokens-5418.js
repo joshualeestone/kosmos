@@ -425,7 +425,7 @@ async function main(argv, { armFromCommandLine = false } = {}) {
   }
   const plan = planCleanup(entries, liveKeys, args.cutoffMs, store.safeKey);
   console.log(`Also kept: ${workerNames.length} worker folders, ${jobNames.length} launchd jobs.`);
-  console.log(`Kept by name: ${rows.length} agents on the board (${tokenKeys.filter((k) => rosterKeys.has(k)).length} of ${tokenKeys.length} token files match one), ${removed.length} in the removal records, ${heartbeats.length} with a heartbeat record, ${profiled} with a profile.`);
+  console.log(`Board: ${rows.length} agents, matching ${tokenKeys.filter((k) => rosterKeys.has(k)).length} of ${tokenKeys.length} token files. Other keep records: ${removed.length} removal records, ${heartbeats.length} heartbeats, ${profiled} token files with a profile.`);
   console.log(`Would remove ${plan.remove.length}, keep ${plan.keep.length}:`);
   if (plan.remove.some((r) => r.kind === 'token' && !(r.launchers || []).length)) console.log('  (NO LAUNCHER is expected on most fixture lines: fixture, adopted and Windows tokens all mint without one. Read each name.)');
   for (const r of plan.remove) {
