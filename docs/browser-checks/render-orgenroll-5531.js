@@ -17,6 +17,8 @@
  *   O10 a company consent with an EMPTY never list still shows this Kosmos's own line: other Kosmoses are not part of it.
  *   O11 a leave refused before anything was done (the route's "not your work Kosmos", the screen check's { error })
  *       keeps the joined view and says why, never "stopped reporting" (#5531 review 19).
+ *   O14 a join whose outcome is not known yet, or whose undo is still to send, goes back to the code field and says so:
+ *       the consent (and its "Not now", which would say nothing was joined) is gone (#5531 review 25).
  *   O12 a retried leave the company refused as the last admin (leaveRefused from /api/org) says so, as text, with the
  *       joined view back: the person was told it had stopped (#5531 review 21).
  */
@@ -48,7 +50,7 @@ function harness() {
       const body = init && init.body ? JSON.parse(init.body) : null;
       if (u.includes('/api/org')) window.__org.push({ path: u.replace(/^.*?(\/api\/org[^?]*).*$/, '$1'), method: (init && init.method) || 'GET', body });
       if (u.endsWith('/api/org/preview')) return enc(Object.assign({ ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: window.__noNever ? Object.assign({}, consent, { never: [] }) : consent, ticket: 't-' + Date.now() }, window.__move ? { move: true } : {}));
-      if (u.endsWith('/api/org/enroll')) return enc({ ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member' });
+      if (u.endsWith('/api/org/enroll')) return enc(window.__enrollAnswer || { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member' });
       if (u.endsWith('/api/org/leave')) return enc(window.__leaveRefused || (window.__localOnly ? { ok: true, localOnly: true } : { ok: true }));
       if (u.endsWith('/api/org')) return enc(window.__refused
         ? { enrolled: true, stoppedFor: null, leaveRefused: window.__refused, org: { name: 'Acme', slug: 'acme' }, role: 'admin', enrolledAt: '2026-10-07T00:00:00.000Z' }
@@ -189,6 +191,20 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     }));
     chk(o10.items === 0 && o10.local, 'O10 an empty never list still shows this Kosmos\'s own line', JSON.stringify(o10));
     await page.click('#plus-org-notnow');
+
+    // O14: an unknown outcome and an undo still to send each go back to the code field, with the engine's sentence.
+    for (const ans of [{ ok: false, unknown: true, code: 'org_join_unknown', because: 'It is not known yet whether joining went through. This Kosmos will ask your company again, and this screen will show what it learns.' },
+      { ok: false, code: 'org_undo_pending', because: 'Your company did not confirm this Kosmos, so it is not your work Kosmos. Joining could not be undone yet, so your company may still list this Kosmos. It is not reporting.' }]) {
+      await page.evaluate((a) => { window.__enrollAnswer = a; document.getElementById('plus-org-msg').textContent = ''; }, ans);
+      await page.fill('#plus-org-code', 'ACME-JOIN-8888');
+      await page.click('#plus-org-check');
+      await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
+      await page.click('#plus-org-join');
+      await page.waitForFunction(() => document.getElementById('plus-org-msg').textContent !== '');
+      const o14 = await page.evaluate(() => ({ msg: document.getElementById('plus-org-msg').textContent, consent: !document.getElementById('plus-org-consent').hidden, out: !document.getElementById('plus-org-out').hidden }));
+      chk(o14.msg === ans.because && !o14.consent && o14.out, 'O14 ' + ans.code + ' goes back to the code field and says so, with no consent (or Not now) left', JSON.stringify(o14));
+    }
+    await page.evaluate(() => { window.__enrollAnswer = null; });
 
     chk(errs.length === 0, 'O6 no page errors', errs.join(' | '));
   } finally {

@@ -321,3 +321,15 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
 - render-fields measured #plus-org-code (the panel's always-dark field) off its navy card, the known wizard artifact
   ("recessed in light, raised in dark"). Skipped by name, as the wizard's are; render-plus-blue-1615 and
   render-plus-signin-3478 pin its fill and text colour on the real tab.
+
+## Review 25 (on the post-convergence guards; found a gap my review 19 left)
+- A join with no answer and an unclear status said "not known yet" but kept nothing: no record, no pending marker, so
+  nothing ever asked again while the company might hold this world. Now an owner-only marker (org-join-unknown.json,
+  with the consent hash shown) makes the next start or daily pass ask once: bound here is recorded with that hash, a
+  first join bound elsewhere is undone, not bound clears it, unclear keeps it. server.js's daily refresh runs while it
+  exists. Pinned (each mutation reddens).
+- That answer and "could not be undone yet" now carry codes (org_join_unknown, org_undo_pending): the route keeps no
+  ticket for a code that may be spent, and the page goes back to the code field, so "Not now" can no longer say
+  nothing was joined. Browser check O14 pins both.
+- Kept (nits): the page keys "joined" on the org name too (the screen always gets it); a refused join leaves its world
+  id (sent once, harmless); a daily log line while Kosmos+ is off. Plan name without timestamp (decided at review 9).

@@ -649,6 +649,47 @@ test('#5531 review 23: an undo refused as the last admin writes no record here; 
   assert.deepEqual(sentB, [org.ROUTES.enroll, org.ROUTES.status, org.ROUTES.leave]);
 });
 
+test('#5531 review 25: a join whose outcome is unknown is kept, and the next pass records it, clears it, or keeps asking', async (t) => {
+  const { a, b } = sandbox(t);
+  const HASH = 'c'.repeat(64);
+  let status = () => ({ ok: false, because: 'offline' });
+  const co = (root) => ({ macRequest: async (m, route) => {
+    if (route === org.ROUTES.enroll) return { ok: false, because: 'the tunnel program did not answer in time' };
+    if (route === org.ROUTES.status) return status(root);
+    return { ok: false, because: 'unexpected ' + route }; } });
+  const r = await org.enroll('ACME-JOIN-1234', true, { root: a, remote: co(a), consentHash: HASH });
+  assert.equal(r.code, 'org_join_unknown', JSON.stringify(r));
+  assert.ok(org.joinUnknown({ root: a }), 'an unknown join left nothing for the next pass to follow up');
+  // Still unclear: kept.
+  await org.refresh({ root: a, remote: co(a) });
+  assert.ok(org.joinUnknown({ root: a }), 'an unclear answer dropped the unknown join');
+  // The company bound it here: recorded, with the consent the person was shown, and the marker goes.
+  status = (root) => ({ ok: true, data: { member: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: org.worldId({ root }), thisComputer: true } } });
+  const r2 = await org.refresh({ root: a, remote: co(a) });
+  assert.equal(r2.enrolled, true, JSON.stringify(r2));
+  assert.equal(org.isEnrolledHere({ root: a }), true, 'a join the company made was never recorded here');
+  assert.equal(org.readEnrollment({ root: a }).consentHash, HASH, 'the recorded join lost the consent the person accepted');
+  assert.equal(org.joinUnknown({ root: a }), null);
+  // Not bound: the marker goes and nothing is recorded.
+  status = () => ({ ok: false, because: 'offline' });
+  await org.enroll('ACME-JOIN-1234', true, { root: b, remote: co(b) });
+  assert.ok(org.joinUnknown({ root: b }), 'CONTROL: the second world has a marker');
+  status = () => ({ ok: true, data: { member: false } });
+  await org.refresh({ root: b, remote: co(b) });
+  assert.equal(org.joinUnknown({ root: b }), null, 'a join the company never made kept being asked about');
+  assert.equal(org.isEnrolledHere({ root: b }), false);
+});
+
+test('#5531 review 25: an undo still to send says so with a code, so the page goes back to the code field', async (t) => {
+  const { a } = sandbox(t);
+  const co = { macRequest: async (m, route, body) => {
+    if (route === org.ROUTES.enroll) return { ok: true, data: { ok: true, org: ORG, role: 'member', enrolled: { computer: 'c2', world: body.world, thisComputer: false } } };
+    return { ok: false, because: 'offline' }; } };
+  const r = await org.enroll('ACME-JOIN-1234', true, { root: a, remote: co });
+  assert.equal(r.code, 'org_undo_pending', JSON.stringify(r));
+  assert.match(r.because, /could not be undone yet/);
+});
+
 test('#5531 review 14: a record whose world id file is gone is stale: cleared, and nothing is asked', async (t) => {
   const { a } = sandbox(t);
   await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });

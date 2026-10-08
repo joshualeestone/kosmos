@@ -35,6 +35,7 @@ const ROUTES = Object.freeze({
 });
 const WORLD_ID_FILE = 'org-world-id';
 const ENROLLMENT_FILE = 'org-enrollment.json';
+const JOIN_UNKNOWN_FILE = 'org-join-unknown.json';   // { at, consentHash, move }: a join whose outcome is not known yet (review 25)
 const LEAVE_REFUSED_FILE = 'org-leave-refused.json';   // { at, name }: a retried leave was refused as the last admin (the screen says so once)
 const STOPPED_FILE = 'org-stopped.json';   // { at, name }: the company stopped naming this world (the screen says so once)
 const LEAVE_PENDING_FILE = 'org-leave-pending';   // a leave the company has not confirmed yet; retried on start and daily
@@ -217,7 +218,8 @@ async function undoFirstJoin(lead, opts) {
   // org_code_used: the code is spent, so the route keeps no ticket for it and the page goes back to the code field.
   if (undo.ok || codeOf(undo.because) === 'org_not_member') return { ok: false, code: 'org_code_used', because: lead + ' Joining was undone, so nothing was joined. That code is used up: ask your company for a new one.' };
   setLeavePending(true, opts, null, true);   // an undo, retried on the next pass if this file, at least, can be written
-  return { ok: false, because: lead + ' Joining could not be undone yet, so your company may still list this Kosmos. It is not reporting.' };
+  // A code: the code may be spent, so no ticket is kept for it and the page goes back to the code field (review 25).
+  return { ok: false, code: 'org_undo_pending', because: lead + ' Joining could not be undone yet, so your company may still list this Kosmos. It is not reporting.' };
 }
 
 /* Enroll THIS world. Sends nothing unless the person accepted. `code` is required for a first join and omitted when an
@@ -250,7 +252,12 @@ async function enrollNow(code, accepted, opts) {
     sayFor(r.because, '', secretCode);   // the raw line goes to the log, cleaned
     const st = await signed('POST', ROUTES.status, {}, opts);
     const verdict = statusVerdict(st.ok ? st.data : null, world);
-    if (verdict === 'unclear') return { ok: false, unknown: true, because: 'It is not known yet whether joining went through. Check the code again in a minute: it will say if this Kosmos is already your work Kosmos.' };
+    if (verdict === 'unclear') {
+      // Kept on disk, so the next start or daily pass asks once more and records or clears it (review 25).
+      const hash = opts && typeof opts.consentHash === 'string' && /^[0-9a-f]{64}$/.test(opts.consentHash) ? opts.consentHash : null;
+      setJoinUnknown({ consentHash: hash, move }, opts);
+      return { ok: false, unknown: true, code: 'org_join_unknown', because: 'It is not known yet whether joining went through. This Kosmos will ask your company again, and this screen will show what it learns.' };
+    }
     /* A first join the company bound to this world on another computer (or to no computer) went through and is not
        kept: undone, as the answered path does (review 23). */
     if (verdict === 'notHere' && !move && namesThisWorld(st.ok ? st.data : null, world)) return undoFirstJoin('Your company did not confirm this Kosmos, so it is not your work Kosmos.', opts);
@@ -284,7 +291,7 @@ async function enrollNow(code, accepted, opts) {
     }
   }
   setLeavePending(false, opts);   // joined again after an unconfirmed leave: that old leave must never be sent now
-  setStopped(null, opts); setLeaveRefused(null, opts);
+  setStopped(null, opts); setLeaveRefused(null, opts); setJoinUnknown(null, opts);
   return { ok: true, ...rec };
 }
 
@@ -302,6 +309,19 @@ function pendingUndo(opts) {
 }
 /* A retried leave the company refused as the last admin puts the enrollment back, so this Kosmos reports again. The
    person was told it had stopped, so the screen's next read says once that it did not (#5531 review 21). */
+/* A join that got no answer, and a status that could not say: the company may hold this world while nothing here
+   follows it up. This marker makes the next start or daily pass ask once more (#5531 review 25). */
+function setJoinUnknown(info, opts) {
+  const file = path.join(storeRoot(opts), JOIN_UNKNOWN_FILE);
+  try {
+    if (!info) { fs.rmSync(file, { force: true }); return; }
+    fs.writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), consentHash: info.consentHash || null, move: info.move === true }) + '\n', { mode: 0o600 });
+  } catch { /* best effort */ }
+}
+function joinUnknown(opts) {
+  try { const j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), JOIN_UNKNOWN_FILE), 'utf8')); return j && typeof j === 'object' ? j : null; }
+  catch { return null; }
+}
 function leaveRefusedFor(opts) {
   try { const j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_REFUSED_FILE), 'utf8')); return j && typeof j.name === 'string' ? j.name : null; }
   catch { return null; }
@@ -336,6 +356,32 @@ function leavePending(opts) { return fs.existsSync(path.join(storeRoot(opts), LE
    - Already not a member (org_not_member): left.
    - No answer: a pending leave is kept, and the next start or daily pass sends it again. */
 async function leave(opts) { return oneAtATime(() => leaveNow(opts)); }
+
+/* A join whose outcome was unknown (review 25): ask once. Bound here: the person accepted, so it is recorded with the
+   consent they were shown. A first join bound to this world elsewhere: undone, as the answered path does. Not bound:
+   the marker goes. Unclear: kept for the next pass. */
+async function settleUnknownJoin(unsure, opts) {
+  const world = readWorldId(opts);
+  const st = await signed('POST', ROUTES.status, {}, opts);
+  const d = st.ok ? st.data : null;
+  const verdict = statusVerdict(d, world);
+  if (verdict === 'unclear') return { ok: false, enrolled: false, because: "Your company's answer was not complete." };
+  setJoinUnknown(null, opts);
+  if (verdict === 'here') {
+    const org = cleanOrg(d.org), role = cleanRole(d.role);
+    if (!org || !role) return { ok: false, enrolled: false, because: "Your company's answer was not complete." };
+    const rec = { org, role, world, enrolledAt: new Date().toISOString() };
+    if (unsure.consentHash) rec.consentHash = unsure.consentHash;
+    try { writeEnrollment(rec, opts); } catch { setJoinUnknown(unsure, opts); return { ok: false, enrolled: false, because: "This Kosmos's data folder could not be written." }; }
+    setStopped(null, opts);
+    return { ok: true, enrolled: true, member: true, ...rec };
+  }
+  if (verdict === 'notHere' && !unsure.move && namesThisWorld(d, world)) {
+    setLeavePending(true, opts, null, true);   // bound elsewhere: the undo is sent by the pending-leave path
+    return leaveNow(opts, true);
+  }
+  return { ok: true, enrolled: false };
+}
 /* What a status answer says about THIS world, in one place (leave and refresh both read it, review 11):
    'here'    the company enrolls this world on this computer;
    'gone'    not a member at all;
@@ -433,6 +479,8 @@ async function refreshNow(opts) {
     return { ok: r.ok, enrolled: false, stopped: true, pending: !!r.pending, because: r.because };
   }
   const before = readEnrollment(opts);
+  const unsure = before ? null : joinUnknown(opts);
+  if (unsure) return settleUnknownJoin(unsure, opts);
   /* No local world id: nothing can match, so nothing is asked (review 14). A missing id file means the record is stale
      (cleared here, sent nothing); one that exists but cannot be read is left alone, like any unclear answer. */
   if (!readWorldId(opts)) {
@@ -465,5 +513,5 @@ async function refreshNow(opts) {
 
 module.exports = {
   ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, codeOf,
-  worldId, readEnrollment, leavePending, stoppedFor, clearStopped, leaveRefusedFor, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh,
+  worldId, readEnrollment, leavePending, joinUnknown, stoppedFor, clearStopped, leaveRefusedFor, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh,
 };

@@ -20570,7 +20570,7 @@ const ORG_REFRESH_MS = 24 * 60 * 60 * 1000;
 function orgEnrollRefresh() {
   try {
     const oe = require('./engine/orgenroll');
-    if (!oe.readEnrollment() && !oe.leavePending()) return;   // never joined: nothing is sent
+    if (!oe.readEnrollment() && !oe.leavePending() && !oe.joinUnknown()) return;   // never joined: nothing is sent
     oe.refresh().catch(() => { /* best effort: an unreachable company changes nothing */ });
   } catch { /* best effort */ }
 }
