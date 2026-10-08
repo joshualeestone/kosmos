@@ -391,8 +391,12 @@ function findOrphans(modules, callerSources, tests, skip) {
 
 const engineModules = engineFiles.map((f) => ({ rel: path.join('engine', f), text: read(path.join('engine', f)) }));
 
+/* EXCUSED is by name (an excuse covers the name wherever it is exported); PENDING_5548 is by file, so a pending
+   name cannot cover a new orphan of the same name in another module (#5548 review 1). */
+const skipped = (n, rel) => Boolean(EXCUSED[n]) || PENDING_5548[n] === rel;
+
 test('no engine export is tested, excused by nobody, and reachable from nowhere', () => {
-  const orphans = findOrphans(engineModules, sources, testBlob, (n, rel) => EXCUSED[n] || PENDING_5548[n] === rel);
+  const orphans = findOrphans(engineModules, sources, testBlob, skipped);
   assert.deepEqual(orphans, [],
     'tested, exported, and reachable from nowhere -- the #265 signature. Wire it to a screen, or excuse it here with a reason someone can check.');
 });
@@ -412,6 +416,12 @@ test('#5548: the guard reads every engine exports block', () => {
   assert.deepEqual(unread, Object.keys(NO_LITERAL_EXPORTS).sort(),
     'a module whose exports this guard cannot read is a module it never checks: read it, or name it in NO_LITERAL_EXPORTS with why');
   assert.ok(engineModules.length > 200, 'found only ' + engineModules.length + ' engine modules; a moved directory looks like this');
+});
+
+test('#5548: a pending name covers only its own file', () => {
+  const [name, file] = Object.entries(PENDING_5548)[0];
+  assert.equal(skipped(name, file), true);
+  assert.equal(skipped(name, 'engine/some-other-module.js'), false, 'pending ' + name + ' must not cover another module');
 });
 
 test('#5548: the pending list only shrinks (a name that gained a caller comes off it)', () => {
@@ -441,8 +451,11 @@ test('#5548 self-test: a one-line exports block, a comment mention and a string 
   assert.deepEqual(findOrphans([{ rel: 'engine/m.js', text: multi }], [], 'lonelyExport()', () => false), [],
     'code inside a template ${} is a real use');
   // review 1: division after } or a postfix ++ is not a regex, so a comment after it stays a comment
-  const div = 'function quietExport() {}\nconst o = {} / 2; let i = 0; i++ / 2; // quietExport\nmodule.exports = { quietExport };\n';
+  // (one case per line: a misread regex ends at the next `/` on its line, so two cases on one line can re-sync)
+  const div = 'function quietExport() {}\nconst o = {} / 2; // quietExport\nmodule.exports = { quietExport };\n';
   assert.deepEqual(findOrphans([{ rel: 'engine/d.js', text: div }], [], 'quietExport()', () => false), ['engine/d.js exports quietExport']);
+  const inc = 'function stillQuiet() {}\nlet i = 0; i++ / 2; // stillQuiet\nmodule.exports = { stillQuiet };\n';
+  assert.deepEqual(findOrphans([{ rel: 'engine/p.js', text: inc }], [], 'stillQuiet()', () => false), ['engine/p.js exports stillQuiet']);
   const dotkw = 'function dottedExport() {}\nconst y = x.return / 2; // dottedExport\nmodule.exports = { dottedExport };\n';
   assert.deepEqual(findOrphans([{ rel: 'engine/k.js', text: dotkw }], [], 'dottedExport()', () => false), ['engine/k.js exports dottedExport']);
   // review 1: a re-export after the block and a `name = function` definition are not calls
