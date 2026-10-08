@@ -21611,6 +21611,17 @@ if (require.main === module) {
      require this module): with no setting file, write ON. #4820: fresh and existing installs alike,
      and no notice is owed to either (a new install decides it in first run). */
   try { communityswitch.migrate(); } catch { /* never stops the board */ }
+  /* kosmos#5612: on Windows nothing else wires the default account's reporting hooks, and without them its agents never
+     report idle, so the community turn (and everything else keyed on that report) skips them. Merge-only, idempotent;
+     a refusal is logged, never fatal. Agents pick the hooks up when they next start. */
+  try {
+    const hooks = require('./engine/accounts').wireDefaultHooks();
+    if (!hooks.skipped && hooks.wired !== true) {
+      process.stderr.write(`Kosmos could not set up the reporting hooks for this computer's Claude agents: ${hooks.because || 'no reason given'}\n`);
+    } else if (hooks.changed === true) {
+      process.stdout.write('reporting hooks: wired into the default Claude account\n');
+    }
+  } catch { /* never stops the board */ }
   try { require('./engine/undo').sweep(); } catch { /* #5153 slice 4: copies past their days go; never stops the board */ }
   if (platformGate.isSupported()) {
     require('./engine/live-execution').allowLiveExecution();

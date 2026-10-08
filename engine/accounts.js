@@ -475,6 +475,29 @@ function prepare(label) {
 }
 
 /**
+ * kosmos#5612: the DEFAULT account's reporting hooks, on Windows. On a Mac install/setup.sh wires them into every
+ * account folder, and prepare() above wires an added one; nothing on Windows ever wired the default folder, so a
+ * Windows agent on the default account never reported working or idle, and everything keyed on that report skipped
+ * it (the community turn first: "no idle report is not idle enough"). Run at board start on win32. Merge-only and
+ * fail-soft (ensureWired's posture): idempotent, never clobbers a hook somebody else set, and a refusal is returned,
+ * never thrown. Anywhere else it does nothing, because setup.sh owns the Mac.
+ *   { wired, changed?, because?, skipped }
+ * `platform`, `script`, `node` are injectable for tests.
+ */
+function wireDefaultHooks(opts) {
+  const o = opts || {};
+  const plat = o.platform || process.platform;
+  if (plat !== 'win32') return { wired: false, skipped: true, because: 'setup.sh wires the hooks on this platform' };
+  try {
+    const settings = path.join(homeDir(), '.claude', 'settings.json');
+    const script = o.script !== undefined ? o.script : reporthook.hookScriptPath(plat);
+    return { ...reporthook.ensureWired(settings, script, { platform: plat, node: o.node }), skipped: false };
+  } catch (err) {
+    return { wired: false, skipped: false, because: (err && err.message) || 'the hooks could not be wired' };
+  }
+}
+
+/**
  * The first free work-account spot (#248/#324): ~/.claude-workN where free
  * means the directory does not exist, or exists with no identity signed in
  * to it. The reuse arm is deliberate: a cancelled add-another-account
@@ -899,5 +922,5 @@ function removeAccount(dir, usedBy) {
   return { ok: true, removed: true, because: null };
 }
 
-module.exports = { homeDir, list, listLive, forgetAccount, removeAccount, FORGOTTEN_PREFIX, identityOf, prepare, dirForLabel, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
+module.exports = { homeDir, wireDefaultHooks, list, listLive, forgetAccount, removeAccount, FORGOTTEN_PREFIX, identityOf, prepare, dirForLabel, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); } };
