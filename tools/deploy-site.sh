@@ -344,7 +344,8 @@ H=$(git -C "$SITE" rev-parse HEAD 2>/dev/null) || { echo "deploy-site: cannot re
 # been deployed, so a blip means retry and a blind host means stop. The two post-deploy calls both
 # mean "the deploy already ran, investigate" whichever code came back, and the library's own stderr
 # line already says "failed at the transport layer" when it was a blip.
-served_verify_host_discriminates "$HOST" || { _svrc=$?; if [ "$_svrc" -eq 2 ]; then echo "deploy-site: refusing BEFORE any deploy -- the served-verify negative control could not RUN against $HOST (transport error, see above), so nothing about this host is proven either way. Nothing has been deployed."; else echo "deploy-site: refusing BEFORE any deploy -- the served-verify negative control FAILED against $HOST (see the reason above): the host answered 200 for a path that cannot exist. Nothing has been deployed."; fi; exit 1; }
+served_verify_host_discriminates "$HOST" || { _svrc=$?; if [ "$_svrc" -eq 2 ]; then echo "deploy-site: refusing BEFORE any deploy -- the served-verify negative control could not RUN against $HOST (transport error, see above), so nothing about this host is proven either way. Nothing has been deployed."; else echo "deploy-site: refusing BEFORE any deploy -- the served-verify negative control FAILED against $HOST (see the reason above): the host answered 200 for a path that cannot exist. Nothing has been deployed."; exit 1; fi; exit 75; }
+# (#5589: the blip arm exits 75, EX_TEMPFAIL, like the pointer refusals below: run again later.)
 # #5589: the four live pointers a release cut moves, as one comparable line (each: name, HTTP status,
 # sha256 of the body). Taken here, BEFORE any start-of-run comparison of the checkout with live (the
 # latest.json guard below, check_staging_not_stale), and again right before `vercel deploy`. A cut
@@ -370,7 +371,7 @@ live_pointer_snapshot() {
 }
 LIVE_PTRS_BEFORE=$(live_pointer_snapshot)
 case "$LIVE_PTRS_BEFORE" in *" 000 "*) echo "deploy-site: could not read the live pointers at the start ($LIVE_PTRS_BEFORE) -- refusing; nothing has been deployed (#5589)"; exit 75 ;; esac
-LJ=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json") || { echo "deploy-site: cannot read $HOST/dist/latest.json -- refusing"; exit 1; }
+LJ=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json") || { echo "deploy-site: cannot read $HOST/dist/latest.json -- refusing (exit 75: try again later, #5589)"; exit 75; }
 # The COMMITTED pointer (git archive of $H) is what a deploy actually SERVES, because dist/latest.json
 # is TRACKED. Read it once here for both the site-copy guard and the promote path. A git-show failure
 # must not set-e abort before the friendly refuses below.

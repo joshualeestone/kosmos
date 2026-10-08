@@ -100,5 +100,40 @@ tick
 KOSMOS_AUTODEPLOY_SITE="" bash "$AD" 2>/dev/null; RC=$?
 { [ "$RC" = 2 ] && [ "$(ndeploys)" = 7 ]; } && pass "no KOSMOS_AUTODEPLOY_SITE: exit 2, nothing deployed" || bad "unset site (rc=$RC)"
 
+# --- fresh state for the checks below ------------------------------------------------------------
+git -C "$T/site" checkout -q main
+export KOSMOS_AUTODEPLOY_STATE="$T/state2"; : > "$DEPLOYS"
+REPOENV="$T/repoenv"
+export KOSMOS_AUTODEPLOY_DEPLOY='git -C "$KOSMOS_SITE" rev-parse HEAD >> '"$DEPLOYS"'; printf %s "$KOSMOS_REPO" > '"$REPOENV"'; exit "${DEPLOY_RC:-0}"'
+
+# 9) deploy-site.sh's libraries come from THIS checkout: KOSMOS_REPO is this repo, not ~/work/agent-workforce.
+tick
+{ [ "$RC" = 0 ] && [ "$(cat "$REPOENV")" = "$REPO" ]; } && pass "the deploy runs with KOSMOS_REPO set to this checkout" || bad "KOSMOS_REPO not this checkout ('$(cat "$REPOENV" 2>/dev/null)')"
+
+# 10) a hand-run deploy-site.sh or promote-channel.sh holds the tick, like a cut.
+advance ten >/dev/null
+n0=$(ndeploys)
+KOSMOS_AUTODEPLOY_PS="printf %s\\n 'bash tools/deploy-site.sh --publish'" tick; r1=$RC; n1=$(ndeploys)
+KOSMOS_AUTODEPLOY_PS="printf %s\\n '/bin/bash /Users/x/work/agent-workforce/tools/promote-channel.sh /site --force'" tick
+{ [ "$r1" = 0 ] && [ "$n1" = "$n0" ] && [ "$(ndeploys)" = "$n0" ]; } && pass "a running deploy-site.sh or promote-channel.sh holds the deploy" || bad "deployed beside a hand-run deploy (deploys=$(ndeploys), was $n0)"
+
+# 11) a moving or unreadable live site (75) four ticks in a row turns the run red once, then keeps retrying.
+rcs=""; for i in 1 2 3 4 5; do DEPLOY_RC=75 tick; rcs="$rcs$RC"; done
+{ [ "$rcs" = 00010 ] && [ ! -e "$KOSMOS_AUTODEPLOY_STATE/last-failure" ]; } && pass "the 4th consecutive 75 for one sha exits 1 once; it is never parked" || bad "75 alarm sequence was '$rcs' (want 00010)"
+tick
+{ [ "$RC" = 0 ] && [ ! -e "$KOSMOS_AUTODEPLOY_STATE/retries" ]; } && pass "a success clears the retry count" || bad "retry count not cleared (rc=$RC)"
+
+# 12) a tick that cannot take the lock writes no heartbeat, so a wedged lock shows as a stale heartbeat;
+#     a lock with no pid yet (just made by another tick) is held, not taken over.
+advance twelve >/dev/null
+echo old > "$KOSMOS_AUTODEPLOY_STATE/heartbeat"
+mkdir "$KOSMOS_AUTODEPLOY_STATE/lock"; sleep 300 & live2=$!; echo "$live2" > "$KOSMOS_AUTODEPLOY_STATE/lock/pid"
+n0=$(ndeploys); tick
+{ [ "$(cat "$KOSMOS_AUTODEPLOY_STATE/heartbeat")" = old ] && [ "$(ndeploys)" = "$n0" ]; } && pass "a tick that finds the lock held leaves the heartbeat alone" || bad "heartbeat refreshed under a held lock"
+kill "$live2" 2>/dev/null; wait "$live2" 2>/dev/null
+rm -f "$KOSMOS_AUTODEPLOY_STATE/lock/pid"
+tick
+{ [ "$RC" = 0 ] && [ "$(ndeploys)" = "$n0" ] && [ -d "$KOSMOS_AUTODEPLOY_STATE/lock" ]; } && pass "a fresh lock with no pid yet is treated as held" || bad "fresh pid-less lock was taken over (deploys=$(ndeploys))"
+
 echo ""
 if [ "$fail" = 0 ]; then echo "test-site-autodeploy-5589: ALL PASS"; else echo "test-site-autodeploy-5589: FAILURES above"; exit 1; fi
