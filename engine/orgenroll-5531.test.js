@@ -39,6 +39,15 @@ function fakeRemote(state) {
     },
   };
 }
+/* A coordinator that confirms this world on this computer when asked for status (as a real one does for the work
+   Kosmos), and answers everything else as `other` does. `isUp` lets a test make status fail along with the rest. */
+function here(root, other, isUp = () => true) {
+  return {
+    macRequest: async (m, route, body) => (route === org.ROUTES.status && isUp()
+      ? { ok: true, data: { member: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: org.worldId({ root }), thisComputer: true } } }
+      : other.macRequest(m, route, body)),
+  };
+}
 function sandbox(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgenroll-5531-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -163,7 +172,7 @@ test('#5531: the coordinator\'s public error codes are said in plain words; an u
   const odd = await org.preview('ACME-JOIN-1234', { root: a, remote: said('the tunnel program did not answer in time') });
   assert.equal(odd.code, null); assert.match(odd.because, /could not be checked through Kosmos\+/);   // review 4: an unknown error is a fixed sentence, the raw line goes to the log
   await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });   // leave is sent only from the work Kosmos
-  const last = await org.leave({ root: a, remote: said('409 org_last_admin') });
+  const last = await org.leave({ root: a, remote: here(a, said('409 org_last_admin')) });
   assert.match(last.because, /last admin/);
 });
 
@@ -232,24 +241,24 @@ test('#5531 review 1: leave is reconciled: refused as the last admin you stay jo
   const { a } = sandbox(t);
   await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
   const lastAdmin = { macRequest: async () => ({ ok: false, because: '409 {"because":"org_last_admin"}' }) };
-  const r1 = await org.leave({ root: a, remote: lastAdmin });
+  const r1 = await org.leave({ root: a, remote: here(a, lastAdmin) });
   assert.equal(r1.still, true); assert.match(r1.because, /last admin/);
   assert.equal(org.isEnrolledHere({ root: a }), true, 'the last admin was silently un-enrolled');
   assert.equal(org.leavePending({ root: a }), false);
   const sent = [];
   let up = false;
   const flaky = { macRequest: async (m, route) => { sent.push(route); return up ? { ok: true, data: { ok: true } } : { ok: false, because: 'offline' }; } };
-  const r2 = await org.leave({ root: a, remote: flaky });
+  const r2 = await org.leave({ root: a, remote: here(a, flaky, () => up) });
   assert.equal(r2.pending, true);
   assert.equal(org.isEnrolledHere({ root: a }), false, 'still reporting while a leave is pending');
   assert.equal(org.leavePending({ root: a }), true);
   up = true;
-  const r3 = await org.refresh({ root: a, remote: flaky });
+  const r3 = await org.refresh({ root: a, remote: here(a, flaky, () => up) });
   assert.equal(r3.ok, true); assert.equal(sent.at(-1), org.ROUTES.leave, 'the pending leave was not sent again');
   assert.equal(org.leavePending({ root: a }), false, 'the confirmed leave stayed pending');
   const { b } = sandbox(t);
   await org.enroll('ACME-JOIN-1234', true, { root: b, remote: fakeRemote({}) });
-  const gone = await org.leave({ root: b, remote: { macRequest: async () => ({ ok: false, because: '404 org_not_member' }) } });
+  const gone = await org.leave({ root: b, remote: here(b, { macRequest: async () => ({ ok: false, because: '404 org_not_member' }) }) });
   assert.equal(gone.ok, true); assert.equal(org.leavePending({ root: b }), false);
 });
 
@@ -309,7 +318,7 @@ test('#5531 review 3: a pending leave later refused as the last admin restores t
   assert.match(r1.because, /could not be confirmed yet/, 'the pending leave carried the raw transport text: ' + r1.because);
   assert.equal(r1.because.includes('offline'), false);
   assert.equal(org.isEnrolledHere({ root: a }), false);
-  const r2 = await org.refresh({ root: a, remote: { macRequest: async () => ({ ok: false, because: '409 {"because":"org_last_admin"}' }) } });
+  const r2 = await org.refresh({ root: a, remote: here(a, { macRequest: async () => ({ ok: false, because: '409 {"because":"org_last_admin"}' }) }) });
   assert.equal(r2.still, true, JSON.stringify(r2));
   assert.equal(org.isEnrolledHere({ root: a }), true, 'the last admin\'s enrollment was lost by a retried leave');
   assert.equal(org.leavePending({ root: a }), false);
@@ -362,7 +371,7 @@ test('#5531 review 7: a confirmed leave retires this world id, so a later join i
   const state = {};
   await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote(state) });
   assert.notEqual(state.world, first, 'the same world id was sent again after a confirmed leave');
-  const r = await org.leave({ root: a, remote: { macRequest: async () => ({ ok: false, because: '409 {"because":"org_last_admin"}' }) } });
+  const r = await org.leave({ root: a, remote: here(a, { macRequest: async () => ({ ok: false, because: '409 {"because":"org_last_admin"}' }) }) });
   assert.equal(r.still, true);
   assert.equal(org.worldId({ root: a }), state.world, 'a refused leave retired the id of a world still enrolled');
 });
@@ -404,4 +413,32 @@ test('#5531 review 9: an unreadable local world id is an unclear answer, and a c
   await org.preview('Secret-Code-7777', { root: a, remote: { macRequest: async () => ({ ok: false, because: 'HTTP 502 for SECRET-CODE-7777' }) } });
   assert.ok(errs.length >= 1);
   assert.equal(errs.some((m) => /secret-code-7777/i.test(m)), false, 'the code reached the log in another case: ' + errs.join(' | '));
+});
+
+test('#5531 review 10: leave from a copied data folder asks first and sends nothing when the company says it is another computer', async (t) => {
+  const { a } = sandbox(t);
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
+  const world = org.worldId({ root: a });
+  const sent = [];
+  const copy = { macRequest: async (m, route) => {
+    sent.push(route);
+    if (route === org.ROUTES.status) return { ok: true, data: { member: true, org: ORG, role: 'member', enrolled: { computer: 'c-real', world, thisComputer: false } } };
+    return { ok: true, data: { ok: true } };
+  } };
+  const r = await org.leave({ root: a, remote: copy });
+  assert.equal(r.ok, true); assert.equal(r.localOnly, true, JSON.stringify(r));
+  assert.deepEqual(sent, [org.ROUTES.status], 'a copy ended the real work Kosmos\'s membership: ' + JSON.stringify(sent));
+  assert.equal(org.isEnrolledHere({ root: a }), false);
+  assert.equal(org.leavePending({ root: a }), false);
+});
+
+test('#5531 review 10: the enrollment keeps a hash of the consent words that were shown', async (t) => {
+  const { a } = sandbox(t);
+  const h = org.consentHash(CONSENT);
+  assert.match(h, /^[0-9a-f]{64}$/);
+  assert.notEqual(org.consentHash({ ...CONSENT, readers: ['someone else'] }), h, 'different words, same hash');
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}), consentHash: h });
+  assert.equal(org.readEnrollment({ root: a }).consentHash, h);
+  await org.refresh({ root: a, remote: here(a, fakeRemote({ member: true })) });
+  assert.equal(org.readEnrollment({ root: a }).consentHash, h, 'a refresh dropped the consent hash');
 });

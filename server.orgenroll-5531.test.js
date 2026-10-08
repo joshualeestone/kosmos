@@ -110,6 +110,7 @@ test('#5531 review 5: a ticket from a preview IS accepted once, for the code tha
     if (route === oe.ROUTES.redeem) return { ok: true, data: { org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: CONSENT } };
     if (route === oe.ROUTES.enroll) return { ok: true, data: { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } };
     if (route === oe.ROUTES.leave) return { ok: true, data: { ok: true } };
+    if (route === oe.ROUTES.status) { const w = oe.worldId(); return { ok: true, data: { member: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: w, thisComputer: true } } }; }
     return { ok: false, because: 'unexpected ' + route };
   };
   t.after(() => { remote.macRequest = orig; fs.rmSync(enrollmentFile(), { force: true }); });
@@ -127,6 +128,7 @@ test('#5531 review 5: a ticket from a preview IS accepted once, for the code tha
   const ok = await call('/api/org/enroll', { body: { code: 'ACME-JOIN-1234', accepted: true, ticket: pv2.json.ticket }, headers: SCREEN });
   assert.equal(ok.json.ok, true, 'a real ticket for the previewed code was refused: ' + JSON.stringify(ok.json));
   assert.equal(JSON.stringify(ok.json).includes('org_1') || 'world' in ok.json, false, 'an engine id reached the page: ' + JSON.stringify(ok.json));
+  assert.equal(JSON.parse(fs.readFileSync(enrollmentFile(), 'utf8')).consentHash, oe.consentHash(CONSENT), 'the consent shown was not kept with the enrollment');
   const again = await call('/api/org/enroll', { body: { code: 'ACME-JOIN-1234', accepted: true, ticket: pv2.json.ticket }, headers: SCREEN });
   assert.match(again.json.because || '', REFUSED, 'a ticket was used twice');
   await call('/api/org/leave', { body: {}, headers: SCREEN });
@@ -156,6 +158,7 @@ test('#5531 review 7: a join that fails for a passing reason keeps its ticket; a
     if (route === oe.ROUTES.redeem) return { ok: true, data: { org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: CONSENT } };
     if (route === oe.ROUTES.enroll) return up ? { ok: true, data: { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } } : { ok: false, because: 'the tunnel program did not answer in time' };
     if (route === oe.ROUTES.leave) return { ok: true, data: { ok: true } };
+    if (route === oe.ROUTES.status) { const w = oe.worldId(); return { ok: true, data: { member: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: w, thisComputer: true } } }; }
     return { ok: false, because: 'unexpected ' + route };
   };
   t.after(() => { remote.macRequest = orig; fs.rmSync(enrollmentFile(), { force: true }); });
@@ -191,6 +194,7 @@ test('#5531 review 9: the stopped note is shown to the screen once; org_bad_worl
     if (route === oe.ROUTES.redeem) return { ok: true, data: { org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: CONSENT } };
     if (route === oe.ROUTES.enroll) return bad ? { ok: false, because: '400 {"because":"org_bad_world"}' } : { ok: true, data: { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } };
     if (route === oe.ROUTES.leave) return { ok: true, data: { ok: true } };
+    if (route === oe.ROUTES.status) { const w = oe.worldId(); return { ok: true, data: { member: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: w, thisComputer: true } } }; }
     return { ok: false, because: 'unexpected ' + route };
   };
   t.after(() => { remote.macRequest = orig; fs.rmSync(enrollmentFile(), { force: true }); });

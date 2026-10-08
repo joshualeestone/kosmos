@@ -159,3 +159,17 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
 - DECIDED: one ticket per board process. A preview from a second screen replaces the first screen's ticket, and that
   screen's Join returns it to the code field (org_ticket). Rare, recoverable, and simpler than per-screen state.
 - DECIDED: the plan keeps the name `<branch>.md`; the PR hook looks for exactly that file.
+
+## Review 10 (blind, sonnet)
+- FIXED: leave reads status first. A data folder copied to a second computer carries the record and the world id, so
+  the local check passes there, and a leave ends the whole membership by account. The leave is now sent only when the
+  company confirms this world on THIS computer; a clear "not here" clears locally and sends nothing; no answer leaves
+  the leave pending, asked again on the next pass.
+- FIXED (board side): the enrollment keeps a hash of the consent words the screen was shown (`consentHash`, sha256 of
+  the four lists as cleaned), carried from the preview ticket into the record and kept by refresh. Sending it to the
+  company on enroll is a contract change, asked of PigeonPete for v1.4; until then it is checkable on this side only.
+- DUPLICATES: the local gate on a copied folder (review 3; the coordinator refuses a signer that is not the enrolled
+  computer, org_not_enrolled); agents reading the company name (review 4, decided); isViaScreen (review 2); the raw
+  failure line in the local log (review 6, measured local only).
+- WORDING: the comments now say the ids are never sent to the page, not that they "stay in the engine" (the files are
+  in the world's data root).

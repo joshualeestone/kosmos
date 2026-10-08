@@ -118,6 +118,12 @@ function cleanList(a) {
   const { externalName } = require('./externalname');
   return a.map((s) => externalName(s, LINE_MAX)).filter(Boolean).slice(0, LINES_MAX);
 }
+/* A stable hash of the consent words exactly as cleaned and shown (key order fixed). */
+function consentHash(consent) {
+  const c = consent || {};
+  const canon = JSON.stringify(['reports', 'backsUp', 'readers', 'never'].map((k) => [k, Array.isArray(c[k]) ? c[k] : []]));
+  return crypto.createHash('sha256').update(canon).digest('hex');
+}
 function cleanConsent(c) {
   if (!c || typeof c !== 'object') return null;
   const out = { reports: cleanList(c.reports), backsUp: cleanList(c.backsUp), readers: cleanList(c.readers), never: cleanList(c.never) };
@@ -228,6 +234,8 @@ async function enrollNow(code, accepted, opts) {
      with its data (a restored backup, Migration Assistant); only the Mac the company names reports. */
   if (!org || !role || !en || en.world !== world || en.thisComputer !== true) return { ok: false, because: 'the company did not confirm this Kosmos, so it is not enrolled' };
   const rec = { org, role, world, enrolledAt: new Date().toISOString() };
+  // The consent the person was shown, as a hash: what they accepted is then a checkable fact on this side (#5531 review 10).
+  if (opts && typeof opts.consentHash === 'string' && /^[0-9a-f]{64}$/.test(opts.consentHash)) rec.consentHash = opts.consentHash;
   try { writeEnrollment(rec, opts); } catch { return { ok: false, because: 'joined, but this Kosmos could not record it; check again' }; }
   setLeavePending(false, opts);   // joined again after an unconfirmed leave: that old leave must never be sent now
   setStopped(null, opts);
@@ -280,7 +288,24 @@ async function leaveNow(opts) {
     return { ok: true, localOnly: true };
   }
   const before = readEnrollment(opts) || pendingRecord(opts);
-  clearEnrollment(opts);
+  clearEnrollment(opts);   // stop at once, whatever happens next
+  /* Ask first. A data folder copied to a second computer carries this record and this world's id, so the local check
+     passes there too, and a leave ends the WHOLE membership (by account, not by computer): sent from the copy it would
+     end the real work Kosmos's. Send it only when the company confirms this world on THIS computer. A clear answer
+     that this is not the enrolled world clears locally and sends nothing; no answer leaves it pending, asked again. */
+  const st = await signed('POST', ROUTES.status, {}, opts);
+  const d = st.ok && st.data && typeof st.data === 'object' ? st.data : null;
+  const world = readWorldId(opts);
+  if (d && d.member === false) { setLeavePending(false, opts); setStopped(null, opts); retireWorldId(opts); return { ok: true }; }
+  const e = d && d.member === true ? d.enrolled : undefined;
+  const notHere = d && d.member === true && (e === null || (e && typeof e === 'object' && typeof e.world === 'string' && world
+    && (e.world !== world || e.thisComputer === false)));
+  if (notHere) { setLeavePending(false, opts); setStopped(null, opts); return { ok: true, localOnly: true }; }
+  const confirmed = d && d.member === true && e && world && e.world === world && e.thisComputer === true;
+  if (!confirmed) {
+    setLeavePending(true, opts, before);
+    return { ok: false, pending: true, because: 'Leaving could not be confirmed yet. This Kosmos has stopped reporting, and it will tell your company again.' };
+  }
   const r = await signed('POST', ROUTES.leave, {}, opts);
   const code = r.ok ? null : codeOf(r.because);
   if (r.ok || code === 'org_not_member') {
@@ -329,11 +354,12 @@ async function refreshNow(opts) {
   const role = cleanRole(d.role);
   if (!org || !role) return { ok: false, because: 'the answer was not complete', enrolled: !!before };
   const rec = { org, role, world, enrolledAt: (before && before.enrolledAt) || new Date().toISOString() };
+  if (before && before.consentHash) rec.consentHash = before.consentHash;
   try { writeEnrollment(rec, opts); } catch { /* keep the old record; the next refresh tries again */ }
   return { ok: true, enrolled: true, member: true, ...rec };
 }
 
 module.exports = {
   ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, codeOf,
-  worldId, readEnrollment, leavePending, stoppedFor, clearStopped, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh,
+  worldId, readEnrollment, leavePending, stoppedFor, clearStopped, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh,
 };

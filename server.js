@@ -9568,7 +9568,7 @@ const server = http.createServer(async (req, res) => {
       const here = oe.isEnrolledHere();
       const rec = here ? oe.readEnrollment() : null;   // a record naming another world says nothing here
       /* Readable by this board's agents on purpose: an agent on a work Kosmos reports to that company, so which company
-         it is is not a secret from it. Only the name and slug go out; the org id and the world id stay in the engine. */
+         it is is not a secret from it. Only the name and slug go out; the org id and the world id are never sent to the page. */
       if (!isViaScreen(req, {})) {   // only the screen gets the role and the date; any other caller learns which company, no more
         sendJson(res, 200, { enrolled: here, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug } : null, role: null, enrolledAt: null });
         return;
@@ -9594,7 +9594,8 @@ const server = http.createServer(async (req, res) => {
              exactly as strong as isViaScreen, the board's check for every person-only setting: a caller that passes
              that check can also preview first. What it adds is that no join or move skips the consent step. */
           if (r.ok) {
-            ORG_TICKET = { value: require('node:crypto').randomBytes(16).toString('hex'), at: Date.now(), code: r.move ? null : String(body.code).trim() };
+            ORG_TICKET = { value: require('node:crypto').randomBytes(16).toString('hex'), at: Date.now(), code: r.move ? null : String(body.code).trim(),
+              consentHash: oe.consentHash(r.consent) };   // the words this screen was shown, kept with the enrollment
             r.ticket = ORG_TICKET.value;
           }
         } else if (pathname === '/api/org/enroll') {
@@ -9608,7 +9609,7 @@ const server = http.createServer(async (req, res) => {
           }
           const spent = body.accepted === true ? ORG_TICKET : null;
           if (spent) ORG_TICKET = null;   // one use
-          r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true);
+          r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true, spent ? { consentHash: spent.consentHash } : undefined);
           // Not joined for a passing reason (no public code: unreachable, busy; or org_bad_world, which says "Try again"):
           // the same consent may be accepted again.
           if (spent && r && r.ok === false && (!r.code || r.code === 'org_bad_world') && !r.declined && Date.now() - spent.at <= 10 * 60 * 1000) ORG_TICKET = spent;
@@ -9621,7 +9622,7 @@ const server = http.createServer(async (req, res) => {
           }
           r = await oe.leave();
         }
-        /* The engine's ids stay in the engine: the page gets the company's name and slug, never the world id or org id. */
+        /* The page gets the company's name and slug, never the world id or org id. */
         if (r && typeof r === 'object') {
           delete r.world;
           if (r.org && typeof r.org === 'object') r.org = { name: r.org.name, slug: r.org.slug };
