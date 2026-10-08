@@ -33,7 +33,7 @@
   win32launch deletes it for a default-account agent anyway.
 
 ## Verified
-- engine/accounts.wiredefaulthooks-5612.test.js (11 tests after review 5; count with grep, it grows), platform injected so they run on any OS:
+- engine/accounts.wiredefaulthooks-5612.test.js (count with grep; it grows), platform injected so they run on any OS:
   - every hook event is wired in the exec form, and a second run changes nothing;
   - a person's own hook and settings survive;
   - it is a no-op off Windows;
@@ -103,3 +103,10 @@
   lock with waitMs 0 refuses at once, as busy.
 - Fixed (NITs): the comment says every agent launch writes the consent (win32launch), not just logon; a missing script
   refuses before making the .claude folder (tested); the plan's test count.
+
+## Review 6 (sonnet): no blockers
+- Fixed (WARNING): "refuses at once" overstated waitMs 0; filelock may spin once (about 20 ms) before refusing. The
+  comments and test title say so.
+- Stated (WARNING): the FIRST attempt keeps withFileLock's default wait (up to 2 s, Atomics.wait) at board start. That
+  is acceptable only because it runs before the board listens; retries (in a serving board) wait 0.
+- Fixed (NIT): the redundant no-script test is merged into its twin, which now also asserts no .claude folder is made.

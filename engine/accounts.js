@@ -484,7 +484,8 @@ function prepare(label) {
  * sessions read this file too, so they run the hook as well, as they always have on a Mac (#561).
  *   { wired, changed?, because?, skipped, busy? }   busy: the lock was held, so the caller may try again soon
  * `platform`, `script`, `node` are injectable for tests. `waitMs` is withFileLock's wait for a held lock (its default
- * when absent); a caller that retries on its own passes 0, since withFileLock's wait blocks the event loop.
+ * when absent); a caller that retries on its own passes 0 (a held lock then refuses within one 20 ms spin), since
+ * withFileLock's wait blocks the event loop.
  */
 function wireDefaultHooks(opts) {
   const o = opts || {};

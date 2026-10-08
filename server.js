@@ -21618,8 +21618,9 @@ if (require.main === module) {
      rather than leaving the account unwired until the next board start. */
   const wireDefaultHooksTry = (left, retry) => {
     try {
-      // A retry runs in a serving board: wait 0 for the lock (withFileLock's wait blocks the event loop); the minute
-      // between tries is the wait.
+      // A retry runs in a serving board: wait 0 for the lock (a held lock refuses within one 20 ms spin, where the
+      // default wait would block the event loop up to 2 s); the minute between tries is the wait. The first try, at
+      // start before the board listens, keeps the default wait.
       const hooks = accounts.wireDefaultHooks(retry ? { waitMs: 0 } : undefined);
       if (hooks.busy === true && left > 0) {
         const again = setTimeout(() => wireDefaultHooksTry(left - 1, true), 60 * 1000);

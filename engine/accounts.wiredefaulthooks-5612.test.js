@@ -125,7 +125,7 @@ test('#5612: a settings folder that cannot be made is a fixed sentence that name
   assert.equal(String(r.because).includes(s.home), false, 'the reason leaks the home folder path');
 });
 
-test('#5612: a retry with waitMs 0 refuses a held lock at once (it never blocks a serving board), as busy', (t) => {
+test('#5612: a retry with waitMs 0 refuses a held lock within one short spin (no 2 s block in a serving board), as busy', (t) => {
   const s = sandbox(t);
   fs.mkdirSync(path.dirname(s.settings), { recursive: true });
   fs.mkdirSync(s.settings + '.lock');
@@ -134,12 +134,6 @@ test('#5612: a retry with waitMs 0 refuses a held lock at once (it never blocks 
   const r = accounts.wireDefaultHooks({ platform: 'win32', script: s.script, node: s.node, waitMs: 0 });
   assert.equal(r.busy, true, JSON.stringify(r));
   assert.ok(Date.now() - started < 500, 'waitMs 0 still waited for the lock');
-});
-
-test('#5612: with no script it refuses before making any folder', (t) => {
-  const s = sandbox(t);
-  accounts.wireDefaultHooks({ platform: 'win32', script: null, node: s.node });
-  assert.equal(fs.existsSync(path.dirname(s.settings)), false, 'a refusal made the .claude folder anyway');
 });
 
 test('#5612: off Windows it does nothing (setup.sh owns the Mac), and writes no file', (t) => {
@@ -158,7 +152,7 @@ test('#5612: with no hook script on the machine it refuses, with a reason, and n
   assert.equal(r.wired, false);
   assert.equal(r.skipped, false);
   assert.match(String(r.because), /script/);
-  assert.equal(fs.existsSync(s.settings), false);
+  assert.equal(fs.existsSync(path.dirname(s.settings)), false, 'a refusal made the .claude folder anyway');
 });
 
 test('#5612: the board calls it on its real start path (beside the community switch\'s one-time step)', () => {
