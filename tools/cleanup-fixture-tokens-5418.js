@@ -8,7 +8,8 @@
  *   node tools/cleanup-fixture-tokens-5418.js --port <board port> --cutoff <ISO date> --apply --confirm <digest>
  *                                                                          (backs up, then removes EXACTLY that plan)
  *
- * A dry run removes nothing, but reading the store runs its usual one-time migration, as any reader of it does.
+ * A dry run removes nothing, but resolving the store's folder runs its one-time move from the legacy app folder
+ * (store.js, LEGACY_APP) if that move has not happened yet, as any reader of the store does.
  *
  * 🛑 --apply removes only the plan a person read: it rebuilds the plan, and if its digest is not the one the dry run
  * printed (an agent missing from a degraded roster, a token file changed), it stops. The digest covers each token
@@ -314,8 +315,10 @@ function planDigest(plan) {
   return crypto.createHash('sha256').update(lines.join('\n')).digest('hex').slice(0, DIGEST_HEX);
 }
 
-async function main(argv) {
+async function main(argv, { armFromCommandLine = false } = {}) {
   const args = parseArgs(argv);
+  // the command line arms live execution only from the PARSED flag, so `--apply` inside another value cannot
+  if (armFromCommandLine && args.apply === true) require('../engine/live-execution').allowLiveExecution();
   const want = expectedPort();
   if (want === null) {
     console.error('Stopped, nothing changed: this account\'s board port cannot be worked out here (on Windows nothing sets it); set KOSMOS_PORT to the board\'s port (16180 unless it was changed) and pass the same --port.');
@@ -425,7 +428,9 @@ async function main(argv) {
     const newest = Math.max(r.mtimeMs || 0, r.newestMintMs || 0);
     const age = newest ? `; silent ${Math.floor((Date.now() - newest) / 86400000)} days` : '';
     const detail = r.kind === 'token' ? `; token names: ${r.names.join(', ') || 'none'}; launchers: ${r.launchers.join(', ') || 'none'}; newest mint: ${r.newestMintMs ? new Date(r.newestMintMs).toISOString() : 'none'}${age}` : '';
-    console.log(`  remove  ${r.name}  (${r.why}${detail})`);
+    // a token naming no launcher is the one shape no keep signal can vouch for (an offline adopted or Windows agent)
+    const loud = r.kind === 'token' && !(r.launchers || []).length ? '  <- NO LAUNCHER: check this one is not a real agent' : '';
+    console.log(`  remove  ${r.name}  (${r.why}${detail})${loud}`);
   }
   for (const k of plan.keep) console.log(`  keep    ${k.name}  (${k.why})`);
   const digest = planDigest(plan);
@@ -457,8 +462,7 @@ async function main(argv) {
 
 if (require.main === module) {
   // the command line, run by a person, is the only opt-in, and only for --apply (a dry run removes nothing)
-  if (process.argv.includes('--apply')) require('../engine/live-execution').allowLiveExecution();
-  main(process.argv.slice(2)).then((code) => { process.exitCode = code; },
+  main(process.argv.slice(2), { armFromCommandLine: true }).then((code) => { process.exitCode = code; },
     (e) => { console.error('Stopped: ' + ((e && e.message) || e)); process.exitCode = 2; });
 }
 
