@@ -75,8 +75,8 @@ const LOCK_MIN_MS = 29 * 86400 * 1000, LOCK_MAX_MS = 39 * 86400 * 1000;
 // network code, known or not: ENETDOWN, EADDRNOTAVAIL under the macOS TIME_WAIT leak, a TLS error) is worth another try.
 // Failures before any byte of the body could have left (no DNS answer, nothing listening, TLS refused): retried, but
 // such an attempt cannot have written anything, so it never makes a chunk "unsure".
-const PRECONNECT_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'EHOSTUNREACH', 'ENETUNREACH', 'ENETDOWN',
-  'UND_ERR_CONNECT_TIMEOUT', 'CERT_HAS_EXPIRED', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'SELF_SIGNED_CERT_IN_CHAIN',
+// (Not ENETDOWN, ENETUNREACH or EHOSTUNREACH: those can also end an established socket after the body was sent.)
+const PRECONNECT_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'UND_ERR_CONNECT_TIMEOUT', 'CERT_HAS_EXPIRED', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'SELF_SIGNED_CERT_IN_CHAIN',
   'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'ERR_TLS_CERT_ALTNAME_INVALID']);
 const LOCAL_CODES = new Set(['UND_ERR_REQ_CONTENT_LENGTH_MISMATCH', 'UND_ERR_INVALID_ARG', 'UND_ERR_NOT_SUPPORTED',
   'ERR_INVALID_URL', 'ERR_INVALID_ARG_TYPE', 'ERR_INVALID_ARG_VALUE', 'ERR_INVALID_HTTP_TOKEN', 'ERR_INVALID_CHAR']);
@@ -85,7 +85,7 @@ const LOCAL_CODES = new Set(['UND_ERR_REQ_CONTENT_LENGTH_MISMATCH', 'UND_ERR_INV
 // allowHttpForTests(true). Not an argument or an environment variable, which a production caller or a child process
 // could pass on by mistake.
 let httpForTests = false;
-function allowHttpForTests(on) { httpForTests = !!on; }
+function allowHttpForTests(on) { httpForTests = !!on && !!process.env.NODE_TEST_CONTEXT; }   // and only under node --test
 
 const md5b64 = (buf) => crypto.createHash('md5').update(buf).digest('base64');
 
@@ -220,6 +220,7 @@ async function putOne(fetchFn, up, bytes, mayHaveLanded, timeoutMs) {
   const t = setTimeout(() => ac.abort(), Math.max(1, timeoutMs || putTimeoutFor(bytes.length)));
   try {
     // redirect 'manual': a 3xx is returned, not followed, so the body never goes to an address the grant did not name.
+    // (So S3's 301/307 for a wrong-region or brand-new bucket ends the run as refused: a coordinator config fault.)
     const r = await fetchFn(up.url, { method: 'PUT', headers: up.headers, body: bytes, redirect: 'manual', signal: ac.signal });
     // Only S3's <Code> and <Message> are read: at most the first 8 KB of a body from a host the grant named.
     let text = '';

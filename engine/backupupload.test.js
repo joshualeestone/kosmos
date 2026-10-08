@@ -353,6 +353,8 @@ test('a network code not in any list (ENETDOWN) is retried, not refused: the run
   const down = async () => { const e = new TypeError('fetch failed'); e.cause = { code: 'ENETDOWN' }; throw e; };
   const r = await up.uploadChunks(deps(c, Object.assign({ fetch: down }, clock())), [chunk(1)]);
   assert.strictEqual(r.ok, false); assert.strictEqual(r.retryLater, true);
+  // ENETDOWN can end a socket after the body left, so the chunk is named as possibly landed.
+  assert.strictEqual(r.unsure && r.unsure.length, 1);
 });
 
 test('a slow uplink: a grant that runs out of time shrinks the next to what it carried, and everything is stored', async () => {
