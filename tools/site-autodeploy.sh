@@ -22,7 +22,7 @@
 # depend on the other checkout afterwards), then copy .vercel/ into it.
 #
 # Skips, retried on the next tick: a release running on this machine, another tick still running.
-# Does NOT retry a sha whose deploy failed: a refusal is a finding, not a blip, and a tick that
+# Does NOT retry a sha whose deploy failed (except exit 75, below: the live site was moving): a refusal is a finding, not a blip, and a tick that
 # re-ran a refusing deploy every couple of minutes would hide it in noise. The failure is recorded
 # (last-failure, and the log) and the next merge, or deleting last-failure, tries again.
 #
@@ -73,10 +73,10 @@ case "$(cat "$STATE/last-failure" 2>/dev/null || true)" in "$TARGET "*) exit 0 ;
 # one: wait for it to finish, then publish whatever main holds. This sees only cuts on THIS machine,
 # which is where cuts run; a cut on another box is caught, if at all, by deploy-site.sh's pointer
 # re-read (#5589) and its committed-vs-live guards. The match is anchored on the command
-# column (an interpreter, then a path ending in tools/release.sh), so a grep or an editor naming the
+# column (an interpreter, any options, then a path ending in tools/release.sh), so a grep or an editor naming the
 # file does not read as a cut.
 PS_CMD="${KOSMOS_AUTODEPLOY_PS:-ps -axo command=}"
-if sh -c "$PS_CMD" 2>/dev/null | grep -Eq '^([^ ]*/)?(ba|z)?sh [^ ]*tools/release\.sh( |$)'; then
+if sh -c "$PS_CMD" 2>/dev/null | grep -Eq '^([^ ]*/)?(ba|z)?sh( -[^ ]+)* [^ ]*tools/release\.sh( |$)'; then
   say "skip: a release cut is running; main ${TARGET:0:9} waits for the next tick"
   exit 0
 fi
@@ -97,6 +97,12 @@ fi
 if [ "$rc" = 0 ]; then
   echo "$TARGET" > "$STATE/last-deployed"; rm -f "$STATE/last-failure"
   say "deployed site main ${TARGET:0:9}"
+  exit 0
+fi
+# 75: deploy-site.sh found the live site moving (a cut or a staging publish landed mid-run) or could
+# not read it. Not a finding about this sha, so it is NOT parked: the next tick tries again.
+if [ "$rc" = 75 ]; then
+  say "retry: the live site moved or could not be read during the deploy of ${TARGET:0:9}; the next tick tries again"
   exit 0
 fi
 printf '%s rc=%s %s\n' "$TARGET" "$rc" "$(now)" > "$STATE/last-failure"

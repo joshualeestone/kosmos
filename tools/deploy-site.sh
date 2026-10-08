@@ -351,6 +351,9 @@ served_verify_host_discriminates "$HOST" || { _svrc=$?; if [ "$_svrc" -eq 2 ]; t
 # that publishes at any point after this read therefore shows up as a difference, including one that
 # lands between a start-of-run check and the snapshot. A read that does not complete records status
 # 000; a 000 here refuses at once, and a 000 at the second read refuses there.
+# These three refusals exit 75 (EX_TEMPFAIL), not 1: nothing is wrong with the checkout, the live
+# site was moving or unreachable, so running again later is the right response (site-autodeploy.sh
+# retries a 75 on its next tick instead of parking the sha).
 case "${KOSMOS_DEPLOY_RETRY_SLEEP:-3}" in ''|*[!0-9]*) _lps_sleep=3 ;; *) _lps_sleep=${KOSMOS_DEPLOY_RETRY_SLEEP:-3} ;; esac
 live_pointer_snapshot() {
   for _lps in latest.json latest-staging.json latest-win.json latest-win-staging.json; do
@@ -360,12 +363,13 @@ live_pointer_snapshot() {
       case "$_lps_code" in ''|*[!0-9]*) _lps_code=000 ;; esac
       case "$_lps_code" in 000|429|5[0-9][0-9]) [ "$_lps_try" = 3 ] || sleep "$_lps_sleep" ;; *) break ;; esac
     done
-    printf '%s %s %s;' "$_lps" "$_lps_code" "$(shasum -a 256 < "$_lps_tmp" | cut -c1-64)"
+    # Only a 200's body is compared: a 404 page can differ per request, and absent is absent.
+    if [ "$_lps_code" = 200 ]; then printf '%s 200 %s;' "$_lps" "$(shasum -a 256 < "$_lps_tmp" | cut -c1-64)"; else printf '%s %s -;' "$_lps" "$_lps_code"; fi
     rm -f "$_lps_tmp"
   done
 }
 LIVE_PTRS_BEFORE=$(live_pointer_snapshot)
-case "$LIVE_PTRS_BEFORE" in *" 000 "*) echo "deploy-site: could not read the live pointers at the start ($LIVE_PTRS_BEFORE) -- refusing; nothing has been deployed (#5589)"; exit 1 ;; esac
+case "$LIVE_PTRS_BEFORE" in *" 000 "*) echo "deploy-site: could not read the live pointers at the start ($LIVE_PTRS_BEFORE) -- refusing; nothing has been deployed (#5589)"; exit 75 ;; esac
 LJ=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json") || { echo "deploy-site: cannot read $HOST/dist/latest.json -- refusing"; exit 1; }
 # The COMMITTED pointer (git archive of $H) is what a deploy actually SERVES, because dist/latest.json
 # is TRACKED. Read it once here for both the site-copy guard and the promote path. A git-show failure
@@ -803,8 +807,8 @@ fi
 # window left is the seconds between this read and Vercel switching the deployment over; the
 # post-deploy served check below is what catches a cut landing inside it.
 LIVE_PTRS_NOW=$(live_pointer_snapshot)
-case "$LIVE_PTRS_NOW" in *" 000 "*) echo "deploy-site: could not re-read the live pointers right before deploying -- refusing; nothing has been deployed (#5589)"; rm -rf "$EXPORT"; exit 1 ;; esac
-[ "$LIVE_PTRS_NOW" = "$LIVE_PTRS_BEFORE" ] || { echo "deploy-site: a live pointer changed while this run was building (a release cut published?) -- refusing; nothing has been deployed. Update the site checkout to origin/main and run again (#5589)."; echo "  before: $LIVE_PTRS_BEFORE"; echo "  now:    $LIVE_PTRS_NOW"; rm -rf "$EXPORT"; exit 1; }
+case "$LIVE_PTRS_NOW" in *" 000 "*) echo "deploy-site: could not re-read the live pointers right before deploying -- refusing; nothing has been deployed (#5589)"; rm -rf "$EXPORT"; exit 75 ;; esac
+[ "$LIVE_PTRS_NOW" = "$LIVE_PTRS_BEFORE" ] || { echo "deploy-site: a live pointer changed while this run was building (a release cut published?) -- refusing; nothing has been deployed. Update the site checkout to origin/main and run again (#5589)."; echo "  before: $LIVE_PTRS_BEFORE"; echo "  now:    $LIVE_PTRS_NOW"; rm -rf "$EXPORT"; exit 75; }
 ( cd "$EXPORT" && vercel deploy --prod --yes ) || { echo "deploy-site: vercel deploy --prod failed"; rm -rf "$EXPORT"; exit 1; }
 rm -rf "$EXPORT"
 
