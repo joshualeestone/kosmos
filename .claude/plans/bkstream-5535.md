@@ -14,3 +14,8 @@
 
 ## Weakest premise
 `Buffer.concat` per push copies the pending tail each time: with small pieces that is O(n * max) work. The walker should push pieces of at least 64 KiB, so it is never the bottleneck at format 1's 4 MiB max. A ring buffer would remove the copy if measurement ever says so.
+
+## Review round 1 (opus): no BLOCKER, 2 WARNINGs and a NIT (all test gaps; the code was correct: 0 mismatches in 3,000 random differential cases), fixed
+- **The forced cut at max was never exercised** (random data always cuts before max): zeros streamed as one piece, in pieces crossing several max windows and in small pieces, each the same forced boundaries, with no chunk over max. Mutation `cutAt(pending, 0, pending.length)` now goes red.
+- **The copy on push was untested** (a walker reusing its read buffer would corrupt the held tail): a pushed piece is overwritten before finish, and the output must not change. Mutation dropping the copy now goes red.
+- **NIT, a tail under min:** the zeros input leaves a 100-byte tail (asserted as a precondition).
