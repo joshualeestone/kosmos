@@ -15,16 +15,20 @@ Mac, measured 10-06: 22 entries, 17 matching no agent and dated 08-28 to 09-08, 
 - **What it keeps, always:** a token file under any such spelling, at any age; a file whose name is not one the store
   writes (`safeKey(key) !== key`: `revoke` would remove a DIFFERENT file); anything written on or after the cutoff;
   anything that is not a token file, a temp or a link; a link whose target exists; a token file written after the
-  plan was made (re-checked just before removal).
+  plan was made (re-checked UNDER the store's lock by a new `sendertoken.revokeIfUnchanged`); a file holding any
+  `launcher: 'remote'` token (review 2: a remote or paneless agent is on `/api/status` only while its heartbeat
+  is fresh, so an OFFLINE one would look orphaned). Age is a file's newest sign of life: the later of its newest
+  token `mintedAt` and its mtime.
 - **What it may remove:** a token file matching neither list and written before the cutoff; a `*.tmp` written before
   the cutoff; a link pointing at nothing.
 - **No roster, no removal:** an unreachable board, a non-OK answer, no agent list, an EMPTY agent list, no board
   token for this store, or a roster that matches NONE of the store's token files (a board serving another store)
   stops it before planning.
-- **Backup first:** `--apply` copies every file and link (with modes; links as links; a subfolder is neither copied
-  nor removed) to a new
+- **Backup first:** `--apply` copies exactly the entries it will remove (with modes; links as links) to a new
   `sendertokens.backup-5418-<time>` folder beside it, refusing to overwrite, and stops if that fails.
-- Token files are removed through `sendertoken.revoke` (under its lock); temps and links are re-checked
+- A future `--cutoff` is refused. The dry run prints, per token file it would remove, its launchers and newest
+  mint, so a person can see a Windows or adopted agent before `--apply`.
+- Token files are removed through `sendertoken.revokeIfUnchanged` (under its lock); temps and links are re-checked
   (still a file, still a link) just before unlinking. Prints names and counts, never a token.
 
 ## Rejected
@@ -35,7 +39,7 @@ Mac, measured 10-06: 22 entries, 17 matching no agent and dated 08-28 to 09-08, 
 - Running it automatically (at install or start): it is one-time, for machines that ran tests before ask 1.
 
 ## Tests
-`tools.cleanup-fixture-tokens-5418.test.js`, 12 arms, also run by the Windows job (ALSO_ROOT): the plan's keep/remove
+`tools.cleanup-fixture-tokens-5418.test.js`, 14 arms, also run by the Windows job (ALSO_ROOT): the plan's keep/remove
 split for every kind of entry (a live agent kept at any age: fails if the roster check is removed); unknown age
 never removed; links seen without following; backup copies modes and links and never overwrites; apply re-checks
 and goes through revoke; port and cutoff required; no roster or an empty one changes nothing (fails if the empty
@@ -48,7 +52,11 @@ removing it fails an arm.
 On each fleet Mac that ran tests before 2026-10-08: dry run with that account's board port and cutoff
 2026-10-08T00:00:00Z, read the list, then `--apply`. Report counts on #5418.
 
-## Weakest premise
-That the spellings above cover every key a live agent's tokens can sit under. They match the supervisor's
+## Weakest premises
+1. That the board lists every agent whose token must survive. Pane agents (running or stopped) and created agents
+   are listed; remote agents are kept by their launcher even offline. Left uncovered: an adopted or Windows agent
+   that is offline AND not in the created roster, whose tokens carry no launcher. The dry run lists each candidate
+   with its launchers and newest mint for a person to read, and the backup restores a file if one is wrong.
+2. That the spellings above cover every key a live agent's tokens can sit under. They match the supervisor's
 `token_roster_name` and the session/key names the Windows, adopt and remote paths mint under. A key minted some
 other way would look orphaned; the dry run lists every planned removal by name so a person reads it before --apply.
