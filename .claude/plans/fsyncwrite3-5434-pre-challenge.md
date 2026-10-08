@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: fsyncwrite3-5434
-diff_hash: d36e3816ad2fff3520bf618c81e14dc5c3dc3a8ba0152476fa17850144f04a12
+diff_hash: 96eeca139b3e6e8a476d439f7585fd42d3b64855670ec43a899456d243785a95
 validation: passed (Mortals)
 subdir_audit: passed
 timestamp: 2026-10-07T19:54:21Z
@@ -19,6 +19,10 @@ converged: true
 Validation: full suite on Mortals for this exact diff hash (d36e3816ad2f): 16496 tests, 16264 pass, 0 fail;
 ENTRY status clean. 6j skipped on that clean entry with a clean tree. Locally: settings writers, securewrite,
 allowance and every repo-wide meta test, 146 files, 4032 tests, 0 fail (at 9f9f7363b).
+
+Rebased onto origin/main at merge time: the only conflict was tools/windows-tests.js's ALSO list (main's entries all
+kept; this branch's moved mid-list), so diff_hash was recomputed; related and meta tests re-run (only main's own
+engine.reachable red on usageprice costOf, #5600, failed).
 
 ITER_COMMITS: 62e26cdcb 3598476a1 d580523a4 9516cc2d1 84757bc4b 9f9f7363b 287e2f4bf
 
