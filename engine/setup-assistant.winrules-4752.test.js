@@ -18,7 +18,8 @@ test('#4752: a Windows drive path is written in the POSIX form Claude Code match
   assert.equal(sa.ruleAbs('C:\\Users\\alice\\AppData\\Roaming\\Kosmos', 'win32'), '//c/Users/alice/AppData/Roaming/Kosmos');
   assert.equal(sa.ruleAbs('D:\\', 'win32'), '//d/');
   assert.equal(sa.ruleAbs('E:/mixed\\seps', 'win32'), '//e/mixed/seps');
-  assert.equal(sa.ruleAbs('\\\\?\\C:\\Users\\a\\K', 'win32'), '//c/Users/a/K', 'the extended-length prefix stayed (its ? is a glob)');
+  assert.equal(sa.ruleAbs('\\\\?\\C:\\Users\\a\\K', 'win32'), '//c/Users/a/K', 'an extended-length path was not written as its plain path (its ? is a glob)');
+  assert.equal(sa.ruleAbs('\\\\?\\UNC\\srv\\share\\K', 'win32'), sa.ruleAbs('\\\\srv\\share\\K', 'win32'), 'an extended-length UNC path is not written as the same share');
 });
 
 test('#4752: CONTROL, a macOS or Linux path is unchanged', () => {
@@ -47,7 +48,7 @@ test('#4752: rulePath reads a written rule back to the exact path, so the own-fo
     assert.equal(back.slice(1), p.slice(1), 'the Windows round trip changed the path past its drive letter: ' + back);
     assert.equal(back[0], p[0].toUpperCase(), 'the drive is not restored as a drive');
   }
-  assert.equal(sa.rulePath('C:\\written\\before', 'win32'), 'C:\\written\\before', 'a rule in the older native form is not read as it is');
+  assert.equal(sa.rulePath('C:\\written\\before', 'win32'), 'C:\\written\\before', 'a rule in the older native form was changed on reading; it must come back exactly as written');
   for (const p of ['/Users/alice/Library/Application Support/Kosmos', '/home/a/.local/share/Kosmos']) {
     assert.equal(sa.rulePath(sa.ruleAbs(p, 'darwin').slice(2), 'darwin'), p, 'CONTROL: the POSIX round trip changed');
   }
@@ -123,13 +124,16 @@ test('#4752 on a Windows host: guardGuideFolder leaves out a rule taking in the 
   fs.writeFileSync(path.join(guide, '.claude', 'settings.json'), JSON.stringify({ permissions: { deny: [oldNative, personal] } }));
   const dataOwn = path.join(root, 'data-own');
   const write = process.stderr.write;
-  process.stderr.write = (s, ...rest) => (String(s).startsWith('#4752') ? true : write.call(process.stderr, s, ...rest));
+  const said = [];
+  process.stderr.write = (s, ...rest) => { if (String(s).startsWith('#4752')) { said.push(String(s)); return true; } return write.call(process.stderr, s, ...rest); };
   let deny;
   try {
     assert.equal(sa.guardGuideFolder(guide, 'guide', { dataRoot: dataOwn, worldsBase: null, legacyRoots: [workers] }).ok, true);
     deny = JSON.parse(fs.readFileSync(path.join(guide, '.claude', 'settings.json'), 'utf8')).permissions.deny;
   } finally { process.stderr.write = write; }
   const newForm = `Read(${sa.ruleAbs(workers, 'win32')}/**)`;
+  // positive: the rule WAS made and refused (not simply never generated), and the refusal was said
+  assert.ok(said.some((l) => l.includes('own folder') && l.includes(newForm)), 'the refusal of the rule taking in the guide\'s folder was not said: ' + said.join(' | '));
   assert.equal(deny.includes(newForm), false, 'the new-form rule taking in the guide\'s folder was written');
   assert.equal(deny.includes(oldNative), false, 'the old spelling of that rule survived and still cuts the guide off');
   assert.ok(deny.includes(personal), 'CONTROL: a person\'s own rule elsewhere was dropped');

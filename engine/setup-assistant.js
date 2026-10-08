@@ -318,11 +318,13 @@ function realOr(p) { try { return fs.realpathSync.native(p); } catch { return pa
 /* A path as a Claude Code rule spells an absolute one: two slashes, then the path without its leading slashes.
    On Windows Claude Code matches a rule against the path in POSIX form (its permissions docs: C:\Users\alice
    becomes /c/Users/alice), so a drive path is written that way: C:\Users\x becomes //c/Users/x. The native
-   spelling (//C:\Users\x) is not a form its docs say it matches (not measured on Windows here). Only the \\?\C:\
-   extended-length form is handled: \\?\UNC\... and the device form \\.\C:\... are not (neither is a likely store). */
+   spelling (//C:\Users\x) is not a form its docs say it matches (not measured on Windows here). The extended-length
+   forms \\?\C:\ and \\?\UNC\host\share are written as their plain paths; the device form \\.\C:\ is not handled
+   (not a likely store). */
 function ruleAbs(p, platform = process.platform) {
   let s = String(p);
   if (platform === 'win32') {
+    s = s.replace(/^[\\/]{2}\?[\\/]UNC[\\/]/i, '//');   // \\?\UNC\host\share: the same share as \\host\share
     s = s.replace(/^[\\/]{2}\?[\\/]/, '');   // the extended-length prefix (\\?\C:\...): its `?` is a glob in a rule
     s = s.replace(/\\/g, '/');
     const drive = /^([A-Za-z]):(\/|$)/.exec(s);
