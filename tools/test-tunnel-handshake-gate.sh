@@ -30,10 +30,12 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=gate test CA" \
 openssl req -newkey rsa:2048 -nodes -subj "/CN=$HOST" -keyout "$W/leaf.key" -out "$W/leaf.csr" >/dev/null 2>&1
 printf 'subjectAltName=DNS:%s\n' "$HOST" > "$W/san.ext"
 # kosmos#5552: the serial file is NAMED, inside $W. Left to -CAcreateserial alone, LibreSSL (macOS's openssl) names it
-# by cutting the CA's whole path at its first dot, so it lands as tunnelgate-test.srl BESIDE $W, outside the cleanup.
+# by cutting the CA's whole path at the first dot in it (tunnelgate-test.XXXXXX, or an earlier one in TMPDIR), so it
+# lands outside $W, beyond the cleanup.
 openssl x509 -req -in "$W/leaf.csr" -CA "$W/ca.pem" -CAkey "$W/ca.key" -CAcreateserial -CAserial "$W/ca.srl" -days 2 \
   -extfile "$W/san.ext" -out "$W/leaf.pem" >/dev/null 2>&1
 [ -s "$W/leaf.pem" ] || { echo "could not make the test certificate"; exit 1; }
+[ -s "$W/ca.srl" ] || { echo "the serial file was not written inside this test's own folder, so it leaked (#5552)"; exit 1; }
 
 # The server: /v1/meta answers per $W/meta (ok -> 200, down -> 502, as Caddy does with the
 # coordinator down); any other path is "the visit" and answers per $W/mode (ok -> the session
