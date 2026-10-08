@@ -1,7 +1,7 @@
 'use strict';
 /**
  * kosmos#5532 (Enterprise E0.3, umbrella #5529): the rollup a work Kosmos sends its company, daily and on change.
- * The contract is PigeonPete's (kosmos-relay `.claude/plans/rollup-5532.md`): `POST /v1/mac/org/rollup`, Mac-signed.
+ * The contract is PigeonPete's (kosmos-relay `.claude/plans/rollup3-5532.md`): `POST /v1/mac/org/rollup`, Mac-signed.
  *
  * 🔑 NO CONTENT, BY CONSTRUCTION. build() takes plain fields (names, provider, model, a status word, token counts) and
  * nothing else: it is never handed a task, a chat, a file, a folder or a path, so it cannot send one. Every string is
@@ -108,7 +108,9 @@ function build(input) {
     const model = MODEL_ID.test(String(a.model || '')) && providerOfModel(a.model) ? a.model : null;
     /* A change send carries no status and no model (rollup review 10, as the contract says): those ride on the daily
        send only, so a change is not a record of when this person's agents run. */
-    agents.push({ name, provider, model: change ? null : model, status: change ? null : statusWord(a.state) });
+    /* Nor a provider (rollup review 14): a running card's comes from its pane and a stopped agent's from its record,
+       which can be null, so it too would show which agents were running at that minute. */
+    agents.push({ name, provider: change ? null : provider, model: change ? null : model, status: change ? null : statusWord(a.state) });
   }
 
   const projectsIn = Array.isArray(i.projects) ? i.projects : [];
@@ -216,7 +218,7 @@ function defaultSources() {
     /* 🛑 NO usageByDay HERE (rollup review 1, a BLOCKER). engine/usage.js reads every Claude config folder on this
        computer (status.configRoots: ~/.claude, ~/.claude-*, CLAUDE_CONFIG_DIR), with no filter by world or agent, so
        its numbers include the person's other Kosmoses and their own sessions outside Kosmos. Sending them would break
-       the one rule this whole feature rests on. Usage is withheld (an empty list, truncated) until a reader scoped to
+       the one rule this whole feature rests on. Usage is withheld (an empty list, and usageWithheld says so) until a reader scoped to
        this world's own agents exists. */
     lastActiveOf: (sessionName) => { const r = activity.read(sessionName, 'working'); return r.found ? r.at : null; },
     providerOf: (runner) => create.runnerProvider(runner),

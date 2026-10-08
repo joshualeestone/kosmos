@@ -1,9 +1,10 @@
 # rollup-5532: the rollup a work Kosmos sends its company (#5532, Enterprise E0.3, board side)
 
-Umbrella #5529. Coordinator side: PigeonPete, kosmos-relay `.claude/plans/rollup-5532.md` (route
+Umbrella #5529. Coordinator side: PigeonPete, kosmos-relay `.claude/plans/rollup3-5532.md` (route
 `POST /v1/mac/org/rollup`, Mac-signed; codes org_not_member, org_not_enrolled, org_bad_world, org_rollup_bad,
-org_rollup_too_big, replayed). Stacked on #5531 (orgenroll-5531: `isEnrolledHere()`, the world id) and on
-usageprice-5532 (the price table). Rebased onto main once both merge.
+org_rollup_too_big, replayed). Now on main (#5531, #5556, #5565, #5571 merged) plus #5531 follow-up b (consenthash-5531,
+PR #5604); rebased onto main once that merges. THE CURRENT STATE IS "Carried onto main and wired" BELOW: where the
+sections above it disagree with it, they describe the dormant branch.
 
 ## What this branch builds
 - `engine/orgrollup.js`:
@@ -16,7 +17,7 @@ usageprice-5532 (the price table). Rebased onto main once both merge.
     /api/status's own filter, as `stopped` with no model), minus agents whose removal hides the card; projects with
     members mapped to the names the board shows; usage `byDay` only (never `byFolder`, whose keys are paths); last
     active as the latest per-agent working sample. A partial pane read withholds the offline list, as /api/status does.
-  - `tick()`: sends only when `isEnrolledHere()`; daily, and on a change to the agents or projects at most every 10
+  - `tick()`: (SUPERSEDED: the gate is now `mayReport()` plus `acceptedConsent()`; see below) sends only when `isEnrolledHere()`; daily, and on a change to the agents or projects at most every 10
     minutes; quiet for an hour after a failure; refused as org_not_enrolled or org_not_member, it asks the company at
     once (orgenroll.refresh), which stops this world on a clear answer.
 - `server.js`: `orgRollupTick` a minute after start and every 5 minutes, one at a time, and only in the enrolled world.
@@ -132,13 +133,15 @@ usageprice-5532 (the price table). Rebased onto main once both merge.
 - (Done 2026-10-08, by hash: see "Carried onto main and wired".)
 - A usage reader scoped to THIS world's agents (their transcripts or launch folders only), so `usage` can be sent.
   Until then the company sees no tokens or cost from this board, and the body says usageWithheld.
-- The per-computer fingerprint (contract v1.5, agreed 2026-10-07): a full copy of the data folder carries the Kosmos+
+- (DONE on this branch, see below.) The per-computer fingerprint (contract v1.5, agreed 2026-10-07): a full copy of the data folder carries the Kosmos+
   key, so the company cannot tell it from the real computer. Next piece: sha256(salt from status + IOPlatformUUID or
   MachineGuid), sent on rollup, enroll and leave once the coordinator accepts it, and the "looks like a copy" screen.
 - policyVersion is sent as null: no policy version exists on the board yet.
 - backup.lastOk is null until E0.6.
 
 ## Tests
+- Also `engine/orgenroll-print-5532.test.js` (the print's two caller guards and every path that carries it) and
+  `engine/orgrollup-scope-5532.test.js`.
 - `engine/orgrollup-5532.test.js`: the body's shape and status words; a planted secret and planted content in every
   field a record carries (task, transcript, folder, description) never reach the body; bounds and the byte cap;
   gather's agent list, project names, partial reads; the sender's gate (a Kosmos that never joined sends nothing),
@@ -227,3 +230,17 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
   it cannot see negation.
 - NITs kept: gather() every five minutes (it is the change detection); an offline agent with no shown name is sent by its
   profile name (skipping it could drop real agents; `profile === true` rows only).
+
+## Review 14 (blind, Opus)
+- FIXED: after the reader gives up, printFor answers `none`, and the rollup (and a leave) went without a print. If a print
+  was pinned, the company counts that as a copy's: it refuses every rollup and logs against the real computer. The
+  record now says whether this join pinned a print (`printPinned`: each enroll pins exactly what it sends), carried by
+  the lost-answer marker, refresh (same company), the pending-leave file and the last-admin rebuild. While pinned, `none`
+  WAITS (`pinnedWait`) instead of sending without. Tests; the mutation makes them fail.
+- FIXED: a change send still carried the provider, which differs between a running card (from its pane) and a stopped
+  agent (from its record, can be null), so it showed which agents were running. Change sends now carry no provider
+  either. Test.
+- FIXED (C): the plan's header described the dormant branch's gate and "not done" items; marked superseded, the Tests
+  section names the new files, and the contract is cited as rollup3-5532.md (the file that exists).
+- NITs taken: the undo gates on a salt AND a company, as enroll does; the stale "withheld ... truncated" comment.
+

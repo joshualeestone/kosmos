@@ -561,3 +561,9 @@ test('#5532 rollup review 13: usage with a model id the board cannot vouch for i
   const ok = r.build({ world: 'w', usageByDay: { [DAY(0)]: { 'claude-opus-5-5': { input_tokens: 10 }, 'claude-sonnet-5-5': { input_tokens: 0 } } } });
   assert.equal(ok.truncated, false, 'CONTROL: a row with no tokens is not a trim');
 });
+
+test('#5532 rollup review 14: a change send carries no provider either (it differs between a running and a stopped agent)', () => {
+  const a = r.build({ world: 'w', reason: 'change', agents: [{ name: 'Leo', provider: 'anthropic', model: 'claude-opus-5-5', state: 'working' }] }).agents[0];
+  assert.equal(a.provider, null);
+  assert.equal(r.build({ world: 'w', reason: 'daily', agents: [{ name: 'Leo', provider: 'anthropic', state: 'working' }] }).agents[0].provider, 'anthropic', 'CONTROL: the daily send carries it');
+});

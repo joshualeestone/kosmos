@@ -158,3 +158,32 @@ test('#5532 rollup review 12: a record rebuilt after an undo refused as the last
   assert.equal(tk.sent, true, JSON.stringify(tk));
   assert.equal(sent.sent.find((x) => x.route === rollup.ROUTE).body.computerPrint, printOf(ACME.id), 'the rebuilt record\'s rollup went without the pinned print');
 });
+
+test('#5532 rollup review 14: once a print is pinned, a reader that gave up makes the rollup and the leave WAIT, never go without', async (t) => {
+  let gaveUp = false;
+  const root = sandbox(t);
+  const co = company(root);
+  await join(root, co);
+  assert.equal(oe.readEnrollment({ root }).printPinned, true, 'the join sent a print but the record does not say it is pinned');
+  fs.writeFileSync(path.join(root, oe.CONSENT_FILE), JSON.stringify({ order: [HASH], byHash: { [HASH]: { reports: ['agent names'], usageConsented: false } } }));
+  // The reader now answers "none" (here: a platform with no reader, the same answer a reader that gave up gives).
+  cp._testRunner(() => DUMP, { platform: 'linux' });
+  gaveUp = true;
+  const sent = company(root);
+  const src = { snapshot: () => ({ counts: {}, agents: [] }), survey: () => ({ ok: true, agents: [] }), removed: () => [], projects: () => [], linkedProject: () => false };
+  const tk = await rollup.tick({ root, remote: sent, sources: src, now: Date.UTC(2026, 9, 8, 12) });
+  assert.equal(tk.sent, false, 'a rollup went without the pinned print: ' + JSON.stringify(tk));
+  assert.equal(sent.sent.some((x) => x.route === rollup.ROUTE), false);
+  const lv = await oe.leave({ root, remote: sent });
+  assert.equal(lv.pending, true, 'a leave went without the pinned print: ' + JSON.stringify(lv));
+  assert.equal(sent.sent.some((x) => x.route === oe.ROUTES.leave), false);
+  // CONTROL: a join that pinned no print sends without one.
+  assert.ok(gaveUp);
+  const b = sandbox(t, () => DUMP);
+  cp._testRunner(() => DUMP, { platform: 'linux' });
+  const co2 = company(b);
+  await join(b, co2);
+  assert.equal(oe.readEnrollment({ root: b }).printPinned, false, 'CONTROL: no print sent, none pinned');
+  fs.writeFileSync(path.join(b, oe.CONSENT_FILE), JSON.stringify({ order: [HASH], byHash: { [HASH]: { reports: ['agent names'], usageConsented: false } } }));
+  assert.equal((await rollup.tick({ root: b, remote: co2, sources: src, now: Date.UTC(2026, 9, 8, 12) })).sent, true, 'CONTROL: with nothing pinned, the rollup goes');
+});
