@@ -38,14 +38,37 @@ function standInBoard() {
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({ server, seen, port: server.address().port })));
 }
 
-function runBridge(event, env) {
+/* #5560: one run of the bridge, and everything about how it ended. On a loaded CI runner (GitHub-hosted, the same run
+   logged EAGAIN from another test) a child can fail to start or be killed before it runs: `close` then gives code
+   null, which the old helper could not tell apart from a bridge that ran and failed. */
+function runOnce(event, env) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [BRIDGE_FILE, event], { env, stdio: ['ignore', 'pipe', 'pipe'] });   // </dev/null, as the supervisor runs it
+    let child;
+    try { child = spawn(process.execPath, [BRIDGE_FILE, event], { env, stdio: ['ignore', 'pipe', 'pipe'] }); }   // </dev/null, as the supervisor runs it
+    catch (err) { resolve({ code: null, signal: null, error: String(err && err.code || err), out: '', err: '' }); return; }
     let out = '';
+    let errText = '';
+    let spawnError = null;
     child.stdout.on('data', (d) => { out += d; });
-    child.on('close', (code) => resolve({ code, out }));
+    child.stderr.on('data', (d) => { errText += d; });
+    child.on('error', (e) => { spawnError = String((e && e.code) || e); });
+    child.on('close', (code, signal) => resolve({ code, signal, error: spawnError, out, err: errText }));
   });
 }
+/* A child that never RAN (it could not start, or a signal ended it) is tried again, up to three times with a short
+   wait: that is the runner, not the bridge. A child that ran and exited with a code is never retried, so a bridge
+   that really fails still fails here. */
+async function runBridge(event, env) {
+  const tries = [];
+  for (let i = 0; i < 3; i += 1) {
+    const r = await runOnce(event, env);
+    tries.push(r);
+    if (r.code !== null && !r.error) return Object.assign(r, { tries });
+    await new Promise((res) => setTimeout(res, 200 * (i + 1)));
+  }
+  return Object.assign(tries[tries.length - 1], { tries });
+}
+const howItEnded = (r) => JSON.stringify((r.tries || [r]).map((x) => ({ code: x.code, signal: x.signal, error: x.error, stderr: String(x.err || '').slice(0, 300) })));
 
 test('#4417: the launch event reports idle from the new pane, with its launch token', async () => {
   const board = await standInBoard();
@@ -55,7 +78,7 @@ test('#4417: the launch event reports idle from the new pane, with its launch to
   const env = { ...process.env, AGENT_WORKFORCE_DATA: data, KOSMOS_PORT: String(board.port), TMUX_PANE: pane, KOSMOS_AGENT_TOKEN: 'abc123' };
   try {
     const r = await runBridge(bridge.LAUNCH_EVENT, env);
-    assert.equal(r.code, 0);
+    assert.equal(r.code, 0, 'the bridge did not exit 0: ' + howItEnded(r));
     const reports = board.seen.filter((x) => x.url === '/api/report');
     assert.equal(reports.length, 1, 'a launched agy agent told the board nothing, so it reads "Can\'t tell" until its first turn');
     const body = JSON.parse(reports[0].body);
