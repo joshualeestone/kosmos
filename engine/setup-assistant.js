@@ -267,7 +267,7 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
   /* A folder whose rule the syntax would misread (`* ? [ ] ( ) { } !`) gets no rule here: said, not guessed. Checked on
      what ruleAbs writes (its leading // taken off), so the check and the rule are one spelling (the platform's own
      separator is gone by then; an extended-length \\?\ path is checked after its `?` is gone). On Windows the device
-     form \\.\C:\ and a drive-relative C:foo are refused too, by ruleUnwritable (a share IS written, review 21). */
+     form \\.\C:\ and a drive-relative C:foo are refused too, by ruleUnwritable (a share IS written). */
   const plain = (p) => {
     if (!ruleUnwritable(p)) return true;
     process.stderr.write(`#4752: no rule for ${p}: its path has a character the rule syntax reads as a pattern, or a form it cannot write\n`);
@@ -319,14 +319,11 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
   return { rules, entryBase, extra };   // twins are added in guardGuideFolder, only to rules that pass the own-folder check
 }
 /* Whether `p` cannot be written as a rule: once written (ruleAbs), it has a character the rule syntax reads as a
-   pattern; or, on Windows, the native path is neither a drive path (C:\..., \\?\C:\...) nor a share (\\host\share,
-   \\?\UNC\host\share): the device form \\.\C:\ and a drive-relative C:foo are refused. A share IS written (as
-   //host/share/...): whether Claude Code matches it is not documented, and an extra deny costs nothing, while
-   refusing it would leave a redirected-profile store's token files with no rule at all (review 21). Pure. */
+   pattern. Nothing else is refused, on any platform, as on main: a share, a device form or an unusual Windows path is
+   written as it is (an extra deny costs nothing; refusing one would leave that folder with no rule at all). ruleAbs
+   never turns a bare drive-relative C: into the whole drive. Pure, the platform passed in. */
 function ruleUnwritable(p, platform = process.platform) {
-  if (RULE_SYNTAX.test(ruleAbs(p, platform).slice(2))) return true;
-  // the drive test reads the NATIVE path (a share or device form is only visible there; ruleAbs has rewritten it)
-  return platform === 'win32' && !/^([A-Za-z]:[\\/]|[\\/]{2}\?[\\/][A-Za-z]:[\\/]|[\\/]{2}\?[\\/]UNC[\\/][^\\/]|[\\/]{2}[^\\/?.][^\\/]*[\\/][^\\/])/i.test(String(p));
+  return RULE_SYNTAX.test(ruleAbs(p, platform).slice(2));
 }
 /* The characters the rule syntax reads as a pattern or a bracket (and a backslash): a path with one gets no rule. */
 const RULE_SYNTAX = /[*?[\](){}!\\]/;
@@ -352,10 +349,9 @@ function ruleAbs(p, platform = process.platform) {
 }
 /* The inverse, for code that reads a rule back as a path: what follows `Read(//` (without a trailing `/**`) to the
    path it names. On Windows `c/Users/x` is `C:\Users\x`; a rule in the older native form (`C:\Users\x`, written
-   before this change) is read as it is. Elsewhere it is `/` plus the rest. Not handled: a UNC path (\\server\share),
-   whose rule reads back as a drive-less path (a one-letter host even as a drive), so the own-folder check does not
-   apply to a store on a network share (Claude Code's permissions docs: "You can't add most network paths, such as the
-   UNC share \\server\share, as working directories"). */
+   before this change) is read as it is. Elsewhere it is `/` plus the rest. A share's rule (host/share/...) reads back as
+   its UNC path (\\host\share\...), so the own-folder check compares real paths; a one-letter host reads back as a drive
+   (S:), the one form that cannot be told apart. */
 function rulePath(inner, platform = process.platform) {
   const t = String(inner);
   if (platform === 'win32') {
@@ -363,7 +359,7 @@ function rulePath(inner, platform = process.platform) {
     const d = /^([A-Za-z])(\/|$)/.exec(t);
     if (d) return d[1].toUpperCase() + ':\\' + t.slice(d[0].length).replace(/\//g, '\\');
     // no drive: a share (host/share/...) reads back as its UNC path, so the own-folder check compares real paths
-    // (review 23); anything shorter is not a form ruleAbs writes, and is never resolved against the current drive
+    //; anything shorter is not a form ruleAbs writes, and is never resolved against the current drive
     if (/^[^/]+\/[^/]+/.test(t)) return '\\\\' + t.replace(/\//g, '\\');
     return null;
   }
