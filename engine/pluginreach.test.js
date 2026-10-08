@@ -197,6 +197,8 @@ test('#5309 p2 resolver: a falsy-but-present runner or a non-object job is UNKNO
   // A truthy non-object job (garbage) is UNKNOWN, never a default-launch reaches:true.
   assert.deepEqual(reachForAgent('t', deps({ job: true })), { reaches: null, reason: UNKNOWN });
   assert.deepEqual(reachForAgent('s', deps({ job: 'nope' })), { reaches: null, reason: UNKNOWN });
+  // An array is typeof 'object' but has no runner/configDir; it must not default to a reaches:true.
+  assert.deepEqual(reachForAgent('arr', deps({ job: [] })), { reaches: null, reason: UNKNOWN });
   // A null deps argument must not throw (the default only covers undefined); it falls back to {}.
   assert.doesNotThrow(() => reachForAgent('x', null));
 });

@@ -120,8 +120,9 @@ function reachForAgent(agentName, deps) {
       : rawHome;
     job = create.readJob(agentName);
   } catch { return { reaches: null, reason: UNKNOWN }; }
-  // A null/undefined or non-object job (garbage) is UNKNOWN, never a default-launch reaches:true.
-  if (!job || typeof job !== 'object') return { reaches: null, reason: UNKNOWN };
+  // A null/undefined, non-object, or array job (garbage) is UNKNOWN, never a default-launch reaches:true.
+  // (Array.isArray because `typeof [] === 'object'`, and an array has no runner/configDir fields.)
+  if (!job || typeof job !== 'object' || Array.isArray(job)) return { reaches: null, reason: UNKNOWN };
   // Default the runner only on null/undefined (readJob's own default); a FALSY-but-present runner ('',0)
   // must stay falsy so reachFrom reads it as UNKNOWN, not silently become 'claude'.
   const runner = (job.runner === null || job.runner === undefined) ? 'claude' : job.runner;
