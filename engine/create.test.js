@@ -6596,7 +6596,7 @@ test('#4006: a new agent never inherits a failed-restart record left under its n
   assert.equal(disruption.read('failheir').found, false, 'the new agent was born under an old failed-restart record');
 });
 
-test('#5534: a company policy in force refuses creating or switching an agent onto a provider it does not allow', () => {
+test('#5534: a company policy in force refuses creating or switching an agent onto a provider it does not allow', WIN_TASK_STUB, () => {
   recorder();
   create.setDryRun(false);
   const orgpolicy = require('./orgpolicy');
@@ -6640,7 +6640,7 @@ test('#5534: a company policy in force refuses creating or switching an agent on
   assert.equal(plain.outcome, create.OUTCOME.CREATED, 'CONTROL: with no policy an ordinary create succeeds: ' + plain.because);
 });
 
-test('#5534 review 2/3: Gemini without a model is its pinned default, and a switch is asked about the model picked with it', () => {
+test('#5534 review 2/3: Gemini without a model is its pinned default, and a switch is asked about the model picked with it', WIN_TASK_STUB, () => {
   recorder();
   create.setDryRun(false);
   const orgpolicy = require('./orgpolicy');
