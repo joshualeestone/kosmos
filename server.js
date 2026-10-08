@@ -20624,6 +20624,18 @@ function orgEnrollRefresh() {
     oe.refresh().catch(() => { /* best effort: an unreachable company changes nothing */ });
   } catch { /* best effort */ }
 }
+/** #5532: how often the work Kosmos checks whether its rollup is due (it sends daily, and on a change at most every
+    ten minutes; engine/orgrollup.js decides). */
+const ORG_ROLLUP_TICK_MS = 5 * 60 * 1000;
+let ORG_ROLLUP_RUNNING = false;
+function orgRollupTick() {
+  if (ORG_ROLLUP_RUNNING) return;   // one at a time: a slow read must not start a second send
+  try {
+    if (!require('./engine/orgenroll').isEnrolledHere()) return;   // not the work Kosmos: nothing is read or sent
+    ORG_ROLLUP_RUNNING = true;
+    require('./engine/orgrollup').tick().catch(() => { /* best effort */ }).finally(() => { ORG_ROLLUP_RUNNING = false; });
+  } catch { ORG_ROLLUP_RUNNING = false; }
+}
 function start(port = PORT) {
   snapshotWorlds();   // #5247: the worlds the gate may accept, as of now
   /* #5254: cached first pages whose PDF, project or agent is gone are removed now and hourly (engine/filepreview.js). */
@@ -20638,6 +20650,9 @@ function start(port = PORT) {
   setInterval(orgEnrollRefresh, ORG_REFRESH_MS).unref();
   // Fast only for a day: a marker that stays unclear that long (Kosmos+ switched off, say) falls back to the daily pass.
   setInterval(() => { try { const oe = require('./engine/orgenroll'); const age = oe.joinUnknownAge(); if (oe.joinUnknown() && age !== null && age < 24 * 60 * 60 * 1000) orgEnrollRefresh();   /* an unreadable time: the daily pass */ } catch { /* best effort */ } }, ORG_UNSURE_MS).unref();
+  /* #5532: the enrolled work Kosmos's rollup, a minute after start (once the refresh has answered) and then on a tick. */
+  setTimeout(orgRollupTick, 60 * 1000).unref();
+  setInterval(orgRollupTick, ORG_ROLLUP_TICK_MS).unref();
   /* #4408: what this board is running, taken now, before anything can edit the app folder under it. The
      restart module is loaded first: it is otherwise required lazily, and the button depends on it. */
   try { require('./engine/boardrestart'); } catch { /* the restart route reports its own failure */ }

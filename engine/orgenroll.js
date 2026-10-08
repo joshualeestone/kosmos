@@ -172,6 +172,8 @@ function cleanConsent(c) {
   // A consent with nothing in it is no consent: the page must never offer Join on an empty statement.
   return (out.reports.length || out.backsUp.length) && out.readers.length ? out : null;
 }
+/* The enrollment fields that record what the person accepted (#5532): kept across refresh. */
+const CONSENT_FIELDS = Object.freeze(['consentHash', 'reports', 'usageConsented']);
 const ROLES = new Set(['member', 'recovery', 'admin']);
 function cleanRole(r) { return ROLES.has(r) ? r : null; }
 
@@ -613,8 +615,9 @@ async function refreshNow(opts) {
   const role = cleanRole(d.role);
   if (!org || !role) return { ok: false, because: 'Your company\'s answer was not complete.', enrolled: !!before };
   const rec = { org, role, world, enrolledAt: (before && before.enrolledAt) || new Date().toISOString() };
-  // The consent belongs to the world it was shown for: never carried onto a record for another world (review 28).
-  if (before && before.consentHash && before.world === world) rec.consentHash = before.consentHash;
+  /* What the person accepted survives a refresh, field by field from ONE list (#5532 rollup reviews 7 and 9), and only for
+     the world it was shown for: never carried onto a record for another world (#5531 review 28). */
+  if (before && before.world === world) for (const k of CONSENT_FIELDS) if (before[k] !== undefined) rec[k] = before[k];
   try { writeEnrollment(rec, opts); } catch { /* keep the old record; the next refresh tries again */ }
   return { ok: true, enrolled: true, member: true, ...rec };
 }

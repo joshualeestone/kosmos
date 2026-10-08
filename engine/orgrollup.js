@@ -1,0 +1,378 @@
+'use strict';
+/**
+ * kosmos#5532 (Enterprise E0.3, umbrella #5529): the rollup a work Kosmos sends its company, daily and on change.
+ * The contract is PigeonPete's (kosmos-relay `.claude/plans/rollup-5532.md`): `POST /v1/mac/org/rollup`, Mac-signed.
+ *
+ * 🔑 NO CONTENT, BY CONSTRUCTION. build() takes plain fields (names, provider, model, a status word, token counts) and
+ * nothing else: it is never handed a task, a chat, a file, a folder or a path, so it cannot send one. Every string is
+ * cleaned and bounded by engine/externalname.js (the coordinator REFUSES a string over 200 characters, so 120 here is
+ * the contract with room to spare).
+ *
+ * 🔑 BOUNDED SO IT ALWAYS ARRIVES. mac-request refuses a body over 64 KB and the coordinator refuses over 60 KB, and
+ * then nothing arrives at all. So: at most AGENTS_MAX agents, PROJECTS_MAX projects (NAMES_MAX names each),
+ * USAGE_DAYS days of USAGE_ROWS_PER_DAY rows, and the serialized body is measured and trimmed to BODY_MAX bytes.
+ * Anything left out sets `truncated: true`; nothing is ever refused here.
+ *
+ * build() is pure (no file, no network). gather() reads the board; tick() keeps a small state file and sends.
+ */
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const { externalName } = require('./externalname');
+const usageprice = require('./usageprice');
+
+const ROUTE = '/v1/mac/org/rollup';
+const VERSION = 1;
+const NAME_MAX = 120;
+const AGENTS_MAX = 200;
+const PROJECTS_MAX = 200;
+const NAMES_MAX = 50;
+const USAGE_DAYS = 7;
+const USAGE_ROWS_PER_DAY = 40;
+/** Bytes, measured on the serialized body: under the coordinator's 60 KB refusal with room for the signature. */
+const BODY_MAX = 56 * 1024;
+
+/* The board's agent states (engine/status.js STATE, plus the route's needs_trust) in the THREE words the consent names:
+   "whether each is working, waiting or stopped" (rollup review 6). Fewer words than the board has, on purpose: the
+   company is not told that an agent hit a rate limit, lost its account or connection, or could not be read. Anything
+   on the board that is not working and not ended is waiting. */
+const STATUS = Object.freeze({
+  working: 'working', restarting: 'working',
+  needs_you: 'waiting', needs_trust: 'waiting', blocked: 'waiting', rate_limited: 'waiting', auth_failed: 'waiting',
+  connection_lost: 'waiting', idle: 'waiting', unknown: 'waiting',
+  stopped: 'stopped',
+});
+function statusWord(state) {
+  return Object.prototype.hasOwnProperty.call(STATUS, state) ? STATUS[state] : 'waiting';
+}
+
+/* A model id is one token: lower-case letters, digits and . _ : - , at most NAME_MAX. Anything with a space, a slash or
+   other text after it (a pane line) is not one and is sent as null (rollup review 4). A known family, then at most six
+   short dash-separated parts (claude-opus-5-5, gpt-5.1-codex, gemini-2.5-flash, claude-haiku-4-5-20251001). */
+/* A family, then parts that are each a version number (5, 5.1, 2.5, 4o), a known tier word, or an 8-digit date: nothing
+   a person could have named after a client or a project (review 7). */
+const MODEL_PART = '(\\d+(\\.\\d+)*[a-z]?|opus|sonnet|haiku|fable|mini|nano|flash|pro|lite|codex|turbo|preview|latest|exp|\\d{8})';
+const MODEL_ID = new RegExp('^(claude|gpt|o[134]|codex|gemini|grok|llama)(-' + MODEL_PART + '){0,6}$');
+const PROVIDERS = new Set(['anthropic', 'openai', 'google', 'xai', 'meta', 'antigravity']);
+const clean = (v) => externalName(v, NAME_MAX) || null;
+const iso = (v) => (typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? new Date(v).toISOString() : null);
+const day = (v) => { const t = iso(v); return t ? t.slice(0, 10) + 'T00:00:00.000Z' : null; };
+/* A day after tomorrow (UTC) is a wrong clock, and the coordinator refuses the whole rollup for it: send no day instead. */
+const notAfterTomorrow = (d, now = Date.now()) => {
+  if (!d) return null;
+  const t = new Date(now); const limit = Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate() + 1);
+  return Date.parse(d) > limit ? null : d;
+};
+const count = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.round(Number(v)) : 0);
+
+/* Which provider a model id belongs to, for a usage row (the usage files key by model only). */
+function providerOfModel(model) {
+  const m = String(model || '').toLowerCase();
+  if (m.startsWith('claude')) return 'anthropic';
+  if (m.startsWith('gpt') || m.startsWith('o1') || m.startsWith('o3') || m.startsWith('o4') || m.startsWith('codex')) return 'openai';
+  if (m.startsWith('gemini')) return 'google';
+  if (m.startsWith('grok')) return 'xai';
+  if (m.startsWith('llama')) return 'meta';
+  return null;
+}
+
+/**
+ * The body. Inputs, all plain:
+ *   world        this world's opaque id (orgenroll)
+ *   at, reason   when, and 'daily' | 'change'
+ *   agents       [{ name, provider, model, state }]
+ *   projects     [{ name, agents: [agent name] }]
+ *   usageByDay   { 'YYYY-MM-DD': { model: { input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens } } }
+ *   lastActive, backupLastOk, policyVersion
+ */
+function build(input) {
+  const i = input || {};
+  let truncated = false;
+
+  const agentsIn = Array.isArray(i.agents) ? i.agents : [];
+  if (agentsIn.length > AGENTS_MAX) truncated = true;
+  const agents = [];
+  for (const a of agentsIn.slice(0, AGENTS_MAX)) {
+    const name = clean(a && a.name);
+    if (!name) continue;
+    const provider = PROVIDERS.has(a.provider) ? a.provider : null;
+    /* A model is sent only when it names a known provider's family: the running model is read off a pane, so any
+       other string is not a model id we can vouch for (rollup review 2). */
+    const model = MODEL_ID.test(String(a.model || '')) && providerOfModel(a.model) ? a.model : null;
+    agents.push({ name, provider, model, status: statusWord(a.state) });
+  }
+
+  const projectsIn = Array.isArray(i.projects) ? i.projects : [];
+  if (projectsIn.length > PROJECTS_MAX) truncated = true;
+  const projects = [];
+  for (const p of projectsIn.slice(0, PROJECTS_MAX)) {
+    const name = clean(p && p.name);
+    if (!name) continue;
+    // Once each, after cleaning (two spellings can clean to one name): the coordinator refuses a project listing an agent twice.
+    const names = [...new Set((Array.isArray(p.agents) ? p.agents : []).map(clean).filter(Boolean))];
+    if (names.length > NAMES_MAX) truncated = true;
+    projects.push({ name, agents: names.slice(0, NAMES_MAX) });
+  }
+
+  /* The last USAGE_DAYS days present, newest first; within a day the costliest rows first, so a trim drops the least. */
+  const byDay = !i.usageWithheld && i.usageByDay && typeof i.usageByDay === 'object' ? i.usageByDay : {};
+  const days = Object.keys(byDay).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort().reverse();
+  if (days.length > USAGE_DAYS) truncated = true;
+  const usage = [];
+  for (const day of days.slice(0, USAGE_DAYS)) {
+    const models = byDay[day] && typeof byDay[day] === 'object' ? byDay[day] : {};
+    const rows = Object.keys(models).map((model) => {
+      const b = models[model] || {};
+      const row = {
+        // The same rule as an agent's model (review 8): a usage key that is not a model id is dropped below.
+        day, provider: providerOfModel(model), model: MODEL_ID.test(String(model)) && providerOfModel(model) ? model : null,
+        input: count(b.input_tokens), output: count(b.output_tokens),
+        cacheWrite: count(b.cache_creation_input_tokens), cacheRead: count(b.cache_read_input_tokens),
+        costUsd: usageprice.costOf(model, b),   // null when the model has no published price, never 0
+      };
+      if (row.costUsd != null) row.costUsd = Math.round(row.costUsd * 1e6) / 1e6;
+      return row;
+    }).filter((r) => r.model && (r.input || r.output || r.cacheWrite || r.cacheRead));
+    rows.sort((x, y) => (y.costUsd || 0) - (x.costUsd || 0) || (y.input + y.output) - (x.input + x.output));
+    if (rows.length > USAGE_ROWS_PER_DAY) truncated = true;
+    usage.push(...rows.slice(0, USAGE_ROWS_PER_DAY));
+  }
+
+  const body = {
+    v: VERSION,
+    world: typeof i.world === 'string' ? i.world : null,
+    at: iso(i.at) || new Date().toISOString(),
+    reason: i.reason === 'change' ? 'change' : 'daily',
+    policyVersion: clean(i.policyVersion),
+    lastActive: notAfterTomorrow(day(i.lastActive)),   // the day only: "when you were last active", not a timeline (review 5)
+    backup: { lastOk: iso(i.backupLastOk) },
+    agents, projects, usage,
+    /* Contract v1.1 (PigeonPete): while this board has no reader scoped to this world, usage is [] and usageWithheld
+       says so, and the console shows "usage not reported yet", never 0. truncated means only a real trim or a partial
+       read. */
+    usageWithheld: i.usageWithheld === true,
+    truncated: truncated || i.partial === true,   // a partial read is said, never sent as the whole picture
+  };
+  return fit(body);
+}
+
+/* Trim until the serialized body fits BODY_MAX: the oldest usage day's rows first, then projects from the end, then
+   agents from the end. Each trim sets truncated. */
+function fit(body) {
+  const size = () => Buffer.byteLength(JSON.stringify(body), 'utf8');
+  while (size() > BODY_MAX) {
+    body.truncated = true;
+    if (body.usage.length) {
+      const oldest = body.usage[body.usage.length - 1].day;
+      body.usage = body.usage.filter((r) => r.day !== oldest);
+    } else if (body.projects.length) body.projects.pop();
+    else if (body.agents.length) body.agents.pop();
+    else break;
+  }
+  return body;
+}
+
+/* The real sources, behind one seam so tests can hand plain records instead. */
+function defaultSources() {
+  const status = require('./status');
+  const register = require('./register');
+  const removal = require('./remove');
+  const projects = require('./projects');
+  const activity = require('./activity');
+  const create = require('./create');
+  return {
+    snapshot: () => status.snapshot(),
+    survey: () => register.survey(),
+    removed: () => removal.removedAgents().filter((x) => removal.hidesCard(x)).map((x) => x.name),
+    projects: () => projects.readAll(),
+    /* A project linked from another Kosmos (federation: someone else's project joined here, or one from another computer
+       of this account, which may be a personal Kosmos) is not this work Kosmos's to report (rollup review 7). */
+    linkedProject: (id) => { try { return !!require('./federation').linkFor(id); } catch { return true; } },
+    /* 🛑 NO usageByDay HERE (rollup review 1, a BLOCKER). engine/usage.js reads every Claude config folder on this
+       computer (status.configRoots: ~/.claude, ~/.claude-*, CLAUDE_CONFIG_DIR), with no filter by world or agent, so
+       its numbers include the person's other Kosmoses and their own sessions outside Kosmos. Sending them would break
+       the one rule this whole feature rests on. Usage is withheld (an empty list, truncated) until a reader scoped to
+       this world's own agents exists. */
+    lastActiveOf: (sessionName) => { const r = activity.read(sessionName, 'working'); return r.found ? r.at : null; },
+    providerOf: (runner) => create.runnerProvider(runner),
+    /* The recorded runner, or NULL when neither the launch job nor the profile names one: create.recordedRunner falls
+       back to claude, which would report a guess as the provider (rollup review 7). */
+    recordedRunner: (sessionName) => {
+      const fromJob = (create.readJob(sessionName) || {}).runner;
+      if (fromJob) return fromJob;
+      let provider = null;
+      try { provider = require('./store').readProfile(sessionName).provider; } catch { provider = null; }
+      return provider ? create.providerRunner(provider) : null;
+    },
+  };
+}
+
+/**
+ * The plain inputs for build(), read from this board. The same agents the board shows: running cards from the status
+ * snapshot, plus the agents that are on this computer but not running (the /api/status offline list's own filter:
+ * not removed, with a folder or a job, not already seen), minus any whose removal hides the card.
+ *
+ * Decided: an offline agent is sent as 'stopped' with no model (a stopped agent has no current model; the transcript
+ * holds yesterday's, Mona Lisa's ruling on the board). When the snapshot could not read every pane line the offline
+ * list is withheld, exactly as /api/status withholds it, and the body says truncated.
+ */
+async function gather(src) {
+  const s = src || defaultSources();
+  const out = { agents: [], projects: [], usageByDay: {}, lastActive: null, partial: false };
+  let snap = { agents: [], counts: {} };
+  try { snap = s.snapshot() || snap; } catch { out.partial = true; }
+  let gone = new Set();
+  try { gone = new Set(s.removed() || []); } catch { /* none hidden */ }
+  const nameOf = new Map();   // sessionName -> the name the board shows
+  const seen = new Set();
+  let latest = null;
+  const touch = (sessionName) => {
+    let at = null;
+    try { at = s.lastActiveOf(sessionName); } catch { at = null; }
+    if (at && (!latest || Date.parse(at) > Date.parse(latest))) latest = at;
+  };
+  for (const a of (snap.agents || [])) {
+    if (!a || a.isNamedOurs === false || gone.has(a.sessionName)) continue;
+    if (!a.name) { out.partial = true; continue; }   // no shown name: never send the internal session name (review 4)
+    seen.add(a.sessionName);
+    nameOf.set(a.sessionName, a.name);
+    /* A paneless card carries no runner: read the recorded one, as the offline path does (rollup review 3). */
+    let runner = a.runner || null;
+    if (!runner) { try { runner = s.recordedRunner(a.sessionName); } catch { runner = null; } }
+    // An unknown runner sends provider null, never a guess (review 5). The model goes only in the daily body, and only
+    // for an agent that is running when it is built: a stopped agent has no current model.
+    out.agents.push({ name: a.name, provider: runner ? s.providerOf(runner) : null, model: a.model || null, state: a.state });
+    touch(a.sessionName);
+  }
+  if (snap.counts && snap.counts.unreadableLines > 0) out.partial = true;
+  else {
+    let known = { ok: false };
+    try { known = s.survey() || known; } catch { /* withheld */ }
+    if (!known.ok) out.partial = true;
+    else {
+      for (const k of known.agents || []) {
+        /* profile === true (rollup review 2): a stray row is a folder in the shared workers root that no profile in
+           THIS world accounts for, which can be another Kosmos's agent or any folder someone made. Never sent. */
+        if (!k || k.profile !== true || k.removed || !(k.folder || k.job) || seen.has(k.name) || gone.has(k.name)) continue;
+        const name = k.shownAs || k.name;
+        nameOf.set(k.name, name);
+        let runner = null;
+        try { runner = s.recordedRunner(k.name); } catch { runner = null; }
+        out.agents.push({ name, provider: runner ? s.providerOf(runner) : null, model: null, state: 'stopped' });
+        touch(k.name);
+      }
+    }
+  }
+  try {
+    for (const p of (s.projects() || [])) {
+      if (!p || typeof p.name !== 'string' || p.archived === true) continue;   // an archived project is not reported (review 3)
+      let linked = false;
+      try { linked = typeof s.linkedProject === 'function' && s.linkedProject(p.id) === true; } catch { linked = true; }
+      if (linked) continue;   // another Kosmos's project, joined here (review 7)
+      const members = (Array.isArray(p.agents) ? p.agents : []).filter((n) => nameOf.has(n)).map((n) => nameOf.get(n));
+      out.projects.push({ name: p.name, agents: members });
+    }
+  } catch { out.partial = true; }   // projects unreadable: say so rather than send "no projects"
+  if (typeof s.usageByDay === 'function') {
+    try { out.usageByDay = (await s.usageByDay()) || {}; } catch { out.partial = true; }
+  } else out.usageWithheld = true;   // no reader scoped to this world: say so, never send the whole computer's
+  out.lastActive = latest;
+  return out;
+}
+
+/* ------------------------------------------------------------------------------------------------------------------
+   The sender. Daily, and on a change to the agents or projects (at most once per CHANGE_MIN_MS). After a failure it
+   waits RETRY_AFTER_FAIL_MS before asking again, so a coordinator or a connector that cannot take the route yet is
+   not asked every tick. State is kept in this world's own data root.
+   ------------------------------------------------------------------------------------------------------------------ */
+const DAILY_MS = 24 * 60 * 60 * 1000;
+const CHANGE_MIN_MS = 10 * 60 * 1000;
+const RETRY_AFTER_FAIL_MS = 60 * 60 * 1000;
+const STATE_FILE = 'org-rollup-state.json';
+
+function readState(root) {
+  try { const j = JSON.parse(fs.readFileSync(path.join(root, STATE_FILE), 'utf8')); return j && typeof j === 'object' ? j : {}; }
+  catch { return {}; }
+}
+function writeState(root, st) {   // whole or not at all: temp, then rename, owner-only. True when it was written.
+  const file = path.join(root, STATE_FILE);
+  const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  try { fs.writeFileSync(tmp, JSON.stringify(st) + '\n', { mode: 0o600 }); fs.renameSync(tmp, file); return true; }
+  catch { try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to remove */ } return false; }
+}
+/* What counts as a change: WHICH agents there are (name and provider) and the projects, sorted, and nothing that moves
+   when an agent starts, stops, works or waits. Not the status words, and not the model, which a running agent carries
+   and a stopped one does not (rollup review 5 measured four sends in 33 minutes from one agent starting and stopping):
+   either would give the company a ten-minute record of when this person's agents run, which no consent line names.
+   Status and model ride on the daily send only. Not usage either. */
+function signature(body) {
+  /* Names only, not providers (rollup review 9): a running card's provider comes from its pane and a stopped agent's
+     from its record, and the two can differ (null when nothing is recorded), so a provider here moved on start/stop. */
+  const agents = body.agents.map((a) => a.name).sort();
+  const projects = body.projects.map((p) => [p.name, [...p.agents].sort()]).sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0));
+  return crypto.createHash('sha256').update(JSON.stringify([agents, projects])).digest('hex');
+}
+
+/**
+ * One tick: send if this world is the enrolled one AND (a day has passed OR the agents or projects changed and the
+ * last send is CHANGE_MIN_MS old), unless a failure was within RETRY_AFTER_FAIL_MS. Never throws.
+ * opts: { root, remote, sources, now } (tests); the board passes nothing.
+ */
+async function tick(opts) {
+  const o = opts || {};
+  const oe = require('./orgenroll');
+  const eo = { root: o.root, remote: o.remote };
+  if (!oe.isEnrolledHere(eo)) return { sent: false, because: 'not the enrolled Kosmos' };   // THE gate: nothing otherwise
+  const rec = oe.readEnrollment(eo);
+  if (!rec || typeof rec.world !== 'string') return { sent: false, because: 'not the enrolled Kosmos' };   // left meanwhile
+  /* Sent only under a consent that said reports happen (rollup review 3): the enrollment must carry the report lines
+     the person accepted. A record without them (every record #5531 writes today) sends NOTHING until the board keeps
+     the accepted lines with the enrollment. Safe by default: a missing consent is never read as a yes. */
+  if (!Array.isArray(rec.reports) || rec.reports.length === 0) return { sent: false, because: 'no accepted report lines on this enrollment' };
+  const root = o.root || require('./store').ROOT;
+  const now = o.now || Date.now();
+  /* The timing belongs to ONE enrollment: a new one (another company, or joined again) starts fresh (review 4). */
+  const enrolledAs = rec.world + '|' + ((rec.org && rec.org.id) || '') + '|' + (rec.enrolledAt || '');
+  let st = readState(root);
+  if (st.enrolledAs !== enrolledAs) st = { enrolledAs };
+  if (st.failAt && now - st.failAt < RETRY_AFTER_FAIL_MS) return { sent: false, because: 'waiting after a failure' };
+  const g = await gather(o.sources);
+  /* Usage leaves only under a consent that named it (review 8): a reader added to the sources later cannot turn it on
+     by itself. Until the enrollment records `usageConsented` (set by the consent follow-up when the accepted words name
+     usage), any usage read is dropped and the body says usageWithheld. */
+  if (rec.usageConsented !== true) { g.usageByDay = {}; g.usageWithheld = true; }
+  const due = !st.lastAt || now - st.lastAt >= DAILY_MS;
+  // A partial read is never a change (review 5): only the daily send may carry an incomplete body.
+  const sig = signature(build(Object.assign({ world: rec.world }, g)));
+  const changed = !g.partial && st.lastSig && sig !== st.lastSig;
+  if (!due && !(changed && now - st.lastAt >= CHANGE_MIN_MS)) return { sent: false, because: 'nothing due' };
+  const body = build(Object.assign({ world: rec.world, at: new Date(now).toISOString(), reason: due ? 'daily' : 'change' }, g));
+  /* Again, right before the send: a leave may have landed while gather() read the board (rollup review 3). The person
+     has been told this Kosmos stopped reporting; nothing may go after that. */
+  const now2 = oe.readEnrollment(eo);
+  if (!oe.isEnrolledHere(eo) || !now2 || now2.world !== rec.world) return { sent: false, because: 'left while the rollup was read' };
+  /* Record the attempt BEFORE sending (review 5): a data folder that cannot keep the timing would otherwise send a
+     full daily body on every tick. No record, no send. */
+  // tryAt is not read back: writing it proves the timing can be kept. A crash between this send and the success write
+  // means one resend on the next tick, which is the safe direction for a once-a-day report.
+  if (!writeState(root, Object.assign({}, st, { enrolledAs, tryAt: now }))) return { sent: false, because: 'this Kosmos cannot record when it reported' };
+  const remote = o.remote || require('./remote');
+  let r;
+  try { r = await remote.macRequest('POST', ROUTE, body); } catch (e) { r = { ok: false, because: String((e && e.message) || e) }; }
+  if (r && r.ok) {
+    writeState(root, { enrolledAs, lastAt: now, lastSig: g.partial ? (st.lastSig || null) : sig });
+    return { sent: true, reason: body.reason };
+  }
+  writeState(root, Object.assign({}, st, { failAt: now }));
+  /* The company no longer takes this world's reports: ask it at once (refresh stops this world on a clear answer). */
+  if (r && /\borg_not_enrolled\b|\borg_not_member\b/.test(String(r.because || ''))) {
+    try { await oe.refresh(eo); } catch { /* the daily refresh tries again */ }
+  }
+  return { sent: false, because: 'the company did not take it' };
+}
+
+module.exports = {
+  DAILY_MS, CHANGE_MIN_MS, RETRY_AFTER_FAIL_MS, STATE_FILE, signature, tick,
+  ROUTE, VERSION, NAME_MAX, AGENTS_MAX, PROJECTS_MAX, NAMES_MAX, USAGE_DAYS, USAGE_ROWS_PER_DAY, BODY_MAX,
+  STATUS, statusWord, providerOfModel, build, gather, defaultSources,
+};
