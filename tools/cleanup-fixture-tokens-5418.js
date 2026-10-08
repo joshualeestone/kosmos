@@ -10,8 +10,9 @@
  *
  * 🛑 --apply removes only the plan a person read: it rebuilds the plan, and if its digest is not the one the dry run
  * printed (an agent missing from a degraded roster, a file changed), it stops. --port must equal this account's own
- * board port, derived as the kosmos CLI derives it, so the board token can only reach this account's board. And
- * --apply needs live execution, which only the command line opens (repo convention: destructive actions fail closed).
+ * board port, derived as the kosmos CLI derives it, so the board token can only reach this account's board (with no uid
+ * to derive it from, KOSMOS_PORT must say). And --apply must be run as a command: live execution, which only the
+ * command line opens, so code that requires this file cannot remove anything by calling main.
  *
  * What it may remove, and only all of these together:
  *   - a token file whose agent is NOT on the running board's roster (GET /api/status, the board's own list),
@@ -73,7 +74,8 @@ function planCleanup(entries, liveKeys, cutoffMs, safeKey) {
     if (e.isSymlink) {
       const linkKey = e.name.endsWith('.json') ? e.name.slice(0, -'.json'.length) : null;
       if (linkKey !== null && liveKeys.has(canon(linkKey))) keep.push({ name: e.name, why: 'a link named for a live agent: left alone' });
-      else if (e.targetExists === false) remove.push({ name: e.name, kind: 'symlink', why: 'a link pointing at nothing' });
+      else if (e.targetExists === false && (e.name.endsWith('.json') || TEMP_SHAPE.test(e.name))) remove.push({ name: e.name, kind: 'symlink', why: 'a link pointing at nothing' });
+      else if (e.targetExists === false) keep.push({ name: e.name, why: 'a link pointing at nothing, but not a name the store writes: left alone' });
       else if (e.targetExists === true) keep.push({ name: e.name, why: 'a link to something that exists: not ours to judge' });
       else keep.push({ name: e.name, why: 'a link whose target could not be checked: left alone' });
       continue;
@@ -157,12 +159,14 @@ function copyInto(dir, dest, names) {
 function applyPlan(dir, plan, revoke) {
   const removed = [];
   const failed = [];
+  const gone = [];   // already gone when its turn came: not counted as removed
   for (const r of plan.remove) {
     const p = path.join(dir, r.name);
     try {
       if (r.kind === 'token') {
-        const res = revoke(r.key, r.mtimeMs);   // sendertoken.revokeIfUnchanged: re-checked under the store's lock
+        const res = revoke(r.key, r.mtimeMs, r.newestMintMs);   // sendertoken.revokeIfUnchanged: re-checked under the store's lock
         if (res && res.ok === false) throw new Error(res.because || 'revoke failed');
+        if (res && res.already) { gone.push(r.name); continue; }
       } else if (r.kind === 'symlink') {
         if (!fs.lstatSync(p).isSymbolicLink()) throw new Error('no longer a link');
         let points = false;
@@ -176,18 +180,20 @@ function applyPlan(dir, plan, revoke) {
       removed.push(r.name);
     } catch (e) { failed.push({ name: r.name, because: (e && e.message) || String(e) }); }
   }
-  return { removed, failed };
+  return { removed, failed, gone };
 }
 
 async function fetchRoster(port, boardToken) {
   /* Ask, WITHOUT the token, whether a Kosmos board answers on that port at all, so a wrong --port never hands
      this store's board token to some other local program. */
-  const health = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(BOARD_TIMEOUT_MS) });
+  // redirect: 'error' on both calls: a redirect would carry the token's header to wherever it points.
+  const health = await fetch(`http://127.0.0.1:${port}/api/health`, { redirect: 'error', signal: AbortSignal.timeout(BOARD_TIMEOUT_MS) });
   let h = null;
   try { h = await health.json(); } catch { h = null; }
   if (!health.ok || !h || h.app !== 'kosmos') throw new Error('nothing on that port answers as a Kosmos board');
   const res = await fetch(`http://127.0.0.1:${port}/api/status`, {
     headers: boardToken ? { 'x-kosmos-board-token': boardToken } : {},
+    redirect: 'error',
     signal: AbortSignal.timeout(BOARD_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error('the board answered ' + res.status);
@@ -234,23 +240,30 @@ function parseArgs(argv) {
 /* This account's board port, derived exactly as install/kosmos derives it (KOSMOS_PORT, else a pure function of the
    uid). */
 function expectedPort(env = process.env) {
-  const fromEnv = Number(env.KOSMOS_PORT);
-  if (Number.isInteger(fromEnv) && fromEnv > 0) return fromEnv;
+  if (env.KOSMOS_PORT !== undefined && env.KOSMOS_PORT !== '') {
+    const fromEnv = Number(env.KOSMOS_PORT);
+    return Number.isInteger(fromEnv) && fromEnv > 0 && fromEnv <= 65535 ? fromEnv : null;   // set but unusable: no answer
+  }
   const uid = typeof process.getuid === 'function' ? process.getuid() : null;
-  if (uid === null) return null;
+  if (uid === null) return null;   // no uid (Windows): only KOSMOS_PORT can say, and it is not set
   return uid === 501 ? 16180 : 16180 + 1 + (uid % 3999);
 }
 
 /* A short digest of exactly what a plan removes (name, kind, mtime), so --apply can require the plan a person read. */
 function planDigest(plan) {
-  const lines = plan.remove.map((r) => [r.name, r.kind, r.mtimeMs === undefined ? '' : String(r.mtimeMs)].join('|')).sort();
+  const lines = plan.remove.map((r) => JSON.stringify([r.name, r.kind, r.key || '', r.mtimeMs === undefined ? null : r.mtimeMs,
+    r.newestMintMs === undefined ? null : r.newestMintMs, (r.launchers || []).slice().sort(), (r.names || []).slice().sort()])).sort();
   return crypto.createHash('sha256').update(lines.join('\n')).digest('hex').slice(0, 16);
 }
 
 async function main(argv) {
   const args = parseArgs(argv);
   const want = expectedPort();
-  if (want !== null && args.port !== want) {
+  if (want === null) {
+    console.error('Stopped, nothing changed: this account\'s board port cannot be worked out here; set KOSMOS_PORT to it (as the kosmos command uses) and pass the same --port.');
+    return 2;
+  }
+  if (args.port !== want) {
     console.error(`Stopped, nothing changed: --port ${args.port} is not this account's board port (${want}), so the board token is not sent.`);
     return 2;
   }
@@ -329,7 +342,7 @@ async function main(argv) {
   }
   console.log('Backed up to ' + dest + ' (it holds the planned tokens, including any kept because they changed: delete it once the result is checked).');
   const res = applyPlan(dir, plan, sendertoken.revokeIfUnchanged);
-  console.log(`Removed ${res.removed.length}.`);
+  console.log(`Removed ${res.removed.length}.` + (res.gone.length ? ` ${res.gone.length} were already gone.` : ''));
   for (const f of res.failed) console.log(`  not removed  ${f.name}  (${f.because})`);
   return res.failed.length ? 1 : 0;
 }

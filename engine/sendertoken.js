@@ -259,16 +259,22 @@ function revoke(sessionName) {
 /* #5418 ask 2: drop an agent's token file ONLY if it is still the file a plan looked at (same mtime), checked UNDER
    the lock, so a mint landing between the plan and the removal is never taken. For the one-time cleanup tool
    (tools/cleanup-fixture-tokens-5418.js); every other caller wants revoke. */
-function revokeIfUnchanged(sessionName, mtimeMs) {
+function revokeIfUnchanged(sessionName, mtimeMs, newestMintMs) {
   let held;
   try {
     held = withSessionLock(sessionName, () => {
       let st;
       try { st = fs.lstatSync(fileFor(sessionName)); } catch (e) {
-        return (e && e.code === 'ENOENT') ? { ok: true } : { ok: false, because: 'we could not look at that agent\'s tokens' };
+        return (e && e.code === 'ENOENT') ? { ok: true, already: true } : { ok: false, because: 'we could not look at that agent\'s tokens' };
       }
-      // A mint rewrites the file (temp then rename), so its mtime moves. On a mount with a coarse mtime a mint in the
-      // same tick would not; the tool's age check (nothing newer than an hour-old cutoff) keeps that out of reach.
+      // Also the newest mintedAt, read under the lock: a mint that lands in the same mtime tick (a coarse-mtime
+      // mount) still adds a newer token, and that keeps the file.
+      const newest = readTokens(sessionName).reduce((m, t) => { const ms = Date.parse((t && t.mintedAt) || ''); return Number.isFinite(ms) && ms > m ? ms : m; }, -Infinity);
+      if (typeof newestMintMs === 'number' ? newest > newestMintMs : newest > -Infinity && newest >= mtimeMs) {
+        return { ok: false, because: 'a token was minted since the plan was made: kept' };
+      }
+      // A mint rewrites the file (temp then rename), so its mtime moves; the mintedAt check above covers a mount
+      // whose mtime is too coarse to.
       if (!st.isFile() || st.mtimeMs !== mtimeMs) return { ok: false, because: 'written since the plan was made: kept' };
       return revokeUnlocked(sessionName);
     });

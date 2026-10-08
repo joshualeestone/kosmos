@@ -54,11 +54,11 @@ test('#5418: the plan keeps a live agent at any age and removes only old orphans
     { name: 'recent-mint.json', isSymlink: false, mtimeMs: OLD, tokens: { launchers: [], newestMintMs: NEW } },        // minted after the cutoff: keep
     { name: 'notes.tmp', isSymlink: false, mtimeMs: OLD },              // not the writer's temp shape: keep
     { name: 'z.json.kosmos-3-1690000000000-2.tmp', isSymlink: false, mtimeMs: OLD },  // the pre-thread temp shape: remove
-    { name: 'alice.json.dangling', isSymlink: true, targetExists: false, mtimeMs: OLD },  // dangling, not .json: remove
+    { name: 'alice.json.dangling', isSymlink: true, targetExists: false, mtimeMs: OLD },  // dangling, not a store name: keep
   ];
   const plan = tool.planCleanup(entries, live, CUTOFF, safeKey);
-  assert.deepEqual(plan.remove.map((r) => r.name).sort(), ['alice.json.dangling', 'fixture-a.json', 'planted.json', 'x.json.kosmos-1-t0-1-1.tmp', 'z.json.kosmos-3-1690000000000-2.tmp']);
-  assert.deepEqual(plan.keep.map((k) => k.name).sort(), ['My.Agent.json', 'alice.json', 'dir.json', 'fixture-b.json', 'linked.json', 'notes.tmp', 'notes.txt', 'recent-mint.json', 'remote-a.json', 'y.json.kosmos-2-t0-1-1.tmp']);
+  assert.deepEqual(plan.remove.map((r) => r.name).sort(), ['fixture-a.json', 'planted.json', 'x.json.kosmos-1-t0-1-1.tmp', 'z.json.kosmos-3-1690000000000-2.tmp']);
+  assert.deepEqual(plan.keep.map((k) => k.name).sort(), ['My.Agent.json', 'alice.json', 'alice.json.dangling', 'dir.json', 'fixture-b.json', 'linked.json', 'notes.tmp', 'notes.txt', 'recent-mint.json', 'remote-a.json', 'y.json.kosmos-2-t0-1-1.tmp']);
   // a DANGLING link named for a live agent is left alone
   const live2 = tool.planCleanup([{ name: 'alice.json', isSymlink: true, targetExists: false, mtimeMs: OLD }], live, CUTOFF, safeKey);
   assert.deepEqual(live2.remove, []);
@@ -460,4 +460,65 @@ test('#5418: --apply is refused without live execution (only the command line tu
   const err = quiet(t);
   assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply', '--confirm', 'x']), 2);
   assert.match(String(err.mock.calls[0].arguments[0]), /live execution/);
+});
+
+test('#5418: the derived port is KOSMOS_PORT when set and usable, nothing when it is set and unusable', () => {
+  assert.equal(tool.expectedPort({ KOSMOS_PORT: '5555' }), 5555);
+  assert.equal(tool.expectedPort({ KOSMOS_PORT: 'abc' }), null);
+  assert.equal(tool.expectedPort({ KOSMOS_PORT: '70000' }), null);
+  if (typeof process.getuid === 'function') {
+    const uid = process.getuid();
+    assert.equal(tool.expectedPort({}), uid === 501 ? 16180 : 16180 + 1 + (uid % 3999), 'not the derivation install/kosmos uses');
+  }
+});
+
+test('#5418: an unusable KOSMOS_PORT stops the tool before anything is sent', async (t) => {
+  const seen = [];
+  const port = await stubBoard(t, 200, { agents: [] }, { seen });
+  process.env.KOSMOS_PORT = 'not-a-port';
+  const err = quiet(t);
+  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString()]), 2);
+  assert.deepEqual(seen, []);
+  assert.match(String(err.mock.calls[0].arguments[0]), /cannot be worked out/);
+});
+
+test('#5418: the digest changes with anything that drove a decision, not just names and times', () => {
+  const base = { remove: [{ name: 'f.json', kind: 'token', key: 'f', mtimeMs: OLD, newestMintMs: OLD, launchers: [], names: ['f'] }] };
+  const d = tool.planDigest(base);
+  assert.notEqual(tool.planDigest({ remove: [{ ...base.remove[0], launchers: ['remote'] }] }), d);
+  assert.notEqual(tool.planDigest({ remove: [{ ...base.remove[0], names: ['someone-else'] }] }), d);
+  assert.notEqual(tool.planDigest({ remove: [{ ...base.remove[0], newestMintMs: OLD + 1 }] }), d);
+  assert.equal(tool.planDigest({ remove: [{ ...base.remove[0] }] }), d, 'CONTROL: the same plan gives the same digest');
+});
+
+test('#5418: a token minted in the same mtime tick is kept (mintedAt is checked under the lock), and a file already gone is not counted as removed', async (t) => {
+  const { dir, write } = e2eStore(t);
+  const sendertoken = require('./engine/sendertoken');
+  const p = path.join(dir, 'tick.json');
+  fs.writeFileSync(p, JSON.stringify({ tokens: [{ token: 'a', instance: 'i', mintedAt: new Date(OLD).toISOString() }] }));
+  fs.utimesSync(p, OLD / 1000, OLD / 1000);
+  const planned = { mtimeMs: fs.lstatSync(p).mtimeMs, newestMintMs: OLD };
+  // a coarse-mtime mount: a new token lands, and the mtime reads the same as before
+  fs.writeFileSync(p, JSON.stringify({ tokens: [{ token: 'a', instance: 'i', mintedAt: new Date(OLD).toISOString() }, { token: 'b', instance: 'j', mintedAt: new Date().toISOString() }] }));
+  fs.utimesSync(p, OLD / 1000, OLD / 1000);
+  const res = tool.applyPlan(dir, { remove: [
+    { name: 'tick.json', kind: 'token', key: 'tick', mtimeMs: planned.mtimeMs, newestMintMs: planned.newestMintMs },
+    { name: 'never-there.json', kind: 'token', key: 'never-there', mtimeMs: OLD, newestMintMs: null },
+  ] }, sendertoken.revokeIfUnchanged);
+  assert.equal(fs.existsSync(p), true, 'a token minted in the same tick was taken');
+  assert.deepEqual(res.failed.map((f) => f.name), ['tick.json']);
+  assert.deepEqual(res.removed, [], 'a file that was already gone was counted as removed');
+  assert.deepEqual(res.gone, ['never-there.json']);
+});
+
+test('#5418: a redirect from the health check never carries the board token anywhere', async (t) => {
+  const elsewhere = [];
+  const sink = http.createServer((req, res) => { elsewhere.push(req.headers['x-kosmos-board-token'] || null); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"app":"kosmos","agents":[]}'); });
+  await new Promise((ok) => sink.listen(0, '127.0.0.1', ok));
+  t.after(() => sink.close());
+  const hop = http.createServer((req, res) => { res.writeHead(302, { location: `http://127.0.0.1:${sink.address().port}${req.url}` }); res.end(); });
+  await new Promise((ok) => hop.listen(0, '127.0.0.1', ok));
+  t.after(() => hop.close());
+  await assert.rejects(tool.fetchRoster(hop.address().port, 'secret-board-token'));
+  assert.deepEqual(elsewhere.filter(Boolean), [], 'the token followed a redirect');
 });
