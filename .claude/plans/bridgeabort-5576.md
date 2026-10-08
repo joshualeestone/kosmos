@@ -33,3 +33,11 @@ socket, stream and fetch operations before the abort line. The cause itself is t
 - Fixed: NODE_DEBUG opened a stream on fd 2 (could change what it measures) and could not split exit from fetch;
   replaced by the fd-2 marker preload above. Fixed: nothing checked the setting reaches the child (fake-spawn test).
 - NITs left: the head of a long stderr is mostly start markers; exact 1,600/1,601 boundary untested.
+### Review 2 (sonnet): 2 WARNINGs
+- Fixed: the --require path was unquoted (a checkout path with a space would split it); now quoted, test pins it.
+- Fixed: a marker could be written into fd 2 after its number was reused by a socket (the case hunted). The preload
+  records fd 2's identity (dev:ino) at start and writes only while it is unchanged (not the type: a spawned child's
+  stdio are sockets already, measured).
+- NITs fixed: the fetch markers are asserted; trailing blank line. NIT left: os stays a local require, the file's
+  convention.
+- 10/10 (08:26 CDT 2026-10-08).
