@@ -63,31 +63,36 @@ test('#5535 chunk objects: seal and open, the name binds, the size is bucketed',
   const k = hpkeKeyPair(), nk = crypto.randomBytes(32);
   const pt = rand(5000, 'd'), name = bf.chunkName(nk, pt);
   const obj = bf.sealChunk(k.pk, name, pt);
-  assert.deepEqual(bf.openChunk(k.sk, name, obj), pt, 'round trip');
-  assert.ok(bf.chunkMatchesName(nk, name, pt), 'the name matches its content');
+  assert.deepEqual(bf.openVerifiedChunk(k.sk, nk, name, obj), pt, 'round trip');
   const other = bf.chunkName(nk, Buffer.from('other'));
-  assert.equal(bf.openChunk(k.sk, other, obj), null, 'a chunk stored under the wrong name does not open');
-  assert.equal(bf.chunkMatchesName(nk, other, pt), false, 'a wrong name is caught on content too');
-  assert.equal(bf.chunkMatchesName(crypto.randomBytes(32), name, pt), false, 'another period\'s naming key gives another name');
+  assert.equal(bf.openVerifiedChunk(k.sk, nk, other, obj), null, 'a chunk stored under the wrong name does not open');
+  assert.equal(bf.openVerifiedChunk(k.sk, crypto.randomBytes(32), name, obj), null, 'another period\'s naming key does not vouch for it');
+  // A FORGED chunk: anyone with the public key can seal any content under a real name. The name check refuses it.
+  const forged = bf.sealChunk(k.pk, name, Buffer.from('evil'));
+  assert.equal(bf.openVerifiedChunk(k.sk, nk, name, forged), null, 'a forged chunk under a real name is refused');
+  assert.equal(bf.openVerifiedChunk(k.sk, nk, name.toUpperCase(), obj), null, 'a non-canonical (uppercase) name is refused');
+  assert.equal(bf.openVerifiedChunk(k.sk, nk, name + 'zz', obj), null, 'a name with trailing junk is refused');
   // Two plaintexts of different exact sizes in one padme bucket seal to objects of the same size.
   const a = bf.sealChunk(k.pk, name, rand(5000, 'e')), b = bf.sealChunk(k.pk, name, rand(5100, 'f'));  // padme(5004) = padme(5104) = 5120
   assert.equal(a.length, b.length, 'neighbouring sizes share a bucket');
   assert.notEqual(bf.sealChunk(k.pk, name, rand(9000, 'g')).length, a.length, 'CONTROL: a much larger chunk is a larger object');
+  const tiny = [1, 20, 300, 4000].map((n) => bf.sealChunk(k.pk, name, rand(n, 't' + n)).length);
+  assert.equal(new Set(tiny).size, 1, `small chunks must all be one size (the 4 KiB floor), got ${tiny}`);
 });
 
-test('#5535 openChunk returns null, never throws, on every wrong input (shared control: the real object opens)', () => {
+test('#5535 openVerifiedChunk returns null, never throws, on every wrong input (shared control: the real object opens)', () => {
   const k = hpkeKeyPair(), other = hpkeKeyPair(), nk = crypto.randomBytes(32);
   const pt = Buffer.from('agent file'), name = bf.chunkName(nk, pt), obj = bf.sealChunk(k.pk, name, pt);
-  assert.deepEqual(bf.openChunk(k.sk, name, obj), pt, 'CONTROL');
+  assert.deepEqual(bf.openVerifiedChunk(k.sk, nk, name, obj), pt, 'CONTROL');
   const flip = (b, i) => { const c = Buffer.from(b); c[i] ^= 1; return c; };
   const cases = {
-    'another member\'s key': () => bf.openChunk(other.sk, name, obj),
-    'magic changed': () => bf.openChunk(k.sk, name, flip(obj, 0)),
-    'enc bit flipped': () => bf.openChunk(k.sk, name, flip(obj, 10)),
-    'ciphertext bit flipped': () => bf.openChunk(k.sk, name, flip(obj, 40)),
-    'truncated': () => bf.openChunk(k.sk, name, obj.subarray(0, obj.length - 1)),
-    'not a Buffer': () => bf.openChunk(k.sk, name, 'nope'),
-    'name not a string': () => bf.openChunk(k.sk, 42, obj),
+    'another member\'s key': () => bf.openVerifiedChunk(other.sk, nk, name, obj),
+    'magic changed': () => bf.openVerifiedChunk(k.sk, nk, name, flip(obj, 0)),
+    'enc bit flipped': () => bf.openVerifiedChunk(k.sk, nk, name, flip(obj, 10)),
+    'ciphertext bit flipped': () => bf.openVerifiedChunk(k.sk, nk, name, flip(obj, 40)),
+    'truncated': () => bf.openVerifiedChunk(k.sk, nk, name, obj.subarray(0, obj.length - 1)),
+    'not a Buffer': () => bf.openVerifiedChunk(k.sk, nk, name, 'nope'),
+    'name not a string': () => bf.openVerifiedChunk(k.sk, nk, 42, obj),
   };
   for (const [n, fn] of Object.entries(cases)) { let r; assert.doesNotThrow(() => { r = fn(); }, n); assert.equal(r, null, n); }
 });
@@ -119,4 +124,46 @@ test('#5535 canonicalJson: key order never changes the bytes; arrays keep order;
   assert.equal(bf.canonicalJson({ a: { c: null, d: [3, 1] }, b: 1 }), bf.canonicalJson({ b: 1, a: { d: [3, 1], c: null } }));
   assert.notEqual(bf.canonicalJson([1, 2]), bf.canonicalJson([2, 1]), 'CONTROL: array order matters');
   assert.throws(() => bf.canonicalJson({ x: NaN }), /NaN/);
+});
+
+test('#5535 frames: crafted bad frames never open (non-zero padding, oversized length, wrong frame size)', () => {
+  const { hpkeSeal } = require('./hpke');
+  const k = hpkeKeyPair(), nk = crypto.randomBytes(32), pt = Buffer.from('real');
+  const name = bf.chunkName(nk, pt);
+  const raw = (f) => { const { enc, ct } = hpkeSeal(k.pk, Buffer.from('kosmos-backup v1 chunk'), Buffer.from(name), f); return Buffer.concat([Buffer.from('KBC1'), enc, ct]); };
+  const good = Buffer.alloc(4096); good.writeUInt32BE(4, 0); pt.copy(good, 4);
+  assert.deepEqual(bf.openVerifiedChunk(k.sk, nk, name, raw(good)), pt, 'CONTROL: a well-formed frame opens');
+  const dirty = Buffer.from(good); dirty[100] = 1;
+  assert.equal(bf.openVerifiedChunk(k.sk, nk, name, raw(dirty)), null, 'non-zero padding');
+  const big = Buffer.from(good); big.writeUInt32BE(5000, 0);
+  assert.equal(bf.openVerifiedChunk(k.sk, nk, name, raw(big)), null, 'a length past the frame');
+  const odd = Buffer.alloc(4100); odd.writeUInt32BE(4, 0); pt.copy(odd, 4);
+  assert.equal(bf.openVerifiedChunk(k.sk, nk, name, raw(odd)), null, 'a frame not exactly its padded size');
+});
+
+test('#5535 chunking boundaries: exactly min, min + 1, and a tail shorter than max', () => {
+  assert.equal(bf.chunkBuffer(rand(512, 'm'), SMALL).length, 1, 'exactly min is one chunk');
+  const c = bf.chunkBuffer(rand(513, 'n'), SMALL);
+  assert.deepEqual(Buffer.concat(c), rand(513, 'n'));
+  const t = bf.chunkBuffer(rand(8192 + 700, 'o'), SMALL);
+  assert.deepEqual(Buffer.concat(t), rand(8192 + 700, 'o'), 'a short tail reassembles');
+});
+
+test('#5535 manifests: anything that would not read back is refused before sealing (it would never restore)', () => {
+  const k = hpkeKeyPair(), dev = crypto.generateKeyPairSync('ed25519');
+  const ctx = { org: 'o', member: 'm', epoch: 'e', period: 'p', snapshot: 's' };
+  for (const [what, m] of [['undefined', { size: undefined }], ['an array hole', [undefined]], ['a Date', { at: new Date(0) }],
+    ['a Map', { m: new Map() }], ['a function', { f() {} }], ['a bigint', { n: 10n }], ['-0', { z: -0 }], ['an unsafe integer', { n: 2 ** 60 }], ['NaN', { x: NaN }]]) {
+    assert.throws(() => bf.sealManifest(k.pk, dev.privateKey, ctx, m), /manifest/, what);
+  }
+  const obj = bf.sealManifest(k.pk, dev.privateKey, ctx, { ok: [1, 'two', { three: true }], n: null });
+  assert.deepEqual(bf.openManifest(k.sk, dev.publicKey, ctx, obj), { n: null, ok: [1, 'two', { three: true }] }, 'CONTROL: a plain manifest round-trips');
+  assert.equal(bf.verifyManifestSignature(dev.publicKey, { org: 'o' }, obj), false, 'a context missing fields verifies nothing');
+});
+
+test('#5535 manifests are padded: very different file counts in one bucket seal to one size', () => {
+  const k = hpkeKeyPair(), dev = crypto.generateKeyPairSync('ed25519');
+  const ctx = { org: 'o', member: 'm', epoch: 'e', period: 'p', snapshot: 's' };
+  const m = (n) => ({ files: Array.from({ length: n }, (_, i) => ({ path: 'a/' + i, size: i })) });
+  assert.equal(bf.sealManifest(k.pk, dev.privateKey, ctx, m(1)).length, bf.sealManifest(k.pk, dev.privateKey, ctx, m(40)).length, 'small manifests all sit at the 4 KiB floor');
 });
