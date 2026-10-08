@@ -60,7 +60,6 @@ the pick rule for Rule 2 (slice B) and the weakest premises are on the card (iss
   - a person's follow-up in their own thread addressed to the agent (reply_to names it) is owed;
   - the read's mark says such a comment IS owed even when marked under comment, overriding the general rule;
   - the person's name is never typed into a Kosmos line (theirs to choose: a prompt-injection surface);
-  - entries are aged by the comment's own time;
   - a failed rollback is logged, and "not reached" is said once.
 - Stated (WARNINGs):
   - with the hourly cap met the pass still counts, for persons only. That costs service reads, paced at 1.5 s. The
@@ -161,3 +160,11 @@ the pick rule for Rule 2 (slice B) and the weakest premises are on the card (iss
 - Untested, stated: PERSONS_CAPFULL_READS, the narrow rollback, answered delivered through freshReplies, the read's owed
   section.
 - Tests: 815/815 across every test that mentions these modules.
+
+## Review 8 (sonnet)
+- Fixed (WARNINGs): past a full cap the few persons-only reads take their own round across passes (rot.personsDone),
+  so agents past the first three are reached while the cap stays full; the owed-section doc says its window is the
+  count's own 7 days (the review-4 note is withdrawn); the dead `ts` in the record and its comment are removed (aging is
+  lastSeen + 14 days only); an unnamed person (empty name) is never matched by a reply-to.
+- Fixed (NITs): inverted assertion messages in the test.
+- Left (WARNING, stated again): the repliesFor owed section has no test (it needs a fetched thread).

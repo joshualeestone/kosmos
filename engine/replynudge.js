@@ -157,7 +157,6 @@ function personsUpdate(owed0, persons, now, answered) {
     if (!q || typeof q.id !== 'string') continue;
     seen.add(q.id);
     const e = owed0 && owed0[q.id] ? { ...owed0[q.id] } : { remoteId: q.remoteId, title: q.title || '', author: q.author || '', parent: q.parent || '', firstSeen: now, told: [] };
-    if (Number.isFinite(q.ts)) e.ts = q.ts;   // review 1: aged by the comment's own time, not by when the board first saw it
     e.lastSeen = now;
     const told = Array.isArray(e.told) ? e.told.filter(Number.isFinite) : [];
     e.told = told;
@@ -277,6 +276,7 @@ async function sweepOnce(o) {
        this pass's lock. */
     const counted = [];
     let capReads = 0;   // review 6
+    let capSkipped = false;   // review 8
     let readOne = false;   // review 2: the gap follows EVERY read that asked the service since the last gap, counted or not
     /* Review 8 (Opus): the pass starts AFTER the last agent asked last pass (o.rotation, kept by the caller), so a pass
        that ends early (a refusing service, the hour cap) does not starve the same later agents every time, and an agent
@@ -321,7 +321,13 @@ async function sweepOnce(o) {
       if (capFull && typeof o.readPersons !== 'function') break;
       /* Review 6: past the cap the count goes on for persons only, and for at most PERSONS_CAPFULL_READS agents a pass, so
          a full cap no longer reads the whole roster from the service every pass. */
-      if (capFull) { capReads += 1; if (capReads > PERSONS_CAPFULL_READS) break; }
+      /* Review 8: those few reads take their own turn across passes (rot.personsDone), so the same first agents are not
+         the only ones read while the cap stays full; once every agent has had its turn the round starts again. */
+      if (capFull) {
+        if (rot) { if (!(rot.personsDone instanceof Set)) rot.personsDone = new Set(); if (rot.personsDone.has(session)) { capSkipped = true; continue; } }
+        capReads += 1; if (capReads > PERSONS_CAPFULL_READS) break;
+        if (rot) rot.personsDone.add(session);
+      }
       try {
         // Review 2: only replies it has NOT been told about count (and take a cap slot); told-but-unread ones wait for its read.
         /* Review 4 (Opus): the told record is read BEFORE the service is asked, so an agent whose record cannot be read
@@ -390,6 +396,7 @@ async function sweepOnce(o) {
         results.push({ session, name: plainWords(card.name || session, 80), act: 'error', because: String((err && err.message) || err) });
       }
     }
+    if (rot && rot.personsDone instanceof Set && capSkipped && capReads === 0) rot.personsDone.clear();   // review 8: a full round done
     /* Review 2 (Opus): the lines are SPACED (typeGapMs, default TYPE_GAP_MS), so each agent told has the read lock to
        itself when it reads (two agents' own reads refuse each other, #4833). Review 1: so the card is read AGAIN before
        each line: an agent that started working (or was stood down) meanwhile is left for the next pass (#4624). */

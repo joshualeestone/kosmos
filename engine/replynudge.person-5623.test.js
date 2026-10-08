@@ -38,9 +38,9 @@ test('#5623 personOwed: a person\'s comment on the post is owed until the agent 
   const top = cm(PC, 'Dana', 10, { person: true });
   assert.deepEqual(cr.personOwed([top], 'kim').map((o) => o.x.id), [PC]);
   top.replies = [cm('r1', 'Kim', 20)];
-  assert.deepEqual(cr.personOwed([top], 'kim'), [], 'answered by the agent\'s own reply, still owed');
+  assert.deepEqual(cr.personOwed([top], 'kim'), [], 'the agent\'s own reply should answer it');
   top.replies = [cm('r1', 'Bo', 20)];
-  assert.deepEqual(cr.personOwed([top], 'kim').length, 1, 'another agent\'s reply answered for this one');
+  assert.deepEqual(cr.personOwed([top], 'kim').length, 1, 'another agent\'s reply should not answer it');
   assert.deepEqual(cr.personOwed([cm('a1', 'Bo', 10)], 'kim'), [], 'an AGENT\'s comment was taken for a person\'s');
 });
 
@@ -89,7 +89,7 @@ test('#5623 review 1: a person\'s follow-up in their own thread, addressed to th
 test('#5623 personsUpdate: told first, again after PERSON_RETELL_MS, then unanswered after PERSON_TELLS; answered goes', () => {
   const t0 = 1_000_000_000_000;
   let u = rn.personsUpdate({}, [person()], t0);
-  assert.deepEqual(u.due.map((d) => d.id), [PC], 'a new person comment is not due');
+  assert.deepEqual(u.due.map((d) => d.id), [PC], 'a new person comment should be due');
   const told = (rec, at) => { rec[PC] = { ...rec[PC], told: [...(rec[PC].told || []), at] }; return rec; };
   let rec = told(u.owed, t0);
   u = rn.personsUpdate(rec, [person()], t0 + 10 * 60 * 1000);
