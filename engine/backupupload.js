@@ -48,11 +48,13 @@ const GRANT_ROUTE = '/v1/org/backup/grant';
 const MAX_PER_GRANT = 500;              // the coordinator's limit per grant request
 const MIN_OBJECT = 4148;                // a sealed chunk's framing floor (backupformat's 4 KiB Padme floor plus framing)
 const MAX_OBJECT = 5 * 1024 * 1024;     // the coordinator's per-object ceiling
-const MAX_REGRANTS = 3;                 // new grants for uploads a grant could not finish, per batch
+const MAX_REGRANTS = 3;                 // grants in a row that store nothing before the run gives up
+const INITIAL_BATCH = 8;                // the first grant's size; it doubles while grants finish in their window
 const BACKOFF_MAX_MS = 30 * 1000;      // a retry of the same url waits at most this long (it retries until expiry)
 const DEFAULT_CONCURRENCY = 4;
 const MAX_CONCURRENCY = 32;
-const PUT_TIMEOUT_MS = 120 * 1000;
+// A PUT may take 60 s plus the time to send its bytes at 16 KB/s (5 MiB: about 6 minutes), never past its grant.
+const putTimeoutFor = (size) => 60 * 1000 + Math.ceil(size / 16);
 const SIGNED_NEEDED = ['content-length', 'content-md5', 'host', 'if-none-match', 'x-amz-object-lock-mode', 'x-amz-object-lock-retain-until-date'];
 // The only headers a grant may ask the Mac to send (the coordinator lists four; Content-Length is tolerated if listed).
 const HEADER_ALLOWED = new Set(['content-md5', 'if-none-match', 'x-amz-object-lock-mode', 'x-amz-object-lock-retain-until-date', 'content-length']);
@@ -61,9 +63,10 @@ const GRANT_WINDOW_MS = 15 * 60 * 1000;                 // the coordinator's gra
 // the coordinator locks to the end of the week plus 30 days (plus the window), or the next week's end in a week's
 // last day, so 30 to about 38 days. Outside [29, 39] days is a coordinator bug that would lock data for the wrong time.
 const LOCK_MIN_MS = 29 * 86400 * 1000, LOCK_MAX_MS = 39 * 86400 * 1000;
-// Network-level failures worth another try (the bucket was not reached, or did not answer).
-const NETWORK_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN', 'ETIMEDOUT', 'EPIPE', 'EHOSTUNREACH', 'ENETUNREACH',
-  'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT', 'UND_ERR_CLOSED']);
+// fetch refusing the request itself, before or without the network: no retry fixes these. Any other failure (a
+// network code, known or not: ENETDOWN, EADDRNOTAVAIL under the macOS TIME_WAIT leak, a TLS error) is worth another try.
+const LOCAL_CODES = new Set(['UND_ERR_REQ_CONTENT_LENGTH_MISMATCH', 'UND_ERR_INVALID_ARG', 'UND_ERR_NOT_SUPPORTED',
+  'ERR_INVALID_URL', 'ERR_INVALID_ARG_TYPE', 'ERR_INVALID_ARG_VALUE', 'ERR_INVALID_HTTP_TOKEN', 'ERR_INVALID_CHAR']);
 
 const md5b64 = (buf) => crypto.createHash('md5').update(buf).digest('base64');
 
@@ -88,7 +91,8 @@ function headerOf(headers, name) {
 /* expires_at as epoch milliseconds: an ISO-8601 string (the coordinator's form) or a number of seconds or
    milliseconds; NaN when it is neither. */
 function expiryMs(v) {
-  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) return Date.parse(v);
+  // An explicit zone is required: without one Date.parse reads the time as LOCAL, hours off on a Mac.
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T[\d:.]+(Z|[+-]\d{2}:\d{2})$/.test(v)) return Date.parse(v);
   if (typeof v === 'number' && Number.isFinite(v) && v > 0) return v < 1e12 ? v * 1000 : v;
   return NaN;
 }
@@ -158,7 +162,7 @@ function parseGrant(data, objects, allowHttp) {
 async function putOne(fetchFn, up, bytes, attempt, timeoutMs) {
   // (Never thrown: every failure is classified below.)
   const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), timeoutMs || PUT_TIMEOUT_MS);
+  const t = setTimeout(() => ac.abort(), Math.max(1, timeoutMs || putTimeoutFor(bytes.length)));
   try {
     // redirect 'manual': a 3xx is returned, not followed, so the body never goes to an address the grant did not name.
     const r = await fetchFn(up.url, { method: 'PUT', headers: up.headers, body: bytes, redirect: 'manual', signal: ac.signal });
@@ -168,15 +172,17 @@ async function putOne(fetchFn, up, bytes, attempt, timeoutMs) {
     const s = r.status;
     if (s === 200) return { kind: 'stored', status: s, code };
     if (s === 412) return { kind: attempt > 0 ? 'present' : 'refused', status: s, code };
-    if (s === 403 && /expired/i.test(text)) return { kind: 'expired', status: s, code };
+    // Only S3's presigned-url expiry ("Request has expired", AccessDenied), not a credential's (ExpiredToken).
+    if (s === 403 && code === 'AccessDenied' && /Request has expired/.test(text)) return { kind: 'expired', status: s, code };
     if (s === 429 || s === 409 || s >= 500) return { kind: 'retry', status: s, code };
     return { kind: 'refused', status: s, code };
   } catch (err) {
-    // A timeout (our abort) or a network-level failure is worth another try; anything else is fetch refusing the
-    // request locally, which no retry fixes.
+    // fetch refusing the request itself (a listed local code, or a TypeError with no cause: its own argument check)
+    // is not retried; a timeout (our abort) or any network failure is.
     const c = err && ((err.cause && err.cause.code) || err.code);
-    if ((err && err.name === 'AbortError') || ac.signal.aborted || NETWORK_CODES.has(c)) return { kind: 'retry', status: null, code: c || 'timeout' };
-    return { kind: 'refused', status: null, code: c || (err && err.name) || 'local' };
+    const local = LOCAL_CODES.has(c) || (err && err.name === 'TypeError' && !err.cause && !ac.signal.aborted);
+    if (local) return { kind: 'refused', status: null, code: c || 'local' };
+    return { kind: 'retry', status: null, code: c || (ac.signal.aborted ? 'timeout' : 'network') };
   } finally {
     clearTimeout(t);
   }
@@ -215,35 +221,53 @@ async function uploadInner(deps, objects, opts, keys) {
     byName.set(c.name, c); todo.push(c);
   }
 
-  for (let at = 0; at < todo.length; at += MAX_PER_GRANT) {
-    let pending = todo.slice(at, at + MAX_PER_GRANT);
-    for (let grants = 0; pending.length; grants++) {
-      if (grants > MAX_REGRANTS) return { ok: false, because: `${pending.length} chunks were still not stored after ${MAX_REGRANTS + 1} grants`, keys };
-      const g = await askGrant(deps.macRequest, pending, deps.allowHttp);
-      if (!g.ok) return Object.assign({ ok: false, keys }, g.out);
-      // A grant already over when it arrives is not a slow network but a clock ahead of the coordinator's: a new
-      // grant would be "expired" too, and each spends allowance. Stop and say so.
-      if (now() >= g.expiresAtMs) return { ok: false, because: `this computer's clock reads past the grant's expiry (${new Date(g.expiresAtMs).toISOString()}) as it arrives: check the clock`, keys };
-      const left = [], stuck = [];
-      let stop = null;
-      await eachLimited(g.uploads.map((up, i) => [up, pending[i]]), conc, async ([up, c]) => {
-        let troubled = false;
-        for (let attempt = 0; ; attempt++) {
-          if (stop) return;
-          // Out of time on this grant. A chunk that met only bucket or network trouble does NOT get a new grant (that
-          // spends allowance and could write a second locked copy if an answer was lost): the run ends retryLater.
-          if (now() >= g.expiresAtMs) { (troubled ? stuck : left).push(c); return; }
-          const r = await putOne(fetchFn, up, c.object, attempt, o.putTimeoutMs);
-          if (r.kind === 'stored' || r.kind === 'present') { keys.set(c.name, up.key); return; }
-          if (r.kind === 'expired') { left.push(c); return; }
-          if (r.kind === 'refused') { stop = stop || `the bucket refused a chunk (${r.status ? 'HTTP ' + r.status : 'locally'}${r.code ? ' ' + r.code : ''}); a new grant would not change that`; return; }
-          troubled = true;
-          await sleep(Math.min(BACKOFF_MAX_MS, 500 * 2 ** attempt));
-        }
-      });
-      if (stop) return { ok: false, because: stop, keys };
-      if (stuck.length) return { ok: false, retryLater: true, because: `${stuck.length} chunks met only bucket or network trouble until their grant expired; try again later`, keys };
-      pending = left;
+  // Grants are sized to what one window can carry: they start at INITIAL_BATCH and double while every chunk of a
+  // grant is stored in time; a grant that runs out of time shrinks the next to about what it did carry. So a slow
+  // uplink is charged for roughly what it sends, not for 500 chunks per window it cannot reach.
+  let queue = todo.slice();
+  let batch = Math.min(INITIAL_BATCH, MAX_PER_GRANT);
+  let fruitless = 0;
+  while (queue.length) {
+    const pending = queue.splice(0, batch);
+    const g = await askGrant(deps.macRequest, pending, deps.allowHttp);
+    if (!g.ok) return Object.assign({ ok: false, keys }, g.out);
+    // A grant already over when it arrives is not a slow network but a clock ahead of the coordinator's: a new grant
+    // would be "expired" too, and each spends allowance. Stop and say so.
+    if (now() >= g.expiresAtMs) return { ok: false, because: `this computer's clock reads past the grant's expiry (${new Date(g.expiresAtMs).toISOString()}) as it arrives: check the clock`, keys };
+    // And never far ahead: the lock is checked from the grant's own start, so a coordinator clock far ahead would pass
+    // that check with a lock far in the future. More than the window plus 5 minutes ahead is refused before a byte.
+    if (g.expiresAtMs - now() > GRANT_WINDOW_MS + 5 * 60 * 1000) return { ok: false, because: `the grant expires ${new Date(g.expiresAtMs).toISOString()}, further ahead of this computer's clock than a grant lasts: one of the two clocks is wrong`, keys };
+    const left = [], stuck = [];
+    let stop = null, stored = 0;
+    await eachLimited(g.uploads.map((up, i) => [up, pending[i]]), conc, async ([up, c]) => {
+      let troubled = false;
+      for (let attempt = 0; ; attempt++) {
+        if (stop) return;
+        // Out of time on this grant. A chunk that met bucket or network trouble does NOT get a new grant (that spends
+        // allowance and could write a second locked copy if an answer was lost): the run ends retryLater.
+        const remaining = g.expiresAtMs - now();
+        if (remaining <= 0) { (troubled ? stuck : left).push(c); return; }
+        const r = await putOne(fetchFn, up, c.object, attempt, Math.min(o.putTimeoutMs || putTimeoutFor(c.object.length), remaining));
+        if (r.kind === 'stored' || r.kind === 'present') { keys.set(c.name, up.key); stored++; return; }
+        // S3 says the grant expired. After trouble that is the same case as above: an earlier attempt may have landed.
+        if (r.kind === 'expired') { (troubled ? stuck : left).push(c); return; }
+        if (r.kind === 'refused') { stop = stop || `the bucket refused a chunk (${r.status ? 'HTTP ' + r.status : 'locally'}${r.code ? ' ' + r.code : ''}); a new grant would not change that`; return; }
+        troubled = true;
+        // Jittered, so workers that met the same SlowDown do not retry in lockstep.
+        await sleep(Math.min(BACKOFF_MAX_MS, 500 * 2 ** attempt) * (0.5 + Math.random() / 2));
+      }
+    });
+    if (stop) return { ok: false, because: stop, keys };
+    if (stuck.length) return { ok: false, retryLater: true, because: `${stuck.length} chunks met bucket or network trouble until their grant expired; try again later`, keys };
+    if (left.length) {
+      // Ran out of time with chunks never stored: the next grant is about what this one carried.
+      fruitless = stored ? 0 : fruitless + 1;
+      if (fruitless > MAX_REGRANTS) return { ok: false, retryLater: true, because: `${MAX_REGRANTS + 1} grants in a row stored nothing before they expired; try again later`, keys };
+      batch = Math.max(1, Math.floor(stored * 0.8));
+      queue = left.concat(queue);
+    } else {
+      fruitless = 0;
+      batch = Math.min(MAX_PER_GRANT, batch * 2);
     }
   }
   // Every chunk asked for has a key, or this is not a success.
@@ -276,4 +300,4 @@ async function eachLimited(items, n, fn) {
   await Promise.all(Array.from({ length: Math.max(1, Math.min(n, items.length)) }, worker));
 }
 
-module.exports = { GRANT_ROUTE, MAX_PER_GRANT, MIN_OBJECT, MAX_OBJECT, MAX_REGRANTS, BACKOFF_MAX_MS, grantBody, refusalOf, expiryMs, parseGrant, putOne, uploadChunks };
+module.exports = { GRANT_ROUTE, MAX_PER_GRANT, MIN_OBJECT, MAX_OBJECT, MAX_REGRANTS, INITIAL_BATCH, BACKOFF_MAX_MS, grantBody, refusalOf, expiryMs, parseGrant, putOne, uploadChunks };
