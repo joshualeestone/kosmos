@@ -15,6 +15,11 @@ const path = require('node:path');
 const http = require('node:http');
 const tool = require('./tools/cleanup-fixture-tokens-5418');
 const { safeKey } = require('./engine/store');
+/* test-support/fleet writes a worker instruction file for a display name, and refuses unless the workers folder is a
+   sandbox. Set before it is required. */
+process.env.AGENT_WORKFORCE_WORKERS = fs.mkdtempSync(path.join(os.tmpdir(), 'tokclean-workers-'));
+test.after(() => fs.rmSync(process.env.AGENT_WORKFORCE_WORKERS, { recursive: true, force: true }));
+const fleet = require('./test-support/fleet');
 
 const DAY = 24 * 3600 * 1000;
 const CUTOFF = Date.parse('2026-10-08T00:00:00Z');
@@ -157,7 +162,13 @@ test('#5418 end to end: a dry run changes nothing; --apply backs up, then remove
   write('sam.json', OLD);            // a -discord twin: session "sam-discord", tokens under "sam"
   write('My.Agent.json', OLD);       // not a name the store writes: left alone
   write('fixture-e2e.json', OLD);    // the orphan
-  const port = await stubBoard(t, 200, { agents: [{ name: 'Splinter', sessionName: 'claudebot' }, { name: 'Sam', sessionName: 'sam-discord' }] });
+  // Real cards from the real producer (test-support/fleet): `claudebot` displays as "Splinter", and both panes run
+  // in `<name>-discord` sessions, as on the fleet. A card's display name is NOT its token key.
+  const f = fleet.install([fleet.agent('claudebot', { displayName: 'Splinter' }), fleet.agent('sam')]);
+  t.after(() => f.restore());
+  const cards = JSON.parse(JSON.stringify(f.agents));
+  assert.ok(cards.some((c) => c.name === 'Splinter'), 'the fixture did not give claudebot its display name');
+  const port = await stubBoard(t, 200, { agents: cards });
   const before = fs.readdirSync(dir).sort();
   quiet(t);
   const argv = ['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString()];
@@ -174,16 +185,22 @@ test('#5418: a roster that matches NONE of the store\'s token files (another sto
   const { dir, write } = e2eStore(t);
   write('alice.json', OLD);
   write('bob.json', OLD);
-  const port = await stubBoard(t, 200, { agents: [{ name: 'Zed', sessionName: 'zed' }] });
+  const f = fleet.install([fleet.agent('zed')]);
+  t.after(() => f.restore());
+  const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
   const err = quiet(t);
   assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply']), 2);
   assert.deepEqual(fs.readdirSync(dir).sort(), ['alice.json', 'bob.json']);
   assert.match(String(err.mock.calls[0].arguments[0]), /different store/);
 });
 
-test('#5418: every spelling of a roster row is kept: session, display, +world and -discord stripped', () => {
-  assert.deepEqual(tool.spellingsOf({ name: 'Splinter', sessionName: 'claudebot-discord+qa' }).sort(),
-    ['Splinter', 'claudebot', 'claudebot-discord', 'claudebot-discord+qa'].sort());
+test('#5418: every spelling of a roster row is kept: session, display, +world and -discord stripped', (t) => {
+  // The shape comes from the real producer; only the session is varied, to reach the +world and -discord forms.
+  const f = fleet.install([fleet.agent('claudebot', { displayName: 'Splinter' })]);
+  t.after(() => f.restore());
+  const card = JSON.parse(JSON.stringify(f.agents[0]));
+  card.sessionName = 'claudebot-discord+qa';
+  assert.deepEqual(tool.spellingsOf(card).sort(), ['Splinter', 'claudebot', 'claudebot-discord', 'claudebot-discord+qa'].sort());
 });
 
 test('#5418: a board that lists NO agents stops the tool before anything is planned or removed', async (t) => {
@@ -202,7 +219,9 @@ test('#5418: no board token for this store stops the tool (nothing ties the boar
   write('would-be-orphan.json', OLD);
   const boardauth = require('./engine/boardauth');
   t.mock.method(boardauth, 'readToken', () => null);
-  const port = await stubBoard(t, 200, { agents: [{ name: 'a', sessionName: 'a' }] });
+  const f = fleet.install([fleet.agent('a')]);
+  t.after(() => f.restore());
+  const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
   const err = quiet(t);
   assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply']), 2);
   assert.equal(fs.existsSync(path.join(dir, 'would-be-orphan.json')), true);
