@@ -267,6 +267,8 @@ function revokeIfUnchanged(sessionName, mtimeMs) {
       try { st = fs.lstatSync(fileFor(sessionName)); } catch (e) {
         return (e && e.code === 'ENOENT') ? { ok: true } : { ok: false, because: 'we could not look at that agent\'s tokens' };
       }
+      // A mint rewrites the file (temp then rename), so its mtime moves. On a mount with a coarse mtime a mint in the
+      // same tick would not; the tool's age check (nothing newer than an hour-old cutoff) keeps that out of reach.
       if (!st.isFile() || st.mtimeMs !== mtimeMs) return { ok: false, because: 'written since the plan was made: kept' };
       return revokeUnlocked(sessionName);
     });

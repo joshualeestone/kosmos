@@ -107,6 +107,7 @@ test('#5418: the port and the cutoff are required, never assumed', () => {
   assert.equal(a.apply, true);
   assert.equal(a.cutoffMs, CUTOFF);
   assert.throws(() => tool.parseArgs(['--port', '1234', '--cutoff', new Date(Date.now() + DAY).toISOString()]), /in the future/);
+  assert.throws(() => tool.parseArgs(['--port', '1234', '--cutoff', new Date(Date.now() - 60000).toISOString()]), /an hour in the past/);
 });
 
 /* A stub board answering GET /api/status with `body`. */
@@ -311,13 +312,13 @@ test('#5418: the "different store" backstop counts the roster only: this store\'
   assert.match(String(err.mock.calls[0].arguments[0]), /different store/);
 });
 
-test('#5418: an adopted agent (its profile says so) keeps its token though offline and not on the board', async (t) => {
+test('#5418: an agent the store keeps a profile for keeps its token though offline and not on the board', async (t) => {
   const { dir, write } = e2eStore(t);
   const store = require('./engine/store');
   write('anchor.json', OLD);
   write('adopted-x.json', OLD);
   write('fixture-y.json', OLD);
-  store.writeProfile('adopted-x', { origin: 'adopted' });
+  store.writeProfile('adopted-x', { role: 'any profile at all' });
   t.after(() => { try { fs.rmSync(path.join(store.ROOT, store.PROFILES_DIRNAME), { recursive: true, force: true }); } catch { /* none */ } });
   const f = fleet.install([fleet.agent('anchor')]);
   t.after(() => f.restore());
@@ -360,4 +361,29 @@ test('#5418: a backup that fails part way removes nothing and leaves no copy of 
   assert.equal(n >= 2, true, 'the planted failure never fired');
   assert.deepEqual(fs.readdirSync(dir).filter((x) => x.endsWith('.json')).sort(), ['anchor.json', 'fixture-1.json', 'fixture-2.json']);
   assert.deepEqual(fs.readdirSync(path.dirname(dir)).filter((x) => x.startsWith('sendertokens.backup-5418-')), [], 'a partial backup holding a token was left behind');
+});
+
+test('#5418: a backup folder that already exists is refused and never removed by the failure path', async (t) => {
+  const { dir, write } = e2eStore(t);
+  write('anchor.json', OLD);
+  write('fixture-1.json', OLD);
+  const f = fleet.install([fleet.agent('anchor')]);
+  t.after(() => f.restore());
+  const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
+  const realMkdir = fs.mkdirSync;
+  let theirs = null;
+  t.mock.method(fs, 'mkdirSync', (p, ...rest) => {
+    if (String(p).includes('sendertokens.backup-5418-')) {           // somebody else's folder is already at that name
+      theirs = p;
+      realMkdir.call(fs, p, { recursive: true });
+      fs.writeFileSync(path.join(p, 'theirs.json'), 'not ours');
+      throw Object.assign(new Error('exists'), { code: 'EEXIST' });
+    }
+    return realMkdir.call(fs, p, ...rest);
+  });
+  quiet(t);
+  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply']), 3);
+  assert.ok(theirs, 'the planted folder never came into play');
+  assert.equal(fs.readFileSync(path.join(theirs, 'theirs.json'), 'utf8'), 'not ours', 'a folder this run did not make was removed');
+  assert.equal(fs.existsSync(path.join(dir, 'fixture-1.json')), true);
 });
