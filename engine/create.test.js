@@ -6655,14 +6655,17 @@ test('#5534 review 2/3: Gemini without a model is its pinned default, and a swit
     fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 2, applied_at: 1,
       policy: { providers_allowed: null, models_allowed: { google: ['gemini-2.5-flash'], anthropic: ['opus'] } } }));
     assert.equal(create.policyAllows('google', '').ok, true, 'Gemini without a model runs its pinned default, which is listed');
-    // Review 5: the agent starts on OpenAI, so the switch to Claude is a real switch, not "already runs on Claude".
-    const made = create.createAgent({ ...BINS, name: 'switchpick', role: 'pm', provider: 'openai' });
+    // The agent is on Claude. Creating it on OpenAI here only passed where Codex is installed (CI found no runner),
+    // and a real cross-provider switch under a policy is the route test's (server.switch-model-5429.test.js).
+    // Here: the policy is asked BEFORE the "already runs on Claude" refusal, so the model-less switch is refused by
+    // the policy's own sentence, and the switch with a listed model gets past the policy to that refusal.
+    const made = create.createAgent({ ...BINS, name: 'switchpick', role: 'pm', model: 'opus' });
     assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
     const noPick = create.setProvider('switchpick', 'anthropic', BINS);
     assert.equal(noPick.outcome, create.OUTCOME.REFUSED, 'a switch onto the default model, which the list leaves out, went through');
     assert.match(noPick.because, /allows only some models on anthropic/);
     const picked = create.setProvider('switchpick', 'anthropic', { ...BINS, model: ' opus ' });
-    assert.notEqual(picked.outcome, create.OUTCOME.REFUSED, 'CONTROL: a switch with a listed model (spaces trimmed) was refused: ' + picked.because);
+    assert.match(String(picked.because), /already runs on/, 'CONTROL: a switch with a listed model got past the policy: ' + picked.because);
   } finally {
     fs.rmSync(orgpolicy.APPLIED(), { force: true });
   }
