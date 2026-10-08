@@ -9,18 +9,23 @@
  *
  * What it may remove, and only all of these together:
  *   - a token file whose agent is NOT on the running board's roster (GET /api/status, the board's own list),
- *     is NOT in the board's removal records, and was last written BEFORE the cutoff;
+ *     is NOT in the board's removal records, was last written BEFORE the cutoff, and is named exactly as the
+ *     store names its files (a name the store could not have written is listed and left alone);
  *   - a writer's leftover temp file (`*.tmp`) last written before the cutoff;
  *   - a symlink whose target does not exist (a security fixture planted one).
  * Anything else in the folder is listed and left alone. A live agent's file is never a candidate,
  * whatever its date.
  *
- * 🛑 NO ROSTER, NO REMOVAL. If the board cannot be reached, or answers without an agent list, the tool
- * stops before planning: an empty roster would make every file a candidate. The port is required, never
- * assumed, because the board's port is per account and a wrong port could read another account's board.
- * 🛑 BACKUP FIRST. --apply copies the whole folder (links as links) to a timestamped folder beside the
- * store root before it removes anything, and stops if the copy fails. Token files go through
- * sendertoken.revoke, under its lock, so a launch minting at that moment cannot race the removal.
+ * 🛑 THE ROSTER IS THE ONLY GUARD FOR A LIVE AGENT (the cutoff is in the past for every live file). So:
+ *   - a roster row counts under EVERY spelling a token file can carry: its session name (the key tokens are
+ *     minted under, by the supervisor's token_roster_name: +world stripped, then -discord), that stripped form,
+ *     and its display name. A spelling too many keeps a file; a spelling too few would delete a live one.
+ *   - no roster, an empty one, no board token to send, or a roster that matches NONE of the store's token files
+ *     (a board serving a different store) stops the tool before planning. The port is required, never assumed.
+ *   - each token file is re-checked just before removal: if it was written after the plan was made, it is kept.
+ * 🛑 BACKUP FIRST. --apply copies every file and link in the folder (links as links; a subfolder is not copied,
+ * and is never removed either) to a new timestamped folder beside it, and stops if the copy fails. Token files
+ * go through sendertoken.revoke, under its lock.
  * Prints names and counts only, never a token.
  */
 const fs = require('node:fs');
@@ -29,7 +34,8 @@ const path = require('node:path');
 /* The decision, pure: `entries` is what is in the folder ({ name, isSymlink, targetExists, mtimeMs }), `liveKeys`
    the safeKey'd names to keep (roster plus removal records). Returns { remove: [{ name, kind, why }], keep: [{ name,
    why }] }. Every entry lands in exactly one list. */
-function planCleanup(entries, liveKeys, cutoffMs) {
+function planCleanup(entries, liveKeys, cutoffMs, safeKey) {
+  const canon = (k) => { try { return safeKey(k); } catch { return null; } };
   const remove = [];
   const keep = [];
   for (const e of entries) {
@@ -42,9 +48,12 @@ function planCleanup(entries, liveKeys, cutoffMs) {
     }
     if (e.name.endsWith('.json')) {
       const key = e.name.slice(0, -'.json'.length);
-      if (liveKeys.has(key)) keep.push({ name: e.name, why: 'its agent is on the board or in the removal records' });
+      /* revoke(key) removes the file named safeKey(key), so only a file already named that way can be planned:
+         otherwise the dry run would list one file and --apply remove another. */
+      if (canon(key) !== key) keep.push({ name: e.name, why: 'not a name the store writes: left alone' });
+      else if (liveKeys.has(key)) keep.push({ name: e.name, why: 'its agent is on the board or in the removal records' });
       else if (!old) keep.push({ name: e.name, why: 'written on or after the cutoff' });
-      else remove.push({ name: e.name, kind: 'token', key, why: 'no such agent on the board, written before the cutoff' });
+      else remove.push({ name: e.name, kind: 'token', key, mtimeMs: e.mtimeMs, why: 'no such agent on the board, written before the cutoff' });
       continue;
     }
     if (e.name.endsWith('.tmp')) {
@@ -93,6 +102,8 @@ function applyPlan(dir, plan, revoke) {
     const p = path.join(dir, r.name);
     try {
       if (r.kind === 'token') {
+        const st = fs.lstatSync(p);
+        if (!st.isFile() || st.mtimeMs !== r.mtimeMs) throw new Error('written since the plan was made: kept');
         const res = revoke(r.key);
         if (res && res.ok === false) throw new Error(res.because || 'revoke failed');
       } else if (r.kind === 'symlink') {
@@ -116,7 +127,20 @@ async function fetchRosterNames(port, boardToken) {
   if (!res.ok) throw new Error('the board answered ' + res.status);
   const body = await res.json();
   if (!body || !Array.isArray(body.agents)) throw new Error('the board answered without an agent list');
-  return body.agents.map((a) => a && a.name).filter((n) => typeof n === 'string' && n);
+  return body.agents.filter((a) => a && typeof a === 'object');
+}
+
+/* Every spelling under which a token file for this row can exist (see the docblock). */
+function spellingsOf(row) {
+  const out = new Set();
+  for (const v of [row && row.sessionName, row && row.name]) {
+    if (typeof v !== 'string' || !v) continue;
+    out.add(v);
+    const noWorld = v.includes('+') ? v.slice(0, v.indexOf('+')) : v;
+    out.add(noWorld);
+    for (const x of [v, noWorld]) if (x.endsWith('-discord')) out.add(x.slice(0, -'-discord'.length));
+  }
+  return [...out];
 }
 
 function parseArgs(argv) {
@@ -140,18 +164,27 @@ async function main(argv) {
   const sendertoken = require('../engine/sendertoken');
   const boardauth = require('../engine/boardauth');
   const removal = require('../engine/remove');
-  let names;
-  try { names = await fetchRosterNames(args.port, boardauth.readToken()); }
+  let token = null;
+  try { token = boardauth.readToken(); } catch { token = null; }
+  if (!token) { console.error('Stopped, nothing changed: no board token for this store, so nothing ties the board on that port to it.'); return 2; }
+  let rows;
+  try { rows = await fetchRosterNames(args.port, token); }
   catch (e) { console.error('Stopped, nothing changed: could not read the board roster (' + e.message + ').'); return 2; }
-  if (names.length === 0) { console.error('Stopped, nothing changed: the board lists no agents, so every file would look orphaned.'); return 2; }
-  const removed = removal.removedAgents().map((r) => r && r.name).filter(Boolean);
+  if (rows.length === 0) { console.error('Stopped, nothing changed: the board lists no agents, so every file would look orphaned.'); return 2; }
+  const removed = removal.removedAgents().filter((r) => r && typeof r === 'object');
   const liveKeys = new Set();
-  for (const n of names.concat(removed)) {
-    try { liveKeys.add(store.safeKey(n)); } catch { /* an unkeyable name holds no file */ }
+  for (const row of rows.concat(removed)) {
+    for (const n of spellingsOf(row)) { try { liveKeys.add(store.safeKey(n)); } catch { /* an unkeyable name holds no file */ } }
   }
   const dir = sendertoken.DIR;
-  const plan = planCleanup(listEntries(dir), liveKeys, args.cutoffMs);
-  console.log(`Kept by name: ${names.length} agents on the board, ${removed.length} in the removal records.`);
+  const entries = listEntries(dir);
+  const tokenKeys = entries.filter((e) => !e.isSymlink && !e.other && e.name.endsWith('.json')).map((e) => e.name.slice(0, -'.json'.length));
+  if (tokenKeys.length > 0 && !tokenKeys.some((k) => liveKeys.has(k))) {
+    console.error('Stopped, nothing changed: not one token file here belongs to an agent on that board, so it is probably serving a different store.');
+    return 2;
+  }
+  const plan = planCleanup(entries, liveKeys, args.cutoffMs, store.safeKey);
+  console.log(`Kept by name: ${rows.length} agents on the board, ${removed.length} in the removal records.`);
   console.log(`Would remove ${plan.remove.length}, keep ${plan.keep.length}:`);
   for (const r of plan.remove) console.log(`  remove  ${r.name}  (${r.why})`);
   for (const k of plan.keep) console.log(`  keep    ${k.name}  (${k.why})`);
@@ -172,4 +205,4 @@ if (require.main === module) {
     (e) => { console.error('Stopped: ' + ((e && e.message) || e)); process.exitCode = 2; });
 }
 
-module.exports = { planCleanup, listEntries, backup, applyPlan, parseArgs, fetchRosterNames, main };
+module.exports = { planCleanup, listEntries, backup, applyPlan, parseArgs, fetchRosterNames, spellingsOf, main };
