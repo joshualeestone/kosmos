@@ -57,6 +57,7 @@ const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
+  'engine/usage-world-5532.test.js': 'its win32 branches (#5532) only skip the chmod and symlink arms; the usage scan it tests reads Claude transcripts the same way on both, and engine/usage.test.js is not run on Windows either',
   'engine/agentbrowser.test.js': 'its win32 branch only skips a read-only-folder arm; the file describes macOS',
   'engine/status.codex-model-switch-4416.test.js': 'the guard it tests is Mac-only by design: it compares a rollout with the launch plist\'s mtime, and a Windows Scheduled Task has no file to compare',
   'engine/geminisettings.test.js': 'its win32 branch only skips a POSIX file-mode arm',
