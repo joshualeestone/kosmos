@@ -21,7 +21,7 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
   carries that connector.
 
 ## What this branch builds
-(As it stands after review 24. The per-review sections below record how each part got here.)
+(As it stands after review 39. The per-review sections below record how each part got here.)
 - `engine/orgenroll.js`:
   - `worldId()` is an opaque random id per world, kept in that world's own data root (owner-only file). It is never
     the world's name.
@@ -30,7 +30,13 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
   - `enroll(code, accepted)` sends NOTHING unless `accepted === true`. It records the enrollment only when the company
     confirms THIS world's id on THIS computer. On `org_already_member` it does NOT move: the page checks the code
     again and shows the move wording (review 15). A first join it cannot keep (unrecordable, unconfirmed, or bound
-    elsewhere after a lost answer) is undone with a leave; a lost answer asks status once (reviews 12, 19, 23).
+    elsewhere after a lost answer) is undone with a leave. A join counts as landed only for the company whose
+    consent was accepted (the previewed org id rides with the ticket; reviews 37, 39).
+  - A lost answer (a timeout) asks status once: bound here for that company is recorded; anything else writes an
+    owner-only join-unknown marker (with the consent hash and the org id) that the next start, and a 2-minute
+    follow-up for a day, settle: recorded, undone if bound elsewhere, or cleared as not made only once it is 2 minutes
+    old (reviews 25 to 30, 38). A refusal made before anything was sent is "nothing joined" (notSent, review 27).
+    A join-unknown marker newer than a pending leave is settled before that leave is sent (review 35).
   - `leave()` clears the record first, so the world stops at once, then asks status: it sends the leave only when the
     company names this world on this computer; otherwise it clears locally and sends nothing. Refused as the last
     admin: the record comes back (still joined), and a refusal of a RETRIED leave is said once on the screen.
@@ -456,3 +462,11 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
   no leave sent; aged: the leave goes out); removing the gate reddens it.
 - Kept (nits): the leave route refuses before the engine's local-only cleanup (refresh clears it); two comments sit a
   line above what they describe; SETTLE_AFTER_MS, CODE and SAY exported for tests.
+
+## Review 39
+- The direct-answer path did not apply review 37's rule: a yes naming another company than the one whose consent was
+  accepted was recorded under that consent. It is now the no-confirm branch (a first join undone, a move refused).
+  Pinned with a control that the same yes for the previewed company is a join; the mutation reddens it.
+- The two failed-move sentences said "check the code again" while the screen offers Join; they now say press Join
+  again. One age decides both "not made" settles. The top section of this plan and the README row describe the branch
+  as it stands (O11, O12, O14).

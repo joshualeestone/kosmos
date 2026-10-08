@@ -300,9 +300,12 @@ async function enrollNow(code, accepted, opts) {
      (<world root>/remote), and is then the same signer to the company: this check cannot tell it apart (review 13). */
   /* The company said yes but did not confirm THIS Kosmos, so it is not recorded. The code is spent, so a first join is
      undone exactly as an unrecordable one is (review 19); a move is not (it would end the existing membership). */
-  if (!org || !role || !en || en.world !== world || en.thisComputer !== true) {
+  /* The answer must also be for the company whose consent was accepted (review 39, as review 37 for a lost answer):
+     another company's name on a yes is not this join, and its record would carry the wrong company's words. */
+  const otherOrg = !!(org && opts && typeof opts.orgId === 'string' && opts.orgId && org.id !== opts.orgId);
+  if (!org || !role || !en || en.world !== world || en.thisComputer !== true || otherOrg) {
     const NOCONFIRM = 'Your company did not confirm this Kosmos, so it is not your work Kosmos.';
-    if (move) return { ok: false, because: NOCONFIRM + ' Check the code again in a minute.' };
+    if (move) return { ok: false, because: NOCONFIRM + ' Press Join again in a minute.' };
     return undoFirstJoin(NOCONFIRM, opts);
   }
   const rec = { org, role, world, enrolledAt: new Date().toISOString() };
@@ -314,7 +317,7 @@ async function enrollNow(code, accepted, opts) {
          Leave (review 12). A FIRST join is undone with a leave. A MOVE is not: the person was a member before, and a
          leave would end that membership too (review 13). Each says only what actually happened. */
       const NOWRITE = "This Kosmos's data folder could not be written.";
-      if (move) return { ok: false, because: NOWRITE + ' Your company now names this Kosmos as your work Kosmos, but it is not reporting. Fix the folder, then check the code again.' };
+      if (move) return { ok: false, because: NOWRITE + ' Your company now names this Kosmos as your work Kosmos, but it is not reporting. Fix the folder, then press Join again.' };
       return undoFirstJoin(NOWRITE, opts);
     }
   }
@@ -403,6 +406,8 @@ async function settleUnknownJoin(unsure, opts) {
   const world = readWorldId(opts);
   const st = await signed('POST', ROUTES.status, {}, opts);
   const d = st.ok ? st.data : null;
+  // One age for both "not made" settles. An unreadable time, or one in the future (a clock set back), counts as old
+  // (reviews 30, 33, 39).
   const t0 = Date.parse(unsure.at || '');
   const old = !(Number.isFinite(t0) && t0 <= Date.now()) || Date.now() - t0 >= SETTLE_AFTER_MS;
   /* Another company named here is not this join (review 37): the account is still in the old one. Settled only once the
@@ -415,10 +420,7 @@ async function settleUnknownJoin(unsure, opts) {
   }
   const verdict = statusVerdict(d, world);
   if (verdict === 'unclear') return { ok: false, enrolled: false, because: "Your company's answer was not complete." };
-  const t = Date.parse(unsure.at || '');
-  // An unreadable time, or one in the future (a clock set back), counts as old: settled on a clear answer (reviews 30, 33).
-  const age = Number.isFinite(t) && t <= Date.now() ? Date.now() - t : Infinity;
-  if (verdict !== 'here' && !(age >= SETTLE_AFTER_MS)) return { ok: false, enrolled: false, because: 'Too soon to say the join was not made.' };   // kept
+  if (verdict !== 'here' && !old) return { ok: false, enrolled: false, because: 'Too soon to say the join was not made.' };   // kept
   setJoinUnknown(null, opts);
   if (verdict === 'here') {
     const org = cleanOrg(d.org), role = cleanRole(d.role);

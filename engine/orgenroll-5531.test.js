@@ -893,3 +893,25 @@ test('#5531 review 37: a lost answer for company B, seen through a pending leave
     assert.equal(org.leavePending({ root }), false);
   }
 });
+
+test('#5531 review 39: a yes that names another company than the one whose consent was accepted is not this join', async (t) => {
+  const { a, b } = sandbox(t);
+  const ALPHA = { id: 'org_alpha', name: 'Alpha', slug: 'alpha' };
+  const co = (sent) => ({ macRequest: async (m, route, body) => { sent.push(route);
+    if (route === org.ROUTES.enroll) return { ok: true, data: { ok: true, org: ALPHA, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } };
+    return { ok: true, data: { ok: true } }; } });
+  const sent = [];
+  const r = await org.enroll('BETA-JOIN-5678', true, { root: a, remote: co(sent), consentHash: 'cd'.repeat(32), orgId: 'org_beta' });
+  assert.notEqual(r.ok, true, 'Alpha was recorded on Beta\'s consent: ' + JSON.stringify(r));
+  assert.equal(org.isEnrolledHere({ root: a }), false);
+  assert.ok(sent.includes(org.ROUTES.leave), 'a first join for the wrong company was left bound');
+  // A move is refused, never undone (a leave would end the existing membership).
+  const moved = [];
+  const m = await org.enroll(null, true, { root: b, remote: co(moved), orgId: 'org_beta' });
+  assert.notEqual(m.ok, true);
+  assert.equal(moved.includes(org.ROUTES.leave), false, 'a move was undone with a leave');
+  // CONTROL: the same yes for the previewed company is a join.
+  const { a: c } = sandbox(t);
+  const ok = await org.enroll('ALPHA-JOIN-0001', true, { root: c, remote: co([]), orgId: 'org_alpha' });
+  assert.equal(ok.ok, true, JSON.stringify(ok));
+});
