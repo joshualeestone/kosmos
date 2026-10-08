@@ -88,3 +88,58 @@ test('#5154-C: assess and nextAnchor are pure (null anchor is never stuck)', () 
   assert.equal(st.nextAnchor(null, 'working', 123), null, 'a non-terminal state yields no anchor');
   assert.deepEqual(st.nextAnchor(null, 'auth_failed', 123), { state: 'auth_failed', sinceAt: 123 });
 });
+
+// tellStuck: the once-per-episode sweep the server tick drives.
+function sweepOnce(book, told, rows, now) {
+  const tells = [];
+  st.tellStuck({ rows, book, told, now, tell: (key, r, shown) => tells.push({ key, state: r.state, shown }) });
+  return tells;
+}
+
+test('#5154-C: tellStuck tells ONCE per episode, not again while it stays stuck', () => {
+  const book = new Map(); const told = new Set();
+  const t0 = 10_000_000;
+  const rows = [{ key: 'leo', state: 'auth_failed', shown: 'Leo' }];
+  assert.deepEqual(sweepOnce(book, told, rows, t0), [], 'just entered: no tell');
+  assert.deepEqual(sweepOnce(book, told, rows, t0 + AUTH - 1), [], 'under threshold: no tell');
+  const first = sweepOnce(book, told, rows, t0 + AUTH);
+  assert.equal(first.length, 1, 'crossed threshold: told once');
+  assert.equal(first[0].shown, 'Leo');
+  assert.deepEqual(sweepOnce(book, told, rows, t0 + AUTH + 60_000), [], 'still stuck: not told again');
+});
+
+test('#5154-C: tellStuck clears the told-mark on recovery and tells again on a NEW episode', () => {
+  const book = new Map(); const told = new Set();
+  const t0 = 11_000_000;
+  const stuck = [{ key: 'mia', state: 'rate_limited', shown: 'Mia' }];
+  sweepOnce(book, told, stuck, t0);
+  assert.equal(sweepOnce(book, told, stuck, t0 + RATE).length, 1, 'told for the first episode');
+  sweepOnce(book, told, [{ key: 'mia', state: 'working', shown: 'Mia' }], t0 + RATE + 1); // recovered
+  assert.equal(told.has('mia'), false, 'told-mark cleared on recovery');
+  // A fresh episode: stuck again, and past the threshold again -> told again.
+  const t1 = t0 + RATE + 2;
+  sweepOnce(book, told, stuck, t1);
+  assert.equal(sweepOnce(book, told, stuck, t1 + RATE).length, 1, 'a new episode tells again');
+});
+
+test('#5154-C: tellStuck prunes the book and the told-set for agents no longer in the roster (lifecycle-forget)', () => {
+  const book = new Map(); const told = new Set();
+  const t0 = 12_000_000;
+  const rows = [{ key: 'ray', state: 'auth_failed', shown: 'Ray' }];
+  sweepOnce(book, told, rows, t0);
+  sweepOnce(book, told, rows, t0 + AUTH); // now stuck + told
+  assert.equal(book.has('ray'), true); assert.equal(told.has('ray'), true);
+  sweepOnce(book, told, [], t0 + AUTH + 1); // Ray removed from the roster
+  assert.equal(book.has('ray'), false, 'a gone agent is pruned from the book');
+  assert.equal(told.has('ray'), false, 'and from the told-set');
+});
+
+test('#5154-C: tellStuck never tells a non-terminal agent (precedence: its own needs_you is not masked)', () => {
+  const book = new Map(); const told = new Set();
+  const t0 = 13_000_000;
+  // An agent in its OWN needs_you is not a terminal error here, so it is never told about + anchors nothing.
+  const rows = [{ key: 'q', state: 'needs_you', shown: 'Q' }];
+  assert.deepEqual(sweepOnce(book, told, rows, t0), []);
+  assert.deepEqual(sweepOnce(book, told, rows, t0 + 10 * RATE), [], 'however long it sits in needs_you, never told');
+  assert.equal(book.has('q'), false, 'no anchor for a non-terminal state');
+});

@@ -1105,12 +1105,19 @@ const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter'
 const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle
 const connlostHeal = require('./engine/connlost-heal'); // #3410 PR 2b: nudge a network-wedged agent when the network is back
 const crashloop = require('./engine/crashloop'); // #5154 slice A: an agent that keeps crashing on start, said on its card
+const stuckterminal = require('./engine/stuckterminal'); // #5154 slice C: an agent stuck on a recurring terminal error (auth_failed / rate_limited), said on its card
 const firstreplyNudge = require('./engine/firstreply-nudge'); // #3226: one reminder to an agent that has not answered its first message
 const liveExecution = require('./engine/live-execution'); // #2808 class-1 (c): gate the auto-handle sweep on the board's live-execution opt-in
 /* #3410: the self-heal's per-agent record, at module scope so /api/status can say where a
    connection_lost agent's recovery stands (connlostHeal.reconnectPhase). In memory: a board
    restart clears it, and so clears an escalation. */
 const CONNLOST_BOOK = new Map();
+/* #5154 slice C: per-agent anchor for WHEN an agent entered its current terminal error state
+   (auth_failed / rate_limited). In memory, like CONNLOST_BOOK: a board restart re-anchors from the
+   live state, which is correct. The 60s crash-loop sweep is the SINGLE place that updates this (via
+   stuckterminal.read over the roster); /api/status only READS it (stuckterminal.assess), so the clock
+   cannot be double-advanced by request frequency. */
+const STUCK_BOOK = new Map();
 /* Whether the self-heal sweep actually runs, so the page never promises a retry nobody will send. */
 function connlostHealEnabled() {
   return connlostHeal.healEnabled(liveExecution.liveExecutionAllowed(), process.env); // the sweep's own rule
@@ -2429,7 +2436,14 @@ function safeRoster() {
         : a;
       // #5154 slice A: the roster carries the crash loop too, as /api/status's rows do, so routes counting
       // "needs the person" (status.needsPerson) agree with the board.
-      return a.isNamedOurs ? Object.assign({}, withReconnect, { crashLoop: crashloop.read(a.sessionName) }) : withReconnect;
+      // #5154 slice C: and whether it is stuck on a recurring terminal error. READ-ONLY here
+      // (stuckterminal.assess, not read): the 60s sweep is the only writer of STUCK_BOOK.
+      return a.isNamedOurs
+        ? Object.assign({}, withReconnect, {
+            crashLoop: crashloop.read(a.sessionName),
+            stuckError: stuckterminal.assess(STUCK_BOOK.get(a.sessionName) || null, Date.now()),
+          })
+        : withReconnect;
     });
   } catch {
     return null;
@@ -5329,6 +5343,10 @@ const server = http.createServer(async (req, res) => {
         /* #5154 slice A: Kosmos has restarted this agent LOOP_RUNS times in WINDOW_MS and each run ended within
            SHORT_RUN_MS (engine/crashloop.js). Only for an agent we started (its supervisor writes the run file). */
         crashLoop: a.isNamedOurs ? crashloop.read(a.sessionName) : null,
+        /* #5154 slice C: whether this agent is stuck on a recurring terminal error (an expired login or a
+           rate limit that has not lifted). READ-ONLY (stuckterminal.assess); the 60s sweep is the only
+           writer of STUCK_BOOK, so the board cannot advance the clock by polling. */
+        stuckError: a.isNamedOurs ? stuckterminal.assess(STUCK_BOOK.get(a.sessionName) || null, Date.now()) : null,
         // The name only. `plannedModelArg` returns null for "we do not know",
         // and null travels as null: the screen must not be able to tell a
         // missing job from a default.
@@ -21282,19 +21300,39 @@ function start(port = PORT) {
          (phonenotify's own needs_you cooldown is the second guard). Logged every time it is told, so the threshold
          can be tuned from real boards. Reading the run files only; it never restarts or stops anything. unref'd. */
       const CRASHLOOP_TOLD = new Set();
+      const STUCK_TOLD = new Set();   // #5154 slice C: told once per stuck-terminal episode (cleared on recovery)
       const crashLoopTick = setInterval(() => {
         try {
           /* Review 1: read the run files themselves, not the live roster. Between crashes a looping agent has no
              session, so a roster-based tick missed it most minutes and re-pushed each time it reappeared; it also
-             cost a full snapshot a minute. A session is forgotten ONLY when its own read says the loop is over. */
-          let names = new Map();
-          try { for (const a of safeRoster() || []) if (a && a.sessionName) names.set(store.safeKey(a.sessionName), a.name || a.sessionName); } catch { /* names are a courtesy */ }
+             cost a full snapshot a minute. A session is forgotten ONLY when its own read says the loop is over.
+             #5154 slice C captures the one roster read here and reuses it for the stuck-terminal sweep below, so
+             the two sweeps still cost a single snapshot a minute between them. */
+          let roster = [];
+          try { roster = safeRoster() || []; } catch { /* a snapshot can fail; both sweeps skip this tick */ }
+          const names = new Map();
+          for (const a of roster) if (a && a.sessionName) names.set(store.safeKey(a.sessionName), a.name || a.sessionName);
           crashloop.tellLoops({
             keys: crashloop.keys(), told: CRASHLOOP_TOLD, readOne: (key) => crashloop.read(key),
             tell: (key, c) => {
               const shown = names.get(key) || key;
               process.stdout.write(`crash-loop: ${shown} (${key}) restarted ${c.count} times in ${crashloop.WINDOW_MS / 60000} min, each run under ${crashloop.SHORT_RUN_MS / 60000} min; told the person\n`);
               phonenotify.happened({ kind: 'needs_you', id: 'crashloop:' + key + ':' + c.firstAt, agent: shown, session: key, project: null });
+            },
+          });
+          /* #5154 slice C: the stuck-terminal sweep, over the SAME roster. stuckterminal.tellStuck is the ONLY
+             writer of STUCK_BOOK: it advances/clears each agent's terminal-error anchor, tells the person ONCE
+             per episode when it crosses the threshold (naming the error), clears the told-mark on recovery, and
+             prunes removed/gone agents (slice C's lifecycle-forget, since the in-memory book is reachable only
+             here). Precedence is structural: an agent showing its OWN needs_you is, by status.js's
+             classification, not in a terminal error here, so this can never mask the agent's own question. */
+          stuckterminal.tellStuck({
+            rows: roster.filter((a) => a && a.sessionName && a.isNamedOurs)
+                        .map((a) => ({ key: a.sessionName, state: a.state, shown: a.name || a.sessionName })),
+            book: STUCK_BOOK, told: STUCK_TOLD, now: Date.now(),
+            tell: (key, r, shown) => {
+              process.stdout.write(`stuck-terminal: ${shown} (${key}) stuck on ${r.state} for ${Math.round(r.forMs / 60000)} min; told the person\n`);
+              phonenotify.happened({ kind: 'needs_you', id: 'stuckterminal:' + key + ':' + r.sinceAt, agent: shown, session: key, project: null });
             },
           });
         } catch { /* never breaks the board */ }
