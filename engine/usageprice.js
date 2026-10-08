@@ -25,6 +25,11 @@ const USAGE_MODEL_PRICES = Object.freeze({
   'claude-fable-5': Object.freeze({ in: 10, out: 50, cw: 12.50, cr: 1.00 }),
   'gpt-5.1': Object.freeze({ in: 1.25, out: 10, cw: 1.25, cr: 0.125 }),
   'gemini-2.5-flash': Object.freeze({ in: 0.375, out: 1.875, cw: 0.375, cr: 0.0375 }),
+  // #5158: the three newer models the page prices (sources beside web/index.html USAGE_MODEL_PRICES). grok-4.6-build
+  // has no published price and stays unpriced here too.
+  'gpt-5.6-sol': Object.freeze({ in: 4, out: 20, cw: 5, cr: 0.4 }),
+  'gemini-3.8-flash': Object.freeze({ in: 0.75, out: 3.75, cw: 0.75, cr: 0.075 }),
+  'grok-4.6': Object.freeze({ in: 2, out: 6, cw: 2, cr: 0.5 }),
 });
 
 /* A model id to its price row: exact first, then without a trailing -YYYYMMDD stamp (Claude Code writes
