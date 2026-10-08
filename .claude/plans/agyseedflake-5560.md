@@ -5,7 +5,8 @@
 
 ## What the failing run shows (measured, job 113127146383)
 - `assert.equal(r.code, 0)` failed with `null !== 0` after 56 ms. Code null means the child never exited with a code:
-  it was ended by a signal or could not start. It is NOT the bridge's 1.5 s request timeout (that path exits 0).
+  a SIGNAL ended it (review 1 measured on node 26: a refused start gives an
+  `error` and a negative code instead). It is NOT the bridge's 1.5 s request timeout (that path exits 0).
 - The same run logged `EAGAIN` from another test (`Kosmos board restart could not start: EAGAIN`): the runner was at its
   process limit.
 - The helper listened only to `close(code)`, so it could not tell "never ran" from "ran and failed", and it threw away
@@ -26,3 +27,11 @@
 
 ## Tests
 - Simulated a killed first try: with the retry the test passes; with the retry removed it fails and names the signal.
+
+## Review 1 (blind, opus)
+- FIXED: the report-count message tells "nothing" from "two or more" and prints how each try ended; a retry that
+  rescued the run is printed as a test diagnostic, so how often the runner kills a child can be counted; a try that
+  never closes (a spawn refused for file handles) is ended after 10 s as "never ran" instead of hanging; the comment
+  and this plan say a null code is a signal, not a refused start.
+- FIXED: the retry decision has a committed unit test with an injected runner (a killed or refused child is retried,
+  one that exited 1 never is, at most three tries); widening it to "any non-zero" reddens it.
