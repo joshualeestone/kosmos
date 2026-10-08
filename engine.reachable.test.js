@@ -188,6 +188,8 @@ const SEAMS_5548 = {
   _testClock: 'engine/computerprint.js',
   _testFingerprint: 'engine/computerprint.js',
   allowSandboxInstallForTests: 'engine/agystatus.js',
+  // #5535 E0.6: lets engine/backupupload.test.js use its local http bucket; off by default, and only under node --test.
+  allowHttpForTests: 'engine/backupupload.js',
   setInstallerForTests: 'engine/agystatus.js',
   setLastFileForTests: 'engine/agystatus.js',
   _lock: 'engine/agytrust.js',

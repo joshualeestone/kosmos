@@ -628,6 +628,12 @@ test('upload hosts are AWS S3 endpoints only (outside the test setter): a LAN ho
   up.allowHttpForTests(false);
   try {
     for (const ok of ['s3.us-east-1.amazonaws.com', 's3-us-west-2.amazonaws.com', 's3.amazonaws.com']) assert.strictEqual(up.parseGrant(mk(ok), [c]).ok, true, ok);
+    // The coordinator's default: virtual-hosted (BackupStore::url), the key as the whole path. Must pass with the pin ON.
+    const vh = mk('kosmos-org-backup.s3.us-east-1.amazonaws.com');
+    vh.uploads[0].url = vh.uploads[0].url.replace('/b1/a/k?', '/a/k?');
+    const rv = up.parseGrant(vh, [c]);
+    assert.strictEqual(rv.ok, true, `the production url shape was refused: ${rv.because}`);
+    for (const bad of ['s3-control.amazonaws.com', 'ab.s3.us-east-1.amazonaws.com']) assert.strictEqual(up.parseGrant(mk(bad), [c]).ok, false, bad);
     for (const bad of ['192.168.1.10', 'localhost', 'storage.example.com', 's3.us-east-1.amazonaws.com.evil.example', 's3.us-east-1.amazonaws.com:8443']) {
       const r = up.parseGrant(mk(bad), [c]);
       assert.strictEqual(r.ok, false, bad); assert.match(r.because, /not an AWS S3 endpoint/, bad);
