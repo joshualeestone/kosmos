@@ -38,3 +38,12 @@ Redaction and the credential scan (slice 3, with the walker), quotas, grants, PO
 
 ## Weakest premise
 The 1 MiB average and the content-defined boundaries are tuned by reasoning, not measured on real work Kosmos trees (many small markdown files, a few large transcripts). Most files are far below the 256 KiB minimum and become one chunk each, so dedup across snapshots works per file. Measure on a real tree in slice 3 before freezing format 1. The gear table and sizes are the two things a format bump would change.
+
+## Review round 1 (opus): 2 BLOCKERs, 3 WARNINGs, all fixed
+- **BLOCKER, a manifest that seals and signs but can never be opened** (`undefined` serialized to invalid JSON; Dates, Maps and array holes silently changed). `canonicalJson` is now strict: it refuses everything that would not read back (undefined, functions, symbols, bigint, NaN, Infinity, -0, unsafe integers, non-plain objects). `sealManifest` also re-parses its output and refuses if it does not read back as itself.
+- **BLOCKER, a forged chunk opened.** HPKE base mode has no sender authentication, so the name-as-associated-data stops swaps, not forgeries. Restore now opens chunks only through `openVerifiedChunk` (decrypt, then check the content against its HMAC name; the naming key is the member's), and the comments say where integrity really comes from. `openChunk` and `chunkMatchesName` are now internal.
+- **WARNING, domain separation:** the signed bytes start with a fixed tag (`kosmos-backup v1 manifest-signature\0`).
+- **WARNING, manifest size leak:** manifests are framed and padded like chunks.
+- **WARNING, small files matched by size:** the frame has a 4 KiB floor, so all small chunks and manifests look alike.
+- **NITs:** a canonical-name check in every function; each frame must be exactly its padded size (one valid encoding); the canonical JSON comment; new tests for crafted bad frames, chunking boundaries, refused manifest values and manifest padding.
+- **Deferred, named:** a streaming chunker for very large files belongs to slice 3 (the walker), which reads files. This pure function takes a Buffer.

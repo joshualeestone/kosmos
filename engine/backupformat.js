@@ -8,12 +8,15 @@
  *  - Chunk NAME = HMAC-SHA256(period naming key, plaintext). It never leaves the manifest and the AEAD's
  *    associated data; storage sees only the coordinator's random object key (v2.1 item 7).
  *  - Chunk OBJECT = HPKE-sealed (engine/hpke.js) to the member's backup public key, with the chunk name as
- *    associated data, so a chunk stored under the wrong name does not open (v2 "integrity").
- *    The plaintext inside is length-framed and padded to a Padme bucket (at most about 12% overhead), so an
- *    object's size does not reveal the exact size of what it holds.
- *  - MANIFEST = canonical JSON, HPKE-sealed the same way (associated data: the snapshot context), and SIGNED
- *    by the member device's Ed25519 key over the sealed bytes and the context. The coordinator can check
- *    the signature and record the hash at grant time without decrypting anything.
+ *    associated data. That stops objects being SWAPPED between names; it does NOT prove who wrote a chunk:
+ *    HPKE base mode has no sender authentication, so anyone with the public key can seal any content under
+ *    any name. INTEGRITY comes from the name itself (an HMAC under the period naming key, which only the
+ *    member's side holds), so restore opens chunks ONLY through openVerifiedChunk, which checks both.
+ *    The plaintext inside is length-framed and padded to a Padme bucket, never below 4 KiB, so an object's
+ *    size hides the exact size of what it holds (small files, the common case, all look 4 KiB).
+ *  - MANIFEST = canonical JSON, framed and padded like a chunk, HPKE-sealed (associated data: the snapshot
+ *    context), and SIGNED by the member device's Ed25519 key over a domain tag, the sealed bytes' hash and the
+ *    context. The coordinator can check the signature and record the hash at grant time without decrypting.
  *
  * Every open/verify returns null on ANY failure and never throws, as hpke.js and fedseal.js do.
  */
@@ -73,8 +76,10 @@ function padme(L) {
   const lastBits = E - S, mask = 2 ** lastBits - 1;
   return Math.ceil(L / (mask + 1)) * (mask + 1);
 }
+const MIN_FRAME = 4096;
+const frameSize = (n) => Math.max(MIN_FRAME, padme(4 + n));
 function frame(plaintext) {
-  const total = padme(4 + plaintext.length);
+  const total = frameSize(plaintext.length);
   const f = Buffer.alloc(total);
   f.writeUInt32BE(plaintext.length, 0);
   plaintext.copy(f, 4);
@@ -83,46 +88,64 @@ function frame(plaintext) {
 function unframe(f) {
   if (f.length < 4) return null;
   const n = f.readUInt32BE(0);
-  if (n > f.length - 4) return null;
+  if (n > f.length - 4 || f.length !== frameSize(n)) return null;  // exactly one valid encoding per plaintext
   for (let i = 4 + n; i < f.length; i++) if (f[i] !== 0) return null;  // padding must be zeros
   return f.subarray(4, 4 + n);
 }
 
 /* ---------------- chunk objects ---------------- */
 const chunkInfo = () => Buffer.from(`kosmos-backup v${FORMAT} chunk`);
+const NAME_RE = /^[0-9a-f]{64}$/;
 /** Seal one chunk to the member's backup public key. Returns the object bytes to upload. */
 function sealChunk(memberPk, name, plaintext) {
-  if (typeof name !== 'string' || !/^[0-9a-f]{64}$/.test(name)) throw new Error('backupformat: a chunk name is 64 hex characters');
+  if (typeof name !== 'string' || !NAME_RE.test(name)) throw new Error('backupformat: a chunk name is 64 lowercase hex characters');
   const { enc, ct } = hpkeSeal(memberPk, chunkInfo(), Buffer.from(name), frame(plaintext));
   return Buffer.concat([CHUNK_MAGIC, enc, ct]);
 }
-/** Open one chunk object. Returns the plaintext, or null on ANY failure (wrong key, wrong name, tampering). */
+/* Open one chunk object WITHOUT checking its content against its name: internal only. A forged chunk (sealed
+   by anyone holding the public key, under a real name) opens here; openVerifiedChunk is the restore entry. */
 function openChunk(memberSk, name, object) {
   try {
-    if (!Buffer.isBuffer(object) || object.length < CHUNK_MAGIC.length + ENC_LEN + 16 || typeof name !== 'string') return null;
+    if (!Buffer.isBuffer(object) || object.length < CHUNK_MAGIC.length + ENC_LEN + 16 || typeof name !== 'string' || !NAME_RE.test(name)) return null;
     if (!object.subarray(0, 4).equals(CHUNK_MAGIC)) return null;
     const enc = object.subarray(4, 4 + ENC_LEN), ct = object.subarray(4 + ENC_LEN);
     const f = hpkeOpen(memberSk, enc, chunkInfo(), Buffer.from(name), ct);
     return f ? unframe(f) : null;
   } catch { return null; }
 }
-/** True only when plaintext really is the content its name claims (restore checks every chunk). */
+/* True only when plaintext really is the content its (canonical) name claims. */
 function chunkMatchesName(namingKey, name, plaintext) {
   try {
-    const want = Buffer.from(chunkName(namingKey, plaintext), 'hex'), got = Buffer.from(String(name), 'hex');
-    return got.length === 32 && crypto.timingSafeEqual(want, got);
+    if (typeof name !== 'string' || !NAME_RE.test(name)) return false;
+    return crypto.timingSafeEqual(Buffer.from(chunkName(namingKey, plaintext), 'hex'), Buffer.from(name, 'hex'));
   } catch { return false; }
+}
+/** The ONLY way restore opens a chunk: decrypt, then prove the content is what its name says. Null on ANY failure. */
+function openVerifiedChunk(memberSk, namingKey, name, object) {
+  const pt = openChunk(memberSk, name, object);
+  return pt && chunkMatchesName(namingKey, name, pt) ? pt : null;
 }
 
 /* ---------------- manifests ---------------- */
-/** Canonical JSON: object keys sorted at every depth, no whitespace. Arrays keep their order. */
+/* Canonical JSON: object keys sorted at every depth (UTF-16 order), no whitespace, arrays in order. The signature
+   covers the ciphertext, so canonical form is for determinism, not for the signature. STRICT: anything JSON
+   would drop, mangle or fail to read back (undefined, functions, symbols, bigint, NaN, Infinity, -0, unsafe
+   integers, Dates, Maps, class instances) is refused, because a manifest that seals but cannot be parsed is a
+   snapshot that verifies and can never be restored. */
 function canonicalJson(v) {
-  if (v === null || typeof v !== 'object') {
-    if (typeof v === 'number' && !Number.isFinite(v)) throw new Error('backupformat: a manifest cannot hold NaN or Infinity');
+  if (v === null || typeof v === 'string' || typeof v === 'boolean') return JSON.stringify(v);
+  if (typeof v === 'number') {
+    if (!Number.isFinite(v) || Object.is(v, -0)) throw new Error('backupformat: a manifest cannot hold NaN, Infinity or -0');
+    if (Number.isInteger(v) && !Number.isSafeInteger(v)) throw new Error('backupformat: a manifest integer must be a safe integer');
     return JSON.stringify(v);
   }
   if (Array.isArray(v)) return '[' + v.map(canonicalJson).join(',') + ']';
-  return '{' + Object.keys(v).sort().map((k) => JSON.stringify(k) + ':' + canonicalJson(v[k])).join(',') + '}';
+  if (typeof v === 'object') {
+    const proto = Object.getPrototypeOf(v);
+    if (proto !== Object.prototype && proto !== null) throw new Error('backupformat: a manifest holds plain objects only');
+    return '{' + Object.keys(v).sort().map((k) => JSON.stringify(k) + ':' + canonicalJson(v[k])).join(',') + '}';
+  }
+  throw new Error(`backupformat: a manifest cannot hold a ${typeof v}`);
 }
 const CTX_FIELDS = ['org', 'member', 'epoch', 'period', 'snapshot'];
 /** The snapshot context every manifest is bound to (associated data AND signed). All five fields required. */
@@ -132,8 +155,11 @@ function contextBytes(ctx) {
   }
   return Buffer.from(`kosmos-backup v${FORMAT} manifest\n` + CTX_FIELDS.map((k) => `${k}=${ctx[k]}`).join('\n'));
 }
+// A fixed tag FIRST, so a device signature over a backup manifest can never double as a signature in any other
+// protocol the same device key signs for (device auth, after E0.1).
+const SIG_DOMAIN = Buffer.from(`kosmos-backup v${FORMAT} manifest-signature\0`);
 function signedBytes(sealed, ctx) {
-  return Buffer.concat([crypto.createHash('sha256').update(sealed).digest(), contextBytes(ctx)]);
+  return Buffer.concat([SIG_DOMAIN, crypto.createHash('sha256').update(sealed).digest(), contextBytes(ctx)]);
 }
 /**
  * Seal and sign a manifest. deviceKey is the member device's Ed25519 private KeyObject.
@@ -141,7 +167,9 @@ function signedBytes(sealed, ctx) {
  */
 function sealManifest(memberPk, deviceKey, ctx, manifest) {
   const cb = contextBytes(ctx);
-  const { enc, ct } = hpkeSeal(memberPk, Buffer.from(`kosmos-backup v${FORMAT} manifest`), cb, Buffer.from(canonicalJson(manifest)));
+  const json = canonicalJson(manifest);
+  if (canonicalJson(JSON.parse(json)) !== json) throw new Error('backupformat: the manifest does not read back as itself');
+  const { enc, ct } = hpkeSeal(memberPk, Buffer.from(`kosmos-backup v${FORMAT} manifest`), cb, frame(Buffer.from(json)));
   const sealed = Buffer.concat([MANIFEST_MAGIC, enc, ct]);
   const sig = crypto.sign(null, signedBytes(sealed, ctx), deviceKey);
   return Buffer.concat([MANIFEST_MAGIC, sig, enc, ct]);
@@ -160,7 +188,8 @@ function openManifest(memberSk, devicePub, ctx, object) {
   try {
     if (!verifyManifestSignature(devicePub, ctx, object)) return null;
     const enc = object.subarray(4 + SIG_LEN, 4 + SIG_LEN + ENC_LEN), ct = object.subarray(4 + SIG_LEN + ENC_LEN);
-    const pt = hpkeOpen(memberSk, enc, Buffer.from(`kosmos-backup v${FORMAT} manifest`), contextBytes(ctx), ct);
+    const f = hpkeOpen(memberSk, enc, Buffer.from(`kosmos-backup v${FORMAT} manifest`), contextBytes(ctx), ct);
+    const pt = f ? unframe(f) : null;
     return pt ? JSON.parse(pt.toString('utf8')) : null;
   } catch { return null; }
 }
@@ -171,8 +200,7 @@ module.exports = {
   chunkName,
   padme,
   sealChunk,
-  openChunk,
-  chunkMatchesName,
+  openVerifiedChunk,
   canonicalJson,
   sealManifest,
   verifyManifestSignature,
