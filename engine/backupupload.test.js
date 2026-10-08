@@ -596,6 +596,16 @@ test('a virtual-hosted S3 url must have the key as its whole path', () => {
   assert.strictEqual(up.parseGrant(mk('b1.s3.us-east-1.amazonaws.com', '/a/k'), [c]).ok, true);
   assert.strictEqual(up.parseGrant(mk('b1.s3.us-east-1.amazonaws.com', '/x/a/k'), [c]).ok, false);
   assert.strictEqual(up.parseGrant(mk('s3.us-east-1.amazonaws.com', '/b1/a/k'), [c]).ok, true, 'path-style keeps one bucket segment');
+  up.allowHttpForTests(false);
+  try {
+    // Path-style: S3 takes the first segment as the bucket, so a bare key path would store another object.
+    let r = up.parseGrant(mk('s3.us-east-1.amazonaws.com', '/a/k'), [c]);
+    assert.strictEqual(r.ok, false); assert.match(r.because, /path-style/);
+    r = up.parseGrant(mk('s3.us-east-1.amazonaws.com', '/b1/a/k'), [c]);
+    assert.strictEqual(r.ok, true, r.because);
+    r = up.parseGrant(mk('bkt.s3-website-us-east-1.amazonaws.com', '/a/k'), [c]);
+    assert.strictEqual(r.ok, false); assert.match(r.because, /not an AWS S3 endpoint/);
+  } finally { up.allowHttpForTests(true); }
 });
 
 test('upload hosts are AWS S3 endpoints only (outside the test setter): a LAN host, another service or a port is refused', () => {
