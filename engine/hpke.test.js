@@ -7,7 +7,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const hpke = require('./hpke');
-const { deriveKeyPair, encap, decap, keySchedule, nonceFor, aeadSeal, aeadOpen } = hpke._hpkeVectorSeams;
+const { deriveKeyPair, encap, decap, keySchedule, nonceFor, aeadSeal, aeadOpen } = hpke.hpkeVectorSeamsForTests();
 
 const h = (s) => Buffer.from(s.replace(/\s+/g, ''), 'hex');
 const V = {
@@ -70,6 +70,15 @@ test('#5535 RFC 9180 A.2.1.1: every published encryption (sequences 0, 1, 2, 4, 
   }
 });
 
+test('#5535 RFC 9180 A.2.1.1 through the EXPORTED hpkeOpen: the published sequence-0 message opens', () => {
+  // The vector tests above check each step; this checks the production entry point composes them (key, not the
+  // exporter secret; sequence 0, not another), which a round trip alone cannot show.
+  const [, aad, , ct] = ENCRYPTIONS[0];
+  assert.equal(hpke.hpkeOpen(V.skRm, V.enc, V.info, h(aad), h(ct)).toString('hex'), PT.toString('hex'));
+  assert.equal(hpke.hpkeOpen(V.skRm, V.enc, V.info, h(ENCRYPTIONS[1][1]), h(ENCRYPTIONS[1][3])), null,
+    'CONTROL: the sequence-1 message does not open as a single-shot (sequence 0) message');
+});
+
 test('#5535 seal/open: a fresh key pair round-trips, and each seal uses a fresh ephemeral key', () => {
   const r = hpke.hpkeKeyPair();
   const info = Buffer.from('kosmos-backup v1 org/member/epoch1'), aad = Buffer.from('chunk-name-abc');
@@ -81,7 +90,7 @@ test('#5535 seal/open: a fresh key pair round-trips, and each seal uses a fresh 
   assert.equal(hpke.hpkeOpen(r.sk, b.enc, info, aad, b.ct).toString(), 'agent file bytes');
 });
 
-test('#5535 open returns null, never throws, on every kind of wrong input (each with its own control)', () => {
+test('#5535 open returns null, never throws, on every kind of wrong input (one shared control: the untampered message opens)', () => {
   const r = hpke.hpkeKeyPair(), other = hpke.hpkeKeyPair();
   const info = Buffer.from('i'), aad = Buffer.from('chunk-A');
   const { enc, ct } = hpke.hpkeSeal(r.pk, info, aad, Buffer.from('secret'));
@@ -94,7 +103,8 @@ test('#5535 open returns null, never throws, on every kind of wrong input (each 
     'one ciphertext bit flipped': () => hpke.hpkeOpen(r.sk, enc, info, aad, flip(ct, 0)),
     'one tag bit flipped': () => hpke.hpkeOpen(r.sk, enc, info, aad, flip(ct, ct.length - 1)),
     'one enc bit flipped': () => hpke.hpkeOpen(r.sk, flip(enc, 5), info, aad, ct),
-    'a truncated ciphertext': () => hpke.hpkeOpen(r.sk, enc, info, aad, ct.subarray(0, 10)),
+    'a truncated ciphertext (still over the tag length, so it reaches the AEAD)': () => hpke.hpkeOpen(r.sk, enc, info, aad, ct.subarray(0, ct.length - 1)),
+    'a ciphertext shorter than the tag (stopped by the length check)': () => hpke.hpkeOpen(r.sk, enc, info, aad, ct.subarray(0, 10)),
     'a short enc': () => hpke.hpkeOpen(r.sk, enc.subarray(0, 31), info, aad, ct),
     'a non-Buffer key': () => hpke.hpkeOpen('not a key', enc, info, aad, ct),
     'an all-zero enc (a low-order point)': () => hpke.hpkeOpen(r.sk, Buffer.alloc(32), info, aad, ct),
@@ -103,6 +113,16 @@ test('#5535 open returns null, never throws, on every kind of wrong input (each 
     let got; assert.doesNotThrow(() => { got = fn(); }, name);
     assert.equal(got, null, name);
   }
+});
+
+test('#5535 the vector seams are refused outside a test process', () => {
+  const le = require('./live-execution');
+  const real = le.inTestProcess;
+  try {
+    le.inTestProcess = () => false;
+    assert.throws(() => hpke.hpkeVectorSeamsForTests(), /outside a test/);
+  } finally { le.inTestProcess = real; }
+  assert.equal(typeof hpke.hpkeVectorSeamsForTests().encap, 'function', 'CONTROL: inside a test they are handed out');
 });
 
 test('#5535 seal refuses a malformed public key loudly (a caller bug, not input from storage)', () => {

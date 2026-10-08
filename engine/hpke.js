@@ -21,6 +21,7 @@ const crypto = require('crypto');
 const KEM_ID = 0x0020, KDF_ID = 0x0001, AEAD_ID = 0x0003;
 const N_SECRET = 32, N_ENC = 32, N_PK = 32, N_K = 32, N_N = 12, N_H = 32, N_T = 16;
 const MODE_BASE = 0x00;
+const ZERO32 = Buffer.alloc(32);
 
 function i2osp(n, w) {
   const b = Buffer.alloc(w);
@@ -35,6 +36,7 @@ function extract(salt, ikm) {
   return crypto.createHmac('sha256', salt.length ? salt : Buffer.alloc(N_H)).update(ikm).digest();
 }
 function expand(prk, info, len) {
+  if (len > 255 * N_H) throw new Error('hpke: HKDF-Expand length over 255 * Nh');  // RFC 5869: the counter is one byte
   const out = []; let t = Buffer.alloc(0);
   for (let i = 1, have = 0; have < len; i++) {
     t = crypto.createHmac('sha256', prk).update(Buffer.concat([t, info, Buffer.from([i])])).digest();
@@ -60,7 +62,9 @@ function pubFromRaw(pk) {
 }
 function dh(privateKey, pk) {
   const z = crypto.diffieHellman({ privateKey, publicKey: pubFromRaw(pk) });
-  if (z.equals(Buffer.alloc(32))) throw new Error('all-zero X25519 output');  // RFC 9180 7.1.4: abort on a low-order point
+  // RFC 9180 7.1.4: abort on an all-zero output (a low-order point). z is SECRET, so compare in constant time.
+  // On Node 26 OpenSSL refuses every canonical low-order point before this line runs; this is the backstop.
+  if (crypto.timingSafeEqual(z, ZERO32)) throw new Error('all-zero X25519 output');
   return z;
 }
 
@@ -116,6 +120,14 @@ function aeadOpen(key, nonce, aad, ct) {
   return Buffer.concat([d.update(ct.subarray(0, ct.length - N_T)), d.final()]);
 }
 
+/* RFC 9180 vector seams, for hpke.test.js ONLY: a fixed ikmE gives the same key and nonce every time, and
+   aeadSeal takes any nonce, so handing these to production code would invite nonce reuse. Refused outside a
+   test process, as connect.js's setWindowsSigninHostForTests is. */
+function hpkeVectorSeamsForTests() {
+  if (!require('./live-execution').inTestProcess()) throw new Error('refusing to hand out the HPKE vector seams outside a test');
+  return { deriveKeyPair, encap, decap, keySchedule, nonceFor, aeadSeal, aeadOpen };
+}
+
 const asBuf = (x) => (Buffer.isBuffer(x) ? x : (x instanceof Uint8Array ? Buffer.from(x) : null));
 
 /** Seal one message to pkR. Returns { enc, ct } (enc: 32 bytes, ct: plaintext + 16), or throws on a bad public key. */
@@ -141,6 +153,5 @@ module.exports = {
   hpkeSeal,
   hpkeOpen,
   hpkeKeyPair,
-  // RFC 9180 vector seams (hpke.test.js only): deterministic setup and the multi-sequence context.
-  _hpkeVectorSeams: { deriveKeyPair, encap, decap, keySchedule, nonceFor, aeadSeal, aeadOpen },
+  hpkeVectorSeamsForTests,
 };
