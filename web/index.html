@@ -18857,7 +18857,9 @@ window.kosmosMeasureScrollbarWidth();
             <div class="plus-org-g"><p class="plus-org-h">What your company sees</p><ul id="plus-org-reports"></ul></div>
             <div class="plus-org-g"><p class="plus-org-h">What is backed up</p><ul id="plus-org-backsup"></ul></div>
             <div class="plus-org-g"><p class="plus-org-h">Who can read it</p><ul id="plus-org-readers"></ul></div>
-            <div class="plus-org-g"><p class="plus-org-h">Never</p><ul id="plus-org-never"></ul></div>
+            <div class="plus-org-g"><p class="plus-org-h">Never</p><ul id="plus-org-never"></ul>
+              <!-- #5531 review 14: this Kosmos's own promise, shown whatever the company's list says (its "never" may be empty). -->
+              <p class="fhint" id="plus-org-local">Your other Kosmoses on this computer are not part of this, and none of their data is sent.</p></div>
           </div>
           <div class="frow">
             <button class="btn uprime" type="button" id="plus-org-join">Join with this Kosmos</button>
@@ -47123,7 +47125,8 @@ function plusOrgList(id, items) {
   const ul = document.getElementById(id);
   ul.textContent = '';
   for (const t of items || []) { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); }   // text, never markup
-  ul.parentElement.hidden = !(items && items.length);   // the whole group, heading and list
+  // The whole group, heading and list; the Never group always shows, for this Kosmos's own line under it.
+  ul.parentElement.hidden = !(items && items.length) && id !== 'plus-org-never';
 }
 function plusOrgPaint() {
   const st = PLUS_ORG.state || {};

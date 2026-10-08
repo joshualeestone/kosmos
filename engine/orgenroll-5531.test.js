@@ -405,9 +405,12 @@ test('#5531 review 8: a join code is never written to the log, even inside a raw
 test('#5531 review 9: an unreadable local world id is an unclear answer, and a code is kept out of the log in any case', async (t) => {
   const { a } = sandbox(t);
   await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
-  fs.rmSync(path.join(a, org.WORLD_ID_FILE));
+  const idFile = path.join(a, org.WORLD_ID_FILE);
+  fs.chmodSync(idFile, 0o000);   // there, but unreadable (review 14 made a MISSING file mean stale; this one is not)
+  t.after(() => { try { fs.chmodSync(idFile, 0o600); } catch { /* removed with the sandbox */ } });
   await org.refresh({ root: a, remote: { macRequest: async () => ({ ok: true, data: { member: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: 'e'.repeat(32), thisComputer: true } } }) } });
-  assert.ok(fs.existsSync(path.join(a, org.ENROLLMENT_FILE)), 'a missing local id was read as the company moving on');
+  assert.ok(fs.existsSync(path.join(a, org.ENROLLMENT_FILE)), 'an unreadable local id was read as the company moving on');
+  fs.chmodSync(idFile, 0o600);
   assert.equal(org.stoppedFor({ root: a }), null);
   const errs = []; const orig = console.error; console.error = (m) => errs.push(String(m)); t.after(() => { console.error = orig; });
   await org.preview('Secret-Code-7777', { root: a, remote: { macRequest: async () => ({ ok: false, because: 'HTTP 502 for SECRET-CODE-7777' }) } });
@@ -481,4 +484,15 @@ test('#5531 review 13: an unrecordable MOVE is never undone with a leave, and a 
   assert.equal(r.ok, false);
   assert.match(r.because, /could not be undone yet/, 'a failed undo was reported as undone: ' + r.because);
   assert.equal(/Joining was undone/.test(r.because), false);
+});
+
+test('#5531 review 14: a record whose world id file is gone is stale: cleared, and nothing is asked', async (t) => {
+  const { a } = sandbox(t);
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
+  fs.rmSync(path.join(a, org.WORLD_ID_FILE));
+  const sent = [];
+  const r = await org.refresh({ root: a, remote: { macRequest: async (m, route) => { sent.push(route); return { ok: true, data: { member: true } }; } } });
+  assert.equal(r.enrolled, false);
+  assert.deepEqual(sent, [], 'a world with no id of its own still contacted the company');
+  assert.equal(fs.existsSync(path.join(a, org.ENROLLMENT_FILE)), false, 'the stale record was kept, so every pass would ask again');
 });

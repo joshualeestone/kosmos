@@ -243,3 +243,16 @@ test('#5531 review 13: a HEAD from the screen does not use up the stopped note',
   const shown = await call('/api/org', { method: 'GET', headers: SCREEN });
   assert.equal(shown.json.stoppedFor, 'Acme', 'a HEAD cleared the note before any screen showed it');
 });
+
+test('#5531 review 14: a page on another website cannot leave, join or preview (the board-wide cross-site write guard)', async (t) => {
+  const remote = require('./engine/remote');
+  const orig = remote.macRequest;
+  const sent = [];
+  remote.macRequest = async (m, route) => { sent.push(route); return { ok: true, data: { ok: true } }; };
+  t.after(() => { remote.macRequest = orig; });
+  for (const p of ['/api/org/leave', '/api/org/enroll', '/api/org/preview']) {
+    const r = await call(p, { body: { code: 'ACME-JOIN-1234', accepted: true }, headers: { 'sec-fetch-site': 'cross-site', origin: 'https://evil.example', 'content-type': 'text/plain' } });
+    assert.equal(r.status, 403, p + ' answered another website: ' + JSON.stringify(r));
+  }
+  assert.deepEqual(sent, [], 'a cross-site request reached the company');
+});

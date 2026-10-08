@@ -217,3 +217,17 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
   addresses. The module header names the Kosmos+ signer beside the opaque id.
 - DEFERRED: preview is not serialized with enroll, leave and refresh. It only reads (redeem, and status for a member),
   so it cannot write a record back over a leave; a later writer from preview must join the queue.
+
+## Review 14 (blind, sonnet)
+- FIXED: the consent always shows this Kosmos's own promise under Never ("Your other Kosmoses on this computer are not
+  part of this, and none of their data is sent"), whatever the company's list says; an empty list no longer hides
+  the exclusions (browser check O10).
+- FIXED: a record whose world id file is gone is stale: refresh clears it and asks nothing. An id file that exists
+  but cannot be read is left alone, as review 9 required (that test now makes the file unreadable rather than
+  deleting it, so the two cases are tested apart).
+- NOT A DEFECT, measured and now pinned: a page on another website cannot preview, join or leave. crossSiteWrite runs
+  before every route and refuses a POST whose Origin is another site; a browser always sends Origin on a cross-site
+  POST. A server test sends the attack shape (cross-site, text/plain) to all three routes; disabling the guard turns
+  it red.
+- DUPLICATE: the consent hash is kept only on this side until v1.4 deploys (review 10; in Not done here).
+- NOTED: an agent can learn whether this Kosmos is enrolled (a yes or no), not which company.

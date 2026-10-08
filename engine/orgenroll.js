@@ -364,6 +364,12 @@ async function refreshNow(opts) {
     return { ok: r.ok, enrolled: false, stopped: true, pending: !!r.pending, because: r.because };
   }
   const before = readEnrollment(opts);
+  /* No local world id: nothing can match, so nothing is asked (review 14). A missing id file means the record is stale
+     (cleared here, sent nothing); one that exists but cannot be read is left alone, like any unclear answer. */
+  if (!readWorldId(opts)) {
+    if (before && !fs.existsSync(path.join(storeRoot(opts), WORLD_ID_FILE))) clearEnrollment(opts);
+    return { ok: false, because: 'this Kosmos has no id of its own', enrolled: false };
+  }
   const r = await signed('POST', ROUTES.status, {}, opts);
   if (!r.ok || !r.data || typeof r.data !== 'object') return { ok: false, because: sayFor(r && r.because, 'not checked'), enrolled: !!before };
   const d = r.data;

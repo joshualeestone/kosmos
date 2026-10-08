@@ -14,6 +14,7 @@
  *   O7  a member moving here sees the consent as a move, and Join sends no code.
  *   O8  a Kosmos the company stopped naming says so (stoppedFor from /api/org), as text.
  *   O9  a leave that ends only on this computer (localOnly) says the membership goes on, never "You left".
+ *   O10 a company consent with an EMPTY never list still shows this Kosmos's own line: other Kosmoses are not part of it.
  */
 const path = require('node:path');
 const { chromium } = require('playwright');
@@ -42,7 +43,7 @@ function harness() {
       const u = String(url);
       const body = init && init.body ? JSON.parse(init.body) : null;
       if (u.includes('/api/org')) window.__org.push({ path: u.replace(/^.*?(\/api\/org[^?]*).*$/, '$1'), method: (init && init.method) || 'GET', body });
-      if (u.endsWith('/api/org/preview')) return enc(Object.assign({ ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent, ticket: 't-' + Date.now() }, window.__move ? { move: true } : {}));
+      if (u.endsWith('/api/org/preview')) return enc(Object.assign({ ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: window.__noNever ? Object.assign({}, consent, { never: [] }) : consent, ticket: 't-' + Date.now() }, window.__move ? { move: true } : {}));
       if (u.endsWith('/api/org/enroll')) return enc({ ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member' });
       if (u.endsWith('/api/org/leave')) return enc(window.__localOnly ? { ok: true, localOnly: true } : { ok: true });
       if (u.endsWith('/api/org')) return enc({ enrolled: false, stoppedFor: window.__stopped || null, org: null, role: null, enrolledAt: null });
@@ -79,12 +80,13 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
       readers: [...document.querySelectorAll('#plus-org-readers li')].length,
       never: [...document.querySelectorAll('#plus-org-never li')].length,
       bold: document.querySelectorAll('#plus-org-reports b').length,
+      local: (() => { const el = document.getElementById('plus-org-local'); return !!el && el.getClientRects().length > 0 && /other Kosmoses on this computer/.test(el.textContent); })(),
       focus: document.activeElement && document.activeElement.id,
       outHidden: document.getElementById('plus-org-out').hidden,
     }));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'orgenroll-consent.png') });
     chk(/Acme invites you to join\. Joining makes this Kosmos your work Kosmos\. Here is what that means:/.test(o2.ask) && o2.reports.length === 2 && o2.reports[1].includes('<b>bold?</b>') && o2.bold === 0
-        && o2.readers === 2 && o2.never === 2 && o2.focus === 'plus-org-join' && o2.outHidden,
+        && o2.readers === 2 && o2.never === 2 && o2.focus === 'plus-org-join' && o2.outHidden && o2.local,
       'O2 Check code shows the company and the four lists as text (markup stays text), with focus on Join', JSON.stringify(o2));
 
     const before = await page.evaluate(() => window.__org.length);
@@ -139,6 +141,18 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     const o8 = await page.evaluate(() => ({ msg: document.getElementById('plus-org-msg').textContent, italics: document.querySelectorAll('#plus-org-msg i').length, out: !document.getElementById('plus-org-out').hidden }));
     chk(o8.msg === 'This Kosmos is no longer the work Kosmos for Acme <i>Co</i>, so it has stopped reporting.' && o8.italics === 0 && o8.out,
       'O8 a Kosmos the company stopped naming says so, as text, with the code field back', JSON.stringify(o8));
+
+    // O10: the company sends no "never" lines; this Kosmos's own promise still shows under Never.
+    await page.evaluate(() => { window.__noNever = true; document.getElementById('plus-org-msg').textContent = ''; });
+    await page.fill('#plus-org-code', 'ACME-JOIN-5555');
+    await page.click('#plus-org-check');
+    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
+    const o10 = await page.evaluate(() => ({
+      items: document.querySelectorAll('#plus-org-never li').length,
+      local: (() => { const el = document.getElementById('plus-org-local'); return !!el && el.getClientRects().length > 0; })(),
+    }));
+    chk(o10.items === 0 && o10.local, 'O10 an empty never list still shows this Kosmos\'s own line', JSON.stringify(o10));
+    await page.click('#plus-org-notnow');
 
     chk(errs.length === 0, 'O6 no page errors', errs.join(' | '));
   } finally {
