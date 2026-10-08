@@ -231,3 +231,13 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
   it red.
 - DUPLICATE: the consent hash is kept only on this side until v1.4 deploys (review 10; in Not done here).
 - NOTED: an agent can learn whether this Kosmos is enrolled (a yes or no), not which company.
+
+## Review 15 (blind, opus): CONVERGED (NITs only)
+- Taken anyway, because each changes what a person reads: the one-time stopped note replaces whatever line is on
+  screen instead of being used up unseen (O8 now starts with a line showing); and an enroll refused as
+  org_already_member (the person joined from another Kosmos since the preview) no longer moves the enrollment on
+  first-join words: the page checks the code again, and the preview then shows the move wording.
+- The design-shot fixture no longer repeats "your other Kosmoses" in the company's list, since the board now states
+  it itself; PigeonPete is asked to drop it from the coordinator's default list.
+- Not taken: scrubbing company names from the local log (local only, decided in review 6; the log is the board's
+  own file, under this world's KOSMOS_HOME).

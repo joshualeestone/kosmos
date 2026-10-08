@@ -47118,7 +47118,8 @@ function plusOrgMaybe() {
   fetch('/api/org').then((res) => res.json()).then((j) => {
     PLUS_ORG.state = j; plusOrgPaint();
     const msg = document.getElementById('plus-org-msg');
-    if (j && j.enrolled !== true && j.stoppedFor && !msg.textContent) msg.textContent = 'This Kosmos is no longer the work Kosmos for ' + j.stoppedFor + ', so it has stopped reporting.';
+    // The server shows this note once, so it replaces whatever line is there rather than waiting for an empty one.
+    if (j && j.enrolled !== true && j.stoppedFor) msg.textContent = 'This Kosmos is no longer the work Kosmos for ' + j.stoppedFor + ', so it has stopped reporting.';
   }).catch(() => { /* the next minute tries again */ });
 }
 function plusOrgList(id, items) {
@@ -47175,7 +47176,7 @@ async function plusOrgJoin() {
   if (!r.ok) {
     msg.textContent = r.because || 'Joining did not go through.';
     // A code that is used, expired, or for another company will not work on a second press: back to the code field.
-    if (['org_code_used', 'org_code_expired', 'org_code_unknown', 'org_other_org', 'org_wrong_domain', 'org_ticket', 'org_not_accepted'].includes(r.code)) { PLUS_ORG.preview = null; plusOrgPaint(); }
+    if (['org_code_used', 'org_code_expired', 'org_code_unknown', 'org_other_org', 'org_wrong_domain', 'org_ticket', 'org_not_accepted', 'org_already_member'].includes(r.code)) { PLUS_ORG.preview = null; plusOrgPaint(); }
     return;
   }
   PLUS_ORG.preview = null;

@@ -176,7 +176,7 @@ test('#5531: the coordinator\'s public error codes are said in plain words; an u
   assert.match(last.because, /last admin/);
 });
 
-test('#5531: already in that company, a code is refused (org_already_member) and the enrollment moves the member way, with no code', async (t) => {
+test('#5531 (review 15): already in that company at Join, the code is refused and nothing moves on first-join words', async (t) => {
   const { a } = sandbox(t);
   const sent = [];
   const remote = { macRequest: async (m, route, body) => {
@@ -185,9 +185,14 @@ test('#5531: already in that company, a code is refused (org_already_member) and
     return { ok: true, data: { ok: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } };
   } };
   const r = await org.enroll('ACME-JOIN-1234', true, { root: a, remote });
-  assert.equal(r.ok, true, JSON.stringify(r));
-  assert.equal(sent.length, 2, 'not exactly one retry: ' + JSON.stringify(sent));
-  assert.ok(!('code' in sent[1]), 'the retry sent the code again');
+  assert.equal(r.ok, false, JSON.stringify(r));
+  assert.equal(r.code, 'org_already_member');
+  assert.match(r.because, /Check the code again/);
+  assert.equal(sent.length, 1, 'the enrollment was moved on a first-join consent: ' + JSON.stringify(sent));
+  assert.equal(org.isEnrolledHere({ root: a }), false);
+  // The member's own path still moves, with no code, once the page has shown the move wording.
+  const mv = await org.enroll(null, true, { root: a, remote });
+  assert.equal(mv.ok, true, JSON.stringify(mv));
   assert.equal(org.isEnrolledHere({ root: a }), true);
   // CONTROL: any other refusal is not retried.
   const { b } = sandbox(t);

@@ -145,7 +145,7 @@ const SAY = Object.freeze({
   org_not_member: 'You are not in a company.',
   org_last_admin: 'You are the last admin of your company, so you cannot leave until someone else is made an admin.',
   org_bad_world: 'This Kosmos could not be named to your company. Try again.',
-  org_already_member: 'You are already in this company.',
+  org_already_member: 'You are already in this company. Check the code again to see what moving your work Kosmos here means.',
 });
 /* Only the PUBLIC codes count: a field such as org_id elsewhere in the line must not be read as the error. */
 const CODES = Object.freeze(Object.keys(SAY).concat(['org_not_accepted']));
@@ -224,10 +224,12 @@ async function enrollNow(code, accepted, opts) {
   let r = await signed('POST', ROUTES.enroll, body, opts);
   /* #5530 review 1: already in that company, a code is refused (409 org_already_member) and NOT spent, since it may be
      someone else's. The person has just accepted, so move the enrollment to this world the member's way: no code. */
-  let move = !body.code;   // no code: a member moving the enrollment here, not a first join
+  const move = !body.code;   // no code: a member moving the enrollment here, not a first join
+  /* Already a member (they joined from another Kosmos since the preview): the code is refused and not spent. NOT moved
+     on these words: the person read a first-join consent, not "make this Kosmos your work Kosmos, and your other work
+     Kosmos stops". The page checks the code again, and the preview then shows the move wording (review 15). */
   if (!r.ok && body.code && codeOf(r.because) === 'org_already_member') {
-    delete body.code; move = true;
-    r = await signed('POST', ROUTES.enroll, body, opts);
+    return { ok: false, code: 'org_already_member', because: SAY.org_already_member };
   }
   if (!r.ok) return { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'Joining did not go through Kosmos+ just now. Nothing was joined; try again in a minute.', typeof code === 'string' ? code.trim() : null) };
   const org = cleanOrg(r.data && r.data.org);

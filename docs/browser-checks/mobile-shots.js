@@ -203,7 +203,7 @@ async function orgConnected(page, enrolled) {
     reports: ['agent names, the AI provider and model each uses', 'project names', 'tokens and estimated cost per day', 'when you were last active', 'which company policy you have and when you were last backed up'],
     backsUp: ['agent folders and their files', 'transcripts', 'projects and what agents make'],
     readers: ['you', "your company's recovery role, only by restoring it, and every restore is logged and shown to you"],
-    never: ['your chats are never shown in the console', 'your other Kosmoses on this computer', 'keys and passwords'] } }) }));
+    never: ['your chats are never shown in the console', 'keys and passwords'] } }) }));
 }
 /* #5359: a restart note made seven minutes ago, on this page's own route (engine/restartnote.js makes the real one). */
 async function stubRebootNote(page) {
