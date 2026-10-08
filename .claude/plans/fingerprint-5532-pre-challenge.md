@@ -2,23 +2,23 @@
 pre_challenge: true
 method: challenge-loop
 branch: fingerprint-5532
-diff_hash: a95529bcc363ecdf4a182429b5376dc0b1dbcca03d6b3f92d4cee2c633bca212
-validation: passed (Mortals full suite at 53bbef9cb, hash a95529bcc363)
+diff_hash: d6d3ec8474a805ae0dbd968b7b4ec2e114337649920ce9fa800dfa5241c9f5d0
+validation: passed (Mortals full suite at 17ba054db, hash d6d3ec8474a8)
 subdir_audit: passed
-timestamp: 2026-10-08T04:50:17Z
-iterations: 20
+timestamp: 2026-10-08T16:20:26Z
+iterations: 23
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 20, each a fresh blind reviewer, alternating Opus (odd) and Sonnet (even).
-**Converged:** Yes. Iteration 17 (Opus) found nothing new; nits taken after it were re-reviewed by 18 to 20, and iteration 20 (Sonnet) found nothing new.
+**Iterations:** 23, each a fresh blind reviewer, alternating Opus (odd) and Sonnet (even).
+**Converged:** Yes. Iteration 17 (Opus) found nothing new; nits taken after it were re-reviewed by 18 to 20, and iteration 20 (Sonnet) found nothing new. A main merge then changed the diff (main's #5548 orphan guard needed the exports excused); iterations 21 to 23 reviewed it, and iteration 23 (Sonnet) found nothing new.
 **Total findings (ledger lines):** 0 BLOCKERs, 49 WARNINGs (40 numbered, the rest duplicates), 4 CONVENTIONs, 20 NIT lines.
 **Self-generated:** many of the later findings were on lines an earlier fix of this loop wrote (marked SELF in the ledger); two of my own claims were corrected in the plan (review 5's salt case, review 14's "dropped at once").
-**Validation:** engine/computerprint-5532.test.js (10 pass), the machine and logstamp pins, both browser-check gates, and the full suite on Mortals at the head named above. No web/ change.
+**Validation:** engine/computerprint-5532.test.js and engine.reachable.test.js (17 pass), the machine and logstamp pins, both browser-check gates, and the full suite on Mortals at the head named above. No web/ change.
 
-Kept as decided, with reasons in the plan: the synchronous ioreg read (callers run printFor off the request path); the tests-only hooks on the export (a name guard, not a proof; a runtime test-detection gate would differ between Node versions); declining the ioreg -k filter (it cannot tell a VM with no id from a broken read).
+Kept as decided, with reasons in the plan: the synchronous ioreg read (it blocks the board wherever it runs, so the first caller reads at start before the board listens, accepts the block, or makes it asynchronous first; review 22); the tests-only hooks on the export (a name guard, not a proof; a runtime test-detection gate would differ between Node versions); declining the ioreg -k filter (it cannot tell a VM with no id from a broken read).
 
 ## Ledger (verbatim, iteration by iteration)
 
@@ -117,3 +117,16 @@ Kept as decided, with reasons in the plan: the synchronous ioreg read (callers r
 - [WARNING] dup: the "no id here" residual (reviews 12/16/19; the case raised is judged fine).
 - [WARNING] dup: the synchronous read (decided, review 1).
 - [NIT] review numbers in comments (kept); test-only exports (kept); real-Mac arm in a sandbox (kept, a real signal).
+#### Iteration 21 (Sonnet) on aa80f142f (after the main merge)
+- [WARNING] (41) the four excuses sat in the by-name EXCUSED map, which hides a same-named orphan elsewhere, and printFor's "remove then" was unenforced. FIXED (seams in SEAMS_5548; printFor in a by-file FIRST_CALLER_5532 with a test that reds once it has a caller; a temporary caller module reddened it).
+- [WARNING] DEFERRED, measured false: a no-id computer does not re-read every minute forever; its failed reads start the ten-minute give-up, then the wait doubles to an hour.
+- [NIT] whole-block check unreachable from the real runner's truncation; real-hardware arm cannot compare to an independent source; .md readers not guarded. Kept.
+- [CONVENTION] plan file named <branch>.md: the tooling accepts it. Not a defect.
+#### Iteration 22 (Opus) on afecf66d6
+- [WARNING] (42) "call printFor in the background" is wrong advice: execFileSync blocks the whole board wherever it runs. FIXED (allowlist comment and plan corrected).
+- [CONVENTION] (C5) the plan's review log stopped at review 19. FIXED.
+- [NIT] header claimed no exported function READS the hardware (printFor does). FIXED (claims none RETURNS the id). noIdStreak not reset on success; one cut read flips none to later. Kept.
+#### Iteration 23 (Sonnet) on 17ba054db
+- CONVERGED: no new BLOCKER, WARNING or CONVENTION after dedup.
+- [WARNING] dup of the no-id residual: "a dump cut just after a nested } reads as whole". Measured: real ioreg -rd1 prints nested values inline (one lone "}" line, the block close), and a cut dump never reaches the check (execFileSync throws).
+- [NIT] first post-give-up wait is 2 minutes; fingerprint() repeats printFor's validation; early plan entries superseded. Kept.
