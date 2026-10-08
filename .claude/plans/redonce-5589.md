@@ -13,8 +13,12 @@ to 96 emails a day to Josh's account, which buries the one that matters.
 `red_once <cause> <message>`: the first tick of a repeating red state for a given sha and cause exits 1
 and records the time in `$STATE/reported.d/<sha>-<cause>` (one file per sha and cause). Later ticks of
 the same sha and cause within a rolling 24 hours print "STILL FAILING (reported): ..." and exit 0. A new
-sha, a new cause, the cause recovering (its record is removed), a successful deploy (all records
-removed), or 24 hours passing makes it red again. `park()` records itself, so the tick after a park does
+sha, a new cause, a successful deploy (all records removed), or 24 hours passing makes it red again.
+The states with a clean recovery moment (wedged lock, fetch, origin/main) also clear the moment they
+recover. The retry-type causes (pointer, unread, mirror, checksum, moving, timeout) clear only on a
+successful deploy: until then that sha has not shipped, so a second incident of the same cause on it
+within the day is the same open problem, reported green; clearing on any passing check would let two
+alternating causes re-arm each other every tick (review round 4 considered both; this is the choice). `park()` records itself, so the tick after a park does
 not send a second email. State changes (a first failure, the failure that parks, a checkout fault, an
 emptied dist) stay red every time. A damaged or future-dated record counts as never reported.
 

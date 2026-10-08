@@ -87,9 +87,13 @@ park() { echo "$TARGET" > "$STATE/parked"; mark_reported parked; }
 # (reported)" and stays green. GitHub emails the account that last edited the workflow's cron on EVERY
 # failed scheduled run, so red-every-tick on a 15-minute schedule would mean up to 96 emails a day to
 # Josh's account. Each sha and cause has its OWN record (reported.d/<sha>-<cause>, holding the time),
-# so two causes taking turns never re-arm each other. A record is removed the moment its cause is seen
-# to recover (the fetch works, the lock is taken), and every record goes when a deploy succeeds or main
-# is found already live, so a NEW incident after a recovery is red at once. A state CHANGE (a first
+# so two causes taking turns never re-arm each other. The records for the states with a clean "it is
+# over" moment (wedged lock, fetch, origin/main) are removed the moment that is seen, so a new incident
+# after it is red at once. The retry-type causes (pointer, unread, mirror, checksum, moving, timeout)
+# are removed only when a deploy succeeds or main is found already live: until then the sha has not
+# shipped, so a second incident of the same cause on it within the day is the SAME problem still open,
+# and is reported green ("STILL FAILING") rather than emailed again. Clearing those on any passing check
+# would let two causes taking turns re-arm each other every tick. A state CHANGE (a first
 # failure, the failure that parks, a checkout fault, an emptied dist) is always red; park() records
 # itself, so its next tick is not a second email.
 REPORTED="$STATE/reported.d"
@@ -101,7 +105,8 @@ red_once() {  # <cause> <message>
   case "$at" in ''|*[!0-9]*) at=0 ;; esac
   local now; now=$(date +%s)
   if [ "$at" != 0 ] && [ "$at" -le "$now" ] && [ $(( now - at )) -lt 86400 ]; then   # a future time counts as never
-    say "STILL FAILING (reported): ${2#FAIL: } (red already reported at $(date -r "$at" '+%Y-%m-%d %H:%M'); green until it recovers, changes, or a day passes)"
+    _msg="${2#FAIL: }"; _msg="${_msg/#FAIL (parked)/parked}"
+    say "STILL FAILING (reported): $_msg (red already reported at $(date -r "$at" '+%Y-%m-%d %H:%M'); green until it recovers, changes, or a day passes)"
     exit 0
   fi
   mark_reported "$1"
@@ -341,7 +346,7 @@ else
 fi
 # Printed whole once it has ended (not streamed: a live tail could be orphaned by a killed tick, and
 # could cut off the last lines). The run and the log get the same complete output.
-cat "$DOUT" | tee -a "$LOG"
+tee -a "$LOG" < "$DOUT"
 [ -n "$timedout" ] && say "the deploy ran past its ${DEPLOY_MAX_S}s limit and was stopped; counted as a retry"
 trap '[ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"' EXIT   # the deploy is over: back to the plain trap
 if [ "$rc" = 0 ]; then
