@@ -78,7 +78,7 @@ if ! mkdir "$LOCK" 2>/dev/null; then
   if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then say "skip: another tick (pid $holder) holds the lock"; exit 0; fi
   # No pid yet: a tick that has just made the lock and not written its pid. Held, unless that was
   # long enough ago that its tick must have died first. A stat that fails reads as just made (held).
-  if [ -z "$holder" ] && [ $(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || date +%s) )) -lt 60 ]; then exit 0; fi
+  if [ -z "$holder" ] && [ $(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || date +%s) )) -lt 60 ]; then say "skip: a lock with no pid yet (another tick starting)"; exit 0; fi
   rm -rf "$LOCK"; mkdir "$LOCK" 2>/dev/null || exit 0
 fi
 echo $$ > "$LOCK/pid"
@@ -130,6 +130,14 @@ git -C "$SITE" merge -q --ff-only origin/main 2>>"$LOG" || { say "FAIL: could no
 [ -d "$DIST_FROM" ] || { say "FAIL: no $DIST_FROM to take the older versioned downloads from; deploying without them would take them off the site (parked)"; printf '%s rc=%s %s\n' "$TARGET" dist "$(now)" > "$STATE/last-failure"; park; exit 1; }
 rsync -a --delete --include='kosmos-*-arm64.tar.gz' --include='kosmos-*-arm64.tar.gz.sha256' --exclude='*' "$DIST_FROM/" "$SITE/dist/" 2>&1 | tee -a "$LOG"
 [ "${PIPESTATUS[0]}" = 0 ] || { say "FAIL: could not mirror the versioned downloads from $DIST_FROM"; printf '%s rc=%s %s\n' "$TARGET" dist "$(now)" > "$STATE/last-failure"; exit 1; }
+# Every mirrored tarball must match its own .sha256, or it is not deployed. deploy-site.sh checks only
+# the current build, and a cut that started after the check above could be writing one right now. A
+# mismatch is not a finding about this sha, so it is retried on the next tick, never parked.
+for _t in "$SITE"/dist/kosmos-*-arm64.tar.gz; do
+  [ -e "$_t" ] || continue
+  _want=$(cut -c1-64 "$_t.sha256" 2>/dev/null || true); _have=$(shasum -a 256 "$_t" | cut -c1-64)
+  [ -n "$_want" ] && [ "$_want" = "$_have" ] || { say "skip: the mirrored ${_t##*/} does not match its .sha256 (a cut writing it?); the next tick tries again"; exit 0; }
+done
 
 say "deploying site main ${TARGET:0:9} (last deployed ${LAST:0:9})"
 # The deploy's output goes to the log and to stdout (PIPESTATUS keeps the deploy's own exit status).

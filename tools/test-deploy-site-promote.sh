@@ -57,7 +57,10 @@ rel="${url#"$HOST_URL"/}"
 served_file="$LIVE_DIR/$rel"
 # #5589: an edge that cannot be reached for one file: <name>.down answers like a failed connection
 # (curl prints 000 for -w and exits 7). <name>.dropafter is served once, then goes down.
-case "$rel" in *must-404.bin) if [ -n "${CONTROL_DOWN:-}" ]; then [ -n "$wfmt" ] && printf '000'; exit 7; fi ;; esac
+case "$rel" in *must-404.bin)
+  if [ -n "${CONTROL_DOWN:-}" ]; then [ -n "$wfmt" ] && printf '000'; exit 7; fi
+  if [ -n "${CONTROL_200:-}" ]; then [ -n "$dest" ] && printf 'soft 404 page\n' > "$dest"; [ -n "$wfmt" ] && printf '200'; exit 0; fi ;;
+esac
 if [ -f "$served_file.down" ]; then
   if [ -n "$wfmt" ]; then printf '000'; fi
   exit 7
@@ -516,6 +519,10 @@ out="$(CONTROL_DOWN=1 PATH="$BIN:$PATH" LIVE_DIR="$L32" HOST_URL="$HOSTURL" KOSM
 { [ "$RC" = 75 ] && has "$out" "could not RUN against" \
   && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L32/dist/latest.json")" = "$OLD" ]; } \
   && pass "#5589: a negative control that could not run exits 75 (try again), nothing deployed" || bad "#5589 control blip (rc=$RC) out=$out"
+# 32b) #5589: control for 32: a BLIND host (answers 200 for a path that cannot exist) is a finding, exit 1.
+read -r S32b L32b <<<"$(make_scenario)"
+out="$(CONTROL_200=1 PATH="$BIN:$PATH" LIVE_DIR="$L32b" HOST_URL="$HOSTURL" KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$S32b" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" bash "$DEPLOY" --promote 2>&1)"; RC=$?
+{ [ "$RC" = 1 ] && has "$out" "negative control FAILED"; } && pass "#5589: a blind host (negative control answered 200) still exits 1, not 75" || bad "#5589 blind host (rc=$RC) out=$out"
 # 33) #5589: latest.json readable for the snapshot but not for the read after it: exit 75.
 read -r S33 L33 <<<"$(make_scenario)"
 : > "$L33/dist/latest.json.dropafter"

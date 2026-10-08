@@ -344,8 +344,17 @@ H=$(git -C "$SITE" rev-parse HEAD 2>/dev/null) || { echo "deploy-site: cannot re
 # been deployed, so a blip means retry and a blind host means stop. The two post-deploy calls both
 # mean "the deploy already ran, investigate" whichever code came back, and the library's own stderr
 # line already says "failed at the transport layer" when it was a blip.
-served_verify_host_discriminates "$HOST" || { _svrc=$?; if [ "$_svrc" -eq 2 ]; then echo "deploy-site: refusing BEFORE any deploy -- the served-verify negative control could not RUN against $HOST (transport error, see above), so nothing about this host is proven either way. Nothing has been deployed."; else echo "deploy-site: refusing BEFORE any deploy -- the served-verify negative control FAILED against $HOST (see the reason above): the host answered 200 for a path that cannot exist. Nothing has been deployed."; exit 1; fi; exit 75; }
-# (#5589: the blip arm exits 75, EX_TEMPFAIL, like the pointer refusals below: run again later.)
+# #5589: the blip arm exits 75 (EX_TEMPFAIL, like the pointer refusals below: run again later); a
+# blind host is a finding and exits 1.
+_svrc=0; served_verify_host_discriminates "$HOST" || _svrc=$?
+if [ "$_svrc" -ne 0 ]; then
+  if [ "$_svrc" -eq 2 ]; then
+    echo "deploy-site: refusing BEFORE any deploy -- the served-verify negative control could not RUN against $HOST (transport error, see above), so nothing about this host is proven either way. Nothing has been deployed."
+    exit 75
+  fi
+  echo "deploy-site: refusing BEFORE any deploy -- the served-verify negative control FAILED against $HOST (see the reason above): the host answered 200 for a path that cannot exist. Nothing has been deployed."
+  exit 1
+fi
 # #5589: the four live pointers a release cut moves, as one comparable line (each: name, HTTP status,
 # sha256 of the body). Taken here, BEFORE any start-of-run comparison of the checkout with live (the
 # latest.json guard below, check_staging_not_stale), and again right before `vercel deploy`. A cut
