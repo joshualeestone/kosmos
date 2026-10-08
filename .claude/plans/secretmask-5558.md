@@ -5,14 +5,14 @@ A long path of plain segments (a plan-file name such as .claude/plans/avatar-403
 longer replaced by the mask in the setup guide's replies or in backup redaction, while every random token the detector
 caught before is still caught, including a random token chopped into short slash-separated chunks.
 
-## Built
-engine/secretmask.js: isPlainPath(run), called from looksRandom for a run containing `/`. Plain = at least two
-segments, each at most 40 characters, every piece (split at - and _, then into word and number pieces) is a number, a
-word with a vowel (lowercase or Capitalized), or a short piece with one or two letters and at least as many digits
-(3p, x64, a timestamp's T1625). Any other piece (Lm, Rt, K7MDENG, bPxRf...) makes the run not plain, so it is judged
-by the existing rules.
+## Built (current rule, after reviews 1-3)
+engine/secretmask.js: isPlainPath(run), called from looksRandom for a run containing `/`, exported for tests. Plain =
+at least two segments of at most 40 characters, every piece (split at - and _, judged WHOLE) is a number of up to 10
+digits, a word of 3-12 letters with a vowel (lowercase or Capitalized), such a word then up to 4 digits, a date or
+timestamp (20260926T1625, 20260913T052847Z) or x64/x86, AND at least one piece is a word. Any other piece makes the run
+not plain, so it is judged by the existing rules.
 
-## Measured (the card's sweep: every tracked file through mask(), before and after)
+## Measured (the card's sweep; FIRST version of the rule, superseded: see the review log for the current numbers): every tracked file through mask(), before and after)
 - long_token hits 241 -> 178; files changed by masking 253 -> 202.
 - Every run no longer masked was listed and read: plan-file paths, docs paths, a list of HTTP status codes, git short
   shas joined by slashes, an Android emulator path, a vendor path. None a credential. A first version also passed a
@@ -37,3 +37,7 @@ a random segment inside a path masked. Full secretmask.test.js 126/126.
 - Test: isPlainPath (exported for tests) never judges a path ending in a seeded random token plain (1,500 tokens, 16-32 chars), with a plain-path control. Two first drafts of this test were wrong (a generator drawing only nine characters, then a question this change does not control); recorded.
 - Repo sweep after: long_token 249 -> 183 (base count moved as main moved).
 ### Review 2 (sonnet): nothing above NIT; NITs fixed: the mostly-digit rule narrowed to dates/timestamps and x64/x86 (a digit run with stray letters cut by slashes was plain); words strictly 3-12 letters; comments match the code; negative test. 128/128.
+
+### Review 3 (opus): 1 WARNING fixed
+- WARNING fixed: a number piece had no length cap and a path needed no word, so long digit runs joined to a timestamp or word passed. Numbers capped at 10 digits; a plain path needs a word. Stale LONG_TOKEN comment rewritten; plan's Built section matches the code. NITs left: plain paths still masked when a piece is vowelless, two letters, v2-style or CamelCase (over-masking, the safe direction).
+- Sweep with the current rule (23:4x): long_token 253 -> 189; files changed by masking 254 -> 207; 129/129 tests.

@@ -2027,3 +2027,10 @@ test('#5558 review 2: a numeric secret with stray letters cut by slashes is not 
     assert.equal(isPlainPath(p), true, 'CONTROL: ' + p);
   }
 });
+
+test('#5558 review 3: long digit runs and word-less paths are not plain', () => {
+  const { isPlainPath } = require('./secretmask');
+  assert.equal(isPlainPath('332101877788736414426/20260926T103372'), false, 'a long digit run with a timestamp was plain');
+  assert.equal(isPlainPath('1234/5678/20260926'), false, 'a path with no word was plain');
+  assert.equal(isPlainPath('plans/item-4038-20260926'), true, 'CONTROL');
+});
