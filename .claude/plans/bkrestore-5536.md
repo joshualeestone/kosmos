@@ -7,8 +7,9 @@ Design v2.1 on #5536 and E0.6's on #5535. `engine/backuprestore.js`, on E0.6's m
 - `shrinkWarning(older, newer)` flags a sudden drop in file count or bytes (E0.6 v2: a person picks the snapshot, warned). It reads the manifests the device wrote, so it is a heuristic against an accidental shrink, not a defence against a device padding its manifest.
 - The sink contract is stated in the JSDoc: bytes land before verification, so the sink writes beside the final path and publishes atomically on commit. A fetched object larger than any format-1 chunk (2 x CDC.max + 4 KiB) is refused before decrypting.
 - The sink also owns two duties stated in the JSDoc: refuse to overwrite a file it already committed in this restore, and refuse a path that resolves outside the restore root (an existing symlink). It is handed '/' separators.
-- Bounded work for a hostile manifest: the manifest object is bounded (128 MiB) before it is opened and its entry count (500,000) before it is walked (both raisable by the caller), a REQUIRED maxTotalBytes (set from free disk; a restore without one is refused) fails a file before fetching once the restore would pass it, collisions are found with a segment trie (linear), a file may not list more chunks than bytes, an empty chunk is refused, and the skipped list is capped (10000 entries, 300 characters each).
-- Tests (17), each refusal with a control; every new guard mutation-checked red.
+- Bounded work for a hostile manifest: the manifest object is bounded (128 MiB) before it is opened and its entry count (500,000) before it is walked (both raisable by the caller), a REQUIRED maxTotalBytes (set from free disk; a restore without one is refused) fails a file before fetching once the restore would pass it, bytes verified and written count against twice that whether or not their file commits (so late failures are bounded), collisions are found with a segment trie (linear), a file may not list more chunks than bytes, an empty chunk is refused, and the skipped list is capped (10000 entries, 300 characters each).
+- Caller mistakes (no sink, no fetchChunk, a naming key that is not 32 bytes, no byte budget) throw instead of reading as tampering in every file.
+- Tests (19), each refusal with a control; every new guard mutation-checked red.
 - Both exports are excused in engine.reachable.test.js (caller: E0.7's restore engine, which needs E0.1/E0.2).
 
 Weakest premise: the device key "enrolled at the snapshot time" is the caller's lookup. If E0.2's history is wrong, a manifest signed by a later device opens. That binding is E0.2's to get right, and this module cannot check it.
@@ -31,3 +32,5 @@ Review round 7 (opus): a valid manifest passed as a plain Uint8Array read as tam
 Review round 8 (sonnet): the 512 MiB manifest bound was far above what a parse-whole manifest should take (now 128 MiB / 500,000 entries); no aggregate byte budget (now maxTotalBytes); sink duties untested here (recorded above as required for the next slice, and on #5536).
 
 Review round 9 (opus): the byte budget defaulted to unbounded (now required); capital sharp s escaped the fold (now lower-upper-lower). Fixed; begin throwing now tested. Kept the timing test at 2000 entries: at 1000x1000 the quadratic check would pass its bound.
+
+Review round 10 (sonnet): failed files cost nothing against the budget (now a work budget, 2x); caller mistakes read as tampering (now thrown). Fixed. A mid-file work check I first added was unreachable (mutation stayed green) and was removed.
