@@ -11962,6 +11962,8 @@ window.kosmosMeasureScrollbarWidth();
             <h2 class="rm-title" id="wv-t">At a glance</h2>
             <p class="rm-small" id="wv-in">Each Kosmos on this computer: how its AI providers are doing, and the tasks nobody is on yet.</p>
             <div class="wv-list" id="wv-list" tabindex="0" aria-label="Your Kosmoses at a glance"></div>
+    <!-- One short sentence on how the last read went, announced; the rows themselves are not re-read on Refresh. -->
+    <p class="vh" id="wv-status" role="status" aria-live="polite"></p>
             <div class="rm-acts" style="margin-top: var(--space-6);">
               <button class="btn" id="wv-refresh" type="button">Refresh</button>
               <button class="btn uprime" id="wv-close" type="button">Close</button>
@@ -29234,7 +29236,7 @@ function wvWorldHtml(w) {
     if (!w.providers.length && !w.agentsWithoutProvider) lines.push('<p class="wv-line wv-muted">No agents running an AI provider</p>');
     for (const r of w.providers) lines.push('<p class="wv-line">' + esc(wvProviderLine(r)) + '</p>');
     if (w.agentsWithoutProvider > 0) lines.push('<p class="wv-line wv-muted">' + esc(wvCount(w.agentsWithoutProvider, 'agent', 'agents')
-      + ' whose AI provider is not shown here (they run without a terminal pane)') + '</p>');
+      + ' with no AI provider shown here') + '</p>');
   } else {
     lines.push('<p class="wv-line wv-muted">AI providers: ' + esc(String(w.providersBecause || 'not known')) + '</p>');
   }
@@ -29245,6 +29247,7 @@ function wvWorldHtml(w) {
 function wvListHtml(body) {
   const worlds = body && Array.isArray(body.worlds) ? body.worlds : null;
   if (!worlds) return '<p class="wv-line wv-muted">' + esc(String((body && body.because) || 'Kosmos could not read your Kosmoses just now.')) + '</p>';
+  if (!worlds.length) return '<p class="wv-line wv-muted">No Kosmoses found on this computer.</p>';
   return worlds.map(wvWorldHtml).join('');
 }
 let wvGen = 0;
@@ -29254,17 +29257,21 @@ async function wvLoad() {
   list.setAttribute('aria-busy', 'true');
   list.innerHTML = '<p class="wv-line wv-muted">Reading your Kosmoses...</p>';
   let html;
+  let said = 'Your Kosmoses are up to date.';
   try {
     const res = await fetch('/api/worlds/overview', { cache: 'no-store' });
     let body = null;
     try { body = await res.json(); } catch (_e) {}
-    html = res.ok ? wvListHtml(body) : wvListHtml({ because: (body && body.because) || 'Kosmos could not read your Kosmoses just now.' });
+    if (!res.ok) said = (body && body.because) || 'Kosmos could not read your Kosmoses just now.';
+    html = res.ok ? wvListHtml(body) : wvListHtml({ because: said });
   } catch (_e) {
-    html = wvListHtml({ because: 'Kosmos could not be reached just now.' });
+    said = 'Kosmos could not be reached just now.';
+    html = wvListHtml({ because: said });
   }
   if (gen !== wvGen) return;   // a newer Refresh or open owns the list
   list.innerHTML = html;
   list.setAttribute('aria-busy', 'false');
+  document.getElementById('wv-status').textContent = said;
 }
 function wvOpen() {
   worldswClose();

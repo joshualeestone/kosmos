@@ -19,7 +19,7 @@ PigeonPete 2026-10-07 18:40.
   - `signInFailed > 0` adds "<n> could not sign in".
   - Provider names from the page's own words: Claude, OpenAI Codex, Gemini, Grok, Gemini (Google subscription);
     an unknown runner shows its own name.
-  - `agentsWithoutProvider > 0`: "<n> agents whose AI provider is not shown here (they run without a terminal pane)".
+  - `agentsWithoutProvider > 0`: "<n> agents with no AI provider shown here" (paneless cards, and cards that report no runner).
 - **Other worlds:** `providersBecause` is shown as written ("known only while this Kosmos is open"), never a blank.
 - **Unassigned tasks:** "<w> tasks waiting for someone", "+ <h> on hold" when held; `unassignedBecause` shown
   instead of a number when the projects file is unreadable. Never shown as 0 when unreadable.
@@ -34,6 +34,8 @@ That "At a glance" in the switcher menu is discoverable enough.
   not reachable there. Decided: this is a view ACROSS Kosmoses, several Kosmoses are switched off by default
   (#4815), and a one-world person already sees their providers on the Agents page. Revisit if the view should also
   serve one world.
+- If At a glance is pressed during the switcher's brief reconnect window, worldswClose() returns early and the
+  menu stays open behind the sheet. Harmless (it is there when the sheet closes); left as is.
 - With one Kosmos and other computers on Kosmos+, the menu opens for the computers and "At a glance" lists the one
   Kosmos. Kept: it is still true and useful.
 

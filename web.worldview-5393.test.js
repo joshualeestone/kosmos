@@ -67,7 +67,7 @@ test('a world: the open one lists its providers; another says its providers are 
   assert.match(open, /^Home <&> \(open now\)/, 'the name is escaped and the open one is marked');
   assert.match(open, /Claude: Not paused/);
   assert.match(open, /Grok: Stopped/);
-  assert.match(open, /2 agents whose AI provider is not shown here \(they run without a terminal pane\)/);
+  assert.match(open, /2 agents with no AI provider shown here/);
   assert.doesNotMatch(open, /another computer/, 'a paneless agent can run on this computer (Windows)');
   assert.match(open, /2 tasks waiting for someone/);
   const other = text(B.wvWorldHtml({ id: 'w2', name: 'Client work', running: false, providers: null, agentsWithoutProvider: null,
@@ -83,5 +83,6 @@ test('no quota figure anywhere, and a failed read says so', () => {
   const html = B.wvListHtml({ worlds: [{ name: 'A', running: true, providers: [row({ state: 'paused', paused: 2 })], agentsWithoutProvider: 0, unassigned: { waiting: 1, held: 0 } }] });
   assert.doesNotMatch(text(html), /quota|remaining|%/i);
   assert.equal(text(B.wvListHtml(null)), 'Kosmos could not read your Kosmoses just now.');
+  assert.equal(text(B.wvListHtml({ worlds: [] })), 'No Kosmoses found on this computer.', 'an empty answer is said, not a blank sheet');
   assert.equal(text(B.wvListHtml({ because: 'the world registry is not readable on this machine' })), 'the world registry is not readable on this machine');
 });

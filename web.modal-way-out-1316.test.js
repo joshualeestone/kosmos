@@ -74,7 +74,7 @@ const ESCAPES_VIA = {
      Kosmos switcher's keydown listener, which closes this modal (before the menu)
      on Escape. The table caught it the moment the modal was added, as designed. */
   'world-add-modal': /Escape[\s\S]{0,300}world-add-modal/,
-  'wv-modal': /Escape[\s\S]{0,600}wv-modal/,
+  'wv-modal': /'Escape'\) return;[\s\S]{0,500}'wv-modal'\)\.hidden\) \{ wvClose\(\); return; \}/,
   /* #1704 item 14.1: the rename-a-Kosmos modal. Its Escape is the first branch of
      the switcher's keydown listener (closes the rename modal before the create modal
      and the menu). Caught by the table the moment the modal was added, as designed. */
