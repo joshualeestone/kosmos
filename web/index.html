@@ -41355,7 +41355,10 @@ function setWritesOffered(a, tied) {
       if (el) el.hidden = true;
     }
     const exLink = document.getElementById('d-instr-export-link');   // #5581: the last agent's file is not this card's
-    if (exLink) exLink.setAttribute('href', '#');
+    if (exLink) {
+      if (document.activeElement === exLink) { const m = document.getElementById('d-instr-msg'); if (m) { m.tabIndex = -1; m.focus(); } }
+      exLink.setAttribute('href', '#');
+    }
     const personal = document.getElementById('d-instr-personal');   // #4446: emptied too, not only hidden
     if (personal) personal.textContent = '';
     const msg = document.getElementById('d-instr-msg');
@@ -41668,24 +41671,28 @@ async function instrAddAct(sessionName, act, note, buttons) {
   }
   loadInstructions(sessionName);
 }
-/* kosmos#5581: offer "Download this agent" when there is a saved, non-empty file to put in it (the engine refuses an
-   empty or missing one, and a link that answers a refusal is a broken promise). Painted on a load and after a Save. */
-/* The download starts in the person's click (the link itself), and beside it the page asks the same route with
-   ?check=1, as kplusDownload does: a refusal is said on the panel's message line instead of left to the browser. */
+/* kosmos#5581: "Download this agent". The download starts in the person's click (the link itself), and beside it the
+   page asks the same route with ?check=1, as kplusDownload does: a refusal is said on the panel's message line instead
+   of left to the browser. The address is written out here so the route test can read it (#3957). */
+let INSTR_EXPORT_LATEST = null;   // the last click's ticket: an older look's answer never lands on a newer click
 document.addEventListener('click', (e) => {
   const link = e.target && e.target.closest && e.target.closest('#d-instr-export-link');
   if (!link) return;
-  const href = link.getAttribute('href') || '#';
-  if (href === '#') { e.preventDefault(); return; }
+  if ((link.getAttribute('href') || '#') === '#' || !CURRENT || !CURRENT.sessionName) { e.preventDefault(); return; }
+  const forAgent = CURRENT.sessionName;
+  const ticket = {};
+  INSTR_EXPORT_LATEST = ticket;
   const msg = document.getElementById('d-instr-msg');
-  const forAgent = CURRENT && CURRENT.sessionName;
-  fetch(href + '?check=1', { cache: 'no-store' }).then(async (res) => {
-    if (res.ok || !CURRENT || CURRENT.sessionName !== forAgent) return;
+  if (msg) msg.textContent = '';
+  fetch('/api/agent/' + encodeURIComponent(forAgent) + '/export?check=1', { cache: 'no-store' }).then(async (res) => {
+    if (res.ok || INSTR_EXPORT_LATEST !== ticket || !CURRENT || CURRENT.sessionName !== forAgent) return;
     let said = '';
     try { const b = await res.json(); said = (b && (b.because || b.error)) || ''; } catch { said = ''; }
-    if (msg) msg.textContent = 'Not downloaded: ' + (said || 'that agent could not be put in a file') + '.';
+    if (msg) msg.textContent = 'Not downloaded: ' + (asSentence(said) || 'That agent could not be put in a file.');
   }).catch(() => { /* the download itself is already under way; a failed look is not a failed download */ });
 });
+/* Offer the row when there is a saved, non-empty file to put in it (the engine refuses an empty or missing one, and a
+   link that answers a refusal is a broken promise). Painted on a load and after a Save. */
 function paintInstrExport(sessionName, has) {
   const ex = document.getElementById('d-instr-export');
   const link = document.getElementById('d-instr-export-link');
