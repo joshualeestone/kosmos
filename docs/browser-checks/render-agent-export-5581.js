@@ -120,13 +120,30 @@ function readRow(page) {
     chk(/nothing to share/.test(said), 'a refused download says why on the panel', JSON.stringify(said));
     await page.unroute('**/api/agent/ezra/export?check=1');
 
-    // Straight from ezra to an agent with empty instructions: the LOAD's own reset must take ezra's link away.
+    // Straight from ezra to an agent whose instructions READ FAILS (review 3): no answer repaints the row, so only
+    // the load's own reset at its start can take ezra's link away.
+    await page.route('**/api/agent/nell/instructions*', (route) => (route.request().method() === 'GET'
+      ? route.fulfill({ status: 500, json: { error: 'those instructions could not be read' } }) : route.continue()));
     await openInstr(page, 'nell');
-    await page.waitForFunction(() => document.getElementById('d-instr').placeholder !== 'Loading instructions\u2026', null, { timeout: 8000 });
+    await page.waitForFunction(() => !document.getElementById('d-instr-retry-row').hidden, null, { timeout: 8000 });
+    const failed = await readRow(page);
+    chk(failed.hidden === true && failed.href === '#', 'a failed load on the next agent does not keep the last agent\'s link', JSON.stringify(failed));
+    await page.unroute('**/api/agent/nell/instructions*');
+
+    // CONTROL with a real load: empty instructions, nothing to share, no row.
+    await openInstr(page, 'nell');
+    await page.waitForFunction(() => document.getElementById('d-instr').placeholder !== 'Loading instructions\u2026'
+      && document.getElementById('d-instr-retry-row').hidden, null, { timeout: 8000 });
     await page.waitForTimeout(300);
     const empty = await readRow(page);
-    chk(empty.hidden === true, 'no export row for an agent with empty instructions', JSON.stringify(empty));
-    chk(empty.href === '#', 'the last agent\'s link does not survive onto this one', JSON.stringify(empty.href));
+    chk(empty.hidden === true && empty.href === '#', 'no export row for an agent with empty instructions', JSON.stringify(empty));
+
+    // A Save that gives nell words makes something to download (the Save path paints the row).
+    await page.fill('#d-instr', 'You are Nell. You carry the #5581 messages between the archive and the desk, every morning.');
+    await page.click('#d-instr-save');
+    await page.waitForFunction(() => /Saved/.test(document.getElementById('d-instr-msg').textContent), null, { timeout: 8000 });
+    const saved = await readRow(page);
+    chk(saved.hidden === false && saved.href === '/api/agent/nell/export', 'a Save with words offers the download for this agent', JSON.stringify(saved));
 
     // An UNTIED card never loads instructions; the panel is cleared from a list instead (review 1). Back on ezra,
     // then the untied card's own reset, run with an untied CURRENT as render-detail-header does.
