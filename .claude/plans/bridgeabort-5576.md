@@ -51,3 +51,8 @@ socket, stream and fetch operations before the abort line. The cause itself is t
 - Fixed: the fd-2 guard had no test; a child closes fd 2 and opens a file in its place, and no line reaches the
   file (control: the file took fd 2). Removing the guard turns it red (measured).
 - 11/11 (08:29 CDT 2026-10-08).
+### Review 4 (sonnet): nothing above NIT. CONVERGED.
+- Mutation: removing the fd-2 guard reds its test. Child behaviour, NODE_OPTIONS and comments checked clean.
+- NITs left: fetch read at preload time (a plain property on Node 26.8.1, so no timing change here); if fd 2 itself is
+  reused, later lines are silent, so a missing exit line reads like a death before exit; the real-run test does not
+  assert the stand-in board received the report.
