@@ -18,3 +18,4 @@ tests. My merge-tree gate runs only engine.reachable.test.js, so it could not se
 (Splinter's ask): run the node suite, or at least every test file a PR touches, on main+PR before merging.
 
 ## Review log
+- **Round 1 (sonnet, blind):** nothing above NIT. Form matches the neighbours (WIN_LAUNCHD; no option on the #5429 route tests); no other reference to the removed constants; both tests use only platform-aware helpers, as their converted neighbours do. CONVERGED.
