@@ -92,6 +92,13 @@ function writeEnrollment(rec, opts) {
   try { fs.writeFileSync(tmp, JSON.stringify(rec) + '\n', { mode: 0o600 }); fs.renameSync(tmp, file); }
   catch (e) { try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to remove */ } throw e; }
 }
+/* The small marker files are written whole too (review 35): a torn pending leave would still count as pending but
+   lose its undo flag and the consent it carries. */
+function writeWhole(file, text) {
+  const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  try { fs.writeFileSync(tmp, text, { mode: 0o600 }); fs.renameSync(tmp, file); }
+  catch (e) { try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to remove */ } throw e; }
+}
 function clearEnrollment(opts) {
   try { fs.rmSync(path.join(storeRoot(opts), ENROLLMENT_FILE), { force: true }); } catch { /* already gone */ }
 }
@@ -321,7 +328,7 @@ function setLeavePending(on, opts, rec, undo, consentHash) {
   // A rewrite without a hash keeps the one already there (review 33): one unanswered retry must not drop it.
   const given = typeof consentHash === 'string' && /^[0-9a-f]{64}$/.test(consentHash) ? consentHash : null;
   const hash = given || (on && undo === true && pendingUndo(opts) ? pendingConsentHash(opts) : null);   // only an undo's own, carried forward
-  try { if (on) fs.writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), rec: rec || null, undo: undo === true, consentHash: hash, world: readWorldId(opts) }) + '\n', { mode: 0o600 }); else fs.rmSync(file, { force: true }); } catch { /* best effort */ }
+  try { if (on) writeWhole(file, JSON.stringify({ at: new Date().toISOString(), rec: rec || null, undo: undo === true, consentHash: hash, world: readWorldId(opts) }) + '\n'); else fs.rmSync(file, { force: true }); } catch { /* best effort */ }
 }
 function pendingConsentHash(opts) {
   try { const j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_PENDING_FILE), 'utf8')); return j && j.consentHash && j.world === readWorldId(opts) ? j.consentHash : null; } catch { return null; }
@@ -335,7 +342,7 @@ function setJoinUnknown(info, opts) {
   const file = path.join(storeRoot(opts), JOIN_UNKNOWN_FILE);
   try {
     if (!info) { fs.rmSync(file, { force: true }); return; }
-    fs.writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), consentHash: info.consentHash || null, move: info.move === true }) + '\n', { mode: 0o600 });
+    writeWhole(file, JSON.stringify({ at: new Date().toISOString(), consentHash: info.consentHash || null, move: info.move === true }) + '\n');
   } catch { /* best effort */ }
 }
 function joinUnknownAge(opts) { const j = joinUnknown(opts); const t = j ? Date.parse(j.at || '') : NaN; return Number.isFinite(t) && t <= Date.now() ? Date.now() - t : null; }
@@ -351,7 +358,7 @@ function leaveRefusedFor(opts) {
 }
 function setLeaveRefused(name, opts, kind) {
   const file = path.join(storeRoot(opts), LEAVE_REFUSED_FILE);
-  try { if (name == null) fs.rmSync(file, { force: true }); else fs.writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), name, kind: kind === 'undo' ? 'undo' : 'leave' }) + '\n', { mode: 0o600 }); } catch { /* the screen just does not say it */ }
+  try { if (name == null) fs.rmSync(file, { force: true }); else writeWhole(file, JSON.stringify({ at: new Date().toISOString(), name, kind: kind === 'undo' ? 'undo' : 'leave' }) + '\n'); } catch { /* the screen just does not say it */ }
 }
 function leaveRefusedKind(opts) {
   try { return JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_REFUSED_FILE), 'utf8')).kind === 'undo' ? 'undo' : 'leave'; } catch { return null; }
@@ -371,7 +378,7 @@ function setStopped(name, opts) {
   const file = path.join(storeRoot(opts), STOPPED_FILE);
   try {
     if (name == null) { fs.rmSync(file, { force: true }); return; }
-    fs.writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), name }) + '\n', { mode: 0o600 });
+    writeWhole(file, JSON.stringify({ at: new Date().toISOString(), name }) + '\n');
   } catch { /* the screen just does not say it */ }
 }
 function leavePending(opts) { return fs.existsSync(path.join(storeRoot(opts), LEAVE_PENDING_FILE)); }
@@ -404,6 +411,7 @@ async function settleUnknownJoin(unsure, opts) {
     if (unsure.consentHash) rec.consentHash = unsure.consentHash;
     try { writeEnrollment(rec, opts); } catch { setJoinUnknown(unsure, opts); return { ok: false, enrolled: false, because: "This Kosmos's data folder could not be written." }; }
     setStopped(null, opts);
+    setLeavePending(false, opts);   // joined again after an unconfirmed leave: that old leave must never be sent now (review 35)
     return { ok: true, enrolled: true, member: true, ...rec };
   }
   if (verdict === 'notHere' && !unsure.move && namesThisWorld(d, world)) {
@@ -511,7 +519,19 @@ async function leaveNow(opts, retry) {
 /* On start and daily: ask the coordinator. member:false, or an enrollment naming another world, clears this world's
    record (removed, left, or moved elsewhere). An unreachable coordinator changes nothing. */
 async function refresh(opts) { return oneAtATime(() => refreshNow(opts)); }
+function pendingAt(opts) {
+  try { return Date.parse(JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_PENDING_FILE), 'utf8')).at || ''); } catch { return NaN; }
+}
 async function refreshNow(opts) {
+  /* A join whose outcome is unknown and NEWER than a pending leave is settled first: the person joined again after
+     that leave, and if the join landed, sending the old leave would end the membership they just accepted (review 35).
+     Settled as made: recorded, and the old leave dropped (as a successful join does). Not made: the leave goes on. */
+  const later = joinUnknown(opts);
+  if (later && leavePending(opts) && !(Date.parse(later.at || '') < pendingAt(opts))) {
+    const s = await settleUnknownJoin(later, opts);
+    if (s.enrolled) return s;
+    if (joinUnknown(opts)) return { ok: false, enrolled: false, because: s.because };   // still unknown: the old leave waits
+  }
   if (leavePending(opts)) {   // a leave the company has not confirmed: send it again, report nothing meanwhile
     const r = await leaveNow(opts, true);
     if (r.still) return { ok: false, still: true, enrolled: isEnrolledHere(opts), code: r.code, because: r.because };   // refused as the last admin: joined again

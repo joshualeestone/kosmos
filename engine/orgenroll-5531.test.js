@@ -820,3 +820,28 @@ test('#5531 review 33: a join marker whose time is in the future (a clock set ba
   await org.refresh({ root: a, remote: co });
   assert.equal(org.joinUnknown({ root: a }), null, 'a marker with a future time was kept');
 });
+
+test('#5531 review 35: a pending leave never ends a join the person made after it, whose outcome was unknown', async (t) => {
+  const { a } = sandbox(t);
+  const state = {};
+  const fr = fakeRemote(state);
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fr });
+  // The person leaves; the company does not answer: a pending leave.
+  const p = await org.leave({ root: a, remote: { macRequest: async () => ({ ok: false, because: 'offline' }) } });
+  assert.equal(p.pending, true, 'CONTROL: a pending leave');
+  await new Promise((res) => setTimeout(res, 5));
+  // The person joins again; the company binds it, but the answer and the status read are both lost: unknown.
+  const lost = { macRequest: async (m, route, body) => {
+    if (route === org.ROUTES.enroll) { await fr.macRequest(m, route, body); return { ok: false, because: 'the tunnel program did not answer in time' }; }
+    return { ok: false, because: 'offline' }; } };
+  const j = await org.enroll('ACME-JOIN-1234', true, { root: a, remote: lost });
+  assert.equal(j.code, 'org_join_unknown', JSON.stringify(j));
+  assert.equal(org.leavePending({ root: a }), true, 'CONTROL: the old leave is still pending beside the unknown join');
+  // The next pass: the company names this world here. The join is recorded; the old leave is never sent.
+  const sent = [];
+  const watch = { macRequest: async (m, route, body) => { sent.push(route); return fr.macRequest(m, route, body); } };
+  await org.refresh({ root: a, remote: watch });
+  assert.equal(sent.includes(org.ROUTES.leave), false, 'the old pending leave ended the membership the person just accepted: ' + JSON.stringify(sent));
+  assert.equal(org.isEnrolledHere({ root: a }), true);
+  assert.equal(org.leavePending({ root: a }), false, 'the old leave was kept, to be sent later');
+});

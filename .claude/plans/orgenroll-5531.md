@@ -419,3 +419,11 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
 - The pending file carries a consent hash forward only for an undo's own rewrite (review 33's keep, made narrower).
 - Not done here (follow-up): a "Review what your company sees" action in the joined view, so a person whose record has
   no consent recorded can read and accept the words without leaving (the move path enrolls with no code).
+
+## Review 35 (reproduced by the reviewer)
+- A pending leave could end a join the person made AFTER it: an unknown join beside an older pending leave, and the
+  next pass sent the leave first. refreshNow now settles a join-unknown marker that is newer than the pending leave
+  BEFORE retrying the leave: made here, it is recorded and the old leave dropped (as a successful join does); still
+  unknown, the leave waits; not made, the leave goes on. Pinned with the reviewer's sequence; the mutation reddens it.
+- The small marker files (pending leave, join unknown, leave refused, stopped) are written whole (temp then rename),
+  as the enrollment is: a torn pending leave would have kept counting as pending but lost its undo flag and consent.
