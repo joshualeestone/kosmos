@@ -507,6 +507,7 @@ const SITE_COUNTS = {
   'render-worldsw-height-2350.js': [1, 1],
   'render-worldsw-lockout-3055.js': [2, 2],
   'render-worldswitch-2238.js': [1, 1],
+  'render-worldview-5393.js': [4, 2],
 };
 
 /* One slot's measured count for one check, read from its source. A check with no

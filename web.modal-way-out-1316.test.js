@@ -40,8 +40,8 @@ test('the sweep still covers every modal, and the count is the assertion', () =>
   const found = modals();
   assert.ok(found.length >= 12,
     `only ${found.length} modals found; the sweep stopped seeing them, so every assertion below is vacuous`);
-  assert.ok(found.length <= 22,   // 18: #3955's Kosmos has been updated window; 19: #4080's Lost your phone? dialog; 20: #4343's restart screen (#4820 removed #4288's Community notice); 21: #4930's file preview; 22: #4649's invite sheet
-    `${found.length} modals now, up from 22 (#4649's invite sheet). A new one joined the page: sweep it, then raise this number.`);
+  assert.ok(found.length <= 23,   // 23: #5393's At a glance sheet; 18: #3955's Kosmos has been updated window; 19: #4080's Lost your phone? dialog; 20: #4343's restart screen (#4820 removed #4288's Community notice); 21: #4930's file preview; 22: #4649's invite sheet
+    `${found.length} modals now, up from 23 (#5393's At a glance sheet). A new one joined the page: sweep it, then raise this number.`);
 });
 
 /**
@@ -74,6 +74,7 @@ const ESCAPES_VIA = {
      Kosmos switcher's keydown listener, which closes this modal (before the menu)
      on Escape. The table caught it the moment the modal was added, as designed. */
   'world-add-modal': /Escape[\s\S]{0,300}world-add-modal/,
+  'wv-modal': /'Escape'\) return;[\s\S]{0,500}'wv-modal'\)\.hidden\) \{ wvClose\(\); return; \}/,
   /* #1704 item 14.1: the rename-a-Kosmos modal. Its Escape is the first branch of
      the switcher's keydown listener (closes the rename modal before the create modal
      and the menu). Caught by the table the moment the modal was added, as designed. */
