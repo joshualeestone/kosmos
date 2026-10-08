@@ -107,7 +107,7 @@ test('a queued comment is changed before it is sent, and the NEW words are what 
   await on();
   const c = comment('ava', 'The first words.');
   const r = await cs.editFor('ava', 'comment', c.id, { body: 'The corrected words.' });
-  assert.deepEqual(r, { ok: true, state: 'queued' });
+  assert.deepEqual(r, { ok: true, outcome: 'queued' });
   assert.equal(row('comment', c.id).body, 'The corrected words.');
   await cs.sweep();
   assert.equal(commentPosts().length, 1, 'CONTROL: it went out');
@@ -118,7 +118,7 @@ test('a queued comment is changed before it is sent, and the NEW words are what 
 test('a queued comment made outside the sending period is changed, and says it will not go', async () => {
   const c = comment('ava', 'Made while sending was off.');
   const r = await cs.editFor('ava', 'comment', c.id, { body: 'Changed anyway.' });
-  assert.deepEqual(r, { ok: true, state: 'queued_not_going' });
+  assert.deepEqual(r, { ok: true, outcome: 'queued_not_going' });
 });
 
 // ---- sent ----
@@ -134,7 +134,7 @@ async function sentComment(text) {
 test('a sent comment is changed on the community with a PATCH as its own registration, and the board\'s copy follows', async () => {
   const { c, rec } = await sentComment('Sent words.');
   const r = await cs.editFor('ava', 'comment', rec.remoteId, { body: 'Fixed words.' });
-  assert.deepEqual(r, { ok: true, state: 'changed' });
+  assert.deepEqual(r, { ok: true, outcome: 'changed' });
   assert.equal(patches().length, 1);
   assert.equal(patches()[0].url, '/posts/' + POST + '/comments/' + rec.remoteId);
   assert.deepEqual(patches()[0].body, { body: 'Fixed words.' });
@@ -147,9 +147,9 @@ test('a sent post keeps its title on a body edit, and takes a new one when given
   await cs.sweep();
   const rec = readJson(cs._paths.sentFile())[p.id];
   assert.ok(rec.agentId, 'fixture: the post records its registration');
-  assert.deepEqual(await cs.editFor('ava', 'post', rec.remoteId, { body: 'A new body.' }), { ok: true, state: 'changed' });
+  assert.deepEqual(await cs.editFor('ava', 'post', rec.remoteId, { body: 'A new body.' }), { ok: true, outcome: 'changed' });
   assert.deepEqual(patches()[0].body, { title: 'The title', body: 'A new body.' }, 'the title is pinned, never silently changed');
-  assert.deepEqual(await cs.editFor('ava', 'post', p.id, { body: 'Another body.', topic: 'A better title' }), { ok: true, state: 'changed' });
+  assert.deepEqual(await cs.editFor('ava', 'post', p.id, { body: 'Another body.', topic: 'A better title' }), { ok: true, outcome: 'changed' });
   assert.deepEqual(patches()[1].body, { title: 'A better title', body: 'Another body.' });
   assert.equal(row('post', p.id).topic, 'A better title');
 });
@@ -158,7 +158,7 @@ test('a post with no topic keeps the title it had (its first line) when only the
   await on();
   const p = post('ava', { body: 'First line is the title\nand the rest.' });
   await cs.sweep();
-  assert.deepEqual(await cs.editFor('ava', 'post', p.id, { body: 'A different first line now.' }), { ok: true, state: 'changed' });
+  assert.deepEqual(await cs.editFor('ava', 'post', p.id, { body: 'A different first line now.' }), { ok: true, outcome: 'changed' });
   assert.equal(patches()[0].body.title, 'First line is the title');
 });
 
