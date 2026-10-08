@@ -831,6 +831,9 @@ async function sweepDeletes(keys, sent, deletes) {
     if (!rec || rec.state !== 'sent' || !rec.remoteId) continue;
     const k = keys[rec.agent];
     if (!k || !k.apiKey || k.refused) continue;
+    // #5574 review 5: checked again HERE, at send time, as sweepCommentDeletes does: a registration replaced since the
+    // take-back was asked for would DELETE as another service agent, whose 404 means "not mine", not "gone".
+    if (!sameServiceAgent(rec, k)) continue;
     const r = await asAgent(rec.agent, keys, 'DELETE', '/posts/' + encodeURIComponent(rec.remoteId));
     if (r.status === 204 || r.status === 404) sent[id] = settle(rec, { state: 'deleted' });
     else {

@@ -322,3 +322,17 @@ test('review 4: a post the sweep really sends records which service agent sent i
   assert.ok(rec.agentId && rec.agentId === k.remoteId, 'the sent record names the registration that sent it: ' + JSON.stringify(rec));
   assert.equal(cs.withdrawFor('ava', 'post', rec.remoteId).ok, true, 'a new agent\'s first post is not refused for registering in the same sweep');
 });
+
+test('review 5: a registration replaced between the take-back and the sweep sends no DELETE, so nothing reads as removed', async () => {
+  await on();
+  const p = post('ava', 'Sent, then the registration changed');
+  await cs.sweep();
+  const remote = readJson(cs._paths.sentFile())[p.id].remoteId;
+  assert.equal(cs.withdrawFor('ava', 'post', remote).ok, true, 'fixture: asked for while the sending registration is held');
+  // The registration is replaced before the next sweep (keys.json lost and a new account registered under the name).
+  const keys = readJson(cs._paths.keysFile());
+  writeJson(cs._paths.keysFile(), { ...keys, ava: { ...keys.ava, remoteId: 'r-replaced', registeredAt: new Date(Date.now() + 1000).toISOString() } });
+  await cs.sweep();
+  assert.equal(dels().length, 0, 'no DELETE goes out as another service agent');
+  assert.notEqual(readJson(cs._paths.sentFile())[p.id].state, 'deleted', 'not marked removed while it is still public');
+});
