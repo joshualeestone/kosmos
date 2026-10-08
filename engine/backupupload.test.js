@@ -55,7 +55,7 @@ function coordinator(b, opts) {
     const retain = iso(expMs - 15 * 60 * 1000 + 33 * 86400 * 1000);
     const uploads = body.chunks.map((c) => {
       const key = `org1/acct1/1/2026-W41/${o.tag || ''}k${++n}`;
-      const url = `${b.base}/bucket/${key.split('/').map(encodeURIComponent).join('/')}?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-SignedHeaders=${encodeURIComponent(SIGNED)}&X-Amz-Signature=00`;
+      const url = `${b.base}/bucket/${key.split('/').map(encodeURIComponent).join('/')}?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=900&X-Amz-SignedHeaders=${encodeURIComponent(SIGNED)}&X-Amz-Signature=00`;
       return { key, url, headers: { 'content-md5': c.md5, 'if-none-match': '*', 'x-amz-object-lock-mode': 'COMPLIANCE', 'x-amz-object-lock-retain-until-date': retain } };
     });
     const data = { epoch: 1, period: '2026-W41', retain_until: retain, expires_at: iso(expMs), uploads };
@@ -113,6 +113,10 @@ test('a grant that does not bind OUR bytes, or does not name its key, is refused
     ['one upload short', (d) => { d.uploads.pop(); }],
     ['a repeated key', (d) => { d.uploads[1].key = d.uploads[0].key; }],
     ['no expiry', (d) => { delete d.expires_at; }],
+    ['a url that outlives a grant (X-Amz-Expires 3600)', (d) => { d.uploads[0].url = d.uploads[0].url.replace('X-Amz-Expires=900', 'X-Amz-Expires=3600'); }],
+    ['a url with no X-Amz-Expires', (d) => { d.uploads[0].url = d.uploads[0].url.replace('X-Amz-Expires=900&', ''); }],
+    ['a lock of exactly 28 days', (d) => { d.uploads[0].headers['x-amz-object-lock-retain-until-date'] = iso(Date.parse(d.expires_at) - 15 * 60 * 1000 + 28 * 86400 * 1000); }],
+    ['a lock of 40 days', (d) => { d.uploads[0].headers['x-amz-object-lock-retain-until-date'] = iso(Date.parse(d.expires_at) - 15 * 60 * 1000 + 40 * 86400 * 1000); }],
     ['an extra header', (d) => { d.uploads[0].headers['x-anything'] = '1'; }],
     ['a Host header', (d) => { d.uploads[0].headers.Host = 'evil.example'; }],
     ['Transfer-Encoding', (d) => { d.uploads[0].headers['Transfer-Encoding'] = 'chunked'; }],
@@ -148,7 +152,7 @@ test('the coordinator leaves Content-Length out of headers (fetch sets it): that
 
 test('an http (not https) upload url is refused unless the test seam allows it', () => {
   const c = chunk(1);
-  const data = { expires_at: '2030-01-01T00:15:00Z', uploads: [{ key: 'a/k', url: `http://bucket.example/b/a/k?X-Amz-SignedHeaders=${encodeURIComponent(SIGNED)}`, headers: { 'Content-MD5': md5(c.object), 'If-None-Match': '*', 'X-Amz-Object-Lock-Mode': 'COMPLIANCE', 'X-Amz-Object-Lock-Retain-Until-Date': '2030-02-03T00:00:00Z' } }] };
+  const data = { expires_at: '2030-01-01T00:15:00Z', uploads: [{ key: 'a/k', url: `http://bucket.example/b/a/k?X-Amz-Expires=900&X-Amz-SignedHeaders=${encodeURIComponent(SIGNED)}`, headers: { 'Content-MD5': md5(c.object), 'If-None-Match': '*', 'X-Amz-Object-Lock-Mode': 'COMPLIANCE', 'X-Amz-Object-Lock-Retain-Until-Date': '2030-02-03T00:00:00Z' } }] };
   assert.strictEqual(up.parseGrant(data, [c]).ok, false);
   assert.strictEqual(up.parseGrant(data, [c], true).ok, true);
   data.uploads[0].url = data.uploads[0].url.replace('http:', 'https:');
@@ -363,6 +367,61 @@ test('a grant that expires far further ahead than a grant lasts (a clock far off
     assert.strictEqual(r.ok, false); assert.match(r.because, /clocks is wrong/);
     assert.strictEqual(b.puts, 0);
   } finally { await b.close(); }
+});
+
+test('locks of exactly 29 and 39 days from the grant start are accepted (the window is inclusive)', async () => {
+  for (const days of [29, 39]) {
+    const b = await bucket();
+    try {
+      const tamper = (d) => { for (const u of d.uploads) u.headers['x-amz-object-lock-retain-until-date'] = iso(Date.parse(d.expires_at) - 15 * 60 * 1000 + days * 86400 * 1000); };
+      const r = await up.uploadChunks(deps(coordinator(b, { tamper, tag: `L${days}` })), [chunk(1)]);
+      assert.strictEqual(r.ok, true, `${days}: ${r.because}`);
+    } finally { await b.close(); }
+  }
+});
+
+test('a 412 on a retry after only 5xx answers counts as stored (by design: only this grant could write the key)', async () => {
+  const b = await bucket();
+  try {
+    b.script.set(keyN(1), [[503], [412, '<Error><Code>PreconditionFailed</Code></Error>']]);
+    const r = await up.uploadChunks(deps(coordinator(b)), [chunk(1)]);
+    assert.strictEqual(r.ok, true, r.because);
+    assert.strictEqual(r.keys.size, 1);
+  } finally { await b.close(); }
+});
+
+test('a PUT started in time is NOT aborted at the grant deadline (S3 checks expiry on arrival): it is stored', async () => {
+  const b = await bucket();
+  try {
+    const t0 = Math.floor(Date.now() / 1000) * 1000;
+    let t = t0;
+    const ck = { now: () => t, sleep: async (ms) => { t += ms; } };
+    const c = coordinator(b, { expiresAt: t0 + 1000 });   // one fake second left when the PUT starts
+    // The PUT takes 1.5 REAL seconds; capping its timeout at the grant's remaining second would abort it.
+    const slow = async (url, init) => { await new Promise((r) => setTimeout(r, 1500)); return fetch(url, init); };
+    const r = await up.uploadChunks(deps(c, Object.assign({ fetch: slow }, ck)), [chunk(1)]);
+    assert.strictEqual(r.ok, true, r.because);
+    assert.strictEqual(r.keys.size, 1);
+  } finally { await b.close(); }
+});
+
+test('a stuck end names the chunks that may have landed, and their keys (unsure)', async () => {
+  const b = await bucket();
+  try {
+    const c = coordinator(b);
+    b.script.get = () => [[503]];
+    const cs = [chunk(1)];
+    const r = await up.uploadChunks(deps(c, clock()), cs);
+    assert.strictEqual(r.retryLater, true);
+    assert.deepStrictEqual(r.unsure, [{ name: cs[0].name, key: keyN(1) }]);
+  } finally { await b.close(); }
+});
+
+test('a grant request that got no answer at all (network, timeout) ends retryLater; one refused before sending does not', async () => {
+  let r = await up.uploadChunks({ macRequest: async () => ({ ok: false, because: 'the coordinator did not answer in 20 s' }), fetch }, [chunk(1)]);
+  assert.strictEqual(r.ok, false); assert.strictEqual(r.retryLater, true);
+  r = await up.uploadChunks({ macRequest: async () => ({ ok: false, notSent: true, because: 'this computer is not connected to Kosmos+' }), fetch }, [chunk(1)]);
+  assert.strictEqual(r.ok, false); assert.ok(!r.retryLater);
 });
 
 test('never throws: a throwing injected clock still resolves to ok: false', async () => {
