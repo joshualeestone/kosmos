@@ -53,7 +53,7 @@ function runOnce(event, env) {
     child.stderr.on('data', (d) => { errText += d; });
     child.on('error', (e) => { spawnError = String((e && e.code) || e); });
     /* A spawn refused for lack of file handles can return before stdio exists, and `close` may never come: a try that
-       has not closed in 10 s is "never ran" (review 1), not a hang until the test's own timeout. */
+       has not closed in 10 s is ended and reported as a hang (`signal: 'timeout'`, never retried), not left hanging. */
     const hung = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* gone */ } resolve({ code: null, signal: 'timeout', error: spawnError, out, err: errText }); }, 10000);
     child.on('close', (code, signal) => { clearTimeout(hung); resolve({ code, signal, error: spawnError, out, err: errText }); });
   });
@@ -62,14 +62,20 @@ function runOnce(event, env) {
    or a kill from outside (SIGKILL, SIGTERM). A child that exited with a code, crashed on its own (SIGABRT, SIGSEGV) or
    hung past 10 s is the bridge's failure and is never retried, so a bridge that really fails still fails here. */
 const RUNNER_SIGNALS = new Set(['SIGKILL', 'SIGTERM']);
-const neverRan = (r) => !!r.error || (r.code === null && RUNNER_SIGNALS.has(r.signal));
-async function runBridge(event, env, run = runOnce) {
+/* Node's OWN startup failing for lack of threads or processes aborts the child (SIGABRT) with a CHECK or a thread
+   create error on stderr (review 3: the likeliest cause of a 56 ms death on a runner logging EAGAIN). Only that abort
+   is the runner's; any other SIGABRT is the bridge's. The set is a reasoned guess: what this change surely adds is the
+   signal and stderr in the message, so the next red names its cause. */
+const STARTUP_ABORT = /uv_thread_create|pthread_create|Check failed|Resource temporarily unavailable|EAGAIN/;
+const neverRan = (r) => !!r.error || (r.code === null && (RUNNER_SIGNALS.has(r.signal)
+  || (r.signal === 'SIGABRT' && STARTUP_ABORT.test(String(r.err || '')))));
+async function runBridge(event, env, run = runOnce, wait = (ms) => new Promise((res) => setTimeout(res, ms))) {
   const tries = [];
   for (let i = 0; i < 3; i += 1) {
     const r = await run(event, env);
     tries.push(r);
     if (!neverRan(r)) return Object.assign(r, { tries });
-    if (i < 2) await new Promise((res) => setTimeout(res, 200 * (i + 1)));
+    if (i < 2) await wait(200 * (i + 1));
   }
   return Object.assign(tries[tries.length - 1], { tries });
 }
@@ -185,16 +191,19 @@ test('#5560: only a bridge child that never ran is tried again; one that exited 
   const ok = { code: 0, signal: null, error: null, out: '', err: '' };
   const failed = { code: 1, signal: null, error: null, out: '', err: 'boom' };
   let f = fake([killed, refused, ok]);
-  assert.equal((await runBridge('x', {}, f.run)).code, 0); assert.equal(f.calls.length, 3, 'a killed then refused child was not retried');
+  assert.equal((await runBridge('x', {}, f.run, async () => {})).code, 0); assert.equal(f.calls.length, 3, 'a killed then refused child was not retried');
   f = fake([failed, ok]);
-  assert.equal((await runBridge('x', {}, f.run)).code, 1, 'a bridge that ran and exited 1 was retried into a pass');
+  assert.equal((await runBridge('x', {}, f.run, async () => {})).code, 1, 'a bridge that ran and exited 1 was retried into a pass');
   assert.equal(f.calls.length, 1);
+  // Node's own startup abort for lack of threads is the runner's, so it IS retried (review 3).
+  f = fake([{ code: null, signal: 'SIGABRT', error: null, out: '', err: 'node[1]: ... uv_thread_create ... Resource temporarily unavailable' }, ok]);
+  assert.equal((await runBridge('x', {}, f.run, async () => {})).code, 0, 'a startup abort for lack of threads was not retried');
   for (const own of [{ code: null, signal: 'SIGABRT' }, { code: null, signal: 'SIGSEGV' }, { code: null, signal: 'timeout' }]) {
     f = fake([Object.assign({ error: null, out: '', err: '' }, own), ok]);
-    assert.equal((await runBridge('x', {}, f.run)).code, null, own.signal + ' was retried into a pass, hiding a bridge crash or hang');
+    assert.equal((await runBridge('x', {}, f.run, async () => {})).code, null, own.signal + ' was retried into a pass, hiding a bridge crash or hang');
     assert.equal(f.calls.length, 1);
   }
   f = fake([killed, killed, killed, ok]);
-  assert.equal((await runBridge('x', {}, f.run)).code, null, 'more than three tries');
+  assert.equal((await runBridge('x', {}, f.run, async () => {})).code, null, 'more than three tries');
   assert.equal(f.calls.length, 3);
 });

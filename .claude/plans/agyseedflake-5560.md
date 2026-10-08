@@ -31,7 +31,7 @@
 ## Review 1 (blind, opus)
 - FIXED: the report-count message tells "nothing" from "two or more" and prints how each try ended; a retry that
   rescued the run is printed as a test diagnostic, so how often the runner kills a child can be counted; a try that
-  never closes (a spawn refused for file handles) is ended after 10 s as "never ran" instead of hanging; the comment
+  never closes is ended after 10 s and reported as a hang (not retried, review 2); the comment
   and this plan say a null code is a signal, not a refused start.
 - FIXED: the retry decision has a committed unit test with an injected runner (a killed or refused child is retried,
   one that exited 1 never is, at most three tries); widening it to "any non-zero" reddens it.
@@ -41,3 +41,10 @@
   (SIGABRT, SIGSEGV) or a hang past 10 s fails at once (unit test; "retry any null" mutation reddens). No wait after the
   last try; one comment for the rule.
 - DUPLICATE: a try killed after its report reached the board gives a second report; the message says so.
+
+## Review 3 (blind, opus)
+- FIXED: a SIGABRT whose stderr shows Node's own startup failing for lack of threads or processes (uv_thread_create,
+  pthread_create, a CHECK, EAGAIN) is the runner's and is retried; any other SIGABRT is the bridge's and fails. This is
+  the likeliest cause of the 56 ms death, which the old helper never recorded.
+- STATED: the retry set is a reasoned guess; what this PR surely adds is the signal and stderr in the failure message,
+  so the next red names its cause. Stale "never ran" wording fixed; the unit test no longer sleeps.
