@@ -499,6 +499,29 @@ const SCREENS = [
       { data: { on: false }, headers: { 'sec-fetch-site': 'same-origin' } });
     if (put.status() !== 200) throw new Error('settings-recommender: could not turn the Recommender back off (' + put.status() + ')');
   } },
+  /* #5382: the Assigner section with its failover row (shown while the Assigner is on, which is the default), with
+     failover off (its default) and on. The second puts it back off after its shot. */
+  { name: 'settings-assigner', owner: 'Mona Lisa', go: async (page) => {
+    await at(page, '?tab=settings&sec=automation');
+    await page.waitForSelector('#asg-fo-toggle[aria-checked="false"]', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => document.getElementById('asg-row').closest('.dbox').scrollIntoView({ block: 'center' }));
+    await page.mouse.move(1, 1);
+    await page.waitForTimeout(300);
+  } },
+  { name: 'settings-assigner-failover', owner: 'Mona Lisa', go: async (page) => {
+    const put = await page.request.put(page.url().split('?')[0].replace(/\/$/, '') + '/api/assigner-setting',
+      { data: { failover: true }, headers: { 'sec-fetch-site': 'same-origin' } });
+    if (put.status() !== 200) throw new Error('settings-assigner-failover: could not turn failover on (' + put.status() + ')');
+    await at(page, '?tab=settings&sec=automation');
+    await page.waitForSelector('#asg-fo-toggle[aria-checked="true"]', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => document.getElementById('asg-row').closest('.dbox').scrollIntoView({ block: 'center' }));
+    await page.mouse.move(1, 1);
+    await page.waitForTimeout(300);
+  }, after: async (page) => {
+    const put = await page.request.put(page.url().split('?')[0].replace(/\/$/, '') + '/api/assigner-setting',
+      { data: { failover: false }, headers: { 'sec-fetch-site': 'same-origin' } });
+    if (put.status() !== 200) throw new Error('settings-assigner-failover: could not turn failover back off (' + put.status() + ')');
+  } },
   /* The #718 phone-ready sweep's remaining screens (Raiden, 2026-09-25). Each
      asserts it arrived, for the same reason as the frame shots above. */
   { name: 'org-chart', owner: 'unowned', go: async (page) => {

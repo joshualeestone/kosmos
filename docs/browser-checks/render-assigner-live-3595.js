@@ -97,6 +97,31 @@ const readRow = () => {
       await Promise.all([putDone(), page.click('#asg-toggle')]);
       const on = await (await page.request.get(URL + '/api/assigner-setting')).json();
       chk(on.on === true, `[${theme}] clicking again stores on`, JSON.stringify(on));
+
+      // #5382: the failover switch, a setting of the Assigner: shown while it is on, off by default, stored by a click,
+      // and hidden while the Assigner is off.
+      const foRow = () => {
+        const vis = (n) => !!(n && (n.offsetWidth || n.offsetHeight || n.getClientRects().length));
+        const t = document.getElementById('asg-fo-toggle');
+        return { rowVisible: vis(document.getElementById('asg-fo-row')), checked: t ? t.getAttribute('aria-checked') : null,
+          hint: (document.querySelector('#asg-fo-row .dhint') || {}).textContent || '' };
+      };
+      const fo0 = await page.evaluate(foRow);
+      chk(fo0.rowVisible && fo0.checked === 'false', `[${theme}] failover: on screen while the Assigner is on, and reads OFF by default`, JSON.stringify(fo0));
+      chk(/15 minutes/.test(fo0.hint) && /different provider/.test(fo0.hint) && /billed/.test(fo0.hint),
+        `[${theme}] failover: the hint says when it acts and who is billed`, JSON.stringify(fo0.hint));
+      await Promise.all([putDone(), page.click('#asg-fo-toggle')]);
+      const foOn = await (await page.request.get(URL + '/api/assigner-setting')).json();
+      const fo1 = await page.evaluate(foRow);
+      chk(foOn.failover === true && foOn.on === true && fo1.checked === 'true', `[${theme}] failover: clicking stores it on and leaves the Assigner on`, JSON.stringify({ foOn, fo1 }));
+      await Promise.all([putDone(), page.click('#asg-toggle')]);
+      // Wait for the repaint the PUT's answer triggers, so the read cannot race it (a slow repaint would red, never pass).
+      await page.waitForFunction(() => document.getElementById('asg-fo-row').hidden, null, { timeout: 5000 }).catch(() => {});
+      const fo2 = await page.evaluate(foRow);
+      const kept = await (await page.request.get(URL + '/api/assigner-setting')).json();
+      chk(!fo2.rowVisible && kept.on === false && kept.failover === true,
+        `[${theme}] failover: hidden while the Assigner is off, and turning the Assigner off keeps the stored failover`, JSON.stringify({ fo2, kept }));
+      await Promise.all([putDone(), page.click('#asg-toggle')]);
       await page.close();
 
       const bad = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: theme });
@@ -105,6 +130,8 @@ const readRow = () => {
       await bad.waitForTimeout(800);
       const failed = await bad.evaluate(readRow);
       chk(!failed.toggleVisible && /could not read this setting/.test(failed.msg), `[${theme}] a failed read hides the toggle and says so`, JSON.stringify(failed));
+      const foFailed = await bad.evaluate(foRow);
+      chk(!foFailed.rowVisible && foFailed.checked === null, `[${theme}] failover: a failed read hides its row too (never a confident Off)`, JSON.stringify(foFailed));
       await bad.close();
     }
   } finally {
