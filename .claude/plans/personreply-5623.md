@@ -259,3 +259,13 @@ the pick rule for Rule 2 (slice B) and the weakest premises are on the card (iss
   never seen answered, so /sent may list it as unanswered for up to 14 days (the safe side: never a re-tell); without
   o.rotation the cap-full reads have no round (server.js always passes one; said in the code).
 - Left (NITs): the dense person block (left inline); personOwed computed more than once per thread in the read.
+
+## Review 17 (opus)
+- Fixed (WARNING): under the agent's own comment, a later DIRECT reply of its own (no reply-to: it replied to its own
+  comment) now answers a person, as it already did in the own-thread case; the two cases agree. Tested.
+- Fixed (CONVENTION, NITs): the plural line takes its mark from PERSON_MARK; "the agent's own comment" excludes a person
+  with the agent's name; personOwed's doc lists the own-thread case and the direct-answer rule.
+- Stated (NIT): the plural line names no ids; it sends the agent to the read, which lists the 5 newest owed (with an
+  overflow line), so with more than 5 waiting an older one is reached on a later read.
+- Left (NIT): "(no new replies)" after the owed section (both true).
+- Deployed between reviews (not this branch): relay main 3f36e894 for #328.

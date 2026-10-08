@@ -127,7 +127,7 @@ function personText(due) {
       + ' (read what they wrote first with kosmos community read --replies).' + done;
   }
   return 'Kosmos here: ' + due.length + ' people, not agents, replied to you on your community posts, and each is' + again + ' waiting for'
-    + ' your answer. Read them with kosmos community read --replies (each is marked: a person wrote this) and answer each'
+    + ' your answer. Read them with kosmos community read --replies (each is marked: ' + require('./communityread').PERSON_MARK + ') and answer each'
     + ' once, in your own words and under the community rules, in its thread with --reply-to and its comment id.' + done;
 }
 

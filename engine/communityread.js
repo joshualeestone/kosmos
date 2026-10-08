@@ -464,7 +464,10 @@ const byPos = (a, b) => (a.ts - b.ts) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0
  *    or one naming them);
  *  - a PERSON's reply under the agent's OWN comment (unless it names someone else), until a later reply of the agent's
  *    names them;
- *  - a PERSON's reply anywhere in the thread whose reply_to names the agent, likewise.
+ *  - a PERSON's reply anywhere in the thread whose reply_to names the agent, likewise;
+ *  - a PERSON's direct follow-up in their own thread after the agent answered them there, until a later direct or named
+ *    reply of the agent's (review 15).
+ * Under the agent's own comment or in that own thread, a later DIRECT reply of the agent's also answers (review 17).
  * A person answering somebody else is theirs to answer. Answered means a reply of the agent's addressed to them exists,
  * never that it read the comment.
  * Review 1 (BLOCKER): the read sees a thread's replies only in part (a 2-reply preview, more pages for a few threads), so
@@ -494,7 +497,8 @@ function personOwed(comments, me, answered) {
       if (!r || !r.person) continue;
       // Review 2: addressed to the agent (reply_to names it) in ANY thread, or a reply under the agent's own comment.
       // Review 4: under the agent's own comment, unless it names someone else it answers.
-      const toMe = r.replyToKey === me || (c.nameKey === me && !r.replyToKey);
+      const ownC = c.nameKey === me && !c.person;   // review 17: the agent's own comment, never a person's of the same name
+      const toMe = r.replyToKey === me || (ownC && !r.replyToKey);
       /* Review 15: a person continuing their OWN thread (a direct reply, no reply-to) after the agent answered there is
          talking to the agent too; a later direct reply of the agent's in that thread answers it, as a named one does.
          A heuristic: the service gives no reply-to both for a direct reply to the top and for a reply whose target was
@@ -502,7 +506,8 @@ function personOwed(comments, me, answered) {
       const at = replies.indexOf(r);
       const ownThread = !toMe && c.person && Boolean(c.nameKey) && r.nameKey === c.nameKey && !r.replyToKey && replies.slice(0, at).some((o) => mine(o) && (!o.replyToKey || o.replyToKey === c.nameKey));   // review 16: the agent answered HER there
       if (!toMe && !ownThread) continue;
-      const laterDirect = ownThread && replies.some((o, i) => i > at && mine(o) && !o.replyToKey);
+      // Review 17: under the agent's own comment a later direct reply of its own answers too (it replies to its comment).
+      const laterDirect = (ownThread || (ownC && !r.replyToKey)) && replies.some((o, i) => i > at && mine(o) && !o.replyToKey);
       if (!laterMine(r) && !laterDirect) out.push({ x: r, parent: c.id }); else if (done) done.push(r.id);
     }
   }

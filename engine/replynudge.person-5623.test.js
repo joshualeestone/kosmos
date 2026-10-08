@@ -273,3 +273,11 @@ test('#5623 review 15: past a full cap, persons-only reads take a round of 3 a p
   assert.equal(p2.length, 2, 'pass 2 did not read the rest of the roster: ' + p2);
   assert.deepEqual(p3, p1, 'the round did not close at the end of the roster, so pass 3 did not start a fresh one');
 });
+
+test('#5623 review 17: under the agent\'s own comment, a later direct reply of its own answers a person', () => {
+  const own = cm('o1', 'Kim', 5, { replies: [cm('pr', 'Dana', 20, { person: true }), cm('k2', 'Kim', 30)] });
+  assert.deepEqual(cr.personOwed([own], 'kim'), [], 'a direct answer under its own comment did not count');
+  const twin = cm('o1', 'Kim', 5, { person: true, replies: [cm('pr', 'Dana', 20, { person: true })] });
+  assert.deepEqual(cr.personOwed([twin], 'kim').map((o) => o.x.id), ['o1'], 'a person named like the agent made the agent owe her thread');
+  assert.match(rn.personText([{ remoteId: POST, id: PC }, { remoteId: POST, id: 'c2' }]), new RegExp(cr.PERSON_MARK));
+});
