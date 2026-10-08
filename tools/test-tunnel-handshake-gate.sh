@@ -29,7 +29,9 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=gate test CA" \
   -keyout "$W/ca.key" -out "$W/ca.pem" >/dev/null 2>&1
 openssl req -newkey rsa:2048 -nodes -subj "/CN=$HOST" -keyout "$W/leaf.key" -out "$W/leaf.csr" >/dev/null 2>&1
 printf 'subjectAltName=DNS:%s\n' "$HOST" > "$W/san.ext"
-openssl x509 -req -in "$W/leaf.csr" -CA "$W/ca.pem" -CAkey "$W/ca.key" -CAcreateserial -days 2 \
+# kosmos#5552: the serial file is NAMED, inside $W. Left to -CAcreateserial alone, LibreSSL (macOS's openssl) names it
+# by cutting the CA's whole path at its first dot, so it lands as tunnelgate-test.srl BESIDE $W, outside the cleanup.
+openssl x509 -req -in "$W/leaf.csr" -CA "$W/ca.pem" -CAkey "$W/ca.key" -CAcreateserial -CAserial "$W/ca.srl" -days 2 \
   -extfile "$W/san.ext" -out "$W/leaf.pem" >/dev/null 2>&1
 [ -s "$W/leaf.pem" ] || { echo "could not make the test certificate"; exit 1; }
 
