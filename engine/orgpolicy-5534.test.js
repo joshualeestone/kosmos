@@ -103,6 +103,19 @@ test('an older version is refused (no rollback by replaying an old bundle); a sa
   r = orgpolicy.refresh({ now: NOW, pinned: PINNED });
   assert.match(String(r.refused), /older policy \(version 4\)/, 'an older bundle of the first org applied after another org came in between');
   assert.equal(r.applied.org, 'org-2');
+  // Review 5: a third org in between too (with two, either half of the mark keeping would pass alone).
+  place(sign(bundle({ version: 1, org: 'org-3' })));
+  assert.equal(orgpolicy.refresh({ now: NOW, pinned: PINNED }).applied.org, 'org-3');
+  place(sign(bundle({ version: 4, policy: { ...POLICY, providers_allowed: null } })));
+  assert.match(String(orgpolicy.refresh({ now: NOW, pinned: PINNED }).refused), /older policy \(version 4\)/,
+    'the first org\'s old bundle applied after two other orgs came in between');
+  // A record written before marks existed keeps its own org's version as a mark.
+  fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-9', version: 3, applied_at: 1, policy: POLICY }));
+  place(sign(bundle({ version: 1, org: 'org-3' })));
+  orgpolicy.refresh({ now: NOW, pinned: PINNED });
+  place(sign(bundle({ version: 2, org: 'org-9' })));
+  assert.match(String(orgpolicy.refresh({ now: NOW, pinned: PINNED }).refused), /older policy \(version 2\)/,
+    'an old record\'s version was lost when another org came in');
   place(sign(bundle({ version: 6 })));
   assert.equal(orgpolicy.refresh({ now: NOW, pinned: PINNED }).applied.version, 6, 'CONTROL: a newer bundle of the first org applies');
 });

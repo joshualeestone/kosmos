@@ -105,6 +105,7 @@ function refresh({ now, pinned } = {}) {
     }
   }
   const nextMarks = { ...marks, [p.org]: Math.max(mark, p.version) };
+  // A record written before marks existed has only its own org and version: keep that one as a mark too.
   if (applied && Number.isInteger(applied.version)) nextMarks[applied.org] = Math.max(nextMarks[applied.org] || 0, applied.version);
   const rec = { org: p.org, version: p.version, iat: p.iat, applied_at: Math.floor(Date.now() / 1000), policy: p.policy, marks: nextMarks };
   try { writeApplied(rec); } catch (e) { return { applied, refused: 'the policy could not be saved: ' + ((e && e.message) || e) }; }
