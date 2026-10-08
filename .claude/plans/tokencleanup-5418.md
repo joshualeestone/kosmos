@@ -23,8 +23,9 @@ Mac, measured 10-06: 22 entries, 17 matching no agent and dated 08-28 to 09-08, 
   reports that way, and one minted before #4530 carries no launcher tag).
 - The real tie between the board on `--port` and this store is the board token (a board refuses a token that
   is not its own); the "roster matches none of the files" stop is a backstop for a board that does not enforce it.
-- **What it may remove:** a token file matching neither list and written before the cutoff; a `*.tmp` written before
-  the cutoff; a link pointing at nothing.
+- **What it may remove:** a token file matching neither list and written before the cutoff; a temp in the writer's
+  own `.kosmos-<pid>-...tmp` shape written before the cutoff; a link pointing at nothing, unless named for a live agent.
+- **Before sending the board token** it asks `/api/health` (no token) whether a Kosmos board answers on that port.
 - **No roster, no removal:** an unreachable board, a non-OK answer, no agent list, an EMPTY agent list, no board
   token for this store, or a roster that matches NONE of the store's token files (a board serving another store)
   stops it before planning.
@@ -43,7 +44,7 @@ Mac, measured 10-06: 22 entries, 17 matching no agent and dated 08-28 to 09-08, 
 - Running it automatically (at install or start): it is one-time, for machines that ran tests before ask 1.
 
 ## Tests
-`tools.cleanup-fixture-tokens-5418.test.js`, 15 arms, also run by the Windows job (ALSO_ROOT): the plan's keep/remove
+`tools.cleanup-fixture-tokens-5418.test.js`, 16 arms, also run by the Windows job (ALSO_ROOT): the plan's keep/remove
 split for every kind of entry (a live agent kept at any age: fails if the roster check is removed); unknown age
 never removed; links seen without following; backup copies modes and links and never overwrites; apply re-checks
 and goes through revoke; port and cutoff required; no roster or an empty one changes nothing (fails if the empty
@@ -53,8 +54,11 @@ file all kept; a roster matching no file, and a missing board token, each stop i
 removing it fails an arm.
 
 ## Running it (after merge)
-On each fleet Mac that ran tests before 2026-10-08: dry run with that account's board port and cutoff
-2026-10-08T00:00:00Z, read the list, then `--apply`. Report counts on #5418.
+On each fleet Mac that ran tests before ask 1 merged (2026-10-08 00:13 UTC): dry run with that account's board port
+and `--cutoff 2026-10-08T00:00:00Z` (usable from then on; the tool refuses a future cutoff). A person reads EVERY
+"remove" line against the agents they know (the dry run shows each token file's launchers and newest mint: an
+adopted or Windows agent that is offline is the case the tool cannot see), then `--apply`. Check the result, then
+delete the backup folder it names (it holds the removed tokens). Report counts on #5418.
 
 ## Weakest premises
 1. That the board lists every agent whose token must survive. Pane agents (running or stopped) and created agents

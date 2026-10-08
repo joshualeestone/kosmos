@@ -47,10 +47,15 @@ test('#5418: the plan keeps a live agent at any age and removes only old orphans
     { name: 'My.Agent.json', isSymlink: false, mtimeMs: OLD },         // not a name the store writes: keep
     { name: 'remote-a.json', isSymlink: false, mtimeMs: OLD, tokens: { launchers: ['remote'], newestMintMs: OLD } },  // offline remote agent: keep
     { name: 'recent-mint.json', isSymlink: false, mtimeMs: OLD, tokens: { launchers: [], newestMintMs: NEW } },        // minted after the cutoff: keep
+    { name: 'notes.tmp', isSymlink: false, mtimeMs: OLD },              // not the writer's temp shape: keep
+    { name: 'alice.json.dangling', isSymlink: true, targetExists: false, mtimeMs: OLD },  // dangling, not .json: remove
   ];
   const plan = tool.planCleanup(entries, live, CUTOFF, safeKey);
-  assert.deepEqual(plan.remove.map((r) => r.name).sort(), ['fixture-a.json', 'planted.json', 'x.json.kosmos-1-t0-1-1.tmp']);
-  assert.deepEqual(plan.keep.map((k) => k.name).sort(), ['My.Agent.json', 'alice.json', 'dir.json', 'fixture-b.json', 'linked.json', 'notes.txt', 'recent-mint.json', 'remote-a.json', 'y.json.kosmos-2-t0-1-1.tmp']);
+  assert.deepEqual(plan.remove.map((r) => r.name).sort(), ['alice.json.dangling', 'fixture-a.json', 'planted.json', 'x.json.kosmos-1-t0-1-1.tmp']);
+  assert.deepEqual(plan.keep.map((k) => k.name).sort(), ['My.Agent.json', 'alice.json', 'dir.json', 'fixture-b.json', 'linked.json', 'notes.tmp', 'notes.txt', 'recent-mint.json', 'remote-a.json', 'y.json.kosmos-2-t0-1-1.tmp']);
+  // a DANGLING link named for a live agent is left alone
+  const live2 = tool.planCleanup([{ name: 'alice.json', isSymlink: true, targetExists: false, mtimeMs: OLD }], live, CUTOFF, safeKey);
+  assert.deepEqual(live2.remove, []);
   assert.equal(plan.remove.length + plan.keep.length, entries.length, 'an entry was dropped from both lists');
   assert.equal(plan.remove.find((r) => r.name === 'fixture-a.json').key, 'fixture-a');
 });
@@ -103,8 +108,10 @@ test('#5418: the port and the cutoff are required, never assumed', () => {
 });
 
 /* A stub board answering GET /api/status with `body`. */
-async function stubBoard(t, status, body) {
+async function stubBoard(t, status, body, { kosmos = true, seen = [] } = {}) {
   const srv = http.createServer((req, res) => {
+    seen.push({ url: req.url, token: req.headers['x-kosmos-board-token'] || null });
+    if (req.url === '/api/health') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(kosmos ? '{"app":"kosmos","ok":true}' : '{"app":"something-else"}'); return; }
     if (req.url === '/api/status') { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); return; }
     res.writeHead(404); res.end();
   });
@@ -276,4 +283,12 @@ test('#5418: a link swapped for a real file between plan and apply is not remove
   assert.deepEqual(res.removed, ['still-a-link.json']);
   assert.deepEqual(res.failed.map((x) => x.name), ['was-a-link.json']);
   assert.equal(fs.readFileSync(path.join(dir, 'was-a-link.json'), 'utf8'), 'now a real file');
+});
+
+test('#5418: nothing that does not answer as a Kosmos board is ever sent the board token', async (t) => {
+  const seen = [];
+  const port = await stubBoard(t, 200, { agents: [] }, { kosmos: false, seen });
+  await assert.rejects(tool.fetchRoster(port, 'secret-board-token'), /Kosmos board/);
+  assert.ok(seen.length >= 1, 'the health check never ran');
+  assert.deepEqual(seen.filter((r) => r.token), [], 'the board token was sent to something that is not a Kosmos board');
 });
