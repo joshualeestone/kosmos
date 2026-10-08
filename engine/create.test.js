@@ -6595,3 +6595,26 @@ test('#4006: a new agent never inherits a failed-restart record left under its n
   assert.equal(made.outcome, create.OUTCOME.CREATED, made.because || '');
   assert.equal(disruption.read('failheir').found, false, 'the new agent was born under an old failed-restart record');
 });
+
+test('#5534: a company policy in force refuses creating or switching an agent onto a provider it does not allow', () => {
+  recorder();
+  create.setDryRun(false);
+  const orgpolicy = require('./orgpolicy');
+  fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 1, applied_at: 1,
+    policy: { providers_allowed: ['anthropic'], models_allowed: null } }));
+  try {
+    const r = create.createAgent({ ...BINS, name: 'policyblocked', role: 'pm', provider: 'openai' });
+    assert.equal(r.outcome, create.OUTCOME.REFUSED, r.because);
+    assert.match(r.because, /policy does not allow openai/);
+    assert.equal(fs.existsSync(nodePath.join(process.env.AGENT_WORKFORCE_WORKERS || '', 'policyblocked')), false, 'a refused agent left a folder');
+    const ok = create.createAgent({ ...BINS, name: 'policyok', role: 'pm' });
+    assert.equal(ok.outcome, create.OUTCOME.CREATED, 'CONTROL: an allowed provider is created: ' + ok.because);
+    const sw = create.setProvider('policyok', 'openai', BINS);
+    assert.equal(sw.outcome, create.OUTCOME.REFUSED, 'a switch onto a disallowed provider went through');
+    assert.match(sw.because, /policy does not allow openai/);
+  } finally {
+    fs.rmSync(orgpolicy.APPLIED(), { force: true });
+  }
+  const after = create.createAgent({ ...BINS, name: 'policygone', role: 'pm', provider: 'openai' });
+  assert.doesNotMatch(String(after.because || ''), /company's policy/, 'CONTROL: with no policy in force the provider is not refused for policy');
+});

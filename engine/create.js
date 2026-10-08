@@ -1827,6 +1827,12 @@ function setProvider(name, provider, opts) {
     && !(provider === 'antigravity' && antigravityEnabled())) { // #3568: behind its flag
     return { outcome: OUTCOME.REFUSED, because: REFUSE_PROVIDER };
   }
+  /* #5534: switching an agent onto a provider the company policy does not allow is refused like creating one there. */
+  {
+    let allowed = { ok: true };
+    try { allowed = require('./orgpolicy').allows({ provider, model: '' }); } catch { allowed = { ok: true }; }
+    if (!allowed.ok) return { outcome: OUTCOME.REFUSED, because: allowed.because };
+  }
   /* #3564: a swarm's meter and stop keys are Claude Code's, so it stays on Claude, as at birth. */
   if (provider !== 'anthropic') {
     let profile = null;
@@ -4368,6 +4374,14 @@ function createAgentInner(opts) {
     && !(provider === 'antigravity' && antigravityEnabled())   // #3568: behind its flag
     && !(provider === 'meta' && museEnabled(opts && opts.platform))) { // #3939: behind its flag, Mac only
     return { outcome: OUTCOME.REFUSED, because: REFUSE_PROVIDER, steps };
+  }
+  // #5534 (Enterprise E0.5): a company policy in force on this board may not allow this provider or model. Refused
+  // before anything is written, with the policy's own sentence; agents already running are never stopped by it.
+  {
+    let allowed = { ok: true };
+    try { allowed = require('./orgpolicy').allows({ provider, model: opts && opts.model ? String(opts.model) : '' }); }
+    catch { allowed = { ok: true }; }   // an unreadable policy record is no policy (nothing is bricked)
+    if (!allowed.ok) return { outcome: OUTCOME.REFUSED, because: allowed.because, steps };
   }
   /* #3564: an Agent or a Swarm. A swarm is refused here, before anything is written,
      when its settings are wrong or it is not on Claude (v1). */
