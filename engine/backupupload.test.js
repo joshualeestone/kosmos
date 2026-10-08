@@ -497,6 +497,47 @@ test('the http test seam does nothing outside the test runner', () => {
   assert.strictEqual(up.parseGrant(data, [c], true).ok, true);
 });
 
+test('grant sizes SETTLE on a slow link: allowance asked for stays within 1.2x of what is stored', async () => {
+  const b = await bucket();
+  try {
+    const ck = clock();
+    const slow = async (url, init) => { await ck.sleep(60 * 1000); return fetch(url, init); };   // one PUT per fake minute
+    const c = coordinator(b, { tag: 'settle', expiresAt: () => ck.now() + 15 * 60 * 1000 });
+    const cs = Array.from({ length: 60 }, (_, i) => chunk(500 + i));
+    const r = await up.uploadChunks(deps(c, Object.assign({ fetch: slow }, ck)), cs, { concurrency: 1 });
+    assert.strictEqual(r.ok, true, r.because);
+    const sizes = c.bodies.map((x) => x.chunks.length);
+    const asked = sizes.reduce((x, n) => x + n, 0);
+    assert.ok(asked <= 1.2 * cs.length, `asked for ${asked} to store ${cs.length}: ${sizes}`);
+    // No swing: after the first grant, a size never more than doubles past what a window carries (about 14 here).
+    assert.ok(sizes.slice(1).every((n) => n <= 15), `sizes swing: ${sizes}`);
+  } finally { await b.close(); }
+});
+
+test('a grant deadline runs from its arrival, so a Mac clock minutes off still gets the whole window', async () => {
+  const b = await bucket();
+  try {
+    const ck = clock();
+    const slow = async (url, init) => { await ck.sleep(60 * 1000); return fetch(url, init); };
+    // The coordinator's clock is 10 minutes behind this Mac's: by the Mac's clock its grants look 5 minutes long.
+    const c = coordinator(b, { tag: 'skew', expiresAt: () => ck.now() - 10 * 60 * 1000 + 15 * 60 * 1000 });
+    const cs = Array.from({ length: 8 }, (_, i) => chunk(700 + i));
+    const r = await up.uploadChunks(deps(c, Object.assign({ fetch: slow }, ck)), cs, { concurrency: 1 });
+    assert.strictEqual(r.ok, true, r.because);
+    assert.strictEqual(c.bodies.length, 1, `the first grant was cut short: ${c.bodies.map((x) => x.chunks.length)}`);
+  } finally { await b.close(); }
+});
+
+test('all uploads of one grant must sit under one bucket path', async () => {
+  const b = await bucket();
+  try {
+    const tamper = (d) => { d.uploads[1].url = d.uploads[1].url.replace('/bucket/', '/bucket/extra/'); d.uploads[1].key = d.uploads[1].key; };
+    const r = await up.uploadChunks(deps(coordinator(b, { tamper })), [chunk(1), chunk(2)]);
+    assert.strictEqual(r.ok, false); assert.match(r.because, /bucket path/);
+    assert.strictEqual(b.puts, 0);
+  } finally { await b.close(); }
+});
+
 test('never throws: a throwing injected clock still resolves to ok: false', async () => {
   const b = await bucket();
   try {
