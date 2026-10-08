@@ -1707,6 +1707,45 @@ test('a successful PUT rewrites the file and answers with the new stale state', 
   assert.equal(JSON.parse(back.body).text, text, 'a re-read did not see the write');
 });
 
+/* #5581: the agent as one portable file, the export half of #1652. The board answers it as a download; the file
+   round-trips through the import route the create form uses. */
+test('#5581: GET export answers the agent as a downloadable file that imports back; unknown and empty are refused', async (t) => {
+  const unknown = await req('/api/agent/definitely-not-an-agent/export');
+  assert.equal(unknown.status, 404, 'an unknown agent is refused before anything is read');
+  const bad = await req('/api/agent/%zz/export');
+  assert.equal(bad.status, 404, 'a malformed name is refused, not crashed on');
+  const name = await anyAgent(t);
+  if (!name) return;
+  const dir = nodePath.join(WORKERS, decodeURIComponent(name));
+  fs.mkdirSync(dir, { recursive: true });
+  const file = nodePath.join(dir, 'CLAUDE.md');
+  const before = fs.existsSync(file) ? fs.readFileSync(file) : null;
+  t.after(() => { if (before === null) fs.rmSync(file, { force: true }); else fs.writeFileSync(file, before); });
+  fs.writeFileSync(file, '# You are Exportable\n\nYou answer the #5581 test.\n');
+  const res = await fetch(`${base}/api/agent/${name}/export`);
+  const text = await res.text();
+  assert.equal(res.status, 200, text);
+  assert.match(res.headers.get('content-type') || '', /^text\/markdown/);
+  assert.match(res.headers.get('content-disposition') || '', /^attachment; filename="[A-Za-z0-9._-]+\.agent\.md"; filename\*=UTF-8''/);
+  assert.equal(res.headers.get('cache-control'), 'no-store');
+  assert.match(text, /^---\n/, 'the file starts with its header block');
+  assert.match(text, /You answer the #5581 test\./, 'the saved instructions are in the file');
+  // Round trip: the import route the create form uses reads the downloaded file.
+  const imp = await postJson('/api/agent-import', { file: text });
+  const parsed = JSON.parse(imp.body);
+  assert.equal(parsed.ok, true, 'the exported file did not import: ' + parsed.because);
+  assert.equal(parsed.name, decodeURIComponent(name));
+  // HEAD: the headers, no body.
+  const head = await fetch(`${base}/api/agent/${name}/export`, { method: 'HEAD' });
+  assert.equal(head.status, 200);
+  assert.equal((await head.text()).length, 0, 'HEAD sent a body');
+  // Nothing to share: refused with the engine's sentence, not an empty file.
+  fs.writeFileSync(file, '   \n');
+  const empty = await req(`/api/agent/${name}/export`);
+  assert.equal(empty.status, 409, empty.body);
+  assert.match(JSON.parse(empty.body).error, /instructions are empty/);
+});
+
 /* #4406: the version kept beside the file, for the Instructions tab to put back in the box. */
 test('#4406: GET instructions/previous answers the kept version, writes nothing, and refuses an unknown agent', async (t) => {
   const unknown = await req('/api/agent/definitely-not-an-agent/instructions/previous');

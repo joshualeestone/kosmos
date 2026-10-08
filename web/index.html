@@ -13115,6 +13115,9 @@ window.kosmosMeasureScrollbarWidth();
          simply the wrong name. What the reader needs is that the old version
          still exists, not what it is called. -->
     <div class="fpath" id="d-instr-prev" hidden>The previous version is kept alongside it, so nothing you replace is lost. <button class="linkish" id="d-instr-prev-load" type="button">Put the previous version in the box</button></div>
+    <!-- kosmos#5581: the agent as one file (its name and its saved instructions), for another Kosmos to import with
+         "import my existing agent". Shown only when there is a saved, non-empty file to put in it. -->
+    <div class="fpath" id="d-instr-export" hidden>Keep or share this agent as one file, with its name and saved instructions. Another Kosmos can bring it in. <a class="linkish" id="d-instr-export-link" href="#" download>Download this agent</a></div>
     <div class="fmsg" id="d-instr-msg" role="status" aria-live="polite"></div>
     <!-- #4406: while the box loads it says so with the loading mark, never an empty box; a failed load offers a retry. -->
     <p class="dhint" id="d-instr-loading" role="status" aria-live="polite" hidden style="margin:6px 0 0;"><span class="spin spin-sweep" style="--sz:14px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span> Loading instructions…</p>
@@ -41706,6 +41709,7 @@ async function loadInstructions(sessionName) {
   // failed load showed "the version before your last save is kept" about an
   // agent with no folder at all.
   document.getElementById('d-instr-prev').hidden = true;
+  document.getElementById('d-instr-export').hidden = true;   // #5581: the last agent's file is not this one's
   paintPersonalInstr(null);   // #4446: the last agent's sentence is not this one's
   renderStale(null);
   /* #4406: an empty, greyed box while the load is in flight read as "the instructions are gone" (a restart can
@@ -41756,6 +41760,12 @@ async function loadInstructions(sessionName) {
     // knows about is half a safety net, and this is the screen where someone
     // is about to replace an agent's entire boot file.
     document.getElementById('d-instr-prev').hidden = !data.hasPrevious;
+    /* #5581: the export carries the SAVED file, so it is offered only when there is one with something in it (the
+       engine refuses an empty or missing one, and a link that answers a refusal is a broken promise). */
+    { const ex = document.getElementById('d-instr-export');
+      const has = !!data.exists && !!String(data.text || '').trim();
+      document.getElementById('d-instr-export-link').href = has ? '/api/agent/' + encodeURIComponent(sessionName) + '/export' : '#';
+      ex.hidden = !has; }
     // Only claim editability when it is a file this screen can actually
     // save to (the sentence about an agent with no folder would be false).
     // The PATH itself is not shown -- pack ruling, Josh 2026-08-17.
