@@ -102,3 +102,9 @@ Reviewer verified the sendPost agentId line changes no other path (aliasing, set
   front on a known mismatch; withdraw allows the older record and refuses the agentId-named ones. Mutations: review 5's
   strict check restored -> the regression guard reds; the sweep check removed -> review 5's test reds. All community
   test files: 810 passed.
+
+## Review 7 (sonnet, blind): 1 WARNING
+- [WARNING] requestDelete's new refusal read an unreadable keys.json as "registration gone", a false and
+  permanent-sounding 400 to the person --> FIXED: unreadable is retryable (503 with Retry-After), as withdrawFor does.
+  Test with a control. Reviewer confirmed the person-path change fires only for a sent post with a known-other
+  registration, and the web list shows the 400's sentence on the row.
