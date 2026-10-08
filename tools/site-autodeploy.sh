@@ -64,6 +64,14 @@ now() { date '+%Y-%m-%d %H:%M:%S %Z'; }
 # Everything a tick says goes to the log AND to stdout, so a run in GitHub Actions shows why it did what it did.
 say() { printf '%s %s\n' "$(now)" "$*" | tee -a "$LOG"; }
 park() { echo "$TARGET" > "$STATE/parked"; }
+# Read "<sha> <n>" from a count file; a damaged or foreign line counts from zero, never evaluates its text.
+count_for() {
+  local f="$1" csha="" cn=""
+  read -r csha cn < "$f" 2>/dev/null || true
+  case "$cn" in ''|*[!0-9]*) cn=0 ;; esac
+  if [ "$csha" = "$TARGET" ]; then echo "$cn"; else echo 0; fi
+}
+RETRY_ALARM=4   # consecutive retried ticks for one sha before a run goes red once
 
 [ -n "$SITE" ] || { echo "site-autodeploy: set KOSMOS_AUTODEPLOY_SITE to this job's own site checkout" >&2; exit 2; }
 mkdir -p "$STATE" || { echo "site-autodeploy: cannot make $STATE" >&2; exit 2; }
@@ -75,7 +83,13 @@ mkdir -p "$STATE" || { echo "site-autodeploy: cannot make $STATE" >&2; exit 2; }
 LOCK="$STATE/lock"
 if ! mkdir "$LOCK" 2>/dev/null; then
   holder=$(cat "$LOCK/pid" 2>/dev/null || true)
-  if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then say "skip: another tick (pid $holder) holds the lock"; exit 0; fi
+  if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+    # A tick takes minutes. A lock held past an hour of heartbeat silence is wedged (a reused pid,
+    # say): go red so somebody looks, rather than skip green forever.
+    beat=$(stat -f %m "$STATE/heartbeat" 2>/dev/null || date +%s)
+    if [ $(( $(date +%s) - beat )) -gt 3600 ]; then say "FAIL: the lock (pid $holder) has been held with no heartbeat for over an hour; remove $LOCK if no tick is running"; exit 1; fi
+    say "skip: another tick (pid $holder) holds the lock"; exit 0
+  fi
   # No pid yet: a tick that has just made the lock and not written its pid. Held, unless that was
   # long enough ago that its tick must have died first. A stat that fails reads as just made (held).
   if [ -z "$holder" ] && [ $(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || date +%s) )) -lt 60 ]; then say "skip: a lock with no pid yet (another tick starting)"; exit 0; fi
@@ -103,8 +117,13 @@ LAST=$(cat "$STATE/last-deployed" 2>/dev/null || true)
 # does not hide a cut: release.sh still runs as its own `bash .../tools/release.sh` process, and that
 # line is what matches. Not matched: an option that takes a separate argument (bash -o pipefail ...)
 # or a path with a space in it; cuts are launched as `bash tools/release.sh <version>`.
+# The list is captured first and matched without a pipeline: under pipefail, `ps | grep -q` reports
+# the SIGPIPE ps gets when grep stops at the first match (rc 141) on any list over a pipe buffer, so a
+# busy machine would read as "nothing running" exactly when a cut is. This also matches the shell
+# suite's own runs of tools/deploy-site.sh on this machine, which only delays a deploy a tick.
 PS_CMD="${KOSMOS_AUTODEPLOY_PS:-ps -axo command=}"
-if sh -c "$PS_CMD" 2>/dev/null | grep -Eq '^([^ ]*/)?(ba|z)?sh( -[^ ]+)* [^ ]*tools/(release|deploy-site|promote-channel)\.sh( |$)'; then
+procs=$(sh -c "$PS_CMD" 2>/dev/null) || procs=""
+if grep -Eq '^([^ ]*/)?(ba|z)?sh( -[^ ]+)* [^ ]*tools/(release|deploy-site|promote-channel)\.sh( |$)' <<<"$procs"; then
   say "skip: a release cut, deploy or promote is running; main ${TARGET:0:9} waits for the next tick"
   exit 0
 fi
@@ -136,8 +155,16 @@ rsync -a --delete --include='kosmos-*-arm64.tar.gz' --include='kosmos-*-arm64.ta
 for _t in "$SITE"/dist/kosmos-*-arm64.tar.gz; do
   [ -e "$_t" ] || continue
   _want=$(cut -c1-64 "$_t.sha256" 2>/dev/null || true); _have=$(shasum -a 256 "$_t" | cut -c1-64)
-  [ -n "$_want" ] && [ "$_want" = "$_have" ] || { say "skip: the mirrored ${_t##*/} does not match its .sha256 (a cut writing it?); the next tick tries again"; exit 0; }
+  [ -n "$_want" ] && [ "$_want" = "$_have" ] || { MISMATCH="${_t##*/}"; break; }
 done
+if [ -n "${MISMATCH:-}" ]; then
+  # Counted with the exit-75 retries: a cut writing it clears within a tick or two; one that never
+  # matches (no sidecar, a corrupt copy at the source) goes red on the 4th tick instead of green forever.
+  n=$(( $(count_for "$STATE/retries") + 1 )); echo "$TARGET $n" > "$STATE/retries"
+  if [ "$n" = "$RETRY_ALARM" ]; then say "FAIL: the mirrored $MISMATCH has not matched its .sha256 for $n ticks; fix it at $DIST_FROM"; exit 1; fi
+  say "skip: the mirrored $MISMATCH does not match its .sha256 (a cut writing it?); the next tick tries again ($n in a row)"
+  exit 0
+fi
 
 say "deploying site main ${TARGET:0:9} (last deployed ${LAST:0:9})"
 # The deploy's output goes to the log and to stdout (PIPESTATUS keeps the deploy's own exit status).
@@ -154,18 +181,10 @@ if [ "$rc" = 0 ]; then
   say "deployed site main ${TARGET:0:9}"
   exit 0
 fi
-# Read "<sha> <n>" from a count file; a damaged or foreign line counts from zero, never evaluates its text.
-count_for() {
-  local f="$1" csha="" cn=""
-  read -r csha cn < "$f" 2>/dev/null || true
-  case "$cn" in ''|*[!0-9]*) cn=0 ;; esac
-  if [ "$csha" = "$TARGET" ]; then echo "$cn"; else echo 0; fi
-}
 # 75: deploy-site.sh found the live site moving (a cut or a staging publish landed mid-run) or could
 # not read it. Not a finding about this sha, so it is NOT parked: the next tick tries again.
 # After RETRY_ALARM of them in a row for the same sha the tick exits 1 once, so the run goes red
 # (a host that stays unreachable would otherwise read green forever); it keeps retrying after that.
-RETRY_ALARM=4
 if [ "$rc" = 75 ]; then
   n=$(( $(count_for "$STATE/retries") + 1 )); echo "$TARGET $n" > "$STATE/retries"
   if [ "$n" = "$RETRY_ALARM" ]; then
