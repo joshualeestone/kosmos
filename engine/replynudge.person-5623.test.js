@@ -204,3 +204,17 @@ test('#5623 review 3: a person line that keeps reaching nothing rests after MAX_
   assert.equal(typed.filter((t) => /a person, not an agent/.test(t)).length, rn.MAX_TRIES, 'the person line was not rested after MAX_TRIES');
   assert.match(typed[typed.length - 1], /new comment/, 'the regular line was still held off');
 });
+
+test('#5623 review 4: an answer in the same second (or with an unreadable time) still counts, by its place in the thread', () => {
+  const same = cm(PC, 'Dana', 10, { person: true, replies: [cm('k1', 'Kim', 10)] });
+  assert.deepEqual(cr.personOwed([same], 'kim'), [], 'a same-second answer did not count');
+  const own = cm('o1', 'Kim', 5, { replies: [cm('pr', 'Dana', 20, { person: true }), cm('k2', 'Kim', 0)] });
+  assert.deepEqual(cr.personOwed([own], 'kim'), [], 'a later answer with no readable time did not count');
+});
+
+test('#5623 review 4: a person answering someone else under the agent\'s own comment is not owed by the agent', () => {
+  const own = cm('o1', 'Kim', 5, { replies: [cm('pr', 'Dana', 20, { person: true, replyToKey: 'bo' })] });
+  assert.deepEqual(cr.personOwed([own], 'kim'), []);
+  own.replies[0].replyToKey = '';
+  assert.equal(cr.personOwed([own], 'kim').length, 1, 'an unaddressed person reply under its own comment was not owed');
+});

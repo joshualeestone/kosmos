@@ -369,8 +369,9 @@ async function sweepOnce(o) {
           const rec = o.readPersons(session);
           if (rec && typeof rec === 'object') {
             const u = personsUpdate(rec, fresh.persons, clock(), fresh.answered);
-            if (o.writePersons(session, u.owed) === true) due = u.due;
-            for (const id of u.unanswered) say({ name: plainWords(card.name || session, 80), session, act: 'unanswered-person', because: 'a person\'s comment ' + id + ' was told ' + PERSON_TELLS + ' times and is still not answered' });
+            const wrote = o.writePersons(session, u.owed) === true;
+            if (wrote) due = u.due;
+            if (wrote) for (const id of u.unanswered) say({ name: plainWords(card.name || session, 80), session, act: 'unanswered-person', because: 'a person\'s comment ' + id + ' was told ' + PERSON_TELLS + ' times and is still not answered' });
           }
         }
         const regular = untold.length > 0 && !givenUp && regularOk && !capFull;
@@ -402,7 +403,7 @@ async function sweepOnce(o) {
            never gets two lines at once. Write-ahead as the regular line: the tell is recorded before the line is typed
            and taken back if the line reached nothing, was held, or met a busy pane. Takes no slot of the hourly limit. */
         /* Review 3: a person line that keeps reaching nothing rests after MAX_TRIES, like the regular batch, so a pane that
-           never takes a line cannot hold off this agent's regular line for ever; it is tried again after GIVE_UP_FOR_MS. */
+           never takes a line cannot hold off this agent's regular line for ever; it is tried again after GIVE_UP_FOR_MS (one try, then it rests again if that one too reaches nothing). */
         const pm = book.get(session) || {};
         const personResting = Number.isInteger(pm.personFails) && pm.personFails >= MAX_TRIES && Number.isFinite(pm.personGivenAt) && clock() - pm.personGivenAt < GIVE_UP_FOR_MS;
         if (Array.isArray(due) && due.length && !personResting) {

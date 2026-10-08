@@ -478,12 +478,15 @@ function personOwed(comments, me, answered) {
     if (!c) continue;
     const replies = Array.isArray(c.replies) ? c.replies : [];
     if (Number.isInteger(c.replyCount) && c.replyCount > replies.length) continue;   // part of the thread unseen: unknown
-    const laterMine = (r) => replies.some((o) => mine(o) && o.ts > r.ts);
+    /* Review 4: later by time, or by place in the thread when the times tie or one is unreadable (the service lists a
+       thread's replies oldest first), so an answer in the same second still counts. */
+    const laterMine = (r) => { const at = replies.indexOf(r); return replies.some((o, i) => mine(o) && (o.ts > r.ts || (i > at && (!o.ts || !r.ts || o.ts === r.ts)))); };
     if (c.person) { if (!replies.some(mine)) out.push({ x: c, parent: '' }); else if (done) done.push(c.id); }
     for (const r of replies) {
       if (!r || !r.person) continue;
       // Review 2: addressed to the agent (reply_to names it) in ANY thread, or a reply under the agent's own comment.
-      const toMe = c.nameKey === me || r.replyToKey === me;
+      // Review 4: under the agent's own comment, unless it names someone else it answers.
+      const toMe = r.replyToKey === me || (c.nameKey === me && !r.replyToKey);
       if (!toMe) continue;
       if (!laterMine(r)) out.push({ x: r, parent: c.id }); else if (done) done.push(r.id);
     }
@@ -745,19 +748,20 @@ async function repliesFor(sessionName, opts) {
       if (x.author && x.ts && !(me && x.nameKey === me) && afterMark(x, mark, firstLook)) fresh.push({ x, post: th.post.remoteId, parent });
     }
   }
+  fresh.sort((a, b) => byPos(a.x, b.x));
+  const shownItems = fresh.slice(0, REPLIES_SHOWN_MAX);
   /* #5623 review 2/3: a person's comment the agent still owes is shown whatever the read's mark says, so a re-tell can
      always be read and answered (a mark records reading, not answering). Review 3: in a SEPARATE section, at most
      OWED_SHOWN_MAX, outside the read's own REPLIES_SHOWN_MAX slots and its marks, so owed items can never crowd out new
-     replies, hold a post's mark back, or shift where freshReplies' count says the read's cap falls. */
+     replies, hold a post's mark back, or shift where freshReplies' count says the read's cap falls. Its window is the
+     whole thread as read, wider than the count's 7 days: it may repeat an older owed comment the nudge no longer counts. */
   const owedShown = [];
-  const inFresh = new Set(fresh.map((f) => f.x.id));
+  const inFresh = new Set(shownItems.map((f) => f.x.id));   // review 4: only the ones actually shown above
   for (const th of threads) {
     if (th.failed || th.gone) continue;
     for (const o of personOwed(th.comments, me)) if (!inFresh.has(o.x.id)) owedShown.push({ x: o.x, post: th.post.remoteId, parent: o.parent });
   }
   owedShown.sort((a, b) => byPos(a.x, b.x));
-  fresh.sort((a, b) => byPos(a.x, b.x));
-  const shownItems = fresh.slice(0, REPLIES_SHOWN_MAX);
   const lines = [REPLIES_HEADING, ''];
   // #5623: the person comments it owes, so a line can say so (a person's reply under its own comment is owed too).
   const owedIds = new Set(owedShown.map((f) => f.x.id));
@@ -777,6 +781,7 @@ async function repliesFor(sessionName, opts) {
       lines.push(x.body.split('\n').map((l) => QUOTE + l).join('\n'));
       lines.push('');
     });
+    if (owedShown.length > OWED_SHOWN_MAX) lines.push('(' + (owedShown.length - OWED_SHOWN_MAX) + ' more people are waiting: answer these, then read again)', '');
   }
   const failed = threads.filter((th) => th.failed).length;
   if (fresh.length > shownItems.length) lines.push('(' + (fresh.length - shownItems.length) + ' newer replies not shown yet; the next read starts after these)', '');

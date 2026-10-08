@@ -102,3 +102,17 @@ the pick rule for Rule 2 (slice B) and the weakest premises are on the card (iss
   - the cap-full count reads every idle agent's threads for persons (paced 1.5 s; the priority call);
   - /sent can keep an "unanswered" entry for an answer in a thread the read cannot wholly see, until it ages out.
 - Tests: 812/812 across every test that mentions these modules.
+
+## Review 4 (sonnet)
+- Fixed (WARNINGs):
+  - the owed section skipped comments in the read's list but past its 30 shown, so they were listed nowhere; it now
+    excludes only those actually shown;
+  - an overflow line says when more than 5 people are waiting;
+  - "answered" is later by time, or by place in the thread when times tie or one is unreadable (a same-second answer
+    counted as none);
+  - a person's reply under the agent's own comment that names someone else is not owed;
+  - the unanswered log line fires only once the record saved.
+- Stated (WARNING): the read's owed section looks at the whole thread, wider than the count's 7 days, so it may repeat
+  an older owed comment the nudge no longer counts. Said in the doc.
+- Left (WARNING): the owed section of repliesFor still has no direct test (it needs a fetched thread).
+- Tests: 2 more in the #5623 file. #4774 W1 reddened once in the wide run and passes alone (44/44 with this file).
