@@ -311,8 +311,8 @@ async function enrollNow(code, accepted, opts) {
 }
 
 /* The pending leave keeps the record it cleared, so a retry the company refuses (the last admin) can put it back.
-   Owner-only, read by this module alone: no route hands it, or the org id and world id inside it, to the page. */
-/* `undo` marks the leave that takes back this Kosmos's OWN first join (one it could not keep): that one is sent while the
+   Owner-only, read by this module alone: no route hands it, or the org id and world id inside it, to the page.
+   `undo` marks the leave that takes back this Kosmos's OWN first join (one it could not keep): that one is sent while the
    account is a member at all, not only when the company names this world, since the company's not naming it here is
    exactly why it is being undone (#5531 review 21). */
 function setLeavePending(on, opts, rec, undo) {
@@ -322,8 +322,6 @@ function setLeavePending(on, opts, rec, undo) {
 function pendingUndo(opts) {
   try { return JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_PENDING_FILE), 'utf8')).undo === true; } catch { return false; }
 }
-/* A retried leave the company refused as the last admin puts the enrollment back, so this Kosmos reports again. The
-   person was told it had stopped, so the screen's next read says once that it did not (#5531 review 21). */
 /* A join that got no answer, and a status that could not say: the company may hold this world while nothing here
    follows it up. This marker makes the next start or daily pass ask once more (#5531 review 25). */
 function setJoinUnknown(info, opts) {
@@ -338,6 +336,8 @@ function joinUnknown(opts) {
   try { const j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), JOIN_UNKNOWN_FILE), 'utf8')); return j && typeof j === 'object' ? j : null; }
   catch { return null; }
 }
+/* A retried leave the company refused as the last admin puts the enrollment back, so this Kosmos reports again. The
+   person was told it had stopped, so the screen's next read says once that it did not (#5531 review 21). */
 function leaveRefusedFor(opts) {
   try { const j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_REFUSED_FILE), 'utf8')); return j && typeof j.name === 'string' ? j.name : null; }
   catch { return null; }
@@ -382,7 +382,8 @@ async function settleUnknownJoin(unsure, opts) {
   const d = st.ok ? st.data : null;
   const verdict = statusVerdict(d, world);
   if (verdict === 'unclear') return { ok: false, enrolled: false, because: "Your company's answer was not complete." };
-  const age = Date.now() - Date.parse(unsure.at || '');
+  const t = Date.parse(unsure.at || '');
+  const age = Number.isFinite(t) ? Date.now() - t : Infinity;   // an unreadable time counts as old: settled on a clear answer (review 30)
   if (verdict !== 'here' && !(age >= SETTLE_AFTER_MS)) return { ok: false, enrolled: false, because: 'Too soon to say the join was not made.' };   // kept
   setJoinUnknown(null, opts);
   if (verdict === 'here') {
@@ -400,11 +401,6 @@ async function settleUnknownJoin(unsure, opts) {
   }
   return { ok: true, enrolled: false };
 }
-/* What a status answer says about THIS world, in one place (leave and refresh both read it, review 11):
-   'here'    the company enrolls this world on this computer;
-   'gone'    not a member at all;
-   'notHere' a member, but enrolled nowhere, as another world, or as this world on another computer;
-   'unclear' anything else (a field missing, an unreadable local id): change nothing. */
 /* The company names THIS world's id (on this computer or another): what a join of this world left. NOT "no world at all":
    that is also what the company shows while the same account's join from another computer is still landing, and an
    undo sent then would end that membership (review 28). */
@@ -412,6 +408,11 @@ function namesThisWorld(d, world) {
   if (!d || d.member !== true || !world) return false;
   return !!d.enrolled && typeof d.enrolled === 'object' && d.enrolled.world === world;
 }
+/* What a status answer says about THIS world, in one place (leave and refresh both read it, review 11):
+   'here'    the company enrolls this world on this computer;
+   'gone'    not a member at all;
+   'notHere' a member, but enrolled nowhere, as another world, or as this world on another computer;
+   'unclear' anything else (a field missing, an unreadable local id): change nothing. */
 function statusVerdict(d, world) {
   if (!d || typeof d !== 'object') return 'unclear';
   if (d.member === false) return 'gone';

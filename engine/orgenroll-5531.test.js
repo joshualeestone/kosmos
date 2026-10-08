@@ -766,3 +766,14 @@ test('#5531 review 28: a consent hash is never carried onto a record for another
   assert.equal(r.code, 'org_join_unknown', JSON.stringify(r));
   assert.equal(sent.includes(org.ROUTES.leave), false, 'an undo was sent while another computer\'s join may be landing');
 });
+
+test('#5531 review 30: a marker whose time cannot be read is settled on the first clear answer, not kept forever', async (t) => {
+  const { a } = sandbox(t);
+  const co = { macRequest: async (m, route) => (route === org.ROUTES.enroll ? { ok: false, because: 'the tunnel program did not answer in time' } : { ok: true, data: { member: false } }) };
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: co });
+  const mk = path.join(a, 'org-join-unknown.json');
+  fs.writeFileSync(mk, JSON.stringify(Object.assign(JSON.parse(fs.readFileSync(mk, 'utf8')), { at: 'not a time' })));
+  assert.equal(org.joinUnknownAge({ root: a }), null, 'CONTROL: the marker\'s time is unreadable');
+  await org.refresh({ root: a, remote: co });
+  assert.equal(org.joinUnknown({ root: a }), null, 'a marker with an unreadable time was kept forever');
+});

@@ -373,3 +373,8 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
   It now says: if joining went through, this screen will show it.
 - The fast follow-up stops after a day (an unclear marker that long, say Kosmos+ off, falls back to the daily pass).
 - A second Check while one is out no longer clears the message first.
+
+## Review 30
+- A marker whose time could not be read never settled (its age was NaN) and the fast follow-up polled it forever.
+  An unreadable time now counts as old (settled on the first clear answer), and the fast follow-up skips it (the daily
+  pass remains). Pinned; the NaN mutation reddens it. Two stranded comments moved onto their functions.
