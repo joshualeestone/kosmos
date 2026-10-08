@@ -1,7 +1,7 @@
 ---
 method: challenge-loop
 branch: bootadds-5584
-diff_hash: b50c01e35110f6b5372636ab9c91faf0aabdbf046a5c2eff7c52cf12c1fc554f
+diff_hash: 47936cc24bd907ad6e72905185ec1ef80fb5de4aa0164031286afa83edc6fee9
 timestamp: 2026-10-08T12:01:00Z
 iterations: 5
 converged: true
@@ -17,7 +17,8 @@ converged: true
 
 It then snapshots the added files twice: at the first answer, where the gate takes its diff, and once every
 expected file has landed and the set is still, bounded at 45s. It compares them with `EXPECTED_ADDS`, read live
-from the gate script. The PR also blesses board-alive.json, the same change as the 0.7.28 cut's installgate-5359.
+from the gate script. The branch first carried the board-alive.json bless (the same change as the 0.7.28 cut's
+installgate-5359). Main received that bless when 0.7.28 merged back, so after merging main this PR adds only the test.
 
 Blind reviewers alternated Sonnet and Opus for 5 iterations. Rounds 1 to 4 each found real gaps, all fixed. Round
 5 found nothing.
