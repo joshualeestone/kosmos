@@ -107,7 +107,7 @@ async function badFile(acc, file, why, lastWriteMs = null) {
 }
 
 class Acc {
-  constructor(sinceDay, untilDay) { this.days = {}; this.folders = {}; this.sinceDay = sinceDay; this.untilDay = untilDay; this.incomplete = false; this.codexSeen = new Set(); }
+  constructor(sinceDay, untilDay) { this.days = {}; this.folders = {}; this.folderModels = {}; this.sinceDay = sinceDay; this.untilDay = untilDay; this.incomplete = false; this.codexSeen = new Set(); }
   inRange(day) { return day && !(this.sinceDay && day < this.sinceDay) && !(this.untilDay && day > this.untilDay); }
   add(day, model, folder, b) {
     if (!this.inRange(day)) return;
@@ -118,7 +118,11 @@ class Acc {
     if (!this.folders[day]) this.folders[day] = {};
     const fk = folder || '';
     if (!this.folders[day][fk]) this.folders[day][fk] = emptyBuckets();
-    for (const into of [this.days[day][m], this.folders[day][fk]]) {
+    /* #5532: the same row by launch folder AND model, so usage can be scoped to one Kosmos's own agents per model. */
+    if (!this.folderModels[day]) this.folderModels[day] = {};
+    if (!this.folderModels[day][fk]) this.folderModels[day][fk] = {};
+    if (!this.folderModels[day][fk][m]) this.folderModels[day][fk][m] = emptyBuckets();
+    for (const into of [this.days[day][m], this.folders[day][fk], this.folderModels[day][fk][m]]) {
       for (const f of BUCKET_FIELDS) into[f] += b[f];
       into.rows += 1;
     }
@@ -454,7 +458,7 @@ async function scanProviders({ sinceDay, untilDay, homes: h } = {}) {
   try { await scanAntigravity(acc, hs.antigravity || []); } catch { acc.incomplete = true; }
   /* `complete: false` when anything could not be read: the caller shows these numbers but must not FREEZE them, or a
      passing error on the first read after an update would fix a past day's provider usage at zero forever (review 1). */
-  return { days: acc.days, folders: acc.folders, homesRead: hs, complete: !acc.incomplete };
+  return { days: acc.days, folders: acc.folders, folderModels: acc.folderModels, homesRead: hs, complete: !acc.incomplete };
 }
 
 /* #5153: the readers and their accumulator, so a task's receipt counts tokens by exactly these rules, from an accumulator

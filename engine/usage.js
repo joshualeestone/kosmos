@@ -209,6 +209,7 @@ async function scanUsage({ sinceDay, untilDay, mtimeCut = false }) {
   const roots = configRoots();
   const days = {};
   const folders = {};
+  const folderModels = {};   // #5532: day -> launch folder -> model, for usage scoped to one Kosmos's agents
   // Launch folder per top-level transcript, for its subagents to inherit.
   const launchOf = new Map();
   for (const root of roots) {
@@ -310,10 +311,55 @@ async function scanUsage({ sinceDay, untilDay, mtimeCut = false }) {
         const fb = folders[day][folder];
         for (const field of BUCKET_FIELDS) fb[field] += Number(usage[field]) || 0;
         fb.rows += 1;
+        if (!folderModels[day]) folderModels[day] = {};
+        if (!folderModels[day][folder]) folderModels[day][folder] = {};
+        if (!folderModels[day][folder][model]) folderModels[day][folder][model] = emptyBuckets();
+        const fm = folderModels[day][folder][model];
+        for (const field of BUCKET_FIELDS) fm[field] += Number(usage[field]) || 0;
+        fm.rows += 1;
       }
     }
   }
-  return { days, folders, rootsRead: roots };
+  return { days, folders, folderModels, rootsRead: roots };
+}
+
+/**
+ * #5532 (Enterprise E0.3): usage of THIS Kosmos's own agents only, per day and model. The rest of this file reads
+ * every Claude config folder on the computer, so its totals include the person's other Kosmoses and their sessions
+ * outside Kosmos; the company rollup must never send those.
+ *
+ * A row counts only when its transcript's launch folder IS one of `agentDirs` (compared after realpath, the rule
+ * byAgent uses; a subfolder is not claimed, so an agent on a broad folder cannot absorb the person's own sessions
+ * beneath it). Read fresh each time, frozen nowhere: the per-day files the usage screen keeps are untouched.
+ *
+ * Returns { byDay: { day: { model: bucket } }, complete } where complete is false when any provider was only partly
+ * read (the caller then says so rather than send a short count as the whole).
+ */
+async function worldUsageByModel(days, agentDirs, deps) {
+  const d = deps || {};
+  const n = Math.min(MAX_DAYS, Math.max(1, Math.trunc(Number(days)) || 1));
+  const untilDay = todayUtc();
+  const sinceDay = new Date(Date.now() - (n - 1) * 86400000).toISOString().slice(0, 10);
+  const realpath = d.realpath || (async (p) => { try { return await fsp.realpath(p); } catch { return path.resolve(p); } });
+  const mine = new Set();
+  for (const dir of Array.isArray(agentDirs) ? agentDirs : []) if (typeof dir === 'string' && dir) mine.add(await realpath(dir));
+  const claude = await (d.scanUsage || scanUsage)({ sinceDay, untilDay, mtimeCut: true });
+  let others = { folderModels: {}, complete: false };
+  try { others = await (d.scanProviders || ((o) => require('./usageproviders').scanProviders(o)))({ sinceDay, untilDay }); }
+  catch { others = { folderModels: {}, complete: false }; }
+  const byDay = {};
+  const resolved = new Map();
+  for (const src of [claude.folderModels || {}, others.folderModels || {}]) {
+    for (const [day, folders] of Object.entries(src)) {
+      for (const [folder, models] of Object.entries(folders || {})) {
+        if (!folder) continue;   // a transcript with no recorded folder is nobody's
+        if (!resolved.has(folder)) resolved.set(folder, await realpath(folder));
+        if (!mine.has(resolved.get(folder))) continue;
+        for (const [model, b] of Object.entries(models || {})) addInto((byDay[day] = byDay[day] || {}), model, b);
+      }
+    }
+  }
+  return { byDay, complete: others.complete !== false };
 }
 
 async function ensureUsageDir() {
@@ -614,6 +660,7 @@ module.exports = {
   walkTranscriptsUnder,
   scanUsage,
   dailyUsageByModel,
+  worldUsageByModel,
   byAgent,
   byAgentAsync,
   utcDay,
