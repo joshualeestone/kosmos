@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: boardkeychain-4491
-diff_hash: dfe438cc76fe8f59699ef6f513d487ac47936effbed7af53f395f655c00f19db
+diff_hash: 6f16dcef73447fc3c9093c54821ccfe747119ce37388ee5886bfcb1b69ff1286
 validation: passed (focused, at the rebased head 2026-10-07 20:2x CDT: guard/token/auth/undo/file-scanning guards 327 pass 0 fail, undo-credential 69/69, setup-assistant 27/27, undo routes 16/16, supervisor 156/156; the full suites run in PR CI and merge waits on them green)
 subdir_audit: passed
 timestamp: 2026-10-08T01:25:11Z
@@ -143,3 +143,4 @@ Twenty-third review (sonnet): [WARNING] launch fails open --> DECIDED (logged, l
 Twenty-fourth review (opus): [WARNING] Windows rule spelling may never match --> FIXED (refused on win32 until measured). [WARNING] additionalDirectories --> FIXED (dropped, warned). [WARNING] soft link through the file tools --> DEFERRED (#5516 measurement). NITs fixed (hidden worlds, world id, temp cleanup). 327 + 69 tests pass.
 Twenty-fifth review (sonnet), CONVERGED: no BLOCKER; [WARNING] off-macOS ok means rules only --> named residual; [WARNING] temp copy permission-layer only --> named residual; [WARNING] other agents' transcripts not read-denied --> DEFERRED (speculative: no code prints the token; #5516 list). NITs left (double launch log line, empty-file copy, undo stat cost).
 Rebased onto main again 2026-10-07 20:2x (27 new commits on main; one conflict in tools/windows-tests.js HOST_BRANCH_EXCLUDED, both lines kept); every focused set above re-run green after the rebase.
+- Rebased onto origin/main after #5563 (13:22 CDT 2026-10-08). One conflict, engine/sendertoken.js's exports line: main added revokeIfUnchanged, this branch added tokenOnlyList; both kept. Main's engine.reachable now reads every exports block (#5548), so this branch's undo.js test seam _setBeforeWriteForTests is excused there with its reason (one commit, test file only). Built main + this branch with git merge-tree: engine.reachable then fails only on main's own known costOf line (#5600). diff_hash recomputed.
