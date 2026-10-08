@@ -234,7 +234,7 @@ test('#5536 the sink is handed / separators; an empty file restores; a refused l
   assert.equal(r2.failed[0].path, `${'a'.repeat(299)}...`);
 });
 
-test('#5536 an empty chunk is refused, and a deep manifest is checked for collisions in linear time', async () => {
+test('#5536 an empty chunk is refused, and a deep folder clash is found', async () => {
   const k = backup([{ path: 'a.md', data: rand(10) }]);
   const empty = bf.sealNamedChunk(k.member.pk, k.nk, Buffer.alloc(0));
   const ctx = { ...k.ctx, snapshot: 's2' };
@@ -242,13 +242,30 @@ test('#5536 an empty chunk is refused, and a deep manifest is checked for collis
   const r = await br.restoreSnapshot({ maxTotalBytes: BIG, memberSk: k.member.sk, namingKey: k.nk, devicePubAtSnapshot: k.dev.publicKey, ctx, manifestObject: m, fetchChunk: () => empty.object, sink: memorySink() });
   assert.deepEqual(r.failed, [{ path: 'e.md', why: 'a chunk did not verify (forged, swapped or damaged)' }]);
   const deep = Array(2000).fill('a').join('/');
-  const { run } = handMade((entry) => [...Array.from({ length: 2000 }, (_, i) => entry(`${deep}${i}`)), entry(`${deep}/x`), entry(deep)]);
-  const t0 = process.hrtime.bigint();
+  const { run } = handMade((entry) => [entry(`${deep}/x`), entry(deep), entry('ok.md')]);
   const { r: rd } = await run();
-  // Measured 10-07: under 1 s with the trie, 22.8 s with the quadratic check it replaced. The bound sits far from both.
-  assert.ok(Number(process.hrtime.bigint() - t0) / 1e6 < 10000, '2000 entries of 2000 segments check in linear time');
-  assert.deepEqual(rd.failed.map((f) => f.why).sort(), ['another entry lands on the same file or folder', 'another entry lands on the same file or folder'],
-    'CONTROL: the deep folder clash is still found');
+  assert.deepEqual(rd.restored, ['ok.md'], 'CONTROL');
+  assert.deepEqual(rd.failed.map((f) => f.why), ['another entry lands on the same file or folder', 'another entry lands on the same file or folder'],
+    'the deep folder clash is found');
+});
+
+test('#5536 the collision check scales linearly with path depth (a ratio, so machine load does not decide it)', async () => {
+  // Every entry is listed twice, so all are refused before any fetch and the time is the path and collision checks.
+  // Measured 10-08: depth x4 costs x3.8 to x4.5 with the trie, x13 with the quadratic check it replaced.
+  const timeAt = async (depth) => {
+    const deep = Array(depth).fill('a').join('/');
+    const { run } = handMade((entry) => Array.from({ length: 400 }, (_, i) => entry(`${deep}${i >> 1}`)));
+    let best = Infinity;
+    for (let k = 0; k < 3; k++) {
+      const t0 = process.hrtime.bigint();
+      const { r } = await run();
+      best = Math.min(best, Number(process.hrtime.bigint() - t0));
+      assert.equal(r.failed.length, 400);
+    }
+    return best;
+  };
+  const ratio = (await timeAt(2000)) / (await timeAt(500));
+  assert.ok(ratio < 7.5, `depth x4 cost x${ratio.toFixed(1)}; the trie measured about 4, the quadratic check about 13`);
 });
 
 test('#5536 maxTotalBytes caps what a restore commits, before fetching (control: exactly the budget restores)', async () => {
