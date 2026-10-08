@@ -1,5 +1,7 @@
 # fingerprint-5532-win32: the Windows arm of the per-computer fingerprint (#5532, contract v1.5)
 
+**Posture:** production
+
 Stacked on `fingerprint-5532` (the Mac half, by the Mac fleet; no PR yet). Asked by Splinter on 2026-10-07 for Renet,
 under the 09-16 rule that the Windows box builds the Windows side. Spec: Renet's latest comment on #5532.
 
