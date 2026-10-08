@@ -215,7 +215,7 @@ jobs:
         # #5488 part b: the self-hosted Mac has tmux installed once (its runner user may not own Homebrew).
         # #5488 part c: never brew install on the self-hosted runner. Its Homebrew belongs to the machine's owner,
         # and the runner user can write to it through the admin group. tmux is installed there once, by hand.
-        run: command -v tmux || { [ "$RUNNER_ENVIRONMENT" != self-hosted ] || { echo "::error::tmux is missing on the self-hosted runner; not installing into the machine owner's Homebrew, card 5488"; exit 1; }; brew install tmux; }
+        run: command -v tmux || { [ "$RUNNER_ENVIRONMENT" != self-hosted ] || { echo "::error::tmux is missing on the self-hosted runner (or not on its PATH); not installing into the machine owner's Homebrew, card 5488"; exit 1; }; brew install tmux; }
       # PIN THE NODE. Nothing else here declares a version at all (fixed by the
       # .nvmrc and the engines field this branch adds), and the version is not
       # cosmetic. A related repo (#1462, kosmos-relay) was bitten by an OUTPUT
