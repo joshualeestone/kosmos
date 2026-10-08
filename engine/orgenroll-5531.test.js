@@ -515,6 +515,24 @@ test('#5531 review 17: an unrecorded join whose undo failed, then refused as the
   assert.equal(org.readEnrollment({ root: b }).org.name, 'Acme');
 });
 
+test('#5531 review 18: a local-only leave retires the world id, so the next pass cannot quietly take the enrollment back', async (t) => {
+  const { a } = sandbox(t);
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
+  const id = org.worldId({ root: a });
+  fs.rmSync(path.join(a, org.ENROLLMENT_FILE));   // the record is gone (by hand, or lost); the id survives
+  assert.equal(fs.existsSync(path.join(a, org.WORLD_ID_FILE)), true, 'CONTROL: the id was already gone, so this test reaches nothing');
+  const sent = [];
+  const r = await org.leave({ root: a, remote: { macRequest: async (m, route) => { sent.push(route); return { ok: true, data: { ok: true } }; } } });
+  assert.equal(r.localOnly, true, JSON.stringify(r));
+  assert.deepEqual(sent, []);
+  // The company still names this world: a pass that could ask would write the record back with no consent shown here.
+  const asked = [];
+  const naming = { macRequest: async (m, route) => { asked.push(route); return { ok: true, data: { member: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: id, thisComputer: true } } }; } };
+  await org.refresh({ root: a, remote: naming });
+  assert.equal(org.isEnrolledHere({ root: a }), false, 'a local-only leave was quietly taken back by the next pass, with no consent shown');
+  assert.deepEqual(asked, [], 'a world that left still asked the company about itself');
+});
+
 test('#5531 review 14: a record whose world id file is gone is stale: cleared, and nothing is asked', async (t) => {
   const { a } = sandbox(t);
   await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });

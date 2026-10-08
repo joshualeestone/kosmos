@@ -252,3 +252,11 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
 - render-plus-blue-1615 again counts every #plus-flow field except the one known dark one (#plus-org-code), with the
   control that it is dark: the painted-white count let a near-white field through.
 - Messages shown on the page are full sentences.
+
+## Review 18
+- A local-only leave (no record here, no pending leave) cleared the record but kept the world id, so a later daily pass
+  that found the company naming this world wrote the enrollment back with no consent shown here. It now retires the id,
+  as every other ending does. Pinned by a test where the record is gone and the id survives (my first version of the
+  test reused a world whose id an earlier pass had already retired, so the mutation did not redden it; rewritten).
+- Kept: refresh re-adopting a MOVE that could not be written (intended). Such a record carries no consentHash, and the
+  rollup (E0.3) stays dormant without one, so a re-adopted enrollment never reports.

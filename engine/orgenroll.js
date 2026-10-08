@@ -319,7 +319,9 @@ async function leaveNow(opts) {
      it. A world the company already stopped naming, or a stale record naming another world, clears locally and sends
      NOTHING: the membership may now be another world's or another computer's, and must not be ended from here. */
   if (!isEnrolledHere(opts) && !leavePending(opts)) {
-    clearEnrollment(opts); setStopped(null, opts);
+    /* The id goes too, as on every other ending: kept, the next daily pass could find the company naming this world and
+       quietly take the enrollment back with no consent shown here (#5531 review 18). */
+    clearEnrollment(opts); setStopped(null, opts); retireWorldId(opts);
     return { ok: true, localOnly: true };
   }
   const before = readEnrollment(opts) || pendingRecord(opts);
