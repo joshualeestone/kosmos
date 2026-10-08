@@ -1228,18 +1228,21 @@ const LONG_TOKEN = /[A-Za-z0-9+/_-]{32,600}={0,2}/g;
 function isPlainPath(run) {
   const segs = run.split('/').filter(Boolean);
   if (segs.length < 2) return false;
-  // A word needs a vowel (Lm, Rt from a chopped token are not words); a piece with one or two letters needs at least
-  // as many digits (3p, x64, 20260926T1625), so short random chunks such as Lm3p/Rt6w still fail.
+  /* Review 1: each piece between - and _ is judged WHOLE (no splitting a random chunk into harmless-looking parts).
+     Plain: a number; a word of 3+ letters with a real vowel (a e i o u), lowercase or Capitalized; a word then up to
+     4 digits (win32, arm64); or a mostly-digit piece with at most 2 letters and at most 2 digit groups (x64,
+     20260926T1625, 20260913T052847Z). A random lowercase-and-digit chunk interleaves and fits none of these. */
+  const word = (w) => /^[A-Z]?[a-z]{2,}$/.test(w) && /[aeiou]/i.test(w);
   const pieceOk = (p) => {
     if (/^[0-9]+$/.test(p)) return true;
+    if (word(p)) return true;
+    const wd = p.match(/^([A-Za-z]+)([0-9]{1,4})$/);
+    if (wd && word(wd[1])) return true;
     const letters = (p.match(/[A-Za-z]/g) || []).length;
-    const digits = (p.match(/[0-9]/g) || []).length;
-    if (p.length <= 16 && letters <= 2 && digits >= 1 && digits >= letters) return true;
-    return /^[A-Z]?[a-z]+$/.test(p) && /[aeiouy]/.test(p);
+    const groups = (p.match(/[0-9]+/g) || []).length;
+    return p.length <= 20 && letters <= 2 && groups >= 1 && groups <= 2 && !/^[A-Za-z]/.test(p.replace(/^x(?=[0-9])/, ''));
   };
-  return segs.every((seg) => seg.length <= 40 && seg.split(/[-_]/).filter(Boolean)
-    .every((part) => pieceOk(part) || (part.match(/[A-Z]?[a-z]+|[0-9]+[A-Za-z]?[0-9]*/g) || []).join('') === part
-      && (part.match(/[A-Z]?[a-z]+|[0-9]+[A-Za-z]?[0-9]*/g) || []).every(pieceOk)));
+  return segs.every((seg) => seg.length <= 40 && seg.split(/[-_]/).filter(Boolean).every(pieceOk));
 }
 
 function looksRandom(run) {
