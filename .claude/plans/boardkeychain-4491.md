@@ -241,3 +241,8 @@ case-sensitive disk a file differing only in case from a protected one is refuse
 - WARNING fixed: permissions.additionalDirectories (widens where the sandboxed shell may write, like allowWrite) is removed from the agent's settings.json and settings.local.json, and named in the person's-settings warning. Kosmos never writes it for an agent.
 - WARNING recorded (residual, unmeasured): the shell can make a soft link in the agent's folder to board.token or a settings file and then use the Read/Edit tools on the link; whether Claude Code resolves the link before matching a deny is not measured. Added to #5516 step 1, next to the hard-link residual.
 - NITs fixed: hidden worlds' tokens are denied too (hiding does not revoke); a missed world is named by id; a failed rename removes its temp file. NIT left: undo's test-only beforeWrite hook stays a module function (no-op unless a test sets it).
+
+### Review 25 (sonnet): converged
+No BLOCKER; every WARNING was already a named residual (off-macOS permission rules only; the board.token temp copy's permission-layer-only Read deny), except one, deferred with reason:
+- DEFERRED (residual, speculative): other agents' Claude transcripts (~/.claude/projects, ~/.claude-*/projects) are not read-denied; they would hold the board token only if an agent ever printed it, and no Kosmos code prints it (the CLI sends it off argv). Read-denying every transcript folder for a token-only agent goes on #5516's list.
+NITs left as they are: the double launch log line for a listed non-Claude agent; an empty settings.json gets an .unreadable copy; undo's per-file stat; folderStillSafe's identity check (inside the named hard-link window).
