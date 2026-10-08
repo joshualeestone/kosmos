@@ -151,3 +151,8 @@
   command's Windows form needs its own look.
 - Left (NIT): the test file has no win32 in its name, so the Windows runner's selector skips it; it injects the
   platform and runs on every OS in the main suite.
+
+## After convergence
+- The convergence full suite (17,1xx tests) failed two: costOf (main's, gone after rebasing onto #5600) and the
+  Windows-runner guard (windows-tests-1777): the hooks test branches on a win32 host, so it is now in tools/windows-tests.js
+  ALSO and runs on the Windows runner too. After the rebase: reachability, the runner guard and the hooks test 42/42.
