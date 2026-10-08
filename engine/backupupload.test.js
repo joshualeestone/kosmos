@@ -1225,3 +1225,14 @@ test('a manifest grant already over an hour expired by this computer\'s clock (a
     assert.strictEqual(b.puts, 0);
   } finally { await b.close(); }
 });
+
+test('a chunk lock end in seconds (before 2020 as milliseconds) is refused as the wrong unit, not as chunks gone', async () => {
+  const b = await bucket();
+  try {
+    const mc = manifestCoordinator(b);
+    const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunks: oneChunk(Math.floor((Date.now() + 35 * DAY) / 1000)) }));
+    assert.strictEqual(r.ok, false); assert.match(r.because, /before 2020: not a lock date in milliseconds/);
+    assert.strictEqual(r.outlastsChunks, undefined);
+    assert.strictEqual(mc.bodies.length, 0);
+  } finally { await b.close(); }
+});
