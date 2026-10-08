@@ -806,7 +806,9 @@ function manifestCoordinator(b, opts) {
 const mKey = (n) => `org1/acct1/1/2026-W41/mK${n}`;
 const manifestBytes = () => crypto.randomBytes(up.MIN_OBJECT + 100);
 // The opts a caller passes: the chunks' bucket path (the local bucket's) and a lock end no manifest here outlasts.
-const mOpts = (b, extra) => Object.assign({ bucket: `${new URL(b.base).host}/bucket/`, chunksLockedUntilMs: Date.now() + 40 * DAY, chunkKeys: [] }, extra || {});
+// One chunk it names (a key no stub hands out) locked 40 days, so no manifest here outlasts it.
+const oneChunk = (lockedUntilMs, key) => [{ key: key || 'org1/acct1/1/2026-W41/chunk-x', lockedUntilMs: lockedUntilMs === undefined ? Date.now() + 40 * DAY : lockedUntilMs }];
+const mOpts = (b, extra) => Object.assign({ bucket: `${new URL(b.base).host}/bucket/`, chunks: oneChunk() }, extra || {});
 const sha256hex = (b) => crypto.createHash('sha256').update(b).digest('hex');
 
 test('chunks then their manifest: uploadChunks returns each lock end and the bucket, and the manifest is stored there under its SHA-256', async () => {
@@ -819,7 +821,7 @@ test('chunks then their manifest: uploadChunks returns each lock end and the buc
     for (const x of cs) assert.ok(Number.isFinite(r.lockedUntil.get(x.name)), 'each chunk has its lock end');
     const m = manifestBytes();
     const mc = manifestCoordinator(b);
-    const mr = await up.uploadManifest(deps(mc), m, { bucket: r.bucket, chunksLockedUntilMs: Math.min(...r.lockedUntil.values()), chunkKeys: r.keys.values() });
+    const mr = await up.uploadManifest(deps(mc), m, { bucket: r.bucket, chunks: cs.map((x) => ({ key: r.keys.get(x.name), lockedUntilMs: r.lockedUntil.get(x.name) })) });
     assert.strictEqual(mr.ok, true, mr.because);
     assert.strictEqual(mr.key, mKey(1));
     assert.strictEqual(mr.sha256, sha256hex(m));
@@ -880,7 +882,7 @@ test('a manifest locked past the earliest chunk it names is refused before its P
     const b = await bucket();
     try {
       const mc = manifestCoordinator(b, { retainMs: () => retain });
-      const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunksLockedUntilMs: floor }));
+      const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunks: oneChunk(floor) }));
       assert.strictEqual(r.ok, ok, `${what}: ${r.because}`);
       if (!ok) { assert.strictEqual(r.outlastsChunks, true); assert.strictEqual(r.grantSpent, true); assert.strictEqual(b.puts, 0, `${what}: a byte was sent`); assert.strictEqual(mc.bodies.length, 1); }
       else assert.strictEqual(r.lockedUntilMs, floor);
@@ -892,27 +894,28 @@ test('chunks whose lock ends within 30 days are refused before any grant is aske
   const b = await bucket();
   try {
     const mc = manifestCoordinator(b);
-    const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunksLockedUntilMs: Date.now() + 29 * DAY }));
+    const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunks: oneChunk(Date.now() + 29 * DAY) }));
     assert.strictEqual(r.ok, false);
     assert.strictEqual(r.outlastsChunks, true);
     assert.strictEqual(r.grantSpent, false);
     assert.strictEqual(mc.bodies.length, 0, 'a grant was asked for');
     // CONTROL: 31 days asks (the stub locks for 33 days from the grant, so set the floor past that for the PUT too).
-    const ok = await up.uploadManifest(deps(manifestCoordinator(b, { retainMs: (e) => e - 15 * 60 * 1000 + 31 * DAY - 60 * 1000 })), manifestBytes(), mOpts(b, { chunksLockedUntilMs: Date.now() + 31 * DAY }));
+    const ok = await up.uploadManifest(deps(manifestCoordinator(b, { retainMs: (e) => e - 15 * 60 * 1000 + 31 * DAY - 60 * 1000 })), manifestBytes(), mOpts(b, { chunks: oneChunk(Date.now() + 31 * DAY) }));
     assert.strictEqual(ok.ok, true, ok.because);
   } finally { await b.close(); }
 });
 
-test('a manifest call without its bucket, its chunks lock end or its chunk keys, or outside the size range, asks for nothing', async () => {
+test('a manifest call without its bucket or a usable list of its chunks, or outside the size range, asks for nothing', async () => {
   const b = await bucket();
   try {
     const mc = manifestCoordinator(b);
     const cases = [
-      [manifestBytes(), { chunksLockedUntilMs: Date.now() + 40 * DAY, chunkKeys: [] }, /no bucket/],
-      [manifestBytes(), { bucket: mOpts(b).bucket, chunkKeys: [] }, /no lock end/],
-      [manifestBytes(), { bucket: mOpts(b).bucket, chunksLockedUntilMs: Date.now() + 40 * DAY }, /no list of the manifest's chunk keys/],
-      [manifestBytes(), mOpts(b, { chunkKeys: null }), /no list of the manifest's chunk keys/],
-      [manifestBytes(), mOpts(b, { chunksLockedUntilMs: NaN }), /no lock end/],
+      [manifestBytes(), { chunks: oneChunk() }, /no bucket/],
+      [manifestBytes(), { bucket: mOpts(b).bucket }, /no list of the manifest's chunks/],
+      [manifestBytes(), mOpts(b, { chunks: null }), /no list of the manifest's chunks/],
+      [manifestBytes(), mOpts(b, { chunks: [] }), /at least one chunk/],
+      [manifestBytes(), mOpts(b, { chunks: [{ key: 'org1/k' }] }), /no lock end for the manifest's chunk org1\/k/],
+      [manifestBytes(), mOpts(b, { chunks: oneChunk(NaN) }), /no lock end/],
       [crypto.randomBytes(up.MIN_OBJECT - 1), mOpts(b), /outside/],
       ['not bytes', mOpts(b), /not bytes/],
     ];
@@ -1027,7 +1030,7 @@ test('an unreachable bucket for the manifest is retried until expiry, then ends 
   const b = await bucket();
   const base = b.base; await b.close();   // nothing listens there now
   const mc = manifestCoordinator({ base });
-  const r = await up.uploadManifest(deps(mc, clock()), manifestBytes(), { bucket: `${new URL(base).host}/bucket/`, chunksLockedUntilMs: Date.now() + 40 * DAY, chunkKeys: [] });
+  const r = await up.uploadManifest(deps(mc, clock()), manifestBytes(), { bucket: `${new URL(base).host}/bucket/`, chunks: oneChunk() });
   assert.strictEqual(r.ok, false);
   assert.strictEqual(r.retryLater, true);
   assert.match(r.because, /could not be reached/);
@@ -1038,19 +1041,19 @@ test('an unreachable bucket for the manifest is retried until expiry, then ends 
 test('a manifest grant naming one of its chunks\' keys, or a key an earlier manifest grant gave, is refused before any PUT', async () => {
   let b = await bucket();
   try {
-    const r = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b, { chunkKeys: [keyN(9), mKey(1)] }));
+    const r = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b, { chunks: [...oneChunk(undefined, keyN(9)), ...oneChunk(undefined, mKey(1))] }));
     assert.strictEqual(r.ok, false); assert.match(r.because, /must not write/);
     assert.strictEqual(b.puts, 0);
     // CONTROL: other chunk keys pass.
-    const ok = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b, { chunkKeys: new Set([keyN(9)]) }));
+    const ok = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b, { chunks: new Set(oneChunk(undefined, keyN(9))) }));
     assert.strictEqual(ok.ok, true, ok.because);
-    const bad = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b, { chunkKeys: 'org1/acct1' }));
-    assert.strictEqual(bad.ok, false); assert.match(bad.because, /no list of the manifest's chunk keys/);
+    const bad = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b, { chunks: 'org1/acct1' }));
+    assert.strictEqual(bad.ok, false); assert.match(bad.because, /no list of the manifest's chunks/);
     // uploadChunks' keys Map itself (not its values) would iterate [name, key] pairs and never match: refused.
-    const asMap = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b, { chunkKeys: new Map([['n', mKey(1)]]) }));
-    assert.strictEqual(asMap.ok, false); assert.match(asMap.because, /no list of the manifest's chunk keys/);
-    const pairs = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b, { chunkKeys: [['n', mKey(1)]] }));
-    assert.strictEqual(pairs.ok, false); assert.match(pairs.because, /not all key strings/);
+    const asMap = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b, { chunks: new Map([['n', { key: mKey(1), lockedUntilMs: Date.now() + 40 * DAY }]]) }));
+    assert.strictEqual(asMap.ok, false); assert.match(asMap.because, /no list of the manifest's chunks/);
+    const pairs = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b, { chunks: [['n', mKey(1)]] }));
+    assert.strictEqual(pairs.ok, false); assert.match(pairs.because, /not all \{ key, lockedUntilMs \}/);
     assert.strictEqual(b.puts, 1, 'only the control PUT');
   } finally { await b.close(); }
   b = await bucket();
@@ -1111,8 +1114,34 @@ test('the pre-grant floor counts the grant window: chunks locked until now + 30 
   const b = await bucket();
   try {
     const mc = manifestCoordinator(b);
-    const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunksLockedUntilMs: Date.now() + 30 * DAY + 10 * 60 * 1000 }));
+    const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunks: oneChunk(Date.now() + 30 * DAY + 10 * 60 * 1000) }));
     assert.strictEqual(r.ok, false); assert.strictEqual(r.grantSpent, false);
     assert.strictEqual(mc.bodies.length, 0);
+  } finally { await b.close(); }
+});
+
+test('the manifest takes the EARLIEST lock end among its chunks itself (a later chunk listed first does not raise it)', async () => {
+  const b = await bucket();
+  try {
+    const floor = Math.floor((Date.now() + 35 * DAY) / 1000) * 1000;
+    const mc = manifestCoordinator(b, { retainMs: () => floor + 1000 });
+    const chunks = [...oneChunk(floor + 10 * DAY, 'org1/late'), ...oneChunk(floor, 'org1/early')];
+    const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunks }));
+    assert.strictEqual(r.ok, false); assert.strictEqual(r.outlastsChunks, true); assert.strictEqual(r.grantSpent, true);
+    assert.strictEqual(b.puts, 0);
+  } finally { await b.close(); }
+});
+
+test('the manifest bytes are copied on entry: changing the caller\'s buffer during the call does not change what is sent', async () => {
+  const b = await bucket();
+  try {
+    const m = manifestBytes();
+    const sent = Buffer.from(m);
+    const mc = manifestCoordinator(b);
+    const real = mc.macRequest;
+    mc.macRequest = async (...a) => { const r = await real(...a); m.fill(7); return r; };   // the caller reuses its buffer
+    const r = await up.uploadManifest(deps(mc), m, mOpts(b));
+    assert.strictEqual(r.ok, true, r.because);
+    assert.ok(b.stored.get(mKey(1)).equals(sent));
   } finally { await b.close(); }
 });

@@ -41,8 +41,8 @@
  *    one upload binds x-amz-checksum-sha256 (base64 of the SHA-256) in place of content-md5; the coordinator records
  *    that hash so restore can refuse any other manifest. A manifest must go to the chunks' bucket and must never stay
  *    locked past the earliest chunk it names (the coordinator cannot check that: its request names no chunks), and must
- *    not land on a key it may not write, so the caller passes the bucket, the chunks' earliest lock end and their keys,
- *    and the uploader refuses a grant that breaks any of them.
+ *    not land on a key it may not write, so the caller passes the bucket and every chunk's key and lock end, and the
+ *    uploader refuses a grant that breaks any of them.
  *  - MD5 is used only because S3 checks it as an integrity header. Chunk names and restore verification stay
  *    backupformat.js's HMAC and AEAD.
  *
@@ -489,20 +489,20 @@ function parseManifestGrant(data, bytes, runPrefix) {
   return { ok: true, expiresAtMs, lifetimeMs: c.expiresS * 1000, upload: Object.assign(c.upload, { retainMs: c.retainMs }) };
 }
 
-/* Upload one sealed manifest. deps as uploadChunks. opts (all three required):
-     bucket               the bucket path its chunks are under (uploadChunks' `bucket`); the manifest goes there too
-     chunksLockedUntilMs  the EARLIEST lock end among the chunks it names (from uploadChunks' lockedUntil, or the
-                          caller's record for chunks stored by an earlier run): a manifest locked past it would name
-                          chunks that can be gone, so it is refused (before the grant when THIS MAC'S clock already
-                          shows it, which errs toward refusing when that clock runs fast; else as the grant arrives,
-                          its allowance spent, before any byte is sent)
-     chunkKeys            the keys its chunks are stored under (the manifest lists them anyway; for this run's chunks,
-                          uploadChunks' keys.values()): a manifest grant naming one is refused, since a 412 on it would
-                          read as the manifest stored. Required, like the two above: an optional guard is skipped.
-   Plus putTimeoutMs, as
-   uploadChunks; by default one PUT may take a minute plus its bytes at 16 KB/s, so a black-holed PUT of a 64 MiB
-   manifest holds the call about 70 minutes before it ends retryLater. Resolves { ok: true, key, sha256, lockedUntilMs } or { ok: false, because,
-   code?, retryLater?, unsure?, outlastsChunks? }, unsure being [{ key }] when a write may have landed. Never throws.
+/* Upload one sealed manifest. deps as uploadChunks. opts (both required):
+     bucket   the bucket path its chunks are under (uploadChunks' `bucket`); the manifest goes there too
+     chunks   every chunk it names, as [{ key, lockedUntilMs }] (for this run's chunks, uploadChunks' keys and
+              lockedUntil; for chunks stored by an earlier run, the caller's record), at least one. From these the
+              uploader takes the EARLIEST lock end itself (a manifest locked past it would name chunks that can be
+              gone) and the keys (a manifest grant naming one is refused, since a 412 on it would read as the
+              manifest stored). The lock check refuses before the grant when THIS MAC'S clock already shows it,
+              which errs toward refusing when that clock runs fast; else as the grant arrives, its allowance spent,
+              before any byte is sent.
+   Plus putTimeoutMs, as uploadChunks; by default one PUT may take a minute plus its bytes at 16 KB/s, so a black-holed
+   PUT of a 64 MiB manifest holds the call about 70 minutes before it ends retryLater. The bytes are copied on entry,
+   so a caller reusing its buffer meanwhile cannot change what is sent. Resolves { ok: true, key, sha256,
+   lockedUntilMs } or { ok: false, because, code?, retryLater?, unsure?, outlastsChunks?, grantSpent? }, unsure being
+   [{ key }] when a write may have landed. Never throws.
    outlastsChunks is NOT a retry-later: the caller must upload the old chunks again first, never retry the same call.
    It comes with grantSpent: false when refused before any grant (this Mac's clock already showed it), or true when
    refused as the grant arrived: that spent one of the period's 50 manifest grants and left the coordinator a
@@ -523,23 +523,27 @@ async function uploadManifestInner(deps, bytes, o) {
   const now = deps.now || Date.now;
   const sleep = deps.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
   if (!Buffer.isBuffer(bytes)) return { ok: false, because: 'the manifest is not bytes' };
+  bytes = Buffer.from(bytes);   // our own copy: what is hashed is what is sent, whatever the caller does meanwhile
   if (bytes.length < MIN_OBJECT || bytes.length > MAX_MANIFEST) return { ok: false, because: `the manifest is ${bytes.length} bytes, outside ${MIN_OBJECT} to ${MAX_MANIFEST}` };
   if (typeof o.bucket !== 'string' || !o.bucket) return { ok: false, because: "no bucket for the manifest (its chunks' bucket path)" };
-  const floor = o.chunksLockedUntilMs;
-  if (typeof floor !== 'number' || !Number.isFinite(floor)) return { ok: false, because: "no lock end for the manifest's chunks" };
+  // Every chunk it names, as { key, lockedUntilMs }: not a string, and not a Map (uploadChunks' keys Map iterates
+  // [name, key] pairs). From them: the keys this call must not write, and the earliest lock end.
+  const list = o.chunks;
+  if (list == null || typeof list[Symbol.iterator] !== 'function' || typeof list === 'string' || list instanceof Map) return { ok: false, because: "no list of the manifest's chunks" };
+  // Every key this call must not write: the chunks' and each earlier manifest grant's. The 412 rule rests on a key
+  // being this upload's alone, as in uploadChunks.
+  const avoid = new Set();
+  let floor = Infinity;
+  for (const c of list) {
+    if (!c || typeof c !== 'object' || typeof c.key !== 'string' || !c.key) return { ok: false, because: "the manifest's chunks are not all { key, lockedUntilMs }" };
+    if (typeof c.lockedUntilMs !== 'number' || !Number.isFinite(c.lockedUntilMs)) return { ok: false, because: `no lock end for the manifest's chunk ${c.key}` };
+    avoid.add(c.key);
+    floor = Math.min(floor, c.lockedUntilMs);
+  }
+  if (!avoid.size) return { ok: false, because: 'a manifest must name at least one chunk' };
   if (floor < now() + MANIFEST_LOCK_FLOOR_MS + GRANT_WINDOW_MS) return { ok: false, outlastsChunks: true, grantSpent: false, because: `a manifest granted now stays locked past ${new Date(floor).toISOString()}, when the earliest chunk it names may be gone; upload those chunks again first` };
   const timeoutMs = Number.isFinite(o.putTimeoutMs) && o.putTimeoutMs > 0 ? o.putTimeoutMs : putTimeoutFor(bytes.length, 1);
   const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
-  // Every key this call must not write: the chunks' (when given) and each earlier manifest grant's. The 412 rule rests
-  // on a key being this upload's alone, as in uploadChunks.
-  const avoid = new Set();
-  // A list of key strings: not a string, and not uploadChunks' keys Map itself (iterating it gives [name, key] pairs,
-  // which would never match a key and silently disarm this guard).
-  if (o.chunkKeys == null || typeof o.chunkKeys[Symbol.iterator] !== 'function' || typeof o.chunkKeys === 'string' || o.chunkKeys instanceof Map) return { ok: false, because: "no list of the manifest's chunk keys" };
-  for (const k of o.chunkKeys) {
-    if (typeof k !== 'string' || !k) return { ok: false, because: "the manifest's chunk keys are not all key strings" };
-    avoid.add(k);
-  }
   for (let grants = 0; grants <= MAX_REGRANTS; grants++) {
     const asked = now();
     const g = await askSigned(deps.macRequest, MANIFEST_ROUTE,
