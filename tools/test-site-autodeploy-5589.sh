@@ -2,7 +2,7 @@
 # #5589: tools/site-autodeploy.sh publishes the site when its main moves, and only then.
 # A real git origin and clone in a temp dir; the deploy, the process list, the served marker (a
 # file:// URL) and the cut checkout's dist/ are all local, so nothing here reaches Vercel or the
-# network or reads this machine's processes.
+# network. One test (26) reads this machine's process list, to see that a hanging fetch left nothing.
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 AD="$REPO/tools/site-autodeploy.sh"
@@ -175,7 +175,7 @@ tick
 { [ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q "no heartbeat for over an hour"; } && pass "a lock held with no heartbeat for over an hour goes red" || bad "wedged lock stayed green (rc=$RC)"
 tick
 { [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q "STILL FAILING (reported)"; } && pass "the wedged lock's next tick is reported, not red again" || bad "wedged repeat (rc=$RC) $OUT"
-kill "$live" 2>/dev/null; wait "$live" 2>/dev/null
+kill "$live" 2>/dev/null; wait "$live" 2>/dev/null; live=""   # never signal a recycled pid from the EXIT trap
 rm -f "$ST/lock/pid"
 tick
 { [ "$RC" = 0 ] && [ "$(ndeploys)" = "$n10" ] && [ -d "$ST/lock" ]; } && pass "a fresh lock with no pid yet is treated as held" || bad "fresh pid-less lock taken over"

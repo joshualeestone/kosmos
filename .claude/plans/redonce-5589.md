@@ -61,7 +61,7 @@ A future-dated record counts as never reported.
 - **killed_tick** ignores further signals and records the failure before the slow stop, so a runner's
   escalating cancel cannot cut out the record. Group liveness (kill -0 -pgid) throughout; a child the
   deploy leaves running after it exits is stopped.
-- **The fetch** has a seam (KOSMOS_AUTODEPLOY_FETCH_MAX_S, default 120, at most 600) and perl stops its
+- **The fetch** has a seam (KOSMOS_AUTODEPLOY_FETCH_MAX_S, default 120, at most 300 since round 15) and perl stops its
   group TERM then KILL on the alarm AND on a signal. Not changed: a TERM to the tick's pid alone waits for
   the fetch (bash runs a trap after the foreground command), at most the limit; the runner's cancel
   signals the whole tree.
