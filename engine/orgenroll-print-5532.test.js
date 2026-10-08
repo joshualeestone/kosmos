@@ -213,3 +213,35 @@ test('#5532 rollup review 16: a print sent and not pinned records no accepted wo
   assert.equal(oe.isEnrolledHere({ root }), true);
   assert.equal(oe.mayReport({ root }), false, 'a join whose print was not pinned reports anyway');
 });
+
+test('#5532 rollup review 17: an undo waits for a print only when the join sent one, on both undo paths', async (t) => {
+  // A computer with no reader (here: linux, the same answer as a reader that gave up): the join sends no print.
+  const root = sandbox(t);
+  cp._testRunner(() => DUMP, { platform: 'linux' });
+  const sent = [];
+  const co = { macRequest: async (m, route, body) => { sent.push({ route, body });
+    if (route === oe.ROUTES.enroll) return { ok: true, data: { ok: true, org: ACME, role: 'member', enrolled: { computer: 'c9', world: 'f'.repeat(32), thisComputer: false } } };
+    if (route === oe.ROUTES.leave) return { ok: true, data: { ok: true } };
+    return { ok: false, because: 'offline' }; } };
+  const r = await join(root, co);
+  assert.equal(r.code, 'org_code_used', 'the undo of a join that sent no print did not go: ' + JSON.stringify(r));
+  const lv = sent.find((x) => x.route === oe.ROUTES.leave);
+  assert.ok(lv, 'no undo was sent');
+  assert.equal(lv.body.computerPrint, undefined, 'CONTROL: no print to send');
+  // The lost-answer path: the marker carries the join's salt, company and print, so its undo carries the print.
+  const b = sandbox(t);
+  const lost = { macRequest: async (m, route) => (route === oe.ROUTES.enroll ? { ok: false, because: 'the tunnel program did not answer in time' } : { ok: false, because: 'offline' }) };
+  const u = await join(b, lost);
+  assert.equal(u.code, 'org_join_unknown', JSON.stringify(u));
+  // Old enough to settle (an undo is never sent on a marker younger than SETTLE_AFTER_MS).
+  const mk = path.join(b, 'org-join-unknown.json');
+  fs.writeFileSync(mk, JSON.stringify(Object.assign(JSON.parse(fs.readFileSync(mk, 'utf8')), { at: new Date(Date.now() - oe.SETTLE_AFTER_MS - 1000).toISOString() })));
+  const settle = { sent: [], macRequest: async (m, route) => { settle.sent.push(route);
+    if (route === oe.ROUTES.status) return { ok: true, data: { member: true, org: ACME, role: 'member', enrolled: { computer: 'c9', world: oe.worldId({ root: b }), thisComputer: false } } };
+    return { ok: true, data: { ok: true } }; } };
+  const bodies = [];
+  const watch = { macRequest: async (m, route, body) => { if (route === oe.ROUTES.leave) bodies.push(body); return settle.macRequest(m, route, body); } };
+  await oe.refresh({ root: b, remote: watch });
+  assert.ok(bodies.length, 'CONTROL: the settled undo was sent');
+  assert.equal(bodies[0].computerPrint, printOf(ACME.id), 'the settled undo went without the print its join pinned');
+});

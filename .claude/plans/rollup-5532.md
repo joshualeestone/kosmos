@@ -274,3 +274,12 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
   record counts as long ago in the change check.
 - NIT kept: "cost" in a report line (no usage reader; the coordinator's flag decides).
 
+
+## Review 17 (blind, Sonnet)
+- FIXED: an undo of a first join assumed the join pinned a print. On a computer with no readable id the join sent none,
+  so the undo waited forever and the company kept listing the Kosmos. The undo is now pinned only when the join sent a
+  print (`printSent`). The SAME CLASS on the other undo path: an undo settled later from a lost answer built its
+  pending leave with no print source at all, so a pinned print would have refused every retry. It now takes the join's
+  salt, company and print from the marker. Tests for both paths; each mutation makes them fail.
+- NITs kept: gather() after the ten-minute window (it is the change detection); `truncated` stays set while a duplicate
+  name exists (accurate); the offline profile-name fallback (review 13).

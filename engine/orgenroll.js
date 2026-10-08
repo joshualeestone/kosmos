@@ -334,7 +334,9 @@ function oneAtATime(fn) { const run = queue.then(fn, fn); queue = run.catch(() =
    Kosmos) is undone with a leave, and each says only what happened (reviews 12, 19). */
 async function undoFirstJoin(lead, opts) {
   // The print was pinned with this join's salt (#5532): a leave without it would be refused as a copy (org_device_changed).
-  const pf = opts && opts.computerSalt && opts.orgId ? pinnedWait(printFields(opts.computerSalt, opts.orgId), true) : { send: 'none', fields: {} };
+  // Pinned only if the join actually sent a print (review 17): a computer with no readable id sent none, and waiting for
+  // one would leave the undo pending forever.
+  const pf = opts && opts.computerSalt && opts.orgId ? pinnedWait(printFields(opts.computerSalt, opts.orgId), opts.printSent === true) : { send: 'none', fields: {} };
   const undo = pf.send === 'later' || pf.send === 'error' ? { ok: false, because: 'no print yet' } : await signed('POST', ROUTES.leave, pf.fields, opts);
   // org_code_used: the code is spent, so the route keeps no ticket for it and the page goes back to the code field.
   if (undo.ok || codeOf(undo.because) === 'org_not_member') { retireWorldId(opts); return { ok: false, code: 'org_code_used', because: lead + ' Joining was undone, so nothing was joined. That code is used up: ask your company for a new one.' }; }
@@ -404,7 +406,7 @@ async function enrollNow(code, accepted, opts) {
     const wantOrg = opts && typeof opts.orgId === 'string' && opts.orgId ? opts.orgId : null;
     const sameOrg = !wantOrg || !!(d0 && d0.org && d0.org.id === wantOrg);
     const verdict = sameOrg ? statusVerdict(d0, world) : 'unclear';
-    if (verdict === 'notHere' && !move && namesThisWorld(d0, world)) return undoFirstJoin('Your company did not confirm this Kosmos, so it is not your work Kosmos.', opts);
+    if (verdict === 'notHere' && !move && namesThisWorld(d0, world)) return undoFirstJoin('Your company did not confirm this Kosmos, so it is not your work Kosmos.', Object.assign({}, opts, { printSent: !!body.computerPrint }));
     if (verdict !== 'here') {
       const hash = opts && typeof opts.consentHash === 'string' && /^[0-9a-f]{64}$/.test(opts.consentHash) ? opts.consentHash : null;
       setJoinUnknown({ consentHash: hash, move, orgId: wantOrg, computerSalt: body.computerSalt || null, printPinned: !!body.computerPrint }, opts);
@@ -426,7 +428,7 @@ async function enrollNow(code, accepted, opts) {
   if (!org || !role || !en || en.world !== world || en.thisComputer !== true || otherOrg) {
     const NOCONFIRM = 'Your company did not confirm this Kosmos, so it is not your work Kosmos.';
     if (move) return { ok: false, because: NOCONFIRM + ' Press Join again in a minute.' };
-    return undoFirstJoin(NOCONFIRM, opts);
+    return undoFirstJoin(NOCONFIRM, Object.assign({}, opts, { printSent: !!body.computerPrint }));
   }
   const rec = { org, role, world, enrolledAt: new Date().toISOString() };
   // The consent the person was shown, as a hash: what they accepted is then a checkable fact on this side (#5531 review 10).
@@ -449,7 +451,7 @@ async function enrollNow(code, accepted, opts) {
          leave would end that membership too (review 13). Each says only what actually happened. */
       const NOWRITE = "This Kosmos's data folder could not be written.";
       if (move) return { ok: false, because: NOWRITE + ' Your company now names this Kosmos as your work Kosmos, but it is not reporting. Fix the folder, then press Join again.' };
-      return undoFirstJoin(NOWRITE, opts);
+      return undoFirstJoin(NOWRITE, Object.assign({}, opts, { printSent: !!body.computerPrint }));
     }
   }
   setLeavePending(false, opts);   // joined again after an unconfirmed leave: that old leave must never be sent now
@@ -472,8 +474,8 @@ function setLeavePending(on, opts, rec, undo, consentHash) {
      own, else the one this file already holds, so a rewrite never drops it. */
   const prior = on ? pendingPrintFrom(opts) : null;
   const printFrom = rec && rec.computerSalt && rec.org ? { salt: rec.computerSalt, orgId: rec.org.id, pinned: rec.printPinned === true }
-    // an undo: the join sent its print whenever it had a salt and a company (taken as pinned, the safe direction)
-    : opts && typeof opts.computerSalt === 'string' && typeof opts.orgId === 'string' ? { salt: opts.computerSalt, orgId: opts.orgId, pinned: true } : prior;
+    // an undo: pinned only when the join sent its print (review 17)
+    : opts && typeof opts.computerSalt === 'string' && typeof opts.orgId === 'string' ? { salt: opts.computerSalt, orgId: opts.orgId, pinned: opts.printSent === true } : prior;
   try { if (on) writeWhole(file, JSON.stringify({ at: new Date().toISOString(), rec: rec || null, undo: undo === true, consentHash: hash, world: readWorldId(opts), printFrom: printFrom || null }) + '\n'); else fs.rmSync(file, { force: true }); } catch { /* best effort */ }
 }
 function pendingPrintFrom(opts) {
@@ -575,7 +577,9 @@ async function settleUnknownJoin(unsure, opts) {
     return { ok: true, enrolled: true, member: true, ...rec };
   }
   if (verdict === 'notHere' && !unsure.move && namesThisWorld(d, world)) {
-    setLeavePending(true, opts, null, true, unsure.consentHash);   // bound elsewhere: the undo is sent by the pending-leave path
+    // The join's own salt, company and whether it sent a print, from the marker (review 17), so the undo carries the print.
+    const joinPrint = { computerSalt: unsure.computerSalt || undefined, orgId: unsure.orgId || undefined, printSent: unsure.printPinned === true };
+    setLeavePending(true, Object.assign({}, opts, joinPrint), null, true, unsure.consentHash);   // bound elsewhere: the undo is sent by the pending-leave path
     return leaveNow(opts, true);
   }
   return { ok: true, enrolled: false };
