@@ -122,8 +122,12 @@ LAST=$(cat "$STATE/last-deployed" 2>/dev/null || true)
 # busy machine would read as "nothing running" exactly when a cut is. This also matches the shell
 # suite's own runs of tools/deploy-site.sh on this machine, which only delays a deploy a tick.
 PS_CMD="${KOSMOS_AUTODEPLOY_PS:-ps -axo command=}"
-procs=$(sh -c "$PS_CMD" 2>/dev/null) || procs=""
-if grep -Eq '^([^ ]*/)?(ba|z)?sh( -[^ ]+)* [^ ]*tools/(release|deploy-site|promote-channel)\.sh( |$)' <<<"$procs"; then
+publisher_running() {
+  local procs
+  procs=$(sh -c "$PS_CMD" 2>/dev/null) || procs=""
+  grep -Eq '^([^ ]*/)?(ba|z)?sh( -[^ ]+)* [^ ]*tools/(release|deploy-site|promote-channel)\.sh( |$)' <<<"$procs"
+}
+if publisher_running; then
   say "skip: a release cut, deploy or promote is running; main ${TARGET:0:9} waits for the next tick"
   exit 0
 fi
@@ -166,6 +170,13 @@ if [ -n "${MISMATCH:-}" ]; then
   exit 0
 fi
 
+# Asked again now that the mirror is done: a cut that started while it ran may have been mid-write or
+# mid-prune in the source, so the mirror may not be the set to ship. Next tick, then.
+if publisher_running; then
+  say "skip: a release cut, deploy or promote started during the mirror; main ${TARGET:0:9} waits for the next tick"
+  exit 0
+fi
+now > "$STATE/heartbeat"   # fresh before the long part, so a slow deploy never reads as a wedged lock
 say "deploying site main ${TARGET:0:9} (last deployed ${LAST:0:9})"
 # The deploy's output goes to the log and to stdout (PIPESTATUS keeps the deploy's own exit status).
 # KOSMOS_REPO pins deploy-site.sh's libraries to THIS checkout; without it they load from

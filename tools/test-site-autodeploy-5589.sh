@@ -102,6 +102,15 @@ done
 BIGPS="$T/bigps"; { echo '/bin/bash tools/release.sh 0.7.28'; for i in $(seq 1 3000); do echo "/usr/libexec/some-daemon --flag value-$i padding padding padding padding"; done; } > "$BIGPS"
 KOSMOS_AUTODEPLOY_PS="cat $BIGPS" tick
 { [ "$RC" = 0 ] && [ "$(ndeploys)" = 5 ] && [ "$(wc -c < "$BIGPS")" -gt 131072 ]; } && pass "a cut first in a process list over a pipe buffer still holds the deploy" || bad "big process list missed the cut (deploys=$(ndeploys), size=$(wc -c < "$BIGPS"))"
+# A cut that starts DURING the mirror: the first look sees nothing, the second (after the mirror) the cut.
+PSN="$T/psn"; echo 0 > "$PSN"
+cat > "$T/ps-second" <<PS
+n=\$(cat "$PSN"); echo \$((n + 1)) > "$PSN"
+if [ "\$n" -ge 1 ]; then echo '/bin/bash tools/release.sh 0.7.28'; else echo idle; fi
+PS
+KOSMOS_AUTODEPLOY_PS="sh $T/ps-second" tick
+{ [ "$RC" = 0 ] && [ "$(ndeploys)" = 5 ] && [ "$(cat "$PSN")" = 2 ] && printf '%s' "$OUT" | grep -q "started during the mirror"; } \
+  && pass "a cut that starts during the mirror holds the deploy (second look)" || bad "cut started mid-mirror not seen (deploys=$(ndeploys), looks=$(cat "$PSN"))"
 KOSMOS_AUTODEPLOY_PS="printf %s\\n 'grep tools/release.sh' 'vim tools/release.sh'" tick
 { [ "$(ndeploys)" = 6 ] && [ "$(cat "$ST/last-deployed")" = "$H6" ]; } \
   && pass "a grep or an editor naming release.sh is not a cut (control: the deploy goes ahead)" || bad "a mention of release.sh held the deploy (deploys=$(ndeploys))"
