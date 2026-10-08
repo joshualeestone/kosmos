@@ -6608,6 +6608,12 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
    descenders (the "g" in "Sourcing"). Same fix as #3415 on the agent name: a
    proportional line-height that clears descenders, unitless so it tracks the size. */
 .pjtitle #pj-one-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
+/* #5510: on a phone the name gets two lines before it is cut: one line held 14 characters at 360px ("Launch the
+   spring c..."), so most real project names never showed whole. Three-plus lines still end in an ellipsis. */
+@media (max-width: 40rem) {
+  .pjtitle #pj-one-name { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2; line-clamp: 2; }
+}
 .pjmidhead .pjhead #pj-one-made { font-size: .75rem; margin: 1px 0 0; max-width: none; line-height: 1.35; }
 /* kosmos#5287: the joined project's "Shared by" block takes its own row under the made line in every header layout, and
    the owner's description (up to DESC_MAX, newlines kept) wraps even a long unbroken word and scrolls past ~8 lines
@@ -7422,6 +7428,9 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
   font: var(--text-caption) var(--font-ui); }
 .pv-msg { color: #ffb4a8; font: var(--text-caption) var(--font-ui); }
 .att.haspic[data-att] { cursor: zoom-in; }
+/* #5510: a phone's own keyboard has emoji, so on a phone touchscreen the room's emoji button gives its 34px back to
+   the text box, where the hint was being cut after "Write something c". The picker stays on every other screen. */
+@media (max-width: 40rem) and (hover: none) { #pj-emoji-btn { display: none; } }
 .attachbtn { flex: 0 0 auto; display: grid; place-items: center; width: 34px; height: 34px;
   border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
 .attachbtn:hover { background: rgba(20,22,26,.07); color: var(--k-ink); }
@@ -11745,6 +11754,10 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   html.kremote #boardbar.boardbar > .viewctl { flex-wrap: nowrap; gap: 12px; }
   /* Two ids: the new look's toolbar rules carry one id and up to six classes, and two ids beat any of them. */
   html.kremote #boardbar#boardbar .sortctl select { height: 44px; padding: 0 36px 0 14px; border-radius: 10px; }
+  /* #5510: the sort menu fills the row between + and the view buttons. At its own width it sat 3px from the + on a
+     360px phone and 55px from it on a 412px one; filling, the gaps are the row's own 12px at every width. */
+  html.kremote #boardbar#boardbar .sortctl { flex: 1 1 auto; min-width: 0; }
+  html.kremote #boardbar#boardbar .sortctl select { width: 100%; }
   html.kremote #boardbar#boardbar .viewtoggle { border-radius: 10px; }
   html.kremote #boardbar#boardbar .viewtoggle .vt { width: 44px; height: 44px; border-radius: 0; }
   /* With the grid button gone the list button is the first one shown, so it loses the separator it drew from it. */
@@ -15574,6 +15587,14 @@ window.kosmosMeasureScrollbarWidth();
             <button class="btn uprime" type="button" id="orgchart-undo-go" hidden>Remove them</button>
             <button class="btn" type="button" id="orgchart-undo-keep" hidden>Keep them</button>
           </div>
+          <!-- #5590: the import tells installkosmos.com the agent count moved, so the sheet's "Let Kosmos know" choice is
+               shown where it is made, as the team step does (Review 27, #tc-tell): kept equal to #create-tell, which
+               stays the one the creates read. orgchartTell: open with a preview that can be created, fixed while its create
+               runs, gone once any result is on screen. -->
+          <label class="tellrow" for="orgchart-tell" id="orgchart-tell-row">
+            <input type="checkbox" id="orgchart-tell">
+            <span id="orgchart-tell-say">Let Kosmos know these agents were created</span>
+          </label>
           <!-- #4559: more than the usual team size is started only on this explicit yes (Liu Kang m3436). -->
           <div class="orgchart-consent" id="orgchart-many" role="group" aria-labelledby="orgchart-many-say" hidden>
             <p id="orgchart-many-say"></p>
@@ -19830,6 +19851,21 @@ function pnavThemeRove() {
   const on = opts.find((b) => b.getAttribute('aria-checked') === 'true') || opts[0];
   for (const b of opts) b.tabIndex = b === on ? 0 : -1;
 }
+/* #5510: on a phone the room composer's hint, "Write something or @name to message someone...", is cut after "Write
+   something c". There it reads as the agent chat's does; wider screens keep the @name tip. The query is the portrait
+   phone width only, the same as the CSS that hides the room's emoji button on a phone; not PNAV_PHONE_MQ, which also
+   takes a phone turned sideways, where the row has room for the long hint. */
+const ROOM_HINT_MQ = '(max-width: 40rem)';
+(function roomHintFits() {
+  const box = document.getElementById('pj-post');
+  if (!box || !window.matchMedia) return;
+  const long = box.placeholder;
+  const mq = window.matchMedia(ROOM_HINT_MQ);
+  const fit = () => { box.placeholder = mq.matches ? 'Write something\u2026' : long; };
+  fit();
+  if (mq.addEventListener) mq.addEventListener('change', fit);
+  else if (mq.addListener) mq.addListener(fit);   // Safari before 14
+})();
 /* The board's phone (PHONE_WIDTH, #3969), the same query as this menu's CSS. */
 const PNAV_PHONE_MQ = '(max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem)';
 /* The level on screen, and the trail back to the first one. */
@@ -52800,6 +52836,12 @@ document.getElementById('tc-tell').addEventListener('change', (e) => {
   const tellBox = document.getElementById('create-tell');
   if (tellBox) tellBox.checked = e.currentTarget.checked;   // one choice for the sheet, whichever step it was made on
 });
+/* #5590: the import's box, the same as #tc-tell's handler: #create-tell is the one choice the creates read. The box is
+   set from #create-tell each time a preview is painted (orgchartTell('open') in orgchartPaint). */
+document.getElementById('orgchart-tell').addEventListener('change', (e) => {
+  const tellBox = document.getElementById('create-tell');
+  if (tellBox) tellBox.checked = e.currentTarget.checked;
+});
 
 /* #4936 "Go to your team": the agents view with the members marked (tcGoToTeam), not one agent's page. */
 document.getElementById('tc-hello').addEventListener('click', () => {
@@ -53594,6 +53636,21 @@ let ORGCHART_RESULT_RESTORED = false;
 let ORGCHART_RESULT = null;
 // True while /api/team is answering: Preview waits, so a late create result is never thrown away.
 let ORGCHART_CREATING = false;
+/* #5590: the import's "Let Kosmos know" box is the choice for the create about to be made, so it is shown only then:
+   'open' with a preview (set from #create-tell, the one the creates read), 'locked' while that create runs (as #tc-tell
+   is fixed once a team run starts), 'gone' once a result is on screen, so it never shows a choice beside agents it
+   may not have been made with (a kept result reappears after the sheet's choice could have changed). */
+function orgchartTell(state) {
+  const b = document.getElementById('orgchart-tell');
+  const row = document.getElementById('orgchart-tell-row');
+  if (!b || !row) return;
+  if (state === 'open') {
+    const tellBox = document.getElementById('create-tell');
+    b.checked = tellBox ? tellBox.checked === true : true;
+  }
+  b.disabled = state !== 'open';
+  row.hidden = state === 'gone';
+}
 // #4559: true while Undo asks or removes (orgchartUndoAsking), so a file read waits.
 let ORGCHART_UNDO_BUSY = false;
 /* #4559: the file flow's state, declared here, above resetOrgchartPreview, which clears it (a let read before its
@@ -53626,6 +53683,7 @@ function orgchartEndFileFlow() {
   if (note && note.dataset.idle) note.textContent = note.dataset.idle;
 }
 function resetOrgchartPreview() {
+  orgchartTell('gone');
   ORGCHART_PARSED = null;
   ORGCHART_MANY_OK = false;
   const many = document.getElementById('orgchart-many');
@@ -53689,6 +53747,7 @@ function orgchartSayUndoExpired() {
    removed. Used when the panel is reopened (and by openCreate's reset, into the still-hidden panel), and when a create answered after the person had left lands while the
    panel is open again and idle. A no-op otherwise. */
 function orgchartRestoreCreated() {
+  orgchartTell('gone');   // #5590: a kept result is on screen (or nothing is kept and the preview box stays hidden)
   if (orgchartDropExpiredUndo()) ORGCHART_RESULT = null;
   if (!ORGCHART_CREATED.length || !ORGCHART_RESULT) return false;
   const box = document.getElementById('orgchart-preview-box');
@@ -53830,12 +53889,18 @@ function orgchartPaint() {
   document.getElementById('orgchart-many').hidden = true;
   const rows = ORGCHART_PARSED || [];
   if (rows.length > ORGCHART_TEAM_MAX) {
+    orgchartTell('gone');   // #5590: a list past the limit cannot be created, so there is no choice to make
     document.getElementById('orgchart-count').textContent = 'This list has ' + rows.length + ' people. Kosmos makes at most '
       + ORGCHART_TEAM_MAX + ' agents at a time, so remove some or split the file, then preview again.';
     document.getElementById('orgchart-list').replaceChildren();
     document.getElementById('orgchart-create').disabled = true;
     return;
   }
+  /* #5590: a new preview is the create about to be made, so its choice is shown and open; a repaint while a create
+     runs (a "reports to" change mid-flight) keeps it fixed, since that create's choice was already sent. */
+  orgchartTell(ORGCHART_CREATING ? 'locked' : 'open');
+  document.getElementById('orgchart-tell-say').textContent = rows.length === 1   // as #tc-tell-say reads
+    ? 'Let Kosmos know an agent was created' : 'Let Kosmos know these agents were created';
   const loops = orgchartLoops(rows);
   const open = rows.filter((r, i) => (r.why && !r.confirmed) || loops.has(i)).length;
   const count = document.getElementById('orgchart-count');
@@ -54155,20 +54220,25 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
   const previewBtn = document.getElementById('orgchart-preview');
   ORGCHART_CREATING = true;
   previewBtn.disabled = true;
+  orgchartTell('locked');
   try {
+    const tellBox = document.getElementById('create-tell');
     const res = await fetch('/api/team', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       /* cap only after the person's yes above: #2972's raise (the board token may, an agent never), to this chart's
          size. orgchartPaint already refused a chart past ORGCHART_TEAM_MAX. */
-      body: JSON.stringify(Object.assign({ creator: 'operator', purpose: 'Imported from an org chart', members },
+      /* #5590: the "Let Kosmos know an agent was created" box is the person's choice for this create too (the team
+         route now tells the agent count; without this an import ignored an unticked box). As the seeded team does. */
+      body: JSON.stringify(Object.assign({ creator: 'operator', purpose: 'Imported from an org chart', members,
+        notifyCreated: tellBox ? tellBox.checked === true : true },
         raise ? { cap: Math.min(members.length, ORGCHART_TEAM_MAX) } : {})),
     });
     result = await res.json().catch(() => null);
     /* Still CREATING: the reporting-line fix-ups below are part of this create, and a Preview or a file read
        during them would supersede the screen and lose this batch's Undo. Released after them. */
   } catch (err) {
-    ORGCHART_CREATING = false; previewBtn.disabled = false;
+    ORGCHART_CREATING = false; previewBtn.disabled = false; orgchartTell(gen === ORGCHART_GEN ? 'open' : 'gone');
     if (gen !== ORGCHART_GEN) { orgchartCreateWaitEnded('We could not reach Kosmos to create the team. Try again.'); return; }   // superseded during the fetch
     btn.disabled = false;
     msg.hidden = false;
@@ -54180,7 +54250,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
      the panel), but a team that WAS created still gets its reporting-line fix-ups, which correct data (create stores reportsTo as sent) rather than the screen. */
   const superseded = gen !== ORGCHART_GEN;
   if (!result) {
-    ORGCHART_CREATING = false; previewBtn.disabled = false;
+    ORGCHART_CREATING = false; previewBtn.disabled = false; orgchartTell(gen === ORGCHART_GEN ? 'open' : 'gone');
     if (superseded) { orgchartCreateWaitEnded('Kosmos did not answer in a way we could read. Try again.'); return; }
     btn.disabled = false;
     msg.hidden = false;
@@ -54195,7 +54265,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
      and read as a bare "No agents were created", hiding the real reason on a 15-20 person
      import. So: no `outcome` means it is not a team result -- surface its error plainly. */
   if (result.outcome === undefined) {
-    ORGCHART_CREATING = false; previewBtn.disabled = false;
+    ORGCHART_CREATING = false; previewBtn.disabled = false; orgchartTell(gen === ORGCHART_GEN ? 'open' : 'gone');
     if (superseded) { orgchartCreateWaitEnded(result.error ? String(result.error) : 'Kosmos refused the request.'); return; }
     btn.disabled = false;
     msg.hidden = false;
@@ -54243,6 +54313,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
     else if (!f.to) orphans.push(f.name);
   }
   ORGCHART_CREATING = false; previewBtn.disabled = false;
+  orgchartTell('gone');   // #5590: a result is on screen (made or refused); Back to the list and Preview offer the choice again
   /* #4688: the result is worked out as text first, whether or not the person is still here, so a create that
      answers after they left the panel still records its agents and its Undo (they come back with the panel). */
   let countText;

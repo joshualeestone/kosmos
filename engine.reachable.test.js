@@ -174,11 +174,12 @@ const EXCUSED = {
   // genuine caller existing, not the sweep. (forgetKey and unwireApiKeyHelper were
   // already reachable via server.js's failed-store cleanup.)
   _nextIdForTests: 'test seam (#4888): engine/messages.js says which id the NEXT post will get (the larger of the log\'s highest and the in-memory high mark, +1), so a test that predicts ids does not have to re-derive the minting rule; a refused send now burns its id, which broke tests that counted. Production mints through mintId and never calls it.',
+  reachForAgent: 'the #5309 part 2 slice-1 signal: engine/pluginreach.js reachForAgent returns, per agent, whether the plugins the person installed in their own app reach that agent. Built ahead of its caller on purpose: slice 2 wires it onto the /api/status per-agent agents map and a board indicator (card #5309); no live caller until then. DELETE this entry when slice 2 adds that caller, so it cannot later mask a genuinely dead export. The pure reachFrom it wraps stays reachable through it.',
 };
 
 /* #5548: test seams that became visible when this guard learned to read every exports block. Each is an injector
    or reset whose default restores the real behaviour, and only its own tests call it (measured when the guard first
-   read the module). Keyed by FILE, like PENDING_5548, because several names are generic (setClock, setBin, _lock):
+   read the module). Keyed by FILE, like TRIAGED_5548, because several names are generic (setClock, setBin, _lock):
    a by-name excuse would also hide a real orphan of the same name in another module (#5548 review 2). */
 const SEAMS_5548 = {
   // #5532: the ioreg runner and the clock engine/computerprint-5532.test.js replaces, and the bare print function it
@@ -221,46 +222,49 @@ const SEAMS_5548 = {
   setAlive: 'engine/win32stop.js',
 };
 
-/* #5548 slice 1: exports that became visible when this guard learned to read every exports block, and that are
-   not test seams by name. Each is a real #265 candidate (an unreachable capability) until slice 2 triages it: a
-   real caller, an excuse with a reason, or deletion. This list may only SHRINK: the ratchet test below fails if a
-   name here is no longer an orphan, so a fixed one cannot linger as cover. Do not add to it; new exports meet the
-   guard itself. */
-const PENDING_5548 = {
-  exportAgent: 'engine/agentfile.js',
-  IMPORT_CONTRACT: 'engine/agentfile.js',
-  newPoolMemo: 'engine/agyquota.js',
-  wireText: 'engine/chat.js',
-  sweepClass1: 'engine/class1-autohandle.js',
-  labelFor: 'engine/communityindustry.js',
-  labelForMember: 'engine/fedmembers.js',
-  rotateForRevoked: 'engine/fedseats.js',
-  stopAll: 'engine/fedseats.js',
-  clearFirstTurnCache: 'engine/groksession.js',
-  setIntervalMinutes: 'engine/heartbeat-setting.js',
-  minInterval: 'engine/inflight.js',
-  ALLOWED_TOOLS: 'engine/orgchartcodex.js',
-  deriveCatalog: 'engine/orgchartcodex.js',
-  offeredTools: 'engine/orgchartcodex.js',
-  whyNoReader: 'engine/orgchartfile.js',
-  offReason: 'engine/orgchartkeys.js',
-  setEnabled: 'engine/orgchartkeys.js',
-  chooseReader: 'engine/orgchartkeys.js',
-  setKeyFor: 'engine/orgchartkeys.js',
-  setDescription: 'engine/projects.js',
-  setArchived: 'engine/projects.js',
-  knownSecretCount: 'engine/secretmask.js',
-  fragmentIndexStats: 'engine/secretmask.js',
-  retireLauncher: 'engine/sendertoken.js',
-  codexLastCompletionAt: 'engine/status.js',
-  geminiLastCompletionAt: 'engine/status.js',
-  grokLastCompletionAt: 'engine/status.js',
-  parentOf: 'engine/tasks.js',
-  childrenOf: 'engine/tasks.js',
-  subtaskProgress: 'engine/tasks.js',
-  HANDOFF_CHECK_FOR_SERVING_AFTER_MS: 'engine/win32handoff.js',
-  WIN32_ROW_KEYS: 'engine/win32roster.js',
-  hasPicture: 'engine/you.js',
+/* #5548 slice 2: the triage of the 34 exports slice 1 surfaced (research table and calls on #5548). Keyed by FILE, each
+   with why it is not an unreachable capability, or the card that owns it if it is one. bin/ joining CALLER_FILES cleared
+   sweepClass1 and retireLauncher, which were never orphans. An entry here is a claim someone can check. */
+const TEST_SEAM = 'test seam: only its own tests call it (its source comment says so, or it injects or reports state for them)';
+const INTERNAL = 'used inside its own module; exported only so its test can pin it';
+const ACCESSOR = 'a thin accessor of a sibling export that production does call (the capability is reached through that sibling)';
+const SUPERSEDED = 'superseded: production uses another path; deletion tracked on #5582';
+const TRIAGED_5548 = {
+  newPoolMemo: ['engine/agyquota.js', TEST_SEAM + ' (an isolated memo for a test; production uses the module default)'],
+  stopAll: ['engine/fedseats.js', TEST_SEAM + ' (its docblock: only tests call it; board shutdown closes stdin)'],
+  clearFirstTurnCache: ['engine/groksession.js', TEST_SEAM + ' (added because the cache survived the tests\' reset)'],
+  setEnabled: ['engine/orgchartkeys.js', TEST_SEAM + ' (overrides the enabled map; production keeps ENABLED_DEFAULT)'],
+  setKeyFor: ['engine/orgchartkeys.js', TEST_SEAM + ' (injects the key resolver; production uses defaultKeyFor)'],
+  knownSecretCount: ['engine/secretmask.js', TEST_SEAM + ' (reports how many forms are known)'],
+  fragmentIndexStats: ['engine/secretmask.js', TEST_SEAM + ' (reports the word-fragment index for its tests, #3935)'],
+  WIN32_ROW_KEYS: ['engine/win32roster.js', TEST_SEAM + ' (the column list its parity test asserts, #5333)'],
+  codexLastCompletionAt: ['engine/status.js', TEST_SEAM + ' (its comment: snapshot() does not use it; production uses codexCompletionAt)'],
+  geminiLastCompletionAt: ['engine/status.js', TEST_SEAM + ' (same as codexLastCompletionAt, #3296)'],
+  grokLastCompletionAt: ['engine/status.js', TEST_SEAM + ' (same as codexLastCompletionAt, #3391)'],
+  IMPORT_CONTRACT: ['engine/agentfile.js', INTERNAL + ' (a declarative contract: its tests assert the wired importAgent enforces what it says)'],
+  // Review 1: these three are NOT used in their module either: test helpers of #5346's capture hardening.
+  ALLOWED_TOOLS: ['engine/orgchartcodex.js', TEST_SEAM + ' (the hardening policy list the capture test asserts; nothing in the module reads it)'],
+  deriveCatalog: ['engine/orgchartcodex.js', TEST_SEAM + ' (a wrapper over catalogFor for the capture test; production calls catalogFor)'],
+  offeredTools: ['engine/orgchartcodex.js', TEST_SEAM + ' (asserted by the capture test; nothing in the module calls it)'],
+  parentOf: ['engine/tasks.js', ACCESSOR + ' (treeOf(p).up; the screen reads the tree through allTasks rows)'],
+  childrenOf: ['engine/tasks.js', ACCESSOR + ' (treeOf(p).under)'],
+  subtaskProgress: ['engine/tasks.js', ACCESSOR + ' (treeOf(p).progress; the screen shows "N of M subtasks done" from the row)'],
+  whyNoReader: ['engine/orgchartfile.js', ACCESSOR + ' (lastWhy; production reads readerAndWhy)'],
+  offReason: ['engine/orgchartkeys.js', ACCESSOR + ' (pick().offWhy; production calls pick())'],
+  chooseReader: ['engine/orgchartkeys.js', ACCESSOR + ' (pick().reader; production calls pick())'],
+  hasPicture: ['engine/you.js', ACCESSOR + ' (picturePath() !== null; server.js calls picturePath)'],
+  rotateForRevoked: ['engine/fedseats.js', ACCESSOR + ' (a wrapper over revokeCheck, which production calls)'],
+  setIntervalMinutes: ['engine/heartbeat-setting.js', ACCESSOR + ' (a single-field setter beside the patch setter the PUT route uses, #1722)'],
+  wireText: ['engine/chat.js', SUPERSEDED + ' (its comment: nothing calls it in production; deliver() pastes the raw wire, #3419)'],
+  setDescription: ['engine/projects.js', SUPERSEDED + ' (the PUT route moved to one-write edit())'],
+  setArchived: ['engine/projects.js', SUPERSEDED + ' (as setDescription; also a fixture helper in six test files)'],
+  labelForMember: ['engine/fedmembers.js', SUPERSEDED + ' (a convenience over labelsFor that no screen uses)'],
+  labelFor: ['engine/communityindustry.js', 'pending: slice 2 of OPEN #4375 (the public label for an owner\'s industry)'],
+  HANDOFF_CHECK_FOR_SERVING_AFTER_MS: ['engine/win32handoff.js', 'mirrored by tools/windows/KosmosLauncher.cs (CheckForServingAfterMs), pinned equal by tools.win-launcher-native.test.js'],
+  costOf: ['engine/usageprice.js', 'pending: #5532\'s rollup sender (its next piece) is the first caller; merged in #5556 after this guard, nothing calls it yet by design, and usageprice.test.js pins it to the page\'s usageApiCost'],
+  exportAgent: ['engine/agentfile.js', 'an UNREACHABLE capability (the export half of #1652): wire or delete on #5581'],
+  // Review 2: NOT superseded (collapse does not bound a sequential loop): an unwired cost defence.
+  minInterval: ['engine/inflight.js', 'an UNREACHABLE capability (the connections-sweep guard of #1645, never wired): wire or delete on #5583'],
 };
 
 const engineDir = path.join(__dirname, 'engine');
@@ -275,6 +279,9 @@ const CALLER_FILES = [
   path.join('install', 'setup.sh'),
   ...fs.readdirSync(path.join(__dirname, 'tools')).map((f) => path.join('tools', f)),
   ...fs.readdirSync(path.join(__dirname, 'test-support')).map((f) => path.join('test-support', f)),
+  // #5548 slice 2: bin/ holds real callers (bin/class1-autohandle.js calls sweepClass1; bin/agent-supervisor.sh calls
+  // sendertoken.retireLauncher in a node -e), which this sweep could not see.
+  ...fs.readdirSync(path.join(__dirname, 'bin')).map((f) => path.join('bin', f)),
 ].filter((f) => { try { return fs.statSync(path.join(__dirname, f)).isFile(); } catch { return false; } });
 
 const read = (f) => { try { return fs.readFileSync(path.join(__dirname, f), 'utf8'); } catch { return ''; } };
@@ -404,16 +411,25 @@ function findOrphans(modules, callerSources, tests, skip) {
   return orphans;
 }
 
+/* #5548 slice 2 review 1: bin/ callers count only in CODE, or the hundreds of comment lines in its shell scripts could
+   name an export and hide an orphan. JS files go through codeOnly; shell scripts lose their full-line # comments (not
+   a trailing # after code: agent-supervisor.sh carries JS inside node -e '...', where a # can be code). Done here, not
+   where sources is built, because codeOnly's REGEX_AFTER is declared below that line. */
+for (const s2 of sources) {
+  if (!/^bin[\/\\]/.test(s2.f)) continue;
+  s2.text = s2.f.endsWith('.js') ? codeOnly(s2.text) : s2.text.split('\n').map((l) => (/^\s*#/.test(l) ? '' : l)).join('\n');
+}
+
 // posix keys, so the file-keyed lists compare the same on Windows (#5548 review 2)
 const engineModules = engineFiles.map((f) => ({ rel: path.posix.join('engine', f), text: read(path.join('engine', f)) }));
 
-/* EXCUSED is by name (an excuse covers the name wherever it is exported); SEAMS_5548 and PENDING_5548 are by file, so a pending
+/* EXCUSED is by name (an excuse covers the name wherever it is exported); SEAMS_5548 and TRIAGED_5548 are by file, so a pending
    name cannot cover a new orphan of the same name in another module (#5548 review 1). */
 /* #5532 (E0.3, contract v1.5): the computer print landed and tested on its own first. Its first caller is the enroll,
    leave and rollup wiring after #5531 merges. By file, and armed: the test below fails once it has a caller, so this
    excuse cannot outlive its reason. */
 const FIRST_CALLER_5532 = { printFor: 'engine/computerprint.js' };
-const skipped = (n, rel) => Boolean(EXCUSED[n]) || SEAMS_5548[n] === rel || PENDING_5548[n] === rel || FIRST_CALLER_5532[n] === rel;
+const skipped = (n, rel) => Boolean(EXCUSED[n]) || SEAMS_5548[n] === rel || (TRIAGED_5548[n] && TRIAGED_5548[n][0] === rel) || FIRST_CALLER_5532[n] === rel;
 
 test('no engine export is tested, excused by nobody, and reachable from nowhere', () => {
   const orphans = findOrphans(engineModules, sources, testBlob, skipped);
@@ -444,19 +460,18 @@ test('#5548: every seam excused by file is still exported there', () => {
   }
 });
 
-test('#5548: a pending name covers only its own file', () => {
-  const [name, file] = Object.entries(PENDING_5548)[0];
-  assert.equal(skipped(name, file), true);
-  assert.equal(skipped(name, 'engine/some-other-module.js'), false, 'pending ' + name + ' must not cover another module');
+test('#5548: a triaged name covers only its own file, and each is still exported there', () => {
+  for (const [n, [file, why]] of Object.entries(TRIAGED_5548)) {
+    assert.ok(why && why.length > 20, n + ' has no reason someone can check');
+    assert.ok(exportedNames(read(file)).includes(n), file + ' no longer exports ' + n + ': remove it from TRIAGED_5548');
+    assert.equal(skipped(n, 'engine/some-other-module.js'), Boolean(EXCUSED[n]), n + ' must not cover another module');
+  }
 });
 
-test('#5548: the pending list only shrinks (a name that gained a caller comes off it)', () => {
+test('#5548: every triaged name is still an orphan without its entry (a name that gained a caller comes off)', () => {
   const still = new Set(findOrphans(engineModules, sources, testBlob, (n, rel) => Boolean(EXCUSED[n]) || SEAMS_5548[n] === rel));
-  const fixed = Object.keys(PENDING_5548).filter((n) => !still.has(PENDING_5548[n] + ' exports ' + n));
-  assert.deepEqual(fixed, [], 'no longer orphans: remove them from PENDING_5548 (and from the slice-2 list on #5548)');
-  for (const [n, file] of Object.entries(PENDING_5548)) {
-    assert.ok(exportedNames(read(file)).includes(n), file + ' no longer exports ' + n + ': remove it from PENDING_5548');
-  }
+  const fixed = Object.keys(TRIAGED_5548).filter((n) => !still.has(TRIAGED_5548[n][0] + ' exports ' + n));
+  assert.deepEqual(fixed, [], 'no longer orphans: remove them from TRIAGED_5548');
 });
 
 test('#5548 self-test: a one-line exports block, a comment mention and a string mention do not hide an orphan', () => {
@@ -501,10 +516,17 @@ test('#5548 self-test: a one-line exports block, a comment mention and a string 
 });
 
 test('#5532: printFor is excused only until its first caller lands', () => {
-  const without = (n, rel) => Boolean(EXCUSED[n]) || SEAMS_5548[n] === rel || PENDING_5548[n] === rel;
+  const without = (n, rel) => Boolean(EXCUSED[n]) || SEAMS_5548[n] === rel || (TRIAGED_5548[n] && TRIAGED_5548[n][0] === rel);
   const still = new Set(findOrphans(engineModules, sources, testBlob, without));
   for (const [n, file] of Object.entries(FIRST_CALLER_5532)) {
     assert.ok(still.has(file + ' exports ' + n), n + ' has a caller now: remove it from FIRST_CALLER_5532');
   }
   assert.equal(skipped('printFor', 'engine/some-other-module.js'), false, 'the excuse must not cover another module');
+});
+
+test('#5548 slice 2 review 1: a bin/ comment naming an export does not count as a call', () => {
+  const sh = sources.find((s2) => /^bin[\/\\]agent-supervisor\.sh$/.test(s2.f));
+  assert.ok(sh, 'fixture: bin/agent-supervisor.sh is a caller file');
+  assert.ok(/retireLauncher/.test(sh.text), 'CONTROL: its real call (inside node -e) survives the comment strip');
+  assert.ok(!/^\s*#/m.test(sh.text), 'no full-line comment is left in a bin shell script');
 });
