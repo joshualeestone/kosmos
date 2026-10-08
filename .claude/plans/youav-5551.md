@@ -46,3 +46,11 @@ it moved agents' avatars to the top; it records no reason to keep the dot.
 - [NIT] #4470's comment said yours keep the foot avatar --> corrected. [NIT] the check's docblocks still said "the
   foot" --> corrected. [NIT] the Off arm checked the room's foot only --> the DM's too.
 Re-run after the fixes: render-newlook-4470 301/301; screens re-shot (tails whole at 412 and 1280).
+
+## Review 2 (sonnet, blind): CONVERGED
+Checked the margin against every other `.msg-b` margin rule (none for `.you`), the three row builders that share the
+markup (DM, pending DM, room), the reactions bar (positioned on `.msg-b`, moves with it), long words, the mask's colour
+under the look (`--k-bg` for room, DM and dark; no sliver in the dark phone shot), and the check's geometry (padding box,
+cannot pass with a hidden thread).
+- [NIT] tailRoom reads the bubble's box, not the mask's --> recorded: a grown mask still trips the sideways measurement.
+- [NIT] an over-long docblock line --> FIXED.
