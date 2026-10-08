@@ -228,3 +228,17 @@ company, and `thisComputer` cannot tell them apart.
   reveal the id; gating them on the test runner's environment would rest on runtime self-detection, which differs
   between Node versions; the repo scan stays, and says it is a guard on names, not a proof.
 - NIT kept: the synchronous read (decided in review 1; the first caller runs printFor off the request path).
+
+## Main merge and reviews 20 to 22
+- Merged main (with #5564's flake fix). Main's #5548 now reads every exports block, so engine.reachable.test.js
+  flagged printFor and the three tests-only exports as orphans. Excused BY FILE (review 21: a by-name excuse would hide a
+  same-named orphan elsewhere): the three seams in SEAMS_5548; printFor in FIRST_CALLER_5532, with a test that reds
+  once printFor has a caller (a temporary caller module reddened it), so the excuse cannot outlive its reason.
+- NOT TAKEN (review 21, measured false): a no-id computer does not re-read every minute forever; its failed reads start
+  the ten-minute give-up like any other, then the wait doubles to an hour.
+- CORRECTED (review 22): "off the request path, in the background" was wrong advice. The read is synchronous and blocks
+  the whole board wherever it runs. The allowlist comment now says: read at start before the board listens, accept the
+  block, or make the read asynchronous first. The header now claims what holds: no exported function RETURNS the id.
+- NITS kept (review 22): the no-id streak is not reset on a success (never read again once an id is cached); one cut-off
+  read on a no-id computer turns 'none' back to 'later' for a minute (safe direction).
+

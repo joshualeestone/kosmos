@@ -60,8 +60,9 @@
  * pinned none (a Mac with no hardware id, a platform with no reader yet, or a read that gave up at enroll) can be
  * copied, and the copy, which also sends none, passes. Only a pin closes that; nothing here can.
  *
- * No function that READS the hardware is exported, so no caller can log or send the raw id by mistake. (parseIoreg is
- * exported for the tests; it returns an id only from text its caller already holds.)
+ * No exported function RETURNS the raw id (printFor and the tests-only print function read the hardware, but hand back
+ * only a print), so no caller can log or send it by mistake. (parseIoreg is exported for the tests; it returns an id
+ * only from text its caller already holds.)
  */
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');

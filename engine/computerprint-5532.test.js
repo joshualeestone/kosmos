@@ -202,8 +202,10 @@ test('#5532 v1.5 review 15: nothing outside the tests loads computerprint until 
   assert.ok(files.includes('server.js'), 'the repo was not listed');
   /* The first caller adds itself here, in the same PR as a test that (1) its file never logs a printFor result, a print
      or a request body carrying one, and (2) it takes `company` from this board's own enrollment record, never from a
-     coordinator's answer (see the header of engine/computerprint.js). And it calls printFor off any request path (at
-     start, or in the background): a read can block the board for up to five seconds. */
+     coordinator's answer (see the header of engine/computerprint.js). The read is synchronous: wherever printFor runs, a
+     read that hangs blocks the whole board for up to five seconds, a timer or deferred task included (review 22). So
+     the caller reads it at start, before the board listens, or accepts that block (at most once a minute while reads
+     fail, once an hour after giving up), or makes the read asynchronous first. */
   const ALLOWED = [];
   // Any way of naming the module (review 19): require or import(), with or without a path or a .js/.cjs/.mjs suffix.
   const LOADS = /(require|import)\s*\(\s*['"`][^'"`]*computerprint(\.[cm]?js)?['"`]\s*\)|from\s+['"][^'"]*computerprint(\.[cm]?js)?['"]/;
