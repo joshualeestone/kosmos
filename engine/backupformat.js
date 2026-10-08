@@ -70,9 +70,12 @@ function chunkName(namingKey, plaintext) {
   return crypto.createHmac('sha256', namingKey).update(plaintext).digest('hex');
 }
 /** Padme (Nikitin et al., PURBs, 2019): pad L so only O(log log L) bits of it show; overhead at most about 12%. */
+// floor(log2(n)) by integer bit math below 2^32, so the exact frame size (which unframe insists on) cannot
+// depend on any engine's Math.log2 rounding. Frames here are far below 2^32.
+const log2floor = (n) => (n < 2 ** 32 ? 31 - Math.clz32(n) : Math.floor(Math.log2(n)));
 function padme(L) {
   if (L < 2) return L;
-  const E = Math.floor(Math.log2(L)), S = Math.floor(Math.log2(E)) + 1;
+  const E = log2floor(L), S = log2floor(E) + 1;
   const lastBits = E - S, mask = 2 ** lastBits - 1;
   return Math.ceil(L / (mask + 1)) * (mask + 1);
 }
@@ -139,19 +142,30 @@ function canonicalJson(v) {
     if (Number.isInteger(v) && !Number.isSafeInteger(v)) throw new Error('backupformat: a manifest integer must be a safe integer');
     return JSON.stringify(v);
   }
-  if (Array.isArray(v)) return '[' + v.map(canonicalJson).join(',') + ']';
+  if (Array.isArray(v)) {
+    // No holes and nothing but the indices: [,] would otherwise serialize to [] and still read back.
+    const own = Reflect.ownKeys(v).filter((k) => k !== 'length');
+    if (own.length !== v.length || own.some((k, i) => k !== String(i))) throw new Error('backupformat: a manifest array cannot have holes or extra properties');
+    return '[' + v.map(canonicalJson).join(',') + ']';
+  }
   if (typeof v === 'object') {
     const proto = Object.getPrototypeOf(v);
     if (proto !== Object.prototype && proto !== null) throw new Error('backupformat: a manifest holds plain objects only');
-    return '{' + Object.keys(v).sort().map((k) => JSON.stringify(k) + ':' + canonicalJson(v[k])).join(',') + '}';
+    const keys = Object.keys(v);
+    // Symbol keys and non-enumerable properties would be dropped without a word: refuse them.
+    if (Reflect.ownKeys(v).length !== keys.length) throw new Error('backupformat: a manifest object cannot have symbol keys or hidden properties');
+    return '{' + keys.sort().map((k) => JSON.stringify(k) + ':' + canonicalJson(v[k])).join(',') + '}';
   }
   throw new Error(`backupformat: a manifest cannot hold a ${typeof v}`);
 }
 const CTX_FIELDS = ['org', 'member', 'epoch', 'period', 'snapshot'];
+const CTX_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 /** The snapshot context every manifest is bound to (associated data AND signed). All five fields required. */
 function contextBytes(ctx) {
   for (const k of CTX_FIELDS) {
-    if (!ctx || typeof ctx[k] !== 'string' || !ctx[k] || ctx[k].includes('\n')) throw new Error(`backupformat: the context needs a non-empty ${k}`);
+    // Ids are pinned to a plain alphabet: a lone surrogate would become U+FFFD in the bytes, so two different
+    // contexts could share one signed byte string; a newline could forge a field.
+    if (!ctx || typeof ctx[k] !== 'string' || !CTX_ID_RE.test(ctx[k])) throw new Error(`backupformat: the context needs a non-empty ${k} of letters, digits and . _ : -`);
   }
   return Buffer.from(`kosmos-backup v${FORMAT} manifest\n` + CTX_FIELDS.map((k) => `${k}=${ctx[k]}`).join('\n'));
 }
@@ -167,6 +181,8 @@ function signedBytes(sealed, ctx) {
  */
 function sealManifest(memberPk, deviceKey, ctx, manifest) {
   const cb = contextBytes(ctx);
+  // A plain object only: a top-level null would open as null, which is also what every failure returns.
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) throw new Error('backupformat: a manifest is a plain object');
   const json = canonicalJson(manifest);
   if (canonicalJson(JSON.parse(json)) !== json) throw new Error('backupformat: the manifest does not read back as itself');
   const { enc, ct } = hpkeSeal(memberPk, Buffer.from(`kosmos-backup v${FORMAT} manifest`), cb, frame(Buffer.from(json)));
@@ -174,7 +190,9 @@ function sealManifest(memberPk, deviceKey, ctx, manifest) {
   const sig = crypto.sign(null, signedBytes(sealed, ctx), deviceKey);
   return Buffer.concat([MANIFEST_MAGIC, sig, enc, ct]);
 }
-/** Check a manifest's signature WITHOUT decrypting (the coordinator's check). Returns true or false, never throws. */
+/** Check a manifest's signature WITHOUT decrypting (the coordinator's check). Returns true or false, never throws.
+ *  devicePub MUST come from trusted state (the member's enrolled devices, E0.2), never from the object or
+ *  the uploader: the signature proves "this device signed it", and only that binding makes it "this member". */
 function verifyManifestSignature(devicePub, ctx, object) {
   try {
     if (!Buffer.isBuffer(object) || object.length < 4 + SIG_LEN + ENC_LEN + 16 || !object.subarray(0, 4).equals(MANIFEST_MAGIC)) return false;
