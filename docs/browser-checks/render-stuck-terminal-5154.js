@@ -38,12 +38,18 @@ const { chromium } = require('playwright');
       const briefAuth = base({ sessionName: 'brief', name: 'Ray', state: 'auth_failed', isNamedOurs: true,
         stuckError: { stuck: false, state: 'auth_failed', sinceAt: null, forMs: 0 } });
       const healthy = base({ sessionName: 'ok', name: 'Sam', state: 'working', isNamedOurs: true, stuckError: { stuck: false, state: null, sinceAt: null, forMs: 0 } });
+      // W2 control (review 4): a STUCK stuckError whose .state no longer matches the agent's CURRENT state
+      // (here the agent has switched to auth_failed while the anchor still reads the old rate_limited episode).
+      // The server's peek() gates this out before it reaches /api/status, but stateReason guards on
+      // a.state === a.stuckError.state as defense in depth, so the card must show NEITHER escalation sentence.
+      const mismatch = base({ sessionName: 'mismatch', name: 'Nyx', state: 'auth_failed', isNamedOurs: true,
+        stuckError: { stuck: true, state: 'rate_limited', sinceAt: Date.now() - 40 * 60000, forMs: 40 * 60000 } });
       const cardHtml = {};
       try {
-        for (const a of [stuckAuth, stuckRate, briefAuth, healthy]) cardHtml[a.sessionName] = card(a);
+        for (const a of [stuckAuth, stuckRate, briefAuth, healthy, mismatch]) cardHtml[a.sessionName] = card(a);
       } catch (e) { return { error: 'card() threw: ' + e.message }; }
       return {
-        authText: cardHtml.auth, rateText: cardHtml.rate, briefText: cardHtml.brief,
+        authText: cardHtml.auth, rateText: cardHtml.rate, briefText: cardHtml.brief, mismatchText: cardHtml.mismatch,
         // agentNeedsAttention is the Issue filter; a stuck agent counts, a brief/healthy one does not.
         attnStuckAuth: agentNeedsAttention(stuckAuth), attnStuckRate: agentNeedsAttention(stuckRate),
         attnBrief: agentNeedsAttention(briefAuth), attnHealthy: agentNeedsAttention(healthy),
@@ -55,6 +61,7 @@ const { chromium } = require('playwright');
       say(/reconnect its account/i.test(out.authText), 'a stuck auth_failed card says to reconnect the account');
       say(/paused by a rate limit for about\s+40\s+minutes/i.test(out.rateText), 'a stuck rate_limited card names the rate limit and the minutes');
       say(!/unable to sign in for about/i.test(out.briefText), 'a BRIEF auth_failed card does NOT show the stuck escalation sentence (falls through to the ordinary card)');
+      say(!/unable to sign in for about/i.test(out.mismatchText) && !/paused by a rate limit for about/i.test(out.mismatchText), 'a stuckError whose state does NOT match the agent\'s current state shows NEITHER escalation sentence (the stateReason state-match guard, W2)');
       say(out.attnStuckAuth === true, 'a stuck auth_failed agent counts as an Issue (agentNeedsAttention)');
       say(out.attnStuckRate === true, 'a stuck rate_limited agent counts as an Issue');
       say(out.attnBrief === false, 'a brief (not-stuck) terminal error is NOT an Issue');
