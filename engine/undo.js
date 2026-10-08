@@ -195,15 +195,18 @@ function isCredential(abs, st, cred) { return credentialVerdict(abs, st, cred) !
 /* Worked out once for a caller that checks many paths; null when it cannot be (each check then says 'unknown'). */
 function credentialSet() { try { return require('./setup-assistant').boardCredentialPaths(); } catch { return null; } }
 /* Review 12: keep runs before every agent edit, so the set is reused for SET_TTL_MS rather than worked out each time.
-   A credential made in that window is still caught by name and place; only the identity list can be up to 2 s old.
-   A failure is never cached. */
+   The set's file and folder lists can be up to 2 s old (a world store or sender token made in that window is caught
+   only by name until then); a change to the token-only list itself is seen at once (it is the cache key, with its
+   path), up to a disk that keeps times only to the second. A failure is never cached. */
 const SET_TTL_MS = 2000;
 let setCache = { at: 0, key: '', set: null };
 function cachedSet() {
   const now = Date.now();
   // The token-only list decides which folders are protected: any change to it (or it breaking) is seen at once.
-  let key = 'absent';
-  try { const st = fs.statSync(require('./sendertoken').tokenOnlyFile()); key = st.size + ':' + st.mtimeMs + ':' + st.ino; } catch { key = 'absent'; }
+  let listFile = '';
+  try { listFile = require('./sendertoken').tokenOnlyFile(); } catch { listFile = ''; }
+  let key = listFile + '|absent';
+  try { const st = fs.statSync(listFile); key = listFile + '|' + st.size + ':' + st.mtimeMs + ':' + st.ino; } catch { /* absent */ }
   if (setCache.set && setCache.key === key && now - setCache.at < SET_TTL_MS) return setCache.set;
   const set = credentialSet();
   setCache = set ? { at: now, key, set } : { at: 0, key: '', set: null };

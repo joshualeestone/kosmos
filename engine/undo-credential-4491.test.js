@@ -297,3 +297,24 @@ test('#4491 review 8: a record naming a file in undo\'s own stores is protected,
   assert.equal(undo.credentialVerdict(saved, null, set), 'protected', 'a saved-aside file is not protected');
   assert.equal(undo.credentialVerdict(path.join(store.ROOT, 'undo-elsewhere.txt'), null, set), null, 'CONTROL: a file merely named like the store');
 });
+
+test('#4491 review 13: the cached protected set sees a token-only list change at once, and a failure is never cached', () => {
+  undo.setOn(true);
+  const me = worker('ud-cache');   // resets the cache once, here only
+  fs.mkdirSync(path.dirname(sendertoken.tokenOnlyFile()), { recursive: true });
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: [] }));
+  const plain = path.join(me, 'plain.txt');
+  fs.writeFileSync(plain, 'x');
+  assert.deepEqual(undo.keep(plain, { cwd: me }), { kept: true }, 'CONTROL: a set is now cached');
+  const own = path.join(me, '.claude');
+  fs.mkdirSync(own, { recursive: true });
+  fs.writeFileSync(path.join(own, 'notes.md'), 'n');
+  assert.deepEqual(undo.keep(path.join(own, 'notes.md'), { cwd: me }), { kept: true }, 'CONTROL: not token-only yet, its .claude is ordinary');
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['ud-cache'] }));   // listed, no reset
+  assert.equal(undo.keep(path.join(own, 'notes.md'), { cwd: me }).because, 'credential', 'the cache hid a list change');
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), '{broken');   // no reset
+  assert.equal(undo.keep(plain, { cwd: me }).because, 'cannot-check', 'a broken list read from the cache as fine');
+  assert.equal(undo.keep(plain, { cwd: me }).because, 'cannot-check', 'a failure was cached as a set');
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: [] }));
+  assert.deepEqual(undo.keep(plain, { cwd: me }), { kept: true }, 'repaired list is seen at once');
+});

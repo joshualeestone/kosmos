@@ -931,8 +931,8 @@ function refreshTokenOnlyGuards(deps = {}) {
   if (noFolder.length) process.stderr.write('#4491 note: listed as token-only but no agent folder (nothing to guard yet): ' + noFolder.map((u) => u.name).join(', ') + '\n');
   // The managed-belt warning is a macOS-only concern: off darwin no sandbox block is written and
   // managed-settings does not apply, so warning there would be misleading.
-  if (names.length && platform === 'darwin' && !out.managed) {
-    process.stderr.write('#4491: ' + names.length + ' token-only agent(s) guarded by per-agent settings only; the root-owned managed-settings belt is absent, so the guard is defense-in-depth (see card #4491).\n');
+  if (out.guarded.length && platform === 'darwin' && !out.managed) {
+    process.stderr.write('#4491: ' + out.guarded.length + ' token-only agent(s) guarded by per-agent settings only; the root-owned managed-settings belt is absent, so the guard is defense-in-depth (see card #4491).\n');
   }
   return out;
 }
