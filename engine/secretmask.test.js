@@ -1995,25 +1995,26 @@ test('#5558: a path of plain segments is not a long token; a token chopped into 
   assert.equal(mask('dir/a8f3K2m9x7Q1z0b4c6d8e2f5g7h9j1k3x').text, MASK, 'a random segment inside a path passed as plain');
 });
 
-test('#5558 review 1: random lowercase-and-digit tokens behind a path prefix are still masked', () => {
-  // Seeded, so the test is the same every run: a small linear generator over the lowercase-and-digit alphabet.
+test('#5558 review 1: the plain-path rule never judges a path ending in a random token plain', () => {
+  const { isPlainPath } = require('./secretmask');
+  // Seeded, from the generator's HIGH bits (its low bits cycle: a first version drew only nine characters).
   const alpha = 'abcdefghijklmnopqrstuvwxyz0123456789';
   let seed = 5558;
   const next = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed; };
-  // The high bits: a linear generator's low bits cycle, and the first version of this test drew only nine characters.
   const token = (n) => Array.from({ length: n }, () => alpha[(next() >>> 16) % alpha.length]).join('');
-  let kept = 0;
-  for (let i = 0; i < 400; i++) {
-    for (const prefix of ['keys/prod/', 'example.com/api/v1/']) {
-      const t = token(32);
-      if (!(/[0-9]/.test(t) && /[a-z]/.test(t))) continue;
-      // What this change controls: a token the detector masks ON ITS OWN must stay masked behind a path prefix.
-      // (Some random tokens are not masked even alone, digits in one place say; that gap predates #5558.)
-      if (mask(t).text === t) continue;
-      const input = prefix + t;
-      if (mask(input).text === input) kept++;
+  // What this change controls is the rule itself: whatever else the detector decides about a token (some random
+  // tokens are not masked even alone, a gap that predates #5558), this rule must never call it a plain path.
+  const plain = [];
+  for (let i = 0; i < 500; i++) {
+    for (const prefix of ['keys/prod/', 'example.com/api/v1/', 'dir/']) {
+      for (const len of [16, 24, 32]) {
+        const t = token(len);
+        if (!(/[0-9]/.test(t) && /[a-z]/.test(t))) continue;
+        if (isPlainPath(prefix + t)) plain.push(prefix + t);
+      }
     }
   }
-  assert.equal(kept, 0, kept + ' tokens masked alone passed unmasked behind a path prefix');
+  assert.deepEqual(plain.slice(0, 5), [], plain.length + ' paths ending in a random token were judged plain');
+  assert.equal(isPlainPath('claude/plans/avatar-4038-20260926T1625'), true, 'CONTROL: a plain path');
   assert.equal(mask('keys/prod/shtwyqrchpxh4ho7s75pbot6mgjoujth').text, MASK);
 });
