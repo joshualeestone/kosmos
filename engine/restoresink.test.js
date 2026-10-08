@@ -68,6 +68,7 @@ test('#5536 sink: the root must be a fresh, real, absolute folder (control: an e
     const realChmod1 = fs.chmodSync;
     fs.chmodSync = (p2, m) => { if (p2 !== fs.realpathSync.native(ignored)) realChmod1(p2, m); };   // a silent no-op on the root
     try { assert.throws(() => createRestoreSink(ignored), /could not be made private \(the drive ignored/); } finally { fs.chmodSync = realChmod1; }
+    assert.deepEqual(fs.readdirSync(ignored), [], 'nothing (no temp folder, no probe) was written into a root never made private');
     // A folder in the root that belongs to someone else is not written into.
     const own = fresh(t), so = createRestoreSink(own);
     const first = so.begin('shared/a.md'); first.write(Buffer.from('a')); first.commit();
