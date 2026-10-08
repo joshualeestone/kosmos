@@ -65,7 +65,7 @@ function reachFrom(input) {
     // answer UNKNOWN, never guess. This guard sits ABOVE the default-launch return on purpose: a default
     // launch on such a home would otherwise report a reaches:true the signal cannot stand behind.
     // (typeof check first: path.isAbsolute throws on a non-string.)
-    if (typeof personClaudeHome !== 'string' || !path.isAbsolute(personClaudeHome) || personClaudeHome.split(path.sep).includes('..')) {
+    if (typeof personClaudeHome !== 'string' || !path.isAbsolute(personClaudeHome) || personClaudeHome.split(/[\\/]/).includes('..')) {
       return { reaches: null, reason: UNKNOWN };
     }
     // Clean default launch: CLAUDE_CONFIG_DIR unset -> effective dir is the person's (absolute) home.
@@ -74,7 +74,7 @@ function reachFrom(input) {
     // it collapses '..' WITHOUT following symlinks, so a crafted '/p/link/../.claude' could otherwise
     // resolve equal to the person home and yield a spurious reaches:true. Reject '..' (and a relative or
     // non-string dir) as UNKNOWN rather than risk the dangerous direction.
-    if (typeof agentClaudeDir !== 'string' || !path.isAbsolute(agentClaudeDir) || agentClaudeDir.split(path.sep).includes('..')) {
+    if (typeof agentClaudeDir !== 'string' || !path.isAbsolute(agentClaudeDir) || agentClaudeDir.split(/[\\/]/).includes('..')) {
       return { reaches: null, reason: UNKNOWN };
     }
     // Compare RESOLVED paths so 'h/./.claude' and 'h/.claude/' are not read as different folders. Both
@@ -104,7 +104,16 @@ function reachForAgent(agentName, deps = {}) {
   const create = deps.create || require('./create');
   const accounts = deps.accounts || require('./accounts');
   let personClaudeHome = '';
-  try { personClaudeHome = path.join(accounts.homeDir(), '.claude'); } catch { personClaudeHome = ''; }
+  try {
+    const rawHome = accounts.homeDir();
+    // Guard the RAW home BEFORE path.join collapses a '..': reachFrom's '..' guard cannot see a '..' that
+    // join has already normalised away (homeDir '/q/link/..' + '.claude' joins to '/q/.claude'). Join only
+    // a clean absolute no-'..' home; otherwise pass the raw value so reachFrom's own guard returns UNKNOWN
+    // rather than a false reaches:true.
+    personClaudeHome = (typeof rawHome === 'string' && path.isAbsolute(rawHome) && !rawHome.split(/[\\/]/).includes('..'))
+      ? path.join(rawHome, '.claude')
+      : rawHome;
+  } catch { personClaudeHome = ''; }
   let job = null;
   try { job = create.readJob(agentName); } catch { job = null; }
   if (!job) return { reaches: null, reason: UNKNOWN };

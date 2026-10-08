@@ -68,6 +68,10 @@ test('#5309 p2: a dir with a ".." segment is UNKNOWN, never a symlink-traversal 
     { reaches: null, reason: UNKNOWN });
   assert.deepEqual(reachFrom({ runner: 'claude', agentClaudeDir: null, personClaudeHome: '/Users/person/x/../.claude' }),
     { reaches: null, reason: UNKNOWN });
+  // win32 separator: a '\\'-separated '..' must be caught too -- split on /[\\/]/, not path.sep, or a
+  // forward-slash path on win32 (path.sep='\\') would let the '..' through.
+  assert.deepEqual(reachFrom({ runner: 'claude', agentClaudeDir: '/abs\\..\\.claude', personClaudeHome: HOME }),
+    { reaches: null, reason: UNKNOWN });
 });
 
 test('#5309 p2: Codex never reaches (isolated runtime, by design), whatever its dir', () => {
@@ -174,5 +178,13 @@ test('#5309 p2 resolver: a non-string configDir is UNKNOWN, not a false default-
   assert.deepEqual(reachForAgent('weird', deps({ job: { runner: 'claude', configDir: {} } })),
     { reaches: null, reason: UNKNOWN });
   assert.deepEqual(reachForAgent('weird2', deps({ job: { runner: 'claude', configDir: 7 } })),
+    { reaches: null, reason: UNKNOWN });
+});
+
+test('#5309 p2 resolver: a raw homeDir with ".." is UNKNOWN (checked BEFORE path.join collapses it)', () => {
+  // Regression: path.join(homeDir, '.claude') collapses a '..', hiding it from reachFrom's '..' guard, so
+  // a '..'-bearing home must be rejected at the resolver before the join -- else '/Users/q/link/..' joins
+  // to '/Users/q/.claude' and matches a configDir of '/Users/q/.claude' as a false reaches:true.
+  assert.deepEqual(reachForAgent('q', deps({ job: { runner: 'claude', configDir: '/Users/q/.claude' }, home: '/Users/q/link/..' })),
     { reaches: null, reason: UNKNOWN });
 });
