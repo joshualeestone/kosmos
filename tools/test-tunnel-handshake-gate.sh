@@ -29,7 +29,10 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=gate test CA" \
   -keyout "$W/ca.key" -out "$W/ca.pem" >/dev/null 2>&1
 openssl req -newkey rsa:2048 -nodes -subj "/CN=$HOST" -keyout "$W/leaf.key" -out "$W/leaf.csr" >/dev/null 2>&1
 printf 'subjectAltName=DNS:%s\n' "$HOST" > "$W/san.ext"
-openssl x509 -req -in "$W/leaf.csr" -CA "$W/ca.pem" -CAkey "$W/ca.key" -CAcreateserial -days 2 \
+# kosmos#5552: -CAserial names the serial file inside $W. Without it LibreSSL (macOS /usr/bin/openssl) builds the name
+# by cutting the CA path at its FIRST dot, which is in $W's own name, and writes tunnelgate-test.srl beside $W, where the
+# EXIT trap never reaches it (the suite's leak guard then fails the run). OpenSSL 3 puts it in $W either way.
+openssl x509 -req -in "$W/leaf.csr" -CA "$W/ca.pem" -CAkey "$W/ca.key" -CAcreateserial -CAserial "$W/ca.srl" -days 2 \
   -extfile "$W/san.ext" -out "$W/leaf.pem" >/dev/null 2>&1
 [ -s "$W/leaf.pem" ] || { echo "could not make the test certificate"; exit 1; }
 
