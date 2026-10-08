@@ -369,18 +369,18 @@ function wasEntryRule(rule, base, platform = process.platform) {
 /* #4752: which of the rules already in the guide's settings stay, given the rules just made (`fresh`).
    - An earlier rule for one entry of the default world's store is dropped (wasEntryRule) unless just made again,
      so a deleted or renamed entry does not leave a rule for ever; any other rule stays.
-   - On Windows, a rule in the older native form is dropped when its new-form equivalent was just made, or when that
-     equivalent is a per-entry rule for the store just listed in full (the same evidence as above that the entry is
-     gone). Otherwise it stays: a failure to make a rule never leaves a path with neither form.
+   - On Windows, a rule in the older native form STAYS beside its new-form equivalent: these are deny rules, and that
+     the new form is the one Claude Code matches rests on its docs, not on a Windows measurement, so the old one is
+     not taken away on that word alone (a duplicate deny costs nothing). It is dropped only when its equivalent is a
+     per-entry rule for an entry gone from the store just listed in full: nothing is left to protect there.
    Pure, with the platform passed in, so the Windows answer is pinned from any host. */
 function migrateKept(had, fresh, platform = process.platform) {
   const kept = fresh.entryBase ? had.filter((r) => fresh.rules.includes(r) || !wasEntryRule(r, fresh.entryBase, platform)) : had;
   if (platform !== 'win32') return kept;
   return kept.filter((r) => {
     const eq = legacyWinEquivalent(r);
-    if (!eq) return true;
-    if (fresh.rules.includes(eq)) return false;
-    return !(fresh.entryBase && wasEntryRule(eq, fresh.entryBase, platform));
+    if (!eq || fresh.rules.includes(eq)) return true;   // not an old rule, or its path is still protected: keep both
+    return !(fresh.entryBase && wasEntryRule(eq, fresh.entryBase, platform));   // an entry that is gone
   });
 }
 /* #4752: whether an entry directly in the worlds' base gets a rule of its own. Not the worlds folder or its
@@ -438,7 +438,7 @@ function guardGuideFolder(dir, agentName, deps = {}) {
        as it is now, so an entry that was deleted or renamed (a dated backup, a rotated log) does not leave a rule
        behind for ever. Only a rule this code could have written for one entry is dropped (wasEntryRule); any
        other rule stays, a person's own rule for the registry or for a name this code leaves alone included. */
-    const plat = deps.platform || process.platform;
+    const plat = process.platform;   // the platform the rules above were written for (ruleAbs uses the same)
     const kept = migrateKept(had, fresh, plat);
     /* #4752: none of THIS change's rules (fresh.extra) may take in the guide's own folder. An older folder or a
        linked entry a person made can resolve to an ancestor of it, and the sandbox follows links, so such a rule
