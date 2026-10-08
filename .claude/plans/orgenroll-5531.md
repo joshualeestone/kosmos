@@ -312,3 +312,12 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
   "nothing was joined"), as the answered path does. Pinned.
 - An undone join returns org_code_used, so the route keeps no ticket for the spent code. Pinned.
 - Not done (nit): a retried leave that resolves local-only leaves no note.
+
+## After convergence: the full validation's two guards (2026-10-08)
+- tools/test-connector-verbs.sh pins the mac-request callers so a new one re-decides the gate-closed rule. Re-decided
+  for engine/orgenroll.js: an older connector refuses the org routes, the engine reads a failure with no public code,
+  and the page says checking the code did not go through and nothing is joined. Joining a company never worked before
+  these connectors, so nothing that works today breaks. 27/27 with the eighth caller.
+- render-fields measured #plus-org-code (the panel's always-dark field) off its navy card, the known wizard artifact
+  ("recessed in light, raised in dark"). Skipped by name, as the wizard's are; render-plus-blue-1615 and
+  render-plus-signin-3478 pin its fill and text colour on the real tab.

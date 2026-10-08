@@ -177,8 +177,13 @@ connector_verbs_check "$T/no-such-tunnel" "$OPEN" 2>"$T/err" && bad "a missing c
 # and the module answers 409 reason 'unsupported', so the screen keeps the pending row and says the code lapses
 # (engine/fedmembers.test.js pins that answer). Federation outside invites never worked before these connectors, so
 # nothing that works today breaks.
+# kosmos#5531 re-decided for engine/orgenroll.js (a work Kosmos joining a company): it calls /v1/mac/org/redeem,
+# /enroll, /leave and /status, which only a connector carrying the org routes signs. An older connector refuses them
+# ("mac-request does not sign"); the engine reads that as a failure with no public code, so the page says checking the
+# code did not go through and nothing is joined (engine/orgenroll-5531.test.js pins the fixed sentence for a failure
+# with no code). Joining a company never worked before these connectors, so nothing that works today breaks.
 callers="$(grep -l "macRequest(" engine/*.js 2>/dev/null | grep -v -e "engine/remote.js" -e "\.test\.js$" | sort | tr '\n' ' ')"
-[ "$callers" = "engine/account-computers.js engine/federation.js engine/fedmembers.js engine/fedseats.js engine/mac-standing.js engine/phonenotify.js engine/updating.js " ] && ok "mac-request callers are exactly the seven the gate-closed rule was decided on" || bad "the mac-request callers changed ($callers); re-decide whether an old connector breaks something that works, then update this list"
+[ "$callers" = "engine/account-computers.js engine/federation.js engine/fedmembers.js engine/fedseats.js engine/mac-standing.js engine/orgenroll.js engine/phonenotify.js engine/updating.js " ] && ok "mac-request callers are exactly the eight the gate-closed rule was decided on" || bad "the mac-request callers changed ($callers); re-decide whether an old connector breaks something that works, then update this list"
 
 # The real connector on this Mac, when it is there: an integration line, reported but never failed.
 R="${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}"
