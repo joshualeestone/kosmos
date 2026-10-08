@@ -612,3 +612,17 @@ test('#5532 rollup review 15: when nothing can go, the board is not read at all'
   await r.tick({ root, remote: c, sources: counted(), now: T0 + 20 * 60e3 });
   assert.ok(reads > before, 'CONTROL: once a change could go, the board is read');
 });
+
+test('#5532 rollup review 18: a refused rollup logs its code once; usage days must be real days not after tomorrow', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root);
+  const lines = [];
+  const orig = console.error; console.error = (...a) => lines.push(a.join(' ')); t.after(() => { console.error = orig; });
+  const refusing = { macRequest: async (m, route, body) => (route === r.ROUTE ? { ok: false, because: '400 {"because":"org_rollup_bad"}' } : c.macRequest(m, route, body)) };
+  await r.tick({ root, remote: refusing, sources: sources(), now: Date.UTC(2026, 9, 7, 12) });
+  assert.ok(lines.some((l) => /did not take the rollup \(org_rollup_bad\)/.test(l)), 'a refusal left no trace: ' + JSON.stringify(lines));
+  const b = r.build({ world: 'w', usageByDay: { '2026-02-30': { 'claude-opus-5-5': { input_tokens: 1 } }, '2999-01-01': { 'claude-opus-5-5': { input_tokens: 1 } }, [DAY(0)]: { 'claude-opus-5-5': { input_tokens: 1 } } } });
+  assert.deepEqual([...new Set(b.usage.map((u) => u.day))], [DAY(0)], 'a day the company refuses reached the body');
+});

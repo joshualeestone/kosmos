@@ -177,8 +177,7 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
 - **Field coverage (review 6's todo), decided rather than built:** the board does not match consent lines to body
   fields. The words are the coordinator's: it serves them with their hash, writes them for the contract's fixed field
   set, refuses a rollup unless the hash accepted here is the one it serves now (v1.4), and stores only the worded
-  fields. A board-side text match would be a second, drifting copy of that rule. The todo stays as the record of the
-  question. Weakest premise: that the coordinator's words keep naming every field the contract carries; a field added
+  fields. A board-side text match would be a second, drifting copy of that rule. The question is recorded as a decided note in the test file. Weakest premise: that the coordinator's words keep naming every field the contract carries; a field added
   to the contract without a consent line is the coordinator's to refuse.
 - **Weakest premise:** a synchronous ioreg read can block the board for up to five seconds on a join, a leave or a
   rollup tick, at most once a minute while reads fail and once an hour after giving up. Accepted here; an
@@ -283,3 +282,18 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
   salt, company and print from the marker. Tests for both paths; each mutation makes them fail.
 - NITs kept: gather() after the ten-minute window (it is the change detection); `truncated` stays set while a duplicate
   name exists (accurate); the offline profile-name fallback (review 13).
+
+## Review 18 (blind, Opus)
+- FIXED: a refused rollup left no trace (the tick's result is dropped by its caller), so a contract mismatch could
+  refuse every hour in silence. Each refusal logs its code once, never the body or a print. Test.
+- FIXED: the joined view said "reports" while the rollup waited for a pinned print it could not read. The tick records
+  `printWaitAt` in its own state (cleared once the print can be read), and `/api/org` reads that, never the hardware.
+  Test; mutation makes it fail.
+- NITs taken: a failed write of the accepted words is logged; usage days must be real calendar days not after tomorrow
+  (the company refuses the whole rollup otherwise); the stale "the todo stays" sentence; the NAMES_USAGE note moved
+  into its block comment.
+- DEPENDS ON #5531 follow-up a0 (orgreview-5531, "Review what your company sees") for the way back from every state
+  this branch leaves as "accepted words not recorded here": a print sent and not pinned, a refusal because the words
+  changed, and an enrollment written before org-consent.json existed. Until a0 merges, that way back is leave and
+  join again with a new code.
+

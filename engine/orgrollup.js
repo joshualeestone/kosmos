@@ -139,7 +139,9 @@ function build(input) {
 
   /* The last USAGE_DAYS days present, newest first; within a day the costliest rows first, so a trim drops the least. */
   const byDay = !i.usageWithheld && i.usageByDay && typeof i.usageByDay === 'object' ? i.usageByDay : {};
-  const days = Object.keys(byDay).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort().reverse();
+  // A real calendar day, not after tomorrow (review 18): the company refuses the WHOLE rollup for any other.
+  const realDay = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(d + 'T00:00:00Z')) && new Date(d + 'T00:00:00Z').toISOString().slice(0, 10) === d && notAfterTomorrow(d) === d;
+  const days = Object.keys(byDay).filter(realDay).sort().reverse();
   if (days.length > USAGE_DAYS) truncated = true;
   const usage = [];
   for (const day of days.slice(0, USAGE_DAYS)) {
@@ -383,7 +385,12 @@ async function tick(opts) {
   if (!due && st.lastAt && now - st.lastAt < CHANGE_MIN_MS) return { sent: false, because: 'nothing due' };
   /* The print first (rollup review 16): while it must wait, nothing can go, so the board is not read either. */
   const pf = oe.reportPrint(eo);
-  if (pf.send === 'later' || pf.send === 'error') return { sent: false, because: 'this computer could not be read yet' };
+  if (pf.send === 'later' || pf.send === 'error') {
+    // Said where the joined view reads it (review 18): it must not claim this Kosmos reports while it waits for a print.
+    if (!st.printWaitAt) writeState(root, Object.assign({}, st, { enrolledAs, printWaitAt: now }));
+    return { sent: false, because: 'this computer could not be read yet' };
+  }
+  if (st.printWaitAt) { delete st.printWaitAt; writeState(root, Object.assign({}, st, { enrolledAs })); }   // readable again
   const g = await gather(o.sources);
   /* Usage leaves only under a consent that named it (review 8): a reader added to the sources later cannot turn it on
      by itself. Until the enrollment records `usageConsented` (set by the consent follow-up when the accepted words name
@@ -416,6 +423,9 @@ async function tick(opts) {
     return { sent: true, reason: body.reason };
   }
   writeState(root, Object.assign({}, st, { failAt: now }));
+  /* Said once per failure (review 18): a refusal every hour must leave a trace. Only the code: never the body or a print. */
+  const code = (String((r && r.because) || '').match(/\borg_[a-z_]+\b/) || [])[0] || 'no answer';
+  console.error('orgrollup: the company did not take the rollup (' + code + ')');
   /* The company holds other words for this member than the ones accepted here (contract v1.5, 409 org_consent_changed):
      stop reporting until the person accepts the new words (the joined view then says it sends nothing). */
   if (r && /\borg_consent_changed\b/.test(String(r.because || ''))) {
@@ -429,7 +439,12 @@ async function tick(opts) {
   return { sent: false, because: 'the company did not take it' };
 }
 
+/* Whether the last tick waited for this computer's print (review 18), so the joined view does not claim it reports.
+   Read from the rollup's own state, never by reading the hardware in a request. */
+function waitingForPrint(root) { const st = readState(root || require('./store').ROOT); return !!st.printWaitAt; }
+
 module.exports = {
+  waitingForPrint,
   DAILY_MS, CHANGE_MIN_MS, RETRY_AFTER_FAIL_MS, STATE_FILE, signature, tick,
   ROUTE, VERSION, NAME_MAX, AGENTS_MAX, PROJECTS_MAX, NAMES_MAX, USAGE_DAYS, USAGE_ROWS_PER_DAY, BODY_MAX,
   STATUS, statusWord, providerOfModel, build, gather, defaultSources,

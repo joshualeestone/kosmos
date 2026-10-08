@@ -9658,7 +9658,7 @@ const server = http.createServer(async (req, res) => {
       const refused = here ? oe.leaveRefusedFor() : null;   // a retried leave refused as the last admin: said ONCE (review 21)
       const refusedUndo = refused ? oe.leaveRefusedKind() === 'undo' : false;   // an undo, not the person's leave (review 31)
       if (refused && req.method === 'GET') oe.clearLeaveRefused();
-      sendJson(res, 200, { enrolled: here, reporting: here ? (oe.acceptedConsent() || { reports: [] }).reports.length > 0 : false,   // #5532: what tick() itself requires (rollup review 10)
+      sendJson(res, 200, { enrolled: here, reporting: here ? (oe.acceptedConsent() || { reports: [] }).reports.length > 0 && !require('./engine/orgrollup').waitingForPrint() : false,   // #5532: what tick() itself requires (rollup review 10)
        stoppedFor: stopped, leaveRefused: refused, leaveRefusedUndo: refusedUndo, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
     } catch { sendJson(res, 200, { enrolled: false, org: null, role: null, enrolledAt: null }); }
     return;

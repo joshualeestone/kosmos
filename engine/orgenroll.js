@@ -207,8 +207,11 @@ function cleanConsent(c) {
 const CONSENT_FILE = 'org-consent.json';
 /* Whether the accepted words name token usage. The coordinator refuses usage rows until its own words do
    (CONSENT_NAMES_USAGE, pinned on token/usage/cost), so the board keys on the same words: no line naming them, no
-   usage leaves, whatever a reader could read. */
-const NAMES_USAGE = /\b(tokens?|usage|costs?)\b/i;   // whole words: deliberately NARROWER than the coordinator's substring match, so a disagreement only withholds. It cannot see negation ("never your token usage"); report lines describe what IS sent, and the coordinator's own rule decides what it takes
+   usage leaves, whatever a reader could read.
+   It is whole words, deliberately NARROWER than the coordinator's substring match, so a disagreement only withholds; it
+   cannot see negation ("never your token usage"), since report lines describe what IS sent and the coordinator's own
+   rule decides what it takes. */
+const NAMES_USAGE = /\b(tokens?|usage|costs?)\b/i;
 /* Keyed BY HASH, a few kept (rollup review 10): a join that fails, or one from a stale page, must not overwrite the
    words held for the hash an existing record carries. */
 const CONSENT_KEEP = 8;
@@ -363,7 +366,7 @@ async function enrollNow(code, accepted, opts) {
     body.code = code.trim();
   }
   // The words go on disk before anything is sent, so whichever path later records this hash finds them (#5532).
-  if (body.consentHash) rememberConsent(body.consentHash, opts.consent, opts);
+  if (body.consentHash && !rememberConsent(body.consentHash, opts.consent, opts)) console.error('orgenroll: the accepted words could not be kept on disk; this Kosmos will not report until they are accepted again');
   /* #5532 (v1.5): the computer print, made with the salt the company served and the company being joined. A read that
      failed and is waiting to retry sends nothing yet (a join without the print would pin none, and a copy could then
      report); a malformed salt or company is a bug, said and not sent. */

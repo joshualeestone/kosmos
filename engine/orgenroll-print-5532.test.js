@@ -245,3 +245,17 @@ test('#5532 rollup review 17: an undo waits for a print only when the join sent 
   assert.ok(bodies.length, 'CONTROL: the settled undo was sent');
   assert.equal(bodies[0].computerPrint, printOf(ACME.id), 'the settled undo went without the print its join pinned');
 });
+
+test('#5532 rollup review 18: while the rollup waits for a pinned print, it says so where the joined view reads it', async (t) => {
+  const root = sandbox(t);
+  const co = company(root);
+  await join(root, co);
+  fs.writeFileSync(path.join(root, oe.CONSENT_FILE), JSON.stringify({ order: [HASH], byHash: { [HASH]: { reports: ['agent names'], usageConsented: false } } }));
+  const src = { snapshot: () => ({ counts: {}, agents: [] }), survey: () => ({ ok: true, agents: [] }), removed: () => [], projects: () => [], linkedProject: () => false };
+  cp._testRunner(() => DUMP, { platform: 'linux' });   // no print now; one was pinned
+  await rollup.tick({ root, remote: co, sources: src, now: Date.UTC(2026, 9, 8, 12) });
+  assert.equal(rollup.waitingForPrint(root), true, 'the rollup waited for a print but the view would say it reports');
+  cp._testRunner(() => DUMP, { platform: 'darwin' });
+  await rollup.tick({ root, remote: co, sources: src, now: Date.UTC(2026, 9, 8, 12, 5) });
+  assert.equal(rollup.waitingForPrint(root), false, 'CONTROL: once the print can be read, it no longer says it waits');
+});
