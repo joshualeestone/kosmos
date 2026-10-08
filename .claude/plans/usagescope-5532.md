@@ -1,0 +1,128 @@
+# usagescope-5532: usage scoped to one Kosmos's own agents (#5532, Enterprise E0.3)
+
+Umbrella #5529. The company rollup (branch rollup-5532) withholds `usage` because engine/usage.js reads every Claude
+config folder on the computer (status.configRoots), so its totals include the person's other Kosmoses and their own
+sessions outside Kosmos. This branch adds the reader the rollup needs to send usage for this world only.
+
+## What this branch builds
+- engine/usage.js `scanUsage` and engine/usageproviders.js `Acc` (Codex, Gemini CLI, Grok, Antigravity) also keep a
+  per-(day, launch folder, model) split, `folderModels`, from the same rows they already count.
+- engine/usage.js `worldUsageByModel(days, deps)` (folders from `worldAgentDirs()`, this Kosmos's roster; `deps` is for tests only and a test refuses a non-test caller passing it): fresh scans of the window (Claude with the mtime cut, the other
+  providers in full), keeping only rows whose launch folder IS one of the agent folders after realpath; a subfolder is
+  not claimed, and a transcript with no folder is nobody's. Returns `{ byDay: { day: { model: bucket } }, complete }`;
+  complete is false when a provider was only partly read (or threw).
+- Nothing calls it yet. The rollup will, once a day, under `usageConsented` (rollup branch).
+
+## Decided
+- No freezing: the per-day files the usage screen keeps are untouched, and no new cache format. One read a day.
+- Rejected: filtering the existing per-model totals by folder (they carry no folder).
+- Weakest premise: an agent's usage is the usage launched from its own folder. A person running Claude Code by hand in
+  an agent's folder is counted as that agent, as the usage screen already does.
+
+## Tests
+- engine/usage-world-5532.test.js with real transcripts in a sandboxed config root: only the agent's own folder
+  counts (a personal session and a subfolder session are left out; the computer-wide scan sees all three as a
+  control); providers scoped the same way; a partly read or failing provider gives complete: false; an agent folder
+  given as a link, and a session launched through a link, both match. Each of four mutations reddens.
+- Every existing test file that calls the scans (66 tests) passes.
+
+## Review 1 (blind, opus)
+- FIXED: Claude's half reports completeness too (scanUsage counts transcripts it could not stat or read; any makes the
+  scoped result complete: false); a failing scan returns complete: false instead of throwing; a folder that is not
+  absolute, on either side, is nobody's; in the SCOPED split only, a subagent with no top-level transcript counts for
+  nobody (its own folder may be where a person's session had cd'd to). Tests for each, the window (1 and 2 days), and
+  a subagent of the agent's own session from a worktree; all 73 existing scan tests pass.
+- DOCUMENTED: a message in two transcripts counts once, for the copy whose path sorts first, so an agent can be
+  under-counted (the safe direction); `deps` is for tests only.
+
+## Review 2 (blind, sonnet)
+- FIXED: an agent folder that is the home folder or a filesystem root claims nothing (it would take every session the
+  person started there); an agent folder that no longer exists makes the count incomplete (its past sessions cannot be
+  matched by real path). Test; both mutations redden; all existing scan tests pass.
+- CONSENT WORDING (told PigeonPete): "usage from sessions launched in your agents' folders", since a person's own
+  session started in an agent's exact folder is counted as that agent's (the weakest premise above).
+- DUPLICATES / KEPT: the scan-wide dedup can undercount an agent (documented); a case-different spelling on a
+  case-insensitive disk undercounts (the safe direction).
+
+## Review 3 (blind, opus)
+- FIXED: a skipped parent whose head read fails counts as unreadable, so the count says incomplete instead of being
+  quietly short (test with an old, unreadable parent; mutation reddens).
+- STATED in the doc comment (the caller rule the privacy guarantee rests on): agentDirs is this Kosmos's own roster,
+  never a listing of the workers folder, which several Kosmoses on one computer share.
+- FIXED: a duplicate root check removed; distinct folders resolved once, in parallel; a test pins that the usage
+  screen's per-folder totals keep their behaviour for an orphan subagent.
+
+## Review 4 (blind, sonnet)
+- FIXED: a folder that exists but cannot be listed (projects/, a project, a subagents tree) counts as unreadable, so
+  the count says incomplete; a missing projects/ folder is still "no sessions" (test; mutation reddens).
+- FIXED: tests that need chmod or symlinks skip, with the reason, on Windows or as root.
+- DUPLICATES: the agentDirs roster rule (stated, review 3; the rollup PR must build agentDirs from the roster in a test);
+  a person's session in an agent's exact folder (the weakest premise; consent wording with PigeonPete).
+
+## Review 5 (blind, opus)
+- FIXED, in code rather than a comment: worldUsageByModel builds its folders from this Kosmos's roster itself
+  (worldAgentDirs: register.known() through create.workerDir, as the usage screen does); a caller cannot pass a list
+  (`deps.agentDirs` is for tests). An unreadable roster gives complete: false.
+- FIXED: a folder that contains another agent's folder (the workers root, a person's ~/work) is a shared parent and
+  claims nothing (test; mutation reddens).
+- NOTED: days is meant to be small (every call is a fresh scan); Gemini's folder comes from .project_root, which may be
+  a project root rather than the launch folder (a subfolder there could be claimed; one provider, measured later).
+
+## Review 6 (blind, sonnet)
+- FIXED: a dropped shared-parent folder makes the count incomplete (its own sessions are left out too; test).
+- STATED as a residual in the code: ownership is by launch folder only; in the default world two Kosmoses' agents with
+  one name share a folder, and a person's own session in an agent's exact folder cannot be told apart. Usage is sent
+  only under consent words naming "sessions launched in your agents' folders".
+- FIXED: the doc comment sits on worldUsageByModel again; the walk's onError note joins its function; an arity test
+  replaced by a behaviour test (a list passed as the second argument is not used).
+- DUPLICATE: the dedup undercount (documented).
+
+## Review 7
+- deps.agentDirs CAN override the roster; the comments now say so, and a test refuses any non-test tracked file that
+  passes worldUsageByModel a second argument (a call split over lines is read whole). Mutation: a planted call in
+  engine/usage.js reddens it.
+- Every `complete: false` check is preceded by a `complete: true` CONTROL in the same state. Mutation: leaving the
+  review 4 folder locked reddens review 5's control.
+- The relative-folder check moved out of the chmod-gated test, so it runs on Windows and as root.
+- Docblock: the roster rule said once; dedup order is per root, then configRoots() order.
+- Declined: ENOENT between walk and read counts as unreadable (the safe direction: a false incomplete, never a short
+  count passed as whole); folderModels on every scan (never serialized, small cost; an opt-in flag adds a second path).
+
+## Review 8
+- The home guard covers the home Kosmos uses (AGENT_WORKFORCE_HOME, as store.js reads it) and the account's own.
+  Pinned with a control (a non-home folder claims the same session); dropping the env home reddens it.
+- `complete` fails closed: a provider result that does not say `complete: true` is incomplete. The real scanProviders
+  always returns the boolean. Pinned; the old `!== false` reddens it.
+- Kept: ownership by exact launch folder (the residual stated since review 6; the rollup's consent words carry it).
+- Kept: the guard test's regex is an accident net, not a security boundary (a call whose first argument holds a `)`
+  is missed); stated here.
+
+## Review 9
+- Every dropped agent folder (unresolvable in the roster, not absolute, a home, a root) now makes the count incomplete,
+  as a shared parent already did: that agent's own sessions are left out. worldAgentDirs keeps an unresolvable agent as
+  null instead of skipping it. Pinned (removing the flag reddens 3 tests; the relative and root guards each redden their
+  own test, which now has a session the guard is the only thing excluding).
+- Unpinned: worldAgentDirs pushing null (the roster here has no agents); the folder-side relative check (the distinct
+  filter already excludes a relative folder key, so it is belt and braces).
+- The docblock no longer says the matching is byAgent's rule: it compares as byAgent does, but home, root, shared
+  parent and orphan subagent claim nothing here, so the usage screen's per-agent totals can be larger.
+- Kept: "(review N)" labels in comments (the codebase's convention, declined before). Minor: NOPROV moved up; the
+  Antigravity home scrubbed in the test; the guard regex says it is an accident net.
+
+## Review 11 (on the post-convergence guard registrations)
+- The real provider reader's folderModels split had no test (every provider test stubbed scanProviders). A test now
+  writes two real Codex rollouts (one launched in the agent folder, one in a personal folder), runs the REAL
+  scanProviders (homes pointed at the sandbox), and asserts only the agent's model counts, with a control that both
+  were read. Mutation: dropping folderModels from Acc's `into` list reddens it.
+- Docblock: a gone agent folder still matches sessions recorded under the same spelling; only link-reached ones are
+  lost. The flag stays (safe direction); the rollup decides what an incomplete count means. MATCHING rules split into
+  short sentences; the long `broad` line wrapped.
+- The review 8 env-home test also asserts complete is false.
+- Kept (nits): unreadable files in other roots make this world incomplete (review 7 decision); cwd as the relative
+  control; the git ls-files guard needs a git tree; Windows path arms untested, as byAgent's.
+
+## Review 12 (converged)
+- Declined, measured: "a recorded cwd in another case is dropped on a case-insensitive volume". fs.promises.realpath
+  (the native one this code uses) returns the on-disk case on macOS (LeoAgent from leoagent; the JS realpathSync does
+  not). Pinned by a test, skipped on a case-sensitive volume; swapping in the JS realpathSync reddens it.
+- Duplicate of review 11: a session folder that is gone falls back to path.resolve (a link-reached one is missed).
