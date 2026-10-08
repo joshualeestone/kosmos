@@ -72,6 +72,7 @@
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SITE="${KOSMOS_AUTODEPLOY_SITE:-}"
+TARGET=""   # set from origin/main below; empty until then (red_once keys on it), never inherited
 STATE="${KOSMOS_AUTODEPLOY_STATE:-$HOME/.kosmos-site-autodeploy}"
 DIST_FROM="${KOSMOS_AUTODEPLOY_DIST_FROM:-$HOME/work/chaoskosmos-site/dist}"
 HOST="${KOSMOS_SITE_URL:-https://installkosmos.com}"
@@ -81,7 +82,8 @@ now() { date '+%Y-%m-%d %H:%M:%S %Z'; }
 say() { printf '%s %s\n' "$(now)" "$*" | tee -a "$LOG"; }
 park() { echo "$TARGET" > "$STATE/parked"; mark_reported parked; }
 # A state that would be red on every tick (a parked sha, a retry alarm, a wedged lock, an unreachable
-# origin) goes red ONCE per sha and cause per day, then each further tick prints "STILL FAILING
+# origin) goes red ONCE per sha and cause per day (a rolling 24 hours from the report, not a calendar
+# day), then each further tick prints "STILL FAILING
 # (reported)" and stays green. GitHub emails the account that last edited the workflow's cron on EVERY
 # failed scheduled run, so red-every-tick on a 15-minute schedule would mean up to 96 emails a day to
 # Josh's account. Each sha and cause has its OWN record (reported.d/<sha>-<cause>, holding the time),
@@ -306,7 +308,7 @@ if publisher_running; then
 fi
 now > "$STATE/heartbeat"   # fresh before the long part, so a slow deploy never reads as a wedged lock
 say "deploying site main ${TARGET:0:9} (last deployed ${LAST:0:9})"
-# The deploy's output goes to stdout as it happens (tail -f) and to the log afterwards; rc is the deploy's own.
+# The deploy's output goes to this run's output and the log once it ends; rc is the deploy's own.
 # KOSMOS_REPO pins deploy-site.sh's libraries to THIS checkout; without it they load from
 # ~/work/agent-workforce, which on Mortals is the cut's checkout, at whatever sha a cut left it.
 export KOSMOS_REPO="$REPO"
@@ -325,8 +327,7 @@ set -m; KOSMOS_SITE="$SITE" "${DCMD[@]}" < /dev/null > "$DOUT" 2>&1 & dpid=$!; s
 # If this tick is killed (the runner cancels the job, or its timeout), take the deploy group with it,
 # so no orphaned deploy keeps publishing beside the next tick.
 trap 'kill -TERM -- "-$dpid" 2>/dev/null; [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"' EXIT
-trap 'exit 143' TERM INT HUP
-tail -n +1 -f "$DOUT" 2>/dev/null & tpid=$!   # stream it to this run's output as it happens
+trap 'exit 143' TERM INT HUP   # (stays for the rest of the tick: exit runs whichever EXIT trap is current)
 tenths=0   # polled every 0.2 s, counted in tenths of a second
 while kill -0 "$dpid" 2>/dev/null && [ "$tenths" -lt $((DEPLOY_MAX_S * 10)) ]; do sleep 0.2; tenths=$((tenths + 2)); done
 if kill -0 "$dpid" 2>/dev/null; then
@@ -338,8 +339,9 @@ if kill -0 "$dpid" 2>/dev/null; then
 else
   wait "$dpid"; rc=$?; timedout=""
 fi
-sleep 0.3; kill "$tpid" 2>/dev/null; wait "$tpid" 2>/dev/null   # let tail print the last lines first
-cat "$DOUT" >> "$LOG"
+# Printed whole once it has ended (not streamed: a live tail could be orphaned by a killed tick, and
+# could cut off the last lines). The run and the log get the same complete output.
+cat "$DOUT" | tee -a "$LOG"
 [ -n "$timedout" ] && say "the deploy ran past its ${DEPLOY_MAX_S}s limit and was stopped; counted as a retry"
 trap '[ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"' EXIT   # the deploy is over: back to the plain trap
 if [ "$rc" = 0 ]; then

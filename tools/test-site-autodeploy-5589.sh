@@ -303,6 +303,39 @@ echo "$(( $(date +%s) + 86400 ))" > "$ST/reported.d/$H24-parked"; tick
 [ "$RC" = 1 ] && pass "a future report time counts as never reported (red)" || bad "future report time stayed green (rc=$RC)"
 rm -f "$ST/parked"; rm -rf "$ST/reported.d"
 
+# 25) each remaining cause reports under its own name at the alarm: red once, then reported green.
+#     (noref is not reproduced: a fetch of main always restores origin/main in a real clone.)
+H25=$(advance twentyfive)
+# unread: the live pointers cannot be read at all (nothing listens on port 9).
+echo "$H25 9" > "$ST/retries"
+KOSMOS_SITE_URL=http://127.0.0.1:9 tick; u1=$RC; OUTU=$OUT; KOSMOS_SITE_URL=http://127.0.0.1:9 tick; u2=$RC
+{ [ "$u1" = 1 ] && [ "$u2" = 0 ] && printf '%s' "$OUTU" | grep -q "could not read the live latest.json" && [ -e "$ST/reported.d/$H25-unread" ]; } \
+  && pass "unread: red once at the alarm under its own cause, then reported" || bad "unread cause (u1=$u1 u2=$u2) $OUTU"
+# mirror: the copy into the job's dist/ fails.
+printf 'tar 0.7.22\n' > "$CUTDIST/kosmos-0.7.22-arm64.tar.gz"   # something new to copy (below the 0.7.99 ceiling)
+printf '%s  x\n' "$(shasum -a 256 "$CUTDIST/kosmos-0.7.22-arm64.tar.gz" | cut -c1-64)" > "$CUTDIST/kosmos-0.7.22-arm64.tar.gz.sha256"
+# (A read-only destination does not do it: rsync -a resets the folder's mode from the source first.)
+chmod 000 "$CUTDIST/kosmos-0.7.22-arm64.tar.gz"   # unreadable at the source: the copy fails
+echo "$H25 9" > "$ST/retries"
+tick; c1=$RC; OUTC=$OUT; tick; c2=$RC; chmod 644 "$CUTDIST/kosmos-0.7.22-arm64.tar.gz"
+rm -f "$CUTDIST/kosmos-0.7.22-arm64.tar.gz" "$CUTDIST/kosmos-0.7.22-arm64.tar.gz.sha256"
+{ [ "$c1" = 1 ] && [ "$c2" = 0 ] && printf '%s' "$OUTC" | grep -q "could not mirror" && [ -e "$ST/reported.d/$H25-mirror" ]; } \
+  && pass "mirror: red once at the alarm under its own cause, then reported" || bad "mirror cause (c1=$c1 c2=$c2) $OUTC"
+# timeout: a deploy that hangs at the alarm reports as a timeout, not as a moving site.
+H25b=$(advance twentyfive-b); echo "$H25b 3" > "$ST/retries"; HANG3="$T/hang3.pid"
+KOSMOS_AUTODEPLOY_DEPLOY_MAX_S=1 KOSMOS_AUTODEPLOY_DEPLOY='sleep 300 & echo $! > '"$HANG3"'; wait' tick
+{ [ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q "run past its 1s limit 4 ticks" && ! printf '%s' "$OUT" | grep -q "moving or unreadable" && [ -e "$ST/reported.d/$H25b-timeout" ]; } \
+  && pass "timeout: at the alarm it is red as a timeout, not as a moving site" || bad "timeout cause (rc=$RC) $OUT"
+hp3=$(cat "$HANG3" 2>/dev/null); [ -n "$hp3" ] && kill -0 "$hp3" 2>/dev/null && { bad "timeout left its child $hp3"; kill "$hp3"; }
+rm -f "$ST/retries"; tick
+# wedged re-arm: a wedge reported, the lock freed (a tick takes it), then a NEW wedge is red at once.
+mkdir "$ST/lock"; sleep 300 & w1=$!; echo "$w1" > "$ST/lock/pid"; touch -t "$(date -v-2H +%Y%m%d%H%M)" "$ST/heartbeat"
+tick; r1=$RC; kill "$w1" 2>/dev/null; wait "$w1" 2>/dev/null
+echo 999999 > "$ST/lock/pid"; tick   # takes over the dead lock: the wedge record clears
+mkdir "$ST/lock"; sleep 300 & w2=$!; echo "$w2" > "$ST/lock/pid"; touch -t "$(date -v-2H +%Y%m%d%H%M)" "$ST/heartbeat"
+tick; r2=$RC; kill "$w2" 2>/dev/null; wait "$w2" 2>/dev/null; rm -rf "$ST/lock"
+{ [ "$r1" = 1 ] && [ "$r2" = 1 ]; } && pass "wedged: after the lock is taken again, a new wedge is red at once" || bad "wedged re-arm (r1=$r1 r2=$r2)"
+
 # 13) no site configured: a usage error, never a deploy.
 nfinal=$(ndeploys); KOSMOS_AUTODEPLOY_SITE="" bash "$AD" 2>/dev/null; RC=$?
 { [ "$RC" = 2 ] && [ "$(ndeploys)" = "$nfinal" ]; } && pass "no KOSMOS_AUTODEPLOY_SITE: exit 2, nothing deployed" || bad "unset site (rc=$RC)"
