@@ -154,6 +154,7 @@ fi
 echo $$ > "$LOCK/pid"
 clear_reported wedged   # the lock is ours: a wedged-lock report no longer describes anything (TARGET is still empty here)
 trap '[ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"' EXIT   # only a lock this tick holds
+trap 'exit 143' TERM INT HUP   # a cancel (TERM/INT/HUP) exits through the EXIT trap, so the lock is always freed
 # The heartbeat is written only by a tick that holds the lock, so a wedged lock shows as a stale one.
 now > "$STATE/heartbeat"
 if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 5000000 ]; then tail -n 5000 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"; fi
@@ -343,7 +344,7 @@ export KOSMOS_REPO="$REPO"
 # not just the subshell.
 DEPLOY_MAX_S="${KOSMOS_AUTODEPLOY_DEPLOY_MAX_S:-900}"
 case "$DEPLOY_MAX_S" in ''|*[!0-9]*|0*) DEPLOY_MAX_S=900 ;; esac   # 0 kills every deploy at once; a leading 0 reads as octal
-[ "$DEPLOY_MAX_S" -le 1500 ] || DEPLOY_MAX_S=1500   # stays inside the workflow's 30-minute job timeout by construction
+[ "$DEPLOY_MAX_S" -le 1200 ] || DEPLOY_MAX_S=1200   # bounds the DEPLOY phase only; 20 min leaves room in the 30-minute job for the fetch, mirror and checks
 if [ -n "${KOSMOS_AUTODEPLOY_DEPLOY:-}" ]; then DCMD=(sh -c "$KOSMOS_AUTODEPLOY_DEPLOY"); else DCMD=(bash "$REPO/tools/deploy-site.sh" --publish); fi
 DOUT="$STATE/deploy.out"; : > "$DOUT"
 dpid=""   # set the moment the deploy starts; the traps below are in place BEFORE it starts
