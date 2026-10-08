@@ -13,8 +13,8 @@
  *
  * WHERE THE HARDWARE ID COMES FROM.
  *   macOS: IOPlatformUUID, from `ioreg -rd1 -c IOPlatformExpertDevice` (no permission prompt, no entitlement).
- *   Windows: MachineGuid (HKLM\SOFTWARE\Microsoft\Cryptography). Specified for the Windows owner (Homer), not built
- *     here, per the fleet's Windows rule: hardwareId() answers null on Windows until that lands.
+ *   Windows: MachineGuid, from `reg query HKLM\SOFTWARE\Microsoft\Cryptography /v MachineGuid /reg:64` (readable by a
+ *     standard user, no elevation). /reg:64 so a 32-bit node would still read the 64-bit hive, not WOW6432Node's copy.
  *   Anything else: null.
  * Known limits, stated on #5532: a cloned disk image or VM clone copies MachineGuid; a logic-board repair changes
  * IOPlatformUUID. Both end at the consent prompt to make this computer the enrolled one, never at lost data.
@@ -22,6 +22,7 @@
  * Null means "cannot say", and a caller must treat it as such: send no print (an older board), never a made-up one.
  */
 const crypto = require('node:crypto');
+const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
 const UUID = /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i;
@@ -32,6 +33,18 @@ let cached;   // the hardware does not change while the board runs; read once
 /* The raw IOPlatformUUID out of ioreg's text, or null. Pure, so the parse is tested on fixtures. */
 function parseIoreg(text) {
   const m = /"IOPlatformUUID"\s*=\s*"([^"]+)"/.exec(String(text || ''));
+  return m && UUID.test(m[1]) ? m[1].toUpperCase() : null;
+}
+
+/* System32's reg.exe by full path, never one found on PATH, and the query it runs. Exported so a test pins both: a
+   dropped /reg:64 would make a 32-bit node read WOW6432Node's copy and answer null with no error. */
+const REG_ARGS = Object.freeze(['query', 'HKLM\\SOFTWARE\\Microsoft\\Cryptography', '/v', 'MachineGuid', '/reg:64']);
+function regExe() { return path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'reg.exe'); }
+
+/* The raw MachineGuid out of `reg query` text, or null. Pure, so the parse is tested on fixtures. reg prints the value
+   line as "    MachineGuid    REG_SZ    <guid>"; only a REG_SZ in the GUID shape counts. */
+function parseRegQuery(text) {
+  const m = /^\s*MachineGuid\s+REG_SZ\s+(\S+)\s*$/im.exec(String(text || ''));
   return m && UUID.test(m[1]) ? m[1].toUpperCase() : null;
 }
 
@@ -47,7 +60,13 @@ function hardwareId(opts) {
       id = parseIoreg(run());
     } catch { id = null; }
   }
-  // win32: MachineGuid, by the Windows owner (spec on #5532). Until then: null, never a guess.
+  if (platform === 'win32') {
+    try {
+      const run = o.run || (() => execFileSync(regExe(), REG_ARGS,
+        { encoding: 'utf8', timeout: 5000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }));
+      id = parseRegQuery(run());
+    } catch { id = null; }
+  }
   if (!o.run) cached = id;
   return id;
 }
@@ -61,4 +80,4 @@ function fingerprint(salt, opts) {
   return crypto.createHash('sha256').update(salt + ':' + id).digest('hex');
 }
 
-module.exports = { parseIoreg, hardwareId, fingerprint, UUID, SALT };
+module.exports = { parseIoreg, parseRegQuery, regExe, REG_ARGS, hardwareId, fingerprint, UUID, SALT };
