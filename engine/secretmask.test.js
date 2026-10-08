@@ -2080,3 +2080,20 @@ test('#5558 review 6: each plain-path rule holds on its own, and a date does not
     assert.equal(isPlainPath(t), true, 'CONTROL: ' + t);
   }
 });
+
+test('#5558 review 7: letter case, each part of a date and time, and the architecture rule each hold', () => {
+  const { isPlainPath } = require('./secretmask');
+  const cases = [
+    ['notes/ceVO/plans', 'a mixed-case piece is not a word'],
+    ['notes/plans/30260926-1', 'a year outside 19xx/20xx is not a date, so its digits count'],
+    ['notes/plans/20261326-1', 'month 13 is not a date'],
+    ['notes/plans/20260932-1', 'day 32 is not a date'],
+    ['secrets/20380124T553311/12345678', 'hour 55 is not a time, so the timestamp is not a date'],
+    ['notes/plans/20260926T1234567', 'a seven-digit time is not a timestamp'],
+    ['notes/plans/y01', 'y01 is not an architecture'],
+  ];
+  for (const [t, why] of cases) assert.equal(isPlainPath(t), false, why + ': ' + t);
+  for (const t of ['notes/plans/20260926-1', 'secrets/20380124T235959/plans', 'notes/plans/20260926T1625', 'notes/plans/x64', 'notes/Plans/x86']) {
+    assert.equal(isPlainPath(t), true, 'CONTROL: ' + t);
+  }
+});
