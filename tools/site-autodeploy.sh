@@ -95,9 +95,11 @@ park() { echo "$TARGET" > "$STATE/parked"; mark_reported parked; }
 # account that last edited the workflow's cron on EVERY failed scheduled run, so red-every-tick on a
 # 15-minute schedule would mean up to 96 emails a day to Josh's account. Each sha and cause has its OWN
 # record (reported.d/<sha>-<cause>, holding the time), so two causes taking turns never re-arm each
-# other. (The records made before the sha is known, fetch, wedged lock, origin/main and the process
-# list, are keyed "none": once one is reported, a NEW push the same day whose tick hits the same cause is
-# green with the warning too. Nothing could deploy it during that cause anyway; the warning names it.)
+# other. (The records made before the sha is known, fetch, wedged lock and origin/main, are keyed
+# "none": once one is reported, a NEW push the same day whose tick hits the same cause is green with the
+# warning too. Nothing could deploy it during that cause anyway; the warning names it. The process-list
+# record, psread, is made after the sha is known, so it is per sha like the retry-type causes: a new push
+# while ps stays unreadable is red once more.)
 # The records for the states with a clean "it is over" moment (wedged lock, origin/main) are
 # removed the moment that is seen, so a new incident after it is red at once. NOT the fetch: a network
 # that fails on some ticks and works on others would re-arm its own red after every good fetch (up to 48
@@ -225,7 +227,7 @@ grouped_timeout() {  # <seconds> <cmd...>: run cmd in its own process group; on 
 }
 FETCH_MAX_S="${KOSMOS_AUTODEPLOY_FETCH_MAX_S:-120}"
 case "$FETCH_MAX_S" in ''|*[!0-9]*|0*) FETCH_MAX_S=120 ;; esac
-[ "$FETCH_MAX_S" -le 300 ] || FETCH_MAX_S=300   # with the deploy's 1200 cap, 25 of the job's 30 minutes
+[ "$FETCH_MAX_S" -le 300 ] || FETCH_MAX_S=300   # see the deploy limit below for the job's whole budget
 GIT_TERMINAL_PROMPT=0 grouped_timeout "$FETCH_MAX_S" git -C "$SITE" fetch -q origin main 2>>"$LOG" \
   || red_once fetch "FAIL: could not fetch site origin/main in $SITE (failed or timed out)"
 # (The fetch record is not cleared here: see red_once's header on a network that comes and goes.)
@@ -418,7 +420,7 @@ say "deploying site main ${TARGET:0:9} (last deployed ${LAST:0:9}); its output i
 # KOSMOS_REPO pins deploy-site.sh's libraries to THIS checkout; without it they load from
 # ~/work/agent-workforce, which on Mortals is the cut's checkout, at whatever sha a cut left it.
 export KOSMOS_REPO="$REPO"
-# The deploy has its own wall-clock limit, well inside the workflow's 30-minute job timeout, so a hung
+# The deploy has its own wall-clock limit, well inside the workflow's job timeout (45 minutes), so a hung
 # deploy is THIS script's to account for (a failure: retried once, then parked) instead of the runner killing
 # the job with nothing recorded and the next tick hanging the same way. Measured 2026-10-08: the 0.7.28
 # prod promote's deploy-site.sh --promote took 2 min 18 s on Mortals; 15 minutes is about 6 times that.
@@ -426,7 +428,9 @@ export KOSMOS_REPO="$REPO"
 # not just the subshell.
 DEPLOY_MAX_S="${KOSMOS_AUTODEPLOY_DEPLOY_MAX_S:-900}"
 case "$DEPLOY_MAX_S" in ''|*[!0-9]*|0*) DEPLOY_MAX_S=900 ;; esac   # 0 kills every deploy at once; a leading 0 reads as octal
-[ "$DEPLOY_MAX_S" -le 1200 ] || DEPLOY_MAX_S=1200   # bounds the DEPLOY phase only; with the fetch's 300 s cap that is 25 of the job's 30 minutes
+[ "$DEPLOY_MAX_S" -le 1200 ] || DEPLOY_MAX_S=1200   # bounds the DEPLOY phase only
+# The job's budget at every cap: the workflow's own git (2 x 120 s), this fetch 300 s, this deploy 1200 s,
+# about 29 of its 45 minutes. The mirror and the checksums have no clock of their own; they get the rest.
 if [ -n "${KOSMOS_AUTODEPLOY_DEPLOY:-}" ]; then DCMD=(sh -c "$KOSMOS_AUTODEPLOY_DEPLOY"); else DCMD=(bash "$REPO/tools/deploy-site.sh" --publish); fi
 DOUT="$STATE/deploy.out"; : > "$DOUT"
 dpid=""   # set the moment the deploy starts; the traps below are in place BEFORE it starts
