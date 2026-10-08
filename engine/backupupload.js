@@ -25,8 +25,9 @@
  *  - Bucket or network trouble (a lost answer, 5xx or SlowDown, 409 a write still in flight) is retried on the SAME
  *    url until the grant expires, never with a new grant (Ice Cream Kitty, from S3's docs): a landed write shows up
  *    as that 412 rather than as a second copy, and a chunk that met only such trouble until expiry ends the run
- *    retryLater. Only a chunk the grant ran out on cleanly (a big batch, or a 403 that says expired) gets a new grant
- *    under a new key, at most MAX_REGRANTS more per batch.
+ *    retryLater, naming those chunks and keys as `unsure` (a later run writes them again, so a landed one is a locked
+ *    orphan until its lock ends). Only a chunk the grant ran out on cleanly (a big batch, or a 403 that says expired)
+ *    gets a new grant under a new key; MAX_REGRANTS + 1 grants in a row that store nothing end the run retryLater.
  *  - Every grant must also set the lock the plan says (COMPLIANCE, 29 to 39 days from the grant's own start), may ask
  *    for no header outside the four it is allowed (plus Content-Length), and none twice or with an unprintable
  *    value: on a bucket nobody can delete from, a wrong lock or a malformed request is not recoverable.
@@ -121,6 +122,9 @@ function parseGrant(data, objects, allowHttp) {
     if (urls.has(url.toString())) return { ok: false, because: `upload ${i} repeats a url` };
     urls.add(url.toString());
     const signed = String(url.searchParams.get('X-Amz-SignedHeaders') || '').toLowerCase().split(';');
+    // The url itself must not outlive a grant: X-Amz-Expires (seconds) at most the window.
+    const xe = Number(url.searchParams.get('X-Amz-Expires'));
+    if (!Number.isInteger(xe) || xe <= 0 || xe * 1000 > GRANT_WINDOW_MS) return { ok: false, because: `upload ${i}'s url lasts longer than a grant` };
     for (const h of SIGNED_NEEDED) if (!signed.includes(h)) return { ok: false, because: `upload ${i} does not sign ${h}` };
     if (!u.headers || typeof u.headers !== 'object' || Array.isArray(u.headers)) return { ok: false, because: `upload ${i} has no headers` };
     const headers = {};
@@ -207,6 +211,8 @@ async function uploadInner(deps, objects, opts, keys) {
   const now = deps.now || Date.now;
   const sleep = deps.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
   const conc = Number.isInteger(o.concurrency) && o.concurrency > 0 ? Math.min(o.concurrency, MAX_CONCURRENCY) : DEFAULT_CONCURRENCY;
+  // A test seam; a value that is not a positive number falls back to the size-based timeout.
+  const timeoutFor = (size) => (Number.isFinite(o.putTimeoutMs) && o.putTimeoutMs > 0 ? o.putTimeoutMs : putTimeoutFor(size));
   if (!Array.isArray(objects)) return { ok: false, because: 'no chunks', keys };
   for (const c of objects) {
     if (!c || typeof c.name !== 'string' || !Buffer.isBuffer(c.object)) return { ok: false, because: 'a chunk is not { name, object }', keys };
@@ -237,7 +243,7 @@ async function uploadInner(deps, objects, opts, keys) {
     // And never far ahead: the lock is checked from the grant's own start, so a coordinator clock far ahead would pass
     // that check with a lock far in the future. More than the window plus 5 minutes ahead is refused before a byte.
     if (g.expiresAtMs - now() > GRANT_WINDOW_MS + 5 * 60 * 1000) return { ok: false, because: `the grant expires ${new Date(g.expiresAtMs).toISOString()}, further ahead of this computer's clock than a grant lasts: one of the two clocks is wrong`, keys };
-    const left = [], stuck = [];
+    const left = [], stuck = [];   // stuck: [{ chunk, key }], a write that may have landed under key
     let stop = null, stored = 0;
     await eachLimited(g.uploads.map((up, i) => [up, pending[i]]), conc, async ([up, c]) => {
       let troubled = false;
@@ -246,11 +252,13 @@ async function uploadInner(deps, objects, opts, keys) {
         // Out of time on this grant. A chunk that met bucket or network trouble does NOT get a new grant (that spends
         // allowance and could write a second locked copy if an answer was lost): the run ends retryLater.
         const remaining = g.expiresAtMs - now();
-        if (remaining <= 0) { (troubled ? stuck : left).push(c); return; }
-        const r = await putOne(fetchFn, up, c.object, attempt, Math.min(o.putTimeoutMs || putTimeoutFor(c.object.length), remaining));
+        if (remaining <= 0) { if (troubled) stuck.push({ c, key: up.key }); else left.push(c); return; }
+        // NOT capped at the grant's remaining time: S3 checks a presigned url's expiry when the request ARRIVES, so a PUT
+        // started in time may finish after it. Aborting it at the deadline would turn a landed write into an unknown.
+        const r = await putOne(fetchFn, up, c.object, attempt, timeoutFor(c.object.length));
         if (r.kind === 'stored' || r.kind === 'present') { keys.set(c.name, up.key); stored++; return; }
         // S3 says the grant expired. After trouble that is the same case as above: an earlier attempt may have landed.
-        if (r.kind === 'expired') { (troubled ? stuck : left).push(c); return; }
+        if (r.kind === 'expired') { if (troubled) stuck.push({ c, key: up.key }); else left.push(c); return; }
         if (r.kind === 'refused') { stop = stop || `the bucket refused a chunk (${r.status ? 'HTTP ' + r.status : 'locally'}${r.code ? ' ' + r.code : ''}); a new grant would not change that`; return; }
         troubled = true;
         // Jittered, so workers that met the same SlowDown do not retry in lockstep.
@@ -258,7 +266,9 @@ async function uploadInner(deps, objects, opts, keys) {
       }
     });
     if (stop) return { ok: false, because: stop, keys };
-    if (stuck.length) return { ok: false, retryLater: true, because: `${stuck.length} chunks met bucket or network trouble until their grant expired; try again later`, keys };
+    // unsure: chunks whose write may have landed under these keys (an answer was lost). A later run uploads them again
+    // under new keys, so a landed one becomes a locked orphan until its lock ends; the caller may record them.
+    if (stuck.length) return { ok: false, retryLater: true, because: `${stuck.length} chunks met bucket or network trouble until their grant expired; try again later`, keys, unsure: stuck.map((x) => ({ name: x.c.name, key: x.key })) };
     if (left.length) {
       // Ran out of time with chunks never stored: the next grant is about what this one carried.
       fruitless = stored ? 0 : fruitless + 1;
@@ -288,7 +298,10 @@ async function askGrant(macRequest, batch, allowHttp) {
     const because = (r && r.because) || 'Kosmos+ did not answer';
     const { status, code } = refusalOf(because);
     if (code === 'replayed' && i === 0) continue;   // a fresh nonce makes a new body; one retry
-    return { ok: false, out: { because, code: code || undefined, retryLater: code === 'backup_quota' || status === 429 || undefined } };
+    // No status at all: the request did not get an answer (network, timeout, the tunnel), so a later run may work.
+    // (r.notSent is the board refusing before sending: not enrolled, or busy; that is not "later" by itself.)
+    const transient = status === null && !(r && r.notSent);
+    return { ok: false, out: { because, code: code || undefined, retryLater: code === 'backup_quota' || status === 429 || transient || undefined } };
   }
   return { ok: false, out: { because: 'the grant request was refused as replayed twice', code: 'replayed' } };
 }
