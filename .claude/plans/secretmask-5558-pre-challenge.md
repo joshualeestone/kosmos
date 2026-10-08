@@ -57,3 +57,4 @@ A secret built from pronounceable syllable pieces, cut by slashes, with up to 8 
 
 ### Measurement
 Repo sweep (kosmos tracked files, main's masker vs this): long_token 261 -> 202; every newly unmasked run read is a path.
+- Rebased onto origin/main (17:37 CDT 2026-10-08): clean, no change to this branch's content; its last shell run failed only on two timing checks in tools/test-queued-heavy-4977.sh, which this branch does not touch. diff_hash recomputed.
