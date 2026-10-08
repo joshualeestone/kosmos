@@ -37,6 +37,7 @@
 
 const fs = require('node:fs');
 const fsp = fs.promises;
+const os = require('os');
 const path = require('node:path');
 const { configRoots } = require('./status');
 const store = require('./store');
@@ -344,7 +345,9 @@ async function scanUsage({ sinceDay, untilDay, mtimeCut = false }) {
  * than send a short count as the whole. A folder that is not absolute is nobody's (it would otherwise resolve against
  * this server's own folder). A message found in two transcripts counts once, for the copy whose path sorts first, so an
  * agent can be UNDER-counted when a person's own transcript holds the same message: the safe direction.
- * `deps` (scanUsage, scanProviders, realpath) is for tests only.
+ * An agent folder that is the home folder or a filesystem root is nobody's; an agent folder that no longer exists makes
+ * the result incomplete (its past sessions cannot be matched by real path).
+ * `deps` (scanUsage, scanProviders, realpath, home) is for tests only.
  */
 async function worldUsageByModel(days, agentDirs, deps) {
   const d = deps || {};
@@ -353,7 +356,17 @@ async function worldUsageByModel(days, agentDirs, deps) {
   const sinceDay = new Date(Date.now() - (n - 1) * 86400000).toISOString().slice(0, 10);
   const realpath = d.realpath || (async (p) => { try { return await fsp.realpath(p); } catch { return path.resolve(p); } });
   const mine = new Set();
-  for (const dir of Array.isArray(agentDirs) ? agentDirs : []) if (typeof dir === 'string' && path.isAbsolute(dir)) mine.add(await realpath(dir));
+  let missingDir = false;
+  /* Never a folder that holds the person's own work too (review 2): the home folder or a filesystem root as an
+     agent's folder would claim every session started there. */
+  const broad = new Set([await realpath(d.home || os.homedir()), path.parse(process.cwd()).root]);
+  for (const dir of Array.isArray(agentDirs) ? agentDirs : []) {
+    if (typeof dir !== 'string' || !path.isAbsolute(dir)) continue;
+    try { await fsp.access(dir); } catch { missingDir = true; }   // a gone folder cannot be matched by its real path
+    const real = await realpath(dir);
+    if (broad.has(real) || real === path.parse(real).root) continue;
+    mine.add(real);
+  }
   let claude;
   try { claude = await (d.scanUsage || scanUsage)({ sinceDay, untilDay, mtimeCut: true }); }
   catch { claude = { folderModels: {}, unreadable: 1 }; }   // a failed scan is a short count, never a throw
@@ -372,7 +385,7 @@ async function worldUsageByModel(days, agentDirs, deps) {
       }
     }
   }
-  return { byDay, complete: others.complete !== false && !(claude.unreadable > 0) };
+  return { byDay, complete: others.complete !== false && !(claude.unreadable > 0) && !missingDir };
 }
 
 async function ensureUsageDir() {

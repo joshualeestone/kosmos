@@ -126,3 +126,15 @@ test('#5532 review 1: the window is the last N UTC days, today included', async 
   const two = await usage.worldUsageByModel(2, [AGENT], NOPROV);
   assert.equal(((two.byDay[yesterday] || {})['claude-yesterday'] || {}).input_tokens, 9, 'a two-day window left out yesterday');
 });
+
+test('#5532 review 2: a home folder or a root as an agent folder claims nothing; a gone agent folder makes the count incomplete', async () => {
+  const home = path.join(SANDBOX, 'home');
+  session('in-home', home, 'm-home', 'claude-home-session', 66);   // a person's own session started in their home folder
+  const asHome = await usage.worldUsageByModel(1, [home], { scanProviders: NOPROV.scanProviders, home });
+  assert.equal((asHome.byDay[TODAY] || {})['claude-home-session'], undefined, 'an agent folder set to the home folder claimed the person\'s own session');
+  const asRoot = await usage.worldUsageByModel(1, ['/'], NOPROV);
+  assert.deepEqual(asRoot.byDay, {});
+  const gone = await usage.worldUsageByModel(1, [AGENT, path.join(SANDBOX, 'workers', 'deleted-agent')], NOPROV);
+  assert.equal(gone.complete, false, 'a gone agent folder was reported as a complete count');
+  assert.ok(gone.byDay[TODAY]['claude-opus-5-5'], 'the agents that remain were not counted');
+});

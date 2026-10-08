@@ -34,3 +34,12 @@ sessions outside Kosmos. This branch adds the reader the rollup needs to send us
   a subagent of the agent's own session from a worktree; all 73 existing scan tests pass.
 - DOCUMENTED: a message in two transcripts counts once, for the copy whose path sorts first, so an agent can be
   under-counted (the safe direction); `deps` is for tests only.
+
+## Review 2 (blind, sonnet)
+- FIXED: an agent folder that is the home folder or a filesystem root claims nothing (it would take every session the
+  person started there); an agent folder that no longer exists makes the count incomplete (its past sessions cannot be
+  matched by real path). Test; both mutations redden; all existing scan tests pass.
+- CONSENT WORDING (told PigeonPete): "usage from sessions launched in your agents' folders", since a person's own
+  session started in an agent's exact folder is counted as that agent's (the weakest premise above).
+- DUPLICATES / KEPT: the scan-wide dedup can undercount an agent (documented); a case-different spelling on a
+  case-insensitive disk undercounts (the safe direction).
