@@ -222,7 +222,7 @@ function defaultModelKeyFor(provider) {
  * #5534: whether the company policy in force allows an agent on this provider and model. The model may be given by
  * its key or its full id; both names are checked so a policy may list either. Given no model, an agent runs what its
  * runner picks: Gemini and Grok are pinned by the supervisor (win32keyed.DEFAULT_MODEL), so that model is the one
- * asked about; Claude Code and Codex choose their own (it depends on the account), so no list can name it and a
+ * asked about; Claude Code, Codex and Antigravity choose their own (it depends on the account), so no list can name it and a
  * provider with a model list refuses a model-less agent. A failure inside the policy code never blocks a create.
  */
 function policyAllows(provider, modelKey) {

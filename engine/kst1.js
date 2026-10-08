@@ -4,9 +4,9 @@
  *   KST1.<base64url(payload json)>.<base64url(ed25519 signature)>
  * The signature covers the ASCII bytes of `KST1.<payload part>`. ed25519 only; no header, nothing to downgrade.
  *
- * Verifying, in the contract's order: exactly three parts with `KST1` first; the signature against the coordinator
- * key this Mac PINNED at setup (never a key the token names); the payload is JSON; `typ` is the one expected (a
- * relay ticket is not a policy); `exp` is not past. Never throws: { ok: true, payload } | { ok: false, why }.
+ * Verifying: exactly three parts with `KST1` first; the signature against the coordinator key this Mac PINNED at
+ * setup (never a key the token names); the payload is JSON; `typ` is the one expected (a relay ticket is not a
+ * policy); `exp` is not past. (The contract checks exp before typ; either order refuses the same tokens.) Never throws: { ok: true, payload } | { ok: false, why }.
  */
 const crypto = require('node:crypto');
 
