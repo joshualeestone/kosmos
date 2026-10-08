@@ -363,3 +363,15 @@ test('review 6: the person is told up front when a post\'s sending registration 
   assert.match(r.because, /no longer holds the registration that sent this post/);
   assert.deepEqual(readJson(cs._paths.deletesFile()), {}, 'nothing recorded, so the list never says "Deleting" for it');
 });
+
+test('review 7: an unreadable keys.json makes the person\'s Delete a "try again", not "the registration is gone"', () => {
+  const p = post('ava', 'Sent, with its registration named');
+  writeJson(cs._paths.sentFile(), { [p.id]: { state: 'sent', agent: 'ava', agentId: 'r-1', remoteId: crypto.randomUUID(), sentAt: '2026-10-01T00:00:00.000Z' } });
+  fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.keysFile(), '{ not json');
+  const r = cs.requestDelete(p.id);
+  assert.equal(r.retryable, true, JSON.stringify(r));
+  assert.deepEqual(readJson(cs._paths.deletesFile()), {});
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'kc_key_1', remoteId: 'r-1', name: 'ava' } });
+  assert.equal(cs.requestDelete(p.id).ok, true, 'CONTROL: readable, and the same registration, it is accepted');
+});
