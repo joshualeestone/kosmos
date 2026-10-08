@@ -1997,10 +1997,11 @@ test('#5558: a path of plain segments is not a long token; a token chopped into 
 
 test('#5558 review 1: the plain-path rule never judges a path ending in a random token plain', () => {
   const { isPlainPath } = require('./secretmask');
-  // Seeded, from the generator's HIGH bits (its low bits cycle: a first version drew only nine characters).
+  // Seeded, from the generator's HIGH bits (its low bits cycle: a first version drew only nine characters), with
+  // Math.imul so the arithmetic stays exact (review 5: a plain multiply passed 2^53 and the sequence repeated).
   const alpha = 'abcdefghijklmnopqrstuvwxyz0123456789';
   let seed = 5558;
-  const next = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed; };
+  const next = () => { seed = (Math.imul(seed, 1103515245) + 12345) & 0x7fffffff; return seed; };
   const token = (n) => Array.from({ length: n }, () => alpha[(next() >>> 16) % alpha.length]).join('');
   // What this change controls is the rule itself: whatever else the detector decides about a token (some random
   // tokens are not masked even alone, a gap that predates #5558), this rule must never call it a plain path.
@@ -2033,6 +2034,21 @@ test('#5558 review 3: long digit runs and word-less paths are not plain', () => 
   assert.equal(isPlainPath('332101877788736414426/20260926T103372'), false, 'a long digit run with a timestamp was plain');
   assert.equal(isPlainPath('1234/5678/20260926'), false, 'a path with no word was plain');
   assert.equal(isPlainPath('plans/item-4038-20260926'), true, 'CONTROL');
+  assert.equal(isPlainPath('key/332101877788736414426'), false, 'a long digit run after a word was plain');
+});
+
+test('#5558 review 5: a numeric secret cut into short numbers or fake dates is not plain; the q and segment rules hold', () => {
+  const { isPlainPath } = require('./secretmask');
+  for (const t of ['pin/0403968243/1987742099-1844388921/2938475610/1029384756', 'key/20260926T104829Z/4829104829/3829104829',
+    'pin/0403968243-1987742099/1844388921', 'otp/0403968243/x64/1987742099/1844388921', 'pin/04039682/43198774/20991844']) {
+    assert.equal(isPlainPath(t), false, t + ' was judged plain');
+  }
+  assert.equal(isPlainPath('claude/plans/avatar-4038-20260926T1625'), true, 'CONTROL: one date and a short number');
+  assert.equal(isPlainPath('build/win32/release-20260926'), true, 'CONTROL: a word with digits and a date');
+  assert.equal(isPlainPath('notes/qiwnrb/plans'), false, 'q without u was a word');
+  assert.equal(isPlainPath('notes/queen/plans'), true, 'CONTROL: q with u');
+  assert.equal(isPlainPath('notes/' + 'plans-'.repeat(7) + 'plans'), false, 'a segment over 40 characters was plain');
+  assert.equal(isPlainPath('notes/' + 'plans-'.repeat(5) + 'plans'), true, 'CONTROL: a segment of 35 characters');
 });
 
 test('#5558 review 4: random letter pieces are not words, so the path is still masked', () => {
