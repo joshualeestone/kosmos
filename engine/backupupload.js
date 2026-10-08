@@ -74,10 +74,11 @@ const signedNeeded = (bind) => ['content-length', bind, 'host', 'if-none-match',
 // The only headers a grant may ask the Mac to send (the coordinator lists four; Content-Length is tolerated if listed).
 const headerAllowed = (bind) => new Set([bind, 'if-none-match', 'x-amz-object-lock-mode', 'x-amz-object-lock-retain-until-date', 'content-length']);
 const GRANT_WINDOW_MS = 15 * 60 * 1000;                 // the coordinator's grant lifetime (GRANT_SECS)
+// An AWS S3 endpoint: path-style s3.<region> or s3-<region>, or virtual-hosted <bucket>.s3.<region>.
+const S3_HOST = /^([a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\.)?s3([.-][a-z0-9-]+)?\.amazonaws\.com$/;
 // The only query parameters a grant's url may carry: SigV4's own. S3 honours x-amz-* request parameters in the query
 // too (a legal hold, a retention, tagging, a multipart uploadId), which would act on the locked bucket unseen by the
 // header checks, so any other parameter refuses the grant.
-const S3_HOST = /^([a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\.)?s3([.-][a-z0-9-]+)?\.amazonaws\.com$/;
 const QUERY_ALLOWED = ['X-Amz-Algorithm', 'X-Amz-Credential', 'X-Amz-Date', 'X-Amz-Expires', 'X-Amz-SignedHeaders', 'X-Amz-Signature'];
 // The lock a grant may set, measured from the url's SIGNED time (X-Amz-Date), never the Mac's clock: the coordinator
 // locks to the end of the week plus 30 days plus the window, or the next week's end in a week's last day, so about
@@ -85,8 +86,8 @@ const QUERY_ALLOWED = ['X-Amz-Algorithm', 'X-Amz-Credential', 'X-Amz-Date', 'X-A
 const LOCK_MIN_MS = 29 * 86400 * 1000, LOCK_MAX_MS = 39 * 86400 * 1000;
 // The coordinator locks every object to its period's end plus 30 days plus the grant window, and a period ends no
 // earlier than now: so a manifest granted now locks for at least this long plus GRANT_WINDOW_MS, and chunks whose
-// lock ends sooner are ones it
-// would outlast (checked before a grant is asked for, so no allowance is spent on a manifest that must be refused).
+// lock ends sooner are ones it would outlast (checked before a grant is asked for, so no allowance is spent on a
+// manifest that must be refused).
 const MANIFEST_LOCK_FLOOR_MS = 30 * 86400 * 1000;
 // fetch refusing the request itself, before or without the network: no retry fixes these. Any other failure (a
 // network code, known or not: ENETDOWN, EADDRNOTAVAIL under the macOS TIME_WAIT leak, a TLS error) is worth another try.
@@ -528,9 +529,9 @@ async function uploadManifestInner(deps, bytes, o) {
   bytes = Buffer.from(bytes);   // our own copy: what is hashed is what is sent, whatever the caller does meanwhile
   if (bytes.length < MIN_OBJECT || bytes.length > MAX_MANIFEST) return { ok: false, because: `the manifest is ${bytes.length} bytes, outside ${MIN_OBJECT} to ${MAX_MANIFEST}` };
   if (typeof o.bucket !== 'string' || !o.bucket) return { ok: false, because: "no bucket for the manifest (its chunks' bucket path)" };
-  // The shape uploadChunks returns, host/ or host/bucket/, checked before any grant: a bare bucket name would be
-  // refused only after a grant had been spent on it.
-  if (!/^[A-Za-z0-9.:-]+\/([^/]+\/)?$/.test(o.bucket)) return { ok: false, because: `the manifest's bucket (${o.bucket}) is not a bucket path as uploadChunks returns it (host/ or host/bucket/)` };
+  // The shape uploadChunks returns, host/ or host/bucket/ with the host in lower case (a URL's host always is),
+  // checked before any grant: anything else would be refused only after a grant had been spent on it.
+  if (!/^[a-z0-9.:-]+\/([^/]+\/)?$/.test(o.bucket)) return { ok: false, because: `the manifest's bucket (${o.bucket}) is not a bucket path as uploadChunks returns it (host/ or host/bucket/)` };
   // Every chunk it names, as { key, lockedUntilMs }: not a string, and not a Map (uploadChunks' keys Map iterates
   // [name, key] pairs). From them: the keys this call must not write, and the earliest lock end.
   const list = o.chunks;
@@ -562,7 +563,7 @@ async function uploadManifestInner(deps, bytes, o) {
     const skew = clockSkew(now(), g.expiresAtMs);
     if (skew) return { ok: false, because: skew, grantSpent: true };
     const up = g.upload;
-    if (avoid.has(up.key)) return { ok: false, grantSpent: true, because: 'the manifest grant names a key it must not write (one of its chunks\', or an earlier manifest grant\'s); nothing was sent (this grant\'s allowance is spent)' };
+    if (avoid.has(up.key)) return { ok: false, grantSpent: true, because: 'the manifest grant names a key it must not write (a chunk key, or a key an earlier manifest grant gave); nothing was sent (this grant\'s allowance is spent)' };
     avoid.add(up.key);
     if (up.retainMs > floor) return { ok: false, outlastsChunks: true, grantSpent: true, because: `the manifest grant locks until ${new Date(up.retainMs).toISOString()}, past the earliest chunk it names (${new Date(floor).toISOString()}); nothing was sent (this grant's allowance is spent)` };
     const deadline = asked + g.lifetimeMs - 10 * 1000;
@@ -572,16 +573,16 @@ async function uploadManifestInner(deps, bytes, o) {
       const r = await putOne(fetchFn, up, bytes, troubled, timeoutMs);
       if (r.kind === 'stored' || r.kind === 'present') return { ok: true, key: up.key, sha256, lockedUntilMs: up.retainMs };
       if (r.kind === 'expired') { cleanRanOut = !troubled; break; }
-      if (r.kind === 'refused') return Object.assign({ ok: false, because: `the bucket refused the manifest (${r.status ? 'HTTP ' + r.status : 'locally'}${r.code ? ' ' + r.code : ''}); a new grant would not change that` }, troubled ? { unsure: [{ key: up.key }] } : {});
+      if (r.kind === 'refused') return Object.assign({ ok: false, grantSpent: true, because: `the bucket refused the manifest (${r.status ? 'HTTP ' + r.status : 'locally'}${r.code ? ' ' + r.code : ''}); a new grant would not change that` }, troubled ? { unsure: [{ key: up.key }] } : {});
       // The chunk worker in uploadInner carries the same rules: change both together.
       if (r.preconnect) { preOnly = true; } else if (!r.nothingCommitted) { troubled = true; }
       await sleep(Math.min(BACKOFF_MAX_MS, 500 * 2 ** attempt) * (0.5 + Math.random() / 2));
     }
     // A write that may have landed is never followed by a new grant (a second locked manifest): try again later.
-    if (troubled) return { ok: false, retryLater: true, because: 'the manifest met bucket or network trouble until its grant expired; try again later', unsure: [{ key: up.key }] };
-    if (!cleanRanOut) return { ok: false, retryLater: true, because: 'the bucket could not be reached before the manifest grant ran out; try again later' };
+    if (troubled) return { ok: false, retryLater: true, grantSpent: true, because: 'the manifest met bucket or network trouble until its grant expired; try again later', unsure: [{ key: up.key }] };
+    if (!cleanRanOut) return { ok: false, retryLater: true, grantSpent: true, because: 'the bucket could not be reached before the manifest grant ran out; try again later' };
   }
-  return { ok: false, retryLater: true, because: `${MAX_REGRANTS + 1} manifest grants in a row ran out before it was stored; try again later` };
+  return { ok: false, retryLater: true, grantSpent: true, because: `${MAX_REGRANTS + 1} manifest grants in a row ran out before it was stored; try again later` };
 }
 
 /* Run fn over items with at most n at once. If one throws, no worker starts another item, every worker in flight is
