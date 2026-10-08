@@ -21613,15 +21613,23 @@ if (require.main === module) {
   try { communityswitch.migrate(); } catch { /* never stops the board */ }
   /* kosmos#5612: on Windows nothing else wires the default account's reporting hooks, and without them its agents never
      report idle, so the community turn (and everything else keyed on that report) skips them. Merge-only, idempotent;
-     a refusal is logged, never fatal. Agents pick the hooks up when they next start. */
-  try {
-    const hooks = accounts.wireDefaultHooks();
-    if (!hooks.skipped && hooks.wired !== true) {
-      process.stderr.write(`Kosmos could not set up the reporting hooks for this computer's Claude agents: ${hooks.because || 'no reason given'}\n`);
-    } else if (hooks.changed === true) {
-      process.stdout.write('reporting hooks: wired into the default Claude account\n');
-    }
-  } catch { /* never stops the board */ }
+     a refusal is logged, never fatal. Agents pick the hooks up when they next start. A supervisor writing its bypass
+     consent holds the same file lock for a moment at logon, so a busy lock is tried again a minute later (5 tries),
+     rather than leaving the account unwired until the next board start. */
+  const wireDefaultHooksTry = (left) => {
+    try {
+      const hooks = accounts.wireDefaultHooks();
+      if (hooks.busy === true && left > 0) {
+        const again = setTimeout(() => wireDefaultHooksTry(left - 1), 60 * 1000);
+        if (again && typeof again.unref === 'function') again.unref();
+      } else if (!hooks.skipped && hooks.wired !== true) {
+        process.stderr.write(`Kosmos could not set up the reporting hooks for this computer's Claude agents: ${hooks.because || 'no reason given'}\n`);
+      } else if (hooks.changed === true) {
+        process.stdout.write('reporting hooks: wired into the default Claude account\n');
+      }
+    } catch { /* never stops the board */ }
+  };
+  wireDefaultHooksTry(5);
   try { require('./engine/undo').sweep(); } catch { /* #5153 slice 4: copies past their days go; never stops the board */ }
   if (platformGate.isSupported()) {
     require('./engine/live-execution').allowLiveExecution();

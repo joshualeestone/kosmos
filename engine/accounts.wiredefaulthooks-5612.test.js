@@ -20,11 +20,14 @@ const reporthook = require('./reporthook');
    and node, all under the temp root, so the ephemeral-path refusal sees no mismatch (both sides are temp). */
 function sandbox(t) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-5612-'));
-  const before = process.env.AGENT_WORKFORCE_HOME;
+  // trust.defaultAgentSettings() reads AGENT_WORKFORCE_CLAUDE_SETTINGS first (other tests set it), so clear it here.
+  const saved = { home: process.env.AGENT_WORKFORCE_HOME, settings: process.env.AGENT_WORKFORCE_CLAUDE_SETTINGS };
   process.env.AGENT_WORKFORCE_HOME = home;
+  delete process.env.AGENT_WORKFORCE_CLAUDE_SETTINGS;
   t.after(() => {
-    if (before === undefined) delete process.env.AGENT_WORKFORCE_HOME;
-    else process.env.AGENT_WORKFORCE_HOME = before;
+    if (saved.home === undefined) delete process.env.AGENT_WORKFORCE_HOME;
+    else process.env.AGENT_WORKFORCE_HOME = saved.home;
+    if (saved.settings !== undefined) process.env.AGENT_WORKFORCE_CLAUDE_SETTINGS = saved.settings;
     fs.rmSync(home, { recursive: true, force: true });
   });
   const script = path.join(home, 'app', 'engine', 'kosmos-report-hook.js');
@@ -83,10 +86,16 @@ test('#5612: it takes the settings file lock that trust.preacceptBypass takes, s
   const s = sandbox(t);
   fs.mkdirSync(path.dirname(s.settings), { recursive: true });
   fs.mkdirSync(s.settings + '.lock');   // a writer holding it (a fresh lock, not a stale one)
-  t.after(() => fs.rmSync(s.settings + '.lock', { recursive: true, force: true }));
+  const wait = process.env.AGENT_WORKFORCE_LOCK_MS;
+  process.env.AGENT_WORKFORCE_LOCK_MS = '100';   // withFileLock's wait seam: refuse after 0.1 s, not 2 s
+  t.after(() => {
+    if (wait === undefined) delete process.env.AGENT_WORKFORCE_LOCK_MS; else process.env.AGENT_WORKFORCE_LOCK_MS = wait;
+    fs.rmSync(s.settings + '.lock', { recursive: true, force: true });
+  });
   const r = accounts.wireDefaultHooks({ platform: 'win32', script: s.script, node: s.node });
   assert.equal(r.wired, false, JSON.stringify(r));
   assert.match(String(r.because), /another writer/);
+  assert.equal(r.busy, true, 'a held lock is not marked busy, so the board would not try again');
   assert.equal(fs.existsSync(s.settings), false, 'it wrote while another writer held the lock');
 });
 
@@ -113,6 +122,7 @@ test('#5612: the board calls it on its real start path (beside the community swi
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const migrate = src.indexOf('communityswitch.migrate();');
   const wire = src.indexOf('accounts.wireDefaultHooks();');
+  assert.ok(src.includes('wireDefaultHooksTry(5);'), 'the board does not start the wiring (with its retries)');
   assert.ok(migrate > 0, 'the anchor moved: communityswitch.migrate() is not in server.js');
   assert.ok(wire > migrate && wire - migrate < 1200, 'server.js does not wire the default hooks right after the community switch step');
 });

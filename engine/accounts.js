@@ -482,7 +482,7 @@ function prepare(label) {
  * fail-soft (ensureWired's posture): idempotent, never clobbers a hook somebody else set, and a refusal is returned,
  * never thrown. Anywhere else it does nothing, because setup.sh owns the Mac. Note: the person's own Claude Code
  * sessions read this file too, so they run the hook as well, as they always have on a Mac (#561).
- *   { wired, changed?, because?, skipped }
+ *   { wired, changed?, because?, skipped, busy? }   busy: the lock was held, so the caller may try again soon
  * `platform`, `script`, `node` are injectable for tests.
  */
 function wireDefaultHooks(opts) {
@@ -498,7 +498,7 @@ function wireDefaultHooks(opts) {
     fs.mkdirSync(path.dirname(settings), { recursive: true });
     const locked = require('./filelock').withFileLock(settings, () => reporthook.ensureWired(settings, script, { platform: plat, node: o.node }));
     if (!locked || locked.ok !== true) {
-      return { wired: false, skipped: false, because: 'another writer held the settings file; the next board start tries again' };
+      return { wired: false, skipped: false, busy: true, because: 'another writer held the settings file' };
     }
     return { ...locked.value, skipped: false };
   } catch (err) {

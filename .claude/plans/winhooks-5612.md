@@ -31,7 +31,7 @@
   person who set CLAUDE_CONFIG_DIR for their default account. accounts.js does not handle that anywhere else either.
 
 ## Verified
-- engine/accounts.wiredefaulthooks-5612.test.js, 5 tests, platform injected so they run on any OS:
+- engine/accounts.wiredefaulthooks-5612.test.js (5 tests at first, 7 after review 1), platform injected so they run on any OS:
   - every hook event is wired in the exec form, and a second run changes nothing;
   - a person's own hook and settings survive;
   - it is a no-op off Windows;
@@ -67,3 +67,12 @@
 - Fixed (NIT): a test with nothing injected wires the real engine/kosmos-report-hook.js.
 - Left (NIT): accounts added earlier on Windows are not repointed (setup.sh does that on a Mac). prepare() re-wires on
   reconnect, and #570's exec form predates every Windows release.
+
+## Review 2 (sonnet): no blockers
+- Fixed (WARNING): a held lock gave up for the whole boot, so one logon collision left the account unwired for days.
+  wireDefaultHooks now marks it busy, and the board tries again a minute later, 5 times (unref'd timers). Other
+  refusals are not retried, because they would refuse again.
+- Fixed (WARNING): the test sandbox cleared AGENT_WORKFORCE_HOME's sibling seam AGENT_WORKFORCE_CLAUDE_SETTINGS, which
+  trust.defaultAgentSettings() reads first and other tests set.
+- Fixed (NITs): the lock test uses withFileLock's AGENT_WORKFORCE_LOCK_MS seam (0.1 s, not 2 s) and asserts busy; the
+  wiring test asserts the board starts the retrying call; the plan's test count.
