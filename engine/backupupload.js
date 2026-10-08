@@ -40,8 +40,9 @@
  *    uploads one sealed manifest the same way, through POST /v1/org/backup/manifest { sha256, size, nonce }, whose
  *    one upload binds x-amz-checksum-sha256 (base64 of the SHA-256) in place of content-md5; the coordinator records
  *    that hash so restore can refuse any other manifest. A manifest must go to the chunks' bucket and must never stay
- *    locked past the earliest chunk it names (the coordinator cannot check that: its request names no chunks), so the
- *    caller passes both and the uploader refuses a grant that breaks either.
+ *    locked past the earliest chunk it names (the coordinator cannot check that: its request names no chunks), and must
+ *    not land on a key it may not write, so the caller passes the bucket, the chunks' earliest lock end and their keys,
+ *    and the uploader refuses a grant that breaks any of them.
  *  - MD5 is used only because S3 checks it as an integrity header. Chunk names and restore verification stay
  *    backupformat.js's HMAC and AEAD.
  *
@@ -408,6 +409,7 @@ async function uploadInner(deps, objects, opts, keys, run) {
         // S3 says the grant expired. After trouble that is the same case as above: an earlier attempt may have landed.
         if (r.kind === 'expired') { if (troubled) stuck.push({ c, key: up.key }); else left.push(c); return; }
         if (r.kind === 'refused') { stop = stop || `the bucket refused a chunk (${r.status ? 'HTTP ' + r.status : 'locally'}${r.code ? ' ' + r.code : ''}); a new grant would not change that`; return; }
+        // (uploadManifestInner carries the same retry rules for its one upload: change both together.)
         // troubled: an attempt that may have written this chunk (a lost answer, a failure after S3 got the request).
         // Not a pre-connect failure, and not S3 saying it committed nothing.
         if (r.preconnect) { preOnly = true; } else if (!r.nothingCommitted) { troubled = true; troubledNow.set(c.name, { c, key: up.key }); }
@@ -499,9 +501,10 @@ function parseManifestGrant(data, bytes, runPrefix) {
    uploadChunks; by default one PUT may take a minute plus its bytes at 16 KB/s, so a black-holed PUT of a 64 MiB
    manifest holds the call about 70 minutes before it ends retryLater. Resolves { ok: true, key, sha256, lockedUntilMs } or { ok: false, because,
    code?, retryLater?, unsure?, outlastsChunks? }, unsure being [{ key }] when a write may have landed. Never throws.
-   outlastsChunks is NOT a retry-later: a refusal after the grant spent one of the period's 50 manifest grants (and the
-   coordinator recorded a hash that was never stored), so a caller must upload the old chunks again first, never
-   retry the same call.
+   outlastsChunks is NOT a retry-later: the caller must upload the old chunks again first, never retry the same call.
+   It comes with grantSpent: false when refused before any grant (this Mac's clock already showed it), or true when
+   refused as the grant arrived: that spent one of the period's 50 manifest grants and left the coordinator a
+   recorded hash that was never stored.
    The PUT is retried and classified exactly as a chunk's: the same url until the grant runs out, a 412 counted as
    stored only after an attempt that may have written it, a new grant only when one ran out cleanly. */
 async function uploadManifest(deps, bytes, opts) {
@@ -522,7 +525,7 @@ async function uploadManifestInner(deps, bytes, o) {
   if (typeof o.bucket !== 'string' || !o.bucket) return { ok: false, because: "no bucket for the manifest (its chunks' bucket path)" };
   const floor = o.chunksLockedUntilMs;
   if (typeof floor !== 'number' || !Number.isFinite(floor)) return { ok: false, because: "no lock end for the manifest's chunks" };
-  if (floor < now() + MANIFEST_LOCK_FLOOR_MS) return { ok: false, outlastsChunks: true, because: `a manifest granted now stays locked past ${new Date(floor).toISOString()}, when the earliest chunk it names may be gone; upload those chunks again first` };
+  if (floor < now() + MANIFEST_LOCK_FLOOR_MS) return { ok: false, outlastsChunks: true, grantSpent: false, because: `a manifest granted now stays locked past ${new Date(floor).toISOString()}, when the earliest chunk it names may be gone; upload those chunks again first` };
   const timeoutMs = Number.isFinite(o.putTimeoutMs) && o.putTimeoutMs > 0 ? o.putTimeoutMs : putTimeoutFor(bytes.length, 1);
   const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
   // Every key this call must not write: the chunks' (when given) and each earlier manifest grant's. The 412 rule rests
@@ -546,7 +549,7 @@ async function uploadManifestInner(deps, bytes, o) {
     const up = g.upload;
     if (avoid.has(up.key)) return { ok: false, because: 'the manifest grant names a key it must not write (one of its chunks\', or an earlier manifest grant\'s); nothing was sent (this grant\'s allowance is spent)' };
     avoid.add(up.key);
-    if (up.retainMs > floor) return { ok: false, outlastsChunks: true, because: `the manifest grant locks until ${new Date(up.retainMs).toISOString()}, past the earliest chunk it names (${new Date(floor).toISOString()}); nothing was sent (this grant's allowance is spent)` };
+    if (up.retainMs > floor) return { ok: false, outlastsChunks: true, grantSpent: true, because: `the manifest grant locks until ${new Date(up.retainMs).toISOString()}, past the earliest chunk it names (${new Date(floor).toISOString()}); nothing was sent (this grant's allowance is spent)` };
     const deadline = asked + g.lifetimeMs - 10 * 1000;
     let troubled = false, preOnly = false, cleanRanOut = false;
     for (let attempt = 0; ; attempt++) {
@@ -555,6 +558,7 @@ async function uploadManifestInner(deps, bytes, o) {
       if (r.kind === 'stored' || r.kind === 'present') return { ok: true, key: up.key, sha256, lockedUntilMs: up.retainMs };
       if (r.kind === 'expired') { cleanRanOut = !troubled; break; }
       if (r.kind === 'refused') return Object.assign({ ok: false, because: `the bucket refused the manifest (${r.status ? 'HTTP ' + r.status : 'locally'}${r.code ? ' ' + r.code : ''}); a new grant would not change that` }, troubled ? { unsure: [{ key: up.key }] } : {});
+      // The chunk worker in uploadInner carries the same rules: change both together.
       if (r.preconnect) { preOnly = true; } else if (!r.nothingCommitted) { troubled = true; }
       await sleep(Math.min(BACKOFF_MAX_MS, 500 * 2 ** attempt) * (0.5 + Math.random() / 2));
     }

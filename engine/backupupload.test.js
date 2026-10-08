@@ -882,7 +882,7 @@ test('a manifest locked past the earliest chunk it names is refused before its P
       const mc = manifestCoordinator(b, { retainMs: () => retain });
       const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunksLockedUntilMs: floor }));
       assert.strictEqual(r.ok, ok, `${what}: ${r.because}`);
-      if (!ok) { assert.strictEqual(r.outlastsChunks, true); assert.strictEqual(b.puts, 0, `${what}: a byte was sent`); assert.strictEqual(mc.bodies.length, 1); }
+      if (!ok) { assert.strictEqual(r.outlastsChunks, true); assert.strictEqual(r.grantSpent, true); assert.strictEqual(b.puts, 0, `${what}: a byte was sent`); assert.strictEqual(mc.bodies.length, 1); }
       else assert.strictEqual(r.lockedUntilMs, floor);
     } finally { await b.close(); }
   }
@@ -895,6 +895,7 @@ test('chunks whose lock ends within 30 days are refused before any grant is aske
     const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunksLockedUntilMs: Date.now() + 29 * DAY }));
     assert.strictEqual(r.ok, false);
     assert.strictEqual(r.outlastsChunks, true);
+    assert.strictEqual(r.grantSpent, false);
     assert.strictEqual(mc.bodies.length, 0, 'a grant was asked for');
     // CONTROL: 31 days asks (the stub locks for 33 days from the grant, so set the floor past that for the PUT too).
     const ok = await up.uploadManifest(deps(manifestCoordinator(b, { retainMs: (e) => e - 15 * 60 * 1000 + 31 * DAY - 60 * 1000 })), manifestBytes(), mOpts(b, { chunksLockedUntilMs: Date.now() + 31 * DAY }));
