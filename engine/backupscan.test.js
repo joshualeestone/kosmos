@@ -152,7 +152,7 @@ test('#5535 compressed content is skipped by its magic, whatever it is called (a
   const secret = Buffer.from(`API=${KEY}\n`);
   for (const [what, buf] of [['a git loose object (zlib)', zlib.deflateSync(secret)], ['gzip', zlib.gzipSync(secret)],
     ['a zip container named .txt', Buffer.concat([Buffer.from('PK\u0003\u0004'), secret])], ['bzip2', Buffer.from('BZh91AY&SY')],
-    ['a git pack', Buffer.concat([Buffer.from('PACK'), Buffer.alloc(8)])], ['a PDF with Flate streams', Buffer.from('%PDF-1.7\n1 0 obj << /Filter /FlateDecode >>')]]) {
+    ['a git pack', Buffer.concat([Buffer.from('PACK'), Buffer.from('00000002', 'hex'), Buffer.alloc(4)])], ['a PDF with Flate streams', Buffer.from('%PDF-1.7\n1 0 obj << /Filter /FlateDecode >>')]]) {
     assert.equal(bs.scanFile('agents/a/blob.txt', buf).action, 'skip', what);
   }
   assert.equal(bs.scanFile('agents/a/plain.pdf', Buffer.from('%PDF-1.4\n(uncompressed text)')).action, 'store', 'CONTROL: a PDF with no deflated streams is scanned and kept');
@@ -195,8 +195,50 @@ test('#5535 known, documented loss: a redacted file loses invisible format chara
 });
 
 test('#5535 binary scan: a NUL-split key and a withheld scan both skip; a clean binary is stored', () => {
-  const nulSplit = Buffer.from([...Buffer.from('xx\0'), ...Buffer.from(KEY.split('').join('\0').slice(0, 0) || ''), ...Buffer.from(`\0\0${KEY}`)]);
-  assert.equal(bs.scanFile('agents/a/b.bin', nulSplit).action, 'skip', 'a key after NULs in a binary');
+  const nulSplit = Buffer.concat([Buffer.from('xx\0'), Buffer.from(KEY.split('').join('\0'))]);  // every character NUL-separated
+  const ns = bs.scanFile('agents/a/b.bin', nulSplit);  // every character NUL-separated: read as UTF-16 and masked, or skipped
+  assert.ok(ns.action === 'skip' || !ns.data.toString('latin1').replace(/\0/g, '').includes(KEY), 'a NUL-separated key is never stored readable');
   const clean = Buffer.concat([Buffer.from([0, 1, 2, 3]), Buffer.from('ordinary bytes')]);
   assert.equal(bs.scanFile('agents/a/c.bin', clean).action, 'store', 'CONTROL: a clean binary is stored');
+});
+
+test('#5535 the final raw check: views a decode gets wrong never let a key through', () => {
+  const ascii = Buffer.from(`note\nkey ${KEY}\n`);
+  const utf32le = Buffer.concat([Buffer.from([0xff, 0xfe, 0, 0]), ...[...`key ${KEY}\n`].map((c) => { const b = Buffer.alloc(4); b.writeUInt32LE(c.codePointAt(0)); return b; })]);
+  for (const [what, buf] of [['a UTF-32LE file with a BOM (read as UTF-16 by its first two bytes)', utf32le],
+    ['a false UTF-16LE BOM in front of ASCII', Buffer.concat([Buffer.from([0xff, 0xfe]), ascii.length % 2 ? Buffer.concat([ascii, Buffer.from(' ')]) : ascii])],
+    ['a false UTF-16BE BOM in front of ASCII', Buffer.concat([Buffer.from([0xfe, 0xff]), ascii.length % 2 ? Buffer.concat([ascii, Buffer.from(' ')]) : ascii])],
+    ['9000 bytes of ASCII, then UTF-16LE text holding the key', Buffer.concat([Buffer.alloc(9000, 0x61), Buffer.from(`key ${KEY}\n`, 'utf16le')])]]) {
+    const r = bs.scanFile('agents/a/f.txt', buf);
+    const leaked = r.action === 'store' && (r.data.toString('latin1').includes(KEY) || r.data.toString('latin1').replace(/\0/g, '').includes(KEY));
+    assert.equal(leaked, false, `${what}: the key must not be stored readable (got ${r.action}${r.why ? ': ' + r.why : ''})`);
+  }
+  assert.equal(bs.scanFile('agents/a/ok.txt', Buffer.concat([Buffer.alloc(9000, 0x61), Buffer.from('plain\n', 'utf16le')])).action, 'store', 'CONTROL: the same shape with no key is stored');
+});
+
+test('#5535 compressed magic: every listed format is skipped, and ordinary text that merely starts like one is kept', () => {
+  const zlib = require('zlib');
+  for (const [what, hex] of [['xz', 'fd377a585a000004'], ['zstd', '28b52ffd0000'], ['7z', '377abcaf271c0004'], ['lz4', '04224d1864'],
+    ['rar', '526172211a0700'], ['compress .Z', '1f9d90'], ['zip central directory', '504b01021400'], ['git pack v2', '5041434b00000002'],
+    ['bzip2', Buffer.from('BZh9').toString('hex') + '314159265359']]) {
+    assert.equal(bs.scanFile('agents/a/blob', Buffer.from(hex + '00'.repeat(8), 'hex')).action, 'skip', what);
+  }
+  const stubbed = Buffer.concat([Buffer.from([0, 1, 2]), Buffer.from('MZ stub'), Buffer.from('504b0304', 'hex'), zlib.deflateRawSync(Buffer.from(KEY))]);
+  assert.equal(bs.scanFile('agents/a/setup.exe', stubbed).action, 'skip', 'a zip appended after a stub');
+  for (const text of ['x^2 + y^2 = r^2\n', 'BZhello there\n', 'PACKAGE LIST\n', 'PK notes\n', ']\u0000\u0000 not quite'.replace(/\u0000/g, '')]) {
+    assert.equal(bs.scanFile('agents/a/notes.md', Buffer.from(text)).action, 'store', `CONTROL: ordinary text ${JSON.stringify(text)} is kept`);
+  }
+});
+
+test('#5535 deny-list round 2: more credential files skipped; templates kept', () => {
+  for (const p of ['infra/prod.tfvars', '.terraformrc', '.dockercfg', '.my.cnf', 'gcp/service-account-prod.json', 'api.secret', 'deploy.token',
+    '.ssh2/authorized_keys', 'authorized_keys', '.config/op/config', '.config/doctl/config.yaml', 'Firefox/logins.json', 'Firefox/key4.db',
+    'Firefox/cookies.sqlite', '.zsh_history', '.bash_history', '.python_history']) {
+    assert.equal(bs.pathDecision(p).include, false, `${p} must be skipped`);
+  }
+  for (const p of ['.env.example', '.env.sample', 'config/.env.template', 'credentials.json.example', 'secrets.yaml.dist']) {
+    assert.equal(bs.pathDecision(p).include, true, `CONTROL: the template ${p} is kept (its content is still scanned)`);
+  }
+  const tpl = bs.scanFile('.env.example', Buffer.from(`API_KEY=${KEY}\n`));
+  assert.ok(tpl.action === 'skip' || !tpl.data.toString().includes(KEY), 'a template holding a REAL key is still masked or skipped');
 });
