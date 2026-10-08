@@ -20,10 +20,6 @@ const path = require('node:path');
 /* Test seams and re-exports, excused BY NAME WITH A REASON. An entry here is
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
-  printFor: 'engine/computerprint.js (#5532 E0.3, contract v1.5): the computer print, landed and tested on its own first (as chunkBuffer above). Its first caller is the enroll, leave and rollup wiring after #5531 merges, which adds itself to ALLOWED in engine/computerprint-5532.test.js; remove this excuse then.',
-  _testFingerprint: 'engine/computerprint.js (#5532): the bare print function (the HMAC over a given salt, company and id), exported under a tests-only name so engine/computerprint-5532.test.js can pin the formula; callers use printFor, which reads the id itself.',
-  _testRunner: 'engine/computerprint.js (#5532): a test seam, the ioreg runner engine/computerprint-5532.test.js replaces to drive a failed, hung or junk read.',
-  _testClock: 'engine/computerprint.js (#5532): a test seam, the clock engine/computerprint-5532.test.js moves to drive the retry wait and the give-up.',
   resetPauses: 'engine/communitysend.js (#4953): a test seam that clears the per-minute 429 pauses (and the once-said unreadable-429 note) between tests, so one test\'s pause cannot hold the next; nothing in the app resets them',
   setTmuxCandidates: 'engine/status.js (#2955): a test seam, the list of tmux binaries tmuxRepick asks at the version wall; engine/status.test.js sets it so its fakes are asked instead of the real Homebrew paths.',
   setOwnTmux: 'engine/status.js (#2955): a test seam, Kosmos\'s own tmux path, which status.js derives from where it is installed (pinned by its own test); engine/status.test.js points it at a fake.',
@@ -180,6 +176,11 @@ const EXCUSED = {
    read the module). Keyed by FILE, like PENDING_5548, because several names are generic (setClock, setBin, _lock):
    a by-name excuse would also hide a real orphan of the same name in another module (#5548 review 2). */
 const SEAMS_5548 = {
+  // #5532: the ioreg runner and the clock engine/computerprint-5532.test.js replaces, and the bare print function it
+  // pins the formula through (callers use printFor, which reads the id itself).
+  _testRunner: 'engine/computerprint.js',
+  _testClock: 'engine/computerprint.js',
+  _testFingerprint: 'engine/computerprint.js',
   allowSandboxInstallForTests: 'engine/agystatus.js',
   setInstallerForTests: 'engine/agystatus.js',
   setLastFileForTests: 'engine/agystatus.js',
@@ -403,7 +404,11 @@ const engineModules = engineFiles.map((f) => ({ rel: path.posix.join('engine', f
 
 /* EXCUSED is by name (an excuse covers the name wherever it is exported); SEAMS_5548 and PENDING_5548 are by file, so a pending
    name cannot cover a new orphan of the same name in another module (#5548 review 1). */
-const skipped = (n, rel) => Boolean(EXCUSED[n]) || SEAMS_5548[n] === rel || PENDING_5548[n] === rel;
+/* #5532 (E0.3, contract v1.5): the computer print landed and tested on its own first. Its first caller is the enroll,
+   leave and rollup wiring after #5531 merges. By file, and armed: the test below fails once it has a caller, so this
+   excuse cannot outlive its reason. */
+const FIRST_CALLER_5532 = { printFor: 'engine/computerprint.js' };
+const skipped = (n, rel) => Boolean(EXCUSED[n]) || SEAMS_5548[n] === rel || PENDING_5548[n] === rel || FIRST_CALLER_5532[n] === rel;
 
 test('no engine export is tested, excused by nobody, and reachable from nowhere', () => {
   const orphans = findOrphans(engineModules, sources, testBlob, skipped);
@@ -488,4 +493,13 @@ test('#5548 self-test: a one-line exports block, a comment mention and a string 
   assert.deepEqual(findOrphans([{ rel: 'engine/t.js', text: tre }], [{ f: 'server.js', text: 'user()' }], 'viaTemplate() user()', () => false), []);
   const multi2 = 'function lonelyExport() {}\nmodule.exports = {\n  lonelyExport, // lonelyExport\n};\n';
   assert.deepEqual(findOrphans([{ rel: 'engine/m.js', text: multi2 }], [], 'lonelyExport()', () => false), ['engine/m.js exports lonelyExport']);
+});
+
+test('#5532: printFor is excused only until its first caller lands', () => {
+  const without = (n, rel) => Boolean(EXCUSED[n]) || SEAMS_5548[n] === rel || PENDING_5548[n] === rel;
+  const still = new Set(findOrphans(engineModules, sources, testBlob, without));
+  for (const [n, file] of Object.entries(FIRST_CALLER_5532)) {
+    assert.ok(still.has(file + ' exports ' + n), n + ' has a caller now: remove it from FIRST_CALLER_5532');
+  }
+  assert.equal(skipped('printFor', 'engine/some-other-module.js'), false, 'the excuse must not cover another module');
 });
