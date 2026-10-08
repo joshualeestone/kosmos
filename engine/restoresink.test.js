@@ -62,6 +62,12 @@ test('#5536 sink: the root must be a fresh, real, absolute folder (control: an e
     const realChmod0 = fs.chmodSync;
     fs.chmodSync = (p2, m) => { realChmod0(p2, m); if (p2 === fs.realpathSync.native(planted)) fs.mkdirSync(path.join(planted, 'agents'), { mode: 0o777 }); };
     try { assert.throws(() => createRestoreSink(planted), /appeared in the root/); } finally { fs.chmodSync = realChmod0; }
+    // A drive that reports success but ignores the permission change (a CIFS dynperm or FUSE mount): the mode is read
+    // back, and a root still group-writable is refused (#5536, E0.7 review round 19).
+    const ignored = fresh(t); fs.chmodSync(ignored, 0o775);
+    const realChmod1 = fs.chmodSync;
+    fs.chmodSync = (p2, m) => { if (p2 !== fs.realpathSync.native(ignored)) realChmod1(p2, m); };   // a silent no-op on the root
+    try { assert.throws(() => createRestoreSink(ignored), /could not be made private \(the drive ignored/); } finally { fs.chmodSync = realChmod1; }
     // A folder in the root that belongs to someone else is not written into.
     const own = fresh(t), so = createRestoreSink(own);
     const first = so.begin('shared/a.md'); first.write(Buffer.from('a')); first.commit();
