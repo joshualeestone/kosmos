@@ -14,13 +14,15 @@
  * re-checked to still be a file or a dangling link just before it goes). --port must equal this account's own
  * board port, derived as the kosmos CLI derives it (KOSMOS_PORT if set, else from the uid; with no uid
  * KOSMOS_PORT must say), so the board token reaches only the board this account's kosmos command would
- * talk to. A KOSMOS_PORT set to another account's board would send it there, as it would the kosmos command. And --apply needs live execution, which this file's command line opens:
+ * talk to. A KOSMOS_PORT set to another account's board would send it there, as it would the kosmos command.
+ * And --apply needs live execution, which this file's command line opens:
  * a process that never opened it (one that only requires this file) cannot remove anything by calling main. A
  * process that did open it for its own reasons can; there the --confirm digest and the port check still hold.
  *
  * What it may remove, and only all of these together:
  *   - a token file whose agent is NOT on the running board's roster (GET /api/status, the board's own list),
- *     is NOT in the board's removal records, has no heartbeat record and no profile, was last written BEFORE the
+ *     is NOT in the board's removal records, has no heartbeat record, no profile, no worker folder and (on macOS) no
+ *     launchd job, was last written BEFORE the
  *     cutoff (at least an hour ago), and is named exactly as the
  *     store names its files (a name the store could not have written is listed and left alone), and holds
  *     no `launcher: 'remote'` token (a remote agent is on the roster only while its heartbeat is fresh, so an
@@ -34,7 +36,9 @@
  * Anything else in the folder is listed and left alone. A live agent's file is never a candidate,
  * whatever its date.
  *
- * 🛑 THE ROSTER IS THE ONLY GUARD FOR A LIVE AGENT (the cutoff is in the past for every live file). So:
+ * 🛑 THE ROSTER IS THE FIRST GUARD FOR A LIVE AGENT, with the store's own records as the others (heartbeats,
+ * profiles, worker folders, launchd jobs on macOS, remote tokens, removal records); the cutoff is in the past for
+ * every live file, so it guards nothing here. So:
  *   - a roster row counts under EVERY spelling a token file can carry: its session name (the key tokens are
  *     minted under, by the supervisor's token_roster_name: +world stripped, then -discord), that stripped form,
  *     and its display name. A spelling too many keeps a file; a spelling too few would delete a live one.
@@ -253,7 +257,8 @@ function parseArgs(argv) {
   }
   if (!Number.isInteger(out.port) || out.port <= 0 || out.port > 65535) throw new Error('--port is required (the board port for THIS account; never assumed)');
   // ISO only (YYYY-MM-DD, optionally with a time): Date.parse would take "1" as the year 2001 and plan nothing.
-  const ms = /^\d{4}-\d{2}-\d{2}([T ][\d:.]+(Z|[+-]\d{2}:?\d{2})?)?$/.test(String(out.cutoff || '')) ? Date.parse(out.cutoff) : NaN;
+  // with a time, a zone is required (Z or an offset): without one Date.parse reads local time, a date alone reads UTC
+  const ms = /^\d{4}-\d{2}-\d{2}([T ][\d:.]+(Z|[+-]\d{2}:?\d{2}))?$/.test(String(out.cutoff || '')) ? Date.parse(out.cutoff) : NaN;
   if (!Number.isFinite(ms)) throw new Error('--cutoff is required, as an ISO date');
   if (ms > Date.now()) throw new Error('--cutoff is in the future, which would make every file old');
   /* Temps are removed on age alone, without the store's lock (a dangling link holds nothing and is not aged): a cutoff
@@ -329,12 +334,13 @@ async function main(argv) {
   // heartbeat files are keyed by session; a token file by token_roster_name: keep every spelling, as for the roster
   for (const k of heartbeats) for (const n of spellingsOf({ sessionName: k })) { try { liveKeys.add(store.safeKey(n)); } catch { /* not a key */ } }
   const dir = sendertoken.DIR;
+  if (!fs.existsSync(dir)) { console.log('Nothing to clean: this store has no sender-token folder.'); return 0; }
   const entries = listEntries(dir);
   const tokenKeys = entries.filter((e) => !e.isSymlink && !e.other && e.name.endsWith('.json')).map((e) => e.name.slice(0, -'.json'.length));
   /* An agent can exist with no profile (a leftover with only a launchd job or a worker folder, #500) and still be
      running where the board cannot see it (#668), and the board's offline rows can drop a row silently. So any key
      with a worker folder or a launchd job is kept too; a folder that is there but cannot be read stops the tool. */
-  const homeDirOf = require('node:os').homedir();
+  const create = require('../engine/create');   // ONE derivation of these folders: the one the app uses (#5 in CLAUDE.md)
   const listed = (dir, what) => {
     try { return fs.readdirSync(dir); } catch (e) {
       if (e && e.code === 'ENOENT') return [];
@@ -344,8 +350,8 @@ async function main(argv) {
   let workerNames;
   let jobNames;
   try {
-    workerNames = listed(store.workersRootFor(process.env, homeDirOf), 'the worker folders');
-    const agentsDir = process.env.AGENT_WORKFORCE_LAUNCH || path.join(homeDirOf, 'Library', 'LaunchAgents');
+    workerNames = listed(create.workersDir(), 'the worker folders');
+    const agentsDir = path.dirname(create.plistPath('x'));   // launchd jobs (macOS only; elsewhere none are read)
     jobNames = process.platform === 'darwin' ? listed(agentsDir, 'the launchd jobs').map((f) => {
       const m = /^com\.kosmos\.agent\.(.+)\.plist$/.exec(f) || /^com\.(.+)\.discord\.plist$/.exec(f);
       return m ? m[1].split('+')[0] : null;

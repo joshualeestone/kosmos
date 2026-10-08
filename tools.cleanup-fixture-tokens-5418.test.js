@@ -113,6 +113,7 @@ test('#5418: the port and the cutoff are required, never assumed', () => {
   assert.throws(() => tool.parseArgs(['--cutoff', '2026-10-08']), /--port is required/);
   assert.throws(() => tool.parseArgs(['--port', '1234']), /--cutoff is required/);
   assert.throws(() => tool.parseArgs(['--port', '70000', '--cutoff', '2026-10-01']), /--port is required/);
+  assert.throws(() => tool.parseArgs(['--port', '1234', '--cutoff', '2026-10-01T00:00:00']), /--cutoff is required/, 'a time with no zone was accepted');
   assert.throws(() => tool.parseArgs(['--port', '1234', '--cutoff', 'soon']), /--cutoff is required/);
   assert.throws(() => tool.parseArgs(['--port', '1234', '--cutoff', '2026-10-01T00:00:00Z', '--apply']), /--confirm/);
   const a = tool.parseArgs(['--port', '1234', '--cutoff', '2026-10-01T00:00:00Z', '--apply', '--confirm', 'abc']);
@@ -669,11 +670,17 @@ test('#5418: a -discord job, worker folder or heartbeat keeps the token keyed wi
   const workers = process.env.AGENT_WORKFORCE_WORKERS;
   fs.mkdirSync(path.join(workers, 'sam-discord'), { recursive: true });
   liveness.seen('pat-discord', new Date(OLD).toISOString());
+  write('kim.json', OLD);      // token key for a fleet launchd job com.kim.discord
+  fs.mkdirSync(process.env.AGENT_WORKFORCE_LAUNCH, { recursive: true });
+  fs.writeFileSync(path.join(process.env.AGENT_WORKFORCE_LAUNCH, 'com.kim.discord.plist'), '<plist/>');
+  t.after(() => fs.rmSync(path.join(process.env.AGENT_WORKFORCE_LAUNCH, 'com.kim.discord.plist'), { force: true }));
   t.after(() => { fs.rmSync(path.join(workers, 'sam-discord'), { recursive: true, force: true }); fs.rmSync(liveness.fileFor('pat-discord'), { force: true }); });
   const f = fleet.install([fleet.agent('anchor')]);
   t.after(() => f.restore());
   const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
   quiet(t);
   assert.equal(await applyConfirmed(port), 0);
-  assert.deepEqual(fs.readdirSync(dir).filter((n) => n.endsWith('.json')).sort(), ['anchor.json', 'pat.json', 'sam.json']);
+  const left = fs.readdirSync(dir).filter((n) => n.endsWith('.json')).sort();
+  assert.deepEqual(left.filter((n) => n !== 'kim.json'), ['anchor.json', 'pat.json', 'sam.json']);
+  if (process.platform === 'darwin') assert.ok(left.includes('kim.json'), 'a fleet com.<name>.discord job did not keep its token');
 });
