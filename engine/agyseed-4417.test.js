@@ -49,7 +49,8 @@ function runOnce(event, env, spawnFn = spawn) {
        its exit (test-support/agy-bridge-trace.js), so a libuv abort that only a loaded CI runner shows says which
        path it died on. Not NODE_DEBUG: that opens a stream on fd 2 the bridge never has, the kind of handle the
        abort is about, so it could change what it measures. A quiet stretch after this lands is still not evidence. */
-    const childEnv = { ...env, NODE_OPTIONS: ((env.NODE_OPTIONS || '') + ' --require ' + TRACE_FILE).trim() };
+    // Quoted, so a checkout path with a space stays one argument (review 2).
+    const childEnv = { ...env, NODE_OPTIONS: ((env.NODE_OPTIONS || '') + ' --require ' + JSON.stringify(TRACE_FILE)).trim() };
     try { child = spawnFn(process.execPath, [BRIDGE_FILE, event], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] }); }   // </dev/null, as the supervisor runs it
     catch (err) { resolve({ code: null, signal: null, error: String(err && err.code || err), out: '', err: '' }); return; }
     let out = '';
@@ -296,14 +297,16 @@ test('#5576: the bridge child carries the trace preload, and it marks start, fet
     seen = opts.env.NODE_OPTIONS;
     throw Object.assign(new Error('fake'), { code: 'ENOENT' });
   });
-  assert.match(String(seen), /^--max-old-space-size=64 --require \S+agy-bridge-trace\.js$/, 'the preload did not reach the child, or replaced its options');
+  assert.match(String(seen), /^--max-old-space-size=64 --require "[^"]+agy-bridge-trace\.js"$/, 'the preload did not reach the child quoted, or replaced its options');
   // A real run: the markers are on stderr, the bridge's answer on stdout is unchanged.
   const board = await standInBoard();
-  const data = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'aw-agyseed-trace-'));
+  const data = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'aw-agyseed-trace-'));   // a local require, as the file's other tests do
   try {
     const r = await runOnce('Stop', { ...process.env, AGENT_WORKFORCE_DATA: data, KOSMOS_PORT: String(board.port), TMUX_PANE: '%trace-' + process.pid });
     assert.equal(r.code, 0, howItEnded(r));
     assert.match(r.err, /^agy-trace start 0:\w+ 1:\w+ 2:\w+$/m, 'no start marker: ' + r.err.slice(0, 300));
+    assert.match(r.err, /^agy-trace fetch begin$/m, 'no fetch-begin marker (the fetch wrapper did not install)');
+    assert.match(r.err, /^agy-trace fetch end ok$/m, 'no fetch-end marker');
     assert.match(r.err, /^agy-trace exit called 0$/m, 'no exit marker');
     assert.match(r.err, /^agy-trace exit 0 0:\w+ 1:\w+ 2:\w+$/m, 'no fd record at exit');
     assert.ok(!/agy-trace/.test(r.out), 'a marker reached stdout, the hook\'s answer');
@@ -312,4 +315,3 @@ test('#5576: the bridge child carries the trace preload, and it marks start, fet
     fs.rmSync(data, { recursive: true, force: true });
   }
 });
-

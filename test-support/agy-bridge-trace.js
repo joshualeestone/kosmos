@@ -17,7 +17,15 @@
  */
 const fs = require('node:fs');
 
+/* fd 2's identity when the child starts (device and inode). A marker is written only while fd 2 is still that same
+   pipe: if the number was closed and handed to something else (a socket, the case this hunts), a write would put
+   text into it and change what is measured (review 2). Not the TYPE: a spawned child's stdio are sockets already. */
+function identity(fd) {
+  try { const st = fs.fstatSync(fd); return st.dev + ':' + st.ino; } catch { return null; }
+}
+const FD2_AT_START = identity(2);
 function mark(text) {
+  if (FD2_AT_START === null || identity(2) !== FD2_AT_START) return;   // gone, or no longer the pipe it was
   try { fs.writeSync(2, 'agy-trace ' + text + '\n'); } catch { /* fd 2 gone: nothing to say it on */ }
 }
 function fdKinds() {
@@ -46,4 +54,9 @@ process.exit = function tracedExit(code) {
   mark('exit called ' + code);
   return realExit.call(process, code);
 };
-process.on('exit', (code) => { mark('exit ' + code + ' ' + fdKinds()); });
+process.on('exit', (code) => {
+  const now = fdKinds();
+  // If fd 2 is no longer the pipe it was, that IS the finding; it cannot be written there, so it goes to nothing
+  // (the abort that follows still names itself). Otherwise the record is written as usual.
+  mark('exit ' + code + ' ' + now);
+});
