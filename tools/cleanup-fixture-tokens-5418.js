@@ -53,6 +53,8 @@
  *   - each token file is removed only if, under the store's lock, it is still the file the plan looked at
  *     (sendertoken.revokeIfUnchanged): a token minted since the plan was made is never taken.
  *   - a cutoff less than an hour in the past (or in the future) is refused.
+ *   - assumed, and stated: any live use of a token file rewrites it (a mint, a retire), which moves its mtime and
+ *     newest mint, so a file in use between the plan and its removal is kept by the locked re-check.
  * 🛑 BACKUP FIRST. --apply copies exactly the entries it is about to remove (files with their modes, links as
  * links) to a new timestamped folder beside the store, and stops if the copy fails. Only those: a copy of every
  * live agent's token would be a second set of live credentials left lying around.
@@ -89,7 +91,7 @@ function planCleanup(entries, liveKeys, cutoffMs, safeKey) {
     if (e.isSymlink) {
       const linkKey = e.name.endsWith('.json') ? e.name.slice(0, -'.json'.length) : null;
       if (linkKey !== null && liveKeys.has(canon(linkKey))) keep.push({ name: e.name, why: 'a link named for a live agent: left alone' });
-      else if (e.targetExists === false && (e.name.endsWith('.json') || TEMP_SHAPE.test(e.name))) remove.push({ name: e.name, kind: 'symlink', why: 'a link pointing at nothing' });
+      else if (e.targetExists === false && (e.name.endsWith('.json') || TEMP_SHAPE.test(e.name))) remove.push({ name: e.name, kind: 'symlink', why: 'a link pointing at nothing' + (e.linkTarget ? ' (it pointed at ' + e.linkTarget + '; check that is not an unmounted volume)' : '') });
       else if (e.targetExists === false) keep.push({ name: e.name, why: 'a link pointing at nothing, but not a name the store writes: left alone' });
       else if (e.targetExists === true) keep.push({ name: e.name, why: 'a link to something that exists: not ours to judge' });
       else keep.push({ name: e.name, why: 'a link whose target could not be checked: left alone' });
@@ -132,6 +134,7 @@ function listEntries(dir) {
     if (isSymlink) { try { fs.statSync(p); targetExists = true; } catch (e) { targetExists = e && e.code === 'ENOENT' ? false : null; } }
     if (!isSymlink && !st.isFile()) { out.push({ name, isSymlink: false, mtimeMs: null, other: true }); continue; }
     const entry = { name, isSymlink, targetExists, mtimeMs: st.mtimeMs };
+    if (isSymlink) { try { entry.linkTarget = fs.readlinkSync(p); } catch { entry.linkTarget = null; } }
     if (!isSymlink && name.endsWith('.json')) entry.tokens = tokenInfo(p);
     out.push(entry);
   }
@@ -168,7 +171,11 @@ function copyInto(dir, dest, names) {
     const to = path.join(dest, name);
     const st = fs.lstatSync(from);
     if (st.isSymbolicLink()) fs.symlinkSync(fs.readlinkSync(from), to);
-    else if (st.isFile()) { fs.copyFileSync(from, to, fs.constants.COPYFILE_EXCL); fs.chmodSync(to, st.mode & 0o777); }
+    else if (st.isFile()) {
+      fs.copyFileSync(from, to, fs.constants.COPYFILE_EXCL);
+      fs.chmodSync(to, st.mode & 0o777);
+      if (fs.statSync(to).size !== st.size) throw new Error('the backup of ' + name + ' is not the same size as the file');
+    }
   }
 }
 
@@ -204,10 +211,14 @@ function applyPlan(dir, plan, revoke) {
    proxy by the environment, and the second call carries the board token: install/kosmos's rule #4466 is "never
    through a proxy"). The http module never follows a redirect, so the token's header cannot follow one; a redirect
    answer is also turned into an error here, so it reads as one rather than as a missing roster. */
-function getJson(port, route, headers) {
+function getJson(port, route, headers, timeoutMs = BOARD_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
-    const req = require('node:http').request({ host: '127.0.0.1', port, path: route, method: 'GET', headers: headers || {}, timeout: BOARD_TIMEOUT_MS }, (res) => {
+    const req = require('node:http').request({ host: '127.0.0.1', port, path: route, method: 'GET', headers: headers || {}, timeout: timeoutMs }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400) { res.resume(); reject(new Error('the board answered with a redirect')); return; }
+      // a board that stalls mid-answer: the timeout destroys the request; settle on the response's error too, whichever
+      // object this Node version reports it on (the arm pins only the outcome: a clean refusal, no hang)
+      res.on('error', reject);
+      res.on('aborted', () => reject(new Error('the board stopped answering part way')));
       let body = '';
       res.setEncoding('utf8');
       res.on('data', (c) => { body += c; });
@@ -353,7 +364,7 @@ async function main(argv) {
     workerNames = listed(create.workersDir(), 'the worker folders');
     const agentsDir = path.dirname(create.plistPath('x'));   // launchd jobs (macOS only; elsewhere none are read)
     jobNames = process.platform === 'darwin' ? listed(agentsDir, 'the launchd jobs').map((f) => {
-      const m = /^com\.kosmos\.agent\.(.+)\.plist$/.exec(f) || /^com\.(.+)\.discord\.plist$/.exec(f);
+      const m = /^com\.kosmos\.agent\.(.+)\.plist$/.exec(f) || /^com\.([^.]+(?:\.[^.]+)*)\.discord\.plist$/.exec(f);
       return m ? m[1].split('+')[0] : null;
     }).filter(Boolean) : [];
   } catch (e) { console.error('Stopped, nothing changed: ' + e.message + '.'); return 2; }
@@ -428,4 +439,4 @@ if (require.main === module) {
     (e) => { console.error('Stopped: ' + ((e && e.message) || e)); process.exitCode = 2; });
 }
 
-module.exports = { planCleanup, listEntries, tokenInfo, backup, applyPlan, parseArgs, fetchRoster, spellingsOf, expectedPort, planDigest, BACKUP_PREFIX, main };
+module.exports = { planCleanup, listEntries, tokenInfo, backup, applyPlan, parseArgs, getJson, fetchRoster, spellingsOf, expectedPort, planDigest, BACKUP_PREFIX, main };
