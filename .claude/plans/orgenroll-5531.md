@@ -187,3 +187,16 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
 - FIXED: a failed join puts its ticket back only if no newer screen has fetched one meanwhile (test holds the first
   join at the coordinator while a second screen previews). The ticket lifetime and the daily interval are named
   constants (`ORG_TICKET_MS`, `ORG_REFRESH_MS`). CLAUDE.md's Where to Find Things has a row for company enrollment.
+
+## Review 12 (blind, sonnet)
+- FIXED: a join the company accepted but this Kosmos could not record (its data folder not writable) is undone at
+  once: the leave is sent, or left pending for the next pass. Before, the company held an enrollment this Kosmos would
+  never report under and never show Leave for.
+- CHANGED (a repeat finding, now closed rather than decided): any caller that is not the screen, this board's agents
+  included, learns only whether this Kosmos is enrolled, not which company. The consent words name the company's
+  readers, not this board's agents.
+- FIXED: the org routes send the page an allow-list of fields, so a field added to the engine's answer later is not
+  sent by default. The local log line also has long hex ids (the world id) replaced, beside the join code.
+- WORDING: the route comment now says what isViaScreen enforces (an agent token is refused; browser headers are
+  trusted), not that an agent "must never" join.
+- DEDUP: isViaScreen as the only person check (review 2).

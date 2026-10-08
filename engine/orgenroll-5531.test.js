@@ -445,3 +445,20 @@ test('#5531 review 10: the enrollment keeps a hash of the consent words that wer
   await org.refresh({ root: a, remote: here(a, fakeRemote({ member: true })) });
   assert.equal(org.readEnrollment({ root: a }).consentHash, h, 'a refresh dropped the consent hash');
 });
+
+test('#5531 review 12: a join the company accepted but this Kosmos cannot record is undone; ids stay out of the log', async (t) => {
+  const { a } = sandbox(t);
+  const state = {};
+  const remote = fakeRemote(state);
+  fs.mkdirSync(path.join(a, org.ENROLLMENT_FILE));   // a directory where the record goes: the write fails, the world id file still works
+  const r = await org.enroll('ACME-JOIN-1234', true, { root: a, remote });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /joining was undone/);
+  assert.deepEqual(remote.sent.map((x) => x.route), [org.ROUTES.enroll, org.ROUTES.leave], 'the join the company holds was not undone');
+  assert.equal(state.member, false);
+  const errs = []; const orig = console.error; console.error = (m) => errs.push(String(m)); t.after(() => { console.error = orig; });
+  const id = 'ab'.repeat(16);
+  await org.preview('ACME-JOIN-1234', { root: a, remote: { macRequest: async () => ({ ok: false, because: 'HTTP 502 world ' + id }) } });
+  assert.ok(errs.length >= 1);
+  assert.equal(errs.some((m) => m.includes(id)), false, 'an id reached the log: ' + errs.join(' | '));
+});

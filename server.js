@@ -9559,18 +9559,19 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   /* kosmos#5531 (Enterprise E0.2): this Kosmos joining a company. GET is this world's enrollment as last confirmed
-     (read from its own data root; nothing is sent). preview, enroll and leave are the person's, from the screen: an
-     agent must never join or leave a company for them. engine/orgenroll.js sends nothing on a decline and names this
+     (read from its own data root; nothing is sent). preview, enroll and leave are the person's, refused to any caller
+     that presents an agent token (isViaScreen, the check every person-only setting uses; it trusts browser headers, so
+     it keeps agents out by their token, not against a process that forges headers). engine/orgenroll.js sends nothing on a decline and names this
      world only by an opaque id. */
   if (pathname === '/api/org' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
       const oe = require('./engine/orgenroll');
       const here = oe.isEnrolledHere();
       const rec = here ? oe.readEnrollment() : null;   // a record naming another world says nothing here
-      /* Readable by this board's agents on purpose: an agent on a work Kosmos reports to that company, so which company
-         it is is not a secret from it. Only the name and slug go out; the org id and the world id are never sent to the page. */
-      if (!isViaScreen(req, {})) {   // only the screen gets the role and the date; any other caller learns which company, no more
-        sendJson(res, 200, { enrolled: here, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug } : null, role: null, enrolledAt: null });
+      /* Any caller that is not the screen (this board's agents included) learns only whether this Kosmos is enrolled,
+         never which company: the consent words name the company's readers, not this board's agents (review 12). */
+      if (!isViaScreen(req, {})) {
+        sendJson(res, 200, { enrolled: here, org: null, role: null, enrolledAt: null });
         return;
       }
       const stopped = here ? null : oe.stoppedFor();   // the company stopped naming this world: the screen says so ONCE
@@ -9624,9 +9625,13 @@ const server = http.createServer(async (req, res) => {
           r = await oe.leave();
         }
         /* The page gets the company's name and slug, never the world id or org id. */
+        /* What the page may see, by name (review 12): a field added to the engine's answer later is not sent by default. */
         if (r && typeof r === 'object') {
-          delete r.world;
-          if (r.org && typeof r.org === 'object') r.org = { name: r.org.name, slug: r.org.slug };
+          const keep = ['ok', 'because', 'code', 'declined', 'still', 'pending', 'localOnly', 'move', 'ticket', 'role', 'consent', 'enrolledAt'];
+          const out = {};
+          for (const k of keep) if (k in r) out[k] = r[k];
+          if (r.org && typeof r.org === 'object') out.org = { name: r.org.name, slug: r.org.slug };
+          r = out;
         }
         sendJson(res, 200, r);
       })

@@ -161,6 +161,7 @@ function sayFor(because, fallback, secret) {
   if (because) {
     const { externalName } = require('./externalname');
     let line = String(because);
+    line = line.replace(/[0-9a-f]{32,}/gi, '[id]');   // the world id and org-like ids stay out of the log too
     if (typeof secret === 'string' && secret.length >= 6) {   // a code is single-use: never in a log, in any case
       line = line.replace(new RegExp(secret.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '[join code]');
     }
@@ -236,7 +237,13 @@ async function enrollNow(code, accepted, opts) {
   const rec = { org, role, world, enrolledAt: new Date().toISOString() };
   // The consent the person was shown, as a hash: what they accepted is then a checkable fact on this side (#5531 review 10).
   if (opts && typeof opts.consentHash === 'string' && /^[0-9a-f]{64}$/.test(opts.consentHash)) rec.consentHash = opts.consentHash;
-  try { writeEnrollment(rec, opts); } catch { return { ok: false, because: 'joined, but this Kosmos could not record it; check again' }; }
+  try { writeEnrollment(rec, opts); } catch {
+    /* The company now enrolls this world, but this Kosmos cannot record it, so it would never report and never show
+       Leave (review 12). Undo it: send the leave now, and if that fails too, leave it pending for the next pass. */
+    const undo = await signed('POST', ROUTES.leave, {}, opts);
+    if (!undo.ok && codeOf(undo.because) !== 'org_not_member') setLeavePending(true, opts, null);
+    return { ok: false, because: "This Kosmos's data folder could not be written, so joining was undone. Nothing was joined." };
+  }
   setLeavePending(false, opts);   // joined again after an unconfirmed leave: that old leave must never be sent now
   setStopped(null, opts);
   return { ok: true, ...rec };

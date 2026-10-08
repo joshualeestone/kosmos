@@ -129,6 +129,7 @@ test('#5531 review 5: a ticket from a preview IS accepted once, for the code tha
   assert.equal(ok.json.ok, true, 'a real ticket for the previewed code was refused: ' + JSON.stringify(ok.json));
   assert.equal(JSON.stringify(ok.json).includes('org_1') || 'world' in ok.json, false, 'an engine id reached the page: ' + JSON.stringify(ok.json));
   assert.equal(JSON.parse(fs.readFileSync(enrollmentFile(), 'utf8')).consentHash, oe.consentHash(CONSENT), 'the consent shown was not kept with the enrollment');
+  assert.equal('consentHash' in ok.json, false, 'a field outside the page list reached the page (review 12): ' + JSON.stringify(ok.json));
   const again = await call('/api/org/enroll', { body: { code: 'ACME-JOIN-1234', accepted: true, ticket: pv2.json.ticket }, headers: SCREEN });
   assert.match(again.json.because || '', REFUSED, 'a ticket was used twice');
   await call('/api/org/leave', { body: {}, headers: SCREEN });
@@ -140,7 +141,7 @@ test('#5531 review 6: an agent reading /api/org learns which company, and not th
   fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'admin', world: oe.worldId(), enrolledAt: '2026-10-07T00:00:00.000Z' }));
   const asLeo = await call('/api/org', { method: 'GET', headers: { 'x-kosmos-agent-token': sendertoken.mint('leo').token } });
   assert.equal(asLeo.json.enrolled, true);
-  assert.equal(asLeo.json.org.name, 'Acme');
+  assert.equal(asLeo.json.org, null, 'an agent learned which company (review 12): ' + JSON.stringify(asLeo.json));
   assert.equal(asLeo.json.role, null, 'an agent read the role: ' + JSON.stringify(asLeo.json));
   assert.equal(asLeo.json.enrolledAt, null, 'an agent read the enrollment date');
   const screen = await call('/api/org', { method: 'GET', headers: SCREEN });
