@@ -8,6 +8,8 @@
  *   node tools/cleanup-fixture-tokens-5418.js --port <board port> --cutoff <ISO date> --apply --confirm <digest>
  *                                                                          (backs up, then removes EXACTLY that plan)
  *
+ * A dry run removes nothing, but reading the store runs its usual one-time migration, as any reader of it does.
+ *
  * 🛑 --apply removes only the plan a person read: it rebuilds the plan, and if its digest is not the one the dry run
  * printed (an agent missing from a degraded roster, a token file changed), it stops. The digest covers each token
  * file's name, key, mtime, newest mint, launchers and token names; for a temp or a link, its name and kind (each is
@@ -170,7 +172,12 @@ function copyInto(dir, dest, names) {
     const from = path.join(dir, name);
     const to = path.join(dest, name);
     const st = fs.lstatSync(from);
-    if (st.isSymbolicLink()) fs.symlinkSync(fs.readlinkSync(from), to);
+    if (st.isSymbolicLink()) {
+      const target = fs.readlinkSync(from);
+      // where a link cannot be made (Windows without the privilege), its name and target go in a note instead
+      try { fs.symlinkSync(target, to); }
+      catch (e) { if (e && e.code === 'EPERM') fs.appendFileSync(path.join(dest, 'LINKS.txt'), name + ' -> ' + target + '\n', { mode: 0o600 }); else throw e; }
+    }
     else if (st.isFile()) {
       fs.copyFileSync(from, to, fs.constants.COPYFILE_EXCL);
       fs.chmodSync(to, st.mode & 0o777);
@@ -181,6 +188,8 @@ function copyInto(dir, dest, names) {
 
 /* Remove what the plan says, re-checking each entry as it goes. Returns the names removed and any that failed. */
 function applyPlan(dir, plan, revoke) {
+  // the delete itself is gated, not only main: a caller that requires this file cannot remove anything by calling it
+  if (!require('../engine/live-execution').liveExecutionAllowed()) throw new Error('live execution is off: nothing removed');
   const removed = [];
   const failed = [];
   const gone = [];   // already gone when its turn came: not counted as removed
@@ -368,7 +377,7 @@ async function main(argv) {
     const agentsDir = path.dirname(create.plistPath('x'));   // launchd jobs (macOS only; elsewhere none are read)
     jobNames = process.platform === 'darwin' ? listed(agentsDir, 'the launchd jobs').map((f) => {
       const m = /^com\.kosmos\.agent\.(.+)\.plist$/.exec(f) || /^com\.([^.]+(?:\.[^.]+)*)\.discord\.plist$/.exec(f);
-      return m ? m[1].split('+')[0] : null;
+      return m ? m[1].split('+')[0].replace(/\.discord$/, '') : null;   // a stray .discord stays a keep (over-keep is safe)
     }).filter(Boolean) : [];
   } catch (e) { console.error('Stopped, nothing changed: ' + e.message + '.'); return 2; }
   for (const raw of workerNames.concat(jobNames)) {
@@ -432,6 +441,7 @@ async function main(argv) {
   const res = applyPlan(dir, plan, sendertoken.revokeIfUnchanged);
   console.log(`Removed ${res.removed.length}.` + (res.gone.length ? ` ${res.gone.length} were already gone.` : ''));
   for (const f of res.failed) console.log(`  not removed  ${f.name}  (${f.because})`);
+  if (res.failed.length) console.log('The backup is still at ' + dest + ' and holds token copies: delete it once the result is checked.');
   return res.failed.length ? 1 : 0;
 }
 

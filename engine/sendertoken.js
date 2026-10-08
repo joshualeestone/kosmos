@@ -271,7 +271,9 @@ function revokeIfUnchanged(sessionName, mtimeMs, newestMintMs) {
       // Also the newest mintedAt, read under the lock: a mint that lands in the same mtime tick (a coarse-mtime
       // mount) still adds a newer token, and that keeps the file.
       const newest = readTokens(sessionName).reduce((m, t) => { const ms = Date.parse((t && t.mintedAt) || ''); return Number.isFinite(ms) && ms > m ? ms : m; }, -Infinity);
-      if (typeof newestMintMs === 'number' ? newest > newestMintMs : newest > -Infinity && newest >= mtimeMs) {
+      const mintedSincePlanned = typeof newestMintMs === 'number' && newest > newestMintMs;
+      const mintedWhereNoneWasPlanned = typeof newestMintMs !== 'number' && newest > -Infinity && newest >= mtimeMs;
+      if (mintedSincePlanned || mintedWhereNoneWasPlanned) {
         return { ok: false, because: 'a token was minted since the plan was made: kept' };
       }
       // A mint rewrites the file (temp then rename), so its mtime moves; the mintedAt check above covers a mount
