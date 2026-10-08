@@ -36,3 +36,12 @@ company, and `thisComputer` cannot tell them apart.
   fixture no longer looks like a home path.
 - KEPT: a synchronous read, once per board run until it succeeds (decided; an async read would add a state for one
   five-second worst case).
+
+## Review 2 (blind, sonnet)
+- FIXED (from my review-1 fix): after a failed read, ioreg is not asked again for 60 s, so a hung ioreg cannot block
+  the board for five seconds on every call (mutation reddens).
+- FIXED: the reader guard scans every tracked .js, .sh, .ps1 and .html file in the repo for any spelling of a raw
+  hardware read (IOPlatformUUID, IOPlatformExpertDevice, IOPlatformSerialNumber, MachineGuid, the Cryptography key),
+  and fails if the test-only reader swap is called outside the tests. Proven by planting a tracked file.
+- FIXED: the salt must be whole bytes. parseIoreg stays exported for the fixture tests (it returns an id only from
+  text the caller already holds); `_testRunner` is marked tests-only and guarded.

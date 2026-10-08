@@ -46,18 +46,31 @@ test('#5532 v1.5: a read that fails is tried again, not remembered as "no print"
   let n = 0;
   cp._testRunner(() => { n += 1; if (n === 1) throw new Error('ioreg timed out'); return SAMPLE; });   // the UNSEAMED path, with its cache
   t.after(() => cp._testRunner(null));
-  assert.equal(cp.fingerprint(SALT), null);
-  assert.match(cp.fingerprint(SALT) || '', /^[0-9a-f]{64}$/, 'a failed read was remembered for the whole run');
-  cp.fingerprint(SALT);
+  const T = 1000000;
+  assert.equal(cp.fingerprint(SALT, { now: T }), null);
+  assert.equal(cp.fingerprint(SALT, { now: T + 1000 }), null, 'asked ioreg again at once after a failure');
+  assert.equal(n, 1, 'a hung ioreg would block the board on every call (review 2)');
+  assert.match(cp.fingerprint(SALT, { now: T + cp.RETRY_AFTER_FAIL_MS + 1 }) || '', /^[0-9a-f]{64}$/, 'a failed read was remembered for the whole run');
+  cp.fingerprint(SALT, { now: T + cp.RETRY_AFTER_FAIL_MS + 2 });
   assert.equal(n, 2, 'a successful read was not kept (read again)');
 });
 
-test('#5532 v1.5: no engine file but computerprint.js reads the raw hardware id', () => {
+test('#5532 v1.5: nothing in the repo but computerprint.js reads the raw hardware id, and nothing outside tests swaps its reader', () => {
   const fs = require('node:fs');
   const path = require('node:path');
-  const dir = __dirname;
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.js') && !f.endsWith('.test.js') && f !== 'computerprint.js');
-  assert.ok(files.length > 50, 'the engine folder was not read (' + files.length + ' files)');
-  const hits = files.filter((f) => /IOPlatformUUID|MachineGuid/.test(fs.readFileSync(path.join(dir, f), 'utf8')));
-  assert.deepEqual(hits, [], 'another engine file reads the raw hardware id: ' + hits.join(', '));
+  const root = path.join(__dirname, '..');
+  const files = require('node:child_process').execFileSync('git', ['-C', root, 'ls-files', '-z'], { encoding: 'utf8' }).split('\0')
+    .filter((f) => /\.(js|mjs|cjs|sh|ps1|html)$/.test(f) && !/(^|\/)computerprint(-5532\.test)?\.js$/.test(f));
+  assert.ok(files.length > 300, 'the repo was not listed (' + files.length + ' files)');
+  const READ = /IOPlatformUUID|IOPlatformExpertDevice|IOPlatformSerialNumber|MachineGuid|Microsoft\\+Cryptography/;
+  const hits = [];
+  const swaps = [];
+  for (const f of files) {
+    let text;
+    try { text = fs.readFileSync(path.join(root, f), 'utf8'); } catch { continue; }
+    if (READ.test(text)) hits.push(f);
+    if (text.includes('_testRunner') && !/\.test\.js$/.test(f)) swaps.push(f);
+  }
+  assert.deepEqual(hits, [], 'another file reads the raw hardware id: ' + hits.join(', '));
+  assert.deepEqual(swaps, [], 'the test-only reader swap is called outside the tests: ' + swaps.join(', '));
 });

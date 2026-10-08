@@ -32,11 +32,15 @@ const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 
 const UUID = /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i;
-const SALT = /^[0-9a-f]{32,128}$/;   // the coordinator's per-account salt: hex, 16 to 64 bytes
+const SALT = /^(?:[0-9a-f]{2}){16,64}$/;   // the coordinator's per-account salt: hex, 16 to 64 whole bytes
 
 let cached;   // the hardware does not change while the board runs; a successful read is kept
 const realRun = () => execFileSync('/usr/sbin/ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice'], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] });
 let defaultRun = realRun;   // replaced only by tests, through _testRunner below
+/* After a failed read, wait this long before asking ioreg again (review 2): a hung ioreg must not block the board for
+   five seconds on every call. */
+const RETRY_AFTER_FAIL_MS = 60 * 1000;
+let failedAt = 0;
 
 /* The raw IOPlatformUUID out of ioreg's text, or null. Pure, so the parse is tested on fixtures. */
 function parseIoreg(text) {
@@ -49,7 +53,8 @@ function parseIoreg(text) {
 function hardwareId(opts) {
   const o = opts || {};
   const seamed = !!(o.run || o.platform);
-  if (!seamed && cached) return cached;   // only a SUCCESSFUL read is kept (review 1): a failed one is tried again
+  if (!seamed && cached) return cached;   // only a SUCCESSFUL read is kept (review 1): a failed one is tried again,
+  if (!seamed && failedAt && (o.now || Date.now()) - failedAt < RETRY_AFTER_FAIL_MS) return null;   // but not at once
   const platform = o.platform || process.platform;
   let id = null;
   if (platform === 'darwin') {
@@ -59,7 +64,7 @@ function hardwareId(opts) {
     } catch { id = null; }
   }
   // win32: MachineGuid, by the Windows owner (spec on #5532). Until then: null, never a guess.
-  if (!seamed && id) cached = id;
+  if (!seamed && id) { cached = id; failedAt = 0; } else if (!seamed) failedAt = o.now || Date.now();
   return id;
 }
 
@@ -72,7 +77,9 @@ function fingerprint(salt, opts) {
   return crypto.createHash('sha256').update(salt + ':' + id).digest('hex');
 }
 
-/* Tests only: swap the unseamed reader and clear the cache, so the cache rule itself can be tested. Pass null to restore. */
-function _testRunner(fn) { defaultRun = fn || realRun; cached = undefined; }
+/* TESTS ONLY: swap the unseamed reader and clear the cache, so the cache rule itself can be tested. Pass null to restore.
+   Nothing in the board calls it; the guard test below fails if anything outside the tests does. */
+function _testRunner(fn) { defaultRun = fn || realRun; cached = undefined; failedAt = 0; }
 
-module.exports = { parseIoreg, fingerprint, UUID, SALT, _testRunner };
+// parseIoreg is exported for the fixture tests: it returns an id only from text the caller already holds.
+module.exports = { parseIoreg, fingerprint, UUID, SALT, RETRY_AFTER_FAIL_MS, _testRunner };
