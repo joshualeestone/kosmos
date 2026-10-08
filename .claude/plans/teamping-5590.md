@@ -66,3 +66,14 @@ Neighbours green: createdbeacon-3038 (unit and route), no-phone-home-4253, brows
 - Taken (WARNING, advisory): the sync runs only on the panel's open click, the only way the panel is shown today;
   stated on the handler so a new way to show it sets it too.
 - Taken (NIT): the handler comment names #tc-tell and #create-tell.
+
+## Review 5 (opus): no blockers; the lock replaced by a simpler rule
+- Fixed (WARNING): a kept result restored on reopen showed a locked box set from the sheet's CURRENT choice, which can
+  differ from the one that was sent, so it could misstate whether those agents were reported. Rather than store and
+  repaint the sent value, the box is now shown only where the choice is made: orgchartTell('open') with every preview
+  (set from #create-tell), 'locked' while the create runs, 'gone' (hidden) once a result is on screen or a kept one is
+  restored. A hidden box cannot misstate anything. Weakest premise: a person who wants to see what was chosen for a
+  past import cannot; nothing on the screen ever said it before this change either.
+- Fixed (WARNING): the browser check asserts the box is gone after a created import and on the restored result (the
+  reopen-within-Undo arm), and open and ticked again after a refused import.
+- Taken (NIT): the restore comment; the review-4 residual restated (the restore path, now closed by hiding).

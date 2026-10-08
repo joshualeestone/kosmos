@@ -23,7 +23,7 @@
  *
  * Run: see the README in this directory (same shape as render-found-undo.js).
  *
- * // Browser-check-surface: team-orgchart-open cstep-team orgchartpick orgchart-text orgchart-usenames orgchart-preview orgchart-preview-box orgchart-count orgchart-list orgchart-create orgchart-edit orgchart-msg orgchart-undo orgchart-undo-go orgchart-undo-keep create-tell orgchart-tell
+ * // Browser-check-surface: team-orgchart-open cstep-team orgchartpick orgchart-text orgchart-usenames orgchart-preview orgchart-preview-box orgchart-count orgchart-list orgchart-create orgchart-edit orgchart-msg orgchart-undo orgchart-undo-go orgchart-undo-keep create-tell orgchart-tell orgchart-tell-row
  */
 'use strict';
 
@@ -174,8 +174,8 @@ function check(name, pass, detail) {
     JSON.stringify(lastTeamBody && lastTeamBody.members));
   check('#5590: the import carries the create-agent box, ticked by default (notifyCreated true)',
     Boolean(lastTeamBody) && lastTeamBody.notifyCreated === true, JSON.stringify(lastTeamBody && lastTeamBody.notifyCreated));
-  const tellLocked = await page.evaluate(() => document.getElementById('orgchart-tell').disabled === true);
-  check('#5590: once the import has created agents, its box is fixed (the choice was sent)', tellLocked, String(tellLocked));
+  const tellGone = await page.evaluate(() => document.getElementById('orgchart-tell-row').hidden === true);
+  check('#5590: once the import has created agents, its box is gone (a result is on screen, not a choice)', tellGone, String(tellGone));
 
   // ---- #1280 Undo: offered after a create, NAMES and COUNTS before it acts ----
   const undoShown = await page.evaluate(() => {
@@ -424,6 +424,7 @@ function check(name, pass, detail) {
   await page.waitForFunction(() => /before you left/.test(document.getElementById('orgchart-count').textContent), null, { timeout: 5000 }).catch(() => {});
   removalDelayMs = 0;
   const superseded = await page.evaluate(() => ({
+    tellHidden: document.getElementById('orgchart-tell-row').hidden === true,
     count: document.getElementById('orgchart-count').textContent,
     boxHidden: document.getElementById('orgchart-preview-box').hidden,
     previewDisabled: document.getElementById('orgchart-preview').disabled,
@@ -433,6 +434,8 @@ function check(name, pass, detail) {
   check('an Undo left mid-run: the reopened panel shows what it removed, offers Undo for the rest, and Preview works (#4688)',
     !/Removing/.test(superseded.count) && /Removed 1 of 2 before you left\. 1 is still on your board/.test(superseded.count)
     && !superseded.boxHidden && !superseded.asking && /remove this agent/.test(superseded.undo || '') && !superseded.previewDisabled, JSON.stringify(superseded));
+  check('#5590: a kept result restored on reopen shows no "Let Kosmos know" box (it may not be the choice that was sent)',
+    superseded.tellHidden === true, String(superseded.tellHidden));
   check('and it stops sending removals once left: one of two was asked, never the second',
     removeCalls.length === 1, JSON.stringify(removeCalls));
 
