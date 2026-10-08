@@ -15,7 +15,7 @@ process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: tr
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_CONFIG_ROOT = path.join(SANDBOX, 'claude');
 process.env.AGENT_WORKFORCE_HOME = path.join(SANDBOX, 'home');
-for (const v of ['CODEX_HOME', 'AGENT_WORKFORCE_CODEX_HOME', 'GEMINI_CLI_HOME', 'AGENT_WORKFORCE_GEMINI_HOME', 'GROK_HOME', 'AGENT_WORKFORCE_GROK_HOME']) delete process.env[v];
+for (const v of ['AGENT_WORKFORCE_AGY_HOME', 'CODEX_HOME', 'AGENT_WORKFORCE_CODEX_HOME', 'GEMINI_CLI_HOME', 'AGENT_WORKFORCE_GEMINI_HOME', 'GROK_HOME', 'AGENT_WORKFORCE_GROK_HOME']) delete process.env[v];
 fs.mkdirSync(process.env.AGENT_WORKFORCE_DATA, { recursive: true });
 
 const usage = require('./usage');
@@ -40,6 +40,8 @@ function session(name, cwd, id, model, input) {
 session('agent', AGENT, 'm-agent', 'claude-opus-5-5', 100);
 session('personal', PERSONAL, 'm-personal', 'claude-personal-model', 7000);
 session('sub', SUB, 'm-sub', 'claude-sub-model', 300);
+
+const NOPROV = { scanProviders: async () => ({ folderModels: {}, complete: true }) };
 
 /* Review 7: every `complete: false` below is preceded by this CONTROL in the same state, so a fault an earlier test
    left in the shared sandbox cannot make it pass for the wrong reason. */
@@ -88,7 +90,6 @@ test('#5532: a session launched through a link to an agent\'s folder counts for 
   assert.equal((w.byDay[TODAY] || {})['claude-via-link'] && w.byDay[TODAY]['claude-via-link'].input_tokens, 55, 'a session recorded under a link to the agent\'s folder was not counted: ' + JSON.stringify(w.byDay));
 });
 
-const NOPROV = { scanProviders: async () => ({ folderModels: {}, complete: true }) };
 function sub(sessionDir, cwd, id, model, input, day) {
   const file = path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects', sessionDir, 'subagents', 'a.jsonl');
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -126,9 +127,29 @@ test('#5532 review 1: an unreadable transcript or a failing scan gives complete:
   assert.deepEqual(thrown, { byDay: {}, complete: false });
 });
 
-test('#5532 review 1: relative folders count for nobody', async () => {
-  const rel = await usage.worldUsageByModel(1, { agentDirs: ['.', AGENT], scanUsage: async () => ({ folderModels: { [TODAY]: { '.': { 'claude-rel': { input_tokens: 5, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 } } } }, unreadable: 0 }), scanProviders: NOPROV.scanProviders });
-  assert.deepEqual(rel.byDay, {}, 'a relative folder was counted');
+const ROW = (model) => ({ [model]: { input_tokens: 5, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 } });
+const AT = (folder, model) => async () => ({ folderModels: { [TODAY]: { [folder]: ROW(model) } }, unreadable: 0 });
+
+test('#5532 review 1: a relative agent folder claims nothing and makes the count incomplete', async () => {
+  // A session launched in this process's own folder: '.' would resolve to it if a relative agent folder were taken.
+  const here = process.cwd();
+  // CONTROL: the same session IS claimed by that folder named absolutely, so the miss below is the guard.
+  const abs = await usage.worldUsageByModel(1, { agentDirs: [here], scanUsage: AT(here, 'claude-rel'), scanProviders: NOPROV.scanProviders });
+  assert.ok((abs.byDay[TODAY] || {})['claude-rel'], 'CONTROL: the session was not counted for its own folder');
+  const rel = await usage.worldUsageByModel(1, { agentDirs: ['.'], scanUsage: AT(here, 'claude-rel'), scanProviders: NOPROV.scanProviders });
+  assert.deepEqual(rel.byDay, {}, 'a relative agent folder claimed the session in this server\'s own folder');
+  assert.equal(rel.complete, false, 'a dropped relative agent folder left the count looking whole');
+});
+
+test('#5532 review 9: a root or an unresolvable agent folder claims nothing and makes the count incomplete', async () => {
+  const root = path.parse(SANDBOX).root;
+  const asRoot = await usage.worldUsageByModel(1, { agentDirs: [root], scanUsage: AT(root, 'claude-at-root'), scanProviders: NOPROV.scanProviders });
+  assert.equal((asRoot.byDay[TODAY] || {})['claude-at-root'], undefined, 'a filesystem root as an agent folder claimed a session launched there');
+  assert.equal(asRoot.complete, false, 'a dropped root folder left the count looking whole');
+  // An agent the roster could not resolve (worldAgentDirs keeps it as null) leaves its sessions out: incomplete.
+  const unresolved = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [null, AGENT] }, NOPROV));
+  assert.ok(unresolved.byDay[TODAY]['claude-opus-5-5'], 'the resolvable agent lost its usage');
+  assert.equal(unresolved.complete, false, 'an unresolvable agent left the count looking whole');
 });
 
 test('#5532 review 1: the window is the last N UTC days, today included', async () => {
@@ -150,8 +171,7 @@ test('#5532 review 2: a home folder or a root as an agent folder claims nothing;
   session('in-home', home, 'm-home', 'claude-home-session', 66);   // a person's own session started in their home folder
   const asHome = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [home] }, { scanProviders: NOPROV.scanProviders, home }));
   assert.equal((asHome.byDay[TODAY] || {})['claude-home-session'], undefined, 'an agent folder set to the home folder claimed the person\'s own session');
-  const asRoot = await usage.worldUsageByModel(1, Object.assign({ agentDirs: ['/'] }, NOPROV));
-  assert.deepEqual(asRoot.byDay, {});
+  assert.equal(asHome.complete, false, 'a dropped home folder left the count looking whole');
   await wholeBefore('a gone folder was added');
   const gone = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [AGENT, path.join(SANDBOX, 'workers', 'deleted-agent')] }, NOPROV));
   assert.equal(gone.complete, false, 'a gone agent folder was reported as a complete count');
@@ -206,6 +226,7 @@ test('#5532 review 7: no file outside the tests passes worldUsageByModel a secon
   const files = execFileSync('git', ['-C', root, 'ls-files', '*.js'], { encoding: 'utf8' }).split('\n').filter((f) => f && !/\.test\.js$/.test(f) && !f.startsWith('test-support/'));
   // CONTROL: the file that defines it is among those read, so an empty list cannot pass.
   assert.ok(files.includes('engine/usage.js'), 'CONTROL: the tracked-file listing did not reach engine/usage.js');
+  // An accident net, not a boundary: an aliased call, .call/.apply, or a first argument holding `)` is not seen.
   const CALL = /worldUsageByModel\s*\(([^)]*)\)/g;   // [^)] spans lines, so a call split over lines is read whole
   const bad = [];
   for (const f of files) {

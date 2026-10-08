@@ -334,15 +334,15 @@ async function scanUsage({ sinceDay, untilDay, mtimeCut = false }) {
 }
 
 /* This Kosmos's own agent folders, from its roster, exactly as the usage screen builds them (server.js, the per-agent
-   split). Never a listing of the workers folder, which several Kosmoses on one computer share. Null when the roster
-   cannot be read. */
+   split). Null when the roster cannot be read. An agent whose folder cannot be resolved stays in the list as null, so
+   the count says it left that agent out rather than looking whole. */
 function worldAgentDirs() {
   const register = require('./register');
   const create = require('./create');
   const known = register.known();
   if (!known.ok) return null;
   const dirs = [];
-  for (const name of known.names) { try { dirs.push(create.workerDir(name)); } catch { /* not resolvable: nobody's */ } }
+  for (const name of known.names) { try { dirs.push(create.workerDir(name)); } catch { dirs.push(null); } }
   return dirs;
 }
 
@@ -351,8 +351,9 @@ function worldAgentDirs() {
  * every Claude config folder on the computer, so its totals include the person's other Kosmoses and their sessions
  * outside Kosmos; the company rollup must never send those.
  *
- * A row counts only when its transcript's launch folder IS one of `agentDirs` (compared after realpath, the rule
- * byAgent uses; a subfolder is not claimed, so an agent on a broad folder cannot absorb the person's own sessions
+ * A row counts only when its transcript's launch folder IS one of `agentDirs` (compared after realpath, as byAgent
+ * compares; but unlike byAgent, a home folder, a root, a shared parent and an orphaned subagent claim nothing here, so the
+ * usage screen's per-agent totals can be larger than this for the same agents; a subfolder is not claimed, so an agent on a broad folder cannot absorb the person's own sessions
  * beneath it). Read fresh each time, frozen nowhere: the per-day files the usage screen keeps are untouched.
  *
  * Returns { byDay: { day: { model: bucket } }, complete } where complete is false when any provider was only partly
@@ -360,8 +361,9 @@ function worldAgentDirs() {
  * than send a short count as the whole. A folder that is not absolute is nobody's (it would otherwise resolve against
  * this server's own folder). A message found in two transcripts counts once, for the copy whose path sorts first, so an
  * agent can be UNDER-counted when a person's own transcript holds the same message: the safe direction.
- * An agent folder that is the home folder or a filesystem root is nobody's; an agent folder that no longer exists makes
- * the result incomplete (its past sessions cannot be matched by real path).
+ * An agent folder that is the home folder, a filesystem root, not absolute or unresolvable claims nothing AND makes the
+ * result incomplete (that agent's own sessions are left out); so does one that no longer exists (its past sessions
+ * cannot be matched by real path).
  * 🛑 The folders are this Kosmos's own roster (worldAgentDirs: register.known() through create.workerDir, as the usage
  * screen builds it), NEVER a listing of the workers folder: in the default world several Kosmoses on one computer share that folder,
  * and a listing would sweep in another Kosmos's agents (review 3).
@@ -378,8 +380,7 @@ function worldAgentDirs() {
  */
 async function worldUsageByModel(days, deps) {
   const d = deps || {};
-  /* The folders come from this Kosmos's roster (review 5). `deps.agentDirs` overrides it for tests only; the review 7
-     test refuses a non-test caller that passes deps, so no production path can hand in a listing. */
+  // `deps.agentDirs` overrides the roster, for tests only (see the docblock).
   const agentDirs = Array.isArray(d.agentDirs) ? d.agentDirs : worldAgentDirs();
   if (!agentDirs) return { byDay: {}, complete: false };   // the roster could not be read: say so
   const n = Math.min(MAX_DAYS, Math.max(1, Math.trunc(Number(days)) || 1));
@@ -388,16 +389,19 @@ async function worldUsageByModel(days, deps) {
   const realpath = d.realpath || (async (p) => { try { return await fsp.realpath(p); } catch { return path.resolve(p); } });
   const mine = new Set();
   let missingDir = false;
+  /* An agent whose folder is dropped below (unresolvable, not absolute, a home or a root) has its own sessions left
+     out, so the count is short and says so, exactly as a shared parent does. */
+  let droppedAgent = false;
   /* Never a folder that holds the person's own work too (review 2): the home folder or a filesystem root as an
      agent's folder would claim every session started there. */
   // The home Kosmos uses (AGENT_WORKFORCE_HOME, as store.js reads it) AND the account's own: either claims nothing (review 8).
   const broad = new Set(await Promise.all([d.home || process.env.AGENT_WORKFORCE_HOME || os.homedir(), os.homedir()].map((h) => realpath(h))));   // a filesystem root is caught per folder below
   const reals = [];
   for (const dir of agentDirs) {
-    if (typeof dir !== 'string' || !path.isAbsolute(dir)) continue;
+    if (typeof dir !== 'string' || !path.isAbsolute(dir)) { droppedAgent = true; continue; }
     try { await fsp.access(dir); } catch { missingDir = true; }   // a gone folder cannot be matched by its real path
     const real = await realpath(dir);
-    if (broad.has(real) || real === path.parse(real).root) continue;
+    if (broad.has(real) || real === path.parse(real).root) { droppedAgent = true; continue; }
     reals.push(real);
   }
   /* A folder that CONTAINS another agent's folder is a shared parent (the workers root, a person's ~/work), not one
@@ -429,7 +433,7 @@ async function worldUsageByModel(days, deps) {
     }
   }
   // Fails closed (review 8): a provider result that does not SAY complete is not complete.
-  return { byDay, complete: others.complete === true && !(claude.unreadable > 0) && !missingDir && !droppedParent };
+  return { byDay, complete: others.complete === true && !(claude.unreadable > 0) && !missingDir && !droppedParent && !droppedAgent };
 }
 
 async function ensureUsageDir() {

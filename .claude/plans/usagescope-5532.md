@@ -96,3 +96,15 @@ sessions outside Kosmos. This branch adds the reader the rollup needs to send us
 - Kept: ownership by exact launch folder (the residual stated since review 6; the rollup's consent words carry it).
 - Kept: the guard test's regex is an accident net, not a security boundary (a call whose first argument holds a `)`
   is missed); stated here.
+
+## Review 9
+- Every dropped agent folder (unresolvable in the roster, not absolute, a home, a root) now makes the count incomplete,
+  as a shared parent already did: that agent's own sessions are left out. worldAgentDirs keeps an unresolvable agent as
+  null instead of skipping it. Pinned (removing the flag reddens 3 tests; the relative and root guards each redden their
+  own test, which now has a session the guard is the only thing excluding).
+- Unpinned: worldAgentDirs pushing null (the roster here has no agents); the folder-side relative check (the distinct
+  filter already excludes a relative folder key, so it is belt and braces).
+- The docblock no longer says the matching is byAgent's rule: it compares as byAgent does, but home, root, shared
+  parent and orphan subagent claim nothing here, so the usage screen's per-agent totals can be larger.
+- Kept: "(review N)" labels in comments (the codebase's convention, declined before). Minor: NOPROV moved up; the
+  Antigravity home scrubbed in the test; the guard regex says it is an accident net.
