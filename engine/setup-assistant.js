@@ -695,6 +695,16 @@ function accountConfigHomes(home) {
   return out;
 }
 
+/* #4491 reviews 14 and 15: true when a rule's PATH has a character the rule syntax reads as a pattern (the guide's #4752
+   RULE_SYNTAX). The separator is made '/' first, as the guide does, so a Windows path's backslashes are not read as
+   pattern characters (review 15: without that every Windows rule was dropped); the globs this file adds itself are
+   taken out before testing. */
+function ruleHasPatternChar(rule, sep = path.sep) {
+  const ownGlobs = String(rule).replace(/\/\*\*\)$/, ')').replace(/\.\*\)$/, ')').replace(/\/\*\//g, '/').replace(/\.claude-\*/g, '.claude-x');
+  const inner = ownGlobs.replace(/^\w+\(/, '').replace(/\)$/, '').split(sep).join('/');
+  return RULE_SYNTAX.test(inner.replace(/\*\*$/, '').replace(/\/\*$/, ''));
+}
+
 /*
  * #4491: the deny rules and sandbox filesystem paths for a TOKEN-ONLY agent (one listed in
  * sendertoken.tokenOnlyFile). Unlike the guide, a token-only agent is a normal working agent, so its
@@ -713,16 +723,6 @@ function accountConfigHomes(home) {
  *    glob-only future-home case is the reasoned residual the plan records.
  * dataRoot/home are overridable for tests (guideDenyRulesFor does the same); production passes neither.
  */
-/* #4491 reviews 14 and 15: true when a rule's PATH has a character the rule syntax reads as a pattern (the guide's #4752
-   RULE_SYNTAX). The separator is made '/' first, as the guide does, so a Windows path's backslashes are not read as
-   pattern characters (review 15: without that every Windows rule was dropped); the globs this file adds itself are
-   taken out before testing. */
-function ruleHasPatternChar(rule, sep = path.sep) {
-  const ownGlobs = String(rule).replace(/\/\*\*\)$/, ')').replace(/\.\*\)$/, ')').replace(/\/\*\//g, '/').replace(/\.claude-\*/g, '.claude-x');
-  const inner = ownGlobs.replace(/^\w+\(/, '').replace(/\)$/, '').split(sep).join('/');
-  return RULE_SYNTAX.test(inner.replace(/\*\*$/, '').replace(/\/\*$/, ''));
-}
-
 function tokenOnlySettingsRules(dir, deps = {}) {
   const home = deps.home || kosmosHome();
   const dataRoot = deps.dataRoot || store.ROOT;
@@ -788,12 +788,14 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   /* #4491 review 14: a path with a character the rule syntax reads as a pattern (the guide's #4752 RULE_SYNTAX) would
      misparse the rule, or make Claude Code reject the whole file. Such a rule is dropped and said on the board log; the
      sandbox layer still carries the concrete path. The globs this function adds itself are taken out before testing. */
+  let tokenRuleDropped = false;
   const safeDeny = deny.filter((r) => {
     if (!ruleHasPatternChar(r)) return true;
     process.stderr.write(`#4491: no rule ${r}: its path has a character the rule syntax reads as a pattern\n`);
+    if (/^Read\(/.test(r) && r.includes(tokenFile)) tokenRuleDropped = true;   // review 16: the rule the guard is for
     return false;
   });
-  return { deny: safeDeny, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites, undoDirs, tokenDirs, undoSwitches };
+  return { deny: safeDeny, tokenRuleDropped, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites, undoDirs, tokenDirs, undoSwitches };
 }
 
 /*
@@ -839,6 +841,11 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) cur = parsed;
     } catch { cur = {}; }
     const rules = tokenOnlySettingsRules(dir, deps);
+    /* Review 16: a board.token Read rule that could not be written leaves the file tools able to read the token, so
+       the guard is NOT in place: say so (create then refuses; the refresh lists the agent as unguarded). */
+    if (rules.tokenRuleDropped) return { ok: false, because: 'a Kosmos folder path has a character the permission rules cannot carry, so the board token cannot be denied' };
+    // Review 16: off macOS no sandbox block is written: said at create time as well as at board start.
+    if ((deps.platform || process.platform) !== 'darwin') process.stderr.write('#4491 note: off macOS ' + agentName + ' gets permission rules only (its shell is not sandboxed)\n');
     const perms = cur.permissions && typeof cur.permissions === 'object' && !Array.isArray(cur.permissions) ? cur.permissions : {};
     const had = Array.isArray(perms.deny) ? perms.deny.filter((r) => typeof r === 'string') : [];
     const deny = [...new Set([...had, ...rules.deny])];
@@ -955,7 +962,6 @@ function refreshTokenOnlyGuards(deps = {}) {
   }
   /* Review 15: off macOS no sandbox block is written, so the agent's shell itself is not kept from the files; the
      permission rules bind only its file tools. Said, so "guarded" is not read as more than it is. */
-  if (out.guarded.length && platform !== 'darwin') process.stderr.write('#4491 note: off macOS these token-only agent(s) get permission rules only (their shell is not sandboxed): ' + out.guarded.join(', ') + '\n');
   if (noFolder.length) process.stderr.write('#4491 note: listed as token-only but no agent folder (nothing to guard yet): ' + noFolder.map((u) => u.name).join(', ') + '\n');
   // The managed-belt warning is a macOS-only concern: off darwin no sandbox block is written and
   // managed-settings does not apply, so warning there would be misleading.

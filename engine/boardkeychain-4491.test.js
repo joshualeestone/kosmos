@@ -439,3 +439,20 @@ test('#4491 review 15: other agents\' sender tokens and undo\'s switch are denie
   assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(path.join(store.ROOT, 'undo.json'))})`), 'undo switch is writable');
   assert.ok(s.sandbox.filesystem.denyWrite.includes(realOrLeaf(path.join(store.ROOT, 'undo.json'))), 'undo switch is writable by the shell');
 });
+
+test('#4491 review 16: a board.token rule that cannot be written makes the guard NOT ok; off macOS the guard says permission-only at create time', () => {
+  const odd = fs.mkdtempSync(path.join(SANDBOX, 'store(x)-'));
+  const errs = [];
+  const real = process.stderr.write;
+  process.stderr.write = (t) => { errs.push(String(t)); return true; };
+  let g;
+  let lin;
+  try {
+    g = setup.guardTokenOnlyFolder(agentDir('pilot-oddstore'), 'pilot-oddstore', { ...DEPS, dataRoot: odd });
+    lin = setup.guardTokenOnlyFolder(agentDir('pilot-linux'), 'pilot-linux', { ...DEPS, platform: 'linux' });
+  } finally { process.stderr.write = real; }
+  assert.equal(g.ok, false, 'a guard without its board.token rule reported ok');
+  assert.match(g.because, /cannot carry/);
+  assert.equal(lin.ok, true, 'CONTROL: a plain store on Linux is guarded: ' + JSON.stringify(lin));
+  assert.ok(errs.join('').includes('off macOS pilot-linux gets permission rules only'), 'no off-macOS note at create time');
+});
