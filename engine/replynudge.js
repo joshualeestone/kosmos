@@ -58,6 +58,14 @@ const TYPE_GAP_MS = 20 * 1000;   // review 2: between two agents' lines, so each
 /* Ids kept per agent. A batch is the named comments (at most 30, the read's cap) plus any owed past it; this holds weeks. */
 const NUDGED_MAX = 1000;
 const TITLE_CAP = 80;
+/* #5623: a PERSON's comment is a must-answer. It is counted after PERSON_IDLE_MS idle (not IDLE_FIRST_MS), takes no slot of
+   the hourly limit, is told again every PERSON_RETELL_MS until answered, and after PERSON_TELLS tells with no answer it is
+   recorded as an unanswered person (kosmos community read --replies keeps marking it; /api/community/sent lists it). */
+const PERSON_IDLE_MS = 2 * 60 * 1000;
+const PERSON_RETELL_MS = 60 * 60 * 1000;
+const PERSON_TELLS = 3;
+const PERSONS_KEPT_MS = 14 * 24 * 60 * 60 * 1000;   // an unanswered entry that aged out of the read's window is kept this long
+const PERSON_AGED_MS = 6 * 24 * 60 * 60 * 1000;   // gone from the count after this age: aged out (the read looks back 7 days)
 
 /* agentnudge's helper, plus (review 1) the invisible characters it leaves: line and paragraph separators, bidi controls
    and zero-width marks, so a title cannot break the typed line or hide its direction. */
@@ -88,6 +96,92 @@ function nudgeText(posts) {
   return 'Kosmos here: you have ' + n + ' new ' + (n === 1 ? 'comment' : 'comments') + ' on ' + where
     + '. Answer each once (a line marked under comment is not owed): kosmos community read --replies'
     + (more ? ' (more are waiting past these: read again until it shows no more)' : '');   // no quote marks in a typed line
+}
+
+/* #5623: the line for a person's comment it owes. due: [{ remoteId, title, id, author, parent }], at least one. */
+function personText(due) {
+  const first = due[0];
+  const title = first.title ? " '" + plainWords(first.title, TITLE_CAP).replace(/'/g, '’') + "'" : '';
+  const who = plainWords(first.author || 'a person', 60);
+  if (due.length === 1) {
+    return 'Kosmos here: a person, not an agent, replied to you on your community post' + title + ': ' + who
+      + ' is waiting for your answer. Answer them once, in your own words and under the community rules, in that thread:'
+      + ' kosmos community comment ' + first.remoteId + ' --reply-to ' + first.id
+      + ' (read what they wrote first with kosmos community read --replies)';
+  }
+  return 'Kosmos here: ' + due.length + ' people, not agents, replied to you on your community posts, and each is waiting for'
+    + ' your answer. Read them with kosmos community read --replies (each is marked: a person wrote this) and answer each'
+    + ' once, in your own words and under the community rules, in its thread with --reply-to and its comment id';
+}
+
+/* #5623: the person comments it owes, per agent: { owed: { <comment id>: { remoteId, title, author, parent, firstSeen,
+   told: [ms], unanswered } } }. Same posture as the told record: only a missing file is empty; anything else is null. */
+function personsFile(root, sessionName) {
+  const h = crypto.createHash('sha256').update(String(sessionName)).digest('hex');
+  return path.join(root, 'communityread', 'persons-owed', h + '.json');
+}
+function readPersons(root, sessionName) {
+  let raw;
+  try { raw = fs.readFileSync(personsFile(root, sessionName), 'utf8'); }
+  catch (err) { return err && err.code === 'ENOENT' ? {} : null; }
+  try {
+    const j = JSON.parse(raw);
+    return j && typeof j.owed === 'object' && j.owed && !Array.isArray(j.owed) ? j.owed : {};
+  } catch { return null; }
+}
+function writePersons(root, sessionName, owed) {
+  try {
+    const f = personsFile(root, sessionName);
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    const tmp = f + '.' + process.pid + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify({ owed }));
+    fs.renameSync(tmp, f);
+    return true;
+  } catch { return false; }
+}
+/* #5623: the agent's record brought up to date with a count. persons: freshReplies' list (owed now, unanswered). An entry
+   answered since (no longer owed) goes; one a count cannot see any more (out of the read's window) goes after
+   PERSONS_KEPT_MS. Pure: returns { owed (the new record), due (to tell now), unanswered (ids just given up on) }. */
+function personsUpdate(owed0, persons, now) {
+  const owed = {};
+  const seen = new Set();
+  const due = [];
+  const unanswered = [];
+  for (const q of Array.isArray(persons) ? persons : []) {
+    if (!q || typeof q.id !== 'string') continue;
+    seen.add(q.id);
+    const e = owed0 && owed0[q.id] ? { ...owed0[q.id] } : { remoteId: q.remoteId, title: q.title || '', author: q.author || '', parent: q.parent || '', firstSeen: now, told: [] };
+    e.lastSeen = now;
+    const told = Array.isArray(e.told) ? e.told.filter(Number.isFinite) : [];
+    e.told = told;
+    const last = told.length ? told[told.length - 1] : null;
+    if (!e.unanswered && told.length >= PERSON_TELLS && last !== null && now - last >= PERSON_RETELL_MS) { e.unanswered = true; unanswered.push(q.id); }
+    if (!e.unanswered && (last === null || (told.length < PERSON_TELLS && now - last >= PERSON_RETELL_MS))) due.push({ ...q });
+    owed[q.id] = e;
+  }
+  for (const [id, e] of Object.entries(owed0 || {})) {
+    if (seen.has(id) || !e) continue;
+    /* Not owed now: answered (gone from the count while young), or aged out of the read's 7-day window. Only an
+       unanswered person that aged out is kept (for PERSONS_KEPT_MS), so it stays on record; one that left young was
+       answered and goes. */
+    const aged = Number.isFinite(e.firstSeen) && now - e.firstSeen >= PERSON_AGED_MS;
+    if (e.unanswered && aged && Number.isFinite(e.lastSeen) && now - e.lastSeen < PERSONS_KEPT_MS) owed[id] = e;
+  }
+  return { owed, due, unanswered };
+}
+
+/* #5623: the persons still unanswered after PERSON_TELLS tells, across the given agents, for /api/community/sent.
+   [{ agent, post, comment, author, firstSeen }]; an agent whose record cannot be read is left out. */
+function unansweredFor(root, sessions) {
+  const out = [];
+  for (const session of Array.isArray(sessions) ? sessions : []) {
+    const rec = readPersons(root, session);
+    if (!rec || typeof rec !== 'object') continue;
+    for (const [id, e] of Object.entries(rec)) {
+      if (e && e.unanswered === true) out.push({ agent: session, post: e.remoteId || '', comment: id, author: e.author || '', firstSeen: Number.isFinite(e.firstSeen) ? new Date(e.firstSeen).toISOString() : null });
+    }
+  }
+  return out;
 }
 
 /* An agent the person has stood down: it is in projects, and every one is paused or switched off for it. */
@@ -198,7 +292,9 @@ async function sweepOnce(o) {
          report falls back to "seen idle at the pass before" (o.idleSeen, kept fresh at the top of every pass). */
       let since = null;
       if (typeof o.idleSince === 'function') { try { since = o.idleSince(session); } catch { since = null; } }
-      if (Number.isFinite(since)) { if (clock() - since < IDLE_FIRST_MS) continue; }
+      /* #5623: a person's comment is counted after PERSON_IDLE_MS; the regular comments still wait IDLE_FIRST_MS. */
+      let regularOk = true;
+      if (Number.isFinite(since)) { if (clock() - since < PERSON_IDLE_MS) continue; regularOk = clock() - since >= IDLE_FIRST_MS; }
       else if (idleSeen && !idleSeen.has(session)) { idleSeen.set(session, clock()); continue; }
       if (stoodDown(session, o.projects)) continue;
       /* Review 4 (Opus): an agent held on its machine's shared Google quota is not read and takes no cap slot: delivery
@@ -208,7 +304,10 @@ async function sweepOnce(o) {
         if (q) { results.push({ session, name: plainWords(card.name || session, 80), act: 'quota-held', because: 'its machine\'s shared Google quota is out, or its Gemini agents are at the limit set for working at once' }); continue; }
       }
       prune();   // review 8: the hour's log ages out during a long pass too
-      if (sent.length + counted.filter((c) => !c.noSlot).length >= cap) break;   // review 1: the hour's cap is met: read no further this pass
+      // Review 1: the hour's cap met reads no further for the regular comments; #5623: a person's comment takes no slot, so
+      // the count goes on for persons only.
+      const capFull = sent.length + counted.filter((c) => !c.noSlot && c.regular).length >= cap;
+      if (capFull && typeof o.readPersons !== 'function') break;
       try {
         // Review 2: only replies it has NOT been told about count (and take a cap slot); told-but-unread ones wait for its read.
         /* Review 4 (Opus): the told record is read BEFORE the service is asked, so an agent whose record cannot be read
@@ -258,7 +357,19 @@ async function sweepOnce(o) {
         // Review 12: an agent whose told record could not be written last time is still tried, but takes no cap slot
         // here (a store that stays unwritable would otherwise hold a slot every pass); the line's own cap check still holds.
         if (rot && fresh && fresh.ok === true) rot.stopSaid = null;   // the service answered again
-        if (untold.length && !givenUp) counted.push({ session, fresh, noSlot: Boolean(memo && memo.writeSaid), countedAt: countStart });
+        /* #5623: the person comments it owes, brought up to date in its record (answered ones go); due ones are typed
+           below, ahead of the regular line. A record that cannot be read skips the persons for this agent this pass. */
+        let due = [];
+        if (fresh && fresh.ok === true && typeof o.readPersons === 'function' && typeof o.writePersons === 'function') {
+          const rec = o.readPersons(session);
+          if (rec && typeof rec === 'object') {
+            const u = personsUpdate(rec, fresh.persons, clock());
+            if (o.writePersons(session, u.owed) === true) due = u.due;
+            for (const id of u.unanswered) say({ name: plainWords(card.name || session, 80), session, act: 'unanswered-person', because: 'a person\'s comment ' + id + ' was told ' + PERSON_TELLS + ' times and is still not answered' });
+          }
+        }
+        const regular = untold.length > 0 && !givenUp && regularOk && !capFull;
+        if (regular || due.length) counted.push({ session, fresh, noSlot: Boolean(memo && memo.writeSaid) || !regular, countedAt: countStart, due, regular });
       } catch (err) {
         results.push({ session, name: plainWords(card.name || session, 80), act: 'error', because: String((err && err.message) || err) });
       }
@@ -268,7 +379,7 @@ async function sweepOnce(o) {
        each line: an agent that started working (or was stood down) meanwhile is left for the next pass (#4624). */
     const typeGap = Number.isFinite(o.typeGapMs) ? o.typeGapMs : TYPE_GAP_MS;
     let typedOne = false;
-    for (const { session, fresh, countedAt } of counted) {
+    for (const { session, fresh, countedAt, due, regular } of counted) {
       try {
         if (typedOne && typeGap > 0) await new Promise((res) => setTimeout(res, typeGap));
         /* Review 3 (Opus): the gates are asked again before EVERY line (a person can switch the community or the
@@ -282,6 +393,36 @@ async function sweepOnce(o) {
         if (typeof o.projectsNow === 'function') { let r = null; try { r = o.projectsNow(); } catch { r = null; } if (!Array.isArray(r)) continue; projects = r; }
         const card = roster.find((x) => x && x.sessionName === session);
         const display = plainWords((card && card.name) || session, 80);
+        /* #5623: a person waiting comes first, and alone: the regular line for this agent waits for the next pass, so it
+           never gets two lines at once. Write-ahead as the regular line: the tell is recorded before the line is typed
+           and taken back if the line reached nothing, was held, or met a busy pane. Takes no slot of the hourly limit. */
+        if (Array.isArray(due) && due.length) {
+          if (!(card && require('./agentnudge').nudgeableCard(card))) continue;
+          if (stoodDown(session, projects)) continue;
+          if (typeof o.idleSince === 'function') {
+            let since = null; try { since = o.idleSince(session); } catch { since = null; }
+            if (Number.isFinite(since) && clock() - since < PERSON_IDLE_MS) { results.push({ session, name: display, act: 'just-idle', because: 'it finished a turn moments ago' }); continue; }
+          }
+          if (Number.isFinite(countedAt) && clock() - countedAt > COUNT_MAX_AGE_MS) { results.push({ session, name: display, act: 'stale-count', because: 'its count is older than ' + Math.round(COUNT_MAX_AGE_MS / 60000) + ' min' }); continue; }
+          const rec = o.readPersons(session);
+          if (!rec || typeof rec !== 'object') continue;
+          const at = clock();
+          const told = { ...rec };
+          for (const q of due) if (told[q.id]) told[q.id] = { ...told[q.id], told: [...(told[q.id].told || []), at] };
+          if (o.writePersons(session, told) !== true) { results.push({ session, name: display, act: 'skipped', because: 'its person record could not be written' }); continue; }
+          let state = null; let held = false; let paneBusy = false;
+          typedOne = true;
+          try { const r = o.deliver(session, personText(due), roster); state = r && r.state; held = Boolean(r && r.held === true); paneBusy = Boolean(r && r.busy === true); }
+          catch { state = (o.DELIVERY && o.DELIVERY.UNCONFIRMED) || 'unconfirmed'; }
+          const D = o.DELIVERY || {};
+          const reached = !held && !paneBusy && ((D.PLACED != null && state === D.PLACED) || (D.UNCONFIRMED != null && state === D.UNCONFIRMED));
+          if (!reached) { try { o.writePersons(session, rec); } catch { /* the tell stays recorded: told late, never twice */ } }
+          const because = due.length + (due.length === 1 ? ' person is' : ' people are') + ' waiting for an answer';
+          results.push({ session, name: display, act: 'person', delivered: reached, delivery: state, because });
+          say({ name: display, session, act: reached ? 'person' : 'person-not-reached', delivered: reached, delivery: state, because });
+          continue;
+        }
+        if (!regular) continue;
         const nudged = o.readNudged(session);
         if (!(nudged instanceof Set)) continue;   // review 3: unreadable record: skip, never re-tell
         const memo0 = book.get(session);
@@ -411,4 +552,4 @@ async function tick(o) {
   } catch { return null; }
 }
 
-module.exports = { IDLE_FIRST_MS, COUNT_MAX_AGE_MS, GIVE_UP_FOR_MS, BETWEEN_AGENTS_MS, BUSY_RETRIES, BUSY_WAIT_MS, plan, nudgeText, stoodDown, sweepOnce, tick, readNudged, writeNudged, nudgedFile, REPLY_NUDGE_INTERVAL_MS, MAX_TRIES, NUDGED_MAX, TYPE_GAP_MS };
+module.exports = { unansweredFor, PERSON_IDLE_MS, PERSON_RETELL_MS, PERSON_TELLS, PERSONS_KEPT_MS, PERSON_AGED_MS, personText, personsUpdate, readPersons, writePersons, personsFile, IDLE_FIRST_MS, COUNT_MAX_AGE_MS, GIVE_UP_FOR_MS, BETWEEN_AGENTS_MS, BUSY_RETRIES, BUSY_WAIT_MS, plan, nudgeText, stoodDown, sweepOnce, tick, readNudged, writeNudged, nudgedFile, REPLY_NUDGE_INTERVAL_MS, MAX_TRIES, NUDGED_MAX, TYPE_GAP_MS };

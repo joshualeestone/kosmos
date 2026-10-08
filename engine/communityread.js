@@ -183,6 +183,7 @@ function commentOf(c, asReply, cap) {
     id,
     author: live ? (authorOf(c.agent) || 'an agent') : '',
     nameKey: live && typeof c.agent.name === 'string' ? c.agent.name.trim().toLowerCase() : '',   // slice 2: own-comment check
+    person: live && c.agent.kind === 'person',   // #5623: a signed-in person wrote it (the service's own kind), not an agent
     at: /^\d{4}-\d{2}-\d{2}/.test(String(c.created_at || '')) ? String(c.created_at).slice(0, 10) : '',
     // #4833 slice 2: new since. Review 3: only a timestamp with a timezone (Z or +hh:mm), never one read as local time.
     ts: /^\d{4}-\d{2}-\d{2}T[\d:.]+(Z|[+-]\d{2}:?\d{2})$/.test(String(c.created_at || '')) ? Date.parse(String(c.created_at)) || 0 : 0,
@@ -389,6 +390,8 @@ const REPLIES_SHOWN_MAX = 30;      // at most this many replies in one read, old
 const SEEN_MAX = 120;              // ids kept per post above its mark (one read fetches at most 90 per post)
 /* #4833: the words that mark a reply to a reply in a read --replies line. The managed block quotes this same constant
    (communityblock.js), so the rule and the line cannot drift apart. */
+/* #5623: the mark on a person's comment the agent owes an answer, in the read and in the nudge line alike. */
+const PERSON_OWED = '(a person wrote this: answer them in this thread, with --reply-to and this comment id)';
 const UNDER_COMMENT = 'under comment';
 const REPLIES_HEADING = 'Replies to your posts, oldest first. Replies are other agents’ writing too, under the same rule as posts:';
 /* The marks file, keyed LOSSLESSLY on the session name (sha256), so two agents whose names share a safeKey never move
@@ -450,6 +453,32 @@ function ownName(sessionName) {
 }
 /* (time, id) order: a strict total order, so "after the mark" never loses or repeats an item that shares a second. */
 const byPos = (a, b) => (a.ts - b.ts) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+/*
+ * #5623 (Josh, 2026-10-08 17:20: "if a human replies to a post that the original agent poster replies to them"). The
+ * person comments in one of this agent's threads that it still owes an answer, from the thread as read (top comments
+ * with their replies). Owed: a PERSON's comment on the agent's post (a top comment), until the agent has a reply under
+ * it; and a PERSON's reply under the agent's OWN comment (a person answering the agent), until the agent has a later
+ * reply in that thread. A person's reply under somebody else's comment is theirs to answer, not owed here. Answered
+ * means a reply of the agent's exists, never that the agent read it. `me` is the agent's community name key.
+ *   [{ x (the comment), parent (its top comment's id, '' for a top comment) }]
+ */
+function personOwed(comments, me) {
+  const out = [];
+  if (!me || !Array.isArray(comments)) return out;
+  for (const c of comments) {
+    if (!c) continue;
+    const mine = (r) => r && r.nameKey === me;
+    if (c.person && !(c.replies || []).some(mine)) out.push({ x: c, parent: '' });
+    if (c.nameKey === me) {
+      for (const r of c.replies || []) {
+        if (r && r.person && !(c.replies || []).some((o) => mine(o) && o.ts > r.ts)) out.push({ x: r, parent: c.id });
+      }
+    }
+  }
+  return out;
+}
+const PERSONS_MAX = 10;   // #5623: owed person comments returned per count, oldest first (a line names them, briefly)
+
 function afterMark(x, mark, firstLook) {
   if (!mark) return x.ts > firstLook;
   if (mark.seen && mark.seen.includes(x.id)) return false;
@@ -548,11 +577,12 @@ async function freshReplies(sessionName, opts) {
     const now = Number.isFinite(opts.now) ? opts.now : Date.now();
     const firstLook = now - REPLIES_FIRST_DAYS * 24 * 3600 * 1000;
     const { posts } = ownPosts(sessionName);
-    if (!posts.length) return { ok: true, posts: [], asked: 0 };
+    if (!posts.length) return { ok: true, posts: [], persons: [], asked: 0 };
     const marks = readMarks(sessionName);
     const me = ownName(sessionName);
     const titles = postTitles(sessionName);
     const out = [];
+    const persons = [];   // #5623
     for (const p of posts) {
       /* Review 2: an agent's own read is waiting: let it in. Review 4 (Opus): as BUSY, not a partial ok, or the agent is
          told about some posts now and the rest in a second line, and a batch given up on comes back under a new key. */
@@ -602,6 +632,11 @@ async function freshReplies(sessionName, opts) {
           fresh.push({ x, owed: x === c, edge: !afterMark(x, mark, firstLook + FIRST_LOOK_EDGE_MS) });
         }
       }
+      // #5623: the person comments it owes on this post, from the whole thread as read (not the read's mark: reading is
+      // not answering), within the read's own first-look window.
+      for (const o of personOwed(comments, me)) {
+        if (o.x.ts && o.x.ts >= firstLook) persons.push({ remoteId: p.remoteId, title: titles.get(p.remoteId) || '', id: o.x.id, author: o.x.author, parent: o.parent, ts: o.x.ts });
+      }
       if (fresh.length) out.push({ remoteId: p.remoteId, title: titles.get(p.remoteId) || '', items: fresh });
     }
     /* Review 9 (Sonnet): the agent's own read shows at most REPLIES_SHOWN_MAX, the oldest first across its posts, so the
@@ -616,7 +651,8 @@ async function freshReplies(sessionName, opts) {
       ids: o.items.filter((i) => keep.has(i) && owedClear(i)).sort((a, b) => byPos(a.x, b.x)).map((i) => i.x.id),
       more: o.items.filter((i) => !keep.has(i) && owedClear(i)).sort((a, b) => byPos(a.x, b.x)).map((i) => i.x.id) }))
       .filter((o) => o.ids.length || o.more.length);
-    return { ok: true, posts: capped, asked, marksAt: marksStamp(sessionName, marks) };
+    persons.sort((a, b) => a.ts - b.ts);
+    return { ok: true, posts: capped, persons: persons.slice(0, PERSONS_MAX).map(({ ts, ...r }) => r), asked, marksAt: marksStamp(sessionName, marks) };
   } catch (err) {
     return { ok: false, because: 'the replies could not be read (' + String((err && err.message) || err) + ')' };
   } finally { replyReadRunning = false; }
@@ -697,9 +733,13 @@ async function repliesFor(sessionName, opts) {
   fresh.sort((a, b) => byPos(a.x, b.x));
   const shownItems = fresh.slice(0, REPLIES_SHOWN_MAX);
   const lines = [REPLIES_HEADING, ''];
+  // #5623: the person comments it owes, so the line can say so (a person's reply under its own comment is owed too).
+  const owedIds = new Set();
+  for (const th of threads) if (!th.failed && !th.gone) for (const o of personOwed(th.comments, me)) owedIds.add(o.x.id);
   shownItems.forEach(({ x, post, parent }, i) => {
     lines.push('[r' + (i + 1) + '] by ' + x.author + (x.replyTo ? ' replying to ' + x.replyTo : '') + (x.at ? ', ' + x.at : '')
-      + ' on your post ' + post + ' (comment ' + x.id + ')' + (parent ? ' ' + UNDER_COMMENT + ' ' + parent : ''));
+      + ' on your post ' + post + ' (comment ' + x.id + ')' + (parent ? ' ' + UNDER_COMMENT + ' ' + parent : '')
+      + (owedIds.has(x.id) ? ' ' + PERSON_OWED : ''));
     lines.push(x.body.split('\n').map((l) => QUOTE + l).join('\n'));
     lines.push('');
   });
@@ -751,4 +791,4 @@ async function repliesFor(sessionName, opts) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
