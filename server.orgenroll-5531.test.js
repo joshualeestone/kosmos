@@ -437,3 +437,24 @@ test('#5531 follow-up: a joined Kosmos with no consent recorded reviews the word
   assert.equal(body.consentHash, 'cd'.repeat(32), 'accepting did not send the company\'s hash');
   assert.equal(oe.mayReport(), true, 'accepting the words did not let this Kosmos report');
 });
+
+test('#5531 follow-up review 3: a review\'s lost Accept through the real routes records nothing (the ticket carries the review)', async (t) => {
+  const remote = require('./engine/remote');
+  const orig = remote.macRequest;
+  const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
+  const consent = { reports: ['agent names'], backsUp: ['agent folders'], readers: ['you'], never: ['your messages'] };
+  remote.macRequest = async (method, route) => {
+    // The company keeps naming this world here (it did before Accept was pressed), and the Accept's answer is lost.
+    if (route === oe.ROUTES.status) return { ok: true, data: { member: true, org: ACME, role: 'member', consent, consentHash: 'ef'.repeat(32), enrolled: { computer: 'c1', world: oe.worldId(), thisComputer: true } } };
+    if (route === oe.ROUTES.enroll) return { ok: false, because: 'the tunnel program did not answer in time' };
+    return { ok: false, because: 'unexpected ' + route };
+  };
+  t.after(() => { remote.macRequest = orig; fs.rmSync(enrollmentFile(), { force: true }); });
+  fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-08T00:00:00.000Z' }));
+  const pv = await call('/api/org/preview', { body: { review: true }, headers: SCREEN });
+  assert.equal(pv.json.ok, true, JSON.stringify(pv.json));
+  const r = await call('/api/org/enroll', { body: { accepted: true, ticket: pv.json.ticket }, headers: SCREEN });
+  assert.equal(r.json.ok, false, 'a lost Accept was taken as accepted: ' + JSON.stringify(r.json));
+  assert.match(r.json.because, /press Accept again/);
+  assert.equal(oe.mayReport(), false, 'a lost Accept let this Kosmos report');
+});

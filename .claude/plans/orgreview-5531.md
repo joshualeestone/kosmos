@@ -42,3 +42,9 @@
 - FIXED: the page brings back the joined view (with its Review button) on ANY coded refusal of a review, not only the listed codes (O15 arm with an unlisted code; mutation makes it fail).
 - NIT taken: an accepted review sets `reporting: true` on the page state explicitly.
 - NIT kept: reviewHere is not serialized with enroll/leave/refresh (same as preview; Accept re-validates).
+
+## Review 3 (blind, Opus)
+- FIXED: the server's wiring of the review flag (ticket -> enroll) was unguarded; the reviewer removed it in a scratch copy and every test stayed green. A server arm now drives a review's lost Accept through the real routes (records nothing, may not report, "press Accept again"). Removing the flag at the ticket or at the enroll call each makes it fail.
+- FIXED: the engine now refuses a review for a Kosmos that already reports (mayReport), instead of relying on the page hiding the button. Pinned; mutation makes it fail.
+- NITs taken: no sayFor call that never logs; a refusal because the account is no longer in the company says so, instead of pointing at a Review that would be refused too (pinned).
+- NITs kept: a first join's page state leaves `reporting` unset until the next read (older than this branch); a re-armed ticket after org_bad_world is unused (harmless); O-list order in the header.

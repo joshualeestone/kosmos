@@ -1034,7 +1034,8 @@ test('#5531 follow-up: reviewHere shows this record\'s company\'s words, and acc
   // Every refusal of a review's Accept is said in review words: never a code to type, never "Nothing was joined" (review 2).
   for (const [ans, want] of [
     [{ ok: false, because: '409 {"because":"org_consent_changed"}' }, /changed what it asks.*Press Review what your company sees/],
-    [{ ok: false, because: '403 {"because":"org_not_member"}' }, /did not take the acceptance.*Press Review what your company sees/],
+    [{ ok: false, because: '403 {"because":"org_not_member"}' }, /no longer in it\. Nothing changed/],
+    [{ ok: false, because: '400 {"because":"org_bad_world"}' }, /did not take the acceptance.*Press Review what your company sees/],
     [{ ok: false, notSent: true, because: 'not connected' }, /Nothing was sent; press Accept again/]]) {
     const refused = await org.enroll(null, true, { root: a, review: true, consentHash: SERVED, orgId: r.org.id, remote: { macRequest: async (m, route) => (route === org.ROUTES.enroll ? ans : withConsent().macRequest(m, route)) } });
     assert.equal(refused.ok, false, JSON.stringify(refused));
@@ -1052,4 +1053,7 @@ test('#5531 follow-up: reviewHere shows this record\'s company\'s words, and acc
   assert.equal(org.readEnrollment({ root: a }).enrolledAt, joinedAt, 'accepting the words reset the date this Kosmos joined');
   assert.equal(org.mayReport({ root: a }), true, 'accepting the words did not let this Kosmos report');
   assert.equal(org.isEnrolledHere({ root: a }), true);
+  // Now it reports: a review is refused by the engine itself, not only hidden by the page (review 3).
+  const again = await org.reviewHere({ root: a, remote: withConsent() });
+  assert.equal(again.ok, false, 'a Kosmos that reports was offered a review: ' + JSON.stringify(again));
 });

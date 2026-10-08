@@ -261,6 +261,9 @@ async function preview(code, opts) {
 async function reviewHere(opts) {
   const rec = readEnrollment(opts);
   if (!rec || !isEnrolledHere(opts)) return { ok: false, because: 'This Kosmos is not your work Kosmos, so there is nothing to review here.' };
+  // Only for a Kosmos that sends nothing (orgreview review 3): one that reports has its words on record, and the plan
+  // rejects a second path to the same state. The page hides the button too; this is the engine's own refusal.
+  if (mayReport(opts)) return { ok: false, because: 'This Kosmos already reports to your company on the words it accepted here.' };
   const st = await signed('POST', ROUTES.status, {}, opts);
   if (!st.ok) return { ok: false, because: 'Your company could not be asked through Kosmos+ just now. Try again in a minute.' };
   const d = st.data;
@@ -330,7 +333,9 @@ async function enrollNow(code, accepted, opts) {
   if (!r.ok && review) {
     const c = codeOf(r.because);
     if (c === 'org_consent_changed') return { ok: false, code: c, because: 'Your company changed what it asks of this Kosmos since you read it. Nothing changed here. Press Review what your company sees to read the new words.' };
-    if (c) { sayFor(r.because, '', null); return { ok: false, code: c, because: 'Your company did not take the acceptance. Nothing changed on this computer. Press Review what your company sees to try again.' }; }
+    // No longer in that company: a Review would be refused too, so do not send the person there (review 3).
+    if (c === 'org_not_member' || c === 'org_other_org') return { ok: false, code: c, because: 'Your company says this account is no longer in it. Nothing changed on this computer.' };
+    if (c) return { ok: false, code: c, because: 'Your company did not take the acceptance. Nothing changed on this computer. Press Review what your company sees to try again.' };
     if (r.notSent) return { ok: false, because: 'This Kosmos could not reach your company through Kosmos+ just now. Nothing was sent; press Accept again in a minute.' };
     return { ok: false, because: 'It is not known whether accepting reached your company. Nothing changed on this computer; press Accept again in a minute.' };
   }
