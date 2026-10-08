@@ -728,6 +728,30 @@ function ruleHasPatternChar(rule, sep = path.sep) {
  *    glob-only future-home case is the reasoned residual the plan records.
  * dataRoot/home are overridable for tests (guideDenyRulesFor does the same); production passes neither.
  */
+/* #5516: Claude Code runs programs (git, at every start) OUTSIDE the sandbox, found through the PATH its pane starts
+   with. A folder on that PATH that the agent can write is a place to put a program that runs unsandboxed at its next
+   start, so each one is denied to the agent's file tools (Edit) and its shell (denyWrite). Measured 2026-10-08 on Claude
+   Code 2.1.295: with permissions skipped, the Write tool writes outside the agent folder unless an Edit rule denies it.
+   The PATH: the one the supervisor is about to give the pane (KOSMOS_GUARD_PANE_PATH, the tmux server's), this
+   process's own, and the plist's fixed Homebrew and /usr/local folders. An entry that cannot be denied (empty or
+   relative, which means the agent's own folder, or a folder inside it) is returned in `unsafe`. */
+const LAUNCH_PATH_FIXED = ['/opt/homebrew/bin', '/usr/local/bin'];
+function launchPathDirs(agentDir, deps = {}) {
+  const sources = [deps.panePath !== undefined ? deps.panePath : process.env.KOSMOS_GUARD_PANE_PATH, deps.ownPath !== undefined ? deps.ownPath : process.env.PATH];
+  const entries = [...LAUNCH_PATH_FIXED];
+  for (const src of sources) if (typeof src === 'string') entries.push(...src.split(path.delimiter));
+  const own = realOr(agentDir);
+  const dirs = [];
+  const unsafe = [];
+  for (const e of entries) {
+    if (!e || !path.isAbsolute(e)) { unsafe.push(e === '' ? '(an empty entry)' : e); continue; }
+    const real = realOr(e);
+    if (real === own || real.startsWith(own + path.sep)) { unsafe.push(e); continue; }
+    if (!dirs.includes(real)) dirs.push(real);
+  }
+  return { dirs, unsafe: [...new Set(unsafe)] };
+}
+
 function tokenOnlySettingsRules(dir, deps = {}) {
   const home = deps.home || kosmosHome();
   const dataRoot = deps.dataRoot || store.ROOT;
@@ -777,6 +801,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   // only the board reads this folder), and undo's on/off switch file, which turning off deletes every kept copy.
   const tokenDirs = tokenRoots.map((r) => path.join(r, 'sendertokens'));
   const undoSwitches = tokenRoots.map((r) => path.join(r, 'undo.json'));
+  const launch = launchPathDirs(dir, deps);
   const deny = [
     ...tokenPaths.map((p) => `Read(${ruleAbs(p)})`),
     ...undoDirs.map((d) => `Read(${ruleAbs(d)}/**)`),
@@ -790,6 +815,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     `Edit(${ruleAbs(listFile)})`,
     ...worldRules,
     ...editTargets.map((t) => `Edit(${ruleAbs(t.f)})`),
+    ...launch.dirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // #5516: nothing the agent writes can run at its next start
   ];
   /* #4491 review 14: a path with a character the rule syntax reads as a pattern (the guide's #4752 RULE_SYNTAX) would
      misparse the rule, or make Claude Code reject the whole file. Such a rule is dropped and said on the board log; the
@@ -801,7 +827,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     tokenRuleDropped = true;   // reviews 16 and 17: ANY dropped rule leaves part of the guard out (a token read, or its own self-protection)
     return false;
   });
-  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites, undoDirs, tokenDirs, undoSwitches };
+  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites, undoDirs, tokenDirs, undoSwitches, launchDirs: launch.dirs, launchUnsafe: launch.unsafe };
 }
 
 /*
@@ -870,6 +896,9 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     // Review 22: as with a dropped rule, a store or registry that could not be worked out leaves a token place unguarded.
     if (rules.rootsMissed && rules.rootsMissed.length) return { ok: false, because: 'Kosmos could not work out where ' + rules.rootsMissed.join(', ') + ' keep the board token, so the guard cannot be written whole' };
     if (rules.tokenRuleDropped) return { ok: false, because: 'a folder path (the agent, its home or Kosmos) has a character the permission rules cannot carry, so the guard cannot be written whole' };
+    // #5516: a PATH entry that cannot be denied (relative, empty, or inside the agent's own folder) is a place the agent
+    // can write a program that runs outside the sandbox at its next start.
+    if (rules.launchUnsafe && rules.launchUnsafe.length) return { ok: false, because: 'the PATH this agent starts with has an entry Kosmos cannot keep it from writing to (' + rules.launchUnsafe.join(', ') + '), so the guard cannot be written whole' };
     // Review 16: off macOS no sandbox block is written: said at create time as well as at board start.
     if ((deps.platform || process.platform) !== 'darwin' && !deps.atLaunch) process.stderr.write('#4491 note: off macOS ' + agentName + ' gets permission rules only (its shell is not sandboxed)\n');
     const perms = cur.permissions && typeof cur.permissions === 'object' && !Array.isArray(cur.permissions) ? cur.permissions : {};
@@ -893,7 +922,7 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
       // which would leave a symlinked parent un-followed. The agent's own .claude was just mkdir'd, so
       // realOr resolves it directly.
       const denyReadPaths = [...rules.tokenPaths.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf)];
-      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile), ...rules.worldWrites.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf), ...(rules.undoSwitches || []).map(realOrLeaf)];
+      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile), ...rules.worldWrites.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf), ...(rules.undoSwitches || []).map(realOrLeaf), ...(rules.launchDirs || [])];
       // NEVER add an allowWrite for the Kosmos store, the worlds base or the home here (the independent re-review): the
       // shell's write scope is what covers a world created mid-session until the agent's next start, so a fix
       // for 'the sandbox limits normal work' must widen it somewhere else, never to those.
@@ -1510,6 +1539,7 @@ module.exports = {
   guardTokenOnlyFolder,
   realOrLeaf,
   refreshTokenOnlyGuards,
+  launchPathDirs,
   managedSettingsPresent,
   refreshGuideGuards,
   armExistingInstall,

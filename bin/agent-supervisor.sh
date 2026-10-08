@@ -591,12 +591,17 @@ if [ -z "$adopt" ]; then
         # started is not run unguarded until the next board start. Unchanged guards are not rewritten. A guard that
         # cannot be written is said in this log; the launch goes on, as the switch's other failures do.
         if [ -f "$_eng/setup-assistant.js" ]; then
-          "$NODE_BIN" -e '
+          # #5516: the PATH the pane will start with (the tmux server's, as the pane takes it), so the guard can deny
+          # writes to every folder on it: Claude Code runs programs from there outside the sandbox at each start.
+          _guard_path="$("$TMUX_BIN" show-environment -g PATH 2>/dev/null || true)"
+          case "$_guard_path" in PATH=?*) _guard_path="${_guard_path#PATH=}" ;; *) _guard_path="$PATH" ;; esac
+          KOSMOS_GUARD_PANE_PATH="$_guard_path" "$NODE_BIN" -e '
             try {
               const out = require(process.argv[1]).refreshTokenOnlyGuards({ only: process.argv[2] });
               for (const u of out.unguarded) process.stderr.write("#4491: " + u.name + " is listed token-only but is NOT guarded: " + u.because + "\n");
             } catch (e) { process.stderr.write("#4491: the token-only guard could not be checked at launch: " + ((e && e.message) || e) + "\n"); }
           ' "$_eng/setup-assistant.js" "$_roster" || true
+          unset _guard_path
         else
           echo "#4491: $_roster is listed token-only but its guard could not be checked at launch (no setup-assistant.js)" >&2
         fi
