@@ -18916,7 +18916,11 @@ window.kosmosMeasureScrollbarWidth();
            checked it); nothing joins until the person has read
            what the company would see and pressed Join. Connected computers only: joining is a signed request. -->
       <div id="plus-org" hidden style="margin-top:16px;">
-        <p class="setname">Your company</p>
+        <!-- Splinter/Josh 10-08 (0.7.29): a person with no company sees one quiet line, not an Enterprise box. The full
+             block shows when this Kosmos is a company's work Kosmos, a code is being checked or reviewed, a company note
+             is waiting, or the person opened it. -->
+        <button type="button" class="plus-lost-link" id="plus-org-open">Joining a company? Enter its join code</button>
+        <p class="setname" id="plus-org-h">Your company</p>
         <div id="plus-org-in" hidden>
           <p class="fhint" id="plus-org-say"></p>
           <div class="frow" id="plus-org-leave-row"><button class="btn" type="button" id="plus-org-leave">Leave company</button></div>
@@ -47376,8 +47380,13 @@ function plusOrgList(id, items) {
 function plusOrgPaint() {
   const st = PLUS_ORG.state || {};
   const here = st.enrolled === true && st.org;
+  // The whole block only for someone it concerns (Splinter/Josh 10-08); everyone else gets the one-line opener.
+  const msgOn = (document.getElementById('plus-org-msg').textContent || '') !== '';
+  const full = !!here || !!PLUS_ORG.preview || PLUS_ORG.open === true || msgOn || !!st.stoppedFor || !!st.leaveRefused;
+  document.getElementById('plus-org-open').hidden = full;
+  document.getElementById('plus-org-h').hidden = !full;
   document.getElementById('plus-org-in').hidden = !here;
-  document.getElementById('plus-org-out').hidden = !!here || !!PLUS_ORG.preview;
+  document.getElementById('plus-org-out').hidden = !full || !!here || !!PLUS_ORG.preview;
   document.getElementById('plus-org-consent').hidden = !PLUS_ORG.preview;
   if (!here) plusOrgLeaveArm(false);   // a Leave confirmation never stays open under a view that is gone (review 31)
   // A record with no consent recorded here sends nothing, and the joined view says so (review 34).
@@ -47473,6 +47482,7 @@ async function plusOrgLeave() {
   plusOrgPaint();
 }
 document.getElementById('plus-org-check').addEventListener('click', plusOrgCheck);
+document.getElementById('plus-org-open').addEventListener('click', () => { PLUS_ORG.open = true; plusOrgPaint(); document.getElementById('plus-org-code').focus(); });
 document.getElementById('plus-org-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); plusOrgCheck(); } });
 document.getElementById('plus-org-join').addEventListener('click', plusOrgJoin);
 document.getElementById('plus-org-notnow').addEventListener('click', plusOrgNotNow);

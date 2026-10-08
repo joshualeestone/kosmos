@@ -4,7 +4,8 @@
  * Kosmos to a company. Runs the real page (web/index.html, file://) with fetch answered by a stand-in for the board's
  * /api/org routes, so nothing reaches a board or a coordinator, and drives the block directly.
  *
- *   O1  not joined: the code field shows; the consent and the joined line do not.
+ *   O0  no company: only a one-line opener shows; no heading, code field, consent or joined line (10-08).
+ *   O1  opened: the heading and the code field show; the consent and the joined line do not.
  *   O2  Check code shows the company, the role and the four consent lists, drawn as TEXT (a string with markup in it
  *       stays visible text, no element is made), and moves focus to Join.
  *   O3  Not now sends NOTHING more (no enroll request) and says nothing was sent about this Kosmos.
@@ -75,9 +76,14 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     // (a connected computer, from the stubbed /api/remote) show the block and fetch /api/org.
     if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }   // as sibling checks do
     await page.evaluate(() => { showTab('settings'); settingsGo('plus'); });
+    await page.waitForFunction(() => { const el = document.getElementById('plus-org-open'); return el && !el.hidden && el.getClientRects().length > 0; }, null, { timeout: 10000 }).catch(() => {});
+    // A person with no company sees ONE quiet line, not an Enterprise box (Splinter/Josh 10-08, before 0.7.29 ships).
+    const o0 = { opener: await shown(page, 'plus-org-open'), heading: await shown(page, 'plus-org-h'), out: await shown(page, 'plus-org-out'), consent: await shown(page, 'plus-org-consent'), in: await shown(page, 'plus-org-in') };
+    chk(o0.opener && !o0.heading && !o0.out && !o0.consent && !o0.in, 'O0 no company: only the one-line opener shows, no "Your company" box', JSON.stringify(o0));
+    await page.click('#plus-org-open');
     await page.waitForFunction(() => { const el = document.getElementById('plus-org-out'); return el && !el.hidden && el.getClientRects().length > 0; }, null, { timeout: 10000 }).catch(() => {});
-    const o1 = { out: await shown(page, 'plus-org-out'), consent: await shown(page, 'plus-org-consent'), in: await shown(page, 'plus-org-in') };
-    chk(o1.out && !o1.consent && !o1.in, 'O1 not joined: the code field shows, and neither the consent nor the joined line', JSON.stringify(o1));
+    const o1 = { out: await shown(page, 'plus-org-out'), consent: await shown(page, 'plus-org-consent'), in: await shown(page, 'plus-org-in'), heading: await shown(page, 'plus-org-h'), opener: await shown(page, 'plus-org-open') };
+    chk(o1.out && o1.heading && !o1.opener && !o1.consent && !o1.in, 'O1 opened: the heading and code field show, and neither the consent nor the joined line', JSON.stringify(o1));
 
     await page.fill('#plus-org-code', 'ACME-JOIN-1234');
     await page.click('#plus-org-check');
