@@ -67,7 +67,8 @@ const RUNNER_SIGNALS = new Set(['SIGKILL', 'SIGTERM']);
    is the runner's; any other SIGABRT is the bridge's. The set is a reasoned guess: what this change surely adds is the
    signal and stderr in the message, so the next red names its cause. */
 const STARTUP_ABORT = /uv_thread_create|pthread_create|Check failed|Resource temporarily unavailable|EAGAIN/;
-const neverRan = (r) => !!r.error || (r.code === null && (RUNNER_SIGNALS.has(r.signal)
+const RUNNER_SPAWN_ERRORS = new Set(['EAGAIN', 'EMFILE', 'ENFILE', 'ENOMEM']);   // short of resources; never ENOENT/EACCES (review 4)
+const neverRan = (r) => RUNNER_SPAWN_ERRORS.has(r.error) || (r.code === null && (RUNNER_SIGNALS.has(r.signal)
   || (r.signal === 'SIGABRT' && STARTUP_ABORT.test(String(r.err || '')))));
 async function runBridge(event, env, run = runOnce, wait = (ms) => new Promise((res) => setTimeout(res, ms))) {
   const tries = [];
@@ -192,6 +193,9 @@ test('#5560: only a bridge child that never ran is tried again; one that exited 
   const failed = { code: 1, signal: null, error: null, out: '', err: 'boom' };
   let f = fake([killed, refused, ok]);
   assert.equal((await runBridge('x', {}, f.run, async () => {})).code, 0); assert.equal(f.calls.length, 3, 'a killed then refused child was not retried');
+  f = fake([{ code: -2, signal: null, error: 'ENOENT', out: '', err: '' }, ok]);
+  assert.equal((await runBridge('x', {}, f.run, async () => {})).error, 'ENOENT', 'a missing bridge or node was retried as if the runner were short');
+  assert.equal(f.calls.length, 1);
   f = fake([failed, ok]);
   assert.equal((await runBridge('x', {}, f.run, async () => {})).code, 1, 'a bridge that ran and exited 1 was retried into a pass');
   assert.equal(f.calls.length, 1);

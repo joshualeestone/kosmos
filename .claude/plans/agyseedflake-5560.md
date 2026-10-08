@@ -48,3 +48,9 @@
   the likeliest cause of the 56 ms death, which the old helper never recorded.
 - STATED: the retry set is a reasoned guess; what this PR surely adds is the signal and stderr in the failure message,
   so the next red names its cause. Stale "never ran" wording fixed; the unit test no longer sleeps.
+
+## Review 4 (blind, sonnet)
+- FIXED: a spawn error is the runner's only when it is a resource shortage (EAGAIN, EMFILE, ENFILE, ENOMEM); ENOENT or
+  EACCES fails at once (unit test; mutation reddens).
+- KEPT: the real runOnce is exercised by the main test's normal path; its signal and hang branches are decided by the
+  unit-tested neverRan; a close after the 10 s timer re-resolves a settled promise, which is a no-op.
