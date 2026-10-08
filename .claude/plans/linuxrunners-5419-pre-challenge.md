@@ -1,7 +1,7 @@
 ---
 method: challenge-loop
 branch: linuxrunners-5419
-diff_hash: 74b66605598ec4bb5625ed8632383943d3a9d0c50056411ec18fe7e4b43f2fe4
+diff_hash: f78ca2bc5647f5f4cd9fb669e2497672f65fcdff4866bdee385db9fc6570a145
 timestamp: 2026-10-07T14:31:58Z
 converged: true
 ---
@@ -89,3 +89,5 @@ and platform test file 0, the suite 83 failures to 60 (the rest are other cards'
 - Iterations: 12. Converged at 12.
 - Deferred with reasons in the plan: the npm-global Codex copy is not looked for on Linux; the musl test is a tripwire
   (Grok's static linking rests on the measurement, not a test); describe() reports only the Claude download field.
+
+Moved onto main 2026-10-07 21:12 CDT after #5453 (slice 1) merged as 87a415de1: rebase --onto origin/main of this branch's own 15 commits (clean). On the new base: its own and its touched modules' tests plus engine.reachable, 21 files, 319 tests, 0 fail.
