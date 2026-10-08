@@ -180,6 +180,9 @@ function signedBytes(sealed, ctx) {
  * Returns the object bytes: MAGIC | signature(64) | enc(32) | ct. The signature covers sha256(MAGIC|enc|ct) and the context.
  */
 function sealManifest(memberPk, deviceKey, ctx, manifest) {
+  // Ed25519 only: crypto.sign accepts any key type, but the layout holds a 64-byte signature, so another key type
+  // would seal a manifest that can never verify or open (review round 3 measured P-256, Ed448 and RSA).
+  if (!deviceKey || deviceKey.type !== 'private' || deviceKey.asymmetricKeyType !== 'ed25519') throw new Error('backupformat: the device key must be an Ed25519 private key');
   const cb = contextBytes(ctx);
   // A plain object only: a top-level null would open as null, which is also what every failure returns.
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) throw new Error('backupformat: a manifest is a plain object');
@@ -188,6 +191,7 @@ function sealManifest(memberPk, deviceKey, ctx, manifest) {
   const { enc, ct } = hpkeSeal(memberPk, Buffer.from(`kosmos-backup v${FORMAT} manifest`), cb, frame(Buffer.from(json)));
   const sealed = Buffer.concat([MANIFEST_MAGIC, enc, ct]);
   const sig = crypto.sign(null, signedBytes(sealed, ctx), deviceKey);
+  if (sig.length !== SIG_LEN) throw new Error('backupformat: the manifest signature is not 64 bytes');
   return Buffer.concat([MANIFEST_MAGIC, sig, enc, ct]);
 }
 /** Check a manifest's signature WITHOUT decrypting (the coordinator's check). Returns true or false, never throws.
@@ -195,6 +199,7 @@ function sealManifest(memberPk, deviceKey, ctx, manifest) {
  *  the uploader: the signature proves "this device signed it", and only that binding makes it "this member". */
 function verifyManifestSignature(devicePub, ctx, object) {
   try {
+    if (!devicePub || devicePub.asymmetricKeyType !== 'ed25519') return false;
     if (!Buffer.isBuffer(object) || object.length < 4 + SIG_LEN + ENC_LEN + 16 || !object.subarray(0, 4).equals(MANIFEST_MAGIC)) return false;
     const sig = object.subarray(4, 4 + SIG_LEN);
     const sealed = Buffer.concat([MANIFEST_MAGIC, object.subarray(4 + SIG_LEN)]);
@@ -208,7 +213,8 @@ function openManifest(memberSk, devicePub, ctx, object) {
     const enc = object.subarray(4 + SIG_LEN, 4 + SIG_LEN + ENC_LEN), ct = object.subarray(4 + SIG_LEN + ENC_LEN);
     const f = hpkeOpen(memberSk, enc, Buffer.from(`kosmos-backup v${FORMAT} manifest`), contextBytes(ctx), ct);
     const pt = f ? unframe(f) : null;
-    return pt ? JSON.parse(pt.toString('utf8')) : null;
+    const m = pt ? JSON.parse(pt.toString('utf8')) : null;
+    return m && typeof m === 'object' && !Array.isArray(m) ? m : null;  // what sealManifest accepts, and nothing else
   } catch { return null; }
 }
 

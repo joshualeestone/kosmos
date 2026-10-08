@@ -157,7 +157,7 @@ test('#5535 chunking boundaries: exactly min, min + 1, and a tail shorter than m
 test('#5535 manifests: anything that would not read back is refused before sealing (it would never restore)', () => {
   const k = hpkeKeyPair(), dev = crypto.generateKeyPairSync('ed25519');
   const ctx = { org: 'o', member: 'm', epoch: 'e', period: 'p', snapshot: 's' };
-  for (const [what, m] of [['undefined', { size: undefined }], ['an array hole', [undefined]], ['a Date', { at: new Date(0) }],
+  for (const [what, m] of [['undefined', { size: undefined }], ['undefined inside an array', { a: [undefined] }], ['a Date', { at: new Date(0) }],
     ['a Map', { m: new Map() }], ['a function', { f() {} }], ['a bigint', { n: 10n }], ['-0', { z: -0 }], ['an unsafe integer', { n: 2 ** 60 }], ['NaN', { x: NaN }],
     ['a one-hole array', { a: [,] }], ['an array with an extra property', { a: Object.assign([1], { x: 2 }) }],
     ['a symbol key', { [Symbol('s')]: 1, ok: 1 }], ['a hidden property', Object.defineProperty({ ok: 1 }, 'h', { value: 1, enumerable: false })],
@@ -167,6 +167,11 @@ test('#5535 manifests: anything that would not read back is refused before seali
   const obj = bf.sealManifest(k.pk, dev.privateKey, ctx, { ok: [1, 'two', { three: true }], n: null });
   assert.deepEqual(bf.openManifest(k.sk, dev.publicKey, ctx, obj), { n: null, ok: [1, 'two', { three: true }] }, 'CONTROL: a plain manifest round-trips');
   assert.equal(bf.verifyManifestSignature(dev.publicKey, { org: 'o' }, obj), false, 'a context missing fields verifies nothing');
+  for (const [kind, opts] of [['ec', { namedCurve: 'P-256' }], ['ed448', {}], ['rsa', { modulusLength: 2048 }]]) {
+    const kp = crypto.generateKeyPairSync(kind, opts);
+    assert.throws(() => bf.sealManifest(k.pk, kp.privateKey, ctx, { ok: 1 }), /Ed25519/, `a ${kind} device key would seal an unverifiable manifest`);
+    assert.equal(bf.verifyManifestSignature(kp.publicKey, ctx, obj), false, `a ${kind} public key verifies nothing`);
+  }
   assert.throws(() => bf.sealManifest(k.pk, dev.privateKey, { ...ctx, org: '\ud800' }, { ok: 1 }), /letters, digits/, 'a lone surrogate id is refused');
   assert.throws(() => bf.sealManifest(k.pk, dev.privateKey, { ...ctx, org: 'a b' }, { ok: 1 }), /letters, digits/, 'a space in an id is refused');
   assert.ok(bf.sealManifest(k.pk, dev.privateKey, { ...ctx, period: '2026-W41', snapshot: 's.1:a_b' }, { ok: 1 }), 'CONTROL: ordinary ids seal');

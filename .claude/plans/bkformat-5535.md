@@ -16,11 +16,11 @@ Design v2.1 on #5535 (two blind review rounds) fixes the backup's format: what a
   - It is then **signed by the member device's Ed25519 key** over `sha256(KBM1 | enc | ct)` plus the context bytes.
   - Object: `KBM1 | sig(64) | enc(32) | ct`.
   - `verifyManifestSignature` needs no member key, so the coordinator can check it and record the hash at grant time.
-  - A context field that is empty or contains a newline is refused, so no field can forge another.
+  - Context ids are pinned to `[A-Za-z0-9._:-]{1,128}`, so no field can forge another and no two contexts share signed bytes.
 - **`canonicalJson`:** keys sorted at every depth, arrays in order, NaN and Infinity refused.
 - Every open and verify returns null (or false) on any failure and never throws.
 
-## Tests: `engine/backupformat.test.js` (8, each with a control)
+## Tests: `engine/backupformat.test.js` (13, each with a control)
 - reassembly, min/max, determinism;
 - content-defined: after a 1-byte insert near the start, at most 3 chunks differ (control: fixed-size slicing loses its chunks);
 - empty, tiny and 6 MB real-size inputs; bad sizes refused;
@@ -31,7 +31,7 @@ Design v2.1 on #5535 (two blind review rounds) fixes the backup's format: what a
 - canonical JSON.
 
 ## Checks
-backupformat 8/8, hpke 11/11, engine.reachable (6 exports excused by name with their caller slices; the 5 others have real internal callers), plus every engine/ and tracked-file walker green. **Red-check:** a fixed associated data in place of the chunk name makes exactly the wrong-name test fail.
+backupformat 13/13, hpke 11/11, engine.reachable (6 exports excused by name with their caller slices; the 5 others have real internal callers), plus every engine/ and tracked-file walker green. **Red-check:** a fixed associated data in place of the chunk name makes exactly the wrong-name test fail.
 
 ## Not in scope
 Redaction and the credential scan (slice 3, with the walker), quotas, grants, POST policy (coordinator), restore orchestration (slice 4).
@@ -54,3 +54,7 @@ The 1 MiB average and the content-defined boundaries are tuned by reasoning, not
 - **Context ids** are pinned to `[A-Za-z0-9._:-]{1,128}`: a lone surrogate became U+FFFD, so two contexts shared a signed byte string.
 - **padme** uses integer bit math (`clz32`), so the exact frame size cannot depend on an engine's Math.log2. A test compares it with a float reference at every power-of-two edge up to 2^31.
 - Documented: `devicePub` must come from trusted state (the member's enrolled devices, E0.2). The signature proves the device, and that binding proves the member.
+
+## Review round 3 (opus): no BLOCKER, 1 WARNING, fixed
+- **A non-Ed25519 device key** (P-256, Ed448, RSA: all measured) sealed a manifest that could never verify or open, because the layout holds a 64-byte signature. `sealManifest` now refuses anything but an Ed25519 private key and checks the signature length. `verifyManifestSignature` refuses a non-Ed25519 public key. Tested for all three key types.
+- NITs: the undefined-in-array row is nested (it was caught by the top-level guard instead); `openManifest` returns only a plain object; the plan's counts and context rule are updated.
