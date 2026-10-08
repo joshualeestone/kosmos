@@ -11,8 +11,9 @@
  * 🛑 --apply removes only the plan a person read: it rebuilds the plan, and if its digest is not the one the dry run
  * printed (an agent missing from a degraded roster, a file changed), it stops. --port must equal this account's own
  * board port, derived as the kosmos CLI derives it, so the board token can only reach this account's board (with no uid
- * to derive it from, KOSMOS_PORT must say). And --apply must be run as a command: live execution, which only the
- * command line opens, so code that requires this file cannot remove anything by calling main.
+ * to derive it from, KOSMOS_PORT must say). And --apply needs live execution, which this file's command line opens:
+ * a process that never opened it (one that only requires this file) cannot remove anything by calling main. A
+ * process that did open it for its own reasons can; there the --confirm digest and the port check still hold.
  *
  * What it may remove, and only all of these together:
  *   - a token file whose agent is NOT on the running board's roster (GET /api/status, the board's own list),
@@ -24,7 +25,8 @@
  *     file's mtime, whichever is later;
  *   - a writer's leftover temp file, named in the shape the store's writer uses
  *     (`<file>.kosmos-<pid>-[t<thread>-]<started>-<seq>.tmp`), last written before the cutoff;
- *   - a symlink whose target does not exist (a security fixture planted one), unless its name is a live agent's.
+ *   - a symlink whose target does not exist (a security fixture planted one), named like a token file or the
+ *     writer's temp, unless its name is a live agent's.
  * Anything else in the folder is listed and left alone. A live agent's file is never a candidate,
  * whatever its date.
  *
@@ -169,9 +171,9 @@ function applyPlan(dir, plan, revoke) {
         if (res && res.already) { gone.push(r.name); continue; }
       } else if (r.kind === 'symlink') {
         if (!fs.lstatSync(p).isSymbolicLink()) throw new Error('no longer a link');
-        let points = false;
-        try { fs.statSync(p); points = true; } catch { points = false; }
-        if (points) throw new Error('its target exists now: kept');
+        let gone = false;
+        try { fs.statSync(p); } catch (e) { gone = e && e.code === 'ENOENT'; }
+        if (!gone) throw new Error('its target exists now, or cannot be checked: kept');
         fs.unlinkSync(p);
       } else if (r.kind === 'temp') {
         if (!fs.lstatSync(p).isFile()) throw new Error('no longer a file');
@@ -199,6 +201,8 @@ async function fetchRoster(port, boardToken) {
   if (!res.ok) throw new Error('the board answered ' + res.status);
   const body = await res.json();
   if (!body || !Array.isArray(body.agents)) throw new Error('the board answered without an agent list');
+  // A board that could not read some of its own agents answers with a partial list: not one to remove by.
+  if (body.counts && Number(body.counts.unreadableLines) > 0) throw new Error('the board could not read all of its agents just now (' + body.counts.unreadableLines + ' unreadable), so its list may be partial');
   return body.agents.filter((a) => a && typeof a === 'object');
 }
 
@@ -229,8 +233,8 @@ function parseArgs(argv) {
   const ms = Date.parse(out.cutoff || '');
   if (!Number.isFinite(ms)) throw new Error('--cutoff is required, as an ISO date');
   if (ms > Date.now()) throw new Error('--cutoff is in the future, which would make every file old');
-  /* Temps and links are removed on age alone, without the store's lock: a cutoff at least an hour old keeps any
-     writer's in-flight temp out of reach. */
+  /* Temps are removed on age alone, without the store's lock (a dangling link holds nothing and is not aged): a cutoff
+     at least an hour old keeps any writer's in-flight temp out of reach. */
   if (ms > Date.now() - CUTOFF_MARGIN_MS) throw new Error('--cutoff must be at least an hour in the past, so nothing in flight is old enough to plan');
   out.cutoffMs = ms;
   if (out.apply && !out.confirm) throw new Error('--apply needs --confirm <the digest the dry run printed>');
@@ -293,7 +297,12 @@ async function main(argv) {
   for (const row of removed) for (const n of spellingsOf(row)) { const k = keyOf(n); if (k) liveKeys.add(k); }
   let heartbeats = [];
   try { heartbeats = fs.readdirSync(liveness.DIR).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -'.json'.length)); }
-  catch { heartbeats = []; }   // no heartbeat folder: no agent has ever reported that way
+  catch (e) {
+    if (!(e && e.code === 'ENOENT')) {   // only a missing folder means "none"; one that cannot be read keeps nothing
+      console.error('Stopped, nothing changed: the heartbeat records could not be read (' + ((e && e.code) || e) + ').');
+      return 2;
+    }
+  }
   for (const k of heartbeats) liveKeys.add(k);
   const dir = sendertoken.DIR;
   const entries = listEntries(dir);
@@ -305,7 +314,10 @@ async function main(argv) {
   for (const k of tokenKeys) {
     let prof = {};
     try { prof = store.readProfile(k) || {}; } catch { prof = {}; }
-    if (prof && typeof prof === 'object' && Object.keys(prof).length > 0) { liveKeys.add(k); profiled += 1; }
+    let present = prof && typeof prof === 'object' && Object.keys(prof).length > 0;
+    // readProfile answers {} for a file it cannot read: a profile that is THERE but unreadable still keeps the key
+    if (!present) { try { present = fs.existsSync(path.join(store.ROOT, store.PROFILES_DIRNAME, store.profileFileName(k))); } catch { present = true; } }
+    if (present) { liveKeys.add(k); profiled += 1; }
   }
   /* The backstop counts the ROSTER only: this store's own heartbeat and removal records would match it on any real
      machine, whichever board answered. */

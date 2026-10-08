@@ -531,3 +531,53 @@ test('#5418: a redirect on the call that carries the board token is refused, so 
   await assert.rejects(tool.fetchRoster(hop.address().port, 'secret-board-token'));
   assert.deepEqual(elsewhere.filter(Boolean), [], 'the token followed a redirect');
 });
+
+test('#5418: a board that could not read all of its agents (unreadableLines) stops the tool', async (t) => {
+  const { dir, write } = e2eStore(t);
+  write('anchor.json', OLD);
+  write('maybe-live.json', OLD);
+  const f = fleet.install([fleet.agent('anchor')]);
+  t.after(() => f.restore());
+  const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)), counts: { unreadableLines: 2 } });
+  const err = quiet(t);
+  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString()]), 2);
+  assert.match(String(err.mock.calls[0].arguments[0]), /could not read all of its agents/);
+  assert.deepEqual(fs.readdirSync(dir).filter((n) => n.endsWith('.json')).sort(), ['anchor.json', 'maybe-live.json']);
+});
+
+test('#5418: a non-OK board, or one with no agent list, stops main with nothing changed', async (t) => {
+  const { dir, write } = e2eStore(t);
+  write('x.json', OLD);
+  for (const [status, body] of [[500, {}], [200, { ok: true }]]) {
+    const port = await stubBoard(t, status, body);
+    const err = quiet(t);
+    assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply', '--confirm', 'x']), 2);
+    assert.match(String(err.mock.calls.at(-1).arguments[0]), /could not read the board roster/);
+    assert.deepEqual(fs.readdirSync(dir).filter((n) => n.endsWith('.json')), ['x.json']);
+  }
+});
+
+test('#5418: an unreadable heartbeat folder stops the tool; a profile that exists but cannot be read still keeps its token', async (t) => {
+  const { dir, write } = e2eStore(t);
+  const store = require('./engine/store');
+  const liveness = require('./engine/liveness');
+  write('anchor.json', OLD);
+  write('corrupt-profile.json', OLD);
+  write('fixture-c.json', OLD);
+  fs.mkdirSync(path.join(store.ROOT, store.PROFILES_DIRNAME), { recursive: true });
+  fs.writeFileSync(path.join(store.ROOT, store.PROFILES_DIRNAME, store.profileFileName('corrupt-profile')), '{not json');
+  t.after(() => fs.rmSync(path.join(store.ROOT, store.PROFILES_DIRNAME), { recursive: true, force: true }));
+  const f = fleet.install([fleet.agent('anchor')]);
+  t.after(() => f.restore());
+  const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
+  quiet(t);
+  assert.equal(await applyConfirmed(port), 0);
+  assert.deepEqual(fs.readdirSync(dir).filter((n) => n.endsWith('.json')).sort(), ['anchor.json', 'corrupt-profile.json']);
+  // the heartbeat folder is there but is not a folder: not "none", so the tool stops
+  fs.rmSync(liveness.DIR, { recursive: true, force: true });
+  fs.writeFileSync(liveness.DIR, 'not a folder');
+  t.after(() => fs.rmSync(liveness.DIR, { force: true }));
+  const err = quiet(t);
+  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString()]), 2);
+  assert.match(String(err.mock.calls.at(-1).arguments[0]), /heartbeat records could not be read/);
+});
