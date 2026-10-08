@@ -742,7 +742,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   // read-denied (Claude Code's Edit rule covers every file-writing tool), and in the sandbox denyWrite below (the
   // registry's own path there; its temp and lock names by the permission-layer .* glob only).
   const listFile = require('./sendertoken').tokenOnlyFile();
-  // #4491 re-review (Ice Cream Kitty): the gate's list of worlds comes from the worlds registry, so the
+  // #4491 re-review (independent): the gate's list of worlds comes from the worlds registry, so the
   // registry (and its temp and lock names) is write-denied too, and every world's store gets a glob, so a world
   // added after this was written is covered as well. The `*` mid-path is the guide's rule shape (#4752, measured
   // refused on Claude Code 2.1.285).
@@ -836,10 +836,20 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     fs.mkdirSync(settingsDir, { recursive: true });
     const file = path.join(settingsDir, 'settings.json');
     let cur = {};
-    try {
-      const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    let raw = null;
+    try { raw = fs.readFileSync(file, 'utf8'); } catch { raw = null; }
+    if (raw !== null) {
+      let parsed;
+      try { parsed = JSON.parse(raw); } catch { parsed = undefined; }
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) cur = parsed;
-    } catch { cur = {}; }
+      else {
+        /* Review 18: a file that does not parse is not silently replaced: a dated copy is kept beside it and the board
+           log says so, then the guard is written (an unguarded agent is the worse outcome). */
+        const keep = `${file}.unreadable-${Date.now()}`;
+        try { fs.writeFileSync(keep, raw, { mode: 0o600 }); } catch { /* the log still says it */ }
+        process.stderr.write(`#4491: ${file} could not be read as settings; kept a copy at ${keep} and wrote the guard\n`);
+      }
+    }
     const rules = tokenOnlySettingsRules(dir, deps);
     /* Reviews 16 and 17: a rule that could not be written leaves part of the guard out (the board.token read, or the
        Edit rules that keep the agent from editing its own guard away), so the guard is NOT in place: say so (create then
@@ -865,7 +875,7 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
       // realOr resolves it directly.
       const denyReadPaths = [...rules.tokenPaths.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf)];
       const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile), ...rules.worldWrites.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf), ...(rules.undoSwitches || []).map(realOrLeaf)];
-      // NEVER add an allowWrite for the Kosmos store, the worlds base or the home here (Kitty's re-review): the
+      // NEVER add an allowWrite for the Kosmos store, the worlds base or the home here (the independent re-review): the
       // shell's write scope is what covers a world created mid-session until the agent's next start, so a fix
       // for 'the sandbox limits normal work' must widen it somewhere else, never to those.
       /* #4491 whole-branch review: keys already in this file survive the merge, and some undo the guard: commands that

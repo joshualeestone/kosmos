@@ -627,7 +627,7 @@ function resolveName(token) {
  * ever narrows an agent, so failing toward off is failing toward what every agent does now.
  */
 function tokenOnlyFile() { return path.join(store.ROOT, 'agent-token-only.json'); }
-/* #4491: the token-only roster, parsed in ONE place so membership-check (tokenOnlyFor) and the
+/* #4491: the token-only roster's reader for membership and the refresh, so membership-check (tokenOnlyFor) and the
    board-start refresh (setup-assistant.refreshTokenOnlyGuards) do not each re-derive the {agents:[...]}
    shape. Anything unreadable or wrong-shaped is an empty list -- the switch only ever narrows an agent,
    so failing toward an empty roster fails toward today's behaviour. One deliberate second reader:
