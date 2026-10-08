@@ -284,7 +284,7 @@ function codeOnly(src) {
   const stack = []; // template nesting: brace depth at each ${
   let depth = 0;
   let prev = ''; // last significant code char ('w' after a word)
-  let lastWord = '';
+  let lastWord = '', wordAfterDot = false, prevPrev = '';
   function str(q) { const s = i; i++; while (i < n && src[i] !== q) { if (src[i] === '\\') i++; else if (src[i] === '\n') break; i++; } i++; blank(s, i); }
   function tmpl(resume) { // at a backtick, or (resume) just after the } that closes a ${...}
     let s = i; if (!resume) i++;
@@ -302,7 +302,11 @@ function codeOnly(src) {
     if (c === '/' && d === '*') { const s = i; i = src.indexOf('*/', i + 2); i = i < 0 ? n : i + 2; blank(s, i); continue; }
     if (c === '"' || c === "'") { str(c); prev = 'a'; continue; }
     if (c === '`') { tmpl(); prev = 'a'; continue; }
-    if (c === '/' && (prev === '' || '(,=:[!&|?{};+-*%<>~^'.includes(prev) || (prev === 'w' && REGEX_AFTER.has(lastWord)))) {
+    /* A `/` starts a regex after an operator or a keyword such as return; it is division after a value: a name,
+       `)`, `]`, `}` (an object or a block, read as a value: rarer the other way), a postfix `++`/`--`, or a
+       keyword used as a property (`x.return / 2`). Review 1 of #5548 found the `}`, `++` and `.return` cases. */
+    const postfix = (prev === '+' || prev === '-') && prevPrev === prev;
+    if (c === '/' && !postfix && (prev === '' || '(,=:[!&|?{;+-*%<>~^'.includes(prev) || (prev === 'w' && !wordAfterDot && REGEX_AFTER.has(lastWord)))) {
       const s = i; i++; let cls = false;
       while (i < n && src[i] !== '\n') { if (src[i] === '\\') { i += 2; continue; } if (src[i] === '[') cls = true; else if (src[i] === ']') cls = false; else if (src[i] === '/' && !cls) break; i++; }
       i++; while (i < n && /[a-z]/i.test(src[i])) i++;
@@ -312,9 +316,9 @@ function codeOnly(src) {
     if (c === '}') { depth--; if (stack.length && depth === stack[stack.length - 1]) { stack.pop(); i++; tmpl(true); prev = 'a'; continue; } }
     if (/[A-Za-z_$]/.test(c)) {   // a word: remember it, so `return /re/` reads as a regex and `x / y` as division
       const s = i; while (i < n && /[\w$]/.test(src[i])) i++;
-      lastWord = src.slice(s, i); prev = 'w'; continue;
+      wordAfterDot = prev === '.'; lastWord = src.slice(s, i); prevPrev = prev; prev = 'w'; continue;
     }
-    if (!/\s/.test(c)) prev = c;
+    if (!/\s/.test(c)) { prevPrev = prev; prev = c; }
     i++;
   }
   return out.join('');
@@ -356,8 +360,10 @@ function findOrphans(modules, callerSources, tests, skip) {
     const block = exportsBlock(text);
     let code = codeOnly(text);
     if (block) code = code.slice(0, block.start) + ' '.repeat(block.end - block.start) + code.slice(block.end);
+    // `module.exports.x = name` or `exports.x = name` after the block re-exports; it is not a call (#5548 review 1).
+    code = code.replace(/\b(?:module\.)?exports\.[A-Za-z_$][\w$]*\s*=[^;\n]*/g, (m) => ' '.repeat(m.length));
     for (const name of exportedNames(text)) {
-      if (skip(name)) continue;
+      if (skip(name, rel)) continue;
       /* Short and generic names (FILE, LOG, get, list...) collide with
          unrelated words in a plain-text grep; a word-boundary search plus a
          5+ character floor keeps the check about the class it hunts (the
@@ -374,7 +380,8 @@ function findOrphans(modules, callerSources, tests, skip) {
          means an internal caller. */
       const mentions = (code.match(new RegExp('\\b' + id + '\\b', 'g')) || []).length;
       const defs = (code.match(new RegExp('function\\s*\\*?\\s*' + id + '\\b', 'g')) || []).length
-        + (code.match(new RegExp('(const|let|var|class)\\s+' + id + '\\b', 'g')) || []).length;
+        + (code.match(new RegExp('(const|let|var|class)\\s+' + id + '\\b', 'g')) || []).length
+        + (code.match(new RegExp('(?<!\\b(?:const|let|var)\\s+)(?<![.\\w$])' + id + '\\s*=\\s*(async\\s+)?(function\\b|\\([^)]*\\)\\s*=>|[A-Za-z_$][\\w$]*\\s*=>)', 'g')) || []).length;
       if (mentions - defs > 0) continue;
       orphans.push(rel + ' exports ' + name);
     }
@@ -385,20 +392,31 @@ function findOrphans(modules, callerSources, tests, skip) {
 const engineModules = engineFiles.map((f) => ({ rel: path.join('engine', f), text: read(path.join('engine', f)) }));
 
 test('no engine export is tested, excused by nobody, and reachable from nowhere', () => {
-  const orphans = findOrphans(engineModules, sources, testBlob, (n) => EXCUSED[n] || PENDING_5548[n]);
+  const orphans = findOrphans(engineModules, sources, testBlob, (n, rel) => EXCUSED[n] || PENDING_5548[n] === rel);
   assert.deepEqual(orphans, [],
     'tested, exported, and reachable from nowhere -- the #265 signature. Wire it to a screen, or excuse it here with a reason someone can check.');
 });
 
+/* Engine modules that export something other than a `module.exports = { ... }` literal, so this guard reads no
+   names from them. Named so a new one is a decision, not a silent gap (#5548 review 1). */
+const NO_LITERAL_EXPORTS = {
+  'engine/agent-browser-config.js': 'no module.exports (a config the board reads as a file)',
+  'engine/agent-permission-config.js': 'no module.exports (a config the board reads as a file)',
+  'engine/doctrine-past.js': 'module.exports = blocks (an array of retired doctrine text, data not functions)',
+  'engine/github.js': 'module.exports = Object.assign(makeDoor({...}), ...) (a connection door built by a factory)',
+  'engine/vercel.js': 'module.exports = Object.assign(makeDoor({...}), ...) (a connection door built by a factory)',
+};
+
 test('#5548: the guard reads every engine exports block', () => {
-  const unread = engineModules.filter((m) => /module\.exports\s*=\s*\{/.test(m.text) && exportedNames(m.text).length === 0);
-  assert.deepEqual(unread.map((m) => m.rel), [], 'a module whose exports this guard cannot read is a module it never checks');
+  const unread = engineModules.filter((m) => exportedNames(m.text).length === 0).map((m) => m.rel).sort();
+  assert.deepEqual(unread, Object.keys(NO_LITERAL_EXPORTS).sort(),
+    'a module whose exports this guard cannot read is a module it never checks: read it, or name it in NO_LITERAL_EXPORTS with why');
   assert.ok(engineModules.length > 200, 'found only ' + engineModules.length + ' engine modules; a moved directory looks like this');
 });
 
 test('#5548: the pending list only shrinks (a name that gained a caller comes off it)', () => {
-  const still = new Set(findOrphans(engineModules, sources, testBlob, (n) => EXCUSED[n]).map((o) => o.split(' exports ')[1]));
-  const fixed = Object.keys(PENDING_5548).filter((n) => !still.has(n));
+  const still = new Set(findOrphans(engineModules, sources, testBlob, (n) => EXCUSED[n]));
+  const fixed = Object.keys(PENDING_5548).filter((n) => !still.has(PENDING_5548[n] + ' exports ' + n));
   assert.deepEqual(fixed, [], 'no longer orphans: remove them from PENDING_5548 (and from the slice-2 list on #5548)');
   for (const [n, file] of Object.entries(PENDING_5548)) {
     assert.ok(exportedNames(read(file)).includes(n), file + ' no longer exports ' + n + ': remove it from PENDING_5548');
@@ -422,6 +440,20 @@ test('#5548 self-test: a one-line exports block, a comment mention and a string 
   const multi = 'function lonelyExport() {}\nconst t = `${lonelyExport.name}`;\nmodule.exports = {\n  lonelyExport,\n};\n';
   assert.deepEqual(findOrphans([{ rel: 'engine/m.js', text: multi }], [], 'lonelyExport()', () => false), [],
     'code inside a template ${} is a real use');
+  // review 1: division after } or a postfix ++ is not a regex, so a comment after it stays a comment
+  const div = 'function quietExport() {}\nconst o = {} / 2; let i = 0; i++ / 2; // quietExport\nmodule.exports = { quietExport };\n';
+  assert.deepEqual(findOrphans([{ rel: 'engine/d.js', text: div }], [], 'quietExport()', () => false), ['engine/d.js exports quietExport']);
+  const dotkw = 'function dottedExport() {}\nconst y = x.return / 2; // dottedExport\nmodule.exports = { dottedExport };\n';
+  assert.deepEqual(findOrphans([{ rel: 'engine/k.js', text: dotkw }], [], 'dottedExport()', () => false), ['engine/k.js exports dottedExport']);
+  // review 1: a re-export after the block and a `name = function` definition are not calls
+  const declared = 'const arrowExport = () => 1;\nfunction user() { return arrowExport(); }\nmodule.exports = { arrowExport, user };\n';
+  assert.deepEqual(findOrphans([{ rel: 'engine/a.js', text: declared }], [{ f: 'server.js', text: 'user()' }], 'arrowExport() user()', () => false), [],
+    'a const arrow is one definition, not two');
+  const reexp = 'let assignedExport;\nassignedExport = function () {};\nmodule.exports = { assignedExport };\nmodule.exports.alias = assignedExport;\n';
+  assert.deepEqual(findOrphans([{ rel: 'engine/r.js', text: reexp }], [], 'assignedExport()', () => false), ['engine/r.js exports assignedExport']);
+  // a real regex after return is still a regex: its quote must not swallow the call after it
+  const re = 'function realCall() {}\nfunction user() { return /["]/.test(realCall()); }\nmodule.exports = { realCall, user };\n';
+  assert.deepEqual(findOrphans([{ rel: 'engine/q.js', text: re }], [{ f: 'server.js', text: 'user()' }], 'realCall() user()', () => false), []);
   const multi2 = 'function lonelyExport() {}\nmodule.exports = {\n  lonelyExport, // lonelyExport\n};\n';
   assert.deepEqual(findOrphans([{ rel: 'engine/m.js', text: multi2 }], [], 'lonelyExport()', () => false), ['engine/m.js exports lonelyExport']);
 });
