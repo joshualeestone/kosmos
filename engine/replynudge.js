@@ -38,6 +38,10 @@
  *  - Agent Communication's per-hour limit, when on, is not reached (shared with the Prompter's agent nudges: the same
  *    board-wide log).
  *
+ * #5623: a PERSON's comment on its post is a must-answer, with its own path: counted after PERSON_IDLE_MS, told first and
+ * alone, outside the hourly limit, again every PERSON_RETELL_MS until the agent's reply to them appears, then recorded as an
+ * unanswered person (readPersons / writePersons, one record per agent). See the PERSON_* constants and personsUpdate.
+ *
  * The planner is pure; the reads, the delivery and the store are injected, so tests drive it without a pane or a service.
  */
 
@@ -111,7 +115,7 @@ function personText(due) {
       + ' kosmos community comment ' + first.remoteId + ' --reply-to ' + first.id
       + ' (read what they wrote first with kosmos community read --replies)';
   }
-  return 'Kosmos here: ' + due.length + ' people, not agents, replied to you on your community posts, and each is waiting for'
+  return 'Kosmos here: ' + due.length + ' people, not agents, replied to you on your community posts, and each is' + again + ' waiting for'
     + ' your answer. Read them with kosmos community read --replies (each is marked: a person wrote this) and answer each'
     + ' once, in your own words and under the community rules, in its thread with --reply-to and its comment id';
 }
@@ -128,7 +132,7 @@ function readPersons(root, sessionName) {
   catch (err) { return err && err.code === 'ENOENT' ? {} : null; }
   try {
     const j = JSON.parse(raw);
-    return j && typeof j.owed === 'object' && j.owed && !Array.isArray(j.owed) ? j.owed : {};
+    return j && typeof j.owed === 'object' && j.owed && !Array.isArray(j.owed) ? j.owed : null;   // review 7: a wrong shape is unreadable, not empty
   } catch { return null; }
 }
 function writePersons(root, sessionName, owed) {
@@ -345,7 +349,7 @@ async function sweepOnce(o) {
           if (wait > 0) await new Promise((res) => setTimeout(res, wait));
           fresh = await o.fresh(session);
         }
-        if (rot) rot.after = session;   // review 8: it was asked; the next pass starts after it
+        if (rot && !capFull) rot.after = session;   // review 8: it was asked; the next pass starts after it (review 7 of #5623: not for a persons-only read past the cap)
         if (fresh && fresh.busy) {
           results.push({ session, name: plainWords(card.name || session, 80), act: 'busy', because: fresh.because });
           if (fresh.stop) {
@@ -380,7 +384,8 @@ async function sweepOnce(o) {
           }
         }
         const regular = untold.length > 0 && !givenUp && regularOk && !capFull;
-        if (regular || due.length) counted.push({ session, fresh, noSlot: Boolean(memo && memo.writeSaid) || !regular, countedAt: countStart, due, regular });
+        // Review 7: an agent with a person due types only the person line this pass, so it takes no slot of the hour either.
+        if (regular || due.length) counted.push({ session, fresh, noSlot: Boolean(memo && memo.writeSaid) || !regular || due.length > 0, countedAt: countStart, due, regular });
       } catch (err) {
         results.push({ session, name: plainWords(card.name || session, 80), act: 'error', because: String((err && err.message) || err) });
       }
@@ -452,7 +457,8 @@ async function sweepOnce(o) {
             if (!back) say({ name: display, session, act: 'missed', because: 'its person record could not be put back, so this tell counts' });
           }
           results.push({ session, name: display, act: 'person', delivered: reached, delivery: state, because });
-          { const b = book.get(session) || {}; const fails = reached ? 0 : (Number.isInteger(b.personFails) ? b.personFails : 0) + 1;
+          // Review 7: a held line or a busy pane is not a failed try (as the regular path): it reached nothing unreachable.
+          { const b = book.get(session) || {}; const fails = reached ? 0 : (held || paneBusy) ? (Number.isInteger(b.personFails) ? b.personFails : 0) : (Number.isInteger(b.personFails) ? b.personFails : 0) + 1;
             book.set(session, { ...b, personFails: fails, ...(fails >= MAX_TRIES ? { personGivenAt: clock() } : {}) }); }
           const m = book.get(session) || {};
           const act = reached ? 'person' : 'person-not-reached';

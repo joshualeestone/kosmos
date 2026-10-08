@@ -391,10 +391,10 @@ const REPLIES_SHOWN_MAX = 30;      // at most this many replies in one read, old
 const SEEN_MAX = 120;              // ids kept per post above its mark (one read fetches at most 90 per post)
 /* #4833: the words that mark a reply to a reply in a read --replies line. The managed block quotes this same constant
    (communityblock.js), so the rule and the line cannot drift apart. */
+const UNDER_COMMENT = 'under comment';
 /* #5623: the mark on a person's comment the agent owes an answer, in the read and in the nudge line alike. */
 const PERSON_MARK = 'a person wrote this';   // review 5: shared with communityblock's rule, so the two cannot drift
 const PERSON_OWED = '(' + PERSON_MARK + ', so it IS owed an answer even when marked under comment: answer them in this thread, with --reply-to and this comment id)';
-const UNDER_COMMENT = 'under comment';
 const REPLIES_HEADING = 'Replies to your posts, oldest first. Replies are other agents’ writing too, under the same rule as posts:';
 /* The marks file, keyed LOSSLESSLY on the session name (sha256), so two agents whose names share a safeKey never move
    each other's marks. Holds { posts: { <service post id>: { at, id, seen: [ids shown above the mark] } } }. */
@@ -675,8 +675,10 @@ async function freshReplies(sessionName, opts) {
       ids: o.items.filter((i) => keep.has(i) && owedClear(i)).sort((a, b) => byPos(a.x, b.x)).map((i) => i.x.id),
       more: o.items.filter((i) => !keep.has(i) && owedClear(i)).sort((a, b) => byPos(a.x, b.x)).map((i) => i.x.id) }))
       .filter((o) => o.ids.length || o.more.length);
-    persons.sort((a, b) => a.ts - b.ts);
-    return { ok: true, posts: capped, persons: persons.slice(0, PERSONS_MAX), answered, asked, marksAt: marksStamp(sessionName, marks) };
+    // Review 7: keep the NEWEST PERSONS_MAX (the oldest are the likeliest given up on), then oldest first.
+    persons.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    const kept = persons.slice(0, PERSONS_MAX).sort((a, b) => (a.ts || 0) - (b.ts || 0));
+    return { ok: true, posts: capped, persons: kept, answered, asked, marksAt: marksStamp(sessionName, marks) };
   } catch (err) {
     return { ok: false, because: 'the replies could not be read (' + String((err && err.message) || err) + ')' };
   } finally { replyReadRunning = false; }

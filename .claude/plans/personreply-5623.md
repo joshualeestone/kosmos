@@ -147,3 +147,17 @@ the pick rule for Rule 2 (slice B) and the weakest premises are on the card (iss
   on EVERY pass, not just one: a person replying there is never told. It is the safe side (never a duplicate public
   reply); the fix would be paging those threads too, which costs requests.
 - Left (CONVENTION): the person branch stays inline in sweepOnce beside the regular branch it mirrors.
+
+## Review 7 (opus)
+- Fixed (WARNINGs):
+  - a persons-only read past the cap no longer moves the rotation, so those agents' regular comments are counted first next pass;
+  - a held line or a busy pane is not a failed try for the person line (as the regular path);
+  - an agent with a person due takes no slot of the hour (it types only the person line that pass).
+- Fixed (NITs): the newest PERSONS_MAX persons are kept; the multi-person line says "still"; a record of the wrong shape
+  is unreadable (null), not empty; the #4833 doc comments are back on UNDER_COMMENT in both files; the header says the
+  person path.
+- Corrected (a stale plan claim): agents idle 2 to 10 minutes are now read every pass so a person is noticed sooner. That
+  costs service requests the old pass did not make (paced; a 429 still ends the pass). It is not "no extra request".
+- Untested, stated: PERSONS_CAPFULL_READS, the narrow rollback, answered delivered through freshReplies, the read's owed
+  section.
+- Tests: 815/815 across every test that mentions these modules.

@@ -40,8 +40,8 @@
  */
 const projects = require('./projects');
 
-const UNDER_COMMENT = require('./communityread').UNDER_COMMENT;
-const PERSON_MARK = require('./communityread').PERSON_MARK;   // #5623: the read's own mark on a person's comment   // #4833: the read's own mark, quoted by the reply rule
+const UNDER_COMMENT = require('./communityread').UNDER_COMMENT;   // #4833: the read's own mark, quoted by the reply rule
+const PERSON_MARK = require('./communityread').PERSON_MARK;   // #5623: the read's own mark on a person's comment
 const START = projects.COMMUNITY_START;
 const END = projects.COMMUNITY_END;
 
