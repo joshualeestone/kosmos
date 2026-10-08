@@ -287,4 +287,16 @@ test('#5536 caller mistakes throw instead of reading as tampering', async () => 
   await assert.rejects(br.restoreSnapshot({ ...args, sink: {} }), /sink\.begin/);
   await assert.rejects(br.restoreSnapshot({ ...args, fetchChunk: undefined }), /fetchChunk/);
   await assert.rejects(br.restoreSnapshot({ ...args, namingKey: k.nk.subarray(0, 16) }), /namingKey/);
+  await assert.rejects(br.restoreSnapshot({ ...args, maxFiles: NaN }), /maxFiles/, 'an explicit NaN does not erase a bound');
+  await assert.rejects(br.restoreSnapshot({ ...args, maxManifestObject: undefined + 1 }), /maxManifestObject/);
+  await assert.rejects(br.restoreSnapshot({ ...args, maxChunkObject: -1 }), /maxChunkObject/);
+});
+
+test('#5536 a manifest whose files is not a list opens to nothing; a skipped that is not a list reports none', async () => {
+  const member = hpkeKeyPair(), nk = crypto.randomBytes(32), dev = crypto.generateKeyPairSync('ed25519');
+  const ctx = { org: 'o', member: 'm', epoch: 'e', period: 'p', snapshot: 's' };
+  const go = (body) => br.restoreSnapshot({ memberSk: member.sk, namingKey: nk, devicePubAtSnapshot: dev.publicKey, ctx, manifestObject: bf.sealManifest(member.pk, dev.privateKey, ctx, body),
+    fetchChunk: () => null, sink: memorySink(), maxTotalBytes: BIG });
+  assert.equal(await go({ files: { 0: 'x' } }), null);
+  assert.deepEqual(await go({ files: [], skipped: 'none' }), { restored: [], failed: [], skippedAtBackup: [] }, 'CONTROL: an empty list opens');
 });

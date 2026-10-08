@@ -112,6 +112,9 @@ async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, 
   if (!sink || typeof sink.begin !== 'function') throw new Error('backuprestore: sink.begin is required');
   if (typeof fetchChunk !== 'function') throw new Error('backuprestore: fetchChunk is required');
   if (!Buffer.isBuffer(namingKey) || namingKey.length !== 32) throw new Error('backuprestore: namingKey must be a 32-byte Buffer');
+  for (const [k, v] of Object.entries({ maxChunkObject, maxManifestObject, maxFiles })) {
+    if (!Number.isSafeInteger(v) || v < 0) throw new Error(`backuprestore: ${k} must be a non-negative integer`);
+  }
   if (!(manifestObject instanceof Uint8Array) || manifestObject.length > maxManifestObject) return null;
   const mo = Buffer.isBuffer(manifestObject) ? manifestObject : Buffer.from(manifestObject.buffer, manifestObject.byteOffset, manifestObject.length);
   const manifest = openManifest(memberSk, devicePubAtSnapshot, ctx, mo);

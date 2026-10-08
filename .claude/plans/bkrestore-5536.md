@@ -8,8 +8,8 @@ Design v2.1 on #5536 and E0.6's on #5535. `engine/backuprestore.js`, on E0.6's m
 - The sink contract is stated in the JSDoc: bytes land before verification, so the sink writes beside the final path and publishes atomically on commit. A fetched object larger than any format-1 chunk (2 x CDC.max + 4 KiB) is refused before decrypting.
 - The sink also owns two duties stated in the JSDoc: refuse to overwrite a file it already committed in this restore, and refuse a path that resolves outside the restore root (an existing symlink). It is handed '/' separators.
 - Bounded work for a hostile manifest: the manifest object is bounded (128 MiB) before it is opened and its entry count (500,000) before it is walked (both raisable by the caller), a REQUIRED maxTotalBytes (set from free disk; a restore without one is refused) fails a file before fetching once the restore would pass it, every fetched object's bytes count against twice that plus 8 KiB an entry (sealing overhead) whether or not they verify, and fetchChunk is handed that limit as maxBytes (so a hostile store or late failures are bounded), collisions are found with a segment trie (linear), a file may not list more chunks than bytes, an empty chunk is refused, and the skipped list is capped (10000 entries, 300 characters each).
-- Caller mistakes (no sink, no fetchChunk, a naming key that is not 32 bytes, no byte budget) throw instead of reading as tampering in every file.
-- Tests (19), each refusal with a control; every new guard mutation-checked red.
+- Caller mistakes (no sink, no fetchChunk, a naming key that is not 32 bytes, no byte budget, a bound that is not a non-negative integer) throw instead of reading as tampering in every file.
+- Tests (20), each refusal with a control; every new guard mutation-checked red.
 - Both exports are excused in engine.reachable.test.js (caller: E0.7's restore engine, which needs E0.1/E0.2).
 
 Weakest premise: the device key "enrolled at the snapshot time" is the caller's lookup. If E0.2's history is wrong, a manifest signed by a later device opens. That binding is E0.2's to get right, and this module cannot check it.
@@ -36,3 +36,5 @@ Review round 9 (opus): the byte budget defaulted to unbounded (now required); ca
 Review round 10 (sonnet): failed files cost nothing against the budget (now a work budget, 2x); caller mistakes read as tampering (now thrown). Fixed. A mid-file work check I first added was unreachable (mutation stayed green) and was removed.
 
 Review round 11 (opus): round 10's work budget charged only verified plaintext, so junk that failed verification cost nothing (measured 400 MiB under a 100-byte budget). Now every fetched byte is charged before decrypting and the limit is passed to fetchChunk.
+
+Review round 12 (sonnet): an explicit NaN erased maxFiles and the other bounds (now validated). Not done, by design: a dotfile deny-list. A compromised enrolled device can already put any content in any file it backs up (an agent's instruction file is worse than .zshrc), so a filter here is not a boundary; the restore root is, and it is recorded as required above.
