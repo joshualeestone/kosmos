@@ -266,11 +266,11 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
   const same = (a, b) => !!a && !!b && (path.resolve(a) === path.resolve(b) || realOr(a) === realOr(b));
   /* A folder whose rule the syntax would misread (`* ? [ ] ( ) { } !`) gets no rule here: said, not guessed. Checked on
      what ruleAbs writes (its leading // taken off), so the check and the rule are one spelling (the platform's own
-     separator is gone by then; an extended-length \\?\ path is checked after its `?` is gone). On Windows the device
-     form \\.\C:\ and a drive-relative C:foo are refused too, by ruleUnwritable (a share IS written). */
+     separator is gone by then; an extended-length \\?\ path is checked after its `?` is gone). Nothing else is refused, on
+     any platform, as on main: a share, a device form or a drive-relative path is written as it is. */
   const plain = (p) => {
     if (!ruleUnwritable(p)) return true;
-    process.stderr.write(`#4752: no rule for ${p}: its path has a character the rule syntax reads as a pattern, or a form it cannot write\n`);
+    process.stderr.write(`#4752: no rule for ${p}: its path has a character the rule syntax reads as a pattern\n`);
     return false;
   };
   let extra = [];
@@ -333,8 +333,8 @@ function realOr(p) { try { return fs.realpathSync.native(p); } catch { return pa
    On Windows Claude Code matches a rule against the path in POSIX form (its permissions docs: C:\Users\alice
    becomes /c/Users/alice), so a drive path is written that way: C:\Users\x becomes //c/Users/x. The native
    spelling (//C:\Users\x) is not a form its docs say it matches (not measured on Windows here). The extended-length
-   forms \\?\C:\ and \\?\UNC\host\share are written as their plain paths; the device form \\.\C:\ is refused by ruleUnwritable (said;
-   not a likely store). */
+   forms \\?\C:\ and \\?\UNC\host\share are written as their plain paths; the device form \\.\C:\ is written as it is
+   (not a likely store). */
 function ruleAbs(p, platform = process.platform) {
   let s = String(p);
   if (platform === 'win32') {
@@ -352,6 +352,16 @@ function ruleAbs(p, platform = process.platform) {
    before this change) is read as it is. Elsewhere it is `/` plus the rest. A share's rule (host/share/...) reads back as
    its UNC path (\\host\share\...), so the own-folder check compares real paths; a one-letter host reads back as a drive
    (S:), the one form that cannot be told apart. */
+/* Every path a rule can stand for: rulePath's reading and, on Windows, for a rule that starts with one letter, the
+   share that letter could also be the host of (\\\\s\\share is written //s/share, the same as drive S:). */
+function rulePaths(inner, platform = process.platform) {
+  const out = [];
+  const back = rulePath(inner, platform);
+  if (back !== null) out.push(back);
+  const t = String(inner);
+  if (platform === 'win32' && /^[A-Za-z]\/[^/]+/.test(t)) out.push('\\\\' + t.replace(/\//g, '\\'));
+  return out;
+}
 function rulePath(inner, platform = process.platform) {
   const t = String(inner);
   if (platform === 'win32') {
@@ -511,11 +521,12 @@ function guardGuideFolder(dir, agentName, deps = {}) {
       if (!fresh.extra.includes(r)) return true;
       const m = /^Read\(\/\/([^*?]*?)(\/\*\*)?\)$/.exec(r);
       if (!m) return true;
-      const back = rulePath(m[1], plat);   // the inverse of ruleAbs, so a Windows rule reads back with its drive
-      if (back === null) return true;      // not a form ruleAbs writes: nothing to compare
-      const target = realOr(back);
+      // every path the rule can stand for (a one-letter share host reads as a drive too): refused if ANY holds the guide
+      const backs = rulePaths(m[1], plat);
+      if (!backs.length) return true;      // not a form ruleAbs writes: nothing to compare
       // case-sensitive is safe: an existing target is a realpath like `own`; a missing one cannot contain the guide
-      if (own !== target && !own.startsWith(target.endsWith(path.sep) ? target : target + path.sep)) return true;
+      const holds = (back) => { const target = realOr(back); return own === target || own.startsWith(target.endsWith(path.sep) ? target : target + path.sep); };
+      if (!backs.some(holds)) return true;
       process.stderr.write(`#4752: a rule that would take in the guide's own folder was left out: ${r}\n`);
       return false;
     });
@@ -1001,6 +1012,7 @@ function mergeSetting(stored, patch) {
 module.exports = {
   ruleAbs,   // #4752 follow-up: exported so the Windows form is pinned from any host
   rulePath,
+  rulePaths,
   legacyWinEquivalent,
   withNativeTwins,
   ruleUnwritable,
