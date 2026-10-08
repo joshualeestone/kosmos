@@ -347,21 +347,41 @@ function rulePath(inner, platform = process.platform) {
    same suffix), else null. A caller drops an old rule ONLY when its equivalent is among the rules just made, so a
    failure to make a rule never leaves a path with neither form. Uses the win32 conversion on any host. */
 function legacyWinEquivalent(rule) {
-  const m = /^Read\(\/\/([A-Za-z]:\\[^)]*?)(\/\*\*|\/\*\/[^)]*|\.\*)?\)$/.exec(String(rule));
+  // a drive, then a backslash (the native form) or a slash (a path given as C:/...); ruleAbs only touches the
+  // separators and the drive, so the whole inside converts in one go, suffix included
+  const m = /^Read\(\/\/([A-Za-z]:[\\/][^)]*)\)$/.exec(String(rule));
   if (!m) return null;
-  return `Read(${ruleAbs(m[1], 'win32')}${m[2] || ''})`;
+  return `Read(${ruleAbs(m[1], 'win32')})`;
 }
 /* #4752: is `rule` one this code writes for a single entry directly in `base` (either form), for a name
    baseEntryToName lets through? Built from the same ruleAbs(path.join(...)) as the writer, so it matches on
    Windows too. */
-function wasEntryRule(rule, base) {
-  const prefix = `Read(${ruleAbs(path.join(base, 'x')).slice(0, -1)}`;   // the writer's own spelling, separator included
+function wasEntryRule(rule, base, platform = process.platform) {
+  const join = platform === 'win32' ? path.win32.join : path.join;
+  const prefix = `Read(${ruleAbs(join(base, 'x'), platform).slice(0, -1)}`;   // the writer's own spelling, separator included
   if (!rule.startsWith(prefix) || !rule.endsWith(')')) return false;
   let name = rule.slice(prefix.length, -1);
   if (name.endsWith('/**')) name = name.slice(0, -3);
-  if (!name || name.includes('/') || name.includes(path.sep)) return false;
+  if (!name || name.includes('/') || name.includes('\\') || name.includes(path.sep)) return false;
   const worlds = require('./worlds');
   return baseEntryToName(name, worlds.WORLDS_SUBDIR, path.basename(worlds.registryPath(base)), require('./boardauth').TOKEN_FILE);
+}
+/* #4752: which of the rules already in the guide's settings stay, given the rules just made (`fresh`).
+   - An earlier rule for one entry of the default world's store is dropped (wasEntryRule) unless just made again,
+     so a deleted or renamed entry does not leave a rule for ever; any other rule stays.
+   - On Windows, a rule in the older native form is dropped when its new-form equivalent was just made, or when that
+     equivalent is a per-entry rule for the store just listed in full (the same evidence as above that the entry is
+     gone). Otherwise it stays: a failure to make a rule never leaves a path with neither form.
+   Pure, with the platform passed in, so the Windows answer is pinned from any host. */
+function migrateKept(had, fresh, platform = process.platform) {
+  const kept = fresh.entryBase ? had.filter((r) => fresh.rules.includes(r) || !wasEntryRule(r, fresh.entryBase, platform)) : had;
+  if (platform !== 'win32') return kept;
+  return kept.filter((r) => {
+    const eq = legacyWinEquivalent(r);
+    if (!eq) return true;
+    if (fresh.rules.includes(eq)) return false;
+    return !(fresh.entryBase && wasEntryRule(eq, fresh.entryBase, platform));
+  });
 }
 /* #4752: whether an entry directly in the worlds' base gets a rule of its own. Not the worlds folder or its
    registry (the guide's own folder is under the first), nor the token (it has its own rule), nor a dot-named
@@ -418,12 +438,8 @@ function guardGuideFolder(dir, agentName, deps = {}) {
        as it is now, so an entry that was deleted or renamed (a dated backup, a rotated log) does not leave a rule
        behind for ever. Only a rule this code could have written for one entry is dropped (wasEntryRule); any
        other rule stays, a person's own rule for the registry or for a name this code leaves alone included. */
-    const kept0 = fresh.entryBase ? had.filter((r) => fresh.rules.includes(r) || !wasEntryRule(r, fresh.entryBase)) : had;
-    /* On Windows, a rule written before the path-form change is dropped only when the same rule in the new form was
-       just made: never a path left with neither form (and a person's own rule elsewhere has no equivalent here). */
-    const kept = process.platform === 'win32'
-      ? kept0.filter((r) => { const eq = legacyWinEquivalent(r); return !(eq && fresh.rules.includes(eq)); })
-      : kept0;
+    const plat = deps.platform || process.platform;
+    const kept = migrateKept(had, fresh, plat);
     /* #4752: none of THIS change's rules (fresh.extra) may take in the guide's own folder. An older folder or a
        linked entry a person made can resolve to an ancestor of it, and the sandbox follows links, so such a rule
        would cut the guide off from its own instructions: dropped, and said. What this checks, no more: a rule
@@ -434,7 +450,7 @@ function guardGuideFolder(dir, agentName, deps = {}) {
       if (!fresh.extra.includes(r)) return true;
       const m = /^Read\(\/\/([^*?]*?)(\/\*\*)?\)$/.exec(r);
       if (!m) return true;
-      const target = realOr(rulePath(m[1]));   // the inverse of ruleAbs, so a Windows rule reads back with its drive
+      const target = realOr(rulePath(m[1], plat));   // the inverse of ruleAbs, so a Windows rule reads back with its drive
       if (own !== target && !own.startsWith(target.endsWith(path.sep) ? target : target + path.sep)) return true;
       process.stderr.write(`#4752: a rule that would take in the guide's own folder was left out: ${r}\n`);
       return false;
@@ -918,6 +934,7 @@ module.exports = {
   ruleAbs,   // #4752 follow-up: exported so the Windows form is pinned from any host
   rulePath,
   legacyWinEquivalent,
+  migrateKept,
   SETUP_ROLE_KEY,
   GUIDE_CREATED_BY,
   GUIDE_PURPOSE_PREFIXES,
