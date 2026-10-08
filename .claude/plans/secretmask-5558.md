@@ -60,3 +60,11 @@ a random segment inside a path masked. Full secretmask.test.js 126/126.
 - WARNING fixed: seven rules survived mutation. Test '#5558 review 6' has one case per rule; measured red under each of six mutations (vowel ratio, consonant run, q rule, loose date, every date exempt, single segment). Two first drafts of its cases were written for the old cap and failed; corrected.
 - CONVENTION fixed: the isPlainPath comment states the current rules only.
 - 132/132 (23:51 CDT 2026-10-07).
+
+### Review 7 (opus): 2 WARNINGs fixed, comment fixed, NIT fixed
+- Fuzz by the reviewer (9 token classes, random and adversarial cuts): 0 cases main masks and the branch does not.
+- WARNING fixed: the letter-case rule is a safety rule (mixed-case base64 pieces) and no test pinned it. Test added.
+- WARNING fixed: each date part was untested, and a date's time gave 6 more free digits (secrets/20380124T553311/12345678: 22 digits, main masks it). The time must now be a real time (hour 00-23, minutes and seconds 00-59): no real path changes (3,074 of 4,219 still plain); counting time digits instead would have cost 26 real plan paths. Tests pin year, month, day, time and the architecture rule; each measured red under its own mutation, and the case rule too.
+- Comment: the residual is now stated as syllable pieces with up to 8 digits besides one real date and time.
+- NIT fixed: vowels >= 1 removed (the ratio already requires it).
+- 133/133 (23:57 CDT 2026-10-07).
