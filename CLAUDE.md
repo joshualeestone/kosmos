@@ -250,7 +250,7 @@ from a night in this codebase, kosmos#2616.)
    `refuseOrWarn(...)` to refuse rather than act (#1598). The flag is a module-level
    `allowed=false` that only `allowLiveExecution()` flips, called only on a real-start path, never at module load:
    - `server.js`'s real-start path, and `engine/musefront.js`'s;
-   - `tools/cleanup-fixture-tokens-5418.js`'s command line, only with `--apply` (its `applyPlan` refuses without it;
+   - `tools/cleanup-fixture-tokens-5418.js`'s command line, only with `--apply` (its `applyPlan` refuses without it, by throwing rather than through `refuseOrWarn`: a one-time tool;
      the store primitive it calls, `sendertoken.revokeIfUnchanged`, is ungated like `revoke`).
 
    A `node --test` process is detected by

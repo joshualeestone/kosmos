@@ -98,7 +98,7 @@ function planCleanup(entries, liveKeys, cutoffMs, safeKey) {
       const linkKey = e.name.endsWith('.json') ? e.name.slice(0, -'.json'.length) : null;
       if (linkKey !== null && liveKeys.has(canon(linkKey))) keep.push({ name: e.name, why: 'a link named for a live agent: left alone' });
       else if (e.targetExists === false && e.targetParentExists !== true) keep.push({ name: e.name, why: 'a link pointing at nothing, but its target\'s folder is missing or unreadable too (an unmounted drive?): left alone' });
-      else if (e.targetExists === false && (e.name.endsWith('.json') || TEMP_SHAPE.test(e.name))) remove.push({ name: e.name, kind: 'symlink', why: 'a link pointing at nothing' + (e.linkTarget ? ' (it pointed at ' + e.linkTarget + '; check that is not an unmounted volume)' : '') });
+      else if (e.targetExists === false && (e.name.endsWith('.json') || TEMP_SHAPE.test(e.name))) remove.push({ name: e.name, kind: 'symlink', linkTarget: e.linkTarget || null, why: 'a link pointing at nothing' + (e.linkTarget ? ' (it pointed at ' + e.linkTarget + '; check that is not an unmounted volume)' : '') });
       else if (e.targetExists === false) keep.push({ name: e.name, why: 'a link pointing at nothing, but not a name the store writes: left alone' });
       else if (e.targetExists === true) keep.push({ name: e.name, why: 'a link to something that exists: not ours to judge' });
       else keep.push({ name: e.name, why: 'a link whose target could not be checked: left alone' });
@@ -165,7 +165,8 @@ function tokenInfo(file) {
   try { kept = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return out; }
   const tokens = kept && Array.isArray(kept.tokens) ? kept.tokens : (kept && typeof kept.token === 'string' ? [kept] : []);
   for (const t of tokens) {
-    if (!t || typeof t !== 'object') continue;
+    // the entries the store itself reads (sendertoken.readTokens): one with no string token is not a token
+    if (!t || typeof t !== 'object' || typeof t.token !== 'string') continue;
     if (typeof t.launcher === 'string' && !out.launchers.includes(t.launcher)) out.launchers.push(t.launcher);
     if (typeof t.name === 'string' && !out.names.includes(t.name)) out.names.push(t.name);
     const ms = Date.parse(t.mintedAt || '');
@@ -179,19 +180,21 @@ function tokenInfo(file) {
    was already there). A copy sits at the umask mode for a moment before its chmod: inside the 0700 folder. */
 function backup(dir, dest, names) {
   fs.mkdirSync(dest, { recursive: false, mode: 0o700 });
-  try { copyInto(dir, dest, names); } catch (e) { if (e && typeof e === 'object') { try { e.backupCreated = true; } catch { /* frozen */ } } throw e; }
+  try {
+    copyInto(dir, dest, names);
+    // the folder's own entries on disk too (POSIX; Windows cannot flush a folder): a crash cannot lose the backup
+    if (process.platform !== 'win32') { const fd = fs.openSync(dest, 'r'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); } }
+  } catch (e) { if (e && typeof e === 'object') { try { e.backupCreated = true; } catch { /* frozen */ } } throw e; }
 }
-/* Flush one backup copy to disk. Opened read-write (Windows refuses to flush a read-only handle); where the platform
-   still cannot flush (EPERM or EISDIR on Windows, as securewrite's flushOrThrow allows) the copy stands as written. */
+/* Flush one backup copy to disk. Read-write on Windows (it refuses to flush a read-only handle); where the platform
+   cannot flush or open it so (as securewrite's flushOrThrow allows) the copy stands as written. */
 function flushCopy(file, platform = process.platform) {
-  const fd = fs.openSync(file, 'r+');
-  try { fs.fsyncSync(fd); }
-  catch (e) {
-    // as securewrite's flushOrThrow: a filesystem with no flush, and Windows's EPERM/EISDIR, leave the copy as written
-    const unsupported = e && ['EINVAL', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS'].includes(e.code);
-    if (!(unsupported || (platform === 'win32' && e && (e.code === 'EPERM' || e.code === 'EISDIR')))) throw e;
-  }
-  finally { fs.closeSync(fd); }
+  // POSIX flushes a read-only handle (and a copy can already carry a read-only original's mode); Windows needs r+
+  const tolerated = (e) => !!e && (['EINVAL', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS'].includes(e.code)
+    || (platform === 'win32' && (e.code === 'EPERM' || e.code === 'EISDIR' || e.code === 'EACCES')));
+  let fd;
+  try { fd = fs.openSync(file, platform === 'win32' ? 'r+' : 'r'); } catch (e) { if (tolerated(e)) return; throw e; }
+  try { fs.fsyncSync(fd); } catch (e) { if (!tolerated(e)) throw e; } finally { fs.closeSync(fd); }
 }
 function copyInto(dir, dest, names) {
   for (const name of names) {
@@ -206,8 +209,8 @@ function copyInto(dir, dest, names) {
     }
     else if (st.isFile()) {
       fs.copyFileSync(from, to, fs.constants.COPYFILE_EXCL);
-      fs.chmodSync(to, st.mode & 0o777);
-      flushCopy(to);   // on disk before any original is removed (#5434): a crash right after --apply cannot lose both
+      flushCopy(to);   // before the mode goes back: a read-only original's copy could not be opened to flush after
+      fs.chmodSync(to, st.mode & 0o777);   // on disk before any original is removed (#5434): a crash right after --apply cannot lose both
       if (fs.statSync(to).size !== st.size) throw new Error('the backup of ' + name + ' is not the same size as the file');
     }
     // anything else (a folder swapped in since the plan) is not backed up, so the run stops rather than go on without it
@@ -356,7 +359,7 @@ function portForUid(uid) { return uid === 501 ? 16180 : 16180 + 1 + (uid % 3999)
    or a link has no mtime here), so --apply can require the plan a person read. */
 function planDigest(plan) {
   const lines = plan.remove.map((r) => JSON.stringify([r.name, r.kind, r.key || '', r.mtimeMs === undefined ? null : r.mtimeMs,
-    r.newestMintMs === undefined ? null : r.newestMintMs, (r.launchers || []).slice().sort(), (r.names || []).slice().sort()])).sort();
+    r.newestMintMs === undefined ? null : r.newestMintMs, (r.launchers || []).slice().sort(), (r.names || []).slice().sort(), r.linkTarget || null])).sort();
   return crypto.createHash('sha256').update(lines.join('\n')).digest('hex').slice(0, DIGEST_HEX);
 }
 
@@ -429,8 +432,12 @@ async function main(argv, { armFromCommandLine = false } = {}) {
     workerNames = listed(create.workersDir(), 'the worker folders');
     const agentsDir = path.dirname(create.plistPath('x'));   // launchd jobs (macOS only; elsewhere none are read)
     jobNames = process.platform === 'darwin' ? listed(agentsDir, 'the launchd jobs').map((f) => {
-      const m = /^com\.kosmos\.agent\.(.+)\.plist$/.exec(f) || /^com\.([^.]+(?:\.[^.]+)*)\.discord\.plist$/.exec(f);
-      return m ? m[1].split('+')[0].replace(/\.discord$/, '') : null;   // a stray .discord stays a keep (over-keep is safe)
+      // the label prefix and the world separator are create.js's and launchidentity's own, not copies
+      const sep = require('../engine/launchidentity').WORLD_SEPARATOR;
+      const prefix = create.SERVICE_LABEL_PREFIX;
+      const own = f.startsWith(prefix) && f.endsWith('.plist') ? f.slice(prefix.length, -'.plist'.length) : null;
+      const m = own ? [null, own] : /^com\.([^.]+(?:\.[^.]+)*)\.discord\.plist$/.exec(f);
+      return m && m[1] ? m[1].split(sep)[0].replace(/\.discord$/, '') : null;   // a stray .discord stays a keep (over-keep is safe)
     }).filter(Boolean) : [];
   } catch (e) { console.error('Stopped, nothing changed: ' + e.message + '.'); return 2; }
   // Windows Scheduled Tasks and Linux systemd units, read the way the board's own survey reads them (register.jobReader)
@@ -465,6 +472,9 @@ async function main(argv, { armFromCommandLine = false } = {}) {
      Fixture profiles leaked too, so this keeps some leftovers: a keep signal only, never a reason to remove. */
   let profiled = 0;
   for (const k of tokenKeys) {
+    let canonical = false;
+    try { canonical = store.safeKey(k) === k; } catch { canonical = false; }
+    if (!canonical) continue;   // a name the store could not have written is kept anyway, and is not counted here
     let prof = {};
     try { prof = store.readProfile(k) || {}; } catch { prof = {}; }
     let present = prof && typeof prof === 'object' && Object.keys(prof).length > 0;
