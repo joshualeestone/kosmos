@@ -298,7 +298,7 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
       }
       const worldsDir = path.join(base, worlds.WORLDS_SUBDIR);
       // every named world's store: a `*` in the middle of a path, measured refused on Claude Code 2.1.285 only (#4752).
-      // On Windows this joins `/` onto a `\` path, as the data folder rule always has; not measured there.
+      // On Windows ruleAbs writes the POSIX form Claude Code matches (`//c/...`), so the `/*/` joins one form.
       for (const leaf of [store.APP, store.LEGACY_APP]) more.push(`Read(${ruleAbs(worldsDir)}/*/${leaf}/**)`);
     }
     rules.push(...more);
@@ -315,8 +315,19 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
 const RULE_SYNTAX = /[*?[\](){}!\\]/;
 /* A folder's real path when it can be read, else the path as given. */
 function realOr(p) { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } }
-/* A path as a Claude Code rule spells an absolute one: two slashes, then the path without its leading slashes. */
-function ruleAbs(p) { return '//' + String(p).replace(/^\/+/, ''); }
+/* A path as a Claude Code rule spells an absolute one: two slashes, then the path without its leading slashes.
+   On Windows Claude Code matches a rule against the path in POSIX form (its permissions docs: C:\Users\alice
+   becomes /c/Users/alice), so a drive path is written that way: C:\Users\x becomes //c/Users/x. The native
+   spelling (//C:\Users\x) is not a form it matches. */
+function ruleAbs(p, platform = process.platform) {
+  let s = String(p);
+  if (platform === 'win32') {
+    s = s.replace(/\\/g, '/');
+    const drive = /^([A-Za-z]):(\/|$)/.exec(s);
+    if (drive) s = drive[1].toLowerCase() + '/' + s.slice(drive[0].length);
+  }
+  return '//' + s.replace(/^\/+/, '');
+}
 /* #4752: is `rule` one this code writes for a single entry directly in `base` (either form), for a name
    baseEntryToName lets through? Built from the same ruleAbs(path.join(...)) as the writer, so it matches on
    Windows too. */
@@ -876,6 +887,7 @@ function mergeSetting(stored, patch) {
 }
 
 module.exports = {
+  ruleAbs,   // #4752 follow-up: exported so the Windows form is pinned from any host
   SETUP_ROLE_KEY,
   GUIDE_CREATED_BY,
   GUIDE_PURPOSE_PREFIXES,
