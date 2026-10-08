@@ -34,10 +34,11 @@
  * TWO obligations for slice 2 before it wires reachForAgent into a live caller (both are safe to leave
  * open here because reachForAgent has NO production caller yet):
  *   1. Pass the pane's live CLAUDE_CONFIG_DIR as agentClaudeDir (closes the EFFECTIVE_CCD over-report above).
- *   2. Pass the WORLD: reachForAgent calls create.readJob(agentName) with no worldId, and jobs are keyed by
- *      world, so in a named Kosmos world it would read the default world's same-named job (or null) and
- *      could over-report reaches:true for a named-world agent. The /api/status caller slice 2 wires into
- *      has the world in hand; thread it through to readJob then.
+ *   2. Pass the WORLD's id. reachForAgent now TAKES a worldId and threads it to create.readJob(agentName,
+ *      worldId), so the scoping is wired here rather than left to prose. The residual obligation is on the
+ *      caller: jobs are keyed by world, and an OMITTED worldId reads the DEFAULT world's same-named job, so
+ *      for a NAMED-world agent slice 2 MUST pass that world's id (undefined is correct ONLY for the default,
+ *      unnamed world). The /api/status caller slice 2 wires in has the world in hand.
  */
 
 const path = require('node:path');
@@ -106,11 +107,19 @@ function reachFrom(input) {
  * so the resolver and the core never judge the same input differently. A readJob or homeDir that throws,
  * or no readable job, yields UNKNOWN (the tests lock this in).
  *
+ * `worldId` is threaded to create.readJob(agentName, worldId) so a NAMED Kosmos world reads ITS OWN job,
+ * not the default world's same-named one (jobs are world-keyed). Omitting it reads the default world --
+ * correct ONLY for the default, unnamed world; a named-world caller MUST pass the world's id or risk a
+ * cross-world over-report. The field names this reads back, `configDir` and `runner`, are exactly the two
+ * that create.js emits on every platform arm (readPlistJob on mac, readUnitJob on linux, the win32 spec);
+ * the injected-deps tests exercise those same names, so a rename there would surface as a resolver test
+ * failure rather than a silent default-launch reaches:true.
+ *
  * Slice 2: where the live pane env is available, pass the pane's CLAUDE_CONFIG_DIR as agentClaudeDir
  * instead of the plist value, to catch the EFFECTIVE_CCD leak-pin on a default-account agent (see the
- * module header).
+ * module header). `deps` stays LAST so the test seam does not sit between the two real arguments.
  */
-function reachForAgent(agentName, deps) {
+function reachForAgent(agentName, worldId, deps) {
   deps = (deps && typeof deps === 'object') ? deps : {};
   let personClaudeHome = '';
   let job = null;
@@ -126,7 +135,9 @@ function reachForAgent(agentName, deps) {
     personClaudeHome = (typeof rawHome === 'string' && path.isAbsolute(rawHome) && !rawHome.split(/[\\/]/).includes('..'))
       ? path.join(rawHome, '.claude')
       : rawHome;
-    job = create.readJob(agentName);
+    // worldId scopes the read to the agent's own world; create.readJob's own default applies when it is
+    // null/undefined (the default world). Passed straight through -- reachForAgent does not invent a world.
+    job = create.readJob(agentName, worldId);
   } catch { return { reaches: null, reason: UNKNOWN }; }
   // A null/undefined, non-object, or array job (garbage) is UNKNOWN, never a default-launch reaches:true.
   // (Array.isArray because `typeof [] === 'object'`, and an array has no runner/configDir fields.)
