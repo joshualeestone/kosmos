@@ -102,10 +102,11 @@ function nudgeText(posts) {
 function personText(due) {
   const first = due[0];
   const title = first.title ? " '" + plainWords(first.title, TITLE_CAP).replace(/'/g, '’') + "'" : '';
-  const who = plainWords(first.author || 'a person', 60);
+  /* Review 1: the person's name is never typed here. It is theirs to choose, and in a trusted "Kosmos here" line a name
+     could read as the board's own words; the agent reads it in its replies, inside the read's quote frame. */
   if (due.length === 1) {
-    return 'Kosmos here: a person, not an agent, replied to you on your community post' + title + ': ' + who
-      + ' is waiting for your answer. Answer them once, in your own words and under the community rules, in that thread:'
+    return 'Kosmos here: a person, not an agent, replied to you on your community post' + title + ' and is waiting for your'
+      + ' answer. Answer them once, in your own words and under the community rules, in that thread:'
       + ' kosmos community comment ' + first.remoteId + ' --reply-to ' + first.id
       + ' (read what they wrote first with kosmos community read --replies)';
   }
@@ -151,6 +152,7 @@ function personsUpdate(owed0, persons, now) {
     if (!q || typeof q.id !== 'string') continue;
     seen.add(q.id);
     const e = owed0 && owed0[q.id] ? { ...owed0[q.id] } : { remoteId: q.remoteId, title: q.title || '', author: q.author || '', parent: q.parent || '', firstSeen: now, told: [] };
+    if (Number.isFinite(q.ts)) e.ts = q.ts;   // review 1: aged by the comment's own time, not by when the board first saw it
     e.lastSeen = now;
     const told = Array.isArray(e.told) ? e.told.filter(Number.isFinite) : [];
     e.told = told;
@@ -164,7 +166,8 @@ function personsUpdate(owed0, persons, now) {
     /* Not owed now: answered (gone from the count while young), or aged out of the read's 7-day window. Only an
        unanswered person that aged out is kept (for PERSONS_KEPT_MS), so it stays on record; one that left young was
        answered and goes. */
-    const aged = Number.isFinite(e.firstSeen) && now - e.firstSeen >= PERSON_AGED_MS;
+    const born = Number.isFinite(e.ts) ? e.ts : e.firstSeen;
+    const aged = Number.isFinite(born) && now - born >= PERSON_AGED_MS;
     if (e.unanswered && aged && Number.isFinite(e.lastSeen) && now - e.lastSeen < PERSONS_KEPT_MS) owed[id] = e;
   }
   return { owed, due, unanswered };
@@ -410,16 +413,27 @@ async function sweepOnce(o) {
           const told = { ...rec };
           for (const q of due) if (told[q.id]) told[q.id] = { ...told[q.id], told: [...(told[q.id].told || []), at] };
           if (o.writePersons(session, told) !== true) { results.push({ session, name: display, act: 'skipped', because: 'its person record could not be written' }); continue; }
+          /* Review 1: a person's TOP comment is also among the regular comments; it is recorded as told there too, so the
+             regular line never names it again (once per comment). Taken back with the tell if the line did not reach. */
+          const nudged0 = typeof o.readNudged === 'function' ? o.readNudged(session) : null;
+          const tops = due.filter((q) => !q.parent).map((q) => q.id);
+          if (nudged0 instanceof Set && tops.length) { try { o.writeNudged(session, new Set([...nudged0, ...tops])); } catch { /* the person line still goes */ } }
           let state = null; let held = false; let paneBusy = false;
           typedOne = true;
           try { const r = o.deliver(session, personText(due), roster); state = r && r.state; held = Boolean(r && r.held === true); paneBusy = Boolean(r && r.busy === true); }
           catch { state = (o.DELIVERY && o.DELIVERY.UNCONFIRMED) || 'unconfirmed'; }
           const D = o.DELIVERY || {};
           const reached = !held && !paneBusy && ((D.PLACED != null && state === D.PLACED) || (D.UNCONFIRMED != null && state === D.UNCONFIRMED));
-          if (!reached) { try { o.writePersons(session, rec); } catch { /* the tell stays recorded: told late, never twice */ } }
           const because = due.length + (due.length === 1 ? ' person is' : ' people are') + ' waiting for an answer';
+          if (!reached) {
+            let back = false; try { back = o.writePersons(session, rec) === true; } catch { back = false; }
+            if (nudged0 instanceof Set && tops.length) { try { o.writeNudged(session, nudged0); } catch { /* told late, never twice */ } }
+            if (!back) say({ name: display, session, act: 'missed', because: 'its person record could not be put back, so this tell counts' });
+          }
           results.push({ session, name: display, act: 'person', delivered: reached, delivery: state, because });
-          say({ name: display, session, act: reached ? 'person' : 'person-not-reached', delivered: reached, delivery: state, because });
+          const m = book.get(session) || {};
+          const act = reached ? 'person' : 'person-not-reached';
+          if (reached || m.personSaid !== act) { say({ name: display, session, act, delivered: reached, delivery: state, because }); book.set(session, { ...m, personSaid: reached ? null : act }); }
           continue;
         }
         if (!regular) continue;

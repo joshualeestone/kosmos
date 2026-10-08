@@ -55,15 +55,27 @@ test('#5623 personOwed: a person\'s reply under the agent\'s OWN comment is owed
   assert.deepEqual(cr.personOwed([theirs], 'kim'), [], 'a person answering ANOTHER agent was owed by this one');
 });
 
-test('#5623 commentOf keeps the service\'s person kind', () => {
-  const c = (kind) => ({ id: PC, state: 'live', body: 'hi', created_at: '2026-10-08T10:00:00Z', agent: { name: 'Dana', kind } });
-  const getCommentOf = cr._commentOfForTests || null;
-  if (getCommentOf) {
-    assert.equal(getCommentOf(c('person')).person, true);
-    assert.equal(getCommentOf(c('agent')).person, false);
-  }
-  // Through the public read path: personOwed sees the kind only if commentOf kept it, so it is pinned there instead.
-  assert.ok(String(fs.readFileSync(path.join(__dirname, 'communityread.js'), 'utf8')).includes("c.agent.kind === 'person'"));
+test('#5623 commentOf keeps the service\'s person kind and whom a reply answers', () => {
+  const c = (kind) => ({ id: PC, state: 'live', body: 'hi', created_at: '2026-10-08T10:00:00Z', reply_to_name: 'Kim', agent: { name: 'Dana', kind } });
+  assert.equal(cr.commentOf(c('person')).person, true);
+  assert.equal(cr.commentOf(c('agent')).person, false);
+  assert.equal(cr.commentOf(c('person')).replyToKey, 'kim');
+});
+
+test('#5623 review 1: a thread not wholly visible owes nothing this pass (an unseen answer must not read as none)', () => {
+  const top = cm(PC, 'Dana', 10, { person: true, replyCount: 3, replies: [cm('b1', 'Bo', 11), cm('c1', 'Cy', 12)] });
+  assert.deepEqual(cr.personOwed([top], 'kim'), [], 'owed while a third reply (perhaps the answer) was not in hand');
+  top.replyCount = 2;
+  assert.equal(cr.personOwed([top], 'kim').length, 1, 'a wholly visible thread with no answer owed nothing');
+});
+
+test('#5623 review 1: a person\'s follow-up in their own thread, addressed to the agent, is owed', () => {
+  const top = cm(PC, 'Dana', 10, { person: true, replies: [cm('k1', 'Kim', 20), cm('f1', 'Dana', 30, { person: true, replyToKey: 'kim' })] });
+  assert.deepEqual(cr.personOwed([top], 'kim').map((o) => o.x.id), ['f1']);
+  top.replies.push(cm('k2', 'Kim', 40));
+  assert.deepEqual(cr.personOwed([top], 'kim'), []);
+  const toBo = cm(PC, 'Dana', 10, { person: true, replies: [cm('k1', 'Kim', 20), cm('f2', 'Dana', 30, { person: true, replyToKey: 'bo' })] });
+  assert.deepEqual(cr.personOwed([toBo], 'kim'), [], 'a follow-up addressed to someone else was owed by this agent');
 });
 
 test('#5623 personsUpdate: told first, again after PERSON_RETELL_MS, then unanswered after PERSON_TELLS; answered goes', () => {
@@ -111,9 +123,10 @@ test('#5623 a person waiting gets their own line first, naming the post and the 
   const { o, typed, told } = rig();
   await rn.sweepOnce(o);
   assert.equal(typed.length, 1, 'two lines were typed into one agent in one pass');
-  assert.match(typed[0].text, /a person, not an agent, replied to you on your community post 'Shipping notes': Dana is waiting/);
+  assert.match(typed[0].text, /a person, not an agent, replied to you on your community post 'Shipping notes' and is waiting/);
+  assert.doesNotMatch(typed[0].text, /Dana/, 'the person\'s own name was typed into a Kosmos line');
   assert.ok(typed[0].text.includes('kosmos community comment ' + POST + ' --reply-to ' + PC), typed[0].text);
-  assert.equal(told.get('kim'), undefined, 'the regular comments were recorded as told without a line');
+  assert.deepEqual(told.get('kim'), [PC], 'the regular comments were recorded as told without a line, or the person\'s comment was not');
 });
 
 test('#5623 a person\'s line takes no slot of the hourly limit, and is typed even when the limit is reached', async () => {
@@ -151,5 +164,14 @@ test('#5623 a person is counted after PERSON_IDLE_MS idle; the regular comments 
 });
 
 test('#5623 the read marks a person\'s comment the agent owes', () => {
-  assert.match(cr.PERSON_OWED, /a person wrote this: answer them in this thread/);
+  assert.match(cr.PERSON_OWED, /a person wrote this, so it IS owed an answer even when marked under comment/);
+});
+
+test('#5623 review 1: once per comment: a person\'s top comment told on the person line is not named again by the regular line', async () => {
+  const { o, typed } = rig({ fresh: async () => ({ ok: true, posts: [{ remoteId: POST, title: 'Shipping notes', ids: [PC, 'r1'] }], persons: [person()] }) });
+  await rn.sweepOnce(o);
+  o.fresh = async () => ({ ok: true, posts: [{ remoteId: POST, title: 'Shipping notes', ids: [PC, 'r1'] }], persons: [] });
+  await rn.sweepOnce(o);
+  assert.equal(typed.length, 2);
+  assert.match(typed[1].text, /you have 1 new comment on/, 'the regular line named the person\'s comment again');
 });

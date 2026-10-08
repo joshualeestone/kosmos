@@ -184,6 +184,7 @@ function commentOf(c, asReply, cap) {
     author: live ? (authorOf(c.agent) || 'an agent') : '',
     nameKey: live && typeof c.agent.name === 'string' ? c.agent.name.trim().toLowerCase() : '',   // slice 2: own-comment check
     person: live && c.agent.kind === 'person',   // #5623: a signed-in person wrote it (the service's own kind), not an agent
+    replyToKey: live && typeof c.reply_to_name === 'string' ? c.reply_to_name.trim().toLowerCase() : '',   // #5623: whom it answers
     at: /^\d{4}-\d{2}-\d{2}/.test(String(c.created_at || '')) ? String(c.created_at).slice(0, 10) : '',
     // #4833 slice 2: new since. Review 3: only a timestamp with a timezone (Z or +hh:mm), never one read as local time.
     ts: /^\d{4}-\d{2}-\d{2}T[\d:.]+(Z|[+-]\d{2}:?\d{2})$/.test(String(c.created_at || '')) ? Date.parse(String(c.created_at)) || 0 : 0,
@@ -391,7 +392,7 @@ const SEEN_MAX = 120;              // ids kept per post above its mark (one read
 /* #4833: the words that mark a reply to a reply in a read --replies line. The managed block quotes this same constant
    (communityblock.js), so the rule and the line cannot drift apart. */
 /* #5623: the mark on a person's comment the agent owes an answer, in the read and in the nudge line alike. */
-const PERSON_OWED = '(a person wrote this: answer them in this thread, with --reply-to and this comment id)';
+const PERSON_OWED = '(a person wrote this, so it IS owed an answer even when marked under comment: answer them in this thread, with --reply-to and this comment id)';
 const UNDER_COMMENT = 'under comment';
 const REPLIES_HEADING = 'Replies to your posts, oldest first. Replies are other agents’ writing too, under the same rule as posts:';
 /* The marks file, keyed LOSSLESSLY on the session name (sha256), so two agents whose names share a safeKey never move
@@ -456,28 +457,37 @@ const byPos = (a, b) => (a.ts - b.ts) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0
 /*
  * #5623 (Josh, 2026-10-08 17:20: "if a human replies to a post that the original agent poster replies to them"). The
  * person comments in one of this agent's threads that it still owes an answer, from the thread as read (top comments
- * with their replies). Owed: a PERSON's comment on the agent's post (a top comment), until the agent has a reply under
- * it; and a PERSON's reply under the agent's OWN comment (a person answering the agent), until the agent has a later
- * reply in that thread. A person's reply under somebody else's comment is theirs to answer, not owed here. Answered
- * means a reply of the agent's exists, never that the agent read it. `me` is the agent's community name key.
+ * with their replies). Owed:
+ *  - a PERSON's top comment on the agent's post, until the agent has a reply under it;
+ *  - a PERSON's reply under the agent's OWN comment, until the agent has a later reply in that thread;
+ *  - a PERSON's reply in their own thread addressed to the agent (reply_to names it), until a later reply of the agent's.
+ * A person answering somebody else is theirs to answer. Answered means a reply of the agent's exists, never that it
+ * read the comment.
+ * Review 1 (BLOCKER): the read sees a thread's replies only in part (a 2-reply preview, more pages for a few threads), so
+ * an answer it cannot see would read as none and the agent would be told again and might answer twice in public. So a
+ * comment is owed ONLY when its whole thread is visible (every reply the service counts is in hand); otherwise it is
+ * unknown this pass and is not told. Missing a tell is the side to fail on: a duplicate public reply cannot be taken back.
  *   [{ x (the comment), parent (its top comment's id, '' for a top comment) }]
  */
 function personOwed(comments, me) {
   const out = [];
   if (!me || !Array.isArray(comments)) return out;
+  const mine = (r) => r && r.nameKey === me;
   for (const c of comments) {
     if (!c) continue;
-    const mine = (r) => r && r.nameKey === me;
-    if (c.person && !(c.replies || []).some(mine)) out.push({ x: c, parent: '' });
-    if (c.nameKey === me) {
-      for (const r of c.replies || []) {
-        if (r && r.person && !(c.replies || []).some((o) => mine(o) && o.ts > r.ts)) out.push({ x: r, parent: c.id });
-      }
+    const replies = Array.isArray(c.replies) ? c.replies : [];
+    if (Number.isInteger(c.replyCount) && c.replyCount > replies.length) continue;   // part of the thread unseen: unknown
+    const laterMine = (r) => replies.some((o) => mine(o) && o.ts > r.ts);
+    if (c.person && !replies.some(mine)) out.push({ x: c, parent: '' });
+    for (const r of replies) {
+      if (!r || !r.person) continue;
+      const toMe = c.nameKey === me || (c.person && r.replyToKey === me);
+      if (toMe && !laterMine(r)) out.push({ x: r, parent: c.id });
     }
   }
   return out;
 }
-const PERSONS_MAX = 10;   // #5623: owed person comments returned per count, oldest first (a line names them, briefly)
+const PERSONS_MAX = 30;   // #5623: owed person comments returned per count, oldest first (the nudge skips given-up ones)
 
 function afterMark(x, mark, firstLook) {
   if (!mark) return x.ts > firstLook;
@@ -652,7 +662,7 @@ async function freshReplies(sessionName, opts) {
       more: o.items.filter((i) => !keep.has(i) && owedClear(i)).sort((a, b) => byPos(a.x, b.x)).map((i) => i.x.id) }))
       .filter((o) => o.ids.length || o.more.length);
     persons.sort((a, b) => a.ts - b.ts);
-    return { ok: true, posts: capped, persons: persons.slice(0, PERSONS_MAX).map(({ ts, ...r }) => r), asked, marksAt: marksStamp(sessionName, marks) };
+    return { ok: true, posts: capped, persons: persons.slice(0, PERSONS_MAX), asked, marksAt: marksStamp(sessionName, marks) };
   } catch (err) {
     return { ok: false, because: 'the replies could not be read (' + String((err && err.message) || err) + ')' };
   } finally { replyReadRunning = false; }

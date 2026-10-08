@@ -45,3 +45,27 @@ the pick rule for Rule 2 (slice B) and the weakest premises are on the card (iss
   takes a slot) and P3 (no rollback) each red one.
 - replynudge-4951 and communityread suites: 147/147. server.community-gate's /sent test updated (expects unanswered: []).
 - A wide run: three unrelated 5-second timeouts under load. All three pass alone (12/12).
+
+## Review 1 (opus)
+- Fixed (BLOCKER): the read sees a thread's replies only in part (a 2-reply preview, pages for a few threads), so an
+  answer it cannot see read as none, and the agent would be told again and might answer twice in public. A comment is
+  now owed only when its whole thread is in hand (replyCount <= replies seen). Otherwise it is unknown and not told:
+  missing a tell is the side to fail on. Plant P4 (guard removed) reds it. Weakest premise: a person in a long thread
+  is not told until its replies fit the read. The service previewing the agent's own reply, or the board paging that
+  thread, would close it.
+- Fixed (WARNINGs):
+  - a person's top comment told on the person line is also recorded in the regular told record, so the regular line
+    never names it again (once per comment; P5 reds it);
+  - PERSONS_MAX raised to 30, and given-up entries are skipped by the nudge, so they no longer hold the slots;
+  - a person's follow-up in their own thread addressed to the agent (reply_to names it) is owed;
+  - the read's mark says such a comment IS owed even when marked under comment, overriding the general rule;
+  - the person's name is never typed into a Kosmos line (theirs to choose: a prompt-injection surface);
+  - entries are aged by the comment's own time;
+  - a failed rollback is logged, and "not reached" is said once.
+- Stated (WARNINGs):
+  - with the hourly cap met the pass still counts, for persons only. That costs service reads, paced at 1.5 s. The
+    trade is deliberate: a person waiting is the priority.
+  - an entry that leaves the count while young (its post gone, pushed past the read) is treated as answered and drops.
+    Acceptable for a first slice; it never reaches unanswered.
+- Fixed (CONVENTION): the commentOf test calls cr.commentOf (with replyToKey).
+- Tests: 14 in the #5623 file; 445/445 across every test that mentions these modules.
