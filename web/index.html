@@ -41685,12 +41685,13 @@ document.addEventListener('click', (e) => {
   if (!link) return;
   if ((link.getAttribute('href') || '#') === '#' || !CURRENT || !CURRENT.sessionName) { e.preventDefault(); return; }
   const forAgent = CURRENT.sessionName;
+  const forLoad = INSTR_LOAD;   // the same agent reloaded since the click is a different panel (as Save checks)
   const ticket = {};
   INSTR_EXPORT_LATEST = ticket;
   const msg = document.getElementById('d-instr-msg');
   if (msg) msg.textContent = '';
   fetch('/api/agent/' + encodeURIComponent(forAgent) + '/export?check=1', { cache: 'no-store' }).then(async (res) => {
-    if (res.ok || INSTR_EXPORT_LATEST !== ticket || !CURRENT || CURRENT.sessionName !== forAgent) return;
+    if (res.ok || INSTR_EXPORT_LATEST !== ticket || INSTR_LOAD !== forLoad || !CURRENT || CURRENT.sessionName !== forAgent) return;
     let said = '';
     try { const b = await res.json(); said = (b && (b.because || b.error)) || ''; } catch { said = ''; }
     if (msg) msg.textContent = 'Not downloaded: ' + (asSentence(said) || 'That agent could not be put in a file.');
