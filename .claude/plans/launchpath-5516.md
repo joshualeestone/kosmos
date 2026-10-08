@@ -29,3 +29,16 @@ deny; the sandboxed shell was already refused outside its writable set.
   guard's other gaps, and the board log names it).
 
 ## Review log
+- **Round 1 (opus, blind):** 2 BLOCKER, 4 WARNING, 2 CONVENTION, 1 NIT (class-level here; route detail is private).
+  - BLOCKER (fixed): coverage missed folders that programs on PATH resolve into; those are covered now (scan capped,
+    a reached cap is reported). Tested with a linked program, with a control.
+  - BLOCKER (fixed): an odd PATH entry made the guard write nothing at all. The guard now always writes in full and
+    reports "not whole" for what it could not cover; the supervisor also hands the pane a cleaned PATH (absolute
+    entries only, never globbed) and gives the guard the same one. Tested: the token deny is present in that case.
+  - WARNING (fixed): the supervisor change had no test; a script assertion now covers the cleaned PATH reaching both.
+  - WARNING (open, to measure on a throwaway agent before deciding): one more PATH source, how Claude Code finds the
+    programs it starts, and two path-matching cases. Recorded privately; each ends as a fix or a named residual.
+  - CONVENTION (fixed): public comments cut to class level. CONVENTION (decided): denied folders accumulate (deny lists
+    merge); a folder once on PATH stays denied, which only narrows what the agent may write.
+  - NIT (kept): the dropped-rule message names "the agent, its home or Kosmos"; a PATH folder with a pattern
+    character also lands there.

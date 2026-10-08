@@ -728,13 +728,10 @@ function ruleHasPatternChar(rule, sep = path.sep) {
  *    glob-only future-home case is the reasoned residual the plan records.
  * dataRoot/home are overridable for tests (guideDenyRulesFor does the same); production passes neither.
  */
-/* #5516: Claude Code runs programs (git, at every start) OUTSIDE the sandbox, found through the PATH its pane starts
-   with. A folder on that PATH that the agent can write is a place to put a program that runs unsandboxed at its next
-   start, so each one is denied to the agent's file tools (Edit) and its shell (denyWrite). Measured 2026-10-08 on Claude
-   Code 2.1.295: with permissions skipped, the Write tool writes outside the agent folder unless an Edit rule denies it.
-   The PATH: the one the supervisor is about to give the pane (KOSMOS_GUARD_PANE_PATH, the tmux server's), this
-   process's own, and the plist's fixed Homebrew and /usr/local folders. An entry that cannot be denied (empty or
-   relative, which means the agent's own folder, or a folder inside it) is returned in `unsafe`. */
+/* #5516: the guard denies the agent's file tools (Edit) and shell (denyWrite) any write to the folders on the PATH its
+   pane starts with, and to the folders the programs there resolve into. Sources: the pane PATH the supervisor passes
+   (KOSMOS_GUARD_PANE_PATH), this process's own PATH, and the plist's fixed folders. An entry that cannot be covered
+   (empty, relative, or inside the agent's own folder) is returned in `unsafe`. */
 const LAUNCH_PATH_FIXED = ['/opt/homebrew/bin', '/usr/local/bin'];
 function launchPathDirs(agentDir, deps = {}) {
   const sources = [deps.panePath !== undefined ? deps.panePath : process.env.KOSMOS_GUARD_PANE_PATH, deps.ownPath !== undefined ? deps.ownPath : process.env.PATH];
@@ -748,6 +745,20 @@ function launchPathDirs(agentDir, deps = {}) {
     const real = realOr(e);
     if (real === own || real.startsWith(own + path.sep)) { unsafe.push(e); continue; }
     if (!dirs.includes(real)) dirs.push(real);
+  }
+  // Review 1: a program on PATH is often a link into another folder; cover the folder each one resolves into as well.
+  // Capped per folder so a very large one cannot stall a launch; a cap reached is reported in `unsafe`.
+  const LINK_SCAN_MAX = 4000;
+  for (const d of [...dirs]) {
+    let names = [];
+    try { names = fs.readdirSync(d); } catch { continue; }
+    if (names.length > LINK_SCAN_MAX) { unsafe.push(d + ' (too many entries to check)'); names = names.slice(0, LINK_SCAN_MAX); }
+    for (const n of names) {
+      let target;
+      try { target = path.dirname(fs.realpathSync.native(path.join(d, n))); } catch { continue; }
+      if (target === own || target.startsWith(own + path.sep)) { unsafe.push(path.join(d, n)); continue; }
+      if (!dirs.includes(target)) dirs.push(target);
+    }
   }
   return { dirs, unsafe: [...new Set(unsafe)] };
 }
@@ -896,9 +907,6 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     // Review 22: as with a dropped rule, a store or registry that could not be worked out leaves a token place unguarded.
     if (rules.rootsMissed && rules.rootsMissed.length) return { ok: false, because: 'Kosmos could not work out where ' + rules.rootsMissed.join(', ') + ' keep the board token, so the guard cannot be written whole' };
     if (rules.tokenRuleDropped) return { ok: false, because: 'a folder path (the agent, its home or Kosmos) has a character the permission rules cannot carry, so the guard cannot be written whole' };
-    // #5516: a PATH entry that cannot be denied (relative, empty, or inside the agent's own folder) is a place the agent
-    // can write a program that runs outside the sandbox at its next start.
-    if (rules.launchUnsafe && rules.launchUnsafe.length) return { ok: false, because: 'the PATH this agent starts with has an entry Kosmos cannot keep it from writing to (' + rules.launchUnsafe.join(', ') + '), so the guard cannot be written whole' };
     // Review 16: off macOS no sandbox block is written: said at create time as well as at board start.
     if ((deps.platform || process.platform) !== 'darwin' && !deps.atLaunch) process.stderr.write('#4491 note: off macOS ' + agentName + ' gets permission rules only (its shell is not sandboxed)\n');
     const perms = cur.permissions && typeof cur.permissions === 'object' && !Array.isArray(cur.permissions) ? cur.permissions : {};
@@ -956,6 +964,9 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
       try { fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* gone */ } throw e; }   // review 24
     }
     cleanLocalSettings(path.join(settingsDir, 'settings.local.json'));
+    // #5516 review 1: the guard is written in full first; a PATH entry it could not cover only makes it NOT WHOLE (said),
+    // never a reason to write nothing.
+    if (rules.launchUnsafe && rules.launchUnsafe.length) return { ok: false, because: 'the PATH this agent starts with has an entry Kosmos could not cover (' + rules.launchUnsafe.join(', ') + '); the rest of the guard is in place' };
     return { ok: true };
   } catch (err) {
     return { ok: false, because: String((err && err.message) || err) };
