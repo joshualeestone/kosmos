@@ -102,9 +102,10 @@ const launchidentity = require('./launchidentity'); // #1704: the per-Kosmos lau
  */
 /* #2140 (Josh, 0.6.35 feedback item 10): the Claude picker is ordered
    MOST-POWERFUL-FIRST, in Josh's exact order. #3459 (2026-09-23) added Opus 5.5
-   ahead of Opus 5, #4439 (2026-09-28) added Sonnet 5.5 ahead of Sonnet 5, and #5626
-   (2026-10-08) added Haiku 5.5 ahead of Haiku 4.5, so the order is now: Fable 5.1,
-   Fable 5, Opus 5.5, Opus 5, Opus 4.8, Sonnet 5.5, Sonnet 5, Haiku 5.5, Haiku 4.5. The array order IS the display order (the picker
+   ahead of Opus 5, #4439 (2026-09-28) added Sonnet 5.5 ahead of Sonnet 5,
+   and #5626 (2026-10-08) added Haiku 5.5 ahead of Haiku 4.5, so the order is
+   now: Fable 5.1, Fable 5, Opus 5.5, Opus 5, Opus 4.8, Sonnet 5.5, Sonnet 5,
+   Haiku 5.5, Haiku 4.5. The array order IS the display order (the picker
    renders MODELS in sequence), so this list is the single source of that order;
    create.test.js and model-sort-order-2284.test.js assert it exactly. The DEFAULT
    is unchanged (Sonnet 5,
@@ -150,7 +151,7 @@ const MODELS = [
   { key: 'haiku55', provider: 'anthropic', label: 'Claude Haiku 5.5', arg: 'claude-haiku-5-5',
     why: 'The newest Haiku, with more recent knowledge (to June 2026). The quickest and the cheapest, for small jobs done often.' },
   { key: 'haiku', provider: 'anthropic', label: 'Claude Haiku 4.5', arg: 'claude-haiku-4-5-20251001',
-    why: 'The quickest and the cheapest. For small, simple jobs done often.' },
+    why: 'The previous Haiku generation. Quick, for small, simple jobs done often.' },
 ];
 
 /**

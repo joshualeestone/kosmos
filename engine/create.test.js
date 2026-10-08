@@ -3378,18 +3378,6 @@ test('a different choice comes back different, and every model in the list round
 /* #4439: the card's own acceptance line, asserted for the one new model by name rather than
    left to the loop above: an agent created on Sonnet 5.5 is launched with claude-sonnet-5-5,
    and its card calls it "Claude Sonnet 5.5". The control is the Sonnet 5 agent beside it. */
-test('#5626: an agent created on Haiku 5.5 launches with claude-haiku-5-5 and is named Claude Haiku 5.5', WIN_LAUNCHD, () => {
-  recorder();
-  create.setDryRun(false);
-  const status = require('./status');
-  const r = create.createAgent({ ...BINS, name: 'haikufivefive', role: 'pm', model: 'haiku55' });
-  assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
-  assert.equal(plannedModel('haikufivefive'), 'claude-haiku-5-5');
-  assert.equal(status.modelDisplayName(plannedModel('haikufivefive')), 'Claude Haiku 5.5');
-  const c = create.createAgent({ ...BINS, name: 'haikufourfive', role: 'pm', model: 'haiku' });
-  assert.equal(c.outcome, create.OUTCOME.CREATED, c.because);
-  assert.equal(plannedModel('haikufourfive'), 'claude-haiku-4-5-20251001', 'CONTROL: Haiku 4.5 is still Haiku 4.5');
-});
 
 test('#4439: an agent created on Sonnet 5.5 launches with claude-sonnet-5-5 and is named Claude Sonnet 5.5', WIN_LAUNCHD, () => {
   recorder();
@@ -3402,6 +3390,21 @@ test('#4439: an agent created on Sonnet 5.5 launches with claude-sonnet-5-5 and 
   const c = create.createAgent({ ...BINS, name: 'sonnetfive', role: 'pm', model: 'sonnet' });
   assert.equal(c.outcome, create.OUTCOME.CREATED, c.because);
   assert.equal(plannedModel('sonnetfive'), 'claude-sonnet-5', 'CONTROL: Sonnet 5 is still Sonnet 5');
+});
+
+/* #5626: the card's acceptance line for Haiku 5.5, as #4439's for Sonnet 5.5 above: an agent created on Haiku 5.5 is
+   launched with claude-haiku-5-5 and its card calls it "Claude Haiku 5.5". The control is the Haiku 4.5 agent beside it. */
+test('#5626: an agent created on Haiku 5.5 launches with claude-haiku-5-5 and is named Claude Haiku 5.5', WIN_LAUNCHD, () => {
+  recorder();
+  create.setDryRun(false);
+  const status = require('./status');
+  const r = create.createAgent({ ...BINS, name: 'haikufivefive', role: 'pm', model: 'haiku55' });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
+  assert.equal(plannedModel('haikufivefive'), 'claude-haiku-5-5');
+  assert.equal(status.modelDisplayName(plannedModel('haikufivefive')), 'Claude Haiku 5.5');
+  const c = create.createAgent({ ...BINS, name: 'haikufourfive', role: 'pm', model: 'haiku' });
+  assert.equal(c.outcome, create.OUTCOME.CREATED, c.because);
+  assert.equal(plannedModel('haikufourfive'), 'claude-haiku-4-5-20251001', 'CONTROL: Haiku 4.5 is still Haiku 4.5');
 });
 
 /**
@@ -5952,6 +5955,10 @@ test('#5626: the picker offers Claude Haiku 5.5 by its published id, keeps Haiku
   assert.equal(row.provider, 'anthropic');
   assert.equal(row.label, 'Claude Haiku 5.5');
   assert.ok(!row.default, 'Haiku 5.5 must not be the default');
+  // The why line states a dated fact, the knowledge cutoff (June 2026, Anthropic's models page): pinned, so a change to it
+  // is deliberate and re-checked against the source.
+  assert.equal(row.why, 'The newest Haiku, with more recent knowledge (to June 2026). The quickest and the cheapest, for small jobs done often.');
+  assert.equal(create.MODELS.find((m) => m.arg === 'claude-haiku-4-5-20251001').why, 'The previous Haiku generation. Quick, for small, simple jobs done often.', 'Haiku 4.5 still claims to be the cheapest');
   assert.equal(status.modelDisplayName('claude-haiku-5-5'), 'Claude Haiku 5.5', 'the board names it as the picker does');
   // Josh, 10-08: "Let's not delete any other Claude models". Every model that was offered is still offered.
   for (const kept of ['claude-fable-5-1', 'claude-fable-5', 'claude-opus-5-5', 'claude-opus-5', 'claude-opus-4-8', 'claude-sonnet-5-5', 'claude-sonnet-5', 'claude-haiku-4-5-20251001']) {
