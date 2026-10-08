@@ -41,6 +41,13 @@ session('agent', AGENT, 'm-agent', 'claude-opus-5-5', 100);
 session('personal', PERSONAL, 'm-personal', 'claude-personal-model', 7000);
 session('sub', SUB, 'm-sub', 'claude-sub-model', 300);
 
+/* Review 7: every `complete: false` below is preceded by this CONTROL in the same state, so a fault an earlier test
+   left in the shared sandbox cannot make it pass for the wrong reason. */
+async function wholeBefore(what) {
+  const w = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [AGENT] }, NOPROV));
+  assert.equal(w.complete, true, 'CONTROL: the count was already incomplete before ' + what + ', so the check below proves nothing');
+}
+
 test('#5532: only sessions launched from this Kosmos\'s own agent folders count, per model; a subfolder is not claimed', async () => {
   // CONTROL: the computer-wide scan sees all three sessions, so what the scoped reader leaves out is real.
   const all = await usage.scanUsage({ sinceDay: TODAY, untilDay: TODAY });
@@ -105,10 +112,11 @@ test('#5532 review 1: a subagent with no top-level transcript counts for nobody;
   assert.ok((all.folders[TODAY][AGENT] || {}).input_tokens >= 11, 'the orphan rule leaked into the usage screen\'s per-folder totals');
 });
 
-test('#5532 review 1: an unreadable transcript or a failing scan gives complete: false, never a throw; relative folders count for nobody', { skip: NO_CHMOD && 'chmod cannot make a file unreadable here' }, async (t) => {
+test('#5532 review 1: an unreadable transcript or a failing scan gives complete: false, never a throw', { skip: NO_CHMOD && 'chmod cannot make a file unreadable here' }, async (t) => {
   const file = path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects', 'locked', 's.jsonl');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify({ type: 'user', cwd: AGENT, timestamp: TODAY + 'T01:00:00.000Z' }) + '\n');
+  await wholeBefore('the transcript was locked');
   fs.chmodSync(file, 0o000);
   t.after(() => { try { fs.chmodSync(file, 0o600); } catch { /* removed with the sandbox */ } });
   const w = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [AGENT] }, NOPROV));
@@ -116,6 +124,9 @@ test('#5532 review 1: an unreadable transcript or a failing scan gives complete:
   fs.chmodSync(file, 0o600);
   const thrown = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [AGENT] }, { scanUsage: async () => { throw new Error('no roots'); }, scanProviders: NOPROV.scanProviders }));
   assert.deepEqual(thrown, { byDay: {}, complete: false });
+});
+
+test('#5532 review 1: relative folders count for nobody', async () => {
   const rel = await usage.worldUsageByModel(1, { agentDirs: ['.', AGENT], scanUsage: async () => ({ folderModels: { [TODAY]: { '.': { 'claude-rel': { input_tokens: 5, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 } } } }, unreadable: 0 }), scanProviders: NOPROV.scanProviders });
   assert.deepEqual(rel.byDay, {}, 'a relative folder was counted');
 });
@@ -141,6 +152,7 @@ test('#5532 review 2: a home folder or a root as an agent folder claims nothing;
   assert.equal((asHome.byDay[TODAY] || {})['claude-home-session'], undefined, 'an agent folder set to the home folder claimed the person\'s own session');
   const asRoot = await usage.worldUsageByModel(1, Object.assign({ agentDirs: ['/'] }, NOPROV));
   assert.deepEqual(asRoot.byDay, {});
+  await wholeBefore('a gone folder was added');
   const gone = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [AGENT, path.join(SANDBOX, 'workers', 'deleted-agent')] }, NOPROV));
   assert.equal(gone.complete, false, 'a gone agent folder was reported as a complete count');
   assert.ok(gone.byDay[TODAY]['claude-opus-5-5'], 'the agents that remain were not counted');
@@ -152,6 +164,7 @@ test('#5532 review 3: a skipped parent that cannot be head-read makes the count 
   fs.writeFileSync(parent, JSON.stringify({ type: 'user', cwd: AGENT, timestamp: '2020-01-01T00:00:00.000Z' }) + '\n');
   const old = new Date(Date.now() - 5 * 86400000);
   fs.utimesSync(parent, old, old);   // last written before the window: skipped, then head-read for its subagent
+  await wholeBefore('the parent was locked');
   fs.chmodSync(parent, 0o000);
   t.after(() => { try { fs.chmodSync(parent, 0o600); } catch { /* removed with the sandbox */ } });
   sub('oldkid/sess', AGENT, 'm-oldkid', 'claude-oldkid-sub', 8);
@@ -162,6 +175,7 @@ test('#5532 review 3: a skipped parent that cannot be head-read makes the count 
 test('#5532 review 4: a project folder that cannot be listed makes the count incomplete', { skip: NO_CHMOD && 'chmod cannot make a folder unlistable here' }, async (t) => {
   const dir = path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects', 'locked-dir');
   fs.mkdirSync(dir, { recursive: true });
+  await wholeBefore('the folder was locked');
   fs.chmodSync(dir, 0o000);
   t.after(() => { try { fs.chmodSync(dir, 0o700); } catch { /* removed with the sandbox */ } });
   const w = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [AGENT] }, NOPROV));
@@ -179,8 +193,25 @@ test('#5532 review 5: the folders come from this Kosmos\'s roster, and a shared 
   // A parent that contains another agent's folder (the workers root, a person's ~/work) claims nothing.
   const workers = path.join(SANDBOX, 'workers');
   session('in-workers', workers, 'm-workers', 'claude-workers-root', 44);
+  await wholeBefore('the parent folder was listed');
   const w = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [workers, AGENT] }, NOPROV));
   assert.equal((w.byDay[TODAY] || {})['claude-workers-root'], undefined, 'a folder containing another agent\'s folder claimed a session');
   assert.ok((w.byDay[TODAY] || {})['claude-opus-5-5'], 'the agent beneath it lost its own usage');
   assert.equal(w.complete, false, 'a dropped parent folder left the count looking whole');
+});
+
+test('#5532 review 7: no file outside the tests passes worldUsageByModel a second argument (its deps are for tests only)', () => {
+  const { execFileSync } = require('node:child_process');
+  const root = path.join(__dirname, '..');
+  const files = execFileSync('git', ['-C', root, 'ls-files', '*.js'], { encoding: 'utf8' }).split('\n').filter((f) => f && !/\.test\.js$/.test(f) && !f.startsWith('test-support/'));
+  // CONTROL: the file that defines it is among those read, so an empty list cannot pass.
+  assert.ok(files.includes('engine/usage.js'), 'CONTROL: the tracked-file listing did not reach engine/usage.js');
+  const CALL = /worldUsageByModel\s*\(([^)]*)\)/g;   // [^)] spans lines, so a call split over lines is read whole
+  const bad = [];
+  for (const f of files) {
+    const text = fs.readFileSync(path.join(root, f), 'utf8');
+    for (const m of text.matchAll(CALL)) if (m[1].includes(',')) bad.push(f + ': ' + m[0].replace(/\s+/g, ' ').slice(0, 80));
+  }
+  // engine/usage.js's own definition takes (days, deps); it is the one allowed.
+  assert.deepEqual(bad.filter((b) => !b.startsWith('engine/usage.js: worldUsageByModel(days, deps)')), [], 'a caller passes deps, and could hand it a folder listing that sweeps in another Kosmos');
 });

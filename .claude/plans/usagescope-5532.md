@@ -7,7 +7,7 @@ sessions outside Kosmos. This branch adds the reader the rollup needs to send us
 ## What this branch builds
 - engine/usage.js `scanUsage` and engine/usageproviders.js `Acc` (Codex, Gemini CLI, Grok, Antigravity) also keep a
   per-(day, launch folder, model) split, `folderModels`, from the same rows they already count.
-- engine/usage.js `worldUsageByModel(days, agentDirs)`: fresh scans of the window (Claude with the mtime cut, the other
+- engine/usage.js `worldUsageByModel(days, deps)` (folders from `worldAgentDirs()`, this Kosmos's roster; `deps` is for tests only and a test refuses a non-test caller passing it): fresh scans of the window (Claude with the mtime cut, the other
   providers in full), keeping only rows whose launch folder IS one of the agent folders after realpath; a subfolder is
   not claimed, and a transcript with no folder is nobody's. Returns `{ byDay: { day: { model: bucket } }, complete }`;
   complete is false when a provider was only partly read (or threw).
@@ -76,3 +76,14 @@ sessions outside Kosmos. This branch adds the reader the rollup needs to send us
 - FIXED: the doc comment sits on worldUsageByModel again; the walk's onError note joins its function; an arity test
   replaced by a behaviour test (a list passed as the second argument is not used).
 - DUPLICATE: the dedup undercount (documented).
+
+## Review 7
+- deps.agentDirs CAN override the roster; the comments now say so, and a test refuses any non-test tracked file that
+  passes worldUsageByModel a second argument (a call split over lines is read whole). Mutation: a planted call in
+  engine/usage.js reddens it.
+- Every `complete: false` check is preceded by a `complete: true` CONTROL in the same state. Mutation: leaving the
+  review 4 folder locked reddens review 5's control.
+- The relative-folder check moved out of the chmod-gated test, so it runs on Windows and as root.
+- Docblock: the roster rule said once; dedup order is per root, then configRoots() order.
+- Declined: ENOENT between walk and read counts as unreadable (the safe direction: a false incomplete, never a short
+  count passed as whole); folderModels on every scan (never serialized, small cost; an opt-in flag adds a second path).

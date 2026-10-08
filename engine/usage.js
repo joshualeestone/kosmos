@@ -362,9 +362,8 @@ function worldAgentDirs() {
  * agent can be UNDER-counted when a person's own transcript holds the same message: the safe direction.
  * An agent folder that is the home folder or a filesystem root is nobody's; an agent folder that no longer exists makes
  * the result incomplete (its past sessions cannot be matched by real path).
- * The folders are this Kosmos's own roster (worldAgentDirs), never a caller's list; for the record, the rule it follows:
- * 🛑 the folders MUST be this Kosmos's own roster (register.known() through create.workerDir, as the usage screen builds
- * it), NEVER a listing of the workers folder: in the default world several Kosmoses on one computer share that folder,
+ * 🛑 The folders are this Kosmos's own roster (worldAgentDirs: register.known() through create.workerDir, as the usage
+ * screen builds it), NEVER a listing of the workers folder: in the default world several Kosmoses on one computer share that folder,
  * and a listing would sweep in another Kosmos's agents (review 3).
  * A folder that contains another agent's folder (a shared parent) claims nothing, and the count says incomplete.
  * RESIDUAL (review 6): ownership is by launch folder only. In the default world several Kosmoses share the workers
@@ -372,12 +371,15 @@ function worldAgentDirs() {
  * cannot be told apart here and count as this world's. The rollup sends usage only under consent words that say
  * "sessions launched in your agents' folders". `days` is meant to be small (the
  * rollup's seven): every call is a fresh scan of the window.
- * `deps` (scanUsage, scanProviders, realpath, home, agentDirs) is for tests only.
+ * `deps` (scanUsage, scanProviders, realpath, home, agentDirs) is for tests only: `deps.agentDirs` overrides the roster,
+ * so a caller COULD pass a listing; a test (usage-world-5532, review 7) refuses any non-test file that passes a second
+ * argument. Within one config root the copy whose path sorts first is the one counted; across roots, the root's place
+ * in configRoots() decides.
  */
 async function worldUsageByModel(days, deps) {
   const d = deps || {};
-  /* The folders come from this Kosmos's roster, not from the caller (review 5): no caller can pass a listing that
-     sweeps in another Kosmos's agents. `deps.agentDirs` is for tests only. */
+  /* The folders come from this Kosmos's roster (review 5). `deps.agentDirs` overrides it for tests only; the review 7
+     test refuses a non-test caller that passes deps, so no production path can hand in a listing. */
   const agentDirs = Array.isArray(d.agentDirs) ? d.agentDirs : worldAgentDirs();
   if (!agentDirs) return { byDay: {}, complete: false };   // the roster could not be read: say so
   const n = Math.min(MAX_DAYS, Math.max(1, Math.trunc(Number(days)) || 1));
