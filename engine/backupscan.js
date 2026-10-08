@@ -37,7 +37,7 @@
 const path = require('path');
 const { mask, WITHHELD, UNCHECKED } = require('./secretmask');
 
-const CONFIGISH = '(json|ya?ml|toml|ini|txt|conf|cfg|xml|properties)';
+const CONFIGISH = '(json|ya?ml|toml|ini|txt|conf|cfg|xml|properties|csv)';
 // Credential-shaped paths, matched case-insensitively on a forward-slash relative path.
 // Templates hold placeholders, not secrets: kept (the final content check still runs on them).
 const TEMPLATE = /\.(example|sample|template|dist)$/i;
