@@ -21,6 +21,7 @@ const CHUNK_NAME_RE = /^[0-9a-f]{64}$/;
 // under twice that. A bigger object is refused before it is decrypted (raise maxChunkObject for other chunk sizes).
 const MAX_CHUNK_OBJECT = 2 * CDC.max + 4096;
 const MAX_SKIPPED_REPORTED = 10000;
+const WORK_PER_ENTRY = 8192;
 // Bounds on the manifest: its object is refused before it is decrypted, its entry count before it is walked. A
 // manifest is parsed whole, so these stay modest (about 270 bytes an entry); the caller can raise both.
 const MAX_MANIFEST_OBJECT = 128 * 1024 * 1024;
@@ -83,11 +84,12 @@ function collidingPaths(entries) {
  * Restore one snapshot. Resolves to { restored: [path], failed: [{ path, why }], skippedAtBackup: [...] }, or null
  * when the manifest itself does not verify and open (wrong device key for the time, wrong context, tampering), or
  * exceeds maxManifestObject bytes or maxFiles entries. maxTotalBytes is REQUIRED (the caller sets it from free disk) and caps the
- * bytes committed: a file that would pass it fails before anything is fetched. Bytes verified and written count
- * against twice that whether or not their file commits, so files that fail late are bounded too.
+ * bytes committed: a file that would pass it fails before anything is fetched. Every fetched object's bytes count
+ * against twice that (plus 8 KiB an entry for sealing overhead) whether or not it verifies, so a hostile store or
+ * files that fail late are bounded too.
  *
- *   fetchChunk(name) -> Buffer or Uint8Array | null, or a promise of one (null: the chunk is not stored). It should
- *     refuse to download an object larger than maxChunkObject; restore refuses one before decrypting it.
+ *   fetchChunk(name, { maxBytes }) -> Buffer or Uint8Array | null, or a promise of one (null: the chunk is not
+ *     stored). It should refuse to download more than maxBytes; restore refuses a larger object before decrypting it.
  *   sink.begin(path) -> { write(buf), commit(), abort() } (each may return a promise). Bytes are written BEFORE the
  *     file is verified, so the sink must write somewhere other than the final path, leave any existing file there
  *     untouched until commit, and publish atomically on commit. abort must be safe at any point, including after
@@ -124,10 +126,10 @@ async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, 
     } else wellFormed.push(f);
   }
   const clash = collidingPaths(wellFormed);
-  // Two budgets: bytes committed (maxTotalBytes), and bytes verified and written whether or not the file then
-  // commits (twice that), so files that fail late cannot make a restore churn without end.
+  // Two budgets: bytes committed (maxTotalBytes), and bytes FETCHED whether or not they verify or their file commits
+  // (twice that, plus room for each entry's sealing overhead: a small chunk is padded to a 4 KiB frame).
   let budget = maxTotalBytes;
-  const work = { left: 2 * maxTotalBytes };
+  const work = { left: 2 * maxTotalBytes + WORK_PER_ENTRY * wellFormed.length };
   for (const f of wellFormed) {
     if (clash.has(f.path)) { failed.push({ path: forReport(f.path), why: 'another entry lands on the same file or folder' }); continue; }
     if (f.size > budget || f.size > work.left) { failed.push({ path: forReport(f.path), why: 'the restore is over its byte budget' }); continue; }
@@ -151,16 +153,17 @@ async function restoreFile(f, { memberSk, namingKey, fetchChunk, sink, maxChunkO
     let size = 0;
     for (const name of f.chunks) {
       let obj;
-      try { obj = await fetchChunk(name); } catch { return await abortWith(out, 'a chunk could not be fetched'); }
+      try { obj = await fetchChunk(name, { maxBytes: Math.min(maxChunkObject, work.left) }); } catch { return await abortWith(out, 'a chunk could not be fetched'); }
       if (obj == null) return await abortWith(out, 'a chunk is missing');
       if (!(obj instanceof Uint8Array)) return await abortWith(out, 'a chunk did not verify (forged, swapped or damaged)');
       if (obj.length > maxChunkObject) return await abortWith(out, 'a chunk is larger than any real chunk');
+      if (obj.length > work.left) { work.left = 0; return await abortWith(out, 'the restore is over its byte budget'); }
+      work.left -= obj.length;
       if (!Buffer.isBuffer(obj)) obj = Buffer.from(obj.buffer, obj.byteOffset, obj.length);
       const pt = openVerifiedChunk(memberSk, namingKey, name, obj);
       if (!pt || !pt.length) return await abortWith(out, 'a chunk did not verify (forged, swapped or damaged)');
       size += pt.length;
       if (size > f.size) return await abortWith(out, 'the file does not match the size recorded at upload');
-      work.left -= pt.length;  // cannot go negative: the file fit before its first fetch, and stays within f.size
       hash.update(pt);
       await out.write(pt);
     }

@@ -264,15 +264,19 @@ test('#5536 a restore with no byte budget is refused, and a sink that cannot beg
   assert.deepEqual(sink.aborted, [], 'nothing to abort when begin itself threw');
 });
 
-test('#5536 bytes written for files that then fail count against twice the budget, so late failures cannot churn forever', async () => {
-  const { run, fetched } = handMade((entry) => [...['w1', 'w2', 'w3', 'w4', 'w5'].map((p) => entry(`${p}.md`, { sha256: '0'.repeat(64) })), entry('ok.md')]);
-  const { r } = await run(memorySink(), { maxTotalBytes: 200 });
-  assert.equal(fetched.length, 4, 'four 100-byte failures use the 400-byte work budget; nothing more is fetched');
-  assert.deepEqual(r.failed.slice(4).map((f) => f.why), ['the restore is over its byte budget', 'the restore is over its byte budget']);
-  const before = fetched.length;
-  const { r: big } = await run(memorySink(), { maxTotalBytes: BIG });
-  assert.equal(fetched.length - before, 6, 'CONTROL: with room, every file is tried');
-  assert.deepEqual(big.restored, ['ok.md']);
+test('#5536 every fetched byte counts against the work budget, so a hostile store cannot make a restore churn', async () => {
+  // 50 one-chunk entries of 100 bytes under maxTotalBytes 100: work budget 2 x 100 + 50 x 8192 = 409,800 bytes.
+  const { run, object } = handMade((entry) => Array.from({ length: 50 }, (_, i) => entry(`f${i}.md`)));
+  const junk = crypto.randomBytes(100_000);
+  let n = 0, bytes = 0;
+  const limits = [];
+  const { r } = await run(memorySink(), { maxTotalBytes: 100, fetchChunk: (_name, opts) => { n++; bytes += junk.length; limits.push(opts.maxBytes); return junk; } });
+  assert.equal(n, 5, 'four 100 KB objects fit, the fifth overdraws and stops the restore fetching');
+  assert.ok(bytes <= 5 * junk.length);
+  assert.deepEqual(limits.slice(0, 2), [409800, 309800], 'fetchChunk is told how much it may download');
+  assert.equal(r.failed.filter((f) => f.why === 'the restore is over its byte budget').length, 46);
+  const ok = await run(memorySink(), { maxTotalBytes: 100, fetchChunk: () => object });
+  assert.deepEqual(ok.r.restored, ['f0.md'], 'CONTROL: a real chunk restores within the same budget');
 });
 
 test('#5536 caller mistakes throw instead of reading as tampering', async () => {
