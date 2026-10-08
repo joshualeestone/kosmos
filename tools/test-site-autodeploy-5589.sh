@@ -20,9 +20,9 @@ advance() { echo "$1" > "$T/work/index.html"; git -C "$T/work" commit -q -am "$1
 # The deploy seam records each call (the sha it saw checked out) and exits with $DEPLOY_RC.
 DEPLOYS="$T/deploys"; : > "$DEPLOYS"
 export KOSMOS_AUTODEPLOY_SITE="$T/site" KOSMOS_AUTODEPLOY_STATE="$T/state"
-export KOSMOS_AUTODEPLOY_DEPLOY='git -C "$KOSMOS_SITE" rev-parse HEAD >> '"$DEPLOYS"'; exit "${DEPLOY_RC:-0}"'
+export KOSMOS_AUTODEPLOY_DEPLOY='git -C "$KOSMOS_SITE" rev-parse HEAD >> '"$DEPLOYS"'; echo deploy-said-this; exit "${DEPLOY_RC:-0}"'
 export KOSMOS_AUTODEPLOY_PS="printf %s\\n idle"
-tick() { bash "$AD"; RC=$?; }
+tick() { OUT=$(bash "$AD" 2>&1); RC=$?; }
 ndeploys() { wc -l < "$DEPLOYS" | tr -d ' '; }
 
 # 1) first tick: nothing deployed yet, so main is deployed and recorded.
@@ -50,6 +50,8 @@ H3=$(advance three)
 DEPLOY_RC=1 tick
 { [ "$RC" = 1 ] && [ "$(ndeploys)" = 3 ] && grep -q "^$H3 rc=1 " "$T/state/last-failure" && [ "$(cat "$T/state/last-deployed")" = "$H2" ]; } \
   && pass "a failed deploy is recorded as a failure and not as deployed" || bad "failed deploy bookkeeping (rc=$RC)"
+{ printf '%s' "$OUT" | grep -q "deploy-said-this" && printf '%s' "$OUT" | grep -q "FAIL: deploy of site main"; } \
+  && pass "a failed tick prints the deploy's output and the reason on its own output (what a GitHub run shows)" || bad "failed tick output not shown: $OUT"
 tick
 { [ "$RC" = 0 ] && [ "$(ndeploys)" = 3 ]; } && pass "the same failed sha is not retried" || bad "retried a failed sha (deploys=$(ndeploys))"
 H4=$(advance four)
