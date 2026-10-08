@@ -269,9 +269,7 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
      ruleAbs cannot write as a drive or share (the device form \\.\C:\, a drive-relative C:foo) still carries a `:` or
      starts `./`: refused the same way, rather than written as a rule that matches nothing. */
   const plain = (p) => {
-    const w = ruleAbs(p).slice(2);
-    // on Windows: any colon left after the drive conversion, a `./` device form, or no drive at all (a share) is refused
-    if (!RULE_SYNTAX.test(w) && !(process.platform === 'win32' && (/:/.test(w) || /^\.\//.test(w) || !/^[a-z](\/|$)/.test(w)))) return true;
+    if (!ruleUnwritable(p)) return true;
     process.stderr.write(`#4752: no rule for ${p}: its path has a character the rule syntax reads as a pattern, or a form it cannot write\n`);
     return false;
   };
@@ -319,6 +317,13 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
     process.stderr.write(`#4752: the setup guide's rules for the older data folder and the other worlds' stores were left out: ${(err && err.message) || err}\n`);
   }
   return { rules: withNativeTwins(rules), entryBase, extra };
+}
+/* Whether `p` cannot be written as a rule: once written (ruleAbs), it has a character the rule syntax reads as a
+   pattern; or, on Windows, the native path is not a drive path (C:\..., or \\?\C:\...): a share, the device form
+   \\.\C:\ or a drive-relative C:foo would be written as a rule that matches nothing. Pure, the platform passed in. */
+function ruleUnwritable(p, platform = process.platform) {
+  if (RULE_SYNTAX.test(ruleAbs(p, platform).slice(2))) return true;
+  return platform === 'win32' && !/^([A-Za-z]:[\\/]|[\\/]{2}\?[\\/][A-Za-z]:[\\/])/.test(String(p));
 }
 /* The characters the rule syntax reads as a pattern or a bracket (and a backslash): a path with one gets no rule. */
 const RULE_SYNTAX = /[*?[\](){}!\\]/;
@@ -380,7 +385,8 @@ function withNativeTwins(rules, platform = process.platform) {
   const out = [];
   for (const r of rules) {
     out.push(r);
-    const m = /^Read\(\/\/([a-z]\/[^)]*?)((?:\/\*\*|\/\*\/[^)]*|\.\*)?)\)$/.exec(r);
+    // the path is a drive letter alone (a drive root) or a drive and a path; the suffix is what the writer added
+    const m = /^Read\(\/\/([a-z](?:\/[^)]*?)??)((?:\/\*\*|\/\*\/[^)]*|\.\*)?)\)$/.exec(r);
     if (!m) continue;
     const native = rulePath(m[1], 'win32');
     if (native) { const twin = `Read(//${native}${m[2]})`; if (!out.includes(twin)) out.push(twin); }
@@ -405,9 +411,11 @@ function wasEntryRule(rule, base, platform = process.platform) {
    folder) is left out too: migrateKept keeps old rules beside their new form, so the refusal must reach both
    spellings or the old one would cut the guide off. Pure, with the platform passed in. */
 function finalDeny(kept, safe, refused, platform = process.platform) {
+  // on Windows a path's case does not matter, so an old rule spelt in another case still reaches its refused new form
+  const refusedLower = new Set([...refused].map((x) => x.toLowerCase()));
   return [...new Set([...kept, ...safe])].filter((r) => {
     if (refused.has(r)) return false;
-    if (platform === 'win32') { const eq = legacyWinEquivalent(r); if (eq && refused.has(eq)) return false; }
+    if (platform === 'win32') { const eq = legacyWinEquivalent(r); if (eq && refusedLower.has(eq.toLowerCase())) return false; }
     return true;
   });
 }
@@ -982,6 +990,7 @@ module.exports = {
   rulePath,
   legacyWinEquivalent,
   withNativeTwins,
+  ruleUnwritable,
   migrateKept,
   finalDeny,
   SETUP_ROLE_KEY,

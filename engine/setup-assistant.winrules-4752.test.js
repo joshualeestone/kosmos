@@ -144,6 +144,7 @@ test('#4752 on a Windows host: guardGuideFolder leaves out a rule taking in the 
   assert.ok(said.some((l) => l.includes('own folder') && l.includes(newForm)), 'the refusal of the rule taking in the guide\'s folder was not said: ' + said.join(' | '));
   assert.equal(deny.includes(newForm), false, 'the new-form rule taking in the guide\'s folder was written');
   assert.equal(deny.includes(oldNative), false, 'the old spelling of that rule survived and still cuts the guide off');
+  assert.equal(deny.some((r) => sa.legacyWinEquivalent(r) === newForm), false, 'some old spelling of the refused rule survived');
   assert.ok(deny.includes(personal), 'CONTROL: a person\'s own rule elsewhere was dropped');
   assert.ok(deny.includes(`Read(${sa.ruleAbs(dataOwn, 'win32')}/**)`), 'CONTROL: the data folder rule is missing, or not in the //c/ form');
 });
@@ -171,4 +172,22 @@ test('#4752: on Windows every absolute rule is also written in the old native sp
 
 test('#4752: an old rule for a drive root maps to the same rule ruleAbs writes now', () => {
   assert.equal(sa.legacyWinEquivalent('Read(//D:\\/**)'), `Read(${sa.ruleAbs('D:\\', 'win32')}/**)`);
+});
+
+test('#4752: on Windows a path that is not a drive path gets no rule (said), off Windows the same strings are ordinary', () => {
+  for (const p of ['\\\\srv\\share\\K', '\\\\s\\share\\K', '\\\\?\\UNC\\srv\\share', '\\\\.\\C:\\x', 'c:foo']) {
+    assert.equal(sa.ruleUnwritable(p, 'win32'), true, 'written as a rule that matches nothing on Windows: ' + p);
+  }
+  for (const p of ['C:\\Users\\a', 'd:/data', '\\\\?\\C:\\Users\\a']) assert.equal(sa.ruleUnwritable(p, 'win32'), false, 'CONTROL: a drive path refused: ' + p);
+  assert.equal(sa.ruleUnwritable('/srv/share/K', 'darwin'), false, 'CONTROL: an ordinary POSIX path refused');
+  assert.equal(sa.ruleUnwritable('/a/b*c', 'darwin'), true, 'CONTROL: a pattern character not refused');
+});
+
+test('#4752: a refusal reaches an old rule spelt in another case on Windows', () => {
+  const refused = new Set(['Read(//c/Users/a/old/**)']);
+  assert.deepEqual(sa.finalDeny(['Read(//C:\\Users\\A\\old/**)'], [], refused, 'win32'), []);
+});
+
+test('#4752: a drive root\'s twin is the old writer\'s spelling', () => {
+  assert.deepEqual(sa.withNativeTwins(['Read(//d/**)'], 'win32'), ['Read(//d/**)', 'Read(//D:\\/**)']);
 });
