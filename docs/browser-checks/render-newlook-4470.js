@@ -274,8 +274,8 @@ const CTRL_LOOK = `(() => {
 /* #4470, the phone slice, measured as drawn (round 1: a property read is not a position). In each thread (the room and
    the DM, shown for the read), an agent's message and one of yours are made with a two-line body: an agent's avatar
    top against its name's top (the avatar at the top); yours: whether its avatar shows, whether the bubble's tail and
-   its ground mask (14px past the bubble) fit inside the thread, and whether the thread scrolls sideways (#5551). While the project
-   page is shown: whether the gear shares the crumb's line, its right edge and its row's right margin (the touch tap
+   its ground mask (14px past the bubble) fit inside the thread, and whether the thread scrolls sideways (#5551).
+   While the project page is shown: whether the gear shares the crumb's line, its right edge and its row's right margin (the touch tap
    area needs 4px; a plain viewport cannot show the overflow itself), and the same with a long project name. New
    task's corners. Everything made is removed and every panel put back. */
 const PHONE_LOOK = `(() => {
