@@ -9,7 +9,9 @@
  *                                                                          (backs up, then removes EXACTLY that plan)
  *
  * 🛑 --apply removes only the plan a person read: it rebuilds the plan, and if its digest is not the one the dry run
- * printed (an agent missing from a degraded roster, a file changed), it stops. --port must equal this account's own
+ * printed (an agent missing from a degraded roster, a token file changed), it stops. The digest covers each token
+ * file's name, key, mtime, newest mint, launchers and token names; for a temp or a link, its name and kind (each is
+ * re-checked to still be a file or a dangling link just before it goes). --port must equal this account's own
  * board port, derived as the kosmos CLI derives it, so the board token can only reach this account's board (with no uid
  * to derive it from, KOSMOS_PORT must say). And --apply needs live execution, which this file's command line opens:
  * a process that never opened it (one that only requires this file) cannot remove anything by calling main. A
@@ -26,7 +28,8 @@
  *   - a writer's leftover temp file, named in the shape the store's writer uses
  *     (`<file>.kosmos-<pid>-[t<thread>-]<started>-<seq>.tmp`), last written before the cutoff;
  *   - a symlink whose target does not exist (a security fixture planted one), named like a token file or the
- *     writer's temp, unless its name is a live agent's.
+ *     writer's temp, unless its name is a live agent's. At ANY age and without the lock: a link that points at
+ *     nothing holds no credential, and the store's writer refuses to write through a link.
  * Anything else in the folder is listed and left alone. A live agent's file is never a candidate,
  * whatever its date.
  *
@@ -57,6 +60,11 @@ const crypto = require('node:crypto');
 /* How long a board may take to answer, and the backup folder's name (beside the store; the tests read it too). */
 const BOARD_TIMEOUT_MS = 10000;
 const BACKUP_PREFIX = 'sendertokens.backup-5418-';
+/* The cutoff must be at least this old: temps are removed on age without the store's lock, so nothing a writer
+   has in flight may be old enough to plan. An hour is far longer than any write takes. */
+const CUTOFF_MARGIN_MS = 60 * 60 * 1000;
+/* Hex characters of the plan digest a person types back: 64 bits, plenty to tell two plans apart. */
+const DIGEST_HEX = 16;
 
 /* The writer's own temp shape (securewrite's tempPath, and sendertoken's before #1787), anchored at the end. Any
    other name is not a temp this store wrote, so it is listed and left alone. */
@@ -171,9 +179,9 @@ function applyPlan(dir, plan, revoke) {
         if (res && res.already) { gone.push(r.name); continue; }
       } else if (r.kind === 'symlink') {
         if (!fs.lstatSync(p).isSymbolicLink()) throw new Error('no longer a link');
-        let gone = false;
-        try { fs.statSync(p); } catch (e) { gone = e && e.code === 'ENOENT'; }
-        if (!gone) throw new Error('its target exists now, or cannot be checked: kept');
+        let targetMissing = false;
+        try { fs.statSync(p); } catch (e) { targetMissing = e && e.code === 'ENOENT'; }
+        if (!targetMissing) throw new Error('its target exists now, or cannot be checked: kept');
         fs.unlinkSync(p);
       } else if (r.kind === 'temp') {
         if (!fs.lstatSync(p).isFile()) throw new Error('no longer a file');
@@ -219,7 +227,6 @@ function spellingsOf(row) {
   return [...out];
 }
 
-const CUTOFF_MARGIN_MS = 60 * 60 * 1000;
 function parseArgs(argv) {
   const out = { apply: false };
   for (let i = 0; i < argv.length; i += 1) {
@@ -230,7 +237,8 @@ function parseArgs(argv) {
     else throw new Error('unknown argument: ' + argv[i]);
   }
   if (!Number.isInteger(out.port) || out.port <= 0 || out.port > 65535) throw new Error('--port is required (the board port for THIS account; never assumed)');
-  const ms = Date.parse(out.cutoff || '');
+  // ISO only (YYYY-MM-DD, optionally with a time): Date.parse would take "1" as the year 2001 and plan nothing.
+  const ms = /^\d{4}-\d{2}-\d{2}([T ][\d:.]+(Z|[+-]\d{2}:?\d{2})?)?$/.test(String(out.cutoff || '')) ? Date.parse(out.cutoff) : NaN;
   if (!Number.isFinite(ms)) throw new Error('--cutoff is required, as an ISO date');
   if (ms > Date.now()) throw new Error('--cutoff is in the future, which would make every file old');
   /* Temps are removed on age alone, without the store's lock (a dangling link holds nothing and is not aged): a cutoff
@@ -257,7 +265,7 @@ function expectedPort(env = process.env) {
 function planDigest(plan) {
   const lines = plan.remove.map((r) => JSON.stringify([r.name, r.kind, r.key || '', r.mtimeMs === undefined ? null : r.mtimeMs,
     r.newestMintMs === undefined ? null : r.newestMintMs, (r.launchers || []).slice().sort(), (r.names || []).slice().sort()])).sort();
-  return crypto.createHash('sha256').update(lines.join('\n')).digest('hex').slice(0, 16);
+  return crypto.createHash('sha256').update(lines.join('\n')).digest('hex').slice(0, DIGEST_HEX);
 }
 
 async function main(argv) {
@@ -329,7 +337,9 @@ async function main(argv) {
   console.log(`Kept by name: ${rows.length} agents on the board (${tokenKeys.filter((k) => rosterKeys.has(k)).length} of ${tokenKeys.length} token files match one), ${removed.length} in the removal records, ${heartbeats.length} with a heartbeat record, ${profiled} with a profile.`);
   console.log(`Would remove ${plan.remove.length}, keep ${plan.keep.length}:`);
   for (const r of plan.remove) {
-    const detail = r.kind === 'token' ? `; token names: ${r.names.join(', ') || 'none'}; launchers: ${r.launchers.join(', ') || 'none'}; newest mint: ${r.newestMintMs ? new Date(r.newestMintMs).toISOString() : 'none'}` : '';
+    const newest = Math.max(r.mtimeMs || 0, r.newestMintMs || 0);
+    const age = newest ? `; silent ${Math.floor((Date.now() - newest) / 86400000)} days` : '';
+    const detail = r.kind === 'token' ? `; token names: ${r.names.join(', ') || 'none'}; launchers: ${r.launchers.join(', ') || 'none'}; newest mint: ${r.newestMintMs ? new Date(r.newestMintMs).toISOString() : 'none'}${age}` : '';
     console.log(`  remove  ${r.name}  (${r.why}${detail})`);
   }
   for (const k of plan.keep) console.log(`  keep    ${k.name}  (${k.why})`);
