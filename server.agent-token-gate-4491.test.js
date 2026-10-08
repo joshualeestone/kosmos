@@ -196,6 +196,24 @@ test('#4884: a vote and the vote standing read are refused at the gate on an age
   assert.ok(!refusedAtGate(g), 'control: the board token plus the agent token did not pass the gate for the standing: ' + g.code);
 });
 
+test('#5574: taking back a community post or comment is refused at the gate on an agent token alone; with the board token it passes', async () => {
+  /* Deliberate, as for a comment (service-comment is not an agent-token route either): it changes what the public sees. */
+  const ID = '1b2c3d4e-0000-4000-8000-000000000001';
+  assert.ok(refusedAtGate(await call('POST', '/api/community/service-withdraw', { headers: { 'x-kosmos-agent-token': agentToken }, body: { kind: 'comment', id: ID } })),
+    'an agent token alone took back a community comment');
+  /* CONTROL: with the board token as well, the same request gets past the gate (the route then answers for itself). */
+  const r = await call('POST', '/api/community/service-withdraw', { headers: { 'x-kosmos-agent-token': agentToken, 'x-kosmos-board-token': BOARD }, body: { kind: 'comment', id: ID } });
+  assert.ok(!refusedAtGate(r), 'control: the board token plus the agent token did not pass the gate: ' + r.code);
+});
+
+test('#5574: editing a community post or comment is refused at the gate on an agent token alone; with the board token it passes', async () => {
+  const ID = '1b2c3d4e-0000-4000-8000-000000000002';
+  assert.ok(refusedAtGate(await call('POST', '/api/community/service-edit', { headers: { 'x-kosmos-agent-token': agentToken }, body: { kind: 'comment', id: ID, body: 'x' } })),
+    'an agent token alone edited a community comment');
+  const r = await call('POST', '/api/community/service-edit', { headers: { 'x-kosmos-agent-token': agentToken, 'x-kosmos-board-token': BOARD }, body: { kind: 'comment', id: ID, body: 'x' } });
+  assert.ok(!refusedAtGate(r), 'control: the board token plus the agent token did not pass the gate: ' + r.code);
+});
+
 test('#4913: an endorsement and a take-back are refused at the gate on an agent token alone; with the board token they pass', async () => {
   /* Deliberate: an endorsement is public under both agents' names, as a post is, so it keeps needing the person's credential too. */
   const body = { name: 'Theo Nguyen', stars: 5, text: 'Careful work.' };

@@ -1043,6 +1043,10 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    as a stub next to it, and the known cost is that the row wraps. #5429: `#d-provider-model`, the switch's model,
    sits beside it on the same terms. */
 #create-model, #create-account, #create-reports, #d-reports, #d-provider-account, #d-provider-model, #pj-one-add, #pj-thread-who { flex: 1; min-width: 220px; }
+/* #5510: the kind-of-business select sizes to its longest option ("A construction or trades business", 290px), which
+   ran 3px past the Settings panel on a 360px phone. It may be no wider than its row; a long option is then shortened
+   in the closed select only (the open list shows it whole). render-settings-fit-5510.js holds it. */
+#community-industry { max-width: 100%; }
 /* #2697 (Josh, design channel 2026-09-10, on the agent Profile tab): the three
    Profile fields each ran the full container width. Josh asked for Name ~25%,
    What they do ~50%, Reports to ~25%, each left-aligned on its own row. Scoped to
@@ -2144,6 +2148,27 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 .worldsw-new:hover { color: var(--gold-edge); }
 .worldsw-new:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
 .worldsw-plus { font-weight: 700; font-size: 1.05em; line-height: 1; }
+/* kosmos#5393 slice 2: the "At a glance" entry and its sheet. */
+.worldsw-glance { display: block; width: 100%; padding: 6px 8px 7px; border: 0; background: none; cursor: pointer;
+  font: var(--text-callout) var(--font-ui); color: var(--k-ink); text-align: left; border-radius: 0; }
+.worldsw-glance:hover { color: var(--gold-edge); }
+.worldsw-glance:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
+.wv-list { display: flex; flex-direction: column; gap: var(--space-4); margin-top: var(--space-4); max-height: 60vh; overflow-y: auto; }
+.wv-world { border: 0.5px solid var(--separator); border-radius: 9px; padding: 10px 12px; }
+.wv-name { font-weight: 600; margin: 0 0 6px; overflow-wrap: anywhere; }
+.wv-here { font-weight: 400; color: var(--label-2); }
+.wv-line { margin: 2px 0; overflow-wrap: anywhere; }
+.wv-muted { color: var(--label-2); }
+/* The sheet sits inside .apphead. In the tab layout .apphead is sticky with z-index 20, its own stacking context, so
+   the sheet's z-index 50 only counted inside the header and floating UI (the assistant button, toasts, menus at
+   40-46) drew over it. While it is open the header takes the layer every other modal has, 50. In the consolidated
+   layout .apphead is static and makes no stacking context, so this rule does nothing there and the sheet's own 50
+   counts at the root, like any modal (render-worldview-5393 measures both). */
+.apphead:has(#wv-modal:not([hidden])) { z-index: 50; }
+/* #5393: the tab layout reserves a scrollbar strip on <html> that no fixed layer paints over (classic scrollbars: the
+   Windows app, CI), so the sheet's dark stopped 15px short of the right edge. While it is up the page does not
+   scroll and reserves nothing, as the restart screen, the first run and the preview do. */
+html:has(#wv-modal:not([hidden])) { overflow: hidden; scrollbar-gutter: auto; }
 /* #2563: the create-time "add my agents from an existing Kosmos" control. Reuses the
    modal field tokens; the list scrolls if the person has many Kosmoses. Each row is a
    clickable label wrapping its checkbox. */
@@ -10582,6 +10607,13 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .msg.you .msg-bd { background-color: var(--nl-grey); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .msg:not(.you) .msg-bd { background-color: var(--k-bg); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .msg .msg-bd::after { background: var(--k-bg); }
+/* #5551: an agent's question in the project room, toward the Sep 28 drawing's "Needs you" card: the corners as soft
+   as the look's other boxes. The hairline and the warm tint STAY, though the drawing has no hairline: #3692 marks a
+   warning by both, and the tint alone is about 1.1:1 against the white page, a box a person can miss. */
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-question { border-radius: 24px; padding: 16px 20px; }
+/* The screen inside: corners eased to match (outer 24 less the inset), so the two curves read as one shape. Seen in a real
+   board: at today's 8px padding the label crowded the 24px curve. */
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-question .pj-screen { border-radius: 12px; }
 /* The composer: a grey pill on the page ground in both themes (the drawing's #f5f5f7 / #2c2c2e),
    no black strip around it. Scoped through #pj-one-view so it outranks the dark composer rules
    AND their generated forced-dark twins, which sit later in the sheet at the same weight. */
@@ -11211,6 +11243,16 @@ body.plus-active:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.att
 /* The section is the positioning context for the ambient star field, which sits
    behind everything else in the pane. Every direct child is lifted above it. */
 #s-sec-plus { position: relative; }
+#s-sec-plus .plus-org-box { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); border-radius: 10px; padding: 12px 14px; margin-top: 8px; }
+#s-sec-plus .plus-org-lists { display: grid; grid-template-columns: 1fr 1fr; column-gap: 20px; margin: 0 0 12px; }
+#s-sec-plus .plus-org-g { margin-top: 12px; }
+#s-sec-plus .plus-org-h { font-weight: 600; color: #E6EBF7; font-size: .8125rem; margin: 0 0 4px; }
+#s-sec-plus .plus-org-lists ul { margin: 0; padding-left: 20px; }
+#s-sec-plus .plus-org-box .frow { margin-top: 16px; }   /* Mona's NIT: room above the two buttons */
+@media (max-width: 600px) {
+  #s-sec-plus .plus-org-lists { grid-template-columns: 1fr; }
+  #s-sec-plus #plus-org-code { min-height: 44px; }
+}
 #plus-stars { position: absolute; inset: 0; width: 100%; height: 100%;
   display: block; z-index: 0; pointer-events: none; }
 #s-sec-plus > *:not(#plus-stars) { position: relative; z-index: 1; }
@@ -11362,11 +11404,11 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #plus-state2 .plus-si-lead { color: var(--k-ink-2); margin: .5rem 0 0; }
 #plus-state2 .flabel { color: var(--k-ink-2); font-weight: 500; margin-top: 1rem; }
 #plus-state2 .plus-si-lead b { color: #E6EBF7; font-weight: 600; overflow-wrap: anywhere; }
-#plus-state2 .tk-inp:not(select) { --danger: #E8705E; background: #16223e; color: #E6EBF7; -webkit-text-fill-color: #E6EBF7;
+#plus-state2 .tk-inp:not(select), #plus-org .tk-inp:not(select) { --danger: #E8705E; background: #16223e; color: #E6EBF7; -webkit-text-fill-color: #E6EBF7;
   caret-color: #E6EBF7; border: 1px solid #5c78a6; border-radius: 10px; }
-#plus-state2 .tk-inp::placeholder { color: #8fa0c4; -webkit-text-fill-color: #8fa0c4; opacity: 1; }
-#plus-state2 .tk-inp:-webkit-autofill { -webkit-box-shadow: 0 0 0 1000px #16223e inset; }
-#plus-state2 .tk-inp:focus { outline: 2px solid #7ea0f0; outline-offset: 1px; border-color: #7ea0f0; }
+#plus-state2 .tk-inp::placeholder, #plus-org .tk-inp::placeholder { color: #8fa0c4; -webkit-text-fill-color: #8fa0c4; opacity: 1; }
+#plus-state2 .tk-inp:-webkit-autofill, #plus-org .tk-inp:-webkit-autofill { -webkit-box-shadow: 0 0 0 1000px #16223e inset; }
+#plus-state2 .tk-inp:focus, #plus-org .tk-inp:focus { outline: 2px solid #7ea0f0; outline-offset: 1px; border-color: #7ea0f0; }
 #plus-state2 .plus-si-wide { width: 75%; min-width: min(100%, 15rem); }
 /* The plain field look below is what a code field shows until the script draws its boxes (#3942,
    .otp-boxes further down), and what it keeps if the boxes are ever not drawn. Inside the boxes
@@ -11919,6 +11961,8 @@ window.kosmosMeasureScrollbarWidth();
         <button class="worldsw-new" id="worldsw-new" type="button">
           <span class="worldsw-plus" aria-hidden="true">+</span> New Kosmos
         </button>
+        <!-- kosmos#5393 slice 2: every Kosmos at a glance (wvOpen). -->
+        <button class="worldsw-glance" id="worldsw-glance" type="button">At a glance</button>
         <!-- kosmos#4648 (weekend goal #4647): the other computers on this Kosmos+ account.
              Filled by computersFetch/computersRender when the menu opens; hidden unless the
              board is signed in to Kosmos+ and the account has another computer. Each other
@@ -11931,6 +11975,27 @@ window.kosmosMeasureScrollbarWidth();
           <div class="worldsw-list" id="worldsw-computers-list" role="group" aria-labelledby="worldsw-computers-h"></div>
         </div>
       </div>
+        <!-- kosmos#5393 slice 2: "At a glance". Every Kosmos on this computer, from GET /api/worlds/overview (slice 1): how
+             each AI provider is doing in the open one, and the tasks nobody is on in each. Read once per open, plus Refresh: no
+             background poll, because the route builds a fresh roster on every call. No quota figure: no provider gives Kosmos one.
+             The words are wvWorldHtml and the helpers above it, which are node-tested (web.worldview-5393.test.js).
+             It sits INSIDE #worldsw, not as a direct child of <body>: the consolidated grid reserves 40 rows for body's
+             children (web.consolidated-980.test.js) and main already has 40, as #plus-lost-modal does inside its section.
+             Nothing above it sets a transform or filter, so the fixed overlay still covers the window. -->
+        <div class="rm-back" id="wv-modal" hidden>
+          <div class="rm-box rm-box-form" role="dialog" aria-modal="true" aria-labelledby="wv-t" aria-describedby="wv-in">
+            <h2 class="rm-title" id="wv-t">At a glance</h2>
+            <p class="rm-small" id="wv-in">Each Kosmos on this computer: how its AI providers are doing, and the tasks nobody is on yet.</p>
+            <div class="wv-list" id="wv-list" role="group" tabindex="0" aria-label="Your Kosmoses at a glance"></div>
+            <!-- One short sentence on how the last read went, announced; the rows themselves are not re-read on Refresh. -->
+            <p class="vh" id="wv-status" role="status" aria-live="polite"></p>
+            <div class="rm-acts" style="margin-top: var(--space-6);">
+              <button class="btn" id="wv-refresh" type="button">Refresh</button>
+              <button class="btn uprime" id="wv-close" type="button">Close</button>
+            </div>
+          </div>
+        </div>
+
     </div>
     <!-- HISTORY: from 2026-08-17 (Josh, pack 2e4e100) to #5018 the update notice sat in the flow beside the mark,
          because an earlier absolute float covered the agent-status stamp. The current placement is the next
@@ -18823,6 +18888,50 @@ window.kosmosMeasureScrollbarWidth();
              would not have looked for their own device on it. -->
         <p class="fhint" id="plus-devempty" hidden>None yet. The first time you sign in from another device, it asks here.</p>
         <p class="fmsg" id="plus-devmsg" role="alert" aria-live="assertive"></p>
+      </div>
+      <!-- #5531 (Enterprise E0.2): joining a company makes THIS Kosmos the work Kosmos (#5529 decision 1). The consent
+           words come from the company's side (the coordinator), so every board shows the same ones: the page renders
+           them as text, never as markup. Checking a code asks the company through this Kosmos's Kosmos+ connection (so the company learns which account
+           checked it); nothing joins until the person has read
+           what the company would see and pressed Join. Connected computers only: joining is a signed request. -->
+      <div id="plus-org" hidden style="margin-top:16px;">
+        <p class="setname">Your company</p>
+        <div id="plus-org-in" hidden>
+          <p class="fhint" id="plus-org-say"></p>
+          <div class="frow" id="plus-org-leave-row"><button class="btn" type="button" id="plus-org-leave">Leave company</button></div>
+          <div id="plus-org-leave-ask" hidden>
+            <p class="fhint" id="plus-org-leave-sure"></p>
+            <div class="frow">
+              <button class="btn danger-btn" type="button" id="plus-org-leave-yes">Leave</button>
+              <button class="btn" type="button" id="plus-org-leave-no">Cancel</button>
+            </div>
+          </div>
+        </div>
+        <div id="plus-org-out">
+          <p class="fhint">Have a join code from your company? Joining makes this Kosmos your work Kosmos. Checking a code asks your company through this Kosmos's Kosmos+ connection; nothing joins, and none of this Kosmos's data is sent, until you have read what your company would see and pressed Join.</p>
+          <div class="frow">
+            <input type="text" class="tk-inp" id="plus-org-code" autocomplete="off" spellcheck="false" maxlength="128" aria-label="Join code" placeholder="Join code">
+            <button class="btn" type="button" id="plus-org-check">Check code</button>
+          </div>
+        </div>
+        <!-- Mona Lisa (#5531, 20:49): the invitation, the four lists and the buttons in ONE inset box, so the consent reads as
+             one decision; the four groups two by two on desktop (Who can read it beside Never), one column on a phone. -->
+        <div id="plus-org-consent" class="plus-org-box" hidden>
+          <p class="fhint" id="plus-org-ask"></p>
+          <div class="plus-org-lists">
+            <div class="plus-org-g"><p class="plus-org-h">What your company sees</p><ul id="plus-org-reports"></ul></div>
+            <div class="plus-org-g"><p class="plus-org-h">What is backed up</p><ul id="plus-org-backsup"></ul></div>
+            <div class="plus-org-g"><p class="plus-org-h">Who can read it</p><ul id="plus-org-readers"></ul></div>
+            <div class="plus-org-g"><p class="plus-org-h">Never</p><ul id="plus-org-never"></ul>
+              <!-- #5531 review 14: this Kosmos's own promise, shown whatever the company's list says (its "never" may be empty). -->
+              <p class="fhint" id="plus-org-local">Your other Kosmoses on this computer are not part of this, and none of their data is sent.</p></div>
+          </div>
+          <div class="frow">
+            <button class="btn uprime" type="button" id="plus-org-join">Join with this Kosmos</button>
+            <button class="btn" type="button" id="plus-org-notnow">Not now</button>
+          </div>
+        </div>
+        <p class="fmsg" id="plus-org-msg" role="alert" aria-live="assertive"></p>
       </div>
       <!-- #4079, named "Remove this computer" by Josh's design (#4080, 22:22). (Josh, 22:03: "Is there a way to disconnect my computer running Kosmos from this Kosmos Plus
            account somehow?"): the engine's Forget (#793, /api/remote/forget) finally has a button. The switch
@@ -29181,6 +29290,102 @@ function worldAddClose() {
   document.getElementById('world-add-modal').hidden = true;
   document.getElementById('worldsw-btn').focus();
 }
+/* kosmos#5393 slice 2: "At a glance". The words for one provider row, one world, and the whole list. Pure and
+   node-tested. They say only what GET /api/worlds/overview knows: 'not_paused' is "Not paused", never "Working" (an
+   idle or unknown agent is not paused either); another Kosmos's providers are known only while it is open, and that
+   is said rather than left blank; an unreadable task list is said, never shown as 0; and there is no quota figure,
+   because no provider gives Kosmos one. */
+const WV_PROVIDER = { claude: 'Claude', codex: 'OpenAI Codex', gemini: 'Gemini', grok: 'Grok',
+  antigravity: 'Gemini (Google subscription)', muse: 'Meta Muse' };
+function wvCount(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
+function wvTime(iso, now = new Date()) {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return '';
+  const t = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  // A time on another day says which day: a pool or quota reset can be hours or days away.
+  if (d.toDateString() === now.toDateString()) return t;
+  // Six days or more away, the weekday alone could read as today's, so the date comes with it.
+  const far = d.getTime() - now.getTime() >= 6 * 86400e3;
+  return d.toLocaleDateString([], far ? { weekday: 'short', month: 'short', day: 'numeric' } : { weekday: 'short' }) + ' ' + t;
+}
+function wvProviderLine(r) {
+  const name = WV_PROVIDER[r.provider] || String(r.provider || 'An AI provider');
+  let state;
+  if (r.state === 'stopped') state = 'Stopped';
+  else if (r.state === 'paused') state = r.until && wvTime(r.until) ? 'Paused until ' + wvTime(r.until) : 'Paused';
+  else if (r.state === 'some_paused') state = r.paused + ' of ' + wvCount(r.agents, 'agent', 'agents') + ' paused';
+  else state = 'Not paused';
+  const failed = r.signInFailed > 0 ? '. ' + wvCount(r.signInFailed, 'agent', 'agents') + ' could not sign in' : '';
+  return name + ': ' + state + failed;
+}
+function wvTasksLine(w) {
+  if (!w.unassigned) return w.unassignedBecause ? 'Tasks: ' + String(w.unassignedBecause) : 'Tasks: not known';
+  const waiting = Number(w.unassigned.waiting) || 0;
+  const held = Number(w.unassigned.held) || 0;
+  if (!waiting && !held) return 'No tasks waiting for someone';
+  if (!waiting) return wvCount(held, 'task', 'tasks') + ' on hold, none waiting for someone';
+  return wvCount(waiting, 'task', 'tasks') + ' waiting for someone' + (held ? ', and ' + held + ' on hold' : '');
+}
+function wvWorldHtml(w) {
+  const lines = [];
+  if (Array.isArray(w.providers)) {
+    if (!w.providers.length && !w.agentsWithoutProvider) lines.push('<p class="wv-line wv-muted">No agents running an AI provider</p>');
+    for (const r of w.providers) lines.push('<p class="wv-line">' + esc(wvProviderLine(r)) + '</p>');
+    if (w.agentsWithoutProvider > 0) lines.push('<p class="wv-line wv-muted">' + esc(wvCount(w.agentsWithoutProvider, 'agent', 'agents')
+      + ' with no AI provider shown here') + '</p>');
+  } else {
+    lines.push('<p class="wv-line wv-muted">AI providers: ' + esc(String(w.providersBecause || 'not known')) + '</p>');
+  }
+  lines.push('<p class="wv-line">' + esc(wvTasksLine(w)) + '</p>');
+  return '<div class="wv-world"><p class="wv-name">' + esc(String(w.name || 'Kosmos'))
+    + (w.running ? ' <span class="wv-here">(open now)</span>' : '') + '</p>' + lines.join('') + '</div>';
+}
+function wvListHtml(body) {
+  const worlds = body && Array.isArray(body.worlds) ? body.worlds : null;
+  if (!worlds) return '<p class="wv-line wv-muted">' + esc(String((body && body.because) || 'Kosmos could not read your Kosmoses just now.')) + '</p>';
+  if (!worlds.length) return '<p class="wv-line wv-muted">No Kosmoses found on this computer.</p>';
+  return worlds.map(wvWorldHtml).join('');
+}
+let wvGen = 0;
+async function wvLoad() {
+  const gen = ++wvGen;
+  const list = document.getElementById('wv-list');
+  list.setAttribute('aria-busy', 'true');
+  document.getElementById('wv-status').textContent = '';   // cleared, so the same outcome twice is still announced
+  list.innerHTML = '<p class="wv-line wv-muted">Reading your Kosmoses...</p>';
+  let html;
+  let said = 'Read just now.';
+  try {
+    const res = await fetch('/api/worlds/overview', { cache: 'no-store' });
+    let body = null;
+    try { body = await res.json(); } catch (_e) {}
+    // The route is token-gated: a board that is not signed in answers 401/403 with `error`, not `because`, and
+    // Refresh will not fix that, so it is said as what it is.
+    if (res.status === 401 || res.status === 403) said = 'Sign in to this Kosmos to see your Kosmoses at a glance.';
+    else if (!res.ok) said = asSentence(body && (body.because || body.error)) || 'Kosmos could not read your Kosmoses just now.';
+    else if (!body || !Array.isArray(body.worlds)) said = 'Kosmos could not read your Kosmoses just now.';
+    else if (!body.worlds.length) said = 'No Kosmoses found on this computer.';
+    html = res.ok && body && Array.isArray(body.worlds) ? wvListHtml(body) : wvListHtml({ because: said });
+  } catch (_e) {
+    said = 'Kosmos could not be reached just now.';
+    html = wvListHtml({ because: said });
+  }
+  if (gen !== wvGen) return;   // a newer Refresh or open owns the list
+  list.innerHTML = html;
+  list.setAttribute('aria-busy', 'false');
+  document.getElementById('wv-status').textContent = said;
+}
+function wvOpen() {
+  worldswClose();
+  document.getElementById('wv-modal').hidden = false;
+  document.getElementById('wv-close').focus();
+  wvLoad();
+}
+function wvClose() {
+  wvGen += 1;   // a read still out does not paint a closed sheet
+  document.getElementById('wv-modal').hidden = true;
+  document.getElementById('worldsw-btn').focus();
+}
 async function worldAddSubmit() {
   const input = document.getElementById('world-add-name');
   const go = document.getElementById('world-add-go');
@@ -29534,6 +29739,10 @@ async function worldHideSubmit() {
   if (!btn) return;
   btn.addEventListener('click', (e) => { e.stopPropagation(); worldswToggle(); });
   document.getElementById('worldsw-new').addEventListener('click', worldAddOpen);
+  document.getElementById('worldsw-glance').addEventListener('click', wvOpen);
+  document.getElementById('wv-close').addEventListener('click', wvClose);
+  document.getElementById('wv-refresh').addEventListener('click', wvLoad);
+  document.getElementById('wv-modal').addEventListener('click', (e) => { if (e.target.id === 'wv-modal') wvClose(); });
   document.getElementById('world-add-cancel').addEventListener('click', worldAddClose);
   document.getElementById('world-add-go').addEventListener('click', worldAddSubmit);
   const input = document.getElementById('world-add-name');
@@ -29585,6 +29794,7 @@ async function worldHideSubmit() {
     if (!document.getElementById('world-switch-modal').hidden) { worldswSwitchCancel(); return; }
     if (!document.getElementById('world-rename-modal').hidden) { worldRenameClose(); return; }
     if (!document.getElementById('world-add-modal').hidden) { worldAddClose(); return; }
+    if (!document.getElementById('wv-modal').hidden) { wvClose(); return; }
     const menu = document.getElementById('worldsw-menu');
     if (menu && !menu.hidden) { worldswClose(); btn.focus(); }
   });
@@ -47078,8 +47288,145 @@ async function paintPlus() {
      Connected again (any way), an earlier "disconnected" result is no longer true: it goes. */
   { const f = document.getElementById('plus-forgot-msg'); if (f && !f.hidden) { f.hidden = true; f.textContent = ''; } }
   { const fg = document.getElementById('plus-forget'); if (fg) fg.hidden = r.enrolled !== true; }
+  { const og = document.getElementById('plus-org'); if (og) { og.hidden = r.enrolled !== true; if (!og.hidden) plusOrgMaybe(); } }   // #5531
   paintDevices();
 }
+/* ---- #5531 (Enterprise E0.2): this Kosmos joining a company. The 5-second repaint above asks at most once a minute,
+   and never while the person is reading a consent or a call is out. */
+var PLUS_ORG = { at: 0, busy: false, state: null, preview: null };
+function plusOrgMaybe() {
+  if (PLUS_ORG.busy || PLUS_ORG.preview) return;
+  if (Date.now() - PLUS_ORG.at < 60000) { if (PLUS_ORG.state) plusOrgPaint(); return; }   // at most once a minute, failed reads included
+  PLUS_ORG.at = Date.now();
+  fetch('/api/org').then((res) => res.json()).then((j) => {
+    const was = !!(PLUS_ORG.state && PLUS_ORG.state.enrolled === true);
+    PLUS_ORG.state = j; plusOrgPaint();
+    const msg = document.getElementById('plus-org-msg');
+    // A line about the old state ("not known yet", "left") must not sit under the new one (review 31).
+    if (j && (j.enrolled === true) !== was) msg.textContent = '';
+    // The server shows this note once, so it replaces whatever line is there rather than waiting for an empty one.
+    if (j && j.enrolled !== true && j.stoppedFor) msg.textContent = 'This Kosmos is no longer the work Kosmos for ' + j.stoppedFor + ', so it has stopped reporting.';
+    // #5531 review 21: a leave the person was told would be sent again was refused, so this Kosmos reports again.
+    // "reports to it" only when it may (review 33): a record with no consent recorded here sends nothing.
+    const reports = j && j.reporting === true ? ' and reports to it.' : '. It sends your company nothing: its words were not accepted on this computer.';
+    if (j && j.enrolled === true && j.leaveRefused) msg.textContent = j.leaveRefusedUndo === true
+      ? 'Your company could not undo joining ' + j.leaveRefused + ': you are its last admin. This Kosmos is your work Kosmos' + reports
+      : 'Your leave from ' + j.leaveRefused + ' was refused: you are its last admin. This Kosmos is your work Kosmos again' + reports;
+  }).catch(() => { /* the next minute tries again */ });
+}
+function plusOrgList(id, items) {
+  const ul = document.getElementById(id);
+  ul.textContent = '';
+  for (const t of items || []) { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); }   // text, never markup
+  // The whole group, heading and list; the Never group always shows, for this Kosmos's own line under it.
+  ul.parentElement.hidden = !(items && items.length) && id !== 'plus-org-never';
+}
+function plusOrgPaint() {
+  const st = PLUS_ORG.state || {};
+  const here = st.enrolled === true && st.org;
+  document.getElementById('plus-org-in').hidden = !here;
+  document.getElementById('plus-org-out').hidden = !!here || !!PLUS_ORG.preview;
+  document.getElementById('plus-org-consent').hidden = !PLUS_ORG.preview;
+  if (!here) plusOrgLeaveArm(false);   // a Leave confirmation never stays open under a view that is gone (review 31)
+  // A record with no consent recorded here sends nothing, and the joined view says so (review 34).
+  if (here) document.getElementById('plus-org-say').textContent = 'This Kosmos is your work Kosmos for ' + (st.org.name || 'your company') + '. ' + (st.reporting === false ? 'It sends your company nothing: its words were not accepted on this computer. ' : '') + 'Your other Kosmoses on this computer are not part of it.';
+}
+/* #5531: one POST to the board's org routes. Each URL is written out as a literal (web.api-routes-3957.test.js checks
+   every /api path the page fetches against a board route, and a URL held in a variable cannot be checked). */
+async function plusOrgPost(kind, body) {
+  const init = { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) };
+  try {
+    const res = kind === 'preview' ? await fetch('/api/org/preview', init)
+      : kind === 'enroll' ? await fetch('/api/org/enroll', init)
+      : await fetch('/api/org/leave', init);
+    return (await res.json().catch(() => null)) || { ok: false, because: 'No answer came back. Try again in a minute.' };
+  } catch { return { ok: false, because: 'This computer could not reach its own engine.' }; }
+}
+async function plusOrgCheck() {
+  const msg = document.getElementById('plus-org-msg');
+  const code = document.getElementById('plus-org-code').value.trim();
+  if (PLUS_ORG.busy) return;   // one check at a time; a second press leaves the message as it is (review 29)
+  msg.textContent = '';
+  if (!code) { msg.textContent = 'Type or paste the join code your company sent you.'; return; }
+  PLUS_ORG.busy = true;
+  const r = await plusOrgPost('preview', { code });
+  PLUS_ORG.busy = false;
+  if (!r.ok) { msg.textContent = r.because || 'That code could not be checked.'; return; }
+  PLUS_ORG.preview = { code: r.move ? null : code, org: r.org, ticket: r.ticket };   // a member moving here enrolls with no code
+  document.getElementById('plus-org-ask').textContent = r.move
+    ? 'You are already in ' + (r.org.name || 'your company') + '. Make this Kosmos your work Kosmos? Here is what that means:'
+    : (r.org.name || 'Your company') + ' invites you to join' + (r.role === 'admin' ? ' as an admin' : r.role === 'recovery' ? ' in its recovery role' : '') + '. Joining makes this Kosmos your work Kosmos. Here is what that means:';
+  plusOrgList('plus-org-reports', r.consent.reports);
+  plusOrgList('plus-org-backsup', r.consent.backsUp);
+  plusOrgList('plus-org-readers', r.consent.readers);
+  plusOrgList('plus-org-never', r.consent.never);
+  plusOrgPaint();
+  document.getElementById('plus-org-join').focus();
+}
+async function plusOrgJoin() {
+  const msg = document.getElementById('plus-org-msg');
+  const p = PLUS_ORG.preview;
+  if (!p) return;
+  const join = document.getElementById('plus-org-join');
+  join.disabled = true; document.getElementById('plus-org-notnow').disabled = true;
+  PLUS_ORG.busy = true;
+  const r = await plusOrgPost('enroll', p.code ? { code: p.code, accepted: true, ticket: p.ticket } : { accepted: true, ticket: p.ticket });
+  PLUS_ORG.busy = false; join.disabled = false; document.getElementById('plus-org-notnow').disabled = false;
+  if (!r.ok) {
+    msg.textContent = r.because || 'Joining did not go through.';
+    // A code that is used, expired, or for another company will not work on a second press: back to the code field.
+    // Also an outcome not known yet, or an undo still to send (review 25): the code may be spent, and "Not now" would say nothing was joined.
+    if (['org_code_used', 'org_code_expired', 'org_code_unknown', 'org_other_org', 'org_wrong_domain', 'org_ticket', 'org_not_accepted', 'org_already_member', 'org_join_unknown', 'org_undo_pending'].includes(r.code)) { PLUS_ORG.preview = null; plusOrgPaint(); }
+    return;
+  }
+  PLUS_ORG.preview = null;
+  document.getElementById('plus-org-code').value = '';
+  PLUS_ORG.state = { enrolled: true, org: r.org, role: r.role };
+  PLUS_ORG.at = Date.now();
+  msg.textContent = '';
+  plusOrgPaint();
+}
+function plusOrgNotNow() {
+  PLUS_ORG.preview = null;
+  document.getElementById('plus-org-msg').textContent = 'Not joined. Only the code was checked; none of this Kosmos\'s data was sent.';
+  plusOrgPaint();
+}
+function plusOrgLeaveArm(on) {
+  const st = PLUS_ORG.state || {};
+  document.getElementById('plus-org-leave-row').hidden = on;
+  document.getElementById('plus-org-leave-ask').hidden = !on;
+  if (on) document.getElementById('plus-org-leave-sure').textContent = 'Leave ' + ((st.org && st.org.name) || 'your company') + '? This Kosmos stops reporting to it now. Backups already taken stay with your company, under its rules.';
+}
+async function plusOrgLeave() {
+  const yes = document.getElementById('plus-org-leave-yes');
+  yes.disabled = true;
+  PLUS_ORG.busy = true;
+  const st0 = PLUS_ORG.state;
+  const r = await plusOrgPost('leave', {});
+  PLUS_ORG.busy = false; yes.disabled = false;
+  plusOrgLeaveArm(false);
+  // The company refused while you are still in it (the last admin): you are still joined, and the screen says so.
+  /* #5531 review 19: the joined view goes only on a real leave outcome (left, left here only, or pending). A refusal
+     before anything was done (the screen check, "not your work Kosmos") changed nothing, so the view stays and says why. */
+  const changed = r.ok === true || r.pending === true;
+  if (changed) PLUS_ORG.state = { enrolled: false, org: null, role: null };
+  PLUS_ORG.at = Date.now();
+  const name = (st0 && st0.org && st0.org.name) || 'your company';
+  // localOnly: the company enrolls another world or computer, so the membership goes on; only this Kosmos stopped.
+  document.getElementById('plus-org-msg').textContent = r.ok && r.localOnly
+    ? 'This Kosmos has stopped reporting. You are still in ' + name + ': your work Kosmos is elsewhere, so leave from there.'
+    : r.ok ? 'You left. This Kosmos no longer reports to your company.'
+    : r.pending ? (r.because || 'Leaving could not be confirmed yet. This Kosmos has stopped reporting, and it will tell your company again.')
+    : (r.because || r.error || 'Leaving did not go through. Nothing changed; try again in a minute.');
+  plusOrgPaint();
+}
+document.getElementById('plus-org-check').addEventListener('click', plusOrgCheck);
+document.getElementById('plus-org-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); plusOrgCheck(); } });
+document.getElementById('plus-org-join').addEventListener('click', plusOrgJoin);
+document.getElementById('plus-org-notnow').addEventListener('click', plusOrgNotNow);
+document.getElementById('plus-org-leave').addEventListener('click', () => plusOrgLeaveArm(true));
+document.getElementById('plus-org-leave-no').addEventListener('click', () => plusOrgLeaveArm(false));
+document.getElementById('plus-org-leave-yes').addEventListener('click', plusOrgLeave);
 /* ---- kosmos#4794 slice 1: this computer JOINING (Mona Lisa's design, 2026-10-03). Both computers show one six-digit
    code; the person checks they match, presses Allow on the other computer and "The codes match" here. The pill above
    still says "Waiting to be allowed"; this block replaces the coordinator's sentence under it while held. */
@@ -61253,6 +61600,8 @@ document.addEventListener('keydown', (e) => {
        while it is disabled on an empty name, so Tab cycles name<->Cancel until a
        name is typed, then includes Create. */
     ['world-add-modal', ['world-add-name', 'world-add-cancel', 'world-add-go'], 'world-add-name'],
+    /* kosmos#5393 slice 2: "At a glance" is aria-modal, so it gets the trap too. Home is Close. */
+    ['wv-modal', ['wv-list', 'wv-refresh', 'wv-close'], 'wv-close'],
     /* #6: the switch-confirm dialog declares aria-modal, so it gets a real trap, in DOM
        order. Home is Cancel -- the safe/back choice, matching doc-keep -- and
        worldswConfirmSwitch also opens initial focus on Cancel (a reflexive Enter cancels

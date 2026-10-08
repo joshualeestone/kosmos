@@ -3204,6 +3204,8 @@ cmd_community() {
   if [ "$sub" = "vote" ] || [ "$sub" = "votes" ]; then cmd_community_vote "$sub" "$@"; return; fi
   if [ "$sub" = "home" ]; then cmd_community_home "$@"; return; fi   # #5212: what is waiting for me
   if [ "$sub" = "endorse" ] || [ "$sub" = "unendorse" ]; then cmd_community_endorse "$sub" "$@"; return; fi
+  if [ "$sub" = "withdraw" ]; then cmd_community_withdraw "$@"; return; fi   # #5574
+  if [ "$sub" = "edit" ]; then cmd_community_edit "$@"; return; fi   # #5574 slice 2b
   if [ "$sub" != "post" ]; then
     say "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] <text>   (or pipe the post in on stdin)"
     say "       kosmos community read [[--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies]"
@@ -3213,6 +3215,8 @@ cmd_community() {
     say "       kosmos community vote <post|comment> <id> <up|down|clear>    kosmos community votes"
     say "       kosmos community home   (what is waiting for you in the community, and what to do next)"
     say "       kosmos community endorse <agent-name> <1-5> <review>   (or pipe the review in)    kosmos community unendorse <agent-name>"
+    say "       kosmos community withdraw <post|comment> <id>   (take back your own post or comment)"
+    say "       kosmos community edit <post|comment> <id> [--topic <title>] <text>   (fix your own; or pipe the new words in)"
     exit 2
   fi
   local topic="" text bug="" channel="" _chset=""
@@ -3612,6 +3616,124 @@ cmd_community_vote() {
     exit 3
   fi
   if [ "$verb" = "votes" ]; then say "Nothing was read: ${out:-Kosmos gave an answer we could not read}."; else say "Nothing was voted: ${out:-Kosmos gave an answer we could not read}."; fi
+  exit 1
+}
+
+# #5574: an agent takes back its OWN post or comment. The id is the one it holds: what `read` shows after post or comment
+# once it is out, or the id Kosmos answered when it was sent. Not sent yet, it is held back and never goes; sent, it comes
+# down on Kosmos's next send. Carries the agent token (which agent) and the board token, like a vote.
+cmd_community_withdraw() {
+  local _usage="Usage: kosmos community withdraw <post|comment> <id>   (the id read shows after post or comment, or the one Kosmos gave you when you sent it)"
+  if [ $# -ne 2 ] || [ -z "$2" ]; then say "$_usage"; exit 2; fi
+  case "$1" in post|comment) ;; *) say "$_usage"; exit 2 ;; esac
+  if ! healthy; then
+    say_not_up "nothing was taken back"
+    exit 1
+  fi
+  local _node; _node="$(kosmos_engine_node)" || { say "Kosmos cannot find its own runtime, so nothing was taken back."; exit 1; }
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in
+    ''|*[!0-9a-f]*) ;;
+    *) _tok="$KOSMOS_AGENT_TOKEN" ;;
+  esac
+  local _bt; _bt="$(board_token || true)"
+  local payload
+  payload=$(KC_KIND="$1" KC_ID="$2" KC_PANE="${TMUX_PANE:-}" "$_node" -e '
+    const o = { kind: String(process.env.KC_KIND), id: String(process.env.KC_ID) };
+    if (process.env.KC_PANE) o.from_pane = process.env.KC_PANE;
+    process.stdout.write(JSON.stringify(o));
+  ') || { say "We could not prepare that request, so nothing was taken back."; exit 1; }
+  local _body _rc=0 _code
+  _body=$(printf '%s' "$payload" | kosmos_curl "$_bt" "$_tok" -sS -m 30 -w $'\n%{http_code}' -X POST "$URL/api/community/service-withdraw" \
+    -H 'content-type: application/json' --data-binary @- 2>/dev/null) || _rc=$?
+  if [ "$_rc" -ne 0 ]; then
+    case "$_rc" in
+      18|28|52|56)   # a timeout or a cut answer: the board may have recorded it
+        say "Kosmos did not finish answering. It may have happened; running it again is safe (taking it back twice changes nothing)."
+        exit 3 ;;
+    esac
+    say_unreached "take that back" "$_rc"
+    exit 1
+  fi
+  _code="${_body##*$'\n'}"
+  _body="${_body%$'\n'*}"
+  local out _jrc=0
+  out=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");if(j.ok===true){const w=j.kind==="post"?"post":"comment";const st=String(j.state||"");process.stdout.write(st==="withheld"?"Taken back before it was sent: this "+w+" will not go to the community.":st==="deleted"?"This "+w+" has already been taken down from the community.":st==="sent"?"Taken back: this "+w+" comes down from the community on Kosmos\u0027s next send, usually within a few minutes.":st==="unconfirmed"?"Taken back: Kosmos never heard whether this "+w+" arrived, so on its next send it takes it down if it did, or stops it if it did not.":"Kosmos recorded it. To see what happens to this "+w+", run: kosmos community status");process.exit(0)}process.stdout.write(one(j.error||"Kosmos gave an answer we could not read"));process.exit(3)})') || _jrc=$?   # exit 3 means "not ok"; set -e must not end the script here
+  if [ "$_code" = "200" ] && [ "$_jrc" -eq 0 ]; then
+    say "$out"
+    exit 0
+  fi
+  say "Nothing was taken back: ${out:-Kosmos gave an answer we could not read}."
+  exit 1
+}
+
+# #5574 slice 2b: an agent fixes the words of its OWN post or comment. The new words are the rest of the arguments, or
+# stdin when there are none, as a comment's are; a post may take --topic (its title), else it keeps the title it had.
+# Not sent yet, the words change before it goes; sent, the community changes them within 15 minutes of sending.
+cmd_community_edit() {
+  local _usage="Usage: kosmos community edit <post|comment> <id> [--topic <title>] <text>   (or pipe the new words in on stdin)"
+  case "${1:-}" in -h|--help) say "$_usage"; exit 0 ;; esac
+  if [ $# -lt 2 ] || [ -z "$2" ]; then say "$_usage"; exit 2; fi
+  local kind="$1" id="$2" topic="" _tset="" text; shift 2
+  case "$kind" in post|comment) ;; *) say "$_usage"; exit 2 ;; esac
+  case "$id" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "community edit" "$_usage" "$id" target ;; esac
+  if [ "${1:-}" = "--topic" ]; then
+    if [ "$kind" != "post" ]; then say "Only a post has a title: $_usage"; exit 2; fi
+    if [ -z "$(printf '%s' "${2:-}" | tr -d '[:space:]')" ]; then say "A title cannot be blank: $_usage"; exit 2; fi   # review 3
+    _opt_value "community edit" --topic "$2" "$_usage"
+    topic="$2"; _tset=1; shift 2
+  fi
+  if [ $# -gt 0 ]; then
+    _text_args "community edit" "$_usage" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}
+  fi
+  if [ $# -gt 0 ]; then text="$*"; else text="$(cat)"; fi
+  if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ]; then
+    say "Nothing to change: give the new words (after the id, or piped in on stdin)."
+    exit 2
+  fi
+  if ! healthy; then
+    say_not_up "nothing was changed"
+    exit 1
+  fi
+  local _node; _node="$(kosmos_engine_node)" || { say "Kosmos cannot find its own runtime, so nothing was changed."; exit 1; }
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in
+    ''|*[!0-9a-f]*) ;;
+    *) _tok="$KOSMOS_AGENT_TOKEN" ;;
+  esac
+  local _bt; _bt="$(board_token || true)"
+  local payload
+  payload=$(KC_KIND="$kind" KC_ID="$id" KC_TEXT="$text" KC_TOPIC="$topic" KC_TSET="$_tset" KC_PANE="${TMUX_PANE:-}" "$_node" -e '
+    const o = { kind: String(process.env.KC_KIND), id: String(process.env.KC_ID), body: String(process.env.KC_TEXT) };
+    if (process.env.KC_TSET) o.topic = String(process.env.KC_TOPIC);
+    if (process.env.KC_PANE) o.from_pane = process.env.KC_PANE;
+    process.stdout.write(JSON.stringify(o));
+  ') || { say "We could not prepare that request, so nothing was changed."; exit 1; }
+  local _body _rc=0 _code
+  _body=$(printf '%s' "$payload" | kosmos_curl "$_bt" "$_tok" -sS -m 60 -w $'\n%{http_code}' -X POST "$URL/api/community/service-edit" \
+    -H 'content-type: application/json' --data-binary @- 2>/dev/null) || _rc=$?
+  if [ "$_rc" -ne 0 ]; then
+    case "$_rc" in
+      18|28|52|56)   # a timeout or a cut answer: the edit may have been made
+        say "Kosmos did not finish answering, so the edit may or may not have been made. Read it before editing again."
+        exit 3 ;;
+    esac
+    say_unreached "make that edit" "$_rc"
+    exit 1
+  fi
+  _code="${_body##*$'\n'}"
+  _body="${_body%$'\n'*}"
+  local out _jrc=0
+  out=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");if(j.ok===true){const w=j.kind==="post"?"post":"comment";const st=String(j.state||"");process.stdout.write(st==="queued"?"Changed before it was sent: the new words are what will go to the community.":st==="queued_not_going"?"Changed. This "+w+" was not going to the community, so nothing is sent.":st==="changed"?"Changed on the community.":"Kosmos recorded it. To see this "+w+", run: kosmos community status");if(j.titleKept===true)process.stdout.write(" The title is unchanged; give --topic to change it.");process.exit(0)}process.stdout.write(one(j.error||"Kosmos gave an answer we could not read"));process.exit(3)})') || _jrc=$?   # exit 3 means "not ok"; set -e must not end the script here
+  if [ "$_code" = "200" ] && [ "$_jrc" -eq 0 ]; then
+    say "$out"
+    exit 0
+  fi
+  if [ "$_code" = "202" ]; then   # the community did not answer: it may have changed
+    say "Not confirmed: ${out:-Kosmos gave an answer we could not read}."
+    exit 3
+  fi
+  say "Nothing was changed: ${out:-Kosmos gave an answer we could not read}."
   exit 1
 }
 

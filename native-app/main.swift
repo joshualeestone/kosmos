@@ -293,19 +293,57 @@ func isKosmosPlusURL(_ url: URL) -> Bool {
     }
 }
 
-/// PURE, for --kosmos-app-mode-selftest. A connect computer's main-frame navigations, as the iOS
-/// app decides them: Kosmos Plus and the person's computers in the window; any other https site in
-/// the browser; plain http only from a click, and then in the browser; mail, phone and text links
-/// only from a click; about:blank for the page's own use; every other scheme refused. So another
-/// site can never REPLACE the window's page with a fake Kosmos screen. This decides main-frame
-/// navigations only: a frame inside a Kosmos Plus page is that page's to choose (as on iOS, which
-/// adds an https-only rule for frames; not ported here).
-func connectLinkDecision(for url: URL, clicked: Bool) -> ConnectLink {
+/// #5169: PURE, for --kosmos-app-mode-selftest. The Kosmos+ SITE's OWN hosts only -- the sign-in
+/// coordinator (login.kosmosplus.com) and the apex (kosmosplus.com), where signin.html is served and
+/// starts the Stripe checkout hand-off by script. NOT a computer's board address (<name>.kosmosplus.com).
+/// isKosmosPlusURL is true for BOTH the site and computer boards, so it must NOT decide the checkout
+/// exception below: a connect computer's own board (josh.kosmosplus.com) would then count as a Kosmos+
+/// page and a board page could script an unclicked foreign nav away -- which is the #5169 bug. Keyed to
+/// the site, a board page (local 127.0.0.1 or a computer's kosmosplus.com address) stays blocked.
+func isKosmosPlusSiteURL(_ url: URL?) -> Bool {
+    guard let url = url, url.scheme?.lowercased() == "https",
+          let host = url.host?.lowercased(), !host.isEmpty,
+          url.user == nil, url.password == nil, url.port == nil || url.port == 443,
+          host.unicodeScalars.allSatisfy({ $0.isASCII })
+    else { return false }
+    let coordinator = kosmosPlusSignIn.host!
+    if host == coordinator { return true }
+    let labels = coordinator.split(separator: ".")
+    guard labels.count >= 2 else { return false }
+    return host == labels.dropFirst().joined(separator: ".")   // "login.kosmosplus.com" -> apex "kosmosplus.com"
+}
+
+/// PURE, for --kosmos-app-mode-selftest. The main-frame navigation policy for EVERY computer that has
+/// chosen a mode -- connect, run AND both (#5169: a run/both computer runs its own board in this window
+/// too, and before this its main frame allowed every navigation, so a foreign link or redirect could
+/// replace the board). Kosmos Plus and the person's computers stay in the window; this computer's own
+/// local board (`board`, the host:port it serves) stays in the window; any other https site opens in the
+/// browser ONLY from a click, and an UNCLICKED foreign navigation (a redirect or script nav) is refused
+/// outright; plain http only from a click, and then in the browser; mail, phone and text links only from
+/// a click; about:blank for the page's own use; every other scheme refused. So another site can never
+/// REPLACE the window's page with a fake Kosmos screen. This decides main-frame navigations only: a frame
+/// inside a Kosmos Plus page is that page's to choose (as on iOS, which adds an https-only rule for frames;
+/// not ported here).
+func connectLinkDecision(for url: URL, clicked: Bool, board: (host: String, port: Int)? = nil, fromKosmosPlusPage: Bool = false) -> ConnectLink {
+    // #5169: a run/both computer runs its OWN board at a local host:port (badgeOrigin). That host is not a
+    // Kosmos+ one, so without this it would fall to the rules below and be refused or opened in the browser --
+    // the board replacing itself in its own window. A connect computer's board is a kosmosplus.com host, kept
+    // in-app by isKosmosPlusURL below, so this only ever ADDS the local-board case; it never changes connect.
+    if let board = board, url.user == nil, url.password == nil,
+       let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+       let host = url.host?.lowercased(),
+       host == board.host.lowercased(), (url.port ?? (scheme == "https" ? 443 : 80)) == board.port {
+        return .inApp
+    }
     switch url.scheme?.lowercased() ?? "" {
     case "https":
         if isKosmosPlusURL(url) { return .inApp }
         guard let host = url.host, !host.isEmpty else { return .block }
-        return .browser
+        // #5169: an UNCLICKED foreign https (a redirect or script nav) is refused, so a BOARD page cannot
+        // replace itself or script-pop the browser. EXCEPTION: the Kosmos+ SITE (not a computer board,
+        // fromKosmosPlusPage) legitimately hands off to foreign checkout by script (signin.html ->
+        // checkout.stripe.com); that must still open in the browser or nobody can buy Kosmos+ in the Mac app.
+        return (clicked || fromKosmosPlusPage) ? .browser : .block
     case "http":
         guard let host = url.host, !host.isEmpty else { return .block }
         return clicked ? .browser : .block
@@ -2938,10 +2976,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             decisionHandler(.cancel)
             return
         }
-        guard computerMode == .connect, let url = navigationAction.request.url,
+        // #5169: run and both computers get the SAME main-frame policy as connect, so a foreign link or a
+        // redirect cannot replace the board in the window. badgeOrigin keeps this computer's own local board
+        // in-app (a connect board is a kosmosplus.com host, already kept in-app by connectLinkDecision).
+        guard computerMode == .connect || computerMode == .run || computerMode == .both,
+              let url = navigationAction.request.url,
               let frame = navigationAction.targetFrame, frame.isMainFrame
         else { decisionHandler(.allow); return }
-        switch connectLinkDecision(for: url, clicked: navigationAction.navigationType == .linkActivated) {
+        // #5169: fromKosmosPlusPage keys on the Kosmos+ SITE only (isKosmosPlusSiteURL), NOT a computer's
+        // board address, so a board page stays blocked while the sign-in page's scripted checkout hand-off works.
+        switch connectLinkDecision(for: url, clicked: navigationAction.navigationType == .linkActivated, board: badgeOrigin, fromKosmosPlusPage: isKosmosPlusSiteURL(committedPageURL)) {
         case .inApp:
             decisionHandler(.allow)
         case .browser:
@@ -5605,8 +5649,12 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                 "A POLICY REFUSAL IS LOGGED, NEVER AN ALERT (not a board, a computer not allowed, WebKit stopping it, a foreign file): a page repeating one cannot pile alerts up")
             row(told.allSatisfy { $0.hasPrefix("Kosmos could not save that file: ") }, "and each alert carries the failure title (a 204 says nothing)")
             // Only the attachment: WebKit ignores `download` on a link to another origin, so "foreign" is a
-            // plain link, and a computer that runs agents loads every link in the window (#5169).
-            row(leftBoard.contains("foreign"), "CONTROL: localhost answers here (a plain foreign link loads), so the other-origin rows are not vacuous")
+            // plain link that loads in the window here. This download selftest's board runs in computerMode
+            // .unset (never set on `d`), where the nav-policy guard falls through to .allow -- a path #5169
+            // leaves unchanged (it gates connect/run/both). So a foreign link still loads, which is what keeps
+            // the other-origin rows below non-vacuous; the #5169 nav policy itself is pinned by the
+            // connectLinkDecision / isKosmosPlusSiteURL rows in the mode-check, not here.
+            row(leftBoard.contains("foreign"), "CONTROL: localhost answers here (a plain foreign link loads in .unset mode), so the other-origin rows are not vacuous")
             row(!leftBoard.contains("foreignatt"),
                 "A REFUSED ATTACHMENT DOES NOT LOAD IN THE WINDOW instead (other arms that left the board, all #5169: \(leftBoard.joined(separator: ", ")))")
             try? FileManager.default.removeItem(at: dl)
@@ -6363,16 +6411,19 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     link("https://josh.kosmosplus.com/#kst=abc", false, .inApp, "a computer's board, after the handoff")
     link("https://LOGIN.KosmosPlus.com/", false, .inApp, "hosts are not case sensitive")
     link("https://josh.kosmosplus.com:443/", false, .inApp, "443 is the default port")
-    link("https://josh.kosmosplus.com:8443/", false, .browser, "another port is not ours")
-    link("https://a.b.kosmosplus.com/", false, .browser, "two labels deep is not a computer")
-    link("https://-x.kosmosplus.com/", false, .browser, "a label must not start with a hyphen")
-    link("https://x-.kosmosplus.com/", false, .browser, "nor end with one")
-    link("https://a_b.kosmosplus.com/", false, .browser, "an underscore is not a host label (iOS refuses it too)")
-    link("https://xn--80ak6aa92e.kosmosplus.com/", false, .browser, "a punycode lookalike goes to the browser")
-    link("https://" + String(repeating: "a", count: 64) + ".kosmosplus.com/", false, .browser, "a label over 63 characters is not a host")
-    link("https://kosmosplus.com.evil.example/", false, .browser, "a lookalike suffix goes to the browser")
-    link("https://user@login.kosmosplus.com/", false, .browser, "a user part is not ours")
-    link("https://stripe.com/pay", false, .browser, "any other site goes to the browser, even from a redirect")
+    // #5169: an UNCLICKED foreign https nav (a redirect or a script navigation) is now REFUSED, not sent
+    // to the browser. These hosts are all foreign (not the person's computers), and unclicked, so they block.
+    link("https://josh.kosmosplus.com:8443/", false, .block, "another port is not ours; an unclicked nav to it is refused")
+    link("https://a.b.kosmosplus.com/", false, .block, "two labels deep is not a computer; refused unclicked")
+    link("https://-x.kosmosplus.com/", false, .block, "a label must not start with a hyphen; refused unclicked")
+    link("https://x-.kosmosplus.com/", false, .block, "nor end with one; refused unclicked")
+    link("https://a_b.kosmosplus.com/", false, .block, "an underscore is not a host label (iOS refuses it too); refused unclicked")
+    link("https://xn--80ak6aa92e.kosmosplus.com/", false, .block, "a punycode lookalike is refused (#5169), not sent to the browser")
+    link("https://" + String(repeating: "a", count: 64) + ".kosmosplus.com/", false, .block, "a label over 63 characters is not a host; refused unclicked")
+    link("https://kosmosplus.com.evil.example/", false, .block, "a lookalike suffix is refused unclicked, not browsered (#5169)")
+    link("https://user@login.kosmosplus.com/", false, .block, "a user part is not ours; refused unclicked")
+    link("https://stripe.com/pay", false, .block, "#5169: an UNCLICKED foreign nav (a redirect or script) is refused, not sent to the browser")
+    link("https://stripe.com/pay", true, .browser, "#5169: a CLICKED foreign link still opens in the browser (only an unclicked nav is refused)")
     link("http://127.0.0.1:16180/", false, .block, "THIS COMPUTER'S STOPPED BOARD IS NEVER LOADED by a script or redirect")
     link("http://example.com/", true, .browser, "plain http, clicked, goes to the browser")
     link("mailto:help@kosmosplus.com", true, .browser, "a clicked mail link opens Mail")
@@ -6380,6 +6431,33 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     link("javascript:alert(1)", true, .block, "javascript: is refused")
     link("file:///etc/passwd", true, .block, "file: is refused")
     link("about:blank", false, .inApp, "about:blank for the page's own use")
+    // #5169: the board-aware rule + the Kosmos+-SITE checkout exception. navCase computes fromKosmosPlusPage
+    // through isKosmosPlusSiteURL(page), so these pin the FULL chain (which page counts as the site), not just
+    // the bool. The MERGE-GATE row is the checkout hand-off: it must stay .browser, and it fails on the pre-fix
+    // WIP (where the logic was clicked ? .browser : .block, so an unclicked checkout blocked and Buy broke).
+    func navCase(_ s: String, clicked: Bool = false, page: String? = nil, board: (host: String, port: Int)? = nil, _ want: ConnectLink, _ why: String) {
+        ran += 1
+        let got = URL(string: s).map { connectLinkDecision(for: $0, clicked: clicked, board: board, fromKosmosPlusPage: isKosmosPlusSiteURL(page.flatMap { URL(string: $0) })) }
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + (got?.rawValue ?? "nil").padding(toLength: 11, withPad: " ", startingAt: 0) + why)
+    }
+    navCase("https://checkout.stripe.com/pay", page: "https://login.kosmosplus.com/signin", .browser, "#5169 MERGE GATE: an UNCLICKED checkout hand-off from the Kosmos+ sign-in page opens in the browser, so Buy works (fails on the pre-fix WIP, which blocked it)")
+    navCase("https://checkout.stripe.com/pay", page: "https://kosmosplus.com/", .browser, "#5169: the apex is the site too; its scripted checkout hand-off opens in the browser")
+    navCase("https://evil.example/", page: "https://josh.kosmosplus.com/", .block, "#5169: an unclicked foreign nav from a COMPUTER board (josh.kosmosplus.com, not the site) is still refused")
+    navCase("https://evil.example/", page: "http://127.0.0.1:27500/", .block, "#5169: an unclicked foreign nav from the local board page is refused")
+    navCase("https://evil.example/", page: nil, .block, "#5169: an unclicked foreign nav with no current page is refused")
+    navCase("http://127.0.0.1:27500/", board: (host: "127.0.0.1", port: 27500), .inApp, "#5169: a run/both computer's OWN local board stays in-app, even unclicked")
+    navCase("http://127.0.0.1:27501/", board: (host: "127.0.0.1", port: 27500), .block, "#5169: a DIFFERENT local port is not this computer's board; refused unclicked")
+    navCase("https://checkout.stripe.com/", clicked: true, page: "http://127.0.0.1:27500/", .browser, "#5169: a CLICKED foreign link opens in the browser even from the board (the person chose it)")
+    func siteIs(_ s: String?, _ want: Bool, _ why: String) {
+        ran += 1
+        let got = isKosmosPlusSiteURL(s.flatMap { URL(string: $0) })
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + (got ? "site" : "not-site").padding(toLength: 11, withPad: " ", startingAt: 0) + why)
+    }
+    siteIs("https://login.kosmosplus.com/signin", true, "#5169: the sign-in coordinator IS the Kosmos+ site")
+    siteIs("https://josh.kosmosplus.com/", false, "#5169: a computer's board address is NOT the site (so a board page stays blocked)")
+    siteIs("https://checkout.stripe.com/", false, "#5169: a foreign host is not the site")
     // #5167: which downloads the app saves, and where.
     func dl(_ target: String, _ page: String?, _ want: Bool, _ why: String) {
         ran += 1
@@ -6474,7 +6552,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     try? FileManager.default.createDirectory(atPath: computerModePath(kosmosHome: dir.path), withIntermediateDirectories: false)
     disk(readComputerMode(kosmosHome: dir.path) == .unreadable, "a mode that cannot be read (a folder in its place) reads unreadable, not unset")
     try? FileManager.default.removeItem(at: dir)
-    let expected = 86
+    let expected = 98   // #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)

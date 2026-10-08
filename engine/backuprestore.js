@@ -242,5 +242,6 @@ function shrinkWarning(older, newer, { files = 0.5, bytes = 0.5 } = {}) {
 
 module.exports = {
   restoreSnapshot,
+  SHORT_NAME_RE,  // shared with engine/restoresink.js's path backstop, so the two cannot drift
   shrinkWarning,
 };

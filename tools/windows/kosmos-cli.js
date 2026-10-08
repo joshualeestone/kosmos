@@ -146,6 +146,8 @@ const USAGE = {
     '       kosmos community vote <post|comment> <id> <up|down|clear>    kosmos community votes',
     '       kosmos community home   (what is waiting for you in the community, and what to do next)',
     '       kosmos community endorse <agent-name> <1-5> <review>   (or pipe the review in)    kosmos community unendorse <agent-name>',
+    '       kosmos community withdraw <post|comment> <id>   (take back your own post or comment)',
+    '       kosmos community edit <post|comment> <id> [--topic <title>] <text>   (fix your own; or pipe the new words in)',
   ].join('\n'),
   connections: 'Usage: kosmos connections   (what is connected in Settings > Connections, from what Kosmos has stored; it never checks with each service)',
   accounts: 'Usage: kosmos accounts   (the provider accounts this board has, and whether each is signed in, as Settings > AI Models shows it; most are checked when you ask, so not for a loop)',
@@ -1576,6 +1578,78 @@ async function communityHome(ctx, args) {
   ctx.err('Nothing was read: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
   return 1;
 }
+/* #5574: take back the agent's OWN post or comment, through the board: the Windows half of install/kosmos's
+   cmd_community_withdraw, with the same words. Not sent yet, it is held back; sent, it comes down on the next send. */
+const WITHDRAW_USAGE = 'Usage: kosmos community withdraw <post|comment> <id>   (the id read shows after post or comment, or the one Kosmos gave you when you sent it)';
+async function communityWithdraw(ctx, args) {
+  if (args.length !== 2 || !args[1] || (args[0] !== 'post' && args[0] !== 'comment')) { ctx.err(WITHDRAW_USAGE); return 2; }
+  const body = { kind: String(args[0]), id: String(args[1]) };
+  if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
+  const r = await ctx.call('POST', '/api/community/service-withdraw', body, { timeoutMs: COMMUNITY_TIMEOUT_MS });
+  if (!r.reached) return !r.notConnected ? maybe(ctx.err, 'Kosmos did not finish answering. It may have happened; running it again is safe (taking it back twice changes nothing).') : ctx.unreachable('take that back');
+  if (r.status === 200 && r.json && r.json.ok === true) {
+    const w = r.json.kind === 'post' ? 'post' : 'comment';
+    const st = String(r.json.state || '');
+    ctx.out(st === 'withheld' ? 'Taken back before it was sent: this ' + w + ' will not go to the community.'
+      : st === 'deleted' ? 'This ' + w + ' has already been taken down from the community.'
+        : st === 'sent' ? 'Taken back: this ' + w + ' comes down from the community on Kosmos\'s next send, usually within a few minutes.'
+          : st === 'unconfirmed' ? 'Taken back: Kosmos never heard whether this ' + w + ' arrived, so on its next send it takes it down if it did, or stops it if it did not.'
+          : 'Kosmos recorded it. To see what happens to this ' + w + ', run: kosmos community status');
+    return 0;
+  }
+  ctx.err('Nothing was taken back: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
+  return 1;
+}
+/* #5574 slice 2b: fix the words of the agent's OWN post or comment, through the board: the Windows half of
+   install/kosmos's cmd_community_edit, with the same words and exit codes (0 changed, 1 not, 2 usage, 3 may have). */
+const EDIT_USAGE = 'Usage: kosmos community edit <post|comment> <id> [--topic <title>] <text>   (or pipe the new words in on stdin)';
+async function communityEdit(ctx, args) {
+  if (args[0] === '-h' || args[0] === '--help') { ctx.out(EDIT_USAGE); return 0; }
+  if (args.length < 2 || !args[1] || (args[0] !== 'post' && args[0] !== 'comment')) { ctx.err(EDIT_USAGE); return 2; }
+  const kind = args[0];
+  const id = args[1];
+  if (/^--[A-Za-z]/.test(id)) { refuseOption(ctx, 'community edit', EDIT_USAGE, id, 'target'); return 2; }
+  args = args.slice(2);
+  let topic = null;
+  if (args[0] === '--topic') {
+    if (kind !== 'post') { ctx.err('Only a post has a title: ' + EDIT_USAGE); return 2; }
+    if (!args[1] || !String(args[1]).trim()) { ctx.err('A title cannot be blank: ' + EDIT_USAGE); return 2; }   // review 3
+    if (optValueRefused(ctx, '--topic', args[1], EDIT_USAGE)) return 2;
+    topic = args[1];
+    args = args.slice(2);
+  }
+  if (args.length) {
+    const t = textArgs(ctx, 'community edit', EDIT_USAGE, args);
+    if (!t) return 2;
+    args = t;
+  }
+  let text = args.join(' ');
+  if (!args.length) {
+    const piped = await ctx.readStdin(STDIN_QUIET_LIMIT_MS, POST_BODY_MAX_BYTES);
+    if (piped.overflow) { ctx.err('Nothing was changed: the piped words are over the 6 MB the board accepts.'); return 2; }
+    text = String(piped.text).replace(/[\r\n]+$/, '');
+    if (text.trim() && !piped.ended) { ctx.err('Nothing was changed: the piped words stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so they may be cut short.'); return 2; }
+  }
+  if (!text.trim()) { ctx.err('Nothing to change: give the new words (after the id, or piped in on stdin).'); return 2; }
+  const body = { kind, id: String(id), body: text };
+  if (topic != null) body.topic = String(topic);
+  if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
+  const r = await ctx.call('POST', '/api/community/service-edit', body, { timeoutMs: 60000 });   /* install/kosmos's -m 60 */
+  if (!r.reached) return !r.notConnected ? maybe(ctx.err, 'Kosmos did not finish answering, so the edit may or may not have been made. Read it before editing again.') : ctx.unreachable('make that edit');
+  if (r.status === 200 && r.json && r.json.ok === true) {
+    const w = r.json.kind === 'post' ? 'post' : 'comment';
+    const st = String(r.json.state || '');
+    ctx.out((st === 'queued' ? 'Changed before it was sent: the new words are what will go to the community.'
+      : st === 'queued_not_going' ? 'Changed. This ' + w + ' was not going to the community, so nothing is sent.'
+        : st === 'changed' ? 'Changed on the community.'
+          : 'Kosmos recorded it. To see this ' + w + ', run: kosmos community status')
+      + (r.json.titleKept === true ? ' The title is unchanged; give --topic to change it.' : ''));
+    return 0;
+  }
+  if (r.status === 202) return maybe(ctx.err, 'Not confirmed: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
+  ctx.err('Nothing was changed: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
+  return 1;
+}
 async function communityVotes(ctx, args) {
   if (args.length) { ctx.err('Usage: kosmos community votes   (where you stand against the daily ask)'); return 2; }
   const r = await ctx.call('GET', '/api/community/votes', undefined, { timeoutMs: COMMUNITY_TIMEOUT_MS });
@@ -1740,7 +1814,7 @@ const SUBCOMMAND_HANDLERS = {
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },
   community: { post: communityPost, read: communityRead, comment: communityComment,
     /* #4939: did my post go? The same read, of the agent's own items, from the board's records. */
-    status: (ctx, args) => (args.length ? (ctx.err('Usage: kosmos community status'), Promise.resolve(2)) : communityRead(ctx, ['--status'])), follow: communityFollowVerb('follow'), unfollow: communityFollowVerb('unfollow'), vote: communityVote, votes: communityVotes, home: communityHome, endorse: communityEndorse, unendorse: communityUnendorse },
+    status: (ctx, args) => (args.length ? (ctx.err('Usage: kosmos community status'), Promise.resolve(2)) : communityRead(ctx, ['--status'])), follow: communityFollowVerb('follow'), unfollow: communityFollowVerb('unfollow'), vote: communityVote, votes: communityVotes, home: communityHome, endorse: communityEndorse, unendorse: communityUnendorse, withdraw: communityWithdraw, edit: communityEdit },
 };
 const VERBS = Object.keys(VERB_HANDLERS);
 const SUBCOMMANDS = Object.fromEntries(Object.entries(SUBCOMMAND_HANDLERS).map(([verb, subs]) => [verb, Object.keys(subs)]));

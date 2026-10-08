@@ -9196,6 +9196,85 @@ const server = http.createServer(async (req, res) => {
      token, identity and valve as a post, the same feedpublish choke (since #3485 a clean agent
      comment publishes straight away and one the scrub stops is held), and the send layer
      delivers it once published (engine/communitysend.js). */
+  /* #5574: an AGENT takes back its own community post or comment (`kosmos community withdraw <post|comment> <id>`).
+     The same agent-token check as service-comment below; communitysend.withdrawFor finds only this agent's own record
+     and hands it to the owner's removal path (#4287/#4801), so the answers are the delete route's: not found 404, not
+     removable 400 (with why), out on the network right now 409, records unreadable 503 with Retry-After. */
+  /* #5574 slice 2b: an AGENT edits the words of its own community post or comment (`kosmos community edit`). The same
+     agent-token check as service-withdraw; communitysend.editFor decides everything inside the sweep's mutex. Answers:
+     200 changed (state queued, queued_not_going or changed); 202 maybe (the community did not answer); 404 not yours or
+     unknown; 400 not editable or words refused (with why); 409 busy; 503 records unreadable, with Retry-After. */
+  if (pathname === '/api/community/service-edit' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!presentedAgentToken(req, body)) {
+          sendJson(res, 403, { error: 'editing a community post or comment requires an agent token' }); return;
+        }
+        const authRoster = safeRoster();
+        if (authRoster === null) {
+          sendJson(res, 503, { error: 'we could not check which agents are running, so we could not verify who this is; try again' }); return;
+        }
+        const sender = resolveAgentSender(req, body, authRoster);
+        if (!sender.ok || !sender.card || !sender.card.sessionName) {
+          sendJson(res, 403, { error: sender.because || 'we could not verify which agent this is from' }); return;
+        }
+        const kind = body.kind === 'post' || body.kind === 'comment' ? body.kind : null;
+        if (!kind || typeof body.id !== 'string' || !body.id.trim() || typeof body.body !== 'string') {
+          sendJson(res, 400, { error: 'say post or comment, its id, and the new words' }); return;
+        }
+        const words = { body: body.body };
+        if (kind === 'post' && typeof body.topic === 'string') words.topic = body.topic;
+        let r;
+        try { r = await communitysend.editFor(sender.card.sessionName, kind, body.id, words); }
+        catch (e) { console.error('FAIL /api/community/service-edit: ' + (e && e.message || e)); sendJson(res, 202, { maybe: true, error: 'Kosmos stopped partway through that edit, so it may or may not have been made; read it before editing again' }); return; }
+        if (r.ok) { sendJson(res, 200, { ok: true, kind, state: r.outcome, ...(r.titleKept ? { titleKept: true } : {}) }); return; }
+        if (r.maybe) { sendJson(res, 202, { maybe: true, error: r.because }); return; }
+        if (r.retryable) res.setHeader('Retry-After', '60');
+        sendJson(res, r.missing ? 404 : (r.notEligible || r.input) ? 400 : r.busy ? 409 : r.retryable ? 503 : 500, { error: r.because });
+      })
+      .catch((e) => { console.error('FAIL /api/community/service-edit (body): ' + (e && e.message || e)); if (!res.headersSent) sendJson(res, 500, { error: 'we could not make that edit' }); });
+    return;
+  }
+
+  if (pathname === '/api/community/service-withdraw' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!presentedAgentToken(req, body)) {
+          sendJson(res, 403, { error: 'taking back a community post or comment requires an agent token' }); return;
+        }
+        const authRoster = safeRoster();
+        if (authRoster === null) {
+          sendJson(res, 503, { error: 'we could not check which agents are running, so we could not verify who this is; try again' }); return;
+        }
+        const sender = resolveAgentSender(req, body, authRoster);
+        if (!sender.ok || !sender.card || !sender.card.sessionName) {
+          sendJson(res, 403, { error: sender.because || 'we could not verify which agent this is from' }); return;
+        }
+        const kind = body.kind === 'post' || body.kind === 'comment' ? body.kind : null;
+        if (!kind || typeof body.id !== 'string' || !body.id.trim()) {
+          sendJson(res, 400, { error: 'say post or comment, and its id' }); return;
+        }
+        let r;
+        try { r = communitysend.withdrawFor(sender.card.sessionName, kind, body.id); }
+        catch (e) { console.error('FAIL /api/community/service-withdraw: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not take that back' }); return; }
+        if (!r.ok) {
+          if (r.retryable) res.setHeader('Retry-After', '60');
+          sendJson(res, r.missing ? 404 : r.notEligible ? 400 : r.busy ? 409 : r.retryable ? 503 : 500, { error: r.because });
+          return;
+        }
+        if (r.state === 'sent') communitySendSoon();   // the take-down goes on the next sweep; ask for it now
+        sendJson(res, 200, { ok: true, kind, state: r.state });
+      })
+      .catch((e) => { console.error('FAIL /api/community/service-withdraw (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not take that back' }); });
+    return;
+  }
+
   if (pathname === '/api/community/service-comment' && req.method === 'POST') {
     const startedAt = Date.now();   // #5211: the after-comment line's time budget
     readBody(req)
@@ -9564,6 +9643,92 @@ const server = http.createServer(async (req, res) => {
     accountComputers.fetchComputers()
       .then((r) => sendJson(res, 200, r))
       .catch(() => sendJson(res, 200, { ok: false, because: 'we could not read your computers' }));
+    return;
+  }
+  /* kosmos#5531 (Enterprise E0.2): this Kosmos joining a company. GET is this world's enrollment as last confirmed
+     (read from its own data root; nothing is sent). preview, enroll and leave are the person's, refused to any caller
+     that presents an agent token (isViaScreen, the check every person-only setting uses; it trusts browser headers, so
+     it keeps agents out by their token, not against a process that forges headers). engine/orgenroll.js sends nothing on a decline and names this
+     world only by an opaque id. */
+  if (pathname === '/api/org' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const oe = require('./engine/orgenroll');
+      const here = oe.isEnrolledHere();
+      const rec = here ? oe.readEnrollment() : null;   // a record naming another world says nothing here
+      /* Any caller that is not the screen (this board's agents included) learns only whether this Kosmos is enrolled,
+         never which company: the consent words name the company's readers, not this board's agents (review 12). */
+      if (!isViaScreen(req, {})) {
+        sendJson(res, 200, { enrolled: here, org: null, role: null, enrolledAt: null });
+        return;
+      }
+      const stopped = here ? null : oe.stoppedFor();   // the company stopped naming this world: the screen says so ONCE
+      if (stopped && req.method === 'GET') oe.clearStopped();   // a HEAD shows nothing, so it must not use up the note
+      const refused = here ? oe.leaveRefusedFor() : null;   // a retried leave refused as the last admin: said ONCE (review 21)
+      const refusedUndo = refused ? oe.leaveRefusedKind() === 'undo' : false;   // an undo, not the person's leave (review 31)
+      if (refused && req.method === 'GET') oe.clearLeaveRefused();
+      sendJson(res, 200, { enrolled: here, reporting: here ? oe.mayReport() : false, stoppedFor: stopped, leaveRefused: refused, leaveRefusedUndo: refusedUndo, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
+    } catch { sendJson(res, 200, { enrolled: false, org: null, role: null, enrolledAt: null }); }
+    return;
+  }
+  if ((pathname === '/api/org/preview' || pathname === '/api/org/enroll' || pathname === '/api/org/leave') && req.method === 'POST') {
+    readBody(req, 4096)
+      .then(async (buf) => {
+        let body = {};
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = {}; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can join or leave a company, from Settings' }); return; }
+        const oe = require('./engine/orgenroll');
+        let r;
+        if (pathname === '/api/org/preview') {
+          r = await oe.preview(body.code);
+          /* A one-time ticket bound to WHAT was previewed: this code, or a member's move (no code). Enroll must carry
+             the same ticket and the same code, so a join is always for the company whose consent was fetched. It is
+             exactly as strong as isViaScreen, the board's check for every person-only setting: a caller that passes
+             that check can also preview first. What it adds is that no join or move skips the consent step. */
+          if (r.ok) {
+            ORG_TICKET = { value: require('node:crypto').randomBytes(16).toString('hex'), at: Date.now(), code: r.move ? null : String(body.code).trim(),
+              consentHash: oe.consentHash(r.consent),   // the words this screen was shown, kept with the enrollment
+              orgId: r.org && typeof r.org.id === 'string' ? r.org.id : null };   // WHICH company they were for (review 37)
+            r.ticket = ORG_TICKET.value;
+          }
+        } else if (pathname === '/api/org/enroll') {
+          if (body.accepted === true) {
+            const t = ORG_TICKET;
+            // A code that is not text is no join code: refused before the ticket is touched (review 32).
+            if (body.code != null && typeof body.code !== 'string') { sendJson(res, 200, { ok: false, because: 'That is not a join code. Check it and try again.' }); return; }
+            const code = body.code == null ? null : String(body.code).trim();
+            if (!t || typeof body.ticket !== 'string' || body.ticket !== t.value || Date.now() - t.at > ORG_TICKET_MS || code !== t.code) {
+              sendJson(res, 200, { ok: false, code: 'org_ticket', because: 'Check the code again first, so you can read what your company would see.' });
+              return;
+            }
+          }
+          const spent = body.accepted === true ? ORG_TICKET : null;
+          if (spent) ORG_TICKET = null;   // one use
+          r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true, spent ? { consentHash: spent.consentHash, orgId: spent.orgId } : undefined);
+          // Not joined for a passing reason (no public code: unreachable, busy; or org_bad_world, which says "Try again"):
+          // the same consent may be accepted again.
+          if (spent && r && r.ok === false && (!r.code || r.code === 'org_bad_world') && !r.declined && Date.now() - spent.at <= ORG_TICKET_MS
+            && ORG_TICKET === null) ORG_TICKET = spent;   // never over a newer screen's ticket issued while this one was out
+        } else {
+          /* Leave ends the whole membership, so it is sent only from the work Kosmos, or from one whose leave is still
+             unconfirmed (engine/orgenroll.js leaveNow). Any other Kosmos of this person's is refused here. */
+          if (!oe.isEnrolledHere() && !oe.leavePending()) {
+            sendJson(res, 200, { ok: false, because: 'This Kosmos is not your work Kosmos. Leave from your work Kosmos.' });
+            return;
+          }
+          r = await oe.leave();
+        }
+        /* The page gets the company's name and slug, never the world id or org id. */
+        /* What the page may see, by name (review 12): a field added to the engine's answer later is not sent by default. */
+        if (r && typeof r === 'object') {
+          const keep = ['ok', 'because', 'code', 'declined', 'still', 'pending', 'localOnly', 'move', 'ticket', 'role', 'consent', 'enrolledAt'];
+          const out = {};
+          for (const k of keep) if (k in r) out[k] = r[k];
+          if (r.org && typeof r.org === 'object') out.org = { name: r.org.name, slug: r.org.slug };
+          r = out;
+        }
+        sendJson(res, 200, r);
+      })
+      .catch(() => sendJson(res, 200, { ok: false, because: 'This Kosmos could not read that request. Nothing was sent to your company.' }));
     return;
   }
   /* kosmos#4794 slice 1: this computer joining. GET runs one pairing round and answers the page-safe status; POST
@@ -20487,6 +20652,21 @@ function federateOut(projectId, delivery, operator) {
   if (sent && hadFiles) messages.roomNote(projectId, 'The words went to ' + fedseats.farSide(projectId) + '; the attached file stayed on this computer.');
 }
 
+/** #5531: the last consent fetched to a screen, { value, at, code, consentHash } (code null for a member's move). */
+let ORG_TICKET = null;
+/** How long a fetched consent may be accepted: a screen left open longer is asked to check the code again. */
+const ORG_TICKET_MS = 10 * 60 * 1000;
+/** How often an enrolled world asks the company whether it is still enrolled (also once at start). */
+const ORG_REFRESH_MS = 24 * 60 * 60 * 1000;
+/** While a join's outcome is not known (org-join-unknown.json), it is asked about this often, not daily (review 26). */
+const ORG_UNSURE_MS = 2 * 60 * 1000;
+function orgEnrollRefresh() {
+  try {
+    const oe = require('./engine/orgenroll');
+    if (!oe.readEnrollment() && !oe.leavePending() && !oe.joinUnknown()) return;   // never joined: nothing is sent
+    oe.refresh().catch(() => { /* best effort: an unreachable company changes nothing */ });
+  } catch { /* best effort */ }
+}
 function start(port = PORT) {
   snapshotWorlds();   // #5247: the worlds the gate may accept, as of now
   /* #5254: cached first pages whose PDF, project or agent is gone are removed now and hourly (engine/filepreview.js). */
@@ -20495,6 +20675,12 @@ function start(port = PORT) {
   /* #5359: read when this board was last alive BEFORE it says it is alive now, so a restart of the computer under a
      running Kosmos is noticed; then say so once a minute. Best effort: a courtesy, never a reason not to start. */
   try { const rn = require('./engine/restartnote'); rn.atStart({ startedBy: BOARD_STARTED_BY, personMark: BOARD_PERSON_MARK }); rn.startBeating(); } catch { /* best effort */ }
+  /* #5531: an enrolled work Kosmos asks its company on start and daily whether it is still the enrolled world, and
+     stops reporting at once if not. Only a world with an enrollment asks: one that never joined sends nothing. */
+  orgEnrollRefresh();
+  setInterval(orgEnrollRefresh, ORG_REFRESH_MS).unref();
+  // Fast only for a day: a marker that stays unclear that long (Kosmos+ switched off, say) falls back to the daily pass.
+  setInterval(() => { try { const oe = require('./engine/orgenroll'); const age = oe.joinUnknownAge(); if (oe.joinUnknown() && age !== null && age < 24 * 60 * 60 * 1000) orgEnrollRefresh();   /* an unreadable time: the daily pass */ } catch { /* best effort */ } }, ORG_UNSURE_MS).unref();
   /* #4408: what this board is running, taken now, before anything can edit the app folder under it. The
      restart module is loaded first: it is otherwise required lazily, and the button depends on it. */
   try { require('./engine/boardrestart'); } catch { /* the restart route reports its own failure */ }

@@ -68,6 +68,8 @@ die() {
 _kosmos_board_decide() { _kosmos_board_off=no; }
 . "$T/putback.sh"
 _kosmos_mode_keeps_board_off() { return 1; }
+# #4920: the block gives an old Linux unit KillMode=process before its stop; here (no systemd unit) it is a no-op.
+_kosmos_linux_unit_killmode() { :; }
 # As setup.sh sets them above the block (the block reads them).
 _kosmos_was_running=no; _kosmos_paused_board=no; _kosmos_marker_ours=no; _kosmos_putback_unsure=no
 if [ -n "${PRESTOPPED:-}" ]; then : > "$KOSMOS_HOME/board.stopped"; fi

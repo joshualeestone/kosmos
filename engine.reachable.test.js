@@ -20,6 +20,7 @@ const path = require('node:path');
 /* Test seams and re-exports, excused BY NAME WITH A REASON. An entry here is
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
+  worldUsageByModel: 'engine/usage.js (#5532 E0.3): the scoped usage reader for the company rollup, landed and tested on its own first (as chunkBuffer above). Its caller is engine/orgrollup.js on the rollup branch, which reads it only under the consent words; remove this excuse when that lands.',
   resetPauses: 'engine/communitysend.js (#4953): a test seam that clears the per-minute 429 pauses (and the once-said unreadable-429 note) between tests, so one test\'s pause cannot hold the next; nothing in the app resets them',
   setTmuxCandidates: 'engine/status.js (#2955): a test seam, the list of tmux binaries tmuxRepick asks at the version wall; engine/status.test.js sets it so its fakes are asked instead of the real Homebrew paths.',
   setOwnTmux: 'engine/status.js (#2955): a test seam, Kosmos\'s own tmux path, which status.js derives from where it is installed (pinned by its own test); engine/status.test.js points it at a fake.',
@@ -35,7 +36,11 @@ const EXCUSED = {
   insideWorkKosmos: 'engine/backupscan.js (#5535 E0.6 slice 3, first pure part): what may leave the Mac in a backup (credential deny-list, redaction in place through secretmask, fail closed). Landed and tested on its own first, as slices 1 and 2 were; its caller is the slice-3 walker, after it resolves a symlink.',
   scanFile: 'engine/backupscan.js (#5535 E0.6 slice 3, first pure part): what may leave the Mac in a backup (credential deny-list, redaction in place through secretmask, fail closed). Landed and tested on its own first, as slices 1 and 2 were; its caller is the slice-3 walker, on every file it backs up. If E0.6 is abandoned, this module goes with it.',
   restoreSnapshot: 'engine/backuprestore.js (#5536 E0.7 step 3, its pure part): turning a backed-up snapshot back into files, verified per chunk and per file, fail closed. Landed and tested on its own first, like E0.6\'s pure slices; its caller is E0.7\'s restore engine on the destination board, which needs E0.1/E0.2 for keys and grants. Do not wire it to a real sink before that sink passes the conformance tests listed at the top of .claude/plans/bkrestore-5536.md (and on #5536). If E0.7 is abandoned, this goes with it.',
+  createRestoreSink: 'engine/restoresink.js (#5536 E0.7 step 3): the folder sink restoreSnapshot writes through, meeting the sink duties backuprestore.js states (a fresh root other users cannot write in, a temp folder inside the root until commit, link() that never replaces, an lstat check on each folder against symlinks), measured by its own conformance tests. Its caller is E0.7\'s restore engine on the destination board, with restoreSnapshot. If E0.7 is abandoned, this goes with it.',
   shrinkWarning: 'engine/backuprestore.js (#5536 E0.7 step 3, its pure part): turning a backed-up snapshot back into files, verified per chunk and per file, fail closed. Landed and tested on its own first, like E0.6\'s pure slices; its caller is E0.7\'s restore engine on the destination board, which needs E0.1/E0.2 for keys and grants. If E0.7 is abandoned, this goes with it (the shrink warning shown before a person picks a snapshot).',
+  recordSeen: 'engine/restorerequest.js (#5536 E0.7 design v2/v2.1): the reference for recording when the unwrap service first saw a request, keyed by requestId (keyed by anything else, a second request could inherit a wait). Its caller is the unwrap service, which needs E0.1/E0.2 device keys. If E0.7 is abandoned, this goes with it.',
+  signRequest: 'engine/restorerequest.js (#5536 E0.7 design v2/v2.1): the signed two-admin restore request, its canonical bytes and the unwrap service\'s release check, with fixed vectors for any other implementation of that service. Landed and tested on its own first, like E0.6\'s pure slices; its callers are the admins\' boards (signing) and the unwrap service (checking), which need E0.1/E0.2 device keys. If E0.7 is abandoned, this goes with it.',
+  checkRelease: 'engine/restorerequest.js (#5536 E0.7 design v2/v2.1): the signed two-admin restore request, its canonical bytes and the unwrap service\'s release check, with fixed vectors for any other implementation of that service. Landed and tested on its own first, like E0.6\'s pure slices; its callers are the admins\' boards (signing) and the unwrap service (checking), which need E0.1/E0.2 device keys. If E0.7 is abandoned, this goes with it.',
   createChunker: 'engine/backupformat.js (#5535 E0.6 slice 3): the streaming form of chunkBuffer, so a file larger than memory can be backed up; its caller is the slice-3 walker, for files above a size threshold. If E0.6 is abandoned, this goes with it.',
   chunkBuffer: 'engine/backupformat.js (#5535 E0.6 slice 2, the pure half): the bytes of the Enterprise backup (chunking, sealed chunks, signed manifests). Landed and tested on its own first, as slice 1 was; its caller is slice 3, the snapshot walker. If E0.6 is abandoned, this module goes with it.',
   sealNamedChunk: 'engine/backupformat.js (#5535 E0.6 slice 2, the pure half): the bytes of the Enterprise backup (chunking, sealed chunks, signed manifests). Landed and tested on its own first, as slice 1 was; its caller is slice 3, the uploader, and it is the ONLY way the uploader seals a chunk (the name is derived from the content, so it always restores).',
@@ -171,6 +176,93 @@ const EXCUSED = {
   _nextIdForTests: 'test seam (#4888): engine/messages.js says which id the NEXT post will get (the larger of the log\'s highest and the in-memory high mark, +1), so a test that predicts ids does not have to re-derive the minting rule; a refused send now burns its id, which broke tests that counted. Production mints through mintId and never calls it.',
 };
 
+/* #5548: test seams that became visible when this guard learned to read every exports block. Each is an injector
+   or reset whose default restores the real behaviour, and only its own tests call it (measured when the guard first
+   read the module). Keyed by FILE, like PENDING_5548, because several names are generic (setClock, setBin, _lock):
+   a by-name excuse would also hide a real orphan of the same name in another module (#5548 review 2). */
+const SEAMS_5548 = {
+  // #5532: the ioreg runner and the clock engine/computerprint-5532.test.js replaces, and the bare print function it
+  // pins the formula through (callers use printFor, which reads the id itself).
+  _testRunner: 'engine/computerprint.js',
+  _testClock: 'engine/computerprint.js',
+  _testFingerprint: 'engine/computerprint.js',
+  allowSandboxInstallForTests: 'engine/agystatus.js',
+  setInstallerForTests: 'engine/agystatus.js',
+  setLastFileForTests: 'engine/agystatus.js',
+  _lock: 'engine/agytrust.js',
+  _setNonceClock: 'engine/boardauth.js',
+  setInstalledCli: 'engine/boardrestart.js',
+  setBoardOps: 'engine/boardrestart.js',
+  setUid: 'engine/boardrestart.js',
+  setReaderForTests: 'engine/claudeloginlive.js',
+  _resetRate: 'engine/communityfollow.js',
+  _freshDownReset: 'engine/communityread.js',
+  resetSleepPaneCache: 'engine/machine.js',
+  setAppRevealRunner: 'engine/machine.js',
+  setSystemConfigPaths: 'engine/orgchartcodex.js',
+  setVersion: 'engine/orgchartcodex.js',
+  setBin: 'engine/orgchartcodex.js',
+  setReaderForTest: 'engine/orgchartfile.js',
+  setModelRunner: 'engine/orgchartfile.js',
+  setModelAvailable: 'engine/orgchartfile.js',
+  _ageFallbackForTests: 'engine/personlanguage.js',
+  setAvailableForTests: 'engine/phonenotify.js',
+  setClock: 'engine/phonenotify.js',
+  resetCooldownForTests: 'engine/phonenotify.js',
+  _files: 'engine/restartnote.js',
+  _parseCmdlines: 'engine/runningas.js',
+  setPartsLimitForTests: 'engine/tasks.js',
+  setCatalogue: 'engine/teamseed.js',
+  setResolver: 'engine/unfurl.js',
+  _agyCache: 'engine/usageproviders.js',
+  setFileForTests: 'engine/whatsnew.js',
+  setLiveness: 'engine/win32job.js',
+  setRunningClock: 'engine/win32job.js',
+  setAlive: 'engine/win32stop.js',
+};
+
+/* #5548 slice 1: exports that became visible when this guard learned to read every exports block, and that are
+   not test seams by name. Each is a real #265 candidate (an unreachable capability) until slice 2 triages it: a
+   real caller, an excuse with a reason, or deletion. This list may only SHRINK: the ratchet test below fails if a
+   name here is no longer an orphan, so a fixed one cannot linger as cover. Do not add to it; new exports meet the
+   guard itself. */
+const PENDING_5548 = {
+  exportAgent: 'engine/agentfile.js',
+  IMPORT_CONTRACT: 'engine/agentfile.js',
+  newPoolMemo: 'engine/agyquota.js',
+  wireText: 'engine/chat.js',
+  sweepClass1: 'engine/class1-autohandle.js',
+  labelFor: 'engine/communityindustry.js',
+  labelForMember: 'engine/fedmembers.js',
+  rotateForRevoked: 'engine/fedseats.js',
+  stopAll: 'engine/fedseats.js',
+  clearFirstTurnCache: 'engine/groksession.js',
+  setIntervalMinutes: 'engine/heartbeat-setting.js',
+  minInterval: 'engine/inflight.js',
+  ALLOWED_TOOLS: 'engine/orgchartcodex.js',
+  deriveCatalog: 'engine/orgchartcodex.js',
+  offeredTools: 'engine/orgchartcodex.js',
+  whyNoReader: 'engine/orgchartfile.js',
+  offReason: 'engine/orgchartkeys.js',
+  setEnabled: 'engine/orgchartkeys.js',
+  chooseReader: 'engine/orgchartkeys.js',
+  setKeyFor: 'engine/orgchartkeys.js',
+  setDescription: 'engine/projects.js',
+  setArchived: 'engine/projects.js',
+  knownSecretCount: 'engine/secretmask.js',
+  fragmentIndexStats: 'engine/secretmask.js',
+  retireLauncher: 'engine/sendertoken.js',
+  codexLastCompletionAt: 'engine/status.js',
+  geminiLastCompletionAt: 'engine/status.js',
+  grokLastCompletionAt: 'engine/status.js',
+  parentOf: 'engine/tasks.js',
+  childrenOf: 'engine/tasks.js',
+  subtaskProgress: 'engine/tasks.js',
+  HANDOFF_CHECK_FOR_SERVING_AFTER_MS: 'engine/win32handoff.js',
+  WIN32_ROW_KEYS: 'engine/win32roster.js',
+  hasPicture: 'engine/you.js',
+};
+
 const engineDir = path.join(__dirname, 'engine');
 const engineFiles = fs.readdirSync(engineDir).filter((f) => f.endsWith('.js') && !f.endsWith('.test.js'));
 
@@ -193,45 +285,226 @@ const testFiles = [
 const testBlob = testFiles.map(read).join('\n');
 const sources = CALLER_FILES.map((f) => ({ f, text: read(f) }));
 
-function exportedNames(text) {
-  const m = text.match(/module\.exports = \{([\s\S]*?)\n\};/);
-  if (!m) return [];
-  return [...m[1].matchAll(/(?:^|[,{\n])\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*(?=[,:}\n])/g)]
-    .map((x) => x[1])
-    .filter((n) => !['module', 'exports'].includes(n));
+/* #5548: the exports block is found by matching braces in CODE (comments and strings blanked), so its layout no
+   longer matters. The old regex read only blocks that closed on a line of their own (`\n};`): 69 of 253 modules,
+   and it took words from comments as names. Names are the top-level keys: a shorthand name or the key of
+   `key: value`, never a comment word and never the contents of a nested object. */
+const REGEX_AFTER = new Set(['return', 'typeof', 'case', 'in', 'of', 'else', 'do', 'throw', 'delete', 'void', 'new', 'yield', 'await', 'instanceof']);
+function codeOnly(src) {
+  const out = src.split('');
+  const n = src.length;
+  const blank = (a, b) => { for (let k = a; k < b; k++) if (out[k] !== '\n') out[k] = ' '; };
+  let i = 0;
+  const stack = []; // template nesting: brace depth at each ${
+  let depth = 0;
+  let prev = ''; // last significant code char ('w' after a word)
+  let lastWord = '', wordAfterDot = false, prevPrev = '';
+  let afterOpen = false; // just entered a template ${: what follows starts an expression
+  function str(q) { const s = i; i++; while (i < n && src[i] !== q) { if (src[i] === '\\') i++; else if (src[i] === '\n') break; i++; } i++; blank(s, i); }
+  function tmpl(resume) { // at a backtick, or (resume) just after the } that closes a ${...}
+    let s = i; if (!resume) i++;
+    while (i < n) {
+      if (src[i] === '\\') { i += 2; continue; }
+      if (src[i] === '`') { i++; blank(s, i); return; }
+      if (src[i] === '$' && src[i + 1] === '{') { blank(s, i); i += 2; stack.push(depth); depth++; afterOpen = true; return; }
+      i++;
+    }
+    blank(s, i);
+  }
+  while (i < n) {
+    const c = src[i], d = src[i + 1];
+    if (c === '/' && d === '/') { const s = i; while (i < n && src[i] !== '\n') i++; blank(s, i); continue; }
+    if (c === '/' && d === '*') { const s = i; i = src.indexOf('*/', i + 2); i = i < 0 ? n : i + 2; blank(s, i); continue; }
+    if (c === '"' || c === "'") { str(c); prev = 'a'; continue; }
+    if (c === '`') { tmpl(); prev = afterOpen ? '{' : 'a'; afterOpen = false; continue; }
+    /* A `/` starts a regex after an operator or a keyword such as return; it is division after a value: a name,
+       `)`, `]`, `}` (an object or a block, read as a value: rarer the other way), a postfix `++`/`--`, or a
+       keyword used as a property (`x.return / 2`). Review 1 of #5548 found the `}`, `++` and `.return` cases. */
+    const postfix = (prev === '+' || prev === '-') && prevPrev === prev;
+    if (c === '/' && !postfix && (prev === '' || '(,=:[!&|?{;+-*%<>~^'.includes(prev) || (prev === 'w' && !wordAfterDot && REGEX_AFTER.has(lastWord)))) {
+      const s = i; i++; let cls = false;
+      while (i < n && src[i] !== '\n') { if (src[i] === '\\') { i += 2; continue; } if (src[i] === '[') cls = true; else if (src[i] === ']') cls = false; else if (src[i] === '/' && !cls) break; i++; }
+      i++; while (i < n && /[a-z]/i.test(src[i])) i++;
+      blank(s, i); prev = 'a'; continue;
+    }
+    if (c === '{') depth++;
+    if (c === '}') { depth--; if (stack.length && depth === stack[stack.length - 1]) { stack.pop(); i++; tmpl(true); prev = afterOpen ? '{' : 'a'; afterOpen = false; continue; } }
+    if (/[A-Za-z_$]/.test(c)) {   // a word: remember it, so `return /re/` reads as a regex and `x / y` as division
+      const s = i; while (i < n && /[\w$]/.test(src[i])) i++;
+      wordAfterDot = prev === '.'; lastWord = src.slice(s, i); prevPrev = prev; prev = 'w'; continue;
+    }
+    if (!/\s/.test(c)) { prevPrev = prev; prev = c; }
+    i++;
+  }
+  return out.join('');
+}
+/* The text of the `module.exports = { ... }` object (braces included), found by matching braces in code. */
+function exportsBlock(src) {
+  const code = codeOnly(src);
+  const m = /module\.exports\s*=\s*\{/.exec(code);
+  if (!m) return null;
+  let depth = 0;
+  for (let k = m.index + m[0].length - 1; k < code.length; k++) {
+    if (code[k] === '{') depth++;
+    else if (code[k] === '}' && --depth === 0) return { start: m.index, end: k + 1, code: code.slice(m.index, k + 1) };
+  }
+  return null;
+}
+function exportedNames(src) {
+  const b = exportsBlock(src);
+  if (!b) return [];
+  const inner = b.code.slice(b.code.indexOf('{') + 1, -1);
+  const names = [];
+  let depth = 0, seg = '';
+  for (const ch of inner + ',') {
+    if ('{[('.includes(ch)) depth++;
+    if ('}])'.includes(ch)) depth--;
+    if (ch === ',' && depth === 0) { const t = seg.trim(); seg = ''; if (!t) continue;
+      const mm = /^(?:get\s+|set\s+|async\s+)?([A-Za-z_$][\w$]*)/.exec(t); if (mm && !t.startsWith('...')) names.push(mm[1]); continue; }
+    seg += ch;
+  }
+  return names;
 }
 
-test('no engine export is tested, excused by nobody, and reachable from nowhere', () => {
+/* The #265 signature over a set of modules: exported, tested, called by no other caller file and by no CODE in
+   its own file. #5548: an internal caller counts only in code, so a comment or an error message that names the
+   export no longer passes for a call (it did in hpke-5535, twice). */
+function findOrphans(modules, callerSources, tests, skip) {
   const orphans = [];
-  for (const f of engineFiles) {
-    const rel = path.join('engine', f);
-    const text = read(rel);
+  for (const { rel, text } of modules) {
+    const block = exportsBlock(text);
+    let code = codeOnly(text);
+    if (block) code = code.slice(0, block.start) + ' '.repeat(block.end - block.start) + code.slice(block.end);
+    // `module.exports.x = name` or `exports.x = name` after the block re-exports; it is not a call (#5548 review 1).
+    code = code.replace(/\b(?:module\.)?exports\.[A-Za-z_$][\w$]*\s*=[^;\n]*/g, (m) => ' '.repeat(m.length));
     for (const name of exportedNames(text)) {
-      if (EXCUSED[name]) continue;
+      if (skip(name, rel)) continue;
       /* Short and generic names (FILE, LOG, get, list...) collide with
          unrelated words in a plain-text grep; a word-boundary search plus a
          5+ character floor keeps the check about the class it hunts (the
          four instances were assignPart, restart, commitments, owesReply --
          all long, specific names). */
       if (name.length < 5) continue;
-      const word = new RegExp('\\b' + name + '\\b');
-      const tested = word.test(testBlob);
-      if (!tested) continue;
-      const callers = sources.filter((s2) => s2.f !== rel && word.test(s2.text));
-      if (callers.length > 0) continue;
+      const id = name.replace(/\$/g, '\\$');
+      const word = new RegExp('\\b' + id + '\\b');
+      if (!word.test(tests)) continue;
+      if (callerSources.some((s2) => s2.f !== rel && word.test(s2.text))) continue;
       /* A name its own module calls is reachable through whatever calls it;
-         the signature is a capability NOTHING invokes. Count same-file
-         mentions beyond the definition and the exports list: any left means
-         an internal caller. */
-      const mentions = (text.match(new RegExp('\\b' + name + '\\b', 'g')) || []).length;
-      const defs = (text.match(new RegExp('function ' + name + '\\b', 'g')) || []).length
-        + (text.match(new RegExp('(const|let) ' + name + '\\b', 'g')) || []).length;
-      const exportsBlock = text.match(/module\.exports = \{[\s\S]*?\n\};/);
-      const inExports = exportsBlock ? (exportsBlock[0].match(new RegExp('\\b' + name + '\\b', 'g')) || []).length : 0;
-      if (mentions - defs - inExports > 0) continue;
+         the signature is a capability NOTHING invokes. Count mentions in the
+         module's code (exports block blanked) beyond its definitions: any left
+         means an internal caller. */
+      const mentions = (code.match(new RegExp('\\b' + id + '\\b', 'g')) || []).length;
+      const defs = (code.match(new RegExp('function\\s*\\*?\\s*' + id + '\\b', 'g')) || []).length
+        + (code.match(new RegExp('(const|let|var|class)\\s+' + id + '\\b', 'g')) || []).length
+        + (code.match(new RegExp('(?<!\\b(?:const|let|var)\\s+)(?<![.\\w$])' + id + '\\s*=\\s*(async\\s+)?(function\\b|\\([^)]*\\)\\s*=>|[A-Za-z_$][\\w$]*\\s*=>)', 'g')) || []).length;
+      if (mentions - defs > 0) continue;
       orphans.push(rel + ' exports ' + name);
     }
   }
+  return orphans;
+}
+
+// posix keys, so the file-keyed lists compare the same on Windows (#5548 review 2)
+const engineModules = engineFiles.map((f) => ({ rel: path.posix.join('engine', f), text: read(path.join('engine', f)) }));
+
+/* EXCUSED is by name (an excuse covers the name wherever it is exported); SEAMS_5548 and PENDING_5548 are by file, so a pending
+   name cannot cover a new orphan of the same name in another module (#5548 review 1). */
+/* #5532 (E0.3, contract v1.5): the computer print landed and tested on its own first. Its first caller is the enroll,
+   leave and rollup wiring after #5531 merges. By file, and armed: the test below fails once it has a caller, so this
+   excuse cannot outlive its reason. */
+const FIRST_CALLER_5532 = { printFor: 'engine/computerprint.js' };
+const skipped = (n, rel) => Boolean(EXCUSED[n]) || SEAMS_5548[n] === rel || PENDING_5548[n] === rel || FIRST_CALLER_5532[n] === rel;
+
+test('no engine export is tested, excused by nobody, and reachable from nowhere', () => {
+  const orphans = findOrphans(engineModules, sources, testBlob, skipped);
   assert.deepEqual(orphans, [],
     'tested, exported, and reachable from nowhere -- the #265 signature. Wire it to a screen, or excuse it here with a reason someone can check.');
+});
+
+/* Engine modules that export something other than a `module.exports = { ... }` literal, so this guard reads no
+   names from them. Named so a new one is a decision, not a silent gap (#5548 review 1). */
+const NO_LITERAL_EXPORTS = {
+  'engine/agent-browser-config.js': 'no module.exports (a config the board reads as a file)',
+  'engine/agent-permission-config.js': 'no module.exports (a config the board reads as a file)',
+  'engine/doctrine-past.js': 'module.exports = blocks (an array of retired doctrine text, data not functions)',
+  'engine/github.js': 'module.exports = Object.assign(makeDoor({...}), ...) (a connection door built by a factory)',
+  'engine/vercel.js': 'module.exports = Object.assign(makeDoor({...}), ...) (a connection door built by a factory)',
+};
+
+test('#5548: the guard reads every engine exports block', () => {
+  const unread = engineModules.filter((m) => exportedNames(m.text).length === 0).map((m) => m.rel).sort();
+  assert.deepEqual(unread, Object.keys(NO_LITERAL_EXPORTS).sort(),
+    'a module whose exports this guard cannot read is a module it never checks: read it, or name it in NO_LITERAL_EXPORTS with why');
+  assert.ok(engineModules.length > 200, 'found only ' + engineModules.length + ' engine modules; a moved directory looks like this');
+});
+
+test('#5548: every seam excused by file is still exported there', () => {
+  for (const [n, file] of Object.entries(SEAMS_5548)) {
+    assert.ok(exportedNames(read(file)).includes(n), file + ' no longer exports ' + n + ': remove it from SEAMS_5548');
+  }
+});
+
+test('#5548: a pending name covers only its own file', () => {
+  const [name, file] = Object.entries(PENDING_5548)[0];
+  assert.equal(skipped(name, file), true);
+  assert.equal(skipped(name, 'engine/some-other-module.js'), false, 'pending ' + name + ' must not cover another module');
+});
+
+test('#5548: the pending list only shrinks (a name that gained a caller comes off it)', () => {
+  const still = new Set(findOrphans(engineModules, sources, testBlob, (n, rel) => Boolean(EXCUSED[n]) || SEAMS_5548[n] === rel));
+  const fixed = Object.keys(PENDING_5548).filter((n) => !still.has(PENDING_5548[n] + ' exports ' + n));
+  assert.deepEqual(fixed, [], 'no longer orphans: remove them from PENDING_5548 (and from the slice-2 list on #5548)');
+  for (const [n, file] of Object.entries(PENDING_5548)) {
+    assert.ok(exportedNames(read(file)).includes(n), file + ' no longer exports ' + n + ': remove it from PENDING_5548');
+  }
+});
+
+test('#5548 self-test: a one-line exports block, a comment mention and a string mention do not hide an orphan', () => {
+  const fixture = [
+    '// orphanCapability is described here, which is not a call.',
+    'function orphanCapability() { return "orphanCapability failed"; }',
+    'function calledHelper() { return 1; }',
+    'function publicThing() { return calledHelper(); }',
+    'module.exports = { orphanCapability, calledHelper, publicThing: publicThing, nested: { notAnExport: 1 } };',
+  ].join('\n');
+  const mods = [{ rel: 'engine/fixture-5548.js', text: fixture }];
+  assert.deepEqual(exportedNames(fixture), ['orphanCapability', 'calledHelper', 'publicThing', 'nested']);
+  const tests = 'orphanCapability(); calledHelper(); publicThing();';
+  const callers = [{ f: 'server.js', text: 'fixture.publicThing()' }];
+  assert.deepEqual(findOrphans(mods, callers, tests, () => false), ['engine/fixture-5548.js exports orphanCapability']);
+  // and the old shapes stay covered: a multi-line block, and a template literal holding code
+  const multi = 'function lonelyExport() {}\nconst t = `${lonelyExport.name}`;\nmodule.exports = {\n  lonelyExport,\n};\n';
+  assert.deepEqual(findOrphans([{ rel: 'engine/m.js', text: multi }], [], 'lonelyExport()', () => false), [],
+    'code inside a template ${} is a real use');
+  // review 1: division after } or a postfix ++ is not a regex, so a comment after it stays a comment
+  // (one case per line: a misread regex ends at the next `/` on its line, so two cases on one line can re-sync)
+  const div = 'function quietExport() {}\nconst o = {} / 2; // quietExport\nmodule.exports = { quietExport };\n';
+  assert.deepEqual(findOrphans([{ rel: 'engine/d.js', text: div }], [], 'quietExport()', () => false), ['engine/d.js exports quietExport']);
+  const inc = 'function stillQuiet() {}\nlet i = 0; i++ / 2; // stillQuiet\nmodule.exports = { stillQuiet };\n';
+  assert.deepEqual(findOrphans([{ rel: 'engine/p.js', text: inc }], [], 'stillQuiet()', () => false), ['engine/p.js exports stillQuiet']);
+  const dotkw = 'function dottedExport() {}\nconst y = x.return / 2; // dottedExport\nmodule.exports = { dottedExport };\n';
+  assert.deepEqual(findOrphans([{ rel: 'engine/k.js', text: dotkw }], [], 'dottedExport()', () => false), ['engine/k.js exports dottedExport']);
+  // review 1: a re-export after the block and a `name = function` definition are not calls
+  const declared = 'const arrowExport = () => 1;\nfunction user() { return arrowExport(); }\nmodule.exports = { arrowExport, user };\n';
+  assert.deepEqual(findOrphans([{ rel: 'engine/a.js', text: declared }], [{ f: 'server.js', text: 'user()' }], 'arrowExport() user()', () => false), [],
+    'a const arrow is one definition, not two');
+  const reexp = 'let assignedExport;\nassignedExport = function () {};\nmodule.exports = { assignedExport };\nmodule.exports.alias = assignedExport;\n';
+  assert.deepEqual(findOrphans([{ rel: 'engine/r.js', text: reexp }], [], 'assignedExport()', () => false), ['engine/r.js exports assignedExport']);
+  // a real regex after return is still a regex: its quote must not swallow the call after it
+  const re = 'function realCall() {}\nfunction user() { return /["]/.test(realCall()); }\nmodule.exports = { realCall, user };\n';
+  assert.deepEqual(findOrphans([{ rel: 'engine/q.js', text: re }], [{ f: 'server.js', text: 'user()' }], 'realCall() user()', () => false), []);
+  // review 2: a regex at the start of a template ${} is a regex, so its quote does not hide the code after it
+  const tre = 'function viaTemplate() {}\nfunction user(s) { return `${/\'/.test(s) ? viaTemplate() : 0}`; }\nmodule.exports = { viaTemplate, user };\n';
+  assert.deepEqual(findOrphans([{ rel: 'engine/t.js', text: tre }], [{ f: 'server.js', text: 'user()' }], 'viaTemplate() user()', () => false), []);
+  const multi2 = 'function lonelyExport() {}\nmodule.exports = {\n  lonelyExport, // lonelyExport\n};\n';
+  assert.deepEqual(findOrphans([{ rel: 'engine/m.js', text: multi2 }], [], 'lonelyExport()', () => false), ['engine/m.js exports lonelyExport']);
+});
+
+test('#5532: printFor is excused only until its first caller lands', () => {
+  const without = (n, rel) => Boolean(EXCUSED[n]) || SEAMS_5548[n] === rel || PENDING_5548[n] === rel;
+  const still = new Set(findOrphans(engineModules, sources, testBlob, without));
+  for (const [n, file] of Object.entries(FIRST_CALLER_5532)) {
+    assert.ok(still.has(file + ' exports ' + n), n + ' has a caller now: remove it from FIRST_CALLER_5532');
+  }
+  assert.equal(skipped('printFor', 'engine/some-other-module.js'), false, 'the excuse must not cover another module');
 });

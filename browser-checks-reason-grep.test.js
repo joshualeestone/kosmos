@@ -473,6 +473,7 @@ const SITE_COUNTS = {
   'render-room-scroll.js': [1, 0],
   'render-settings-403-2047.js': [1, 1],
   'render-settings-agy-3874.js': [3, 2],
+  'render-settings-fit-5510.js': [2, 1],
   'render-settings-openai-goldbox.js': [1, 1],
   'render-signin-visible-3892.js': [1, 0],
   'render-sound-master-2436.js': [1, 1],
@@ -507,6 +508,7 @@ const SITE_COUNTS = {
   'render-worldsw-height-2350.js': [1, 1],
   'render-worldsw-lockout-3055.js': [2, 2],
   'render-worldswitch-2238.js': [1, 1],
+  'render-worldview-5393.js': [4, 2],
 };
 
 /* One slot's measured count for one check, read from its source. A check with no

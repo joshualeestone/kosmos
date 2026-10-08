@@ -278,7 +278,7 @@ const visible = (page, sel) => page.evaluate((s) => {
         const r = await page.evaluate((t) => {
           document.documentElement.setAttribute('data-theme', t);
           const inputs = [...document.querySelectorAll('#s-sec-plus input.tk-inp')];
-          const WANT = (i) => i.closest('#plus-state2') ? 'rgb(230, 235, 247) on rgb(22, 34, 62)' : 'rgb(20, 22, 26) on rgb(255, 255, 255)';
+          const WANT = (i) => (i.closest('#plus-state2') || i.closest('#plus-org')) ? 'rgb(230, 235, 247) on rgb(22, 34, 62)' : 'rgb(20, 22, 26) on rgb(255, 255, 255)';
           const f = document.getElementById('plus-signin-email').getBoundingClientRect();
           const btn = document.getElementById('plus-signin-code').getBoundingClientRect();
           const probe = document.getElementById('plus-signin-email');
@@ -287,7 +287,7 @@ const visible = (page, sel) => page.evaluate((s) => {
           probe.classList.remove('bad');
           const okBorder = getComputedStyle(probe).borderTopColor;
           return { gap: btn.top - f.bottom, n: inputs.length, badBorder, okBorder,
-            wiz: inputs.filter((i) => i.closest('#plus-state2')).length,
+            wiz: inputs.filter((i) => i.closest('#plus-state2')).length, org: inputs.filter((i) => i.closest('#plus-org')).length,
             /* #3942: a code field is transparent over its six boxes, so what the digits sit on is the
                boxes' fill: read that, not the input's own (now see-through) background. */
             bad: inputs.map((i) => { const c = getComputedStyle(i); const boxed = i.closest('.otp-boxes');
@@ -295,9 +295,9 @@ const visible = (page, sel) => page.evaluate((s) => {
               return { id: i.id, raw: c.color + ' on ' + under, want: WANT(i) }; })
               .filter((x) => x.raw !== x.want).map((x) => x.id + ': ' + x.raw) };
         }, theme);
-        chk(r.n === 7, `[${key}] #3596 CONTROL: the Kosmos+ pane's 7 inputs were found (${theme})`, String(r.n));
+        chk(r.n === 8, `[${key}] #3596 CONTROL: the Kosmos+ pane's 8 inputs were found (${theme})`, String(r.n));
         chk(r.badBorder !== r.okBorder, `[${key}] #3596 a field marked .bad still shows the error border (${theme})`, r.badBorder + ' vs ' + r.okBorder);
-        chk(r.wiz === 7 && r.n - r.wiz === 0, `[${key}] #3796 CONTROL: all 7 inputs are the wizard's (the enrol flow's went in #4698) (${theme})`, r.wiz + '/' + (r.n - r.wiz));
+        chk(r.wiz === 7 && r.org === 1 && r.n - r.wiz - r.org === 0, `[${key}] #3796 CONTROL: 7 inputs are the wizard's and 1 the company join code (#5531); the enrol flow's went in #4698 (${theme})`, r.wiz + '/' + r.org + '/' + (r.n - r.wiz - r.org));
         chk(r.bad.length === 0, `[${key}] #3596/#3796 wizard inputs are light on #16223e (${theme})`, r.bad.join(' | '));
         chk(r.gap >= 8, `[${key}] #3596 a gap separates the email field from "Email me a code" (${theme})`, String(r.gap));
         /* #3841 (plus-rf-3796's review): render-fields cannot measure the wizard on its real ground (the navy
