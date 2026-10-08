@@ -1268,3 +1268,18 @@ test('a bucket path with a port is refused before any grant outside the test sea
     assert.strictEqual(asked, 1);
   } finally { up.allowHttpForTests(true); }
 });
+
+test('an unexpected throw after a write that may have landed still reports grantSpent and the unsure key', async () => {
+  const b = await bucket();
+  try {
+    b.script.set(mKey(1), [[500]]);
+    const r = await up.uploadManifest(deps(manifestCoordinator(b), { sleep: async () => { throw new Error('boom'); } }), manifestBytes(), mOpts(b));
+    assert.strictEqual(r.ok, false); assert.match(r.because, /manifest uploader failed: boom/);
+    assert.strictEqual(r.grantSpent, true);
+    assert.deepStrictEqual(r.unsure, [{ key: mKey(1) }]);
+  } finally { await b.close(); }
+  // CONTROL: a throw before any grant reports neither.
+  const r2 = await up.uploadManifest({ macRequest: async () => { throw new Error('early'); }, fetch, sleep: async () => {} },
+    manifestBytes(), { bucket: '127.0.0.1:1/bucket/', chunks: oneChunk() });
+  assert.strictEqual(r2.ok, false); assert.strictEqual(r2.grantSpent, undefined); assert.strictEqual(r2.unsure, undefined);
+});
