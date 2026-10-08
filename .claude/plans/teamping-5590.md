@@ -38,3 +38,11 @@ Neighbours green: createdbeacon-3038 (unit and route), no-phone-home-4253, brows
 - Fixed (NIT): the capture keeps count > 0 only (an install ping carries 0), true by construction; the server comment
   says the #3038 block is IN POST /api/agents.
 - Stated: the CLI's `kosmos agent create` already pings by #3038's default, unchanged here.
+
+## Review 2 (sonnet): no blockers
+- Stated, deliberate (WARNING): the CLI's `kosmos agent create` posts a one-member team, so it now pings, as the single
+  create already does for CLI and agent callers (#3038's default ON). A CLI create is a real agent created, which is
+  what the homepage counts. No CLI opt-out is added here; weakest premise: that nobody wants the CLI uncounted. Would
+  change my mind: a request for one, then a --no-tell flag sending notifyCreated:false.
+- Taken (NITs): a local tellBox in the import, like the page's other two sends; the route comment says a guide's team
+  pings an unchanged count (createdCount leaves the guide out).

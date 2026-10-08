@@ -53809,6 +53809,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
   ORGCHART_CREATING = true;
   previewBtn.disabled = true;
   try {
+    const tellBox = document.getElementById('create-tell');
     const res = await fetch('/api/team', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -53817,7 +53818,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
       /* #5590: the "Let Kosmos know an agent was created" box is the person's choice for this create too (the team
          route now tells the agent count; without this an import ignored an unticked box). As the seeded team does. */
       body: JSON.stringify(Object.assign({ creator: 'operator', purpose: 'Imported from an org chart', members,
-        notifyCreated: document.getElementById('create-tell') ? document.getElementById('create-tell').checked === true : true },
+        notifyCreated: tellBox ? tellBox.checked === true : true },
         raise ? { cap: Math.min(members.length, ORGCHART_TEAM_MAX) } : {})),
     });
     result = await res.json().catch(() => null);
