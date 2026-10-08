@@ -33,6 +33,7 @@ const create = require('./create');
 const win32job = require('./win32job');
 const win32stop = require('./win32stop');
 const worldstarts = require('./worldstarts');
+const store = require('./store');
 
 // The darwin arm builds gui/<uid>/<label>; win32 has no getuid.
 if (typeof process.getuid !== 'function') process.getuid = () => 501;
@@ -861,8 +862,13 @@ test('#5534: an imported agent on a provider the company policy does not allow i
     assert.match(String(worldstarts.firstStartOfImport({ name: 'importhaiku', runner: 'claude', model: 'claude-haiku-4-5-20251001' }, MAC)),
       /does not allow the model haiku/, 'a model outside the list, given by its full id, was not refused');
     assert.equal(calls.length, before, 'a refused import ran a command');
+    assert.equal(store.readProfile('importcodex').policyHeld, true, 'a held import was not marked, so Repair could start it');
     const allowed = worldstarts.firstStartOfImport({ name: 'importopus', runner: 'claude', model: 'claude-opus-5' }, MAC);
     assert.doesNotMatch(String(allowed || ''), /policy/, 'CONTROL: an allowed provider and model is not refused for policy');
+    fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 2, applied_at: 1,
+      policy: { providers_allowed: null, models_allowed: null } }));
+    worldstarts.firstStartOfImport({ name: 'importcodex', runner: 'codex' }, MAC);
+    assert.equal(store.readProfile('importcodex').policyHeld, false, 'the mark stayed after the policy allowed the import');
   } finally {
     fs.rmSync(orgpolicy.APPLIED(), { force: true });
   }

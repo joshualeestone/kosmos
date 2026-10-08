@@ -6625,12 +6625,12 @@ test('#5534: a company policy in force refuses creating or switching an agent on
     assert.equal(toSonnet.outcome, create.OUTCOME.CREATED, 'CONTROL: the listed model (by its key) is allowed: ' + toSonnet.because);
     const bySonnetKey = create.createAgent({ ...BINS, name: 'policysonnet', role: 'pm', model: 'sonnet' });
     assert.equal(bySonnetKey.outcome, create.OUTCOME.CREATED, 'a create by key, listed by full id, was refused: ' + bySonnetKey.because);
-    // Review 1: no model named runs the provider's default, which is what the policy is asked about.
+    // Review 3: no model named runs whatever Claude Code picks for the account, which no list can name: refused.
     fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 3, applied_at: 1,
       policy: { providers_allowed: ['anthropic', 'openai'], models_allowed: { anthropic: ['opus'] } } }));
     const noModel = create.createAgent({ ...BINS, name: 'policydefault', role: 'pm' });
-    assert.equal(noModel.outcome, create.OUTCOME.REFUSED, 'an agent on the default model was created under a list without it');
-    assert.match(noModel.because, /does not allow the model sonnet/);
+    assert.equal(noModel.outcome, create.OUTCOME.REFUSED, 'a model-less Claude agent was created under a model list');
+    assert.match(noModel.because, /allows only some models on anthropic/);
   } finally {
     fs.rmSync(orgpolicy.APPLIED(), { force: true });
   }
@@ -6640,7 +6640,7 @@ test('#5534: a company policy in force refuses creating or switching an agent on
   assert.equal(plain.outcome, create.OUTCOME.CREATED, 'CONTROL: with no policy an ordinary create succeeds: ' + plain.because);
 });
 
-test('#5534 review 2: a provider without its own model list has no known default, and a switch is asked about the model picked with it', () => {
+test('#5534 review 2/3: Gemini without a model is its pinned default, and a switch is asked about the model picked with it', () => {
   recorder();
   create.setDryRun(false);
   const orgpolicy = require('./orgpolicy');
@@ -6649,13 +6649,17 @@ test('#5534 review 2: a provider without its own model list has no known default
   try {
     const g = create.policyAllows('google', '');
     assert.equal(g.ok, false);
-    assert.doesNotMatch(g.because, /sonnet/, 'a Claude model was named as Gemini\'s default');
+    assert.match(g.because, /does not allow the model gemini-2\.5-flash on google/, 'Gemini without a model was not asked about its pinned default');
+    assert.equal(create.policyAllows('xai', '').ok, true, 'CONTROL: a provider with no list needs no model');
     assert.equal(create.policyAllows('google', 'gemini-2.5-pro').ok, true, 'CONTROL: the listed Gemini model');
+    fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 2, applied_at: 1,
+      policy: { providers_allowed: null, models_allowed: { google: ['gemini-2.5-flash'], anthropic: ['opus'] } } }));
+    assert.equal(create.policyAllows('google', '').ok, true, 'Gemini without a model runs its pinned default, which is listed');
     const made = create.createAgent({ ...BINS, name: 'switchpick', role: 'pm', model: 'opus' });
     assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
     const noPick = create.setProvider('switchpick', 'anthropic', BINS);
     assert.equal(noPick.outcome, create.OUTCOME.REFUSED, 'a switch onto the default model, which the list leaves out, went through');
-    assert.match(noPick.because, /does not allow the model sonnet/);
+    assert.match(noPick.because, /allows only some models on anthropic/);
     const picked = create.setProvider('switchpick', 'anthropic', { ...BINS, model: 'opus' });
     assert.doesNotMatch(String(picked.because || ''), /policy/, 'CONTROL: a switch with a listed model is not refused for policy');
   } finally {

@@ -111,6 +111,8 @@ test('a malformed policy is refused rather than half-applied; no bundle means no
     place(sign(bundle({ policy })));
     assert.match(orgpolicy.refresh({ now: NOW, pinned: PINNED }).refused, /not one this Kosmos understands/, JSON.stringify(policy));
   }
+  place(sign(bundle({ version: 0 })));
+  assert.match(orgpolicy.refresh({ now: NOW, pinned: PINNED }).refused, /not one this Kosmos understands/, 'version 0');
   place(sign(bundle({ v: 2 })));
   assert.match(orgpolicy.refresh({ now: NOW, pinned: PINNED }).refused, /not one this Kosmos understands/);
   assert.equal(orgpolicy.current(), null);
