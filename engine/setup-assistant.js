@@ -263,11 +263,17 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
      copies, which are always named. */
   /* The same folder, spelt differently (case on a case-insensitive disk, a link) or not: real paths when both exist. */
   const same = (a, b) => !!a && !!b && (path.resolve(a) === path.resolve(b) || realOr(a) === realOr(b));
-  /* A folder whose path the rule syntax would misread (`* ? [ ] ( ) { } !`) gets no rule here: said, not guessed. */
-  /* The platform's own separator is not the syntax, so it is taken out before the check. */
-  /* Checked on what ruleAbs writes (its leading // taken off), so the check and the rule are one spelling: an
-     extended-length \\?\ path is checked after its `?` is gone, as it will be written. */
-  const plain = (p) => { if (!RULE_SYNTAX.test(ruleAbs(p).slice(2))) return true; process.stderr.write(`#4752: no rule for ${p}: its path has a character the rule syntax reads as a pattern\n`); return false; };
+  /* A folder whose rule the syntax would misread (`* ? [ ] ( ) { } !`) gets no rule here: said, not guessed. Checked on
+     what ruleAbs writes (its leading // taken off), so the check and the rule are one spelling (the platform's own
+     separator is gone by then; an extended-length \\?\ path is checked after its `?` is gone). On Windows a path
+     ruleAbs cannot write as a drive or share (the device form \\.\C:\, a drive-relative C:foo) still carries a `:` or
+     starts `./`: refused the same way, rather than written as a rule that matches nothing. */
+  const plain = (p) => {
+    const w = ruleAbs(p).slice(2);
+    if (!RULE_SYNTAX.test(w) && !(process.platform === 'win32' && (/:/.test(w) || /^\.\//.test(w)))) return true;
+    process.stderr.write(`#4752: no rule for ${p}: its path has a character the rule syntax reads as a pattern, or a form it cannot write\n`);
+    return false;
+  };
   let extra = [];
   let entryBase = null;
   let listed = false;   // earlier per-entry rules are dropped only when this list is complete
@@ -332,7 +338,8 @@ function ruleAbs(p, platform = process.platform) {
     const drive = /^([A-Za-z]):(\/|$)/.exec(s);
     if (drive) s = drive[1].toLowerCase() + '/' + s.slice(drive[0].length);
   }
-  return '//' + s.replace(/^\/+/, '');
+  // no trailing slash, so a drive root's folder rule is //d/** and not //d//**
+  return '//' + s.replace(/^\/+/, '').replace(/\/+$/, '');
 }
 /* The inverse, for code that reads a rule back as a path: what follows `Read(//` (without a trailing `/**`) to the
    path it names. On Windows `c/Users/x` is `C:\Users\x`; a rule in the older native form (`C:\Users\x`, written
@@ -389,9 +396,9 @@ function finalDeny(kept, safe, refused, platform = process.platform) {
 /* #4752: which of the rules already in the guide's settings stay, given the rules just made (`fresh`).
    - An earlier rule for one entry of the default world's store is dropped (wasEntryRule) unless just made again,
      so a deleted or renamed entry does not leave a rule for ever; any other rule stays.
-   - On Windows, a rule in the older native form STAYS beside its new-form equivalent: these are deny rules, and that
-     the new form is the one Claude Code matches rests on its docs, not on a Windows measurement, so the old one is
-     not taken away on that word alone (a duplicate deny costs nothing). It is dropped only when its equivalent is a
+   - On Windows, a rule in the older native form STAYS beside its new-form equivalent during migration: the new form is
+     the one Claude Code's docs say it matches (trusted for new rules too), and keeping the old one beside it is a
+     cheap belt-and-braces while that is unmeasured on Windows here (a duplicate deny costs nothing). It is dropped only when its equivalent is a
      per-entry rule for an entry gone from the store just listed in full: nothing is left to protect there.
    Pure, with the platform passed in, so the Windows answer is pinned from any host. */
 function migrateKept(had, fresh, platform = process.platform) {

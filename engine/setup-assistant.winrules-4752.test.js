@@ -17,7 +17,7 @@ const { removeTree } = require('../test-support/remove-tree');
 
 test('#4752: a Windows drive path is written in the POSIX form Claude Code matches', () => {
   assert.equal(sa.ruleAbs('C:\\Users\\alice\\AppData\\Roaming\\Kosmos', 'win32'), '//c/Users/alice/AppData/Roaming/Kosmos');
-  assert.equal(sa.ruleAbs('D:\\', 'win32'), '//d/');
+  assert.equal(sa.ruleAbs('D:\\', 'win32'), '//d', 'a drive root keeps a trailing slash (its folder rule would be //d//**)');
   assert.equal(sa.ruleAbs('E:/mixed\\seps', 'win32'), '//e/mixed/seps');
   assert.equal(sa.ruleAbs('\\\\?\\C:\\Users\\a\\K', 'win32'), '//c/Users/a/K', 'an extended-length path was not written as its plain path (its ? is a glob)');
   assert.equal(sa.ruleAbs('\\\\?\\UNC\\srv\\share\\K', 'win32'), sa.ruleAbs('\\\\srv\\share\\K', 'win32'), 'an extended-length UNC path is not written as the same share');
