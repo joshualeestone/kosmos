@@ -20,6 +20,9 @@
  *   O10 a company consent with an EMPTY never list still shows this Kosmos's own line: other Kosmoses are not part of it.
  *   O11 a leave refused before anything was done (the route's "not your work Kosmos", the screen check's { error })
  *       keeps the joined view and says why, never "stopped reporting" (#5531 review 19).
+ *   O15 a joined Kosmos that sends nothing offers "Review what your company sees": the consent, Accept with no code, and a
+ *       Not now that changes nothing; words open too long point back at the Review button; a Kosmos that reports is not
+ *       offered it (#5531 follow-up).
  *   O14 a join whose outcome is not known yet, or whose undo is still to send, goes back to the code field and says so:
  *       the consent (and its "Not now", which would say nothing was joined) is gone (#5531 review 25).
  *   O12 a retried leave the company refused as the last admin (leaveRefused from /api/org) says so, as text, with the
@@ -54,7 +57,7 @@ function harness() {
       const u = String(url);
       const body = init && init.body ? JSON.parse(init.body) : null;
       if (u.includes('/api/org')) window.__org.push({ path: u.replace(/^.*?(\/api\/org[^?]*).*$/, '$1'), method: (init && init.method) || 'GET', body });
-      if (u.endsWith('/api/org/preview')) return enc(Object.assign({ ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: window.__noNever ? Object.assign({}, consent, { never: [] }) : window.__noBackup ? Object.assign({}, consent, { backsUp: [], backsUpNone: window.__noBackup === 'said' }) : consent, ticket: 't-' + Date.now() }, window.__move ? { move: true } : {}));
+      if (u.endsWith('/api/org/preview')) return enc(Object.assign({ ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: window.__noNever ? Object.assign({}, consent, { never: [] }) : window.__noBackup ? Object.assign({}, consent, { backsUp: [], backsUpNone: window.__noBackup === 'said' }) : consent, ticket: 't-' + Date.now() }, window.__review ? { move: true, review: true } : window.__move ? { move: true } : {}));
       if (u.endsWith('/api/org/enroll')) return enc(window.__enrollAnswer || { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member' });
       if (u.endsWith('/api/org/leave')) return enc(window.__leaveRefused || (window.__localOnly ? { ok: true, localOnly: true } : { ok: true }));
       if (u.endsWith('/api/org') && window.__orgFail) throw new Error('offline');
@@ -285,6 +288,52 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
       chk(JSON.stringify(got) === JSON.stringify(want), 'O17 ' + label + ': ' + JSON.stringify(want), JSON.stringify(got));
       await p2.close();
     }
+    // O15: a joined Kosmos that sends nothing (its words were not accepted here) offers "Review what your company sees":
+    // the consent shows in place of the joined view, Accept sends no code, and Not now changes nothing.
+    // CONTROL: a Kosmos that reports does not offer it.
+    const joined = (reporting) => page.evaluate((rep) => { PLUS_ORG.at = Date.now(); PLUS_ORG.preview = null;
+      PLUS_ORG.state = { enrolled: true, reporting: rep, org: { name: 'Acme', slug: 'acme' }, role: 'member' };
+      document.getElementById('plus-org-msg').textContent = ''; plusOrgPaint(); }, reporting);
+    await joined(true);
+    const offeredWhenReporting = await shown(page, 'plus-org-review');
+    await joined(false);
+    const offered = await shown(page, 'plus-org-review');
+    await page.evaluate(() => { window.__review = true; });
+    await page.click('#plus-org-review');
+    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
+    const rv = await page.evaluate(() => ({ ask: document.getElementById('plus-org-ask').textContent, join: document.getElementById('plus-org-join').textContent,
+      inView: !document.getElementById('plus-org-in').hidden, codeField: !document.getElementById('plus-org-out').hidden,
+      sent: window.__org.filter((x) => x.path === '/api/org/preview').pop() }));
+    await page.click('#plus-org-notnow');
+    const nn = await page.evaluate(() => ({ msg: document.getElementById('plus-org-msg').textContent, inView: !document.getElementById('plus-org-in').hidden,
+      consent: !document.getElementById('plus-org-consent').hidden, enrolls: window.__org.filter((x) => x.path === '/api/org/enroll').length }));
+    // An Accept refused because the words were open too long points at the Review button, never at a code.
+    await page.evaluate(() => { window.__enrollAnswer = { ok: false, code: 'org_ticket', because: 'Check the code again first, so you can read what your company would see.' }; });
+    await page.click('#plus-org-review');
+    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
+    await page.click('#plus-org-join');
+    await page.waitForFunction(() => document.getElementById('plus-org-consent').hidden);
+    const late = await page.evaluate(() => ({ msg: document.getElementById('plus-org-msg').textContent,
+      review: (() => { const el = document.getElementById('plus-org-review'); return !el.hidden && el.getClientRects().length > 0; })() }));
+    await page.evaluate(() => { window.__enrollAnswer = null; PLUS_ORG.state = { enrolled: true, reporting: false, org: { name: 'Acme', slug: 'acme' }, role: 'member' }; plusOrgPaint(); });
+    const enrollsBefore = await page.evaluate(() => window.__org.filter((x) => x.path === '/api/org/enroll').length);
+    await page.click('#plus-org-review');
+    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
+    await page.click('#plus-org-join');
+    await page.waitForFunction(() => document.getElementById('plus-org-consent').hidden);
+    const acc = await page.evaluate(() => ({ enroll: window.__org.filter((x) => x.path === '/api/org/enroll'), inView: !document.getElementById('plus-org-in').hidden,
+      join: document.getElementById('plus-org-join').textContent }));
+    const last = acc.enroll[acc.enroll.length - 1];
+    chk(!offeredWhenReporting && offered && JSON.stringify(rv.sent.body) === '{"review":true}' && rv.join === 'Accept' && !rv.inView && !rv.codeField
+      && /^This is what Acme asks of this Kosmos/.test(rv.ask)
+      && nn.msg === 'Nothing changed.' && nn.inView && !nn.consent
+      && late.msg === 'These words were open too long. Press Review what your company sees to read them again.' && late.review
+      && acc.enroll.length === enrollsBefore + 1 && last.body.accepted === true && !('code' in last.body) && typeof last.body.ticket === 'string'
+      && acc.inView && acc.join === 'Join with this Kosmos',
+      'O15 a Kosmos that sends nothing reviews its company\'s words and accepts them with no code; Not now changes nothing; one that reports is not offered it',
+      JSON.stringify({ offeredWhenReporting, offered, rv, nn, late, last, acc: { inView: acc.inView, join: acc.join } }));
+    await page.evaluate(() => { window.__review = false; PLUS_ORG.state = { enrolled: false, org: null, role: null }; PLUS_ORG.preview = null; plusOrgPaint(); });
+
     chk(errs.length === 0, 'O6 no page errors', errs.join(' | '));
   } finally {
     await browser.close();
