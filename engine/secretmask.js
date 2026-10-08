@@ -1233,8 +1233,10 @@ function isPlainPath(run) {
        a number of up to 10 digits;
        a word-shaped piece of 3 to 12 letters (see word below), lowercase or Capitalized;
        such a word then up to 4 digits (win32, arm64);
-       a date or timestamp (20260926, 20260926T1625, 20260913T052847Z);
+       a date or timestamp (20260926, 20260926T1625, 20260913T052847Z): a real 19xx/20xx date, not any 8 digits;
        an architecture (x64, x86).
+     And no segment over 40 characters. Review 5: at most 10 digits in the whole path, one date not counted, so a
+     numeric secret cut into short numbers (pin/0403968243-1987742099/1844388921) is still judged as a token.
      Review 2: a digit run with stray letters (46541662l) is NOT plain, so a numeric secret cut by slashes is still
      judged as a token. Review 3: and the path needs at least one word-shaped piece. */
   // Review 4: word-SHAPED, not only vowel-bearing: at most 3 consonants in a row (y counts as a consonant), at least
@@ -1247,14 +1249,22 @@ function isPlainPath(run) {
     const vowels = (l.match(/[aeiou]/g) || []).length;
     return vowels >= 1 && vowels * 6 >= l.length && !/[^aeiou]{4}/.test(l) && !/q(?!u)/.test(l);
   };
+  const isDate = (p) => /^(?:19|20)[0-9]{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12][0-9]|3[01])(?:T[0-9]{2,6}Z?)?$/.test(p);
   // Review 3: a number is plain up to 10 digits (a long digit run is a token's), and a plain path needs a real word.
   const pieceOk = (p) => /^[0-9]{1,10}$/.test(p)
     || word(p)
     || ((m) => !!m && word(m[1]))(p.match(/^([A-Za-z]+)[0-9]{1,4}$/))
-    || /^[0-9]{6,8}(?:T[0-9]{2,6}Z?)?$/.test(p)
+    || isDate(p)
     || /^x(?:64|86)$/.test(p);
   const pieces = segs.flatMap((seg) => seg.split(/[-_]/).filter(Boolean));
-  return segs.every((seg) => seg.length <= 40) && pieces.every(pieceOk) && pieces.some(word);
+  if (!(segs.every((seg) => seg.length <= 40) && pieces.every(pieceOk) && pieces.some(word))) return false;
+  let digits = 0;
+  let dateSeen = false;
+  for (const p of pieces) {
+    if (!dateSeen && isDate(p)) { dateSeen = true; continue; }
+    digits += (p.match(/[0-9]/g) || []).length;
+  }
+  return digits <= 10;
 }
 
 function looksRandom(run) {
