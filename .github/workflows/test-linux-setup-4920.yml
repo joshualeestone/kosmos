@@ -12,8 +12,8 @@ name: linux-setup
 
 on:
   # #5519 stopgap: each run's board counts as an install, so pull requests run this only when they change a path
-  # below; otherwise run it by hand. What it does and does not cover: .claude/plans/cipathstop-5519-*.md. Remove the
-  # filter once #5519 lands.
+  # below; otherwise run it by hand. What it does and does not cover: the cipathstop-5519 plan (kosmos#5519). Remove
+  # the filter once #5519 lands.
   pull_request:
     paths:
       - 'install/**'
