@@ -8,20 +8,24 @@
  *    TIME (the caller looks it up in E0.2's device history).
  *  - Every chunk goes through openVerifiedChunk, and every file is checked against the size and sha256 the
  *    manifest recorded at upload.
- *  - Paths are refused unless they are plain relative paths (see safeRel), and entries that would land on the
- *    same file, or on a file and a folder of the same name, are all refused.
+ *  - Paths are refused unless they are plain relative paths (see safeRel), and colliding entries (see
+ *    collisionKey) are all refused, not first-wins.
  *  - Files stream through the sink one chunk at a time; a file is committed only after all of it verified, and
  *    aborted otherwise.
  */
 const crypto = require('crypto');
-const { openManifest, openVerifiedChunk } = require('./backupformat');
+const { CDC, openManifest, openVerifiedChunk } = require('./backupformat');
 
 const CHUNK_NAME_RE = /^[0-9a-f]{64}$/;
+// A format-1 chunk holds at most CDC.max bytes; sealed and padded it stays well under twice that. A bigger object
+// is refused before it is decrypted.
+const MAX_CHUNK_OBJECT = 2 * CDC.max + 4096;
 // Windows device names, with or without an extension (CON, nul.txt, COM1.log).
 const WIN_RESERVED_RE = /^(con|prn|aux|nul|conin\$|conout\$|com[0-9¹²³]|lpt[0-9¹²³])(\..*)?$/i;
 
 function safeRel(p) {
-  if (typeof p !== 'string' || !p || p.length > 4096) return false;
+  if (typeof p !== 'string' || !p || p.length > 4096 || !p.isWellFormed()) return false;  // a lone surrogate encodes as U+FFFD
+  if (/\p{Default_Ignorable_Code_Point}/u.test(p)) return false;  // invisible characters APFS may ignore in a name
   if (/[\x00-\x1f\x7f:]/.test(p)) return false;  // control characters; ':' is a drive or an NTFS stream
   if (p.startsWith('/') || p.startsWith('\\')) return false;
   // A segment may not be empty or end in a dot or a space: that refuses '.' and '..' too, and the names Windows
@@ -29,11 +33,12 @@ function safeRel(p) {
   return p.split(/[\\/]/).every((x) => x !== '' && !/[. ]$/.test(x) && !WIN_RESERVED_RE.test(x));
 }
 
-/* The key two entries collide on: case-folded (APFS and NTFS are usually case-insensitive) and NFC-normalized
-   (APFS treats the composed and decomposed spellings as one name), with '\' read as '/'. */
+/* The key two entries collide on: lower-cased, NFC-normalized, with '\' read as '/'. This approximates how APFS
+   and NTFS match names; it is not their exact folding (nor NTFS short names), so it refuses the common collisions,
+   and the sink must still refuse to overwrite a file it already wrote in this restore. */
 const collisionKey = (p) => p.replace(/\\/g, '/').normalize('NFC').toLowerCase();
 
-/** Every manifest path that must not be restored because another entry lands on the same file or folder. */
+/** Every manifest path that must not be restored because another entry collides with it (see collisionKey). */
 function collidingPaths(entries) {
   const byKey = new Map();
   for (const f of entries) {
@@ -57,14 +62,17 @@ function collidingPaths(entries) {
  * Restore one snapshot. Resolves to { restored: [path], failed: [{ path, why }], skippedAtBackup: [...] }, or null
  * when the manifest itself does not verify and open (wrong device key for the time, wrong context, tampering).
  *
- *   fetchChunk(name) -> Buffer | null, or a promise of one (null: the chunk is not stored).
- *   sink.begin(path) -> { write(buf), commit(), abort() } (each may return a promise). The sink owns where and
- *     how bytes land; commit is called only after the whole file verified, abort on any failure.
+ *   fetchChunk(name) -> Buffer or Uint8Array | null, or a promise of one (null: the chunk is not stored). It should
+ *     refuse to download an object larger than maxChunkObject; restore refuses one before decrypting it.
+ *   sink.begin(path) -> { write(buf), commit(), abort() } (each may return a promise). Bytes are written BEFORE the
+ *     file is verified, so the sink must write somewhere other than the final path, leave any existing file there
+ *     untouched until commit, and publish atomically on commit. abort must be safe at any point, including after
+ *     a commit that threw.
  *
  * Paths in failed and skippedAtBackup come from the manifest and may hold any printable text: escape them for
  * display.
  */
-async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, manifestObject, fetchChunk, sink }) {
+async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, manifestObject, fetchChunk, sink, maxChunkObject = MAX_CHUNK_OBJECT }) {
   const manifest = openManifest(memberSk, devicePubAtSnapshot, ctx, manifestObject);
   if (!manifest || !Array.isArray(manifest.files)) return null;
   const restored = [], failed = [];
@@ -77,15 +85,17 @@ async function restoreSnapshot({ memberSk, namingKey, devicePubAtSnapshot, ctx, 
   const clash = collidingPaths(wellFormed);
   for (const f of wellFormed) {
     if (clash.has(f.path)) { failed.push({ path: f.path, why: 'another entry lands on the same file or folder' }); continue; }
-    const why = await restoreFile(f, { memberSk, namingKey, fetchChunk, sink });
+    const why = await restoreFile(f, { memberSk, namingKey, fetchChunk, sink, maxChunkObject });
     if (why) failed.push({ path: f.path, why });
     else restored.push(f.path);
   }
-  return { restored, failed, skippedAtBackup: Array.isArray(manifest.skipped) ? manifest.skipped : [] };
+  const skippedAtBackup = (Array.isArray(manifest.skipped) ? manifest.skipped : [])
+    .filter((x) => x && typeof x.path === 'string' && typeof x.why === 'string').map(({ path, why }) => ({ path, why }));
+  return { restored, failed, skippedAtBackup };
 }
 
 /* One file: null when committed, otherwise why it was not. Never leaves a file committed that did not verify. */
-async function restoreFile(f, { memberSk, namingKey, fetchChunk, sink }) {
+async function restoreFile(f, { memberSk, namingKey, fetchChunk, sink, maxChunkObject }) {
   if (!f.chunks.every((n) => typeof n === 'string' && CHUNK_NAME_RE.test(n))) return 'a chunk name is malformed';
   let out = null;
   try {
@@ -96,6 +106,9 @@ async function restoreFile(f, { memberSk, namingKey, fetchChunk, sink }) {
       let obj;
       try { obj = await fetchChunk(name); } catch { return await abortWith(out, 'a chunk could not be fetched'); }
       if (obj == null) return await abortWith(out, 'a chunk is missing');
+      if (!(obj instanceof Uint8Array)) return await abortWith(out, 'a chunk did not verify (forged, swapped or damaged)');
+      if (obj.length > maxChunkObject) return await abortWith(out, 'a chunk is larger than any real chunk');
+      if (!Buffer.isBuffer(obj)) obj = Buffer.from(obj.buffer, obj.byteOffset, obj.length);
       const pt = openVerifiedChunk(memberSk, namingKey, name, obj);
       if (!pt) return await abortWith(out, 'a chunk did not verify (forged, swapped or damaged)');
       size += pt.length;
