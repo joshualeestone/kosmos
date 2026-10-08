@@ -276,14 +276,17 @@ cp "$T/good21" "$CUTDIST/kosmos-0.7.21-arm64.tar.gz"; DEPLOY_RC=75 tick; seq20="
 tick; rm -f "$ST/retries"
 [ ! -d "$ST/reported.d" ] && pass "a successful deploy clears every report" || bad "reports survived a deploy: $(ls "$ST/reported.d")"
 
-# 21) the origin cannot be fetched: red, then green (reported); after it recovers, a NEW outage is red at once.
+# 21) the origin cannot be fetched: red, then green (reported). A fetch that comes and goes does NOT
+#     re-arm its red after each good tick (that would be an email per flap); the record lasts its day.
 git -C "$T/site" remote set-url origin "$T/no-such-origin.git"
 tick; f1=$RC; tick; f2=$RC
 git -C "$T/site" remote set-url origin "$T/origin.git"; tick; f3=$RC
 git -C "$T/site" remote set-url origin "$T/no-such-origin.git"; tick; f4=$RC
+# ...and once its day is over, the next failure is red again.
+echo "$(( $(date +%s) - 90000 ))" > "$ST/reported.d/none-fetch"; tick; f5=$RC
 git -C "$T/site" remote set-url origin "$T/origin.git"
-{ [ "$f1" = 1 ] && [ "$f2" = 0 ] && [ "$f3" = 0 ] && [ "$f4" = 1 ]; } \
-  && pass "fetch outage: red, then reported; a new outage after recovery is red again" || bad "fetch sequence $f1$f2$f3$f4 (want 1001)"
+{ [ "$f1" = 1 ] && [ "$f2" = 0 ] && [ "$f3" = 0 ] && [ "$f4" = 0 ] && [ "$f5" = 1 ]; } \
+  && pass "fetch outage: red, then reported; a flapping fetch stays reported; red again after a day" || bad "fetch sequence $f1$f2$f3$f4$f5 (want 10001)"
 
 # 22) a deploy that hangs is stopped at its limit, with its children. It is a FAILURE (it may have
 #     published before hanging), not a retry: red, retried once, then parked; never blessed as live.
@@ -354,11 +357,11 @@ tick; r2=$RC; kill "$w2" 2>/dev/null; wait "$w2" 2>/dev/null; rm -rf "$ST/lock"
 # 26) a fetch that hangs is stopped at its limit with its whole process group, and is red_once fetch.
 #     (ext:: runs a command as the remote; the sleep's length is unique to this run, so it can be looked
 #     for afterwards without counting another run's.)
-Z26=$(( 4000 + $$ % 900 ))
+Z26="$(( 4000 + $$ % 900 )).$RANDOM$RANDOM"   # a fractional length: no two runs pick the same one
 git -C "$T/site" config protocol.ext.allow always
 git -C "$T/site" remote set-url origin "ext::sleep $Z26"
 t0=$SECONDS; KOSMOS_AUTODEPLOY_FETCH_MAX_S=2 tick; el=$((SECONDS - t0)); sleep 1
-left=$(ps -axo command= | command grep -Ec "(^|/)sleep $Z26\$")   # ps names it /bin/sleep (measured)
+left=$(ps -axo command= | command grep -Ec "(^|/)sleep ${Z26//./\\.}\$")   # ps names it /bin/sleep (measured)
 git -C "$T/site" remote set-url origin "$T/origin.git"; git -C "$T/site" config --unset protocol.ext.allow
 { [ "$RC" = 1 ] && [ "$el" -lt 10 ] && [ "$left" = 0 ] && printf '%s' "$OUT" | grep -q "could not fetch"; } \
   && pass "a hanging fetch is stopped at its limit, its helpers with it, and reported red" || bad "hanging fetch (rc=$RC, ${el}s, $left left) $OUT"
@@ -366,7 +369,7 @@ git -C "$T/site" remote set-url origin "$T/origin.git"; git -C "$T/site" config 
 #  processes. A leftover sleep ends by itself within 82 minutes.)
 tick   # recovered: clears the fetch record
 # Control: the count above can see a leftover (a sleep of the same length, started here, is counted).
-/bin/sleep "$Z26" & ctl26=$!; sleep 0.3; seen=$(ps -axo command= | command grep -Ec "(^|/)sleep $Z26\$"); kill "$ctl26"; wait "$ctl26" 2>/dev/null
+/bin/sleep "$Z26" & ctl26=$!; sleep 0.3; seen=$(ps -axo command= | command grep -Ec "(^|/)sleep ${Z26//./\\.}\$"); kill "$ctl26"; wait "$ctl26" 2>/dev/null
 [ "$seen" -ge 1 ] && pass "the leftover count sees a sleep of that length (control)" || bad "the leftover count cannot see a sleep (it counted $seen)"
 
 # 27) a SECOND signal while a killed tick is stopping a deploy that ignores TERM (a runner's cancel

@@ -88,3 +88,8 @@ A future-dated record counts as never reported.
   0899999999 (red without the fix). The fetch cap is 300 s so the fetch and deploy caps together leave 5
   of the job's 30 minutes. perl installs its signal handlers before the fork and both sides set the
   child's group, closing two microsecond-wide races.
+- **A fetch that comes and goes stays reported** (round 17): its record is no longer cleared by a good
+  fetch (a flapping network would re-arm its own red after every good tick, up to 48 emails a day); it
+  lasts its day or until a deploy succeeds. Test 21 now asserts 10001 (red, reported, ok, still
+  reported, red after a day); the old clear-on-recovery gives 10011. Weakest premise: a genuinely NEW
+  fetch outage within the day of an earlier one is green-with-warning, not red.
