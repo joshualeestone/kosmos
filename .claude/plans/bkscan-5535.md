@@ -86,3 +86,8 @@ That secretmask's shape patterns plus known values catch the credentials a work 
 - **Media-only guards tested** (a PNG hiding a password behind the placeholder; a PNG with a UTF-16 key), with a clean-PNG control.
 - **Compressed fixtures** for lzma, zip 0708 and a zip end record after a stub, each with a deflated key behind it; `BZh9hello` is the block-magic control.
 - **The fail-closed catch is tested** with a Buffer whose toString throws. The KEY_OPEN binary checks are labelled defence in depth.
+
+## Review round 6 (sonnet): no BLOCKER, 1 WARNING (lost work), untested guards, fixed
+- **Audio was over-skipped** (10 of 17 real system sounds: AIFF, WAV, CAF; sample data fires long_token). An `audio` kind with strict magics (FORM+AIFF/AIFC, RIFF+WAVE, caff, ID3, ftyp with M4A/M4V/mp41/mp42/isom/qt) ignores only long_token. Tested on this Mac's real /System/Library/Sounds, with a provider key inside a WAV still caught.
+- **Untested guards now tested:** an ftyp with a non-media brand is not media (with heic and M4A controls); each font magic (wOF2, ttcf, true, OTTO) keeps long_token- and url_credential-shaped glyph data; the same url_credential in a non-font binary counts (the font-only exemption's control).
+- **Residuals stated in the code:** a url_credential inside a font, and a Java .class (which shares the Mach-O fat magic cafebabe) carrying a long_token-only key, pass. A negative control "a real URL password in a font must skip" cannot exist alongside the exemption, so it is a stated residual instead.
