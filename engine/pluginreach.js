@@ -2,18 +2,18 @@
 
 /* #5309 part 2, slice 1: per-agent plugin REACH.
  *
- * Does the person's own provider-app plugins/connectors reach THIS agent, and if not, why?
- * This is the signal the board needs to show the honest state the day-one report asked for:
+ * Do the plugins/connectors the person installed in their own provider app reach THIS agent, and if
+ * not, why? This is the signal the board needs to show the honest state the day-one report asked for:
  * "connected for you, but this agent cannot see it" (false-ready, no repair path).
  *
- * Home logic only. Slice 1 deliberately names no file inside a provider folder: the plugin-file
- * shapes (plugins/installed_plugins.json records, a populated settings.json enabledPlugins, Codex's
+ * Home logic only. Slice 1 deliberately names no file inside a provider folder: the plugin-file shapes
+ * (plugins/installed_plugins.json records, a populated settings.json enabledPlugins, Codex's
  * enabled-plugin record) were not pinned by slice 1 (kosmos#5309, PR #5371) and are not verifiable on
  * a box with no plugins installed. So this reports the reach CONDITION and its reason, never a list of
  * specific plugins. Naming the specific plugins is a follow-up once those shapes are measured.
  *
- * The reach condition is derived entirely from the measured home logic (see engine/status.js
- * claudeAccountDirOf, engine/accounts.js, bin/agent-supervisor.sh):
+ * The reach condition is derived from the measured home logic (see engine/status.js claudeAccountDirOf,
+ * engine/accounts.js, bin/agent-supervisor.sh):
  *   - Claude default account: CLAUDE_CONFIG_DIR unset, so the effective folder IS the person's
  *     ~/.claude -> the person's plugins reach it. No mismatch.
  *   - Claude non-default account: a separate account folder with its own plugins -> a plugin the
@@ -21,6 +21,15 @@
  *   - Codex: every agent (default included) runs in a private runtime home that deliberately excludes
  *     the person's ~/.codex plugins (#4592). Categorical, by design -- not a per-plugin bug.
  *   - Other runners (Gemini/Grok/...): this condition does not apply.
+ *
+ * Fail-safe direction: an unreadable runner, a missing/garbage/non-absolute home, or an unreadable job
+ * maps to UNKNOWN (reaches: null), so those never produce a spurious reaches:true or reaches:false.
+ * ONE known over-report remains and is NOT yet closed in this slice: a default-account Claude agent
+ * whose pane was pinned to another folder via a leaked tmux-global EFFECTIVE_CCD (bin/agent-supervisor.sh
+ * ~888-902) is recorded reaches:true here, because the plist configDir the resolver reads is null for it
+ * while the pane actually runs elsewhere. reachFrom takes the effective dir as input, so slice 2 (which
+ * has the live pane env) passes the pane's real CLAUDE_CONFIG_DIR and closes it. Until then, treat a
+ * reaches:true as "reaches, unless the pane was EFFECTIVE_CCD-pinned".
  */
 
 const path = require('node:path');
@@ -33,25 +42,32 @@ const NOT_APPLICABLE = 'not-applicable';             // non-Claude/Codex runner:
 const UNKNOWN = 'unknown';                            // the agent's runner/home could not be read
 
 /*
- * Pure decision. Never throws; an unreadable runner or missing person-home yields UNKNOWN
- * (reaches: null) rather than a false "reaches: true".
+ * Pure decision. Never throws for any input: a non-string or non-absolute home, or an unreadable
+ * runner, yields UNKNOWN rather than a thrown TypeError or a spurious verdict.
  *
- *   runner           'claude' | 'codex' | 'gemini' | 'grok' | ... (case-insensitive)
+ *   runner           'claude' | 'codex' | 'gemini' | 'grok' | ... (case-insensitive, trimmed)
  *   agentClaudeDir   the agent's EFFECTIVE Claude config dir (absolute), or null/'' for a clean
  *                    default launch (CLAUDE_CONFIG_DIR unset). Only read for a Claude agent.
- *                    Prefer the pane's live CLAUDE_CONFIG_DIR where available: it catches the
- *                    EFFECTIVE_CCD leak-pin (bin/agent-supervisor.sh) that a default-account plist
- *                    does not record. The plist configDir is the fallback.
+ *                    Prefer the pane's live CLAUDE_CONFIG_DIR where available (slice 2): it catches the
+ *                    EFFECTIVE_CCD leak-pin that a default-account plist does not record. The plist
+ *                    configDir is the fallback.
  *   personClaudeHome the person's own Claude home (absolute, = accounts.homeDir()/.claude)
  */
 function reachFrom({ runner, agentClaudeDir, personClaudeHome } = {}) {
   const r = typeof runner === 'string' ? runner.trim().toLowerCase() : '';
   if (r === 'codex') return { reaches: false, reason: CODEX_ISOLATED };
   if (r === 'claude') {
-    if (!personClaudeHome) return { reaches: null, reason: UNKNOWN };
+    if (typeof personClaudeHome !== 'string' || !personClaudeHome) return { reaches: null, reason: UNKNOWN };
     // Clean default launch: CLAUDE_CONFIG_DIR unset -> effective dir is the person's home.
-    if (!agentClaudeDir) return { reaches: true, reason: REACHES };
+    if (agentClaudeDir == null || agentClaudeDir === '') return { reaches: true, reason: REACHES };
+    // A non-string or non-absolute dir cannot be compared reliably (path.resolve would resolve a
+    // relative value against the process cwd and could spuriously match): report UNKNOWN, never guess.
+    if (typeof agentClaudeDir !== 'string' || !path.isAbsolute(agentClaudeDir) || !path.isAbsolute(personClaudeHome)) {
+      return { reaches: null, reason: UNKNOWN };
+    }
     // Compare RESOLVED paths so 'h/./.claude' and 'h/.claude/' are not read as different folders.
+    // (Not symlink- or case-resolved: a case/symlink difference reads as a separate folder, which is
+    // the safe direction -- it over-reports a mismatch, never a spurious reach.)
     if (path.resolve(agentClaudeDir) === path.resolve(personClaudeHome)) {
       return { reaches: true, reason: REACHES };
     }
@@ -63,10 +79,13 @@ function reachFrom({ runner, agentClaudeDir, personClaudeHome } = {}) {
 
 /*
  * Thin resolver for a live agent by name. Mirrors status.claudeAccountDirOf: the plist's configDir
- * when set, else the person's ~/.claude. `deps` is injectable so tests need no real plist.
+ * when set, else (for Claude) the person's ~/.claude via the null-default in reachFrom. `deps` is
+ * injectable so tests need no real plist. Runner interpretation is left entirely to reachFrom, so the
+ * two never normalise the runner differently.
  *
  * Slice 2: where the live pane env is available, pass the pane's CLAUDE_CONFIG_DIR as agentClaudeDir
- * instead of the plist value, to catch the EFFECTIVE_CCD leak-pin on a default-account agent.
+ * instead of the plist value, to catch the EFFECTIVE_CCD leak-pin on a default-account agent (see the
+ * module header).
  */
 function reachForAgent(agentName, deps = {}) {
   const create = deps.create || require('./create');
@@ -77,11 +96,10 @@ function reachForAgent(agentName, deps = {}) {
   try { job = create.readJob(agentName); } catch { job = null; }
   if (!job) return { reaches: null, reason: UNKNOWN };
   const runner = job.runner || 'claude';
-  let agentClaudeDir = null;
-  if (String(runner).toLowerCase() === 'claude') {
-    agentClaudeDir = (typeof job.configDir === 'string' && job.configDir) ? job.configDir : personClaudeHome;
-  }
-  return reachFrom({ runner, agentClaudeDir, personClaudeHome });
+  // Pass the plist configDir straight through (null when unset); reachFrom reads it only for Claude and
+  // treats null as the default home. No runner check here, so no second normalisation to drift.
+  const configDir = (typeof job.configDir === 'string' && job.configDir) ? job.configDir : null;
+  return reachFrom({ runner, agentClaudeDir: configDir, personClaudeHome });
 }
 
 module.exports = {
