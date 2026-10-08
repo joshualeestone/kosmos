@@ -78,7 +78,8 @@ test('expires_at is read as the coordinator sends it (ISO), or as seconds or mil
   assert.strictEqual(up.expiryMs('2026-10-08T18:15:00Z'), Date.UTC(2026, 9, 8, 18, 15, 0));
   assert.strictEqual(up.expiryMs(1700000000), 1700000000000);
   assert.strictEqual(up.expiryMs(1700000000000), 1700000000000);
-  for (const bad of ['soon', '', null, undefined, -1, NaN, '1700000000']) assert.ok(Number.isNaN(up.expiryMs(bad)), String(bad));
+  for (const bad of ['soon', '', null, undefined, -1, NaN, '1700000000', '2026-10-08T18:15:00']) assert.ok(Number.isNaN(up.expiryMs(bad)), String(bad));
+  assert.strictEqual(up.expiryMs('2026-10-08T13:15:00-05:00'), Date.UTC(2026, 9, 8, 18, 15, 0), 'an explicit offset is honoured');
 });
 
 test('every chunk is stored once under its granted key, and the name -> key map comes back', async () => {
@@ -303,6 +304,67 @@ test('two chunks with one name but different bytes are refused (a caller bug), n
   assert.strictEqual(c.bodies.length, 0);
 });
 
+test('a lost answer that LANDED, then S3 says the grant expired: no new grant, no second locked copy (retryLater)', async () => {
+  const b = await bucket();
+  try {
+    // The first PUT lands but its answer is held past the timeout; the retry is told the grant expired.
+    b.script.set(keyN(1), [[200, '', 400], [403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>']]);
+    const c = coordinator(b);
+    const r = await up.uploadChunks(deps(c), [chunk(1)], { putTimeoutMs: 100 });
+    assert.strictEqual(r.ok, false); assert.strictEqual(r.retryLater, true);
+    assert.strictEqual(c.bodies.length, 1, 'a second grant could write a second locked copy');
+  } finally { await b.close(); }
+});
+
+test('a 403 for an expired CREDENTIAL (ExpiredToken) is refused, not treated as an expired grant', async () => {
+  const b = await bucket();
+  try {
+    b.script.set(keyN(1), [[403, '<Error><Code>ExpiredToken</Code><Message>The provided token has expired.</Message></Error>']]);
+    const c = coordinator(b);
+    const r = await up.uploadChunks(deps(c), [chunk(1)]);
+    assert.strictEqual(r.ok, false); assert.ok(!r.retryLater);
+    assert.strictEqual(c.bodies.length, 1);
+  } finally { await b.close(); }
+});
+
+test('a network code not in any list (ENETDOWN) is retried, not refused: the run ends retryLater', async () => {
+  const c = coordinator({ base: 'http://127.0.0.1:9' });
+  const down = async () => { const e = new TypeError('fetch failed'); e.cause = { code: 'ENETDOWN' }; throw e; };
+  const r = await up.uploadChunks(deps(c, Object.assign({ fetch: down }, clock())), [chunk(1)]);
+  assert.strictEqual(r.ok, false); assert.strictEqual(r.retryLater, true);
+});
+
+test('a slow uplink: a grant that runs out of time shrinks the next to what it carried, and everything is stored', async () => {
+  const b = await bucket();
+  try {
+    const ck = clock();
+    // Every PUT costs 4 fake minutes, one at a time: a 15-minute grant carries 3.
+    const slow = async (url, init) => { await ck.sleep(4 * 60 * 1000); return fetch(url, init); };
+    const c = coordinator(b, { tag: 's' });
+    // The stub's expiry is taken from the fake clock, as the coordinator's is from its own.
+    const inner = c.macRequest;
+    c.macRequest = async (...a) => { const r = await inner(...a); if (r.ok) r.data.expires_at = iso(ck.now() + 15 * 60 * 1000); return r; };
+    const cs = Array.from({ length: 10 }, (_, i) => chunk(300 + i));
+    const r = await up.uploadChunks(deps(c, Object.assign({ fetch: slow }, ck)), cs, { concurrency: 1 });
+    assert.strictEqual(r.ok, true, r.because);
+    assert.strictEqual(r.keys.size, 10);
+    const sizes = c.bodies.map((x) => x.chunks.length);
+    assert.strictEqual(sizes[0], up.INITIAL_BATCH);
+    assert.ok(sizes.slice(1).every((n) => n <= 3), `later grants were not shrunk: ${sizes}`);
+    assert.ok(sizes.reduce((a, n) => a + n, 0) < 2 * cs.length, `charged for ${sizes.reduce((a, n) => a + n, 0)} chunks to send 10`);
+  } finally { await b.close(); }
+});
+
+test('a grant that expires far further ahead than a grant lasts (a clock far off) is refused before any PUT', async () => {
+  const b = await bucket();
+  try {
+    const c = coordinator(b, { expiresAt: Date.now() + 3 * 3600 * 1000 });
+    const r = await up.uploadChunks(deps(c), [chunk(1)]);
+    assert.strictEqual(r.ok, false); assert.match(r.because, /clocks is wrong/);
+    assert.strictEqual(b.puts, 0);
+  } finally { await b.close(); }
+});
+
 test('never throws: a throwing injected clock still resolves to ok: false', async () => {
   const b = await bucket();
   try {
@@ -345,18 +407,18 @@ test('refusals: quota ends with retryLater, replayed is retried once with a new 
   } finally { await b.close(); }
 });
 
-test('the same content twice in one run is uploaded once; batches split at the per-grant limit', async () => {
+test('the same content twice in one run is uploaded once; grants start small, double, and never pass the per-grant limit', async () => {
   const b = await bucket();
   try {
     const one = chunk(1);
     const r = await up.uploadChunks(deps(coordinator(b, { tag: 'a' })), [one, one]);
     assert.strictEqual(r.ok, true); assert.strictEqual(b.puts, 1);
 
-    const many = Array.from({ length: up.MAX_PER_GRANT + 2 }, (_, i) => chunk(100 + i, up.MIN_OBJECT));
+    const many = Array.from({ length: 1100 }, (_, i) => chunk(100 + i, up.MIN_OBJECT));
     const c2 = coordinator(b, { tag: 'b' });
     const r2 = await up.uploadChunks(deps(c2), many, { concurrency: 16 });
     assert.strictEqual(r2.ok, true, r2.because);
-    assert.deepStrictEqual(c2.bodies.map((x) => x.chunks.length), [up.MAX_PER_GRANT, 2]);
+    assert.deepStrictEqual(c2.bodies.map((x) => x.chunks.length), [8, 16, 32, 64, 128, 256, up.MAX_PER_GRANT, 96]);
     assert.strictEqual(r2.keys.size, many.length);
   } finally { await b.close(); }
 });
