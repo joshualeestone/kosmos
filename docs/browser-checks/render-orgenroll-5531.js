@@ -53,7 +53,7 @@ function harness() {
       if (u.endsWith('/api/org/enroll')) return enc(window.__enrollAnswer || { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member' });
       if (u.endsWith('/api/org/leave')) return enc(window.__leaveRefused || (window.__localOnly ? { ok: true, localOnly: true } : { ok: true }));
       if (u.endsWith('/api/org')) return enc(window.__refused
-        ? { enrolled: true, stoppedFor: null, leaveRefused: window.__refused, leaveRefusedUndo: window.__refusedUndo === true, org: { name: 'Acme', slug: 'acme' }, role: 'admin', enrolledAt: '2026-10-07T00:00:00.000Z' }
+        ? { enrolled: true, reporting: window.__notReporting !== true, stoppedFor: null, leaveRefused: window.__refused, leaveRefusedUndo: window.__refusedUndo === true, org: { name: 'Acme', slug: 'acme' }, role: 'admin', enrolledAt: '2026-10-07T00:00:00.000Z' }
         : { enrolled: false, stoppedFor: window.__stopped || null, leaveRefused: null, org: null, role: null, enrolledAt: null });
       if (u.endsWith('/api/remote') && !(init && init.method)) return enc({ enrolled: true, on: true });   // a connected computer
       if (u.includes('/api/history')) return enc({ readable: false });   // Settings' history row, in the shape the engine sends when it has none
@@ -177,7 +177,13 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     const o12b = await page.evaluate(() => document.getElementById('plus-org-msg').textContent);
     chk(o12b === 'Your company could not undo joining Acme <b>Co</b>: you are its last admin. This Kosmos is your work Kosmos and reports to it.',
       'O12 an undo refused as the last admin says so in undo words, not as a refused leave', JSON.stringify(o12b));
-    await page.evaluate(() => { window.__refused = null; window.__refusedUndo = false; PLUS_ORG.state = { enrolled: false, org: null, role: null }; plusOrgPaint(); });
+    // O12c (review 33): when this Kosmos may not report (no consent recorded here), the note never says it reports.
+    await page.evaluate(() => { window.__notReporting = true; PLUS_ORG.at = 0; document.getElementById('plus-org-msg').textContent = 'an earlier line'; plusOrgMaybe(); });
+    await page.waitForFunction(() => /sends your company nothing/.test(document.getElementById('plus-org-msg').textContent), null, { timeout: 5000 }).catch(() => {});
+    const o12c = await page.evaluate(() => document.getElementById('plus-org-msg').textContent);
+    chk(/sends your company nothing until you accept its words on this computer\.$/.test(o12c) && !/reports to it/.test(o12c),
+      'O12 a Kosmos that may not report is never told it reports', JSON.stringify(o12c));
+    await page.evaluate(() => { window.__notReporting = false; window.__refused = null; window.__refusedUndo = false; PLUS_ORG.state = { enrolled: false, org: null, role: null }; plusOrgPaint(); });
 
     // O8: the company stopped naming this world. The next /api/org read carries stoppedFor; the block says so.
     await page.evaluate(() => { window.__stopped = 'Acme <i>Co</i>'; PLUS_ORG.at = 0; document.getElementById('plus-org-msg').textContent = 'an earlier line still on screen'; plusOrgMaybe(); });

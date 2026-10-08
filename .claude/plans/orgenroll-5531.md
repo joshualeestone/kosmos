@@ -401,3 +401,13 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
   would actually have been lost without the guard was not measured (the engine's refusal has no code, so the route may
   have restored it).
 - Kept: a poll resolving after Join (self-heals in a minute); the inline route block (the file's style).
+
+## Review 33 (reproduced by the reviewer)
+- Review 31's fix held only on the first pass: two retry paths rewrote the pending undo without its consent hash, so
+  one unanswered daily pass dropped it and the stuck state returned. setLeavePending now KEEPS the existing hash when a
+  rewrite gives none (the class, not the two call sites); settleUnknownJoin passes the marker's hash. Pinned with the
+  reviewer's exact sequence (undo, one unanswered pass, last-admin refusal); the mutation reddens it.
+- GET /api/org says whether this Kosmos may report (`reporting`, mayReport). The leave-refused note promises "reports
+  to it" only when it may; otherwise it says it sends nothing until the words are accepted on this computer (O12c).
+- A marker time in the future (a clock set back) counts as old, in the settle and the fast follow-up (pinned). An undo
+  that went through retires the world id. The connector comment covers enroll as well as preview.

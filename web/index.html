@@ -47124,9 +47124,11 @@ function plusOrgMaybe() {
     // The server shows this note once, so it replaces whatever line is there rather than waiting for an empty one.
     if (j && j.enrolled !== true && j.stoppedFor) msg.textContent = 'This Kosmos is no longer the work Kosmos for ' + j.stoppedFor + ', so it has stopped reporting.';
     // #5531 review 21: a leave the person was told would be sent again was refused, so this Kosmos reports again.
+    // "reports to it" only when it may (review 33): a record with no consent recorded here sends nothing.
+    const reports = j && j.reporting === true ? ' and reports to it.' : '. It sends your company nothing until you accept its words on this computer.';
     if (j && j.enrolled === true && j.leaveRefused) msg.textContent = j.leaveRefusedUndo === true
-      ? 'Your company could not undo joining ' + j.leaveRefused + ': you are its last admin. This Kosmos is your work Kosmos and reports to it.'
-      : 'Your leave from ' + j.leaveRefused + ' was refused: you are its last admin. This Kosmos is your work Kosmos again and reports to it.';
+      ? 'Your company could not undo joining ' + j.leaveRefused + ': you are its last admin. This Kosmos is your work Kosmos' + reports
+      : 'Your leave from ' + j.leaveRefused + ' was refused: you are its last admin. This Kosmos is your work Kosmos again' + reports;
   }).catch(() => { /* the next minute tries again */ });
 }
 function plusOrgList(id, items) {

@@ -229,7 +229,7 @@ function oneAtATime(fn) { const run = queue.then(fn, fn); queue = run.catch(() =
 async function undoFirstJoin(lead, opts) {
   const undo = await signed('POST', ROUTES.leave, {}, opts);
   // org_code_used: the code is spent, so the route keeps no ticket for it and the page goes back to the code field.
-  if (undo.ok || codeOf(undo.because) === 'org_not_member') return { ok: false, code: 'org_code_used', because: lead + ' Joining was undone, so nothing was joined. That code is used up: ask your company for a new one.' };
+  if (undo.ok || codeOf(undo.because) === 'org_not_member') { retireWorldId(opts); return { ok: false, code: 'org_code_used', because: lead + ' Joining was undone, so nothing was joined. That code is used up: ask your company for a new one.' }; }
   setLeavePending(true, opts, null, true, opts && opts.consentHash);   // an undo, retried on the next pass if this file, at least, can be written
   // A code: the code may be spent, so no ticket is kept for it and the page goes back to the code field (review 25).
   return { ok: false, code: 'org_undo_pending', because: lead + ' Joining could not be undone yet, so your company may still list this Kosmos. It is not reporting.' };
@@ -318,7 +318,9 @@ async function enrollNow(code, accepted, opts) {
 function setLeavePending(on, opts, rec, undo, consentHash) {
   const file = path.join(storeRoot(opts), LEAVE_PENDING_FILE);
   // An undo keeps the consent the person accepted, so a join that cannot be undone is recorded WITH it (review 31).
-  const hash = typeof consentHash === 'string' && /^[0-9a-f]{64}$/.test(consentHash) ? consentHash : null;
+  // A rewrite without a hash keeps the one already there (review 33): one unanswered retry must not drop it.
+  const given = typeof consentHash === 'string' && /^[0-9a-f]{64}$/.test(consentHash) ? consentHash : null;
+  const hash = given || (on ? pendingConsentHash(opts) : null);
   try { if (on) fs.writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), rec: rec || null, undo: undo === true, consentHash: hash, world: readWorldId(opts) }) + '\n', { mode: 0o600 }); else fs.rmSync(file, { force: true }); } catch { /* best effort */ }
 }
 function pendingConsentHash(opts) {
@@ -336,7 +338,7 @@ function setJoinUnknown(info, opts) {
     fs.writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), consentHash: info.consentHash || null, move: info.move === true }) + '\n', { mode: 0o600 });
   } catch { /* best effort */ }
 }
-function joinUnknownAge(opts) { const j = joinUnknown(opts); const t = j ? Date.parse(j.at || '') : NaN; return Number.isFinite(t) ? Date.now() - t : null; }
+function joinUnknownAge(opts) { const j = joinUnknown(opts); const t = j ? Date.parse(j.at || '') : NaN; return Number.isFinite(t) && t <= Date.now() ? Date.now() - t : null; }
 function joinUnknown(opts) {
   try { const j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), JOIN_UNKNOWN_FILE), 'utf8')); return j && typeof j === 'object' ? j : null; }
   catch { return null; }
@@ -391,7 +393,8 @@ async function settleUnknownJoin(unsure, opts) {
   const verdict = statusVerdict(d, world);
   if (verdict === 'unclear') return { ok: false, enrolled: false, because: "Your company's answer was not complete." };
   const t = Date.parse(unsure.at || '');
-  const age = Number.isFinite(t) ? Date.now() - t : Infinity;   // an unreadable time counts as old: settled on a clear answer (review 30)
+  // An unreadable time, or one in the future (a clock set back), counts as old: settled on a clear answer (reviews 30, 33).
+  const age = Number.isFinite(t) && t <= Date.now() ? Date.now() - t : Infinity;
   if (verdict !== 'here' && !(age >= SETTLE_AFTER_MS)) return { ok: false, enrolled: false, because: 'Too soon to say the join was not made.' };   // kept
   setJoinUnknown(null, opts);
   if (verdict === 'here') {
@@ -404,7 +407,7 @@ async function settleUnknownJoin(unsure, opts) {
     return { ok: true, enrolled: true, member: true, ...rec };
   }
   if (verdict === 'notHere' && !unsure.move && namesThisWorld(d, world)) {
-    setLeavePending(true, opts, null, true);   // bound elsewhere: the undo is sent by the pending-leave path
+    setLeavePending(true, opts, null, true, unsure.consentHash);   // bound elsewhere: the undo is sent by the pending-leave path
     return leaveNow(opts, true);
   }
   return { ok: true, enrolled: false };

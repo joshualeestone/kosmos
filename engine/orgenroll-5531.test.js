@@ -794,3 +794,29 @@ test('#5531 review 32: the pending leave is on disk before the record goes, so a
   assert.equal(r.pending, true, JSON.stringify(r));
   assert.deepEqual(seen, { pending: true, record: false }, 'a restart while the company was asked would find no record and no pending leave');
 });
+
+test('#5531 review 33: an unanswered retry between the undo and the last-admin refusal keeps the accepted consent', async (t) => {
+  const { a } = sandbox(t);
+  const HASH = 'b2'.repeat(32);
+  const co = { macRequest: async (m, route, body) => {
+    if (route === org.ROUTES.enroll) return { ok: true, data: { ok: true, org: ORG, role: 'admin', enrolled: { computer: 'c2', world: body.world, thisComputer: false } } };
+    return { ok: false, because: 'offline' }; } };
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: co, consentHash: HASH });
+  // One daily pass that gets no clear answer (the step review 31's test did not cover).
+  await org.refresh({ root: a, remote: { macRequest: async () => ({ ok: false, because: 'offline' }) } });
+  assert.equal(org.leavePending({ root: a }), true, 'CONTROL: the undo is still pending');
+  await org.refresh({ root: a, remote: here(a, { macRequest: async () => ({ ok: false, because: '409 {"because":"org_last_admin"}' }) }) });
+  assert.equal(org.readEnrollment({ root: a }).consentHash, HASH, 'an unanswered retry dropped the consent the person accepted');
+  assert.equal(org.mayReport({ root: a }), true);
+});
+
+test('#5531 review 33: a join marker whose time is in the future (a clock set back) counts as old', async (t) => {
+  const { a } = sandbox(t);
+  const co = { macRequest: async (m, route) => (route === org.ROUTES.enroll ? { ok: false, because: 'the tunnel program did not answer in time' } : { ok: true, data: { member: false } }) };
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: co });
+  const mk = path.join(a, 'org-join-unknown.json');
+  fs.writeFileSync(mk, JSON.stringify(Object.assign(JSON.parse(fs.readFileSync(mk, 'utf8')), { at: new Date(Date.now() + 86400e3).toISOString() })));
+  assert.equal(org.joinUnknownAge({ root: a }), null, 'a future time read as a fresh age, so the fast follow-up would run until the clock caught up');
+  await org.refresh({ root: a, remote: co });
+  assert.equal(org.joinUnknown({ root: a }), null, 'a marker with a future time was kept');
+});

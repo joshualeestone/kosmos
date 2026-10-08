@@ -181,7 +181,8 @@ connector_verbs_check "$T/no-such-tunnel" "$OPEN" 2>"$T/err" && bad "a missing c
 # /enroll, /leave and /status, which only a connector carrying the org routes signs. An older connector refuses them
 # ("mac-request does not sign"); the engine reads that as a failure with no public code, so the page says checking the
 # code did not go through and nothing is joined (engine/orgenroll-5531.test.js pins the fixed sentence for a failure
-# with no code). Joining a company never worked before these connectors, so nothing that works today breaks.
+# with no code). Preview is refused first, so enroll is never reached on an old connector; if it were, its codeless
+# refusal would read as an unknown outcome and be followed up, never as joined. Joining a company never worked before these connectors, so nothing that works today breaks.
 callers="$(grep -l "macRequest(" engine/*.js 2>/dev/null | grep -v -e "engine/remote.js" -e "\.test\.js$" | sort | tr '\n' ' ')"
 [ "$callers" = "engine/account-computers.js engine/federation.js engine/fedmembers.js engine/fedseats.js engine/mac-standing.js engine/orgenroll.js engine/phonenotify.js engine/updating.js " ] && ok "mac-request callers are exactly the eight the gate-closed rule was decided on" || bad "the mac-request callers changed ($callers); re-decide whether an old connector breaks something that works, then update this list"
 
