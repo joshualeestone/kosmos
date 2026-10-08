@@ -99,6 +99,16 @@ test('#5584: a board start adds exactly the gate\'s expected files, so a new one
       AGENT_WORKFORCE_PERSON_LOCALE: 'en',
       AGENT_WORKFORCE_DRY_RUN: '1',
       AGENT_WORKFORCE_TMUX_BIN: path.join(__dirname, 'test-support', 'fake-tmux.sh'),
+      // Review 1: the rest of the gate's sandbox, so a test-booted board can reach nothing of the real home: the
+      // Claude config file and root (else trust and onboarding read and write the operator's ~/.claude.json),
+      // the shell profile, the system app folder, no browser, and a Claude binary path inside the sandbox.
+      AGENT_WORKFORCE_CLAUDE_CONFIG: path.join(sb, 'claude.json'),
+      AGENT_WORKFORCE_CONFIG_ROOT: path.join(sb, 'config'),
+      AGENT_WORKFORCE_CLAUDE_BIN: path.join(sb, 'claude-shared', 'claude'),
+      KOSMOS_PROFILE_FILE: path.join(sb, 'zprofile'),
+      KOSMOS_SYS_APP_DIR: path.join(sb, 'sysnever'),
+      KOSMOS_NO_OPEN: '1',
+      SHELL: '/bin/zsh',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -117,20 +127,26 @@ test('#5584: a board start adds exactly the gate\'s expected files, so a new one
     const port = (out.match(/Kosmos on http:\/\/[^:\s]+:(\d+)/) || [])[1];
     assert.ok(port, 'no port in the startup line: ' + out.slice(-500));
     for (let i = 0; i < 60; i++) {
-      const ok = await fetch('http://127.0.0.1:' + port + '/').then((r) => r.status > 0, () => false);
+      const ok = await fetch('http://127.0.0.1:' + port + '/', { signal: AbortSignal.timeout(3000) })
+        .then((r) => r.status > 0, () => false);
       if (ok) break;
       await new Promise((r) => setTimeout(r, 500));
     }
     // The gate diffs once the board answers; some start writes (the supervisor install, the first runner tick) land
     // just after listen. Wait until the added set has not changed for 3s (bounded), so a late write is counted
     // rather than raced: a file the board writes at start belongs in the list whether or not one cut saw it.
+    // Review 1: stop early only once every expected board write has landed AND the set has been still for 3s; a
+    // loaded machine gets up to 45s before anything is called missing.
+    const boardWrites = expectedAdds().filter((f) => !INSTALLER_WRITES.includes(f) && !WRITTEN_ONLY_OUTSIDE_TESTS.includes(f));
     const t0 = Date.now();
     let last = '';
     let stableSince = Date.now();
     for (;;) {
-      const now = filesUnder(data).filter((f) => !before.has(f)).join('\n');
-      if (now !== last) { last = now; stableSince = Date.now(); }
-      if (Date.now() - stableSince >= 3000 || Date.now() - t0 > 20000) break;
+      const now = filesUnder(data).filter((f) => !before.has(f));
+      const joined = now.join('\n');
+      if (joined !== last) { last = joined; stableSince = Date.now(); }
+      const complete = boardWrites.every((f) => now.includes(f));
+      if ((complete && Date.now() - stableSince >= 3000) || Date.now() - t0 > 45000) break;
       await new Promise((r) => setTimeout(r, 250));
     }
     // The gate filters the board's wouldping runtime logs as a class (#1494); so does this.
