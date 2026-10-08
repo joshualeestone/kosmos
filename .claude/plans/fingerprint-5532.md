@@ -192,3 +192,12 @@ company, and `thisComputer` cannot tell them apart.
   its header line and its property list closed by a lone `}`. A dump cut off before the end, however often and however
   identically, is a failed read (test with the same cut twice; header-only mutation reddens).
 - NOTED for the first caller (on #5532): run printFor off the request path or at start; the read can take 5 seconds.
+
+## Review 17 (blind, opus): CONVERGED (its one warning repeats the decided synchronous read)
+- Taken anyway, because the code did not do what its comment said: the whole-block check is anchored to the end of
+  the text, not to any line (a lone "}" mid-dump no longer counts; test; the line-anchor mutation reddens).
+- Also taken: the guard scans .json and .xml; the loader guard skips outside a git checkout like its sibling; the
+  allowlist comment says the first caller runs printFor off the request path; the header says the monotonic clock does
+  not count sleep.
+- NOT TAKEN: renaming parseIoreg (it returns an id only from text its caller holds, and reading that text trips the
+  READ guard).

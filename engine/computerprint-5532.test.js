@@ -91,7 +91,7 @@ test('#5532 v1.5: no file but computerprint.js uses a known spelling of a raw ha
   // Needs git (it lists tracked files); outside a checkout it throws, and the count below keeps it from passing empty.
   const files = require('node:child_process').execFileSync('git', ['-C', root, 'ls-files', '-z'], { encoding: 'utf8' }).split('\0')
     .filter((f) => !/^engine\/computerprint(-5532\.test)?\.js$/.test(f))
-    .filter((f) => /\.(js|mjs|cjs|sh|ps1|html|swift|m|mm|c|h|java|kt|py|yml|yaml|plist|gradle)$/.test(f)
+    .filter((f) => /\.(js|mjs|cjs|sh|ps1|html|swift|m|mm|c|h|java|kt|py|yml|yaml|plist|gradle|json|xml)$/.test(f)
       // and extensionless scripts, found by their first line (install/kosmos, install/pkg-scripts/postinstall; review 15)
       || (!/\.[^/]+$/.test(f) && (() => { try { return /^#!/.test(fs.readFileSync(path.join(root, f), 'utf8').slice(0, 2)); } catch { return false; } })()));
   assert.ok(files.includes('server.js') && files.includes('engine/store.js') && files.includes('install/kosmos'), 'the repo was not listed, or extensionless scripts were skipped (' + files.length + ' files)');
@@ -146,10 +146,16 @@ test('#5532 v1.5 reviews 7 to 9: printFor gives ONE answer: send the print, send
   assert.deepEqual(cp.printFor(SALT, ORG), { send: 'none' }, 'a computer with no hardware id would wait forever');
   // Review 16: a block cut off before its closing brace, twice in a row, is still a failed read, never 'none'.
   const CUT = '+-o VM <class IOPlatformExpertDevice>\n  {\n    "model" = "VMw';
+  const CUT_AFTER_BRACE = '+-o VM <class IOPlatformExpertDevice>\n  {\n    "a" = {\n    }\n    "model" = "VMw';
   cp._testRunner(() => CUT, { platform: 'darwin', now: 5 });
   assert.deepEqual(cp.printFor(SALT, ORG), { send: 'later' });
   cp._testClock(5 + cp.RETRY_AFTER_FAIL_MS + 1);
   assert.deepEqual(cp.printFor(SALT, ORG), { send: 'later' }, 'a dump cut off the same way twice was taken as a lasting "no id"');
+  // Review 17: a lone "}" line mid-dump, then a cut, is not a whole block.
+  cp._testRunner(() => CUT_AFTER_BRACE, { platform: 'darwin', now: 5 });
+  cp.printFor(SALT, ORG);
+  cp._testClock(5 + cp.RETRY_AFTER_FAIL_MS + 1);
+  assert.deepEqual(cp.printFor(SALT, ORG), { send: 'later' }, 'a mid-dump closing brace read as the end of the block');
   // A cut-off dump followed by a good one is a computer WITH an id: the streak resets.
   let k = 0;
   cp._testRunner(() => (k++ === 0 ? VM : SAMPLE), { platform: 'darwin', now: 5 });
@@ -181,7 +187,7 @@ test('#5532 v1.5 reviews 9 and 15: an ioreg that always fails stops deferring af
 });
 
 
-test('#5532 v1.5 review 15: nothing outside the tests loads computerprint until its first caller brings the two privacy guards', () => {
+test('#5532 v1.5 review 15: nothing outside the tests loads computerprint until its first caller brings the two privacy guards', { skip: !require('node:fs').existsSync(require('node:path').join(__dirname, '..', '.git')) && 'needs a git checkout (it lists tracked files)' }, () => {
   const fs = require('node:fs');
   const path = require('node:path');
   const root = path.join(__dirname, '..');
@@ -190,7 +196,8 @@ test('#5532 v1.5 review 15: nothing outside the tests loads computerprint until 
   assert.ok(files.includes('server.js'), 'the repo was not listed');
   /* The first caller adds itself here, in the same PR as a test that (1) its file never logs a printFor result, a print
      or a request body carrying one, and (2) it takes `company` from this board's own enrollment record, never from a
-     coordinator's answer (see the header of engine/computerprint.js). */
+     coordinator's answer (see the header of engine/computerprint.js). And it calls printFor off any request path (at
+     start, or in the background): a read can block the board for up to five seconds. */
   const ALLOWED = [];
   const loaders = files.filter((f) => /require\(\s*['"][^'"]*computerprint['"]\s*\)|from\s+['"][^'"]*computerprint['"]/.test(fs.readFileSync(path.join(root, f), 'utf8')));
   assert.deepEqual(loaders.filter((f) => !ALLOWED.includes(f)), [], 'loads computerprint without being allowed: add it to ALLOWED only together with its no-logging and company-source tests');

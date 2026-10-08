@@ -34,6 +34,9 @@
  * Otherwise a coordinator could ask a computer enrolled in company B for its print under company A's id and salt, and
  * link the two with no list of hardware ids at all.
  *
+ * The clock is monotonic, so a wall clock set back cannot hold a wait open; it also does not count time the computer is
+ * asleep, so on a laptop the minute, the ten minutes and the backoff can stretch over more wall-clock time (safe).
+ *
  * In memory: the raw id is kept in a module variable for the life of the board process once read (a heap snapshot or a
  * core dump would hold it), and so would the last ioreg dump until it is garbage-collected (a JavaScript string cannot
  * be wiped; review 15 corrected my claim that it was "dropped at once"). Nothing writes either anywhere.
@@ -117,7 +120,8 @@ function hardwareId() {
      a truncated or garbled answer is a failed read to retry, never a reason to send without a print. */
   /* The block must be WHOLE: its own header line, then its property list closed by a line holding only "}" (review 16).
      A dump cut off before the end, however often, is a failed read, not "no id here". */
-  const blockWithoutId = ran && /^\+-o .*<class IOPlatformExpertDevice\b[\s\S]*\n\s*\{[\s\S]*\n\s*\}\s*$/m.test(out)
+  // Anchored to the END OF THE TEXT (review 17): with a line-by-line anchor, a "}" line mid-dump would have counted.
+  const blockWithoutId = ran && /(^|\n)\+-o [^\n]*<class IOPlatformExpertDevice\b[\s\S]*\n\s*\{[\s\S]*\n\s*\}\s*$(?![\s\S])/.test(out)
     && !/"IOPlatformUUID"\s*=/.test(out);
   noIdStreak = blockWithoutId ? noIdStreak + 1 : 0;
   noIdHere = noIdStreak >= 2;   // the same answer twice, a minute apart: a lasting "no id", not a dump cut short
