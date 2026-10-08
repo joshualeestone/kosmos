@@ -10,7 +10,10 @@
  * What it may remove, and only all of these together:
  *   - a token file whose agent is NOT on the running board's roster (GET /api/status, the board's own list),
  *     is NOT in the board's removal records, was last written BEFORE the cutoff, and is named exactly as the
- *     store names its files (a name the store could not have written is listed and left alone);
+ *     store names its files (a name the store could not have written is listed and left alone), and holds
+ *     no `launcher: 'remote'` token (a remote agent is on the roster only while its heartbeat is fresh, so an
+ *     offline one would look orphaned). Its age is its NEWEST sign of life: the latest token mintedAt or the
+ *     file's mtime, whichever is later;
  *   - a writer's leftover temp file (`*.tmp`) last written before the cutoff;
  *   - a symlink whose target does not exist (a security fixture planted one).
  * Anything else in the folder is listed and left alone. A live agent's file is never a candidate,
@@ -22,10 +25,12 @@
  *     and its display name. A spelling too many keeps a file; a spelling too few would delete a live one.
  *   - no roster, an empty one, no board token to send, or a roster that matches NONE of the store's token files
  *     (a board serving a different store) stops the tool before planning. The port is required, never assumed.
- *   - each token file is re-checked just before removal: if it was written after the plan was made, it is kept.
- * 🛑 BACKUP FIRST. --apply copies every file and link in the folder (links as links; a subfolder is not copied,
- * and is never removed either) to a new timestamped folder beside it, and stops if the copy fails. Token files
- * go through sendertoken.revoke, under its lock.
+ *   - each token file is removed only if, under the store's lock, it is still the file the plan looked at
+ *     (sendertoken.revokeIfUnchanged): a token minted since the plan was made is never taken.
+ *   - a cutoff in the future is refused.
+ * 🛑 BACKUP FIRST. --apply copies exactly the entries it is about to remove (files with their modes, links as
+ * links) to a new timestamped folder beside the store, and stops if the copy fails. Only those: a copy of every
+ * live agent's token would be a second set of live credentials left lying around.
  * Prints names and counts only, never a token.
  */
 const fs = require('node:fs');
@@ -50,10 +55,13 @@ function planCleanup(entries, liveKeys, cutoffMs, safeKey) {
       const key = e.name.slice(0, -'.json'.length);
       /* revoke(key) removes the file named safeKey(key), so only a file already named that way can be planned:
          otherwise the dry run would list one file and --apply remove another. */
+      const info = e.tokens || { launchers: [], newestMintMs: null };
+      const newest = Math.max(typeof e.mtimeMs === 'number' ? e.mtimeMs : Infinity, typeof info.newestMintMs === 'number' ? info.newestMintMs : -Infinity);
       if (canon(key) !== key) keep.push({ name: e.name, why: 'not a name the store writes: left alone' });
       else if (liveKeys.has(key)) keep.push({ name: e.name, why: 'its agent is on the board or in the removal records' });
-      else if (!old) keep.push({ name: e.name, why: 'written on or after the cutoff' });
-      else remove.push({ name: e.name, kind: 'token', key, mtimeMs: e.mtimeMs, why: 'no such agent on the board, written before the cutoff' });
+      else if (info.launchers.includes('remote')) keep.push({ name: e.name, why: 'holds a remote agent\'s token (an offline remote agent is not on the board)' });
+      else if (!(newest < cutoffMs)) keep.push({ name: e.name, why: 'minted or written on or after the cutoff' });
+      else remove.push({ name: e.name, kind: 'token', key, mtimeMs: e.mtimeMs, launchers: info.launchers, newestMintMs: info.newestMintMs, why: 'no such agent on the board, nothing newer than the cutoff' });
       continue;
     }
     if (e.name.endsWith('.tmp')) {
@@ -77,15 +85,33 @@ function listEntries(dir) {
     let targetExists = null;
     if (isSymlink) { try { fs.statSync(p); targetExists = true; } catch (e) { targetExists = e && e.code === 'ENOENT' ? false : null; } }
     if (!isSymlink && !st.isFile()) { out.push({ name, isSymlink: false, mtimeMs: null, other: true }); continue; }
-    out.push({ name, isSymlink, targetExists, mtimeMs: st.mtimeMs });
+    const entry = { name, isSymlink, targetExists, mtimeMs: st.mtimeMs };
+    if (!isSymlink && name.endsWith('.json')) entry.tokens = tokenInfo(p);
+    out.push(entry);
   }
   return out;
 }
 
-/* Copy the folder, links as links and modes kept, into a new folder. Throws on any failure. */
-function backup(dir, dest) {
+/* What a token file says about itself: the launchers its tokens name and the newest mintedAt. An unreadable file
+   says nothing (no launchers, no mint time), so only its mtime ages it. */
+function tokenInfo(file) {
+  const out = { launchers: [], newestMintMs: null };
+  let kept;
+  try { kept = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return out; }
+  const tokens = kept && Array.isArray(kept.tokens) ? kept.tokens : (kept && typeof kept.token === 'string' ? [kept] : []);
+  for (const t of tokens) {
+    if (!t || typeof t !== 'object') continue;
+    if (typeof t.launcher === 'string' && !out.launchers.includes(t.launcher)) out.launchers.push(t.launcher);
+    const ms = Date.parse(t.mintedAt || '');
+    if (Number.isFinite(ms) && (out.newestMintMs === null || ms > out.newestMintMs)) out.newestMintMs = ms;
+  }
+  return out;
+}
+
+/* Copy the named entries, links as links and modes kept, into a new folder. Throws on any failure. */
+function backup(dir, dest, names) {
   fs.mkdirSync(dest, { recursive: false, mode: 0o700 });
-  for (const name of fs.readdirSync(dir)) {
+  for (const name of names) {
     const from = path.join(dir, name);
     const to = path.join(dest, name);
     const st = fs.lstatSync(from);
@@ -102,9 +128,7 @@ function applyPlan(dir, plan, revoke) {
     const p = path.join(dir, r.name);
     try {
       if (r.kind === 'token') {
-        const st = fs.lstatSync(p);
-        if (!st.isFile() || st.mtimeMs !== r.mtimeMs) throw new Error('written since the plan was made: kept');
-        const res = revoke(r.key);
+        const res = revoke(r.key, r.mtimeMs);   // sendertoken.revokeIfUnchanged: re-checked under the store's lock
         if (res && res.ok === false) throw new Error(res.because || 'revoke failed');
       } else if (r.kind === 'symlink') {
         if (!fs.lstatSync(p).isSymbolicLink()) throw new Error('no longer a link');
@@ -154,6 +178,7 @@ function parseArgs(argv) {
   if (!Number.isInteger(out.port) || out.port <= 0) throw new Error('--port is required (the board port for THIS account; never assumed)');
   const ms = Date.parse(out.cutoff || '');
   if (!Number.isFinite(ms)) throw new Error('--cutoff is required, as an ISO date');
+  if (ms > Date.now()) throw new Error('--cutoff is in the future, which would make every file old');
   out.cutoffMs = ms;
   return out;
 }
@@ -184,17 +209,20 @@ async function main(argv) {
     return 2;
   }
   const plan = planCleanup(entries, liveKeys, args.cutoffMs, store.safeKey);
-  console.log(`Kept by name: ${rows.length} agents on the board, ${removed.length} in the removal records.`);
+  console.log(`Kept by name: ${rows.length} agents on the board, ${removed.length} in the removal records; ${tokenKeys.filter((k) => liveKeys.has(k)).length} of ${tokenKeys.length} token files match one.`);
   console.log(`Would remove ${plan.remove.length}, keep ${plan.keep.length}:`);
-  for (const r of plan.remove) console.log(`  remove  ${r.name}  (${r.why})`);
+  for (const r of plan.remove) {
+    const detail = r.kind === 'token' ? `; launchers: ${r.launchers.join(', ') || 'none'}; newest mint: ${r.newestMintMs ? new Date(r.newestMintMs).toISOString() : 'none'}` : '';
+    console.log(`  remove  ${r.name}  (${r.why}${detail})`);
+  }
   for (const k of plan.keep) console.log(`  keep    ${k.name}  (${k.why})`);
   if (!args.apply) { console.log('Dry run: nothing changed. Add --apply to back up and remove.'); return 0; }
   if (plan.remove.length === 0) { console.log('Nothing to remove.'); return 0; }
   const dest = path.join(path.dirname(dir), 'sendertokens.backup-5418-' + new Date().toISOString().replace(/[:.]/g, '-'));
-  try { backup(dir, dest); }
+  try { backup(dir, dest, plan.remove.map((r) => r.name)); }
   catch (e) { console.error('Stopped, nothing removed: the backup failed (' + e.message + ').'); return 3; }
   console.log('Backed up to ' + dest);
-  const res = applyPlan(dir, plan, sendertoken.revoke);
+  const res = applyPlan(dir, plan, sendertoken.revokeIfUnchanged);
   console.log(`Removed ${res.removed.length}.`);
   for (const f of res.failed) console.log(`  not removed  ${f.name}  (${f.because})`);
   return res.failed.length ? 1 : 0;
@@ -205,4 +233,4 @@ if (require.main === module) {
     (e) => { console.error('Stopped: ' + ((e && e.message) || e)); process.exitCode = 2; });
 }
 
-module.exports = { planCleanup, listEntries, backup, applyPlan, parseArgs, fetchRosterNames, spellingsOf, main };
+module.exports = { planCleanup, listEntries, tokenInfo, backup, applyPlan, parseArgs, fetchRosterNames, spellingsOf, main };

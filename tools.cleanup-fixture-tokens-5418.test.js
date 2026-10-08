@@ -22,7 +22,7 @@ test.after(() => fs.rmSync(process.env.AGENT_WORKFORCE_WORKERS, { recursive: tru
 const fleet = require('./test-support/fleet');
 
 const DAY = 24 * 3600 * 1000;
-const CUTOFF = Date.parse('2026-10-08T00:00:00Z');
+const CUTOFF = Date.parse('2026-10-01T00:00:00Z');   // a fixed PAST date: the tool refuses a future cutoff
 const OLD = CUTOFF - 30 * DAY;
 const NEW = CUTOFF + DAY;
 
@@ -45,10 +45,12 @@ test('#5418: the plan keeps a live agent at any age and removes only old orphans
     { name: 'notes.txt', isSymlink: false, mtimeMs: OLD },             // other: keep
     { name: 'dir.json', other: true, isSymlink: false, mtimeMs: null }, // a folder named like a token: keep
     { name: 'My.Agent.json', isSymlink: false, mtimeMs: OLD },         // not a name the store writes: keep
+    { name: 'remote-a.json', isSymlink: false, mtimeMs: OLD, tokens: { launchers: ['remote'], newestMintMs: OLD } },  // offline remote agent: keep
+    { name: 'recent-mint.json', isSymlink: false, mtimeMs: OLD, tokens: { launchers: [], newestMintMs: NEW } },        // minted after the cutoff: keep
   ];
   const plan = tool.planCleanup(entries, live, CUTOFF, safeKey);
   assert.deepEqual(plan.remove.map((r) => r.name).sort(), ['fixture-a.json', 'planted.json', 'x.json.kosmos-1-t0-1-1.tmp']);
-  assert.deepEqual(plan.keep.map((k) => k.name).sort(), ['My.Agent.json', 'alice.json', 'dir.json', 'fixture-b.json', 'linked.json', 'notes.txt', 'y.json.kosmos-2-t0-1-1.tmp']);
+  assert.deepEqual(plan.keep.map((k) => k.name).sort(), ['My.Agent.json', 'alice.json', 'dir.json', 'fixture-b.json', 'linked.json', 'notes.txt', 'recent-mint.json', 'remote-a.json', 'y.json.kosmos-2-t0-1-1.tmp']);
   assert.equal(plan.remove.length + plan.keep.length, entries.length, 'an entry was dropped from both lists');
   assert.equal(plan.remove.find((r) => r.name === 'fixture-a.json').key, 'fixture-a');
 });
@@ -79,43 +81,25 @@ test('#5418: the backup copies files with their modes and links as links, and ne
   fs.mkdirSync(dir);
   fs.writeFileSync(path.join(dir, 'a.json'), 'A', { mode: 0o600 });
   fs.symlinkSync('/nowhere', path.join(dir, 'l.json'));
+  fs.writeFileSync(path.join(dir, 'live.json'), 'L', { mode: 0o600 });   // not being removed: must NOT be copied
   const dest = path.join(root, 'backup');
-  tool.backup(dir, dest);
+  tool.backup(dir, dest, ['a.json', 'l.json']);
+  assert.deepEqual(fs.readdirSync(dest).sort(), ['a.json', 'l.json'], 'the backup copied a live credential it was not removing');
   assert.equal(fs.readFileSync(path.join(dest, 'a.json'), 'utf8'), 'A');
   assert.equal(fs.statSync(path.join(dest, 'a.json')).mode & 0o777, 0o600);
   assert.equal(fs.readlinkSync(path.join(dest, 'l.json')), '/nowhere');
-  assert.throws(() => tool.backup(dir, dest), (e) => e.code === 'EEXIST', 'a second backup overwrote the first');
+  assert.throws(() => tool.backup(dir, dest, ['a.json']), (e) => e.code === 'EEXIST', 'a second backup overwrote the first');
 });
 
-test('#5418: applying removes tokens through revoke and re-checks each other entry before unlinking it', (t) => {
-  const dir = scratch(t);
-  fs.writeFileSync(path.join(dir, 'x.json.kosmos-1-t0-1-1.tmp'), 'tmp');
-  fs.mkdirSync(path.join(dir, 'changed.tmp'));   // planned as a temp, now a folder: must not be removed
-  fs.writeFileSync(path.join(dir, 'fix.json'), '{}');
-  fs.utimesSync(path.join(dir, 'fix.json'), OLD / 1000, OLD / 1000);
-  fs.writeFileSync(path.join(dir, 'fresh.json'), '{}');   // planned at OLD, written since: must be kept
-  const revoked = [];
-  const plan = { remove: [
-    { name: 'fix.json', kind: 'token', key: 'fix', mtimeMs: fs.lstatSync(path.join(dir, 'fix.json')).mtimeMs },
-    { name: 'fresh.json', kind: 'token', key: 'fresh', mtimeMs: OLD },
-    { name: 'x.json.kosmos-1-t0-1-1.tmp', kind: 'temp' },
-    { name: 'changed.tmp', kind: 'temp' },
-  ] };
-  const res = tool.applyPlan(dir, plan, (key) => { revoked.push(key); return { ok: true }; });
-  assert.deepEqual(revoked, ['fix']);
-  assert.deepEqual(res.removed.sort(), ['fix.json', 'x.json.kosmos-1-t0-1-1.tmp']);
-  assert.deepEqual(res.failed.map((f) => f.name).sort(), ['changed.tmp', 'fresh.json']);
-  assert.equal(revoked.includes('fresh'), false, 'a token written after the plan was revoked');
-  assert.equal(fs.existsSync(path.join(dir, 'changed.tmp')), true);
-});
 
 test('#5418: the port and the cutoff are required, never assumed', () => {
   assert.throws(() => tool.parseArgs(['--cutoff', '2026-10-08']), /--port is required/);
   assert.throws(() => tool.parseArgs(['--port', '1234']), /--cutoff is required/);
   assert.throws(() => tool.parseArgs(['--port', '1234', '--cutoff', 'soon']), /--cutoff is required/);
-  const a = tool.parseArgs(['--port', '1234', '--cutoff', '2026-10-08T00:00:00Z', '--apply']);
+  const a = tool.parseArgs(['--port', '1234', '--cutoff', '2026-10-01T00:00:00Z', '--apply']);
   assert.equal(a.apply, true);
   assert.equal(a.cutoffMs, CUTOFF);
+  assert.throws(() => tool.parseArgs(['--port', '1234', '--cutoff', new Date(Date.now() + DAY).toISOString()]), /in the future/);
 });
 
 /* A stub board answering GET /api/status with `body`. */
@@ -178,7 +162,7 @@ test('#5418 end to end: a dry run changes nothing; --apply backs up, then remove
   assert.deepEqual(fs.readdirSync(dir).sort(), ['My.Agent.json', 'claudebot.json', 'sam.json'], 'a live agent was removed, or the orphan was kept');
   const backups = fs.readdirSync(path.dirname(dir)).filter((n) => n.startsWith('sendertokens.backup-5418-'));
   assert.equal(backups.length, 1);
-  assert.deepEqual(fs.readdirSync(path.join(path.dirname(dir), backups[0])).sort(), before, 'the backup is not a full copy');
+  assert.deepEqual(fs.readdirSync(path.join(path.dirname(dir), backups[0])).sort(), ['fixture-e2e.json'], 'the backup is not exactly what was removed');
 });
 
 test('#5418: a roster that matches NONE of the store\'s token files (another store\'s board) stops the tool', async (t) => {
@@ -226,4 +210,36 @@ test('#5418: no board token for this store stops the tool (nothing ties the boar
   assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply']), 2);
   assert.equal(fs.existsSync(path.join(dir, 'would-be-orphan.json')), true);
   assert.match(String(err.mock.calls[0].arguments[0]), /no board token/);
+});
+
+test('#5418: applying removes a token only if, under the lock, it is still the file planned; temps and links are re-checked', async (t) => {
+  const { dir, write } = e2eStore(t);
+  const sendertoken = require('./engine/sendertoken');
+  write('fix.json', OLD);
+  write('fresh.json', OLD);
+  const planned = fs.lstatSync(path.join(dir, 'fresh.json')).mtimeMs;
+  sendertoken.mint('fresh');                            // a launch mints AFTER the plan looked: rewrites fresh.json
+  fs.writeFileSync(path.join(dir, 'x.json.kosmos-1-t0-1-1.tmp'), 'tmp');
+  fs.mkdirSync(path.join(dir, 'changed.tmp'));          // planned as a temp, now a folder
+  const plan = { remove: [
+    { name: 'fix.json', kind: 'token', key: 'fix', mtimeMs: fs.lstatSync(path.join(dir, 'fix.json')).mtimeMs },
+    { name: 'fresh.json', kind: 'token', key: 'fresh', mtimeMs: planned },
+    { name: 'x.json.kosmos-1-t0-1-1.tmp', kind: 'temp' },
+    { name: 'changed.tmp', kind: 'temp' },
+  ] };
+  const res = tool.applyPlan(dir, plan, sendertoken.revokeIfUnchanged);
+  assert.deepEqual(res.removed.sort(), ['fix.json', 'x.json.kosmos-1-t0-1-1.tmp']);
+  assert.deepEqual(res.failed.map((f) => f.name).sort(), ['changed.tmp', 'fresh.json']);
+  assert.equal(fs.existsSync(path.join(dir, 'fresh.json')), true, 'a token minted after the plan was taken');
+  assert.equal(fs.existsSync(path.join(dir, 'changed.tmp')), true);
+});
+
+test('#5418: tokenInfo reads the launchers and newest mint, and an unreadable file says nothing', (t) => {
+  const dir = scratch(t);
+  const a = path.join(dir, 'a.json');
+  fs.writeFileSync(a, JSON.stringify({ tokens: [{ token: 'x', mintedAt: '2026-08-28T00:00:00Z', launcher: 'remote' }, { token: 'y', mintedAt: '2026-09-01T00:00:00Z' }] }));
+  assert.deepEqual(tool.tokenInfo(a), { launchers: ['remote'], newestMintMs: Date.parse('2026-09-01T00:00:00Z') });
+  const b = path.join(dir, 'b.json');
+  fs.writeFileSync(b, 'not json');
+  assert.deepEqual(tool.tokenInfo(b), { launchers: [], newestMintMs: null });
 });
