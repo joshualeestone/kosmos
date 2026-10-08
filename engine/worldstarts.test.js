@@ -867,13 +867,23 @@ test('#5534: an imported agent on a provider the company policy does not allow i
     assert.doesNotMatch(String(allowed || ''), /policy/, 'CONTROL: an allowed provider and model is not refused for policy');
     fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 2, applied_at: 1,
       policy: { providers_allowed: null, models_allowed: null } }));
-    // Allowed but the install fails (no folder yet): it has not run, so the mark stays and Repair still asks.
-    const failed = worldstarts.firstStartOfImport({ name: 'importcodex', runner: 'codex' }, MAC);
-    assert.match(String(failed), /could not set importcodex up/, 'setup: the install was expected to fail here');
-    assert.equal(store.readProfile('importcodex').policyHeld, true, 'the mark cleared although the agent never ran');
-    fs.mkdirSync(create.workerDir('importcodex'), { recursive: true });
-    const second = worldstarts.firstStartOfImport({ name: 'importcodex', runner: 'codex' }, MAC);
-    assert.equal(store.readProfile('importcodex').policyHeld, false, 'the mark stayed after the import was set up to run: ' + second);
+    // The install is stood in for (a real one needs a runner binary, so the result would depend on the machine:
+    // it passed locally and failed in CI). Allowed but the install fails: it has not run, so the mark stays and
+    // Repair still asks. Then the install succeeds: it counts as an agent that ran, and the mark clears.
+    const realInstall = create.installJob;
+    let installs = 0;
+    try {
+      create.installJob = () => { installs += 1; return { ok: false, because: 'no folder for it on this computer' }; };
+      const failed = worldstarts.firstStartOfImport({ name: 'importcodex', runner: 'codex' }, MAC);
+      assert.match(String(failed), /could not set importcodex up/, 'setup: the install was expected to fail here');
+      assert.equal(store.readProfile('importcodex').policyHeld, true, 'the mark cleared although the agent never ran');
+      create.installJob = () => { installs += 1; return { ok: true }; };
+      const second = worldstarts.firstStartOfImport({ name: 'importcodex', runner: 'codex' }, MAC);
+      assert.equal(store.readProfile('importcodex').policyHeld, false, 'the mark stayed after the import was set up to run: ' + second);
+      assert.equal(installs, 2, 'CONTROL: both imports reached the install (the policy allowed them)');
+    } finally {
+      create.installJob = realInstall;
+    }
   } finally {
     fs.rmSync(orgpolicy.APPLIED(), { force: true });
   }
