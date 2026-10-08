@@ -1881,7 +1881,7 @@ test('a message ending in a semicolon arrives WITH it — a paste delivers the l
    * ⚠️ THE HAZARD THIS USED TO GUARD IS GONE WITH THE PASTE TRANSPORT. When the
    * body went in with `send-keys -l`, tmux split argv into a command LIST first
    * and ate a trailing `;` as the separator, so the send path escaped it to `\;`
-   * (see `wireText`). A paste-buffer carries its content verbatim — no command
+   * (an escape removed in #5582). A paste-buffer carries its content verbatim — no command
    * list, no separator — so the literal `;` is delivered and no escaping is
    * needed. Asserted on the ARGV handed to set-buffer (the half this module
    * controls); the paste round-trip's fidelity is claude-msg's measured basis.
@@ -1926,31 +1926,6 @@ test('the record and the screen keep the person’s own text, semicolon and all'
     assert.equal(chat.readThread('wire', 'casey').messages[0].text, 'const total = 0;',
       'the escape leaked into what we keep and show');
   });
-});
-
-test('wireText touches a TRAILING semicolon and nothing else', () => {
-  const BACKSLASH = String.fromCharCode(92);
-  // Changed, because tmux would otherwise alter or swallow them.
-  assert.equal(chat.wireText('const total = 0;'), 'const total = 0' + BACKSLASH + ';');
-  assert.equal(chat.wireText(';'), BACKSLASH + ';');
-  assert.equal(chat.wireText('wait;;'), 'wait;' + BACKSLASH + ';');
-  // Left exactly alone — measured as arriving intact, so escaping them would be
-  // this function inventing a backslash the person never typed.
-  assert.equal(chat.wireText('const a = 1; const b = 2'), 'const a = 1; const b = 2');
-  assert.equal(chat.wireText('const total = 0; '), 'const total = 0; ');
-  assert.equal(chat.wireText('const total = 0'), 'const total = 0');
-  assert.equal(chat.wireText('a path' + BACKSLASH), 'a path' + BACKSLASH);
-  // A message ENDING in backslash-semicolon: the one input where the escape
-  // could in principle defeat itself (if tmux treated backslash as a general
-  // escape, `foo` + \\ + ; would leave a bare separator and deliver `foo` +
-  // backslash). Measured 2026-08-14 against a scratch session: it does not.
-  // `foo\;` wires to `foo\\;` and the pane receives `foo\;` exactly, and
-  // `\;` wires to `\\;` arriving `\;` -- the splitter consumes one backslash
-  // to escape the final semicolon and nothing else. See the table above.
-  assert.equal(chat.wireText('foo' + BACKSLASH + ';'), 'foo' + BACKSLASH + BACKSLASH + ';');
-  assert.equal(chat.wireText(BACKSLASH + ';'), BACKSLASH + BACKSLASH + ';');
-  assert.equal(chat.wireText(''), '');
-  assert.equal(chat.wireText(null), '');
 });
 
 test('two windows sending at once do not lose a message', () => {

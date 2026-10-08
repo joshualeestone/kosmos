@@ -183,7 +183,7 @@ test('membersFrom: real project records, archived left out, members are session 
     projects.addAgent(live.id, b.key.rec1, b.cards);
     projects.addAgent(live.id, b.key.rec2, b.cards);
     projects.addAgent(gone.id, b.key.rec1, b.cards);
-    projects.setArchived(gone.id, true);
+    projects.edit(gone.id, { archived: true });
     const m = r.membersFrom(projects.readAll());
     assert.deepEqual(m.get(live.id), [b.key.rec1, b.key.rec2], 'the members are not the session names the cards carry');
     assert.equal(m.has(gone.id), false, 'an archived project is still acted in');

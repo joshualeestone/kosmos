@@ -345,23 +345,23 @@ test('#4649 slice 1b review round 2: a label loses bidi overrides and invisible 
 test('#4649 slice 3: the board remembers which account joined through an invite, and labels that account\'s posts with the owner\'s label', async () => {
   const remote = stubRemote({ '/v1/mac/federation/invite': inviteAnswer });
   const made = await fedmembers.invite(remote, { project: 'stamped', invited_kind: 'person', label: 'Dana Ruiz' }, here(['stamped']));
-  assert.strictEqual(fedmembers.labelForMember('stamped', 'acct-dana'), null, 'a label before anyone was pinned');
+  assert.strictEqual((fedmembers.labelsFor('stamped').get('acct-dana') || null), null, 'a label before anyone was pinned');
   assert.strictEqual(fedmembers.noteMember('stamped', made.body.invite_id, 'acct-dana'), true);
-  assert.strictEqual(fedmembers.labelForMember('stamped', 'acct-dana'), 'Dana Ruiz');
-  assert.strictEqual(fedmembers.labelForMember('stamped', 'acct-someone-else'), null);
+  assert.strictEqual((fedmembers.labelsFor('stamped').get('acct-dana') || null), 'Dana Ruiz');
+  assert.strictEqual((fedmembers.labelsFor('stamped').get('acct-someone-else') || null), null);
   assert.strictEqual(fedmembers.noteMember('stamped', 'inv-not-made-here', 'acct-x'), false, 'an invite this board never made took a member');
-  assert.strictEqual(fedmembers.labelForMember('stamped', undefined), null);
+  assert.strictEqual((fedmembers.labelsFor('stamped').get(undefined) || null), null);
 });
 
 test('#4649 slice 3 review round 2: Members backfills the account of a member pinned before the stamp shipped', async () => {
   const remote = stubRemote({ '/v1/mac/federation/invite': inviteAnswer });
   const made = await fedmembers.invite(remote, { project: 'backfill', invited_kind: 'person', label: 'Lee' }, here(['backfill']));
   const ref = federation.linkFor('backfill').ref;
-  assert.strictEqual(fedmembers.labelForMember('backfill', 'acct-lee'), null, 'precondition: nothing remembered yet');
+  assert.strictEqual((fedmembers.labelsFor('backfill').get('acct-lee') || null), null, 'precondition: nothing remembered yet');
   const look = stubRemote({ '/v1/mac/federation/edges': { ok: true, data: { as_owner: [Object.assign(edge('e-lee', ref, made.body.invite_id), { member_account_id: 'acct-lee' })], as_member: [] } } });
   const m = await fedmembers.members(look, 'backfill');
   assert.strictEqual(m.status, 200);
-  assert.strictEqual(fedmembers.labelForMember('backfill', 'acct-lee'), 'Lee', 'the account was not backfilled from the edges Members read');
+  assert.strictEqual((fedmembers.labelsFor('backfill').get('acct-lee') || null), 'Lee', 'the account was not backfilled from the edges Members read');
   assert.ok(m.body.invites.every((r) => !('member' in r)), 'the backfill leaked the account id into the answer');
 });
 
@@ -370,7 +370,7 @@ test('#4649 slice 3 review round 3: the newest invite\'s label wins for an accou
   const a = await fedmembers.invite(remote, { project: 'rejoin', invited_kind: 'person', label: 'Dana' }, here(['rejoin']));
   const b = await fedmembers.invite(remote, { project: 'rejoin', invited_kind: 'person', label: 'Dana (contractor)' }, here(['rejoin']));
   assert.strictEqual(fedmembers.noteMembers('rejoin', [[a.body.invite_id, 'acct-d'], [b.body.invite_id, 'acct-d']]), 2);
-  assert.strictEqual(fedmembers.labelForMember('rejoin', 'acct-d'), 'Dana (contractor)');
+  assert.strictEqual((fedmembers.labelsFor('rejoin').get('acct-d') || null), 'Dana (contractor)');
   assert.strictEqual(fedmembers.labelsFor('rejoin').get('acct-d'), 'Dana (contractor)');
 });
 

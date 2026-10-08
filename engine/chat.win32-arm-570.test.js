@@ -80,12 +80,12 @@ test('#570 7c-4 a message to a Windows agent goes down its channel and is PLACED
 });
 
 test('#570 7c-4 the wire is the envelope, the words and the trailer, unescaped for tmux', () => {
-  /* `wireText` exists because tmux reads a trailing `;` as a command separator.
+  /* tmux once read a trailing `;` as a command separator (the old send-keys path escaped it).
      A JSON line has no such hazard, so escaping it would change the message. */
   withFleet([windowsAgent('winstream')], (board) => {
     const say = fakeChannel({ ok: true });
     chat.setChannel(say);
-    // A TRAILING `;` is the one wireText rewrites, so this is the call that
+    // A TRAILING `;` is the one a tmux escape would rewrite, so this is the call that
     // fails if the tmux escaping ever leaks onto the channel path.
     chat.deliver('winstream', 'ship it;', board.agents);
     chat.deliver('winstream', 'ship it;', board.agents, '[from Josh]', ' C:\\Users\\joshu\\notes.txt');

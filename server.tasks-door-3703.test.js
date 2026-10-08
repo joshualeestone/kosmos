@@ -51,8 +51,8 @@ test('withArchived keeps exactly the named archived project in the Tasks view re
   tasks.close(a.id, 2);
   const b = projects.create({ name: 'Set aside B' });
   tasks.create(b.id, { sentence: 'B archived task' });
-  projects.setArchived(a.id, true);
-  projects.setArchived(b.id, true);
+  projects.edit(a.id, { archived: true });
+  projects.edit(b.id, { archived: true });
 
   // Control: without the name, neither archived project is in the read.
   const plain = await view();
