@@ -54,11 +54,11 @@ test('#5532: only sessions launched from this Kosmos\'s own agent folders count,
   // CONTROL: the computer-wide scan sees all three sessions, so what the scoped reader leaves out is real.
   const all = await usage.scanUsage({ sinceDay: TODAY, untilDay: TODAY });
   assert.deepEqual(Object.keys(all.days[TODAY]).sort(), ['claude-opus-5-5', 'claude-personal-model', 'claude-sub-model']);
-  const w = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [AGENT] }, { scanProviders: async () => ({ folderModels: {}, complete: true }) }));
+  const w = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [AGENT] }, NOPROV));
   assert.deepEqual(Object.keys(w.byDay[TODAY] || {}), ['claude-opus-5-5'], 'usage from outside this Kosmos\'s agents was counted: ' + JSON.stringify(w.byDay));
   assert.equal(w.byDay[TODAY]['claude-opus-5-5'].input_tokens, 100);
   assert.equal(w.complete, true);
-  const none = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [] }, { scanProviders: async () => ({ folderModels: {}, complete: true }) }));
+  const none = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [] }, NOPROV));
   assert.deepEqual(none.byDay, {}, 'a Kosmos with no agents counted usage');
 });
 
@@ -78,7 +78,7 @@ test('#5532: other providers are scoped the same way, and a partly read provider
 test('#5532: an agent folder reached through a link matches its real folder', { skip: NO_LINKS && 'symlinks need privileges here' }, async () => {
   const link = path.join(SANDBOX, 'link-to-leo');
   fs.symlinkSync(AGENT, link);
-  const w = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [link] }, { scanProviders: async () => ({ folderModels: {}, complete: true }) }));
+  const w = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [link] }, NOPROV));
   assert.deepEqual(Object.keys(w.byDay[TODAY] || {}), ['claude-opus-5-5'], 'a linked agent folder did not match');
 });
 
@@ -86,7 +86,7 @@ test('#5532: a session launched through a link to an agent\'s folder counts for 
   const link = path.join(SANDBOX, 'another-link-to-leo');
   fs.symlinkSync(AGENT, link);
   session('via-link', link, 'm-link', 'claude-via-link', 55);
-  const w = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [AGENT] }, { scanProviders: async () => ({ folderModels: {}, complete: true }) }));
+  const w = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [AGENT] }, NOPROV));
   assert.equal((w.byDay[TODAY] || {})['claude-via-link'] && w.byDay[TODAY]['claude-via-link'].input_tokens, 55, 'a session recorded under a link to the agent\'s folder was not counted: ' + JSON.stringify(w.byDay));
 });
 
