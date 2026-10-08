@@ -72,6 +72,7 @@ test('#5536 restore refuses: another device key, another context, another member
   const k = backup([{ path: 'a.md', data: rand(5000) }]);
   const go = (o) => br.restoreSnapshot({ memberSk: k.member.sk, namingKey: k.nk, devicePubAtSnapshot: k.dev.publicKey, ctx: k.ctx, manifestObject: k.manifestObject, fetchChunk: (n) => k.store.get(n), sink: memorySink(), ...o });
   assert.ok(await go({}), 'CONTROL');
+  assert.ok(await go({ manifestObject: new Uint8Array(k.manifestObject) }), 'a manifest handed over as a plain Uint8Array opens');
   assert.equal(await go({ devicePubAtSnapshot: k.dev2.publicKey }), null, 'a device key not enrolled at the snapshot time');
   assert.equal(await go({ ctx: { ...k.ctx, member: 'someone-else' } }), null, 'replayed into another member');
   assert.equal(await go({ memberSk: k.other.sk }), null, 'another member\'s key reads nothing');
@@ -115,7 +116,7 @@ test('#5536 a sink that fails to write aborts the file and does not commit it', 
 
 test('#5536 unsafe paths are refused before anything is fetched (control: a plain path restores)', async () => {
   const bad = ['../escape.md', '..\\escape.md', 'a/../../b', '/etc/x', '\\\\server\\share', 'C:/x', 'a/C:/x', 'file.txt:ads', 'a//b', '.', 'a/./b',
-    'nul\0.md', 'tab\there', 'lone\ud800.md', 'nel\u0085.md', 'line\u2028sep.md', 'exe\u202etxt.md', '..\u200b', '.\u200c/x', '\u200b', 'a/\u3164', 'x\ufeff./y', 'nul .txt', 'CON .md', 'LONGFI~1.MD', 'PROGRA~1/x', 'conin$', 'COM\u00b9.txt', 'lpt\u00b2', 'CON', 'nul.txt', 'a/com1.log', 'trailing.', 'trailing ', ' ..', ''];
+    'nul\0.md', 'tab\there', 'lone\ud800.md', 'nel\u0085.md', 'line\u2028sep.md', 'exe\u202etxt.md', 'ok2\u200f.md', 'x\u061c.md', '..\u200b', '.\u200c/x', '\u200b', 'a/\u3164', 'x\ufeff./y', 'nul .txt', 'CON .md', 'LONGFI~1.MD', 'PROGRA~1/x', 'conin$', 'COM\u00b9.txt', 'lpt\u00b2', 'CON', 'nul.txt', 'a/com1.log', 'trailing.', 'trailing ', ' ..', ''];
   const { run, fetched } = handMade((entry) => [...bad.map((p) => entry(p)), entry('ok.md'), entry('.hidden/fine.md'), entry('family\u{1f469}\u200d\u{1f467}.md'), entry('heart\u2764\ufe0f.md'), entry('notes~draft.md'), entry('backup~1.tar.gz')]);
   const { r, sink } = await run();
   assert.deepEqual(r.restored, ['ok.md', '.hidden/fine.md', 'family\u{1f469}\u200d\u{1f467}.md', 'heart\u2764\ufe0f.md', 'notes~draft.md', 'backup~1.tar.gz'],
@@ -229,10 +230,11 @@ test('#5536 an empty chunk is refused, and a deep manifest is checked for collis
   const r = await br.restoreSnapshot({ memberSk: k.member.sk, namingKey: k.nk, devicePubAtSnapshot: k.dev.publicKey, ctx, manifestObject: m, fetchChunk: () => empty.object, sink: memorySink() });
   assert.deepEqual(r.failed, [{ path: 'e.md', why: 'a chunk did not verify (forged, swapped or damaged)' }]);
   const deep = Array(2000).fill('a').join('/');
-  const { run } = handMade((entry) => [...Array.from({ length: 400 }, (_, i) => entry(`${deep}${i}`)), entry(`${deep}/x`), entry(deep)]);
+  const { run } = handMade((entry) => [...Array.from({ length: 2000 }, (_, i) => entry(`${deep}${i}`)), entry(`${deep}/x`), entry(deep)]);
   const t0 = process.hrtime.bigint();
   const { r: rd } = await run();
-  assert.ok(Number(process.hrtime.bigint() - t0) / 1e6 < 2000, '400 entries of 2000 segments check in well under a quadratic second');
+  // Measured 10-07: under 1 s with the trie, 22.8 s with the quadratic check it replaced. The bound sits far from both.
+  assert.ok(Number(process.hrtime.bigint() - t0) / 1e6 < 10000, '2000 entries of 2000 segments check in linear time');
   assert.deepEqual(rd.failed.map((f) => f.why).sort(), ['another entry lands on the same file or folder', 'another entry lands on the same file or folder'],
     'CONTROL: the deep folder clash is still found');
 });
