@@ -18920,7 +18920,7 @@ window.kosmosMeasureScrollbarWidth();
              block shows when this Kosmos is a company's work Kosmos, a code is being checked or reviewed, a company note
              is waiting, or the person opened it. -->
         <button type="button" class="plus-lost-link" id="plus-org-open">Joining a company? Enter its join code</button>
-        <p class="setname" id="plus-org-h">Your company</p>
+        <p class="setname" id="plus-org-title" hidden>Your company</p>
         <div id="plus-org-in" hidden>
           <p class="fhint" id="plus-org-say"></p>
           <div class="frow" id="plus-org-leave-row"><button class="btn" type="button" id="plus-org-leave">Leave company</button></div>
@@ -18932,7 +18932,7 @@ window.kosmosMeasureScrollbarWidth();
             </div>
           </div>
         </div>
-        <div id="plus-org-out">
+        <div id="plus-org-out" hidden>
           <p class="fhint">Have a join code from your company? Joining makes this Kosmos your work Kosmos. Checking a code asks your company through this Kosmos's Kosmos+ connection; nothing joins, and none of this Kosmos's data is sent, until you have read what your company would see and pressed Join.</p>
           <div class="frow">
             <input type="text" class="tk-inp" id="plus-org-code" autocomplete="off" spellcheck="false" maxlength="128" aria-label="Join code" placeholder="Join code">
@@ -47368,6 +47368,7 @@ function plusOrgMaybe() {
     if (j && j.enrolled === true && j.leaveRefused) msg.textContent = j.leaveRefusedUndo === true
       ? 'Your company could not undo joining ' + j.leaveRefused + ': you are its last admin. This Kosmos is your work Kosmos' + reports
       : 'Your leave from ' + j.leaveRefused + ' was refused: you are its last admin. This Kosmos is your work Kosmos again' + reports;
+    plusOrgPaint();   // once more, now the message is set: the block shows or folds to match it at once
   }).catch(() => { /* the next minute tries again */ });
 }
 function plusOrgList(id, items) {
@@ -47384,7 +47385,7 @@ function plusOrgPaint() {
   const msgOn = (document.getElementById('plus-org-msg').textContent || '') !== '';
   const full = !!here || !!PLUS_ORG.preview || PLUS_ORG.open === true || msgOn || !!st.stoppedFor || !!st.leaveRefused;
   document.getElementById('plus-org-open').hidden = full;
-  document.getElementById('plus-org-h').hidden = !full;
+  document.getElementById('plus-org-title').hidden = !full;
   document.getElementById('plus-org-in').hidden = !here;
   document.getElementById('plus-org-out').hidden = !full || !!here || !!PLUS_ORG.preview;
   document.getElementById('plus-org-consent').hidden = !PLUS_ORG.preview;

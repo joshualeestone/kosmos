@@ -21,3 +21,15 @@
   - O1 checks that opening it shows the heading and code field.
   - Every later check still passes.
 - Making `full` always true makes O0 fail.
+
+## Review 1 (blind, Opus)
+- FIXED: the heading and code field started VISIBLE in the markup and only the paint hid them, so a failed /api/org read
+  (or the moment before the first read) showed a personal user the full box. They start hidden now; the paint reveals
+  them. O17a (fresh page, the read fails) asserts only the opener; removing the markup's `hidden` makes it fail.
+- FIXED: O0 waited for the opener, which is visible at once; it now waits for the page's real /api/org read.
+- FIXED: an already joined Kosmos was untested on a fresh page. O17b asserts it loads straight into the heading and the
+  joined view, with no opener; removing `!!here` makes it fail.
+- FIXED: the design-shots script clicks the opener before filling the code.
+- NITs taken: the page repaints after setting a company note, so the block matches it at once; the id is
+  `plus-org-title` (not `plus-org-h`, a class already used in the consent).
+- NIT kept: once opened, the block stays open for the page's life.
