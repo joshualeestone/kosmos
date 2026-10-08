@@ -353,13 +353,16 @@ Z26=$(( 4000 + $$ % 900 ))
 git -C "$T/site" config protocol.ext.allow always
 git -C "$T/site" remote set-url origin "ext::sleep $Z26"
 t0=$SECONDS; KOSMOS_AUTODEPLOY_FETCH_MAX_S=2 tick; el=$((SECONDS - t0)); sleep 1
-left=$(ps -axo command= | command grep -c "^sleep $Z26\$")
+left=$(ps -axo command= | command grep -Ec "(^|/)sleep $Z26\$")   # ps names it /bin/sleep (measured)
 git -C "$T/site" remote set-url origin "$T/origin.git"; git -C "$T/site" config --unset protocol.ext.allow
 { [ "$RC" = 1 ] && [ "$el" -lt 10 ] && [ "$left" = 0 ] && printf '%s' "$OUT" | grep -q "could not fetch"; } \
   && pass "a hanging fetch is stopped at its limit, its helpers with it, and reported red" || bad "hanging fetch (rc=$RC, ${el}s, $left left) $OUT"
 # (No cleanup kill on a failure: this is a shared user, and a pattern kill reaches other people's
 #  processes. A leftover sleep ends by itself within 82 minutes.)
 tick   # recovered: clears the fetch record
+# Control: the count above can see a leftover (a sleep of the same length, started here, is counted).
+/bin/sleep "$Z26" & ctl26=$!; sleep 0.3; seen=$(ps -axo command= | command grep -Ec "(^|/)sleep $Z26\$"); kill "$ctl26"; wait "$ctl26" 2>/dev/null
+[ "$seen" -ge 1 ] && pass "the leftover count sees a sleep of that length (control)" || bad "the leftover count cannot see a sleep (it counted $seen)"
 
 # 27) a SECOND signal while a killed tick is stopping a deploy that ignores TERM (a runner's cancel
 #     escalates) does not cut the failure record out.
@@ -436,6 +439,22 @@ tick; sleep 1
   && pass "a deploy group whose leader exited is still found by its members, stopped and counted" \
   || { bad "leaderless group (member alive=$(kill -0 "$m32" 2>/dev/null && echo yes || echo no)) $OUT"; kill "$m32" 2>/dev/null; }
 rm -f "$ST/failures" "$ST/parked" "$ST/deploy.pid"; rm -rf "$ST/reported.d"
+
+# 33) a build above the ceiling ALREADY in this dist/ AND still in the source (so the rsync exclude both skips it and protects it from --delete) is
+#     removed before the deploy; one at the ceiling stays.
+printf 'stale\n' > "$T/site/dist/kosmos-0.7.100-arm64.tar.gz"; printf 'x  y\n' > "$T/site/dist/kosmos-0.7.100-arm64.tar.gz.sha256"
+H33=$(advance thirtythree); tick
+{ [ "$RC" = 0 ] && [ ! -e "$T/site/dist/kosmos-0.7.100-arm64.tar.gz" ] && [ ! -e "$T/site/dist/kosmos-0.7.100-arm64.tar.gz.sha256" ] && [ -f "$T/site/dist/kosmos-0.7.21-arm64.tar.gz" ] && [ "$(cat "$ST/last-deployed")" = "$H33" ]; } \
+  && pass "a too-new build already in this dist/ is removed before the deploy" || bad "too-new build left in dist (rc=$RC): $(ls "$T/site/dist" | tr '\n' ' ')"
+
+# 34) a release pointer on main with no readable version (split across lines) parks instead of
+#     mirroring with no ceiling.
+cp "$T/work/dist/latest-staging.json" "$T/ptr34.keep"
+printf '{\n  "version":\n    "0.7.99"\n}\n' > "$T/work/dist/latest-staging.json"; git -C "$T/work" commit -q -am ptr34; git -C "$T/work" push -q origin main
+tick
+{ [ "$RC" = 1 ] && [ -e "$ST/parked" ] && printf '%s' "$OUT" | grep -q 'has no "version"'; } && pass "a pointer with no readable version parks instead of mirroring unbounded" || bad "unreadable pointer version (rc=$RC) $OUT"
+cp "$T/ptr34.keep" "$T/work/dist/latest-staging.json"; git -C "$T/work" commit -q -am ptr34-back; git -C "$T/work" push -q origin main
+tick; rm -f "$ST/parked" "$ST/failures"; rm -rf "$ST/reported.d"
 
 # 13) no site configured: a usage error, never a deploy.
 nfinal=$(ndeploys); KOSMOS_AUTODEPLOY_SITE="" bash "$AD" 2>/dev/null; RC=$?
