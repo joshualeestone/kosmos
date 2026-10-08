@@ -2163,7 +2163,7 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 .apphead:has(#wv-modal:not([hidden])) { z-index: 50; }
 /* #5393: the tab layout reserves a scrollbar strip on <html> that no fixed layer paints over (classic scrollbars: the
    Windows app, CI), so the sheet's dark stopped 15px short of the right edge. While it is up the page does not
-   scroll and reserves nothing, as restart-up, the first run and the preview do. */
+   scroll and reserves nothing, as the restart screen, the first run and the preview do. */
 html:has(#wv-modal:not([hidden])) { overflow: hidden; scrollbar-gutter: auto; }
 /* #2563: the create-time "add my agents from an existing Kosmos" control. Reuses the
    modal field tokens; the list scrolls if the person has many Kosmoses. Each row is a
