@@ -172,24 +172,32 @@ function rawClean(bytes, ownPlaceholders) {
    dropped ordinary screenshots and icons from backups (review round 3 measured 11 of 151 real files). Runs are
    taken from the raw bytes and from the bytes with NULs removed (UTF-16/32 text inside a binary). */
 const PLACEHOLDER_BYTES = Buffer.from('••••', 'utf8');
-/* Media and font formats, by magic: structured image, glyph and code data makes the GENERIC kinds fire on noise
-   (long_token on base64 metadata, url_credential on glyph names; review rounds 3 and 4 measured both on this
-   Mac's own files). For these formats only, the generic kinds are ignored; every specific detector still counts.
-   Any other binary (a SQLite, LevelDB or plist store) counts them, since Azure and SendGrid keys fire only as
-   long_token. */
-const GENERIC_KINDS = new Set(['long_token', 'url_credential']);
-function mediaOrFont(b) {
+/* Media and font formats, by magic, each with the GENERIC kinds it may ignore. Structured image, glyph and code
+   data makes generic kinds fire on noise: long_token on base64 metadata (images) and on 39% of Mach-O files,
+   url_credential on glyph names (fonts; it fires on only 3 of 1,377 Mach-O files, so code keeps it). Every
+   SPECIFIC detector still counts everywhere. Any other binary (SQLite, LevelDB, plist stores) counts both,
+   since Azure and SendGrid keys fire only as long_token. Magics are checked strictly (PNG needs IHDR, a font a
+   sane table count, ISO media a known image brand), so a store cannot pass as media by a short prefix by chance.
+   Residual, stated: a long_token-only key compiled into a Mach-O, or a store crafted with real media headers,
+   passes; the threat model is accidental secrets in ordinary work, not a user hiding them from their employer. */
+const ISO_IMAGE_BRANDS = new Set(['heic', 'heix', 'hevc', 'hevx', 'mif1', 'msf1', 'avif', 'avis']);
+function mediaKind(b) {
   const at = (i, hex) => b.length >= i + hex.length / 2 && b.subarray(i, i + hex.length / 2).equals(Buffer.from(hex, 'hex'));
   const ascii = (i, s) => b.length >= i + s.length && b.subarray(i, i + s.length).toString('latin1') === s;
-  return at(0, '89504e470d0a1a0a') || at(0, 'ffd8ff') || ascii(0, 'GIF8') || (ascii(0, 'RIFF') && ascii(8, 'WEBP'))
-    || at(0, '49492a00') || at(0, '4d4d002a') || ascii(4, 'ftyp') || ascii(0, 'icns') || ascii(0, '%PDF-')
-    || at(0, 'feedfacf') || at(0, 'cffaedfe') || at(0, 'feedface') || at(0, 'cefaedfe') || at(0, 'cafebabe')
-    || at(0, '00010000') || ascii(0, 'OTTO') || ascii(0, 'true') || ascii(0, 'ttcf') || ascii(0, 'wOFF') || ascii(0, 'wOF2');
+  const tables = () => b.length >= 6 && b.readUInt16BE(4) >= 4 && b.readUInt16BE(4) <= 64;
+  if (at(0, '89504e470d0a1a0a') && ascii(12, 'IHDR')) return 'image';
+  if (at(0, 'ffd8ff') || ascii(0, 'GIF87a') || ascii(0, 'GIF89a') || (ascii(0, 'RIFF') && ascii(8, 'WEBP'))) return 'image';
+  if (at(0, '49492a00') || at(0, '4d4d002a') || ascii(0, 'icns')) return 'image';
+  if (ascii(4, 'ftyp') && ISO_IMAGE_BRANDS.has(b.subarray(8, 12).toString('latin1'))) return 'image';
+  if (at(0, 'feedfacf') || at(0, 'cffaedfe') || at(0, 'feedface') || at(0, 'cefaedfe') || at(0, 'cafebabe')) return 'code';
+  if (((at(0, '00010000') || ascii(0, 'OTTO') || ascii(0, 'true')) && tables()) || ascii(0, 'ttcf') || ascii(0, 'wOFF') || ascii(0, 'wOF2')) return 'font';
+  return null;
 }
+const IGNORED_KINDS = { image: new Set(['long_token']), code: new Set(['long_token']), font: new Set(['long_token', 'url_credential']) };
 function binaryClean(bytes) {
   // Content holding the masking placeholder could hide a password behind it (secretmask trusts it): fail closed.
   if (bytes.includes(PLACEHOLDER_BYTES)) return false;
-  const media = mediaOrFont(bytes);
+  const media = mediaKind(bytes);
   const runsOf = (s) => (s.match(/[\x20-\x7e\t]{8,}/g) || []).join('\n');
   const latin = bytes.toString('latin1');
   const noNul = latin.replace(/\0/g, '');
@@ -199,11 +207,11 @@ function binaryClean(bytes) {
   if (!media) views.push(latin.replace(/[^\x20-\x7e\t\n]/g, ''));
   for (const s of views) {
     const m = mask(s);
-    const counted = m.fired.filter((f) => !(media && GENERIC_KINDS.has(f.kind)));
+    const counted = m.fired.filter((f) => !(media && IGNORED_KINDS[media].has(f.kind)));
     // withheld: defence in depth (a withheld search also fires split_search_limit, which is counted)
     if (counted.length || withheld(m.text) || KEY_OPEN.test(s)) return false;
   }
-  return !KEY_OPEN.test(latin) && !KEY_OPEN.test(noNul);
+  return !KEY_OPEN.test(latin) && !KEY_OPEN.test(noNul);  // defence in depth: secretmask's private_key also fires on a bare opening
 }
 
 const PLACEHOLDER_RUN = '\u2022\u2022\u2022\u2022';

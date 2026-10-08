@@ -336,3 +336,46 @@ test('#5535 Latin-1 redaction writes an ASCII marker, never a quote', () => {
   const out = r.data.toString('latin1');
   assert.ok(!out.includes(KEY) && out.includes('****') && !out.includes('""""'), `marker written as asterisks: ${JSON.stringify(out)}`);
 });
+
+const pngHead = () => Buffer.concat([Buffer.from('89504e470d0a1a0a0000000d', 'hex'), Buffer.from('IHDR'), Buffer.alloc(13, 1)]);
+const machoHead = () => Buffer.concat([Buffer.from('cffaedfe0c000001', 'hex'), Buffer.alloc(24, 2)]);
+
+test('#5535 media exemptions are per format: code keeps url_credential; a weak or spoofed prefix is not media', () => {
+  const pg = 'postgres://admin:S3cretPassw0rd@db.internal:5432/app';
+  const sm = require('./secretmask');
+  assert.ok(sm.mask(pg).fired.length, 'PRECONDITION: a URL credential fires');
+  assert.equal(bs.scanFile('agents/a/tool', Buffer.concat([machoHead(), Buffer.from(pg), Buffer.alloc(8)])).action, 'skip', 'a database URL compiled into a Mach-O');
+  const azure = 'DefaultEndpointsProtocol=https;AccountName=acct;AccountKey=' + 'Zm9vYmFyYmF6cXV4'.repeat(5) + 'AbCdEf==';
+  const fakePng = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.from('SQLite format 3\0'), Buffer.from(azure), Buffer.alloc(8)]);
+  assert.equal(bs.scanFile('agents/a/x.db', fakePng).action, 'skip', 'PNG magic without IHDR is not media: the long_token key counts');
+  const fakeFont = Buffer.concat([Buffer.from('00010000ffff', 'hex'), Buffer.from(azure), Buffer.alloc(8)]);
+  assert.equal(bs.scanFile('agents/a/y.db', fakeFont).action, 'skip', 'a font magic with an absurd table count is not a font');
+});
+
+test('#5535 media-only guards: the placeholder rule and the NUL-removed view apply to real media too', () => {
+  const pw = Buffer.concat([pngHead(), Buffer.from('tEXtpassword=••••Hunter2Real!pass9', 'utf8'), Buffer.alloc(8)]);
+  assert.equal(bs.scanFile('agents/a/shot.png', pw).action, 'skip', 'a PNG hiding a password behind the placeholder');
+  const u16 = Buffer.concat([pngHead(), Buffer.from(`note ${KEY} x`, 'utf16le'), Buffer.alloc(8)]);
+  assert.equal(bs.scanFile('agents/a/shot2.png', u16).action, 'skip', 'a PNG carrying a UTF-16 key');
+  assert.equal(bs.scanFile('agents/a/shot3.png', Buffer.concat([pngHead(), Buffer.alloc(64, 3)])).action, 'store', 'CONTROL: a clean PNG is kept');
+});
+
+test('#5535 compressed magic, the remaining formats, each with a deflated key behind it; BZh9 without block magic is kept', () => {
+  const zlib = require('zlib');
+  const key = zlib.deflateRawSync(Buffer.from(`API=${KEY}`));
+  for (const [what, hex] of [['lzma', '5d00000100'], ['zip 0708', '504b0708']]) {
+    assert.equal(bs.scanFile('agents/a/blob', Buffer.concat([Buffer.from(hex, 'hex'), Buffer.alloc(4), key])).action, 'skip', what);
+  }
+  const eocd = Buffer.concat([Buffer.from([0, 1, 2, 3]), Buffer.from('stub'), key, Buffer.from('504b0506', 'hex'), Buffer.alloc(18)]);
+  assert.equal(bs.scanFile('agents/a/setup.bin', eocd).action, 'skip', 'a zip end record after a stub');
+  assert.equal(bs.scanFile('agents/a/notes.md', Buffer.from('BZh9hello there\n')).action, 'store', 'CONTROL: BZh9 followed by text, not the block magic, is kept');
+});
+
+test('#5535 anything unexpected while scanning skips the file (fail closed)', () => {
+  class Hostile extends Buffer {}
+  const h = Buffer.from('ordinary text\n');
+  Object.setPrototypeOf(h, Hostile.prototype);
+  h.toString = () => { throw new Error('boom'); };
+  const r = bs.scanFile('agents/a/n.md', h);
+  assert.deepEqual(r, { action: 'skip', why: 'could not be checked' });
+});
