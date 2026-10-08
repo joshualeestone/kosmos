@@ -298,7 +298,7 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
       }
       const worldsDir = path.join(base, worlds.WORLDS_SUBDIR);
       // every named world's store: a `*` in the middle of a path, measured refused on Claude Code 2.1.285 only (#4752).
-      // On Windows ruleAbs writes the POSIX form Claude Code matches (`//c/...`), so the `/*/` joins one form.
+      // On Windows ruleAbs writes the POSIX form Claude Code's docs say it matches (`//c/...`), so the `/*/` joins one form.
       for (const leaf of [store.APP, store.LEGACY_APP]) more.push(`Read(${ruleAbs(worldsDir)}/*/${leaf}/**)`);
     }
     rules.push(...more);
@@ -318,7 +318,8 @@ function realOr(p) { try { return fs.realpathSync.native(p); } catch { return pa
 /* A path as a Claude Code rule spells an absolute one: two slashes, then the path without its leading slashes.
    On Windows Claude Code matches a rule against the path in POSIX form (its permissions docs: C:\Users\alice
    becomes /c/Users/alice), so a drive path is written that way: C:\Users\x becomes //c/Users/x. The native
-   spelling (//C:\Users\x) is not a form it matches. */
+   spelling (//C:\Users\x) is not a form its docs say it matches (not measured on Windows here). Only the \\?\C:\
+   extended-length form is handled: \\?\UNC\... and the device form \\.\C:\... are not (neither is a likely store). */
 function ruleAbs(p, platform = process.platform) {
   let s = String(p);
   if (platform === 'win32') {

@@ -111,3 +111,27 @@ test('#4752: on Windows a refused rule (it would take in the guide\'s own folder
   // CONTROL: off Windows only the exact refused string is left out
   assert.deepEqual(sa.finalDeny([oldR], [], refused, 'darwin'), [oldR]);
 });
+
+test('#4752 on a Windows host: guardGuideFolder leaves out a rule taking in the guide\'s folder in BOTH spellings, end to end', { skip: process.platform !== 'win32' && 'measures the real Windows path through guardGuideFolder; runs on the Windows job' }, (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'winrules-e2e-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const workers = path.join(root, 'home', 'workers');
+  const guide = path.join(workers, 'guide');
+  fs.mkdirSync(path.join(guide, '.claude'), { recursive: true });
+  const oldNative = `Read(//${workers.replace(/^[\\/]+/, '')}/**)`;          // how a rule for it was spelt before this change
+  const personal = `Read(//${path.join(root, 'elsewhere').replace(/^[\\/]+/, '')})`;   // a person's own native-form rule
+  fs.writeFileSync(path.join(guide, '.claude', 'settings.json'), JSON.stringify({ permissions: { deny: [oldNative, personal] } }));
+  const dataOwn = path.join(root, 'data-own');
+  const write = process.stderr.write;
+  process.stderr.write = (s, ...rest) => (String(s).startsWith('#4752') ? true : write.call(process.stderr, s, ...rest));
+  let deny;
+  try {
+    assert.equal(sa.guardGuideFolder(guide, 'guide', { dataRoot: dataOwn, worldsBase: null, legacyRoots: [workers] }).ok, true);
+    deny = JSON.parse(fs.readFileSync(path.join(guide, '.claude', 'settings.json'), 'utf8')).permissions.deny;
+  } finally { process.stderr.write = write; }
+  const newForm = `Read(${sa.ruleAbs(workers, 'win32')}/**)`;
+  assert.equal(deny.includes(newForm), false, 'the new-form rule taking in the guide\'s folder was written');
+  assert.equal(deny.includes(oldNative), false, 'the old spelling of that rule survived and still cuts the guide off');
+  assert.ok(deny.includes(personal), 'CONTROL: a person\'s own rule elsewhere was dropped');
+  assert.ok(deny.includes(`Read(${sa.ruleAbs(dataOwn, 'win32')}/**)`), 'CONTROL: the data folder rule is missing, or not in the //c/ form');
+});
