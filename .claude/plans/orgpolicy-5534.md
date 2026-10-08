@@ -42,3 +42,10 @@ re-verifies the bundle each time it is asked (inForce), so a bundle written sinc
 - CONVENTION fixed: create by key when listed by full id (test); stateDir comment says it is a copy and why; header no longer says LAUNCHED.
 - NITs left: applied_at uses the clock not the injected now; a failed rename leaves a .tmp; the "never throws" fallbacks.
 - Focused: orgpolicy 7/7, discover.adopt 29/29, worldstarts 48/48, create 224/224 (23:56 CDT 2026-10-07).
+### Review 2 (sonnet): 3 WARNINGs, 1 CONVENTION
+- WARNING fixed: modelsFor answers Claude's list for providers without their own, so Gemini's "default" was sonnet; only a provider's own list gives a default now. And the provider switch was asked about the default before the model picked with it was set (server.js sets it right after), so every switch onto a listed provider was refused: setProvider takes opts.model and the route passes it. Tests red under each mutation.
+- WARNING fixed: Repair restores agents that lost their job and is not gated, so it would start an import the policy held. The import marks the profile policyHeld; Repair asks the policy for such agents only; the mark clears once allowed. Test (with an agent that ran before restored as the control), red without the check.
+- WARNING decided, not changed: setModel refuses an empty choice (the vendor's own default) under a model list, also when it is the current choice. No list can name a vendor default, so allowing it would be the loophole review 1 closed. An agent on a disallowed model can still move to a listed one.
+- CONVENTION fixed: the connect test makes its folder first, so it passes run alone.
+- NITs left: the applied record is trusted as written (stated in the header); exp == now accepted (matches the format doc).
+- Focused: register 23/23, create 225/225, worldstarts 48/48, discover.adopt 29/29, orgpolicy 7/7 (00:04 CDT 2026-10-08).
