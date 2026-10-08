@@ -207,13 +207,13 @@ test('no em dash in a settings file this test writes', () => {
   assert.ok(!raw.includes('\u2014'), 'an em dash reached a written settings file');
 });
 
-test('sendertoken.tokenOnlyList is the parse site membership and the refresh use, and tokenOnlyFor reads it', () => {
+test('sendertoken.tokenOnlyList is the reader membership and the refresh use (undo has its own, stricter one), and tokenOnlyFor reads it', () => {
   fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['a', 'b', 42, ''] }) + '\n');
   assert.deepEqual(sendertoken.tokenOnlyList(), ['a', 'b'], 'non-string/empty entries were not filtered');
   assert.equal(sendertoken.tokenOnlyFor('a'), true);
   assert.equal(sendertoken.tokenOnlyFor('z'), false);
   try { fs.rmSync(sendertoken.tokenOnlyFile()); } catch { /* gone */ }
-  assert.deepEqual(sendertoken.tokenOnlyList(), [], 'an absent list is not empty');
+  assert.deepEqual(sendertoken.tokenOnlyList(), [], 'an absent list reads as empty');
 });
 
 test('an EXISTING ~/.claude-<x> account home gets concrete denies in both layers (not only the glob)', () => {
@@ -403,4 +403,19 @@ test('#4491 review 11: keys that undo the guard are removed from settings.local.
   assert.equal(j.sandbox.filesystem.allowRead, undefined);
   assert.deepEqual(j.sandbox.filesystem.denyRead, ['/kept'], 'CONTROL: an ordinary local key was removed too');
   assert.equal(j.model, 'x', 'CONTROL: a non-sandbox key was removed');
+});
+
+test('#4491 review 14: a rule whose path has a pattern character is dropped and said, never written to misparse', () => {
+  const odd = fs.mkdtempSync(path.join(SANDBOX, 'home(x)-'));
+  const errs = [];
+  const real = process.stderr.write;
+  process.stderr.write = (t) => { errs.push(String(t)); return true; };
+  const dir = agentDir('pilot-odd');
+  let g;
+  try { g = setup.guardTokenOnlyFolder(dir, 'pilot-odd', { ...DEPS, home: odd }); } finally { process.stderr.write = real; }
+  assert.equal(g.ok, true, JSON.stringify(g));
+  const deny = readSettings(dir).permissions.deny;
+  assert.ok(!deny.some((r) => r.includes('(x)')), 'a rule with a pattern character was written: ' + JSON.stringify(deny.filter((r) => r.includes('(x)'))));
+  assert.ok(errs.join('').includes('no rule'), 'the dropped rule was not said');
+  assert.ok(deny.some((r) => r.startsWith('Read(') && r.includes('board.token')), 'CONTROL: the plain token rules are still there');
 });
