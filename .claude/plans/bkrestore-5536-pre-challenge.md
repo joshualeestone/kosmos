@@ -14,8 +14,8 @@ converged: true
 
 **Iterations:** 22
 **Converged:** Yes (iteration 22 returned no BLOCKER, WARNING or CONVENTION)
-**Total findings:** 48 actionable (0 BLOCKERs, 47 WARNINGs, 1 CONVENTION) plus NITs
-**Fixed:** 45 | **Deferred:** 3 | **Asked (awaiting user):** 0
+**Total findings:** 50 actionable (0 BLOCKERs, 49 WARNINGs, 1 CONVENTION) plus NITs
+**Fixed:** 47 | **Deferred:** 3 | **Asked (awaiting user):** 0
 **Validation:** full suite on Mortals for this exact hash (mortals-validate, entry status clean, 16752 tests, 0 fail, shell shards all passed, 2026-10-08 06:28Z); measured against base 66ea6162f, so the merge against today's main is measured by PR CI.
 **Reviewer models:** opus on odd iterations, sonnet on even (11 each).
 **Self-generated:** the 6c-bis blame lookup was NOT run per finding, so no counted figure is claimed. By reading, these findings sat in this loop's own earlier fixes: 4.2 (reversed 2.1's invisible-character refusal), 5.1, 9.2, 11.1 (10's work budget), 13.3, 15.3, 17.1, 21.1 (19's tag refusal not carried into reports), 21.2.
