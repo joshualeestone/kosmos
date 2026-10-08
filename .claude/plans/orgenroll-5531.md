@@ -9,6 +9,10 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
 - `/v1/mac/org/enroll {code?, world, accepted: true}`: uses the code and makes the membership and the enrollment in one
   step. An existing member moves the enrollment with no code. With a code but already in that company: 409
   `org_already_member`, code not spent.
+- Review 2 there: status and enroll carry `enrolled.thisComputer`; a world reports only when `enrolled.world` is its id AND
+  `thisComputer` is true (a world's id copied to a second Mac with its data must not report there). The preview refuses
+  an existing member of that company (409 `org_already_member`); how such a member sees the consent before moving the
+  enrollment to a new world is OPEN with #5530's owner (proposed: consent in that 409 body).
 - `/v1/mac/org/leave {}`, and `/v1/mac/org/status {}` -> `{member:false}` or `{member:true, org, role, enrolled:{computer,world}|null}`.
 - Public error codes: org_code_unknown, org_code_used, org_code_expired, org_other_org, org_wrong_domain,
   org_not_accepted, org_bad_world, org_not_member, org_last_admin, org_already_member.

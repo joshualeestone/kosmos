@@ -119,6 +119,7 @@ const SAY = Object.freeze({
   org_not_member: 'You are not in a company.',
   org_last_admin: 'You are the last admin of your company, so you cannot leave until someone else is made an admin.',
   org_bad_world: 'This Kosmos could not be named to your company. Try again.',
+  org_already_member: 'You are already in this company.',
 });
 function codeOf(because) { const m = /\borg_[a-z_]+\b/.exec(String(because || '')); return m ? m[0] : null; }
 function sayFor(because, fallback) { const c = codeOf(because); return (c && SAY[c]) || because || fallback; }
@@ -165,8 +166,10 @@ async function enroll(code, accepted, opts) {
   if (!r.ok) return { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'joining did not go through') };
   const org = cleanOrg(r.data && r.data.org);
   const role = cleanRole(r.data && r.data.role);
-  const named = r.data && r.data.enrolled && r.data.enrolled.world;
-  if (!org || !role || named !== world) return { ok: false, because: 'the company did not confirm this Kosmos, so it is not enrolled' };
+  const en = r.data && r.data.enrolled;
+  /* #5530 review 2: thisComputer says the CALLING Mac is the enrolled one. A world's id can be copied to a second Mac
+     with its data (a restored backup, Migration Assistant); only the Mac the company names reports. */
+  if (!org || !role || !en || en.world !== world || en.thisComputer !== true) return { ok: false, because: 'the company did not confirm this Kosmos, so it is not enrolled' };
   const rec = { org, role, world, enrolledAt: new Date().toISOString() };
   try { writeEnrollment(rec, opts); } catch { return { ok: false, because: 'joined, but this Kosmos could not record it; check again' }; }
   return { ok: true, ...rec };
@@ -187,7 +190,7 @@ async function refresh(opts) {
   if (!r.ok || !r.data || typeof r.data !== 'object') return { ok: false, because: (r && r.because) || 'not checked', enrolled: !!before };
   const d = r.data;
   const world = worldId(opts);
-  const here = d.member === true && d.enrolled && world && d.enrolled.world === world;
+  const here = d.member === true && d.enrolled && world && d.enrolled.world === world && d.enrolled.thisComputer === true;
   if (!here) {
     if (before) clearEnrollment(opts);
     return { ok: true, enrolled: false, member: d.member === true, stopped: !!before, org: d.member === true ? cleanOrg(d.org) : null };

@@ -29,11 +29,11 @@ function fakeRemote(state) {
       if (route === org.ROUTES.redeem) return { ok: true, data: { org: ORG, role: 'member', consent: CONSENT } };
       if (route === org.ROUTES.enroll) {
         state.member = true; state.world = body.world;
-        return { ok: true, data: { ok: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: body.world } } };
+        return { ok: true, data: { ok: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } };
       }
       if (route === org.ROUTES.leave) { state.member = false; state.world = null; return { ok: true, data: { ok: true } }; }
       if (route === org.ROUTES.status) {
-        return { ok: true, data: state.member ? { member: true, org: ORG, role: 'member', enrolled: state.world ? { computer: 'c1', world: state.world } : null } : { member: false } };
+        return { ok: true, data: state.member ? { member: true, org: ORG, role: 'member', enrolled: state.world ? { computer: 'c1', world: state.world, thisComputer: state.thisComputer !== false } : null } : { member: false } };
       }
       return { ok: false, because: 'unknown route ' + route };
     },
@@ -106,7 +106,7 @@ test('#5531: preview binds nothing locally, refuses a malformed code without a r
 
 test('#5531: enroll records nothing unless the company confirms THIS world', async (t) => {
   const { a } = sandbox(t);
-  const lying = { macRequest: async () => ({ ok: true, data: { ok: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: 'f'.repeat(32) } } }) };
+  const lying = { macRequest: async () => ({ ok: true, data: { ok: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: 'f'.repeat(32), thisComputer: true } } }) };
   const r = await org.enroll('ACME-JOIN-1234', true, { root: a, remote: lying });
   assert.equal(r.ok, false);
   assert.equal(org.isEnrolledHere({ root: a }), false, 'enrolled although the company named another world');
@@ -172,7 +172,7 @@ test('#5531: already in that company, a code is refused (org_already_member) and
   const remote = { macRequest: async (m, route, body) => {
     sent.push(JSON.parse(JSON.stringify(body)));
     if (body.code) return { ok: false, because: '409 {"because":"org_already_member"}' };
-    return { ok: true, data: { ok: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: body.world } } };
+    return { ok: true, data: { ok: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } };
   } };
   const r = await org.enroll('ACME-JOIN-1234', true, { root: a, remote });
   assert.equal(r.ok, true, JSON.stringify(r));
@@ -185,4 +185,20 @@ test('#5531: already in that company, a code is refused (org_already_member) and
   const other = { macRequest: async () => { n += 1; return { ok: false, because: '400 org_code_used' }; } };
   await org.enroll('ACME-JOIN-1234', true, { root: b, remote: other });
   assert.equal(n, 1, 'a used code was retried');
+});
+
+test('#5531 (#5530 review 2): a world whose id was copied to another Mac does not report there: thisComputer must be true', async (t) => {
+  const { a } = sandbox(t);
+  const state = {};
+  const remote = fakeRemote(state);
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote });
+  assert.equal(org.isEnrolledHere({ root: a }), true);
+  state.thisComputer = false;   // same world id, but the company says another Mac is the enrolled one
+  const r = await org.refresh({ root: a, remote });
+  assert.equal(r.enrolled, false); assert.equal(r.stopped, true);
+  assert.equal(org.isEnrolledHere({ root: a }), false, 'a copied world kept reporting from the second Mac');
+  const { b } = sandbox(t);
+  const notThis = { macRequest: async (m, route, body) => ({ ok: true, data: { ok: true, org: ORG, role: 'member', enrolled: { computer: 'c2', world: body.world, thisComputer: false } } }) };
+  const e = await org.enroll('ACME-JOIN-1234', true, { root: b, remote: notThis });
+  assert.equal(e.ok, false); assert.equal(org.isEnrolledHere({ root: b }), false, 'enrolled although the company named another Mac');
 });
