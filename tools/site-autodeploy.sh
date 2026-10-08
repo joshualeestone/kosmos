@@ -174,13 +174,17 @@ now > "$STATE/heartbeat"
 psq() { LC_ALL=C TZ=UTC ps "$@" 2>/dev/null; }
 if read -r opg osha ostart 2>/dev/null < "$STATE/deploy.pid" && [ -n "$opg" ]; then
   lead=$(psq -o lstart= -p "$opg" | tr -s ' ' _); ours=""
+  # The whole list is read, then matched with no pipe left open: a grep -q at the end of a pipeline exits
+  # on its match and, under pipefail, a writer still writing makes the pipeline 141 (a miss), the trap
+  # publisher_running also avoids.
+  pgids=" $(psq -axo pgid= | tr -s ' \n' '  ') "
   if [ -n "$lead" ]; then
     [ -n "$ostart" ] && [ "$lead" = "$ostart" ] && ours=1
-  elif psq -axo pgid= | tr -d ' ' | grep -qx "$opg"; then
-    ours=1
+  else
+    case "$pgids" in *" $opg "*) ours=1 ;; esac
   fi
   if [ -n "$ours" ]; then
-    if [ $(( $(date +%s) - $(stat -f %m "$STATE/deploy.pid") )) -lt 1200 ]; then
+    if [ $(( $(date +%s) - $(stat -f %m "$STATE/deploy.pid" 2>/dev/null || date +%s) )) -lt 1200 ]; then
       say "skip: the deploy of ${osha:0:9} from an earlier tick (process group $opg) is still running; this tick waits"
       exit 0
     fi
@@ -399,9 +403,11 @@ stop_deploy() {   # TERM the deploy group, give it up to 5 s, then KILL whatever
   for _i in 1 2 3 4 5 6 7 8 9 10; do kill -0 -- "-$dpid" 2>/dev/null || break; sleep 0.5; done
   kill -KILL -- "-$dpid" 2>/dev/null
 }
-# On the way out of a killed tick: stop the deploy, keep its output (run + log), and RECORD A FAILURE
-# (rc 143): the deploy may have published before the kill, so the next tick's "already live" shortcut
-# must not bless the sha (the same reason a timeout is a failure). Then free the lock.
+# On the way out of the tick, from the deploy's launch to the end: if the deploy's result was not yet
+# recorded (accounted), RECORD A FAILURE (rc 143) and stop the deploy if it still runs: it may have
+# published, so the next tick's "already live" shortcut must not bless the sha (the same reason a timeout
+# is a failure). This covers a kill while it runs, AND one after it ended but before its result was
+# written. Then keep its output (run + log) if not yet printed, and free the lock.
 # Further signals are ignored first (a runner's cancel sends INT, then TERM seconds later), and the
 # failure is recorded BEFORE the slow stop, so a second signal cannot cut the record out.
 # The check is on the whole group (kill -0 -pgid): a child still running after its leader exited counts.
@@ -409,15 +415,16 @@ stop_deploy() {   # TERM the deploy group, give it up to 5 s, then KILL whatever
 # its own failure (the count then reads 2 or more).
 killed_tick() {
   trap '' TERM INT HUP
-  if [ -n "$dpid" ] && kill -0 -- "-$dpid" 2>/dev/null; then
+  if [ -n "$dpid" ] && [ -z "$accounted" ]; then
     printf '%s rc=%s %s\n' "$TARGET" 143 "$(now)" > "$STATE/last-failure"
     echo "$TARGET $(( $(count_for "$STATE/failures") + 1 ))" > "$STATE/failures"
-    stop_deploy
+    if kill -0 -- "-$dpid" 2>/dev/null; then stop_deploy; fi
   fi
-  rm -f "$STATE/deploy.pid"   # accounted for (above, or it had already ended)
-  tee -a "$LOG" 2>/dev/null < "$DOUT"
+  rm -f "$STATE/deploy.pid"   # accounted for now, either way
+  [ -n "$printed" ] || tee -a "$LOG" 2>/dev/null < "$DOUT"
   [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"
 }
+accounted=""; printed=""   # set once the deploy's result is recorded / its output printed
 trap killed_tick EXIT
 # Until dpid is set and deploy.pid written, a signal is only NOTED, so the launch cannot be cut between
 # the fork and dpid (which would leave a deploy no tick can find). Trapped, not ignored: an ignored signal
@@ -444,14 +451,13 @@ else
   # The leader is done; a child it left running in the group (a backgrounded helper) is not let outlive it.
   if kill -0 -- "-$dpid" 2>/dev/null; then say "the deploy left processes running in its group; stopping them"; stop_deploy; fi
 fi
-rm -f "$STATE/deploy.pid"
-trap '[ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"' EXIT   # the deploy is over: back to the plain trap
+# killed_tick stays the EXIT trap until the result below is recorded (accounted=1 in each branch).
 # Printed whole once it has ended (not streamed: a live tail could be orphaned by a killed tick, and
 # could cut off the last lines). The run and the log get the same complete output.
-tee -a "$LOG" < "$DOUT"
+tee -a "$LOG" < "$DOUT"; printed=1
 [ -n "$timedout" ] && say "the deploy ran past its ${DEPLOY_MAX_S}s limit and was stopped (exit 124, a failure)"
 if [ "$rc" = 0 ]; then
-  echo "$TARGET" > "$STATE/last-deployed"; rm -f "$STATE/failures" "$STATE/retries" "$STATE/parked"; rm -rf "$REPORTED"
+  echo "$TARGET" > "$STATE/last-deployed"; accounted=1; rm -f "$STATE/failures" "$STATE/retries" "$STATE/parked"; rm -rf "$REPORTED"
   echo "$src_n" > "$STATE/mirror-count"
   say "deployed site main ${TARGET:0:9}"
   exit 0
@@ -461,13 +467,13 @@ fi
 # From the RETRY_ALARM-th in a row for the same sha the state is reported red once (red_once), so a
 # host that stays unreachable never reads green with no report; it keeps retrying.
 if [ "$rc" = 75 ]; then
-  n=$(( $(count_for "$STATE/retries") + 1 )); echo "$TARGET $n" > "$STATE/retries"
+  n=$(( $(count_for "$STATE/retries") + 1 )); echo "$TARGET $n" > "$STATE/retries"; accounted=1
   [ "$n" -ge "$RETRY_ALARM" ] && red_once moving "FAIL: ${TARGET:0:9} has hit a moving or unreadable live site $n ticks in a row; still retrying"
   say "retry: the live site moved or could not be read during the deploy of ${TARGET:0:9} ($n in a row); the next tick tries again"
   exit 0
 fi
 printf '%s rc=%s %s\n' "$TARGET" "$rc" "$(now)" > "$STATE/last-failure"
-n=$(( $(count_for "$STATE/failures") + 1 )); echo "$TARGET $n" > "$STATE/failures"
+n=$(( $(count_for "$STATE/failures") + 1 )); echo "$TARGET $n" > "$STATE/failures"; accounted=1
 if [ "$n" -ge 2 ]; then
   park
   say "FAIL: deploy of site main ${TARGET:0:9} exited $rc, the second time in a row (parked until main moves; output above)"

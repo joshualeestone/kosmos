@@ -68,3 +68,10 @@ A future-dated record counts as never reported.
 - **Every new test was red-checked** against a copy with its fix removed.
 - Not tested: the launch window itself (microseconds wide; not reproducible on demand), and a mirror
   arm under root (the runner is not root).
+- **The deploy's result is never lost to a kill** (round 13): killed_tick stays the EXIT trap from the
+  launch until the result is written (an `accounted` flag set in each branch), and records rc 143 for
+  anything not yet accounted, whether the deploy still runs or has just ended. The output is printed once.
+- **The leaderless-group check reads the whole pgid list, then matches** (no `| grep -q` at the end of a
+  pipeline, which under pipefail reads 141 as a miss once ps prints past a pipe buffer; measured by the
+  reviewer: 20 of 20). Not tested: neither the pipe-buffer size nor the kill-between-end-and-record
+  window can be produced on demand without a seam in production code; both fixes are by construction.
