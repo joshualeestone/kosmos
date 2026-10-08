@@ -8,7 +8,7 @@
  *
  * Home logic only. Slice 1 deliberately names no file inside a provider folder: the plugin-file shapes
  * (plugins/installed_plugins.json records, a populated settings.json enabledPlugins, Codex's
- * enabled-plugin record) were not pinned by slice 1 (kosmos#5309, PR #5371) and are not verifiable on
+ * enabled-plugin record) were not pinned by kosmos#5309 part 1 and are not verifiable on
  * a box with no plugins installed. So this reports the reach CONDITION and its reason, never a list of
  * specific plugins. Naming the specific plugins is a follow-up once those shapes are measured.
  *
@@ -52,7 +52,9 @@ const UNKNOWN = 'unknown';                            // the agent's runner/home
  *                    Prefer the pane's live CLAUDE_CONFIG_DIR where available (slice 2): it catches the
  *                    EFFECTIVE_CCD leak-pin that a default-account plist does not record. The plist
  *                    configDir is the fallback.
- *   personClaudeHome the person's own Claude home (absolute, = accounts.homeDir()/.claude)
+ *   personClaudeHome the person's own Claude home. The caller MUST pass the .claude dir itself
+ *                    (accounts.homeDir()/.claude), absolute, not the home root: reachFrom compares it to
+ *                    agentClaudeDir directly and does not append .claude or otherwise re-derive it.
  */
 function reachFrom(input) {
   const { runner, agentClaudeDir, personClaudeHome } = (input && typeof input === 'object') ? input : {};
@@ -100,27 +102,32 @@ function reachFrom(input) {
  * instead of the plist value, to catch the EFFECTIVE_CCD leak-pin on a default-account agent (see the
  * module header).
  */
-function reachForAgent(agentName, deps = {}) {
-  const create = deps.create || require('./create');
-  const accounts = deps.accounts || require('./accounts');
+function reachForAgent(agentName, deps) {
+  deps = (deps && typeof deps === 'object') ? deps : {};
   let personClaudeHome = '';
+  let job = null;
+  // Everything that can throw -- the module requires, accounts.homeDir(), create.readJob() -- is inside
+  // ONE try, so any of them throwing yields UNKNOWN (the documented posture), not an escape.
   try {
+    const create = deps.create || require('./create');
+    const accounts = deps.accounts || require('./accounts');
     const rawHome = accounts.homeDir();
     // Guard the RAW home BEFORE path.join collapses a '..': reachFrom's '..' guard cannot see a '..' that
     // join has already normalised away (homeDir '/q/link/..' + '.claude' joins to '/q/.claude'). Join only
-    // a clean absolute no-'..' home; otherwise pass the raw value so reachFrom's own guard returns UNKNOWN
-    // rather than a false reaches:true.
+    // a clean absolute no-'..' home; otherwise pass the raw value so reachFrom's own guard returns UNKNOWN.
     personClaudeHome = (typeof rawHome === 'string' && path.isAbsolute(rawHome) && !rawHome.split(/[\\/]/).includes('..'))
       ? path.join(rawHome, '.claude')
       : rawHome;
-  } catch { personClaudeHome = ''; }
-  let job = null;
-  try { job = create.readJob(agentName); } catch { job = null; }
-  if (!job) return { reaches: null, reason: UNKNOWN };
-  const runner = job.runner || 'claude';
+    job = create.readJob(agentName);
+  } catch { return { reaches: null, reason: UNKNOWN }; }
+  // A null/undefined or non-object job (garbage) is UNKNOWN, never a default-launch reaches:true.
+  if (!job || typeof job !== 'object') return { reaches: null, reason: UNKNOWN };
+  // Default the runner only on null/undefined (readJob's own default); a FALSY-but-present runner ('',0)
+  // must stay falsy so reachFrom reads it as UNKNOWN, not silently become 'claude'.
+  const runner = (job.runner === null || job.runner === undefined) ? 'claude' : job.runner;
   // Pass configDir through UNCHANGED (only null/undefined -> null); reachFrom judges its type and shape,
-  // so a non-string value becomes UNKNOWN there rather than a false default-launch here. Coercing a
-  // non-string to null here would make the resolver and the core disagree on the same input.
+  // so a non-string value becomes UNKNOWN there, not a false default-launch here. The resolver never
+  // re-interprets the runner or the dir, so it and the core cannot disagree on the same input.
   const configDir = (job.configDir === null || job.configDir === undefined) ? null : job.configDir;
   return reachFrom({ runner, agentClaudeDir: configDir, personClaudeHome });
 }

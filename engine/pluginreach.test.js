@@ -188,3 +188,15 @@ test('#5309 p2 resolver: a raw homeDir with ".." is UNKNOWN (checked BEFORE path
   assert.deepEqual(reachForAgent('q', deps({ job: { runner: 'claude', configDir: '/Users/q/.claude' }, home: '/Users/q/link/..' })),
     { reaches: null, reason: UNKNOWN });
 });
+
+test('#5309 p2 resolver: a falsy-but-present runner or a non-object job is UNKNOWN, not a false default-launch', () => {
+  // A present-but-falsy runner ('') must stay falsy so reachFrom reads it as UNKNOWN, not silently
+  // default to 'claude' and (with a null configDir) report reaches:true.
+  assert.deepEqual(reachForAgent('e', deps({ job: { runner: '', configDir: null } })),
+    { reaches: null, reason: UNKNOWN });
+  // A truthy non-object job (garbage) is UNKNOWN, never a default-launch reaches:true.
+  assert.deepEqual(reachForAgent('t', deps({ job: true })), { reaches: null, reason: UNKNOWN });
+  assert.deepEqual(reachForAgent('s', deps({ job: 'nope' })), { reaches: null, reason: UNKNOWN });
+  // A null deps argument must not throw (the default only covers undefined); it falls back to {}.
+  assert.doesNotThrow(() => reachForAgent('x', null));
+});
