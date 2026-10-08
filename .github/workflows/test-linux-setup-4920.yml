@@ -11,7 +11,16 @@
 name: linux-setup
 
 on:
+  # #5519 stopgap (Josh 10-07: do not count our own Linux installs): every run installs a real board, and until #5519
+  # points its install beacon at a dead address, each run adds 2 to the live install counter. So it runs only on PRs that
+  # touch what it tests; run it by hand (workflow_dispatch) for anything else.
   pull_request:
+    paths:
+      - 'install/**'
+      - 'engine/linuxboard.js'
+      - 'engine/linuxjob.js'
+      - '.github/workflows/test-linux-setup-4920.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
