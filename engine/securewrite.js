@@ -547,4 +547,5 @@ function writeSecret(file, data, mode, opts) {
    and `engine/trust.js` keeps its equivalent private for the same reason: a name
    generator is an implementation detail of the writer, and exporting it invites a
    caller to build a temp path the writer will not clean up. */
+// tempWriterGone is a predicate, not a name generator, so it cannot be used to make temps the writer will not clean
 module.exports = { writeSecret, secureDir, refuseSymlinkTarget, reapDeadTempsOf, tempWriterGone };
