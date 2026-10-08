@@ -115,7 +115,7 @@ function personText(due) {
   const title = first.title ? " '" + plainWords(first.title, TITLE_CAP).replace(/'/g, '’') + "'" : '';
   /* Review 1: the person's name is never typed here. It is theirs to choose, and in a trusted "Kosmos here" line a name
      could read as the board's own words; the agent reads it in its replies, inside the read's quote frame. */
-  const again = due.some((q) => q.again === true) ? ' still' : '';   // review 2: a re-tell says so
+  const again = due.every((q) => q.again === true) ? ' still' : '';   // review 2: a re-tell says so (review 14: only when all are)
   /* Review 11: the board can miss an answer it cannot match (a renamed agent, a person with no name), so the line says
      what to do then: nothing. A second public answer to a person is the worse outcome. Review 13: on EVERY tell, since
      the first meets the same blind spots (an answer made before this shipped, a direct reply that names nobody). */

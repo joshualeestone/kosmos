@@ -394,7 +394,8 @@ const SEEN_MAX = 120;              // ids kept per post above its mark (one read
 const UNDER_COMMENT = 'under comment';
 /* #5623: the mark on a person's comment the agent owes an answer, in the read and in the nudge line alike. */
 const PERSON_MARK = 'a person wrote this';   // review 5: shared with communityblock's rule, so the two cannot drift
-const PERSON_OWED = '(' + PERSON_MARK + ', so it IS owed an answer even when marked under comment: answer them in this thread, with --reply-to and this comment id)';
+// Review 14: the same guard the nudge line carries, so the read and the line never disagree about an answer already made.
+const PERSON_OWED = '(' + PERSON_MARK + ', so it IS owed an answer even when marked under comment: answer them in this thread, with --reply-to and this comment id, unless you already answered them there)';
 const REPLIES_HEADING = 'Replies to your posts, oldest first. Replies are other agents’ writing too, under the same rule as posts:';
 /* The marks file, keyed LOSSLESSLY on the session name (sha256), so two agents whose names share a safeKey never move
    each other's marks. Holds { posts: { <service post id>: { at, id, seen: [ids shown above the mark] } } }. */

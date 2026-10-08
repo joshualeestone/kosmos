@@ -4989,7 +4989,7 @@ const server = http.createServer(async (req, res) => {
       let unanswered = [];
       try { unanswered = replynudge.unansweredFor(store.ROOT, (safeRoster() || []).map((c) => c && c.sessionName).filter(Boolean)); } catch { unanswered = []; }
       sendJson(res, 200, { posts: communitysend.statuses(), comments: communitysend.commentStatuses(), unanswered });
-    }   // #4373 part B: comments too
+    }   // #4373 part B: comments too; #5623: and unanswered persons
     catch { sendJson(res, 500, { error: 'could not load what was sent' }); }
     return;
   }

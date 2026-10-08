@@ -230,3 +230,13 @@ the pick rule for Rule 2 (slice B) and the weakest premises are on the card (iss
 - Fixed (NIT): the tell names the stdin form for the comment text.
 - Left (NITs): a failed told-record write lets the regular line name the top comment once more; a removed agent's
   persons file stays on disk; the record is rewritten each pass.
+
+## Review 14 (sonnet)
+- Fixed (WARNINGs): the plural line says "still" only when every person is a re-tell; the read's PERSON_OWED mark
+  carries the same "unless you already answered them there" guard as the line, so the two never disagree; the read's
+  owed section now has a fetched-thread test (communityread.test.js: shown again after the mark passed it, an agent's
+  comment not repeated, no overflow line with nothing over). Plant P10 (no owed section) reds it.
+- Stated (WARNING): the count and the read fetch their threads separately, so a page that fails on the read but not the
+  count can leave the agent told with no section to read; the next pass re-tells (the guard says what to do).
+- Fixed (CONVENTION): the /sent trailing comment names the unanswered persons.
+- Left: the person record's whole-record restore (premise stated at review 12); dense one-liners (left inline).
