@@ -50,8 +50,10 @@ on Mortals: on push to main, every 15 minutes as a backstop, and on demand.
   automatic deploy would take the older versions' downloads off the site. If that source is missing
   the tick parks rather than deploying without them.
 - **A commit the live site already serves is not deployed again.** The served
-  `.kosmos-release-export` names the site commit it was built from, so the tick right after a cut's
-  own step 8 records it and does nothing.
+  `.kosmos-release-export` names the site commit it was built from (measured on the live host
+  2026-10-08: it answered 200 with `commit=fa7a0596...`, Angel's 06:48 deploy), so the tick right
+  after a cut's own step 8 records it and does nothing. If the marker ever stops being served, the
+  tick just deploys again: safe, only redundant.
 - **Stage 2, not this branch:** move the Mac downloads to R2 behind redirects (as Windows is), so a
   site deploy carries no downloads at all. The reader sweep on the card lists the fixes it needs
   first (verify-served.sh and two others do not follow redirects).
@@ -82,7 +84,7 @@ tick sees no cut running and tries to publish pointers naming artifacts that wer
 stops it is deploy-site.sh itself: a moved prod latest.json is refused by the committed-vs-live guard
 (test-deploy-site-promote.sh case 2 is that exact refusal under --publish), and a staging pointer
 naming a build that is not live fails its fetch (#4819, test-deploy-site-staged-mac-4819.sh). The
-tick then records the failure and its run goes red once, which is the signal to finish or roll back
+tick then fails (red), retries once on the next tick, fails again (red) and parks the sha, which is the signal to finish or roll back
 the cut by hand. Reasoned from those tests, not run end to end through site-autodeploy.sh.
 
 ## One-time setup on Mortals (before the site workflow merges)
