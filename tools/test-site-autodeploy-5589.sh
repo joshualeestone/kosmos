@@ -345,6 +345,60 @@ mkdir "$ST/lock"; sleep 300 & w2=$!; echo "$w2" > "$ST/lock/pid"; touch -t "$(da
 tick; r2=$RC; kill "$w2" 2>/dev/null; wait "$w2" 2>/dev/null; rm -rf "$ST/lock"
 { [ "$r1" = 1 ] && [ "$r2" = 1 ]; } && pass "wedged: after the lock is taken again, a new wedge is red at once" || bad "wedged re-arm (r1=$r1 r2=$r2)"
 
+# 26) a fetch that hangs is stopped at its limit with its whole process group, and is red_once fetch.
+#     (ext:: runs a command as the remote; "sleep 4711" is unique, so it can be looked for afterwards.)
+git -C "$T/site" config protocol.ext.allow always
+git -C "$T/site" remote set-url origin 'ext::sleep 4711'
+t0=$SECONDS; KOSMOS_AUTODEPLOY_FETCH_MAX_S=2 tick; el=$((SECONDS - t0)); sleep 1
+left=$(ps -axo command= | command grep -c '^sleep 4711$')
+git -C "$T/site" remote set-url origin "$T/origin.git"; git -C "$T/site" config --unset protocol.ext.allow
+{ [ "$RC" = 1 ] && [ "$el" -lt 10 ] && [ "$left" = 0 ] && printf '%s' "$OUT" | grep -q "could not fetch"; } \
+  && pass "a hanging fetch is stopped at its limit, its helpers with it, and reported red" || bad "hanging fetch (rc=$RC, ${el}s, $left left) $OUT"
+# (No cleanup kill on a failure: this is a shared user, and a pattern kill reaches other people's
+#  processes. A leftover "sleep 4711" ends by itself in 79 minutes.)
+tick   # recovered: clears the fetch record
+
+# 27) a SECOND signal while a killed tick is stopping a deploy that ignores TERM (a runner's cancel
+#     escalates) does not cut the failure record out.
+H27=$(advance twentyseven); HANG27="$T/hang27.pid"; rm -f "$ST/failures" "$ST/last-failure"
+KOSMOS_AUTODEPLOY_DEPLOY='trap "" TERM; echo started-27; sleep 300 & echo $! > '"$HANG27"'; wait' bash "$AD" > "$T/tick27.out" 2>&1 & tick27=$!
+for i in $(seq 1 100); do [ -s "$HANG27" ] && command grep -q "deploying site main" "$T/tick27.out" && break; sleep 0.1; done; sleep 0.3
+kill -TERM "$tick27"; sleep 1; kill -TERM "$tick27" 2>/dev/null; wait "$tick27" 2>/dev/null; sleep 1
+hp27=$(cat "$HANG27" 2>/dev/null)
+{ grep -q "^$H27 rc=143 " "$ST/last-failure" 2>/dev/null && [ -n "$hp27" ] && ! kill -0 "$hp27" 2>/dev/null && [ ! -e "$ST/lock" ]; } \
+  && pass "a second signal during the stop neither loses the failure record nor leaves the deploy running" \
+  || { bad "second signal (last-failure: $(cat "$ST/last-failure" 2>/dev/null); child alive=$(kill -0 "$hp27" 2>/dev/null && echo yes || echo no))"; [ -n "$hp27" ] && kill -KILL "$hp27" 2>/dev/null; }
+rm -f "$ST/failures" "$ST/parked"; rm -rf "$ST/reported.d" "$ST/lock"
+
+# 28) a tick killed OUTRIGHT (SIGKILL: no EXIT trap) leaves its deploy running in its own group. The
+#     next tick finds it from deploy.pid and waits; once it is past 1200 s it is stopped and counted
+#     as a failure (it may have published).
+H28=$(advance twentyeight); HANG28="$T/hang28.pid"
+KOSMOS_AUTODEPLOY_DEPLOY='sleep 300 & echo $! > '"$HANG28"'; wait' bash "$AD" > "$T/tick28.out" 2>&1 & tick28=$!
+for i in $(seq 1 100); do [ -s "$HANG28" ] && [ -s "$ST/deploy.pid" ] && break; sleep 0.1; done; sleep 0.3
+kill -KILL "$tick28"; wait "$tick28" 2>/dev/null; hp28=$(cat "$HANG28" 2>/dev/null)
+n28=$(ndeploys); tick
+{ [ "$RC" = 0 ] && [ "$(ndeploys)" = "$n28" ] && kill -0 "$hp28" 2>/dev/null && printf '%s' "$OUT" | grep -q "is still running; this tick waits"; } \
+  && pass "an orphaned deploy from a killed tick is found, and the next tick waits for it" || bad "orphan wait (rc=$RC) $OUT"
+touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
+printf 'kosmos-release-export\ncommit=%s\n' "$H28" > "$SERVED/.kosmos-release-export"   # as if it published
+KOSMOS_AUTODEPLOY_DEPLOY='exit 1' tick; sleep 1
+{ ! kill -0 "$hp28" 2>/dev/null && [ ! -e "$ST/deploy.pid" ] && [ "$(cat "$ST/last-deployed")" != "$H28" ] && printf '%s' "$OUT" | grep -q "stopped the deploy of" && printf '%s' "$OUT" | grep -q "recorded as a failure"; } \
+  && pass "past 1200 s the orphan is stopped and counted a failure; a marker naming its sha does not bless it" \
+  || { bad "orphan stop (alive=$(kill -0 "$hp28" 2>/dev/null && echo yes || echo no)) $OUT"; [ -n "$hp28" ] && kill "$hp28" 2>/dev/null; }
+# A pid in deploy.pid whose start time does not match (a reused pid) is not touched.
+sleep 300 & other=$!; printf '%s %s %s\n' "$other" "$H28" "Mon_Jan_1_00:00:00_2001" > "$ST/deploy.pid"; touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
+KOSMOS_AUTODEPLOY_DEPLOY='exit 1' tick
+kill -0 "$other" 2>/dev/null && pass "a reused pid in deploy.pid (start time differs) is never signalled" || bad "signalled a process that was not the deploy"
+kill "$other" 2>/dev/null; wait "$other" 2>/dev/null
+rm -f "$ST/failures" "$ST/parked" "$ST/deploy.pid"; rm -rf "$ST/reported.d"
+
+# 29) a deploy whose leader exits leaving a child running in its group: the child is stopped.
+H29=$(advance twentynine); HANG29="$T/hang29.pid"
+KOSMOS_AUTODEPLOY_DEPLOY='sleep 300 & echo $! > '"$HANG29"'; exit 0' tick; sleep 1; hp29=$(cat "$HANG29" 2>/dev/null)
+{ [ "$RC" = 0 ] && [ -n "$hp29" ] && ! kill -0 "$hp29" 2>/dev/null && printf '%s' "$OUT" | grep -q "left processes running"; } \
+  && pass "a child left running in the deploy's group after it exits is stopped" || { bad "lingering child (rc=$RC alive=$(kill -0 "$hp29" 2>/dev/null && echo yes || echo no)) $OUT"; [ -n "$hp29" ] && kill "$hp29" 2>/dev/null; }
+
 # 13) no site configured: a usage error, never a deploy.
 nfinal=$(ndeploys); KOSMOS_AUTODEPLOY_SITE="" bash "$AD" 2>/dev/null; RC=$?
 { [ "$RC" = 2 ] && [ "$(ndeploys)" = "$nfinal" ]; } && pass "no KOSMOS_AUTODEPLOY_SITE: exit 2, nothing deployed" || bad "unset site (rc=$RC)"
