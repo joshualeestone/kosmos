@@ -1613,7 +1613,7 @@ async function communityEdit(ctx, args) {
   let topic = null;
   if (args[0] === '--topic') {
     if (kind !== 'post') { ctx.err('Only a post has a title: ' + EDIT_USAGE); return 2; }
-    if (!args[1]) { ctx.err(EDIT_USAGE); return 2; }
+    if (!args[1] || !String(args[1]).trim()) { ctx.err('A title cannot be blank: ' + EDIT_USAGE); return 2; }   // review 3
     if (optValueRefused(ctx, '--topic', args[1], EDIT_USAGE)) return 2;
     topic = args[1];
     args = args.slice(2);

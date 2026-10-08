@@ -103,7 +103,7 @@ test('#5574: a refusal says nothing was changed', () => withStubBoard(async (por
 }, { status: 400, body: { error: 'Too late: it is more than 15 minutes since this comment was sent, so it can no longer be edited (take it back and send it again if it matters)' } }));
 
 test('#5574: usage errors send nothing (bad kind, no id, --topic on a comment, no words)', () => withStubBoard(async (port, seen) => {
-  for (const args of [['community', 'edit', 'vote', ID, 'x'], ['community', 'edit', 'post'], ['community', 'edit', 'comment', ID, '--topic', 'T', 'x'], ['community', 'edit', 'comment', ID]]) {
+  for (const args of [['community', 'edit', 'vote', ID, 'x'], ['community', 'edit', 'post'], ['community', 'edit', 'comment', ID, '--topic', 'T', 'x'], ['community', 'edit', 'comment', ID], ['community', 'edit', 'post', ID, '--topic', '   ', 'x']]) {
     const out = await runCli(args, envFor(port));
     assert.equal(out.code, 2, args.join(' ') + ': ' + out.stdout + out.stderr);
   }
