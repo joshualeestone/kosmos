@@ -42,27 +42,69 @@ function maskBits(n) { return ((2 ** n - 1) * 2 ** (32 - n)) >>> 0; }
 // Normalized chunking: a harder mask before the average size, an easier one after, which narrows the size spread.
 const masksFor = (avg) => { const b = Math.round(Math.log2(avg)); return { hard: maskBits(b + 2), easy: maskBits(b - 2) }; };
 
-/** Split a Buffer into content-defined chunks (subarrays, no copy). Deterministic for format 1. */
-function chunkBuffer(buf, opts = CDC) {
-  const { min, avg, max } = opts;
+function checkSizes({ min, avg, max }) {
   if (![min, avg, max].every(Number.isSafeInteger) || !(min > 0 && min < avg && avg < max) || avg < 64 || avg > 2 ** 28) {
     throw new Error('backupformat: chunk sizes need integers with 0 < min < avg < max and 64 <= avg <= 2^28');
   }
-  const { hard: MASK_HARD, easy: MASK_EASY } = masksFor(avg);
+  return masksFor(avg);
+}
+/* The one cut search, shared by chunkBuffer and the streaming chunker so they can never disagree: from start, the
+   cut depends only on the bytes in [start, end), where end = start + max unless the data ends first. */
+function cutAt(buf, start, end, { min, avg }, { hard, easy }) {
+  if (end - start <= min) return end;
+  let h = 0;
+  for (let i = start + min; i < end; i++) {
+    h = ((h << 1) + GEAR[buf[i]]) >>> 0;
+    if ((h & (i - start < avg ? hard : easy)) === 0) return i + 1;
+  }
+  return end;
+}
+
+/** Split a Buffer into content-defined chunks (subarrays, no copy). Deterministic for format 1. */
+function chunkBuffer(buf, opts = CDC) {
+  const masks = checkSizes(opts);
   const out = [];
-  let start = 0;
-  while (start < buf.length) {
-    const end = Math.min(buf.length, start + max);
-    if (end - start <= min) { out.push(buf.subarray(start, end)); break; }
-    let h = 0, cut = end;
-    for (let i = start + min; i < end; i++) {
-      h = ((h << 1) + GEAR[buf[i]]) >>> 0;
-      if ((h & (i - start < avg ? MASK_HARD : MASK_EASY)) === 0) { cut = i + 1; break; }
-    }
+  for (let start = 0; start < buf.length;) {
+    const cut = cutAt(buf, start, Math.min(buf.length, start + opts.max), opts, masks);
     out.push(buf.subarray(start, cut));
     start = cut;
   }
   return out;
+}
+
+/**
+ * The same chunking over a stream: push(piece) returns the chunks completed so far (copies), finish() the rest.
+ * Holds just under max bytes plus the pieces collected since the last join (itself under max) plus the latest piece,
+ * so a file larger than memory can be backed up.
+ * A cut is made only once max bytes past the chunk start are held, which is exactly when chunkBuffer would see
+ * the same window: the boundaries are identical to chunkBuffer's on the whole input (tested, golden vector too).
+ */
+function createChunker(opts = CDC) {
+  const masks = checkSizes(opts);
+  // Pieces are collected and joined only once at least max bytes are held, so small reads do not copy the
+  // pending tail on every push. Each piece is copied in, so a caller may reuse its read buffer.
+  let pending = Buffer.alloc(0), parts = [], held = 0, done = false;
+  return {
+    push(piece) {
+      if (done) throw new Error('backupformat: push after finish');
+      if (!Buffer.isBuffer(piece)) throw new Error('backupformat: push takes a Buffer');
+      parts.push(Buffer.from(piece)); held += piece.length;
+      if (pending.length + held < opts.max) return [];
+      pending = Buffer.concat([pending, ...parts]); parts = []; held = 0;
+      const out = [];
+      while (pending.length >= opts.max) {
+        const cut = cutAt(pending, 0, opts.max, opts, masks);
+        out.push(Buffer.from(pending.subarray(0, cut)));
+        pending = pending.subarray(cut);
+      }
+      return out;
+    },
+    finish() {
+      if (done) throw new Error('backupformat: finish twice');
+      done = true;
+      return chunkBuffer(Buffer.concat([pending, ...parts]), opts).map((c) => Buffer.from(c));
+    },
+  };
 }
 
 /* ---------------- naming and padding ---------------- */
@@ -185,6 +227,8 @@ function contextBytes(ctx) {
 // A fixed tag FIRST, so a device signature over a backup manifest can never double as a signature in any other
 // protocol the same device key signs for (device auth, after E0.1).
 const SIG_DOMAIN = Buffer.from(`kosmos-backup v${FORMAT} manifest-signature\0`);
+/** Throws when ctx is not a valid manifest context (the same rule sealing and opening apply). */
+function checkBackupContext(ctx) { contextBytes(ctx); }
 function signedBytes(sealed, ctx) {
   return Buffer.concat([SIG_DOMAIN, crypto.createHash('sha256').update(sealed).digest(), contextBytes(ctx)]);
 }
@@ -237,6 +281,7 @@ function openManifest(memberSk, devicePub, ctx, object) {
 module.exports = {
   CDC,
   chunkBuffer,
+  createChunker,
   chunkName,
   padme,
   sealNamedChunk,
@@ -245,4 +290,5 @@ module.exports = {
   sealManifest,
   verifyManifestSignature,
   openManifest,
+  checkBackupContext,
 };

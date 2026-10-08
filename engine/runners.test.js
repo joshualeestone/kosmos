@@ -24,6 +24,13 @@ process.env.AGENT_WORKFORCE_RUNNERS_DIR = nodePath.join(SANDBOX, 'runners');
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 delete process.env.AGENT_WORKFORCE_CODEX_BIN;
 const runners = require('./runners');
+/* #5419 slice 2: these fixtures are Mac-shaped (darwin tarball layouts, the Mac claude link path), so install() is
+   pinned to darwin unless a test names its platform. On a Linux host install() would otherwise pick the Linux pins
+   (or refuse the claude arm) and these tests would test something else. Linux installs are tested in
+   runners.linux-5419.test.js and runners.gemini-grok-3713.test.js. */
+const realInstall = runners.install;
+// The CPU too: the darwin openai pin is arm64, so on an x64 runner an unpinned test would stop at the arch guard.
+runners.install = (provider, o) => realInstall(provider, { platform: 'darwin', arch: 'arm64', ...(o || {}) });
 
 test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 

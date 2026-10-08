@@ -68,8 +68,8 @@ const SUPPORTED = Object.freeze(['darwin', 'win32', 'linux']);
  * Windows build. So Claude gets its own list, and win32 is on it because the vendor
  * build happened -- the same discipline SUPPORTED and SELF_INSTALL state.
  *
- * ⇒ One list per runner. `RUNNER_DOWNLOADS` is the codex/vendored-runner gate
- * (darwin only, unchanged); `CLAUDE_DOWNLOADS` is Claude Code's, which win32 and (#5419)
+ * ⇒ One list per runner. `RUNNER_DOWNLOADS` was the codex/vendored-runner gate and is now only the claude
+ * arm's of runners.install (darwin only; Codex, Gemini and Grok have their own lists below); `CLAUDE_DOWNLOADS` is Claude Code's, which win32 and (#5419)
  * linux join because checksum-verifiable builds are published for them. A platform on
  * neither list fetches nothing and says so honestly. */
 const RUNNER_DOWNLOADS = Object.freeze(['darwin']);
@@ -95,14 +95,16 @@ const CLAUDE_DOWNLOADS = Object.freeze(['darwin', 'win32', 'linux']);
  * keeps reading canDownloadRunner.
  * 📌 Found by the founder on a clean Windows 11 laptop (prod 0.6.72): the first-run
  * GPT card refused on this gate and the screen said only "We could not start that
- * install." */
-const CODEX_DOWNLOADS = Object.freeze(['darwin', 'win32']);
+ * install."
+ * #5419 slice 2: and Linux, whose Codex builds are pinned in runners.js too (CODEX_LINUX: static musl, one per CPU). */
+const CODEX_DOWNLOADS = Object.freeze(['darwin', 'win32', 'linux']);
 
 /* The Gemini CLI and the Grok CLI (#3713), the same shape as CODEX_DOWNLOADS and for the same
  * reason: Kosmos pins a Windows build of each (Grok's own win32-x64/arm64 tarballs; Gemini's
  * bundle is one tarball run by Kosmos's own node), measured on a Windows 11 box on 2026-09-25,
- * so a Windows install fetches a build that runs there. RUNNER_DOWNLOADS stays darwin-only. */
-const KEYED_RUNNER_DOWNLOADS = Object.freeze(['darwin', 'win32']);
+ * so a Windows install fetches a build that runs there. #5419 slice 2 adds Linux (GROK_LINUX; Gemini's bundle needs
+ * no per-OS build). RUNNER_DOWNLOADS stays darwin-only. */
+const KEYED_RUNNER_DOWNLOADS = Object.freeze(['darwin', 'win32', 'linux']);
 
 /* 🛑 AND THE THIRD QUESTION, WHICH NOTHING ASKED UNTIL #570 WENT LOOKING FOR IT.
  * `engine/update.js` is the SELF-updater. On the Mac it answers "install the new
@@ -151,15 +153,15 @@ function canDownloadRunner(platform = process.platform) {
 }
 
 /** True only where OpenAI publishes a Codex build Kosmos pins and can fetch
- *  (darwin, and win32 since the pinned win32-x64/win32-arm64 builds landed). Same
+ *  (darwin; win32 since the win32-x64/arm64 builds landed; linux since #5419 slice 2). Same
  *  fail-closed shape as its siblings. runners.install reads this for the openai
  *  runner only; every other runner arm keeps canDownloadRunner. */
 function canDownloadCodex(platform = process.platform) {
   return CODEX_DOWNLOADS.includes(platform);
 }
 
-/** True only where Kosmos pins a Gemini CLI and a Grok CLI build it can fetch (darwin and
- *  win32). Same fail-closed shape as its siblings. runners.install reads this for the gemini
+/** True only where Kosmos pins a Gemini CLI and a Grok CLI build it can fetch (darwin, win32
+ *  and, since #5419 slice 2, linux). Same fail-closed shape as its siblings. runners.install reads this for the gemini
  *  and grok runners only. */
 function canDownloadKeyedRunner(platform = process.platform) {
   return KEYED_RUNNER_DOWNLOADS.includes(platform);
@@ -184,8 +186,8 @@ function canSelfInstall(platform = process.platform) {
 
 /** Machine facts for the API / a future gate screen. No user-facing copy.
  *  Each capability is reported SEPARATELY because they diverge: a platform can run
- *  agents (`supported`) while being unable to fetch the codex runner
- *  (`runnerDownloads`, darwin-only), yet still able to fetch Claude Code
+ *  agents (`supported`) while `runnerDownloads` (canDownloadRunner: only the claude arm of runners.install,
+ *  darwin-only) is false, yet still able to fetch Claude Code
  *  (`claudeDownloads`, darwin+win32+linux). A screen that read only one of these could not
  *  express win32, where claudeDownloads is true but runnerDownloads is false -- and a
  *  consumer that reused runnerDownloads to decide "can Kosmos install Claude here"

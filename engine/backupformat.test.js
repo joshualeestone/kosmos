@@ -232,3 +232,60 @@ test('#5535 the naming key must be exactly 32 bytes (a short or empty key would 
   const emptyName = crypto.createHmac('sha256', Buffer.alloc(0)).update(Buffer.from('evil')).digest('hex');
   assert.equal(bf.openVerifiedChunk(k.sk, Buffer.alloc(0), emptyName, forgeChunk(k.pk, emptyName, Buffer.from('evil'))), null, 'a forgery under an empty-key name is refused');
 });
+
+test('#5535 the streaming chunker cuts exactly where chunkBuffer does, whatever the piece sizes (golden vector too)', () => {
+  const lens = (cs) => cs.map((c) => c.length);
+  const stream = (buf, opts, pieceOf) => {
+    const ch = bf.createChunker(opts); const out = [];
+    for (let i = 0; i < buf.length;) { const n = pieceOf(i); out.push(...ch.push(buf.subarray(i, i + n))); i += n; }
+    return [...out, ...ch.finish()];
+  };
+  const big = rand(3 * 1024 * 1024 + 777, 's');
+  let seed = 7; const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648);
+  for (const [what, pieceOf] of [['1 byte at a time over the first 20k, then large', (i) => (i < 20000 ? 1 : 65536)], ['random sizes', () => 1 + (rnd() % 50000)], ['one piece', () => big.length]]) {
+    const s1 = stream(big, SMALL, pieceOf);
+    assert.deepEqual(lens(s1), lens(bf.chunkBuffer(big, SMALL)), `${what}: same boundaries`);
+    assert.ok(Buffer.concat(s1).equals(big), `${what}: reassembles`);
+  }
+  const golden = rand(6 * 1024 * 1024, 'c');
+  assert.deepEqual(lens(stream(golden, bf.CDC, () => 1 << 20)), [286742, 1078049, 1781820, 1480926, 1131483, 441857, 90579], 'format-1 golden vector, streamed');
+  const ch = bf.createChunker(SMALL); ch.finish();
+  assert.throws(() => ch.push(Buffer.from('x')), /after finish/);
+  assert.throws(() => ch.finish(), /finish twice/, 'a second finish would return the tail again (duplicated data)');
+  assert.throws(() => bf.createChunker({ min: 0, avg: 1024, max: 4096 }), /chunk sizes/, 'createChunker validates its sizes');
+  assert.throws(() => bf.createChunker({ min: 5, avg: 3, max: 9 }), /chunk sizes/);
+  assert.throws(() => bf.createChunker(SMALL).push('not a buffer'), /Buffer/);
+  assert.deepEqual(bf.createChunker(SMALL).finish(), [], 'an empty stream gives no chunks');
+});
+
+test('#5535 streaming: forced cuts at max on low-entropy input, a tail under min, and pieces the caller reuses', () => {
+  const lens = (cs) => cs.map((c) => c.length);
+  const stream = (buf, pieceOf) => {
+    const ch = bf.createChunker(SMALL); const out = [];
+    for (let i = 0; i < buf.length;) { const n = pieceOf(i); out.push(...ch.push(buf.subarray(i, i + n))); i += n; }
+    return [...out, ...ch.finish()];
+  };
+  const zeros = Buffer.alloc(5 * SMALL.max + 100);   // no cut point anywhere: every chunk is forced at max, a 100-byte tail
+  const whole = bf.chunkBuffer(zeros, SMALL);
+  assert.ok(whole.slice(0, -1).every((c) => c.length === SMALL.max) && whole[whole.length - 1].length === 100, 'PRECONDITION: forced cuts and a tail under min');
+  for (const [what, pieceOf] of [['one piece', () => zeros.length], ['pieces crossing several max windows', () => 3 * SMALL.max + 7], ['small pieces', () => 1000]]) {
+    const st = stream(zeros, pieceOf);
+    assert.deepEqual(lens(st), lens(whole), `${what}: same forced boundaries and tail`);
+    assert.ok(st.every((c) => c.length <= SMALL.max), `${what}: no chunk over max`);
+  }
+  // A walker reuses its read buffer: chunks already returned, and the tail still held, must not change with it.
+  const data = rand(3 * SMALL.max, 'r');
+  const reused = Buffer.from(data.subarray(0, 2 * SMALL.max));
+  const ch = bf.createChunker(SMALL);
+  const out = [...ch.push(reused)];
+  reused.fill(0x55);
+  out.push(...ch.push(Buffer.from(data.subarray(2 * SMALL.max))), ...ch.finish());
+  assert.ok(Buffer.concat(out).equals(data), 'overwriting a pushed piece does not change the output');
+  // The same while the piece is still only HELD (smaller than max, not yet joined), as a 64 KiB read would be.
+  const small = Buffer.from(data.subarray(0, 1000));
+  const ch2 = bf.createChunker(SMALL);
+  const out2 = [...ch2.push(small)];
+  small.fill(0x55);
+  out2.push(...ch2.push(Buffer.from(data.subarray(1000))), ...ch2.finish());
+  assert.ok(Buffer.concat(out2).equals(data), 'overwriting a held (not yet joined) piece does not change the output');
+});

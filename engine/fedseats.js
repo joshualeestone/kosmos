@@ -979,6 +979,9 @@ async function ensure(projectId, edges) {
   if (stamp.state === 'unstamped') {
     try { federation.recordLink(projectId, Object.assign({}, link, { project_created: stamp.born })); } catch { /* stamped on the next check */ }
   }
+  /* kosmos#4318: federation calls gate on enrollment plus the per-project link,
+     independent of Remote access (remote.read().on). An enrolled board with
+     Remote access turned off continues seating linked shared projects. */
   if (typeof deps.enrolled === 'function' && !deps.enrolled()) return null;
   if (typeof deps.projectExists === 'function' && !deps.projectExists(projectId)) {
     stop(projectId);

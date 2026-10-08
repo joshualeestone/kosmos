@@ -248,8 +248,12 @@ from a night in this codebase, kosmos#2616.)
    performs a real side effect (a `launchctl`/`tmux kill-session`, a delete) calls
    `engine/live-execution.js`'s `liveExecutionAllowed()` and, when it returns false, calls
    `refuseOrWarn(...)` to refuse rather than act (#1598). The flag is a module-level
-   `allowed=false` that only `allowLiveExecution()` flips, and only `server.js`'s real-startup
-   path calls it (`server.js` around line 10656). A `node --test` process is detected by
+   `allowed=false` that only `allowLiveExecution()` flips, called only on a real-start path, never at module load:
+   - `server.js`'s real-start path, and `engine/musefront.js`'s;
+   - `tools/cleanup-fixture-tokens-5418.js`'s command line, only with `--apply` (its `applyPlan` refuses without it, by throwing rather than through `refuseOrWarn`: a one-time tool;
+     the store primitive it calls, `sendertoken.revokeIfUnchanged`, is ungated like `revoke`).
+
+   A `node --test` process is detected by
    `process.execArgv` containing `--test` (deliberately not an env var, which a child process
    would inherit and misfire on), so an in-process test never has live execution armed and
    `engine/remove.js`, `update.js`, `create.js`, `delete-leftover.js`, and `win32stop.js` refuse
