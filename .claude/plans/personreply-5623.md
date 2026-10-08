@@ -269,3 +269,10 @@ the pick rule for Rule 2 (slice B) and the weakest premises are on the card (iss
   overflow line), so with more than 5 waiting an older one is reached on a later read.
 - Left (NIT): "(no new replies)" after the owed section (both true).
 - Deployed between reviews (not this branch): relay main 3f36e894 for #328.
+
+## Review 18 (sonnet): converged, NITs only
+- It verified personOwed against the service's reply_to semantics, the person path's guarantees, the round, and the
+  wording across block, read and line.
+- Left (NITs): personOwed computed twice per thread in the read; a deleted person comment stays in /sent up to 14 days
+  (stated at review 16); the untested list (stated at review 10); one later direct answer under its own comment clears
+  every person reply before it (decided at review 17).
