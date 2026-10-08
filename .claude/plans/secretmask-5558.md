@@ -41,3 +41,8 @@ a random segment inside a path masked. Full secretmask.test.js 126/126.
 ### Review 3 (opus): 1 WARNING fixed
 - WARNING fixed: a number piece had no length cap and a path needed no word, so long digit runs joined to a timestamp or word passed. Numbers capped at 10 digits; a plain path needs a word. Stale LONG_TOKEN comment rewritten; plan's Built section matches the code. NITs left: plain paths still masked when a piece is vowelless, two letters, v2-style or CamelCase (over-masking, the safe direction).
 - Sweep with the current rule (23:4x): long_token 253 -> 189; files changed by masking 254 -> 207; 129/129 tests.
+
+### Review 4 (sonnet): 1 WARNING fixed
+- WARNING fixed: a word only needed a vowel, so random letter pieces (goxswayqboz, irqrfyfnsxp) passed and a random path cut by slashes (17195/5669431090/goxswayqboz/irqrfyfnsxp/929574) went unmasked where main masked it. A word is now word-SHAPED: at most 3 consonants in a row (y a consonant), a sixth of its letters vowels, no q without u. Considered reusing madeOfWords' wordLike (a quarter vowels): rejected, it fails "plans" and kept 93 of 4,219 real path runs plain against 3,097 with this rule (measured over the kosmos and kosmos-relay file lists). Random letter/digit paths judged plain: about 4.5% (639 of 14,192), the named residual.
+- Test '#5558 review 4': the reviewer's path masked, a real plans path left alone (control); red on the previous commit.
+- Sweep (00:0x): long_token 254 -> 196; files changed by masking 254 -> 211; 130/130 tests.
