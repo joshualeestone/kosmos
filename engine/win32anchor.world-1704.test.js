@@ -52,6 +52,26 @@ test('#1704 a world applied OVER a sandbox anchors in the sandbox, not the world
   assert.equal(anchor.anchorDir('win32', 'C:\\Users\\jo', env), 'C:\\sand\\' + store.APP + '\\runtime');
 });
 
+/* The seed modules plus everything they require at load time, followed through: a require('./x') (either quote) on a
+   line that starts at column 0 (const/let/var, a bare call, or the closing line of a multi-line destructure). Only
+   same-folder modules ('./x'): a './sub/x' or '../x' load-time require would need this extended. Derived
+   rather than listed, so a new top-level require in worlds.js (#5386 added ./win32env) cannot leave the stand-in short
+   of a module and fail this file for a reason that has nothing to do with #1704. A require inside a function is lazy
+   and only runs on a path this file never takes, so it is not followed. */
+const LOAD_TIME_REQUIRE = /^(?:[^\s/][^\n]*?)?require\(['"]\.\/([\w.-]+)['"]\)/gm;
+function withTopLevelDeps(seeds) {
+  const out = []; const todo = seeds.slice();
+  while (todo.length) {
+    const f = todo.shift();
+    if (out.includes(f)) continue;
+    out.push(f);
+    const src = fs.readFileSync(nodePath.join(__dirname, f), 'utf8');
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, '');
+    for (const m of code.matchAll(LOAD_TIME_REQUIRE)) todo.push(/\.(js|json)$/.test(m[1]) ? m[1] : m[1] + '.js');
+  }
+  return out;
+}
+
 /* A stand-in engine: the real world-entry modules, and a supervisor that prints
    what it was loaded under. */
 function standInEngine(opts) {
@@ -60,7 +80,7 @@ function standInEngine(opts) {
   fs.mkdirSync(engine, { recursive: true });
   /* `old: true` is an engine from before worlds reached agents: no parser, no
      agent bootstrap. */
-  const files = o.old ? ['store.js'] : ['worlds.js', 'store.js', 'launchidentity.js', 'win32argv.js'];
+  const files = o.old ? ['store.js'] : withTopLevelDeps(['worlds.js', 'store.js', 'launchidentity.js', 'win32argv.js']);
   for (const f of files) fs.copyFileSync(nodePath.join(__dirname, f), nodePath.join(engine, f));
   /* The stub reports the environment AND the store root the supervisor would
      resolve: the store's own answer is what the ordering exists to get right, so
@@ -140,4 +160,16 @@ test('#1704 an agent that cannot enter its Kosmos STOPS, loudly and non-zero', (
   assert.notEqual(out.status, 0);
   assert.match(out.stderr, /could not enter its Kosmos/);
   assert.equal(out.stdout, '', 'the supervisor never loaded');
+});
+
+test('#5386: the stand-in engine carries every module worlds.js loads at load time', () => {
+  const files = withTopLevelDeps(['worlds.js']);
+  for (const f of ['store.js', 'launchidentity.js', 'win32env.js']) assert.ok(files.includes(f), f + ' missing from ' + files.join(','));
+  assert.ok(!files.includes('worldbootguard.js'), 'a require inside a function was followed');
+});
+
+test('#5386: the load-time require reader follows every top-level form and skips indented ones (control)', () => {
+  const re = LOAD_TIME_REQUIRE;
+  const src = "const a = require('./a');\nlet b = require(\"./b\");\nconst {\n  c1,\n} = require('./c');\nrequire('./d');\nconst e = require('./e.json');\nfunction f() {\n  return require('./lazy');\n}\n// require('./commented')\n";
+  assert.deepEqual([...src.matchAll(re)].map((m) => m[1]), ['a', 'b', 'c', 'd', 'e.json']);
 });

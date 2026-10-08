@@ -33,6 +33,7 @@
  */
 
 const fs = require('fs');
+const { envDelete, envSet, envCanon } = require('./win32env');   // #5386: env copies keep names as spelled; on Windows any spelling counts
 const path = require('path');
 const os = require('os');
 const store = require('./store'); // dataRootFor, safeKey
@@ -204,19 +205,41 @@ function readWorldMarker(env) {
   } catch { return null; }
 }
 
+/* #5386: on a Windows COPY of the environment every spelling of a name is the same variable, so sets and deletes
+   go through win32env. process.env itself is left to plain access: on Windows Node already matches its names in any
+   case, and on a Mac a differently spelled name is a different variable this process must not lose. */
+let caseFoldPlatform = null;   // test seam: null = process.platform
+function setWorldCaseFoldPlatformForTests(p) { caseFoldPlatform = p || null; }
+/* Two spellings are one variable only on Windows; on a Mac or Linux they are two, and a copy keeps both. */
+const foldsCase = () => (caseFoldPlatform || process.platform) === 'win32';
+const delVar = (env, k) => { if (env === process.env || !foldsCase()) delete env[k]; else envDelete(env, k); };
+const setVar = (env, k, v) => { if (env === process.env || !foldsCase()) env[k] = v; else envSet(env, k, v); };
+/* On a Windows copy, move every world name (the world, its marker, the three roots, and AGENT_WORKFORCE_HOME, which
+   baseRoot reads) to its usual spelling, so the exact-spelling reads and writes after it see one key. A no-op on
+   process.env, and on a Mac or Linux. */
+function canonWorldNames(env) {
+  if (!env || env === process.env) return env;
+  /* Windows only: there two spellings ARE one variable. On a Mac or Linux a lowercase agent_workforce_home is a
+     different variable that store and baseRoot ignore; promoting it would move the store (review 7). */
+  if (!foldsCase()) return env;
+  for (const k of [launchidentity.WORLD_ENV_VAR, PRE_WORLD_ROOTS_ENV_VAR, ...WORLD_ROOT_ENV_VARS, 'AGENT_WORKFORCE_HOME']) envCanon(env, k);
+  return env;
+}
+
 /* Put the recorded original roots back in place and drop the world variables. */
 function restorePreWorldRoots(env, marker) {
   for (const k of WORLD_ROOT_ENV_VARS) {
     const v = marker && Object.prototype.hasOwnProperty.call(marker.roots, k) ? marker.roots[k] : null;
-    if (typeof v === 'string') env[k] = v; else delete env[k];
+    if (typeof v === 'string') setVar(env, k, v); else delVar(env, k);
   }
-  delete env[PRE_WORLD_ROOTS_ENV_VAR];
-  delete env[launchidentity.WORLD_ENV_VAR];
+  delVar(env, PRE_WORLD_ROOTS_ENV_VAR);
+  delVar(env, launchidentity.WORLD_ENV_VAR);
 }
 
 /* Apply one world's roots to `env` in place, recording the originals and the
    world id. The default world sets nothing and records nothing. */
 function applyWorldEnv(env, base, world) {
+  canonWorldNames(env);   // #5386: a copy passed straight here (applyActiveWorldEnv) gets the same one-key treatment
   const overrides = envOverridesFor(base, world);
   if (!Object.keys(overrides).length) return overrides;
   const recorded = readWorldMarker(env);
@@ -225,9 +248,9 @@ function applyWorldEnv(env, base, world) {
     roots = {};
     for (const k of WORLD_ROOT_ENV_VARS) roots[k] = env[k] === undefined ? null : env[k];
   }
-  env[PRE_WORLD_ROOTS_ENV_VAR] = JSON.stringify({ world: world.id, roots });
-  for (const k of Object.keys(overrides)) env[k] = overrides[k];
-  env[launchidentity.WORLD_ENV_VAR] = world.id;
+  setVar(env, PRE_WORLD_ROOTS_ENV_VAR, JSON.stringify({ world: world.id, roots }));
+  for (const k of Object.keys(overrides)) setVar(env, k, overrides[k]);
+  setVar(env, launchidentity.WORLD_ENV_VAR, world.id);
   return overrides;
 }
 
@@ -249,6 +272,7 @@ function applyWorldEnv(env, base, world) {
  */
 function applyAgentWorldEnv(env) {
   const e = env || process.env;
+  canonWorldNames(e);   // #5386: on a copy, before currentWorldId and readWorldMarker read by the usual spelling
   const id = launchidentity.currentWorldId(e);
   const recorded = readWorldMarker(e);
   if (recorded && recorded.world === id) return {};   // inherited, already applied for this world
@@ -270,12 +294,13 @@ function applyAgentWorldEnv(env) {
  */
 function preWorldEnv(env) {
   const out = Object.assign({}, env || {});
+  canonWorldNames(out);   // #5386: the marker, world and roots in another spelling are still those names
   if (out[PRE_WORLD_ROOTS_ENV_VAR] !== undefined) {
     /* An unreadable marker restores nothing: all three roots go, which is the
        legacy-root answer, never another world's. */
     restorePreWorldRoots(out, readWorldMarker(out) || { roots: {} });
   }
-  delete out[launchidentity.WORLD_ENV_VAR];
+  delVar(out, launchidentity.WORLD_ENV_VAR);
   return out;
 }
 
@@ -591,6 +616,7 @@ module.exports = {
   setActiveWorld,
   applyActiveWorldEnv,
   worldStoreRoot,
+  setWorldCaseFoldPlatformForTests,
   worldProfilesDir,
   worldAvatarsDir,
   worldWorkersDir,

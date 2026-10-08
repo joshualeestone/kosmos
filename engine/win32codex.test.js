@@ -124,3 +124,19 @@ test('#3380 runCodexTurn never rejects when the spawn itself throws', async () =
   assert.match(r.error, /spawn/);
   assert.equal(r.sessionId, 't-keep', 'the resume id survives a spawn failure');
 });
+
+test('#5386 runCodexTurn without an env: the account CODEX_HOME replaces an inherited one in any spelling', async () => {
+  const child = fakeChild();
+  let sawEnv = null;
+  codex.setSpawn((bin, args, opts) => { sawEnv = opts.env; return child; });
+  const was = process.env.Codex_Home;
+  process.env.Codex_Home = 'C:\\someone-else';
+  try {
+    const p = codex.runCodexTurn({ bin: 'codex', message: 'hi', codexHome: 'C:\\acct' });
+    child.emit('close', 0);
+    await p;
+  } finally { if (was === undefined) delete process.env.Codex_Home; else process.env.Codex_Home = was; }
+  const keys = Object.keys(sawEnv).filter((k) => k.toUpperCase() === 'CODEX_HOME');
+  assert.deepEqual(keys, ['CODEX_HOME'], 'one key, the usual spelling: ' + keys.join(','));
+  assert.equal(sawEnv.CODEX_HOME, 'C:\\acct');
+});
