@@ -11,6 +11,7 @@ const up = require('./backupupload');
 up.allowHttpForTests(true);   // the local bucket is plain http; only this setter allows that
 
 const md5 = (b) => crypto.createHash('md5').update(b).digest('base64');
+const sha256b = (b) => crypto.createHash('sha256').update(b).digest('base64');
 const chunk = (n, size) => ({ name: crypto.createHash('sha256').update(`c${n}`).digest('hex'), object: crypto.randomBytes(size || up.MIN_OBJECT + n) });
 const iso = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 const SIGNED = 'content-length;content-md5;host;if-none-match;x-amz-object-lock-mode;x-amz-object-lock-retain-until-date';
@@ -33,7 +34,9 @@ async function bucket() {
         return setTimeout(() => { res.statusCode = status; if (location) res.setHeader('location', location); res.end(body || ''); }, delay || 0);
       }
       const body = Buffer.concat(parts);
-      if (req.headers['content-md5'] !== md5(body)) { res.statusCode = 400; return res.end('<Error><Code>BadDigest</Code></Error>'); }
+      // A manifest binds x-amz-checksum-sha256, a chunk Content-MD5: S3 checks whichever was sent (400 BadDigest).
+      const sha = req.headers['x-amz-checksum-sha256'];
+      if (sha !== undefined ? sha !== sha256b(body) : req.headers['content-md5'] !== md5(body)) { res.statusCode = 400; return res.end('<Error><Code>BadDigest</Code></Error>'); }
       if (req.headers['if-none-match'] === '*' && stored.has(key)) { res.statusCode = 412; return res.end('<Error><Code>PreconditionFailed</Code></Error>'); }
       stored.set(key, body); res.statusCode = 200; res.end();
     });
@@ -772,4 +775,248 @@ test('missing wiring is refused before any request; a chunk outside the size ran
     assert.strictEqual(r.ok, false);
   }
   assert.strictEqual(c.bodies.length, 0);
+});
+
+/* ---- the manifest (#5535 slice 2: POST /v1/org/backup/manifest, one upload bound by x-amz-checksum-sha256) ---- */
+const SIGNED_M = 'content-length;host;if-none-match;x-amz-checksum-sha256;x-amz-object-lock-mode;x-amz-object-lock-retain-until-date';
+const DAY = 86400 * 1000;
+
+/* A manifest coordinator stub in slice 2's shape. `retainMs(expMs)` sets the lock (default: the grant start plus 33
+   days); `refuse`, `tamper` and `expiresAt` as coordinator(); keys are mK1, mK2, ... */
+function manifestCoordinator(b, opts) {
+  const o = opts || {};
+  const bodies = [];
+  let n = 0;
+  const macRequest = async (method, route, body) => {
+    bodies.push(body);
+    assert.strictEqual(method, 'POST'); assert.strictEqual(route, up.MANIFEST_ROUTE);
+    if (o.refuse && o.refuse.length) return { ok: false, because: o.refuse.shift() };
+    const expMs = typeof o.expiresAt === 'function' ? o.expiresAt() : (o.expiresAt || Date.now() + 15 * 60 * 1000);
+    const signedAt = Math.floor(expMs / 1000) * 1000 - 15 * 60 * 1000;
+    const retain = iso(o.retainMs ? o.retainMs(expMs) : signedAt + 33 * DAY);
+    const key = `org1/acct1/1/2026-W41/mK${++n}`;
+    const url = `${b.base}/bucket/${key.split('/').map(encodeURIComponent).join('/')}?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIDTEST%2F20261008%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=${amzDate(signedAt)}&X-Amz-Expires=900&X-Amz-SignedHeaders=${encodeURIComponent(SIGNED_M)}&X-Amz-Signature=00`;
+    const upload = { key, url, headers: { 'x-amz-checksum-sha256': Buffer.from(body.sha256, 'hex').toString('base64'), 'if-none-match': '*', 'x-amz-object-lock-mode': 'COMPLIANCE', 'x-amz-object-lock-retain-until-date': retain } };
+    const data = { epoch: 1, period: '2026-W41', retain_until: retain, expires_at: iso(expMs), upload };
+    if (o.tamper) o.tamper(data);
+    return { ok: true, data };
+  };
+  return { macRequest, bodies };
+}
+const mKey = (n) => `org1/acct1/1/2026-W41/mK${n}`;
+const manifestBytes = () => crypto.randomBytes(up.MIN_OBJECT + 100);
+// The opts a caller passes: the chunks' bucket path (the local bucket's) and a lock end no manifest here outlasts.
+const mOpts = (b, extra) => Object.assign({ bucket: `${new URL(b.base).host}/bucket/`, chunksLockedUntilMs: Date.now() + 40 * DAY }, extra || {});
+const sha256hex = (b) => crypto.createHash('sha256').update(b).digest('hex');
+
+test('chunks then their manifest: uploadChunks returns each lock end and the bucket, and the manifest is stored there under its SHA-256', async () => {
+  const b = await bucket();
+  try {
+    const cs = [chunk(1), chunk(2)];
+    const r = await up.uploadChunks(deps(coordinator(b)), cs);
+    assert.strictEqual(r.ok, true, r.because);
+    assert.strictEqual(r.bucket, `${new URL(b.base).host}/bucket/`);
+    for (const x of cs) assert.ok(Number.isFinite(r.lockedUntil.get(x.name)), 'each chunk has its lock end');
+    const m = manifestBytes();
+    const mc = manifestCoordinator(b);
+    const mr = await up.uploadManifest(deps(mc), m, { bucket: r.bucket, chunksLockedUntilMs: Math.min(...r.lockedUntil.values()) });
+    assert.strictEqual(mr.ok, true, mr.because);
+    assert.strictEqual(mr.key, mKey(1));
+    assert.strictEqual(mr.sha256, sha256hex(m));
+    assert.ok(b.stored.get(mKey(1)).equals(m));
+    assert.strictEqual(mc.bodies.length, 1);
+    assert.deepStrictEqual(Object.keys(mc.bodies[0]).sort(), ['nonce', 'sha256', 'size']);
+    assert.strictEqual(mc.bodies[0].sha256, sha256hex(m));
+    assert.strictEqual(mc.bodies[0].size, m.length);
+    assert.match(mc.bodies[0].nonce, /^[0-9a-f]{32}$/);
+  } finally { await b.close(); }
+});
+
+test('the local bucket checks x-amz-checksum-sha256 as S3 does (CONTROL: other bytes get 400 BadDigest)', async () => {
+  const b = await bucket();
+  try {
+    const m = manifestBytes();
+    const r = await fetch(`${b.base}/bucket/x`, { method: 'PUT', headers: { 'x-amz-checksum-sha256': sha256b(Buffer.from('other')) }, body: m });
+    assert.strictEqual(r.status, 400);
+    assert.match(await r.text(), /BadDigest/);
+  } finally { await b.close(); }
+});
+
+test('a manifest grant that does not bind OUR bytes, or is not bound the manifest way, is refused before anything is sent', async () => {
+  const cases = [
+    ['another SHA-256', (d) => { d.upload.headers['x-amz-checksum-sha256'] = sha256b(Buffer.from('x')); }, /does not bind this manifest's SHA-256/],
+    ['content-md5 in place of the checksum', (d) => { delete d.upload.headers['x-amz-checksum-sha256']; d.upload.headers['content-md5'] = md5(Buffer.from('x')); }, /may not \(content-md5\)/],
+    ['the checksum not signed', (d) => { d.upload.url = d.upload.url.replace(encodeURIComponent(SIGNED_M), encodeURIComponent(SIGNED)); }, /does not sign x-amz-checksum-sha256/],
+    ['not write-once', (d) => { d.upload.headers['if-none-match'] = 'x'; }, /not write-once/],
+    ['a GOVERNANCE lock', (d) => { d.upload.headers['x-amz-object-lock-mode'] = 'GOVERNANCE'; }, /not a COMPLIANCE lock/],
+    ['another length listed', (d) => { d.upload.headers['content-length'] = '5'; }, /does not bind this manifest's length/],
+    ['an uploads array (the chunk shape)', (d) => { d.uploads = [d.upload]; delete d.upload; }, /has no upload/],
+    ['a url without its key', (d) => { d.upload.key = 'other/key'; }, /does not carry its key/],
+  ];
+  for (const [what, tamper, why] of cases) {
+    const b = await bucket();
+    try {
+      const r = await up.uploadManifest(deps(manifestCoordinator(b, { tamper })), manifestBytes(), mOpts(b));
+      assert.strictEqual(r.ok, false, what);
+      assert.match(r.because, why, what);
+      assert.strictEqual(b.puts, 0, `${what}: a byte was sent`);
+    } finally { await b.close(); }
+  }
+});
+
+test('a manifest grant naming another bucket than its chunks is refused before anything is sent', async () => {
+  const b = await bucket();
+  try {
+    const r = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b, { bucket: 's3.us-east-1.amazonaws.com/other/' }));
+    assert.strictEqual(r.ok, false);
+    assert.match(r.because, /another bucket/);
+    assert.strictEqual(b.puts, 0);
+  } finally { await b.close(); }
+});
+
+test('a manifest locked past the earliest chunk it names is refused before its PUT; locked exactly to it is stored (CONTROL)', async () => {
+  const floor = Math.floor((Date.now() + 35 * DAY) / 1000) * 1000;   // whole seconds, as an ISO lock date carries
+  for (const [what, retain, ok] of [['one second past', floor + 1000, false], ['exactly at', floor, true]]) {
+    const b = await bucket();
+    try {
+      const mc = manifestCoordinator(b, { retainMs: () => retain });
+      const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunksLockedUntilMs: floor }));
+      assert.strictEqual(r.ok, ok, `${what}: ${r.because}`);
+      if (!ok) { assert.strictEqual(r.outlastsChunks, true); assert.strictEqual(b.puts, 0, `${what}: a byte was sent`); assert.strictEqual(mc.bodies.length, 1); }
+      else assert.strictEqual(r.lockedUntilMs, floor);
+    } finally { await b.close(); }
+  }
+});
+
+test('chunks whose lock ends within 30 days are refused before any grant is asked for (no allowance spent)', async () => {
+  const b = await bucket();
+  try {
+    const mc = manifestCoordinator(b);
+    const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunksLockedUntilMs: Date.now() + 29 * DAY }));
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.outlastsChunks, true);
+    assert.strictEqual(mc.bodies.length, 0, 'a grant was asked for');
+    // CONTROL: 31 days asks.
+    const ok = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunksLockedUntilMs: Date.now() + 40 * DAY }));
+    assert.strictEqual(ok.ok, true, ok.because);
+    assert.strictEqual(mc.bodies.length, 1);
+  } finally { await b.close(); }
+});
+
+test('a manifest call without its bucket or its chunks lock end, or outside the size range, asks for nothing', async () => {
+  const b = await bucket();
+  try {
+    const mc = manifestCoordinator(b);
+    const cases = [
+      [manifestBytes(), { chunksLockedUntilMs: Date.now() + 40 * DAY }, /no bucket/],
+      [manifestBytes(), { bucket: mOpts(b).bucket }, /no lock end/],
+      [manifestBytes(), mOpts(b, { chunksLockedUntilMs: NaN }), /no lock end/],
+      [crypto.randomBytes(up.MIN_OBJECT - 1), mOpts(b), /outside/],
+      ['not bytes', mOpts(b), /not bytes/],
+    ];
+    for (const [bytes, opts, why] of cases) {
+      const r = await up.uploadManifest(deps(mc), bytes, opts);
+      assert.strictEqual(r.ok, false); assert.match(r.because, why);
+    }
+    assert.strictEqual(mc.bodies.length, 0);
+    assert.strictEqual(b.puts, 0);
+  } finally { await b.close(); }
+});
+
+test('a manifest 412 on the FIRST attempt is refused; after a lost answer it counts as stored', async () => {
+  for (const [what, script, ok] of [
+    ['first attempt', [[412, '<Error><Code>PreconditionFailed</Code></Error>']], false],
+    ['after a 500', [[500], [412, '<Error><Code>PreconditionFailed</Code></Error>']], true],
+  ]) {
+    const b = await bucket();
+    try {
+      const mc = manifestCoordinator(b);
+      b.script.set(mKey(1), script.slice());
+      const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b));
+      assert.strictEqual(r.ok, ok, `${what}: ${r.because}`);
+      assert.strictEqual(mc.bodies.length, 1, `${what}: asked for another grant`);
+      if (ok) assert.strictEqual(r.key, mKey(1));
+    } finally { await b.close(); }
+  }
+});
+
+test('manifest bucket trouble is retried on the SAME url until expiry, then ends retryLater naming the key, with one grant', async () => {
+  const b = await bucket();
+  try {
+    const mc = manifestCoordinator(b);
+    b.script.get = () => [[503, '<Error><Code>SlowDown</Code></Error>']];
+    const r = await up.uploadManifest(deps(mc, clock()), manifestBytes(), mOpts(b));
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.retryLater, true);
+    assert.deepStrictEqual(r.unsure, [{ key: mKey(1) }]);
+    assert.strictEqual(mc.bodies.length, 1);
+    assert.ok(b.puts > 5, `retried only ${b.puts} times`);
+  } finally { await b.close(); }
+});
+
+test('a manifest grant that expired cleanly gets a NEW grant with a fresh nonce; bounded at MAX_REGRANTS more', async () => {
+  const expired = [403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>'];
+  let b = await bucket();
+  try {
+    const mc = manifestCoordinator(b);
+    b.script.set(mKey(1), [expired]);
+    const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b));
+    assert.strictEqual(r.ok, true, r.because);
+    assert.strictEqual(r.key, mKey(2));
+    assert.strictEqual(mc.bodies.length, 2);
+    assert.notStrictEqual(mc.bodies[0].nonce, mc.bodies[1].nonce);
+  } finally { await b.close(); }
+  b = await bucket();
+  try {
+    const mc = manifestCoordinator(b);
+    b.script.get = () => [expired];
+    const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b));
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.retryLater, true);
+    assert.strictEqual(mc.bodies.length, up.MAX_REGRANTS + 1);
+  } finally { await b.close(); }
+});
+
+test('a lost manifest answer, then S3 says the grant expired: no new grant (no second locked manifest), retryLater', async () => {
+  const b = await bucket();
+  try {
+    const mc = manifestCoordinator(b);
+    b.script.set(mKey(1), [[500], [403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>']]);
+    const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b));
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.retryLater, true);
+    assert.deepStrictEqual(r.unsure, [{ key: mKey(1) }]);
+    assert.strictEqual(mc.bodies.length, 1);
+  } finally { await b.close(); }
+});
+
+test('manifest grant refusals: replayed once is retried with a fresh nonce; quota ends retryLater; a refused PUT stops', async () => {
+  let b = await bucket();
+  try {
+    const mc = manifestCoordinator(b, { refuse: ['refused (HTTP 401 on /v1/org/backup/manifest, code replayed)'] });
+    const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b));
+    assert.strictEqual(r.ok, true, r.because);
+    assert.strictEqual(mc.bodies.length, 2);
+    assert.notStrictEqual(mc.bodies[0].nonce, mc.bodies[1].nonce);
+    const q = await up.uploadManifest(deps(manifestCoordinator(b, { refuse: ['refused (HTTP 429 on /v1/org/backup/manifest, code backup_quota)'] })), manifestBytes(), mOpts(b));
+    assert.strictEqual(q.ok, false); assert.strictEqual(q.retryLater, true); assert.strictEqual(q.code, 'backup_quota');
+  } finally { await b.close(); }
+  b = await bucket();
+  try {
+    const mc = manifestCoordinator(b);
+    b.script.set(mKey(1), [[400, '<Error><Code>BadDigest</Code></Error>']]);
+    const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b));
+    assert.strictEqual(r.ok, false); assert.match(r.because, /refused the manifest \(HTTP 400 BadDigest\)/);
+    assert.strictEqual(r.retryLater, undefined);
+    assert.strictEqual(mc.bodies.length, 1);
+  } finally { await b.close(); }
+});
+
+test('a manifest grant expiring far further ahead than a grant lasts (a clock far off) is refused before any PUT', async () => {
+  const b = await bucket();
+  try {
+    const r = await up.uploadManifest(deps(manifestCoordinator(b, { expiresAt: Date.now() + 3 * 60 * 60 * 1000 })), manifestBytes(), mOpts(b));
+    assert.strictEqual(r.ok, false); assert.match(r.because, /clocks is wrong/);
+    assert.strictEqual(b.puts, 0);
+  } finally { await b.close(); }
 });
