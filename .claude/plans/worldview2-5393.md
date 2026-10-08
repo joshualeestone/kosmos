@@ -36,6 +36,10 @@ That "At a glance" in the switcher menu is discoverable enough.
   serve one world.
 - If At a glance is pressed during the switcher's brief reconnect window, worldswClose() returns early and the
   menu stays open behind the sheet. Harmless (it is there when the sheet closes); left as is.
+- Any 401/403 from the overview route reads "Sign in to this Kosmos". Today the route's only gate is the board
+  token, so that is the cause; revisit if another gate (an origin check) is ever put in front of it.
+- A pause time already past is not specially worded: engine/worldview.js already drops a stated time that has
+  passed (slice 1, review 5), so the page never receives one.
 - With one Kosmos and other computers on Kosmos+, the menu opens for the computers and "At a glance" lists the one
   Kosmos. Kept: it is still true and useful.
 

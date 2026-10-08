@@ -29264,7 +29264,7 @@ async function wvLoad() {
   document.getElementById('wv-status').textContent = '';   // cleared, so the same outcome twice is still announced
   list.innerHTML = '<p class="wv-line wv-muted">Reading your Kosmoses...</p>';
   let html;
-  let said = 'Your Kosmoses are up to date.';
+  let said = 'Read just now.';
   try {
     const res = await fetch('/api/worlds/overview', { cache: 'no-store' });
     let body = null;
@@ -29274,6 +29274,7 @@ async function wvLoad() {
     if (res.status === 401 || res.status === 403) said = 'Sign in to this Kosmos to see your Kosmoses at a glance.';
     else if (!res.ok) said = wvSentence(body && (body.because || body.error)) || 'Kosmos could not read your Kosmoses just now.';
     else if (!body || !Array.isArray(body.worlds)) said = 'Kosmos could not read your Kosmoses just now.';
+    else if (!body.worlds.length) said = 'No Kosmoses found on this computer.';
     html = res.ok && body && Array.isArray(body.worlds) ? wvListHtml(body) : wvListHtml({ because: said });
   } catch (_e) {
     said = 'Kosmos could not be reached just now.';
