@@ -41,13 +41,14 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-/* The decision, pure: `entries` is what is in the folder ({ name, isSymlink, targetExists, mtimeMs }), `liveKeys`
-   the safeKey'd names to keep (roster plus removal records). Returns { remove: [{ name, kind, why }], keep: [{ name,
-   why }] }. Every entry lands in exactly one list. */
 /* The writer's own temp shape (securewrite's tempPath, and sendertoken's before #1787), anchored at the end. Any
    other name is not a temp this store wrote, so it is listed and left alone. */
 const TEMP_SHAPE = /\.kosmos-\d+-(?:t\d+-)?\d+-\d+\.tmp$/;
 
+/* The decision, pure: `entries` is what is in the folder ({ name, isSymlink, targetExists, mtimeMs, tokens }),
+   `liveKeys` the safeKey'd names to keep (every spelling of the roster's rows, the removal records, the heartbeat
+   records and adopted profiles). Returns { remove: [{ name, kind, why }], keep: [{ name, why }] }. Every entry lands
+   in exactly one list. */
 function planCleanup(entries, liveKeys, cutoffMs, safeKey) {
   const canon = (k) => { try { return safeKey(k); } catch { return null; } };
   const remove = [];
@@ -73,7 +74,7 @@ function planCleanup(entries, liveKeys, cutoffMs, safeKey) {
       else if (liveKeys.has(key)) keep.push({ name: e.name, why: 'its agent is on the board or in the removal records' });
       else if (info.launchers.includes('remote')) keep.push({ name: e.name, why: 'holds a remote agent\'s token (an offline remote agent is not on the board)' });
       else if (!(newest < cutoffMs)) keep.push({ name: e.name, why: 'minted or written on or after the cutoff' });
-      else remove.push({ name: e.name, kind: 'token', key, mtimeMs: e.mtimeMs, launchers: info.launchers, newestMintMs: info.newestMintMs, why: 'no such agent on the board, nothing newer than the cutoff' });
+      else remove.push({ name: e.name, kind: 'token', key, mtimeMs: e.mtimeMs, launchers: info.launchers, names: info.names || [], newestMintMs: info.newestMintMs, why: 'no such agent on the board, nothing newer than the cutoff' });
       continue;
     }
     if (TEMP_SHAPE.test(e.name)) {
@@ -107,13 +108,14 @@ function listEntries(dir) {
 /* What a token file says about itself: the launchers its tokens name and the newest mintedAt. An unreadable file
    says nothing (no launchers, no mint time), so only its mtime ages it. */
 function tokenInfo(file) {
-  const out = { launchers: [], newestMintMs: null };
+  const out = { launchers: [], names: [], newestMintMs: null };
   let kept;
   try { kept = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return out; }
   const tokens = kept && Array.isArray(kept.tokens) ? kept.tokens : (kept && typeof kept.token === 'string' ? [kept] : []);
   for (const t of tokens) {
     if (!t || typeof t !== 'object') continue;
     if (typeof t.launcher === 'string' && !out.launchers.includes(t.launcher)) out.launchers.push(t.launcher);
+    if (typeof t.name === 'string' && !out.names.includes(t.name)) out.names.push(t.name);
     const ms = Date.parse(t.mintedAt || '');
     if (Number.isFinite(ms) && (out.newestMintMs === null || ms > out.newestMintMs)) out.newestMintMs = ms;
   }
@@ -193,7 +195,7 @@ function parseArgs(argv) {
     else if (argv[i] === '--cutoff') out.cutoff = argv[++i];
     else throw new Error('unknown argument: ' + argv[i]);
   }
-  if (!Number.isInteger(out.port) || out.port <= 0) throw new Error('--port is required (the board port for THIS account; never assumed)');
+  if (!Number.isInteger(out.port) || out.port <= 0 || out.port > 65535) throw new Error('--port is required (the board port for THIS account; never assumed)');
   const ms = Date.parse(out.cutoff || '');
   if (!Number.isFinite(ms)) throw new Error('--cutoff is required, as an ISO date');
   if (ms > Date.now()) throw new Error('--cutoff is in the future, which would make every file old');
@@ -215,11 +217,14 @@ async function main(argv) {
   try { rows = await fetchRoster(args.port, token); }
   catch (e) { console.error('Stopped, nothing changed: could not read the board roster (' + e.message + ').'); return 2; }
   if (rows.length === 0) { console.error('Stopped, nothing changed: the board lists no agents, so every file would look orphaned.'); return 2; }
-  const removed = removal.removedAgents().filter((r) => r && typeof r === 'object');
-  const liveKeys = new Set();
-  for (const row of rows.concat(removed)) {
-    for (const n of spellingsOf(row)) { try { liveKeys.add(store.safeKey(n)); } catch { /* an unkeyable name holds no file */ } }
-  }
+  const removedRead = removal.removedNames();
+  if (!removedRead.ok) { console.error('Stopped, nothing changed: the removal records could not be read.'); return 2; }
+  const removed = removedRead.names.filter((n) => typeof n === 'string' && n).map((name) => ({ name }));
+  const keyOf = (n) => { try { return store.safeKey(n); } catch { return null; } };
+  const rosterKeys = new Set();
+  for (const row of rows) for (const n of spellingsOf(row)) { const k = keyOf(n); if (k) rosterKeys.add(k); }
+  const liveKeys = new Set(rosterKeys);
+  for (const row of removed) for (const n of spellingsOf(row)) { const k = keyOf(n); if (k) liveKeys.add(k); }
   let heartbeats = [];
   try { heartbeats = fs.readdirSync(liveness.DIR).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -'.json'.length)); }
   catch { heartbeats = []; }   // no heartbeat folder: no agent has ever reported that way
@@ -227,15 +232,25 @@ async function main(argv) {
   const dir = sendertoken.DIR;
   const entries = listEntries(dir);
   const tokenKeys = entries.filter((e) => !e.isSymlink && !e.other && e.name.endsWith('.json')).map((e) => e.name.slice(0, -'.json'.length));
-  if (tokenKeys.length > 0 && !tokenKeys.some((k) => liveKeys.has(k))) {
+  /* An adopted agent's token is minted once, with no launcher, and an offline one is not on the board: keep any key
+     whose profile says it was adopted. */
+  let adopted = 0;
+  for (const k of tokenKeys) {
+    let prof = {};
+    try { prof = store.readProfile(k) || {}; } catch { prof = {}; }
+    if (prof && prof.origin === 'adopted') { liveKeys.add(k); adopted += 1; }
+  }
+  /* The backstop counts the ROSTER only: this store's own heartbeat and removal records would match it on any real
+     machine, whichever board answered. */
+  if (tokenKeys.length > 0 && !tokenKeys.some((k) => rosterKeys.has(k))) {
     console.error('Stopped, nothing changed: not one token file here belongs to an agent on that board, so it is probably serving a different store.');
     return 2;
   }
   const plan = planCleanup(entries, liveKeys, args.cutoffMs, store.safeKey);
-  console.log(`Kept by name: ${rows.length} agents on the board, ${removed.length} in the removal records, ${heartbeats.length} with a heartbeat record; ${tokenKeys.filter((k) => liveKeys.has(k)).length} of ${tokenKeys.length} token files match one.`);
+  console.log(`Kept by name: ${rows.length} agents on the board (${tokenKeys.filter((k) => rosterKeys.has(k)).length} of ${tokenKeys.length} token files match one), ${removed.length} in the removal records, ${heartbeats.length} with a heartbeat record, ${adopted} adopted.`);
   console.log(`Would remove ${plan.remove.length}, keep ${plan.keep.length}:`);
   for (const r of plan.remove) {
-    const detail = r.kind === 'token' ? `; launchers: ${r.launchers.join(', ') || 'none'}; newest mint: ${r.newestMintMs ? new Date(r.newestMintMs).toISOString() : 'none'}` : '';
+    const detail = r.kind === 'token' ? `; token names: ${r.names.join(', ') || 'none'}; launchers: ${r.launchers.join(', ') || 'none'}; newest mint: ${r.newestMintMs ? new Date(r.newestMintMs).toISOString() : 'none'}` : '';
     console.log(`  remove  ${r.name}  (${r.why}${detail})`);
   }
   for (const k of plan.keep) console.log(`  keep    ${k.name}  (${k.why})`);
@@ -244,10 +259,13 @@ async function main(argv) {
   const dest = path.join(path.dirname(dir), 'sendertokens.backup-5418-' + new Date().toISOString().replace(/[:.]/g, '-'));
   try { backup(dir, dest, plan.remove.map((r) => r.name)); }
   catch (e) {
-    console.error('Stopped, nothing removed: the backup failed (' + e.message + '). If a file it names is gone, the store changed since the plan was made: run it again.');
+    /* The half-made backup holds copies of tokens: take it back, or name it so a person can. */
+    let left = '';
+    try { fs.rmSync(dest, { recursive: true, force: true }); } catch { left = ' A partial backup is left at ' + dest + ' (it holds token copies): delete it.'; }
+    console.error('Stopped, nothing removed: the backup failed (' + e.message + '). If a file it names is gone, the store changed since the plan was made: run it again.' + left);
     return 3;
   }
-  console.log('Backed up to ' + dest + ' (it holds the removed tokens: delete it once the result is checked).');
+  console.log('Backed up to ' + dest + ' (it holds the planned tokens, including any kept below because they changed: delete it once the result is checked).');
   const res = applyPlan(dir, plan, sendertoken.revokeIfUnchanged);
   console.log(`Removed ${res.removed.length}.`);
   for (const f of res.failed) console.log(`  not removed  ${f.name}  (${f.because})`);

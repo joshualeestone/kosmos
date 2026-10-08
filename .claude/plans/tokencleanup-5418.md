@@ -20,9 +20,13 @@ Mac, measured 10-06: 22 entries, 17 matching no agent and dated 08-28 to 09-08, 
   is fresh, so an OFFLINE one would look orphaned). Age is a file's newest sign of life: the later of its newest
   token `mintedAt` and its mtime.
 - Also kept, beyond the roster: a key with a heartbeat (liveness) record of ANY age (review 3: a remote agent
-  reports that way, and one minted before #4530 carries no launcher tag).
+  reports that way, and one minted before #4530 carries no launcher tag); a key whose profile says `origin:
+  'adopted'` (review 5: an adopted agent's token is minted once with no launcher). Unreadable removal records stop
+  the tool.
 - The real tie between the board on `--port` and this store is the board token (a board refuses a token that
-  is not its own); the "roster matches none of the files" stop is a backstop for a board that does not enforce it.
+  is not its own); the "roster matches none of the files" stop is a backstop for a board that does not enforce it,
+  and it counts the ROSTER only (review 5: this store's own heartbeat and removal records would satisfy it on any
+  real machine, whichever board answered).
 - **What it may remove:** a token file matching neither list and written before the cutoff; a temp in the writer's
   own `.kosmos-<pid>-...tmp` shape written before the cutoff; a link pointing at nothing, unless named for a live agent.
 - **Before sending the board token** it asks `/api/health` (no token) whether a Kosmos board answers on that port.
@@ -31,8 +35,9 @@ Mac, measured 10-06: 22 entries, 17 matching no agent and dated 08-28 to 09-08, 
   stops it before planning.
 - **Backup first:** `--apply` copies exactly the entries it will remove (with modes; links as links) to a new
   `sendertokens.backup-5418-<time>` folder beside it, refusing to overwrite, and stops if that fails.
-- A future `--cutoff` is refused. The dry run prints, per token file it would remove, its launchers and newest
-  mint, so a person can see a Windows or adopted agent before `--apply`.
+- A future `--cutoff` and an out-of-range `--port` are refused. The dry run prints, per token file it would
+  remove, the names its tokens carry (#4792), its launchers and newest mint, for a person to read against the
+  agents they know. A failed backup removes its own partial copy (or names it).
 - Token files are removed through `sendertoken.revokeIfUnchanged` (under its lock); temps and links are re-checked
   (still a file, still a link) just before unlinking. Prints names and counts, never a token.
 
@@ -44,7 +49,7 @@ Mac, measured 10-06: 22 entries, 17 matching no agent and dated 08-28 to 09-08, 
 - Running it automatically (at install or start): it is one-time, for machines that ran tests before ask 1.
 
 ## Tests
-`tools.cleanup-fixture-tokens-5418.test.js`, 16 arms, also run by the Windows job (ALSO_ROOT): the plan's keep/remove
+`tools.cleanup-fixture-tokens-5418.test.js`, 20 arms, also run by the Windows job (ALSO_ROOT): the plan's keep/remove
 split for every kind of entry (a live agent kept at any age: fails if the roster check is removed); unknown age
 never removed; links seen without following; backup copies modes and links and never overwrites; apply re-checks
 and goes through revoke; port and cutoff required; no roster or an empty one changes nothing (fails if the empty
@@ -62,8 +67,9 @@ delete the backup folder it names (it holds the removed tokens). Report counts o
 
 ## Weakest premises
 1. That the board lists every agent whose token must survive. Pane agents (running or stopped) and created agents
-   are listed; remote agents are kept by their launcher or their heartbeat record even offline. Left uncovered: an
-   adopted or Windows agent that is offline, not in the created roster, with no heartbeat record and no launcher tag. The dry run lists each candidate
+   are listed; remote agents are kept by their launcher or heartbeat record, adopted ones by their profile, even
+   offline. Left uncovered: a Windows agent that is offline, not in the created roster, with no heartbeat record.
+   Its token names are printed in the dry run; the backup restores a file if one is wrong. The dry run lists each candidate
    with its launchers and newest mint for a person to read, and the backup restores a file if one is wrong.
 2. That the spellings above cover every key a live agent's tokens can sit under. They match the supervisor's
 `token_roster_name` and the session/key names the Windows, adopt and remote paths mint under. A key minted some

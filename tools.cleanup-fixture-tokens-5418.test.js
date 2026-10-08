@@ -48,10 +48,11 @@ test('#5418: the plan keeps a live agent at any age and removes only old orphans
     { name: 'remote-a.json', isSymlink: false, mtimeMs: OLD, tokens: { launchers: ['remote'], newestMintMs: OLD } },  // offline remote agent: keep
     { name: 'recent-mint.json', isSymlink: false, mtimeMs: OLD, tokens: { launchers: [], newestMintMs: NEW } },        // minted after the cutoff: keep
     { name: 'notes.tmp', isSymlink: false, mtimeMs: OLD },              // not the writer's temp shape: keep
+    { name: 'z.json.kosmos-3-1690000000000-2.tmp', isSymlink: false, mtimeMs: OLD },  // the pre-thread temp shape: remove
     { name: 'alice.json.dangling', isSymlink: true, targetExists: false, mtimeMs: OLD },  // dangling, not .json: remove
   ];
   const plan = tool.planCleanup(entries, live, CUTOFF, safeKey);
-  assert.deepEqual(plan.remove.map((r) => r.name).sort(), ['alice.json.dangling', 'fixture-a.json', 'planted.json', 'x.json.kosmos-1-t0-1-1.tmp']);
+  assert.deepEqual(plan.remove.map((r) => r.name).sort(), ['alice.json.dangling', 'fixture-a.json', 'planted.json', 'x.json.kosmos-1-t0-1-1.tmp', 'z.json.kosmos-3-1690000000000-2.tmp']);
   assert.deepEqual(plan.keep.map((k) => k.name).sort(), ['My.Agent.json', 'alice.json', 'dir.json', 'fixture-b.json', 'linked.json', 'notes.tmp', 'notes.txt', 'recent-mint.json', 'remote-a.json', 'y.json.kosmos-2-t0-1-1.tmp']);
   // a DANGLING link named for a live agent is left alone
   const live2 = tool.planCleanup([{ name: 'alice.json', isSymlink: true, targetExists: false, mtimeMs: OLD }], live, CUTOFF, safeKey);
@@ -100,6 +101,7 @@ test('#5418: the backup copies files with their modes and links as links, and ne
 test('#5418: the port and the cutoff are required, never assumed', () => {
   assert.throws(() => tool.parseArgs(['--cutoff', '2026-10-08']), /--port is required/);
   assert.throws(() => tool.parseArgs(['--port', '1234']), /--cutoff is required/);
+  assert.throws(() => tool.parseArgs(['--port', '70000', '--cutoff', '2026-10-01']), /--port is required/);
   assert.throws(() => tool.parseArgs(['--port', '1234', '--cutoff', 'soon']), /--cutoff is required/);
   const a = tool.parseArgs(['--port', '1234', '--cutoff', '2026-10-01T00:00:00Z', '--apply']);
   assert.equal(a.apply, true);
@@ -244,11 +246,11 @@ test('#5418: applying removes a token only if, under the lock, it is still the f
 test('#5418: tokenInfo reads the launchers and newest mint, and an unreadable file says nothing', (t) => {
   const dir = scratch(t);
   const a = path.join(dir, 'a.json');
-  fs.writeFileSync(a, JSON.stringify({ tokens: [{ token: 'x', mintedAt: '2026-08-28T00:00:00Z', launcher: 'remote' }, { token: 'y', mintedAt: '2026-09-01T00:00:00Z' }] }));
-  assert.deepEqual(tool.tokenInfo(a), { launchers: ['remote'], newestMintMs: Date.parse('2026-09-01T00:00:00Z') });
+  fs.writeFileSync(a, JSON.stringify({ tokens: [{ token: 'x', mintedAt: '2026-08-28T00:00:00Z', launcher: 'remote', name: 'Ada' }, { token: 'y', mintedAt: '2026-09-01T00:00:00Z' }] }));
+  assert.deepEqual(tool.tokenInfo(a), { launchers: ['remote'], names: ['Ada'], newestMintMs: Date.parse('2026-09-01T00:00:00Z') });
   const b = path.join(dir, 'b.json');
   fs.writeFileSync(b, 'not json');
-  assert.deepEqual(tool.tokenInfo(b), { launchers: [], newestMintMs: null });
+  assert.deepEqual(tool.tokenInfo(b), { launchers: [], names: [], newestMintMs: null });
 });
 
 test('#5418: a key in the removal records or with a heartbeat record of any age is kept, though not on the board', async (t) => {
@@ -291,4 +293,71 @@ test('#5418: nothing that does not answer as a Kosmos board is ever sent the boa
   await assert.rejects(tool.fetchRoster(port, 'secret-board-token'), /Kosmos board/);
   assert.ok(seen.length >= 1, 'the health check never ran');
   assert.deepEqual(seen.filter((r) => r.token), [], 'the board token was sent to something that is not a Kosmos board');
+});
+
+test('#5418: the "different store" backstop counts the roster only: this store\'s own heartbeats cannot satisfy it', async (t) => {
+  const { dir, write } = e2eStore(t);
+  const liveness = require('./engine/liveness');
+  write('alice.json', OLD);
+  write('bob.json', OLD);
+  liveness.seen('alice', new Date(OLD).toISOString());   // a heartbeat key that matches a token file
+  t.after(() => fs.rmSync(liveness.fileFor('alice'), { force: true }));
+  const f = fleet.install([fleet.agent('zed')]);        // a board whose roster matches NONE of this store's files
+  t.after(() => f.restore());
+  const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
+  const err = quiet(t);
+  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply']), 2);
+  assert.deepEqual(fs.readdirSync(dir).filter((n) => n.endsWith('.json')).sort(), ['alice.json', 'bob.json']);
+  assert.match(String(err.mock.calls[0].arguments[0]), /different store/);
+});
+
+test('#5418: an adopted agent (its profile says so) keeps its token though offline and not on the board', async (t) => {
+  const { dir, write } = e2eStore(t);
+  const store = require('./engine/store');
+  write('anchor.json', OLD);
+  write('adopted-x.json', OLD);
+  write('fixture-y.json', OLD);
+  store.writeProfile('adopted-x', { origin: 'adopted' });
+  t.after(() => { try { fs.rmSync(path.join(store.ROOT, store.PROFILES_DIRNAME), { recursive: true, force: true }); } catch { /* none */ } });
+  const f = fleet.install([fleet.agent('anchor')]);
+  t.after(() => f.restore());
+  const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
+  quiet(t);
+  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply']), 0);
+  assert.deepEqual(fs.readdirSync(dir).filter((n) => n.endsWith('.json')).sort(), ['adopted-x.json', 'anchor.json']);
+});
+
+test('#5418: unreadable removal records stop the tool', async (t) => {
+  const { dir, write } = e2eStore(t);
+  const store = require('./engine/store');
+  write('anchor.json', OLD);
+  write('fixture-z.json', OLD);
+  const removedFile = path.join(store.ROOT, 'removed.json');
+  fs.writeFileSync(removedFile, 'not json');
+  t.after(() => fs.rmSync(removedFile, { force: true }));
+  const f = fleet.install([fleet.agent('anchor')]);
+  t.after(() => f.restore());
+  const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
+  const err = quiet(t);
+  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply']), 2);
+  assert.equal(fs.existsSync(path.join(dir, 'fixture-z.json')), true);
+  assert.match(String(err.mock.calls[0].arguments[0]), /removal records/);
+});
+
+test('#5418: a backup that fails part way removes nothing and leaves no copy of a token behind', async (t) => {
+  const { dir, write } = e2eStore(t);
+  write('anchor.json', OLD);
+  write('fixture-1.json', OLD);
+  write('fixture-2.json', OLD);
+  const f = fleet.install([fleet.agent('anchor')]);
+  t.after(() => f.restore());
+  const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
+  const realCopy = fs.copyFileSync;
+  let n = 0;
+  t.mock.method(fs, 'copyFileSync', (...a) => { n += 1; if (n === 2) throw Object.assign(new Error('disk full'), { code: 'ENOSPC' }); return realCopy(...a); });
+  quiet(t);
+  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString(), '--apply']), 3);
+  assert.equal(n >= 2, true, 'the planted failure never fired');
+  assert.deepEqual(fs.readdirSync(dir).filter((x) => x.endsWith('.json')).sort(), ['anchor.json', 'fixture-1.json', 'fixture-2.json']);
+  assert.deepEqual(fs.readdirSync(path.dirname(dir)).filter((x) => x.startsWith('sendertokens.backup-5418-')), [], 'a partial backup holding a token was left behind');
 });
