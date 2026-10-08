@@ -477,6 +477,17 @@ run_deploy "$S28" "$L28" --promote
   && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L28/dist/latest.json")" = "$OLD" ]; } \
   && pass "#5589: a live pointer moved mid-run (a cut published) is refused before the deploy, LIVE untouched" \
   || bad "#5589 mid-run pointer move (rc=$RC) out=$out"
+# 28b) #5589: the same mid-run move under --publish, the mode site-autodeploy.sh runs. Live serves the
+#      committed pointer, so the only thing that can refuse is the mid-run re-read. Control: the same
+#      scenario without the late pointer publishes (rc 0).
+read -r S28c L28c <<<"$(make_scenario)"; cp "$S28c/dist/latest.json" "$L28c/dist/latest.json"
+run_deploy "$S28c" "$L28c" --publish
+[ "$RC" = 0 ] && pass "#5589 control: --publish with live = committed and no pointer moving deploys" || bad "#5589 --publish control (rc=$RC) out=$out"
+read -r S28b L28b <<<"$(make_scenario)"; cp "$S28b/dist/latest.json" "$L28b/dist/latest.json"
+printf '{"version":"9.9.9"}\n' > "$L28b/dist/latest-win-staging.json.late"
+run_deploy "$S28b" "$L28b" --publish
+{ [ "$RC" = 75 ] && has "$out" "a live pointer changed while this run was building"; } \
+  && pass "#5589: --publish refuses a pointer moved mid-run (exit 75)" || bad "#5589 --publish mid-run move (rc=$RC) out=$out"
 # 29) #5589: a pointer that is absent live (404) is compared by status only, so a 404 page whose body
 #     differs per request does not read as a moved pointer. latest-win-staging.json is absent in this
 #     scenario, so both snapshots see a 404 with a different body.
