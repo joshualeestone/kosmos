@@ -46,3 +46,10 @@ a random segment inside a path masked. Full secretmask.test.js 126/126.
 - WARNING fixed: a word only needed a vowel, so random letter pieces (goxswayqboz, irqrfyfnsxp) passed and a random path cut by slashes (17195/5669431090/goxswayqboz/irqrfyfnsxp/929574) went unmasked where main masked it. A word is now word-SHAPED: at most 3 consonants in a row (y a consonant), a sixth of its letters vowels, no q without u. Considered reusing madeOfWords' wordLike (a quarter vowels): rejected, it fails "plans" and kept 93 of 4,219 real path runs plain against 3,097 with this rule (measured over the kosmos and kosmos-relay file lists). Random letter/digit paths judged plain: about 4.5% (639 of 14,192), the named residual.
 - Test '#5558 review 4': the reviewer's path masked, a real plans path left alone (control); red on the previous commit.
 - Sweep (23:41 CDT 2026-10-07): long_token 254 -> 196; files changed by masking 254 -> 211; 130/130 tests.
+
+### Review 5 (opus): 1 BLOCKER, 2 WARNINGs fixed; 2 NITs fixed
+- BLOCKER fixed: number pieces of up to 10 digits had no total, so an all-digit secret cut into short numbers with a word in front (pin/0403968243-1987742099/1844388921) went unmasked where main masked it (60% of the reviewer's shaped fuzz flipped). And the date rule took any 6-8 digits. Now a plain path holds at most 10 digits, one date not counted, and a date must be a real 19xx/20xx date. Cost on real paths: 3,097 -> 3,079 of 4,219 runs stay plain.
+- WARNING fixed: review 3's test could not see the 10-digit cap removed; it now asserts key/332101877788736414426 is not plain. Measured: that line still passes with the piece cap alone removed, because the new whole-path cap also rejects it (the two overlap on purpose).
+- WARNING fixed: the seeded generator in review 1's test lost precision past 2^53 and cycled every ~10k draws; it uses Math.imul now.
+- NITs fixed: tests for the q-without-u rule and the 40-character segment cap; the comment lists the segment cap.
+- Test '#5558 review 5' red on the previous commit. Sweep (23:46 CDT 2026-10-07): long_token 261 -> 202 (main moved); 131/131.
