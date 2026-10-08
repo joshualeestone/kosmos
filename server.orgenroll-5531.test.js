@@ -83,6 +83,7 @@ test('#5531: GET /api/org reports this world\'s own record, and only one that na
   assert.equal(yes.json.enrolled, true);
   assert.equal(yes.json.org.name, 'Acme');
   assert.equal(JSON.stringify(yes.json).includes(world), false, 'the world id was handed to the page');
+  assert.equal(JSON.stringify(yes.json).includes('org_1'), false, 'the org id was handed to the page');
   fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', world: 'f'.repeat(32), enrolledAt: '2026-10-07T00:00:00.000Z' }));
   const other = await call('/api/org', { method: 'GET' });
   assert.equal(other.json.enrolled, false, 'a record naming another world read as enrolled here');

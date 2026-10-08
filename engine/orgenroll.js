@@ -146,7 +146,14 @@ function codeOf(because) {
   for (const c of CODES) if (new RegExp('\\b' + c + '\\b').test(text)) return c;
   return null;
 }
-function sayFor(because, fallback) { const c = codeOf(because); return (c && SAY[c]) || because || fallback; }
+/* A public code becomes its sentence. Anything else (a tunnel's stderr line, a spawn error naming a path) goes to the
+   log, cleaned and bounded, and the person reads a fixed sentence: raw transport text never reaches the page. */
+function sayFor(because, fallback) {
+  const c = codeOf(because);
+  if (c && SAY[c]) return SAY[c];
+  if (because) { const { externalName } = require('./externalname'); console.error('orgenroll: ' + externalName(String(because), LINE_MAX)); }
+  return fallback;
+}
 
 async function signed(method, route, body, opts) {
   const remote = remoteFor(opts);
@@ -173,7 +180,7 @@ async function preview(code, opts) {
     if (org && role && consent) return { ok: true, move: true, org, role, consent };
     return { ok: false, code: 'org_already_member', because: SAY.org_already_member };
   }
-  if (!r.ok) return { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'the code could not be checked') };
+  if (!r.ok) return { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'The code could not be checked through Kosmos+ just now. Nothing was joined; try again in a minute.') };
   const org = cleanOrg(r.data && r.data.org);
   const role = cleanRole(r.data && r.data.role);
   const consent = cleanConsent(r.data && r.data.consent);
@@ -205,7 +212,7 @@ async function enrollNow(code, accepted, opts) {
     delete body.code;
     r = await signed('POST', ROUTES.enroll, body, opts);
   }
-  if (!r.ok) return { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'joining did not go through') };
+  if (!r.ok) return { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'Joining did not go through Kosmos+ just now. Nothing was joined; try again in a minute.') };
   const org = cleanOrg(r.data && r.data.org);
   const role = cleanRole(r.data && r.data.role);
   const en = r.data && r.data.enrolled;

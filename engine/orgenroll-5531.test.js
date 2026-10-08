@@ -153,7 +153,7 @@ test('#5531: the world id is minted once, kept, owner-only, and the enrollment f
   assert.equal(fs.statSync(path.join(a, org.ENROLLMENT_FILE)).mode & 0o777, 0o600);
 });
 
-test('#5531: the coordinator\'s public error codes are said in plain words; an unknown error keeps its own', async (t) => {
+test('#5531: the coordinator\'s public error codes are said in plain words; an unknown error is a fixed sentence', async (t) => {
   const { a } = sandbox(t);
   const said = (because) => ({ macRequest: async () => ({ ok: false, because }) });
   const used = await org.preview('ACME-JOIN-1234', { root: a, remote: said('HTTP 400: {"because":"org_code_used"}') });
@@ -161,7 +161,7 @@ test('#5531: the coordinator\'s public error codes are said in plain words; an u
   const dom = await org.enroll('ACME-JOIN-1234', true, { root: a, remote: said('403 org_wrong_domain') });
   assert.match(dom.because, /own email address/);
   const odd = await org.preview('ACME-JOIN-1234', { root: a, remote: said('the tunnel program did not answer in time') });
-  assert.equal(odd.code, null); assert.equal(odd.because, 'the tunnel program did not answer in time');
+  assert.equal(odd.code, null); assert.match(odd.because, /could not be checked through Kosmos\+/);   // review 4: an unknown error is a fixed sentence, the raw line goes to the log
   const last = await org.leave({ root: a, remote: said('409 org_last_admin') });
   assert.match(last.because, /last admin/);
 });
@@ -312,4 +312,21 @@ test('#5531 review 3: a pending leave later refused as the last admin restores t
   assert.equal(r2.still, true, JSON.stringify(r2));
   assert.equal(org.isEnrolledHere({ root: a }), true, 'the last admin\'s enrollment was lost by a retried leave');
   assert.equal(org.leavePending({ root: a }), false);
+});
+
+test('#5531 review 4: a failure with no public code reaches the page as a fixed sentence, never the raw tunnel line', async (t) => {
+  const { a } = sandbox(t);
+  const raw = 'the tunnel program could not be started: spawn /Users/someone/Library/kosmos-connector ENOENT';
+  const errs = []; const orig = console.error; console.error = (m) => errs.push(String(m)); t.after(() => { console.error = orig; });
+  const bad = { macRequest: async () => ({ ok: false, because: raw }) };
+  const p = await org.preview('ACME-JOIN-1234', { root: a, remote: bad });
+  const e = await org.enroll('ACME-JOIN-1234', true, { root: a, remote: bad });
+  for (const r of [p, e]) {
+    assert.equal(r.ok, false);
+    assert.equal(/Users|ENOENT|spawn/.test(r.because), false, 'raw transport text reached the page: ' + r.because);
+    assert.match(r.because, /Nothing was joined/);
+  }
+  assert.ok(errs.some((m) => m.includes('ENOENT')), 'the raw line was not kept in the log');
+  const known = await org.preview('ACME-JOIN-1234', { root: a, remote: { macRequest: async () => ({ ok: false, because: '410 {"because":"org_code_used"}' }) } });
+  assert.equal(known.code, 'org_code_used'); assert.equal(known.because, org.SAY.org_code_used);
 });

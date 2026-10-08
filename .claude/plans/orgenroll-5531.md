@@ -97,3 +97,10 @@ kosmos-relay `.claude/plans/orgs-5530.md`, agreed 2026-10-07 between the two own
 - DOCUMENTED: `isEnrolledHere()` is necessary, not sufficient. A copied data folder still holds the record until the
   next refresh, so the coordinator must also refuse a report from a world it no longer names (E0.3, E0.6), and
   Forget on a world should clear it (a later card).
+
+## Review 4 (blind, sonnet)
+- FIXED: a failure with no public code showed the raw tunnel line (a spawn error carries the connector's path, so the
+  home folder). It now shows a fixed sentence; the raw line goes to the log, cleaned and bounded. GET /api/org sends
+  the company's name and slug only, not its id.
+- DECIDED: GET /api/org stays readable by this board's agents. An agent on a work Kosmos reports to that company, so
+  which company it is is not a secret from it; the writes stay person-only.

@@ -9567,7 +9567,9 @@ const server = http.createServer(async (req, res) => {
       const oe = require('./engine/orgenroll');
       const here = oe.isEnrolledHere();
       const rec = here ? oe.readEnrollment() : null;   // a record naming another world says nothing here
-      sendJson(res, 200, { enrolled: here, org: rec ? rec.org : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
+      /* Readable by this board's agents on purpose: an agent on a work Kosmos reports to that company, so which company
+         it is is not a secret from it. Only the name and slug go out; the org id and the world id stay in the engine. */
+      sendJson(res, 200, { enrolled: here, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
     } catch { sendJson(res, 200, { enrolled: false, org: null, role: null, enrolledAt: null }); }
     return;
   }
