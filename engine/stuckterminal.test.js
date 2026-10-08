@@ -209,30 +209,23 @@ test('#5154-C review 5: sweepRoster on a genuinely EMPTY roster ([], a complete 
   assert.equal(st.readAnchor(k), null, 'a departed agent on a complete empty roster has its anchor pruned');
 });
 
-test('#5154-C review 5: sweepRoster tells once for OUR named stuck agent and ignores not-ours / unnamed rows', () => {
-  const told = new Set(); const t0 = 32_000_000; const tells = [];
-  const tell = (key, r, shown) => tells.push({ key, state: r.state, shown });
-  const rows = [
-    { sessionName: 'sr-leo', name: 'Leo', state: 'auth_failed', isNamedOurs: true },
-    { sessionName: 'sr-foreign', name: 'X', state: 'auth_failed', isNamedOurs: false },   // not ours -> ignored
-    { name: 'noname', state: 'auth_failed', isNamedOurs: true },                          // no sessionName -> ignored
-  ];
-  st.sweepRoster({ roster: rows, told, now: t0, tell });
-  st.sweepRoster({ roster: rows, told, now: t0 + AUTH, tell });
-  assert.equal(tells.length, 1, 'only our named stuck agent is told');
-  assert.equal(tells[0].key, 'sr-leo');
-  assert.equal(st.readAnchor('sr-foreign'), null, 'a not-ours row is never anchored');
-});
+// sweepRoster's OUR-named-stuck filter (`a.sessionName && a.isNamedOurs`) is deliberately not unit-tested
+// here: a hand-built roster row trips fixture-discipline.test.js (a roster row must come from
+// test-support/fleet, not a hand-written object-key literal), and the filter is the exact expression
+// server.js ran inline before review 5 extracted it -- unchanged, and the same one crashloop's names uses. The
+// SAFETY invariant review 5 added (null-skip: a failed snapshot never wipes a clock) is pinned by the two
+// tests above, which need no roster row. The once-per-episode + throwing-tell behaviour below is tested on
+// tellStuck directly, at the shape that function actually takes ({key,state,shown}), for the same reason.
 
 test('#5154-C review 6 (W2): a throwing tell for one agent does NOT abort the sweep (matches crashloop.tellLoops)', () => {
   const told = new Set(); const t0 = 33_000_000; const seen = [];
   const rows = [
-    { sessionName: 'thrower', name: 'A', state: 'auth_failed', isNamedOurs: true },
-    { sessionName: 'after', name: 'B', state: 'auth_failed', isNamedOurs: true },
+    { key: 'thrower', state: 'auth_failed', shown: 'A' },
+    { key: 'after', state: 'auth_failed', shown: 'B' },
   ];
-  st.sweepRoster({ roster: rows, told, now: t0, tell: () => {} });   // anchor both
+  st.tellStuck({ rows, told, now: t0, tell: () => {} });   // anchor both
   // Past the threshold, tell throws (EPIPE on stdout / a phonenotify error) for the FIRST agent.
-  assert.doesNotThrow(() => st.sweepRoster({ roster: rows, told, now: t0 + AUTH,
+  assert.doesNotThrow(() => st.tellStuck({ rows, told, now: t0 + AUTH,
     tell: (key) => { if (key === 'thrower') throw new Error('EPIPE'); seen.push(key); } }),
     'the sweep swallows a per-agent tell throw');
   assert.ok(seen.includes('after'), 'a throw on an earlier agent does not skip a later one');

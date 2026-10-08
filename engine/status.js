@@ -8576,14 +8576,14 @@ function snapshot() {
   }
 
   agents.sort((a, b) => a.name.localeCompare(b.name));
-  /* #5154 slice A+C: every row states crashLoop AND stuckError. The snapshot cannot know about runs (the
-     supervisor's run file is read by the route, engine/crashloop.js) or the terminal-error anchor (read by
-     safeRoster via stuckterminal.peek), so both say null here; /api/status fills the real values for agents we
-     started. Kept as a matched pair -- the two Issue signals (needsPerson/agentNeedsAttention) read both. */
-  for (const a of agents) {
-    if (a && !Object.prototype.hasOwnProperty.call(a, 'crashLoop')) a.crashLoop = null;
-    if (a && !Object.prototype.hasOwnProperty.call(a, 'stuckError')) a.stuckError = null;
-  }
+  /* #5154 slice A: every row states crashLoop. The snapshot cannot know about runs (the supervisor's run file is
+     read by the route, engine/crashloop.js), so it says null; /api/status fills the real value for agents we started.
+     #5154 slice C: stuckError is deliberately NOT normalised here. Adding it to snapshot()'s emitted shape drifts
+     the golden card fixture (render-talk-goldencard-2519) and the strict card/row field contracts; and every
+     consumer (needsPerson / agentNeedsAttention / projects) tests `Boolean(a.stuckError) && ...`, so an ABSENT
+     field reads as not-stuck exactly as `null` would. safeRoster attaches the real stuckError (via peek) for the
+     agents we started -- the only rows where "stuck" can be true -- so normalising the rest buys nothing. */
+  for (const a of agents) if (a && !Object.prototype.hasOwnProperty.call(a, 'crashLoop')) a.crashLoop = null;
 
   return {
     // Freshness is not decoration. An ambient display gets trusted passively,

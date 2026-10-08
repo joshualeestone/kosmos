@@ -5561,6 +5561,11 @@ const server = http.createServer(async (req, res) => {
                 /* #5154 slice A: stated on the offline row too. Between crashes a looping agent can have no session
                    at all, which is exactly when this row is the one the board draws. */
                 crashLoop: crashloop.read(k.name),
+                /* #5154 slice C: and stuckError, as a matched pair with crashLoop, so needsPerson /
+                   agentNeedsAttention can read it on this row without a strict-shape miss. Always null here:
+                   a terminal-error clock is kept only by the 60s sweep over RUNNING agents (stuckterminal.peek
+                   in safeRoster), and this row is an agent with no live session to be stuck. */
+                stuckError: null,
                 stateConfidence: unseen ? 'none' : 'structured',
                 /* #310: when the job exists and launchd holds an override
                    against it, the Login Items switch is the story, and it is
