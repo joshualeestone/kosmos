@@ -20418,6 +20418,15 @@ function stateReason(a, opts) {
     const n = Number(a.crashLoop.count) || 3;
     return 'Kosmos has restarted it ' + n + ' times in the last half hour, and each time it stopped within a couple of minutes. Kosmos will keep trying. Open it to see what it shows.';
   }
+  /* #5154 slice C: the same terminal error has stood past its threshold (engine/stuckterminal.js), so the card
+     names what is wrong and what to do. Placed before the plain auth_failed / rate_limited rules below so a
+     STUCK agent gets this sharper sentence; a brief one still falls through to the ordinary state sentence.
+     Plain words, consistent with the "Keeps stopping" card; Mona can refine later. */
+  if (a && a.stuckError && a.stuckError.stuck === true) {
+    const mins = Math.max(1, Math.round((Number(a.stuckError.forMs) || 0) / 60000));
+    if (a.stuckError.state === 'auth_failed') return 'Kosmos has seen this agent unable to sign in for about ' + mins + ' minutes. It cannot work until you reconnect its account. Open Settings to reconnect it.';
+    if (a.stuckError.state === 'rate_limited') return 'Kosmos has seen this agent paused by a rate limit for about ' + mins + ' minutes. It will keep trying when the limit lifts. You can wait, or switch its model.';
+  }
   /* #2019: a disruption we started names itself calmly. This mirrors boardfail's
      "This is not the same as having none": it pre-empts the fear the state exists
      to answer. Placed FIRST so it is not swallowed by the rate_limited guard
@@ -20839,7 +20848,10 @@ function agentNeedsAttention(a) {
   return !!(a && (a.state === 'needs_you' || a.state === 'needs_trust'
     || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')
     // #5154 slice A: an agent Kosmos keeps restarting and that keeps stopping within minutes.
-    || (a.crashLoop && a.crashLoop.looping === true)));
+    || (a.crashLoop && a.crashLoop.looping === true)
+    // #5154 slice C: an agent stuck past the threshold on the same terminal error (auth_failed / rate_limited).
+    // Keep byte-for-byte aligned with engine/status.js needsPerson.
+    || (a.stuckError && a.stuckError.stuck === true)));
 }
 
 /* ⚠️ ONE encoding of the memory thresholds, because there were four: the
