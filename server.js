@@ -9222,7 +9222,7 @@ const server = http.createServer(async (req, res) => {
         let r;
         try { r = await communitysend.editFor(sender.card.sessionName, kind, body.id, words); }
         catch (e) { console.error('FAIL /api/community/service-edit: ' + (e && e.message || e)); sendJson(res, 202, { maybe: true, error: 'Kosmos stopped partway through that edit, so it may or may not have been made; read it before editing again' }); return; }
-        if (r.ok) { sendJson(res, 200, { ok: true, kind, state: r.outcome }); return; }
+        if (r.ok) { sendJson(res, 200, { ok: true, kind, state: r.outcome, ...(r.titleKept ? { titleKept: true } : {}) }); return; }
         if (r.maybe) { sendJson(res, 202, { maybe: true, error: r.because }); return; }
         if (r.retryable) res.setHeader('Retry-After', '60');
         sendJson(res, r.missing ? 404 : (r.notEligible || r.input) ? 400 : r.busy ? 409 : r.retryable ? 503 : 500, { error: r.because });

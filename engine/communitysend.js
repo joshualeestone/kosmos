@@ -2192,7 +2192,12 @@ async function editNow(who, kind, raw, words, deadline) {
   const chk = feedpublish.checkEditWords(kind, row, kind === 'post' ? { body: words.body, topic } : { body: words.body }, { agentId: who });
   if (!chk.ok) return { ok: false, input: true, because: chk.error };
   if (chk.status !== feedpublish.PUBLISHED) return no('Kosmos\'s safety check would hold these words for your person, so nothing was changed');
-  const newWords = kind === 'post' ? { body: chk.body, topic: chk.topic } : { body: chk.body };
+  // Review 2: what is STORED as the topic. A queued post that had no topic keeps having none (topic ''), so its title keeps
+  // following its body on every later edit; storing the derived title would pin it and send an old first line next time.
+  const storedTopic = kind !== 'post' ? undefined
+    : (given || state === 'sent' || (typeof row.topic === 'string' && row.topic.trim())) ? chk.topic : '';
+  const newWords = kind === 'post' ? { body: chk.body, topic: storedTopic } : { body: chk.body };
+  const titleKept = kind === 'post' && !given && (state === 'sent' || (typeof row.topic === 'string' && row.topic.trim() !== ''));
   if (state === 'pending') {
     if (row.status !== 'published') return no('This ' + w + ' is held for your person to look at, so it cannot be edited');
     const st = loadJson(stateFile());
@@ -2201,7 +2206,7 @@ async function editNow(who, kind, raw, words, deadline) {
     let saved = false;
     try { saved = communitystore.updateWords(kind, local, newWords); } catch { saved = false; }
     if (!saved) return { ok: false, because: 'Kosmos could not save the new words, so nothing was changed' };
-    return { ok: true, outcome: willGo ? 'queued' : 'queued_not_going' };
+    return { ok: true, outcome: willGo ? 'queued' : 'queued_not_going', ...(titleKept ? { titleKept: true } : {}) };
   }
   // Sent: it must be findable, and the registration held must be the one that sent it, before anything goes out.
   if (rec.takenDown === true) return no('This ' + w + ' was taken down by the community\'s moderators, so it cannot be edited');
@@ -2216,7 +2221,7 @@ async function editNow(who, kind, raw, words, deadline) {
   if (!same) return no('Kosmos cannot be sure the registration it holds sent this ' + w + ', so it cannot edit it');
   const pathname = kind === 'post' ? '/posts/' + encodeURIComponent(rec.remoteId)
     : '/posts/' + encodeURIComponent(rec.post) + '/comments/' + encodeURIComponent(rec.remoteId);
-  const body = kind === 'post' ? { title: newWords.topic, body: newWords.body } : { body: newWords.body };
+  const body = kind === 'post' ? { title: chk.topic, body: newWords.body } : { body: newWords.body };
   let r;
   try { r = await agentCallSteps(who, 'PATCH', pathname, { register: false, deadline, body }); } catch (e) {
     // Review 1: over budget is thrown BEFORE anything is sent (as agentCallNow turns it into busy): nothing changed.
@@ -2237,7 +2242,7 @@ async function editNow(who, kind, raw, words, deadline) {
     let saved = false;
     try { saved = communitystore.updateWords(kind, local, newWords); } catch { saved = false; }
     if (!saved) log(`edit of ${local}: changed on the community, but the board's copy could not be saved`);
-    return { ok: true, outcome: 'changed' };
+    return { ok: true, outcome: 'changed', ...(titleKept ? { titleKept: true } : {}) };
   }
   if (r.status === 409 && error === 'edit_window_closed') return no('Too late: it is more than 15 minutes since this ' + w + ' was sent, so it can no longer be edited (take it back and send it again if it matters)');
   if (r.status === 409 && error === 'reported') return no('This ' + w + ' was reported, so it cannot be edited while the moderators look at it');

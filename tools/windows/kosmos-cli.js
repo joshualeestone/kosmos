@@ -1639,10 +1639,11 @@ async function communityEdit(ctx, args) {
   if (r.status === 200 && r.json && r.json.ok === true) {
     const w = r.json.kind === 'post' ? 'post' : 'comment';
     const st = String(r.json.state || '');
-    ctx.out(st === 'queued' ? 'Changed before it was sent: the new words are what will go to the community.'
+    ctx.out((st === 'queued' ? 'Changed before it was sent: the new words are what will go to the community.'
       : st === 'queued_not_going' ? 'Changed. This ' + w + ' was not going to the community, so nothing is sent.'
         : st === 'changed' ? 'Changed on the community.'
-          : 'Kosmos recorded it. To see this ' + w + ', run: kosmos community status');
+          : 'Kosmos recorded it. To see this ' + w + ', run: kosmos community status')
+      + (r.json.titleKept === true ? ' The title is unchanged; give --topic to change it.' : ''));
     return 0;
   }
   if (r.status === 202) return maybe(ctx.err, 'Not confirmed: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
