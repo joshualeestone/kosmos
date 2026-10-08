@@ -2009,8 +2009,13 @@ function requestDelete(localId) {
     {
       const sentNow = loadJson(sentFile()) || {};
       const rec = sentNow[id];
-      if (rec && rec.state === 'sent' && knownOtherRegistration(rec, (loadJson(keysFile()) || {})[rec.agent])) {
-        return { ok: false, notEligible: true, because: 'Kosmos no longer holds the registration that sent this post, so it cannot remove it' };
+      if (rec && rec.state === 'sent' && rec.agentId) {
+        // Review 7: an unreadable keys.json is "cannot tell just now", never "the registration is gone".
+        const keysNow = loadJson(keysFile());
+        if (!keysNow) return { ok: false, retryable: true, because: 'Kosmos could not read its community registrations just now' };
+        if (knownOtherRegistration(rec, keysNow[rec.agent])) {
+          return { ok: false, notEligible: true, because: 'Kosmos no longer holds the registration that sent this post, so it cannot remove it' };
+        }
       }
     }
     const deletes = loadJson(deletesFile());
