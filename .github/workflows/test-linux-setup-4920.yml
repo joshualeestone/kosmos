@@ -11,10 +11,9 @@
 name: linux-setup
 
 on:
-  # #5519 stopgap: each run installs a real board whose install beacon counts on the live counter, so pull requests
-  # run this only when they change the installer, the files this job's guards read, or this file. It installs the
-  # PUBLISHED release, so a new release is not checked automatically either: run it by hand after a cut, and for any
-  # other change that could break a Linux install. Remove the filter once #5519 lands.
+  # #5519 stopgap: each run's board counts as an install, so pull requests run this only when they change a path
+  # below; otherwise run it by hand. What it does and does not cover: .claude/plans/cipathstop-5519-*.md. Remove the
+  # filter once #5519 lands.
   pull_request:
     paths:
       - 'install/**'
