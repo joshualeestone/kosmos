@@ -218,7 +218,8 @@ function rememberConsent(hash, consent, opts) {
   const order = (Array.isArray(all.order) ? all.order : []).filter((h) => h !== hash && all.byHash[h]);
   order.push(hash);
   // The record's own hash is never dropped to make room.
-  const keep = readEnrollment(opts) && readEnrollment(opts).consentHash;
+  const held = readEnrollment(opts);
+  const keep = held && held.consentHash;
   while (order.length > CONSENT_KEEP) { const i = order.findIndex((h) => h !== keep && h !== hash); if (i < 0) break; order.splice(i, 1); }
   const byHash = {};
   for (const h of order) byHash[h] = h === hash ? { reports, usageConsented: reports.some((l) => NAMES_USAGE.test(l)) } : all.byHash[h];
@@ -236,10 +237,11 @@ function acceptedConsent(opts) {
 /* The company refused a report because the words it holds for this member changed (rollup 409 org_consent_changed):
    the words on record here are no longer accepted words, so this Kosmos stops reporting until the person accepts the
    new ones (the joined view then says it sends nothing). The membership is untouched. */
-function consentWithdrawn(opts) {
+function consentWithdrawn(opts, hash) {
   return oneAtATime(async () => {
     const rec = readEnrollment(opts);
-    if (!rec || !rec.consentHash) return false;
+    // Only the words the refused report was sent under: a join made while it was out keeps its own (rollup review 11).
+    if (!rec || !rec.consentHash || rec.consentHash !== hash) return false;
     const next = Object.assign({}, rec); delete next.consentHash;
     try { writeEnrollment(next, opts); return true; } catch { return false; }
   });
@@ -721,7 +723,8 @@ async function refreshNow(opts) {
   const rec = { org, role, world, enrolledAt: (before && before.enrolledAt) || new Date().toISOString() };
   // The consent belongs to the world it was shown for: never carried onto a record for another world (review 28).
   if (before && before.consentHash && before.world === world) rec.consentHash = before.consentHash;
-  if (before && before.computerSalt && before.world === world) rec.computerSalt = before.computerSalt;   // #5532
+  // #5532: the salt belongs to the company its print was pinned for; a different company on the answer drops it (review 11).
+  if (before && before.computerSalt && before.world === world && before.org && before.org.id === org.id) rec.computerSalt = before.computerSalt;
   try { writeEnrollment(rec, opts); } catch { /* keep the old record; the next refresh tries again */ }
   return { ok: true, enrolled: true, member: true, ...rec };
 }

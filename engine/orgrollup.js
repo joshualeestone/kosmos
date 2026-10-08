@@ -363,7 +363,11 @@ async function tick(opts) {
      by itself. Until the enrollment records `usageConsented` (set by the consent follow-up when the accepted words name
      usage), any usage read is dropped and the body says usageWithheld. */
   if (accepted.usageConsented !== true) { g.usageByDay = {}; g.usageWithheld = true; }
-  const due = !st.lastAt || now - st.lastAt >= DAILY_MS;
+  /* The daily send has its own clock (rollup review 11): a change send carries no status or model, so it must not push
+     the next daily (the only send that does) further out on a board that changes every day. Older state without it
+     falls back to lastAt once. */
+  const dailyAt = st.dailyAt || st.lastAt;
+  const due = !dailyAt || now - dailyAt >= DAILY_MS;
   // A partial read is never a change (review 5): only the daily send may carry an incomplete body.
   const sig = signature(build(Object.assign({ world: rec.world }, g)));
   const changed = !g.partial && st.lastSig && sig !== st.lastSig;
@@ -388,14 +392,14 @@ async function tick(opts) {
   let r;
   try { r = await remote.macRequest('POST', ROUTE, body); } catch (e) { r = { ok: false, because: String((e && e.message) || e) }; }
   if (r && r.ok) {
-    writeState(root, { enrolledAs, lastAt: now, lastSig: g.partial ? (st.lastSig || null) : sig });
+    writeState(root, { enrolledAs, lastAt: now, dailyAt: body.reason === 'daily' ? now : (st.dailyAt || st.lastAt || null), lastSig: g.partial ? (st.lastSig || null) : sig });
     return { sent: true, reason: body.reason };
   }
   writeState(root, Object.assign({}, st, { failAt: now }));
   /* The company holds other words for this member than the ones accepted here (contract v1.5, 409 org_consent_changed):
      stop reporting until the person accepts the new words (the joined view then says it sends nothing). */
   if (r && /\borg_consent_changed\b/.test(String(r.because || ''))) {
-    await oe.consentWithdrawn(eo);
+    await oe.consentWithdrawn(eo, rec.consentHash);   // only the words this report was sent under (review 11)
     return { sent: false, because: 'the company\'s words changed; nothing more is sent until they are accepted here' };
   }
   /* The company no longer takes this world's reports: ask it at once (refresh stops this world on a clear answer). */

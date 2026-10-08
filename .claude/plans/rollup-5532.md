@@ -106,7 +106,7 @@ usageprice-5532 (the price table). Rebased onto main once both merge.
 - FIXED: the real runner lookup falls back to claude (create.recordedRunner), so "provider null, never a guess" was
   only true in the test stub. The board's source now answers null when neither the launch job nor the profile names
   a runner; a real-store test pins both arms (null for nothing recorded, codex for an openai profile).
-- FIXED: orgenroll.refresh keeps the accepted report lines on the record (it rebuilt the record and would have
+- (SUPERSEDED 2026-10-08: the words are kept by hash in org-consent.json and refresh keeps only consentHash and computerSalt; see "Carried onto main and wired".) FIXED: orgenroll.refresh keeps the accepted report lines on the record (it rebuilt the record and would have
   dropped them, silently stopping the rollup once the consent follow-up lands).
 - FIXED: a model id's parts must be version numbers, known tier words or an 8-digit date; an alias named after a
   client (gpt-4o-acmecorp-pilot) is not sent.
@@ -123,7 +123,7 @@ usageprice-5532 (the price table). Rebased onto main once both merge.
 ## Review 9 (blind, opus)
 - FIXED (both from my own fixes): the change signature is agent NAMES and projects only (a provider differs between a
   running card, read from its pane, and a stopped agent with nothing recorded, so it moved on start and stop); and the
-  refresh keeps consent fields from one list (`CONSENT_FIELDS`: consentHash, reports, usageConsented), since
+  (SUPERSEDED 2026-10-08, as above) refresh keeps consent fields from one list (`CONSENT_FIELDS`: consentHash, reports, usageConsented), since
   usageConsented, added in review 8, was dropped the same way reports had been in review 7.
 - FIXED: stale wording (test title, the plan's truncated-for-withheld sentences, the module header); `tryAt` is
   documented as a write probe.
@@ -199,3 +199,13 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
 - DECIDED (field coverage, see above): the coordinator's hash binding, not a board-side text match.
 - NITs taken: the comment placement in the ticket; the CLAUDE.md row; the join code is checked before the hardware read.
 - Each fix's mutation makes it fail.
+
+## Review 11 (blind, Sonnet)
+- FIXED (my review-10 change made it live): change sends no longer carry status, so they must not move the daily clock.
+  The daily send has its own `dailyAt`, written only by a daily success; older state falls back to lastAt once. Test:
+  a change send between two days does not delay the next daily.
+- FIXED: `consentWithdrawn` acts only when the record still carries the hash the refused report was sent under, so a
+  join made while that request was out keeps its words. Test.
+- NITs taken: one read each in the /api/org reporting check and in rememberConsent; superseded plan lines marked;
+  refresh keeps the print's salt only for the same company id.
+

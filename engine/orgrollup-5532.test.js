@@ -520,3 +520,36 @@ test('#5532 rollup review 10: a join attempt that fails never takes away the wor
   assert.equal(r2.ok, false, 'CONTROL: the attempt failed');
   assert.ok(oe.acceptedConsent({ root }), 'the failed attempt overwrote the words the record reports on, so the rollup stopped silently');
 });
+
+test('#5532 rollup review 11: change sends never push the daily send (the only one with status and model) further out', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root);
+  const H = 3600e3;
+  const T0 = Date.UTC(2026, 9, 7, 12);
+  let projects = [{ id: 'p1', name: 'Launch', agents: ['leo'] }];
+  const src = () => sources({ projects: () => projects });
+  assert.equal((await r.tick({ root, remote: c, sources: src(), now: T0 })).reason, 'daily', 'CONTROL: the first send is daily');
+  // Every few hours a project is added: change sends.
+  for (const [i, h] of [[1, 6], [2, 12], [3, 18], [4, 23]]) {
+    projects = projects.concat([{ id: 'p' + (i + 1), name: 'Project ' + i, agents: ['leo'] }]);
+    assert.equal((await r.tick({ root, remote: c, sources: src(), now: T0 + h * H })).reason, 'change');
+  }
+  // A day after the last DAILY send, the next one is due, whatever changed in between.
+  const next = await r.tick({ root, remote: c, sources: src(), now: T0 + 24 * H });
+  assert.equal(next.sent, true, 'the daily send was pushed out by change sends: ' + JSON.stringify(next));
+  assert.equal(next.reason, 'daily');
+});
+
+test('#5532 rollup review 11: a "words changed" refusal only drops the words the refused report was sent under', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root);
+  const now = oe.readEnrollment({ root }).consentHash;
+  assert.equal(await oe.consentWithdrawn({ root }, 'ff'.repeat(32)), false, 'words were dropped for a report sent under other words');
+  assert.equal(oe.readEnrollment({ root }).consentHash, now);
+  assert.equal(await oe.consentWithdrawn({ root }, now), true, 'CONTROL: the words the report was sent under are dropped');
+  assert.equal(oe.mayReport({ root }), false);
+});
