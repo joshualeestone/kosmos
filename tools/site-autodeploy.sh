@@ -45,15 +45,19 @@
 #   last-failure   "<sha> rc=<n> <time>" of the last failed attempt (a record, read by nothing)
 #   failures       "<sha> <n>" consecutive failed attempts for that sha
 #   parked         the sha not retried until main moves
-#   retries        "<sha> <n>" consecutive exit-75 ticks for that sha
+#   retries        "<sha> <n>" consecutive retried ticks for that sha (exit 75, a checksum mismatch,
+#                  an unreadable live pointer)
+#   mirror-count   how many versioned tarballs the last successful deploy mirrored (the floor the
+#                  next mirror is held to; see MIRROR_DROP_MAX)
 #   log            one line per tick that did something, plus each deploy's output (trimmed to its
 #                  last 5000 lines once it passes 5 MB)
 #
 # Env: KOSMOS_AUTODEPLOY_SITE (the job's own site checkout, required), KOSMOS_AUTODEPLOY_STATE,
 # KOSMOS_AUTODEPLOY_DIST_FROM (default ~/work/chaoskosmos-site/dist), KOSMOS_SITE_URL (default
 # https://installkosmos.com, the same variable deploy-site.sh reads).
-# Test seams: KOSMOS_AUTODEPLOY_DEPLOY (the deploy command, default this repo's deploy-site.sh
-# --publish), KOSMOS_AUTODEPLOY_PS (the process list command, default `ps -axo command=`).
+# Test seams, TEST ONLY (each is run with sh -c, so never set them in the job's environment):
+# KOSMOS_AUTODEPLOY_DEPLOY (the deploy command, default this repo's deploy-site.sh --publish),
+# KOSMOS_AUTODEPLOY_PS (the process list command, default `ps -axo command=`).
 # macOS only (stat -f), like the box it runs on.
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -98,7 +102,7 @@ if ! mkdir "$LOCK" 2>/dev/null; then
   rm -rf "$LOCK"; mkdir "$LOCK" 2>/dev/null || exit 0
 fi
 echo $$ > "$LOCK/pid"
-trap 'rm -rf "$LOCK"' EXIT
+trap '[ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"' EXIT   # only a lock this tick holds
 # The heartbeat is written only by a tick that holds the lock, so a wedged lock shows as a stale one.
 now > "$STATE/heartbeat"
 if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 5000000 ]; then tail -n 5000 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"; fi
@@ -106,8 +110,21 @@ if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 5000000 ]; then tail -n 5000 "$LOG
 git -C "$SITE" fetch -q origin main 2>>"$LOG" || { say "FAIL: could not fetch site origin/main in $SITE"; exit 1; }
 TARGET=$(git -C "$SITE" rev-parse --verify -q origin/main) || { say "FAIL: no origin/main in $SITE"; exit 1; }
 LAST=$(cat "$STATE/last-deployed" 2>/dev/null || true)
-[ "$TARGET" = "$LAST" ] && exit 0
-[ "$(cat "$STATE/parked" 2>/dev/null || true)" = "$TARGET" ] && { say "parked: site main ${TARGET:0:9} failed twice; waiting for the next merge (or remove $STATE/parked)"; exit 0; }
+[ "$(cat "$STATE/parked" 2>/dev/null || true)" = "$TARGET" ] && { say "parked: site main ${TARGET:0:9} ($(cut -d' ' -f2 "$STATE/last-failure" 2>/dev/null | sed 's/^rc=//')); waiting for the next merge (or remove $STATE/parked)"; exit 0; }
+
+# What the live site serves: the export marker deploy-site.sh and release.sh ship names the site commit
+# it was built from. Empty when it cannot be read, which proves nothing either way.
+served=$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "$HOST/.kosmos-release-export" 2>/dev/null | sed -n 's/^commit=//p')
+if [ "$TARGET" = "$LAST" ]; then
+  # Done, unless live has since gone BACK to an older commit of main (a hand deploy from a checkout
+  # behind main, say). Only a readable marker naming a strict ancestor of main counts, so an
+  # unreadable or unrelated marker never makes a tick redeploy over and over.
+  if [ -n "$served" ] && [ "$served" != "$TARGET" ] && git -C "$SITE" merge-base --is-ancestor "$served" "$TARGET" 2>/dev/null; then
+    say "live serves ${served:0:9}, behind site main ${TARGET:0:9} which this job deployed; deploying it again"
+  else
+    exit 0
+  fi
+fi
 
 # A release cut publishes the site itself (its step 8) from its own checkout, and a hand-run
 # deploy-site.sh or promote-channel.sh is about to publish too. Do not deploy beside any of them: wait
@@ -134,11 +151,10 @@ if publisher_running; then
   exit 0
 fi
 
-# Already live: a cut's step 8 (or a hand-run deploy) published this exact commit. The export marker
-# deploy-site.sh and release.sh ship names the site commit it was built from. An unreadable marker
-# proves nothing either way, so the tick deploys.
-served=$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "$HOST/.kosmos-release-export" 2>/dev/null | sed -n 's/^commit=//p')
-if [ "$served" = "$TARGET" ]; then
+# Already live: a cut's step 8 (or a hand-run deploy) published this exact commit. Not when this job's
+# own last attempt at it failed: deploy-site.sh can fail AFTER vercel deploy (its served checks), and
+# that deploy's marker names the commit too, so "served" would wrongly clear the failure.
+if [ "$served" = "$TARGET" ] && [ "$(count_for "$STATE/failures")" = 0 ]; then
   echo "$TARGET" > "$STATE/last-deployed"; rm -f "$STATE/failures" "$STATE/retries" "$STATE/parked"
   say "already live: $HOST serves site main ${TARGET:0:9}; nothing to deploy"
   exit 0
@@ -158,9 +174,36 @@ MIRROR_DROP_MAX=5
 src_n=$(find "$DIST_FROM" -maxdepth 1 -name 'kosmos-*-arm64.tar.gz' 2>/dev/null | wc -l | tr -d ' ')
 prev_n=$(cat "$STATE/mirror-count" 2>/dev/null || true); case "$prev_n" in ''|*[!0-9]*) prev_n=0 ;; esac
 if [ -d "$DIST_FROM" ] && { [ "$src_n" = 0 ] || [ "$src_n" -lt $((prev_n - MIRROR_DROP_MAX)) ]; }; then
-  say "FAIL: $DIST_FROM holds $src_n versioned tarballs (the last good mirror held $prev_n); mirroring it would take the older downloads off the site (parked)"
+  say "FAIL: $DIST_FROM holds $src_n versioned tarballs (the last good mirror held $prev_n); mirroring it would take the older downloads off the site (parked). If that drop is a real prune, set $STATE/mirror-count to $src_n and remove $STATE/parked"
   printf '%s rc=%s %s\n' "$TARGET" dist "$(now)" > "$STATE/last-failure"; park; exit 1
 fi
+# A website deploy never moves a Mac release pointer: that is a cut's step 8 or a promote, which run
+# their own checks first. If main's latest.json or latest-staging.json differs from what is live, a
+# cut pushed its release commit and did not publish it (aborted between 7b and 8), or a promote was
+# committed and not deployed; publishing it here would ship a build nobody checked, because the
+# mirror below can supply its tarball. Park and say so. (The Windows pointers are not compared: live
+# serves them from R2 through a redirect, never from this tree.)
+for _p in latest.json latest-staging.json; do
+  _has=1; git -C "$SITE" cat-file -e "$TARGET:dist/$_p" 2>/dev/null || _has=0
+  _c=$(git -C "$SITE" show "$TARGET:dist/$_p" 2>/dev/null | shasum -a 256 | cut -c1-64)
+  rm -f "$STATE/ptr.tmp"
+  case "$HOST" in
+    file://*) if [ -f "${HOST#file://}/dist/$_p" ]; then cp "${HOST#file://}/dist/$_p" "$STATE/ptr.tmp"; _lc=200; else _lc=404; fi ;;   # tests
+    *) _lc=$(curl -sS --max-time 20 -H 'Cache-Control: no-cache' -o "$STATE/ptr.tmp" -w '%{http_code}' "$HOST/dist/$_p" 2>/dev/null) || _lc=000 ;;
+  esac
+  _l=$(shasum -a 256 < "$STATE/ptr.tmp" 2>/dev/null | cut -c1-64); rm -f "$STATE/ptr.tmp"
+  [ "$_lc" = 404 ] && [ "$_has" = 0 ] && continue   # absent on main and live alike
+  [ "$_lc" = 404 ] && _lc=200 && _l=absent           # on main, not live: a move like any other
+  case "$_lc" in
+    200) [ "$_c" = "$_l" ] && continue
+         say "FAIL: site main's dist/$_p is not what live serves: a release pointer move that a cut or promote has not published. A website deploy does not publish it (parked)"
+         printf '%s rc=%s %s\n' "$TARGET" pointer "$(now)" > "$STATE/last-failure"; park; exit 1 ;;
+    *) n=$(( $(count_for "$STATE/retries") + 1 )); echo "$TARGET $n" > "$STATE/retries"
+       say "retry: could not read the live $_p (HTTP $_lc); the next tick tries again ($n in a row)"
+       [ "$n" -ge "$RETRY_ALARM" ] && exit 1; exit 0 ;;
+  esac
+done
+
 # Mirror the older versioned Mac downloads (see the header). --delete with these filters removes only
 # versioned tarballs and sidecars the source no longer has; every other file in dist/ is left alone.
 [ -d "$DIST_FROM" ] || { say "FAIL: no $DIST_FROM to take the older versioned downloads from; deploying without them would take them off the site (parked)"; printf '%s rc=%s %s\n' "$TARGET" dist "$(now)" > "$STATE/last-failure"; park; exit 1; }
