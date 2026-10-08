@@ -355,18 +355,23 @@ function rulePaths(inner, platform = process.platform) {
   if (back !== null) out.push(back);
   const t = String(inner);
   // for an ordinary drive rule (c/Users/x) this reading never matches: `own` is a drive path, compared as text
+  // (the device form and a drive-relative C:foo are written too, as inert rules that match nothing)
   if (platform === 'win32' && /^[A-Za-z]\/[^/]+/.test(t)) out.push('\\\\' + t.replace(/\//g, '\\'));
   return out;
 }
 /* Whether any reading of a rule (rulePaths) holds the guide's own folder `own`. The first reading is resolved with
    `real` (realpath; case-sensitive is safe, since `own` is a realpath too and a missing folder cannot contain the
-   guide); every further reading (a one-letter share) is compared as TEXT, case-blind, and never resolved: resolving
+   guide), unless it is a share; every share reading is compared as TEXT, case-blind, and never resolved: resolving
    \\\\c\\Users would send Windows to the network for a host named c on every drive rule. Pure, `real` and `sep` passed in. */
 function readingsHoldGuide(backs, own, real, sep) {
   const under = (a, b) => a === b || a.startsWith(b.endsWith(sep) ? b : b + sep);
+  const text = (t) => under(own.toLowerCase(), t.toLowerCase());
   if (!backs.length) return false;
-  if (under(own, real(backs[0]))) return true;
-  return backs.slice(1).some((t) => under(own.toLowerCase(), t.toLowerCase()));
+  // a share reading (\\\\host\\...) is never resolved either: resolving it is a network lookup that can send this
+  // person's Windows credentials to the host it names (Claude Code's permissions docs say so of UNC paths)
+  const first = backs[0];
+  if (/^[\\/]{2}/.test(first) ? text(first) : under(own, real(first))) return true;
+  return backs.slice(1).some(text);
 }
 /* The inverse, for code that reads a rule back as a path: what follows `Read(//` (without a trailing `/**`) to the
    path it names. On Windows `c/Users/x` is `C:\Users\x`; a rule in the older native form (`C:\Users\x`, written
@@ -407,6 +412,7 @@ function legacyWinEquivalent(rule) {
 function withNativeTwins(rules, platform = process.platform) {
   if (platform !== 'win32') return rules;
   const out = [];
+  const seen = new Set(rules);
   for (const r of rules) {
     out.push(r);
     // the path is a drive letter alone (a drive root) or a drive and a path; the suffix is what the writer added
@@ -415,7 +421,7 @@ function withNativeTwins(rules, platform = process.platform) {
     const m = /^Read\(\/\/([a-z](?:\/.*?)??)((?:\/\*\*|\/\*\/[^/]*\/\*\*|\/\*\/[^/]*|\.\*)?)\)$/.exec(r);
     if (!m) continue;
     const native = rulePath(m[1], 'win32');
-    if (native) { const twin = `Read(//${native}${m[2]})`; if (!out.includes(twin)) out.push(twin); }
+    if (native) { const twin = `Read(//${native}${m[2]})`; if (!seen.has(twin)) { seen.add(twin); out.push(twin); } }
   }
   return out;
 }
@@ -528,7 +534,8 @@ function guardGuideFolder(dir, agentName, deps = {}) {
        linked entry a person made can resolve to an ancestor of it, and the sandbox follows links, so such a rule
        would cut the guide off from its own instructions: dropped, and said. What this checks, no more: a rule
        naming one folder or file, compared by real path (rulePath reads a rule back, the Windows form included); a rule
-       with a `*` is not checked, and the rules from before #4752 are left as they were. */
+       with a `*` is not checked, and an earlier rule is removed only by finalDeny
+       (when it equals a refused rule in either spelling or case), which says so. */
     const own = realOr(dir);
     const safe = fresh.rules.filter((r) => {
       if (!fresh.extra.includes(r)) return true;
@@ -537,7 +544,7 @@ function guardGuideFolder(dir, agentName, deps = {}) {
       // every path the rule can stand for (a one-letter share host reads as a drive too): refused if ANY holds the guide
       const backs = rulePaths(m[1], plat);
       if (!backs.length) return true;      // not a form ruleAbs writes: nothing to compare
-      if (!readingsHoldGuide(backs, own, realOr, plat === 'win32' ? '\\' : path.sep)) return true;
+      if (!readingsHoldGuide(backs, own, realOr, path.sep)) return true;
       process.stderr.write(`#4752: a rule that would take in the guide's own folder was left out: ${r}\n`);
       return false;
     });
