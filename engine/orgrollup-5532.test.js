@@ -591,7 +591,7 @@ test('#5532 rollup review 15: a clock that was ahead once never silences the rol
   // Sent at 23:50 UTC; ten minutes later is a new UTC day: the daily is due again, not 24 hours later.
   const late = Date.UTC(2026, 9, 9, 23, 50);
   assert.equal((await r.tick({ root, remote: c, sources: sources(), now: late })).reason, 'daily');
-  const next = await r.tick({ root, remote: c, sources: sources(), now: late + 15 * 60e3 });
+  const next = await r.tick({ root, remote: c, sources: sources(), now: late + 75 * 60e3 });   // past every world's offset (at most an hour)
   assert.equal(next.reason, 'daily', 'a new UTC day did not make the daily due: ' + JSON.stringify(next));
 });
 
@@ -640,3 +640,25 @@ test('#5532 rollup review 19: a state file with times that are not times never s
     assert.equal(res.sent, true, 'a state file holding ' + JSON.stringify(bad) + ' stopped the rollup: ' + JSON.stringify(res));
   }
 });
+
+test('#5532 rollup review 20: each world turns its day over at its own minute in the first hour, never the whole fleet at once', async (t) => {
+  const crypto = require('node:crypto');
+  const offsetOf = (w) => parseInt(crypto.createHash('sha256').update(w).digest('hex').slice(0, 8), 16) % 3600e3;
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root);
+  const w = oe.readEnrollment({ root }).world;
+  const off = offsetOf(w);
+  const late = Date.UTC(2026, 9, 9, 23, 50);
+  assert.equal((await r.tick({ root, remote: c, sources: sources(), now: late })).reason, 'daily');
+  const midnight = Date.UTC(2026, 9, 10);
+  if (off > 11 * 60e3) {   // before its minute (and past the ten-minute change window): not due yet
+    const early = await r.tick({ root, remote: c, sources: sources(), now: midnight + 60e3 });
+    assert.notEqual(early.reason, 'daily', 'the daily went before this world\'s minute: ' + JSON.stringify(early));
+  }
+  const at = await r.tick({ root, remote: c, sources: sources(), now: midnight + Math.max(off, 11 * 60e3) + 1 });
+  assert.equal(at.reason, 'daily', 'the daily did not go at this world\'s minute');
+  assert.notEqual(offsetOf('a'.repeat(32)), offsetOf('b'.repeat(32)), 'two worlds share one minute');
+});
+

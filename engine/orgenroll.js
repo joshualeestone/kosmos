@@ -237,6 +237,7 @@ function rememberConsent(hash, consent, opts) {
 function acceptedConsent(opts) {
   if (!mayReport(opts)) return null;
   const rec = readEnrollment(opts);
+  if (!rec) return null;
   const j = readConsents(opts).byHash[rec.consentHash];
   if (!j || !Array.isArray(j.reports)) return null;
   return { reports: j.reports.filter((l) => typeof l === 'string' && l), usageConsented: j.usageConsented === true };

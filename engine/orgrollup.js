@@ -87,6 +87,8 @@ function providerOfModel(model) {
  */
 function build(input) {
   const i = input || {};
+  // The clock the body is checked against: the tick's own (review 20), so build() is a pure function of its input.
+  const nowMs = Number.isFinite(i.nowMs) ? i.nowMs : Date.now();
   let truncated = false;
 
   const agentsIn = Array.isArray(i.agents) ? i.agents : [];
@@ -140,7 +142,7 @@ function build(input) {
   /* The last USAGE_DAYS days present, newest first; within a day the costliest rows first, so a trim drops the least. */
   const byDay = !i.usageWithheld && i.usageByDay && typeof i.usageByDay === 'object' ? i.usageByDay : {};
   // A real calendar day, not after tomorrow (review 18): the company refuses the WHOLE rollup for any other.
-  const realDay = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(d + 'T00:00:00Z')) && new Date(d + 'T00:00:00Z').toISOString().slice(0, 10) === d && notAfterTomorrow(d) === d;
+  const realDay = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(d + 'T00:00:00Z')) && new Date(d + 'T00:00:00Z').toISOString().slice(0, 10) === d && notAfterTomorrow(d, nowMs) === d;
   const days = Object.keys(byDay).filter(realDay).sort().reverse();
   if (days.length > USAGE_DAYS) truncated = true;
   const usage = [];
@@ -174,7 +176,7 @@ function build(input) {
     at: iso(i.at) || new Date().toISOString(),
     reason: i.reason === 'change' ? 'change' : 'daily',
     policyVersion: clean(i.policyVersion),
-    lastActive: notAfterTomorrow(day(i.lastActive)),   // the day only: "when you were last active", not a timeline (review 5)
+    lastActive: notAfterTomorrow(day(i.lastActive), nowMs),   // the day only: "when you were last active", not a timeline (review 5)
     backup: { lastOk: iso(i.backupLastOk) },
     agents, projects, usage,
     /* Contract v1.1 (PigeonPete): while this board has no reader scoped to this world, usage is [] and usageWithheld
@@ -381,7 +383,12 @@ async function tick(opts) {
      daily send of each UTC day, and a rolling 24 hours would drift past a whole day. */
   const dailyAt = st.dailyAt || st.lastAt;
   const utcDay = (t) => new Date(t).toISOString().slice(0, 10);
-  const due = !dailyAt || now - dailyAt >= DAILY_MS || utcDay(dailyAt) !== utcDay(now);
+  /* Each world turns its day over at its own minute within the first hour after UTC midnight (rollup review 20), so the
+     whole fleet does not send, and retry, in the same five minutes. Fixed per world: the first daily of the day stays
+     the first. */
+  const sinceMidnight = now - Date.parse(utcDay(now) + 'T00:00:00Z');
+  const offset = parseInt(crypto.createHash('sha256').update(String(rec.world)).digest('hex').slice(0, 8), 16) % (60 * 60 * 1000);
+  const due = !dailyAt || now - dailyAt >= DAILY_MS || (utcDay(dailyAt) !== utcDay(now) && sinceMidnight >= offset);
   /* Nothing can go yet (not due, and too soon after the last send for a change): the board is not read at all
      (review 15). Reading it takes a pane capture per agent, synchronously, every five minutes. */
   if (!due && st.lastAt && now - st.lastAt < CHANGE_MIN_MS) return { sent: false, because: 'nothing due' };
@@ -399,11 +406,11 @@ async function tick(opts) {
      usage), any usage read is dropped and the body says usageWithheld. */
   if (accepted.usageConsented !== true) { g.usageByDay = {}; g.usageWithheld = true; }
   // A partial read is never a change (review 5): only the daily send may carry an incomplete body.
-  const sig = signature(build(Object.assign({ world: rec.world }, g)));
+  const sig = signature(build(Object.assign({ world: rec.world, nowMs: now }, g)));
   const changed = !g.partial && st.lastSig && sig !== st.lastSig;
   if (!due && !(changed && (!st.lastAt || now - st.lastAt >= CHANGE_MIN_MS)))   // no last send on record: long ago (review 16)
     return { sent: false, because: 'nothing due' };
-  const body = build(Object.assign({ world: rec.world, at: new Date(now).toISOString(), reason: due ? 'daily' : 'change' }, g));
+  const body = build(Object.assign({ world: rec.world, at: new Date(now).toISOString(), reason: due ? 'daily' : 'change', nowMs: now }, g));
   /* #5532 (v1.5): the computer print pinned at enroll, made from this world's own record. Once a print is pinned the
      company refuses a rollup without it (a copy would just leave it out), so a read still retrying waits for the next
      tick instead of sending; that is not a failure, so it starts no hour of quiet. */

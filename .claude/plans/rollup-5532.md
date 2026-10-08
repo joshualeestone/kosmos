@@ -306,3 +306,15 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
   computer of the account leave; the plan's weakest premise); the usage rule's two-sided test waits for the usage
   reader to be wired.
 
+## Review 20 (blind, Opus)
+- FIXED (my review-15 rule made it live): "due on a new UTC day" sent every board's daily in the same five minutes
+  after midnight, and retried them together. Each world now turns its day over at its own fixed minute in the first
+  hour (sha256 of its world id), so the first daily of the day stays the first and the fleet spreads out. Test (its
+  "not before its minute" arm runs when the random world's minute is past the ten-minute window, about 5 runs in 6).
+- NITs taken: build() checks days against the tick's own clock (`nowMs`), so it is a pure function of its input;
+  acceptedConsent guards a missing record.
+- Decided, recorded: `lastActive` is the latest day any agent was working, which can include unattended work; the
+  consent words are PigeonPete's to match. And the joined view says "reports" while every rollup is refused with the
+  same code: that is what this board intends and keeps trying; the refusal is logged (review 18) and refresh acts on
+  the codes that mean "stop".
+
