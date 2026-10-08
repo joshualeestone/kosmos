@@ -53509,17 +53509,20 @@ const ORGCHART_TEAM_DEFAULT = 12;
 const ORGCHART_TEAM_MAX = 50;
 function orgchartPaint() {
   ORGCHART_RESULT_SHOWN = false;
-  orgchartTell('open');   // #5590: a new preview is a new create, so its choice is shown and open
   ORGCHART_MANY_OK = false;   // a changed list is asked about again
   document.getElementById('orgchart-many').hidden = true;
   const rows = ORGCHART_PARSED || [];
   if (rows.length > ORGCHART_TEAM_MAX) {
+    orgchartTell('gone');   // #5590: a list past the limit cannot be created, so there is no choice to make
     document.getElementById('orgchart-count').textContent = 'This list has ' + rows.length + ' people. Kosmos makes at most '
       + ORGCHART_TEAM_MAX + ' agents at a time, so remove some or split the file, then preview again.';
     document.getElementById('orgchart-list').replaceChildren();
     document.getElementById('orgchart-create').disabled = true;
     return;
   }
+  /* #5590: a new preview is the create about to be made, so its choice is shown and open; a repaint while a create
+     runs (a "reports to" change mid-flight) keeps it fixed, since that create's choice was already sent. */
+  orgchartTell(ORGCHART_CREATING ? 'locked' : 'open');
   const loops = orgchartLoops(rows);
   const open = rows.filter((r, i) => (r.why && !r.confirmed) || loops.has(i)).length;
   const count = document.getElementById('orgchart-count');

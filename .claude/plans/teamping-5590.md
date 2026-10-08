@@ -56,7 +56,7 @@ Neighbours green: createdbeacon-3038 (unit and route), no-phone-home-4253, brows
 - Fixed (CONVENTION): the guide comment (above) and the struck Review 1 CLI line.
 - Left (NIT): the Claude config path in os.tmpdir(), as the #3038 harness has it.
 
-## Review 4 (sonnet): no blockers
+## Review 4 (sonnet): no blockers (its orgchartTellLock is superseded by review 5's orgchartTell)
 - Fixed (WARNING): the import's box was live while a create ran and after it created agents, so unticking it then
   showed "off" for a ping already sent and flipped the sheet's choice. orgchartTellLock: fixed when the create starts,
   freed on the three exits that create nothing, kept fixed when agents were created (and on a kept result restored
@@ -77,3 +77,12 @@ Neighbours green: createdbeacon-3038 (unit and route), no-phone-home-4253, brows
 - Fixed (WARNING): the browser check asserts the box is gone after a created import and on the restored result (the
   reopen-within-Undo arm), and open and ticked again after a refused import.
 - Taken (NIT): the restore comment; the review-4 residual restated (the restore path, now closed by hiding).
+
+## Review 6 (sonnet): no blockers
+- Fixed (WARNING): a repaint during a create (a "reports to" change) reopened the box; orgchartPaint now keeps it
+  'locked' while ORGCHART_CREATING. (The same repaint re-enabling Create mid-flight is older than this change; left.)
+- Fixed (WARNING): a list past the limit showed an open box with nothing to create; it is 'gone' there.
+- Fixed (WARNING): the browser check holds the stand-in create open (1.2 s) and asserts the box is shown and open
+  before it, shown and fixed during it. Untested still: the open reset on the three error exits (fetch throw,
+  unreadable body, no outcome); the over-cap refusal arm covers the same call.
+- Plan: review 4's lock marked superseded.

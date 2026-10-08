@@ -51,8 +51,10 @@ function check(name, pass, detail) {
   let teamResponse = { outcome: 'created', created: [], refused: [], because: null };
   let teamStatus = 200;
   let lastTeamBody = null;
-  await page.route('**/api/team', (r) => {
+  let teamDelayMs = 0;   // #5590: an arm holds the create open to read the page while it runs
+  await page.route('**/api/team', async (r) => {
     lastTeamBody = JSON.parse(r.request().postData() || '{}');
+    if (teamDelayMs) await new Promise((res) => setTimeout(res, teamDelayMs));
     r.fulfill({ status: teamStatus, json: teamResponse });
   });
   /* #1280 Undo: DELETE /api/agent/:name/removal. `removal[name]` is what the engine
@@ -160,8 +162,15 @@ function check(name, pass, detail) {
     refused: [],
     because: null,
   };
+  teamDelayMs = 1200;
+  const tellBefore = await page.evaluate(() => { const b = document.getElementById('orgchart-tell'); return Boolean(b && !b.disabled && !document.getElementById('orgchart-tell-row').hidden); });
+  check('#5590: before the create, the import\'s box is shown and open', tellBefore, String(tellBefore));
   await page.click('#orgchart-create');
-  await page.waitForTimeout(400);
+  await page.waitForTimeout(200);
+  const tellDuring = await page.evaluate(() => { const b = document.getElementById('orgchart-tell'); return Boolean(b && b.disabled && !document.getElementById('orgchart-tell-row').hidden); });
+  check('#5590: while the create runs, the box is shown but fixed (its choice was sent)', tellDuring, String(tellDuring));
+  await page.waitForTimeout(1400);
+  teamDelayMs = 0;
   const created = await page.evaluate(() => document.getElementById('orgchart-count').textContent);
   check('a successful create surfaces the created count', /Created 3 agents/.test(created), JSON.stringify(created));
 
