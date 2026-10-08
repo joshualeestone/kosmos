@@ -57,6 +57,8 @@ test('kst1: a good token verifies; each broken part is refused for its own reaso
     [h + '.' + p + '.' + s.slice(0, 20), 'the signature is malformed'],
     [sign(bundle({ typ: 'relay_ticket' })), 'the token is not a org_policy'],
     [sign(bundle({ exp: NOW - 1 })), 'the token has expired'],
+    [sign(bundle({ exp: undefined })), 'the token has expired'],           // no expiry is not "never expires"
+    [sign(bundle({ exp: String(NOW + 60) })), 'the token has expired'],
   ];
   for (const [t, why] of cases) assert.equal(kst1.verify(t, PINNED, 'org_policy', NOW).why, why, t.slice(0, 40));
   assert.equal(kst1.verify(good, '', 'org_policy', NOW).why, 'no pinned coordinator key');

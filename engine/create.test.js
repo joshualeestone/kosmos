@@ -6666,3 +6666,32 @@ test('#5534 review 2/3: Gemini without a model is its pinned default, and a swit
     fs.rmSync(orgpolicy.APPLIED(), { force: true });
   }
 });
+
+test('#5534 review 4: a Gemini agent set back to its default is the pinned model; Grok too; a failing policy never blocks', LX(WIN_LAUNCHD, LINUX_UNPORTED_WHY), () => {
+  recorder();
+  create.setDryRun(false);
+  const orgpolicy = require('./orgpolicy');
+  fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 1, applied_at: 1,
+    policy: { providers_allowed: null, models_allowed: { google: ['gemini-2.5-flash', 'gemini-2.5-pro'], xai: ['grok-4.6'] } } }));
+  try {
+    const name = 'gemini-policy';
+    const out = create.createAgent({ ...BINS, geminiBin: GEMINI_BIN, name, role: 'pm', provider: 'google', model: 'gemini-2.5-pro' });
+    assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
+    const back = create.setModel(name, '');
+    assert.equal(back.outcome, create.OUTCOME.CREATED, 'setting Gemini back to its pinned default, which is listed, was refused: ' + back.because);
+    assert.equal(create.policyAllows('xai', '').ok, true, 'Grok without a model runs its pinned default, which is listed');
+    fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 2, applied_at: 1,
+      policy: { providers_allowed: null, models_allowed: { google: ['gemini-2.5-pro'], xai: ['grok-9'] } } }));
+    assert.match(String(create.policyAllows('xai', '').because), /does not allow the model grok-4\.6 on xai/);
+    assert.equal(create.setModel(name, '').outcome, create.OUTCOME.REFUSED, 'CONTROL: the default, now unlisted, is refused');
+    const realAllows = orgpolicy.allows;
+    orgpolicy.allows = () => { throw new Error('policy code broke'); };
+    try {
+      assert.equal(create.policyAllows('xai', '').ok, true, 'a throwing policy check blocked a create');
+    } finally {
+      orgpolicy.allows = realAllows;
+    }
+  } finally {
+    fs.rmSync(orgpolicy.APPLIED(), { force: true });
+  }
+});

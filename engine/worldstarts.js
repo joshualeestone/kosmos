@@ -533,10 +533,9 @@ function firstStartOfImport(entry, platform) {
   /* Marked on its profile, so Repair (which restores agents that lost their job, and is not gated) does not start
      the agent the policy just held; the mark clears when the policy allows it. */
   if (!allowed.ok) {
-    try { store.writeProfile(entry.name, { policyHeld: true }); } catch { /* the held entry still retries here */ }
+    try { store.writeProfile(entry.name, { policyHeld: true, provider: create.runnerProvider(runner) }); } catch { /* the held entry still retries here */ }
     return `${entry.name} was not started here: ${allowed.because}`;
   }
-  try { if ((store.readProfile(entry.name) || {}).policyHeld) store.writeProfile(entry.name, { policyHeld: false }); } catch { /* best effort */ }
   const configDir = typeof entry.configDir === 'string' && entry.configDir ? entry.configDir : null;
   /* The folder-trust pre-answer is a CLAUDE `.claude.json` concept, so it runs for
      claude only. codex was already excluded; gemini/grok/antigravity are excluded for the same
@@ -565,6 +564,8 @@ function firstStartOfImport(entry, platform) {
     return `we could not set ${entry.name} up to start (${String((err && err.message) || err)})`;
   }
   if (!out || !out.ok) return `we could not set ${entry.name} up to start: ${(out && out.because) || 'no reason was given'}`;
+  // #5534: it is set up to run now, so it counts as an agent that ran: Repair restores it later whatever the policy.
+  try { if ((store.readProfile(entry.name) || {}).policyHeld) store.writeProfile(entry.name, { policyHeld: false }); } catch { /* best effort */ }
   // #4918 review 15: on Linux a refused enable leaves nothing to start it at login, so the promise is not made.
   /* #4918 review 39: a running agent is started, not held (null, as register.repair counts it); one running whose
      enable systemd refused gets its own sentence rather than "could not start ... (it is running now ...)". */
