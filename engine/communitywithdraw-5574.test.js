@@ -190,3 +190,53 @@ test('a post id is not a comment id, and an empty id or kind is refused', () => 
   assert.equal(cs.withdrawFor('ava', 'vote', p.id).ok, false);
   assert.equal(cs.withdrawFor('', 'post', p.id).ok, false);
 });
+
+function writeJson(file, obj) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(obj));
+}
+
+test('review 1: a post the community refused, or one whose send got no answer, is not "taken back", and nothing is recorded', () => {
+  const refused = post('ava', 'Refused');
+  const lost = post('ava', 'Lost');
+  const fine = post('ava', 'Fine');
+  writeJson(cs._paths.sentFile(), {
+    [refused.id]: { state: 'refused', agent: 'ava', lastStatus: 422 },
+    [lost.id]: { state: 'pending', attempted: true, agent: 'ava' },
+    [fine.id]: { state: 'sent', agent: 'ava', remoteId: crypto.randomUUID() },
+  });
+  const r1 = cs.withdrawFor('ava', 'post', refused.id);
+  assert.equal(r1.notEligible, true, JSON.stringify(r1));
+  assert.match(r1.because, /did not accept this post/);
+  const r2 = cs.withdrawFor('ava', 'post', lost.id);
+  assert.equal(r2.notEligible, true, JSON.stringify(r2));
+  assert.match(r2.because, /never learned whether this post arrived/);
+  assert.deepEqual(readJson(cs._paths.deletesFile()), {}, 'nothing recorded for a post that cannot be taken back');
+  const r3 = cs.withdrawFor('ava', 'post', fine.id);
+  assert.equal(r3.ok, true, 'CONTROL: a sent post with its id is taken back: ' + JSON.stringify(r3));
+});
+
+test('review 1: ids do not cross kinds, by board id or by service id', async () => {
+  await on();
+  const p = post('ava', 'A post');
+  const c = comment('ava', 'A comment');
+  await cs.sweep();
+  const pRemote = readJson(cs._paths.sentFile())[p.id].remoteId;
+  const cRemote = readJson(cs._paths.commentsSentFile())[c.id].remoteId;
+  assert.equal(cs.withdrawFor('ava', 'post', c.id).missing, true, 'a comment board id as a post');
+  assert.equal(cs.withdrawFor('ava', 'post', cRemote).missing, true, 'a comment service id as a post');
+  assert.equal(cs.withdrawFor('ava', 'comment', p.id).missing, true, 'a post board id as a comment');
+  assert.equal(cs.withdrawFor('ava', 'comment', pRemote).missing, true, 'a post service id as a comment');
+  assert.deepEqual([readJson(cs._paths.deletesFile()), readJson(cs._paths.commentDeletesFile())], [{}, {}]);
+});
+
+test('review 1: a new agent given a removed agent\'s name cannot take back the old agent\'s words by their board id', () => {
+  const old = comment('ava', 'The removed agent\'s words.');
+  // The removal renames the SENT record (retireIn); the board's own row keeps the name "ava".
+  writeJson(cs._paths.commentsSentFile(), { [old.id]: { state: 'sent', agent: 'retired:ava:2026-10-01T00:00:00.000Z', post: POST, remoteId: crypto.randomUUID() } });
+  const r = cs.withdrawFor('ava', 'comment', old.id);
+  assert.equal(r.missing, true, JSON.stringify(r));
+  assert.deepEqual(readJson(cs._paths.commentDeletesFile()), {});
+  const mine = comment('ava', 'The new agent\'s own words.');
+  assert.equal(cs.withdrawFor('ava', 'comment', mine.id).ok, true, 'CONTROL: its own queued comment is taken back');
+});
