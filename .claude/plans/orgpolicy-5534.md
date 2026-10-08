@@ -14,9 +14,10 @@ model onto something the policy does not allow is refused with the policy's sent
 - engine/orgpolicy.js: refresh() (verify, shape check, no rollback, keep last good, atomic write of
   <store>/org-policy-applied.json), current(), allows({provider, model}) (model may be several names; any listed
   allows it).
-- engine/create.js: createAgentInner, setProvider and setModel ask allows() before writing anything; an unreadable
-  record is no policy.
-- Tests: engine/orgpolicy-5534.test.js (8, one: a bundle written since applies with no refresh call), create.test.js '#5534' (create, provider switch, model create, model
+- engine/create.js: policyAllows(provider, model) (key or full id; no model = the provider default); createAgentInner,
+  setProvider and setModel ask it before writing anything. engine/discover.js connect and engine/worldstarts.js
+  firstStartOfImport ask it too (both create agents); register.repair does not (it re-registers existing ones).
+- Tests: engine/orgpolicy-5534.test.js (7, one: a bundle written since applies with no refresh call), create.test.js '#5534' (create, provider switch, model create, model
   switch, controls; red with the setModel gate removed).
 
 ## Decided (also on the card)
@@ -31,3 +32,13 @@ fetch on start and daily (the tunnel's job: it writes the bundle). The board nee
 re-verifies the bundle each time it is asked (inForce), so a bundle written since applies at the next create or switch.
 
 ## Review log
+### Review 1 (opus): 2 BLOCKERs, 4 WARNINGs, 3 CONVENTIONs
+- BLOCKER fixed: connecting a folder and importing from another Kosmos created agents without asking the policy. Both ask now; tests in discover.adopt.test.js and worldstarts.test.js, each red with its gate removed.
+- BLOCKER fixed in part: the rollback guard compared only within the applied org, so another org's bundle in between reopened an older one. The applied record keeps the highest version per org (test, red without it). Deleting the record still reopens it: stated in the header as what this is not trusted for; closing it is E0.3 (the coordinator checks the reported version).
+- WARNING fixed: a model list was dodged by naming no model. No model now means the provider default (create.policyAllows), and a vendor default no list can name is refused under a list. Tests: create with no model under a list without the default refused; red with the default lookup removed.
+- WARNING documented: the policy is per Kosmos on a Mac, as enrollment is (header).
+- WARNING documented: no way out of an applied policy until E0.2 (leaving a company); header.
+- WARNING: the coordinator side does not exist yet; the payload now uses iat as docs/token-format.md does. The token-format section for org_policy is for the relay PR (noted on the card).
+- CONVENTION fixed: create by key when listed by full id (test); stateDir comment says it is a copy and why; header no longer says LAUNCHED.
+- NITs left: applied_at uses the clock not the injected now; a failed rename leaves a .tmp; the "never throws" fallbacks.
+- Focused: orgpolicy 7/7, discover.adopt 29/29, worldstarts 48/48, create 224/224 (23:56 CDT 2026-10-07).
