@@ -63,7 +63,9 @@
 #
 # Env: KOSMOS_AUTODEPLOY_SITE (the job's own site checkout, required), KOSMOS_AUTODEPLOY_STATE,
 # KOSMOS_AUTODEPLOY_DIST_FROM (default ~/work/chaoskosmos-site/dist), KOSMOS_AUTODEPLOY_DEPLOY_MAX_S (the
-# deploy's wall-clock limit, default 900), KOSMOS_SITE_URL (default
+# deploy's wall-clock limit in seconds: default 900, at most 1200; empty, non-numeric, 0 or a leading 0
+# means 900), KOSMOS_AUTODEPLOY_FETCH_MAX_S (the fetch's limit: default 120, at most 600, same fallbacks),
+# KOSMOS_SITE_URL (default
 # https://installkosmos.com, the same variable deploy-site.sh reads).
 # Test seams, TEST ONLY (each is run with sh -c, so never set them in the job's environment):
 # KOSMOS_AUTODEPLOY_DEPLOY (the deploy command, default this repo's deploy-site.sh --publish),
@@ -111,6 +113,7 @@ red_once() {  # <cause> <message>
     # message can break the annotation or start a second command.
     _ann=$(printf '%s' "$_msg" | sed -e 's/%/%25/g' | tr '\r\n' '  ')
     echo "::warning::still failing, reported red earlier today: $_ann"
+    # date -r <epoch> is BSD/macOS date (GNU reads -r as a file); this script runs on macOS only.
     say "STILL FAILING (reported): $_msg (red already reported at $(date -r "$at" '+%Y-%m-%d %H:%M'); green until it recovers, changes, or a day passes; remove $f to make it red again now)"
     exit 0
   fi
@@ -156,20 +159,42 @@ trap '[ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"' EXIT   # on
 trap 'exit 143' TERM INT HUP   # a cancel (TERM/INT/HUP) exits through the EXIT trap, so the lock is always freed
 # The heartbeat is written only by a tick that holds the lock, so a wedged lock shows as a stale one.
 now > "$STATE/heartbeat"
+# A deploy left by a tick that died WITHOUT its EXIT trap (a SIGKILL, a runner's tree kill after bash
+# was gone). The deploy runs in its own process group, so it outlives such a kill. deploy.pid holds
+# "<pgid> <sha> <leader start time>", written at launch and removed when a tick accounts for the deploy,
+# so a file still here means nobody did. The start time is the identity check: a reused pid has another.
+if read -r opg osha ostart < "$STATE/deploy.pid" 2>/dev/null && [ -n "$opg" ]; then
+  if [ -n "$ostart" ] && [ "$(ps -o lstart= -p "$opg" 2>/dev/null | tr -s ' ' _)" = "$ostart" ]; then
+    if [ $(( $(date +%s) - $(stat -f %m "$STATE/deploy.pid") )) -lt 1200 ]; then
+      say "skip: the deploy of ${osha:0:9} from an earlier tick (process group $opg) is still running; this tick waits"
+      exit 0
+    fi
+    kill -TERM -- "-$opg" 2>/dev/null; sleep 2; kill -KILL -- "-$opg" 2>/dev/null
+    say "stopped the deploy of ${osha:0:9} from an earlier tick (process group $opg), still running past 1200 s"
+  fi
+  # Unaccounted for: it may have published, so it is a failure (the same reason a killed tick is one).
+  printf '%s rc=%s %s\n' "$osha" 137 "$(now)" > "$STATE/last-failure"
+  echo "$osha $(( $(TARGET="$osha" count_for "$STATE/failures") + 1 ))" > "$STATE/failures"
+  rm -f "$STATE/deploy.pid"
+  say "an earlier tick's deploy of ${osha:0:9} ended unaccounted for (its tick was killed outright); recorded as a failure"
+fi
 if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 5000000 ]; then tail -n 5000 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"; fi
 
-# Bounded: no prompt, and a 120 s wall clock (perl's alarm; macOS has no timeout(1)), so a stalled
+# Bounded: no prompt, and a 120 s wall clock (KOSMOS_AUTODEPLOY_FETCH_MAX_S) (perl's alarm; macOS has no timeout(1)), so a stalled
 # transfer or a keychain helper that never answers is a failed fetch, not a tick hung until the runner's
 # job timeout (which would be red every tick, past red_once).
 # The git runs in its own process group and the whole group is stopped at the limit, so its helpers
 # (git-remote-https, a credential helper waiting on the keychain) cannot outlive it.
 grouped_timeout() {  # <seconds> <cmd...>: run cmd in its own process group; on expiry TERM then KILL the group, exit 142
-  perl -e 'my $t = shift; my $p = fork; if (!$p) { setpgrp(0, 0); exec @ARGV or exit 127 }
+  perl -e 'my $t = shift; my $p = fork; defined $p or exit 126; if (!$p) { setpgrp(0, 0); exec @ARGV or exit 127 }
     $SIG{ALRM} = sub { kill "TERM", -$p; sleep 2; kill "KILL", -$p; waitpid($p, 0); exit 142 };
     $SIG{$_} = sub { kill "TERM", -$p; exit 143 } for qw(TERM INT HUP);   # a killed tick takes the git group too
     alarm $t; waitpid($p, 0); my $s = $?; exit(($s & 127) ? 128 + ($s & 127) : $s >> 8)' "$@"
 }
-GIT_TERMINAL_PROMPT=0 grouped_timeout 120 git -C "$SITE" fetch -q origin main 2>>"$LOG" \
+FETCH_MAX_S="${KOSMOS_AUTODEPLOY_FETCH_MAX_S:-120}"
+case "$FETCH_MAX_S" in ''|*[!0-9]*|0*) FETCH_MAX_S=120 ;; esac
+[ "$FETCH_MAX_S" -le 600 ] || FETCH_MAX_S=600
+GIT_TERMINAL_PROMPT=0 grouped_timeout "$FETCH_MAX_S" git -C "$SITE" fetch -q origin main 2>>"$LOG" \
   || red_once fetch "FAIL: could not fetch site origin/main in $SITE (failed or timed out)"
 clear_reported fetch   # (TARGET is still empty here: the "none" records)
 TARGET=$(git -C "$SITE" rev-parse --verify -q origin/main) || { TARGET=""; red_once noref "FAIL: no origin/main in $SITE"; }
@@ -353,18 +378,25 @@ dpid=""   # set the moment the deploy starts; the traps below are in place BEFOR
 stop_deploy() {   # TERM the deploy group, give it up to 5 s, then KILL whatever is left (a child that ignores TERM)
   [ -n "$dpid" ] || return 0
   kill -TERM -- "-$dpid" 2>/dev/null
-  for _i in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$dpid" 2>/dev/null || break; sleep 0.5; done
+  for _i in 1 2 3 4 5 6 7 8 9 10; do kill -0 -- "-$dpid" 2>/dev/null || break; sleep 0.5; done
   kill -KILL -- "-$dpid" 2>/dev/null
 }
 # On the way out of a killed tick: stop the deploy, keep its output (run + log), and RECORD A FAILURE
 # (rc 143): the deploy may have published before the kill, so the next tick's "already live" shortcut
 # must not bless the sha (the same reason a timeout is a failure). Then free the lock.
+# Further signals are ignored first (a runner's cancel sends INT, then TERM seconds later), and the
+# failure is recorded BEFORE the slow stop, so a second signal cannot cut the record out.
+# The check is on the whole group (kill -0 -pgid): a child still running after its leader exited counts.
+# Unlike the deploy-failure path below, a killed tick never parks: the next tick retries, and parks on
+# its own failure (the count then reads 2 or more).
 killed_tick() {
-  if [ -n "$dpid" ] && kill -0 "$dpid" 2>/dev/null; then
-    stop_deploy
+  trap '' TERM INT HUP
+  if [ -n "$dpid" ] && kill -0 -- "-$dpid" 2>/dev/null; then
     printf '%s rc=%s %s\n' "$TARGET" 143 "$(now)" > "$STATE/last-failure"
     echo "$TARGET $(( $(count_for "$STATE/failures") + 1 ))" > "$STATE/failures"
+    stop_deploy
   fi
+  rm -f "$STATE/deploy.pid"   # accounted for (above, or it had already ended)
   tee -a "$LOG" < "$DOUT" 2>/dev/null
   [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"
 }
@@ -372,6 +404,9 @@ trap killed_tick EXIT
 trap 'exit 143' TERM INT HUP   # (stays for the rest of the tick: exit runs whichever EXIT trap is current)
 # </dev/null: under set -m a background job keeps the terminal as stdin, and a read would stop it (SIGTTIN).
 set -m; KOSMOS_SITE="$SITE" "${DCMD[@]}" < /dev/null > "$DOUT" 2>&1 & dpid=$!; set +m
+# Recorded so a tick killed outright (no EXIT trap) leaves the next tick a way to find this deploy:
+# being its own process group, it is out of reach of a kill aimed at this tick's group.
+printf '%s %s %s\n' "$dpid" "$TARGET" "$(ps -o lstart= -p "$dpid" 2>/dev/null | tr -s ' ' _)" > "$STATE/deploy.pid"
 dstart=$SECONDS   # the clock, not a count of loop turns (turns stretch under load)
 while kill -0 "$dpid" 2>/dev/null && [ $((SECONDS - dstart)) -lt "$DEPLOY_MAX_S" ]; do sleep 0.2; done
 if kill -0 "$dpid" 2>/dev/null; then
@@ -383,7 +418,10 @@ if kill -0 "$dpid" 2>/dev/null; then
   timedout=1
 else
   wait "$dpid"; rc=$?; timedout=""
+  # The leader is done; a child it left running in the group (a backgrounded helper) is not let outlive it.
+  if kill -0 -- "-$dpid" 2>/dev/null; then say "the deploy left processes running in its group; stopping them"; stop_deploy; fi
 fi
+rm -f "$STATE/deploy.pid"
 trap '[ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"' EXIT   # the deploy is over: back to the plain trap
 # Printed whole once it has ended (not streamed: a live tail could be orphaned by a killed tick, and
 # could cut off the last lines). The run and the log get the same complete output.
