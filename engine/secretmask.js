@@ -1223,27 +1223,29 @@ const hasDigitOrSymbol = looksLikeSecretValue;
 
 /* A long run with upper case, lower case and a digit in it, and not all hex: the shape of a token
    no named pattern knows. Hex-only runs (git commits, checksums) are left alone. */
-/* No slash in the run, so a file path (/Users/me/Library/Application Support) is never taken for one. */
+/* A run may hold slashes (base64 does); a path is told apart in looksRandom (a leading / or ~, or isPlainPath, #5558). */
 const LONG_TOKEN = /[A-Za-z0-9+/_-]{32,600}={0,2}/g;
 function isPlainPath(run) {
   const segs = run.split('/').filter(Boolean);
   if (segs.length < 2) return false;
   /* #5558: each piece between - and _ is judged WHOLE (review 1: no splitting a random chunk into word-like parts).
      Plain pieces, and nothing else:
-       a number;
+       a number of up to 10 digits;
        a word of 3 to 12 letters with a vowel (a e i o u), lowercase or Capitalized;
        such a word then up to 4 digits (win32, arm64);
        a date or timestamp (20260926, 20260926T1625, 20260913T052847Z);
        an architecture (x64, x86).
      Review 2: a digit run with stray letters (46541662l) is NOT plain, so a numeric secret cut by slashes is still
-     judged as a token. */
+     judged as a token. Review 3: and the path needs at least one real word. */
   const word = (w) => /^(?:[a-z]{3,12}|[A-Z][a-z]{2,11})$/.test(w) && /[aeiou]/i.test(w);
-  const pieceOk = (p) => /^[0-9]+$/.test(p)
+  // Review 3: a number is plain up to 10 digits (a long digit run is a token's), and a plain path needs a real word.
+  const pieceOk = (p) => /^[0-9]{1,10}$/.test(p)
     || word(p)
     || ((m) => !!m && word(m[1]))(p.match(/^([A-Za-z]+)[0-9]{1,4}$/))
     || /^[0-9]{6,8}(?:T[0-9]{2,6}Z?)?$/.test(p)
     || /^x(?:64|86)$/.test(p);
-  return segs.every((seg) => seg.length <= 40 && seg.split(/[-_]/).filter(Boolean).every(pieceOk));
+  const pieces = segs.flatMap((seg) => seg.split(/[-_]/).filter(Boolean));
+  return segs.every((seg) => seg.length <= 40) && pieces.every(pieceOk) && pieces.some(word);
 }
 
 function looksRandom(run) {
