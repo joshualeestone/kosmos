@@ -581,3 +581,21 @@ test('#5418: an unreadable heartbeat folder stops the tool; a profile that exist
   assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString()]), 2);
   assert.match(String(err.mock.calls.at(-1).arguments[0]), /heartbeat records could not be read/);
 });
+
+test('#5418: a profiles folder that cannot be listed stops the tool (the board\'s offline rows come from it)', async (t) => {
+  const { dir, write } = e2eStore(t);
+  const store = require('./engine/store');
+  write('anchor.json', OLD);
+  write('offline-x.json', OLD);
+  const prof = path.join(store.ROOT, store.PROFILES_DIRNAME);
+  fs.rmSync(prof, { recursive: true, force: true });
+  fs.writeFileSync(prof, 'not a folder');
+  t.after(() => fs.rmSync(prof, { force: true, recursive: true }));
+  const f = fleet.install([fleet.agent('anchor')]);
+  t.after(() => f.restore());
+  const port = await stubBoard(t, 200, { agents: JSON.parse(JSON.stringify(f.agents)) });
+  const err = quiet(t);
+  assert.equal(await tool.main(['--port', String(port), '--cutoff', new Date(CUTOFF).toISOString()]), 2);
+  assert.match(String(err.mock.calls.at(-1).arguments[0]), /profiles could not be read/);
+  assert.deepEqual(fs.readdirSync(dir).filter((n) => n.endsWith('.json')).sort(), ['anchor.json', 'offline-x.json']);
+});

@@ -52,3 +52,14 @@ test('#5418: a link where the file was is not followed or removed', { skip: proc
   assert.equal(fs.readFileSync(target, 'utf8'), 'keep me');
   fs.unlinkSync(fileOf('linked')); fs.unlinkSync(target);
 });
+
+test('#5418: a rewrite with NO new mint (a retire leaving an empty list) keeps the file: the mtime check alone', () => {
+  const m = seed('retired');
+  // the same agent's file rewritten with fewer tokens and no newer mintedAt, a little later
+  fs.writeFileSync(fileOf('retired'), JSON.stringify({ tokens: [] }));
+  fs.utimesSync(fileOf('retired'), (OLD + 5000) / 1000, (OLD + 5000) / 1000);
+  const r = sendertoken.revokeIfUnchanged('retired', m, OLD);
+  assert.equal(r.ok, false);
+  assert.match(r.because, /written since the plan/);
+  assert.equal(fs.existsSync(fileOf('retired')), true);
+});

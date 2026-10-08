@@ -193,21 +193,32 @@ function applyPlan(dir, plan, revoke) {
   return { removed, failed, gone };
 }
 
+/* GET a loopback JSON route with node's http module, which never reads proxy settings (a fetch can be sent through a
+   proxy by the environment, and the second call carries the board token: install/kosmos's rule #4466 is "never
+   through a proxy"). A redirect is not followed: it is an error, so the token's header cannot follow one. */
+function getJson(port, route, headers) {
+  return new Promise((resolve, reject) => {
+    const req = require('node:http').request({ host: '127.0.0.1', port, path: route, method: 'GET', headers: headers || {}, timeout: BOARD_TIMEOUT_MS }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400) { res.resume(); reject(new Error('the board answered with a redirect')); return; }
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (c) => { body += c; });
+      res.on('end', () => { let json = null; try { json = JSON.parse(body); } catch { json = null; } resolve({ status: res.statusCode, json }); });
+    });
+    req.on('timeout', () => req.destroy(new Error('the board did not answer in time')));
+    req.on('error', reject);
+    req.end();
+  });
+}
+
 async function fetchRoster(port, boardToken) {
   /* Ask, WITHOUT the token, whether a Kosmos board answers on that port at all, so a wrong --port never hands
      this store's board token to some other local program. */
-  // redirect: 'error' on both calls: a redirect would carry the token's header to wherever it points.
-  const health = await fetch(`http://127.0.0.1:${port}/api/health`, { redirect: 'error', signal: AbortSignal.timeout(BOARD_TIMEOUT_MS) });
-  let h = null;
-  try { h = await health.json(); } catch { h = null; }
-  if (!health.ok || !h || h.app !== 'kosmos') throw new Error('nothing on that port answers as a Kosmos board');
-  const res = await fetch(`http://127.0.0.1:${port}/api/status`, {
-    headers: boardToken ? { 'x-kosmos-board-token': boardToken } : {},
-    redirect: 'error',
-    signal: AbortSignal.timeout(BOARD_TIMEOUT_MS),
-  });
-  if (!res.ok) throw new Error('the board answered ' + res.status);
-  const body = await res.json();
+  const health = await getJson(port, '/api/health');
+  if (health.status !== 200 || !health.json || health.json.app !== 'kosmos') throw new Error('nothing on that port answers as a Kosmos board');
+  const res = await getJson(port, '/api/status', boardToken ? { 'x-kosmos-board-token': boardToken } : {});
+  if (res.status !== 200) throw new Error('the board answered ' + res.status);
+  const body = res.json;
   if (!body || !Array.isArray(body.agents)) throw new Error('the board answered without an agent list');
   // A board that could not read some of its own agents answers with a partial list: not one to remove by.
   if (body.counts && Number(body.counts.unreadableLines) > 0) throw new Error('the board could not read all of its agents just now (' + body.counts.unreadableLines + ' unreadable), so its list may be partial');
@@ -315,6 +326,12 @@ async function main(argv) {
   const dir = sendertoken.DIR;
   const entries = listEntries(dir);
   const tokenKeys = entries.filter((e) => !e.isSymlink && !e.other && e.name.endsWith('.json')).map((e) => e.name.slice(0, -'.json'.length));
+  /* The board's offline rows come from these same profile files (register.known); one it cannot list silently
+     empties that part of its roster, so a profiles folder that is there but cannot be read stops the tool. */
+  if (!require('../engine/register').known().ok) {
+    console.error('Stopped, nothing changed: the agent profiles could not be read, so offline agents cannot be told apart.');
+    return 2;
+  }
   /* Any key the store keeps a profile for is kept, whatever the profile says. An adopted or a Windows agent's token is
      minted with no launcher, and an offline one is not on the board; a profile is the store's own record of an agent.
      Fixture profiles leaked too, so this keeps some leftovers: a keep signal only, never a reason to remove. */
@@ -345,7 +362,7 @@ async function main(argv) {
   for (const k of plan.keep) console.log(`  keep    ${k.name}  (${k.why})`);
   const digest = planDigest(plan);
   console.log(`Plan digest: ${digest}`);
-  if (!args.apply) { console.log(`Dry run: nothing changed. Read every "remove" line against the agents you know, then run again with --apply --confirm ${digest}.`); return 0; }
+  if (!args.apply) { console.log(`Dry run: no token was removed. Read every "remove" line against the agents you know, then run again with --apply --confirm ${digest}.`); return 0; }
   if (args.confirm !== digest) {
     console.error(`Stopped, nothing removed: this plan (${digest}) is not the one confirmed (${args.confirm}); something changed since the dry run. Run the dry run again and read it.`);
     return 4;
