@@ -201,3 +201,19 @@ company, and `thisComputer` cannot tell them apart.
   not count sleep.
 - NOT TAKEN: renaming parseIoreg (it returns an id only from text its caller holds, and reading that text trips the
   READ guard).
+
+## Review 18 (blind, sonnet)
+- FIXED (my review-17 regex): the whole-block check is linear (a header search, an opening brace after it, and a
+  lone "}" as the text's last line), so no backtracking; a 5 MB non-matching dump takes 5 ms (end-check mutation
+  reddens).
+- DECLINED: asking ioreg only for IOPlatformUUID (`-k`): that drops the block when the key is missing, so a VM with no
+  id could not be told apart from a broken read.
+- DUPLICATES: the tests-only hooks (review 4); the raw id in memory (review 13); parseIoreg (review 13).
+
+## The design as it stands (the review notes above describe it as it changed)
+- `printFor(salt, company)` only: `print` | `none` | `later` | `error`. Retry a failed read after a minute; give up
+  after ten minutes of failing (then the wait doubles to an hour); "no id here" only for a WHOLE hardware block with no
+  id, twice in a row.
+- HMAC-SHA256(key = salt bytes, company + ':' + hardware id). Company id from this board's own record.
+- No file outside the tests may load the module until its first caller is allowlisted with its no-logging and
+  company-source tests; no file but this one may read the hardware.

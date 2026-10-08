@@ -120,8 +120,11 @@ function hardwareId() {
      a truncated or garbled answer is a failed read to retry, never a reason to send without a print. */
   /* The block must be WHOLE: its own header line, then its property list closed by a line holding only "}" (review 16).
      A dump cut off before the end, however often, is a failed read, not "no id here". */
-  // Anchored to the END OF THE TEXT (review 17): with a line-by-line anchor, a "}" line mid-dump would have counted.
-  const blockWithoutId = ran && /(^|\n)\+-o [^\n]*<class IOPlatformExpertDevice\b[\s\S]*\n\s*\{[\s\S]*\n\s*\}\s*$(?![\s\S])/.test(out)
+  // A linear check, no regex backtracking (review 18): the block's header line, an opening brace after it, and a lone
+  // "}" as the very last line of the text (review 17: the end of the TEXT, not of any line).
+  const head = out.search(/(^|\n)\+-o [^\n]*<class IOPlatformExpertDevice\b/);
+  const lines = out.replace(/\s+$/, '').split('\n');
+  const blockWithoutId = ran && head !== -1 && out.indexOf('{', head) !== -1 && lines.length > 1 && lines[lines.length - 1].trim() === '}'
     && !/"IOPlatformUUID"\s*=/.test(out);
   noIdStreak = blockWithoutId ? noIdStreak + 1 : 0;
   noIdHere = noIdStreak >= 2;   // the same answer twice, a minute apart: a lasting "no id", not a dump cut short
