@@ -6623,9 +6623,19 @@ test('#5534: a company policy in force refuses creating or switching an agent on
     assert.match(toHaiku.because, /does not allow the model haiku/);
     const toSonnet = create.setModel('policyok', 'sonnet');
     assert.equal(toSonnet.outcome, create.OUTCOME.CREATED, 'CONTROL: the listed model (by its key) is allowed: ' + toSonnet.because);
+    const bySonnetKey = create.createAgent({ ...BINS, name: 'policysonnet', role: 'pm', model: 'sonnet' });
+    assert.equal(bySonnetKey.outcome, create.OUTCOME.CREATED, 'a create by key, listed by full id, was refused: ' + bySonnetKey.because);
+    // Review 1: no model named runs the provider's default, which is what the policy is asked about.
+    fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 3, applied_at: 1,
+      policy: { providers_allowed: ['anthropic', 'openai'], models_allowed: { anthropic: ['opus'] } } }));
+    const noModel = create.createAgent({ ...BINS, name: 'policydefault', role: 'pm' });
+    assert.equal(noModel.outcome, create.OUTCOME.REFUSED, 'an agent on the default model was created under a list without it');
+    assert.match(noModel.because, /does not allow the model sonnet/);
   } finally {
     fs.rmSync(orgpolicy.APPLIED(), { force: true });
   }
   const after = create.createAgent({ ...BINS, name: 'policygone', role: 'pm', provider: 'openai' });
   assert.doesNotMatch(String(after.because || ''), /company's policy/, 'CONTROL: with no policy in force the provider is not refused for policy');
+  const plain = create.createAgent({ ...BINS, name: 'policynone', role: 'pm' });
+  assert.equal(plain.outcome, create.OUTCOME.CREATED, 'CONTROL: with no policy an ordinary create succeeds: ' + plain.because);
 });

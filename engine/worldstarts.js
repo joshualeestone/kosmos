@@ -527,6 +527,10 @@ function firstStartOfImport(entry, platform) {
      installJob explicitly, which refuses antigravity while its flag is off (#3568);
      anything else floors at claude, the historical default. */
   const runner = create.isNonClaudeRunner(entry.runner) ? entry.runner : 'claude';
+  /* #5534: an imported agent is new to this Kosmos, so a company policy that does not allow its provider or model
+     keeps it from starting here (it is not stopped where it came from). */
+  const allowed = create.policyAllows(create.runnerProvider(runner), entry.model);
+  if (!allowed.ok) return `${entry.name} was not started here: ${allowed.because}`;
   const configDir = typeof entry.configDir === 'string' && entry.configDir ? entry.configDir : null;
   /* The folder-trust pre-answer is a CLAUDE `.claude.json` concept, so it runs for
      claude only. codex was already excluded; gemini/grok/antigravity are excluded for the same
