@@ -119,7 +119,13 @@ test('#4752: on Windows a refused rule (it would take in the guide\'s own folder
   assert.deepEqual(sa.finalDeny([oldR], [], refused, 'darwin'), [oldR]);
 });
 
+/* The Windows-only arm below is the one proof that guardGuideFolder writes twins and refuses both spellings on a real
+   Windows host. tools/windows-tests.js passes a file in which some tests skip, so on win32 a skip must fail HERE. */
+let windowsArmRan = false;
+test.after(() => { if (process.platform === 'win32' && !windowsArmRan) throw new Error('#4752: the Windows-only guardGuideFolder arm did not run on a Windows host'); });
+
 test('#4752 on a Windows host: guardGuideFolder leaves out a rule taking in the guide\'s folder in BOTH spellings, end to end', { skip: process.platform !== 'win32' && 'measures the real Windows path through guardGuideFolder; runs on the Windows job' }, (t) => {
+  windowsArmRan = true;
   // On a Windows runner os.tmpdir() is an 8.3 short name (RUNNER~1). That still works: the rules are written from the
   // same short-name strings this test builds, and both sides of the own-folder comparison go through realpath.
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'winrules-e2e-'));
@@ -178,10 +184,12 @@ test('#4752: an old rule for a drive root maps to the same rule ruleAbs writes n
 });
 
 test('#4752: on Windows a path that is not a drive path gets no rule (said), off Windows the same strings are ordinary', () => {
-  for (const p of ['\\\\srv\\share\\K', '\\\\s\\share\\K', '\\\\?\\UNC\\srv\\share', '\\\\.\\C:\\x', 'c:foo']) {
+  for (const p of ['\\\\.\\C:\\x', 'c:foo', 'C:', '\\rooted\\nodrive']) {
     assert.equal(sa.ruleUnwritable(p, 'win32'), true, 'written as a rule that matches nothing on Windows: ' + p);
   }
-  for (const p of ['C:\\Users\\a', 'd:/data', '\\\\?\\C:\\Users\\a']) assert.equal(sa.ruleUnwritable(p, 'win32'), false, 'CONTROL: a drive path refused: ' + p);
+  for (const p of ['C:\\Users\\a', 'd:/data', '\\\\?\\C:\\Users\\a', '\\\\srv\\share\\K', '\\\\s\\share\\K', '\\\\?\\UNC\\srv\\share\\K']) assert.equal(sa.ruleUnwritable(p, 'win32'), false, 'a drive path or a share was refused (a share is written; review 21): ' + p);
+  assert.equal(sa.ruleAbs('\\\\srv\\share\\K', 'win32'), '//srv/share/K');
+  assert.equal(sa.ruleAbs('C:', 'win32').includes('//c'), false, 'a bare drive-relative C: was written as the whole drive');
   assert.equal(sa.ruleUnwritable('/srv/share/K', 'darwin'), false, 'CONTROL: an ordinary POSIX path refused');
   assert.equal(sa.ruleUnwritable('/a/b*c', 'darwin'), true, 'CONTROL: a pattern character not refused');
 });
