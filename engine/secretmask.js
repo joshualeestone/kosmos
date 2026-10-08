@@ -1225,10 +1225,33 @@ const hasDigitOrSymbol = looksLikeSecretValue;
    no named pattern knows. Hex-only runs (git commits, checksums) are left alone. */
 /* No slash in the run, so a file path (/Users/me/Library/Application Support) is never taken for one. */
 const LONG_TOKEN = /[A-Za-z0-9+/_-]{32,600}={0,2}/g;
+function isPlainPath(run) {
+  const segs = run.split('/').filter(Boolean);
+  if (segs.length < 2) return false;
+  // A word needs a vowel (Lm, Rt from a chopped token are not words); a piece with one or two letters needs at least
+  // as many digits (3p, x64, 20260926T1625), so short random chunks such as Lm3p/Rt6w still fail.
+  const pieceOk = (p) => {
+    if (/^[0-9]+$/.test(p)) return true;
+    const letters = (p.match(/[A-Za-z]/g) || []).length;
+    const digits = (p.match(/[0-9]/g) || []).length;
+    if (p.length <= 16 && letters <= 2 && digits >= 1 && digits >= letters) return true;
+    return /^[A-Z]?[a-z]+$/.test(p) && /[aeiouy]/.test(p);
+  };
+  return segs.every((seg) => seg.length <= 40 && seg.split(/[-_]/).filter(Boolean)
+    .every((part) => pieceOk(part) || (part.match(/[A-Z]?[a-z]+|[0-9]+[A-Za-z]?[0-9]*/g) || []).join('') === part
+      && (part.match(/[A-Z]?[a-z]+|[0-9]+[A-Za-z]?[0-9]*/g) || []).every(pieceOk)));
+}
+
 function looksRandom(run) {
   /* A slash is part of base64 (an AWS secret access key has them), but a run that starts like a path
      (/Users/..., ~/..., //host) is a path, and only the letters and digits are judged. */
   if (/^[/~]/.test(run) || run.includes('//')) return false;
+  /* #5558: a path made of plain segments (.claude/plans/avatar-4038-20260926T1625.md reaches here as
+     `claude/plans/avatar-4038-20260926T1625`: the leading dot is not in the run) is not a token. Plain: every piece of
+     every segment, split at - _ and case changes, is a number, a mostly-digit run (a timestamp such as 20260926T1625),
+     or a lowercase or Capitalized word. A random segment (an AWS secret's K7MDENG or bPxRfiCYEXAMPLEKEY, a hex-ish
+     a8f3k2m9) fails, so a run with one random segment is still judged below. */
+  if (run.includes('/') && isPlainPath(run)) return false;
   const s = run.replace(/[/=]/g, '');
   if (!(/[A-Za-z]/.test(s) && /[0-9]/.test(s)) || /^[0-9a-fA-F]+$/.test(s)) return false;
   /* Digits in two or more separate places: a random token scatters them (round 4 measured 10% of random

@@ -1984,3 +1984,13 @@ test('#4112 review 6: two held keys walking from one shared opening each see the
     for (const p of pieces) assert.ok(!out.includes(p), `the piece ${p} of the split key was left readable`);
   } finally { setKnownSecrets([]); }
 });
+
+test('#5558: a path of plain segments is not a long token; a token chopped into short chunks still is', () => {
+  for (const p of ['.claude/plans/avatar-4038-20260926T1625.md', 'see docs/browser-checks/agent-roster-presence-4011.md now',
+    'plans/win32-installer-native-20260913T052847Z.md']) {
+    assert.equal(mask(p).text, p, 'a plain path was masked: ' + p);
+  }
+  assert.equal(mask('zq/Lm3p/Rt6w/Xy9k/Ab7c/Df2g/Hj8k/Mn4p').text, MASK, 'a random token in short slash chunks passed as a path');
+  assert.equal(mask('x a8f3k2m9x7q1z0b4c6d8e2f5g7h9j1k3 y').text, `x ${MASK} y`, 'CONTROL: a random token is still masked');
+  assert.equal(mask('dir/a8f3K2m9x7Q1z0b4c6d8e2f5g7h9j1k3x').text, MASK, 'a random segment inside a path passed as plain');
+});
