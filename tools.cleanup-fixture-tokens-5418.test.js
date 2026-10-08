@@ -64,7 +64,7 @@ test('#5418: the plan keeps a live agent at any age and removes only old orphans
     { name: `x.json.kosmos-${DEAD}-t0-1-1.tmp`, isSymlink: false, mtimeMs: OLD },  // old temp, writer gone: remove
     { name: `w.json.kosmos-${process.ppid}-t0-1-1.tmp`, isSymlink: false, mtimeMs: OLD },  // old temp, writer alive (this run's parent): keep
     { name: 'y.json.kosmos-2-t0-1-1.tmp', isSymlink: false, mtimeMs: NEW },  // new temp: keep
-    { name: 'planted.json', isSymlink: true, targetExists: false, mtimeMs: OLD },  // dangling: remove
+    { name: 'planted.json', isSymlink: true, targetExists: false, targetParentExists: true, mtimeMs: OLD },  // dangling: remove
     { name: 'linked.json', isSymlink: true, targetExists: true, mtimeMs: OLD },    // live link: keep
     { name: 'notes.txt', isSymlink: false, mtimeMs: OLD },             // other: keep
     { name: 'dir.json', other: true, isSymlink: false, mtimeMs: null }, // a folder named like a token: keep
@@ -73,13 +73,13 @@ test('#5418: the plan keeps a live agent at any age and removes only old orphans
     { name: 'recent-mint.json', isSymlink: false, mtimeMs: OLD, tokens: { launchers: [], newestMintMs: NEW } },        // minted after the cutoff: keep
     { name: 'notes.tmp', isSymlink: false, mtimeMs: OLD },              // not the writer's temp shape: keep
     { name: `z.json.kosmos-${DEAD}-1690000000000-2.tmp`, isSymlink: false, mtimeMs: OLD },  // the pre-thread temp shape: remove
-    { name: 'alice.json.dangling', isSymlink: true, targetExists: false, mtimeMs: OLD },  // dangling, not a store name: keep
+    { name: 'alice.json.dangling', isSymlink: true, targetExists: false, targetParentExists: true, mtimeMs: OLD },  // dangling, not a store name: keep
   ];
   const plan = tool.planCleanup(entries, live, CUTOFF, safeKey);
   assert.deepEqual(plan.remove.map((r) => r.name).sort(), ['fixture-a.json', 'planted.json', `x.json.kosmos-${DEAD}-t0-1-1.tmp`, `z.json.kosmos-${DEAD}-1690000000000-2.tmp`]);
   assert.deepEqual(plan.keep.map((k) => k.name).sort(), ['My.Agent.json', 'alice.json', 'alice.json.dangling', 'dir.json', 'fixture-b.json', 'linked.json', 'notes.tmp', 'notes.txt', 'recent-mint.json', 'remote-a.json', `w.json.kosmos-${process.ppid}-t0-1-1.tmp`, 'y.json.kosmos-2-t0-1-1.tmp']);
   // a DANGLING link named for a live agent is left alone
-  const live2 = tool.planCleanup([{ name: 'alice.json', isSymlink: true, targetExists: false, mtimeMs: OLD }], live, CUTOFF, safeKey);
+  const live2 = tool.planCleanup([{ name: 'alice.json', isSymlink: true, targetExists: false, targetParentExists: true, mtimeMs: OLD }], live, CUTOFF, safeKey);
   assert.deepEqual(live2.remove, []);
   assert.equal(plan.remove.length + plan.keep.length, entries.length, 'an entry was dropped from both lists');
   assert.equal(plan.remove.find((r) => r.name === 'fixture-a.json').key, 'fixture-a');
@@ -822,4 +822,19 @@ test('#5418: startup jobs keep tokens on Windows (Scheduled Tasks) and Linux (sy
   assert.deepEqual(tool.jobKeepNames('linux', ['sam', 'gone'], { known: true, of: (n) => n === 'sam' }), ['sam']);
   assert.deepEqual(tool.jobKeepNames('linux', ['odd'], { known: true, of: () => { throw new Error('x'); } }), ['odd'], 'a unit that could not be read was not kept');
   assert.deepEqual(tool.jobKeepNames('darwin', ['sam'], { known: true, of: () => true }), [], 'CONTROL: macOS reads its launchd folder instead');
+});
+
+test('#5418: a Linux unit folder that cannot be listed stops the tool', () => {
+  assert.equal(tool.jobKeepNames('linux', ['sam'], { known: true, of: () => false, dirReadable: () => false }), null);
+  assert.deepEqual(tool.jobKeepNames('linux', ['sam'], { known: true, of: () => false, dirReadable: () => true }), [], 'CONTROL: a readable empty folder keeps nothing');
+});
+
+test('#5418: a dangling link whose target folder is missing (an unmounted drive?) is kept; one whose folder is there is removed', () => {
+  const plan = tool.planCleanup([
+    { name: 'onvolume.json', isSymlink: true, targetExists: false, targetParentExists: false, mtimeMs: OLD, linkTarget: '/Volumes/Gone/onvolume.json' },
+    { name: 'unknown.json', isSymlink: true, targetExists: false, targetParentExists: null, mtimeMs: OLD, linkTarget: '/x/unknown.json' },
+    { name: 'gone.json', isSymlink: true, targetExists: false, targetParentExists: true, mtimeMs: OLD, linkTarget: '/tmp/gone.json' },
+  ], new Set(), CUTOFF, (k) => k);
+  assert.deepEqual(plan.remove.map((r) => r.name), ['gone.json']);
+  assert.deepEqual(plan.keep.map((k) => k.name).sort(), ['onvolume.json', 'unknown.json']);
 });
