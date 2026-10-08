@@ -58,3 +58,12 @@ sessions outside Kosmos. This branch adds the reader the rollup needs to send us
 - FIXED: tests that need chmod or symlinks skip, with the reason, on Windows or as root.
 - DUPLICATES: the agentDirs roster rule (stated, review 3; the rollup PR must build agentDirs from the roster in a test);
   a person's session in an agent's exact folder (the weakest premise; consent wording with PigeonPete).
+
+## Review 5 (blind, opus)
+- FIXED, in code rather than a comment: worldUsageByModel builds its folders from this Kosmos's roster itself
+  (worldAgentDirs: register.known() through create.workerDir, as the usage screen does); a caller cannot pass a list
+  (`deps.agentDirs` is for tests). An unreadable roster gives complete: false.
+- FIXED: a folder that contains another agent's folder (the workers root, a person's ~/work) is a shared parent and
+  claims nothing (test; mutation reddens).
+- NOTED: days is meant to be small (every call is a fresh scan); Gemini's folder comes from .project_root, which may be
+  a project root rather than the launch folder (a subfolder there could be claimed; one provider, measured later).

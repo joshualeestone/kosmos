@@ -45,11 +45,11 @@ test('#5532: only sessions launched from this Kosmos\'s own agent folders count,
   // CONTROL: the computer-wide scan sees all three sessions, so what the scoped reader leaves out is real.
   const all = await usage.scanUsage({ sinceDay: TODAY, untilDay: TODAY });
   assert.deepEqual(Object.keys(all.days[TODAY]).sort(), ['claude-opus-5-5', 'claude-personal-model', 'claude-sub-model']);
-  const w = await usage.worldUsageByModel(1, [AGENT], { scanProviders: async () => ({ folderModels: {}, complete: true }) });
+  const w = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [AGENT] }, { scanProviders: async () => ({ folderModels: {}, complete: true }) }));
   assert.deepEqual(Object.keys(w.byDay[TODAY] || {}), ['claude-opus-5-5'], 'usage from outside this Kosmos\'s agents was counted: ' + JSON.stringify(w.byDay));
   assert.equal(w.byDay[TODAY]['claude-opus-5-5'].input_tokens, 100);
   assert.equal(w.complete, true);
-  const none = await usage.worldUsageByModel(1, [], { scanProviders: async () => ({ folderModels: {}, complete: true }) });
+  const none = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [] }, { scanProviders: async () => ({ folderModels: {}, complete: true }) }));
   assert.deepEqual(none.byDay, {}, 'a Kosmos with no agents counted usage');
 });
 
@@ -59,17 +59,17 @@ test('#5532: other providers are scoped the same way, and a partly read provider
     folderModels: { [TODAY]: { [AGENT]: { 'gpt-5.1': { input_tokens: 40, output_tokens: 2, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 } },
       [PERSONAL]: { 'gemini-2.5-flash': { input_tokens: 9, output_tokens: 9, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 } } } },
   });
-  const w = await usage.worldUsageByModel(1, [AGENT], { scanProviders: providers });
+  const w = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [AGENT] }, { scanProviders: providers }));
   assert.deepEqual(Object.keys(w.byDay[TODAY]).sort(), ['claude-opus-5-5', 'gpt-5.1']);
   assert.equal(w.complete, false, 'a partly read provider was reported as the whole count');
-  const thrown = await usage.worldUsageByModel(1, [AGENT], { scanProviders: async () => { throw new Error('no homes'); } });
+  const thrown = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [AGENT] }, { scanProviders: async () => { throw new Error('no homes'); } }));
   assert.equal(thrown.complete, false);
 });
 
 test('#5532: an agent folder reached through a link matches its real folder', { skip: NO_LINKS && 'symlinks need privileges here' }, async () => {
   const link = path.join(SANDBOX, 'link-to-leo');
   fs.symlinkSync(AGENT, link);
-  const w = await usage.worldUsageByModel(1, [link], { scanProviders: async () => ({ folderModels: {}, complete: true }) });
+  const w = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [link] }, { scanProviders: async () => ({ folderModels: {}, complete: true }) }));
   assert.deepEqual(Object.keys(w.byDay[TODAY] || {}), ['claude-opus-5-5'], 'a linked agent folder did not match');
 });
 
@@ -77,7 +77,7 @@ test('#5532: a session launched through a link to an agent\'s folder counts for 
   const link = path.join(SANDBOX, 'another-link-to-leo');
   fs.symlinkSync(AGENT, link);
   session('via-link', link, 'm-link', 'claude-via-link', 55);
-  const w = await usage.worldUsageByModel(1, [AGENT], { scanProviders: async () => ({ folderModels: {}, complete: true }) });
+  const w = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [AGENT] }, { scanProviders: async () => ({ folderModels: {}, complete: true }) }));
   assert.equal((w.byDay[TODAY] || {})['claude-via-link'] && w.byDay[TODAY]['claude-via-link'].input_tokens, 55, 'a session recorded under a link to the agent\'s folder was not counted: ' + JSON.stringify(w.byDay));
 });
 
@@ -97,7 +97,7 @@ test('#5532 review 1: a subagent with no top-level transcript counts for nobody;
   fs.mkdirSync(path.dirname(parentFile), { recursive: true });
   fs.writeFileSync(parentFile, JSON.stringify({ type: 'user', cwd: AGENT, timestamp: TODAY + 'T00:30:00.000Z' }) + '\n');
   sub('kid/sess', path.join(AGENT, 'worktree'), 'm-kid', 'claude-kid-sub', 22);   // spawned from a worktree under the agent's session
-  const w = await usage.worldUsageByModel(1, [AGENT], NOPROV);
+  const w = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [AGENT] }, NOPROV));
   assert.equal((w.byDay[TODAY] || {})['claude-orphan-sub'], undefined, 'an orphaned subagent in the agent\'s folder was counted');
   assert.equal(((w.byDay[TODAY] || {})['claude-kid-sub'] || {}).input_tokens, 22, 'a subagent of the agent\'s own session was not counted');
   // The usage screen's per-folder totals keep their behaviour (review 3): the orphan stays under its own first folder.
@@ -111,12 +111,12 @@ test('#5532 review 1: an unreadable transcript or a failing scan gives complete:
   fs.writeFileSync(file, JSON.stringify({ type: 'user', cwd: AGENT, timestamp: TODAY + 'T01:00:00.000Z' }) + '\n');
   fs.chmodSync(file, 0o000);
   t.after(() => { try { fs.chmodSync(file, 0o600); } catch { /* removed with the sandbox */ } });
-  const w = await usage.worldUsageByModel(1, [AGENT], NOPROV);
+  const w = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [AGENT] }, NOPROV));
   assert.equal(w.complete, false, 'an unreadable Claude transcript was reported as the whole count');
   fs.chmodSync(file, 0o600);
-  const thrown = await usage.worldUsageByModel(1, [AGENT], { scanUsage: async () => { throw new Error('no roots'); }, scanProviders: NOPROV.scanProviders });
+  const thrown = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [AGENT] }, { scanUsage: async () => { throw new Error('no roots'); }, scanProviders: NOPROV.scanProviders }));
   assert.deepEqual(thrown, { byDay: {}, complete: false });
-  const rel = await usage.worldUsageByModel(1, ['.', AGENT], { scanUsage: async () => ({ folderModels: { [TODAY]: { '.': { 'claude-rel': { input_tokens: 5, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 } } } }, unreadable: 0 }), scanProviders: NOPROV.scanProviders });
+  const rel = await usage.worldUsageByModel(1, { agentDirs: ['.', AGENT], scanUsage: async () => ({ folderModels: { [TODAY]: { '.': { 'claude-rel': { input_tokens: 5, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 } } } }, unreadable: 0 }), scanProviders: NOPROV.scanProviders });
   assert.deepEqual(rel.byDay, {}, 'a relative folder was counted');
 });
 
@@ -128,20 +128,20 @@ test('#5532 review 1: the window is the last N UTC days, today included', async 
     JSON.stringify({ type: 'user', cwd: AGENT, timestamp: yesterday + 'T01:00:00.000Z' }),
     JSON.stringify({ timestamp: yesterday + 'T02:00:00.000Z', cwd: AGENT, message: { id: 'm-yday', model: 'claude-yesterday', usage: { input_tokens: 9, output_tokens: 1 } } }),
   ].join('\n') + '\n');
-  const one = await usage.worldUsageByModel(1, [AGENT], NOPROV);
+  const one = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [AGENT] }, NOPROV));
   assert.equal(one.byDay[yesterday], undefined, 'a one-day window counted yesterday');
-  const two = await usage.worldUsageByModel(2, [AGENT], NOPROV);
+  const two = await usage.worldUsageByModel(2, Object.assign({ agentDirs: [AGENT] }, NOPROV));
   assert.equal(((two.byDay[yesterday] || {})['claude-yesterday'] || {}).input_tokens, 9, 'a two-day window left out yesterday');
 });
 
 test('#5532 review 2: a home folder or a root as an agent folder claims nothing; a gone agent folder makes the count incomplete', async () => {
   const home = path.join(SANDBOX, 'home');
   session('in-home', home, 'm-home', 'claude-home-session', 66);   // a person's own session started in their home folder
-  const asHome = await usage.worldUsageByModel(1, [home], { scanProviders: NOPROV.scanProviders, home });
+  const asHome = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [home] }, { scanProviders: NOPROV.scanProviders, home }));
   assert.equal((asHome.byDay[TODAY] || {})['claude-home-session'], undefined, 'an agent folder set to the home folder claimed the person\'s own session');
-  const asRoot = await usage.worldUsageByModel(1, ['/'], NOPROV);
+  const asRoot = await usage.worldUsageByModel(1, Object.assign({ agentDirs: ['/'] }, NOPROV));
   assert.deepEqual(asRoot.byDay, {});
-  const gone = await usage.worldUsageByModel(1, [AGENT, path.join(SANDBOX, 'workers', 'deleted-agent')], NOPROV);
+  const gone = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [AGENT, path.join(SANDBOX, 'workers', 'deleted-agent')] }, NOPROV));
   assert.equal(gone.complete, false, 'a gone agent folder was reported as a complete count');
   assert.ok(gone.byDay[TODAY]['claude-opus-5-5'], 'the agents that remain were not counted');
 });
@@ -155,7 +155,7 @@ test('#5532 review 3: a skipped parent that cannot be head-read makes the count 
   fs.chmodSync(parent, 0o000);
   t.after(() => { try { fs.chmodSync(parent, 0o600); } catch { /* removed with the sandbox */ } });
   sub('oldkid/sess', AGENT, 'm-oldkid', 'claude-oldkid-sub', 8);
-  const w = await usage.worldUsageByModel(1, [AGENT], NOPROV);
+  const w = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [AGENT] }, NOPROV));
   assert.equal(w.complete, false, 'a parent that could not be read left the count looking whole');
 });
 
@@ -164,6 +164,20 @@ test('#5532 review 4: a project folder that cannot be listed makes the count inc
   fs.mkdirSync(dir, { recursive: true });
   fs.chmodSync(dir, 0o000);
   t.after(() => { try { fs.chmodSync(dir, 0o700); } catch { /* removed with the sandbox */ } });
-  const w = await usage.worldUsageByModel(1, [AGENT], NOPROV);
+  const w = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [AGENT] }, NOPROV));
   assert.equal(w.complete, false, 'an unlistable project folder left the count looking whole');
+});
+
+test('#5532 review 5: the folders come from this Kosmos\'s roster, and a shared parent folder claims nothing', async () => {
+  assert.equal(usage.worldUsageByModel.length, 2, 'worldUsageByModel takes a caller\'s folder list again');
+  // The roster here is the sandboxed store, with no agents: the default reads it, not a listing of any folder.
+  assert.deepEqual(usage.worldAgentDirs(), []);
+  const none = await usage.worldUsageByModel(1, NOPROV);
+  assert.deepEqual(none.byDay, {}, 'with an empty roster something was counted');
+  // A parent that contains another agent's folder (the workers root, a person's ~/work) claims nothing.
+  const workers = path.join(SANDBOX, 'workers');
+  session('in-workers', workers, 'm-workers', 'claude-workers-root', 44);
+  const w = await usage.worldUsageByModel(1, Object.assign({ agentDirs: [workers, AGENT] }, NOPROV));
+  assert.equal((w.byDay[TODAY] || {})['claude-workers-root'], undefined, 'a folder containing another agent\'s folder claimed a session');
+  assert.ok((w.byDay[TODAY] || {})['claude-opus-5-5'], 'the agent beneath it lost its own usage');
 });

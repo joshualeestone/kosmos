@@ -350,13 +350,33 @@ async function scanUsage({ sinceDay, untilDay, mtimeCut = false }) {
  * agent can be UNDER-counted when a person's own transcript holds the same message: the safe direction.
  * An agent folder that is the home folder or a filesystem root is nobody's; an agent folder that no longer exists makes
  * the result incomplete (its past sessions cannot be matched by real path).
- * 🛑 `agentDirs` MUST be this Kosmos's own roster (register.known() through create.workerDir, as the usage screen builds
+ * The folders are this Kosmos's own roster (worldAgentDirs), never a caller's list; for the record, the rule it follows:
+ * 🛑 the folders MUST be this Kosmos's own roster (register.known() through create.workerDir, as the usage screen builds
  * it), NEVER a listing of the workers folder: in the default world several Kosmoses on one computer share that folder,
  * and a listing would sweep in another Kosmos's agents (review 3).
- * `deps` (scanUsage, scanProviders, realpath, home) is for tests only.
+ * A folder that contains another agent's folder (a shared parent) claims nothing. `days` is meant to be small (the
+ * rollup's seven): every call is a fresh scan of the window.
+ * `deps` (scanUsage, scanProviders, realpath, home, agentDirs) is for tests only.
  */
-async function worldUsageByModel(days, agentDirs, deps) {
+/* This Kosmos's own agent folders, from its roster, exactly as the usage screen builds them (server.js, the per-agent
+   split). Never a listing of the workers folder, which several Kosmoses on one computer share. Null when the roster
+   cannot be read. */
+function worldAgentDirs() {
+  const register = require('./register');
+  const create = require('./create');
+  const known = register.known();
+  if (!known.ok) return null;
+  const dirs = [];
+  for (const name of known.names) { try { dirs.push(create.workerDir(name)); } catch { /* not resolvable: nobody's */ } }
+  return dirs;
+}
+
+async function worldUsageByModel(days, deps) {
   const d = deps || {};
+  /* The folders come from this Kosmos's roster, not from the caller (review 5): no caller can pass a listing that
+     sweeps in another Kosmos's agents. `deps.agentDirs` is for tests only. */
+  const agentDirs = Array.isArray(d.agentDirs) ? d.agentDirs : worldAgentDirs();
+  if (!agentDirs) return { byDay: {}, complete: false };   // the roster could not be read: say so
   const n = Math.min(MAX_DAYS, Math.max(1, Math.trunc(Number(days)) || 1));
   const untilDay = todayUtc();
   const sinceDay = new Date(Date.now() - (n - 1) * 86400000).toISOString().slice(0, 10);
@@ -366,12 +386,18 @@ async function worldUsageByModel(days, agentDirs, deps) {
   /* Never a folder that holds the person's own work too (review 2): the home folder or a filesystem root as an
      agent's folder would claim every session started there. */
   const broad = new Set([await realpath(d.home || os.homedir())]);   // a filesystem root is caught per folder below
-  for (const dir of Array.isArray(agentDirs) ? agentDirs : []) {
+  const reals = [];
+  for (const dir of agentDirs) {
     if (typeof dir !== 'string' || !path.isAbsolute(dir)) continue;
     try { await fsp.access(dir); } catch { missingDir = true; }   // a gone folder cannot be matched by its real path
     const real = await realpath(dir);
     if (broad.has(real) || real === path.parse(real).root) continue;
-    mine.add(real);
+    reals.push(real);
+  }
+  /* A folder that CONTAINS another agent's folder is a shared parent (the workers root, a person's ~/work), not one
+     agent's own folder: it claims nothing (review 5). */
+  for (const real of reals) {
+    if (!reals.some((o) => o !== real && o.startsWith(real.endsWith(path.sep) ? real : real + path.sep))) mine.add(real);
   }
   let claude;
   try { claude = await (d.scanUsage || scanUsage)({ sinceDay, untilDay, mtimeCut: true }); }
@@ -696,6 +722,7 @@ module.exports = {
   scanUsage,
   dailyUsageByModel,
   worldUsageByModel,
+  worldAgentDirs,
   byAgent,
   byAgentAsync,
   utcDay,
