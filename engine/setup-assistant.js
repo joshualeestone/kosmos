@@ -333,8 +333,8 @@ function realOr(p) { try { return fs.realpathSync.native(p); } catch { return pa
    On Windows Claude Code matches a rule against the path in POSIX form (its permissions docs: C:\Users\alice
    becomes /c/Users/alice), so a drive path is written that way: C:\Users\x becomes //c/Users/x. The native
    spelling (//C:\Users\x) is not a form its docs say it matches (not measured on Windows here). The extended-length
-   forms \\?\C:\ and \\?\UNC\host\share are written as their plain paths; the device form \\.\C:\ is written as it is
-   (not a likely store). */
+   forms \\?\C:\ and \\?\UNC\host\share are written as their plain paths; the device form \\.\C:\ is written with its
+   separators converted (//./C:/...), not refused (not a likely store). */
 function ruleAbs(p, platform = process.platform) {
   let s = String(p);
   if (platform === 'win32') {
@@ -362,6 +362,16 @@ function rulePaths(inner, platform = process.platform) {
    before this change) is read as it is. Elsewhere it is `/` plus the rest. A share's rule (host/share/...) reads back as
    its UNC path (\\host\share\...), so the own-folder check compares real paths; a one-letter host reads back as a drive
    (S:), the one form that cannot be told apart. */
+/* Whether any reading of a rule (rulePaths) holds the guide's own folder `own`. The first reading is resolved with
+   `real` (realpath; case-sensitive is safe, since `own` is a realpath too and a missing folder cannot contain the
+   guide); every further reading (a one-letter share) is compared as TEXT, case-blind, and never resolved: resolving
+   \\\\c\\Users would send Windows to the network for a host named c on every drive rule. Pure, `real` and `sep` passed in. */
+function readingsHoldGuide(backs, own, real, sep) {
+  const under = (a, b) => a === b || a.startsWith(b.endsWith(sep) ? b : b + sep);
+  if (!backs.length) return false;
+  if (under(own, real(backs[0]))) return true;
+  return backs.slice(1).some((t) => under(own.toLowerCase(), t.toLowerCase()));
+}
 function rulePath(inner, platform = process.platform) {
   const t = String(inner);
   if (platform === 'win32') {
@@ -383,7 +393,8 @@ function rulePath(inner, platform = process.platform) {
 function legacyWinEquivalent(rule) {
   // a drive, then a backslash (the native form) or a slash (a path given as C:/...), then the suffix the writer adds
   // (`/**`, `/*/...`, `.*`): the path is converted alone, as ruleAbs converts it (so a drive root maps to `//c/**`)
-  const m = /^Read\(\/\/([A-Za-z]:[\\/][^)]*?)((?:\/\*\*|\/\*\/[^)]*|\.\*)?)\)$/.exec(String(rule));
+  // the path may hold a `)` (a folder like `Jo (work)`): lazy, anchored on the known suffix and the rule's last `)`
+  const m = /^Read\(\/\/([A-Za-z]:[\\/].*?)((?:\/\*\*|\/\*\/[^/]*\/\*\*|\/\*\/[^/]*|\.\*)?)\)$/.exec(String(rule));
   if (!m) return null;
   return `Read(${ruleAbs(m[1], 'win32')}${m[2]})`;
 }
@@ -399,7 +410,8 @@ function withNativeTwins(rules, platform = process.platform) {
     out.push(r);
     // the path is a drive letter alone (a drive root) or a drive and a path; the suffix is what the writer added
     // a one-letter share host (//s/share) is twinned as S:\share too: a small over-deny, recorded in the plan
-    const m = /^Read\(\/\/([a-z](?:\/[^)]*?)??)((?:\/\*\*|\/\*\/[^)]*|\.\*)?)\)$/.exec(r);
+    // the path may hold a `)` (a folder like `Jo (work)`): lazy, anchored on the known suffix and the rule's last `)`
+    const m = /^Read\(\/\/([a-z](?:\/.*?)??)((?:\/\*\*|\/\*\/[^/]*\/\*\*|\/\*\/[^/]*|\.\*)?)\)$/.exec(r);
     if (!m) continue;
     const native = rulePath(m[1], 'win32');
     if (native) { const twin = `Read(//${native}${m[2]})`; if (!out.includes(twin)) out.push(twin); }
@@ -524,13 +536,7 @@ function guardGuideFolder(dir, agentName, deps = {}) {
       // every path the rule can stand for (a one-letter share host reads as a drive too): refused if ANY holds the guide
       const backs = rulePaths(m[1], plat);
       if (!backs.length) return true;      // not a form ruleAbs writes: nothing to compare
-      // case-sensitive is safe: an existing target is a realpath like `own`; a missing one cannot contain the guide
-      const holds = (target) => own === target || own.startsWith(target.endsWith(path.sep) ? target : target + path.sep);
-      // the first reading is resolved (realpath); a one-letter share reading is compared as TEXT, case-blind, and never
-      // resolved: resolving \\c\Users would send Windows to the network for a host named c on every drive rule
-      const lower = (x) => x.toLowerCase();
-      const holdsText = (unc) => lower(own) === lower(unc) || lower(own).startsWith(lower(unc.endsWith(path.sep) ? unc : unc + path.sep));
-      if (!holds(realOr(backs[0])) && !backs.slice(1).some(holdsText)) return true;
+      if (!readingsHoldGuide(backs, own, realOr, plat === 'win32' ? '\\' : path.sep)) return true;
       process.stderr.write(`#4752: a rule that would take in the guide's own folder was left out: ${r}\n`);
       return false;
     });
@@ -1017,6 +1023,7 @@ module.exports = {
   ruleAbs,   // #4752 follow-up: exported so the Windows form is pinned from any host
   rulePath,
   rulePaths,
+  readingsHoldGuide,
   legacyWinEquivalent,
   withNativeTwins,
   ruleUnwritable,

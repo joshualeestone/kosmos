@@ -240,3 +240,20 @@ test('#4752: on Windows a rule starting with one letter is checked as a drive AN
   assert.deepEqual(sa.rulePaths('c', 'win32'), ['C:\\'], 'CONTROL: a drive root has one reading');
   assert.deepEqual(sa.rulePaths('s/share/K', 'darwin'), ['/s/share/K'], 'CONTROL: off Windows a rule reads as itself');
 });
+
+test('#4752: the own-folder test sees a guide on a one-letter share through the share reading (text, never resolved)', () => {
+  const real = (p) => p;   // a resolver that changes nothing: the drive reading S:\share does not hold the guide
+  const backs = sa.rulePaths('s/share', 'win32');
+  assert.equal(sa.readingsHoldGuide(backs, '\\\\s\\share\\guide', real, '\\'), true, 'a guide under \\\\s\\share was not seen');
+  assert.equal(sa.readingsHoldGuide(backs, '\\\\S\\SHARE\\guide', real, '\\'), true, 'the share reading is not case-blind');
+  assert.equal(sa.readingsHoldGuide(backs, 'C:\\other\\guide', real, '\\'), false, 'CONTROL: a guide elsewhere was seen');
+  assert.equal(sa.readingsHoldGuide(sa.rulePaths('c/Users', 'win32'), 'C:\\Users\\a\\guide', real, '\\'), true, 'CONTROL: the drive reading');
+});
+
+test('#4752: a path with a parenthesis (a folder like `Jo (work)`) still gets its native twin and maps back', () => {
+  const r = 'Read(//c/Users/Jo (work)/AppData/Roaming/Kosmos/**)';
+  const twins = sa.withNativeTwins([r], 'win32');
+  assert.equal(twins.length, 2, 'no twin: ' + JSON.stringify(twins));
+  assert.equal(twins[1], 'Read(//C:\\Users\\Jo (work)\\AppData\\Roaming\\Kosmos/**)');
+  assert.equal(sa.legacyWinEquivalent(twins[1]), r, 'the twin does not map back to its rule');
+});
