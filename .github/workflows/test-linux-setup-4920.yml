@@ -12,11 +12,16 @@ name: linux-setup
 
 on:
   # #5519 stopgap (Josh 10-07: do not count our own Linux installs): every run installs a real board, and until #5519
-  # points its install beacon at a dead address, each run adds 2 to the live install counter. So it runs only on PRs that
-  # touch what it tests; run it by hand (workflow_dispatch) for anything else.
+  # points its install beacon at a dead address, each run adds 2 to the live install counter. So pull requests run it
+  # only when they touch the installer, the guards this job runs, or this file. The two engine modules are listed for
+  # #5485, which makes this job install the checkout's own engine (today it installs the published bundle). Run it by
+  # hand (workflow_dispatch) for anything else that could break a Linux install.
   pull_request:
     paths:
       - 'install/**'
+      - 'tools/test-installer-runnable-guard.sh'
+      - 'tools/test-plist-heredoc-clean.sh'
+      - 'tools/test-install-static*.sh'
       - 'engine/linuxboard.js'
       - 'engine/linuxjob.js'
       - '.github/workflows/test-linux-setup-4920.yml'
