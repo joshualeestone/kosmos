@@ -10,12 +10,13 @@ to 96 emails a day to Josh's account, which buries the one that matters.
 
 ## Change
 
-`red_once <cause> <message>`: the first tick of a repeating red state for a given sha and cause exits
-1 and records `<sha> <cause>|<epoch>` in `$STATE/reported`. Later ticks of the same sha and cause
-within a day print the message with "red already reported at ..." and exit 0. A new sha, a new cause,
-or a day passing makes it red again. `park()` records itself as reported, so the tick after a park
-does not send a second email. State changes (a first failure, the failure that parks, a checkout
-fault, an emptied dist) stay red every time. A damaged report time counts as never reported.
+`red_once <cause> <message>`: the first tick of a repeating red state for a given sha and cause exits 1
+and records the time in `$STATE/reported.d/<sha>-<cause>` (one file per sha and cause). Later ticks of
+the same sha and cause within a rolling 24 hours print "STILL FAILING (reported): ..." and exit 0. A new
+sha, a new cause, the cause recovering (its record is removed), a successful deploy (all records
+removed), or 24 hours passing makes it red again. `park()` records itself, so the tick after a park does
+not send a second email. State changes (a first failure, the failure that parks, a checkout fault, an
+emptied dist) stay red every time. A damaged or future-dated record counts as never reported.
 
 ## Weakest premise
 
