@@ -71,3 +71,7 @@ re-verifies the bundle each time it is asked (inForce), so a bundle written sinc
 - NITs fixed: comments name Antigravity; kst1 no longer claims the contract's check order.
 - NITs left: refusal order on a same-provider "switch"; the trim in setProvider is an equivalent mutant (policyAllows trims too); a held import of an unrecognized runner records anthropic (the runner floor predates this); a failed rename leaves a .tmp.
 - Focused: orgpolicy 7, create '5534' 3 (00:32 CDT 2026-10-08).
+### Review 6 (sonnet): nothing above NIT. CONVERGED.
+- Every create/switch path re-checked gated; no-policy path clean; 23 of 24 mutations red.
+- NITs left, stated: Repair's model argument is untested (a held agent's model alone never decides it in the tests); the "switch starts on its default model" note is also appended when the provider itself is refused (follow-up on the card); connecting a folder under a model list for a provider without a pinned default always refuses (no model choice there yet, by design); a job registered but not started keeps the held mark (safe direction).
+- Final (00:37 CDT 2026-10-08), rebased on origin/main: orgpolicy 7, create 226, discover.adopt 29, worldstarts 48, register 23, server.switch-model-5429 9; guards cli.sandbox-data-4796, engine.reachable, win32-separator-guard, windows-coupling-audit-1732, windows-tests-1777, fixture-discipline, no-brand-refs-1881, no-name-refs-3071: all green.
