@@ -350,7 +350,6 @@ test('#4649 slice 3: the board remembers which account joined through an invite,
   assert.strictEqual((fedmembers.labelsFor('stamped').get('acct-dana') || null), 'Dana Ruiz');
   assert.strictEqual((fedmembers.labelsFor('stamped').get('acct-someone-else') || null), null);
   assert.strictEqual(fedmembers.noteMember('stamped', 'inv-not-made-here', 'acct-x'), false, 'an invite this board never made took a member');
-  assert.strictEqual((fedmembers.labelsFor('stamped').get(undefined) || null), null);
 });
 
 test('#4649 slice 3 review round 2: Members backfills the account of a member pinned before the stamp shipped', async () => {
@@ -370,7 +369,6 @@ test('#4649 slice 3 review round 3: the newest invite\'s label wins for an accou
   const a = await fedmembers.invite(remote, { project: 'rejoin', invited_kind: 'person', label: 'Dana' }, here(['rejoin']));
   const b = await fedmembers.invite(remote, { project: 'rejoin', invited_kind: 'person', label: 'Dana (contractor)' }, here(['rejoin']));
   assert.strictEqual(fedmembers.noteMembers('rejoin', [[a.body.invite_id, 'acct-d'], [b.body.invite_id, 'acct-d']]), 2);
-  assert.strictEqual((fedmembers.labelsFor('rejoin').get('acct-d') || null), 'Dana (contractor)');
   assert.strictEqual(fedmembers.labelsFor('rejoin').get('acct-d'), 'Dana (contractor)');
 });
 

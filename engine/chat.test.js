@@ -1881,8 +1881,8 @@ test('a message ending in a semicolon arrives WITH it — a paste delivers the l
    * ⚠️ THE HAZARD THIS USED TO GUARD IS GONE WITH THE PASTE TRANSPORT. When the
    * body went in with `send-keys -l`, tmux split argv into a command LIST first
    * and ate a trailing `;` as the separator, so the send path escaped it to `\;`
-   * (an escape removed in #5582). A paste-buffer carries its content verbatim — no command
-   * list, no separator — so the literal `;` is delivered and no escaping is
+   * (an escape removed in #5582). A paste-buffer carries its content verbatim, with no command
+   * list and no separator, so the literal `;` is delivered and no escaping is
    * needed. Asserted on the ARGV handed to set-buffer (the half this module
    * controls); the paste round-trip's fidelity is claude-msg's measured basis.
    */

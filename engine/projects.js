@@ -2658,8 +2658,8 @@ function cleanParent(value, childId) {
 /**
  * Every writable field, applied in ONE mutate.
  *
- * ⚠️ One write on purpose. The PUT route used to run rename, setDescription
- * and setArchived as independent read-modify-writes -- so a failure in a
+ * ⚠️ One write on purpose. The PUT route used to run rename and two separate
+ * setters (description, archived) as independent read-modify-writes -- so a failure in a
  * later one answered the caller "your save failed" about a change that had
  * already persisted. Validation happens for EVERY carried field BEFORE any
  * write (cleanName and cleanDescription throw; archived refuses anything

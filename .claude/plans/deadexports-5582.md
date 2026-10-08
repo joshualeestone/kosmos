@@ -17,3 +17,10 @@
 ## Still to do (after #5577 merges)
 - Rebase on main; remove the five excuses #5577 adds to engine.reachable.test.js; run the reachability guard and
   show each export reads as gone; challenge loop; proof; PR.
+
+## Review 1 (sonnet)
+- Fixed: an em dash on a rewrapped added line (chat.test.js); a vacuous `.get(undefined) || null` assert (its guard was
+  deleted with labelForMember) and a duplicate assert in fedmembers.test.js; projects.js edit() doc no longer names the
+  deleted setters.
+- Plant: re-exporting wireText with a test that names it and no caller reds the reachability guard (a plant with no
+  test mention stays green by design: the guard hunts TESTED but uncalled exports).
