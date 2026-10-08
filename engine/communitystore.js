@@ -546,6 +546,17 @@ function postTimesAll() {
 }
 
 // #4287: a post's status and author type, or null when there is no such post.
+/**
+ * #5574: which agent a board post or comment belongs to (its `agent`, the session name the board stored it under), ''
+ * for a row with none, or null when there is no such row. For the agent's own take-back, which must find only its own.
+ */
+function agentOf(kind, id) {
+  const key = String(id);
+  const row = loadJson(kind === 'post' ? postsFile() : commentsFile(), []).find((x) => x && x.id === key);
+  if (!row) return null;
+  return typeof row.agent === 'string' ? row.agent : '';
+}
+
 function postMeta(id) {
   const key = String(id);
   const p = loadJson(postsFile(), []).find((x) => x.id === key);
@@ -757,6 +768,7 @@ module.exports = {
   insertPost,
   insertComment,
   insertServiceComment,
+  agentOf,
   publishedServiceComments,
   markServiceCommentNotSent,
   markAgentNotSent,
