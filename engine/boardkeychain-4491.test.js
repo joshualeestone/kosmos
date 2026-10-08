@@ -190,7 +190,8 @@ test('off darwin, refreshTokenOnlyGuards guards without warning (managed-setting
     out = setup.refreshTokenOnlyGuards({ ...DEPS, platform: 'linux', workerDir: (n) => agentDir('lin-' + n) });
   } finally { process.stderr.write = realWrite; }
   assert.deepEqual(out.guarded, ['lin'], 'the agent was not guarded off darwin');
-  assert.ok(!warned.join('').includes('#4491'), 'the managed-belt warning fired off darwin, where it is misleading');
+  assert.ok(!warned.join('').includes('managed-settings belt'), 'the managed-belt warning fired off darwin, where it is misleading');
+  assert.ok(warned.join('').includes('permission rules only'), 'review 15: off macOS the guard does not say it binds only the file tools');
   assert.equal(readSettings(agentDir('lin-lin')).sandbox, undefined, 'a sandbox block was written off darwin');
 });
 
@@ -418,4 +419,23 @@ test('#4491 review 14: a rule whose path has a pattern character is dropped and 
   assert.ok(!deny.some((r) => r.includes('(x)')), 'a rule with a pattern character was written: ' + JSON.stringify(deny.filter((r) => r.includes('(x)'))));
   assert.ok(errs.join('').includes('no rule'), 'the dropped rule was not said');
   assert.ok(deny.some((r) => r.startsWith('Read(') && r.includes('board.token')), 'CONTROL: the plain token rules are still there');
+});
+
+test('#4491 review 15: the pattern-character check reads a Windows path\'s backslashes as separators, not patterns', () => {
+  const win = 'Read(//C:\\Users\\a\\AppData\\Local\\Kosmos\\board.token)';
+  assert.equal(setup.ruleHasPatternChar(win, '\\'), false, 'every Windows rule would be dropped');
+  assert.equal(setup.ruleHasPatternChar('Read(//C:\\Users\\a(b)\\board.token)', '\\'), true, 'CONTROL: a real pattern character on Windows');
+  assert.equal(setup.ruleHasPatternChar('Read(//Users/a/x/board.token)', '/'), false, 'CONTROL: a plain macOS rule');
+  assert.equal(setup.ruleHasPatternChar('Read(//Users/a/undo/**)', '/'), false, 'CONTROL: the guard\'s own trailing glob');
+});
+
+test('#4491 review 15: other agents\' sender tokens and undo\'s switch are denied to a token-only agent in both layers', () => {
+  const dir = agentDir('pilot-st');
+  setup.guardTokenOnlyFolder(dir, 'pilot-st', DEPS);
+  const s = readSettings(dir);
+  const st = path.join(store.ROOT, 'sendertokens');
+  assert.ok(s.permissions.deny.includes(`Read(${ruleAbs(st)}/**)`), 'sender tokens are readable by the file tools');
+  assert.ok(s.sandbox.filesystem.denyRead.includes(realOrLeaf(st)), 'sender tokens are readable by the shell');
+  assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(path.join(store.ROOT, 'undo.json'))})`), 'undo switch is writable');
+  assert.ok(s.sandbox.filesystem.denyWrite.includes(realOrLeaf(path.join(store.ROOT, 'undo.json'))), 'undo switch is writable by the shell');
 });

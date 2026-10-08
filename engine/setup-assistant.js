@@ -613,8 +613,8 @@ function guardGuideFolder(dir, agentName, deps = {}) {
  * for that board. Derived the way the guide does, but DEFENSIVELY: worlds resolution can throw, and a
  * throw here must degrade to current-store coverage, never fail the guard (which would fail agent
  * creation). The guide lets these throw because it denies the whole root; here the token is the point,
- * and partial coverage beats no agent. Concrete paths only -- the guide's version-dependent mid-path
- * glob for every named world's store (cross-world tokens) is NOT mirrored; that residual is in the plan.
+ * and partial coverage beats no agent. Every named world that exists now is listed here, and
+ * tokenOnlySettingsRules also writes the worlds-folder glob for a world made later.
  */
 function tokenOnlyTokenRoots(dataRoot, home, deps = {}) {
   const roots = [dataRoot];
@@ -713,6 +713,16 @@ function accountConfigHomes(home) {
  *    glob-only future-home case is the reasoned residual the plan records.
  * dataRoot/home are overridable for tests (guideDenyRulesFor does the same); production passes neither.
  */
+/* #4491 reviews 14 and 15: true when a rule's PATH has a character the rule syntax reads as a pattern (the guide's #4752
+   RULE_SYNTAX). The separator is made '/' first, as the guide does, so a Windows path's backslashes are not read as
+   pattern characters (review 15: without that every Windows rule was dropped); the globs this file adds itself are
+   taken out before testing. */
+function ruleHasPatternChar(rule, sep = path.sep) {
+  const ownGlobs = String(rule).replace(/\/\*\*\)$/, ')').replace(/\.\*\)$/, ')').replace(/\/\*\//g, '/').replace(/\.claude-\*/g, '.claude-x');
+  const inner = ownGlobs.replace(/^\w+\(/, '').replace(/\)$/, '').split(sep).join('/');
+  return RULE_SYNTAX.test(inner.replace(/\*\*$/, '').replace(/\/\*$/, ''));
+}
+
 function tokenOnlySettingsRules(dir, deps = {}) {
   const home = deps.home || kosmosHome();
   const dataRoot = deps.dataRoot || store.ROOT;
@@ -757,10 +767,17 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   // agent, so it is read-denied (a copy there must not be readable by the agent's shell) and write-denied (restore
   // writes its records back out).
   const undoDirs = tokenRoots.flatMap((r) => [path.join(r, 'undo'), path.join(r, 'undo-saved')]);
+  // Review 15: other agents' sender tokens (a token-only agent's own comes in its environment, KOSMOS_AGENT_TOKEN, and
+  // only the board reads this folder), and undo's on/off switch file, which turning off deletes every kept copy.
+  const tokenDirs = tokenRoots.map((r) => path.join(r, 'sendertokens'));
+  const undoSwitches = tokenRoots.map((r) => path.join(r, 'undo.json'));
   const deny = [
     ...tokenPaths.map((p) => `Read(${ruleAbs(p)})`),
     ...undoDirs.map((d) => `Read(${ruleAbs(d)}/**)`),
     ...undoDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // review 2: a forged record there is what restore writes out
+    ...tokenDirs.map((d) => `Read(${ruleAbs(d)}/**)`),
+    ...tokenDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),
+    ...undoSwitches.map((f) => `Edit(${ruleAbs(f)})`),
     ...tokenTmps.map((p) => `Read(${ruleAbs(p)}.*)`),
     ...tokenPaths.map((p) => `Edit(${ruleAbs(p)})`),
     ...tokenTmps.map((p) => `Edit(${ruleAbs(p)}.*)`),
@@ -771,14 +788,12 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   /* #4491 review 14: a path with a character the rule syntax reads as a pattern (the guide's #4752 RULE_SYNTAX) would
      misparse the rule, or make Claude Code reject the whole file. Such a rule is dropped and said on the board log; the
      sandbox layer still carries the concrete path. The globs this function adds itself are taken out before testing. */
-  const ownGlobs = (r) => r.replace(/\/\*\*\)$/, ')').replace(/\.\*\)$/, ')').replace(/\/\*\//g, '/').replace(/\.claude-\*/g, '.claude-x');
   const safeDeny = deny.filter((r) => {
-    const inner = ownGlobs(r).replace(/^\w+\(/, '').replace(/\)$/, '');
-    if (!RULE_SYNTAX.test(inner)) return true;
+    if (!ruleHasPatternChar(r)) return true;
     process.stderr.write(`#4491: no rule ${r}: its path has a character the rule syntax reads as a pattern\n`);
     return false;
   });
-  return { deny: safeDeny, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites, undoDirs };
+  return { deny: safeDeny, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites, undoDirs, tokenDirs, undoSwitches };
 }
 
 /*
@@ -840,8 +855,8 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
       // yet, so use realOrLeaf (resolves the existing parent, keeps the absent leaf) rather than realOr,
       // which would leave a symlinked parent un-followed. The agent's own .claude was just mkdir'd, so
       // realOr resolves it directly.
-      const denyReadPaths = [...rules.tokenPaths.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf)];
-      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile), ...rules.worldWrites.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf)];
+      const denyReadPaths = [...rules.tokenPaths.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf)];
+      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile), ...rules.worldWrites.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf), ...(rules.undoSwitches || []).map(realOrLeaf)];
       // NEVER add an allowWrite for the Kosmos store, the worlds base or the home here (Kitty's re-review): the
       // shell's write scope is what covers a world created mid-session until the agent's next start, so a fix
       // for 'the sandbox limits normal work' must widen it somewhere else, never to those.
@@ -875,10 +890,10 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
   }
 }
 
-/* #4491: Claude Code's root-owned managed-settings file on macOS. Its presence makes the token-only
-   guard durable: only managed settings may relax the sandbox, and the agent's uid cannot write this
-   path, so a listed agent cannot disable its own guard through it. Installing it is an admin step,
-   parked on the card; this code only READS whether it is there, to warn when it is not. */
+/* #4491: Claude Code's root-owned managed-settings file on macOS. With the right content (the sandbox on, unsandboxed
+   commands off, the board.token deny), it makes the token-only guard durable: the agent's uid cannot write this path.
+   Installing it is an admin step, parked on the card. This code only checks that the file EXISTS (review 15: not its
+   content), so a missing warning means "a managed file is there", not "the guard is durable". */
 const MANAGED_SETTINGS_PATH = '/Library/Application Support/ClaudeCode/managed-settings.json';
 function managedSettingsPresent(platform = process.platform) {
   if (platform !== 'darwin') return false;   // managed-settings is a macOS/Seatbelt concept here
@@ -938,6 +953,9 @@ function refreshTokenOnlyGuards(deps = {}) {
     process.stderr.write('#4491: ' + failed.length + ' token-only agent(s) NOT guarded from reading the board token: '
       + failed.map((u) => u.name + ' (' + u.because + ')').join('; ') + '\n');
   }
+  /* Review 15: off macOS no sandbox block is written, so the agent's shell itself is not kept from the files; the
+     permission rules bind only its file tools. Said, so "guarded" is not read as more than it is. */
+  if (out.guarded.length && platform !== 'darwin') process.stderr.write('#4491 note: off macOS these token-only agent(s) get permission rules only (their shell is not sandboxed): ' + out.guarded.join(', ') + '\n');
   if (noFolder.length) process.stderr.write('#4491 note: listed as token-only but no agent folder (nothing to guard yet): ' + noFolder.map((u) => u.name).join(', ') + '\n');
   // The managed-belt warning is a macOS-only concern: off darwin no sandbox block is written and
   // managed-settings does not apply, so warning there would be misleading.
@@ -1402,6 +1420,7 @@ module.exports = {
   migrateKept,
   finalDeny,
   boardCredentialPaths,
+  ruleHasPatternChar,
   SETUP_ROLE_KEY,
   GUIDE_CREATED_BY,
   GUIDE_PURPOSE_PREFIXES,
