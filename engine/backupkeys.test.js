@@ -134,6 +134,11 @@ test('a Uint8Array works wherever a Buffer does', () => {
   const w = keys.wrapMemberKey(new Uint8Array(member.sk), new Uint8Array(r.pk), mctx);
   const back = keys.unwrapMemberKey(new Uint8Array(r.sk), new Uint8Array(w), mctx, new Uint8Array(member.pk));
   assert.ok(back && back.equals(member.sk));
+  const nk = keys.newNamingKey();
+  assert.strictEqual(keys.namingKeyId(new Uint8Array(nk)), keys.namingKeyId(nk));
+  const nw = keys.wrapNamingKey(new Uint8Array(nk), new Uint8Array(member.pk), nctx);
+  const nback = keys.unwrapNamingKey(new Uint8Array(member.sk), new Uint8Array(nw), nctx, keys.namingKeyId(nk));
+  assert.ok(nback && nback.equals(nk));
 });
 
 test('fresh keys are fresh: two member keys and two naming keys differ', () => {

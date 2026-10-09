@@ -18,7 +18,8 @@
  * Wraps are NOT authenticated (HPKE base mode): anyone with a recipient's public key can make one that opens. A
  * member key must therefore derive to the expected public key. A naming key cannot be checked that way, so:
  *   - unwrapNamingKey is for RESTORE only and requires the naming-key id the signed manifest records, so a forged
- *     naming key (which cannot have that id) is refused outright; even without that, it would just make chunk names fail to verify
+ *     naming key (which cannot have that id) is refused outright; even without that, it would just make chunk
+ *     names fail to verify
  *     (backupformat's openVerifiedChunk) and never yields other data. That rests on restore taking every chunk
  *     name from the device-SIGNED, verified manifest: chunks are HPKE-sealed too, so anyone with the member public
  *     key can forge one, and only a name fixed by the signed manifest makes a match a preimage search against the
@@ -36,11 +37,14 @@
  * wrap* throw on a caller mistake (a key that is not 32 bytes, a bad context, a non-canonical recipient key, which
  * hpke.js refuses because it could never be opened). unwrap* return null on ANY failure and never throw, as hpke.js
  * and backupformat.js do. unwrapMemberKey REQUIRES the public key the result must derive to: a wrap of the wrong key
- * (a wrapper bug, another epoch's key under this context) is refused rather than restored. (Equal up to X25519
+ * (a wrapper bug, another epoch's key under this context) is refused rather than restored. That key MUST come from
+ * an authenticated source (the coordinator-signed policy bundle, decision 7), never from key storage or a record
+ * kept beside the wrap: whoever can write there could supply a forged wrap and its matching public key together. (Equal up to X25519
  * clamping: secrets differing only in clamped bits are the same key and pass, which is harmless.)
  *
  * Secrets come back as fresh Buffers (never views over an input), so a caller may zero them; Node cannot reliably
- * zero memory, and this module does not try.
+ * zero memory, and this module does not try. A small Buffer usually sits in Node's shared pool, so its .buffer is a
+ * larger slab: copy into Buffer.alloc(32) before handing .buffer anywhere.
  *
  * Not here: where keys and wraps are stored, the org key pair and escrow, delivering the member public key in the
  * coordinator-signed policy bundle (decision 7), rotation policy, and the walker.
@@ -150,7 +154,7 @@ function unwrapNamingKey(memberSk, wrapped, ctx, expectedId) {
     const sk = asBuf(memberSk);
     if (!sk || sk.length !== KEY_LEN || typeof expectedId !== 'string' || !/^[0-9a-f]{32}$/.test(expectedId)) return null;
     const nk = unwrap(NAMING_MAGIC, INFO, namingContext(ctx), sk, wrapped);
-    return nk && namingKeyId(nk) === expectedId ? nk : null;
+    return nk && crypto.timingSafeEqual(Buffer.from(namingKeyId(nk)), Buffer.from(expectedId)) ? nk : null;
   } catch { return null; }
 }
 
