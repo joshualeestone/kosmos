@@ -116,7 +116,7 @@ const append = (file, ...lines) => fs.appendFileSync(file, lines.join('\n') + '\
 test('#5683 tick: a Kosmos that is not the enrolled one opens no transcript and sends nothing', async (t) => {
   const s = setup(t);
   const c = coordinator();
-  const r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + 1000 });
+  const r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(r.sent, 0);
   assert.deepEqual(s.read, [], 'a transcript was opened for a company that does not exist');
   assert.deepEqual(c.sent, []);
@@ -127,10 +127,10 @@ test('#5683 tick: history before the enrollment is never sent; a new refusal is,
   const c = coordinator();
   await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });
   accept(s.root);
-  let r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + 1000 });
+  let r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(r.sent, 0, 'a refusal from before the enrollment was sent');
   append(s.file, use('new-1', 'Bash', { command: SECRET }), result('new-1', DENIED(SECRET), true));
-  r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + 1000 });
+  r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(r.sent, 1);
   const sends = c.sent.filter((x) => x.route === ae.ROUTE);
   assert.equal(sends.length, 1);
@@ -139,7 +139,7 @@ test('#5683 tick: history before the enrollment is never sent; a new refusal is,
   assert.equal(e.world, oe.readEnrollment({ root: s.root }).world);
   assert.equal(e.toolUseRef, 'new-1');
   assert.equal(JSON.stringify(sends[0].body).includes('board.token'), false, 'content reached the company');
-  r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + 1000 });
+  r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(r.sent, 0, 'the same refusal was sent twice');
 });
 
@@ -149,14 +149,16 @@ test('#5683 tick: only token-only agents are read; a failed send keeps the event
   const c = coordinator(() => (refuse ? { ok: false, because: '503' } : { ok: true, data: { ok: true } }));
   await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });
   accept(s.root);
-  await ae.tick({ root: s.root, remote: c, sources: s.sources([]), now: Date.now() + 1000 });
+  await ae.tick({ root: s.root, remote: c, sources: s.sources([]), now: Date.now() });
   assert.deepEqual(s.read, [], 'an agent that is not token-only had its transcript read');
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + 1000 });
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   append(s.file, use('n2', 'Bash', { command: 'x' }), result('n2', DENIED('x'), true));
-  let r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + 1000 });
+  let r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(r.sent, 0);
   refuse = false;
-  r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + 1000 });
+  r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  assert.equal(r.sent, 0, 'sent again inside the wait after a failure (review 2)');
+  r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + 31 * 60e3 });
   assert.equal(r.sent, 1, 'the event a failed send left queued was not sent later');
 });
 
@@ -165,19 +167,19 @@ test('#5683 tick: at most 50 events go in one send, the rest next tick', async (
   const c = coordinator();
   await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });
   accept(s.root);
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + 1000 });
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   const lines = [];
   for (let i = 0; i < 60; i++) lines.push(use('m' + i, 'Bash', { command: 'x' }), result('m' + i, DENIED('x'), true));
   append(s.file, ...lines);
-  assert.equal((await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + 1000 })).sent, 50);
-  assert.equal((await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + 1000 })).sent, 10);
+  assert.equal((await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() })).sent, 50);
+  assert.equal((await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() })).sent, 10);
 });
 
 test('#5683 tick: enrolled but with no accepted words recorded here opens no transcript and sends nothing', async (t) => {
   const s = setup(t);
   const c = coordinator();
   await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });   // joined, but accept() never ran
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + 1000 });
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.deepEqual(s.read, [], 'a transcript was read under an enrollment with no accepted words');
   assert.equal(c.sent.some((x) => x.route === ae.ROUTE), false);
 });
@@ -188,13 +190,13 @@ test('#5683 tick: a batch the coordinator refuses as unreadable is dropped, so i
   const c = coordinator(() => (bad ? { ok: false, because: '400 {"code":"org_agent_events_bad"}' } : { ok: true, data: { ok: true } }));
   await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });
   accept(s.root);
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + 1000 });
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   append(s.file, use('p1', 'Bash', { command: 'x' }), result('p1', DENIED('x'), true));
-  const r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + 1000 });
+  const r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(r.dropped, 1, 'the refused batch was kept to be refused again');
   bad = false;
   append(s.file, use('p2', 'Bash', { command: 'x' }), result('p2', DENIED('x'), true));
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + 1000 });
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   const ok = c.sent.filter((x) => x.route === ae.ROUTE).pop();
   assert.deepEqual(ok.body.events.map((e) => e.toolUseRef), ['p2'], 'a later event waited behind the refused one');
 });
@@ -241,7 +243,7 @@ async function enrolled(t) {
 test('#5683 r1: an event from the future is not sent (it would cost its whole batch)', async (t) => {
   const { s, c } = await enrolled(t);
   append(s.file, use('fut', 'Bash', { command: 'x' }, Date.now() + 3600e3), result('fut', DENIED('x'), true, Date.now() + 3600e3));
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + 1000 });
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(c.sent.some((x) => x.route === ae.ROUTE), false, 'an event an hour ahead was sent');
 });
 
@@ -251,10 +253,13 @@ test('#5683 r1: the company changing its words stops the sends; words accepted a
   const c = coordinator(() => (refuse ? { ok: false, because: '409 {"code":"org_consent_changed"}' } : { ok: true, data: { ok: true } }));
   await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });
   accept(s.root);
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });   // Scout is seen listed
+  await new Promise((r) => setTimeout(r, 1100));
   append(s.file, use('g1', 'Bash', { command: 'x' }), result('g1', DENIED('x'), true));
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + 1000 });
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(oe.mayReport({ root: s.root }), false, 'kept reporting on words the company no longer holds');
   append(s.file, use('g2', 'Bash', { command: 'x' }), result('g2', DENIED('x'), true));   // during the gap
+  await new Promise((r) => setTimeout(r, 1100));   // the re-acceptance is a later second than the gap's refusal
   /* Accepted again, as new words (a different hash). */
   const f = path.join(s.root, oe.ENROLLMENT_FILE);
   const rec = JSON.parse(fs.readFileSync(f, 'utf8'));
@@ -263,13 +268,16 @@ test('#5683 r1: the company changing its words stops the sends; words accepted a
   fs.writeFileSync(f, JSON.stringify(rec));
   fs.writeFileSync(path.join(s.root, oe.CONSENT_FILE), JSON.stringify({ order: [H2], byHash: { [H2]: { reports: ['x'], usageConsented: false } } }));
   refuse = false;
-  await new Promise((r) => setTimeout(r, 1100));   // the re-acceptance is a later second than the gap's refusal
+  /* The first tick under the new words starts clean (review 2: then a refusal AFTER it must be sent). */
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });   // a new consent state has no failure wait
+  await new Promise((r) => setTimeout(r, 1100));
   append(s.file, use('g3', 'Bash', { command: 'x' }), result('g3', DENIED('x'), true));
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + 1000 });
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   const ok = c.sent.filter((x) => x.route === ae.ROUTE).slice(1);
   const refs = ok.flatMap((x) => x.body.events.map((e) => e.toolUseRef));
   assert.equal(refs.includes('g2'), false, 'a refusal from while no words were accepted was sent');
   assert.equal(refs.includes('g1'), false, 'the queue from under the old words was sent under the new ones');
+  assert.ok(refs.includes('g3'), 'a refusal after the words were accepted again was never sent');
 });
 
 test('#5683 r1: an enrollment with no readable start time sends nothing', async (t) => {
@@ -279,7 +287,7 @@ test('#5683 r1: an enrollment with no readable start time sends nothing', async 
   delete rec.enrolledAt;
   fs.writeFileSync(f, JSON.stringify(rec));
   append(s.file, use('z', 'Bash', { command: 'x' }), result('z', DENIED('x'), true));
-  const r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + 1000 });
+  const r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.equal(r.sent, 0);
   assert.equal(c.sent.some((x) => x.route === ae.ROUTE), false);
 });
@@ -287,9 +295,75 @@ test('#5683 r1: an enrollment with no readable start time sends nothing', async 
 test('#5683 r1: a call in one tick and its sandbox result in the next is sent as a sandbox refusal', async (t) => {
   const { s, c } = await enrolled(t);
   append(s.file, use('sp', 'Bash', { command: 'touch /etc/x' }));
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + 1000 });
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   append(s.file, result('sp', 'touch: /etc/x: Operation not permitted', true));
-  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + 1000 });
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   const ev = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events);
   assert.deepEqual(ev.map((e) => [e.toolUseRef, e.rule, e.targetClass]), [['sp', 'sandbox', 'system']]);
+});
+
+/* ---- review 2 ---- */
+
+test('#5683 r2: an agent made token-only after joining sends nothing from before it was listed', async (t) => {
+  const { s, c } = await enrolled(t);
+  /* Rex is not token-only yet: a refusal by the person's own rule. */
+  const rexFile = path.join(path.dirname(s.file), 'rex-1.jsonl');
+  fs.writeFileSync(rexFile, use('own', 'Bash', { command: 'x' }) + '\n' + result('own', DENIED('x'), true) + '\n');
+  const src = (agents) => ({ agents: () => agents, dirOf: (n) => '/w/' + n, transcripts: async (d) => (d === '/w/Rex' ? [rexFile] : []) });
+  await ae.tick({ root: s.root, remote: c, sources: src([]), now: Date.now() });
+  await new Promise((r) => setTimeout(r, 1100));
+  await ae.tick({ root: s.root, remote: c, sources: src(['Rex']), now: Date.now() });   // now listed
+  assert.equal(c.sent.some((x) => x.route === ae.ROUTE), false, "the person's own rule's refusal was sent as the company's");
+});
+
+test('#5683 r2: the call map keeps no input and forgets a call once it is answered', () => {
+  const calls = new Map();
+  ae.scanText(use('w1', 'Write', { file_path: '/Users/ann/x', content: 'SECRET'.repeat(1000) }), calls, ctx());
+  assert.equal(JSON.stringify([...calls.values()]).includes('SECRET'), false, 'a Write content was kept in memory');
+  ae.scanText(result('w1', 'ok', false), calls, ctx());
+  assert.equal(calls.size, 0, 'a successful result left its call behind');
+});
+
+test('#5683 r2: an old session is skipped without being read', async (t) => {
+  const { s, c } = await enrolled(t);
+  const old = path.join(path.dirname(s.file), 'old.jsonl');
+  /* No final newline: a read would stop at the last complete line, so only the skip lands at the very end. */
+  fs.writeFileSync(old, use('o1', 'Bash', { command: 'x' }) + '\n' + result('o1', DENIED('x'), true));
+  const past = new Date(Date.now() - 3 * 86400e3);
+  fs.utimesSync(old, past, past);
+  const src = { agents: () => ['Scout'], dirOf: () => '/w/scout', transcripts: async () => [old] };
+  await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });
+  const st = JSON.parse(fs.readFileSync(path.join(s.root, 'agent-events.json'), 'utf8'));
+  assert.equal(st.offsets[old], fs.statSync(old).size, 'an old session was not skipped to its end');
+});
+
+test('#5683 r2: a batch refused as too big is dropped, and not_enrolled asks the company again', async (t) => {
+  const s = setup(t);
+  let answer = '400 {"code":"org_agent_events_too_big"}';
+  const c = coordinator(() => ({ ok: false, because: answer }));
+  await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });
+  accept(s.root);
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  append(s.file, use('b1', 'Bash', { command: 'x' }), result('b1', DENIED('x'), true));
+  const r = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  assert.equal(r.dropped, 1);
+  answer = '403 {"code":"org_not_enrolled"}';
+  append(s.file, use('b2', 'Bash', { command: 'x' }), result('b2', DENIED('x'), true));
+  const before = c.sent.filter((x) => x.route === oe.ROUTES.status).length;
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  assert.ok(c.sent.filter((x) => x.route === oe.ROUTES.status).length > before, 'not_enrolled did not ask the company again');
+});
+
+test('#5683 r2: words withdrawn while the transcripts are read stop the send', async (t) => {
+  const { s, c } = await enrolled(t);
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await new Promise((r) => setTimeout(r, 1100));
+  append(s.file, use('lv', 'Bash', { command: 'x' }), result('lv', DENIED('x'), true));
+  const src = s.sources();
+  const during = { agents: src.agents, dirOf: src.dirOf, transcripts: async (d) => {
+    await oe.consentWithdrawn({ root: s.root }, oe.readEnrollment({ root: s.root }).consentHash);   // mid-scan
+    return src.transcripts(d);
+  } };
+  await ae.tick({ root: s.root, remote: c, sources: during, now: Date.now() });
+  assert.equal(c.sent.some((x) => x.route === ae.ROUTE), false, 'sent after the words were withdrawn mid-tick');
 });
