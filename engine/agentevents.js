@@ -39,6 +39,8 @@ const SEND_PAST_MS = PAST_MS - 3600 * 1000;   // an hour short of 7 days, so a q
    'other'). Bounded per file. */
 const CALLS = new Map();
 const CALLS_MAX = 2000;
+const TICK_READ_MAX = 16 * 1024 * 1024;   // bytes read across ALL transcripts in one tick (review 2: the read is sync)
+const RETRY_AFTER_FAIL_MS = 30 * 60 * 1000;   // a send that failed waits this long before the next (as the rollup)
 
 const DENIED = /^Permission to use ([A-Za-z][A-Za-z0-9_]*)\b[\s\S]* has been denied\.?\s*$/;
 const SANDBOX = /\bOperation not permitted\b/;
@@ -65,6 +67,7 @@ function resultText(c) {
 /* Which class of target a refused call aimed at: never the path itself. */
 function targetClass(tool, input, ctx) {
   if (tool === 'WebFetch' || tool === 'WebSearch') return 'network-host';
+  if (tool === 'Bash' && input && typeof input.command === 'string' && /\b(curl|wget|nc|ssh|scp)\b[^\n]*\b[a-z]+:\/\//i.test(input.command)) return 'network-host';
   let p = null;
   for (const k of PATH_KEYS) if (input && typeof input[k] === 'string' && input[k]) { p = input[k]; break; }
   if (!p && tool === 'Bash' && input && typeof input.command === 'string') {
@@ -76,7 +79,7 @@ function targetClass(tool, input, ctx) {
   if (p === '~' || p.startsWith('~/')) p = path.join(home, p.slice(1));
   else if (p.startsWith('~')) return 'other';   // ~user: another account's home, not resolvable here
   /* Resolved (review 1): agentDir/../../<board> is the board's files, the very traversal a company wants to see. */
-  p = path.resolve(p);
+  p = path.resolve(ctx.agentDir || path.sep, p);   // a relative path is the agent's own folder's (review 2)
   const under = (dir) => !!dir && (p === dir || p.startsWith(dir.endsWith(path.sep) ? dir : dir + path.sep));
   if (under(ctx.boardRoot)) return 'board-files';
   if (under(ctx.agentDir)) {
@@ -109,9 +112,12 @@ function scanText(text, calls, ctx) {
     const blocks = row && row.message && Array.isArray(row.message.content) ? row.message.content : [];
     for (const b of blocks) {
       if (!b || typeof b !== 'object') continue;
-      if (b.type === 'tool_use' && typeof b.id === 'string') { calls.set(b.id, { name: b.name, input: b.input || {} }); continue; }
-      if (b.type !== 'tool_result' || b.is_error !== true || typeof b.tool_use_id !== 'string') continue;
+      /* Only the tool's name and its target CLASS are kept (review 2): never the input, which can hold a whole file. */
+      if (b.type === 'tool_use' && typeof b.id === 'string') { calls.set(b.id, { name: b.name, target: targetClass(b.name, b.input || {}, ctx) }); continue; }
+      if (b.type !== 'tool_result' || typeof b.tool_use_id !== 'string') continue;
       const call = calls.get(b.tool_use_id) || {};
+      calls.delete(b.tool_use_id);   // any result answers its call (review 2: a successful one too)
+      if (b.is_error !== true) continue;
       const text0 = resultText(b.content);
       const tool = call.name || ((text0.match(DENIED) || [])[1]) || null;
       const rule = classify(text0, tool);
@@ -123,8 +129,7 @@ function scanText(text, calls, ctx) {
       const toolUseRef = label(b.tool_use_id);
       if (!agent || !sessionRef || !toolUseRef) continue;
       out.push({ agent, at: Math.floor(at / 1000), action: ACTION[tool] || 'run', rule,
-        targetClass: targetClass(tool, call.input, ctx), sessionRef, toolUseRef });
-      calls.delete(b.tool_use_id);
+        targetClass: call.target || targetClass(tool, {}, ctx), sessionRef, toolUseRef });
     }
   }
   return out;
@@ -161,9 +166,10 @@ function sessionOf(file) {
 function readState(root) {
   try {
     const j = JSON.parse(fs.readFileSync(path.join(root, STATE_FILE), 'utf8'));
-    return { offsets: j && typeof j.offsets === 'object' && j.offsets ? j.offsets : {}, pending: Array.isArray(j && j.pending) ? j.pending : [],
-      enrolledAs: j && j.enrolledAs, since: j && Number.isFinite(j.since) ? j.since : null };
-  } catch { return { offsets: {}, pending: [], enrolledAs: null, since: null }; }
+    const obj = (v) => (v && typeof v === 'object' ? v : {});
+    return { offsets: obj(j && j.offsets), pending: Array.isArray(j && j.pending) ? j.pending : [], listed: obj(j && j.listed),
+      enrolledAs: j && j.enrolledAs, since: j && Number.isFinite(j.since) ? j.since : null, failAt: j && Number.isFinite(j.failAt) ? j.failAt : null };
+  } catch { return { offsets: {}, pending: [], listed: {}, enrolledAs: null, since: null, failAt: null }; }
 }
 
 function writeState(root, st) {   // whole or not at all; owner-only
@@ -218,28 +224,44 @@ async function tick(opts) {
     let st = readState(root);
     if (st.enrolledAs !== enrolledAs) {
       const sameEnrollment = typeof st.enrolledAs === 'string' && st.enrolledAs.split('|').slice(0, 3).join('|') === enrolledAs.split('|').slice(0, 3).join('|');
-      st = { offsets: {}, pending: [], enrolledAs, since: sameEnrollment ? now : joinedAt };
+      st = { offsets: {}, pending: [], listed: {}, enrolledAs, since: sameEnrollment ? now : joinedAt, failAt: null };
     }
     const sinceS = Math.floor(Math.max(joinedAt, st.since || joinedAt) / 1000);   // whole seconds, as e.at
     const names = src.agents();
     const dirs = new Map(names.map((n) => [n, src.dirOf(n)]));
     const allDirs = [...dirs.values()].filter(Boolean);
     const seen = new Set();
+    /* When each agent was first seen on the token-only list (review 2): before that, a refusal was the PERSON's own
+       rule, never the company's, so nothing of it is sent. An agent already listed when this state began counts from
+       the first tick that saw it (the list keeps no history), the private side of the doubt. */
+    for (const n of names) if (!Number.isFinite(st.listed[n])) st.listed[n] = now;
+    for (const n of Object.keys(st.listed)) if (!names.includes(n)) delete st.listed[n];   // off the list: starts again
+    let budget = TICK_READ_MAX;
     for (const [agent, dir] of dirs) {
       if (!dir) continue;
+      const fromS = Math.max(sinceS, Math.floor(st.listed[agent] / 1000));
       for (const file of await src.transcripts(dir)) {
         seen.add(file);
-        /* Every transcript is read from its start the first time (nothing before `since` is kept), so a refusal between
-           the enrollment and the first tick is not lost (review 1). */
-        const r = readFrom(file, Object.prototype.hasOwnProperty.call(st.offsets, file) ? st.offsets[file] : 0);
+        let off = Object.prototype.hasOwnProperty.call(st.offsets, file) ? st.offsets[file] : null;
+        if (off === null) {
+          /* First sight: read from the start only if the file was written after the time that counts (review 2: an old
+             session is skipped to its end without reading it). */
+          let m;
+          try { m = fs.statSync(file); } catch { continue; }
+          if (m.mtimeMs < fromS * 1000) { st.offsets[file] = m.size; continue; }
+          off = 0;
+        }
+        if (budget <= 0) continue;   // this tick has read enough (the read is synchronous); the rest next tick
+        const r = readFrom(file, off);
         if (!r) continue;
+        budget -= r.next - off;
         st.offsets[file] = r.next;
         if (!r.text) continue;
         const calls = CALLS.get(file) || new Map();
         const ctx = { agent, session: sessionOf(file), boardRoot: root, agentDir: dir,
           otherAgentDirs: allDirs.filter((d) => d !== dir), home: o.home, now };
         for (const e of scanText(r.text, calls, ctx)) {
-          if (e.at < sinceS || e.at > Math.floor(now / 1000) + AHEAD_S) continue;
+          if (e.at < fromS || e.at > Math.floor(now / 1000) + AHEAD_S) continue;
           st.pending.push(Object.assign({ world: rec.world }, e));
         }
         while (calls.size > CALLS_MAX) calls.delete(calls.keys().next().value);
@@ -252,6 +274,13 @@ async function tick(opts) {
     st.pending = st.pending.filter((e) => e.at * 1000 >= now - SEND_PAST_MS);
     if (!writeState(root, st)) return { sent: 0, because: 'this Kosmos cannot record what it has read' };
     if (st.pending.length === 0) return { sent: 0, because: null };
+    if (st.failAt && now - st.failAt < RETRY_AFTER_FAIL_MS) return { sent: 0, because: 'waiting after a failed send' };
+    /* Re-checked after the scan (review 2, the rollup's review 3): a Leave pressed, or words withdrawn, while the
+       transcripts were read stops the send. */
+    const rec2 = oe.mayReport(eo) ? oe.readEnrollment(eo) : null;
+    if (!rec2 || rec2.world + '|' + ((rec2.org && rec2.org.id) || '') + '|' + (rec2.enrolledAt || '') + '|' + (rec2.consentHash || '') !== enrolledAs) {
+      return { sent: 0, because: 'the enrollment changed while reading' };
+    }
     /* The computer print, as the rollup sends it (review 1): the company refuses a copy of this Mac's key elsewhere. */
     const pf = oe.reportPrint(eo);
     if (pf.send === 'later' || pf.send === 'error') return { sent: 0, because: 'this computer could not be read yet' };
@@ -278,12 +307,18 @@ async function tick(opts) {
       if (/\borg_not_enrolled\b|\borg_not_member\b/.test(why)) {
         try { await oe.refresh(eo); } catch { /* the daily refresh tries again */ }
       }
+      const failed = readState(root);
+      failed.failAt = now;   // review 2: no signed request and refresh every five minutes while it keeps failing
+      writeState(root, failed);
       return { sent: 0, because: why || 'the send failed' };
     }
     /* Sent: drop exactly what went. A repeat would be ignored by the coordinator (one row per session and tool use). */
     const after = readState(root);
     after.pending = after.pending.slice(batch.length);
+    after.failAt = null;
     writeState(root, after);
+    const d = r.data || {};
+    if (d.capped || d.skipped) console.error('agentevents: the company ' + (d.capped ? 'capped today\'s events' : 'skipped ' + d.skipped + ' out of its time window'));
     return { sent: batch.length, because: null };
   } catch (e) {
     return { sent: 0, because: String((e && e.message) || e) };

@@ -20,8 +20,9 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 ## Decided (overturn in one line)
 - Only token-only agents are read: they are the agents the company's rules (the guard and its sandbox) apply to. A
   person's own deny rules on any other agent, and the auto-mode classifier, are never read or sent.
-- Nothing from before the enrollment: offsets start at the end of what is on disk when a company is joined, and an event
-  timed before the enrollment (whole seconds) is dropped, for a transcript first seen later.
+- Nothing from before the enrollment, the current accepted words, or the agent joining the token-only list: each is a
+  time an event must be at or after (whole seconds). A transcript first seen is read from its start only if written
+  after that time; an older one is skipped to its end unread.
 - The PermissionDenied hook is not used: it fires only for the auto-mode classifier (measured), so it cannot see a
   deny-rule refusal.
 
@@ -52,3 +53,21 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   and the first tick is not lost; offsets of transcripts that are gone are dropped.
 - The computer print is sent as the rollup sends it (the coordinator now checks it, relay review 1).
 - The label check is written with escapes (no raw bidi character in the source) and refuses zero-width characters.
+
+## Review 2 (opus), all fixed unless stated
+- An agent made token-only after joining had its older refusals (the PERSON's own rules) sent: each agent's first
+  sighting on the list is recorded, and nothing before it is sent. An agent already listed when the state began counts
+  from that first tick (the list keeps no history): the private side, at the cost of refusals between joining and the
+  first tick. Test, P12.
+- The call map kept full tool inputs (a Write's content) and successful results never freed them: it keeps the name and
+  the target class only, and any result forgets its call. Test, P13, P17.
+- The first tick read every old transcript synchronously: a transcript written before the time that counts is skipped
+  unread, and a tick reads at most 16 MB across all transcripts. Test, P14.
+- Consent and the enrollment are re-checked after the scan, before the send (the rollup's review 3). Test, P15.
+- A failed send waits 30 minutes before the next (no signed request and refresh every five minutes). Test, P16.
+- The consent-gap test now proves a refusal after the words are accepted again IS sent; too_big drop and the
+  not_enrolled refresh are tested.
+- Relative paths resolve against the agent's folder; a Bash curl/wget/nc/ssh/scp to a URL is network-host; the
+  coordinator's capped/skipped counts are logged.
+- Stated: words accepted again count from the tick that sees them (a refusal between the acceptance and that tick, at
+  most one tick, is not sent). org_bad_print is not dropped: it is a board defect, and the 30-minute wait bounds it.
