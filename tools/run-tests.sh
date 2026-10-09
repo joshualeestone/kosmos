@@ -278,9 +278,28 @@ seen_before() {
   command -v kosmos_box_load_1min >/dev/null 2>&1 && load="$(kosmos_box_load_1min)"
   cores="$(sysctl -n hw.ncpu 2>/dev/null)"
   [ -n "$load" ] && lines+=("1-minute load $load on ${cores:-?} cores")
+  # #5727: the wall-clock time-scale the eventually() helper applies this run, so the
+  # reader of a timing red sees whether budgets were stretched for load (scale > 1x).
+  [ -n "${KOSMOS_TEST_TIME_SCALE:-}" ] && lines+=("wall-clock test time-scale ${KOSMOS_TEST_TIME_SCALE}x")
   printf '%s
 ' "${lines[@]}"
 }
+# #5727: compute ONE wall-clock time-scale for the whole suite, HERE and ONCE (the
+# 1-minute load moves between reads -- #2749), BEFORE seen_before so the banner shows
+# it. test-support/eventually.js reads KOSMOS_TEST_TIME_SCALE to scale each poll budget
+# by the box's load-per-core; the floor 1 / cap 4x and the per-core math live in the
+# lib, so this always sets a well-formed value in [1.00, 4.00]. Computed, never taken
+# pre-set: the knob for reproducing a load-driven flake locally is KOSMOS_FAKE_LOAD
+# (cut-load-guard.sh honors it), which feeds the SAME clamped math, so a forced scale
+# cannot bypass the guardrails or print garbage in the banner. cut-load-guard.sh
+# (kosmos_box_load_1min) is sourced above; the lib falls back to sysctl if it is not.
+. "$REPO/tools/lib/test-time-scale.sh" 2>/dev/null || true
+if command -v kosmos_test_time_scale >/dev/null 2>&1; then
+  KOSMOS_TEST_TIME_SCALE="$(kosmos_test_time_scale)"
+else
+  KOSMOS_TEST_TIME_SCALE=1.00
+fi
+export KOSMOS_TEST_TIME_SCALE
 BEFORE="$(seen_before)"
 
 # #1962: refuse to run the suite while a RELEASE holds the machine. This is every
