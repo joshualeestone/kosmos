@@ -194,9 +194,24 @@ function enforcedTokenPath() {
 }
 
 /** Read the token file, or null if it is absent or empty. */
+/* #5434 slice 14: a token with a NUL byte in it is not a token. A crash after an unflushed write can leave
+   board.token at full length but zero-filled (#5431), and `.trim()` keeps NULs, so that file read as a "token"
+   nobody holds: every request was refused, and the empty-file heal below never fired because the file was not
+   empty. Read as absent instead, so the heal replaces it. */
+const usableToken = (t) => (t && !t.includes('\0') ? t : '');
+
+/* #5434 slice 14: write a token temp and flush it before anything publishes it (link or rename). */
+function writeTokenTemp(tmp, data) {
+  const { flushOrThrow } = require('./securewrite');
+  const fd = fs.openSync(tmp, 'w', 0o600);
+  let pending = null;
+  try { fs.writeFileSync(fd, data); flushOrThrow(fd); } catch (e) { pending = e; throw e; }
+  finally { try { fs.closeSync(fd); } catch (e) { if (!pending) throw e; } }
+}
+
 function readToken() {
   try {
-    const t = fs.readFileSync(tokenPath(), 'utf8').trim();
+    const t = usableToken(fs.readFileSync(tokenPath(), 'utf8').trim());
     if (t) return t;
   } catch {
     /* fall through to the legacy leaf */
@@ -207,7 +222,7 @@ function readToken() {
   const lp = legacyTokenPath();
   if (lp) {
     try {
-      const t = fs.readFileSync(lp, 'utf8').trim();
+      const t = usableToken(fs.readFileSync(lp, 'utf8').trim());
       if (t) return t;
     } catch {
       /* no legacy copy either */
@@ -230,7 +245,7 @@ function readToken() {
 function readTokenFrom(root) {
   if (typeof root !== 'string' || !root) return null;
   try {
-    const t = fs.readFileSync(path.join(root, TOKEN_FILE), 'utf8').trim();
+    const t = usableToken(fs.readFileSync(path.join(root, TOKEN_FILE), 'utf8').trim());
     return t || null;
   } catch {
     return null;
@@ -336,9 +351,10 @@ function ensureTokenPrimary() {
         fs.mkdirSync(store.ROOT, { recursive: true, mode: 0o700 });
         const tmp = path.join(store.ROOT, `.${TOKEN_FILE}.${process.pid}.primary.tmp`);
         try {
-          fs.writeFileSync(tmp, existing, { mode: 0o600 });
-          try { fs.chmodSync(tmp, 0o600); } catch { /* writeFileSync mode already applied on most platforms */ }
+          writeTokenTemp(tmp, existing);   // #5434 slice 14: flushed before it is published
+          try { fs.chmodSync(tmp, 0o600); } catch { /* the open's mode already applied on most platforms */ }
           fs.renameSync(tmp, tokenPath());   // publish the backfill; it tracks the adopted token, so clobber is correct
+          require('./securewrite').syncDir(store.ROOT);
         } finally {
           try { fs.unlinkSync(tmp); } catch { /* our temp; harmless if already renamed into place */ }
         }
@@ -363,10 +379,11 @@ function ensureTokenPrimary() {
   // then claim the final name with link() -- atomic, and EEXIST if a racer got
   // there first, in which case we adopt whatever they wrote.
   const tmp = path.join(dir, `.${TOKEN_FILE}.${process.pid}.tmp`);
-  fs.writeFileSync(tmp, token, { mode: 0o600 });
-  try { fs.chmodSync(tmp, 0o600); } catch { /* writeFileSync mode already applied on most platforms */ }
   try {
+    writeTokenTemp(tmp, token);   // #5434 slice 14: flushed before link() publishes it
+    try { fs.chmodSync(tmp, 0o600); } catch { /* the open's mode already applied on most platforms */ }
     fs.linkSync(tmp, tokenPath());   // atomic exclusive claim
+    require('./securewrite').syncDir(dir);
     return token;                     // we won the race
   } catch (err) {
     if (err && err.code === 'EEXIST') {
@@ -380,6 +397,7 @@ function ensureTokenPrimary() {
       // landed first -- rather than blindly the token we generated. Best-effort
       // under true concurrency (see the docblock); it heals the deadlock.
       fs.renameSync(tmp, tokenPath());
+      require('./securewrite').syncDir(dir);
       return readToken() || token;
     }
     throw err;

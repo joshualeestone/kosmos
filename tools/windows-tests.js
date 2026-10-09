@@ -52,6 +52,7 @@ const ALSO = ['agentpermission-5406.test.js', 'platform.test.js', 'store.test.js
   'allowance.fsync-5434.test.js',   // #5434 slice 5: the account folder's weekly files, on Windows too
   'create.codexfsync-5434.test.js',   // #5434 slice 7: the codex config.toml rewrite, on Windows too
   'trust.fsync-5434.test.js',   // #5434 slice 6: trust.js's Claude Code config and settings saves, on Windows too
+  'boardauth.fsync-5434.test.js',   // #5434 slice 14: board.token flushed, a zero-filled one healed, on Windows too
   'settingswrite.fsync-5434.test.js',   // #5434 slice 3: the provider settings writers, on Windows too
   'store.real-root-5418.test.js',   // #5418: the test-process root rule is live in this job, so its own test runs here too
   'sendertoken.revokeifunchanged-5418.test.js',   // #5418 ask 2: the cleanup's last guard, on Windows too
