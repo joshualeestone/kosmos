@@ -150,6 +150,13 @@ function busyHold(p, t, who) {
   if (t.builtAt && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(who)))) return false;
   return !isSwarmOff(p, who);
 }
+/* #5678 review 4: will this open subtask move without a person: pick could hand it out (the same filters pick uses), or
+   one of the project's agents holds it busy? */
+function willMove(p, c) {
+  const members = new Set(Array.isArray(p.agents) ? p.agents : []);
+  if (tasks.whoOf(c).length) return tasks.progressOf(c).parts.some((x) => x.who && !x.closedAt && members.has(x.who) && busyHold(p, c, x.who));
+  return !(tasks.isOnHold(c) || c.addedVia === 'webhook' || c.repeat || c.builtAt);
+}
 /* #5678 review 3: the numbers above `t` (its parent, theirs, ...), so a broken loop of parent links is not read as
    "this task still has open subtasks" (each task on a loop is the other's child). */
 function upChain(tree, t) {
@@ -231,7 +238,11 @@ function pick(session, projects, taken) {
          (review 1: the owner was shut out of its own subtasks); anyone else is not given it. */
       /* #5678 review 3: a parent whose subtasks are still open is not handed out: given first (it is the oldest), its
          holder would sit busy on the umbrella while the tree stays locked to everyone else. The subtasks go first. */
-      if (tree.under(t.number).some((c) => !tasks.progressOf(c).closed && !upChain(tree, t).has(c.number))) continue;
+      /* Review 4: only a subtask that will move holds it back: one pick could hand out, or one a project agent holds busy.
+         A webhook, repeating, on-hold or built subtask, or one held by an agent who left or parked it, never moves on
+         its own, and would keep the parent waiting for good. */
+      const above = upChain(tree, t);
+      if (tree.under(t.number).some((c) => !tasks.progressOf(c).closed && !above.has(c.number) && willMove(p, c))) continue;
       const root = tasks.rootIn(tree, t);
       if (treeIsOthers(p, tree, holdersOf, root, session, taken, null)) continue;
       const part = prog.parts.find((x) => !x.closedAt);
