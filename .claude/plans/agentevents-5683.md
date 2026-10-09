@@ -339,3 +339,14 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - Stated: git without a URL is not network-host; a board program run as the program word is not a target; a relative
   path resolves against the agent's folder though the shell may have cd'd elsewhere; a gap and a collision in one tick
   keeps the collision only until the next tick.
+
+## Review 26 (opus), all fixed unless stated
+- With the confirmation refreshed only at half the gap (review 25), it could be ~10 minutes stale while checked, so an
+  11-minute gap fired after ONE missed tick (a slow tick, a paused board, a restart): the gap is 20 minutes (that
+  staleness plus two missed ticks and a margin); the comments and this note say so (review 24's "two ticks" was stale).
+  Test (one missed tick keeps the refusal).
+- A bare relative glob with no fixed start (star/worlds.json) skipped the own-folder filter and read as the board's:
+  a word with no fixed start that does not begin with a variable is the agent's own. Own-folder paths fold case on a
+  Mac. Test.
+- Confirmations are pruned when an agent leaves the list; the review-24 test has a positive arm.
+- Stated: past 4096 characters, a file named exactly board.token inside the agent's own folder reads as the board's.

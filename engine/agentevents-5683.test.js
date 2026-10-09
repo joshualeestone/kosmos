@@ -884,6 +884,14 @@ test('#5683 r24: a guard unconfirmed for longer than two ticks counts from now (
   append(s.file, use('down', 'Bash', { command: 'x' }), result('down', DENIED('x'), true));   // during the gap
   await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: T0 + 30 * 60e3 });   // half an hour later
   assert.equal(c.sent.some((x) => x.route === ae.ROUTE), false, 'a refusal from the unchecked gap was sent');
+  /* The positive arm (review 26): a refusal after the guard is confirmed again IS sent. */
+  await new Promise((r) => setTimeout(r, 1100));
+  /* Stamped after the (simulated) re-listing time, as a refusal made then would be. */
+  const later = T0 + 30 * 60e3 + 60e3;
+  append(s.file, use('back', 'Bash', { command: 'x' }, later), result('back', DENIED('x'), true, later));
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: later + 60e3 });
+  const refs = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events.map((e) => e.toolUseRef));
+  assert.ok(refs.includes('back'), 'the agent stayed silent after its guard was confirmed again');
 });
 
 test('#5683 r24: a hidden word inside the agent\'s own folder is not the board\'s', () => {
@@ -908,5 +916,20 @@ test('#5683 r25: ticks five minutes apart do not rewrite the state each time for
   await new Promise((r) => setTimeout(r, 30));
   await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: T0 + 5 * 60e3 });
   assert.equal(fs.statSync(f).mtimeMs, m1, 'a tick five minutes later rewrote the state for the confirmation alone');
+});
+
+/* ---- review 26 ---- */
+
+test('#5683 r26: one missed tick does not trip the guard gap; a bare relative glob is the agent\'s own', async (t) => {
+  assert.equal(ae.targetClass('Bash', { command: 'cat */worlds.json > /etc/out' }, ctx()), 'system');
+  const { s, c } = await enrolled(t);
+  const T0 = Date.now();
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: T0 });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: T0 + 5 * 60e3 });   // checked, not written
+  await new Promise((r) => setTimeout(r, 1100));
+  append(s.file, use('kept', 'Bash', { command: 'x' }), result('kept', DENIED('x'), true));
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: T0 + 15 * 60e3 });   // one tick missed
+  const refs = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events.map((e) => e.toolUseRef));
+  assert.ok(refs.includes('kept'), 'one missed tick reset the agent and lost a refusal');
 });
 

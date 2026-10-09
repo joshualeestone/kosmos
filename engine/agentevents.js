@@ -51,7 +51,10 @@ const UNGUARDED_SAID = new Set();   // said once per agent per process (review 1
 const CALLS_MAX = 2000;
 const TICK_READ_MAX = 16 * 1024 * 1024;   // bytes read across ALL transcripts in one tick (review 2: the read is sync)
 const RETRY_AFTER_FAIL_MS = 30 * 60 * 1000;   // a send that failed waits this long before the next (as the rollup)
-const GUARD_GAP_MS = 11 * 60 * 1000;   // over two ticks without a guard check: it may have lapsed unseen (review 24)
+/* Without a guard check for this long, a guard may have lapsed unseen (review 24). The stored confirmation can be up to
+   half this old while the guard IS being checked each tick (it is refreshed only then, review 25), so the gap is that
+   staleness plus two missed five-minute ticks and a margin (review 26: at 11 minutes one missed tick fired it). */
+const GUARD_GAP_MS = 20 * 60 * 1000;
 
 /* A deny-rule refusal: it starts "Permission to use <Tool>" and ends "has been denied." Tested on the head and the tail
    only (review 19: one regex over a 4 MB result could backtrack on agent-shaped text). */
@@ -159,7 +162,10 @@ function targetClass(tool, input, ctx) {
     /* A hidden word whose fixed start resolves inside the agent's own folder is the agent's (review 24: a globbed
        worlds.json under the agent's own maps folder read as the board's registry). */
     // $PWD, ${PWD} and $(pwd) are the agent's own folder (review 25).
-    const own = (w0) => { const w = w0.replace(/^(\$\{?PWD\}?|\$\(pwd\))(?=\/|$)/, '.'); const pre = w.split(/[*?$`]/)[0]; if (!pre || !ctx.agentDir) return false; const r = path.resolve(ctx.agentDir, pre.replace(/^~(?=\/|$)/, ctx.home || os.homedir())); return r === ctx.agentDir || r.startsWith(ctx.agentDir + path.sep); };
+    /* A word with no fixed start that does not begin with a variable (a bare glob like a star then /worlds.json) is
+       relative, so it is the agent's own folder's (review 26); paths fold case on a Mac, as pathClass does. */
+    const fold2 = (x) => (process.platform === 'darwin' ? x.toLowerCase() : x);
+    const own = (w0) => { const w = w0.replace(/^(\$\{?PWD\}?|\$\(pwd\))(?=\/|$)/, '.'); const pre = w.split(/[*?$`]/)[0]; if (!ctx.agentDir) return false; if (!pre) return !/^[$`]/.test(w); const r = path.resolve(ctx.agentDir, pre.replace(/^~(?=\/|$)/, ctx.home || os.homedir())); return fold2(r) === fold2(ctx.agentDir) || fold2(r).startsWith(fold2(ctx.agentDir) + path.sep); };
     hidden = hidden.filter((w) => !own(w));
     const board = hidden.some((w) => /board\.token|agent-token-only\.json|worlds\.json|Application Support\/Kosmos\/[^/]*$/i.test(w));
     const config = hidden.some((w) => /(^|[\s/'"])\.claude(\/|\b)|CLAUDE\.md|\.mcp\.json/.test(w));
@@ -471,8 +477,7 @@ async function tick(opts) {
           /* Review 24: a guard confirmed long ago (the board was down) may have lapsed and been rewritten unseen; the gap's
              refusals could be the person's own, so the agent counts from now, as if newly listed. */
           if (Number.isFinite(st.confirmed[n]) && now - st.confirmed[n] > GUARD_GAP_MS) collidedNow.add(n), gapNow.add(n);
-          /* Refreshed at half the gap (review 25: at 4 minutes every five-minute tick rewrote the state): every other tick,
-             well inside the 11-minute check. */
+          /* Refreshed once it is over half the gap old (review 25: refreshing every tick rewrote the state every tick). */
           if (!Number.isFinite(st.confirmed[n]) || now - st.confirmed[n] > GUARD_GAP_MS / 2) st.confirmed[n] = now;
           continue;
         }
@@ -510,6 +515,7 @@ async function tick(opts) {
     st.collided = [...collidedNow];
     for (const n of names) if (!Number.isFinite(st.listed[n])) st.listed[n] = now;
     for (const n of Object.keys(st.listed)) if (!names.includes(n)) delete st.listed[n];   // off the list: starts again
+    for (const n of Object.keys(st.confirmed || {})) if (!names.includes(n)) delete st.confirmed[n];
     let budget = TICK_READ_MAX;
     const nextCalls = new Map();   // file -> its call map after this tick's lines (review 23)
     const boardRoots = typeof src.boardRoots === 'function' ? src.boardRoots() : [];
