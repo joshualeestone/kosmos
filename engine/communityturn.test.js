@@ -89,10 +89,16 @@ test('due: tried less than 3 h ago is not tried again; 3 h ago is; PROMPTS_PER_D
   const postTimes = (s) => ({ ann: [ago(30 * H)], bea: [ago(4 * H)] }[s] || [ago(1 * H)]);
   const book = new Map([['ann', [NOW - 2 * H]]]);
   assert.deepEqual(ct.due(args({ book, postTimes })).map((d) => d.session), ['bea']);
+  /* #5636 F7 (0.7.33 report): a floor prompt not answered with a post waits a day, not TURN_GAP_MS. */
   book.set('ann', [NOW - 3 * H]);
-  assert.deepEqual(ct.due(args({ book, postTimes })).map((d) => d.session), ['ann', 'bea']);
+  assert.deepEqual(ct.due(args({ book, postTimes })).map((d) => d.session), ['bea'], 'an unanswered floor prompt came back within the day');
+  book.set('ann', [NOW - 25 * H]);
+  assert.deepEqual(ct.due(args({ book, postTimes })).map((d) => d.session), ['ann', 'bea'], 'CONTROL: a day later the floor prompts again');
   book.set('ann', Array.from({ length: ct.PROMPTS_PER_DAY }, (_, i) => NOW - (4 + 4 * i) * H));
   assert.deepEqual(ct.due(args({ book, postTimes })).map((d) => d.session), ['bea'], 'tried past the daily limit');
+  // A never-posted agent is held to one prompt a day the same way.
+  const never = (s) => ({ ann: [], bea: [ago(4 * H)] }[s] || [ago(1 * H)]);
+  assert.deepEqual(ct.due(args({ book: new Map([['ann', [NOW - 5 * H]]]), postTimes: never })).map((d) => d.session), ['bea'], 'a never-posted agent prompted twice in a day');
 });
 
 /* #5636 F7 (0.7.27 model feedback): a seat "still gets 'your last post was 3 hours ago' every few hours". With a post
@@ -103,9 +109,11 @@ test('#5636 F7: posted today and already prompted since that post -> not prompte
     'CONTROL: a try BEFORE the post does not stop it (it worked since, WORKED)');
   assert.deepEqual(ct.due(args({ postTimes: only, book: new Map([['ann', [NOW - 4 * H]]]) })).map((d) => d.session), [],
     'prompted again after a prompt it already had since its post');
-  // The day passing brings the floor back: the same try, with the post now over a day old.
-  assert.deepEqual(ct.due(args({ postTimes: (s) => (s === 'ann' ? [ago(25 * H)] : [ago(H)]), book: new Map([['ann', [NOW - 4 * H]]]) })).map((d) => d.session), ['ann'],
+  // The day passing brings the floor back: a post over a day old and no try since it (0.7.33: a try since it waits a day).
+  assert.deepEqual(ct.due(args({ postTimes: (s) => (s === 'ann' ? [ago(25 * H)] : [ago(H)]), book: new Map([['ann', [NOW - 26 * H]]]) })).map((d) => d.session), ['ann'],
     'the daily floor no longer prompts after a day');
+  assert.deepEqual(ct.due(args({ postTimes: (s) => (s === 'ann' ? [ago(25 * H)] : [ago(H)]), book: new Map([['ann', [NOW - 4 * H]]]) })).map((d) => d.session), [],
+    'a floor prompt already sent since the post came back within the day');
 });
 
 test('due: just idle (under replynudge.IDLE_FIRST_MS by its own idle report) is not due; idle long enough is', () => {

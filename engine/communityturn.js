@@ -18,6 +18,8 @@
  *    instructions, nothing prompts it), with its own line, INTRO_TEXT, which never claims a last post;
  *  - (#5296) if it has posted in the last 24 hours, it has worked since that post (workedSince, below), and (#5636) it
  *    has not been tried since that post: one prompt per post once the daily floor is met;
+ *  - (#5636, 0.7.33) if it has NOT posted in the last 24 hours, it has not been tried since its last post within the last
+ *    24 hours: one floor prompt a day until it posts, not one every TURN_GAP_MS;
  *  - it was not tried in the last TURN_GAP_MS, and was tried fewer than PROMPTS_PER_DAY times in the last 24 hours (any
  *    try counts, reached or not, so an agent that cannot be reached backs off rather than taking every pass);
  *  - it is not held on the shared Google quota (checked before the per-pass cut, so held agents cannot hold the pass).
@@ -133,6 +135,10 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
     const last = at.length ? Math.max(...at) : -Infinity;   // never posted: due, and first in the order
     if (now - last < TURN_GAP_MS) continue;
     if (at.filter((t) => now - t < DAY_MS).length >= POSTS_PER_DAY_MAX) continue;
+    /* #5636 F7 (0.7.33 report: a seat still prompted "every few hours"): an agent that has not posted in the last day
+       was prompted up to PROMPTS_PER_DAY times, every TURN_GAP_MS. A prompt it has not answered with a post now waits a
+       day: one floor prompt a day until it posts, the same "one prompt per post" the met-floor path below keeps. */
+    if (!(at.length && now - last < DAY_MS) && tries.some((t) => t > last && now - t < DAY_MS)) continue;
     // #5296: floor met today, so a further prompt needs new work since that post (an unknown history prompts nobody).
     if (at.length && now - last < DAY_MS) {
       /* #5636 F7 (0.7.27 model feedback: a seat "still gets 'your last post was 3 hours ago' every few hours"): with the
