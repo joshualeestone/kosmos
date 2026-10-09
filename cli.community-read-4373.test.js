@@ -76,7 +76,7 @@ test('#4373: read asks the board with the agent token and prints its framed text
   const out = await runCli(['community', 'read'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen.length, 1);
-  assert.equal(seen[0].url, '/api/community/read', 'the bare read sent parameters');
+  assert.equal(seen[0].url, '/api/community/read?soon=1', 'the bare read sent parameters');
   assert.equal(seen[0].headers['x-kosmos-agent-token'], TOKEN, 'the agent token was not sent; the board cannot tell who is reading');
   assert.equal(out.stdout, FRAMED + '\n', 'the framed text did not arrive as the board sent it');
 }));
@@ -85,9 +85,9 @@ test('#4373: --channel and --post are passed as query parameters, encoded', () =
   await runCli(['community', 'read', '--channel', 'general/tools'], envFor(port));
   await runCli(['community', 'read', '--post=1b2c3d4e-0000-4000-8000-000000000001'], envFor(port));
   await runCli(['community', 'read', '--channel', 'a b&c=d'], envFor(port));
-  assert.equal(seen[0].url, '/api/community/read?channel=general%2Ftools');
-  assert.equal(seen[1].url, '/api/community/read?post=1b2c3d4e-0000-4000-8000-000000000001');
-  assert.equal(seen[2].url, '/api/community/read?channel=a+b%26c%3Dd', 'a channel broke out of its parameter');
+  assert.equal(seen[0].url, '/api/community/read?soon=1&channel=general%2Ftools');
+  assert.equal(seen[1].url, '/api/community/read?soon=1&post=1b2c3d4e-0000-4000-8000-000000000001');
+  assert.equal(seen[2].url, '/api/community/read?soon=1&channel=a+b%26c%3Dd', 'a channel broke out of its parameter');
 }));
 
 test('#4373: a refusal from the board is said in its words and exits 1', () => withStubBoard(async (port) => {
@@ -114,7 +114,7 @@ test('#4939: kosmos community status asks for the agent\'s own items (status=1) 
   const out = await runCli(['community', 'status'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen.length, 1);
-  assert.match(seen[0].url, /^\/api\/community\/read\?status=1$/);
+  assert.match(seen[0].url, /^\/api\/community\/read\?soon=1&status=1$/);   // #5636 F4: soon=1 on every read
   assert.match(out.stdout, /queued: Kosmos sends it on its next pass/);
 }, { status: 200, body: { ok: true, count: 1, text: 'Your posts and comments in the Kosmos+ community, newest first:\n\n- post "A": queued: Kosmos sends it on its next pass, within a few minutes' } }));
 
@@ -128,9 +128,9 @@ test('#4939 review 1: kosmos community status refuses extra words (as Windows do
 /* #5292: --older on the Mac: the next page of the feed or a channel, never with anything else. */
 test('#5292: read --older sends older=, with or without a channel; with a post, a feed or a status it exits 2', () => withStubBoard(async (port, seen) => {
   assert.equal((await runCli(['community', 'read', '--older', 'eyJhIjoxfQ'], envFor(port))).code, 0);
-  assert.equal(seen[0].url, '/api/community/read?older=eyJhIjoxfQ');
+  assert.equal(seen[0].url, '/api/community/read?soon=1&older=eyJhIjoxfQ');
   assert.equal((await runCli(['community', 'read', '--channel', 'general/tools', '--older=eyJhIjoxfQ'], envFor(port))).code, 0);
-  assert.equal(seen[1].url, '/api/community/read?channel=general%2Ftools&older=eyJhIjoxfQ');
+  assert.equal(seen[1].url, '/api/community/read?soon=1&channel=general%2Ftools&older=eyJhIjoxfQ');
   for (const extra of [['--post', 'x'], ['--following'], ['--replies'], ['--status']]) {
     const out = await runCli(['community', 'read', '--older', 'eyJhIjoxfQ', ...extra], envFor(port));
     assert.equal(out.code, 2, extra.join(' '));

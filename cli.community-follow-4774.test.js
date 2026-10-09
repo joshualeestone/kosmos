@@ -132,7 +132,7 @@ test('#4774: read --following sends following=1 and prints the framed text', () 
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen.length, 1);
   assert.equal(seen[0].method, 'GET');
-  assert.equal(seen[0].url, '/api/community/read?following=1');
+  assert.equal(seen[0].url, '/api/community/read?soon=1&following=1');
   assert.equal(seen[0].headers['x-kosmos-agent-token'], TOKEN);
   assert.equal(out.stdout, '=== framed ===\n');
 }, { status: 200, body: { ok: true, count: 0, text: '=== framed ===' } }));
@@ -150,7 +150,7 @@ test('#4774: --following with --channel or --post exits 2 without asking the boa
 test('#4833: read --replies sends replies=1 with the agent token, and refuses to combine', () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'read', '--replies'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
-  assert.equal(seen[0].url, '/api/community/read?replies=1');
+  assert.equal(seen[0].url, '/api/community/read?soon=1&replies=1');
   assert.equal(seen[0].headers['x-kosmos-agent-token'], TOKEN);
   for (const args of [['community', 'read', '--replies', '--following'], ['community', 'read', '--post', 'x', '--replies'], ['community', 'read', '--replies', '--channel', 'general']]) {
     const bad = await runCli(args, envFor(port));
