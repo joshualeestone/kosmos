@@ -73,7 +73,9 @@ test('#5686 review 3: a writer\'s temp copy of a denied file is denied with it, 
     // review 14: the connector's pairing state; the secrets-folder rule runs before the template exemption
     'Kosmos/remote/pairing.json', 'Kosmos/remote/.pairing.json.tmp', 'Kosmos/secrets/github.token.example',
     // review 15: a forgotten account's folder keeps its sign-in
-    'acct/.removed-claude-work/.credentials.json', 'acct/.removed-gemini-x/oauth_creds.json', 'acct/.removed-claude-work-2/.credentials.json']) {
+    'acct/.removed-claude-work/.credentials.json', 'acct/.removed-gemini-x/oauth_creds.json', 'acct/.removed-claude-work-2/.credentials.json',
+    // review 16: a random tail glued straight onto the ending
+    'x/id_rsa.tmp1a', 'x/id_rsa.tmpk3j9z', 'x/id_rsa.bak2x']) {
     assert.equal(bs.pathDecision(p).include, false, `${p} must be skipped`);
   }
   for (const p of ['agents/a/notes.md.tmp', 'projects/site/draft.tmp', 'agents/a/secrets-plan.md', 'Kosmos/remote/.mac_id.tmp',
@@ -84,7 +86,8 @@ test('#5686 review 3: a writer\'s temp copy of a denied file is denied with it, 
     'notes/keyboard.tokens.csv', 'notes/billboard.token-ideas.md', 'projects/site/remote/api.keys.md',
     'projects/site/remote/talk.keynote', 'projects/site/remote/imac_keyboard.md', 'projects/site/communitysend-notes.md',
     'projects/site/undo/notes.md', 'notes/undo-saved-ideas.md', 'projects/site/undo/blobs.md', 'notes/mac_keyboard2.md', 'notes/trade-secrets/plan.md', 'notes/trade-secrets/env.md', 'Kosmos/remote/account', 'Kosmos/remote/peers.json',
-    'Kosmos/remote/devices.json', 'projects/site/pairing.json', 'Kosmos/remote/old/pairing.json', 'Kosmos/secrets/readme.example', 'projects/site/remote/notes.md.bak', 'w/' + '\u{1F600}'.repeat(130) + '.tmp']) {
+    'Kosmos/remote/devices.json', 'projects/site/pairing.json', 'Kosmos/remote/old/pairing.json',
+    'acct/.removed-claude-notes/readme.md', 'notes/plan.template', 'notes/id_rsa.temperature.md', 'Kosmos/secrets/readme.example', 'projects/site/remote/notes.md.bak', 'w/' + '\u{1F600}'.repeat(130) + '.tmp']) {
     assert.equal(bs.pathDecision(p).include, true, `CONTROL: ${p} is a temp of ordinary work, or not a temp, and is kept`);
   }
 });
@@ -116,6 +119,13 @@ test('#5686 review 7: a hostile copy-shaped name cannot backtrack exponentially 
 test('#5686 review 4: a copy-shaped name too long for a filesystem is skipped, not widened (uncapped, 100000 dots exhausts the heap)', () => {
   for (const n of [1000, 100000]) assert.equal(bs.pathDecision('w/' + '.'.repeat(n) + 'tmp').include, false);
   assert.equal(bs.pathDecision('w/' + 'a-'.repeat(120) + '.tmp').include, true, 'CONTROL: a 244-character temp of ordinary work is kept');
+});
+
+test('#5686: the premise for name rules on Kosmos stores holds: the content scan stores a mac_key-shaped file as it is', () => {
+  // A raw 32-byte key, base64url, as kosmos-relay writes mac_key and install_key. If the content scan ever learns to
+  // catch it, this goes red and the name rules' comment needs its premise restated.
+  const r = bs.scanFile('notes/a.txt', Buffer.from('A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0u_w'));
+  assert.equal(r.action, 'store', 'the content scan does not recognise a bare base64url key');
 });
 
 test('#5535 deny-list: credential-shaped paths are skipped by name; ordinary work files are not', () => {
