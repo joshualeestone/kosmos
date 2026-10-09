@@ -13,8 +13,8 @@
  * The period: chunks are named with the period's naming key BEFORE any grant, so ctx.period must be the period the
  * coordinator will grant in (periodOf, its period_of). Every granted chunk key carries its period
  * (<org>/<account>/<epoch>/<period>/<random>), and so must every index entry; a key from another period stops the
- * run. The manifest's own grant may land in the next period: the coordinator locks last-day chunk grants to the next
- * period's date for exactly that case.
+ * run. The manifest is granted only inside ctx.period too, so its key, the coordinator's record of it and its sealed
+ * context always name the same period (a run that crosses Monday 00:00 UTC stops as newPeriod and starts again).
  *
  * What is read, and how:
  *  - The deny-list (backupscan pathDecision) is applied BEFORE anything is opened: a denied folder (.git, .ssh,
@@ -381,13 +381,17 @@ async function snapshotInner(input, deps, added, state, fail) {
       // becomes what this batch stored under the NEW bucket; chunks earlier batches of this run stored under the old
       // bucket are dropped from it (stored, locked, and named by nothing until their lock ends), deliberately.
       added.clear(); state.bucket = r.bucket;
-      for (const [name, key] of stored) if (pending.has(name) && !usedKeys.has(key) && !keyProblem(key, ctx) && (!owner || ownerOf(key) === owner) && Buffer.byteLength(key) <= MAX_KEY_LEN && Number.isSafeInteger(lockOf(name))) added.set(name, { key, lockedUntilMs: lockOf(name), memberKeyId: mkid });
+      for (const [name, key] of stored) {
+        if (pending.has(name) && !usedKeys.has(key) && !keyProblem(key, ctx) && (!owner || ownerOf(key) === owner) && Buffer.byteLength(key) <= MAX_KEY_LEN && Number.isSafeInteger(lockOf(name))) {
+          added.set(name, { key, lockedUntilMs: lockOf(name), memberKeyId: mkid }); usedKeys.add(key);
+        }
+      }
       return fail((index.size ? 'a grant named another bucket than the index\'s: drop the index and take a full snapshot' : 'two grants in one snapshot named different buckets: take a full snapshot') + '; chunks stored under the earlier bucket in this run are not kept', Object.assign({ staleIndex: true }, spent));
     }
     if (r && r.bucket && !state.bucket) state.bucket = r.bucket;
-    // Stored keys with no bucket to file them under (review 14): the caller could never index them, and the manifest
-    // has nowhere to go. Not recorded; a malformed answer.
-    if (stored.size && !state.bucket) return fail('the uploader answered stored chunks without naming their bucket', spent);
+    // Stored keys with no bucket named (reviews 14 and 17): whether or not an index set one, they cannot be checked
+    // against it or filed. Not recorded; a malformed answer.
+    if (stored.size && !(r && r.bucket)) return fail('the uploader answered stored chunks without naming their bucket', spent);
     // Every usable stored chunk is recorded before any failure is returned, so the caller's index keeps it (review 2).
     const wrongPeriod = [];
     let noLock = false, badKey = null;
@@ -470,16 +474,13 @@ async function snapshotInner(input, deps, added, state, fail) {
     format: FORMAT, takenAt: new Date(t).toISOString(), namingKeyId,   // t: the reading already checked (review 11)
     files, objects, redacted, skipped, skippedNotListed: skippedExtra,
   };
-  // A period boundary passed during the run (review 15): the coordinator locks this manifest to the NEW period's date,
-  // so every chunk it names must last until then, or the manifest grant is spent on a refusal (outlastsChunks). Stop
-  // first, as newPeriod, before asking for that grant.
+  // A period boundary passed during the run: NO manifest grant is asked for (review 17). The manifest is sealed with
+  // ctx.period, but the coordinator would file it under the period of the moment it is granted (its key and record), so a
+  // restore looking it up by that period could not open it; and its lock would be the new period's, which earlier
+  // chunks may not outlast (review 15). The run starts again in the new period, with its context and naming key.
   const tEnd = now();
   if (!Number.isFinite(tEnd)) return fail('this computer\'s clock gave no usable time');   // fails closed, as at the start
-  if (periodOf(tEnd) !== ctx.period) {
-    const start = MONDAY_EPOCH + Math.floor((tEnd - MONDAY_EPOCH) / WEEK_MS) * WEEK_MS;
-    const manifestLock = start + WEEK_MS + 30 * DAY_MS + 15 * 60 * 1000;   // backup.rs retain_until_for(new period end)
-    if (chunks.some((c) => c.lockedUntilMs < manifestLock)) return fail(`a period boundary passed during the snapshot (now ${periodOf(tEnd)}): its earlier chunks would not last as long as a manifest granted now; start again in the new period`, { newPeriod: true });
-  }
+  if (periodOf(tEnd) !== ctx.period) return fail(`a period boundary passed during the snapshot (now ${periodOf(tEnd)}): start again in the new period`, { newPeriod: true });
   // Cannot throw on this content (review 8): file and redacted paths passed pathProblem, skipped ones are walk paths, every other value is a fixed sentence, a number,
   // hex or a key of plain segments, and the context and keys were checked before anything was read. If it ever did,
   // takeSnapshot's catch returns `added` intact.
