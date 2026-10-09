@@ -1146,6 +1146,7 @@ function launchPathState(p) {
   try { fs.lstatSync(p); return 'present'; } catch (e) { return e && e.code === 'ENOENT' ? 'gone' : 'unknown'; }
 }
 function launchPathGone(p) { return launchPathState(p) === 'gone'; }
+function launchPathPresent(p) { return launchPathState(p) === 'present'; }
 function readLaunchRecord(file) {
   const none = { deny: [], denyWrite: [] };
   let raw;
@@ -1165,8 +1166,12 @@ function readLaunchRecord(file) {
     let keep = null;
     try { keep = fs.readdirSync(path.dirname(file)).filter((f) => f.startsWith(path.basename(file) + '.unreadable-')).map((f) => path.join(path.dirname(file), f)).find((f) => { try { return fs.statSync(f).size === Buffer.byteLength(raw) && fs.readFileSync(f, 'utf8') === raw; } catch { return false; } }) || null; } catch { keep = null; }
     if (!keep) {
-      keep = `${file}.unreadable-${Date.now()}`;
-      try { fs.writeFileSync(keep, raw, { mode: 0o600 }); } catch { /* the log still says it */ }
+      const at = `${file}.unreadable-${Date.now()}`;
+      try { fs.writeFileSync(at, raw, { mode: 0o600 }); keep = at; } catch (e) {
+        // Review 17: no copy, so the record is left as it is (as an unreadable one is), and the log says no copy.
+        process.stderr.write(`#5663: ${file} could not be read, and no copy could be kept (${(e && e.code) || e}); nothing is pruned and it is left as it is\n`);
+        return { ...none, keep: true };
+      }
     }
     process.stderr.write(`#5663: ${file} could not be read; kept a copy at ${keep}; nothing is pruned this time\n`);
     return none;
@@ -1405,9 +1410,8 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
        stable between launches, so a folder denied while absent on purpose (what is later made there would run) could
        leave one launch's PATH, be pruned, and be planted during that session. Never recorded, it is never pruned; a
        removed version existed when it was recorded, so the upgrade case is unchanged. */
-    const present = (p) => launchPathState(p) === 'present';
-    const recDeny = [...new Set([...prev.deny.filter((r) => !stale.has(r)), ...(rules.launchKnown ? [...launchDenyNow].filter((r) => present(ruleTarget(r, plat))) : [])])];
-    const recWrites = [...new Set([...prev.denyWrite.filter((x) => !staleWrites.has(x)), ...(rules.launchKnown ? launchWritesNow.filter(present) : [])])];
+    const recDeny = [...new Set([...prev.deny.filter((r) => !stale.has(r)), ...(rules.launchKnown ? [...launchDenyNow].filter((r) => launchPathPresent(ruleTarget(r, plat))) : [])])];
+    const recWrites = [...new Set([...prev.denyWrite.filter((x) => !staleWrites.has(x)), ...(rules.launchKnown ? launchWritesNow.filter(launchPathPresent) : [])])];
     const had = Array.isArray(perms.deny) ? perms.deny.filter((r) => typeof r === 'string' && !stale.has(r)) : [];
     // Review 12: what a launch prunes is said (count only), so a dropped rule never goes unseen.
     if (stale.size || staleWrites.size) process.stderr.write(`#5663: ${agentName}: pruned ${stale.size} file-tool and ${staleWrites.size} sandbox launch rule(s) whose paths are gone\n`);
@@ -1479,7 +1483,7 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
        creation, the supervisor's at a launch); no caller carries `warning` further today (reviews 5 and 6). */
     const sz = (deps.platform || process.platform) === 'darwin' ? sandboxDenySize(next.sandbox.filesystem, next.permissions.deny, deps.home, deps.platform || process.platform) : null;
     const warning = sz && (sz.prefixes > SANDBOX_DENY_PREFIX_MAX || sz.raw > SANDBOX_DENY_RAW_MAX)
-      ? `its ${sz.paths} denied paths (${sz.prefixes} distinct characters, ${sz.raw} in all) are past what Kosmos can say the sandbox will take (${SANDBOX_DENY_PREFIX_MAX} and ${SANDBOX_DENY_RAW_MAX}); the guard is written but may stop the agent's shell`
+      ? `its ${sz.paths} denied path entries across the read and write clauses (${sz.prefixes} distinct characters, ${sz.raw} in all) are past what Kosmos can say the sandbox will take (${SANDBOX_DENY_PREFIX_MAX} and ${SANDBOX_DENY_RAW_MAX}); the guard is written but may stop the agent's shell`
       : null;
     if (warning) process.stderr.write(`#5663: ${agentName}: ${warning}\n`);
     if (rules.launchUnsafe && rules.launchUnsafe.length) return { ok: false, because: 'the PATH this agent starts with has an entry Kosmos could not cover (' + rules.launchUnsafe.join(', ') + '); the rest of the guard is in place', ...(warning ? { warning } : {}) };

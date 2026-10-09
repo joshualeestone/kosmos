@@ -26,7 +26,8 @@ function misplaced(text) {
 test('#5663: a file that says \'use strict\' says it first', () => {
   const files = execFileSync('git', ['-C', REPO, 'ls-files', '*.js'], { encoding: 'utf8' }).split('\n').filter(Boolean);
   assert.ok(files.length > 100, 'CONTROL: the file list is the repo, not empty: ' + files.length);
-  const bad = files.filter((f) => misplaced(fs.readFileSync(path.join(REPO, f), 'utf8')));
+  // A tracked file deleted in the working tree is skipped (review 17): its absence is not a directive problem.
+  const bad = files.filter((f) => fs.existsSync(path.join(REPO, f)) && misplaced(fs.readFileSync(path.join(REPO, f), 'utf8')));
   assert.deepEqual(bad, [], 'the directive is not the first statement, so it does nothing');
 });
 

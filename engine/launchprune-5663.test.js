@@ -102,7 +102,7 @@ test('#5663: a sandbox layer past the measured ceiling is a warning (the guard i
   const r = setup.guardTokenOnlyFolder(dir, 'lp-ceiling', { ...BASE, atLaunch: true, panePath: many.join(path.delimiter) });
   // Review 4: a warning, never a refusal (creation refuses on ok:false, and the limits are fitted to measurements).
   assert.equal(r.ok, true, JSON.stringify(r).slice(0, 200));
-  assert.match(r.warning, /denied paths \(\d+ distinct characters, \d+ in all\) are past/);
+  assert.match(r.warning, /denied path entries across the read and write clauses \(\d+ distinct characters, \d+ in all\) are past/);
   assert.ok(readSettings(dir).sandbox.filesystem.denyWrite.length > 1000, 'the guard was not written');
   // CONTROL: the same agent with a handful of folders is whole.
   assert.deepEqual(setup.guardTokenOnlyFolder(agentDir('lp-ceiling-ok'), 'lp-ceiling-ok', { ...BASE, atLaunch: true, panePath: many.slice(0, 5).join(path.delimiter) }), { ok: true });
@@ -146,11 +146,11 @@ test('#5663 review 2: the ceiling is a macOS check, and its reason is said besid
   fs.mkdirSync(path.join(mac, '.claude'), { recursive: true });
   fs.writeFileSync(settingsFile(mac), JSON.stringify({ sandbox: { filesystem: { denyWrite: huge } } }));
   const rm = setup.guardTokenOnlyFolder(mac, 'lp-mac-huge', { ...BASE });
-  assert.equal(rm.ok, true); assert.match(rm.warning, /denied paths/);
+  assert.equal(rm.ok, true); assert.match(rm.warning, /denied path entries/);
   // Both reasons at once: past the ceiling AND a PATH entry it could not cover.
   const both = setup.guardTokenOnlyFolder(mac, 'lp-mac-huge', { ...BASE, atLaunch: true, panePath: 'relative/bin' });
   assert.equal(both.ok, false);
-  assert.match(both.because, /could not cover/); assert.match(both.warning, /denied paths/);
+  assert.match(both.because, /could not cover/); assert.match(both.warning, /denied path entries/);
 });
 
 test('#5663: a launch path not current but still on disk is kept; once it is gone it is pruned, even in a folder that stays', () => {
@@ -444,4 +444,21 @@ test('#5663 review 15: a board start never writes the record, so it cannot write
   // CONTROL: a launch does write it.
   setup.guardTokenOnlyFolder(dir, 'lp-nowrite', { ...BASE, atLaunch: true, panePath: binDir('nowrite/other/bin') });
   assert.notEqual(fs.readFileSync(rec, 'utf8'), text, 'CONTROL: a launch did not write the record');
+});
+
+test('#5663 review 17: an unparseable record whose copy cannot be written is left as it is, and the log never claims a copy', () => {
+  const dir = agentDir('lp-nocopy');
+  const v = binDir('nocopy/1.0/bin');
+  setup.guardTokenOnlyFolder(dir, 'lp-nocopy', { ...BASE, atLaunch: true, panePath: v });
+  const rec = path.join(dir, '.claude', 'kosmos-launch-rules.json');
+  fs.writeFileSync(rec, '{broken');
+  const said = [];
+  const realWrite = process.stderr.write;
+  const realFile = fs.writeFileSync;
+  fs.writeFileSync = function (f, ...rest) { if (String(f).includes('.unreadable-')) { const e = new Error('no space'); e.code = 'ENOSPC'; throw e; } return realFile.call(fs, f, ...rest); };
+  process.stderr.write = (c, ...rest) => { if (String(c).startsWith('#5663:')) { said.push(String(c)); return true; } return realWrite.call(process.stderr, c, ...rest); };
+  try { setup.guardTokenOnlyFolder(dir, 'lp-nocopy', { ...BASE, atLaunch: true, panePath: binDir('nocopy/other/bin') }); } finally { fs.writeFileSync = realFile; process.stderr.write = realWrite; }
+  assert.equal(fs.readFileSync(rec, 'utf8'), '{broken', 'the record was replaced with no copy kept');
+  assert.ok(said.some((l) => /no copy could be kept/.test(l)), said.join(''));
+  assert.ok(!said.some((l) => /kept a copy at/.test(l)), 'the log claimed a copy: ' + said.join(''));
 });

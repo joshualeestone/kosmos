@@ -15,6 +15,7 @@ An agent launch after an upgrade leaves no rule for a removed version folder or 
 - A rule the person also wrote that equals one the guard wrote for launch is pruned with it when its path is gone. Accepted: such a rule names a path that no longer exists.
 - The record is read and written without a lock. Two refreshes at once can lose a recorded entry. That entry is then never pruned: kept, not dropped. Accepted, because the failure direction is safe.
 - Only a launch records, so a launch prunes only what a launch wrote. A board start's launch rules come from its own inputs (its PATH, its XDG_CONFIG_HOME), are never recorded, and so are never pruned. Launch inputs are NOT stable: the pane PATH is the tmux server's global PATH (review 9). So the record holds only paths that existed when they were recorded. A path denied while absent on purpose is never recorded, and is never pruned, whichever launch drops it.
+- Tools that keep old versions on disk (nvm, asdf, pyenv, Homebrew before `brew cleanup`) get no pruning: an old version that is present but not current is never pruned. Their deny lists still grow with each upgrade until the old versions are removed. Pruning covers removed versions only.
 - Plan file name: the PR hook requires `.claude/plans/<branch>.md`. CLAUDE.md's timestamped name is not used here, as on every kosmos branch.
 
 ## Review 1 (Opus) and what changed
@@ -145,3 +146,11 @@ An agent launch after an upgrade leaves no rule for a removed version folder or 
 
 - The plan's "bounded to one version per tool" for the unrecorded leftovers was a claim nobody measured. It now says what the leftover is: the launch rules of each upgrade between #5660 and this merge. It also gives the measured size of the real guard here.
 - Duplicates of decided points: the lock-free record; the warning reaching only the log (#5668); review-number comments and long lines (the file's style); the plan file name; the dated-copy lookup.
+
+## Review 17 (Opus) and what changed
+
+- If the dated copy of an unparseable record could not be written, the log still claimed a copy, and the record was then overwritten. Now the log says no copy could be kept, and the record is left as it is, as an unreadable one is. Test: the copy write is made to fail; the record is unchanged and the log claims no copy; the mutation goes red.
+- The size warning says "path entries across the read and write clauses", because a path in both clauses is counted twice.
+- The use-strict guard skips a tracked file deleted from the working tree.
+- "Decided" says that tools keeping old versions on disk get no pruning.
+- Recording and pruning use a named pair, `launchPathPresent` and `launchPathGone`, over the one state helper.
