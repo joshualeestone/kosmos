@@ -4992,7 +4992,12 @@ const server = http.createServer(async (req, res) => {
      (sent, refused with reason classes, withheld, deleted, taken down with the moderator's
      reason). Board-token gated like the moderation queue above; carries no keys. */
   if (pathname === '/api/community/sent' && (req.method === 'GET' || req.method === 'HEAD')) {
-    try { sendJson(res, 200, { posts: communitysend.statuses(), comments: communitysend.commentStatuses() }); }   // #4373 part B: comments too
+    try {
+      // #5623: and the persons left unanswered after the board told the agent PERSON_TELLS times.
+      let unanswered = [];
+      try { unanswered = replynudge.unansweredFor(store.ROOT, (safeRoster() || []).map((c) => c && c.sessionName).filter(Boolean)); } catch { unanswered = []; }
+      sendJson(res, 200, { posts: communitysend.statuses(), comments: communitysend.commentStatuses(), unanswered });
+    }   // #4373 part B: comments too; #5623: and unanswered persons
     catch { sendJson(res, 500, { error: 'could not load what was sent' }); }
     return;
   }
@@ -16799,6 +16804,36 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* kosmos#5581: the agent as one portable file (the export half of #1652; the import half is the create form's "import
+     my existing agent"). Read-only, guarded exactly as the instructions GET above (the same text, plus its name and
+     provider hint), and answered as a download. Refused with the engine's sentence when there is nothing to share. */
+  const agentExport = pathname.match(/^\/api\/agent\/([^/]+)\/export$/);
+  if (agentExport && (req.method === 'GET' || req.method === 'HEAD')) {
+    /* Refused the way the board's other downloads are (refuseDownload): the browser's own download gets 204 and
+       nothing to save, and the page's ?check=1 look, made beside the click, gets the sentence to show. */
+    const name = decodeSegment(agentExport[1]);
+    if (name === null || !knownAgent(name)) { refuseDownload(req, res, 'no agent by that name', 404); return; }
+    let out;
+    try { out = agentfile.exportAgent(name, { store, instructions }); } catch { out = null; }
+    // A read that failed is the board's problem, said plainly (the engine's message can carry a path).
+    if (!out || (!out.ok && /could not read/.test(String(out.because || '')))) {
+      refuseDownload(req, res, 'that agent could not be put in a file', 500); return;
+    }
+    if (!out.ok) { refuseDownload(req, res, out.because, 409); return; }
+    if (isDownloadCheck(req)) { res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return; }
+    const body = Buffer.from(out.text, 'utf8');
+    const fname = String(out.filename);
+    res.writeHead(200, {
+      'content-type': 'text/markdown; charset=utf-8', 'content-length': body.length, 'x-content-type-options': 'nosniff',
+      // The same two names sendFileDownload gives: an ASCII fallback, then the exact one as RFC 5987.
+      'content-disposition': 'attachment; filename="' + fname.replace(/[^\x20-\x7e]|["\\]/g, '_') + '"; filename*=UTF-8\'\''
+        + encodeURIComponent(fname).replace(/['()*!]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase()),
+      'content-security-policy': "default-src 'none'; sandbox", 'cache-control': 'no-store',
+    });
+    res.end(req.method === 'HEAD' ? undefined : body);
+    return;
+  }
+
   /* kosmos#5293: an agent PROPOSES an addition to another agent's instructions; the PERSON applies it on that agent's
      page. The propose route is an agent's (it names the asker the way /api/msg names a sender: the agent token, else
      the caller's pane, never a name the caller types). Apply, Dismiss and Undo are the person's: they refuse an agent
@@ -21280,6 +21315,10 @@ function start(port = PORT) {
       try { setupAssistant.refreshGuideRole(); } catch { /* best-effort */ }
       /* #3769: an existing guide gets the secrets section and its folder's deny rules, once, at start. */
       try { setupAssistant.refreshGuideGuards(); } catch { /* best-effort */ }
+      /* #4491: a token-only agent (agent-token-only.json, slice 9) gets its board.token deny + sandbox guard
+         once at start, so a pilot listed before this shipped is guarded without a re-create; warns if the
+         root-owned managed belt is absent. */
+      try { setupAssistant.refreshTokenOnlyGuards(); } catch { /* best-effort */ }
       /* #3769: the keys this board holds, so the guide's words are masked by value too (engine/knownsecrets.js).
          Loaded now and every five minutes, so a key pasted later is known within that time. */
       const loadKnownSecrets = () => {
@@ -21496,6 +21535,8 @@ function start(port = PORT) {
           idleSince: (session) => { const r = selfreport.read(session); const t = r && r.found && r.state === 'idle' ? Date.parse(r.at) : NaN; return Number.isFinite(t) ? t : null; },   // review 15
           readNudged: (session) => replynudge.readNudged(store.ROOT, session),
           writeNudged: (session, set) => replynudge.writeNudged(store.ROOT, session, set),
+          readPersons: (session) => replynudge.readPersons(store.ROOT, session),   // #5623: a person's comment is a must-answer
+          writePersons: (session, owed) => replynudge.writePersons(store.ROOT, session, owed),
           book: REPLY_NUDGE_BOOK, sent: AGENT_NUDGE_SENT, rotation: REPLY_NUDGE_ROTATION, idleSeen: REPLY_NUDGE_IDLE_SEEN,
           quotaHeld: (session, roster) => require('./engine/agyquota').heldForAgy(session, roster, Date.now()) !== null,   // #4588 ask 3: the cap too
           deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),

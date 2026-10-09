@@ -577,3 +577,12 @@ test.after(() => {
   try { server.close(); } catch { /* ignore */ }
   fs.rmSync(SANDBOX, { recursive: true, force: true });
 });
+
+test('#5581: an agent token alone cannot download an agent as a file; the board token passes the gate', async () => {
+  const p = '/api/agent/poc-agent/export';
+  assert.ok(refusedAtGate(await call('GET', p)), 'CONTROL: the export with no credential was not refused at the gate');
+  assert.ok(refusedAtGate(await call('GET', p, { headers: { 'x-kosmos-agent-token': agentToken } })),
+    'an agent token alone reached the agent export (it carries an agent\'s whole instructions)');
+  const withBoard = await call('GET', p, { headers: { 'x-kosmos-board-token': BOARD } });
+  assert.ok(!refusedAtGate(withBoard), 'CONTROL: the board token did not pass the gate for the export: ' + withBoard.code);
+});

@@ -7,17 +7,18 @@
  *   -> { epoch, period, retain_until, expires_at, uploads: [{ key, url, headers }] }, one upload per chunk, in order.
  *      expires_at and retain_until are ISO-8601 UTC strings ("2026-10-08T18:15:00Z").
  *
- * Each upload is a presigned PUT. Its query signature covers content-length, content-md5, host, if-none-match and
- * the two lock headers (six, all required here); `headers` lists exactly what to send (Content-Length and Host are the HTTP client's, so they are
- * NOT in it). Measured on #5535: a matching body 200, a different body 400 BadDigest, a dropped signed header 403, a
+ * Each upload is a presigned PUT. Its query signature covers content-length, the digest header (content-md5 for a
+ * chunk, x-amz-checksum-sha256 for a manifest), host, if-none-match and the two lock headers (six, all required
+ * here); `headers` lists exactly what to send (Content-Length and Host are the HTTP client's, so they are NOT in it).
+ * Measured on #5535: a matching body 200, a different body 400 BadDigest, a dropped signed header 403, a
  * second PUT 412. Keys are random per upload (two new ids), and each url's path ends with its key.
  *
  * What this module owns, and what it does not:
- *  - Before a single byte leaves, every grant must bind OUR bytes: the MD5 in its headers is the one we asked for, a
- *    Content-Length (if listed) is the chunk's length, X-Amz-SignedHeaders covers those six headers, If-None-Match is
+ *  - Before a single byte leaves, every grant must bind OUR bytes: the digest in its headers (MD5 for a chunk, SHA-256
+ *    for a manifest) is the one we asked for, a Content-Length (if listed) is the object's length, X-Amz-SignedHeaders covers those six headers, If-None-Match is
  *    `*`, the url carries exactly SigV4's six query parameters and a signed time that agrees with expires_at, its host
- *    is an AWS S3 endpoint (path-style or virtual-hosted, never a website endpoint), the url is https and carries the upload's own key, and no url or key
- *    repeats. A coordinator bug cannot make the Mac write something other than what it sealed.
+ *    is an AWS S3 endpoint (path-style or virtual-hosted, never a website endpoint), the url is https and carries the
+ *    upload's own key, and no url or key repeats. A coordinator bug cannot make the Mac write something other than what it sealed.
  *  - 412 counts as stored only after an earlier attempt on that key that MAY HAVE WRITTEN it (a lost answer, a failure
  *    after S3 received the request); not after pre-connect failures or S3's "nothing committed" answers. The key
  *    is random and only this grant's url, whose signature fixes our MD5, can write it, so whatever holds it is our
@@ -36,8 +37,13 @@
  *  - It never retries a grant request as-is: each request carries a fresh nonce, and each new grant spends the
  *    member's allowance again (Kitty's uploader contract, point 2), so re-granting is bounded (MAX_REGRANTS) and
  *    nothing that a new grant cannot fix (a refused PUT, a clock far ahead of the coordinator's) asks for one.
- *  - It does not decide WHAT to upload (the walker's job, after backupscan) or write the manifest (a later step; the
- *    manifest needs the name -> key map this returns).
+ *  - It does not decide WHAT to upload (the walker's job, after backupscan) or what a manifest says. uploadManifest
+ *    uploads one sealed manifest the same way, through POST /v1/org/backup/manifest { sha256, size, nonce }, whose
+ *    one upload binds x-amz-checksum-sha256 (base64 of the SHA-256) in place of content-md5; the coordinator records
+ *    that hash so restore can refuse any other manifest. A manifest must go to the chunks' bucket and must never stay
+ *    locked past the earliest chunk it names (the coordinator cannot check that: its request names no chunks), and must
+ *    not land on a key it may not write, so the caller passes the bucket and every chunk's key and lock end, and the
+ *    uploader refuses a grant that breaks any of them.
  *  - MD5 is used only because S3 checks it as an integrity header. Chunk names and restore verification stay
  *    backupformat.js's HMAC and AEAD.
  *
@@ -48,6 +54,8 @@
 const crypto = require('crypto');
 
 const GRANT_ROUTE = '/v1/org/backup/grant';
+const MANIFEST_ROUTE = '/v1/org/backup/manifest';
+const MAX_MANIFEST = 64 * 1024 * 1024;   // the coordinator's manifest ceiling (its floor is MIN_OBJECT, as a chunk's)
 const MAX_PER_GRANT = 500;              // the coordinator's limit per grant request
 const MIN_OBJECT = 4148;                // a sealed chunk's framing floor (backupformat's 4 KiB Padme floor plus framing)
 const MAX_OBJECT = 5 * 1024 * 1024;     // the coordinator's per-object ceiling
@@ -61,19 +69,30 @@ const MAX_CONCURRENCY = 32;
 // (The worker multiplier is capped at the default concurrency, so a caller choosing many workers cannot stretch one
 // black-holed PUT's hold on its worker to hours.)
 const putTimeoutFor = (size, workers) => 60 * 1000 + Math.ceil((size * Math.min(DEFAULT_CONCURRENCY, Math.max(1, workers || 1))) / 16);
-const SIGNED_NEEDED = ['content-length', 'content-md5', 'host', 'if-none-match', 'x-amz-object-lock-mode', 'x-amz-object-lock-retain-until-date'];
+// The six headers every upload's signature covers; `bind` is the digest header (content-md5 for a chunk,
+// x-amz-checksum-sha256 for a manifest).
+const signedNeeded = (bind) => ['content-length', bind, 'host', 'if-none-match', 'x-amz-object-lock-mode', 'x-amz-object-lock-retain-until-date'];
 // The only headers a grant may ask the Mac to send (the coordinator lists four; Content-Length is tolerated if listed).
-const HEADER_ALLOWED = new Set(['content-md5', 'if-none-match', 'x-amz-object-lock-mode', 'x-amz-object-lock-retain-until-date', 'content-length']);
+const headerAllowed = (bind) => new Set([bind, 'if-none-match', 'x-amz-object-lock-mode', 'x-amz-object-lock-retain-until-date', 'content-length']);
 const GRANT_WINDOW_MS = 15 * 60 * 1000;                 // the coordinator's grant lifetime (GRANT_SECS)
+// An AWS S3 endpoint: path-style s3.<region> or s3-<region>, or virtual-hosted <bucket>.s3.<region>.
+const S3_HOST = /^([a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\.)?s3([.-][a-z0-9-]+)?\.amazonaws\.com$/;
 // The only query parameters a grant's url may carry: SigV4's own. S3 honours x-amz-* request parameters in the query
 // too (a legal hold, a retention, tagging, a multipart uploadId), which would act on the locked bucket unseen by the
 // header checks, so any other parameter refuses the grant.
-const S3_HOST = /^([a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\.)?s3([.-][a-z0-9-]+)?\.amazonaws\.com$/;
 const QUERY_ALLOWED = ['X-Amz-Algorithm', 'X-Amz-Credential', 'X-Amz-Date', 'X-Amz-Expires', 'X-Amz-SignedHeaders', 'X-Amz-Signature'];
 // The lock a grant may set, measured from the url's SIGNED time (X-Amz-Date), never the Mac's clock: the coordinator
 // locks to the end of the week plus 30 days plus the window, or the next week's end in a week's last day, so about
 // 31 days 15 minutes to 38 days 15 minutes. Outside [29, 39] days is a coordinator bug that would lock for the wrong time.
 const LOCK_MIN_MS = 29 * 86400 * 1000, LOCK_MAX_MS = 39 * 86400 * 1000;
+// Mirrors the coordinator's retain_until_for (coordinator/src/backup.rs): period_end + RETAIN_AFTER_PERIOD_SECS (30 d)
+// + GRANT_SECS (15 min). If either changes there, change MANIFEST_LOCK_FLOOR_MS and GRANT_WINDOW_MS here, or a correct
+// manifest is refused before its grant (fail-closed; the exact check after the grant stays the real guard).
+// The coordinator locks every object to its period's end plus 30 days plus the grant window, and a period ends no
+// earlier than now: so a manifest granted now locks for at least this long plus GRANT_WINDOW_MS, and chunks whose
+// lock ends sooner are ones it would outlast (checked before a grant is asked for, so no allowance is spent on a
+// manifest that must be refused).
+const MANIFEST_LOCK_FLOOR_MS = 30 * 86400 * 1000;
 // fetch refusing the request itself, before or without the network: no retry fixes these. Any other failure (a
 // network code, known or not: ENETDOWN, EADDRNOTAVAIL under the macOS TIME_WAIT leak, a TLS error) is worth another try.
 // Failures before any byte of the body could have left (no DNS answer, nothing listening, TLS refused): retried, but
@@ -91,6 +110,7 @@ let httpForTests = false;
 function allowHttpForTests(on) { httpForTests = !!on && !!process.env.NODE_TEST_CONTEXT; }   // and only under node --test
 
 const md5b64 = (buf) => crypto.createHash('md5').update(buf).digest('base64');
+const sha256b64 = (buf) => crypto.createHash('sha256').update(buf).digest('base64');
 
 /* The request body for one batch: sizes and MD5s in order, plus a nonce that makes every body unique. */
 function grantBody(objects) {
@@ -119,6 +139,88 @@ function expiryMs(v) {
   return NaN;
 }
 
+/* What binds an upload's bytes: the digest header a grant must sign and list (Content-MD5 for a chunk,
+   x-amz-checksum-sha256 for a manifest, coordinator/src/backup.rs Integrity), its value for OUR bytes, and what to
+   call it in a refusal. */
+const chunkBind = (bytes) => ({ header: 'content-md5', value: md5b64(bytes), noun: 'chunk', digest: 'MD5' });
+const manifestBind = (bytes) => ({ header: 'x-amz-checksum-sha256', value: sha256b64(bytes), noun: 'manifest', digest: 'SHA-256' });
+
+/* Check ONE presigned upload against the bytes it must write. `label` names it in a refusal ("upload 3", "the
+   manifest upload"). Returns { ok: true, upload: { key, url, headers }, prefix, expiresS } or { ok: false, because }.
+   What spans uploads (a repeated key or url, one bucket per grant and per run) is the caller's. */
+function checkOne(u, label, bytes, bind, expiresAtMs, allowHttp) {
+  if (!u || typeof u !== 'object') return { ok: false, because: `${label} is not an object` };
+  if (typeof u.key !== 'string' || !u.key || u.key.length > 1024) return { ok: false, because: `${label} has no usable key` };
+  let url;
+  try { url = new URL(String(u.url)); } catch { return { ok: false, because: `${label} has no usable url` }; }
+  if (!(url.protocol === 'https:' || (allowHttp && url.protocol === 'http:'))) return { ok: false, because: `${label} is not https` };
+  // The bucket is AWS S3: the Mac sends its bytes only to an S3 endpoint on the default port, whatever host a grant
+  // names (a coordinator bug cannot point it at a LAN address or another service). Path-style s3.<region> or
+  // s3-<region>, or virtual-hosted <bucket>.s3.<region>. This pins the SERVICE, not the bucket: the Mac holds no
+  // bucket name of its own, so a grant naming another bucket on S3 passes; the payload is sealed either way.
+  if (!allowHttp && (url.port || !S3_HOST.test(url.hostname) || /s3-(website|control)/.test(url.hostname))) return { ok: false, because: `${label}'s host is not an AWS S3 endpoint (${url.host})` };
+  let path;
+  try { path = decodeURIComponent(url.pathname); } catch { return { ok: false, because: `${label} has an undecodable url path` }; }
+  if (!path.endsWith('/' + u.key)) return { ok: false, because: `${label}'s url does not carry its key` };
+  // The path is the key itself (a virtual-hosted bucket) or one bucket segment and the key (path-style), nothing
+  // else, so the key the map records is the object S3 stores.
+  const pre = path.slice(0, path.length - u.key.length);
+  // A virtual-hosted S3 host (<bucket>.s3.<region>.amazonaws.com) names the bucket already: the path is the key.
+  const virtualHosted = /\.s3[.-]([a-z0-9-]+\.)?amazonaws\.com$/.test(url.hostname);
+  if (virtualHosted && pre !== '/') return { ok: false, because: `${label}'s url path is not its key (a virtual-hosted bucket)` };
+  // A path-style S3 host takes the FIRST segment as the bucket, so there the key must follow exactly one segment.
+  if (!virtualHosted && !allowHttp && !/^\/[^/]+\/$/.test(pre)) return { ok: false, because: `${label}'s url path is not one bucket segment and its key (a path-style host)` };
+  // (For an https S3 host the two checks above already decide; this one is reached only by the test setter's urls.)
+  if (!(pre === '/' || /^\/[^/]+\/$/.test(pre))) return { ok: false, because: `${label}'s url path is not its key under one bucket segment` };
+  const qnames = [...url.searchParams.keys()];
+  for (const q of qnames) if (!QUERY_ALLOWED.includes(q)) return { ok: false, because: `${label}'s url carries a parameter it may not (${q})` };
+  if (new Set(qnames).size !== qnames.length) return { ok: false, because: `${label}'s url repeats a parameter` };
+  for (const q of QUERY_ALLOWED) if (!url.searchParams.get(q)) return { ok: false, because: `${label}'s url has no ${q}` };
+  // The signing time is the one the url's signature covers; expires_at must agree with it, and the lock is measured
+  // from it, so a field outside the signature cannot move the lock.
+  const dm = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(url.searchParams.get('X-Amz-Date'));
+  if (!dm) return { ok: false, because: `${label}'s url has no readable X-Amz-Date` };
+  const signedAtMs = Date.UTC(+dm[1], +dm[2] - 1, +dm[3], +dm[4], +dm[5], +dm[6]);
+  const signed = String(url.searchParams.get('X-Amz-SignedHeaders') || '').toLowerCase().split(';');
+  // The url itself must not outlive a grant: X-Amz-Expires (seconds) at most the window.
+  const xe = Number(url.searchParams.get('X-Amz-Expires'));
+  if (!Number.isInteger(xe) || xe <= 0 || xe * 1000 > GRANT_WINDOW_MS) return { ok: false, because: `${label}'s url lasts longer than a grant` };
+  // And not uselessly short: under a minute, the deadline's 10 s margin leaves no time to send anything, and each
+  // such grant would spend allowance for nothing.
+  if (xe < 60) return { ok: false, because: `${label}'s url lasts under a minute` };
+  if (Math.abs(signedAtMs + xe * 1000 - expiresAtMs) > 60 * 1000) return { ok: false, because: `${label}'s signed time does not match the grant's expires_at` };
+  const needed = signedNeeded(bind.header);
+  for (const h of needed) if (!signed.includes(h)) return { ok: false, because: `${label} does not sign ${h}` };
+  if (signed.length !== needed.length) return { ok: false, because: `${label} signs headers outside the six it may` };
+  if (!u.headers || typeof u.headers !== 'object' || Array.isArray(u.headers)) return { ok: false, because: `${label} has no headers` };
+  const allowed = headerAllowed(bind.header);
+  const headers = {};
+  const names = new Set();
+  for (const [k, v] of Object.entries(u.headers)) {
+    const lk = k.toLowerCase();
+    if (!allowed.has(lk)) return { ok: false, because: `${label} asks to send a header it may not (${k})` };
+    if (names.has(lk)) return { ok: false, because: `${label} lists ${lk} twice` };
+    names.add(lk);
+    if (typeof v !== 'string' && typeof v !== 'number') return { ok: false, because: `${label} has a header that is not text` };
+    if (!/^[\x20-\x7e]*$/.test(String(v))) return { ok: false, because: `${label} has a header value that is not printable ASCII` };
+    headers[k] = String(v);
+  }
+  // The grant must bind OUR bytes: the digest it signed is the one we asked for, and it is write-once. Content-Length
+  // is signed (checked above) and set by fetch from the body; if the grant lists it anyway, it must be ours.
+  if (headerOf(headers, bind.header) !== bind.value) return { ok: false, because: `${label} does not bind this ${bind.noun}'s ${bind.digest}` };
+  const cl = headerOf(headers, 'content-length');
+  if (cl !== undefined && cl !== String(bytes.length)) return { ok: false, because: `${label} does not bind this ${bind.noun}'s length` };
+  if (headerOf(headers, 'if-none-match') !== '*') return { ok: false, because: `${label} is not write-once` };
+  // And the lock must be the one the plan says: COMPLIANCE, for 29 to 39 days from the grant's own start.
+  if (headerOf(headers, 'x-amz-object-lock-mode') !== 'COMPLIANCE') return { ok: false, because: `${label} is not a COMPLIANCE lock` };
+  // An ISO string only (a bare number would pass expiryMs but be sent as text S3 refuses).
+  const retainRawKey = Object.keys(u.headers).find((k) => k.toLowerCase() === 'x-amz-object-lock-retain-until-date');
+  const retainMs = retainRawKey && typeof u.headers[retainRawKey] === 'string' ? expiryMs(u.headers[retainRawKey]) : NaN;
+  const lockFor = retainMs - signedAtMs;   // from the grant's own (signed) start
+  if (!Number.isFinite(retainMs) || lockFor < LOCK_MIN_MS || lockFor > LOCK_MAX_MS) return { ok: false, because: `${label}'s lock is not 29 to 39 days` };
+  return { ok: true, upload: { key: u.key, url: url.toString(), headers }, prefix: `${url.host}${pre}`, expiresS: xe, retainMs };
+}
+
 /* Check a grant answer against the batch it was asked for. Returns { ok: true, expiresAtMs, uploads } or
    { ok: false, because }. Every upload must bind exactly the bytes we asked to write. `seenKeys` (optional) holds
    every key granted earlier in this run: a grant repeating one is refused, since the 412-on-retry rule rests on keys
@@ -133,83 +235,21 @@ function parseGrant(data, objects, seenKeys, runBucket) {
   const keys = new Set(), urls = new Set();
   let bucketPrefix = null, minExpiresS = Infinity;
   for (let i = 0; i < objects.length; i++) {
-    const u = data.uploads[i], o = objects[i].object;
-    if (!u || typeof u !== 'object') return { ok: false, because: `upload ${i} is not an object` };
-    if (typeof u.key !== 'string' || !u.key || u.key.length > 1024) return { ok: false, because: `upload ${i} has no usable key` };
-    if (keys.has(u.key)) return { ok: false, because: `upload ${i} repeats a key` };
-    if (seenKeys && seenKeys.has(u.key)) return { ok: false, because: `upload ${i} repeats a key an earlier grant in this run already gave` };
-    keys.add(u.key);
-    let url;
-    try { url = new URL(String(u.url)); } catch { return { ok: false, because: `upload ${i} has no usable url` }; }
-    if (urls.has(url.toString())) return { ok: false, because: `upload ${i} repeats a url` };
-    urls.add(url.toString());
-    if (!(url.protocol === 'https:' || (allowHttp && url.protocol === 'http:'))) return { ok: false, because: `upload ${i} is not https` };
-    // The bucket is AWS S3: the Mac sends its bytes only to an S3 endpoint on the default port, whatever host a grant
-    // names (a coordinator bug cannot point it at a LAN address or another service). Path-style s3.<region> or
-    // s3-<region>, or virtual-hosted <bucket>.s3.<region>. This pins the SERVICE, not the bucket: the Mac holds no
-    // bucket name of its own, so a grant naming another bucket on S3 passes; the payload is sealed either way.
-    if (!allowHttp && (url.port || !S3_HOST.test(url.hostname) || /s3-(website|control)/.test(url.hostname))) return { ok: false, because: `upload ${i}'s host is not an AWS S3 endpoint (${url.host})` };
-    let path;
-    try { path = decodeURIComponent(url.pathname); } catch { return { ok: false, because: `upload ${i} has an undecodable url path` }; }
-    if (!path.endsWith('/' + u.key)) return { ok: false, because: `upload ${i}'s url does not carry its key` };
-    // The path is the key itself (a virtual-hosted bucket) or one bucket segment and the key (path-style), nothing
-    // else, so the key the map records is the object S3 stores. And one bucket path per grant.
-    const pre = path.slice(0, path.length - u.key.length);
-    // A virtual-hosted S3 host (<bucket>.s3.<region>.amazonaws.com) names the bucket already: the path is the key.
-    const virtualHosted = /\.s3[.-]([a-z0-9-]+\.)?amazonaws\.com$/.test(url.hostname);
-    if (virtualHosted && pre !== '/') return { ok: false, because: `upload ${i}'s url path is not its key (a virtual-hosted bucket)` };
-    // A path-style S3 host takes the FIRST segment as the bucket, so there the key must follow exactly one segment.
-    if (!virtualHosted && !allowHttp && !/^\/[^/]+\/$/.test(pre)) return { ok: false, because: `upload ${i}'s url path is not one bucket segment and its key (a path-style host)` };
-    // (For an https S3 host the two checks above already decide; this one is reached only by the test setter's urls.)
-    if (!(pre === '/' || /^\/[^/]+\/$/.test(pre))) return { ok: false, because: `upload ${i}'s url path is not its key under one bucket segment` };
-    const prefix = `${url.host}${pre}`;
-    if (i === 0) bucketPrefix = prefix; else if (prefix !== bucketPrefix) return { ok: false, because: `upload ${i}'s url is not under the grant's bucket path` };
-    const qnames = [...url.searchParams.keys()];
-    for (const q of qnames) if (!QUERY_ALLOWED.includes(q)) return { ok: false, because: `upload ${i}'s url carries a parameter it may not (${q})` };
-    if (new Set(qnames).size !== qnames.length) return { ok: false, because: `upload ${i}'s url repeats a parameter` };
-    for (const q of QUERY_ALLOWED) if (!url.searchParams.get(q)) return { ok: false, because: `upload ${i}'s url has no ${q}` };
-    // The signing time is the one the url's signature covers; expires_at must agree with it, and the lock is measured
-    // from it, so a field outside the signature cannot move the lock.
-    const dm = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(url.searchParams.get('X-Amz-Date'));
-    if (!dm) return { ok: false, because: `upload ${i}'s url has no readable X-Amz-Date` };
-    const signedAtMs = Date.UTC(+dm[1], +dm[2] - 1, +dm[3], +dm[4], +dm[5], +dm[6]);
-    const signed = String(url.searchParams.get('X-Amz-SignedHeaders') || '').toLowerCase().split(';');
-    // The url itself must not outlive a grant: X-Amz-Expires (seconds) at most the window.
-    const xe = Number(url.searchParams.get('X-Amz-Expires'));
-    if (!Number.isInteger(xe) || xe <= 0 || xe * 1000 > GRANT_WINDOW_MS) return { ok: false, because: `upload ${i}'s url lasts longer than a grant` };
-    // And not uselessly short: under a minute, the deadline's 10 s margin leaves no time to send anything, and each
-    // such grant would spend allowance for nothing.
-    if (xe < 60) return { ok: false, because: `upload ${i}'s url lasts under a minute` };
-    minExpiresS = Math.min(minExpiresS, xe);
-    if (Math.abs(signedAtMs + xe * 1000 - expiresAtMs) > 60 * 1000) return { ok: false, because: `upload ${i}'s signed time does not match the grant's expires_at` };
-    for (const h of SIGNED_NEEDED) if (!signed.includes(h)) return { ok: false, because: `upload ${i} does not sign ${h}` };
-    if (signed.length !== SIGNED_NEEDED.length) return { ok: false, because: `upload ${i} signs headers outside the six it may` };
-    if (!u.headers || typeof u.headers !== 'object' || Array.isArray(u.headers)) return { ok: false, because: `upload ${i} has no headers` };
-    const headers = {};
-    const names = new Set();
-    for (const [k, v] of Object.entries(u.headers)) {
-      const lk = k.toLowerCase();
-      if (!HEADER_ALLOWED.has(lk)) return { ok: false, because: `upload ${i} asks to send a header it may not (${k})` };
-      if (names.has(lk)) return { ok: false, because: `upload ${i} lists ${lk} twice` };
-      names.add(lk);
-      if (typeof v !== 'string' && typeof v !== 'number') return { ok: false, because: `upload ${i} has a header that is not text` };
-      if (!/^[\x20-\x7e]*$/.test(String(v))) return { ok: false, because: `upload ${i} has a header value that is not printable ASCII` };
-      headers[k] = String(v);
-    }
-    // The grant must bind OUR bytes: the MD5 it signed is the one we asked for, and it is write-once. Content-Length
-    // is signed (checked above) and set by fetch from the body; if the grant lists it anyway, it must be ours.
-    if (headerOf(headers, 'content-md5') !== md5b64(o)) return { ok: false, because: `upload ${i} does not bind this chunk's MD5` };
-    const cl = headerOf(headers, 'content-length');
-    if (cl !== undefined && cl !== String(o.length)) return { ok: false, because: `upload ${i} does not bind this chunk's length` };
-    if (headerOf(headers, 'if-none-match') !== '*') return { ok: false, because: `upload ${i} is not write-once` };
-    // And the lock must be the one the plan says: COMPLIANCE, for 29 to 39 days from the grant's own start.
-    if (headerOf(headers, 'x-amz-object-lock-mode') !== 'COMPLIANCE') return { ok: false, because: `upload ${i} is not a COMPLIANCE lock` };
-    // An ISO string only (a bare number would pass expiryMs but be sent as text S3 refuses).
-    const retainRawKey = Object.keys(u.headers).find((k) => k.toLowerCase() === 'x-amz-object-lock-retain-until-date');
-    const retainMs = retainRawKey && typeof u.headers[retainRawKey] === 'string' ? expiryMs(u.headers[retainRawKey]) : NaN;
-    const lockFor = retainMs - signedAtMs;   // from the grant's own (signed) start
-    if (!Number.isFinite(retainMs) || lockFor < LOCK_MIN_MS || lockFor > LOCK_MAX_MS) return { ok: false, because: `upload ${i}'s lock is not 29 to 39 days` };
-    uploads.push({ key: u.key, url: url.toString(), headers });
+    const o = objects[i].object, u = data.uploads[i];
+    // A repeated key is named as that before anything else about the upload is read.
+    const rawKey = u && typeof u === 'object' && typeof u.key === 'string' ? u.key : null;
+    if (rawKey !== null && keys.has(rawKey)) return { ok: false, because: `upload ${i} repeats a key` };
+    if (rawKey !== null && seenKeys && seenKeys.has(rawKey)) return { ok: false, because: `upload ${i} repeats a key an earlier grant in this run already gave` };
+    const c = checkOne(u, `upload ${i}`, o, chunkBind(o), expiresAtMs, allowHttp);
+    if (!c.ok) return c;
+    const { key, url } = c.upload;
+    keys.add(key);
+    if (urls.has(url)) return { ok: false, because: `upload ${i} repeats a url` };
+    urls.add(url);
+    // One bucket path per grant.
+    if (i === 0) bucketPrefix = c.prefix; else if (c.prefix !== bucketPrefix) return { ok: false, because: `upload ${i}'s url is not under the grant's bucket path` };
+    minExpiresS = Math.min(minExpiresS, c.expiresS);
+    uploads.push(Object.assign(c.upload, { retainMs: c.retainMs }));
   }
   // One bucket for the whole run (runBucket: { prefix } set by the first grant), so a later grant cannot move this run's
   // locked objects to another bucket that the run's key map does not name.
@@ -283,18 +323,35 @@ async function headOf(r, max) {
   return Buffer.concat(parts).subarray(0, max).toString('utf8');
 }
 
+/* A grant's expiry against this Mac's clock as it arrives: a problem sentence when one of the two clocks is wrong (over
+   an hour past the expiry, or over an hour further ahead than a grant lasts), else null. */
+function clockSkew(nowMs, expiresAtMs) {
+  if (nowMs - expiresAtMs > 60 * 60 * 1000) return `this computer's clock reads over an hour past the grant's expiry (${new Date(expiresAtMs).toISOString()}) as it arrives: one of the two clocks is wrong (this grant's allowance is spent)`;
+  if (expiresAtMs - nowMs > GRANT_WINDOW_MS + 60 * 60 * 1000) return `the grant expires ${new Date(expiresAtMs).toISOString()}, over an hour further ahead of this computer's clock than a grant lasts: one of the two clocks is wrong (this grant's allowance is spent)`;
+  return null;
+}
+
 /* Upload sealed chunk objects ([{ name, object }]). deps: { macRequest, fetch?, now?, sleep? }.
-   Resolves { ok: true, keys } with keys a Map from each chunk's name to the key it is stored under, or
-   { ok: false, because, code?, retryLater?, keys } with the chunks stored so far. Never throws. */
+   Resolves { ok: true, keys, lockedUntil, bucket }: keys a Map from each chunk's name to the key it is stored under,
+   lockedUntil a Map from each name to its lock's end (ms), bucket the bucket path they are all under. Or
+   { ok: false, because, code?, retryLater?, grantSpent?, keys, lockedUntil, bucket } with the chunks stored so far,
+   their lock ends and bucket (null if none was granted), so a later manifest can name them without uploading them
+   again. grantSpent has uploadManifest's three states: true when any grant in this run answered (its allowance is
+   spent); false when the run refused before asking for any; absent when a grant request failed or was refused (it
+   may still have spent one). Never throws. */
 async function uploadChunks(deps, objects, opts) {
   const keys = new Map();
   // Run-wide: chunks that met trouble and are not stored (their write may have landed), and every key granted.
-  const run = { troubled: new Map(), seenKeys: new Set(), bucket: { prefix: null } };
+  const run = { troubled: new Map(), seenKeys: new Set(), bucket: { prefix: null }, locked: new Map(), asked: false, granted: false };
+  // Every result carries what was stored: each stored chunk's lock end, the bucket, and whether a grant was spent.
+  const withStored = (r) => Object.assign(r, {
+    lockedUntil: new Map([...keys.keys()].map((n) => [n, run.locked.get(n)])), bucket: run.bucket.prefix,
+  }, r.ok ? {} : run.granted ? { grantSpent: true } : run.asked ? {} : { grantSpent: false });
   try {
-    return await uploadInner(deps, objects, opts, keys, run);
+    return withStored(await uploadInner(deps, objects, opts, keys, run));
   } catch (err) {
     const unsure = [...run.troubled.values()].map((x) => ({ name: x.c.name, key: x.key }));
-    return Object.assign({ ok: false, because: `the uploader failed: ${(err && err.message) || err}`, keys }, unsure.length ? { unsure } : {});
+    return withStored(Object.assign({ ok: false, because: `the uploader failed: ${(err && err.message) || err}`, keys }, unsure.length ? { unsure } : {}));
   }
 }
 async function uploadInner(deps, objects, opts, keys, run) {
@@ -331,7 +388,9 @@ async function uploadInner(deps, objects, opts, keys, run) {
     // The grant's clock starts when it is ASKED for (the coordinator signs between then and its answer), on this Mac's
     // clock, so the deadline below never runs past the real expiry because the answer was slow.
     const asked = now();
+    run.asked = true;
     const g = await askGrant(deps.macRequest, pending, run.seenKeys, run.bucket);
+    if (g.ok || (g.out && g.out.grantSpent)) run.granted = true;
     if (!g.ok) return Object.assign({ ok: false, keys }, g.out);
     for (const u of g.uploads) run.seenKeys.add(u.key);
     if (!run.bucket.prefix) run.bucket.prefix = g.bucketPrefix;
@@ -339,11 +398,10 @@ async function uploadInner(deps, objects, opts, keys, run) {
     // would be "expired" too, and each spends allowance. Stop and say so.
     // Both directions get the same hour: within it, a Mac clock that is off still works, since the deadline below is
     // measured on this Mac's own clock and S3 never reads it.
-    if (now() - g.expiresAtMs > 60 * 60 * 1000) return { ok: false, because: `this computer's clock reads over an hour past the grant's expiry (${new Date(g.expiresAtMs).toISOString()}) as it arrives: one of the two clocks is wrong (this grant's allowance is spent)`, keys };
     // And never far ahead of this Mac's clock (more than the window plus an hour): one of the two clocks is wrong.
     // (An hour of tolerance: a Mac a few minutes slow still backs up; S3 itself refuses a request whose signing time is
     // more than 15 minutes off its own clock.)
-    if (g.expiresAtMs - now() > GRANT_WINDOW_MS + 60 * 60 * 1000) return { ok: false, because: `the grant expires ${new Date(g.expiresAtMs).toISOString()}, over an hour further ahead of this computer's clock than a grant lasts: one of the two clocks is wrong (this grant's allowance is spent)`, keys };
+    { const skew = clockSkew(now(), g.expiresAtMs); if (skew) return { ok: false, because: skew, keys }; }   // grantSpent: added by uploadChunks (a grant answered)
     // This grant's deadline on THIS Mac's clock: when it was asked for plus the url's own lifetime, less a 10 s
     // margin. So a Mac clock that is minutes off does not end a grant early or late (the skew checks above catch a
     // clock that is far off). The PUTs are bounded by S3's own check on arrival either way.
@@ -359,14 +417,16 @@ async function uploadInner(deps, objects, opts, keys, run) {
         // Out of time on this grant. A chunk that met bucket or network trouble does NOT get a new grant (that spends
         // allowance and could write a second locked copy if an answer was lost): the run ends retryLater.
         const remaining = deadline - now();
+        // (Out of time before any attempt still re-grants here, unlike uploadManifestInner: chunk grants are 200,000 a week.)
         if (remaining <= 0) { if (troubled) stuck.push({ c, key: up.key }); else if (preOnly) unreached.push(c); else left.push(c); return; }
         // NOT capped at the grant's remaining time: S3 checks a presigned url's expiry when the request ARRIVES, so a PUT
         // started in time may finish after it. Aborting it at the deadline would turn a landed write into an unknown.
         const r = await putOne(fetchFn, up, c.object, troubled, timeoutFor(c.object.length));
-        if (r.kind === 'stored' || r.kind === 'present') { keys.set(c.name, up.key); troubledNow.delete(c.name); stored++; return; }
+        if (r.kind === 'stored' || r.kind === 'present') { keys.set(c.name, up.key); run.locked.set(c.name, up.retainMs); troubledNow.delete(c.name); stored++; return; }
         // S3 says the grant expired. After trouble that is the same case as above: an earlier attempt may have landed.
         if (r.kind === 'expired') { if (troubled) stuck.push({ c, key: up.key }); else left.push(c); return; }
         if (r.kind === 'refused') { stop = stop || `the bucket refused a chunk (${r.status ? 'HTTP ' + r.status : 'locally'}${r.code ? ' ' + r.code : ''}); a new grant would not change that`; return; }
+        // (uploadManifestInner carries the same retry rules for its one upload: change both together.)
         // troubled: an attempt that may have written this chunk (a lost answer, a failure after S3 got the request).
         // Not a pre-connect failure, and not S3 saying it committed nothing.
         if (r.preconnect) { preOnly = true; } else if (!r.nothingCommitted) { troubled = true; troubledNow.set(c.name, { c, key: up.key }); }
@@ -401,18 +461,24 @@ async function uploadInner(deps, objects, opts, keys, run) {
   }
   // Every chunk asked for has a key, or this is not a success.
   for (const c of todo) if (!keys.has(c.name)) return { ok: false, because: 'a chunk was left without a stored key', keys };
+  // uploadChunks' withStored adds lockedUntil (each chunk's lock end, ms) and bucket (the bucket path every key is under; null only
+  // for an empty list, since a repeated name is still uploaded once). A walker that skips chunks stored by EARLIER runs
+  // must keep their bucket path itself, as it keeps their lock ends and keys.
   return { ok: true, keys };
 }
 
-/* One grant request, with one fresh-nonce retry for a replayed body. { ok: true, expiresAtMs, uploads } or
-   { ok: false, out: { because, code, retryLater } }. */
-async function askGrant(macRequest, batch, seenKeys, runBucket) {
+/* One signed request for a grant, with one fresh-nonce retry for a replayed body. `makeBody()` builds a body with a
+   new nonce; `parse(data)` checks the answer. { ok: true, ... } or { ok: false, out: { because, code, retryLater } }. */
+async function askSigned(macRequest, route, makeBody, parse) {
   for (let i = 0; i < 2; i++) {
     let r;
-    try { r = await macRequest('POST', GRANT_ROUTE, grantBody(batch)); } catch (err) { r = { ok: false, because: (err && err.message) || 'the grant request failed' }; }
+    try { r = await macRequest('POST', route, makeBody()); } catch (err) { r = { ok: false, because: (err && err.message) || 'the grant request failed' }; }
     if (r && r.ok) {
-      const p = parseGrant(r.data, batch, seenKeys, runBucket);
-      return p.ok ? p : { ok: false, out: { because: p.because } };
+      // A parser that throws on an answer is a refusal of that answer like any other.
+      let p;
+      try { p = parse(r.data); } catch (err) { p = { ok: false, because: `the grant answer could not be read: ${(err && err.message) || err}` }; }
+      // An answer we refuse still spent the grant's allowance (and, for a manifest, left a recorded hash).
+      return p.ok ? p : { ok: false, out: { because: p.because, grantSpent: true } };
     }
     const because = (r && r.because) || 'Kosmos+ did not answer';
     const { status, code } = refusalOf(because);
@@ -423,6 +489,172 @@ async function askGrant(macRequest, batch, seenKeys, runBucket) {
     return { ok: false, out: { because, code: code || undefined, retryLater: code === 'backup_quota' || status === 429 || transient || undefined } };
   }
   return { ok: false, out: { because: 'the grant request was refused as replayed twice', code: 'replayed' } };
+}
+const askGrant = (macRequest, batch, seenKeys, runBucket) =>
+  askSigned(macRequest, GRANT_ROUTE, () => grantBody(batch), (d) => parseGrant(d, batch, seenKeys, runBucket));
+
+/* Check a manifest grant answer against the manifest's bytes: the same per-upload checks as a chunk's, bound by
+   x-amz-checksum-sha256, and under `runPrefix`, the chunks' bucket path. { ok: true, expiresAtMs, lifetimeMs, upload }
+   or { ok: false, because }. */
+function parseManifestGrant(data, bytes, runPrefix) {
+  if (!data || typeof data !== 'object') return { ok: false, because: 'the manifest grant answer is not an object' };
+  const expiresAtMs = expiryMs(data.expires_at);
+  if (!Number.isFinite(expiresAtMs)) return { ok: false, because: 'the manifest grant answer has no readable expires_at' };
+  if (!data.upload || typeof data.upload !== 'object' || Array.isArray(data.upload)) return { ok: false, because: 'the manifest grant answer has no upload' };
+  const c = checkOne(data.upload, 'the manifest upload', bytes, manifestBind(bytes), expiresAtMs, httpForTests);
+  if (!c.ok) return c;
+  if (c.prefix !== runPrefix) return { ok: false, because: `the manifest grant names another bucket (${c.prefix}) than its chunks' (${runPrefix})` };
+  return { ok: true, expiresAtMs, lifetimeMs: c.expiresS * 1000, upload: Object.assign(c.upload, { retainMs: c.retainMs }) };
+}
+
+/* A key's <org>/<account> (its first two segments), or null when it has fewer than three non-empty leading ones. */
+function ownerOf(key) {
+  const parts = String(key).split('/');
+  return parts.length >= 3 && parts[0] && parts[1] && parts[2] ? `${parts[0]}/${parts[1]}` : null;
+}
+
+/* Upload one sealed manifest. deps as uploadChunks. opts (both required):
+     bucket   the bucket path its chunks are under (uploadChunks' `bucket`); the manifest goes there too
+     chunks   every chunk it names, as [{ key, lockedUntilMs }] (for this run's chunks, uploadChunks' keys and
+              lockedUntil; for chunks stored by an earlier run, the caller's record), at least one, all under one
+              <org>/<account> key path (the manifest's own key must be under it too). From these the
+              uploader takes the EARLIEST lock end itself (a manifest locked past it would name chunks that can be
+              gone) and the keys (a manifest grant naming one is refused, since a 412 on it would read as the
+              manifest stored). The lock check refuses before the grant when THIS MAC'S clock already shows it,
+              which errs toward refusing when that clock runs fast; else as the grant arrives, its allowance spent,
+              before any byte is sent.
+   Plus putTimeoutMs, as uploadChunks; by default one PUT may take a minute plus its bytes at 16 KB/s, so a black-holed
+   PUT of a 64 MiB manifest holds the call about 70 minutes before it ends retryLater. The bytes are copied on entry,
+   so a caller reusing its buffer meanwhile cannot change what is sent. Resolves { ok: true, key, sha256,
+   lockedUntilMs } or { ok: false, because, code?, retryLater?, unsure?, outlastsChunks?, grantSpent? }, unsure being
+   [{ key }] when a write may have landed. Three states of grantSpent: true on every refusal made after a grant
+   answered (its allowance is spent; a manifest's hash is recorded); false on every refusal made before a grant was
+   asked for; absent when the grant request itself failed or was refused (no answer, a refusal, an error), which
+   may still have spent a grant (the coordinator takes the allowance before it answers, so a lost answer can cost
+   one). Never throws.
+   outlastsChunks is NOT a retry-later: the caller must upload the old chunks again first, never retry the same call.
+   A backup must therefore finish (manifest included) in the period its chunks were granted in, or its chunks must be
+   granted on that period's last day: the coordinator moves only last-day grants to the next period's date, so a
+   manifest after Monday 00:00 UTC naming earlier chunks is refused, and those chunks must be uploaded again.
+   It comes with grantSpent: false when refused before any grant (this Mac's clock already showed it), or true when
+   refused as the grant arrived: that spent one of the period's 50 manifest grants and left the coordinator a
+   recorded hash that was never stored.
+   The PUT is retried and classified exactly as a chunk's: the same url until the grant runs out, a 412 counted as
+   stored only after an attempt that may have written it, a new grant only when one ran out cleanly. */
+async function uploadManifest(deps, bytes, opts) {
+  // What has happened so far, for an unexpected throw: a grant answered (its allowance spent), and the key of an
+  // upload whose write may have landed, so the caller is never told less than the inner code knew.
+  const st = { asked: false, granted: false, unsureKey: null };
+  try {
+    return await uploadManifestInner(deps, bytes, opts || {}, st);
+  } catch (err) {
+    return Object.assign({ ok: false, because: `the manifest uploader failed: ${(err && err.message) || err}` },
+      st.granted ? { grantSpent: true } : st.asked ? {} : { grantSpent: false }, st.unsureKey ? { unsure: [{ key: st.unsureKey }] } : {});
+  }
+}
+async function uploadManifestInner(deps, bytes, o, st) {
+  if (!deps || typeof deps.macRequest !== 'function') return { ok: false, grantSpent: false, because: 'no signed-request function' };
+  const fetchFn = deps.fetch || globalThis.fetch;
+  if (typeof fetchFn !== 'function') return { ok: false, grantSpent: false, because: 'no fetch here' };
+  const now = deps.now || Date.now;
+  const sleep = deps.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
+  if (!Buffer.isBuffer(bytes)) return { ok: false, grantSpent: false, because: 'the manifest is not bytes' };
+  // Our own copy: what is hashed is what is sent, whatever the caller does meanwhile (at the 64 MiB ceiling, a second
+  // 64 MiB held for the call; a walker that wants less should keep manifests small).
+  bytes = Buffer.from(bytes);
+  if (bytes.length < MIN_OBJECT || bytes.length > MAX_MANIFEST) return { ok: false, grantSpent: false, because: `the manifest is ${bytes.length} bytes, outside ${MIN_OBJECT} to ${MAX_MANIFEST}` };
+  if (typeof o.bucket !== 'string' || !o.bucket) return { ok: false, grantSpent: false, because: "no bucket for the manifest (its chunks' bucket path)" };
+  // The shape uploadChunks returns, host/ or host/bucket/ with the host in lower case (a URL's host always is) and no
+  // port (checkOne refuses one on S3; only the test seam's local bucket has one), checked before any grant: anything
+  // else would be refused only after a grant had been spent on it.
+  if (!(httpForTests ? /^[a-z0-9.:-]+\/([^/]+\/)?$/ : /^[a-z0-9.-]+\/([^/]+\/)?$/).test(o.bucket)) return { ok: false, grantSpent: false, because: `the manifest's bucket (${o.bucket}) is not a bucket path as uploadChunks returns it (host/ or host/bucket/)` };
+  // Every chunk it names, as { key, lockedUntilMs }: not a string, and not a Map (uploadChunks' keys Map iterates
+  // [name, key] pairs). From them: the keys this call must not write, and the earliest lock end.
+  const list = o.chunks;
+  if (list == null || typeof list[Symbol.iterator] !== 'function' || typeof list === 'string' || list instanceof Map) return { ok: false, grantSpent: false, because: "no list of the manifest's chunks" };
+  // Every key this call must not write: the chunks' and each earlier manifest grant's. The 412 rule rests on a key
+  // being this upload's alone, as in uploadChunks.
+  const avoid = new Set();
+  let floor = Infinity;
+  for (const c of list) {
+    if (!c || typeof c !== 'object' || typeof c.key !== 'string' || !c.key) return { ok: false, grantSpent: false, because: "the manifest's chunks are not all { key, lockedUntilMs }" };
+    if (typeof c.lockedUntilMs !== 'number' || !Number.isFinite(c.lockedUntilMs)) return { ok: false, grantSpent: false, because: `no lock end for the manifest's chunk ${c.key}` };
+    // No real lock ends later than its grant's signed time plus LOCK_MAX_MS, and that grant was made in the past (an
+    // hour of clock tolerance, as clockSkew): a later value is the wrong unit or never a lock date, and it would raise
+    // the floor until the outlast check could not fire.
+    // And none is before 2020 (the product did not exist): a value that small is seconds, not milliseconds, and would
+    // otherwise read as chunks long gone.
+    if (c.lockedUntilMs < Date.UTC(2020, 0, 1)) return { ok: false, grantSpent: false, because: `the lock end given for the manifest's chunk ${c.key} (${c.lockedUntilMs}) is before 2020: not a lock date in milliseconds` };
+    if (c.lockedUntilMs > now() + LOCK_MAX_MS + 60 * 60 * 1000) return { ok: false, grantSpent: false, because: `the lock end given for the manifest's chunk ${c.key} (${c.lockedUntilMs}) is later than any lock a grant can set: not a lock date in milliseconds` };
+    avoid.add(c.key);
+    floor = Math.min(floor, c.lockedUntilMs);
+  }
+  if (!avoid.size) return { ok: false, grantSpent: false, because: 'a manifest must name at least one chunk' };
+  // Every key the coordinator builds is <org>/<account>/<epoch>/<period>/<random>, from the authenticated member. The
+  // chunks must share one <org>/<account>, and the manifest's key must too (checked as it arrives): a coordinator bug
+  // cannot file this member's manifest under another member's path. (Not the epoch or period: a manifest may name
+  // chunks from the period before.)
+  const owners = new Set([...avoid].map(ownerOf));
+  if (owners.has(null) || owners.size !== 1) return { ok: false, grantSpent: false, because: "the manifest's chunk keys are not all under one <org>/<account> path" };
+  const owner = [...owners][0];
+  // No clock margin here (deliberately; see the plan): one would refuse every correct manifest in a period's last hour.
+  // The residual is a Mac clock slightly behind the coordinator's at Monday 00:00 UTC, refused after the grant instead.
+  // Strictly less: a correct manifest's lock is period_end + 30 d + the window with period_end after now, so a floor
+  // equal to now + 30 d + the window cannot belong to one, and the exact check after the grant decides it.
+  if (floor < now() + MANIFEST_LOCK_FLOOR_MS + GRANT_WINDOW_MS) return { ok: false, outlastsChunks: true, grantSpent: false, because: `a manifest granted now stays locked past ${new Date(floor).toISOString()}, when the earliest chunk it names may be gone; upload those chunks again first` };
+  const timeoutMs = Number.isFinite(o.putTimeoutMs) && o.putTimeoutMs > 0 ? o.putTimeoutMs : putTimeoutFor(bytes.length, 1);
+  const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+  for (let grants = 0; grants <= MAX_REGRANTS; grants++) {
+    const asked = now();
+    st.asked = true;
+    const g = await askSigned(deps.macRequest, MANIFEST_ROUTE,
+      () => ({ sha256, size: bytes.length, nonce: crypto.randomBytes(16).toString('hex') }),
+      (d) => parseManifestGrant(d, bytes, o.bucket));
+    const earlier = st.granted;   // a grant answered before THIS request (read before this one's answer is counted)
+    if (g.out && g.out.grantSpent) st.granted = true;
+    // A re-grant request that fails still follows a grant that answered: that one's allowance is spent.
+    if (!g.ok) return Object.assign({ ok: false }, g.out, earlier ? { grantSpent: true, because: `an earlier manifest grant ran out with nothing stored, then ${g.out.because}` } : {});
+    st.granted = true;
+    const skew = clockSkew(now(), g.expiresAtMs);
+    if (skew) return { ok: false, because: skew, grantSpent: true };
+    const up = g.upload;
+    if (avoid.has(up.key)) return { ok: false, grantSpent: true, because: 'the manifest grant names a key it must not write (a chunk key, or a key an earlier manifest grant gave); nothing was sent (this grant\'s allowance is spent)' };
+    avoid.add(up.key);
+    if (ownerOf(up.key) !== owner) return { ok: false, grantSpent: true, because: `the manifest grant's key is not under its chunks' path (${owner}/); nothing was sent (this grant's allowance is spent)` };
+    if (up.retainMs > floor) return { ok: false, outlastsChunks: true, grantSpent: true, because: `the manifest grant locks until ${new Date(up.retainMs).toISOString()}, past the earliest chunk it names (${new Date(floor).toISOString()}); nothing was sent (this grant's allowance is spent)` };
+    const deadline = asked + g.lifetimeMs - 10 * 1000;
+    // reached: an attempt on this grant got past connecting (S3 answered, or the request may have left). Until then,
+    // S3 has seen nothing from this grant, so its first answer being "expired" is the clock case below.
+    let troubled = false, preOnly = false, cleanRanOut = false, reached = false;
+    for (let attempt = 0; ; attempt++) {
+      // Out of time after only pre-connect failures: the bucket cannot be reached, and a new grant could not reach it
+      // either, so no re-grant (below). Unlike S3 answering "expired" (next arm), which proves the bucket answers.
+      if (deadline - now() <= 0) {
+        // Out of time before a single attempt: the grant's answer itself took its whole life, so a new grant would be
+        // as slow. Stop rather than spend another of the period's 50 manifest grants. (The chunk worker re-grants
+        // here; its allowance is 200,000 a week, and that path is reviewed separately.)
+        if (attempt === 0) return { ok: false, retryLater: true, grantSpent: true, because: 'the manifest grant ran out before a single upload attempt (its answer was too slow); try again later' };
+        cleanRanOut = !troubled && !preOnly; break;
+      }
+      const r = await putOne(fetchFn, up, bytes, troubled, timeoutMs);
+      if (r.kind === 'stored' || r.kind === 'present') return { ok: true, key: up.key, sha256, lockedUntilMs: up.retainMs };
+      if (r.kind === 'expired') {
+        // S3 checks expiry when a request ARRIVES, and a PUT is only started before the deadline: "expired" on the
+        // first attempt that REACHED S3 (earlier ones only failed to connect) means S3's clock and the coordinator's disagree by more than the window. A new grant would hit
+        // the same wall (and the chunk worker, at 200,000 grants a week, may re-grant; manifests are 50).
+        if (!reached) return { ok: false, retryLater: true, grantSpent: true, because: 'S3 said the manifest grant had expired on the first attempt that reached it: its clock and the coordinator\'s disagree; try again later' };
+        cleanRanOut = !troubled; break;
+      }
+      if (r.kind === 'refused') return Object.assign({ ok: false, grantSpent: true, because: `the bucket refused the manifest (${r.status ? 'HTTP ' + r.status : 'locally'}${r.code ? ' ' + r.code : ''}); a new grant would not change that` }, troubled ? { unsure: [{ key: up.key }] } : {});
+      // The chunk worker in uploadInner carries the same rules: change both together.
+      if (r.preconnect) { preOnly = true; } else { reached = true; if (!r.nothingCommitted) { troubled = true; st.unsureKey = up.key; } }
+      await sleep(Math.min(BACKOFF_MAX_MS, 500 * 2 ** attempt) * (0.5 + Math.random() / 2));
+    }
+    // A write that may have landed is never followed by a new grant (a second locked manifest): try again later.
+    if (troubled) return { ok: false, retryLater: true, grantSpent: true, because: 'the manifest met bucket or network trouble until its grant expired; try again later', unsure: [{ key: up.key }] };
+    if (!cleanRanOut) return { ok: false, retryLater: true, grantSpent: true, because: 'the bucket could not be reached before the manifest grant ran out; try again later' };
+  }
+  return { ok: false, retryLater: true, grantSpent: true, because: `${MAX_REGRANTS + 1} manifest grants in a row ran out before it was stored; try again later` };
 }
 
 /* Run fn over items with at most n at once. If one throws, no worker starts another item, every worker in flight is
@@ -439,4 +671,4 @@ async function eachLimited(items, n, fn) {
   if (failed) throw failed.err;
 }
 
-module.exports = { allowHttpForTests, GRANT_ROUTE, MAX_PER_GRANT, MIN_OBJECT, MAX_OBJECT, MAX_REGRANTS, INITIAL_BATCH, BACKOFF_MAX_MS, grantBody, refusalOf, expiryMs, parseGrant, putOne, uploadChunks };
+module.exports = { allowHttpForTests, GRANT_ROUTE, MANIFEST_ROUTE, MAX_PER_GRANT, MIN_OBJECT, MAX_OBJECT, MAX_MANIFEST, MAX_REGRANTS, INITIAL_BATCH, BACKOFF_MAX_MS, grantBody, refusalOf, expiryMs, parseGrant, parseManifestGrant, putOne, uploadChunks, uploadManifest };
