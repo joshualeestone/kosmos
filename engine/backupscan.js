@@ -50,7 +50,8 @@ const TEMPLATE = /\.(example|sample|template|dist)$/i;
 // 🔑 The content scan stores several of these as they are (measured: mac_key, phone-notify.json), so the NAME is the
 // only defence, and a copy under a name a writer, editor or Finder gives it must be denied too. So each store name
 // is matched as a TOKEN anywhere in a file name, in ANY folder: bounded on both sides by the start or end of the
-// name or by a character that is not a letter or digit (STORE_NAME). That denies `.mac_key.tmp-9`, `mac_key copy`,
+// name or by a character that is not an ASCII letter or digit (STORE_NAME; a non-ASCII letter counts as a boundary,
+// which only over-skips). That denies `.mac_key.tmp-9`, `mac_key copy`,
 // `#board.token#` and `remote copy/mac_key`, while `keyboard.tokens.csv` or `imac_keyboard.md` are ordinary. A store
 // FOLDER is matched the same way, as a token in a folder name (`sendertokens.bak/`, `old sendertokens/`,
 // `communitysend copy/`), and in a community folder any file named with the token `keys` is a key file
@@ -84,7 +85,11 @@ const KOSMOS_STORES = [
   // Kosmos's other key files, so they too are judged before the template exemption: the tunnel's TLS key and its
   // device key (DER binary, which the content scan cannot read), and the Windows channel's key folder (engine/win32channel.js).
   // The generic .key rule already denies them under their own names; this adds `tls.key.example` and the like.
-  [STORE_NAME('(tls|signin-device)\\.key'), 'Kosmos Mac signing key'],
+  [STORE_NAME('signin-device\\.key'), 'Kosmos Mac signing key'],
+  [STORE_NAME('tls\\.key'), 'Kosmos tunnel TLS key'],
+  // Kosmos's secrets folder (tokendoor's env/, githubdevice's and cloudflare's tokens), copied or renamed like any other
+  // store. Keyed on what is inside it too, so a person's own trade-secrets/ folder of notes is untouched.
+  [new RegExp(`(^|\\/)${TOKEN('secrets')}\\/(env\\/|(github|cloudflare)\\.token)`, 'i'), 'Kosmos secrets folder'],
   [STORE_FOLDER('win32-channel'), 'Kosmos Windows channel keys'],
   [STORE_FOLDER('undo-saved'), 'Kosmos undo copies (the files are backed up at their own paths)'],
 ];
@@ -155,7 +160,7 @@ function pathDecision(rel) {
    A copy-shaped name over 255 characters is skipped outright, so at most 510 leading runs are
    tried and a hostile name cannot make the scan quadratic. (Filesystems cap a name in bytes, not characters; this caps
    the work, and a real name over it is rare and skipped on the safe side.) */
-const COPY_SHAPED = /(\.(tmp|temp|part|swp|swo|swx|bak|backup|old|orig|save|prev|new)(?:(?=[-.0-9a-z]*\d)\d*([-.][0-9a-z]+)*)?|~|\.\d+| \d+| copy( \d+)?| \(\d+\))$/i;
+const COPY_SHAPED = /(\.(tmp|temp|part|swp|swo|swx|bak|backup|old|orig|save|prev|new)(?:(?=[-._0-9a-z]*\d)\d*([-._][0-9a-z]+)*)?|~|\.\d+| \d+| copy( \d+)?| \(\d+\))$/i;
 const MAX_COPY_NAME = 255;
 const MAX_SEGMENT = 1020;
 function tempOrigins(p) {

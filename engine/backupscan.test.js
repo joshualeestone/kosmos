@@ -66,7 +66,10 @@ test('#5686 review 3: a writer\'s temp copy of a denied file is denied with it, 
     'Kosmos/remote/signin-device.key.example', 'Kosmos/remote/tls.key.sample', 'Kosmos/win32-channel/a.key.dist',
     // review 12: digits glued onto a store name
     'x/mac_key2', 'x/board.token2', 'x/phone-notify2.json', 'x/fed-seal-key2.json', 'x/.kosmos-gemini-apikey2', 'x/sendertokens2/a',
-    'x/communitysend/keys2.json', 'x/undo2/blobs/a']) {
+    'x/communitysend/keys2.json', 'x/undo2/blobs/a',
+    // review 13: Kosmos's secrets folder copied or renamed; an underscore tail
+    'Kosmos/secrets copy/env/OPENAI_API_KEY', 'Kosmos/secrets.bak/env/X', 'Kosmos/old secrets/github.token', 'Kosmos/secrets2/env/X',
+    'x/id_rsa.tmp_1']) {
     assert.equal(bs.pathDecision(p).include, false, `${p} must be skipped`);
   }
   for (const p of ['agents/a/notes.md.tmp', 'projects/site/draft.tmp', 'agents/a/secrets-plan.md', 'Kosmos/remote/.mac_id.tmp',
@@ -76,7 +79,7 @@ test('#5686 review 3: a writer\'s temp copy of a denied file is denied with it, 
     'notes/secrets.new-approach.md', 'notes/plan.v1.2.md', 'agents/a/.env.example', 'notes/secrets.tmp-abcxyz.md',
     'notes/keyboard.tokens.csv', 'notes/billboard.token-ideas.md', 'projects/site/remote/api.keys.md',
     'projects/site/remote/talk.keynote', 'projects/site/remote/imac_keyboard.md', 'projects/site/communitysend-notes.md',
-    'projects/site/undo/notes.md', 'notes/undo-saved-ideas.md', 'projects/site/undo/blobs.md', 'notes/mac_keyboard2.md', 'projects/site/remote/notes.md.bak', 'w/' + '\u{1F600}'.repeat(130) + '.tmp']) {
+    'projects/site/undo/notes.md', 'notes/undo-saved-ideas.md', 'projects/site/undo/blobs.md', 'notes/mac_keyboard2.md', 'notes/trade-secrets/plan.md', 'notes/trade-secrets/env.md', 'projects/site/remote/notes.md.bak', 'w/' + '\u{1F600}'.repeat(130) + '.tmp']) {
     assert.equal(bs.pathDecision(p).include, true, `CONTROL: ${p} is a temp of ordinary work, or not a temp, and is kept`);
   }
 });
