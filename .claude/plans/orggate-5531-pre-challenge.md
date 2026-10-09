@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: orggate-5531
-diff_hash: 5cf6fd85fbac363d9433135ebf3deb3378ca0a575b27ad1e24aa0fff28f658ae
-validation: passed (Mortals full suite at 1efdad1fa, hash 5cf6fd85fbac)
+diff_hash: d073ce9696922f479793472ea052b99fe198bbfad5433bab60b6fc9a7ab3c1f9
+validation: passed (Mortals full suite at 1efdad1fa, hash 5cf6fd85fbac) (main merged at 92b17d3a0: #5609 had made the PR conflict, so CI never started; the conflicts were resolved keeping both, the O13 and O17 checks pass; the ONLY changed line versus the validated diff is the README row, which now carries O13 too, measured)
 subdir_audit: passed
 timestamp: 2026-10-09T00:07:25Z
 iterations: 4
