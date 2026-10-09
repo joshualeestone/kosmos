@@ -1380,6 +1380,52 @@ test('#5686 review 6: a path restore would refuse only once the root name is in 
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
+test('#5686: a root with only stores just those files, and never names the others, even in skipped', async () => {
+  const w = threeRoots(), k = keys(), st = store();
+  try {
+    const shared = path.join(w.base, 'shared');
+    fs.mkdirSync(path.join(shared, 'd'), { recursive: true });
+    fs.writeFileSync(path.join(shared, 'd', 'mine.jsonl'), 'mine\n');
+    fs.writeFileSync(path.join(shared, 'd', 'theirs-leo.jsonl'), 'theirs\n');
+    fs.writeFileSync(path.join(shared, 'theirs.env'), 'SECRET=1\n');   // would be named in skipped by the deny-list
+    const r = await takeRoots(k, [{ name: 'data', path: w.roots.data }, { name: 'sessions/a/codex', path: shared, only: ['d/mine.jsonl'] }], st);
+    assert.equal(r.ok, true, r.because);
+    const { opened, sink } = await restoreFrom(k, st, st.manifests[0].bytes);
+    assert.deepEqual([...sink.committed.keys()].filter((p) => p.startsWith('sessions/')), ['sessions/a/codex/d/mine.jsonl']);
+    assert.ok(!JSON.stringify(opened.skipped).includes('theirs'), JSON.stringify(opened.skipped));
+    // CONTROL: without only, the same root stores the other file and names the .env.
+    const st2 = store();
+    await takeRoots(k, [{ name: 'sessions/a/codex', path: shared }], st2);
+    const o2 = await restoreFrom(k, st2, st2.manifests[0].bytes);
+    assert.ok(o2.sink.committed.has('sessions/a/codex/d/theirs-leo.jsonl'));
+    assert.ok(JSON.stringify(o2.opened.skipped).includes('theirs.env'));
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('#5686: sessionsFor\'s roots feed takeSnapshot: one agent\'s sessions stored, another\'s and the sign-ins never', async () => {
+  const w = threeRoots(), k = keys(), st = store();
+  const sess = require('./backupsessions');
+  try {
+    const agent = path.join(w.roots.workers, 'a'), other = path.join(w.roots.workers, 'b');
+    fs.mkdirSync(other, { recursive: true });
+    const home = path.join(w.base, 'home'), claude = path.join(home, '.claude'), codex = path.join(home, '.codex');
+    const put = (p, body) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, body); };
+    const tr = (cwd) => `{"type":"user","cwd":${JSON.stringify(cwd)}}\n`;
+    put(path.join(claude, 'projects', sess.flatten(agent), 'x.jsonl'), tr(agent));
+    put(path.join(claude, 'projects', sess.flatten(other), 'y.jsonl'), tr(other));
+    put(path.join(claude, '.credentials.json'), '{"t":1}\n');
+    const roll = (n, cwd) => put(path.join(codex, 'sessions', '2026', '10', '09', n), JSON.stringify({ type: 'session_meta', payload: { cwd } }) + '\n');
+    roll('rollout-1.jsonl', agent); roll('rollout-2.jsonl', other);
+    put(path.join(codex, 'auth.json'), '{"t":1}\n');
+    const roots = [{ name: 'workers', path: w.roots.workers }, ...sess.sessionsFor(agent, { id: 'a', claudeRoots: [claude], codexHome: codex })];
+    const r = await takeRoots(k, roots, st);
+    assert.equal(r.ok, true, r.because);
+    const { sink, opened } = await restoreFrom(k, st, st.manifests[0].bytes);
+    assert.deepEqual([...sink.committed.keys()].filter((p) => p.startsWith('sessions/')), ['sessions/a/claude/x.jsonl', 'sessions/a/codex/2026/10/09/rollout-1.jsonl']);
+    assert.ok(!JSON.stringify(opened).includes('rollout-2') && !JSON.stringify(opened).includes('y.jsonl'), 'the other agent\'s files are not even named');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
 test('#5686: a file is read from its own root (a same-named file in another root is never read in its place)', async () => {
   const w = threeRoots(), k = keys(), st = store();
   try {

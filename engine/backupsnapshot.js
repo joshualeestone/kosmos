@@ -286,6 +286,18 @@ async function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped =
    paths stored as they are) still works, alone. Returns the roots, or why they cannot be used (a sentence). */
 const ROOT_NAME = /^[a-z0-9][a-z0-9-]{0,31}(\/[a-z0-9][a-z0-9-]{0,31}){0,3}$/;
 const MAX_ROOTS = 64;
+/* Why a root name cannot be used, or null. Shared with engine/backupsessions.js, which builds names from agent ids.
+   A name restore refuses (a Windows device name such as con or aux) would store files that can never come back; a name
+   the deny-list refuses as a folder (secrets) would have every file read and then dropped; every stored path starts
+   with the name, and every other name in a manifest is masked when it is secret-shaped. */
+function rootNameProblem(name) {
+  if (typeof name !== 'string' || !ROOT_NAME.test(name)) return 'each root needs a name of lowercase letters, digits and hyphens, up to four parts joined by /';
+  if (pathProblem(`${name}/x`)) return `the root name ${name} is not one every system accepts`;
+  if (!pathDecision(`${name}/x`).include) return `the root name ${name} is one the backup never stores`;
+  if (nameMasked(name.replace(/\//g, ' ')) !== null) return `the root name ${name} looks like a secret`;
+  return null;
+}
+
 function rootsOf(input) {
   if (input.roots === undefined) {
     if (typeof input.root !== 'string' || !path.isAbsolute(input.root)) return 'the work Kosmos folder must be an absolute path';
@@ -295,22 +307,19 @@ function rootsOf(input) {
   if (!Array.isArray(input.roots) || !input.roots.length || input.roots.length > MAX_ROOTS) return `roots must be a list of 1 to ${MAX_ROOTS} folders`;
   const names = [];
   for (const r of input.roots) {
-    if (!r || typeof r.name !== 'string' || !ROOT_NAME.test(r.name)) return 'each root needs a name of lowercase letters, digits and hyphens, up to four parts joined by /';
+    if (!r || typeof r.name !== 'string') return 'each root needs a name';
+    const bad = rootNameProblem(r.name);
+    if (bad) return bad;
     if (typeof r.path !== 'string' || !path.isAbsolute(r.path)) return `the root ${r.name} must be an absolute path`;
     // One name inside another (`sessions` and `sessions/claude`) would let two roots write the same restored path.
     if (names.some((n) => n === r.name || n.startsWith(r.name + '/') || r.name.startsWith(n + '/'))) return `the root name ${r.name} repeats or contains another root's name`;
-    // A name restore refuses (a Windows device name such as con or aux) would store files that can never come back,
-    // and a name the deny-list refuses as a folder (secrets) would have every file read and then dropped.
-    if (pathProblem(`${r.name}/x`)) return `the root name ${r.name} is not one every system accepts`;
-    if (!pathDecision(`${r.name}/x`).include) return `the root name ${r.name} is one the backup never stores`;
-    // Every stored path starts with the name, and every other name in a manifest is masked when it is secret-shaped.
-    if (nameMasked(r.name.replace(/\//g, ' ')) !== null) return `the root name ${r.name} looks like a secret`;
+    if (r.only !== undefined && (!Array.isArray(r.only) || r.only.length > MAX_FILES || r.only.some((x) => typeof x !== 'string' || !x))) return `the root ${r.name}'s only must be a list of paths inside it`;
     names.push(r.name);
   }
   // So the files (and the manifest) come out in one order, sorted by stored path, whatever order the caller lists them in.
   // Sorted by name + '/', which is the order of the stored paths they start (by name alone, `data-old` would follow
   // `data`, while `data-old/x` sorts before `data/x`).
-  return input.roots.map((r) => ({ name: r.name, path: r.path, exclude: r.exclude, optional: r.optional === true })).sort((x, y) => { const a = x.name + '/', b = y.name + '/'; return a < b ? -1 : a > b ? 1 : 0; });
+  return input.roots.map((r) => ({ name: r.name, path: r.path, exclude: r.exclude, optional: r.optional === true, only: r.only })).sort((x, y) => { const a = x.name + '/', b = y.name + '/'; return a < b ? -1 : a > b ? 1 : 0; });
 }
 
 /* The last folders of a named root's real path, as a prefix ('Users/me/.claude/'): enough for every deny rule anchored
@@ -361,6 +370,14 @@ async function listRoots(roots, fs) {
   const pre = (name, p) => (!name ? p : p === '.' ? name : `${name}/${p}`);
   for (let i = 0; i < roots.length && !out.over; i++) {
     const got = await listFiles(reals[i], fs, { exclude: roots[i].exclude, maxFiles: MAX_FILES - out.files.length, maxSkipped: Math.max(0, MAX_SKIPPED - out.skipped.length) });
+    // `only`: a root shared with others' files (a provider's folder holding every agent's sessions) keeps just the
+    // files named. Nothing else from it is stored or recorded, not even in skipped: those are other agents' file names.
+    const only = Array.isArray(roots[i].only) ? new Set(roots[i].only.map((x) => collisionKey(x))) : null;
+    if (only) {
+      got.files = got.files.filter((f) => only.has(collisionKey(f.path)));
+      got.skipped = got.skipped.filter((x) => only.has(collisionKey(x.path)));
+      got.skippedExtra = 0;
+    }
     for (const f of got.files) {
       const stored = pre(roots[i].name, f.path);
       // The walk judged the path inside the root; restore judges the stored one, which is longer by the name.
@@ -448,10 +465,11 @@ function upperBound(f, maxFile) {
  *   input: { root | roots, memberPk, namingKey, namingKeyId, deviceKey, ctx, index?, bucket?, exclude? }
  *     exclude      folders to leave out, as '/'-separated paths relative to root (each named once in skipped)
  *     root         the work Kosmos folder (absolute)
- *     roots        instead of root (and exclude): [{ name, path, exclude?, optional? }], several folders, each stored under its
+ *     roots        instead of root (and exclude): [{ name, path, exclude?, optional?, only? }], several folders, each stored under its
  *                  name (lowercase letters, digits, hyphens; up to four parts joined by '/'; none inside another, by
  *                  name or by real path). An optional root that cannot be read is recorded in skipped, not a
- *                  failure (a provider's session folder may be gone by the walk). See rootsOf.
+ *                  failure (a provider's session folder may be gone by the walk). `only`: the paths
+ *                  inside the root to keep; nothing else from it is stored or named. See rootsOf.
  *     memberPk     the member's backup public key (32 bytes), namingKey this period's naming key (32 bytes) and
  *                  namingKeyId its id (backupkeys namingKeyId), deviceKey the device's Ed25519 private KeyObject
  *     ctx          the manifest context { org, member, epoch, period, snapshot }; period must be periodOf(now)
@@ -750,4 +768,4 @@ async function snapshotInner(input, deps, added, state, fail) {
   return { ok: true, manifestKey: m.key, files: files.length, skipped: skipped.length + skippedExtra, uploaded, reused, added, bucket: state.bucket };
 }
 
-module.exports = { periodOf, memberKeyIdOf, listFiles, takeSnapshot, MAX_FILE, BATCH_BYTES, MAX_FILES };
+module.exports = { periodOf, memberKeyIdOf, listFiles, takeSnapshot, rootNameProblem, MAX_FILE, BATCH_BYTES, MAX_FILES };
