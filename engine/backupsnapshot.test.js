@@ -985,3 +985,23 @@ test('a manifest grant in another bucket on a run with an index AND new uploads 
     assert.equal(r.added.size, 0, 'those chunks are in the abandoned bucket'); assert.equal(r.staleIndex, true);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('a backslash and an invisible character together still read as the denied path restore would write', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    fs.writeFileSync(path.join(w.root, '.ssh\u200b\\id_rsa'), 'PRIVATE-KEY-BYTES');
+    const r = await take(k, w.root, st);
+    assert.equal(r.ok, true, r.because);
+    const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+    assert.ok(!m.files.some((x) => x.path === '.ssh\u200b\\id_rsa'));
+    for (const [name, key] of Object.entries(m.objects)) assert.ok(!bf.openVerifiedChunk(k.member.sk, k.nk, name, st.objects.get(key)).includes('PRIVATE-KEY-BYTES'));
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a clock past year 9999 is refused (the coordinator labels such periods differently)', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const r = await take(k, w.root, st, { deps: { now: () => Date.UTC(10000, 0, 6) } });
+    assert.equal(r.ok, false); assert.match(r.because, /clock/); assert.equal(r.newPeriod, undefined);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
