@@ -944,8 +944,25 @@ function block() {
  *     schedules two agents made came from tools this Mac's agents have that a new Kosmos agent may not (slice 2, the
  *     missed-run alert, is what makes a missed run visible). The test agents also read this Mac's own global
  *     instructions (both arms alike), and Codex and Gemini agents were not measured.
+ *  26. kosmos#5152 (doneWhen as its own field, #5639) and kosmos#5643 slice 2 (unchanged runs, #5646), under `### Put the
+ *     work on a task first`. The checks go on with `kosmos task add ... --done "<check>"` (one per check, up to three)
+ *     and on a given task with `kosmos task done-when` (keeping checks the person wrote), where v24 had agents write them
+ *     into the detail. A scheduled run that found nothing new is recorded with `kosmos task ran ... --unchanged` and not
+ *     posted in the room, so the task folds such runs together. SAME HEADING: an agent holding an unedited copy of an
+ *     earlier version is offered it through the consented dialog, and since kosmos#5635 an unedited whole block is
+ *     brought current at board start. MEASURED before merge with claude -p (--setting-sources project,local) on test
+ *     agents built from this block and a Your projects section, a stand-in kosmos logging every argument:
+ *     - an hourly check set up on an empty project: 3/3 added the task with separate --done checks and set it hourly;
+ *       the v25 block (control) 0/2 (one wrote all three checks as one blob, one wrote none);
+ *     - given task 5: 2/2 put separate checks on it with done-when; control 0/1;
+ *     - a run that found nothing new: 3/3 recorded it --unchanged and posted nothing; control 0/2 recorded any run;
+ *     - a run that found two changes: 2/2 recorded it without the flag and posted the change;
+ *     - small talk: 1/1 made read-only calls only.
+ *     Claude only.
+ *     WEAKEST PREMISE, NAMED: the control's nothing-new arm recorded no run at all, so the measurement shows the new text
+ *     gets a run recorded AND flagged, not the flag alone; and Codex and Gemini agents were not measured.
  */
-const DOCTRINE_VERSION = 25;
+const DOCTRINE_VERSION = 26;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
