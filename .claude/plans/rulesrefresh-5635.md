@@ -77,3 +77,8 @@ That the test agents' stale text was a known earlier block. If the multi-model t
   - NIT 4 fixed: the re-read line is pinned never to claim consent.
   - NIT 2 decided: a span whose frame comment was deleted is still rewritten. The rules are untouched, and the frame is Kosmos's own line.
   - NIT 3 decided: a crash between the record and the write reads as a restore until the next block ships. Accepted: the cost is one block's delay through the click, never a write over a person's restore.
+- **Round 8 (sonnet):** 0 blockers, 2 warnings, both fixed.
+  - W1: the every-section check skipped span updates. It now applies to every write; tested with the newest section's heading outside the span.
+  - W2: the span-offset arithmetic had no test. Now a copy-before-span case (red when the shift is removed, by mutation) and a copy, span, typed-copy case.
+  - CONVENTION fixed: a current copy beside an old one also waits for the click.
+  - NITs fixed: lstat for the folder (a dangling link is reported); the stacked comments merged.
