@@ -395,7 +395,7 @@ async function uploadInner(deps, objects, opts, keys, run) {
     // And never far ahead of this Mac's clock (more than the window plus an hour): one of the two clocks is wrong.
     // (An hour of tolerance: a Mac a few minutes slow still backs up; S3 itself refuses a request whose signing time is
     // more than 15 minutes off its own clock.)
-    { const skew = clockSkew(now(), g.expiresAtMs); if (skew) return { ok: false, because: skew, grantSpent: true, keys }; }
+    { const skew = clockSkew(now(), g.expiresAtMs); if (skew) return { ok: false, because: skew, keys }; }   // grantSpent: added by uploadChunks (a grant answered)
     // This grant's deadline on THIS Mac's clock: when it was asked for plus the url's own lifetime, less a 10 s
     // margin. So a Mac clock that is minutes off does not end a grant early or late (the skew checks above catch a
     // clock that is far off). The PUTs are bounded by S3's own check on arrival either way.
