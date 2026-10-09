@@ -239,3 +239,15 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - Stated: a settings file that holds the rules does not prove the RUNNING session started with them (a session started
   before the guard was written reads its old settings until it restarts); a non-token-only twin created and deleted
   within one tick is never recorded as a collision; home falls back to os.homedir() where the guard uses kosmosHome().
+
+## Review 17 (sonnet), all fixed unless stated
+- The real guard check was never tested, and it compared every rule, including launch rules built from the board's own
+  PATH, so a guard written at a launch from another pane's PATH read as missing and the feature could go silent: it
+  checks the rules that keep the board token out (they follow from the token roots), logs once per agent it skips, and
+  a test writes a guard with guardTokenOnlyFolder (now exported) and checks the board reads it as guarded (and an
+  unguarded folder as not).
+- The guard check re-ran the launch-path scan per agent per tick: one shared launch cache per tick.
+- Words lost without a 409 here (the rollup's 409, a refresh) left the state unmarked, so words accepted again under
+  the same hash would send the gap: while enrolled with no words accepted, the state is marked withdrawn. Test.
+- Stated: the guard check reads the deny rules, not the sandbox block; a failed state write after a read degrades the
+  next read's target classes (the coordinator dedupes the repeat).
