@@ -11,12 +11,13 @@ test.beforeEach(() => readjobs._reset());
 const later = (ms, v) => new Promise((r) => setTimeout(() => r(v), ms));
 
 test('#5636 F4: a quick read is answered on the first ask', async () => {
-  const a = await readjobs.ask('k', () => later(5, 'answer'), 200);
+  const keep = { resend: () => true };
+  const a = await readjobs.ask('k', () => later(5, 'answer'), 200, Date.now(), keep);
   assert.deepEqual(a, { done: true, value: 'answer' });
   // Review 3: kept RESEND_MS for the same question (a lost response can be asked for again), then dropped.
   assert.equal(readjobs._size(), 1);
-  await readjobs.ask('other', () => 'x', 50, Date.now() + readjobs.RESEND_MS + 1000);
-  assert.equal(readjobs._size(), 1, 'a delivered answer outlived RESEND_MS');
+  await readjobs.ask('other', () => 'x', 50, Date.now() + readjobs.RESEND_MS + 1000);   // 'other' is not kept (no resend)
+  assert.equal(readjobs._size(), 0, 'a delivered answer outlived RESEND_MS');
 });
 
 test('#5636 F4: a slow read says "still reading", carries on, and the next ask gets it without reading again', async () => {
@@ -24,11 +25,12 @@ test('#5636 F4: a slow read says "still reading", carries on, and the next ask g
   const run = () => { runs += 1; return later(80, 'slow answer'); };
   const first = await readjobs.ask('k', run, 10);
   assert.deepEqual(first, { done: false });
-  const second = await readjobs.ask('k', run, 200);
+  const keep = { resend: () => true };
+  const second = await readjobs.ask('k', run, 200, Date.now(), keep);
   assert.deepEqual(second, { done: true, value: 'slow answer' });
   assert.equal(runs, 1, 'the second ask started a second read');
   // Review 3: asked again within RESEND_MS, the same answer, no new read; after it, a fresh read.
-  assert.deepEqual(await readjobs.ask('k', run, 200), { done: true, value: 'slow answer' });
+  assert.deepEqual(await readjobs.ask('k', run, 200, Date.now(), keep), { done: true, value: 'slow answer' });
   assert.equal(runs, 1, 'a re-ask within RESEND_MS read again');
   await readjobs.ask('k', run, 200, Date.now() + readjobs.RESEND_MS + 1000);
   assert.equal(runs, 2, 'a later ask did not read afresh');
@@ -81,4 +83,17 @@ test('#5636 F4 review 2: a read that never settles is dropped after KEEP_MS, so 
   assert.equal(runs, 1, 'CONTROL: while young, the same read is kept');
   await readjobs.ask('k', never, 1, Date.now() + readjobs.KEEP_MS + 1000);
   assert.equal(runs, 2, 'a stuck read was never dropped');
+});
+
+test('#5636 F4 review 4: an answer the caller does not mark for resending, a failure above all, is read afresh next time', async () => {
+  let runs = 0;
+  const run = () => { runs += 1; return Promise.resolve({ status: 502 }); };
+  const resend = (v) => v && v.status === 200;
+  assert.equal((await readjobs.ask('k', run, 100, Date.now(), { resend })).value.status, 502);
+  assert.equal(readjobs._size(), 0, 'a failure was kept for a re-ask');
+  await readjobs.ask('k', run, 100, Date.now(), { resend });
+  assert.equal(runs, 2, 'a failure was replayed instead of read again');
+  // CONTROL: a good answer under the same rule is kept.
+  await readjobs.ask('g', () => Promise.resolve({ status: 200 }), 100, Date.now(), { resend });
+  assert.equal(readjobs._size(), 1);
 });

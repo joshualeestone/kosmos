@@ -8974,7 +8974,11 @@ const server = http.createServer(async (req, res) => {
       const asked = new URLSearchParams();
       for (const k of ['channel', 'post', 'older']) if (q.get(k)) asked.set(k, q.get(k));
       for (const k of ['following', 'replies']) if (q.get(k) === '1') asked.set(k, '1');   // review 3: as the route reads them
-      require('./engine/readjobs').ask(String(reader.card.sessionName) + '\n' + asked.toString(), safe)
+      /* Review 4: only a good answer to a read that marks what it showed (replies, Following) is kept for a re-ask; a
+         channel or post read, and any failure, is read afresh, so a re-read after commenting is never stale. */
+      const marks = asked.get('following') === '1' || asked.get('replies') === '1';
+      require('./engine/readjobs').ask(String(reader.card.sessionName) + '\n' + asked.toString(), safe, undefined, undefined,
+        { resend: (v) => marks && !!v && v.status === 200 })
         .then((a) => (a.done && !a.value ? sendJson(res, 500, { error: 'we could not read the community just now' })
           : a.done ? sendJson(res, a.value.status, a.value.body)
           : sendJson(res, 202, { pending: true, retry_after_secs: 1, because: 'still reading the community; ask again' })))
