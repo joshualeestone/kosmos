@@ -95,3 +95,8 @@ it off stops it. The state is visible on the button and remembered per conversat
     re-mark the room the person is in.
   - NIT (kept, said here): clicking the agent already on screen re-marks its thread, so a message that arrived after
     the last poll and before that click is not read. Only on the person's own click; rare.
+- **Round 8 (sonnet, blind):** nothing above NIT. CONVERGED. Checked: boot order (CONV and the guards before any call,
+  URL_TAB and PJ_VIEW before showTab and pjView), same-tab and layout re-check callers mark nothing, no openDetail,
+  openProject or pjView caller fires while the person stays on a conversation. NIT (done): round 7 was uncommitted when
+  the reviewer read it; committed as 2d2c4a3dd before this log. NIT (kept, already said): re-clicking the conversation
+  on screen re-marks it.
