@@ -7768,10 +7768,11 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
 .micbtn { display: none; touch-action: manipulation; flex: 0 0 auto; place-items: center; width: 34px; height: 34px;
   border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
 html.has-voice .micbtn { display: grid; }
-/* #5624: conversation mode, beside the mic in a conversation's box: shown where the page can speak (html.has-speak). */
+/* #5624: conversation mode, beside the mic in a conversation's box: shown where the page can speak (html.has-speak)
+   AND the mode is switched on (html.conv-on; held off by Josh 2026-10-09 10:49, see CONV_ENABLED). */
 .convbtn { display: none; touch-action: manipulation; flex: 0 0 auto; place-items: center; width: 34px; height: 34px;
   border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
-html.has-speak .convbtn { display: grid; }
+html.has-speak.conv-on .convbtn { display: grid; }
 .convbtn:hover { background: color-mix(in srgb, var(--k-ink) 8%, transparent); color: var(--k-ink); }
 .convbtn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .convbtn[aria-pressed="true"] { color: var(--k-ink); background: color-mix(in srgb, var(--k-ink) 14%, transparent);
@@ -67093,6 +67094,11 @@ window.addEventListener('pagehide', () => { if (SPEAK.btn) speakStop(); });
    Nothing already on screen is read: a conversation's messages count as heard the first time they are drawn, and
    when the mode is turned on. A newer message stops the one being read; leaving the conversation or turning the mode
    off stops it too. A long message is read up to CONV_MAX characters, cut at a sentence end. */
+/* HELD (Josh 2026-10-09 10:49, "lets hold on the conversation mode"): off, so no toggle is drawn and nothing is read,
+   even for a conversation someone turned on before the hold. To bring it back, make the default true. The
+   kosmos.convmode.enabled switch exists so the page check can still exercise the mode; nothing in the app sets it. */
+const CONV_ENABLED = (() => { try { return localStorage.getItem('kosmos.convmode.enabled') === '1'; } catch { return false; } })();
+if (CONV_ENABLED) document.documentElement.classList.add('conv-on');
 const CONV_STORE = 'kosmos.convmode';
 const CONV_MAX = 600;
 const CONV = { on: null, seen: Object.create(null), key: '', where: '', last: '', seq: 0, novoice: false };
@@ -67103,7 +67109,7 @@ function convLoad() {
   CONV.on = o && typeof o === 'object' && !Array.isArray(o) ? o : {};
   return CONV.on;
 }
-function convIsOn(key) { return !!key && convLoad()[key] === true; }
+function convIsOn(key) { return CONV_ENABLED && !!key && convLoad()[key] === true; }
 function convSet(key, on) {
   const o = convLoad();
   if (on) o[key] = true; else delete o[key];
@@ -67216,7 +67222,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) { con
 window.addEventListener('pagehide', () => { convStop(); convPause(); });
 document.addEventListener('click', (e) => {
   const b = e.target.closest && e.target.closest('.convbtn');
-  if (!b) return;
+  if (!b || !CONV_ENABLED) return;
   e.preventDefault();
   const key = convKeyFor(b.getAttribute('data-conv-for'));
   if (!key) return;
