@@ -207,6 +207,10 @@ const SPILL_AT = 700;
    whether to open the file. The envelope already names the sender; this is the message's first sentence when it is a
    real one and ends within SPILL_HEAD characters, else the opening cut at a whole word, plus how long the whole is. */
 const SPILL_HEAD = 200;
+/* Review 2: words ending in a full stop that do not end a sentence (titles, company forms, months, and the like). */
+const NOT_AN_END = /^(?:mr|mrs|ms|dr|prof|sr|jr|st|vs|etc|inc|corp|ltd|co|no|nos|fig|vol|dept|approx|est|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\.$/i;
+/* Never end a cut on the first half of a two-unit character (an emoji), which would type a broken character. */
+const wholeChars = (s) => (/[\uD800-\uDBFF]$/.test(s) ? s.slice(0, -1) : s);
 function spillHead(text) {
   const t = String(text);
   const words = (t.match(/\S+/g) || []).length;
@@ -217,12 +221,13 @@ function spillHead(text) {
   for (let m; (m = end.exec(t)) && m.index < SPILL_HEAD;) {
     const upto = t.slice(0, m.index + 1).trim();
     const last = upto.slice(upto.lastIndexOf(' ') + 1);
-    if (/^\(?\d+[.)]$/.test(last) || /\..*[.!?]$/.test(last) || last.replace(/[^A-Za-z]/g, '').length <= 2) continue;
+    /* A list number ("1."), a dotted form ("e.g.", "U.S."), a single initial ("J."), or a known abbreviation. */
+    if (/^\(?\d+[.)]$/.test(last) || /\..*[.!?]$/.test(last) || /^[A-Za-z]\.$/.test(last) || NOT_AN_END.test(last)) continue;
     if (upto.length >= 20) { head = upto; break; }
   }
   if (!head) {
     /* At a whole word: a space right after the 200th character means the slice already ends on one. */
-    const open = t.slice(0, SPILL_HEAD);
+    const open = wholeChars(t.slice(0, SPILL_HEAD));
     const sp = t.charAt(SPILL_HEAD) === ' ' ? SPILL_HEAD : open.lastIndexOf(' ');
     head = (sp >= SPILL_HEAD / 2 ? open.slice(0, sp) : open).replace(/[\s,;:]+$/, '') + '\u2026';
   }
