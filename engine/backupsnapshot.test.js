@@ -1271,6 +1271,22 @@ test('#5686 review 1: an unreadable root folder is named by its root name in ski
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
+test('#5686 review 2: the stored order does not depend on the order the roots are listed in', async () => {
+  const w = threeRoots(), k = keys();
+  try {
+    const order = async (rs) => {
+      const st = store();
+      const r = await takeRoots(k, rs, st);
+      assert.equal(r.ok, true, r.because);
+      return bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes).files.map((f) => f.path);
+    };
+    const a = { name: 'data', path: w.roots.data }, b = { name: 'workers', path: w.roots.workers }, c = { name: 'projects', path: w.roots.projects };
+    const one = await order([a, b, c]);
+    assert.deepEqual(await order([c, b, a]), one);
+    assert.deepEqual(one, [...one].sort(), 'sorted by stored path');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
 test('#5686: a file is read from its own root (a same-named file in another root is never read in its place)', async () => {
   const w = threeRoots(), k = keys(), st = store();
   try {
