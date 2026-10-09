@@ -261,3 +261,16 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - Time bounds are compared in milliseconds (an event a fraction of a second before a boundary no longer counts); the
   time sent stays in whole seconds.
 - Stated: a failed state re-read after a send writes the fallback over the queue (a loss, never a leak; listed resets).
+
+## Review 19 (sonnet), all fixed unless stated
+- A path a glob, a variable or a substitution hides (App*, $KOSMOS_DATA) could not be resolved, so a refusal at the
+  board token read 'home' or 'other': a Bash command that names the board token, Kosmos's own folder, the token-only
+  list or the worlds registry is board-files; one naming .claude, CLAUDE.md or .mcp.json is agent-config. Test.
+- A wrapper option that takes a value (sudo -u bob) took the value as the program; git@host:repo was not remote: both
+  understood. Test.
+- The denial test ran one regex over the whole result: it tests the head and the tail only. Test (linear, and a result
+  that does not END with the denial is not one).
+- Nothing queued is kept on disk once the words are withdrawn (both paths).
+- The duplicate guardTokenOnlyFolder export key removed; the r16 and r18 tests have positive arms.
+- Stated: a path under a dropped base outside worlds/ is board-files even for a non-token-only agent's folder there
+  (over-claims, hides nothing); `world` is the enrollment's own id, unchecked here.
