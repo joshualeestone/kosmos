@@ -119,6 +119,9 @@ let deps = null;
  *   onStatus(projectId, status)   optional
  *   enrolled() -> bool            optional; no seat is started on a Mac that is
  *                                 not connected to Kosmos+ (a dev board, a test)
+ *   allowed() -> bool             optional; no seat is started until the board has
+ *                                 stated live execution (#5671: the same opt-in the
+ *                                 company rollup and the other outward sweeps wait for)
  *   projectExists(projectId)      optional; a removed project gets no seat
  *   externalKeptOn(projectId, day) optional; { rows, bytes } the room already kept
  *                                 from outside on that UTC day, null if unknown
@@ -983,6 +986,10 @@ async function ensure(projectId, edges) {
      independent of Remote access (remote.read().on). An enrolled board with
      Remote access turned off continues seating linked shared projects. */
   if (typeof deps.enrolled === 'function' && !deps.enrolled()) return null;
+  /* #5671: and only once the board has stated live execution (server.js's real-start path). Enrollment already keeps a
+     test's sandbox out (it has none); this is the same stated opt-in the board's other outward sweeps wait for, so a
+     test that fakes an enrollment still reaches no room. Before the seat, after the local link checks above. */
+  if (typeof deps.allowed === 'function' && !deps.allowed()) return null;
   if (typeof deps.projectExists === 'function' && !deps.projectExists(projectId)) {
     stop(projectId);
     try { federation.forgetLink(projectId); } catch { /* retried on the next check */ }

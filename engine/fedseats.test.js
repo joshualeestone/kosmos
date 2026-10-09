@@ -24,7 +24,7 @@ function fakeChild() {
   return c;
 }
 
-function harness({ enrolled = true, edges = null, exists = () => true, gate = null, keptOn = undefined, createdAt = () => undefined } = {}) {
+function harness({ enrolled = true, allowed, edges = null, exists = () => true, gate = null, keptOn = undefined, createdAt = () => undefined } = {}) {
   const spawned = [];
   const recorded = [];
   const statuses = [];
@@ -41,6 +41,7 @@ function harness({ enrolled = true, edges = null, exists = () => true, gate = nu
     recordExternal: (projectId, msg) => recorded.push({ projectId, ...msg }),
     onStatus: (projectId, status) => statuses.push([projectId, status]),
     enrolled: () => (typeof enrolled === 'function' ? enrolled() : enrolled),   // a function lets a test sign out midway
+    ...(allowed === undefined ? {} : { allowed: () => allowed }),   // #5671: absent means not wired, as before
     projectExists: (projectId) => exists(projectId),
     externalKeptOn: keptOn,
     projectCreatedAt: (projectId) => createdAt(projectId),
@@ -262,6 +263,25 @@ test('#4318: federation seats gate on enrollment and project link, independent o
   const hNotEnrolled = harness({ enrolled: false });
   await fedseats.ensure('proj-fed-not-enrolled');
   assert.strictEqual(hNotEnrolled.spawned.length, 0);
+});
+
+/* #5671: the sweep waits for live execution too, so a test that fakes an enrollment still reaches no room. */
+test('#5671: an enrolled board starts no seat, and asks the edges nothing, until live execution is stated; CONTROL: then it does', async () => {
+  federation.recordLink('proj-live', { role: 'owner', ref: 'ref-live' });
+  const off = harness({ enrolled: true, allowed: false, edges: [{ id: 'edge-live', project_ref: 'ref-live', status: 'active' }] });
+  assert.strictEqual(await fedseats.ensure('proj-live'), null);
+  await fedseats.ensureAll();
+  assert.strictEqual(off.spawned.length, 0, 'a seat started before live execution was stated');
+  assert.strictEqual(off.asked, 0, 'the edges were asked before live execution was stated');
+  const on = harness({ enrolled: true, allowed: true, edges: [{ id: 'edge-live', project_ref: 'ref-live', status: 'active' }] });
+  await fedseats.ensure('proj-live');
+  assert.strictEqual(on.spawned.length, 1, 'CONTROL: with live execution stated the seat starts');
+  assert.strictEqual(on.spawned[0].edge, 'edge-live');
+  // The board wires the gate to its live-execution opt-in (the same one its other outward sweeps read).
+  const srv = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'server.js'), 'utf8');
+  const conf = srv.slice(srv.indexOf('fedseats.configure({'), srv.indexOf('});', srv.indexOf('fedseats.configure({')));
+  assert.ok(conf.includes('enrolled: () => remote.enrolled()'), 'CONTROL: the board\'s fedseats.configure was not found');
+  assert.match(conf, /allowed: \(\) => liveExecution\.liveExecutionAllowed\(\)/, 'the board does not gate its seats on live execution');
 });
 
 test('two overlapping ensure calls for an owner start one seat, not two', async () => {
