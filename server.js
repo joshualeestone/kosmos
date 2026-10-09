@@ -9493,6 +9493,14 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 200, { ready: false, gone: false, retry: true }));
     return;
   }
+  /* kosmos#5628 slice 2b-ui review 1: open the company's sign-in page from the address the engine checked (never one
+     from the page), because the Mac app blocks a page's late window.open. */
+  if (pathname === '/api/remote/company/open' && req.method === 'POST') {
+    const got = remote.companyOpen();
+    if (got.ok) { sendJson(res, 200, { ok: true }); return; }
+    sendJson(res, 409, { error: got.because });
+    return;
+  }
   if (pathname === '/api/remote/company/complete' && req.method === 'POST') {
     readBody(req)
       .then(async (buf) => {

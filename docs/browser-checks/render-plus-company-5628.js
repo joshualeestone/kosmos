@@ -100,6 +100,7 @@ async function openWizard(browser, BASE, managed, answers) {
       let ready = false;
       const w = await openWizard(browser, BASE, true, (step, body) => {
         if (step === 'start') return [200, { ok: true, matchCode: 'K7-3M', url: URL_SSO, interval: 1 }];
+        if (step === 'open') return [200, { ok: true }];
         if (step === 'status') return [200, { ready, gone: false, retry: false }];
         if (step === 'complete') {
           return body && body.second ? [200, { ok: true, status: {} }]
@@ -115,7 +116,9 @@ async function openWizard(browser, BASE, managed, answers) {
       await page.waitForSelector('#plus-si-company', { state: 'visible', timeout: 5000 }).catch(() => {});
       const st = w.sent('start')[0];
       chk(!!st && st.body && st.body.email === 'neo@acme.test', 'start asks for the typed email', JSON.stringify(st));
-      chk((await page.evaluate(() => window.__opened)).includes(URL_SSO), 'the company sign-in opened in the browser');
+      chk(w.sent('open').length === 1, 'the engine is asked to open the company sign-in (review 1: not window.open)', JSON.stringify(w.posts));
+      chk((await page.evaluate(() => window.__opened)).length === 0, 'the page opens no window itself (the Mac app blocks it)');
+      chk(/opened in your browser/.test(await page.textContent('#plus-si-company-lead')), 'it says opened only after the engine opened it');
       chk((await page.textContent('#plus-si-company-code')) === 'K7-3M', 'the code to compare is shown');
       chk((await page.getAttribute('#plus-si-company-open', 'href')) === URL_SSO, 'the open-again link goes to the company sign-in');
       chk(!(await visible(page, '#plus-si-company-name')), 'the name step waits for approval');

@@ -18716,7 +18716,7 @@ window.kosmosMeasureScrollbarWidth();
 
       <!-- kosmos#5628 slice 2b-ui: the company's sign-in, approved in the browser, then this computer is named. -->
       <div id="plus-si-company" hidden>
-        <p class="plus-si-lead">Your company's sign-in opened in your browser. Approve there only if it shows this code: <b id="plus-si-company-code"></b></p>
+        <p class="plus-si-lead"><span id="plus-si-company-lead">Your company's sign-in opened in your browser.</span> Approve there only if it shows this code: <b id="plus-si-company-code"></b></p>
         <p class="plus-si-lead"><a id="plus-si-company-open" href="#" target="_blank" rel="noopener">Open your company's sign-in again</a></p>
         <div id="plus-si-company-finish" hidden>
           <div class="field">
@@ -18724,7 +18724,7 @@ window.kosmosMeasureScrollbarWidth();
             <input class="tk-inp plus-si-wide" id="plus-si-company-name" type="text" maxlength="32" autocomplete="off" spellcheck="false">
           </div>
           <div class="field" id="plus-si-company-second-row" hidden>
-            <label class="flabel" for="plus-si-company-second">The code from your second step</label>
+            <label class="flabel" for="plus-si-company-second">The code from your authenticator app</label>
             <input class="tk-inp plus-si-otp" id="plus-si-company-second" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="12">
           </div>
           <div class="frow">
@@ -48923,8 +48923,15 @@ async function plusCompanyStart(btn) {
   document.getElementById('plus-si-company-second-row').hidden = true;
   plusSiShow('plus-si-company');
   plusSiMsg('Waiting for you to approve in your browser.');
-  try { window.open(r.data.url, '_blank', 'noopener'); } catch { /* the link opens it */ }
-  plusCompanyPoll(epoch, PLUS_SI_EPOCH, Number(r.data.interval) || 5);
+  // Review 1: the engine opens it (the Mac app blocks a late window.open); say "opened" only when it did.
+  const lead = document.getElementById('plus-si-company-lead');
+  lead.textContent = 'Opening your company\'s sign-in in your browser.';
+  const siEpoch = PLUS_SI_EPOCH;
+  plusCompanyPoll(epoch, siEpoch, Number(r.data.interval) || 5);
+  const op = await plusSiPost('/api/remote/company/open', {});
+  if (epoch !== PLUS_CO_EPOCH || siEpoch !== PLUS_SI_EPOCH || op.stale) return;
+  lead.textContent = op.ok ? 'Your company\'s sign-in opened in your browser.'
+    : 'Open your company\'s sign-in with the link below.';
 }
 /* Stops when a newer company start, a Start over or a Sign out (PLUS_SI_EPOCH) has happened since. */
 function plusCompanyPoll(epoch, siEpoch, interval) {
@@ -48966,7 +48973,8 @@ async function plusCompanyFinish(btn) {
     // The coordinator's words for an account with a second step (signin.rs): ask for its code here.
     if (/has a second step|code from your second step/i.test(why)) {
       row.hidden = false;
-      plusSiMsg('This account has a second step: enter its code, then finish.');
+      // Review 1: nothing on this path sends a text message (kosmos#5651), so only an authenticator app's code works.
+      plusSiMsg('This account has a second step: enter the code from your authenticator app, then finish. If your second step is a text message, this way cannot send it yet: use Email me a code instead.');
       document.getElementById('plus-si-company-second').focus();
       return;
     }

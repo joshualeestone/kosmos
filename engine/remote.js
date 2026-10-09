@@ -1384,6 +1384,24 @@ function companyExpired(c) {
 /** Start a company sign-in setup for this email. Answers what the page shows (the code to compare, the address to
     open, how often to ask), never the secret. */
 let companyStartInFlight = null;
+/* kosmos#5628 slice 2b-ui review 1: the company's page is opened by the ENGINE, from the address it already checked
+   (https, the coordinator's own origin), not by the page: in the Mac app a page's window.open after a slow request
+   is blocked as a pop-up, and the page would say "opened" of a page that never opened. */
+function defaultCompanyOpener(url) {
+  const [cmd, args] = process.platform === 'win32' ? ['rundll32', ['url.dll,FileProtocolHandler', url]]
+    : process.platform === 'darwin' ? ['/usr/bin/open', [url]] : ['xdg-open', [url]];
+  const ch = spawn(cmd, args, { detached: true, stdio: 'ignore' });
+  ch.on('error', () => {});
+  ch.unref();
+}
+let companyOpener = defaultCompanyOpener;
+function companyOpen() {
+  const c = companySetup;
+  if (!c || !c.url || Date.now() > c.expiresAt) return { ok: false, because: 'that company sign-in has expired; start again' };
+  try { companyOpener(c.url); return { ok: true, because: null }; }
+  catch { return { ok: false, because: 'Kosmos could not open your browser; use the link below' }; }
+}
+
 async function companyStart(email) {
   if (typeof email !== 'string' || !email.includes('@')) {
     return { ok: false, because: 'that does not look like an email address' };
@@ -1418,7 +1436,7 @@ async function companyStartRun(email) {
   }
   // Review 3: the server's lifetime, kept within sense (a minute to an hour).
   const ttl = Math.min(3600, Math.max(60, Number.isFinite(a.expiresIn) ? a.expiresIn : 900));
-  companySetup = { email, setupId: a.setupId, secret: a.secret, ttl, expiresAt: Date.now() + ttl * 1000 };
+  companySetup = { email, setupId: a.setupId, secret: a.secret, ttl, expiresAt: Date.now() + ttl * 1000, url: a.url };
   return { ok: true, because: null, matchCode: a.matchCode.trim(), url: a.url,
     interval: Math.min(60, Math.max(1, Number.isFinite(a.interval) ? a.interval : 5)) };
 }
@@ -2769,6 +2787,7 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
   companyStart,
   companyStatus,
   companyComplete,
+  companyOpen,
   signinStart,
   signinVerify,
   signinSecond,
@@ -2814,9 +2833,10 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
   cancelledAfterForTests: cancelledAfter,   // kosmos#4743: tests only
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
-  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
+  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpener = defaultCompanyOpener; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   setManagedReaderForTests: (fn) => { managedReader = fn; managedCache = null; },
+  setCompanyOpenerForTests: (fn) => { companyOpener = fn || defaultCompanyOpener; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */
   bundledConnector,
   /* test seam: the live child's pid, or null. spawn() sets the handle

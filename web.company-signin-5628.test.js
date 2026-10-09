@@ -66,7 +66,10 @@ function world(answers) {
   };
 }
 
-const START = { '/api/remote/company/start': () => [200, { ok: true, matchCode: 'K7-3M', url: 'https://login.kosmosplus.com/v1/sso/begin?x', interval: 5 }] };
+const START = {
+  '/api/remote/company/start': () => [200, { ok: true, matchCode: 'K7-3M', url: 'https://login.kosmosplus.com/v1/sso/begin?x', interval: 5 }],
+  '/api/remote/company/open': () => [200, { ok: true }],
+};
 
 test('the company button shows only on a managed computer', async () => {
   const on = world({ '/api/remote/managed': () => [200, { managed: { orgSlug: 'acme' } }] });
@@ -87,7 +90,9 @@ test('start opens the company sign-in, shows the code, waits for approval, then 
   await w.ctx.start(w.el('plus-signin-company'));
   assert.deepEqual(w.calls[0], ['/api/remote/company/start', { email: 'neo@acme.test' }]);
   assert.equal(w.el('plus-si-company-code').textContent, 'K7-3M');
-  assert.deepEqual(w.opened, ['https://login.kosmosplus.com/v1/sso/begin?x']);
+  assert.deepEqual(w.calls[1], ['/api/remote/company/open', {}], 'the engine was not asked to open the page');
+  assert.deepEqual(w.opened, [], 'the page opened a window itself (the Mac app blocks it)');
+  assert.match(w.el('plus-si-company-lead').textContent, /opened in your browser/);
   assert.deepEqual(w.shown, ['plus-si-company']);
   assert.equal(w.el('plus-si-company-finish').hidden, true, 'the name step showed before approval');
   await w.tick();                      // not approved yet: asks again
@@ -114,6 +119,9 @@ test('a second step is asked for when the account has one, and sent with the fin
   w.el('plus-si-company-name').value = 'neo-mac';
   await w.ctx.finish(w.el('plus-si-company-go'));
   assert.equal(w.el('plus-si-company-second-row').hidden, false, 'no field for the second step');
+  // Review 1: no text message is sent on this path, and the words say so rather than wait for one.
+  assert.match(w.line(), /authenticator app/);
+  assert.match(w.line(), /text message, this way cannot send it yet/);
   w.el('plus-si-company-second').value = '123456';
   await w.ctx.finish(w.el('plus-si-company-go'));
   assert.deepEqual(w.calls.at(-1), ['/api/remote/company/complete', { name: 'neo-mac', second: '123456' }]);
@@ -144,4 +152,12 @@ test('no address, no start', async () => {
   await w.ctx.start(w.el('plus-signin-company'));
   assert.equal(w.calls.length, 0);
   assert.match(w.line(), /work email/);
+});
+
+test('review 1: when the engine cannot open the page, the step says to use the link, never that it opened', async () => {
+  const w = world(Object.assign({}, START, { '/api/remote/company/open': () => [409, { error: 'Kosmos could not open your browser; use the link below' }] }));
+  w.el('plus-signin-email').value = 'neo@acme.test';
+  await w.ctx.start(w.el('plus-signin-company'));
+  assert.match(w.el('plus-si-company-lead').textContent, /with the link below/);
+  assert.doesNotMatch(w.el('plus-si-company-lead').textContent, /opened/);
 });
