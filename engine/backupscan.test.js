@@ -14,7 +14,7 @@ const PEM = '-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbm
 
 test('#5686 deny-list: Kosmos credential stores in the data root are skipped by name, under a world prefix too', () => {
   for (const p of ['Kosmos/sendertokens/a.json', 'Kosmos/sendertokens/a.json.tmp-60291', 'worlds/w1/Kosmos/sendertokens/b.json',
-    'sendertokens/a.json', 'Kosmos/launch-secrets/agent-secrets.Ab12Cd', 'worlds/w1/Kosmos/launch-secrets/agent-secrets.Ab12Cd',
+    'sendertokens/a.json', 'Kosmos/launch-secrets/agent-secrets.Ab12Cd', 'worlds/w1/launch-secrets/agent-secrets.Ab12Cd',
     'Kosmos/communitysend/234a7f2dbb0a/keys.json', 'worlds/w1/Kosmos/communitysend/234a7f2dbb0a/keys.json',
     'Kosmos/communitysend/234a7f2dbb0a/keys.json.0a1b2c3d4e5f.tmp', 'Kosmos/fed-seal-key.json', 'Kosmos/fed-seal-rooms.json',
     'worlds/w1/Kosmos/fed-seal-key.json', 'Kosmos/fed-seal-rooms.json.4711.0a1b2c3d4e5f.tmp', 'Kosmos/remote/mac_key',
@@ -47,16 +47,30 @@ test('#5686 review 3: a writer\'s temp copy of a denied file is denied with it, 
     // review 6: a Kosmos store is never lifted by the template exemption
     'Kosmos/remote/mac_key.example', 'Kosmos/board.token.sample', 'Kosmos/fed-seal-key.json.template',
     // the documented over-skip: a copy is judged by its leading runs, so this is skipped though server.key.md is kept
-    'x/server.key.md.bak']) {
+    'x/server.key.md.bak',
+    // review 7: a copied, renamed or moved store folder, and the store files outside their usual folder
+    'Kosmos/remote copy/mac_key', 'Kosmos/remote.bak/mac_key', 'Kosmos/remote 2/install_key', 'Kosmos/sendertokens copy/a.json',
+    'Kosmos/sendertokens.bak/a.json', 'Kosmos/launch-secrets.old/agent-secrets.Ab12Cd', 'Kosmos/communitysend copy/ab/keys.json',
+    'Kosmos/communitysend/keys.json', 'Kosmos/communitysend/ab/old/keys.json', 'Kosmos/mac_key', 'Kosmos/phone-notify.json',
+    'Kosmos/remote copy/signin-device.key', 'acct/.claude-work/.credentials.json']) {
     assert.equal(bs.pathDecision(p).include, false, `${p} must be skipped`);
   }
   for (const p of ['agents/a/notes.md.tmp', 'projects/site/draft.tmp', 'agents/a/secrets-plan.md', 'Kosmos/remote/.mac_id.tmp',
     'Kosmos/remote/.pending.json.tmp', 'Kosmos/.chats.tmp', 'projects/site/build.new-version.md', 'agents/a/keys.md.tmp',
     'agents/a/.tmp', 'agents/a/a..b.tmp', 'agents/a/secrets.md', 'agents/a/server.key.md', 'agents/a/id_rsa.md',
     'agents/a/notes~', 'agents/a/report-final.bak', 'w/' + 'a'.repeat(250) + '.md',
-    'notes/secrets.new-approach.md', 'notes/plan.v1.2.md', 'agents/a/.env.example', 'notes/secrets.tmp-abcxyz.md', 'projects/site/remote/notes.md.bak', 'w/' + '\u{1F600}'.repeat(130) + '.tmp']) {
+    'notes/secrets.new-approach.md', 'notes/plan.v1.2.md', 'agents/a/.env.example', 'notes/secrets.tmp-abcxyz.md',
+    'notes/keyboard.tokens.csv', 'notes/billboard.token-ideas.md', 'projects/site/remote/api.keys.md',
+    'projects/site/remote/talk.keynote', 'projects/site/remote/imac_keyboard.md', 'projects/site/communitysend-notes.md', 'projects/site/remote/notes.md.bak', 'w/' + '\u{1F600}'.repeat(130) + '.tmp']) {
     assert.equal(bs.pathDecision(p).include, true, `CONTROL: ${p} is a temp of ordinary work, or not a temp, and is kept`);
   }
+});
+
+test('#5686 review 7: a hostile copy-shaped name cannot backtrack exponentially (the old tail took 1.6 s at 32 characters)', () => {
+  const t0 = process.hrtime.bigint();
+  for (const end of ['.tmp', '.bak', '.new']) bs.pathDecision('w/a' + end + '1'.repeat(28) + '!');
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  assert.ok(ms < 500, `took ${ms} ms (exponential backtracking takes seconds here; the fixed pattern takes well under 1 ms)`);
 });
 
 test('#5686 review 4: a copy-shaped name too long for a filesystem is skipped, not widened (uncapped, 100000 dots exhausts the heap)', () => {
