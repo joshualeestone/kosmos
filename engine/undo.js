@@ -302,17 +302,19 @@ function keepOpen(abs, fd, st, { cwd, session, now, who }) {
          only if it still hashes to its name. Before, existence was enough, so a copy a crash had left zero-filled was
          never rewritten: Undo would skip that file forever (it checks the hash before restoring, never restores
          zeros), and the person's version kept here was lost. */
+      // A copy that cannot be READ (other than missing) is trusted as before, not rewritten: on Windows a transient lock
+      // would make the rewrite's rename fail and the keep report failed (review 2). Only a missing or WRONG copy is rewritten.
       let good = false;
-      try { good = sha(fs.readFileSync(blob)) === hash; } catch { good = false; }
+      try { good = sha(fs.readFileSync(blob)) === hash; } catch (e) { good = !(e && e.code === 'ENOENT'); }
       if (!good) {
         /* A temp of its own (review 1): two keeps of the same content no longer share `<hash>.tmp`, where the second
            one's rename failed and its keep went unrecorded. It still ends in `.tmp`, so sweep collects a dead one. */
         const btmp = blob + '.' + process.pid + '.' + crypto.randomBytes(4).toString('hex') + '.tmp';
         try {
-          const fd = fs.openSync(btmp, 'wx', 0o600);
+          const bfd = fs.openSync(btmp, 'wx', 0o600);
           let pending = null;
-          try { fs.writeFileSync(fd, buf); flushOrThrow(fd); } catch (e) { pending = e; throw e; }
-          finally { try { fs.closeSync(fd); } catch (e) { if (!pending) throw e; } }
+          try { fs.writeFileSync(bfd, buf); flushOrThrow(bfd); } catch (e) { pending = e; throw e; }
+          finally { try { fs.closeSync(bfd); } catch (e) { if (!pending) throw e; } }
           fs.renameSync(btmp, blob);
         } catch (e) { try { fs.unlinkSync(btmp); } catch { /* not made */ } throw e; }
         syncDir(blobsDir());
