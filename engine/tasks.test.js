@@ -639,3 +639,16 @@ test('#5678 ownerIn review 4: a finished task names no owner; the per-project ma
   const row = tasksMod.allTasks([Object.assign({ id: 'pt', name: 'T' }, p)]).find((r) => r.number === 4);
   assert.deepEqual([row.ownerNames, row.ownerFrom], [['x'], 2], 'the task row disagrees with ownerIn');
 });
+
+test('#5678 review 7: the list names neither a former holder nor a further one; the nearest held ancestor speaks first', () => {
+  const tasksMod = require('./tasks');
+  const rows = (p) => tasksMod.allTasks([Object.assign({ id: 'pr', name: 'R' }, p)]);
+  const gone = rows({ agents: ['A'], tasks: [{ number: 1, sentence: 'Held by one who left', who: 'gone' }, { number: 2, sentence: 'Under it', parent: 1 }] });
+  assert.equal(gone.find((r) => r.number === 2).ownerNames, undefined, 'an agent who left the project was named as the owner');
+  const near = rows({ agents: ['A', 'B'], tasks: [{ number: 1, sentence: 'Top', who: 'A' }, { number: 2, sentence: 'Mid', parent: 1, who: 'B' }, { number: 3, sentence: 'Leaf', parent: 2 }] });
+  const leaf = near.find((r) => r.number === 3);
+  assert.deepEqual([leaf.ownerNames, leaf.ownerFrom], [['B'], 2], 'the nearest held ancestor did not speak first');
+  const fall = rows({ agents: ['A', 'B'], tasks: [{ number: 1, sentence: 'Top' }, { number: 2, sentence: 'First held', parent: 1, who: 'A' }, { number: 3, sentence: 'Later held', parent: 1, who: 'B' }, { number: 4, sentence: 'Free', parent: 1 }] });
+  const free = fall.find((r) => r.number === 4);
+  assert.deepEqual([free.ownerNames, free.ownerFrom], [['A'], 2], 'the tree did not speak through its lowest held task');
+});
