@@ -48,22 +48,28 @@ const KOSMOS_STORES = [
   // keysFile), this board's sealing key and room keys (engine/fedseal.js), the Mac's tunnel signing keys (mac_key,
   // engine/remote.js; install_key, the connector: kosmos-relay crates/tunnel/src/assistant.rs), the phone notify-only
   // token (engine/phonenotify.js) and a provider account's API key file (claudeaccounts, geminiaccounts, grokaccounts).
-  // 🔑 Each FILE rule here matches the store's name ANYWHERE in the file name, not only as the whole name: the content
-  // scan stores several of these as they are (measured: mac_key, phone-notify.json), so the name is the only defence,
-  // and a copy of one under ANY name a writer, editor or Finder gives it (.mac_key.tmp-9, board.token.4711.new,
-  // "mac_key copy") must be denied too. The cost is a person's own file whose name contains one of these exact store
-  // names (my-board.token-notes.md), which is skipped. remote/'s mac_id, pending.json and tls.crt are kept.
-  [/(^|\/)sendertokens\//i, 'Kosmos agent tokens'],
-  [/(^|\/)launch-secrets\//i, 'Kosmos launch secrets'],
-  [/(^|\/)communitysend\/[^/]+\/[^/]*keys\.json[^/]*$/i, 'Kosmos+ community agent keys'],
-  [/(^|\/)[^/]*fed-seal-(key|rooms)[^/]*$/i, 'Kosmos room sealing keys'],
-  [/(^|\/)[^/]*board\.token[^/]*$/i, 'Kosmos board token'],
-  [/(^|\/)remote\/[^/]*(mac_key|install_key|\.key)[^/]*$/i, 'Kosmos Mac signing key'],
-  [/(^|\/)remote\/[^/]*phone-notify[^/]*$/i, 'Kosmos phone notify token'],
-  [/(^|\/)[^/]*\.kosmos-[a-z0-9]+-apikey[^/]*$/i, 'provider API key'],
-  // Judged BEFORE the template exemption (review 6): `mac_key.example` or `board.token.sample` is a copy of a key the
-  // content scan cannot see, never a template.
+  // 🔑 The content scan stores several of these as they are (measured: mac_key, phone-notify.json), so the NAME is the
+  // only defence, and a copy under a name a writer, editor or Finder gives it must be denied too. So each store name
+  // is matched as a TOKEN anywhere in a file name, in ANY folder: bounded on both sides by the start or end of the
+  // name or by a character that is not a letter or digit (STORE_NAME). That denies `.mac_key.tmp-9`, `mac_key copy`,
+  // `#board.token#` and `remote copy/mac_key`, while `keyboard.tokens.csv` or `imac_keyboard.md` are ordinary. A store
+  // FOLDER is matched with any copy suffix on the folder (`sendertokens.bak/`, `communitysend copy/`). Cost, on the
+  // safe side: a person's own file whose name holds one of these store names as a whole token (`mac_key-notes.md`).
 ];
+const STORE_NAME = (name) => new RegExp(`(^|\\/)([^/]*[^a-z0-9/])?${name}([^a-z0-9/][^/]*)?$`, 'i');
+const STORE_FOLDER = (name) => new RegExp(`(^|\\/)${name}([^a-z0-9/][^/]*)?\\/`, 'i');
+KOSMOS_STORES.push(
+  [STORE_FOLDER('sendertokens'), 'Kosmos agent tokens'],
+  [STORE_FOLDER('launch-secrets'), 'Kosmos launch secrets'],
+  [new RegExp(`(^|\\/)communitysend([^a-z0-9/][^/]*)?\\/(.*\\/)?([^/]*[^a-z0-9/])?keys\\.json([^a-z0-9/][^/]*)?$`, 'i'), 'Kosmos+ community agent keys'],
+  [STORE_NAME('fed-seal-(key|rooms)'), 'Kosmos room sealing keys'],
+  [STORE_NAME('board\\.token'), 'Kosmos board token'],
+  [STORE_NAME('(mac_key|install_key)'), 'Kosmos Mac signing key'],
+  [STORE_NAME('phone-notify'), 'Kosmos phone notify token'],
+  [STORE_NAME('\\.?kosmos-[a-z0-9]+-apikey'), 'provider API key'],
+);
+// Judged BEFORE the template exemption (review 6): `mac_key.example` or `board.token.sample` is a copy of a key the
+// content scan cannot see, never a template.
 
 const DENY = [
   [/(^|\/)\.env(\.[^/]*)?$/i, 'environment file'],
@@ -78,7 +84,7 @@ const DENY = [
   [/(^|\/)\.git\//i, 'git internals (objects and packs carry every committed secret; config carries remote tokens)'],
   [/(^|\/)\.git$/i, 'git internals'],
   [/(^|\/)\.config\/(gh|gcloud|hub|rclone|op|doctl)\//i, 'tool auth folder'],
-  [/(^|\/)\.claude\/\.credentials\.json$/i, 'provider sign-in'],
+  [/(^|\/)\.claude(-[^/]*)?\/\.credentials\.json$/i, 'provider sign-in'],  // review 7: an extra account's ~/.claude-<label> too
   [/(^|\/)\.(codex|gemini|grok)\/(auth|oauth_creds|credentials)[^/]*$/i, 'provider sign-in'],
   [new RegExp(`(^|\\/)(credentials?|secrets?|tokens?|auth)(\\.[a-z0-9]+)*\\.${CONFIGISH}$`, 'i'), 'credential-named config file'],
   [/(^|\/)(credentials?|secrets?)$/i, 'credential-named file'],
@@ -113,21 +119,25 @@ function pathDecision(rel) {
    a random suffix: `.tmp-k3j9z`, `.bak2`) is accepted when it carries a digit, so `secrets.new-approach.md` is ordinary.
    What this does NOT cover, said so nobody reads it as complete: a copy whose ending is not in COPY_SHAPED, and a copy
    named IN FRONT of its origin (emacs `#id_rsa#` and `.#id_rsa`, `tmp-id_rsa`), and a tail with no digit in it
-   (`.tmp-abcxyz`). For Kosmos's own stores the rules above
-   match anywhere in the name and need none of this; for other credentials the content scan and the final raw check
+   (`.tmp-abcxyz`). For Kosmos's own stores the token and
+   folder rules above (STORE_NAME, STORE_FOLDER) need none of this; for other credentials the content scan and the final raw check
    stand behind it (a PEM key, for one, is found by its content whatever the file is called).
    Over-skip, on the safe side: an origin is judged by EVERY deny rule, so a copy of ordinary work whose name starts
    like a denied one is skipped too, even when the uncopied name would be kept (secrets_plan.tmp,
-   cookies-recipe.md.tmp, contract.docx.bak, .git-blame.bak, server.key.md.bak although server.key.md is kept).
-   Bounded (review 4): a copy-shaped name over 255 characters is skipped outright, so at most 510 leading runs are
+   cookies-recipe.md.tmp, contract.docx.bak, .git-blame.bak, server.key.md.bak although server.key.md is kept,
+   .env.example.bak although .env.example is kept: the template exemption is not applied to an origin).
+   Bounded (review 4, review 7): the tail repeats only after a separator, so COPY_SHAPED cannot backtrack
+   exponentially, and a name longer than any filesystem allows is judged on its last 64 characters before the regex
+   sees it. A copy-shaped name over 255 characters is skipped outright, so at most 510 leading runs are
    tried and a hostile name cannot make the scan quadratic. (Filesystems cap a name in bytes, not characters; this caps
    the work, and a real name over it is rare and skipped on the safe side.) */
-const COPY_SHAPED = /(\.(tmp|temp|part|swp|swo|swx|bak|backup|old|orig|save|prev|new)([-.]?(?=[a-z]*\d)[0-9a-z]+)*|~|\.\d+| \d+| copy( \d+)?| \(\d+\))$/i;
+const COPY_SHAPED = /(\.(tmp|temp|part|swp|swo|swx|bak|backup|old|orig|save|prev|new)\d*([-.](?=[a-z]*\d)[0-9a-z]+)*|~|\.\d+| \d+| copy( \d+)?| \(\d+\))$/i;
 const MAX_COPY_NAME = 255;
 function tempOrigins(p) {
   const cut = p.lastIndexOf('/') + 1;
   const dir = p.slice(0, cut);
   const base = p.slice(cut);
+  if (base.length > 4 * MAX_COPY_NAME) return COPY_SHAPED.test(base.slice(-64)) ? null : [];
   if (!COPY_SHAPED.test(base)) return [];
   if ([...base].length > MAX_COPY_NAME) return null;
   const out = new Set();
