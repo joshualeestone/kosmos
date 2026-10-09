@@ -2,8 +2,8 @@
 require('../test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 /**
  * kosmos#5434 slice 22: Undo's switch and its index rewrite are flushed before they count (#5431), and the sweep keeps
- * every kept copy when the index has content but yields no record (zero-filled or unreadable): it used to delete them
- * all as unreferenced.
+ * every kept copy while the index cannot be read (its records are intact), and while it has content but no record
+ * (zero-filled) until the next record is appended. On main both deleted every kept copy as unreferenced.
  *
  *   node --test engine/undoindex.fsync-5434.test.js
  */
@@ -61,6 +61,42 @@ test('#5434: the index rewrite in the sweep is flushed before its rename, at 060
   fs.writeFileSync(INDEX, rec('old', 'a'.repeat(64), now - 40 * DAY) + '\n' + rec('new', 'b'.repeat(64), now) + '\n');
   flushedBeforeRename(recording(() => undo.sweep(now)), INDEX);
   if (process.platform !== 'win32') assert.equal(fs.statSync(INDEX).mode & 0o777, 0o600);
+});
+
+test('#5434: an index that cannot be READ keeps every kept copy (its records are intact) (review 1)', () => {
+  undo.setOn(true);
+  fs.rmSync(DIR, { recursive: true, force: true });
+  fs.mkdirSync(DIR, { recursive: true });
+  blob('9'.repeat(64));
+  fs.mkdirSync(INDEX);   // readFileSync throws EISDIR: unreadable, not absent
+  try { undo.sweep(Date.now()); } finally { fs.rmSync(INDEX, { recursive: true, force: true }); }
+  assert.equal(fs.existsSync(path.join(BLOBS, '9'.repeat(64))), true, 'the sweep deleted a kept copy because the index could not be read');
+});
+
+test('#5434: a dead .tmp blob is still reaped while the copies are held (review 1)', () => {
+  undo.setOn(true);
+  fs.rmSync(DIR, { recursive: true, force: true });
+  fs.mkdirSync(DIR, { recursive: true });
+  blob('8'.repeat(64));
+  blob('7'.repeat(64) + '.tmp');
+  const old = new Date(Date.now() - 2 * 3600000); fs.utimesSync(path.join(BLOBS, '7'.repeat(64) + '.tmp'), old, old);
+  fs.writeFileSync(INDEX, Buffer.alloc(200));
+  undo.sweep(Date.now());
+  assert.equal(fs.existsSync(path.join(BLOBS, '8'.repeat(64))), true, 'a held copy was deleted');
+  assert.equal(fs.existsSync(path.join(BLOBS, '7'.repeat(64) + '.tmp')), false, 'a dead .tmp was not reaped');
+});
+
+test('#5434: a zero-filled index keeps its copies until the next record is appended, then the sweep collects as usual (the limit, pinned)', () => {
+  undo.setOn(true);
+  fs.rmSync(DIR, { recursive: true, force: true });
+  fs.mkdirSync(DIR, { recursive: true });
+  blob('6'.repeat(64));
+  fs.writeFileSync(INDEX, Buffer.alloc(200));
+  undo.sweep(Date.now());
+  assert.equal(fs.existsSync(path.join(BLOBS, '6'.repeat(64))), true, 'held while the index has no record');
+  fs.appendFileSync(INDEX, '\n' + rec('next', '5'.repeat(64), Date.now()) + '\n');
+  undo.sweep(Date.now());
+  assert.equal(fs.existsSync(path.join(BLOBS, '6'.repeat(64))), false, 'once a record is readable, an unreferenced copy is collected as usual');
 });
 
 test('#5434: a zero-filled index keeps every kept copy', () => {

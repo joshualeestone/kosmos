@@ -313,18 +313,24 @@ function sweep(now = Date.now()) {
       // so Undo could restore nothing, and the next sweep would delete every blob as unreferenced.
       require('./securewrite').writeSecret(indexFile(), live.map(({ atMs, ...r }) => JSON.stringify(r)).join('\n') + (live.length ? '\n' : ''), 0o600, { atomicOnly: true });
     }
-    /* #5434 slice 22: an index that HAS content but yields no record (zero-filled by a crash, or otherwise unreadable)
-       is not "nothing is kept": treating it so deleted every kept copy as unreferenced. Keep the blobs until the index
-       reads again; a torn last line from a crash mid-append still parses the lines before it, so it is unaffected. */
+    /* #5434 slice 22: when the index yields no record, "nothing is kept" is only true if the file is really empty or
+       absent. Two other states looked identical and deleted every kept copy as unreferenced (review 1 sharpened both):
+       - the index CANNOT BE READ (EACCES, EIO, a directory in its place): its records are intact and will read again,
+         so every copy is still restorable. Never collect then.
+       - the index has content but no parsable record (zero-filled by a crash): those records are gone, so Undo can no
+         longer restore those copies; they are kept only until the next record is appended (then the sweep collects as
+         usual), a window for recovery by hand, not a promise. Holding them forever would keep files nothing can restore.
+       Dead `.tmp` blobs (a keep that died) are reaped either way. */
+    let holdKept = false;
     if (!all.length) {
       let raw = '';
-      try { raw = fs.readFileSync(indexFile(), 'utf8'); } catch { raw = ''; }
-      if (raw.replace(/\s/g, '')) return;
+      try { raw = fs.readFileSync(indexFile(), 'utf8'); } catch (e) { if (!e || e.code !== 'ENOENT') holdKept = true; }
+      if (raw.replace(/\s/g, '')) holdKept = true;
     }
     const used = new Set(live.map((r) => r.hash).filter(Boolean));
     for (const n of fs.existsSync(blobsDir()) ? fs.readdirSync(blobsDir()) : []) {
       const f = path.join(blobsDir(), n);
-      let stale = !used.has(n) && !n.endsWith('.tmp');
+      let stale = !holdKept && !used.has(n) && !n.endsWith('.tmp');
       if (n.endsWith('.tmp')) { try { stale = now - fs.statSync(f).mtimeMs > 3600000; } catch { stale = false; } }   // a keep that died
       if (stale) { try { fs.rmSync(f, { force: true }); } catch { /* next sweep */ } }
     }
