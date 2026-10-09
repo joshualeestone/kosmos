@@ -7,8 +7,9 @@ const { hpkeKeyPair, hpkeSeal } = require('./hpke');
 
 const mctx = { org: 'org1', member: 'acct1', epoch: '1' };
 const nctx = { org: 'org1', member: 'acct1', epoch: '1', period: '2026-W41' };
-// The id namingKeyId gives, computed here for ANY bytes (so a forged 31- or 33-byte secret has its own matching id,
-// and its refusal must come from the length check, not from an id mismatch).
+// The id namingKeyId gives, computed here for ANY bytes, so a forged 31- or 33-byte secret has its own matching id
+// and its refusal is not an id mismatch. (It comes from the 32-byte rule, which the length check states and
+// namingKeyId also enforces by throwing; the plan records the length check as kept but equivalent.)
 const idOf = (b) => require('node:crypto').createHash('sha256').update(Buffer.from('kosmos-backup v1 naming-key-id\0')).update(b).digest().subarray(0, 16).toString('hex');
 
 test('a member key wrapped to a recipient opens with that recipient and derives to the member public key', () => {

@@ -56,6 +56,8 @@ const { hpkeSeal, hpkeOpen, hpkeKeyPair } = require('./hpke');
 
 const FORMAT = 1;
 const KEY_LEN = 32, ENC_LEN = 32;
+// The magic is a routing hint only: it is NOT in the associated data. What separates the two kinds is the kind line
+// in the associated data (tested with the magic swapped); never select behaviour on the magic alone.
 const MEMBER_MAGIC = Buffer.from('KBK1');   // Kosmos Backup Key: a wrapped member private key, format 1
 const NAMING_MAGIC = Buffer.from('KBN1');   // Kosmos Backup Naming key, wrapped, format 1
 // One HPKE info for both kinds: what separates them is the magic and the kind line in the associated data.
@@ -135,13 +137,15 @@ function wrapMemberKey(memberSk, recipientPk, ctx) {
   return wrap(MEMBER_MAGIC, INFO, memberContext(ctx), sk, pk);
 }
 
-/** The member private key from a wrap, only if it derives to expectedPk (from an authenticated source, see the
-    header); null on ANY failure. Never throws. CONTRACT: the bytes returned are the bytes that were wrapped, and a
+/** The member private key from a wrap, only if it derives to verifiedMemberPk (from the signed policy bundle,
+    see the header); null on ANY failure. Never throws. CONTRACT: the bytes returned are the bytes that were wrapped, and a
     secret differing only in X25519-clamped bits derives to the same public key, so never fingerprint, compare or
     de-duplicate the RAW secret bytes; compare public keys. */
-function unwrapMemberKey(recipientSk, wrapped, ctx, expectedPk) {
+function unwrapMemberKey(recipientSk, wrapped, ctx, verifiedMemberPk) {
+  // verifiedMemberPk: from the signed policy bundle ONLY. Never from key storage, a record beside the wrap, or the
+  // unwrapped secret itself; any of those lets a forger pass this check (wraps are not authenticated).
   try {
-    const sk = asBuf(recipientSk), want = asBuf(expectedPk);
+    const sk = asBuf(recipientSk), want = asBuf(verifiedMemberPk);
     if (!sk || sk.length !== KEY_LEN || !want || want.length !== KEY_LEN) return null;
     const member = unwrap(MEMBER_MAGIC, INFO, memberContext(ctx), sk, wrapped);
     if (!member) return null;
