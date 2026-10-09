@@ -185,10 +185,16 @@ test('#4466 one probe keeps to ONE budget: an older board whose 404 is slow does
      every process (seconds on a loaded host: 9.7 s seen at load 5, with the page budget itself near 6), neither of
      which is the page's budget. */
   const first = Number(fs.readFileSync(firstFile, 'utf8'));
-  const pageClose = Number(fs.readFileSync(firstFile + '.pageclose', 'utf8'));
+  // Review: the stub writes .pageclose on its own clock; give it up to 2 s rather than reading a file that may lag.
+  const closeFile = firstFile + '.pageclose';
+  for (let i = 0; i < 40 && !fs.existsSync(closeFile); i++) await new Promise((r) => setTimeout(r, 50));
+  assert.ok(fs.existsSync(closeFile), 'the page was never requested, or its connection never closed');
+  const pageClose = Number(fs.readFileSync(closeFile, 'utf8'));
   const pageBudgetMs = pageClose - first;
   assert.ok(pageBudgetMs >= 5000, `the slow 404 must actually have been waited for (page dropped ${pageBudgetMs} ms after the first request)`);
   assert.ok(pageBudgetMs < 8500, `one probe must not take its budget twice (the page was dropped ${pageBudgetMs} ms after the first request; budget 6 s; whole command ${ended - t0} ms)`);
+  // Review: a loose ceiling on the whole command still shows a retry, a sleep or a second sweep; far above the lsof cost.
+  assert.ok(ended - t0 < 20000, `the probe as a whole ran away (took ${ended - t0} ms)`);
 }, 5000));
 
 test('#4466 an --auto report (the hook) gives up on a busy board inside the hook\'s 15 s timeout, saying busy', () => withBoard('hang', async (port) => {
