@@ -506,16 +506,16 @@ test('an index entry sealed to another member key (a rotation within the period)
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
-test('the walk stops past maxFiles and only counts skips past maxSkipped', () => {
+test('the walk stops past maxFiles and only counts skips past maxSkipped', async () => {
   const w = workKosmos();
   try {
     for (let i = 0; i < 30; i++) fs.writeFileSync(path.join(w.root, `n${String(i).padStart(2, '0')}.md`), 'x');
     for (let i = 0; i < 30; i++) fs.writeFileSync(path.join(w.root, `s${String(i).padStart(2, '0')}.env`), 'x');
-    const all = snap.listFiles(w.root);
+    const all = await snap.listFiles(w.root);
     assert.equal(all.over, false); assert.ok(all.files.length > 30); assert.equal(all.skippedExtra, 0);
-    const capped = snap.listFiles(w.root, fs, { maxFiles: 10 });
+    const capped = await snap.listFiles(w.root, fs, { maxFiles: 10 });
     assert.equal(capped.over, true); assert.ok(capped.files.length <= 11, `stopped early (${capped.files.length})`);
-    const few = snap.listFiles(w.root, fs, { maxSkipped: 5 });
+    const few = await snap.listFiles(w.root, fs, { maxSkipped: 5 });
     assert.equal(few.over, false); assert.equal(few.skipped.length, 5);
     assert.equal(few.skippedExtra, all.skipped.length - 5, 'every skip past the cap is counted');
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
@@ -619,14 +619,14 @@ test('a grant under another account than the run\'s first fails the run before t
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
-test('folders nested past the depth cap are skipped by name, not a stack overflow', () => {
+test('folders nested past the depth cap are skipped by name, not a stack overflow', async () => {
   const w = workKosmos();
   try {
     let p = w.root;
     for (let i = 0; i < 260; i++) p = path.join(p, 'd');
     fs.mkdirSync(p, { recursive: true });
     fs.writeFileSync(path.join(p, 'deep.md'), 'x');
-    const l = snap.listFiles(w.root);
+    const l = await snap.listFiles(w.root);
     assert.ok(l.skipped.some((x) => /nested more than 256 deep/.test(x.why)), 'the deep folder is named');
     assert.ok(!l.files.some((f) => f.path.endsWith('deep.md')));
     assert.ok(l.files.some((f) => f.path === 'readme.txt'), 'control: the rest is listed');
@@ -714,11 +714,11 @@ test('a device key that cannot sign is refused before anything is read or upload
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
-test('a folder on another volume is not crossed, and is named', () => {
+test('a folder on another volume is not crossed, and is named', async () => {
   const w = workKosmos();
   try {
     const { f } = spyFs({ lstatSync: (real, p2, o) => { const s2 = real(p2, o); return String(p2).endsWith(path.join('agents', 'a', 'memory')) ? Object.assign(Object.create(Object.getPrototypeOf(s2)), s2, { dev: s2.dev + 1n }) : s2; } });
-    const l = snap.listFiles(w.root, f);
+    const l = await snap.listFiles(w.root, f);
     assert.ok(l.skipped.some((x) => x.path === 'agents/a/memory' && /another volume/.test(x.why)));
     assert.ok(!l.files.some((x) => x.path.startsWith('agents/a/memory/')));
     assert.ok(l.files.some((x) => x.path === 'agents/a/notes.md'), 'control');
@@ -746,12 +746,12 @@ test('every folder rule in the deny-list ends in "/", so a denied folder is prun
   assert.equal(pathDecision('agents/a/notes/x').include, true, 'control: an ordinary folder is walked');
 });
 
-test('a folder that changes identity between its first look and its listing is skipped, not walked', () => {
+test('a folder that changes identity between its first look and its listing is skipped, not walked', async () => {
   const w = workKosmos();
   try {
     let n = 0;
     const { f } = spyFs({ lstatSync: (real, p2, o) => { const s2 = real(p2, o); return String(p2).endsWith(path.join('agents', 'a', 'memory')) && ++n === 2 ? Object.assign(Object.create(Object.getPrototypeOf(s2)), s2, { ino: s2.ino + 1n }) : s2; } });
-    const l = snap.listFiles(w.root, f);
+    const l = await snap.listFiles(w.root, f);
     assert.ok(l.skipped.some((x) => x.path === 'agents/a/memory' && /replaced/.test(x.why)), JSON.stringify(l.skipped));
     assert.ok(!l.files.some((x) => x.path.startsWith('agents/a/memory/')));
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
@@ -1054,5 +1054,25 @@ test('backup_quota on the manifest grant is overAllowance, not a retry, as it is
   try {
     const r = await take(k, w.root, st);
     assert.equal(r.ok, false); assert.equal(r.overAllowance, true); assert.equal(r.retryLater, undefined);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a large walk gives the event loop turns (a timer fires during it), and an excluded folder is left out and named once', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    fs.mkdirSync(path.join(w.root, 'deps', 'pkg'), { recursive: true });
+    for (let i = 0; i < 400; i++) fs.writeFileSync(path.join(w.root, 'deps', 'pkg', `m${i}.js`), `module.exports = ${i};\n`);
+    let ticks = 0;
+    const timer = setInterval(() => { ticks++; }, 5);
+    const r = await take(k, w.root, st);
+    clearInterval(timer);
+    assert.equal(r.ok, true, r.because);
+    assert.ok(ticks > 0, 'no timer fired while the snapshot ran');
+    const st2 = store();
+    const r2 = await take(k, w.root, st2, { input: { exclude: ['deps'] } });
+    assert.equal(r2.ok, true, r2.because);
+    const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st2.manifests[0].bytes);
+    assert.ok(!m.files.some((x) => x.path.startsWith('deps/')));
+    assert.deepEqual(m.skipped.filter((x) => x.path.startsWith('deps')).map((x) => x.path), ['deps']);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });

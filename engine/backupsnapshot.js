@@ -153,7 +153,19 @@ const folderDenied = (rel) => { const d = denied(`${rel}/x`); return d.include ?
 /** Every regular file under root (absolute) the deny-list allows, as sorted '/'-separated relative paths with the
     device and inode seen, and what was skipped (links, denied folders and files, anything not a file or folder, a
     folder that could not be read). Nothing is opened but folders. fs is injectable for tests. */
-function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_SKIPPED } = {}) {
+/* Gives the event loop a turn once YIELD_MS of synchronous work has passed (review 34: the board's process runs this, and
+   a large walk would otherwise hold it for seconds). Real time, not the injected clock. */
+const YIELD_MS = 20;
+function yielder() {
+  let last = Date.now();
+  return async () => { if (Date.now() - last >= YIELD_MS) { await new Promise((r) => setImmediate(r)); last = Date.now(); } };
+}
+
+async function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_SKIPPED, exclude = [] } = {}) {
+  const pause = yielder();
+  // Folders the caller leaves out (review 34: a large dependency tree could otherwise make every snapshot tooLarge),
+  // as '/'-separated relative paths; each is recorded once as skipped.
+  const excluded = new Set((Array.isArray(exclude) ? exclude : []).filter((x) => typeof x === 'string' && x).map((x) => x.replace(/\\/g, '/').replace(/\/+$/, '')));
   // Another volume mounted inside the work Kosmos (an external disk, a network share) is not crossed: what
   // is backed up is this computer's work Kosmos, and a mount can bring in anything. Recorded as skipped.
   let rootDev = null;
@@ -163,8 +175,9 @@ function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_S
   let skippedExtra = 0, over = false;
   // Bounded, whatever the tree holds: past maxFiles the walk stops, and skips past maxSkipped are only counted.
   const skip = (x) => { if (skipped.length < maxSkipped) skipped.push(x); else skippedExtra++; };
-  const walk = (rel, depth, seen) => {
+  const walk = async (rel, depth, seen) => {
     if (over) return;
+    await pause();
     // A depth cap: recursion this deep is a pathological tree, skipped by name rather than a stack overflow.
     if (depth > MAX_DEPTH) { skip({ path: rel, why: `folders nested more than ${MAX_DEPTH} deep` }); return; }
     let names;
@@ -198,7 +211,8 @@ function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_S
       if (st.isDirectory()) {
         if (rootDev !== null && st.dev !== rootDev) { skip({ path: r, why: 'another volume mounted inside the work Kosmos (not crossed)' }); continue; }
         const why = folderDenied(r);
-        if (why) skip({ path: r, why }); else walk(r, depth + 1, st);
+        if (excluded.has(r)) skip({ path: r, why: 'left out by the backup\'s settings' });
+        else if (why) skip({ path: r, why }); else await walk(r, depth + 1, st);
         continue;
       }
       if (!st.isFile()) { skip({ path: r, why: 'not a regular file' }); continue; }
@@ -212,7 +226,7 @@ function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_S
       if (files.length > maxFiles) over = true;
     }
   };
-  walk('', 0, null);
+  await walk('', 0, null);
   files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   // Restore refuses every entry that collides (engine/backuprestore.js collidingPaths): the same key (case, invisible
   // characters, '\\' as '/'), or a file whose key is another entry's folder. Keep-first, in sorted order, on a trie of
@@ -300,7 +314,8 @@ function upperBound(f, maxFile) {
 
 /**
  * Take one snapshot.
- *   input: { root, memberPk, namingKey, namingKeyId, deviceKey, ctx, index?, bucket? }
+ *   input: { root, memberPk, namingKey, namingKeyId, deviceKey, ctx, index?, bucket?, exclude? }
+ *     exclude      folders to leave out, as '/'-separated paths relative to root (each named once in skipped)
  *     root         the work Kosmos folder (absolute)
  *     memberPk     the member's backup public key (32 bytes), namingKey this period's naming key (32 bytes) and
  *                  namingKeyId its id (backupkeys namingKeyId), deviceKey the device's Ed25519 private KeyObject
@@ -398,7 +413,8 @@ async function snapshotInner(input, deps, added, state, fail) {
 
   let rootReal;
   try { rootReal = fs.realpathSync(root); } catch { return fail('the work Kosmos folder could not be read'); }
-  const listed = listFiles(rootReal, fs);
+  const listed = await listFiles(rootReal, fs, { exclude: input.exclude });
+  const pause = yielder();
   if (listed.over) return fail(`the work Kosmos holds more than ${MAX_FILES} files, more than one snapshot can list`, { tooLarge: true });
   // The manifest budget, kept so that NOTHING is uploaded unless the finished manifest is sure to fit:
   //   estimate  the exact JSON so far (entries, objects, skips), with keys not yet granted charged at MAX_KEY_LEN
@@ -501,6 +517,7 @@ async function snapshotInner(input, deps, added, state, fail) {
     // Over the cap at walk time: its reserve is a skip entry only, so it is never read (one that shrank before
     // the read was stored past its reserve).
     if (f.size > maxFile) { skip({ path: f.path, why: `larger than ${Math.round(maxFile / 1024 / 1024)} MB, too large to scan` }); reserve -= ub(f); continue; }
+    await pause();
     const got = readListed(fs, rootReal, f, maxFile);
     if (!got.buf) { skip({ path: f.path, why: got.why }); reserve -= ub(f); continue; }
     // Grown since the walk: its reserve was sized from the walk's size, and it is being written to.
@@ -516,6 +533,7 @@ async function snapshotInner(input, deps, added, state, fail) {
     for (const piece of chunkBuffer(data)) {
       // Named first, sealed only if it will be uploaded (sealing every chunk re-encrypted the whole work
       // Kosmos on every run, to upload only what changed).
+      await pause();
       const name = chunkName(namingKey, piece);
       names.push(name);
       if (objects[name] || pending.has(name)) continue;
