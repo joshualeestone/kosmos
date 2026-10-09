@@ -116,8 +116,9 @@ jobs:
           HEAD_REF: ${{ github.head_ref }}
           BASE_REF: ${{ github.base_ref }}
           CI_RUNNER: ${{ vars.KOSMOS_CI_RUNNER }}
-          # #4601: leave KOSMOS_CI_SHELL_SHARDS UNSET until (1) a second self-hosted runner carries the kosmos-ci
-          # label (one Mac cannot carry a shard at peak: numbers on #4601), and (2) someone has read what each shell
+          # #4601: leave KOSMOS_CI_SHELL_SHARDS UNSET until (1) a second kosmos-ci runner exists on ANOTHER Mac, or at
+          # least another user (one Mac cannot carry a shard at peak, numbers on #4601; two runners under one user
+          # would run tests side by side, sharing tmux, ports and launchd), and (2) someone has read what each shell
           # shard command touches outside its temp folder (some sweep processes by pattern, some touch launchd) and
           # confirmed the CI user is not the machine owner's user. Two mini-only shell 2/2 failures are unexplained.
           CI_SHELL_SHARDS: ${{ vars.KOSMOS_CI_SHELL_SHARDS }}
@@ -154,9 +155,12 @@ jobs:
           # kill-switch rules, inherited through $mac). Anything else, the variable unset included, is macos-latest.
           # Measured 2026-10-09 (numbers on #4601): a shell shard queued a median 56 to 77 min for macos-latest.
           s1='"macos-latest"'; s2='"macos-latest"'
-          # Whitespace read as a separator ("1/2 2/2" and "1/2, 2/2" both work), and only these characters kept, so the log line
-          # below can never carry a workflow command or a second line.
-          shards="$(printf '%s' "$CI_SHELL_SHARDS" | tr '[:space:]' ',' | tr -cd '0-9/,')"
+          # Whole tokens only, split on commas and whitespace: "1/2x" or "v1/2" name no shard. Only the names that
+          # matched are logged, so the log line can never carry a workflow command.
+          shards=""
+          while IFS= read -r tok; do
+            case "$tok" in 1/2|2/2) shards="$shards,$tok" ;; esac
+          done < <(printf '%s\n' "$CI_SHELL_SHARDS" | tr ',[:space:]' '\n\n')
           if [ "$mac" != '"macos-latest"' ]; then
             case ",$shards," in *,1/2,*) s1="$mac" ;; esac
             case ",$shards," in *,2/2,*) s2="$mac" ;; esac
@@ -164,7 +168,7 @@ jobs:
           echo "shell1_runner=$s1" >> "$GITHUB_OUTPUT"
           echo "shell2_runner=$s2" >> "$GITHUB_OUTPUT"
           # Said in the log, so a misspelt value (one that routes nothing) is visible.
-          echo "shell shards: 1/2 -> $s1, 2/2 -> $s2 (KOSMOS_CI_SHELL_SHARDS read as '$shards')"
+          echo "shell shards: 1/2 -> $s1, 2/2 -> $s2 (shard names read from KOSMOS_CI_SHELL_SHARDS: '${shards#,}')"
 
   # #4317: the suite runs as parallel jobs, so no one job sits near its limit. On main the one job
   # took 24-28 min (the node part 517 s and test:shell 1,021 s when timed apart on this runner,
