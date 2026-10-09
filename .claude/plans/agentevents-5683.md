@@ -258,5 +258,6 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   the others a read agent must not share a transcript folder with. Test (two colliding listed agents, one unguarded).
 - The guard round-trip test fails on a Mac when the guard cannot be written (it skipped, which could never fail).
 - The words-lost test proves a refusal in the gap is not sent and one after re-acceptance is.
-- Time bounds round UP to whole seconds (an event a fraction of a second before a boundary no longer counts).
+- Time bounds are compared in milliseconds (an event a fraction of a second before a boundary no longer counts); the
+  time sent stays in whole seconds.
 - Stated: a failed state re-read after a send writes the fallback over the queue (a loss, never a leak; listed resets).
