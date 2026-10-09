@@ -47477,7 +47477,9 @@ function plusOrgPaint() {
   // #5531 follow-up: a Kosmos whose words were not accepted on this computer can read and accept them without leaving.
   // Not for a Kosmos whose words ARE accepted and that only waits for this computer's identity (#5532 review 29): the
   // engine refuses that review as already reporting.
-  document.getElementById('plus-org-review').hidden = !(here && st.reporting === false && !st.reportingWait);   // only when no words are accepted here
+  // Not while it only waits for this computer's identity; offered for words that ask for no reports (rollup review 32: it
+  // is the only way such a Kosmos learns its company's words changed, since it never sends).
+  document.getElementById('plus-org-review').hidden = !(here && st.reporting === false && st.reportingWait !== 'print');
   document.getElementById('plus-org-join').textContent = PLUS_ORG.preview && PLUS_ORG.preview.review ? 'Accept' : 'Join with this Kosmos';
   document.getElementById('plus-org-out').hidden = !full || !!here || !!PLUS_ORG.preview;
   document.getElementById('plus-org-consent').hidden = !PLUS_ORG.preview;

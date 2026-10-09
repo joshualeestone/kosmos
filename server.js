@@ -9710,7 +9710,7 @@ const server = http.createServer(async (req, res) => {
       const waitsForPrint = hasWords && require('./engine/orgrollup').waitingForPrint();
       // Review 31: words accepted here that ask for no reports are said as that, never as "not accepted".
       const why = waitsForPrint ? 'print' : (accepted && !hasWords ? 'noReports' : null);
-      sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why,   // #5532: accepted report lines, and not known to be waiting for a print (tick is gated on more than this)es (rollup review 10)
+      sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why,   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
        stoppedFor: stopped, leaveRefused: refused, leaveRefusedUndo: refusedUndo, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
     } catch { sendJson(res, 200, { enrolled: false, org: null, role: null, enrolledAt: null }); }
     return;

@@ -405,3 +405,7 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
   that (reportingWait 'noReports') and not offered Review; a failure's retry wait belongs to the words it was sent under,
   so accepting new words ends it. Tests: engine (legacy record can Review), route (noReports, no words), rollup (wait
   ends with new words), page (O15c); each mutation fails.
+- Review 32: Review stays offered for words that ask for no reports (such a Kosmos never sends, so it never hears that
+  its company's words changed; Review is how it finds out); hidden only while it waits for this computer's identity.
+  The print wait is tied to the words it was set under, as a failure's wait is (a review's Accept keeps the enrollment).
+  Tests: O15c, route (wait under other words does not hold, control), each mutation fails.

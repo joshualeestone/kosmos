@@ -419,7 +419,8 @@ async function tick(opts) {
   const pf = oe.reportPrint(eo);
   if (pf.send === 'later' || pf.send === 'error') {
     // Said where the joined view reads it (review 18): it must not claim this Kosmos reports while it waits for a print.
-    if (!st.printWaitAt) writeState(root, Object.assign({}, st, { enrolledAs, printWaitAt: now }));
+    // Tied to the words it waits under too (rollup review 32), as a failure's wait is: new words accepted start afresh.
+    if (!st.printWaitAt) writeState(root, Object.assign({}, st, { enrolledAs, printWaitAt: now, printWaitHash: rec.consentHash || null }));
     return { sent: false, because: 'this computer could not be read yet' };
   }
   if (st.printWaitAt) { delete st.printWaitAt; writeState(root, Object.assign({}, st, { enrolledAs })); }   // readable again
@@ -488,7 +489,7 @@ function waitingForPrint(root) {
   // Only this enrollment's (review 19): a note left by an earlier one does not belong to a Kosmos that joined again.
   const rec = require('./orgenroll').readEnrollment(root ? { root } : undefined);
   const enrolledAs = rec ? rec.world + '|' + ((rec.org && rec.org.id) || '') + '|' + (rec.enrolledAt || '') : null;
-  return !!st.printWaitAt && st.enrolledAs === enrolledAs;
+  return !!st.printWaitAt && st.enrolledAs === enrolledAs && (st.printWaitHash === undefined || st.printWaitHash === ((rec && rec.consentHash) || null));
 }
 
 module.exports = {
