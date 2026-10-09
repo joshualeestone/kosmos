@@ -24,7 +24,7 @@
  *  - A file is opened once, without following a final link and without blocking (a FIFO swapped in cannot hang the
  *    run), and the open descriptor must be a regular file with the device and inode the walk saw. (O_NOFOLLOW,
  *    O_NONBLOCK and O_NOCTTY are POSIX: where the platform lacks them, as on Windows, they are 0, and the device,
- *    inode and real-path checks below are what holds; review 16.) So what is read is
+ *    inode and real-path checks below are what holds.) So what is read is
  *    the very file the walk found inside the work Kosmos, whatever was renamed or swapped in between. Its real path is
  *    then checked (inside the work Kosmos, and the deny-list again on it), and at most maxFile + 1 bytes are read.
  *
@@ -49,7 +49,7 @@ const { uploadChunks, uploadManifest, MAX_MANIFEST } = require('./backupupload')
 const { pathProblem, collisionKey, collidingPaths } = require('./backuprestore');
 const { mask } = require('./secretmask');
 const { namingKeyId: namingKeyIdOf } = require('./backupkeys');
-/* A name holding something shaped like a credential (review 19: names were never checked, so a file named after a
+/* A name holding something shaped like a credential (names were never checked, so a file named after a
    pasted token put it in the manifest). secretmask on each segment, specific kinds only: its generic long_token fires
    on ordinary long names (measured: 271 of 8,146 real paths), the specific kinds on 1 (an "xai" in a plan name).
    Returns the name with those parts masked, or null when nothing fired. */
@@ -71,7 +71,7 @@ const MAX_SKIPPED = 100000;
 const MAX_DEPTH = 256;
 const SPLIT_WINDOW = 8;   // segments joined when looking for a credential split across folder names
 // The coordinator's allowance per member per weekly period (docs/coordinator-api.md "Allowances"): chunk objects and
-// bytes, spent at grant time. A snapshot that could pass either is refused before it spends any (review 9).
+// bytes, spent at grant time. A snapshot that could pass either is refused before it spends any.
 // The bound is cautious (chunks at the 256 KiB minimum, redaction doubling every file), so in practice it refuses at
 // about 25 GB of files, though real chunks average 1 MiB; the refusal says so.
 const CHUNK_ALLOWANCE = 200000, BYTE_ALLOWANCE = 64 * 2 ** 30;
@@ -87,7 +87,7 @@ const MAX_KEY_LEN = 256;
 const LOCK_FLOOR_MS = Date.UTC(2020, 0, 1), LOCK_MAX_MS = 39 * 86400 * 1000;
 const ownerOf = (key) => key.split('/').slice(0, 2).join('/');
 /* The lock a manifest granted at time t gets: its period's end + 30 days + 15 minutes (backup.rs manifest_retain_until,
-   RETAIN_AFTER_PERIOD_SECS and GRANT_SECS). An index chunk must outlast it (review 18: checked here, not after uploads). */
+   RETAIN_AFTER_PERIOD_SECS and GRANT_SECS). An index chunk must outlast it (checked here, not after uploads). */
 const manifestLockAt = (t) => MONDAY_EPOCH + (Math.floor((t - MONDAY_EPOCH) / WEEK_MS) + 1) * WEEK_MS + 30 * DAY_MS + 15 * 60 * 1000;
 /* The member key a chunk was sealed to, as recorded in each index entry: the first 16 bytes of a domain-tagged SHA-256 of
    the public key, hex. An index entry under another member key cannot be named (the new private key cannot open it). */
@@ -114,34 +114,34 @@ function periodOfKey(key) {
 
 /* Why a coordinator key cannot stand for a chunk of this context, or null: it must be <org>/<account>/<epoch>/<period>/<random>
    with the context's org and period (one under another period was named with another naming key: a manifest naming it
-   would not restore). NOT the epoch segment (review 13): the coordinator writes a constant there today (backup.rs EPOCH
+   would not restore). NOT the epoch segment: the coordinator writes a constant there today (backup.rs EPOCH
    = 1), so it says nothing about which member key sealed a chunk; that binding is the index entry's memberKeyId. */
 function keyProblem(key, ctx) {
   const parts = typeof key === 'string' ? key.split('/') : [];
-  // Plain segments only (review 7): the manifest budget charges a key at its byte length, which JSON keeps only for these.
+  // Plain segments only: the manifest budget charges a key at its byte length, which JSON keeps only for these.
   if (parts.length !== 5 || parts.some((x) => !/^[A-Za-z0-9._:-]+$/.test(x) || x === '.' || x === '..')) return 'not a coordinator object key';
   if (parts[0] !== ctx.org) return `under org ${parts[0]}, not ${ctx.org}`;
   if (parts[3] !== ctx.period) return `in period ${parts[3]}, not ${ctx.period}`;
   return null;
 }
 
-/* The deny-list, on the path AS RESTORE WILL WRITE IT (review 15): restore reads '\\' as a folder separator, so a Mac
+/* The deny-list, on the path AS RESTORE WILL WRITE IT: restore reads '\\' as a folder separator, so a Mac
    name like ".ssh\\id_rsa" comes back as .ssh/id_rsa; every rule anchors on '/', so the name as written would pass. */
 const asRestored = (rel) => rel.replace(/\\/g, '/');
-// And on restore's own equivalence of it (review 18): collisionKey drops invisible characters and folds case, so
+// And on restore's own equivalence of it: collisionKey drops invisible characters and folds case, so
 // ".git<zero-width space>" is .git to restore. Denied if either reading is.
 // (The second reading's `why` is a rule's name, never the folded path itself.)
 const denied = (rel) => { const a = pathDecision(asRestored(rel)); return a.include ? pathDecision(collisionKey(rel)) : a; };
 /* A folder the deny-list refuses: every folder rule ends in '/', so a bare child name matches exactly those. A rule on a
    NAME only (".env", "credentials") is not a folder rule: a folder so named is walked, and each file in it is judged
-   by name and content as usual (review 22). */
+   by name and content as usual. */
 const folderDenied = (rel) => { const d = denied(`${rel}/x`); return d.include ? null : d.why; };
 
 /** Every regular file under root (absolute) the deny-list allows, as sorted '/'-separated relative paths with the
     device and inode seen, and what was skipped (links, denied folders and files, anything not a file or folder, a
     folder that could not be read). Nothing is opened but folders. fs is injectable for tests. */
 function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_SKIPPED } = {}) {
-  // Another volume mounted inside the work Kosmos (an external disk, a network share) is not crossed (review 11): what
+  // Another volume mounted inside the work Kosmos (an external disk, a network share) is not crossed: what
   // is backed up is this computer's work Kosmos, and a mount can bring in anything. Recorded as skipped.
   let rootDev = null;
   try { rootDev = fs.lstatSync(root, { bigint: true }).dev; } catch { /* the walk reports the unreadable root */ }
@@ -152,11 +152,11 @@ function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_S
   const skip = (x) => { if (skipped.length < maxSkipped) skipped.push(x); else skippedExtra++; };
   const walk = (rel, depth, seen) => {
     if (over) return;
-    // A depth cap (review 8): recursion this deep is a pathological tree, skipped by name rather than a stack overflow.
+    // A depth cap: recursion this deep is a pathological tree, skipped by name rather than a stack overflow.
     if (depth > MAX_DEPTH) { skip({ path: rel, why: `folders nested more than ${MAX_DEPTH} deep` }); return; }
     let names;
     try { names = fs.readdirSync(path.join(root, rel)); } catch { skip({ path: rel || '.', why: 'a folder that could not be read' }); return; }
-    // The folder listed must be the one the walk saw (review 13): a folder swapped for a link after its lstat would be
+    // The folder listed must be the one the walk saw: a folder swapped for a link after its lstat would be
     // listed through the link. Checked again after listing; its files are also each checked at the open.
     if (seen) {
       let again = null;
@@ -169,7 +169,7 @@ function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_S
       // Recorded under the masked name: the skipped list leaves the Mac too.
       const masked = nameMasked(name);
       if (masked !== null) { skip({ path: rel ? `${rel}/${masked}` : masked, why: 'a name holding something shaped like a credential' }); continue; }
-      // And a token split across folder boundaries (reviews 24 and 26): secretmask does not read a token across '/', so
+      // And a token split across folder boundaries: secretmask does not read a token across '/', so
       // each name is also checked joined to the 1 to 7 names above it (every window ending here; windows ending higher
       // were checked on the way down). '\\' inside a name is a boundary to restore, so its parts count as segments.
       // Measured on 8,146 real paths: 0 windows of up to 6 fire only joined. A hit is recorded with the whole window
@@ -218,7 +218,7 @@ function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_S
     if (clash) { skip({ path: f.path, why: `restore would refuse it beside ${clash} (names it treats as one)` }); continue; }
     n.file = f.path; kept.push(f);
   }
-  // Restore's own rule has the last word: anything it would still refuse is skipped too (review 8: a throw here would
+  // Restore's own rule has the last word: anything it would still refuse is skipped too (a throw here would
   // have refused the whole snapshot over one name).
   const refused = collidingPaths(kept);
   const out = refused.size ? kept.filter((f) => { if (!refused.has(f.path)) return true; skip({ path: f.path, why: 'restore would refuse it as colliding with another name' }); return false; }) : kept;
@@ -238,7 +238,7 @@ function readListed(fs, rootReal, f, maxFile) {
     if (!st.isFile() || st.dev !== f.dev || st.ino !== f.ino) return { why: 'replaced while the snapshot was taken' };
     // A hard link has no real path of its own to check: another name for it may be outside the work Kosmos.
     if (st.nlink > 1n) return { why: 'stored under more than one name (a hard link; another name may be outside the work Kosmos)' };
-    // The real path, which must name the very file opened (review 9: a folder swapped for a link during the walk, and
+    // The real path, which must name the very file opened (a folder swapped for a link during the walk, and
     // back again before this lookup, would otherwise let the path checked differ from the file read). With hard links
     // refused above, the same device and inode mean the same file.
     const real = fs.realpathSync(abs);
@@ -257,7 +257,7 @@ function readListed(fs, rootReal, f, maxFile) {
       const got = fs.readSync(fd, buf, n, buf.length - n, null);
       if (got === 0) break;
       n += got;
-      // The buffer holds one byte more than the file had: filling it means it grew during the read (review 9), or,
+      // The buffer holds one byte more than the file had: filling it means it grew during the read, or,
       // when it was already at the cap, that it passed the cap.
       if (n === buf.length) return { why: size >= maxFile ? `larger than ${Math.round(maxFile / 1024 / 1024)} MB, too large to scan` : 'it grew while the snapshot was taken' };
     }
@@ -269,11 +269,11 @@ const isKey32 = (b) => Buffer.isBuffer(b) && b.length === 32;
 // A manifest entry's JSON size, for the running budget (canonicalJson writes the same characters as JSON.stringify).
 const entryBytes = (x) => Buffer.byteLength(JSON.stringify(x)) + 1;
 /* An UPPER bound on what one listed file can add to the manifest, from its size alone. A file over maxFile is only ever
-   a skip entry (review 5: counting its size made one big disk image fail every snapshot). Otherwise every chunk but a
+   a skip entry (counting its size made one big disk image fail every snapshot). Otherwise every chunk but a
    file's last is at least CDC.min, and the stored bytes may be at most twice the file's (redaction can lengthen text),
    so it has at most floor(2 * size / CDC.min) + 1 chunks; each adds a name to the file entry and one objects entry
    with the longest key accepted; plus the entry itself and a redaction record or a skip entry, within the fixed 1024
-   (review 21 measured the worst: all 17 kinds secretmask can report, 8-digit counts, is 703 bytes past the path, and
+   (measured worst case: all 17 kinds secretmask can report, 8-digit counts, is 703 bytes past the path, and
    with the file entry 815; about 200 bytes to spare).
    So a snapshot is limited to about 20 GB of files under maxFile: past that this bound passes the manifest ceiling
    even where the real manifest would not (at 1 MiB average chunks and real key lengths it is about a tenth). */
@@ -315,7 +315,7 @@ async function takeSnapshot(input, deps) {
   try {
     return await snapshotInner(input || {}, deps || {}, added, state, fail);
   } catch (err) {
-    // A fixed sentence and the error's code, never its message: an fs error carries absolute paths (review 7).
+    // A fixed sentence and the error's code, never its message: an fs error carries absolute paths.
     return fail(`the snapshot failed unexpectedly${err && err.code ? ` (${err.code})` : ''}`);
   }
 }
@@ -331,15 +331,15 @@ async function snapshotInner(input, deps, added, state, fail) {
   const budget = pos(deps.maxManifestJson, MANIFEST_JSON_BUDGET);
   if (typeof root !== 'string' || !path.isAbsolute(root)) return fail('the work Kosmos folder must be an absolute path');
   if (!isKey32(memberPk) || !isKey32(namingKey)) return fail('the member key and the naming key must be 32-byte Buffers');
-  // The id the manifest records must be THIS naming key's (review 21): restore matches it against the naming key it
+  // The id the manifest records must be THIS naming key's: restore matches it against the naming key it
   // unwraps, so a stale id (last period's) would lock in a manifest that can never be opened.
   if (typeof namingKeyId !== 'string' || namingKeyId !== namingKeyIdOf(namingKey)) return fail('the naming key id is not this naming key\'s (backupkeys namingKeyId)');
   // The device key is used only to sign the manifest, after every chunk is uploaded: checked here, before anything is
-  // spent (review 11), with sealManifest's own rule.
+  // spent, with sealManifest's own rule.
   if (!deviceKey || deviceKey.type !== 'private' || deviceKey.asymmetricKeyType !== 'ed25519') return fail('the device key must be an Ed25519 private key');
   try { checkBackupContext(ctx); } catch (err) { return fail(err.message); }
   const t = now();
-  // A Date can hold only about 275,000 years either side of 1970 (review 19): past that, periodOf reads "NaN-WNaN".
+  // A Date can hold only about 275,000 years either side of 1970: past that, periodOf reads "NaN-WNaN".
   const usable = (x) => Number.isFinite(x) && Number.isFinite(new Date(x).getTime());
   if (!usable(t)) return fail('this computer\'s clock gave no usable time');
   const period = periodOf(t);
@@ -357,18 +357,18 @@ async function snapshotInner(input, deps, added, state, fail) {
           || (e.memberKeyId !== mkid ? 'sealed to another member key' : null)
           || (!Number.isSafeInteger(e.lockedUntilMs) || e.lockedUntilMs < LOCK_FLOOR_MS || e.lockedUntilMs > t + LOCK_MAX_MS + 3600 * 1000 ? 'a lock end no grant could set' : null)
           // A lock that ends before any manifest granted now would (period end + 30 days + the window; at least now + 30
-          // days + 15 min): uploadManifest would refuse it as outlasting it (review 9 NIT). Mirrors the coordinator's
-          // RETAIN_AFTER_PERIOD_SECS (30 days) and GRANT_SECS (15 minutes) in backup.rs retain_until_for (review 14).
+          // days + 15 min): uploadManifest would refuse it as outlasting it. Mirrors the coordinator's
+          // RETAIN_AFTER_PERIOD_SECS (30 days) and GRANT_SECS (15 minutes) in backup.rs retain_until_for.
           || (e.lockedUntilMs < manifestLockAt(t) ? 'a lock that ends before this snapshot\'s manifest would' : null);
       if (why) return fail(`the index holds an entry this snapshot cannot name (${why})`, { staleIndex: true });
     }
     state.bucket = input.bucket;
   }
-  // Every key this snapshot names, so none is ever named for two chunks (review 5: a repeat across batches, or of an
+  // Every key this snapshot names, so none is ever named for two chunks (a repeat across batches, or of an
   // index key, would point two names at one object; on a versioned bucket restore could only open one of them).
   const usedKeys = new Set([...index.values()].map((e) => e.key));
   if (usedKeys.size !== index.size) return fail('the index names one key for two chunks', { staleIndex: true });
-  // One <org>/<account> for every chunk the manifest names, as uploadManifest requires (review 7): the index's, or the
+  // One <org>/<account> for every chunk the manifest names, as uploadManifest requires: the index's, or the
   // first grant's.
   const owners = new Set([...usedKeys].map(ownerOf));
   if (owners.size > 1) return fail('the index names chunks under more than one account', { staleIndex: true });
@@ -378,7 +378,7 @@ async function snapshotInner(input, deps, added, state, fail) {
   try { rootReal = fs.realpathSync(root); } catch { return fail('the work Kosmos folder could not be read'); }
   const listed = listFiles(rootReal, fs);
   if (listed.over) return fail(`the work Kosmos holds more than ${MAX_FILES} files, more than one snapshot can list`, { tooLarge: true });
-  // The manifest budget, kept so that NOTHING is uploaded unless the finished manifest is sure to fit (review 3):
+  // The manifest budget, kept so that NOTHING is uploaded unless the finished manifest is sure to fit:
   //   estimate  the exact JSON so far (entries, objects, skips), with keys not yet granted charged at MAX_KEY_LEN
   //   reserve   the upper bound of every listed file not yet finished (the current one included)
   // The check before the walk is the guard, and it is enough by construction: every file's exact charge (its entry, its
@@ -393,16 +393,16 @@ async function snapshotInner(input, deps, added, state, fail) {
 
   const skipped = [];
   // Every skip is charged to the manifest estimate as it happens, so the last batch is never uploaded for a manifest
-  // its skipped list would push over the ceiling (review 2).
+  // its skipped list would push over the ceiling.
   let skippedExtra = listed.skippedExtra;
   const skip = (s) => { if (skipped.length < MAX_SKIPPED) { estimate += entryBytes(s); skipped.push(s); } else skippedExtra++; };
   for (const s of listed.skipped) skip(s);
   // The allowance, before anything is spent. Chunks: this period's earlier ones (the index) plus this run's upper bound.
-  // Bytes: this run's upper bound only (review 10): the index records no sizes, and charging each earlier chunk at the
+  // Bytes: this run's upper bound only: the index records no sizes, and charging each earlier chunk at the
   // largest size refused ordinary second runs. Bytes spent earlier in the period are caught by the coordinator's
   // backup_quota refusal, which ends the run as overAllowance below.
   const chunkBound = index.size + listed.files.reduce((n, f) => n + chunksMax(f, maxFile), 0);
-  // The manifest counts too: the 64 GiB is chunks and manifests together (review 21).
+  // The manifest counts too: the 64 GiB is chunks and manifests together.
   const byteBound = listed.files.reduce((n, f) => n + (f.size > maxFile ? 0 : sealedMax(2 * f.size) + chunksMax(f, maxFile) * 4148), 0) + sealedMax(budget);
   if (chunkBound > CHUNK_ALLOWANCE || byteBound > BYTE_ALLOWANCE) {
     return fail(`the work Kosmos is too large to back up in one week: ${listed.files.length} files, ${Math.round(listedBytes / 2 ** 20)} MB, could pass the weekly allowance (${CHUNK_ALLOWANCE} chunks, 64 GB) under a cautious estimate; in practice about 25 GB of files fit`, { tooLarge: true, overAllowance: true });
@@ -433,14 +433,14 @@ async function snapshotInner(input, deps, added, state, fail) {
           added.set(name, { key, lockedUntilMs: lockOf(name), memberKeyId: mkid }); usedKeys.add(key);
         }
       }
-      // staleIndex only when there was an index to drop (review 22); without one, the next run is a full snapshot anyway.
+      // staleIndex only when there was an index to drop; without one, the next run is a full snapshot anyway.
       return fail((index.size ? 'a grant named another bucket than the index\'s: drop the index and take a full snapshot' : 'two grants in one snapshot named different buckets: take a full snapshot') + '; chunks stored under the earlier bucket in this run are not kept', Object.assign(index.size ? { staleIndex: true } : {}, spent));
     }
     if (r && r.bucket && !state.bucket) state.bucket = r.bucket;
-    // Stored keys with no bucket named (reviews 14 and 17): whether or not an index set one, they cannot be checked
+    // Stored keys with no bucket named: whether or not an index set one, they cannot be checked
     // against it or filed. Not recorded; a malformed answer.
     if (stored.size && !(r && r.bucket)) return fail('the uploader answered stored chunks without naming their bucket', spent);
-    // Every usable stored chunk is recorded before any failure is returned, so the caller's index keeps it (review 2).
+    // Every usable stored chunk is recorded before any failure is returned, so the caller's index keeps it.
     const wrongPeriod = [];
     let noLock = false, badKey = null, shortLock = false;
     for (const [name, key] of stored) {
@@ -450,7 +450,7 @@ async function snapshotInner(input, deps, added, state, fail) {
       if (kp && kp.startsWith('in period')) { wrongPeriod.push(periodOfKey(key)); continue; }
       if (kp) { badKey = badKey || kp; continue; }
       if (!Number.isSafeInteger(lockOf(name))) { noLock = true; continue; }
-      // A lock shorter than this snapshot's manifest will get (review 25): the manifest could never name it.
+      // A lock shorter than this snapshot's manifest will get: the manifest could never name it.
       if (lockOf(name) < manifestLockAt(t)) { shortLock = true; continue; }
       if (Buffer.byteLength(key) > MAX_KEY_LEN) { badKey = badKey || `longer than ${MAX_KEY_LEN} characters`; continue; }
       added.set(name, { key, lockedUntilMs: lockOf(name), memberKeyId: mkid });
@@ -464,7 +464,7 @@ async function snapshotInner(input, deps, added, state, fail) {
     if (shortLock) return fail('a stored chunk came back locked for less time than this snapshot\'s manifest would be', spent);
     if (wrongPeriod.length) return fail(`a chunk was granted in period ${wrongPeriod[0]}, not ${ctx.period} (a period boundary passed); start again in the new period (chunks granted there are not kept: they stay stored, unnamed, until their lock ends)`, Object.assign({ newPeriod: true }, spent));
     // backup_quota: this period's allowance is spent (by earlier runs, or anything signing as this computer): not a
-    // retry this period (review 9).
+    // retry this period.
     if (r && r.code === 'backup_quota') return fail(`the period's backup allowance is used up: ${r.because || 'backup_quota'}`, Object.assign({ overAllowance: true }, r.unsure ? { unsure: r.unsure } : {}, spent));
     if (!r || !r.ok) return fail(`chunks could not be uploaded: ${(r && r.because) || 'no answer'}`, Object.assign({}, r && r.retryLater ? { retryLater: true } : {}, r && r.unsure ? { unsure: r.unsure } : {}, spent));
     for (const name of pending.keys()) if (!objects[name]) return fail('the uploader reported success without a key for every chunk', spent);
@@ -474,12 +474,12 @@ async function snapshotInner(input, deps, added, state, fail) {
   };
 
   for (const f of listed.files) {
-    // Over the cap at walk time: its reserve is a skip entry only, so it is never read (review 7: one that shrank before
+    // Over the cap at walk time: its reserve is a skip entry only, so it is never read (one that shrank before
     // the read was stored past its reserve).
     if (f.size > maxFile) { skip({ path: f.path, why: `larger than ${Math.round(maxFile / 1024 / 1024)} MB, too large to scan` }); reserve -= ub(f); continue; }
     const got = readListed(fs, rootReal, f, maxFile);
     if (!got.buf) { skip({ path: f.path, why: got.why }); reserve -= ub(f); continue; }
-    // Grown since the walk: its reserve was sized from the walk's size, and it is being written to (review 6).
+    // Grown since the walk: its reserve was sized from the walk's size, and it is being written to.
     if (got.buf.length > f.size) { skip({ path: f.path, why: 'it grew while the snapshot was taken' }); reserve -= ub(f); continue; }
     const d = scanFile(f.path, got.buf);
     if (d.action !== 'store') { skip({ path: f.path, why: d.why || 'not stored' }); reserve -= ub(f); continue; }
@@ -490,7 +490,7 @@ async function snapshotInner(input, deps, added, state, fail) {
     if (d.redacted && d.redacted.length) { redacted.push({ path: f.path, kinds: d.redacted }); estimate += entryBytes(redacted[redacted.length - 1]); }
     const names = [];
     for (const piece of chunkBuffer(data)) {
-      // Named first, sealed only if it will be uploaded (review 13: sealing every chunk re-encrypted the whole work
+      // Named first, sealed only if it will be uploaded (sealing every chunk re-encrypted the whole work
       // Kosmos on every run, to upload only what changed).
       const name = chunkName(namingKey, piece);
       names.push(name);
@@ -526,43 +526,43 @@ async function snapshotInner(input, deps, added, state, fail) {
   }
   if (!chunks.length) return fail('there is nothing to back up: no file with content (empty files alone make no snapshot, since a manifest must name at least one chunk)');
   const manifest = {
-    format: FORMAT, takenAt: new Date(t).toISOString(), namingKeyId,   // t: the reading already checked (review 11)
+    format: FORMAT, takenAt: new Date(t).toISOString(), namingKeyId,   // t: the reading already checked
     files, objects, redacted, skipped, skippedNotListed: skippedExtra,
   };
-  // A period boundary passed during the run: NO manifest grant is asked for (review 17). The manifest is sealed with
+  // A period boundary passed during the run: NO manifest grant is asked for. The manifest is sealed with
   // ctx.period, but the coordinator would file it under the period of the moment it is granted (its key and record), so a
   // restore looking it up by that period could not open it; and its lock would be the new period's, which earlier
-  // chunks may not outlast (review 15). The run starts again in the new period, with its context and naming key.
+  // chunks may not outlast. The run starts again in the new period, with its context and naming key.
   const tEnd = now();
   if (!usable(tEnd)) return fail('this computer\'s clock gave no usable time');   // fails closed, as at the start
   if (periodOf(tEnd) !== ctx.period) return fail(`a period boundary passed during the snapshot (now ${periodOf(tEnd)}): start again in the new period`, { newPeriod: true });
-  // Cannot throw on this content (review 8): file and redacted paths passed pathProblem, skipped ones are walk paths, every other value is a fixed sentence, a number,
+  // Cannot throw on this content: file and redacted paths passed pathProblem, skipped ones are walk paths, every other value is a fixed sentence, a number,
   // hex or a key of plain segments, and the context and keys were checked before anything was read. If it ever did,
   // takeSnapshot's catch returns `added` intact.
   const sealed = sealManifest(memberPk, deviceKey, ctx, manifest);
   const m = await putManifest(deps, sealed, { bucket: state.bucket, chunks });
   if (!m || !m.ok) {
     // outlastsChunks: the named chunks lock out too soon for this manifest. Every lock was checked against this period's
-    // manifest lock, so in practice Monday passed since (review 25: a FRESH reading says so; the one above cannot). Else
+    // manifest lock, so in practice Monday passed since (a FRESH reading says so; the one above cannot). Else
     // it is the index's (staleIndex, only when there is one).
     const tNow = now();
     const passed = m && m.outlastsChunks && usable(tNow) && periodOf(tNow) !== ctx.period;
-    // otherBucket: the coordinator now grants to another bucket. With an index, drop it (review 23); without one, this
-    // run's chunks are in the abandoned bucket, so none is handed back to be kept as an index (review 25).
-    if (m && m.otherBucket && !index.size) added.clear();
+    // otherBucket: the coordinator now grants to another bucket. With an index, drop it; without one, this
+    // run's chunks are in the abandoned bucket, so none is handed back to be kept as an index.
+    if (m && m.otherBucket) added.clear();   // with or without an index: every chunk this run stored is in that bucket
     return fail(`the manifest could not be uploaded: ${(m && m.because) || 'no answer'}`, Object.assign({},
       m && m.retryLater ? { retryLater: true } : {}, m && m.unsure ? { unsure: m.unsure } : {},
       passed ? { newPeriod: true } : (m && m.outlastsChunks && index.size ? { staleIndex: true } : {}),
       m && m.otherBucket && index.size ? { staleIndex: true } : {}, m && m.grantSpent !== undefined ? { grantSpent: m.grantSpent } : {}));
   }
-  // The manifest's key must be this context's (review 19): Monday 00:00 UTC can pass between the check above and the
+  // The manifest's key must be this context's: Monday 00:00 UTC can pass between the check above and the
   // coordinator signing the grant, and uploadManifest checks only the owner. A key in another period files the manifest
   // where a restore looking it up by period cannot open it; said, not hidden (it is stored and locked either way).
   const mk = keyProblem(m.key, ctx) || (owner && ownerOf(m.key) !== owner ? 'under another account path' : null);
-  // newPeriod only when the period is what differs (review 23); another org or a malformed key is a plain failure.
+  // newPeriod only when the period is what differs; another org or a malformed key is a plain failure.
   if (mk && mk.startsWith('in period')) return fail(`the manifest was stored under a key ${mk} (a period boundary passed as it was granted): start again in the new period`, { newPeriod: true, grantSpent: true });
   if (mk) return fail(`the manifest was stored under a key that is not this snapshot's (${mk})`, { grantSpent: true });
   return { ok: true, manifestKey: m.key, files: files.length, skipped: skipped.length + skippedExtra, uploaded, reused, added, bucket: state.bucket };
 }
 
-module.exports = { periodOf, periodOfKey, memberKeyIdOf, listFiles, takeSnapshot, MAX_FILE, BATCH_BYTES, MAX_FILES };
+module.exports = { periodOf, memberKeyIdOf, listFiles, takeSnapshot, MAX_FILE, BATCH_BYTES, MAX_FILES };
