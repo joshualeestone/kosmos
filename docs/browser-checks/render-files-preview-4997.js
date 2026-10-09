@@ -112,7 +112,12 @@ function fill(dir) {
           else if (listId === 'docs-list') { PJ_DOCS_FILES = [{ name, size: 70, modified: new Date().toISOString() }]; PJ_DOCS_TOTAL = 1; PJ_DOCS_PAGE = 0; pjDocsPaintPage(); }
           // Review 7: pjLoadDocs skips the redraw when the folder's stamp has not moved, so every open forgets it.
           else if (listId === 'pj-docs') { PJ_DOCS_STAMP = null; PJ_DOCS_OK = false; await pjLoadDocs(pid); }
-          let row = [...list.querySelectorAll('.pj-doc')].find((r) => r.dataset.doc === name);
+          /* #5703: the agent page's 5 s poll can start a newer paintAgentFiles while ours is in flight, and the older
+             paint then returns without drawing (its epoch is superseded); the poll's paint draws the row moments later.
+             So wait up to 3 s for the painter's row before deciding it is not there. */
+          const find = () => [...list.querySelectorAll('.pj-doc')].find((r) => r.dataset.doc === name);
+          let row = find();
+          for (let i = 0; !row && i < 30; i++) { await new Promise((r) => setTimeout(r, 100)); row = find(); }
           const own = !!row;
           if (!row) { row = agentFileRow({ name, size: 70, modified: new Date().toISOString() }); list.append(row); }
           const visible = row.offsetParent !== null;   // review 8: a row in a still-hidden view could not take focus (F4)
@@ -156,6 +161,8 @@ function fill(dir) {
             else if (id === 'd-files-list') { AGENT_FILES_STAMP = null; await paintAgentFiles('ava'); }
             else if (id === 'd-filesall-list') await paintAgentFilesAll('ava');
             else list.append(mk('other.txt', 5), mk('photo.png', 70));
+            // #5703: a superseded paint draws nothing; the poll's newer paint draws the row moments later.
+            for (let i = 0; i < 30 && !list.querySelector('.pj-doc[data-doc="photo.png"]'); i++) await new Promise((r) => setTimeout(r, 100));
           }, listId);
           await page.keyboard.press('Escape');
           const back = await page.evaluate((id) => ({ gone: !document.getElementById('pv-preview'),
