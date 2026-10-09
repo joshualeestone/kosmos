@@ -107,11 +107,14 @@ test('Windows CLI: the same', async () => {
   assert.deepEqual([words.calls[0].body.unchanged, words.calls[0].body.note], [false, '--unchanged']);
 });
 
-test('review 1: both CLIs say a run found nothing new when the BOARD counted it so (the same note, no flag)', async () => {
+test('review 1/2: when the BOARD counted a run unchanged (the same note, no flag), both CLIs say it repeated its note, never that it found nothing new', async () => {
   const home = makeHome();
   await withStub(async (port) => {
     const r = await sh(port, home, ['task', 'ran', 'p1', '3', 'same as before']);
-    assert.match(r.out, /that found nothing new/, r.out);
+    assert.match(r.out, /It repeats the note before it/, r.out);
+    assert.doesNotMatch(r.out, /found nothing new/);
   });
-  assert.match((await win(['task', 'ran', 'p1', '3', 'same as before'])).out, /that found nothing new/);
+  const w = (await win(['task', 'ran', 'p1', '3', 'same as before'])).out;
+  assert.match(w, /It repeats the note before it/);
+  assert.doesNotMatch(w, /found nothing new/);
 });

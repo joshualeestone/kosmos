@@ -46,3 +46,17 @@ test('#5643: the status line says how many runs in a row found nothing new and w
   const plain = lib.tskRepeatSentence({ ...t, unchangedRuns: undefined }, NOW);
   assert.doesNotMatch(plain, /nothing new/, 'a task with no unchanged runs got the rollup words');
 });
+
+test('#5643 review 2: the page says an inferred run as the same note, never as found nothing new; mixed says both', () => {
+  const inf = (minAgo, note) => run(minAgo, { unchanged: true, inferred: true, note });
+  const allInferred = lib.tkActRowsHtml([run(200, { note: 'x' }), inf(120, 'x'), inf(60, 'x')], P, NOW);
+  assert.match(allInferred, /2 runs repeated the same note/);
+  assert.doesNotMatch(allInferred, /found nothing new/);
+  assert.match(allInferred, /the same note again: x/);
+  const mixed = lib.tkActRowsHtml([run(120, { unchanged: true, note: 'y' }), inf(60, 'y')], P, NOW);
+  assert.match(mixed, /2 runs found nothing new or repeated the same note/);
+  const t = { repeat: { every: 'hour' }, repeatWords: 'every hour', lastRunAt: new Date(NOW - 5 * 60000).toISOString(), lastRunNote: 'x', unchangedRuns: 3, unchangedInferred: 3, lastChangeAt: new Date(NOW - 3 * 3600000).toISOString(), lastChangeNote: 'found it' };
+  assert.match(lib.tskRepeatSentence(t, NOW), /The last 3 runs repeated the same note;/);
+  assert.match(lib.tskRepeatSentence({ ...t, unchangedInferred: 1 }, NOW), /The last 3 runs found nothing new or repeated the same note;/);
+  assert.match(lib.tskRepeatSentence({ ...t, unchangedRuns: 1, unchangedInferred: 1 }, NOW), /It repeated the note before it;/);
+});
