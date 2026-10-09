@@ -65,7 +65,7 @@ test('#5683 target classes: board files, the agent\'s own settings, network, and
 
 test('#5683 labels: a control or bidi character, or an empty one, is not sent', () => {
   assert.equal(ae.label('Scout'), 'Scout');
-  assert.equal(ae.label('Sco‮ut'), null);
+  assert.equal(ae.label('Sco\u202eut'), null);
   assert.equal(ae.label('a\nb'), null);
   assert.equal(ae.label(''), null);
   assert.equal([...ae.label('x'.repeat(300))].length, 128);
@@ -446,4 +446,56 @@ test('#5683 r3: a recently written transcript holding old lines sends none of th
   const src = { agents: () => ['Scout'], dirOf: () => '/w/scout', transcripts: async () => [fresh] };
   await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });
   assert.equal(c.sent.some((x) => x.route === ae.ROUTE), false, 'an hour-old refusal in a fresh file was sent');
+});
+
+/* ---- review 4 ---- */
+
+test('#5683 r4: a relative traversal in a Bash command is classed by where it lands', () => {
+  assert.equal(ae.targetClass('Bash', { command: 'cat ../../../Library/Kosmos/board.token' }, ctx()), 'board-files');
+  assert.equal(ae.label('Sc\u2060out'), null, 'a word joiner passed');
+  assert.equal(ae.label('Scout\udb40\udc41'), null, 'a tag character passed');
+});
+
+test('#5683 r4: a queued event is dropped an hour before the coordinator would skip it', async (t) => {
+  const s = setup(t);
+  const c = coordinator(() => ({ ok: false, because: '503' }));
+  await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });
+  accept(s.root);
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await new Promise((r) => setTimeout(r, 1100));
+  append(s.file, use('ex', 'Bash', { command: 'x' }), result('ex', DENIED('x'), true));
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });   // queued, the send fails
+  const st = () => JSON.parse(fs.readFileSync(path.join(s.root, 'agent-events.json'), 'utf8'));
+  assert.equal(st().pending.length, 1);
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() + (7 * 86400 - 1800) * 1000 });
+  assert.equal(st().pending.length, 0, 'an event 6 days 23.5 hours old stayed queued');
+});
+
+test('#5683 r4: a failed withdrawal keeps its wait (no signed request every tick)', async (t) => {
+  const s = setup(t);
+  const c = coordinator(() => ({ ok: false, because: '409 {"code":"org_consent_changed"}' }));
+  await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });
+  accept(s.root);
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await new Promise((r) => setTimeout(r, 1100));
+  const real = oe.consentWithdrawn;
+  oe.consentWithdrawn = async () => false;   // the record could not be changed
+  t.after(() => { oe.consentWithdrawn = real; });
+  append(s.file, use('w1', 'Bash', { command: 'x' }), result('w1', DENIED('x'), true));
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  const sends = () => c.sent.filter((x) => x.route === ae.ROUTE).length;
+  const n = sends();
+  append(s.file, use('w2', 'Bash', { command: 'x' }), result('w2', DENIED('x'), true));
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  assert.equal(sends(), n, 'a failed withdrawal sent again inside its wait');
+});
+
+test('#5683 r4: an offset is kept while its file exists, even when a listing comes back empty', async (t) => {
+  const { s, c } = await enrolled(t);
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  const empty = Object.assign({}, s.sources(), { transcripts: async () => [] });
+  await ae.tick({ root: s.root, remote: c, sources: empty, now: Date.now() });
+  const st = JSON.parse(fs.readFileSync(path.join(s.root, 'agent-events.json'), 'utf8'));
+  assert.ok(Object.prototype.hasOwnProperty.call(st.offsets, s.file), 'a listing that failed for a moment dropped the offset');
 });
