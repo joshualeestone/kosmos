@@ -599,15 +599,18 @@ test('#5635 F2: a stale summary of an idle member says idle since when, for any 
   assert.equal(view.members[0].summary.state, 'stale', 'CONTROL: the newer summary is not stale, so this arm tests nothing');
   assert.doesNotMatch(v.renderShow({ project: view }).join('\n'), /idle since|reported idle/, 'an idle time before the summary was printed');
   // A start reads as one.
-  assert.match(show({ found: true, state: 'started', at: at(840) }).text, /summary: last written more than 4 hours before this session started \(summaries\/2026-09-28-07\.md, 33h 20m ago; started 14h 0m ago and idle since then\)$/m);
+  const started = show({ found: true, state: 'started', at: at(840) });
+  assert.equal(started.m.summary.state, 'stale');
+  assert.match(started.text, /summary: last written more than 4 hours before this session started \(summaries\/2026-09-28-07\.md, 33h 20m ago; started 14h 0m ago and idle since then\)$/m);
   // 0.7.33 report: a member the board reads as rate limited says so, with no time claimed, and stays stale.
   const limited = show({ found: true, state: 'idle', at: at(840) }, { state: 'rate_limited' });
   assert.equal(limited.m.summary.state, 'stale');
-  assert.match(limited.text, /summary: last written 33h 20m ago \(summaries\/2026-09-28-07\.md\); rate limited now, so it cannot work until the limit lifts$/m);
+  assert.match(limited.text, /summary: older than the 4-hour rhythm \(summaries\/2026-09-28-07\.md, 33h 20m ago\); rate limited now, so it cannot work until the limit lifts$/m);
   assert.doesNotMatch(show({ found: false }, { state: 'rate_limited', present: false }).text, /rate limited now/, 'a member not running was said to be rate limited');
   // Review 1: rate limited wins over an idle or working self-report (it cannot work either way); untied says nothing.
   assert.match(show({ found: true, state: 'working', at: at(30) }, { state: 'rate_limited' }).text, /rate limited now/);
-  assert.doesNotMatch(show({ found: false }, { state: 'rate_limited', tied: false }).text, /rate limited now/, 'an untied member was said to be rate limited');
+  // Review 2: an untied member's summary is not read at all, so nothing about it can be said: no limit, no idle.
+  assert.doesNotMatch(show({ found: true, state: 'idle', at: at(840) }, { state: 'rate_limited', tied: false }).text, /rate limited now|idle since/);
   // CONTROL: working, an operator's clear, no report, and a future time say nothing more than before.
   for (const rep of [{ found: true, state: 'working', at: at(30) }, { found: true, state: 'idle', by: 'operator', at: at(840) }, { found: false }, { found: true, state: 'idle', at: at(-5) }]) {
     const r = show(rep);
