@@ -1098,7 +1098,7 @@ function ruleTarget(r, platform = process.platform, home = null) {
 }
 /* The paths THIS AGENT'S settings file sends to the profile, counted per clause as the profile is likely built (review 5).
    Review 11: the person's user-level settings files (~/.claude, ~/.claude-<label>) also reach it and are not counted
-   here (which one an agent reads is its account's; #5668 carries that). Rule targets are the guard's '//abs' spelling
+   here (which one an agent reads is its account's; the open card for it is #5668). Rule targets are the guard's '//abs' spelling
    and the person's '~/' one (against home); a person's other spellings (a relative or a match-anywhere pattern) are not counted, so the count
    can be low for them (review 15). The read clause (denyRead
    and the Read rule targets) and the write clause (denyWrite and the Edit rule targets), each path once within its
