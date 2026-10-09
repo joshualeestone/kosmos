@@ -75,6 +75,9 @@ shard "shards 1/2,2/2 but the switch off: macos-latest" "$HOSTED" off push "" "1
 shard "shards '1/22' (not a listed shard): macos-latest" "$HOSTED" on push "" "1/22" shell1_runner
 shard "shards 2/2 alone: shell 1/2 stays on macos-latest (the two case lines not swapped)" "$HOSTED" on push "" "2/2" shell1_runner
 shard "shards '1/2, 2/2' (a space): shell 2/2 on the self-hosted Mac" "$SELF" on push "" "1/2, 2/2" shell2_runner
+shard "shards 'all' (not a shard name): macos-latest" "$HOSTED" on push "" "all" shell1_runner
+shard "shards '1/2;2/2' (a wrong separator): macos-latest" "$HOSTED" on push "" "1/2;2/2" shell2_runner
+shard "shards with a tab and a newline: still read" "$SELF" on push "" "$(printf '1/2,\t\n2/2')" shell2_runner
 
 # Both outputs must be JSON, or fromJSON fails the suite job before it starts.
 for v in "$SELF" "$HOSTED"; do
