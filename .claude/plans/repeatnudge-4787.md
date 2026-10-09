@@ -27,4 +27,7 @@ kosmos task ran <project> <n> (add --unchanged if it found nothing new)." A plai
 - agentnudge, taskrepeat and missedtell suites 71/71.
 
 ## Review log
-(filled in per round)
+- **Round 1 (opus):** 0 blockers, 2 warnings, 2 NITs.
+  - W1 fixed: after a long gap the line named the FIRST unrun slot (days old) while `task ran` answers, and the reviewer's line names, the latest. It now names the latest due slot, with "and earlier ones" when more are outstanding (red by mutation).
+  - W2 fixed: the test accepted any words in the parentheses; it now asserts the exact slot, a 72-hour gap, and a future-stamped run with no slot (plain line).
+  - NIT taken: with no usable project id the command shows `<project-id> <task-number>`, never a bare verb. NIT left: the slot uses the real clock like the waitingForNextRun check beside it.

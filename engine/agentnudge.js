@@ -75,13 +75,19 @@ function openParts(session, projects) {
         const givenAt = x.movedAt || x.createdAt || t.createdAt || null;
         /* #4787 (10-08 feedback: an hourly check lost results and took a manual rerun): a repeating task here is due (the
            waitingForNextRun check above let it through), so the line names the run that is due and how to record it. */
-        let dueWords = null;
+        /* Review 1: the LATEST due slot (what `kosmos task ran` answers and what the reviewer's line names), not the
+           first unrun one, which after a long gap is days old; "and earlier ones" when more than one is outstanding. */
+        let due = {};
         if (t.repeat) {
           const tr = require('./taskrepeat');
           const slot = tr.dueSlot(t);
-          if (slot !== null) dueWords = tr.whenWords(slot);
+          if (slot !== null) {
+            const latest = tr.latestAtOrBefore(t.repeat, slot, Date.now());
+            const at = latest === null ? slot : latest;
+            due = { dueWords: tr.whenWords(at), ...(at > slot ? { dueEarlier: true } : {}) };
+          }
         }
-        out.push({ projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: x.sentence || '', givenAt, ...(dueWords ? { dueWords } : {}) });
+        out.push({ projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: x.sentence || '', givenAt, ...due });
       }
     }
   }
@@ -109,8 +115,9 @@ function nudgeText(part) {
   const id = (typeof part.projectId === 'string' && /^[A-Za-z0-9._-]{1,80}$/.test(part.projectId) && /[^.]/.test(part.projectId)) ? part.projectId : '';
   /* #4787: a repeating task's due run, named with how to record it, so a missed run is rerun and recorded, not lost. */
   const due = typeof part.dueWords === 'string' && part.dueWords
-    ? ' Its scheduled run (' + plainWords(part.dueWords, 60) + ') has not been reported: run it now, then record it with kosmos task ran'
-      + (id ? ' ' + id + ' ' + part.n : '') + ' (add --unchanged if it found nothing new).'
+    ? ' Its scheduled run (' + plainWords(part.dueWords, 60) + ')' + (part.dueEarlier === true ? ', and earlier ones,' : '')
+      + ' has not been reported: run it now, then record it with kosmos task ran '
+      + (id ? id + ' ' + part.n : '<project-id> <task-number>') + ' (add --unchanged if it found nothing new).'
     : '';
   return 'Kosmos here, from the Prompter: you have been idle while you still have open work: task #' + part.n
     + (words ? ' "' + words + '"' : '') + ' in ' + plainWords(part.project, SENTENCE_CAP) + '.' + due + ' Pick it up, or if you are waiting on something, '
