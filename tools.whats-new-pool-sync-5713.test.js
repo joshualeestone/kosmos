@@ -156,20 +156,18 @@ test('#5713 review 1: prod-check (the cut\'s check) is 0 when the pool records p
   } finally { cleanup(p.dir, recorded.dir, behind.dir); }
 });
 
-test('#5713 review 1: a build that refuses AFTER the sync wrote the pool says to commit it', () => {
+test('#5713 review 1: the sync names the skipped-version step, and a build that synced nothing claims no pool update', () => {
   const h = history();
   const p = prod('0.7.35', h.cut);
   // 0.7.35 is not newer than the prod the sync records, so the build refuses after syncing.
-  const pf = poolFile({ lastProd: '0.7.34', items: [item('A', 1, 'pending'), item('B', 2, 'pending'), item('C', 3, 'pending')] });
+  const pf = poolFile({ lastProd: '0.7.33', items: [item('A', 1, 'pending'), item('B', 2, 'pending'), item('C', 3, 'pending')] });
   const out = path.join(pf.dir, 'whats-new.json');
   try {
-    const saved = require('./tools/whats-new-pool');
-    assert.equal(saved, tool);
     // The sync needs this test's history: run it directly, as build would, then the build sees the recorded prod.
     const r = tool.syncWithProd(tool.readPool(pf.file), pf.file, p.env, h.dir);
     assert.equal(r.ok, true, r.because);
     assert.equal(r.wrote, '0.7.35');
-    assert.match(r.note, /If a version between 0\.7\.34 and 0\.7\.35 also reached prod, record it with: node tools\/whats-new-pool\.js shown/);
+    assert.match(r.note, /If a version between 0\.7\.33 and 0\.7\.35 also reached prod, record it with: node tools\/whats-new-pool\.js shown/);
     // CONTROL: with nothing synced, a refusal carries no commit line.
     const refused = withProd(p.env, () => quiet(() => tool.main(['build', '0.7.35', `--pool=${pf.file}`, `--out=${out}`])));
     assert.equal(refused.code, 3);
@@ -177,7 +175,10 @@ test('#5713 review 1: a build that refuses AFTER the sync wrote the pool says to
   } finally { cleanup(h.dir, p.dir, pf.dir); }
 });
 
-test('#5713 review 1: through build, against this repo\'s real 0.7.35 cut: the sync writes, a later refusal says to commit the pool', () => {
+test('#5713 review 1: through build, against this repo\'s real 0.7.35 cut: the sync writes, a later refusal says to commit the pool', (t) => {
+  // As #5711's real-history test: a shallow checkout without that commit skips rather than fails (review 3).
+  try { execFileSync('git', ['-C', __dirname, 'cat-file', '-e', 'ad8039770d4b50b9cd6665f421c7d1e2ff7fd07f^{commit}'], { stdio: 'ignore' }); }
+  catch { t.skip('0.7.35\'s cut commit is not in this checkout (shallow clone)'); return; }
   // 0.7.35's frozen sha (as #5711's real-history test uses) and its one highlight.
   const p = prod('0.7.35', 'ad8039770d4b50b9cd6665f421c7d1e2ff7fd07f');
   const shownTitle = 'Agent cards show the last community post';
@@ -210,5 +211,50 @@ test('#5713 review 2: a prod version shipped with no What\'s New is recorded wit
     // CONTROL: without --promoted, --none marks nothing either.
     assert.equal(quiet(() => tool.main(['shown', '0.7.36', '--none', `--pool=${pf.file}`])).code, 2);
     assert.equal(JSON.parse(fs.readFileSync(pf.file, 'utf8')).lastProd, '0.7.35');
+  } finally { cleanup(pf.dir); }
+});
+
+test('#5713 review 3: prod-check reads only the pointer (a broken manifest cannot turn "prod newer" into a note)', () => {
+  const p = prod('0.7.36', 'c'.repeat(40), { manifest: false });
+  const pf = poolFile({ lastProd: '0.7.35', items: [item('A', 1, 'pending')] });
+  try {
+    const r = withProd(p.env, () => quiet(() => tool.main(['prod-check', `--pool=${pf.file}`])));
+    assert.equal(r.code, 3, r.said);
+  } finally { cleanup(p.dir, pf.dir); }
+});
+
+test('#5713 review 3: a release carried by another version\'s file ("also") counts as showing its highlights; a dirty build is refused', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wnpool-sync-also-'));
+  const git = (...a) => execFileSync('git', ['-C', dir, ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  git('init', '-q'); git('config', 'user.email', 'test@example.invalid'); git('config', 'user.name', 'test');
+  fs.mkdirSync(path.join(dir, 'web'));
+  fs.writeFileSync(path.join(dir, 'web', 'whats-new.json'), JSON.stringify({ version: '0.7.35', also: ['0.7.36'], highlights: [{ icon: 'tasks', title: 'A', line: 'x' }] }));
+  git('add', '.'); git('commit', '-q', '-m', 'cut');
+  const commit = git('rev-parse', 'HEAD');
+  const p = prod('0.7.36', commit);
+  const pf = poolFile({ lastProd: '0.7.35', items: [item('A', 1, 'pending'), item('B', 2, 'pending')] });
+  try {
+    const r = tool.syncWithProd(tool.readPool(pf.file), pf.file, p.env, dir);
+    assert.equal(r.ok, true, r.because);
+    assert.deepEqual(JSON.parse(fs.readFileSync(pf.file, 'utf8')).items.map((i) => i.status), ['shown', 'pending']);
+    assert.doesNotMatch(r.note, /If a version between/, '0.7.35 -> 0.7.36 has nothing between them');
+    // A dirty build's commit is not what shipped.
+    fs.writeFileSync(path.join(p.dir, 'kosmos-0.7.36-arm64.manifest.json'), JSON.stringify({ version: '0.7.36', app: { commit, dirty: true } }));
+    const d = tool.syncWithProd(tool.readPool(pf.file), pf.file, p.env, dir);
+    assert.equal(d.ok, true, 'CONTROL: already recorded, so no read happens');
+    const pf2 = poolFile({ lastProd: '0.7.35', items: [item('A', 1, 'pending')] });
+    const d2 = tool.syncWithProd(tool.readPool(pf2.file), pf2.file, p.env, dir);
+    assert.equal(d2.ok, false);
+    assert.match(d2.because, /changed tree/);
+    cleanup(pf2.dir);
+  } finally { cleanup(dir, p.dir, pf.dir); }
+});
+
+test('#5713 review 3: each command takes only its own flags', () => {
+  const pf = poolFile({ lastProd: '0.7.35', items: [item('A', 1, 'pending')] });
+  try {
+    assert.equal(quiet(() => tool.main(['build', '0.7.36', '--none', `--pool=${pf.file}`])).code, 2);
+    assert.equal(quiet(() => tool.main(['shown', '0.7.36', '--promoted', '--none', '--offline', `--pool=${pf.file}`])).code, 2);
+    assert.equal(JSON.parse(fs.readFileSync(pf.file, 'utf8')).lastProd, '0.7.35', 'a refused command wrote the pool');
   } finally { cleanup(pf.dir); }
 });

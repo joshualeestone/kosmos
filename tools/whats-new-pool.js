@@ -155,36 +155,66 @@ function writePool(pool, poolFile) {
    the manifest names the app commit that build was cut from (the cut's frozen sha). KOSMOS_PROD_POINTER_URL points
    elsewhere for a test (curl reads file:// too). { ok, version, commit } or { ok: false, because }. */
 const PROD_POINTER_URL = 'https://installkosmos.com/dist/latest.json';
-function servedProd(env = process.env) {
-  const { execFileSync } = require('node:child_process');
+const fetchJson = (u) => JSON.parse(require('node:child_process').execFileSync('curl', ['-sfL', '--max-time', '20', u],
+  { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 16 << 20 }));
+/* The prod pointer alone: { ok, version, manifest, url } (review 3: prod-check needs only the version). */
+function servedPointer(env = process.env) {
   const url = env.KOSMOS_PROD_POINTER_URL || PROD_POINTER_URL;
-  const get = (u) => JSON.parse(execFileSync('curl', ['-sfL', '--max-time', '20', u], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 16 << 20 }));
   let ptr;
-  try { ptr = get(url); } catch { return { ok: false, because: 'could not read what prod serves (' + url + ')' }; }
-  if (!ptr || typeof ptr.version !== 'string' || !/^\d+\.\d+\.\d+$/.test(ptr.version) || typeof ptr.manifest !== 'string' || /[/\\]|\.\./.test(ptr.manifest)) {
-    return { ok: false, because: 'the prod pointer (' + url + ') names no version and manifest we can read' };
+  try { ptr = fetchJson(url); } catch { return { ok: false, because: 'could not read what prod serves (' + url + ')' }; }
+  if (!ptr || typeof ptr.version !== 'string' || !/^\d+\.\d+\.\d+$/.test(ptr.version)) {
+    return { ok: false, because: 'the prod pointer (' + url + ') names no version we can read' };
+  }
+  return { ok: true, version: ptr.version, manifest: ptr.manifest, url };
+}
+function servedProd(env = process.env) {
+  const p = servedPointer(env);
+  if (!p.ok) return p;
+  const ptr = p, url = p.url, get = fetchJson;
+  if (typeof ptr.manifest !== 'string' || !/^[A-Za-z0-9._-]+$/.test(ptr.manifest) || /\.\./.test(ptr.manifest)) {
+    return { ok: false, because: 'the prod pointer (' + url + ') names no manifest we can read' };
   }
   const mUrl = url.replace(/[^/]*$/, '') + ptr.manifest;
   let man;
   try { man = get(mUrl); } catch { return { ok: false, because: 'could not read prod\'s manifest (' + mUrl + ')' }; }
   const commit = man && man.app && typeof man.app.commit === 'string' && /^[0-9a-f]{7,40}$/.test(man.app.commit) ? man.app.commit : null;
   if (!commit) return { ok: false, because: 'prod\'s manifest (' + mUrl + ') names no app commit' };
+  // Review 3: a build from a dirty tree is not exactly its commit, so what it showed cannot be read from history.
+  if (man.app.dirty === true) return { ok: false, because: 'prod\'s manifest (' + mUrl + ') says its build was made from a changed tree, so its commit is not what shipped' };
   return { ok: true, version: ptr.version, commit };
 }
 
 /* #5713: before a build, bring the pool up to what Mac PROD has shown, so a promote needs no hand step: if prod serves a
    version newer than the pool's lastProd, its highlights (read at that build's own commit) are marked shown and the
    pool is written. Refuses, writing nothing, when that cannot be done exactly. { ok, note } or { ok: false, because }. */
+/* Review 3: is b the very next patch after a (no version can sit between them)? */
+function nextPatch(a, b) {
+  const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number);
+  return x[0] === y[0] && x[1] === y[1] && y[2] === x[2] + 1;
+}
+
 function syncWithProd(pool, poolFile, env = process.env, root = ROOT) {
-  const served = servedProd(env);
-  if (!served.ok) return { ok: false, because: served.because + '. Build again when the site answers, or pass --offline and run shown by hand after the next prod promote' };
-  if (pool.lastProd && newerFirst(served.version, pool.lastProd) >= 0) {
-    return { ok: true, note: 'prod serves ' + served.version + '; the pool already records prod ' + pool.lastProd };
+  // Review 3: the version first; the manifest (and its commit) only when there is something to record.
+  const ptr = servedPointer(env);
+  if (!ptr.ok) return { ok: false, because: ptr.because + '. Build again when the site answers, or pass --offline (the cut\'s prod-check then holds it until the pool is current)' };
+  if (pool.lastProd && newerFirst(ptr.version, pool.lastProd) >= 0) {
+    return { ok: true, note: 'prod serves ' + ptr.version + '; the pool already records prod ' + pool.lastProd };
   }
-  const obj = fromHistory(served.version, root, served.commit);
+  const served = servedProd(env);
+  if (!served.ok) return { ok: false, because: served.because + '. Build again when the site answers, or pass --offline (the cut\'s prod-check then holds it until the pool is current)' };
+  /* Review 3: a release can carry its What's New through another version's file whose "also" lists it (as the cut's
+     check accepts); the Mac showed those highlights, so they count. */
+  let obj = fromHistory(served.version, root, served.commit);
+  if (!obj) {
+    try {
+      const f = JSON.parse(require('node:child_process').execFileSync('git', ['-C', root, 'show', served.commit + ':web/whats-new.json'],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 << 20 }));
+      if (f && Array.isArray(f.also) && f.also.includes(served.version) && Array.isArray(f.highlights)) obj = { version: served.version, highlights: f.highlights };
+    } catch { obj = null; }
+  }
   if (!obj) {
     return { ok: false, because: 'prod serves ' + served.version + ' (cut from ' + served.commit + '), but this checkout has no What\'s New for it at that commit.'
-      + ' git fetch, then build again; or, if ' + served.version + ' shipped with no highlights (a cut with KOSMOS_CUT_NO_WHATS_NEW=1), record it with'
+      + ' git fetch, then build again; or, ONLY if ' + served.version + ' shipped with no What\'s New at all (a cut with KOSMOS_CUT_NO_WHATS_NEW=1), record it with'
       + ' node tools/whats-new-pool.js shown ' + served.version + ' --promoted --none' };
   }
   const before = pool.lastProd || null;
@@ -196,7 +226,7 @@ function syncWithProd(pool, poolFile, env = process.env, root = ROOT) {
   return { ok: true, wrote: served.version, note: 'prod serves ' + served.version + ': ' + r.marked + ' highlight(s) marked shown there'
     + (r.marked === 0 ? ' (every one was already recorded, or is Windows-only)' : '')
     + ', and the pool now records it (commit release/whats-new-pool.json with the build)'
-    + (before ? '. If a version between ' + before + ' and ' + served.version + ' also reached prod, record it with: node tools/whats-new-pool.js shown <that version> --promoted --from-history --ref=<its commit>' : '')
+    + (before && !nextPatch(before, served.version) ? '. If a version between ' + before + ' and ' + served.version + ' also reached prod, record it with: node tools/whats-new-pool.js shown <that version> --promoted --from-history --ref=<its commit>' : '')
     + (env.KOSMOS_PROD_POINTER_URL ? ' [prod read from ' + env.KOSMOS_PROD_POINTER_URL + ']' : '') };
 }
 
@@ -210,16 +240,23 @@ function main(argv) {
   // Only --name=value flags this tool knows: a typo (`--outt=`) or `--max 4` must not silently do something else.
   const unknown = argv.filter((a) => a.startsWith('--') && !/^--(max|pool|out|from|ref)=./.test(a) && a !== '--promoted' && a !== '--from-history' && a !== '--offline' && a !== '--none');
   if (unknown.length) {
-    process.stderr.write('unknown or malformed option(s): ' + unknown.join(' ') + ' (use --max=N, --pool=FILE, --out=FILE, --from=FILE, --from-history, --ref=COMMIT, --promoted, --offline)\n');
+    process.stderr.write('unknown or malformed option(s): ' + unknown.join(' ') + ' (use --max=N, --pool=FILE, --out=FILE, --from=FILE, --from-history, --ref=COMMIT, --promoted, --offline, --none)\n');
     return 2;
   }
   const positional = argv.filter((a) => !a.startsWith('--'));
+  // Review 3: each command's own flags only.
+  const wrongFor = (cmd0) => (cmd0 === 'build' ? ['--promoted', '--from-history', '--none'] : cmd0 === 'shown' ? ['--offline'] : ['--promoted', '--from-history', '--none', '--offline']);
+  const misplaced = wrongFor(positional[0]).filter((f) => argv.includes(f));
+  if (misplaced.length) {
+    process.stderr.write(misplaced.join(' ') + ' does not go with ' + (positional[0] || 'that') + '; nothing done\n');
+    return 2;
+  }
   /* #5713 review 1: `prod-check` is the cut's read-only check (release.sh 1b-ii): 0 when the pool records what Mac prod
      serves (or newer), 3 when prod is newer (a promote since the last build: build again and commit the pool),
      4 when prod cannot be read. Writes nothing. */
   if (positional.length === 1 && positional[0] === 'prod-check') {
     const pool = readPool(opt(argv, 'pool', POOL));
-    const served = servedProd();
+    const served = servedPointer();   // review 3: the version is all this check needs
     if (!served.ok) { process.stderr.write(served.because + '\n'); return 4; }
     if (pool.lastProd && newerFirst(served.version, pool.lastProd) >= 0) {
       process.stdout.write('the pool records prod ' + pool.lastProd + '; prod serves ' + served.version + '\n');
@@ -232,7 +269,7 @@ function main(argv) {
   }
   const [cmd, version] = positional;
   if (positional.length !== 2 || !['build', 'shown'].includes(cmd) || !version || !whatsnew.VERSION_RE.test(version)) {
-    process.stderr.write('usage: node tools/whats-new-pool.js build|shown <version like 0.7.36> [--max=5] [--pool=<file>] [--out=<file>] [--promoted] [--from-history --ref=<frozen sha> | --from=<file>]\n');
+    process.stderr.write('usage: node tools/whats-new-pool.js prod-check | build|shown <version like 0.7.36> [--max=5] [--pool=<file>] [--out=<file>] [--promoted] [--from-history --ref=<frozen sha> | --from=<file>]\n');
     return 2;
   }
   const poolFile = opt(argv, 'pool', POOL);
@@ -348,4 +385,4 @@ if (require.main === module) {
   }
   process.exit(code);
 }
-module.exports = { main, choose, readPool, newerFirst, fromHistory, markShown, servedProd, syncWithProd, PROD_POINTER_URL };
+module.exports = { main, choose, readPool, newerFirst, fromHistory, markShown, servedPointer, servedProd, syncWithProd, PROD_POINTER_URL };
