@@ -53,3 +53,10 @@ For an agent listed token-only, its page shows a notice when the last guard run 
   - other rule kinds (Write, Bash) are not counted, as sandboxDenySize documents;
   - the reason text is the person's own machine's paths, shown on their own board;
   - the route reads two small files per poll.
+
+## Review 3 (Opus) and what changed
+- **A board start replaced a launch's verdict.** It measures the board's own PATH, not the one the agent was launched with. So after a board restart under a running agent, a launch's "not whole" became "ok" and the notice went. A board-start run now records only an agent with no line yet; a launch (what the running agent has) and creation always record. Tested with a control that a board start records a new agent; two mutations red.
+- **The #4491 doc comment on `guardTokenOnlyFolder` had been deleted by my review-1 edit** (its contract and its NOT A BOUNDARY residuals). It is restored verbatim, with one line saying the result is now recorded.
+- The default account's file is read only through `trust.defaultAgentSettings`; the test-only `home` branch is gone, so the test runs the production path (mutation red).
+- Pruning reads the folder's own listing, so a malformed file for an unlisted agent goes. It also re-reads the list just before it prunes; that re-read is not staged by a test.
+- A reason that already ends in a full stop gets no second one (browser-check arm).

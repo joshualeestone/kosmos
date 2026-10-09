@@ -38755,7 +38755,7 @@ function paintDetailState(card) {
     const parts = [];
     if (g && g.state === 'notWhole') {
       parts.push(a.name + ' is set to keep the board token out of its reach, but that protection is not complete'
-        + (g.because ? ': ' + g.because + '.' : '.'));
+        + (g.because ? ': ' + g.because + (/[.!?]$/.test(g.because) ? '' : '.') : '.'));
     }
     if (g && g.warning) {
       parts.push((g.state === 'notWhole' ? 'Also, its' : a.name + '\u2019s protection is in place, but its')

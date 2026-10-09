@@ -1347,7 +1347,15 @@ function forgetGuardState(agentName, deps = {}) {
 }
 function pruneGuardState(keepNames, deps = {}) {
   const keep = new Set(keepNames);
-  for (const n of Object.keys(readGuardState(deps))) if (!keep.has(n)) forgetGuardState(n, deps);
+  let files;
+  try { files = fs.readdirSync(guardStateDir(deps)); } catch { return; }
+  for (const f of files) {
+    if (!f.endsWith('.json')) continue;
+    let name = null;
+    try { name = decodeURIComponent(f.slice(0, -5)); } catch { name = null; }
+    // Review 3: by the folder's own listing, so a malformed file for an agent no longer listed goes too.
+    if (name === null || !keep.has(name)) { try { fs.unlinkSync(path.join(guardStateDir(deps), f)); } catch { /* gone */ } }
+  }
 }
 function recordGuardState(agentName, r, deps = {}) {
   try {
@@ -1383,12 +1391,43 @@ function accountSettingsFile(agentName, deps = {}) {
   let dir = deps.accountConfigDir;
   if (dir === undefined) { try { const job = create.readJob(agentName); dir = job && job.configDir; } catch { dir = null; } }
   if (dir) return path.join(dir, 'settings.json');
-  if (deps.home) return path.join(deps.home, '.claude', 'settings.json');   // a test's home
   return require('./trust').defaultAgentSettings();
 }
+/*
+ * #4491: write a token-only agent's <folder>/.claude/settings.json so a sandboxed shell in it cannot
+ * read board.token and cannot turn its own guard off, while its normal work (its own data folder, the
+ * loopback board, the network) still works. Mirrors guardGuideFolder's read-merge-write (preserve a
+ * person's own rules, idempotent, never throw, tmp+rename). On macOS (where Claude Code's sandbox is
+ * Seatbelt and this was measured) the sandbox block applies the same deny paths to every subprocess;
+ * the filesystem.denyWrite is what stops a shell `printf > settings.json` that the permission Edit-deny
+ * alone does not (measured, this branch's spike arm 3). It denies the AGENT's own .claude DIR (safe:
+ * Claude Code writes no runtime state there) but only the specific settings FILES under the config home
+ * ~/.claude (NOT the whole dir: that holds Claude Code's own session/config state, so a dir-level
+ * denyWrite there would break normal operation). Every ~/.claude-<label> account home that EXISTS when the
+ * guard is written gets the same concrete settings-file denies in both layers (tokenOnlySettingsRules); a
+ * home made later is covered only by the permission-layer ~/.claude-* glob until the next board start
+ * rewrites the guard. The board.token temp copy is covered by the permission-layer Read deny, which Seatbelt
+ * translates to subprocesses (measured for the guide: its permission Read-glob blocked a subprocess read
+ * with EPERM). The person's own user settings are never edited; refreshTokenOnlyGuards logs any sandbox
+ * key there that weakens this guard (review 21). allowUnsandboxedCommands false stops a
+ * refused command being re-run with dangerouslyDisableSandbox (every Kosmos agent runs
+ * --dangerously-skip-permissions); allowLocalBinding true keeps the loopback board reachable.
+ *
+ * NOT A BOUNDARY, honestly (#4491 review WARNING 2): this raises the bar for an agent's shell and its file
+ * tools. It does not shut out a determined agent running as the same Mac user, managed settings or not:
+ * the file tools can still rewrite a hook script its settings already run, its own launch job or the
+ * supervisor script, or drop a LaunchAgent that runs at next login, and a hardlink of the token outside
+ * the denied path is a further residual. Root-owned MANAGED settings (an admin step, parked on the card)
+ * stop it editing this guard away, nothing more. refreshTokenOnlyGuards warns when they are absent.
+ * { ok: true } | { ok: false, because }, either with `warning` when the deny paths pass the measured sandbox ceiling
+ * (#5663: the guard is still whole; the agent's shell may not run). Never throws.
+ * #5668: every run's result is recorded per agent (recordGuardState) for the agent's page.
+ */
 function guardTokenOnlyFolder(dir, agentName, deps = {}) {
   const r = guardTokenOnlyFolderNow(dir, agentName, deps);
-  recordGuardState(agentName, r, deps);
+  /* Review 3: a board-start run measures the board's own PATH, not the one the agent was launched with, so it records
+     only an agent with no line yet; a launch (what the running agent has) and creation always record. */
+  if (!(deps.boardStart && fs.existsSync(guardStateFileFor(agentName, deps)))) recordGuardState(agentName, r, deps);
   return r;
 }
 function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
@@ -1604,7 +1643,8 @@ function refreshTokenOnlyGuards(deps = {}) {
   let names;
   try { names = require('./sendertoken').tokenOnlyList(); } catch { return out; }   // the roster's own reader (#4491)
   // Review 22: the supervisor guards ONE listed agent at its launch (a name listed after board start), not them all.
-  if (deps.only) { names = names.filter((n) => n === deps.only); deps = { ...deps, atLaunch: true }; }   // review 23: notes said at board start, not each launch
+  if (deps.only) { names = names.filter((n) => n === deps.only); deps = { ...deps, atLaunch: true }; }
+  else deps = { ...deps, boardStart: true };   // #5668 review 3: its record does not replace a launch's   // review 23: notes said at board start, not each launch
   if (!(deps.launchCache instanceof Map)) deps = { ...deps, launchCache: new Map() };   // #5516: one PATH scan per pass
   const toDir = deps.workerDir || create.workerDir;
   for (const name of names) {
@@ -1619,8 +1659,9 @@ function refreshTokenOnlyGuards(deps = {}) {
     const g = exists ? guardTokenOnlyFolder(dir, name, { ...deps, runner }) : { ok: false, because: 'no agent folder yet' };
     if (g.ok) out.guarded.push(name); else out.unguarded.push({ name, because: g.because });
   }
-  // #5668 review 1: at board start (the whole list), lines for agents no longer listed leave the record.
-  if (!deps.only) pruneGuardState(names, deps);
+  // #5668 review 1: at board start (the whole list), lines for agents no longer listed leave the record. The list is read
+  // again here (review 3), so an agent listed during this pass keeps the line its launch just wrote.
+  if (!deps.only) { try { pruneGuardState(require('./sendertoken').tokenOnlyList(), deps); } catch { /* best effort */ } }
   /* Review 21: the person's own user settings (~/.claude, ~/.claude-<label>) also reach a token-only agent. They are
      the person's, so the guard never edits them; it says when one holds a key that weakens the sandbox. Board start
      only, not at each launch (review 22). */

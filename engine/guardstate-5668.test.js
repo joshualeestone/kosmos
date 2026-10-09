@@ -184,3 +184,33 @@ test('#5668 review 2: each agent\'s line is its own file (a run writes only its 
   assert.equal(setup.readGuardState()['gs-a'], undefined, 'a listed agent with no folder kept its old line');
   assert.ok(setup.readGuardState()['gs-b'], 'CONTROL: the other agent\'s line stays');
 });
+
+test('#5668 review 3: a board start does not replace a launch\'s not-whole line (it measures the board\'s PATH, not the agent\'s), but records an agent with no line', () => {
+  const sendertoken = require('./sendertoken');
+  const empty = path.join(SANDBOX, 'accounts', 'bs');
+  fs.mkdirSync(empty, { recursive: true });
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['gs-bs', 'gs-new'] }) + '\n');
+  // The launch's run said not whole (here: a runner the guard cannot cover).
+  setup.guardTokenOnlyFolder(agentDir('gs-bs'), 'gs-bs', { ...BASE, runner: 'codex', runnerOf: () => 'codex', accountConfigDir: empty, atLaunch: true });
+  assert.equal(setup.readGuardState()['gs-bs'].ok, false, 'CONTROL: the launch recorded not whole');
+  agentDir('gs-new');
+  quiet(() => setup.refreshTokenOnlyGuards({ ...BASE, accountConfigDir: empty, workerDir: (n) => path.join(SANDBOX, 'workers', n) }));
+  const rec = setup.readGuardState();
+  assert.equal(rec['gs-bs'].ok, false, 'a board start replaced the launch\'s not-whole line with its own reading');
+  assert.equal(rec['gs-new'].ok, true, 'CONTROL: a board start records an agent with no line yet');
+});
+
+test('#5668 review 3: pruning reads the folder itself, so a malformed file for an unlisted agent goes (the re-read of the list just before pruning is not staged here)', () => {
+  const sendertoken = require('./sendertoken');
+  const dir = path.join(store.ROOT, setup.GUARD_STATE_DIR);
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'gs-junk.json'), '{nope');
+  fs.writeFileSync(path.join(dir, 'gs-later.json'), JSON.stringify({ ok: true, at: 't' }));
+  // The list names gs-later; the pass itself guards nobody (no folders), and prunes against the list read now.
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['gs-later'] }) + '\n');
+  quiet(() => setup.refreshTokenOnlyGuards({ ...BASE, workerDir: () => null }));
+  const left = fs.readdirSync(dir).sort();
+  assert.ok(!left.includes('gs-junk.json'), 'a malformed file for an unlisted agent stayed: ' + left.join(','));
+  // gs-later has no folder, so its line goes too (review 2); listed agents with a folder keep theirs (tested above).
+});

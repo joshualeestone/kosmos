@@ -116,6 +116,12 @@ async function notice(page, shown) {
         const both = await notice(page, 'Tamsin');
         chk(both.hidden === false && both.text.includes('not complete') && both.text.includes(BECAUSE) && /Also, its list of blocked paths/.test(both.text),
           `${engineName}: not whole and past the size says both, the size as "Also"`, JSON.stringify(both));
+        // A reason that already ends in a full stop (an error message) gets no second one (review 3).
+        record({ tokwhole: { ok: false, because: 'the guard could not be written.', at: AT }, tokwarn: { ok: true, warning: 'past', at: AT }, tokgood: { ok: true, at: AT } });
+        await page.goto(URL);
+        await page.waitForSelector('.acard .namego', { timeout: 20000 });
+        const dot = await notice(page, 'Tamsin');
+        chk(dot.hidden === false && dot.text.includes('could not be written.') && !dot.text.includes('..'), `${engineName}: a reason ending in a full stop is not given a second one`, JSON.stringify(dot));
         chk(errs.length === 0, `${engineName}: no page errors`, errs.join(' | '));
       } finally { await browser.close(); }
     }
