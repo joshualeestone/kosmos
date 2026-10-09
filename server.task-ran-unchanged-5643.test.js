@@ -38,7 +38,7 @@ const ran = async (id, n, body) => {
   return { status: res.status, json: await res.json().catch(() => null) };
 };
 
-test('#5643: the ran route records an unchanged run from the screen, and refuses unchanged that is not true or false', async () => {
+test('#5643: the ran route records an unchanged run (sent as the screen sends a request), and refuses unchanged that is not true or false', async () => {
   const p = projects.create({ name: 'Ran route' });
   const n = tasks.create(p.id, { sentence: 'Watch it' }).number;
   tasks.setRepeat(p.id, n, { every: 'hour' });

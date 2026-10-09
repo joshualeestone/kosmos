@@ -1,4 +1,4 @@
-// Browser-check-surface: tk-activity tkActRowsHtml paintTaskActivity tkActPhrase tk-repeat-line tskRepeatSentence tkPaintRepeat
+// Browser-check-surface: tk-activity tkActRowsHtml paintTaskActivity TK_OPEN tkActPhrase tk-repeat-line tskRepeatSentence tkPaintRepeat
 'use strict';
 /**
  * A recurring task's runs that found nothing new, on the task's page (kosmos#5643).
@@ -6,7 +6,8 @@
  * What this pins, and why each line can fail:
  *  - R1 the history rolls each streak of 2 or more unchanged runs into ONE row ("3 runs found nothing new"), and keeps
  *    the runs that changed something as rows of their own, in order,
- *  - R2 a rolled-up row starts closed and opens to show each run, with its own words,
+ *  - R2 a rolled-up row starts closed and opens to show each run, with its own words; R2b a redraw of the history keeps
+ *    it open (and the other closed),
  *  - R3 the repeat line (the status card) says how many runs in a row found nothing new and what the last change was,
  *  - R4 a CONTROL task whose runs all changed something has no rolled-up row and no "nothing new" words,
  *  - R5 light 1400 and dark 390, no sideways scroll and no page errors. Screenshots go to $SHOTS when it is set.
@@ -51,13 +52,14 @@ function chk(ok, label, extra) {
   projects.addAgent(watch.id, 'ada', null);
   const HOUR = 3600000;
   const top = Math.floor(Date.now() / HOUR) * HOUR;   // this hour, on the hour: no run is late
-  // 1: the task under test. A change, 3 unchanged, a change, 2 unchanged (the flag, then the same note).
+  // 1: the task under test. A change, 3 unchanged, a change, 2 unchanged (the flag, then the same note). The repeated
+  // note has no digit in it: a repeated count is never taken as unchanged (review 1).
   tasks.create(watch.id, { sentence: 'Check the price list', who: 'ada' });
   tasks.setRepeat(watch.id, 1, { every: 'hour' });
   tasks.recordRun(watch.id, 1, 'ada', 'two prices went up', top - 6 * HOUR);
-  tasks.recordRun(watch.id, 1, 'ada', 'checked 40 items', top - 5 * HOUR, { unchanged: true });
-  tasks.recordRun(watch.id, 1, 'ada', 'checked 40 items', top - 4 * HOUR);   // the same note: unchanged
-  tasks.recordRun(watch.id, 1, 'ada', 'checked 40 items', top - 3 * HOUR);
+  tasks.recordRun(watch.id, 1, 'ada', 'checked every item', top - 5 * HOUR, { unchanged: true });
+  tasks.recordRun(watch.id, 1, 'ada', 'checked every item', top - 4 * HOUR);   // the same note: unchanged
+  tasks.recordRun(watch.id, 1, 'ada', 'checked every item', top - 3 * HOUR);
   tasks.recordRun(watch.id, 1, 'ada', 'one supplier is out of stock', top - 2 * HOUR);
   tasks.recordRun(watch.id, 1, 'ada', 'all clear', top - 1 * HOUR, { unchanged: true });
   tasks.recordRun(watch.id, 1, 'ada', 'all clear', top);
@@ -109,8 +111,15 @@ function chk(ok, label, extra) {
         const box = d.querySelector('.tkact-rows .tkact');
         return { open: d.open, rows, visible: !!box && box.getBoundingClientRect().height > 0 };
       });
-      chk(opened.open && opened.visible && opened.rows.length === 3 && opened.rows.every((r) => /nothing new: checked 40 items/.test(r)),
+      chk(opened.open && opened.visible && opened.rows.length === 3 && opened.rows.every((r) => /nothing new: checked every item/.test(r)),
         `${tag} R2 pressing it shows each run with its words`, JSON.stringify(opened));
+      // R2b (review 1): a redraw of the history (after an action on the task) keeps open the rollup the person opened.
+      const kept = await page.evaluate(async () => {
+        await paintTaskActivity(TK_OPEN);
+        const rolls = [...document.querySelectorAll('#tk-activity details.tkact-roll')];
+        return rolls.map((d) => d.open);
+      });
+      chk(JSON.stringify(kept) === '[true,false]', `${tag} R2b a redraw keeps the opened rollup open, and the other closed`, JSON.stringify(kept));
       const line = await page.evaluate(() => { const l = document.getElementById('tk-repeat-line'); return l && !l.hidden ? l.textContent : null; });
       chk(/The last 2 runs found nothing new; the last change was .*: one supplier is out of stock\./.test(line || ''),
         `${tag} R3 the status line says the streak and the last change`, String(line));

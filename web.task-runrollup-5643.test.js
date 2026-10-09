@@ -17,7 +17,7 @@ const run = (minAgo, extra) => ({ kind: 'run', at: new Date(NOW - minAgo * 60000
 test('#5643: two or more unchanged runs in a row are ONE row that opens to show each; changes keep their own rows', () => {
   const events = [run(300, { note: 'found 3 new' }), run(240, { unchanged: true, note: 'all clear' }), run(180, { unchanged: true, note: 'all clear' }), run(120, { unchanged: true, note: 'all clear' }), run(60, { note: 'one is down' })];
   const html = lib.tkActRowsHtml(events, P, NOW);
-  assert.equal((html.match(/<details class="tkact-roll">/g) || []).length, 1, 'the three unchanged runs are not one rolled-up row');
+  assert.equal((html.match(/<details class="tkact-roll"/g) || []).length, 1, 'the three unchanged runs are not one rolled-up row');
   assert.match(html, /3 runs found nothing new/);
   assert.equal((html.match(/class="tkact"/g) || []).length, 1 + 3 + 1 + 1, 'each run is still inside the rollup, and the two changes stand alone');
   assert.ok(html.indexOf('found 3 new') < html.indexOf('tkact-roll') && html.indexOf('tkact-roll') < html.indexOf('one is down'), 'the order changed');
@@ -39,6 +39,10 @@ test('#5643: the status line says how many runs in a row found nothing new and w
   assert.match(s, /The last 12 runs found nothing new; the last change was 12 hours ago: found 3 new\./, s);
   assert.match(s, /Next at 1am\.$/);
   assert.match(lib.tskRepeatSentence({ ...t, unchangedRuns: 1 }, NOW), /It found nothing new;/);
+  // Review 1: when the change's note is the last run's (the same note, repeated), it is said once.
+  const once = lib.tskRepeatSentence({ ...t, lastChangeNote: 'all clear' }, NOW);
+  assert.equal((once.match(/all clear/g) || []).length, 1, once);
+  assert.match(once, /the last change was 12 hours ago\./);
   const plain = lib.tskRepeatSentence({ ...t, unchangedRuns: undefined }, NOW);
   assert.doesNotMatch(plain, /nothing new/, 'a task with no unchanged runs got the rollup words');
 });

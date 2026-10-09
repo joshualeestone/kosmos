@@ -41,7 +41,8 @@ function withStub(fn) {
         let body; try { body = JSON.parse(raw); } catch { body = { unparseable: raw }; }
         seen.push({ route: req.url, body });
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ task: { number: 3 } }));
+        // As the board answers: the stored task, which says whether the run was unchanged (the flag, or the same note).
+        res.end(JSON.stringify({ task: { number: 3, lastRunUnchanged: body.unchanged === true || body.note === 'same as before' } }));
       });
       return;
     }
@@ -68,7 +69,11 @@ async function win(argv) {
     env: { KOSMOS_AGENT_TOKEN: TOKEN },
     hook: { resolveUrl: () => 'http://127.0.0.1:1', readBoardToken: () => 'cd'.repeat(32), agentToken: realHook.agentToken },
     out: (s) => out.push(s), err: (s) => err.push(s),
-    fetch: async (url, init) => { calls.push({ route: url.replace('http://127.0.0.1:1', ''), body: init.body ? JSON.parse(init.body) : undefined }); return { status: 200, text: async () => JSON.stringify({ task: { number: 3 } }) }; },
+    fetch: async (url, init) => {
+      const body = init.body ? JSON.parse(init.body) : undefined;
+      calls.push({ route: url.replace('http://127.0.0.1:1', ''), body });
+      return { status: 200, text: async () => JSON.stringify({ task: { number: 3, lastRunUnchanged: !!body && (body.unchanged === true || body.note === 'same as before') } }) };
+    },
   });
   return { code, calls, out: out.join('\n') + err.join('\n') };
 }
@@ -100,4 +105,13 @@ test('Windows CLI: the same', async () => {
   assert.doesNotMatch(plain.out, /nothing new/);
   const words = await win(['task', 'ran', 'p1', '3', '--', '--unchanged']);
   assert.deepEqual([words.calls[0].body.unchanged, words.calls[0].body.note], [false, '--unchanged']);
+});
+
+test('review 1: both CLIs say a run found nothing new when the BOARD counted it so (the same note, no flag)', async () => {
+  const home = makeHome();
+  await withStub(async (port) => {
+    const r = await sh(port, home, ['task', 'ran', 'p1', '3', 'same as before']);
+    assert.match(r.out, /that found nothing new/, r.out);
+  });
+  assert.match((await win(['task', 'ran', 'p1', '3', 'same as before'])).out, /that found nothing new/);
 });
