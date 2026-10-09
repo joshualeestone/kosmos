@@ -536,7 +536,7 @@ async function enrollNow(code, accepted, opts) {
   setStopped(null, opts); setLeaveRefused(null, opts); setJoinUnknown(null, opts);
   /* #5534 review 3: joined to another company than the policy in force here (a move by code): the old company's policy
      ends now, whether or not the follow-up refresh reaches the new company. */
-  try { const had = policyMod(opts).appliedOrg(); if (had && had !== org.id) policyMod(opts).clear(); } catch { /* best effort */ }
+  endForeignPolicy(opts, org && org.id);
   return { ok: true, ...rec };
 }
 
@@ -655,7 +655,7 @@ async function settleUnknownJoin(unsure, opts) {
     try { writeEnrollment(rec, opts); } catch { setJoinUnknown(unsure, opts); return { ok: false, enrolled: false, because: "This Kosmos's data folder could not be written." }; }
     setStopped(null, opts);
     setLeavePending(false, opts);   // joined again after an unconfirmed leave: that old leave must never be sent now (review 35)
-    const policy = applyPolicy(d.policy, opts, org.id);   // #5534 review 1: the settled join's answer carries the policy too
+    const policy = takePolicy(d, opts, org.id);   // #5534 review 1: the settled join's answer carries the policy too
     return { ok: true, enrolled: true, member: true, ...rec, ...(policy ? { policy } : {}) };
   }
   if (verdict === 'notHere' && !unsure.move && namesThisWorld(d, world)) {
@@ -773,9 +773,12 @@ async function leaveNow(opts, retry) {
     if (back && !back.computerSalt && pf0 && back.org && pf0.orgId === back.org.id) { back.computerSalt = pf0.salt; if (pf0.pinned === true) back.printPinned = true; }
     let kept = false;
     if (back) { try { writeEnrollment(back, opts); kept = true; } catch { /* below */ } }
-    // #5534 review 2: still enrolled, so the company's policy (cleared with the record above) comes back from this answer.
-    if (kept && back.org && !applyPolicy(d.policy, opts, back.org.id) && !('policy' in d)) {
+    /* #5534 reviews 2 and 4: still enrolled, so the policy cleared with the record above comes back first, then this
+       answer's is taken over it as on any refresh: a newer one applies, a refused one leaves the restored one in force,
+       none (null) clears it, and one of another company than the record's is ended. */
+    if (kept && back.org) {
       try { policyMod(opts).restore(heldPolicy); } catch { /* best effort */ }
+      takePolicy(d, opts, back.org.id);
     }
     setLeavePending(!kept, opts, back, undo, hashBefore);
     // Told "stopped" (or "not reporting") earlier: say once that it reports again, in words for what was refused (reviews 27, 31).
@@ -847,11 +850,7 @@ async function refreshNow(opts) {
   /* Review 3: a policy of another company than this answer's: it ends BEFORE the new one is applied, so a bundle of
      the new company's that is refused leaves no policy rather than the old company's. Keyed on the policy's own
      company, not the record's, so a move by code that never cleared is caught here too. */
-  if (saved) { try { const had = policyMod(opts).appliedOrg(); if (had && had !== org.id) policyMod(opts).clear(); } catch { /* best effort */ } }
-  const policy = saved ? applyPolicy(d.policy, opts, org.id) : null;
-  /* Review 2: a policy is not kept past what the company serves. An answer saying none (policy: null, the company has
-     no policy) clears it. An answer from an older coordinator without the field changes nothing. */
-  if (saved && 'policy' in d && d.policy === null) { try { policyMod(opts).clear(); } catch { /* best effort */ } }
+  const policy = saved ? takePolicy(d, opts, org.id) : null;
   return { ok: true, enrolled: true, member: true, ...rec, ...(policy ? { policy } : {}) };
 }
 
@@ -860,6 +859,23 @@ async function refreshNow(opts) {
    AGAIN against the pinned coordinator key and refuses a forged, tampered, expired or older one, keeping the last good
    one in force. { version, refused } or null when the answer carried no policy. Never throws: a policy that cannot be
    saved or applied leaves the enrollment as it is, and the next refresh (on start and daily) tries again. */
+/* #5534 review 3: a policy of another company than `orgId` ends (a move, or a company change on the answer), so a
+   refused or missing bundle of the new company leaves no policy rather than the old company's. */
+function endForeignPolicy(opts, orgId) {
+  try { const had = policyMod(opts).appliedOrg(); if (had && had !== orgId) policyMod(opts).clear(); } catch { /* best effort */ }
+}
+
+/* The policy on a status answer `d` that confirmed this Kosmos as `orgId`'s, the same way on every path that has one
+   (refresh, a settled join, a refused leave; review 4). Another company's policy ends first (review 3). A bundle is
+   applied, or refused with the last good one kept. `policy: null` (the company has none) clears it (review 2). An
+   answer without the field, from an older coordinator, changes nothing. Returns what applyPolicy does. */
+function takePolicy(d, opts, orgId) {
+  endForeignPolicy(opts, orgId);
+  const policy = applyPolicy(d && d.policy, opts, orgId);
+  if (d && 'policy' in d && d.policy === null) { try { policyMod(opts).clear(); } catch { /* best effort */ } }
+  return policy;
+}
+
 function applyPolicy(token, opts, orgId) {
   if (typeof token !== 'string' || !token || token.length > 64 * 1024) return null;
   const orgpolicy = policyMod(opts);

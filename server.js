@@ -9924,7 +9924,8 @@ const server = http.createServer(async (req, res) => {
           if (spent) ORG_TICKET = null;   // one use
           r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true, spent ? { consentHash: spent.consentHash, consent: spent.consent, orgId: spent.orgId, computerSalt: spent.computerSalt, review: spent.review === true } : undefined);
           /* #5534 review 1: a fresh join fetches and applies the company's policy now, not at the next daily refresh.
-             Review 3: and the join answers once it has (up to 5 seconds), so no agent is made in between. */
+             Review 3: and the join answers once it has, waiting up to 5 seconds; a company slower than that gets its
+             policy applied when the fetch lands, and an agent made before then is not checked against it. */
           if (r && r.ok === true) {
             const fetched = orgEnrollRefresh();
             if (fetched) await Promise.race([fetched, new Promise((res) => setTimeout(res, 5000).unref())]);
