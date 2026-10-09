@@ -56,6 +56,9 @@ const POST_WORDS = Object.freeze({
   /* #5636 review 2: settleUnconfirmed also skips an agent with no key (none kept, or its name held by an earlier try),
      and the sweep sends nothing to an address it does not send to, so nothing asks; it may resume once that changes. */
   unconfirmed_unasked: 'sent, but the community did not confirm it, and Kosmos cannot ask about it just now; this line changes once it can. It may already be there, so do not post it again',
+  /* #5636 follow-up: taken back (by the agent or the person) while its send was unanswered: the sweep withholds it
+     before any resend, and a copy that did arrive may be out of reach (a lost or replaced registration). */
+  unconfirmed_taken_back: 'taken back, so it will not be sent again. Kosmos never heard whether it arrived; if it did, that copy may still be up',
   withheld: 'not sent: your person removed it before it went',
   refused: 'not sent: the community refused it',
   refused_empty: 'not sent: it had no text to send',
@@ -85,6 +88,7 @@ const COMMENT_WORDS = Object.freeze(Object.assign({}, POST_WORDS, {
   // can return must have words for both kinds (the coverage test reads them from the source).
   unconfirmed_refused: 'sent, but the community did not confirm it, and Kosmos has no way to ask about a comment later, so this will not change; it may already be there, so do not send it again',
   unconfirmed_unasked: 'sent, but the community did not confirm it, and Kosmos has no way to ask about a comment later, so this will not change; it may already be there, so do not send it again',
+  unconfirmed_taken_back: 'sent, but the community did not confirm it, and Kosmos has no way to ask about a comment later, so this will not change; it may already be there, so do not send it again',
 }));
 
 /* The send layer's files, read raw so a MISSING file (nothing recorded yet: empty) is told from a CORRUPT one (null:
@@ -141,6 +145,8 @@ function stateOf(kind, rec, item, ctx) {
     // #5636: a refused agent's unconfirmed post is never settled (settleUnconfirmed skips it), so it gets words that do not promise a check.
     // Review 1: the record's own agentRefused (statusOf reads it from rec.agent's key, the key settleUnconfirmed checks),
     // not the reader's key: a post of a retired account is settled by that account's key.
+    // #5636 follow-up: a take-back recorded while the send was unanswered wins: it says what will (not) happen next.
+    if (st === 'unconfirmed' && kind === 'post' && rec.deleteRequested) return 'unconfirmed_taken_back';
     if (st === 'unconfirmed' && kind === 'post' && rec.agentRefused) return 'unconfirmed_refused';
     // Review 2: nor is one asked about while the address is one Kosmos does not send to, or while the record's own agent
     // has no key (review 3: the record's, as for the refusal above, not the reader's: a retired account's post is asked

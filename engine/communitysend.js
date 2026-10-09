@@ -2141,7 +2141,9 @@ function withdrawFor(agentId, kind, id) {
        as never sent and send it again, a second public copy after the agent was told it could not take the first back.
        Recorded here, the sweep withholds it before any resend. What it cannot do is reach a copy that did arrive under
        the old account, and the answer says so (unconfirmed_keyless). */
-    if ((!k || !k.apiKey) && rec.state === 'pending' && rec.attempted) {
+    // Review 1: or a new key is held already (registered since, so the record names another registration): the next
+    // sweep settles it under the new account the same way and resends it.
+    if (rec.state === 'pending' && rec.attempted && (!k || !k.apiKey || knownOtherRegistration(rec, k))) {
       const taken = requestDelete(local);
       return taken.ok ? { ok: true, state: 'unconfirmed_keyless' } : taken;
     }

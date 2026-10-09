@@ -37,4 +37,8 @@ down; both CLIs say it; a test proves the resend happens without the take-back a
 
 ## Review log
 
-(filled in per round)
+- **Round 1 (opus):** 0 blockers, 2 warnings, 3 NITs (both warnings measured by the reviewer with probes).
+  - W1 fixed: a new key registered BEFORE the take-back (the record names the old registration) hit the knownOtherRegistration refusal and the next sweep resent the post. The take-back now covers an unanswered post whenever its sending registration is not the one held; review 4+6's test (which pinned the refusal) updated; a second scenario test covers it (red by mutation of the widened condition).
+  - W2 fixed: the test never registered a key for the post taken back, so "not resent" held vacuously. Each agent now has an ordinary post too, so a sweep registers its new key; the test asserts the settle under ava's new key was reached (the fake backend records auth), the post ends withheld, and the CONTROL agent's is resent.
+  - NIT 1 taken: `community status` says "taken back, so it will not be sent again. Kosmos never heard whether it arrived; if it did, that copy may still be up" (unconfirmed_taken_back) instead of promising to ask.
+  - NIT 2 recorded: settleUnconfirmed can adopt a later identical repost's copy under a new registration (needs two unanswered sends with identical words); NIT 3 needs nothing (pessimistic only if the old key comes back).
