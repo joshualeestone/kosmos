@@ -16427,7 +16427,7 @@ test('kosmos#5628: a managed computer sets up through the company sign-in routes
   const fakeBin = nodePath.join(sb, 'fake-tunnel');
   fs.writeFileSync(fakeBin, ['#!/usr/bin/env node',
     "const a = process.argv.slice(2);",
-    "if (a[0] === 'setup' && a[1] === 'company-start') { console.log(JSON.stringify({ setupId: 'setup-r', secret: 'ROUTE-SECRET', matchCode: 'Q4-7X', url: 'https://login.example.com/v1/sso/begin?x', interval: 5, expiresIn: 900 })); process.exit(0); }",
+    "if (a[0] === 'setup' && a[1] === 'company-start') { console.log(JSON.stringify({ setupId: 'setup-r', secret: 'ROUTE-SECRET', matchCode: 'Q4-7X', url: a[a.indexOf('--coordinator') + 1].replace(/\\/+$/, '') + '/v1/sso/begin?x', interval: 5, expiresIn: 900 })); process.exit(0); }",
     "if (a[0] === 'setup' && a[1] === 'company-status') { require('node:fs').readFileSync(0); console.log(JSON.stringify({ ready: true, gone: false })); process.exit(0); }",
     "if (a[0] === 'setup' && a[1] === 'complete') { require('node:fs').readFileSync(0); process.exit(0); }",
     'process.exit(0);', ''].join('\n'));

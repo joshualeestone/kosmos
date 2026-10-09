@@ -1339,21 +1339,28 @@ function readManagedPlist(path) {
     return JSON.parse(raw);
   } catch { return null; }
 }
-let managedReader = () => {
-  for (const p of managedPrefsPaths()) { const v = readManagedPlist(p); if (v) return v; }
+/* Review 2: the first plist that names a company (a device-scope plist of this domain without OrgSlug does not hide
+   a user-scope one that has it). */
+const defaultManagedReader = () => {
+  for (const p of managedPrefsPaths()) {
+    const v = readManagedPlist(p);
+    if (v && typeof v.OrgSlug === 'string' && ORG_SLUG_RULE.test(v.OrgSlug.trim())) return v;
+  }
   return null;
 };
+let managedReader = defaultManagedReader;
 
-/** The company this Mac is managed for, from its MDM profile: { orgSlug, coordinatorUrl } or null. A malformed
-    value is treated as no profile (nothing here may steer a setup to an address the profile did not plainly give). */
+/** The company this Mac is managed for, from its MDM profile: { orgSlug } or null (a malformed value is no profile).
+    Review 2, decided: the profile's CoordinatorURL is NOT read. This board always sets up against its own coordinator
+    (COORDINATOR()); letting a profile choose where a Mac enrolls is a decision of its own, not this slice's, and two
+    answers to "which coordinator" could disagree. */
 function managedOrg() {
   let v = null;
   try { v = managedReader(); } catch { v = null; }
   if (!v || typeof v !== 'object') return null;
   const slug = typeof v.OrgSlug === 'string' ? v.OrgSlug.trim() : '';
   if (!ORG_SLUG_RULE.test(slug)) return null;
-  const url = typeof v.CoordinatorURL === 'string' ? v.CoordinatorURL.trim().replace(/\/+$/, '') : '';
-  return { orgSlug: slug, coordinatorUrl: /^https:\/\/[^\s/]+$/.test(url) ? url : null };
+  return { orgSlug: slug };
 }
 
 let companySetup = null;   // { email, setupId, secret, expiresAt }: engine memory only
@@ -1367,22 +1374,27 @@ async function companyStart(email) {
   }
   { const b = busy(); if (b) return b; }
   // Review 1: one start at a time (a double click, two tabs): the second gets the first one's answer, so the engine
-  // never holds a different setup from the one the page shows.
-  if (companyStartInFlight) return companyStartInFlight;
-  const running = companyStartRun(email);
+  // never holds a different setup from the one the page shows. Review 2: only for the SAME address; another one
+  // (a typo corrected) is told to wait rather than handed the first address's setup.
+  if (companyStartInFlight) {
+    if (companyStartInFlight.email === email) return companyStartInFlight.promise;
+    return { ok: false, because: 'a company sign-in is already starting; try again in a moment' };
+  }
+  const running = { email, promise: companyStartRun(email) };
   companyStartInFlight = running;
-  try { return await running; } finally { if (companyStartInFlight === running) companyStartInFlight = null; }
+  try { return await running.promise; } finally { if (companyStartInFlight === running) companyStartInFlight = null; }
 }
 async function companyStartRun(email) {
   const epoch = signinEpoch;
-  const r = await setupRun(['setup', 'company-start', '--coordinator', COORDINATOR(), '--email', email]);
+  // Review 2: bounded like every other one-round-trip call (the tunnel sets no timeout of its own).
+  const r = await setupRun(['setup', 'company-start', '--coordinator', COORDINATOR(), '--email', email], null, retireTimeoutMs());
   if (!r.ok) return r;
   // Review 1: a Forget or a sign out that landed while this waited: nothing of it is kept.
   if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
   const a = (lastJsonLine(r.said) || {}).value;
-  // Review 1: the address the page opens in the browser is the coordinator's own https page, nothing else.
+  // Review 1: the address the page opens in the browser is an https page; review 2: on the coordinator's own origin.
   if (!a || typeof a.setupId !== 'string' || typeof a.secret !== 'string' || typeof a.url !== 'string'
-    || !/^https:\/\/[^\s]+$/.test(a.url)) {
+    || !sameOriginHttps(a.url, COORDINATOR())) {
     return { ok: false, because: 'Kosmos+ answered in a way this version does not understand' };
   }
   const ttl = Number.isFinite(a.expiresIn) ? a.expiresIn : 900;
@@ -1391,11 +1403,27 @@ async function companyStartRun(email) {
     interval: Number.isFinite(a.interval) ? a.interval : 5 };
 }
 
-/** Has the person signed in and approved in the browser? { ready, gone }; `retry` means ask again later (never gone). */
+/** Whether `url` is https on the same origin as `base`. */
+function sameOriginHttps(url, base) {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && u.origin === new URL(base).origin;
+  } catch { return false; }
+}
+
+let companyStatusInFlight = null;
+/** Has the person signed in and approved in the browser? { ready, gone }; `retry` means ask again later (never gone).
+    Review 2: one ask at a time (a slow coordinator never piles up processes holding the secret), each bounded. */
 async function companyStatus() {
+  if (companyStatusInFlight) return companyStatusInFlight;
+  const running = companyStatusRun();
+  companyStatusInFlight = running;
+  try { return await running; } finally { if (companyStatusInFlight === running) companyStatusInFlight = null; }
+}
+async function companyStatusRun() {
   const c = companySetup;
   if (!c || Date.now() > c.expiresAt) { companySetup = null; return { ok: true, ready: false, gone: true }; }
-  const r = await setupRun(['setup', 'company-status', '--coordinator', COORDINATOR(), '--setup-id', c.setupId], c.secret + '\n');
+  const r = await setupRun(['setup', 'company-status', '--coordinator', COORDINATOR(), '--setup-id', c.setupId], c.secret + '\n', retireTimeoutMs());
   if (!r.ok) return { ok: true, ready: false, gone: false, retry: true };
   const a = (lastJsonLine(r.said) || {}).value || {};
   if (a.gone === true && companySetup === c) companySetup = null;
@@ -2726,7 +2754,7 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
   cancelledAfterForTests: cancelledAfter,   // kosmos#4743: tests only
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
-  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyStartInFlight = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
+  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   setManagedReaderForTests: (fn) => { managedReader = fn; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */

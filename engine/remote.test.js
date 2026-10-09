@@ -62,9 +62,11 @@ if (args[0] === 'setup' && args[1] === 'start') {
 // kosmos#5628: the company sign-in setup. Each verb that takes the secret records what it read on stdin (never argv).
 if (args[0] === 'setup' && args[1] === 'company-start') {
   if (mode.includes('company-http-url')) { console.log(JSON.stringify({ setupId: 'setup-abc', secret: 'S', matchCode: 'K7-3M', url: 'javascript:alert(1)', interval: 5, expiresIn: 900 })); process.exit(0); }
+  if (mode.includes('slow-company-start')) { const until = Date.now() + Number(process.env.FAKE_REGISTER_MS || 1500); while (Date.now() < until) { /* wait */ } }
+  if (mode.includes('company-other-origin')) { console.log(JSON.stringify({ setupId: 'setup-abc', secret: 'S', matchCode: 'K7-3M', url: 'https://elsewhere.example/v1/sso/begin', interval: 5, expiresIn: 900 })); process.exit(0); }
   if (mode.includes('company-unavailable')) { process.stderr.write('Kosmos+ said no (404): this address does not sign in through a company provider here\\n'); process.exit(1); }
   console.log(JSON.stringify({ setupId: 'setup-abc', secret: 'S3CRET-only-in-the-engine', matchCode: 'K7-3M',
-    url: 'https://login.kosmos.invalid/v1/sso/begin?email=x&device_id=setup-abc', interval: 5, expiresIn: 900 }));
+    url: flag('--coordinator').replace(/\\/+$/, '') + '/v1/sso/begin?email=x&device_id=setup-abc', interval: 5, expiresIn: 900 }));
   process.exit(0);
 }
 if (args[0] === 'setup' && args[1] === 'company-status') {
@@ -3930,10 +3932,9 @@ test('#4756: a tunnel binary older than the verb reads as "update Kosmos", not c
 /* ---- kosmos#5628 (MDM slice 2b): a managed Mac sets up through the company's sign-in ---- */
 
 test('kosmos#5628: the managed profile is read only when it plainly names a company', () => {
-  remote.setManagedReaderForTests(() => ({ OrgSlug: 'acme', CoordinatorURL: 'https://login.example.com/' }));
-  assert.deepEqual(remote.managedOrg(), { orgSlug: 'acme', coordinatorUrl: 'https://login.example.com' });
-  remote.setManagedReaderForTests(() => ({ OrgSlug: 'acme', CoordinatorURL: 'http://evil.example.com' }));
-  assert.equal(remote.managedOrg().coordinatorUrl, null, 'a non-https address is not taken');
+  // Review 2, decided: only the company is read; a CoordinatorURL in the profile steers nothing.
+  remote.setManagedReaderForTests(() => ({ OrgSlug: 'acme', CoordinatorURL: 'https://elsewhere.example' }));
+  assert.deepEqual(remote.managedOrg(), { orgSlug: 'acme' });
   for (const bad of [null, {}, { OrgSlug: 'Acme Corp' }, { OrgSlug: '../x' }, { OrgSlug: 7 }]) {
     remote.setManagedReaderForTests(() => bad);
     assert.equal(remote.managedOrg(), null, JSON.stringify(bad));
@@ -3946,7 +3947,7 @@ test('kosmos#5628: the company setup keeps its secret in the engine and gives it
   const started = await remote.companyStart('ann@acme.test');
   assert.equal(started.ok, true, started.because);
   assert.equal(started.matchCode, 'K7-3M');
-  assert.match(started.url, /^https:\/\/login\.kosmos\.invalid\/v1\/sso\/begin\?/);
+  assert.match(started.url, /^https:\/\/[^/]+\/v1\/sso\/begin\?/);
   assert.equal(JSON.stringify(started).includes('S3CRET'), false, 'the secret reached the page');
   const st = await remote.companyStatus();
   assert.deepEqual([st.ready, st.gone], [true, false]);
@@ -3992,4 +3993,25 @@ test('kosmos#5628: status says retry on a failure and gone once the setup has en
   const refused = await remote.companyStart('x@elsewhere.test');
   assert.equal(refused.ok, false);
   assert.match(refused.because, /company provider/);
+});
+
+test('kosmos#5628 review 2: a Forget during a start, a sign out before the finish, another address, another origin', async () => {
+  // A Forget landing while the start is out: the start's answer is dropped and nothing can be finished.
+  process.env.FAKE_TUNNEL_MODE = 'slow-company-start';
+  const starting = remote.companyStart('ann@acme.test');
+  // Another address while it runs is told to wait, never handed this one's setup.
+  assert.match((await remote.companyStart('bob@acme.test')).because, /already starting/);
+  await new Promise((r) => setTimeout(r, 300));
+  await remote.forget();
+  const started = await starting;
+  assert.equal(started.ok, false, 'a start that finished after a Forget was kept');
+  assert.match((await remote.companyComplete('ann')).because, /expired; start again/);
+  // A sign out between start and finish leaves nothing to finish.
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  remote.signinCancel();
+  assert.match((await remote.companyComplete('ann')).because, /expired; start again/, 'a sign out left the setup to finish');
+  // An address on another origin is not relayed.
+  process.env.FAKE_TUNNEL_MODE = 'company-other-origin';
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, false, 'another origin reached the page');
 });
