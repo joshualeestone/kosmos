@@ -832,7 +832,7 @@ function preacceptBypassInner(configDir, agentDefaultAccount) {
  * the SAME .claude.json trustFolder writes, so it locks on the same target (configTarget) --
  * the two serialise cleanly rather than lost-updating each other. Same safety otherwise:
  * refuse a symlink, refuse a non-object shape, merge (never replace) so trustFolder's projects
- * and the person's other config survive, preserve mode, atomic `wx` write.
+ * and the person's other config survive, preserve mode, saved through saveConfig (#5434 slice 6).
  *
  * @param {string|null} configDir the ACCOUNT's config dir (null = this process's own).
  * @param {boolean} agentDefaultAccount the agent runs on the DEFAULT account (reads ~/.claude.json).
