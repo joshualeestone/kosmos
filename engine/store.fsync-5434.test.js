@@ -126,7 +126,7 @@ test('#5434: removing a picture never takes another process\'s keep in flight in
   fs.unlinkSync(inflight);
 });
 
-test('#5434: a writer temp in the profiles folder is never listed as a profile', () => {
+test('#5434: a writer temp in the profiles folder is never listed as a profile (the listers\' .json filter)', () => {
   store.writeProfile('fay', { role: 'r' });
   const file = path.join(store.PROFILES, store.profileFileName('fay'));
   fs.writeFileSync(file + '.kosmos-2147483646-t0-1-1.tmp', '{}');
@@ -138,11 +138,15 @@ test('#5434: a writer temp in the profiles folder is never listed as a profile',
 test('#5434: removing a picture also takes a dead writer\'s copy of it beside the picture, never a live one', () => {
   const dest = store.saveAvatar('gus', 'image/png', PNG);
   const dead = dest + '.kosmos-2147483646-t0-1-1.tmp';
+  // another extension in another case (an imported `gus.JPEG`): a separate file even on a disk that ignores case
+  const deadOtherCase = dest.replace(/\.png$/, '.JPEG') + '.kosmos-2147483646-t0-1-1.tmp';
+  fs.writeFileSync(deadOtherCase, 'copy');
   const live = dest + '.kosmos-' + process.ppid + '-t0-1-1.tmp';
   fs.writeFileSync(dead, 'copy'); fs.writeFileSync(live, 'in flight');
   store.removeAvatar('gus');
   assert.equal(fs.existsSync(dest), false, 'CONTROL: the picture was not removed');
   assert.equal(fs.existsSync(dead), false, 'a dead writer\'s copy of the removed picture was left');
+  assert.equal(fs.existsSync(deadOtherCase), false, 'a dead writer\'s copy under another extension case was left');
   assert.equal(fs.existsSync(live), true, 'a live writer\'s temp was taken');
   fs.unlinkSync(live);
 });

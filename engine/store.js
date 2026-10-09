@@ -652,14 +652,22 @@ function saveAvatar(name, contentType, buffer) {
 function removeAvatar(name) {
   const existing = avatarPath(name);
   if (existing) fs.unlinkSync(existing);
-  // #5434: a dead writer's temp beside the picture (`<key>.<ext>.kosmos-...tmp`) holds a copy of it: taken too
-  for (const ext of AVATAR_EXTS) securewrite.reapDeadTempsOf(path.join(avatarsDir(), safeKey(name) + ext));
+  // #5434: a dead writer's temp beside the picture (`<key>.<any ext, any case>.kosmos-...tmp`) holds a copy of it:
+  // taken too; a live writer's never
+  try {
+    const key = safeKey(name);
+    for (const f of fs.readdirSync(avatarsDir())) {
+      if (f.startsWith(key + '.') && securewrite.tempWriterGone(f) === true) { try { fs.unlinkSync(path.join(avatarsDir(), f)); } catch { /* gone already */ } }
+    }
+  } catch { /* no avatars folder */ }
   // kosmos#5302: a removed picture takes the originals kept for it too.
   // A writer's temp (`<key>.<ver>-<size><ext>.kosmos-...tmp`, #5434) whose writer may be alive is another process's
   // keep in flight: never taken. One whose writer is provably gone holds a copy of the removed picture: taken.
   try {
     const key = safeKey(name);
     for (const f of fs.readdirSync(originalsDir())) {
+      // tempWriterGone: null is an ordinary kept original (taken, as before), true a dead writer's temp (taken), false a
+      // writer that may be alive (kept)
       if (f.startsWith(key + '.') && securewrite.tempWriterGone(f) !== false) fs.unlinkSync(path.join(originalsDir(), f));
     }
   } catch { /* none kept */ }
