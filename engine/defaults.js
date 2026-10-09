@@ -441,8 +441,8 @@ const BLOCK = [
   '',
   '(or `hourly`, or `weekly --on mon --at 09:00`). **Kosmos shows when each run is',
   'due; it does not start the run for you.** Run it when it is due, and if nothing',
-  'will bring you back at that time, tell the person so. After each run, say what',
-  'it found and how the checks went:',
+  'will bring you back at that time, tell the person so. After each run, record',
+  'what it found and how the checks went:',
   '',
   '`kosmos task ran <project-id> <task-number> "what this run found"`',
   '',
@@ -450,8 +450,10 @@ const BLOCK = [
   'it on your own:** the task folds such runs together so the ones that matter',
   'stand out. If someone asks, answer as usual. When a run finds something, tell',
   'whoever asked for the check, where they asked: in the room, or in your reply to',
-  'the person. A run that could not check is not unchanged: record what stopped',
-  'it, without `--unchanged`, and report it as Blocked.',
+  'the person; if nobody is asking right now, post it in the room the task belongs',
+  'to. A run that could not check is not unchanged: record what stopped it,',
+  'without `--unchanged`, and report it as Blocked (`kosmos report blocked`) for',
+  'that run only; the task keeps its schedule.',
   '',
   '`kosmos task ran <project-id> <task-number> --unchanged "what it checked"`',
   '',
@@ -964,7 +966,10 @@ function block() {
  *       the room, one recorded nothing;
  *     - a run that found two changes, from the person: 2/2 recorded it without the flag and told the person directly;
  *     - asked in the room whether the run happened: 2/2 recorded it --unchanged and answered in the room;
- *     - a run that could not check: 2/2 recorded what stopped it without --unchanged and reported Blocked;
+ *     - a run that could not check: 2/2 recorded what stopped it without --unchanged and reported Blocked (and again
+ *       2/2 after review 2 named `kosmos report blocked` for that run only);
+ *     - a scheduled run, nobody asking, that found two changes: 2/2 recorded it and posted it in the task's room (added
+ *       in review 2); the nothing-new arm re-run after that change: 2/2 --unchanged, no post;
  *     - a task whose checks the person set: 2/2 left those checks alone; given task 5: 1/1 put separate checks on it
  *       with done-when (control 0/1).
  *     Claude only.
