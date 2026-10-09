@@ -22,11 +22,13 @@
  *
  * Part 1a reads this Kosmos's own agents; the other Kosmoses on the same computer (Josh 08:43) are part 1b.
  *
- * scanFile() and classify() are pure; tick() keeps a small state file, gates on the enrollment, and sends.
+ * scanText() reads lines (it updates the call map it is given); tick() keeps a small state file, gates on the
+ * enrollment, and sends.
  */
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 
 const ROUTE = '/v1/mac/org/agent-events';
 const SEND_MAX = 50;
@@ -60,7 +62,7 @@ function label(v) {
   const chars = [...v];
   /* Over the limit: the first 120 characters and a short hash of the whole name (review 6: two long names sharing
      their first 128 characters would otherwise merge on the console). */
-  const s = chars.length <= LABEL_MAX ? v : chars.slice(0, 120).join('') + '~' + require('crypto').createHash('sha256').update(v).digest('hex').slice(0, 7);
+  const s = chars.length <= LABEL_MAX ? v : chars.slice(0, 120).join('') + '~' + crypto.createHash('sha256').update(v).digest('hex').slice(0, 7);
   return /[\u0000-\u001f\u007f-\u009f\u00ad\u034f\u115f\u1160\u3164\uffa0\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufe00-\ufe0f\ufeff]|\udb40[\udc00-\udc7f]/.test(s) ? null : s;
 }
 
@@ -85,9 +87,11 @@ function targetClass(tool, input, ctx) {
     /* Every path-like word in the command (reviews 3, 4 and 6), split as a shell splits: quotes and backslash-escaped
        spaces keep a word whole (the board's own folder is under "Application Support"), $HOME and ${HOME} are the
        home folder, and a leading @ (curl's @file, --data=@file) names the file. Linear, on the first 4096 characters. */
-    for (const w of shellWords(input.command.slice(0, 4096))) {
+    for (const { w, first } of shellWords(input.command.slice(0, 4096))) {
+      if (first) continue;   // the program run, not what it was aimed at (review 8)
       let v = w.replace(/^--?[A-Za-z-]+=/, '').replace(/^@/, '');
       v = v.replace(/^\$\{HOME\}|^\$HOME/, '~');
+      if (/^\/dev\//.test(v)) continue;   // a redirect to /dev/null is not a target (review 8)
       /* A path: from ~ or /, ./ or ../, a dotted name (.claude/settings.json, review 7), or any word with a slash that
          is not a URL; a relative one resolves against the agent's own folder. */
       if (/^(~|\/|\.\.?\/|\.[A-Za-z0-9_])/.test(v) || (v.includes('/') && !/^[a-z][a-z0-9+.-]*:\/\//i.test(v))) paths.push(v);
@@ -109,6 +113,8 @@ function shellWords(cmd) {
   let cur = '';
   let q = null;
   let any = false;
+  let first = true;   // the next word starts a command (review 8: the program itself is not a target)
+  const end = (sep) => { if (cur || any) { out.push({ w: cur, first }); first = false; } cur = ''; any = false; if (sep) first = true; };
   for (let i = 0; i < cmd.length; i++) {
     const ch = cmd[i];
     if (q) {
@@ -117,10 +123,11 @@ function shellWords(cmd) {
       else cur += ch;
     } else if (ch === "'" || ch === '"') { q = ch; any = true; }
     else if (ch === '\\' && i + 1 < cmd.length) { cur += cmd[++i]; any = true; }
-    else if (/\s|[;|&<>()]/.test(ch)) { if (cur || any) out.push(cur); cur = ''; any = false; }
+    else if (/[;|&()]/.test(ch)) end(true);
+    else if (/\s|[<>]/.test(ch)) end(false);
     else { cur += ch; any = true; }
   }
-  if (cur || any) out.push(cur);
+  end(false);
   return out;
 }
 
@@ -133,7 +140,13 @@ function pathClass(p0, ctx) {
   else if (p.startsWith('~')) return 'other';   // ~user: another account's home, not resolvable here
   /* Resolved (review 1): agentDir/../../<board> is the board's files, the very traversal a company wants to see. */
   p = path.resolve(ctx.agentDir || path.sep, p);   // a relative path is the agent's own folder's (review 2)
-  const under = (dir) => !!dir && (p === dir || p.startsWith(dir.endsWith(path.sep) ? dir : dir + path.sep));
+  /* Case-blind on a Mac (review 8: its volume is, so ~/library/kosmos reaches the board's files). */
+  const fold = (x) => (process.platform === 'darwin' ? x.toLowerCase() : x);
+  const under = (dir0) => {
+    if (!dir0) return false;
+    const dir = fold(dir0); const q = fold(p);
+    return q === dir || q.startsWith(dir.endsWith(path.sep) ? dir : dir + path.sep);
+  };
   if (under(ctx.boardRoot)) return 'board-files';
   if (under(ctx.agentDir)) {
     const rest = path.relative(ctx.agentDir, p).split(path.sep);

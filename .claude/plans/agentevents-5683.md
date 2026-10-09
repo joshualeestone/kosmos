@@ -8,7 +8,7 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - `engine/agentevents.js`: every 5 minutes (server.js agentEventsTick, the rollup's gates: live execution, enrolled
   here), the enrolled Kosmos with consent recorded (orgenroll.mayReport) reads its TOKEN-ONLY agents' new transcript
   lines (per-file byte offsets, complete lines only, at most 4 MB a file a tick) and queues refusals by the company's
-  own rules; it sends at most 50 a tick, Mac-signed; a failed send keeps them (at most 500, 7 days).
+  own rules; it sends at most 50 a tick, Mac-signed; a failed send keeps them (at most 500, for 7 days less an hour).
 - What counts: an error tool result "Permission to use <Tool> ... has been denied." (the token-only guard's deny rules;
   measured text, Claude Code 2.1.295) and a Bash error with "Operation not permitted" (its sandbox).
 - An event: world, agent, at (seconds), action (run/write/read/network from the tool), rule, targetClass (one of
@@ -134,3 +134,13 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   the read budget. A Mac clock over 5 minutes ahead loses fresh events (the coordinator skips them). Offsets of an
   agent taken off the list stay while its files exist (read and filtered away if it is listed again). The timing test
   bounds targetClass as a whole, which slices the command first; the regex bound itself is not isolated.
+
+## Review 8 (opus), all fixed unless stated
+- /dev/null and the program itself counted as targets (so `cat ./x 2>/dev/null` read as 'system'): the first word of
+  each command and /dev/* are skipped. Test.
+- Paths were compared case-sensitively on a case-blind Mac volume (~/library/kosmos missed the board's files): on a
+  Mac the comparison folds case. Test (darwin).
+- The agent rotation and the kept send size after a halving are tested. Stated: the 16 MB per-tick budget is not
+  tested (it needs fixtures over 16 MB); PENDING_MAX trimming is untested.
+- The module doc names scanText (not pure: it updates the call map); crypto is required once; the plan's queue line
+  says 7 days less an hour.

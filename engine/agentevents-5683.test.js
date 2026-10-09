@@ -560,3 +560,39 @@ test('#5683 r7: a blank or filler-only agent name is not sent (as the coordinato
   assert.equal(ae.label('Sc\u034fout'), null);
 });
 
+/* ---- review 8 ---- */
+
+test('#5683 r8: /dev/null and the program run are not targets', () => {
+  assert.equal(ae.targetClass('Bash', { command: 'cat ./notes.txt 2>/dev/null' }, ctx()), 'other');
+  assert.equal(ae.targetClass('Bash', { command: '/usr/bin/env python3 x.py' }, ctx()), 'other');
+  assert.equal(ae.targetClass('Bash', { command: 'ls; /bin/cat ~/x' }, ctx()), 'home', 'the program after a separator was taken as the target');
+});
+
+test('#5683 r8: on a Mac the board files are found whatever the case', { skip: process.platform !== 'darwin' }, () => {
+  assert.equal(ae.targetClass('Bash', { command: 'cat ~/library/kosmos/board.token' }, ctx()), 'board-files');
+});
+
+test('#5683 r8: the agent read first rotates each tick', async (t) => {
+  const { s, c } = await enrolled(t);
+  const order = [];
+  const src = { agents: () => ['A', 'B'], dirOf: (n) => '/w/' + n, transcripts: async (d) => { order.push(d); return []; } };
+  await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });
+  await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });
+  assert.deepEqual(order, ['/w/A', '/w/B', '/w/B', '/w/A']);
+});
+
+test('#5683 r8: after a halving, the smaller size is kept until the backlog drains', async (t) => {
+  const s = setup(t);
+  const sizes = [];
+  const c = coordinator((body) => { sizes.push(body.events.length); return body.events.length > 2 ? { ok: false, because: '413 {"code":"org_agent_events_too_big"}' } : { ok: true, data: { ok: true } }; });
+  await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });
+  accept(s.root);
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await new Promise((r) => setTimeout(r, 1100));
+  const lines = [];
+  for (let i = 0; i < 4; i++) lines.push(use('k' + i, 'Bash', { command: 'x' }), result('k' + i, DENIED('x'), true));
+  append(s.file, ...lines);
+  for (let i = 0; i < 4; i++) await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  assert.deepEqual(sizes, [4, 2, 2], 'the send size went back up before the backlog drained');
+});
+
