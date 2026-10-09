@@ -135,6 +135,10 @@ const asRestored = (rel) => rel.replace(/\\/g, '/');
 // ".git<zero-width space>" is .git to restore. Denied if either reading is.
 // (The second reading's `why` is a rule's name, never the folded path itself.)
 const denied = (rel) => { const a = pathDecision(asRestored(rel)); return a.include ? pathDecision(collisionKey(rel)) : a; };
+/* A well-formed key of this context in every way but its period: decided from the key, never from keyProblem's sentence. */
+const onlyPeriodDiffers = (key, ctx) => periodOfKey(key) !== null && periodOfKey(key) !== ctx.period
+  && keyProblem(key, Object.assign({}, ctx, { period: periodOfKey(key) })) === null;
+
 /* A folder the deny-list refuses: every folder rule ends in '/', so a bare child name matches exactly those. A rule on a
    NAME only (".env", "credentials") is not a folder rule: a folder so named is walked, and each file in it is judged
    by name and content as usual. */
@@ -409,9 +413,9 @@ async function snapshotInner(input, deps, added, state, fail) {
   // The manifest counts too: the 64 GiB is chunks and manifests together.
   const byteBound = listed.files.reduce((n, f) => n + (f.size > maxFile ? 0 : sealedMax(2 * f.size) + chunksMax(f, maxFile) * 4148), 0) + sealedMax(budget);
   if (chunkBound > CHUNK_ALLOWANCE || byteBound > BYTE_ALLOWANCE) {
-    return fail(`the work Kosmos is too large to back up in one week: ${listed.files.length} files, ${Math.round(listedBytes / 2 ** 20)} MB, could pass the weekly allowance (${CHUNK_ALLOWANCE} chunks, 64 GB) under a cautious estimate; in practice about 25 GB of files fit`, { tooLarge: true, overAllowance: true });
+    return fail(`the work Kosmos is too large to back up in one week: ${listed.files.length} files, ${Math.round(listedBytes / 2 ** 20)} MB, could pass the weekly allowance (${CHUNK_ALLOWANCE} chunks, 64 GB; the allowance limit: about 25 GB of files fit, under a cautious estimate)`, { tooLarge: true, overAllowance: true });
   }
-  const tooLargeWhy = () => `the work Kosmos is too large for one snapshot: ${listed.files.length} files, ${Math.round(listedBytes / 2 ** 20)} MB, could make a manifest past its ceiling (one snapshot holds about 20 GB of files)`;
+  const tooLargeWhy = () => `the work Kosmos is too large for one snapshot: ${listed.files.length} files, ${Math.round(listedBytes / 2 ** 20)} MB, could make a manifest past its size limit (the manifest limit: about 20 GB of files)`;
   if (over()) return fail(tooLargeWhy(), { tooLarge: true });
   const files = [], redacted = [];
   const objects = {};        // every referenced chunk: name -> key (filled as chunks are stored or reused)
@@ -453,7 +457,7 @@ async function snapshotInner(input, deps, added, state, fail) {
       if (!pending.has(name)) { badKey = badKey || 'for a chunk this run did not ask to store'; continue; }
       if (usedKeys.has(key)) { badKey = badKey || 'repeats a key already named'; continue; }
       const kp = keyProblem(key, ctx) || (owner && ownerOf(key) !== owner ? `under account path ${ownerOf(key)}, not ${owner}` : null);
-      if (kp && kp.startsWith('in period')) { wrongPeriod.push(periodOfKey(key)); continue; }
+      if (kp && onlyPeriodDiffers(key, ctx)) { wrongPeriod.push(periodOfKey(key)); continue; }
       if (kp) { badKey = badKey || kp; continue; }
       if (!Number.isSafeInteger(lockOf(name))) { noLock = true; continue; }
       // A lock shorter than this snapshot's manifest will get: the manifest could never name it.
@@ -555,7 +559,8 @@ async function snapshotInner(input, deps, added, state, fail) {
     const passed = m && m.outlastsChunks && usable(tNow) && periodOf(tNow) !== ctx.period;
     // otherBucket: the coordinator now grants to another bucket. With an index, drop it; without one, this
     // run's chunks are in the abandoned bucket, so none is handed back to be kept as an index.
-    if (m && m.otherBucket) added.clear();   // with or without an index: every chunk this run stored is in that bucket
+    // With or without an index, every chunk this run stored is in that bucket: none is handed back, and no bucket is named.
+    if (m && m.otherBucket) { added.clear(); state.bucket = null; }
     return fail(`the manifest could not be uploaded: ${(m && m.because) || 'no answer'}`, Object.assign({},
       m && m.retryLater ? { retryLater: true } : {}, m && m.unsure ? { unsure: m.unsure } : {},
       passed ? { newPeriod: true } : (m && m.outlastsChunks && index.size ? { staleIndex: true } : {}),
@@ -566,7 +571,7 @@ async function snapshotInner(input, deps, added, state, fail) {
   // where a restore looking it up by period cannot open it; said, not hidden (it is stored and locked either way).
   const mk = keyProblem(m.key, ctx) || (owner && ownerOf(m.key) !== owner ? 'under another account path' : null);
   // newPeriod only when the period is what differs; another org or a malformed key is a plain failure.
-  if (mk && mk.startsWith('in period')) return fail(`the manifest was stored under a key ${mk} (a period boundary passed as it was granted): start again in the new period`, { newPeriod: true, grantSpent: true });
+  if (mk && onlyPeriodDiffers(m.key, ctx) && (!owner || ownerOf(m.key) === owner)) return fail(`the manifest was stored under a key ${mk} (a period boundary passed as it was granted): start again in the new period`, { newPeriod: true, grantSpent: true });
   if (mk) return fail(`the manifest was stored under a key that is not this snapshot's (${mk})`, { grantSpent: true });
   return { ok: true, manifestKey: m.key, files: files.length, skipped: skipped.length + skippedExtra, uploaded, reused, added, bucket: state.bucket };
 }
