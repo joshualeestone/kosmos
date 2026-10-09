@@ -79,3 +79,8 @@ both CLIs.
   - W1: failover in one pass (two idle agents, one stalled holder with two stalled parts in one tree): the tree key keeps the second off (CONTROL: without it, it would move); step's passing of `taken` to failoverPick is pinned in source (a step-level run needs rate-limited cards).
   - W2: a holder switched off in the project does not keep its tree (CONTROL: switched on, it does); red by mutation.
   - Behaviour of the handOutable extraction checked unchanged against origin/main. NIT left: per-task costs in pick, fine at today's sizes.
+- **Round 7 (opus):** 0 blockers, 2 warnings, 2 conventions, 3 NITs (15 guard deletions in a scratch copy; 3 caught before).
+  - W1 fixed: a closed subtask with a part still open could starve its parent if the closed check went; tested (red by mutation).
+  - W2 fixed: the list's member filter and nearest-ancestor rule had no tests; added a former holder, a nearer holder, and the tree fallback (each red by mutation).
+  - C1 fixed: four comments now describe the tree-wide display. C2: busyHold's comment says its callers leave out closed tasks and paused projects; its built-for-all clause is tested (red by mutation); its between-runs clause is left untested (a repeating task between runs is costly to build here; the clause is hasOpenWork's own call).
+  - NITs: failover's keeps reads busy holds only (a parked part does not keep the holder; tested, red by mutation). The holder branches (willMove's held arm for the holder itself, treeIsOthers' `held.includes(session)`) are unreachable from step, as recorded in round 3.

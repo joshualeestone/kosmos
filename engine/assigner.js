@@ -145,7 +145,8 @@ function liveProjects(records) {
 /* #5678 review 2: does `who` holding an open part of `t` keep it busy, by hasOpenWork's own rules (on hold, between
    runs, built and freed: not busy)? A tree is locked only by holds like that, so a parked hold never locks a tree for
    good. One more than hasOpenWork (review 5: so the two do not fully agree): a holder switched off in this project
-   holds nothing here, because the person turned its swarm work off; its tree is free to the others. */
+   holds nothing here, because the person turned its swarm work off; its tree is free to the others. Its callers have
+   already left out closed tasks and paused projects, hasOpenWork's other two checks (review 7). */
 function busyHold(p, t, who) {
   if (tasks.isOnHold(t) || require('./taskrepeat').waitingForNextRun(t)) return false;
   if (t.builtAt && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(who)))) return false;

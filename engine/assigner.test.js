@@ -850,3 +850,17 @@ test('#5678 pick: a holder switched off in the project does not keep its tree fr
   const got = a.pick('idleG', proj(['holderH']), new Set());
   assert.ok(got && got.n === 3, 'a holder switched off in the project kept its tree from the others: ' + JSON.stringify(got));
 });
+
+/* #5678 review 7: guards nothing else pinned. */
+test('#5678 review 7: a closed subtask with a part still open does not starve its parent; a built-for-all parent holds nothing', () => {
+  const proj = (child, parentExtra = {}) => [{ id: 'pr7', agents: ['idleJ', 'busyK'], tasks: [{ number: 1, sentence: 'Parent', ...parentExtra }, { number: 2, sentence: 'Child', parent: 1, ...child }] }];
+  const closedKid = a.pick('idleJ', proj({ closedAt: '2026-10-09T00:00:00Z', parts: [{ id: 1, who: 'busyK' }] }), new Set());
+  assert.ok(closedKid && closedKid.n === 1, 'a closed subtask with an open part kept its parent waiting: ' + JSON.stringify(closedKid));
+  const built = a.pick('idleJ', [{ id: 'pr7b', agents: ['idleJ', 'busyK'], tasks: [{ number: 1, sentence: 'Parent', who: 'busyK', builtAt: '2026-10-09T00:00:00Z', builtFreesAll: true }, { number: 2, sentence: 'Child', parent: 1 }] }], new Set());
+  assert.ok(built && built.n === 2, 'a parent built and freed for all kept its tree: ' + JSON.stringify(built));
+});
+test('#5678 review 7: failover moves a stalled part when the holder\'s other part in the tree is parked (on hold)', () => {
+  const proj = [{ id: 'pr7f', agents: ['stalledL', 'idleM'], tasks: [{ number: 1, sentence: 'One', who: 'stalledL' }, { number: 2, sentence: 'Parked', parent: 1, who: 'stalledL', onHold: true }] }];
+  const got = a.failoverPick('idleM', 'codex', [{ projectId: 'pr7f', n: 1, partId: 1, from: 'stalledL', fromRunner: 'claude' }], proj, new Set(), new Set());
+  assert.ok(got && got.n === 1, 'a parked part kept the stalled holder on its tree: ' + JSON.stringify(got));
+});

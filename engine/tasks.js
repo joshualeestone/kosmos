@@ -221,10 +221,12 @@ function treeOf(p) {
 /**
  * #5678 (user feedback 10-09: two builders on the same work): who owns a task through its parents. A task nobody is on
  * directly, under an open task somebody holds an open part of, belongs to that holder: the nearest such ancestor wins.
- * Returns { who: [names], from: <ancestor's number> }, or null (the task has its own holders, or no owned open ancestor).
+ * Returns { who: [names], from: <the held task's number> }, or null (the task has its own holders, is finished, or no
+ * open task in its tree is held).
  * `tree` is treeOf(p) (built once by the caller); `members` (a Set of the project's agents) drops holders who left. A
- * loop in the parent links stops the walk (each number is seen once). This is what the task list SHOWS; the Assigner
- * decides by the whole tree (treeHolders), so a held child also keeps its unheld parent from a second builder.
+ * loop in the parent links stops the walk (each number is seen once). The nearest held ancestor speaks first; else the
+ * held open task with the lowest number anywhere in the tree (review 3). This is what the task list SHOWS, with any
+ * hold; the Assigner decides by busy holds only (treeHolders with busyHold), so a parked holder can be named here.
  */
 function ownerIn(tree, task, members, treeOwner) {
   // Review 4: a finished task is nobody's work now, whoever holds the tree.
@@ -1509,8 +1511,9 @@ function allTasks(everyProject) {
         parent: up,
         parentSentence: up === null ? null : (tree.byNum.get(up).sentence || null),
         subtasks: tree.progress(t && t.number),
-        /* #5678: a task nobody is on directly, under an open task somebody is on, shows that owner (and the task it
-           comes through), so a second agent sees whose work it is before starting. Absent otherwise. */
+        /* #5678: a task nobody is on directly, in a tree where an open task is held, shows that owner (and the task it
+           comes through: the nearest held ancestor, else the tree's lowest held task), so a second agent sees whose work
+           it is before starting. Absent otherwise. */
         ...(() => { const o = ownerIn(tree, t, members, owners); return o ? { ownerNames: o.who, ownerFrom: o.from } : {}; })(),
       }));
     }
