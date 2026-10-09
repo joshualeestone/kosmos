@@ -3,9 +3,9 @@ pre_challenge: true
 method: challenge-loop
 branch: builtguard-5705
 diff_hash: e5560a0c8abe772d31e90a16f92c02fa3c53541864fe6bc7a33820526f64279a
-validation: passed (on current origin/main; cli.task-list-state-5705 4/4 through the real board and both commands; every test pinning the task-list address updated and passing: cli.agent-token-verbs-4491 64, windows reads/token-only/570 94, gaps-4891 6, help-lines 5, agent-reads-4491 13; engine tasks suites and the file-scanning and Windows guards 0 fail; six mutations each red)
+validation: passed (rebased on origin/main and re-run; cli.task-list-state-5705 4/4 through the real board and both commands; every test pinning the task-list address updated and passing: cli.agent-token-verbs-4491 64, windows reads/token-only/570 94, gaps-4891 6, help-lines 5, agent-reads-4491 13; engine tasks suites and the file-scanning and Windows guards 0 fail; six mutations each red)
 subdir_audit: passed
-timestamp: 2026-10-09T19:15:25Z
+timestamp: 2026-10-09T19:16:42Z
 iterations: 2
 converged: true
 ---
