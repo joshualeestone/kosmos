@@ -789,14 +789,20 @@ function write(agent, text, expectedVersion, exactSession, by) {
     // below, which removes the temp and refuses the save; the old brief stays (securewrite.flushOrThrow: "cannot
     // flush" on this file system is not a failure).
     const tfd = fs.openSync(tmp, 'wx', mode);
+    let pending = null;
     try {
       fs.writeFileSync(tfd, body);
+      // And restore exactly, because the umask may have narrowed it. A failure
+      // here is a real failure, not a best effort: silently handing back
+      // permissions other than the ones the file had is the bug above.
+      // On the descriptor and before the flush (#5434 slice 12, review 1), so the mode is flushed with the text.
+      if (before) fs.fchmodSync(tfd, mode);
       flushOrThrow(tfd);
-    } finally { fs.closeSync(tfd); }
-    // And restore exactly, because the umask may have narrowed it. A failure
-    // here is a real failure, not a best effort: silently handing back
-    // permissions other than the ones the file had is the bug above.
-    if (before) fs.chmodSync(tmp, mode);
+    } catch (e) { pending = e; throw e; }
+    finally {
+      // A close that fails after a write or flush already failed must not replace that error (review 1).
+      try { fs.closeSync(tfd); } catch (e) { if (!pending) throw e; }
+    }
 
     // ⚠️ Keep the version we are replacing.
     //
