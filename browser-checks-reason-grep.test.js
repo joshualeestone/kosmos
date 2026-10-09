@@ -321,7 +321,6 @@ const SITE_COUNTS = {
   'named-controls.js': [0, 1],
   'regress-a-night.js': [0, 1],
   'render-account-badge-1921.js': [1, 1],
-  'render-runrollup-5643.js': [1, 0],
   'render-account-dup-reauth-2584.js': [1, 1],
   'render-account-name-2095.js': [1, 1],
   'render-account-problem-3723.js': [2, 1],
