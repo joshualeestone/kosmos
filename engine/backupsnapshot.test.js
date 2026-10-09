@@ -971,3 +971,17 @@ test('a token split across three folder levels is caught, and the manifest holds
     assert.ok(m.skipped.some((x) => x.path === 'agents/a/\u2022\u2022\u2022\u2022' && /credential/.test(x.why)), JSON.stringify(m.skipped.filter((x) => /credential/.test(x.why))));
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('a manifest grant in another bucket on a run with an index AND new uploads hands back none of them, and drops the index', async () => {
+  const w = workKosmos(), k = keys();
+  try {
+    const first = await take(k, w.root, store());
+    assert.equal(first.ok, true, first.because);
+    fs.writeFileSync(path.join(w.root, 'agents', 'a', 'notes.md'), 'changed, so one chunk is new\n');
+    const k2 = Object.assign({}, k, { ctx: Object.assign({}, k.ctx, { snapshot: 's2' }) });
+    const st = store({ keyFor: (key) => key.replace(/\/k(\d+)$/, '/n$1'), manifestAnswer: { ok: false, otherBucket: true, grantSpent: true, because: 'another bucket' } });
+    const r = await take(k2, w.root, st, { input: { index: first.added, bucket: first.bucket } });
+    assert.equal(r.ok, false); assert.ok(st.objects.size >= 1, 'a new chunk was uploaded');
+    assert.equal(r.added.size, 0, 'those chunks are in the abandoned bucket'); assert.equal(r.staleIndex, true);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
