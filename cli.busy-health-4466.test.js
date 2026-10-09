@@ -109,7 +109,12 @@ const server = http.createServer((req, res) => {
   if (health === 'fastcut') { require('node:fs').appendFileSync(firstFile + '.n', '.'); req.socket.destroy(); return; }
   // Answers its health check, then gives an EMPTY 200 for the roles list (an answer, not a lost connection).
   if (health === 'emptyroles' && req.url.startsWith('/api/roles')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end(''); return; }
-  if (health === 'oldslow' && req.method === 'GET' && !req.url.startsWith('/api/health')) return;
+  // #5723: the page is never answered; when the CLIENT gives up on it (its curl -m ends) is recorded, so the arm can
+  // measure the page's budget itself, free of the lsof ownership sweep that follows a timeout.
+  if (health === 'oldslow' && req.method === 'GET' && !req.url.startsWith('/api/health')) {
+    req.socket.on('close', () => { if (firstFile) require('node:fs').writeFileSync(firstFile + '.pageclose', String(Date.now())); });
+    return;
+  }
   if (health === 'slow' && req.method === 'GET') { setTimeout(reply, delayMs); return; }
   reply();
 });
@@ -167,15 +172,23 @@ test('#4466 slow board: `kosmos status` waits, says busy on stderr, and reports 
   assert.ok(out.ms >= 4000, `it must actually have waited for the slow answer (took ${out.ms} ms)`);
 }));
 
-test('#4466 one probe keeps to ONE budget: an older board whose 404 is slow does not give the page a second one', () => withBoard('oldslow', async (port) => {
+test('#4466 one probe keeps to ONE budget: an older board whose 404 is slow does not give the page a second one', () => withBoard('oldslow', async (port, firstFile) => {
   // Health 404s after 5 s, the page never answers, the probe's budget is 6 s. The page gets what is left
   // (about 1 s), so the probe ends near 6 s and says busy; with a fresh 6 s for the page it took ~11 s.
   const t0 = Date.now();
   const out = await bash(`source "${CLI}"; _health_probe 6; echo "state=$HEALTH_STATE"`, baseEnv(port));
-  const ms = Date.now() - t0;
+  const ended = Date.now();
   assert.match(out.stdout, /state=busy/, out.stdout + out.stderr);
-  assert.ok(ms >= 5000, `the slow 404 must actually have been waited for (took ${ms} ms)`);
-  assert.ok(ms < 8500, `one probe must not take its budget twice (took ${ms} ms, budget 6 s)`);
+  /* #5723: the claim is that the PAGE gets what is left of the 6 s, not a fresh 6 s. Measured on the board: from its
+     first request to the moment the client dropped the page connection (its curl -m ending). Once is ~6 s, twice is
+     ~11 s. The whole command's time also counts bash's start-up and, after a timeout, the lsof ownership sweep of
+     every process (seconds on a loaded host: 9.7 s seen at load 5, with the page budget itself near 6), neither of
+     which is the page's budget. */
+  const first = Number(fs.readFileSync(firstFile, 'utf8'));
+  const pageClose = Number(fs.readFileSync(firstFile + '.pageclose', 'utf8'));
+  const pageBudgetMs = pageClose - first;
+  assert.ok(pageBudgetMs >= 5000, `the slow 404 must actually have been waited for (page dropped ${pageBudgetMs} ms after the first request)`);
+  assert.ok(pageBudgetMs < 8500, `one probe must not take its budget twice (the page was dropped ${pageBudgetMs} ms after the first request; budget 6 s; whole command ${ended - t0} ms)`);
 }, 5000));
 
 test('#4466 an --auto report (the hook) gives up on a busy board inside the hook\'s 15 s timeout, saying busy', () => withBoard('hang', async (port) => {
