@@ -1516,6 +1516,47 @@ test('#5686 review 12: an optional root that conflicts (one file named twice, ne
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
+test('#5686 review 14: an optional root that would push the snapshot past its limits is left out; the required data is stored', async () => {
+  const w = threeRoots(), k = keys();
+  try {
+    const big = path.join(w.base, 'sessions-big');
+    fs.mkdirSync(big);
+    for (let i = 0; i < 400; i++) fs.writeFileSync(path.join(big, `s${String(i).padStart(3, '0')}.jsonl`), `{"n":${i}}\n`);
+    const required = [{ name: 'data', path: w.roots.data }, { name: 'workers', path: w.roots.workers }];
+    // The smallest manifest budget (doubling) the required roots fit under.
+    let budget = 1024;
+    for (; budget < 2 ** 26; budget *= 2) if ((await takeRoots(k, required, store(), { maxManifestJson: budget })).ok) break;
+    const st = store();
+    const r = await takeRoots(k, [...required, { name: 'sessions/a/claude', path: big, optional: true }], st, { maxManifestJson: budget });
+    assert.equal(r.ok, true, r.because);
+    const { sink, opened } = await restoreFrom(k, st, st.manifests[0].bytes);
+    assert.ok(sink.committed.has('data/messages.jsonl') && sink.committed.has('workers/a/notes.md'), 'the required data is stored');
+    assert.ok(![...sink.committed.keys()].some((p) => p.startsWith('sessions/')));
+    assert.ok(opened.skipped.some((x) => x.path === 'sessions/a/claude' && /too large to fit/.test(x.why)), JSON.stringify(opened.skipped.slice(0, 3)));
+    // CONTROL: the same root, required, fails the snapshot as too large.
+    const req = await takeRoots(k, [...required, { name: 'sessions/a/claude', path: big }], store(), { maxManifestJson: budget });
+    assert.equal(req.ok, false);
+    assert.ok(req.tooLarge);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('#5686 review 14: two roots naming one shared folder in different case, each with only its own files, are both stored', async (t) => {
+  const w = threeRoots(), k = keys(), st = store();
+  try {
+    const shared = path.join(w.base, 'Shared');
+    fs.mkdirSync(shared);
+    fs.writeFileSync(path.join(shared, 'a.jsonl'), 'a\n'); fs.writeFileSync(path.join(shared, 'b.jsonl'), 'b\n');
+    const lower = path.join(w.base, 'shared');
+    let same = false;
+    try { same = fs.statSync(lower).ino === fs.statSync(shared).ino; } catch { /* case-sensitive */ }
+    if (!same) { t.skip('this volume is case-sensitive'); return; }
+    const r = await takeRoots(k, [{ name: 'sessions/a/claude', path: shared, only: ['a.jsonl'], optional: true }, { name: 'sessions/b/claude', path: lower, only: ['b.jsonl'], optional: true }], st);
+    assert.equal(r.ok, true, r.because);
+    const { sink } = await restoreFrom(k, st, st.manifests[0].bytes);
+    assert.deepEqual([...sink.committed.keys()].sort(), ['sessions/a/claude/a.jsonl', 'sessions/b/claude/b.jsonl']);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
 test('#5686: a file is read from its own root (a same-named file in another root is never read in its place)', async () => {
   const w = threeRoots(), k = keys(), st = store();
   try {
