@@ -20830,8 +20830,8 @@ const ORG_REFRESH_MS = 24 * 60 * 60 * 1000;
 /** While a join's outcome is not known (org-join-unknown.json), it is asked about this often, not daily (review 26). */
 const ORG_UNSURE_MS = 2 * 60 * 1000;
 function orgEnrollRefresh() {
-  // #5670: a refresh sends to the company, so it waits for live execution like the rollup tick and every other background
-  // send; the real start arms it before start() runs on every supported platform, so a pending Leave still goes at once.
+  // #5670: a refresh sends to the company, so it waits for live execution as the rollup tick does (#5532); the real start
+  // arms it before start() runs on every supported platform, so a pending Leave still goes at once.
   if (!liveExecution.liveExecutionAllowed()) return;
   try {
     const oe = require('./engine/orgenroll');

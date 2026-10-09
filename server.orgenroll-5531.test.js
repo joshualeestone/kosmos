@@ -530,7 +530,7 @@ test('#5531 follow-up review 3: a review\'s lost Accept through the real routes 
   assert.equal(oe.mayReport(), false, 'a lost Accept let this Kosmos report');
 });
 
-test('#5670: the board\'s company refresh sends nothing unless live execution is allowed, enrolled or not', (t) => {
+test('#5670: the board\'s company refresh sends nothing unless live execution is allowed (an enrolled board, and one with only a pending Leave)', (t) => {
   const live = require('./engine/live-execution');
   const { orgEnrollRefresh } = require('./server');
   const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
@@ -542,8 +542,17 @@ test('#5670: the board\'s company refresh sends nothing unless live execution is
   live.resetForTests();
   orgEnrollRefresh();
   assert.equal(calls, 0, 'an enrolled board refreshed (sent to its company) without live execution');
-  // CONTROL: the same enrolled board with live execution armed (as the real start arms it) does refresh.
-  live.allowLiveExecution();
+  // Only a pending Leave (no enrollment): the same.
+  fs.rmSync(enrollmentFile(), { force: true });
+  const leaveFile = path.join(store.ROOT, oe.LEAVE_PENDING_FILE);
+  fs.writeFileSync(leaveFile, '{}');
+  t.after(() => fs.rmSync(leaveFile, { force: true }));
+  assert.ok(oe.leavePending(), 'CONTROL: the fixture is a pending Leave');
   orgEnrollRefresh();
-  assert.equal(calls, 1, 'CONTROL: with live execution an enrolled board did not refresh');
+  assert.equal(calls, 0, 'a pending Leave was sent without live execution');
+  // CONTROL: with live execution armed (as the real start arms it) it is sent. Reset at once, so the file's own start()
+  // timers never see live execution armed (review 1).
+  live.allowLiveExecution();
+  try { orgEnrollRefresh(); } finally { live.resetForTests(); }
+  assert.equal(calls, 1, 'CONTROL: with live execution a pending Leave was not sent');
 });

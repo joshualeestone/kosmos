@@ -1,7 +1,7 @@
 # enrollgate-5670: the board's company refresh waits for live execution (kosmos#5670)
 
 ## Finished looks like
-`orgEnrollRefresh` (server.js) returns before anything is read or sent unless `liveExecution.liveExecutionAllowed()`, like the rollup tick (#5532) and the board's other background sends (repo convention 3).
+`orgEnrollRefresh` (server.js) returns before anything is read or sent unless `liveExecution.liveExecutionAllowed()`, like the rollup tick (#5532). (Review 1: not every background send is gated on live execution. The feedback and community sends have their own under-test gate, and the federated-seat sweep has none; that is #5671.)
 
 ## Built
 - server.js: the gate as the first statement of `orgEnrollRefresh`; the function is exported for its test (the file's pattern).
@@ -10,3 +10,4 @@
 ## Decided
 - Measured on main: the real start path arms live execution before `start()` on every supported platform (darwin, win32, linux; engine/platform.js SUPPORTED). So the gate changes nothing in production. A pending Leave is still sent at the first refresh after start, and at each later one.
 - Weakest premise: a future start path that calls `start()` before arming live execution would skip the at-start refresh, until the next daily pass or the two-minute follow-up. What would change it: such a path. The fix would be to arm first, as today.
+- On a platform where live execution is never armed (platformGate.isSupported false), a pressed Leave would never be resent by the refresh. That cannot happen today: SUPPORTED is darwin, win32 and linux. The rollup is gated the same way, so no data flows there either.
