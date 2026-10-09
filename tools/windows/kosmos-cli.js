@@ -771,7 +771,10 @@ async function taskList(ctx, args) {
     /* #5152, as install/kosmos: what finished means for it, so an agent can read its checks back, and who set them
        (review 2): the person, or the agent named, as [added by] names who added the task. */
     const setBy = x.doneWhenByPerson === true ? ', set by the person' : (x.doneWhenBy ? ', set by ' + q(x.doneWhenBy) : '');
-    const dw = Array.isArray(x.doneWhen) && x.doneWhen.length ? ' [done when' + setBy + ': ' + x.doneWhen.map((c, i) => (i + 1) + ') ' + one(c)).join(' ') + ']' : '';
+    /* Review 3: a check's own brackets are folded to parentheses, so a check cannot print a second [done when, set
+       by ...] mark of its own (as q() folds them in a webhook's words). */
+    const fold = (c) => one(c).replace(/[\p{Ps}[]/gu, '(').replace(/[\p{Pe}\]]/gu, ')');
+    const dw = Array.isArray(x.doneWhen) && x.doneWhen.length ? ' [done when' + setBy + ': ' + x.doneWhen.map((c, i) => (i + 1) + ') ' + fold(c)).join(' ') + ']' : '';
     ctx.out('[' + (x.number != null ? x.number : '?') + '] ' + (x.isClosed ? '[done] ' : ((x.onHold === true || x.projectPaused === true) ? '[on hold] ' : '') + (x.builtAt ? '[built] ' : '')) + words + who + by + up + kids + rep + dw);
   }
   return 0;
@@ -791,6 +794,8 @@ async function taskAdd(ctx, args) {
   if (!escaped && sentence === '--parent') { ctx.err('Put what the task is first: kosmos task add <project-id> "<what the task is>" --parent <task-number>'); return 2; }
   /* #4887, as install/kosmos: --who is taken out the same way, and refused in the sentence's place. */
   if (!escaped && (sentence === '--who' || sentence.startsWith('--who='))) { ctx.err('Put what the task is first: kosmos task add <project-id> "<what the task is>" --who <agent>'); return 2; }
+  /* #5152 review 3, as install/kosmos: --done in the sentence's place too. */
+  if (!escaped && (sentence === '--done' || sentence.startsWith('--done='))) { ctx.err('Put what the task is first: kosmos task add <project-id> "<what the task is>" --done "<check>"'); return 2; }
   if (!escaped && /^--[A-Za-z]/.test(sentence)) { refuseOption(ctx, 'task add', 'Usage: kosmos task add <project-id> "<what the task is>" ["more detail"] [--parent <task-number>] [--who <agent>|me] [--done "<check>"]', sentence); return 2; }
   const rest = args.slice(escaped ? 3 : 2);
   let parent = null;

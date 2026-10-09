@@ -66,6 +66,11 @@ test('create REFUSES checks over the limits and stores no task (the dangerous-an
     [['looks \u202eright'], /one line/],
     [['hidden\u200bword'], /one line/],
     [['isolate\u2066x\u2069'], /one line/],
+    // Review 3: tag characters (words a model reads and a person cannot see), a soft hyphen, a lone surrogate, a filler.
+    [['looks plain\u{E0049}\u{E0067}\u{E006E}'], /one line/],
+    [['soft\u00adhyphen'], /one line/],
+    [['lone \ud800 half'], /one line/],
+    [['blank\u3164filler'], /one line/],
     [['x'.repeat(tasks.DONE_CHECK_MAX + 1)], /characters or fewer/],
   ];
   for (const [doneWhen, why] of bad) {
@@ -182,4 +187,31 @@ test('review 2: who set the checks is kept for the list: the agent by name, the 
   assert.equal(cleared.doneWhenByPerson, undefined);
   assert.equal(cleared.doneWhenBy, undefined);
   assert.equal(tasks.setDoneWhen(id, n, ['c']).doneWhenBy, undefined, 'a write nobody named named somebody');
+});
+
+test('review 3: the agent a task is given to cannot rewrite the bar another agent set for it; the setter, the person and other members can', () => {
+  const id = freshProject();
+  projects.mutate(id, (p) => ({ ...p, agents: ['mara', 'otto', 'ivy'] }));
+  const n = tasks.create(id, { sentence: 'For otto', who: 'otto', doneWhen: ['all 40 tests pass'], made: { via: 'process', by: 'mara' } }).number;
+  assert.equal(stored(id, n).doneWhenBy, 'mara');
+  assert.throws(() => tasks.setDoneWhen(id, n, ['it builds'], { by: 'otto' }), (e) => e.status === 403 && /mara set these done-when checks for you/.test(e.message));
+  assert.throws(() => tasks.setDoneWhen(id, n, null, { by: 'otto' }), (e) => e.status === 403, 'the assignee cleared the bar set for it');
+  assert.deepEqual(stored(id, n).doneWhen, ['all 40 tests pass']);
+  assert.deepEqual(tasks.setDoneWhen(id, n, ['all 41 tests pass'], { by: 'mara' }).doneWhen, ['all 41 tests pass'], 'the agent that set them could not change them');
+  assert.deepEqual(tasks.setDoneWhen(id, n, ['ivy adds a check'], { by: 'ivy' }).doneWhen, ['ivy adds a check'], 'another member could not');
+  // Now ivy's: otto still cannot, and the person can.
+  assert.throws(() => tasks.setDoneWhen(id, n, ['easier'], { by: 'otto' }), (e) => e.status === 403);
+  assert.deepEqual(tasks.setDoneWhen(id, n, ['the person decides'], { person: true }).doneWhen, ['the person decides']);
+  // CONTROL: checks the assignee set itself are its own to change.
+  const own = tasks.create(id, { sentence: 'Otto files its own', who: 'otto', doneWhen: ['a'], made: { via: 'process', by: 'otto' } }).number;
+  assert.deepEqual(tasks.setDoneWhen(id, own, ['b'], { by: 'otto' }).doneWhen, ['b']);
+});
+
+test('review 3: the same-text note treats different checks as a different ask', () => {
+  const id = freshProject();
+  tasks.create(id, { sentence: 'Ship it', doneWhen: ['it is live'], made: { via: 'process', by: 'mara' } });
+  const p = () => projects.readAll().find((x) => x.id === id);
+  assert.equal(tasks.sameTextOpen(p(), 'Ship it', 99, { doneWhen: ['it is live'] }).length, 1, 'CONTROL: the same checks are the same ask');
+  assert.equal(tasks.sameTextOpen(p(), 'Ship it', 99, { doneWhen: ['it is fast'] }).length, 0, 'different checks were called the same ask');
+  assert.equal(tasks.sameTextOpen(p(), 'Ship it', 99, {}).length, 0, 'no checks were called the same ask as checks');
 });
