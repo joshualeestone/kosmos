@@ -599,13 +599,27 @@ function guardGuideFolder(dir, agentName, deps = {}) {
          did not (round 1 of this branch's review). */
       next.sandbox = { ...sb, enabled: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false, network: { ...net, allowLocalBinding: true } };
     }
-    const tmp = `${file}.${process.pid}.new`;
-    fs.writeFileSync(tmp, JSON.stringify(next, null, 2) + '\n', 'utf8');
-    fs.renameSync(tmp, file);
+    saveSettingsFile(file, JSON.stringify(next, null, 2) + '\n');
     return { ok: true };
   } catch (err) {
     return { ok: false, because: String((err && err.message) || err) };
   }
+}
+
+/* #5434 slice 11: the one save for the guard's Claude Code settings files (the guide's .claude/settings.json, a
+   token-only agent's .claude/settings.json and settings.local.json; the agent's folder can be the person's own).
+   Through securewrite.writeSecret, as engine/groksettings.js's (slice 3): the temp is flushed before the rename and
+   the folder after it (POSIX only), so a crash cannot leave the guard's settings at full length but zero-filled
+   (#5431), which Claude Code would fail to parse, starting the agent with no sandbox at all. An existing file keeps
+   its mode (it took the umask's before, through the temp); a new one takes the umask default (null, umaskDefault).
+   atomicOnly: a failed save leaves the file as it was, and no temp. The temp is unique and created `wx` (the old
+   `.<pid>.new` was shared by two saves in one process and followed a link planted there). ownTempsOnly: only this
+   file's own dead temps are reaped (the one new delete path in that folder); old `.<pid>.new` leftovers are not.
+   Throws, as the old writes did; each caller answers as before. */
+function saveSettingsFile(file, text) {
+  let mode = null;
+  try { mode = fs.statSync(file).mode & 0o7777; } catch { mode = null; }
+  require('./securewrite').writeSecret(file, text, mode, { atomicOnly: true, ownTempsOnly: true, umaskDefault: true });
 }
 
 /*
@@ -1599,9 +1613,7 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
     }
     const text = JSON.stringify(next, null, 2) + '\n';
     if (text !== raw) {   // review 20: an unchanged guard is not rewritten at every board start
-      const tmp = `${file}.${process.pid}.new`;
-      fs.writeFileSync(tmp, text, 'utf8');
-      try { fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* gone */ } throw e; }   // review 24
+      saveSettingsFile(file, text);
     }
     // #5663: what this refresh wrote for launch coverage, for the next refresh to replace. A record that cannot be
     // written leaves this refresh's rules in place (nothing is lost; the next refresh only cannot prune them): said.
@@ -1683,9 +1695,7 @@ function cleanLocalSettings(file) {
     }
   }
   if (!dropped.length) return;
-  const tmp = `${file}.${process.pid}.new`;
-  fs.writeFileSync(tmp, JSON.stringify(cur, null, 2) + '\n', 'utf8');
-  try { fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* gone */ } throw e; }   // review 24
+  saveSettingsFile(file, JSON.stringify(cur, null, 2) + '\n');
   console.error(`token-only guard: removed ${dropped.join(', ')} from ${file}; they would undo the guard`);
 }
 
