@@ -22,9 +22,9 @@
  * unverified).
  *
  * MERGE-ONLY, NEVER CLOBBER, through the same read/write/#1582 helpers as
- * engine/reporthook.js, so there is one copy of each. It requires only
- * reporthook and kosmos-statusline, neither of which requires any other
- * engine module, so accounts.js can require this without a cycle.
+ * engine/reporthook.js, so there is one copy of each. It requires
+ * reporthook, kosmos-statusline and (to save) securewrite; securewrite requires only node built-ins and
+ * neither of the others requires any engine module but securewrite, so accounts.js can require this without a cycle.
  */
 
 const fs = require('node:fs');
@@ -225,6 +225,8 @@ function calibrate(accountDir, tokensToday, { now = Date.now(), dayStart } = {})
          existing file keeps its mode (not on Windows), a new one takes the umask default; a failed save leaves the old
          file; in the provider's folder only this file's own dead temps are reaped. A failed save is not an error here
          (the estimate is returned either way, as before). */
+      // (no mode carried on Windows, where a mode is only the read-only bit; reporthook.readSettings carries it
+      // everywhere: do not "align" this to that)
       let mode = null;
       if (process.platform !== 'win32') { try { mode = fs.statSync(file).mode & 0o777; } catch { mode = null; } }
       try { require('./securewrite').writeSecret(file, JSON.stringify(next) + '\n', mode, { atomicOnly: true, ownTempsOnly: true, umaskDefault: true }); }
