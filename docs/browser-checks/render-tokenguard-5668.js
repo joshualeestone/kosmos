@@ -92,7 +92,7 @@ async function notice(page, shown) {
         const whole = await notice(page, 'Tamsin');
         chk(whole.hidden === false && whole.text.includes('Tamsin') && whole.text.includes('not complete') && whole.text.includes(BECAUSE),
           `${engineName}: a not-whole agent's page names it, says its protection is not complete, and gives the reason`, JSON.stringify(whole));
-        chk(!/—|this Mac/.test(whole.text), `${engineName}: the notice has no em dash and no "this Mac"`, whole.text);
+        chk(!/\u2014|this Mac/.test(whole.text), `${engineName}: the notice has no em dash and no "this Mac"`, whole.text);
         // It follows the poll: the record turns guarded, and within a poll the notice goes.
         record({ tokwhole: { ok: true, at: AT }, tokwarn: { ok: true, warning: 'past', at: AT }, tokgood: { ok: true, at: AT } });
         await page.waitForTimeout(6500);
