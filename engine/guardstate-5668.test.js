@@ -328,12 +328,12 @@ function publishRecording(fn) {
   const real = { open: fs.openSync, fsync: fs.fsyncSync, link: fs.linkSync, rename: fs.renameSync };
   fs.openSync = (p, ...rest) => { const fd = real.open.call(fs, p, ...rest); fdPath.set(fd, String(p)); return fd; };
   fs.fsyncSync = (fd) => { events.push(['fsync', fdPath.get(fd)]); return real.fsync(fd); };
-  fs.linkSync = (a, b) => { events.push(['publish', String(a), String(b)]); return real.link(a, b); };
-  fs.renameSync = (a, b) => { events.push(['publish', String(a), String(b)]); return real.rename(a, b); };
+  fs.linkSync = (a, b) => { events.push(['link', String(a), String(b)]); return real.link(a, b); };
+  fs.renameSync = (a, b) => { events.push(['rename', String(a), String(b)]); return real.rename(a, b); };
   try { fn(); } finally { fs.openSync = real.open; fs.fsyncSync = real.fsync; fs.linkSync = real.link; fs.renameSync = real.rename; }
   return events;
 }
-for (const [label, extra] of [['the board start\'s exclusive link', { boardStart: true }], ['a launch\'s rename', {}]]) {
+for (const [label, extra, kind] of [['the board start\'s exclusive link', { boardStart: true }, 'link'], ['a launch\'s rename', {}, 'rename']]) {
   test('#5434 slice 25: the guard-state line is flushed before ' + label + ' publishes it', () => {
     const name = 'gs-flush-' + (extra.boardStart ? 'start' : 'launch');
     const stateFile = path.join(store.ROOT, setup.GUARD_STATE_DIR, name + '.json');
@@ -341,8 +341,9 @@ for (const [label, extra] of [['the board start\'s exclusive link', { boardStart
     const empty = path.join(SANDBOX, 'accounts', 'flush-' + name);
     fs.mkdirSync(empty, { recursive: true });
     const events = publishRecording(() => quiet(() => setup.guardTokenOnlyFolder(agentDir(name), name, { ...BASE, accountConfigDir: empty, managedSettingsPath: null, ...extra })));
-    const p = events.findIndex((e) => e[0] === 'publish' && e[2] === stateFile);
-    assert.ok(p >= 0, 'nothing published the guard-state line: ' + JSON.stringify(events.filter((e) => e[0] === 'publish')));
+    // review 1: the expected publish KIND, so the link test cannot quietly exercise the rename.
+    const p = events.findIndex((e) => e[0] === kind && e[2] === stateFile);
+    assert.ok(p >= 0, 'no ' + kind + ' published the guard-state line: ' + JSON.stringify(events.filter((e) => e[0] !== 'fsync')));
     assert.ok(events.slice(0, p).some((e) => e[0] === 'fsync' && e[1] === events[p][1]), 'the guard-state line was not flushed before it was published');
   });
 }

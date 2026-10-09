@@ -1420,7 +1420,7 @@ function recordGuardState(agentName, r, deps = {}) {
         }
       } else fs.renameSync(tmp, file);
       syncDir(dir);   // #5434 slice 25: the link or rename itself, POSIX only, never throws
-    } finally { try { fs.unlinkSync(tmp); } catch { /* renamed, or gone */ } }
+    } finally { try { fs.unlinkSync(tmp); } catch { /* renamed, linked (the published name keeps the data), or gone */ } }
   } catch (e) { process.stderr.write(`#5668: the guard state for ${agentName} could not be recorded (${(e && e.code) || e})\n`); }
 }
 /* #5668 (Pete's step 3): the user-level settings file the agent's ACCOUNT reads also reaches its sandbox profile, so its
