@@ -379,3 +379,16 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   the list keeps its offsets and call maps until its files go (ids and classes only, never sent); an unexpected throw
   in a tick returns its text, which the server's timer drops (as nothing else reads it in part 1a); "Operation not
   permitted" also matches TCC/SIP refusals (the stated text-match premise).
+
+## Review 30 (opus), all fixed unless stated
+- Inside double quotes a backslash was dropped before any character, so bash -c "cat ~/Library/Application\ Support/
+  Kosmos/board.token" split at the space and read as home: it now escapes only $, a backtick, ", \ and a newline, as
+  in bash. Test.
+- With an agent connected at the home folder, a hidden word toward the board root (Kosmo?/board.token) was dropped as
+  the agent's own before the name check saw it: a word whose fixed start resolves at, under or toward a board root
+  inside the agent's folder is kept. Test.
+- A whole quoted command starting with / (sh -c "/usr/bin/true; cat notes.txt") was kept as one path and read as
+  system: a quoted word holding ; | & or a newline is not a path. Test.
+- Stated: a quoted command with no separator (sh -c "/usr/bin/tool arg") is still kept whole as a path and can read
+  as system (it can only raise the class to system); "\$HOME/x" is read as home though bash prints it literally
+  (over-claims); a hidden word with no board name in it (Kos*/b*) is kept but not classed board-files.

@@ -141,6 +141,9 @@ function targetClass(tool, input, ctx) {
         if (/[*?$`]/.test(v)) hidden.push(v);
         /* A path: from ~ or /, ./ or ../, a dotted name (.claude/settings.json, review 7), or a word with a slash and no
            space (a whole quoted command is split above instead); a relative one resolves against the agent's folder. */
+        /* A whole quoted command (it holds ; | & or a newline, split above at depth 1) is not one path (review 30: sh -c
+           "/usr/bin/true; cat notes.txt" read as a system path). */
+        if (depth === 0 && /\s/.test(w) && /[;|&\n]/.test(w)) continue;
         if (/^(~|\/|\.\.?\/|\.[A-Za-z0-9_])/.test(v) || (v.includes('/') && !/\s/.test(v))) paths.push(v);
         if (paths.length >= 64) return;
       }
@@ -168,7 +171,12 @@ function targetClass(tool, input, ctx) {
        relative, so it is the agent's own folder's (review 26); paths fold case on a Mac, as pathClass does. */
     const fold2 = (x) => (process.platform === 'darwin' ? x.toLowerCase() : x);
     const own = (w0) => { const w = w0.replace(/^(\$\{?PWD\}?|\$\(pwd\))(?=\/|$)/, '.'); const pre = w.split(/[*?$`]/)[0]; if (!ctx.agentDir) return false; if (!pre) return !/^[$`]/.test(w); const r = path.resolve(ctx.agentDir, pre.replace(/^~(?=\/|$)/, ctx.home || os.homedir())); return fold2(r) === fold2(ctx.agentDir) || fold2(r).startsWith(fold2(ctx.agentDir) + path.sep); };
-    hidden = hidden.filter((w) => !own(w));
+    /* A word whose fixed start resolves at, under, or toward a board root inside the agent's folder (an agent connected at
+       the home folder, review 30: ~/Library/Application\ Support/Kosmo?/board.token was dropped as the agent's own) is
+       kept, as pathClass checks such a root before the agent's own folder (review 28). */
+    const inRoots = [ctx.boardRoot, ...(ctx.boardRoots || [])].filter((r) => r && ctx.agentDir && fold2(r).startsWith(fold2(ctx.agentDir) + path.sep));
+    const toBoard = (w0) => { if (!inRoots.length) return false; const pre = w0.replace(/^(\$\{?PWD\}?|\$\(pwd\))(?=\/|$)/, '.').split(/[*?$`]/)[0]; if (!pre) return false; const r = fold2(path.resolve(ctx.agentDir, pre.replace(/^~(?=\/|$)/, ctx.home || os.homedir()))); return inRoots.some((b) => { const q = fold2(b); return q.startsWith(r) || r === q || r.startsWith(q + path.sep); }); };
+    hidden = hidden.filter((w) => toBoard(w) || !own(w));
     const board = hidden.some((w) => /board\.token|agent-token-only\.json|worlds\.json|Application Support\/Kosmos\/[^/]*$/i.test(w));
     const config = hidden.some((w) => /(^|[\s/'"])\.claude(\/|\b)|CLAUDE\.md|\.mcp\.json/.test(w));
     if (board && RANK.indexOf('board-files') < RANK.indexOf(best)) best = 'board-files';
@@ -196,7 +204,9 @@ function shellWords(cmd) {
     const ch = cmd[i];
     if (q) {
       if (ch === q) q = null;
-      else if (ch === '\\' && q === '"' && i + 1 < cmd.length) cur += cmd[++i];
+      /* Inside "..." a backslash escapes only $, a backtick, ", \ and a newline; before anything else it stays, as in
+         bash (review 30: dropping it split bash -c "cat Application\ Support/..." at the space). */
+      else if (ch === '\\' && q === '"' && i + 1 < cmd.length) cur += /[$`"\\\n]/.test(cmd[i + 1]) ? cmd[++i] : ch;
       else cur += ch;
     } else if (ch === "'" || ch === '"') { q = ch; any = true; }
     else if (ch === '\\' && i + 1 < cmd.length) { cur += cmd[++i]; any = true; }
