@@ -14,10 +14,12 @@
  *   node tools/whats-new-pool.js build <version> [--max=5] [--pool=<file>] [--out=<file>]
  *       writes web/whats-new.json: the top --max pending highlights by rank (ties: newest first), checked with
  *       engine/whatsnew.js's own rules (the cut's step 1b-ii runs the same check).
- *   node tools/whats-new-pool.js shown <version> --promoted [--pool=<file>] [--from=<file>]
+ *   node tools/whats-new-pool.js shown <version> --promoted [--pool=<file>] [--from=<file> | --from-history]
  *       after <version> is PROMOTED to prod: every pool entry whose title is in that version's What's New becomes
  *       shown (shownIn <version>), and lastProd becomes <version>. Run it from the promote, not the cut: --promoted is
  *       required, so it is never run by reflex after a cut (that would retire highlights prod users never saw).
+ *       --from-history reads that version's What's New from this checkout's git history (the newest commit whose
+ *       web/whats-new.json names it); there are no per-version tags to read it from.
  *
  * Exit 0 on success, 3 when the pool cannot make a showable list (no eligible highlight, or one the window rejects),
  * 2 on a usage error.
@@ -66,6 +68,18 @@ function choose(pool, max) {
     });
 }
 
+/** The What's New <version> shipped: the newest commit in this checkout's history whose web/whats-new.json names it. */
+function fromHistory(version, root = ROOT) {
+  const { execFileSync } = require('node:child_process');
+  const git = (args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 << 20 });
+  for (const sha of git(['log', '--format=%H', 'HEAD', '--', 'web/whats-new.json']).split('\n').filter(Boolean)) {
+    let obj;
+    try { obj = JSON.parse(git(['show', sha + ':web/whats-new.json'])); } catch { continue; }   // deleted or unparsable there
+    if (obj && obj.version === version) return obj;
+  }
+  return null;
+}
+
 function opt(args, name, dflt) {
   const a = args.find((x) => x.startsWith('--' + name + '='));
   return a ? a.slice(name.length + 3) : dflt;
@@ -74,30 +88,30 @@ function opt(args, name, dflt) {
 function main(argv) {
   const whatsnew = require('../engine/whatsnew');
   // Only --name=value flags this tool knows: a typo (`--outt=`) or `--max 4` must not silently do something else.
-  const unknown = argv.filter((a) => a.startsWith('--') && !/^--(max|pool|out|from)=./.test(a) && a !== '--promoted');
+  const unknown = argv.filter((a) => a.startsWith('--') && !/^--(max|pool|out|from)=./.test(a) && a !== '--promoted' && a !== '--from-history');
   if (unknown.length) {
-    process.stderr.write('unknown or malformed option(s): ' + unknown.join(' ') + ' (use --max=N, --pool=FILE, --out=FILE, --from=FILE, --promoted)\n');
+    process.stderr.write('unknown or malformed option(s): ' + unknown.join(' ') + ' (use --max=N, --pool=FILE, --out=FILE, --from=FILE, --from-history, --promoted)\n');
     return 2;
   }
   const [cmd, version] = argv.filter((a) => !a.startsWith('--'));
   if (!['build', 'shown'].includes(cmd) || !version || !whatsnew.VERSION_RE.test(version)) {
-    process.stderr.write('usage: node tools/whats-new-pool.js build|shown <version like 0.7.36> [--max=5] [--pool=<file>] [--out=<file>] [--from=<file>]\n');
+    process.stderr.write('usage: node tools/whats-new-pool.js build|shown <version like 0.7.36> [--max=5] [--pool=<file>] [--out=<file>] [--from=<file> | --from-history] [--promoted]\n');
     return 2;
   }
   const poolFile = opt(argv, 'pool', POOL);
   const pool = readPool(poolFile);
   if (cmd === 'build') {
-  // Every pending item must be one the window can show, checked now rather than the day it reaches the top 5.
-  // (Only on build: a malformed pending item must not stop `shown` recording what prod showed.)
-  for (const it of pool.items.filter((i) => i.status === 'pending')) {
-    const h = { icon: it.icon, title: it.title, line: it.line };
-    if (it.platforms) h.platforms = it.platforms;
-    const bad = whatsnew.problems({ version, highlights: [h] }, version);
-    if (bad.length) {
-      process.stderr.write('the pool item "' + it.title + '" is not one the window can show: ' + bad.join('; ') + '\n');
-      return 3;
+    // Every pending item must be one the window can show, checked now rather than the day it reaches the top 5.
+    // (Only on build: a malformed pending item must not stop `shown` recording what prod showed.)
+    for (const it of pool.items.filter((i) => i.status === 'pending')) {
+      const h = { icon: it.icon, title: it.title, line: it.line };
+      if (it.platforms) h.platforms = it.platforms;
+      const bad = whatsnew.problems({ version, highlights: [h] }, version);
+      if (bad.length) {
+        process.stderr.write('the pool item "' + it.title + '" is not one the window can show: ' + bad.join('; ') + '\n');
+        return 3;
+      }
     }
-  }
     const max = Number(opt(argv, 'max', String(whatsnew.MAX_HIGHLIGHTS)));
     if (!Number.isInteger(max) || max < 1 || max > whatsnew.MAX_HIGHLIGHTS) {
       process.stderr.write('--max must be 1 to ' + whatsnew.MAX_HIGHLIGHTS + '\n');
@@ -122,8 +136,8 @@ function main(argv) {
     process.stdout.write(path.relative(process.cwd(), out) + ': ' + obj.highlights.length + ' highlight(s) for ' + version
       + ':\n' + obj.highlights.map((h) => '  - ' + h.title).join('\n') + '\n'
       + 'The pool says the last PROD release was ' + (pool.lastProd || 'not recorded') + '. If a newer version reached prod, first'
-      + ' run, ON MAIN (main\'s pool, never a release checkout\'s): git show "v<that version>:web/whats-new.json" > /tmp/wn.json &&'
-      + ' node tools/whats-new-pool.js shown <that version> --promoted --from=/tmp/wn.json, then commit release/whats-new-pool.json to main.'
+      + ' run, ON an up-to-date MAIN (main\'s pool, never a release checkout\'s):'
+      + ' node tools/whats-new-pool.js shown <that version> --promoted --from-history, then commit release/whats-new-pool.json to main.'
       + ' Otherwise prod users see its highlights again.\n'
       + 'Edit titles and lines in release/whats-new-pool.json and build again, never in the built file: `shown` matches by title.\n');
     return 0;
@@ -134,8 +148,9 @@ function main(argv) {
       + ' --promoted. Nothing marked.\n');
     return 2;
   }
-  const from = opt(argv, 'from', whatsnew.FILE);
-  const shownObj = JSON.parse(fs.readFileSync(from, 'utf8'));
+  const fromHist = argv.includes('--from-history');
+  const from = fromHist ? 'git history' : opt(argv, 'from', whatsnew.FILE);
+  const shownObj = fromHist ? fromHistory(version) : JSON.parse(fs.readFileSync(from, 'utf8'));
   if (!shownObj || shownObj.version !== version || !Array.isArray(shownObj.highlights)) {
     process.stderr.write(from + ' is not the What\'s New of ' + version + '; nothing marked\n');
     return 3;
@@ -160,8 +175,10 @@ function main(argv) {
   pool.lastProd = version;
   // Temp file then rename: a crash mid-write must not truncate the only record of what prod showed.
   const tmpFile = poolFile + '.tmp-' + process.pid;
-  fs.writeFileSync(tmpFile, JSON.stringify(pool, null, 2) + '\n');
-  fs.renameSync(tmpFile, poolFile);
+  try {
+    fs.writeFileSync(tmpFile, JSON.stringify(pool, null, 2) + '\n');
+    fs.renameSync(tmpFile, poolFile);
+  } finally { fs.rmSync(tmpFile, { force: true }); }
   process.stdout.write(marked + ' highlight(s) marked shown in prod ' + version + '\n');
   return 0;
 }
@@ -174,4 +191,4 @@ if (require.main === module) {
   }
   process.exit(code);
 }
-module.exports = { main, choose, readPool, newerFirst };
+module.exports = { main, choose, readPool, newerFirst, fromHistory };

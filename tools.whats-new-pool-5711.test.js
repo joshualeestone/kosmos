@@ -71,7 +71,9 @@ test('#5711: after a PROD promote, exactly the titles that version showed become
     assert.equal(quiet(() => tool.main(['build', '0.7.37', `--pool=${t.file}`, `--out=${t.out}`])), 0);
     assert.deepEqual(JSON.parse(fs.readFileSync(t.out, 'utf8')).highlights.map((h) => h.title), ['B', 'C']);
     // A What's New of ANOTHER version marks nothing.
+    const before = fs.readFileSync(t.file, 'utf8');
     assert.equal(quiet(() => tool.main(['shown', '0.7.37', `--pool=${t.file}`, `--from=${shown}`, '--promoted'])), 3);
+    assert.equal(fs.readFileSync(t.file, 'utf8'), before, 'the other-version refusal marked nothing');
     // Review 1: a highlight reworded after the build is not in the pool: refused, nothing marked.
     fs.writeFileSync(shown, JSON.stringify({ version: '0.7.37', highlights: [{ icon: 'tasks', title: 'B, reworded', line: 'x' }] }));
     assert.equal(quiet(() => tool.main(['shown', '0.7.37', `--pool=${t.file}`, `--from=${shown}`, '--promoted'])), 3);
@@ -92,6 +94,30 @@ test('#5711: the real pool builds a window the cut accepts, without the held con
   if (chosen.length) assert.deepEqual(whatsnew.problems({ version: '0.7.36', highlights: chosen }, '0.7.36'), []);
   assert.ok(!chosen.some((h) => /aloud|conversation mode/i.test(h.title + h.line)), 'the held mode never resurfaces');
   assert.ok(pool.items.some((i) => i.status === 'held' && /aloud/i.test(i.title)), 'CONTROL: the held item is in the pool');
+  // Review 5: every gate build has (platforms included) on the real pool, written only to a temp file.
+  if (chosen.length) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wnpool-real-'));
+    try {
+      const next = '0.' + (Number(pool.lastProd.split('.')[1])) + '.' + (Number(pool.lastProd.split('.')[2]) + 1);
+      assert.equal(quiet(() => tool.main(['build', next, `--out=${path.join(dir, 'wn.json')}`])), 0, next);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+});
+
+test('#5711 review 5: --from-history finds the What\'s New a version shipped in this checkout\'s history', () => {
+  const got = tool.fromHistory('0.7.35');
+  assert.ok(got, 'found 0.7.35');
+  assert.equal(got.version, '0.7.35');
+  assert.ok(got.highlights.some((h) => h.title === 'Agent cards show the last community post'));
+  assert.equal(tool.fromHistory('0.0.1'), null, 'CONTROL: a version that never shipped is not found');
+  // The printed recovery command, end to end on a copy of the real pool (0.7.35 is already recorded: marks 0, exit 0).
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wnpool-hist-'));
+  try {
+    const copy = path.join(dir, 'pool.json');
+    fs.copyFileSync(path.join(__dirname, 'release', 'whats-new-pool.json'), copy);
+    assert.equal(quiet(() => tool.main(['shown', '0.7.35', '--promoted', '--from-history', `--pool=${copy}`])), 0);
+    assert.equal(quiet(() => tool.main(['shown', '0.0.1', '--promoted', '--from-history', `--pool=${copy}`])), 3, 'CONTROL');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('#5711 review 1: a top 5 that leaves a platform with no highlight is refused, as the cut would refuse it', () => {
