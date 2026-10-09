@@ -499,3 +499,31 @@ test('#5683 r4: an offset is kept while its file exists, even when a listing com
   const st = JSON.parse(fs.readFileSync(path.join(s.root, 'agent-events.json'), 'utf8'));
   assert.ok(Object.prototype.hasOwnProperty.call(st.offsets, s.file), 'a listing that failed for a moment dropped the offset');
 });
+
+/* ---- review 5 ---- */
+
+test('#5683 r5: a sandbox refusal whose call was lost (a restart) is still reported, as Bash', () => {
+  const got = ae.scanText(result('lost', 'touch: /etc/x: Operation not permitted', true), new Map(), ctx());
+  assert.deepEqual(got.map((e) => [e.rule, e.action]), [['sandbox', 'run']]);
+});
+
+test('#5683 r5: a rewritten file cannot lift the read budget', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentevents-5683-rw-'));
+  const f = path.join(dir, 's.jsonl');
+  fs.writeFileSync(f, 'a\n');
+  const r = ae.readFrom(f, 10 * 1024 * 1024);   // an offset past the end: the file was rewritten
+  fs.rmSync(dir, { recursive: true, force: true });
+  assert.equal(r.read, 2, 'the bytes read were not what was actually read');
+});
+
+test('#5683 r5: a file that has not grown is not read again', async (t) => {
+  const { s, c } = await enrolled(t);
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  const real = fs.openSync;
+  let opened = 0;
+  fs.openSync = (...a) => { if (a[0] === s.file) opened += 1; return real(...a); };
+  t.after(() => { fs.openSync = real; });
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  assert.equal(opened, 0, 'an unchanged transcript was opened');
+});
+

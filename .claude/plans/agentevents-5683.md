@@ -99,3 +99,14 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   review 4). Test.
 - Stated: a refused tool not in the action table (an MCP tool, Task) is reported as 'run'; PENDING_MAX trimming is
   untested.
+
+## Review 5 (sonnet), all fixed unless stated
+- A sandbox refusal whose call was lost (a restart between the call and its result) was dropped: an "Operation not
+  permitted" result with no known call is taken as Bash (the EPERM premise already stated). Test.
+- A rewritten file's reset offset made the budget grow: the budget counts the bytes actually read. Test.
+- Every transcript ever seen was opened every tick: a file whose size has not changed is only stat'ed. Test.
+- The budget was spent in directory order (one large backlog could starve other agents' files): the agent read first
+  rotates each tick (delays, never losses).
+- Decided and commented: a network command is network-host before the paths it names.
+- Stated: other-agent covers other token-only agents' folders only (the scan knows no other agent's folder); a refusal
+  aimed at another, non-token-only agent's folder reports 'home'.
