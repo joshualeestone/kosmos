@@ -39,8 +39,11 @@ improvement it gained would have died with the session that wrote it.
    (installkosmos.com's prod pointer and its manifest, which names the commit that build was cut from) and,
    when prod is newer than the pool's `lastProd`, marks that version's highlights shown and records it, so
    commit `release/whats-new-pool.json` with the build. It refuses, writing nothing, if it cannot read prod or
-   match what prod showed; `--offline` builds without the check and says so (then, after the next PROD promote,
-   run `node tools/whats-new-pool.js shown <version> --promoted --from-history --ref=<that build's commit>`). `icon` is one of `swarm`, `tasks`, `phone`,
+   match what prod showed; `--offline` builds without the check and says so, and the next online build catches
+   up. The cut checks it too: step 1b-ii runs `node tools/whats-new-pool.js prod-check` and stops when prod is
+   newer than the pool records (build again and commit). A version that reached prod with no What's New at all
+   (cut with `KOSMOS_CUT_NO_WHATS_NEW=1`) is recorded with
+   `node tools/whats-new-pool.js shown <version> --promoted --none`. `icon` is one of `swarm`, `tasks`, `phone`,
    `list`, `chat`, `shield`, `spark`; a title of about 40 characters; one plain
    sentence for the line; no em dashes. A highlight about one platform carries
    `"platforms": ["mac"]` (or `["windows"]`) and shows only there (#5224). A title or

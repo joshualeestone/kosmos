@@ -947,6 +947,35 @@ test('#3955 round 11: with the opt-out set and a real highlights file for the ve
   fs.rmSync(site, { recursive: true, force: true });
 });
 
+// #5713: step 1b-ii's prod-check, through the REAL release.sh: the pool must record what Mac prod serves.
+test('#5713: prod newer than the pool records stops the cut at 1b-ii, before anything is bumped', () => {
+  const { dir, home, site } = git_sandbox('0.6.02');   // the pool records prod 0.6.02
+  fs.writeFileSync(path.join(site, 'dist', 'latest.json'), JSON.stringify({ version: '0.6.05', manifest: 'kosmos-0.6.05-arm64.manifest.json' }));
+  fs.writeFileSync(path.join(site, 'dist', 'kosmos-0.6.05-arm64.manifest.json'), JSON.stringify({ version: '0.6.05', app: { commit: 'b'.repeat(40) } }));
+  const r = run_git(dir, '0.6.03', home, site);
+  assert.match(r.said, /prod serves 0\.6\.05 but the pool records 0\.6\.02/, r.said.slice(0, 1200));
+  assert.doesNotMatch(r.said, /== 2\. the version, in one place ==/, 'a cut with a stale pool reached step 2');
+  assert.equal(r.touched, false, 'the version was bumped before the refusal');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
+});
+
+test('#5713: prod that cannot be read is a NOTE, and the cut goes on; CONTROL: a pool that records prod says nothing', () => {
+  const { dir, home, site } = git_sandbox('0.6.02');
+  const ok = run_git(dir, '0.6.03', home, site);
+  assert.match(ok.said, /== 2\. the version, in one place ==/, 'CONTROL: the in-place check did not let the cut through');
+  assert.doesNotMatch(ok.said, /could not read what prod serves/, 'CONTROL: the pointer the sandbox serves was not read');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
+  const s2 = git_sandbox('0.6.02');
+  fs.rmSync(path.join(s2.site, 'dist', 'latest.json'));
+  const r = run_git(s2.dir, '0.6.03', s2.home, s2.site);
+  assert.match(r.said, /NOTE: could not read what prod serves, so the What's New pool was not checked against it; the cut goes on\./, r.said.slice(0, 1200));
+  assert.match(r.said, /== 2\. the version, in one place ==/, 'an unreadable prod stopped the cut');
+  fs.rmSync(s2.dir, { recursive: true, force: true });
+  fs.rmSync(s2.site, { recursive: true, force: true });
+});
+
 test('#1449: the cut completion line can never omit its step', () => {
   const s = fs.readFileSync(REAL, 'utf8');
 
