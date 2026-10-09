@@ -489,11 +489,32 @@ function readState(root) {
 /* Not reporting now, for any reason (no accepted words, or no enrollment at all: review 36, a Leave the company then
    refused wrote the SAME record back, and the reads in between were sent): a state that was reporting is marked
    withdrawn with no queue kept (review 19), so reporting again starts from then and nothing from the gap is sent.
-   Reads only the state file; no transcript is opened. The server's timer calls it when this is not the work Kosmos. */
+   Reads only the state file; no transcript is opened. Called through withdrawIfStopped (review 37). */
 function markWithdrawn(root0) {
   const root = root0 || require('./store').ROOT;
   const w = readState(root);
   if (w.enrolledAs && !w.withdrawn) { w.withdrawn = true; w.pending = []; writeState(root, w); }
+}
+
+/* Whether this Kosmos has really stopped reporting, not merely failed one read (review 37: isEnrolledHere is false on
+   any read error, and the queue it then cleared was lost for good). Stopped: enrolled here with no accepted words
+   (review 17), a Leave pending, the enrollment file absent (a Leave removes it), or a record naming another world.
+   Anything that could not be read is a blip: nothing is marked. */
+function stoppedReporting(eo) {
+  const oe = require('./orgenroll');
+  const root = (eo && eo.root) || require('./store').ROOT;
+  if (oe.isEnrolledHere(eo)) return !oe.mayReport(eo);
+  if (oe.leavePending(eo)) return true;
+  try { fs.statSync(path.join(root, oe.ENROLLMENT_FILE)); } catch (e) { return !!e && e.code === 'ENOENT'; }
+  const rec = oe.readEnrollment(eo);
+  if (!rec) return false;
+  let id;
+  try { id = fs.readFileSync(path.join(root, oe.WORLD_ID_FILE), 'utf8').trim(); } catch { return false; }
+  return !!id && rec.world !== id;
+}
+/* The server's timer and the tick call this, never markWithdrawn directly. */
+function withdrawIfStopped(eo) {
+  if (stoppedReporting(eo || {})) markWithdrawn(eo && eo.root);
 }
 
 function writeState(root, st) {   // whole or not at all; owner-only
@@ -579,7 +600,7 @@ async function tick(opts) {
       /* Review 17: words can be lost without a 409 here (the rollup's own 409, a refresh). While enrolled with no words
          accepted, the state is marked withdrawn, so words accepted again (even the same) start clean and nothing from
          the gap is sent. */
-      try { markWithdrawn(o.root); } catch { /* the next tick tries again */ }
+      try { withdrawIfStopped(eo); } catch { /* the next tick tries again */ }
       return { sent: 0, because: 'not the enrolled Kosmos, or no accepted words recorded here' };
     }
     const rec = oe.readEnrollment(eo);
@@ -828,5 +849,5 @@ async function tick(opts) {
   }
 }
 
-module.exports = { ROUTE, SEND_MAX, scanText, classify, targetClass, label, ref, readFrom, sessionOf, tick, markWithdrawn,
+module.exports = { ROUTE, SEND_MAX, scanText, classify, targetClass, label, ref, readFrom, sessionOf, tick, markWithdrawn, withdrawIfStopped, _readState: readState,
   _defaultSources: defaultSources };   // the guard check's round-trip test (review 17)
