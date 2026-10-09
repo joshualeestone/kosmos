@@ -1254,6 +1254,20 @@ async function setupComplete(code, name) {
   if (typeof name !== 'string' || !NAME_RULE.test(name)) {
     return { ok: false, because: 'the name is 3 to 32 letters, digits or hyphens' };
   }
+  return runSetupComplete([
+    'setup', 'complete',
+    '--coordinator', COORDINATOR(),
+    '--email', settings.email,
+    '--code', String(code),
+    '--name', name,
+    '--state-dir', STATE_DIR(),
+  ], null, name);
+}
+
+/* kosmos#5628: the guarded run both setups share (the code one above, the company sign-in one below): the same
+   tracking, the same half-identity rule, the same cancel and identity bookkeeping. `stdin` carries a secret when one
+   is needed (never argv). */
+async function runSetupComplete(args, stdin, name) {
   secureStateDir();
   // Tracked like the in-app register (Forget waits for it; nothing else starts
   // beside it), bounded the same, and a half identity is retired first.
@@ -1265,14 +1279,7 @@ async function setupComplete(code, name) {
     const half = await clearHalfIdentity();
     if (half && half.kept) return KEPT_HALF(half.kept);
     if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
-    return explainStranded(await setupRun([
-      'setup', 'complete',
-      '--coordinator', COORDINATOR(),
-      '--email', settings.email,
-      '--code', String(code),
-      '--name', name,
-      '--state-dir', STATE_DIR(),
-    ], null, registerTimeoutMs()), half, name);
+    return explainStranded(await setupRun(args, stdin, registerTimeoutMs()), half, name);
   })();
   registerInFlight = running;
   // A Forget or Sign out that lands while this waits: the Settings page must not
@@ -1297,6 +1304,100 @@ async function setupComplete(code, name) {
   return result;
 }
 
+
+/* ---- kosmos#5628 (MDM zero-touch, slice 2b): a company's managed Macs set up through the company's own sign-in.
+   The company's MDM pushes a profile (domain com.installkosmos.kosmos) naming the company; it carries no secret.
+   With it, the person signs in with their company account in the browser and approves this computer there by its
+   code; nobody types an email code. The setup's secret lives in THIS engine only (never sent to the page), the same
+   rule the in-app sign-in keeps for its session (#874). ---- */
+
+const MANAGED_DOMAIN = 'com.installkosmos.kosmos';
+const ORG_SLUG_RULE = /^[a-z0-9-]{1,64}$/;
+
+/** The plist a managed preference lives in: the device scope, then this user's. */
+function managedPrefsPaths() {
+  let user = '';
+  try { user = require('node:os').userInfo().username; } catch { user = ''; }
+  const base = '/Library/Managed Preferences';
+  return [base + '/' + MANAGED_DOMAIN + '.plist'].concat(user ? [base + '/' + user + '/' + MANAGED_DOMAIN + '.plist'] : []);
+}
+
+/** Read one managed-preferences plist as an object, or null (macOS only; plutil ships with it). */
+function readManagedPlist(path) {
+  if (process.platform !== 'darwin' || !fs.existsSync(path)) return null;
+  try {
+    const raw = execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', path], { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] });
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+let managedReader = () => {
+  for (const p of managedPrefsPaths()) { const v = readManagedPlist(p); if (v) return v; }
+  return null;
+};
+
+/** The company this Mac is managed for, from its MDM profile: { orgSlug, coordinatorUrl } or null. A malformed
+    value is treated as no profile (nothing here may steer a setup to an address the profile did not plainly give). */
+function managedOrg() {
+  let v = null;
+  try { v = managedReader(); } catch { v = null; }
+  if (!v || typeof v !== 'object') return null;
+  const slug = typeof v.OrgSlug === 'string' ? v.OrgSlug.trim() : '';
+  if (!ORG_SLUG_RULE.test(slug)) return null;
+  const url = typeof v.CoordinatorURL === 'string' ? v.CoordinatorURL.trim().replace(/\/+$/, '') : '';
+  return { orgSlug: slug, coordinatorUrl: /^https:\/\/[^\s/]+$/.test(url) ? url : null };
+}
+
+let companySetup = null;   // { email, setupId, secret, expiresAt }: engine memory only
+
+/** Start a company sign-in setup for this email. Answers what the page shows (the code to compare, the address to
+    open, how often to ask), never the secret. */
+async function companyStart(email) {
+  if (typeof email !== 'string' || !email.includes('@')) {
+    return { ok: false, because: 'that does not look like an email address' };
+  }
+  { const b = busy(); if (b) return b; }
+  const r = await setupRun(['setup', 'company-start', '--coordinator', COORDINATOR(), '--email', email]);
+  if (!r.ok) return r;
+  const a = (lastJsonLine(r.said) || {}).value;
+  if (!a || typeof a.setupId !== 'string' || typeof a.secret !== 'string' || typeof a.url !== 'string') {
+    return { ok: false, because: 'Kosmos+ answered in a way this version does not understand' };
+  }
+  const ttl = Number.isFinite(a.expiresIn) ? a.expiresIn : 900;
+  companySetup = { email, setupId: a.setupId, secret: a.secret, expiresAt: Date.now() + ttl * 1000 };
+  return { ok: true, because: null, matchCode: String(a.matchCode || ''), url: a.url,
+    interval: Number.isFinite(a.interval) ? a.interval : 5 };
+}
+
+/** Has the person signed in and approved in the browser? { ready, gone }; `retry` means ask again later (never gone). */
+async function companyStatus() {
+  const c = companySetup;
+  if (!c || Date.now() > c.expiresAt) { companySetup = null; return { ok: true, ready: false, gone: true }; }
+  const r = await setupRun(['setup', 'company-status', '--coordinator', COORDINATOR(), '--setup-id', c.setupId], c.secret + '\n');
+  if (!r.ok) return { ok: true, ready: false, gone: false, retry: true };
+  const a = (lastJsonLine(r.said) || {}).value || {};
+  if (a.gone === true && companySetup === c) companySetup = null;
+  return { ok: true, ready: a.ready === true, gone: a.gone === true, retry: a.retry === true };
+}
+
+/** Finish the approved setup: this computer gets its identity and its name, as the code setup does. */
+async function companyComplete(name, acceptTerms) {
+  { const b = busy(); if (b) return b; }
+  const c = companySetup;
+  if (!c || Date.now() > c.expiresAt) {
+    companySetup = null;
+    return { ok: false, because: 'that company sign-in has expired; start again' };
+  }
+  if (typeof name === 'string') name = name.trim().toLowerCase();
+  if (typeof name !== 'string' || !NAME_RULE.test(name)) {
+    return { ok: false, because: 'the name is 3 to 32 letters, digits or hyphens' };
+  }
+  const args = ['setup', 'complete', '--coordinator', COORDINATOR(), '--email', c.email,
+    '--sso-setup', c.setupId, '--name', name, '--state-dir', STATE_DIR()];
+  if (typeof acceptTerms === 'string' && acceptTerms.trim()) args.push('--accept-terms', acceptTerms.trim());
+  const result = await runSetupComplete(args, c.secret + '\n', name);
+  if (result.ok) { companySetup = null; write({ email: c.email }, { repair: true }); }
+  return result;
+}
 
 /* ---- Devices (#567): the Allow moment. The tunnel binary is the ONLY
    writer of this Mac's allow_list; this module asks it in the shape setup
@@ -2549,6 +2650,10 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
   status,
   setupStart,
   setupComplete,
+  managedOrg,
+  companyStart,
+  companyStatus,
+  companyComplete,
   signinStart,
   signinVerify,
   signinSecond,
@@ -2594,8 +2699,9 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
   cancelledAfterForTests: cancelledAfter,   // kosmos#4743: tests only
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
-  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
+  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
+  setManagedReaderForTests: (fn) => { managedReader = fn; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */
   bundledConnector,
   /* test seam: the live child's pid, or null. spawn() sets the handle

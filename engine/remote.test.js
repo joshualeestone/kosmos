@@ -59,7 +59,22 @@ if (args[0] === 'setup' && args[1] === 'start') {
   console.log('if the address is reachable, a code is on its way');
   process.exit(0);
 }
+// kosmos#5628: the company sign-in setup. Each verb that takes the secret records what it read on stdin (never argv).
+if (args[0] === 'setup' && args[1] === 'company-start') {
+  if (mode.includes('company-unavailable')) { process.stderr.write('Kosmos+ said no (404): this address does not sign in through a company provider here\\n'); process.exit(1); }
+  console.log(JSON.stringify({ setupId: 'setup-abc', secret: 'S3CRET-only-in-the-engine', matchCode: 'K7-3M',
+    url: 'https://login.kosmos.invalid/v1/sso/begin?email=x&device_id=setup-abc', interval: 5, expiresIn: 900 }));
+  process.exit(0);
+}
+if (args[0] === 'setup' && args[1] === 'company-status') {
+  fs.writeFileSync(${JSON.stringify(RECORD)} + '.stdin', fs.readFileSync(0, 'utf8'));
+  if (mode.includes('company-gone')) { console.log(JSON.stringify({ ready: false, gone: true })); process.exit(0); }
+  if (mode.includes('company-fail')) { process.stderr.write('Kosmos+ is unreachable\\n'); process.exit(1); }
+  console.log(JSON.stringify({ ready: true, gone: false }));
+  process.exit(0);
+}
 if (args[0] === 'setup' && args[1] === 'complete') {
+  if (flag('--sso-setup')) fs.writeFileSync(${JSON.stringify(RECORD)} + '.stdin', fs.readFileSync(0, 'utf8'));
   if (mode.includes('setup-409-computer')) { process.stderr.write('Kosmos+ said no (409): The name ' + flag('--name') + ' is already in use by a computer on this account, at ' + flag('--name') + '.kosmos.invalid. If that is this computer, it is already set up and there is nothing more to do here. If it is a different computer, press Turn off there first, or pick another name.\\n'); process.exit(1); }
   if (mode.includes('setup-409')) { process.stderr.write('Kosmos+ said no (409): The name ' + flag('--name') + ' is already in use by a Mac on this account, at ' + flag('--name') + '.kosmos.invalid. If that is this Mac, it is already set up and there is nothing more to do here. If it is a different Mac, press Turn off there first, or pick another name.\\n'); process.exit(1); }
   if (mode.includes('slow-setup')) { const until = Date.now() + Number(process.env.FAKE_REGISTER_MS || 2500); while (Date.now() < until) { /* wait */ } }
@@ -3909,4 +3924,57 @@ test('#4756: a tunnel binary older than the verb reads as "update Kosmos", not c
       assert.doesNotMatch(r.because, /--help/);
     });
   } finally { fs.writeFileSync(ADDR_ANSWER, JSON.stringify({ addresses: [] })); remote.resetForTests(); }
+});
+
+/* ---- kosmos#5628 (MDM slice 2b): a managed Mac sets up through the company's sign-in ---- */
+
+test('kosmos#5628: the managed profile is read only when it plainly names a company', () => {
+  remote.setManagedReaderForTests(() => ({ OrgSlug: 'acme', CoordinatorURL: 'https://login.example.com/' }));
+  assert.deepEqual(remote.managedOrg(), { orgSlug: 'acme', coordinatorUrl: 'https://login.example.com' });
+  remote.setManagedReaderForTests(() => ({ OrgSlug: 'acme', CoordinatorURL: 'http://evil.example.com' }));
+  assert.equal(remote.managedOrg().coordinatorUrl, null, 'a non-https address is not taken');
+  for (const bad of [null, {}, { OrgSlug: 'Acme Corp' }, { OrgSlug: '../x' }, { OrgSlug: 7 }]) {
+    remote.setManagedReaderForTests(() => bad);
+    assert.equal(remote.managedOrg(), null, JSON.stringify(bad));
+  }
+  remote.setManagedReaderForTests(() => { throw new Error('unreadable'); });
+  assert.equal(remote.managedOrg(), null, 'an unreadable profile is no profile');
+});
+
+test('kosmos#5628: the company setup keeps its secret in the engine and gives it to the binary only on stdin', async () => {
+  const started = await remote.companyStart('ann@acme.test');
+  assert.equal(started.ok, true, started.because);
+  assert.equal(started.matchCode, 'K7-3M');
+  assert.match(started.url, /^https:\/\/login\.kosmos\.invalid\/v1\/sso\/begin\?/);
+  assert.equal(JSON.stringify(started).includes('S3CRET'), false, 'the secret reached the page');
+  const st = await remote.companyStatus();
+  assert.deepEqual([st.ready, st.gone], [true, false]);
+  assert.equal(fs.readFileSync(RECORD + '.stdin', 'utf8').trim(), 'S3CRET-only-in-the-engine', 'the secret was not on stdin');
+  for (const call of recorded()) assert.equal(call.join(' ').includes('S3CRET'), false, 'the secret was on a command line: ' + call.join(' '));
+  // Finishing sets this computer up through the same guarded run as the code setup.
+  const done = await remote.companyComplete('Ann', '2026-09-28');
+  assert.equal(done.ok, true, done.because);
+  const complete = recorded().find((c) => c[0] === 'setup' && c[1] === 'complete');
+  assert.deepEqual([complete[complete.indexOf('--sso-setup') + 1], complete.includes('--code')], ['setup-abc', false]);
+  assert.equal(complete[complete.indexOf('--name') + 1], 'ann', 'the name is lowercased as the code setup does');
+  assert.equal(complete[complete.indexOf('--accept-terms') + 1], '2026-09-28');
+  assert.equal(fs.readFileSync(RECORD + '.stdin', 'utf8').trim(), 'S3CRET-only-in-the-engine');
+  // Spent: a second finish has nothing to finish.
+  assert.match((await remote.companyComplete('ann')).because, /expired; start again/);
+});
+
+test('kosmos#5628: status says retry on a failure and gone once the setup has ended; nothing to finish without a start', async () => {
+  assert.deepEqual(await remote.companyStatus(), { ok: true, ready: false, gone: true });
+  assert.match((await remote.companyComplete('ann')).because, /expired; start again/);
+  await remote.companyStart('ann@acme.test');
+  process.env.FAKE_TUNNEL_MODE = 'company-fail';
+  const st = await remote.companyStatus();
+  assert.deepEqual([st.ready, st.gone, st.retry], [false, false, true], 'a failed ask read as gone');
+  process.env.FAKE_TUNNEL_MODE = 'company-gone';
+  assert.equal((await remote.companyStatus()).gone, true);
+  assert.equal((await remote.companyStatus()).gone, true, 'gone stays gone');
+  process.env.FAKE_TUNNEL_MODE = 'company-unavailable';
+  const refused = await remote.companyStart('x@elsewhere.test');
+  assert.equal(refused.ok, false);
+  assert.match(refused.because, /company provider/);
 });
