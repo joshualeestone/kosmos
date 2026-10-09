@@ -568,3 +568,35 @@ test('#4581 R9 review 6: a stale summary refused before the cross-project check 
   assert.equal(v.overviewOf(described, BOARD.agents, o).members[0].summary.state, 'stale');
   assert.equal(reads, 0, 'the project store was read for a member an open task had already refused');
 });
+
+/* kosmos#5635 F2 (Josh's multi-model feedback on 0.7.27): every member of a project with no open work read "older than
+   the 4-hour rhythm", so the line could not tell idle from overdue. A summary still stale after idleExcused and
+   quietExcused now says when the member went idle, for any runner; the state stays stale (nothing is excused). */
+test('#5635 F2: a stale summary of an idle member says idle since when, for any runner, and stays stale', () => {
+  const raw = { id: 'f2', name: 'Feedback Project', folder: '/p/f2', agents: ['ida'], tasks: [] };
+  const described = projects.describe(raw, BOARD.agents, [raw]);
+  const folder = agentFolder('ida-f2', [['2026-09-28-07.md', 2000]]);   // written 33h ago: stale by any reading
+  const show = (report, member) => {
+    const d = member ? { ...described, agents: described.agents.map((m) => ({ ...m, ...member })) } : described;
+    const view = v.overviewOf(d, BOARD.agents, { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => report });
+    return { m: view.members[0], text: v.renderShow({ project: view }).join('\n') };
+  };
+  const at = (minAgo) => new Date(NOW - minAgo * 60000).toISOString();
+  // Idle 14h ago, long after the summary went stale: still stale (excused by nothing), now with when it went idle.
+  const idle = show({ found: true, state: 'idle', at: at(840) });
+  assert.equal(idle.m.summary.state, 'stale');
+  assert.match(idle.text, /summary: older than the 4-hour rhythm \(summaries\/2026-09-28-07\.md, 33h 20m ago; idle since 14h 0m ago\)$/m);
+  // A runner idleExcused leaves out (Codex reports idle only) gets the note too: it is the member's report, said as one.
+  const codex = show({ found: true, state: 'idle', at: at(840) }, { runner: 'codex' });
+  assert.match(codex.text, /; idle since 14h 0m ago\)$/m, 'a Codex member got no idle note');
+  // A start reads as one.
+  assert.match(show({ found: true, state: 'started', at: at(840) }).text, /; idle since this session started 14h 0m ago\)$/m);
+  // CONTROL: working, an operator's clear, no report, and a future time say nothing more than before.
+  for (const rep of [{ found: true, state: 'working', at: at(30) }, { found: true, state: 'idle', by: 'operator', at: at(840) }, { found: false }, { found: true, state: 'idle', at: at(-5) }]) {
+    const r = show(rep);
+    assert.equal(r.m.summary.state, 'stale');
+    assert.match(r.text, /summary: older than the 4-hour rhythm \(summaries\/2026-09-28-07\.md, 33h 20m ago\)$/m, 'noted for ' + JSON.stringify(rep));
+  }
+  // CONTROL: a member that is not idle (working on screen) gets no note even with an old idle report.
+  assert.doesNotMatch(show({ found: true, state: 'idle', at: at(840) }, { state: 'working' }).text, /idle since/);
+});

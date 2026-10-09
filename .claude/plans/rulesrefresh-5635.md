@@ -19,6 +19,12 @@ A test proves that a changed template section reaches an existing agent's file. 
 - **At board start, beside the community sweep** (a board restart is the update, the same moment the other sweeps use). Each changed agent is owed the re-read line (instructionRereadOwe, #5297).
 - **The frame line** written at birth and on a click says "Kosmos may update this block when the rules change, with your OK". It changes to say that Kosmos keeps the block current while it is unedited, and asks first once the person has edited it. sectionContentOf strips the frame line, so this changes no comparison.
 
+## F2 decisions (Angel)
+- **Measured first: the existing fixes shipped.** #4581's `idleExcused` and its R9 `quietExcused` (019251f45) are both in 0.7.27, whose app commit b2a018cb8 is in the served manifest. Josh's project still read all five stale. Each rule leaves cases out on purpose: `idleExcused` only covers runners that report working (not Codex), and `quietExcused` needs the project to have had a task. The test project's work most likely went through the room, which leaves no task time.
+- **The call: the card's first option, "show idle since next to it".** A summary still stale after both rules now says when the member went idle, from its latest idle or started report (never an operator's clear), for ANY runner. The state stays 'stale'. Nothing is excused that the two rules did not prove, so an agent that stopped mid-work still reads behind, now with the fact that tells the two apart.
+- **Rejected: counting only working time.** No working-time record exists for every runner (Codex reports idle only), so "only working time" would be a guess for some members and a fact for others.
+- `kosmos project show` on both platforms prints these words (engine/projectview.js). The page shows no summary freshness, so it does not change.
+
 ## Weakest premise
 That the test agents' stale text was a known earlier block. If the multi-model test project's files were edited, or born from a role text that carries the rules inline, this refresh would not reach them. Verify on a served build with an agent created before it (the card asks for that).
 
