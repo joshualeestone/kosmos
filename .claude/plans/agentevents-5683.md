@@ -596,3 +596,10 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - cd steps followed: at most 32, the folder at most 1024 characters (a chain of cd a cost seconds per file). Tested
   as a ratio against a command of the same length with no cd (uncapped: 9.2 times; capped: under 4).
 - Stated: env -C dir cat board.token is not followed (rare).
+
+## Review 45 (sonnet): no real defect
+- Its one finding (a stop before any state was written, then the same words accepted again, sends the gap) is not a
+  leak: the first tick lists every agent as first seen now, and only refusals after that are read. Pinned by a test
+  with a control (a refusal after the first tick is sent); red when both the time filter and the first-sight skip are
+  disabled.
+- CONVERGED: the first round since review 29 with no real defect.
