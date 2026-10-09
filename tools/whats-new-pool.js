@@ -22,12 +22,12 @@
  *   node tools/whats-new-pool.js build <version> [--max=5] [--pool=<file>] [--out=<file>]
  *       writes web/whats-new.json: the top --max pending highlights by rank (ties: newest first), checked with
  *       engine/whatsnew.js's own rules (the cut's step 1b-ii runs the same check).
- *   node tools/whats-new-pool.js shown <version> --promoted [--pool=<file>] [--from=<file> | --from-history [--ref=<commit>]]
- *       Prefer --from-history --ref: --from reads any file you name (by default main's working-tree web/whats-new.json,
- *       which can differ from what was cut).
+ *   node tools/whats-new-pool.js shown <version> --promoted [--pool=<file>] (--from-history --ref=<frozen sha> | --from=<file>)
  *       after <version> is PROMOTED to prod: every pool entry whose title is in that version's What's New becomes
  *       shown (shownIn <version>), and lastProd becomes <version>. Run it from the promote, not the cut: --promoted is
  *       required, so it is never run by reflex after a cut (that would retire highlights prod users never saw).
+ *       Prefer --from-history --ref: --from reads any file you name (by default main's working-tree web/whats-new.json,
+ *       which can differ from what was cut).
  *       --from-history reads that version's What's New from git, EXACTLY at --ref (required), refusing a file there
  *       for another version; there are no per-version tags to read it from. Give --ref=<the cut's frozen sha>
  *       (the cut prints it at step 2b, "frozen at <sha>", and ~/.claude/logs/cut-suite-runs.log on THE BOX THAT RAN
@@ -117,7 +117,7 @@ function main(argv) {
   const positional = argv.filter((a) => !a.startsWith('--'));
   const [cmd, version] = positional;
   if (positional.length !== 2 || !['build', 'shown'].includes(cmd) || !version || !whatsnew.VERSION_RE.test(version)) {
-    process.stderr.write('usage: node tools/whats-new-pool.js build|shown <version like 0.7.36> [--max=5] [--pool=<file>] [--out=<file>] [--from=<file> | --from-history [--ref=<commit>]] [--promoted]\n');
+    process.stderr.write('usage: node tools/whats-new-pool.js build|shown <version like 0.7.36> [--max=5] [--pool=<file>] [--out=<file>] [--promoted] [--from-history --ref=<frozen sha> | --from=<file>]\n');
     return 2;
   }
   const poolFile = opt(argv, 'pool', POOL);
@@ -127,7 +127,7 @@ function main(argv) {
     // (Only on build: a malformed pending item must not stop `shown` recording what prod showed.)
     for (const it of pool.items.filter((i) => i.status === 'pending')) {
       const h = { icon: it.icon, title: it.title, line: it.line };
-      if (it.platforms) h.platforms = it.platforms;
+      if (Array.isArray(it.platforms) && it.platforms.length) h.platforms = it.platforms;   // as choose() does
       const bad = whatsnew.problems({ version, highlights: [h] }, version);
       if (bad.length) {
         process.stderr.write('the pool item "' + it.title + '" is not one the window can show: ' + bad.join('; ') + '\n');
