@@ -126,6 +126,11 @@ function targetClass(tool, input, ctx) {
     const look = (words, depth) => {
       let wrapped = false;   // the word before was a wrapper (sudo, env, timeout...): this one is the program (review 11)
       let takesValue = false;
+      let wrapper = '';   // which wrapper: the options that take a value differ (review 41)
+      /* sudo -n and -E take no value, timeout -s and xargs -I do (review 41: timeout -s KILL 5 grep -r foo ~ made KILL
+         the program). The generic set stays for wrappers not listed. */
+      const VALUE_OPTS = { sudo: /^-[ugpCDThrRUt]$/, doas: /^-[uC]$/, timeout: /^-[sk]$/, xargs: /^-[IJELnPsd]$/, nice: /^-n$/,
+        env: /^-[uSCP]$/, exec: /^-a$/ };
       let prog = '';   // the program of the current command (review 32)
       let prevW = '';
       /* The value of NAME=value is a path too (review 36: T=.../board.token; cat "$T" named the token only there). */
@@ -135,12 +140,12 @@ function targetClass(tool, input, ctx) {
         if (f0) prog = '';
         let first = f0 || wrapped;
         if (wrapped && takesValue) { takesValue = false; continue; }   // the value of -u, -g, -n... (review 19)
-        if (wrapped && /^-[ugnpUCDTrt]$/.test(w)) { takesValue = true; continue; }
+        if (wrapped && (VALUE_OPTS[wrapper] || /^-[ugnpUCDTrt]$/).test(w)) { takesValue = true; continue; }
         if (wrapped && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) { val(w); continue; }   // K=V (its value is looked at)
         if (wrapped && (/^-/.test(w) || /^\d+[smhd]?$/.test(w))) continue;   // its options, a duration
         wrapped = false;
-        if (first && /^(sudo|env|timeout|nice|nohup|command|xargs|time|exec|doas)$/.test(path.basename(w))) { wrapped = true; continue; }
-        if (first && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) { val(w); wrapped = true; continue; }   // FOO=1 curl ... (review 14)
+        if (first && /^(sudo|env|timeout|nice|nohup|command|xargs|time|exec|doas)$/.test(path.basename(w))) { wrapped = true; wrapper = path.basename(w); continue; }
+        if (first && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) { val(w); wrapped = true; wrapper = ''; continue; }   // FOO=1 curl ... (review 14)
         if (first) {
           /* review 10: ssh, scp, sftp, nc and ncat reach another machine by what they are (they take a host, never a
              URL); curl and wget count with a URL among the words; rsync only with a remote host:path word. */
@@ -195,7 +200,16 @@ function targetClass(tool, input, ctx) {
         /* A command's operands, in order: every word that is not an option, plain names included (review 40: tar -C ~
            Documents named no path, so the walk fell back to the whole of ~). find's come before its first test. */
         if (cur && cur.prog === prog) {
-          if (/^-/.test(w)) cur.sawOpt = true;
+          if (w === '--' && !cur.endOpts) cur.endOpts = true;   // after --, a dash word is an operand
+          /* find's leading options (-H -L -P -E -s -x -d, -O and -D with values) come before its folders (review 41:
+             find -L ~ read as no folder); its first other dash word, ! or ( starts the tests. */
+          else if (prog === 'find' && !cur.sawOpt && /^-([HLPEsxd]|O\d*|D)$/.test(w)) { if (/^-D$/.test(w)) cur.skip = 'D'; }
+          else if (prog === 'find' && cur.skip === 'D') cur.skip = false;
+          else if (prog === 'find' && /^(!|\(|-)/.test(w)) cur.sawOpt = true;
+          else if (/^-/.test(w) && !cur.endOpts) {
+            /* A grep-like pattern given by an option leaves no pattern operand (review 41: grep -r --regexp=foo ~). */
+            if (/^-[A-Za-z]*[ef]|^--(regexp|file)(=|$)/.test(w)) cur.patOpt = true;
+          }
           else if (!notTree && !(prog === 'find' && cur.sawOpt)) cur.words.push(v);
         }
         if (paths.length >= 64) return;
@@ -214,7 +228,7 @@ function targetClass(tool, input, ctx) {
       }
       if (!c.walks) continue;
       let ws = c.words;
-      if (/^(grep|egrep|fgrep|rg|ag|ack)$/.test(c.prog)) ws = ws.slice(1);   // the first operand is the pattern
+      if (/^(grep|egrep|fgrep|rg|ag|ack)$/.test(c.prog) && !c.patOpt) ws = ws.slice(1);   // the first operand is the pattern
       if (/^(cp|rsync|scp|mv|ditto|install)$/.test(c.prog)) ws = ws.slice(0, -1);
       else if (c.prog === 'zip') ws = ws.slice(1);
       if (!ws.length && c.words.length && /^(cp|rsync|scp|mv|ditto|install|zip)$/.test(c.prog)) continue;   // only a destination named
@@ -558,13 +572,18 @@ function readState(root) {
    disk already said "reporting", so a Leave during an enrollment's FIRST tick, or a stop whose write failed, went
    uncounted and the gap was sent). The tick and every enrollment writer run in the board process. */
 let STOPS = 0;
+let UNWRITTEN_STOP = false;
 function markWithdrawn(root0) {
   STOPS++;
   const root = root0 || require('./store').ROOT;
   const w = readState(root);
   /* stops counts every stop, so a tick that read while one happened can see it even after the same record came back
      (review 39). */
-  if (w.enrolledAs && !w.withdrawn) { w.withdrawn = true; w.pending = []; w.stops = (w.stops || 0) + 1; writeState(root, w); }
+  if (w.enrolledAs && !w.withdrawn) {
+    w.withdrawn = true; w.pending = []; w.stops = (w.stops || 0) + 1;
+    /* A stop whose write failed is carried in memory to the next tick, which starts as withdrawn (review 41). */
+    if (!writeState(root, w)) UNWRITTEN_STOP = true;
+  }
 }
 
 /* Whether this Kosmos has really stopped reporting, not merely failed one read (review 37: isEnrolledHere is false on
@@ -690,6 +709,8 @@ async function tick(opts) {
     const stRaw = JSON.stringify(st);
     const stops0 = st.stops;   // review 39: a stop marked while this tick reads makes it write and send nothing
     const gen0 = STOPS;   // review 40: and the in-memory count, which moves on every stop
+    const unwritten = UNWRITTEN_STOP;   // review 41: a stop that could not be written starts this tick as withdrawn
+    if (unwritten) st.withdrawn = true;
     /* Words withdrawn and then accepted again under the SAME hash (review 3): the key alone would not change, so the
        withdrawal itself is recorded and a resumed tick starts clean as for new words. */
     if (st.withdrawn) st.enrolledAs = null;
@@ -860,6 +881,7 @@ async function tick(opts) {
     }
     /* Written only when it changed (review 9: thousands of offsets rewritten every five minutes for nothing). */
     if (JSON.stringify(st) !== stRaw && !writeState(root, st)) return { sent: 0, because: 'this Kosmos cannot record what it has read' };
+    if (unwritten) UNWRITTEN_STOP = false;   // the withdrawn start is on disk now
     /* The calls are kept only now: had the write failed, the next tick re-reads those lines WITH their calls (review 23:
        a consumed call left the re-read classed without its target). */
     for (const [f, m] of nextCalls) CALLS.set(f, m);

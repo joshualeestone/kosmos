@@ -541,3 +541,16 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   invariant does not rest on that rule, which exists for speed.
 - What I got wrong in flight, AGAIN: a // comment inserted mid-line by a scripted replace commented out the rest of an
   object literal (a syntax error this time; in review 36 it silently dropped two replaces). Saved as a lesson.
+
+## Review 41 (sonnet), all fixed unless stated
+- STOPS protects only a tick already running; a stop whose state write FAILED was lost to the next tick (words
+  withdrawn, the same words accepted again: one stop, never re-marked). Such a stop is now carried in memory
+  (UNWRITTEN_STOP) and the next tick starts as withdrawn, clearing it once that is on disk. Test built on that path;
+  my first version used a refused Leave, which marks again on its retry, so it could not fail (found by mutation and
+  rewritten). Red without the carry and on the pre-fix file.
+- find's leading options (-H -L -P -E -s -x -d, -O, -D value) come before its folders; grep-like tools given their
+  pattern by -e/-f/--regexp/--file keep their first operand, and -- makes a dash word an operand; wrapper options that
+  take a value are per wrapper (sudo -n takes none, timeout -s and xargs -I do). Test.
+- Stated: a stop lost by a process crash in the instant between the record write and its mark is not recovered for a
+  record rewritten without words (a Leave retries and re-marks); a cd inside ( ) or after || moves where later walks
+  start (over-claims only).

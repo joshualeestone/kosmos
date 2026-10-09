@@ -1397,3 +1397,37 @@ test('#5683 r40: a bare cd, a pushd, and tar -C move where a walk starts', () =>
     assert.equal(ae.targetClass('Bash', { command: cmd }, c), want, cmd);
   }
 });
+
+/* ---- review 41 ---- */
+
+test('#5683 r41: a stop whose state write failed still makes the next tick start from then', async (t) => {
+  /* Words withdrawn and the same words accepted again: only ONE stop is marked (a Leave retry marks again, which is why
+     a Leave does not show this). The mark's write fails; the carried stop must still start the next tick from then. */
+  const { s, c } = await enrolled(t);
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await new Promise((r) => setTimeout(r, 1100));
+  const blocker = path.join(s.root, 'agent-events.json.' + process.pid + '.tmp');
+  fs.mkdirSync(blocker);   // the state write fails (a directory where its temp file goes); the file itself stays readable
+  const hash = oe.readEnrollment({ root: s.root }).consentHash;
+  assert.equal(await oe.consentWithdrawn({ root: s.root }, hash), true);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(s.root, 'agent-events.json'), 'utf8')).withdrawn, false, 'control: the stop write did not fail');
+  append(s.file, use('unwritten', 'Bash', { command: 'x' }), result('unwritten', DENIED('x'), true));
+  fs.rmdirSync(blocker);
+  accept(s.root);   // the same words accepted again
+  assert.equal(oe.mayReport({ root: s.root }), true);
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  const refs = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events.map((e) => e.toolUseRef));
+  assert.equal(refs.includes('unwritten'), false, 'a refusal from a stop that could not be written was sent');
+});
+
+test('#5683 r41: find\'s leading options, grep\'s pattern options and value-taking wrapper options keep the folder', () => {
+  const c = ctx({ agentDir: '/Users/ann/work/workers/a', home: '/Users/ann', boardRoot: '/Users/ann/Library/Application Support/Kosmos' });
+  for (const cmd of ['find -L ~ -name board.token', 'find -H ~ -type f', 'find -x ~ -name a', 'find -E ~ -regex x',
+    'grep -r -efoo ~', 'grep -r --regexp=foo ~', 'grep -r --file=pats ~', 'grep -r -- -x ~', 'grep -r -e foo ~',
+    'timeout -s KILL 5 grep -r foo ~', 'xargs -I % grep -r foo ~', 'sudo -n grep -r foo ~', 'sudo -u bob grep -r foo ~']) {
+    assert.equal(ae.targetClass('Bash', { command: cmd }, c), 'board-files', cmd);
+  }
+  for (const [cmd, want] of [['find -L . -name x', 'other'], ['grep -r -e foo .', 'other'], ['grep -r foo ~/work', 'home']]) {
+    assert.equal(ae.targetClass('Bash', { command: cmd }, c), want, cmd);
+  }
+});
