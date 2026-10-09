@@ -378,6 +378,44 @@ function refresh(sessionName, roster, opts) {
   }
 }
 
+/**
+ * kosmos#5635 F1: bring an agent's working rules current with NO click, when the text being replaced is provably
+ * Kosmos's own and unedited: a span whose content is a known earlier block (planFor's `updating && !edited`), or a
+ * plain, unedited copy of an earlier block (`replacing`). Josh's 2026-10-07 feedback found every agent on a test
+ * project still carrying a line fixed on main five days before (#4582), the third report of that staleness (#4890,
+ * #5297): the click that would have fixed it is not happening, so the person never gets the fix.
+ *
+ * What still needs the click, and why: a span the person EDITED (their words), a file with no rules block (adding
+ * sections to a file Kosmos never wrote rules into is adding to the person's text), and an agent whose person said
+ * Not now to this version. The person's own words are never touched: the write is planFor's fileNext, which
+ * spliceBlock or pastBlockIn compose byte for byte outside Kosmos's text.
+ *
+ * Returns { state: 'added', sections } when it wrote, { state: 'current' } when there was nothing to do,
+ * { state: 'left', because } when the change waits for the click, or { state: 'could_not', because }. Never throws.
+ */
+function refreshUnedited(sessionName, roster, opts) {
+  try {
+    if (!projects.heldExactly(sessionName, roster)) return { state: 'could_not', because: 'we could not tell that this agent is ours' };
+    const current = instructions.read(sessionName);
+    if (!current.exists) return { state: 'could_not', because: current.because || 'it has no instructions file yet' };
+    const plan = planFor(current.text || '', opts && opts.now, opts && opts.past);   // `past`: tests only
+    if (plan.state !== 'refresh') return plan;
+    /* `edited` is checked on EVERY path: a plain copy cut beside a span (replacing) carries the span's plan, edited or not. */
+    if (plan.edited === true || !(plan.replacing === true || plan.updating === true)) {
+      return { state: 'left', because: plan.edited === true || plan.updating ? 'its working rules were edited, so they change only with your OK' : 'its working rules were never written by Kosmos, so they are added only with your OK' };
+    }
+    let profile = {};
+    try { profile = store.readProfile(sessionName) || {}; } catch { profile = {}; }
+    if (profile.doctrineDeclined === defaults.DOCTRINE_VERSION) return { state: 'left', because: 'you said Not now to these rules for this agent' };
+    instructions.write(sessionName, plan.fileNext, current.version, undefined,
+      { who: 'kosmos', because: 'brought its working rules up to date (they were Kosmos\'s own text, unedited)' });
+    try { store.writeProfile(sessionName, { doctrineVersion: defaults.DOCTRINE_VERSION }); } catch { /* the file is the truth */ }
+    return { state: 'added', sections: plan.sections.map((x) => x.heading) };
+  } catch (err) {
+    return { state: 'could_not', because: (err && err.message) || 'we could not write to its instructions' };
+  }
+}
+
 /** "Not now", remembered server-side per agent until the rules themselves
     change: keyed on the version, so a future bump un-hides the banner. */
 function decline(sessionName) {
@@ -389,4 +427,4 @@ function decline(sessionName) {
   }
 }
 
-module.exports = { START, END, spanBody, clickDate, planFor, status, refresh, decline, hashOf, atBirth, birthLine, pastBlockIn, FLEET_LEAVES_REPLACE, FLEET_LEAVES_EDITED, fleetLeaves };
+module.exports = { START, END, spanBody, clickDate, planFor, status, refresh, refreshUnedited, decline, hashOf, atBirth, birthLine, pastBlockIn, FLEET_LEAVES_REPLACE, FLEET_LEAVES_EDITED, fleetLeaves };

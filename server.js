@@ -22014,6 +22014,22 @@ if (require.main === module) {
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh what agents know about the Kosmos+ community: ${String(err && err.message)}\n`);
   }
+  /* kosmos#5635 F1: the working rules, brought current at boot for every agent of ours whose rules are Kosmos's own
+     text, unedited (doctrine.refreshUnedited says which, and leaves the rest for the click). Each one changed is owed a
+     re-read line, as a click is. Josh's 2026-10-07 feedback found agents still on a line fixed five days earlier. */
+  try {
+    const roster = safeRoster();
+    if (Array.isArray(roster)) {
+      for (const a of roster) {
+        if (!a || a.isNamedOurs !== true) continue;
+        const got = doctrine.refreshUnedited(a.sessionName, roster);
+        if (got && got.state === 'added') instructionRereadOwe(a.sessionName);
+        else if (got && got.state === 'could_not') process.stderr.write(`Kosmos could not bring ${a.sessionName}'s working rules up to date: ${got.because}\n`);
+      }
+    }
+  } catch (err) {
+    process.stderr.write(`Kosmos could not bring agents' working rules up to date: ${String(err && err.message)}\n`);
+  }
   /* kosmos#5297: the re-read lines owed (engine/instructionreread.js), a pass every INSTRUCTION_REREAD_MS from boot (it
      returns at once when nothing is owed). A line goes only to an agent idle at two passes running, so the first lands
      two intervals after boot at the earliest. */
