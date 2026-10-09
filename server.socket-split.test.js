@@ -41,7 +41,31 @@ const jobfix = require('./test-support/jobfixture');   // #5500: the agent's job
  * the parsed /api/status. #5500: on Linux the job is a systemd unit and systemd answers `list-units` (the active
  * units) as the caller says instead.
  */
+/* #5658 (Renet, a loaded full-suite run): /api/status leaves the offline list empty on a poll that could not finish
+   its reads (pane lines it could not read, server.js couldNotAccount, which also sends counts.notRunning as null; or
+   an agent survey that failed), and the control half below rendered the missing row as a TypeError. An empty list on
+   a slow host is the route being honest, not this test's subject, so the board is read again (a fresh one each time)
+   until the ghost row is there, up to READS times. A row still missing after that fails in ghostRow with the reason. */
+const READS = 3;
+const ghostOf = (status) => (status.agents || []).find((a) => a.sessionName === 'ghost');
 function boardWithUnseenAgent(launchctlListStdout, systemdActiveUnits) {
+  let status = null;
+  for (let i = 0; i < READS; i++) {
+    status = readBoardOnce(launchctlListStdout, systemdActiveUnits);
+    if (ghostOf(status)) return status;
+  }
+  return status;
+}
+/* The row under test, or a failure that says why it is missing (#5658). */
+function ghostRow(status, what) {
+  const row = ghostOf(status);
+  const counts = status.counts || {};
+  assert.ok(row, `${what}: no ghost row in ${READS} reads of /api/status`
+    + (counts.notRunning === null ? ' (the last one withheld the offline list: a host too loaded to read the panes)'
+      : ' (the agent fell out of the roster, or the survey of created agents failed every time)'));
+  return row;
+}
+function readBoardOnce(launchctlListStdout, systemdActiveUnits) {
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-split-'));
   const profiles = nodePath.join(sb, 'data', store.APP, 'profiles');
   const launch = nodePath.join(sb, 'launch');
@@ -119,9 +143,7 @@ const RUNNING = ['PID\tStatus\tLabel\n90870\t0\tcom.kosmos.agent.ghost\n', `${re
 const PARKED = ['PID\tStatus\tLabel\n-\t0\tcom.kosmos.agent.ghost\n', ''];
 
 test('#668: a job launchd says is running with no visible session says so, instead of claiming stopped', () => {
-  const status = boardWithUnseenAgent(...RUNNING);
-  const row = (status.agents || []).find((a) => a.sessionName === 'ghost');
-  assert.ok(row, 'the agent fell out of the roster entirely');
+  const row = ghostRow(boardWithUnseenAgent(...RUNNING), 'running job');
   assert.equal(row.jobRunningUnseen, true,
     'the flag the card branches on is absent, so the pill stays a confident "Not running"');
   assert.equal(row.state, 'unknown',
@@ -161,9 +183,8 @@ function renderOffline(which, a) {
 }
 
 test('#668: the card and the row wear the could-not-check pill, not a confident "Not running"', () => {
-  const status = boardWithUnseenAgent(...RUNNING);
-  const row = (status.agents || []).find((a) => a.sessionName === 'ghost');
-  assert.ok(row && row.jobRunningUnseen === true, 'no unseen row to render; the route half of this fix regressed');
+  const row = ghostRow(boardWithUnseenAgent(...RUNNING), 'running job');
+  assert.ok(row.jobRunningUnseen === true, 'no unseen row to render; the route half of this fix regressed');
   for (const which of ['card', 'lrow']) {
     const html = renderOffline(which, row);
     assert.ok(html.includes('st-unknown'), which + ' still dresses the pill in the stopped class');
@@ -172,8 +193,8 @@ test('#668: the card and the row wear the could-not-check pill, not a confident 
       which + ' still claims "Not running" about an agent launchd says is running');
   }
   /* Control: an ordinary stopped row keeps the pill it always had. */
-  const parked = (boardWithUnseenAgent(...PARKED).agents || [])
-    .find((a) => a.sessionName === 'ghost');
+  // #5658: asserted before it is rendered, so a missing row fails as one rather than as a TypeError in the renderer.
+  const parked = ghostRow(boardWithUnseenAgent(...PARKED), 'parked job (control)');
   for (const which of ['card', 'lrow']) {
     const html = renderOffline(which, parked);
     assert.ok(html.includes('st-stopped') && html.includes('Not running'),
@@ -182,9 +203,7 @@ test('#668: the card and the row wear the could-not-check pill, not a confident 
 });
 
 test('#668 control: the same agent with a parked job keeps the plain not-running verdict', () => {
-  const status = boardWithUnseenAgent(...PARKED);
-  const row = (status.agents || []).find((a) => a.sessionName === 'ghost');
-  assert.ok(row, 'the agent fell out of the roster entirely');
+  const row = ghostRow(boardWithUnseenAgent(...PARKED), 'parked job');
   assert.equal(row.jobRunningUnseen, false, 'a parked job was dressed in running-unseen');
   assert.equal(row.state, 'stopped');
   assert.equal(row.stateConfidence, 'structured');
