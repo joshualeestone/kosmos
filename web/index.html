@@ -19134,6 +19134,12 @@ window.kosmosMeasureScrollbarWidth();
          grammar the alert tile uses. A failed poll shows "?" and keeps the tile (that is not a zero). -->
     <div class="stat" id="st-working-tile"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><b id="st-working" data-count="working">0</b><span class="slab">Working</span></div>
     <div class="stat"><span class="rest" aria-hidden="true"></span><b id="st-idle" data-count="idle">0</b><span class="slab">Idle</span></div>
+    <!-- #5540 (a read-only pass on 0.7.27: 7 agents, 2 Waiting, and no tile counted them): agents whose card says
+         Waiting (state blocked) get a tile, hidden at zero like Working, with the card's own pause glyph. It sits
+         after Idle and before Issue: the row rises in urgency to the red tile, and Waiting is not red (STATE_CARD:
+         "red stays reserved for somebody is waiting on YOU"). Not every state has a tile (Not running has none, #653),
+         so the row still need not add up when an agent is stopped or paused. -->
+    <div class="stat" id="st-blocked-tile" hidden><span class="pause" aria-hidden="true"><i></i><i></i></span><b id="st-blocked" data-count="blocked">0</b><span class="slab">Waiting</span></div>
     <!-- 🔑 THE FOURTH TILE, and it is the row's existing grammar with one more
          member rather than a new idea: a TOTAL followed by STATES, with a rule
          already in place for a state that is not always interesting. It hides
@@ -24240,6 +24246,11 @@ async function tick() {
     document.getElementById('st-working-tile').hidden = workingCount === 0;
     document.getElementById('st-idle').textContent =
       tileCount(data.agents.filter((a) => !(a && a.isGuide === true)).filter((a) => a.state === 'idle').length, stateFloor);
+    /* #5540: Waiting (state blocked), counted from the fleet as Working and Idle are, floored the same way, and hidden
+       whenever it reads zero ("0+" included), as Working is (#4736). */
+    const blockedCount = data.agents.filter((a) => !(a && a.isGuide === true)).filter((a) => a.state === 'blocked').length;
+    document.getElementById('st-blocked').textContent = tileCount(blockedCount, stateFloor);
+    document.getElementById('st-blocked-tile').hidden = blockedCount === 0;
     /* ⚠️ FROM THE COUNT, not from filtering the roster on `running`. The two
        agree today and the tile is a claim about the FLEET, which is what the
        engine counted; a second derivation here is how a headline starts
@@ -24555,6 +24566,9 @@ async function tick() {
        ("0" or "0+") may have hidden it, and "?" is not a zero, so the tile shows it. */
     document.getElementById('st-working-tile').hidden = false;
     document.getElementById('st-idle').textContent = '?';
+    /* #5540: the Waiting tile likewise ("?" is not a zero, so hiding it would say nobody is waiting). */
+    document.getElementById('st-blocked').textContent = '?';
+    document.getElementById('st-blocked-tile').hidden = false;
     /* ⚠️ SHOWN AS UNKNOWN RATHER THAN HIDDEN, unlike the alert tile beside it,
        and the two differ for a reason. Red hides at zero because a red zero
        teaches people to ignore red. This one hiding would say "none of them
