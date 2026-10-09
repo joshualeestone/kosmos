@@ -6902,3 +6902,26 @@ test('#5534 review 4: a Gemini agent set back to its default is the pinned model
     fs.rmSync(orgpolicy.APPLIED(), { force: true });
   }
 });
+
+test('#5534 slice 3: a new agent gets the company\'s AI policy at birth, and none once the policy is cleared', () => {
+  recorder();
+  create.setDryRun(false);
+  const orgpolicy = require('./orgpolicy');
+  const policy = require('./policy');
+  const projects = require('./projects');
+  fs.mkdirSync(require('node:path').dirname(orgpolicy.APPLIED()), { recursive: true });
+  fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org_1', version: 2, iat: 1, applied_at: 1791500000,
+    policy: { providers_allowed: null, models_allowed: null, ai_policy: { name: 'Acme legal', text: 'Never paste client names into a prompt.' } } }));
+  try {
+    const made = create.createAgent({ ...BINS, name: 'pol-born', role: 'pm' });
+    assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+    const text = fs.readFileSync(create.instructionFile('pol-born'), 'utf8');
+    const found = projects.findBlock(text, policy.START, policy.END);
+    assert.ok(found && !found.ambiguous, 'a new agent was born without the AI policy block');
+    assert.ok(text.includes('Never paste client names into a prompt.'), 'the company text did not reach a new agent');
+  } finally { orgpolicy.clear(); }
+  // CONTROL: with no company policy and no policy of the person's, no block is written.
+  const bare = create.createAgent({ ...BINS, name: 'pol-bare', role: 'pm' });
+  assert.equal(bare.outcome, create.OUTCOME.CREATED, bare.because);
+  assert.equal(projects.findBlock(fs.readFileSync(create.instructionFile('pol-bare'), 'utf8'), policy.START, policy.END), null, 'a block was written with no policy');
+});

@@ -5480,6 +5480,27 @@ function createAgentInner(opts) {
           steps.push({ label: 'could not add the connections section to its instructions, so it cannot help you connect a provider; edit its instructions or remake it', ok: false });
         }
       }
+      /* #5534 slice 3: the AI policies, the company's (from its applied Kosmos policy) and the person's own, in the
+         same managed block policy.tellAgent writes. Before this a new agent had none until the person next saved a
+         policy. Same gate and non-gating posture as the block above; the boot sweep composes the same bytes later. */
+      {
+        let policyLanded = false;
+        try {
+          const polMod = require('./policy');
+          const eff = polMod.effective();
+          if (eff.state === 'unknown') throw new Error(eff.because || 'unreadable');
+          const body = polMod.bodyFor(eff.policies);
+          if (!body) policyLanded = true;   // none to hand out
+          else {
+            const spliced = require('./projects').spliceBlock(text, body, polMod.START, polMod.END);
+            const { MAX_BYTES } = require('./instructions');
+            if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) { text = spliced; policyLanded = true; }
+          }
+        } catch { /* reported below rather than swallowed */ }
+        if (!policyLanded) {
+          steps.push({ label: 'could not add your company\'s AI policies to its instructions; save a policy again in Settings, or remake it', ok: false });
+        }
+      }
       /* #3614: where to save a file it makes for the person in a direct message, with
          its own folder's REAL path written in. Same gate and non-gating posture as the
          block above; the boot and About-you sweeps compose the same bytes later. */

@@ -169,7 +169,10 @@ function read() {
    on the body that would actually be spliced, so the arithmetic cannot
    drift from the writer. */
 function refuseOversizedStack(policies) {
-  const body = policies.length === 1 ? blockBody(policies[0]) : stackedBody(policies);
+  // #5534 slice 3: judged with the company's entry too, since every agent is handed both.
+  const company = companyEntry();
+  const all = company ? [company, ...policies] : policies;
+  const body = all.length === 1 ? blockBody(all[0]) : stackedBody(all);
   if (Buffer.byteLength(body, 'utf8') > BLOCK_MAX) {
     throw new Error('together these policies would be larger than an agent\'s instructions can hold; shorten this one, or remove one first');
   }
@@ -265,6 +268,9 @@ function clear() {
 /** One policy's provenance line, shared by both block shapes. */
 function fromLine(policy) {
   const when = policy.savedAt ? policy.savedAt.slice(0, 10) : 'an unknown date';
+  if (policy.source === COMPANY_SOURCE) {
+    return `Set by your company in its Kosmos policy (version ${policy.version}), applied here on ${when}.`;
+  }
   return policy.source === 'pasted'
     ? `Added by the person you work for on ${when}.`
     : `From ${policy.source}, fetched ${when}.`;
@@ -340,21 +346,17 @@ function tellAgent(sessionName, roster) {
         because: `its instructions contain ${found.pairs} Kosmos policy blocks, so we cannot tell which is ours and did not change anything`,
       };
     }
-    const record = read();
+    const record = effective();
     if (record.state === 'unknown') {
       return { state: projects.TOLD.COULD_NOT, because: record.because };
     }
     let next = record.state === 'saved'
-      ? projects.spliceBlock(
-        current.text || '',
-        record.policies.length === 1 ? blockBody(record.policies[0]) : stackedBody(record.policies),
-        START, END,
-      )
+      ? projects.spliceBlock(current.text || '', bodyFor(record.policies), START, END)
       : projects.removeBlock(current.text || '', START, END);
     next = projects.healColleagues(next);
     if (next === current.text) return { state: projects.TOLD.TOLD, because: null };
     instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: WROTE_WHY });
-    return { state: projects.TOLD.TOLD, because: null };
+    return { state: projects.TOLD.TOLD, because: null, changed: true };   // #5534 slice 3: a running agent is owed a re-read
   } catch (err) {
     const raw = (err && err.message) || '';
     return {
@@ -366,6 +368,40 @@ function tellAgent(sessionName, roster) {
           : (raw || 'we could not write to its instructions')),
     };
   }
+}
+
+/* #5534 slice 3: the company's AI policy text, from the company policy this enrolled Kosmos has applied (the console's
+   editor saves it as ai_policy { name, text }, signed with the rest). Never stored in policy.json: the person's list
+   stays theirs, and leaving the company (which clears the applied policy) takes this with it. Null when there is none,
+   or when its text is not something an agent can be handed (empty, or longer than a person's policy may be). */
+const COMPANY_SOURCE = 'company';
+const COMPANY_ID = 'company';
+function companyEntry() {
+  let a = null;
+  try { a = require('./orgpolicy').appliedNow(); } catch { a = null; }
+  const ai = a && a.policy && a.policy.ai_policy;
+  if (!ai || typeof ai !== 'object' || typeof ai.text !== 'string' || !ai.text.trim() || ai.text.length > TEXT_MAX) return null;
+  const named = typeof ai.name === 'string' ? cleanName(ai.name) : '';
+  const name = named && named.length <= NAME_MAX ? named : DEFAULT_NAME;
+  const at = Number.isFinite(a.applied_at) ? new Date(a.applied_at * 1000).toISOString() : null;
+  return { id: COMPANY_ID, name, text: ai.text, source: COMPANY_SOURCE, savedAt: at, version: a.version };
+}
+
+/* What every agent is handed: the company's entry first (the company mandates it), then the person's own. The block
+   is the single-policy shape when only one exists, as before. 'unknown' when the person's record is unreadable: no
+   agent is told a half list (read()'s rule), the company's entry included. */
+function effective() {
+  const record = read();
+  if (record.state === 'unknown') return record;
+  const company = companyEntry();
+  const policies = company ? [company, ...record.policies] : record.policies;
+  return { state: policies.length ? 'saved' : 'absent', policies, because: null };
+}
+
+/** The managed block's body for a list, or null for none. */
+function bodyFor(policies) {
+  if (!policies || !policies.length) return null;
+  return policies.length === 1 ? blockBody(policies[0]) : stackedBody(policies);
 }
 
 /** Tell every tied agent on the machine, and report how each went. */
@@ -382,6 +418,7 @@ function syncEveryone(roster) {
 }
 
 module.exports = {
-  add, rename, removeOne, clear, read, blockBody, stackedBody, tellAgent, syncEveryone,
+  add, rename, removeOne, clear, read, effective, companyEntry, bodyFor, blockBody, stackedBody, tellAgent, syncEveryone,
+  COMPANY_ID,
   START, END, TEXT_MAX, NAME_MAX, BLOCK_MAX, DEFAULT_NAME, FILE,
 };

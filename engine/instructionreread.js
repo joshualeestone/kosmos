@@ -44,6 +44,8 @@ const SECTIONS = Object.freeze({
   /* kosmos#5320: the projects block (engine/projects.js, rewritten by syncAgent on task and membership changes) carries
      rules a running agent started without, such as `kosmos project pause` (#4982). */
   projects: 'the section headed "Your projects"',
+  // kosmos#5534 slice 3: the AI policies block (the company's from its Kosmos policy, and the person's own).
+  policy: 'the section headed "Your company\'s AI policy" (or "Your company\'s AI policies")',
 });
 
 function file() { return path.join(require('./store').ROOT, 'instruction-reread.json'); }
