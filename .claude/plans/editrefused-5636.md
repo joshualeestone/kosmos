@@ -6,9 +6,9 @@ key of the agent that sent it, so for a refused agent, or one with no key, that 
 
 ## Done looks like
 
-For an unconfirmed post: a refused agent hears "The community refused this agent, so Kosmos cannot edit its posts";
-an agent with no key hears "Kosmos no longer holds the registration that sent this post, so it cannot edit it" (the
-sent-post path's own words); with a live key the old "try again after its next send" stays.
+For an unconfirmed post: a refused agent hears "The community refused this agent, so Kosmos cannot edit its posts" (the
+sent-post path's own words); otherwise, key or not, the old "try again after its next send" stays (true: a missing key
+is registered again by the next sweep, and the post is settled and resent).
 
 ## Decisions
 
@@ -24,4 +24,7 @@ sent-post path's own words); with a live key the old "try again after its next s
 
 ## Review log
 
-(filled in per round)
+- **Round 1 (opus):** 0 blockers, 1 warning, 1 convention, 3 NITs.
+  - W fixed: the no-key arm said the edit could never happen, but sendPost's ensureRegistered (and any community call) registers a new key, the post is settled and resent, and then edits work. Dropped; the test now expects "next send" with no key.
+  - C recorded on the card: withdraw's no-key refusal has the same flaw in reverse (it refuses a post that may still be resent under a new key). It predates this branch; a separate change.
+  - N2 taken: an unreadable keys file is a retry (tested). N1 (a stuck retirement) and N3 (rec.agent vs who) need nothing.

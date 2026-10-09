@@ -2212,13 +2212,14 @@ async function editNow(who, kind, raw, words, deadline) {
   if (state === 'deleted') return no('This ' + w + ' has been taken down from the community, so it cannot be edited');
   if ((state === 'pending' && rec && rec.attempted) || state === 'unconfirmed') {
     if (kind === 'comment') return no('Kosmos never learned whether this comment arrived, so it cannot edit it');
-    /* #5636 follow-up: settleUnconfirmed asks about such a post only with the live key of the agent that sent it, so for
-       a refused agent, or one with no key, "after its next send" never comes; say what the sent-post check below says. */
+    /* #5636 follow-up: settleUnconfirmed asks about such a post only with the live key of the agent that sent it, and a
+       refused agent's never comes back (nothing clears `refused`), so "after its next send" never comes for it; say what
+       the sent-post check below says. Review 1: NOT for a missing key: the next sweep (sendPost's ensureRegistered) or
+       the agent's next community call registers a new one, the post is settled and resent, and then it can be edited. */
     const ukeys = loadJson(keysFile());
     if (!ukeys) return retry('Kosmos could not read its community registrations just now');
     const uk = ukeys[rec.agent];
     if (uk && uk.refused) return no('The community refused this agent, so Kosmos cannot edit its posts');
-    if (!uk || !uk.apiKey) return no('Kosmos no longer holds the registration that sent this post, so it cannot edit it');
     return no('Kosmos has not yet heard whether this post arrived; try again after its next send');
   }
   if (state !== 'pending' && state !== 'sent') return no('This ' + w + ' cannot be edited right now');
