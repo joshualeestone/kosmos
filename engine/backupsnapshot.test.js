@@ -49,7 +49,7 @@ function workKosmos() {
 }
 
 /* A store standing in for both uploaders: keeps every object, hands out keys in the given period. */
-function store({ period = PERIOD, failChunksAfter, failManifest } = {}) {
+function store({ period = PERIOD, failChunksAfter, failManifest, bucket = 'bucket/', manifestAnswer } = {}) {
   const objects = new Map(), batches = [], manifests = [];
   let n = 0;
   return {
@@ -58,14 +58,15 @@ function store({ period = PERIOD, failChunksAfter, failManifest } = {}) {
       batches.push(batch.length);
       const keys = new Map(), lockedUntil = new Map();
       for (const { name, object } of batch) {
-        if (failChunksAfter !== undefined && n >= failChunksAfter) return { ok: false, retryLater: true, because: 'grant ran out', keys, lockedUntil, bucket: 'bucket/' };
+        if (failChunksAfter !== undefined && n >= failChunksAfter) return { ok: false, retryLater: true, because: 'grant ran out', keys, lockedUntil, bucket };
         const key = `o1/acct1/1/${period}/k${++n}`;
         objects.set(key, Buffer.from(object)); keys.set(name, key); lockedUntil.set(name, LOCK);
       }
-      return { ok: true, keys, lockedUntil, bucket: 'bucket/' };
+      return { ok: true, keys, lockedUntil, bucket };
     },
     uploadManifest: async (deps, bytes, opts) => {
       manifests.push({ bytes, opts });
+      if (manifestAnswer) return manifestAnswer;
       if (failManifest) return { ok: false, retryLater: true, because: 'manifest grant ran out' };
       return { ok: true, key: `o1/acct1/1/${PERIOD}/m${manifests.length}`, lockedUntilMs: LOCK };
     },
@@ -232,5 +233,123 @@ test('a chunk two files share is uploaded once, even when a batch boundary falls
     const byPath = Object.fromEntries(opened.files.map((f) => [f.path, f.chunks]));
     assert.deepEqual(byPath['agents/a/copy-of-notes.md'], byPath['agents/a/notes.md'], 'same content, same chunk name');
     assert.equal(st.objects.size, Object.keys(opened.objects).length, 'one stored object per chunk name, none twice');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+/* The real fs, with every open recorded and any call overridable by name: (realFn, ...args) => result. */
+function spyFs(over = {}) {
+  const opened = [];
+  const f = Object.create(fs);
+  f.constants = fs.constants;
+  for (const n of ['readdirSync', 'lstatSync', 'realpathSync', 'fstatSync', 'readSync', 'closeSync']) {
+    const real = fs[n].bind(fs);
+    f[n] = over[n] ? (...a) => over[n](real, ...a) : real;
+  }
+  const realOpen = fs.openSync.bind(fs);
+  f.openSync = (p, fl) => { opened.push(p); return over.openSync ? over.openSync(realOpen, p, fl) : realOpen(p, fl); };
+  return { f, opened };
+}
+
+test('a denied folder is pruned during the walk and recorded once; nothing in it, and no denied file, is ever opened', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    fs.mkdirSync(path.join(w.root, '.git', 'objects'), { recursive: true });
+    fs.writeFileSync(path.join(w.root, '.git', 'config'), '[remote] url = https://x:tok@host/');
+    fs.writeFileSync(path.join(w.root, '.git', 'objects', 'aa'), 'pack');
+    fs.mkdirSync(path.join(w.root, 'agents', 'a', '.ssh'));
+    fs.writeFileSync(path.join(w.root, 'agents', 'a', '.ssh', 'id_ed25519'), 'PRIVATE');
+    const { f, opened } = spyFs();
+    const r = await take(k, w.root, st, { deps: { fs: f } });
+    assert.equal(r.ok, true, r.because);
+    assert.ok(opened.length > 0, 'the spy sees opens (control)');
+    assert.deepEqual(opened.filter((p) => /[\\/](\.git|\.ssh)([\\/]|$)|\.env$/.test(p)), [], 'nothing denied was opened');
+    const opened2 = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+    const sk = opened2.skipped.map((x) => x.path);
+    assert.ok(sk.includes('.git') && sk.includes('agents/a/.ssh') && sk.includes('agents/a/.env'));
+    assert.ok(!sk.some((p) => p.startsWith('.git/') || p.startsWith('agents/a/.ssh/')), 'a pruned folder is recorded once, not per file');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a file replaced after the walk (another inode) is skipped, not read', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const { f } = spyFs({ fstatSync: (real, fd) => { const s2 = real(fd); return s2.size === w.files['agents/a/notes.md'].length ? Object.assign(Object.create(Object.getPrototypeOf(s2)), s2, { ino: s2.ino + 1 }) : s2; } });
+    const r = await take(k, w.root, st, { deps: { fs: f } });
+    assert.equal(r.ok, true, r.because);
+    const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+    assert.ok(m.skipped.some((x) => x.path === 'agents/a/notes.md' && /replaced/.test(x.why)));
+    assert.ok(!m.files.some((x) => x.path === 'agents/a/notes.md'));
+    assert.ok(m.files.some((x) => x.path === 'readme.txt'), 'control: the others are stored');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a file whose real path resolves outside the work Kosmos is skipped', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const { f } = spyFs({ realpathSync: (real, p) => (String(p).endsWith('notes.md') ? path.join(w.base, 'outside', 'secret.txt') : real(p)) });
+    const r = await take(k, w.root, st, { deps: { fs: f } });
+    assert.equal(r.ok, true, r.because);
+    const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+    assert.ok(m.skipped.some((x) => x.path === 'agents/a/notes.md' && /outside/.test(x.why)));
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a FIFO in the work Kosmos is skipped, never opened, and does not hang the snapshot', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    require('child_process').execFileSync('mkfifo', [path.join(w.root, 'agents', 'a', 'pipe')]);
+    const { f, opened } = spyFs();
+    const r = await take(k, w.root, st, { deps: { fs: f } });
+    assert.equal(r.ok, true, r.because);
+    assert.ok(!opened.some((p) => p.endsWith('pipe')));
+    const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+    assert.ok(m.skipped.some((x) => x.path === 'agents/a/pipe' && /not a regular file/.test(x.why)));
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a grant in another bucket than the index\'s is a stale index: drop it, keep what was stored under the new bucket', async () => {
+  const w = workKosmos(), k = keys(), st1 = store();
+  try {
+    const first = await take(k, w.root, st1);
+    assert.equal(first.ok, true, first.because);
+    fs.writeFileSync(path.join(w.root, 'agents', 'a', 'notes.md'), 'changed\n');
+    const st2 = store({ bucket: 'bucket2/' });
+    const r = await take(k, w.root, st2, { input: { index: first.added, bucket: first.bucket } });
+    assert.equal(r.ok, false); assert.equal(r.staleIndex, true); assert.equal(r.retryLater, undefined, 'not a retry: the same index fails again');
+    assert.equal(r.bucket, 'bucket2/');
+    assert.equal(r.added.size, st2.objects.size, 'what the new bucket stored is kept');
+    assert.equal(st2.manifests.length, 0);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('an index entry from another period, or malformed, is refused before anything is read or uploaded', async () => {
+  const w = workKosmos(), k = keys();
+  try {
+    for (const entry of [{ key: 'o1/acct1/1/2026-W40/k1', lockedUntilMs: LOCK }, { key: `o1/acct1/1/${PERIOD}/k1` }, null]) {
+      const st = store();
+      const { f, opened } = spyFs();
+      const r = await take(k, w.root, st, { input: { index: new Map([['a'.repeat(64), entry]]), bucket: 'bucket/' }, deps: { fs: f } });
+      assert.equal(r.ok, false); assert.equal(r.staleIndex, true, JSON.stringify(entry));
+      assert.equal(st.batches.length, 0); assert.equal(opened.length, 0);
+    }
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a manifest that would pass its ceiling stops the run before any chunk is uploaded', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const r = await take(k, w.root, st, { deps: { maxManifestJson: 600 } });
+    assert.equal(r.ok, false); assert.equal(r.tooLarge, true); assert.equal(r.retryLater, undefined);
+    assert.equal(st.batches.length, 0, 'nothing locked in storage for a manifest that could never be stored');
+    const ok = await take(k, w.root, store(), { deps: { maxManifestJson: 1024 * 1024 } });
+    assert.equal(ok.ok, true, `control: a sufficient ceiling passes (${ok.because})`);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a manifest refused for outlasting the index\'s chunks is a stale index, with the grant reported spent', async () => {
+  const w = workKosmos(), k = keys(), st = store({ manifestAnswer: { ok: false, outlastsChunks: true, grantSpent: false, because: 'outlasts' } });
+  try {
+    const r = await take(k, w.root, st);
+    assert.equal(r.ok, false); assert.equal(r.staleIndex, true); assert.equal(r.grantSpent, false);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
