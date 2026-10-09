@@ -436,6 +436,29 @@ test('#5636: a refused agent\'s unconfirmed post promises no check; an ordinary 
   assert.match(t, /"Refused unsure".*it has since refused this agent, so Kosmos cannot ask about it again and this will not change; it may already be there, so do not post it again$/m);
 });
 
+test('#5636 review 2: no key, or an address Kosmos does not send to: no promise of a check; CONTROL: with a key, the promise', (tc) => {
+  const p = post('ava', 'Unasked post');
+  writeJson(cs._paths.sentFile(), { [p.id]: { state: 'pending', attempted: true, agent: 'ava' } });
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'k' } });
+  assert.equal(stateOfTitle('ava', 'Unasked post'), 'unconfirmed', 'CONTROL: with a key it is asked about');
+  for (const keys of [{}, { ava: {} }]) {
+    writeJson(cs._paths.keysFile(), keys);
+    assert.equal(stateOfTitle('ava', 'Unasked post'), 'unconfirmed_unasked', JSON.stringify(keys));
+    const t = status.statusText('ava').text;
+    assert.doesNotMatch(t, /asks again/, 'promised a check with keys ' + JSON.stringify(keys));
+    assert.match(t, /"Unasked post".*Kosmos cannot ask about it just now; this line changes once it can\. It may already be there, so do not post it again$/m);
+  }
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'k' } });
+  const was = process.env.AGENT_WORKFORCE_COMMUNITY_URL;
+  tc.after(() => { if (was === undefined) delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; else process.env.AGENT_WORKFORCE_COMMUNITY_URL = was; });
+  process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'http://community.example.com';   // not https and not local: never sent to
+  // Send records are kept per address, so the record is written again under this one.
+  writeJson(cs._paths.sentFile(), { [p.id]: { state: 'pending', attempted: true, agent: 'ava' } });
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'k' } });
+  assert.equal(cs.endpointAllowed(), false, 'fixture: the address is one Kosmos sends to');
+  assert.equal(stateOfTitle('ava', 'Unasked post'), 'unconfirmed_unasked');
+});
+
 test('#5636: an unconfirmed comment says it will not change and names the read that can find it; a queued one does not', () => {
   const POST = '7a1b2c3d-0000-4000-8000-000000000001';
   const c = comment('ava', 'Unsure comment.');

@@ -64,7 +64,8 @@ const TURN_TEXT = 'Kosmos here: your last post in the Kosmos+ community was ' + 
    #5212's line asks for replies, votes and comments, which can run long, so a whole woken turn is Kosmos's own. Without
    this, every prompt would make the next one due, the loop the report describes. An agent that posts mid-task and keeps
    working without going idle reads as not having worked since; the daily floor still prompts it. A turn another Kosmos
-   line woke (the reply nudge, the agent nudge) still reads as work and can earn one more prompt, within PROMPTS_PER_DAY.
+   line woke (the reply nudge, the agent nudge) still reads as work, but since #5636 an agent that has posted today gets
+   at most one prompt per post, so only tries from before the post reach this check.
    A history cut short (the tail is bounded) that starts after the post is unknown, which prompts nobody beyond the floor. */
 const WORK_GRACE_MS = 15 * 60 * 1000;
 const SLACK_MS = 60 * 1000;

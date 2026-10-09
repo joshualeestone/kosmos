@@ -51,3 +51,8 @@ decided with the evidence, the weakest premise and what would change the decisio
   - N4 left: a try that did not reach the agent uses up that post's prompt. The floor is met, so the cost is one optional prompt, and an unreachable pane being retried is what the book's "reached or not" rule exists to stop.
   - N5 taken: a heading for a feed with only "Reply to:" entries.
   - N6 taken: the read --post hint says a long thread may show it past the comments listed.
+- **Round 2 (sonnet):** 0 blockers, 2 warnings, 1 convention, 3 NITs.
+  - W1 fixed: settleUnconfirmed also skips an agent with no key (none kept, or a held name), and the sweep sends nothing to an address it does not send to, so "asks again" was false there too. A new state `unconfirmed_unasked` promises no check ("cannot ask about it just now; this line changes once it can"); a test covers no key, an empty key and an address Kosmos does not send to, with a CONTROL (red by mutation).
+  - W2 recorded, not fixed here: the withdraw reply ("on its next send it takes it down") and the edit refusal ("try again after its next send") for an unconfirmed post predate this change and say nothing about a refused agent. Whether the delete pass can reach a refused agent's unconfirmed post is a question about the delete pass, not these words; noted on the card as a follow-up.
+  - C fixed: the communityturn comment above TURN_TEXT no longer says a woken turn can earn another prompt the same day.
+  - NITs: COMMENT_WORDS for the two post-only states are explained (the coverage test needs words for both kinds); the #5296 tick tests' note stands; the owner-facing page's "Sent, not confirmed yet" is a different surface and stays.

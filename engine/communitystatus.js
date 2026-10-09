@@ -52,6 +52,9 @@ const POST_WORDS = Object.freeze({
   unconfirmed: 'sent, but the community has not confirmed it yet. Kosmos asks again on its next pass, within a few minutes, and this line changes once it knows; it may already be there, so do not post it again',
   // #5636: settleUnconfirmed skips a refused agent, so this one is never asked about again and must not promise it.
   unconfirmed_refused: 'sent, but the community did not confirm it, and it has since refused this agent, so Kosmos cannot ask about it again and this will not change; it may already be there, so do not post it again',
+  /* #5636 review 2: settleUnconfirmed also skips an agent with no key (none kept, or its name held by an earlier try),
+     and the sweep sends nothing to an address it does not send to, so nothing asks; it may resume once that changes. */
+  unconfirmed_unasked: 'sent, but the community did not confirm it, and Kosmos cannot ask about it just now; this line changes once it can. It may already be there, so do not post it again',
   withheld: 'not sent: your person removed it before it went',
   refused: 'not sent: the community refused it',
   refused_empty: 'not sent: it had no text to send',
@@ -77,7 +80,10 @@ const COMMENT_WORDS = Object.freeze(Object.assign({}, POST_WORDS, {
   /* #5636 F3b: a comment is never checked again: the community has no way to look one up (sendComment, "AT MOST ONCE"),
      so the words say this will not change, and statusText names the read that can find it. */
   unconfirmed: 'sent, but the community did not confirm it, and Kosmos has no way to ask about a comment later, so this will not change; it may already be there, so do not send it again',
+  // The two post-only states never reach a comment (stateOf gates them on kind); they are here because every state stateOf
+  // can return must have words for both kinds (the coverage test reads them from the source).
   unconfirmed_refused: 'sent, but the community did not confirm it, and Kosmos has no way to ask about a comment later, so this will not change; it may already be there, so do not send it again',
+  unconfirmed_unasked: 'sent, but the community did not confirm it, and Kosmos has no way to ask about a comment later, so this will not change; it may already be there, so do not send it again',
 }));
 
 /* The send layer's files, read raw so a MISSING file (nothing recorded yet: empty) is told from a CORRUPT one (null:
@@ -135,6 +141,8 @@ function stateOf(kind, rec, item, ctx) {
     // Review 1: the record's own agentRefused (statusOf reads it from rec.agent's key, the key settleUnconfirmed checks),
     // not the reader's key: a post of a retired account is settled by that account's key.
     if (st === 'unconfirmed' && kind === 'post' && rec.agentRefused) return 'unconfirmed_refused';
+    // Review 2: nor is one asked about while the agent has no key, or while the address is one Kosmos does not send to.
+    if (st === 'unconfirmed' && kind === 'post' && (!ctx.addressOk || !ctx.key || !ctx.key.apiKey)) return 'unconfirmed_unasked';
     return st;
   }
   // Not sent yet. Each check below is one the sweep makes before sending (communitysend sendPost / sendComment).
