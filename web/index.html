@@ -48996,8 +48996,9 @@ async function plusCompanyText() {
   const go = document.getElementById('plus-si-company-go');
   plusCompanySyncResend();
   go.disabled = true;   // board review 2: Finish waits for this answer
-  // Board review 4: longer than the engine's own wait (60 s), so the page never frees Finish while it still waits.
-  const t = await plusSiPost('/api/remote/company/second-text', {}, 75000);
+  // Board reviews 4 and 7: longer than the engine's own waits (60 s, and a status ask after a refusal), so the page
+  // never frees Finish while the engine still waits.
+  const t = await plusSiPost('/api/remote/company/second-text', {}, 130000);
   // Board review 3: only the newest request clears the flag and Finish (a late answer for an older setup does not).
   if (seq === PLUS_CO_TEXT_SEQ) { PLUS_CO_TEXTING = false; go.disabled = false; plusCompanySyncResend(); }
   if (t.stale || epoch !== PLUS_CO_EPOCH) return;

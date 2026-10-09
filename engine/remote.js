@@ -1530,9 +1530,11 @@ async function companySecondRun(c) {
   if (!r.ok) {
     // Board review 6: whether this setup can still finish is the SERVER's answer (some refusals for a dead setup do not
     // say "start again"): ask once, and a gone setup is said so the page returns to the email step.
-    if (companySetup === c) {
+    // Review 7: not after a timeout (it says nothing about the setup, and a second wait would outlast the page's); a
+    // gone setup gets one plain sentence, never one that reads like the metered "all the texts ... start again".
+    if (companySetup === c && !r.timedOut) {
       const st = await companyStatusRun(c);
-      if (st.gone) return { ok: false, because: String(r.because || 'that company sign-in is over') + '; start again' };
+      if (st.gone) return { ok: false, because: 'that company sign-in has ended; start again on the computer' };
     }
     return { ok: false, because: r.because };
   }

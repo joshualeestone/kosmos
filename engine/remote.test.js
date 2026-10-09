@@ -4232,6 +4232,6 @@ test('kosmos#5651 board review 6: a refusal for a setup that is gone says start 
   const t = await remote.companySecond();
   delete process.env.FAKE_TUNNEL_MODE;
   assert.equal(t.ok, false);
-  assert.match(t.because, /turned off/);
-  assert.match(t.because, /start again/, 'a dead setup was left on the code step');
+  assert.equal(t.because, 'that company sign-in has ended; start again on the computer', 'a dead setup was left on the code step');
+  assert.doesNotMatch(t.because, /all the texts|wait \d+ seconds/, 'a gone setup reads like a metered answer');
 });
