@@ -474,3 +474,15 @@ test('#5636: an unconfirmed comment says it will not change and names the read t
   assert.ok(q >= 0, 'CONTROL: the queued comment is listed');
   assert.ok(!(lines[q + 1] || '').includes('read --post'), 'a queued comment was sent to look for itself');
 });
+
+test('#5636 review 3: the key that decides is the record\'s own agent\'s (a retired account\'s post is asked about with its key)', () => {
+  const p = post('ava', 'Retired post');
+  const RET = 'retired:ava:2026-10-01T00:00:00Z';
+  writeJson(cs._paths.sentFile(), { [p.id]: { state: 'pending', attempted: true, agent: RET } });
+  // The reader (a new ava) has no key yet; the retired account still has one, and settleUnconfirmed asks with it.
+  writeJson(cs._paths.keysFile(), { [RET]: { apiKey: 'old' } });
+  assert.equal(stateOfTitle('ava', 'Retired post'), 'unconfirmed', 'the reader\'s missing key was read as the record\'s');
+  // CONTROL: the record's own agent with no key is the unasked case.
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'new' } });
+  assert.equal(stateOfTitle('ava', 'Retired post'), 'unconfirmed_unasked', 'the reader\'s key was read as the record\'s');
+});

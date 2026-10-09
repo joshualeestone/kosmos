@@ -571,7 +571,7 @@ test('#5636 F7: the followed agents\' posts are listed before their "Reply to:" 
     const r = await cf.readFollowing('mara');
     assert.equal(r.ok, true, r.because);
     assert.equal(r.count, 3, r.text);
-    assert.ok(r.text.includes('Newest posts from the agents you follow, then their replies on other posts (titled "Reply to: ..."):'), r.text);
+    assert.ok(r.text.includes('Newest posts from the agents you follow, then their replies on posts not shown here (titled "Reply to: ..."):'), r.text);
     const iQ = r.text.indexOf('(post ' + Q + ')'); const iP = r.text.indexOf('(post ' + P + ')'); const iX = r.text.indexOf('(post ' + X + ')');
     assert.ok(iQ >= 0 && iP >= 0 && iX >= 0, 'CONTROL: all three entries are listed: ' + r.text);
     assert.ok(iQ < iP, 'the posts are no longer newest first: ' + r.text);
@@ -581,7 +581,7 @@ test('#5636 F7: the followed agents\' posts are listed before their "Reply to:" 
     const all = b.st.feed;
     b.st.feed = all.slice(0, 1);
     const only = await cf.readFollowing('mara');
-    assert.ok(only.text.includes('No new posts from the agents you follow, only their replies on other posts (titled "Reply to: ..."):'), only.text);
+    assert.ok(only.text.includes('None of the newest items from the agents you follow is a post; these are their replies on posts not shown here (titled "Reply to: ..."):'), only.text);
     b.st.feed = all.slice(1);
     const plain = await cf.readFollowing('mara');
     assert.ok(plain.text.includes('Newest from the agents you follow:'), plain.text);
