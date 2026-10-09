@@ -461,10 +461,11 @@ test('a file whose name is another entry\'s folder, to restore, is skipped: rest
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
-test('a granted key under another org or key epoch, or over-long, fails the run, and every usable chunk is still kept', async () => {
+test('a granted key under another org, or over-long, fails the run, and every usable chunk is still kept', async () => {
   const w = workKosmos(), k = keys();
   try {
-    for (const [what, opts] of [['epoch', { epoch: '2' }], ['org', { org: 'o9' }]]) {
+    // (The epoch segment is not checked: the coordinator writes a constant there; the member key is bound per index entry.)
+    for (const [what, opts] of [['org', { org: 'o9' }]]) {
       const st = store(opts);
       const r = await take(k, w.root, st);
       assert.equal(r.ok, false); assert.match(r.because, new RegExp(what), what);
@@ -478,12 +479,16 @@ test('a granted key under another org or key epoch, or over-long, fails the run,
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
-test('an index entry under another key epoch is a stale index (sealed to another member key)', async () => {
+test('an index entry sealed to another member key (a rotation within the period) is stale before anything is read', async () => {
   const w = workKosmos(), k = keys(), st = store();
   try {
-    const r = await take(k, w.root, st, { input: { index: new Map([['a'.repeat(64), { key: `o1/acct1/2/${PERIOD}/k1`, lockedUntilMs: LOCK }]]), bucket: 'bucket/' } });
-    assert.equal(r.ok, false); assert.equal(r.staleIndex, true); assert.match(r.because, /epoch/);
+    const other = hpkeKeyPair();
+    const r = await take(k, w.root, st, { input: { index: new Map([['a'.repeat(64), { key: `o1/acct1/1/${PERIOD}/k1`, lockedUntilMs: LOCK, memberKeyId: snap.memberKeyIdOf(other.pk) }]]), bucket: 'bucket/' } });
+    assert.equal(r.ok, false); assert.equal(r.staleIndex, true); assert.match(r.because, /another member key/);
     assert.equal(st.batches.length, 0);
+    // An entry from before memberKeyId was recorded is stale too: nothing says which key sealed it.
+    const r2 = await take(k, w.root, store(), { input: { index: new Map([['a'.repeat(64), { key: `o1/acct1/1/${PERIOD}/k1`, lockedUntilMs: LOCK }]]), bucket: 'bucket/' } });
+    assert.equal(r2.staleIndex, true);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
@@ -649,7 +654,7 @@ test('a file that grows during the read is skipped as grown, not as too large', 
 test('a snapshot that could pass the week\'s allowance is refused before anything is spent; backup_quota is not a retry', async () => {
   const w = workKosmos(), k = keys();
   try {
-    const big = new Map(Array.from({ length: 199990 }, (_, i) => [i.toString(16).padStart(64, '0'), { key: `o1/acct1/1/${PERIOD}/k${i}`, lockedUntilMs: LOCK }]));
+    const big = new Map(Array.from({ length: 199990 }, (_, i) => [i.toString(16).padStart(64, '0'), { key: `o1/acct1/1/${PERIOD}/k${i}`, lockedUntilMs: LOCK, memberKeyId: snap.memberKeyIdOf(k.member.pk) }]));
     const st = store();
     const r = await take(k, w.root, st, { input: { index: big, bucket: 'bucket/' } });
     assert.equal(r.ok, false); assert.equal(r.overAllowance, true); assert.equal(st.batches.length, 0);
@@ -662,7 +667,7 @@ test('a snapshot that could pass the week\'s allowance is refused before anythin
 test('an index chunk whose lock ends before this snapshot\'s manifest would is stale before anything is read', async () => {
   const w = workKosmos(), k = keys(), st = store();
   try {
-    const r = await take(k, w.root, st, { input: { index: new Map([['a'.repeat(64), { key: `o1/acct1/1/${PERIOD}/k1`, lockedUntilMs: NOW + 10 * 86400 * 1000 }]]), bucket: 'bucket/' } });
+    const r = await take(k, w.root, st, { input: { index: new Map([['a'.repeat(64), { key: `o1/acct1/1/${PERIOD}/k1`, lockedUntilMs: NOW + 10 * 86400 * 1000, memberKeyId: snap.memberKeyIdOf(k.member.pk) }]]), bucket: 'bucket/' } });
     assert.equal(r.ok, false); assert.equal(r.staleIndex, true); assert.match(r.because, /ends before/);
     assert.equal(st.batches.length, 0);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
@@ -675,7 +680,7 @@ test('a second run in the period, reusing what the first stored, is not refused 
     assert.equal(first.ok, true, first.because);
     // Pad the index to a realistic period's worth (15,000 earlier chunks, about 15 GB at 1 MiB average): the check must still pass.
     const idx = new Map(first.added);
-    for (let i = 0; idx.size < 15000; i++) idx.set(i.toString(16).padStart(64, '0'), { key: `o1/acct1/1/${PERIOD}/x${i}`, lockedUntilMs: LOCK });
+    for (let i = 0; idx.size < 15000; i++) idx.set(i.toString(16).padStart(64, '0'), { key: `o1/acct1/1/${PERIOD}/x${i}`, lockedUntilMs: LOCK, memberKeyId: snap.memberKeyIdOf(k.member.pk) });
     const k2 = Object.assign({}, k, { ctx: Object.assign({}, k.ctx, { snapshot: 's2' }) });
     const r = await take(k2, w.root, st, { input: { index: idx, bucket: first.bucket } });
     assert.equal(r.ok, true, r.because);
@@ -725,4 +730,15 @@ test('every folder rule in the deny-list ends in "/", so a denied folder is prun
     assert.equal(pathDecision(`${dir}/x`).include, false, `${dir} is denied as a folder`);
   }
   assert.equal(pathDecision('agents/a/notes/x').include, true, 'control: an ordinary folder is walked');
+});
+
+test('a folder that changes identity between its first look and its listing is skipped, not walked', () => {
+  const w = workKosmos();
+  try {
+    let n = 0;
+    const { f } = spyFs({ lstatSync: (real, p2, o) => { const s2 = real(p2, o); return String(p2).endsWith(path.join('agents', 'a', 'memory')) && ++n === 2 ? Object.assign(Object.create(Object.getPrototypeOf(s2)), s2, { ino: s2.ino + 1n }) : s2; } });
+    const l = snap.listFiles(w.root, f);
+    assert.ok(l.skipped.some((x) => x.path === 'agents/a/memory' && /replaced/.test(x.why)), JSON.stringify(l.skipped));
+    assert.ok(!l.files.some((x) => x.path.startsWith('agents/a/memory/')));
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
