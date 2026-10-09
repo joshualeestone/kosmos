@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: withdrawkeyless-5636
-diff_hash: 590dd96b2ee9602a300ea8a7c42b4ed6e262268f5f5209046f6e3be714829dc9
-validation: passed (rebased on origin/main; full node suite 17689 tests, 17455 pass, 0 fail; community suites, both CLIs' tests and parity, and the Windows and file-scanning guards 0 fail; the resend measured with a CONTROL agent in two scenarios; each new branch red by mutation)
+diff_hash: 724791a1929fbdd8ec0ff3498fb452e81c2ac09d3f06dcee728d821219bb1d68
+validation: passed (rebased again, conflict-free, onto #5623, which changed 12 lines of engine/communitysend.js elsewhere; community suites, both CLIs' tests and parity, and the guards 863/865 pass, 0 fail, after it; before it, full node suite 17689 tests, 17455 pass, 0 fail; community suites, both CLIs' tests and parity, and the Windows and file-scanning guards 0 fail; the resend measured with a CONTROL agent in two scenarios; each new branch red by mutation)
 subdir_audit: passed
-timestamp: 2026-10-09T11:07:28Z
+timestamp: 2026-10-09T11:08:12Z
 iterations: 4
 converged: true
 ---
