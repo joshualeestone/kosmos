@@ -738,7 +738,13 @@ const LINK_HOPS_MAX = 40;
 // it passes here, so they are covered whether or not they are on the PATH.
 function supervisorRunDirs() {
   const v = process.env.KOSMOS_GUARD_RUN_DIRS;
-  return typeof v === 'string' && v ? v.split(path.delimiter) : [];
+  // Only absolute folders: a bare program name's dirname is "." (review 13).
+  return typeof v === 'string' && v ? v.split(path.delimiter).filter((d) => path.isAbsolute(d)) : [];
+}
+// Review 13: folders the supervisor reads instructions from at the next start (the launch-secrets folder).
+function supervisorConfigDirs() {
+  const v = process.env.KOSMOS_GUARD_CONFIG_DIRS;
+  return typeof v === 'string' && v ? v.split(path.delimiter).filter((d) => path.isAbsolute(d)) : [];
 }
 function launchPathDirs(agentDir, deps = {}) {
   /* Review 12: not on Windows yet. A standard Windows PATH has folders whose names the rules read as patterns and a
@@ -762,15 +768,20 @@ function launchPathDirs(agentDir, deps = {}) {
   // Both tmux spellings: the board's XDG_CONFIG_HOME need not be the one the tmux server sees (review 12).
   const tmuxConf = [...new Set([path.join(home, '.tmux.conf'), path.join(home, '.config', 'tmux', 'tmux.conf'), ...(process.env.XDG_CONFIG_HOME ? [path.join(process.env.XDG_CONFIG_HOME, 'tmux', 'tmux.conf')] : [])])];
   const fileList = deps.launchFiles || [need('the permission settings file', look.permissionSettingsFile()), ...tmuxConf].filter(Boolean);
-  const configDirs = deps.launchConfigDirs || ((deps.platform || process.platform) === 'darwin' ? [path.join(home, 'Library', 'LaunchAgents')] : []);
+  const configDirs = deps.launchConfigDirs || [...((deps.platform || process.platform) === 'darwin' ? [path.join(home, 'Library', 'LaunchAgents')] : []), ...supervisorConfigDirs()];
+  /* Review 13: folders too widely used to deny whole (the temp roots, the home folder and its everyday folders, the
+     Kosmos data root). A program or link that leads straight into one makes the guard NOT whole, said, instead of
+     silently denying the agent its temp folder or Downloads. Only these exact folders, not what is inside them. */
+  const shared = deps.launchShared || [require('os').tmpdir(), '/tmp', '/private/tmp', '/var/tmp', '/private/var/tmp', home,
+    ...['Desktop', 'Documents', 'Downloads'].map((d) => path.join(home, d)), deps.dataRoot || store.ROOT];
   const plat = deps.platform || process.platform;
   /* Review 2 and 8: refreshTokenOnlyGuards passes one Map for its whole pass. The SCAN (which folders, and the program
      each name resolves into) is the same for every agent, so it is cached without the agent folder and done once per
      pass; only the agent-folder check below runs per agent. */
   const cache = deps.launchCache instanceof Map ? deps.launchCache : null;
-  const key = JSON.stringify([pane, ownPath, max, fixed, ownProgs, fileList, configDirs]);
+  const key = JSON.stringify([pane, ownPath, max, fixed, ownProgs, fileList, configDirs, shared]);
   let scan = cache ? cache.get(key) : undefined;
-  if (!scan) { scan = scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs }); if (cache) cache.set(key, scan); }
+  if (!scan) { scan = scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs, shared }); if (cache) cache.set(key, scan); }
   // A folder that is the agent's own, inside it, or ABOVE it (review 2: denying an ancestor would deny the agent's own
   // folder) cannot be covered. Review 7: compared without case on macOS and Windows, whose disks usually ignore it (a
   // not-yet entry keeps the case it was typed in); that only ever reports more as uncoverable.
@@ -811,8 +822,9 @@ function launchPathDirs(agentDir, deps = {}) {
 }
 /* The agent-independent half of launchPathDirs: every candidate folder in order, as { real, shown, written }, and what
    cannot be covered whatever the agent (an empty or relative pane entry, an unlistable folder, the scan cap). */
-function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs }) {
+function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs, shared }) {
   const cands = [];
+  const files = [];
   const unsafe = [];
   /* Review 9: a path is resolved one name at a time, so a link ANYWHERE along it (not only at its end) is seen: the
      folder holding that link decides where the path leads, so it is covered too (or, if it is the agent's own, the
@@ -906,7 +918,9 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs 
       let p = shown;
       for (let hop = 0; ; hop++) {
         let st;
-        try { st = fs.lstatSync(p); } catch { push(path.dirname(p), shown); break; }   // dangling: the folder it names
+        // Dangling (review 13): the exact name it points at is denied as a FILE (what is later made there runs by that
+        // name), with the folders holding links on the way; not the whole folder, which may be a shared one.
+        try { st = fs.lstatSync(p); } catch { files.push({ real: path.join(pushHolders(path.dirname(p), shown), path.basename(p)), shown }); break; }
         if (st.isDirectory()) break;   // a folder, not a program (its own name is not run)
         push(path.dirname(p), shown);   // a program, or a link hop, sits here
         if (!st.isSymbolicLink()) break;
@@ -919,7 +933,6 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs 
   }
   /* Review 12: a file to deny that is itself a link (a dotfile kept in another tree) is denied at its own path AND at
      where it leads; the folders holding links on the way are covered as for any path. */
-  const files = [];
   for (const f of fileList) {
     const at = path.join(pushHolders(path.dirname(f), f), path.basename(f));
     files.push({ real: at, shown: f });
@@ -929,7 +942,14 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs 
   }
   // Review 11: folders whose files the next start READS as instructions (the launchd jobs): covered, never scanned.
   for (const d of configDirs) { pushHolders(d, d); cands.push({ real: realDir(d), shown: d, holder: true }); }
-  return { cands, unsafe, files };
+  // Review 13: a shared folder is never denied whole; leading into one is said instead.
+  const sharedSet = new Set((shared || []).filter(Boolean).flatMap((d) => [path.resolve(d), realOrLeaf(d)]));
+  const kept = [];
+  for (const c of cands) {
+    if (sharedSet.has(c.real)) unsafe.push(`${c.shown} (it leads into ${c.real}, a shared folder that is not denied whole)`);
+    else kept.push(c);
+  }
+  return { cands: kept, unsafe, files };
 }
 /*
  * #4491: the deny rules and sandbox filesystem paths for a TOKEN-ONLY agent (one listed in

@@ -177,3 +177,15 @@ rest of the guard is still written.
     done in worktrees by rule. Recorded rather than changed.
   - NOT CHANGED (nits): the wiring checks read the supervisor's source (recorded before); a "too long" result cached
     deep and reused shallow only reports more.
+- Round 13 (opus): 0 BLOCKER, 2 WARNING, 5 NIT.
+  - FIXED: a program or link that leads straight into a SHARED folder (the temp roots, the home folder, Desktop,
+    Documents, Downloads, the Kosmos data root) no longer denies that folder whole; the guard says it is not whole
+    instead. A dangling link's target is denied as a file at the exact name, not its whole folder. Tests with controls;
+    mutations fail. (Before this a stray link could deny an agent its temp folder for good, since deny lists merge.)
+  - FIXED: the launch-secrets folder the pane entry reads names from is covered (passed by the supervisor in the same
+    spelling it writes; a test pins that the two spellings stay together).
+  - FIXED (nits): a file rule the rules cannot carry is reported (test); a throw in the scan writes the rest of the
+    guard (test); a bare program name's "." is skipped (test).
+  - NOT CHANGED (nits): an alias for folders reached through an ancestor-held link (/tmp to /private/tmp) is not
+    written; the resolved spelling is, and the ancestor residual covers the rest. Linux /usr/bin near the scan cap is
+    not measured (Linux is not a shipped platform for token-only agents today).

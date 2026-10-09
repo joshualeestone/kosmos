@@ -171,6 +171,8 @@ test('#5516 review 2: the supervisor cleans the pane PATH with a function this t
   assert.match(block, /\[ "\$RUNNER" = claude \] && PANE_ENV\+=\(-e "PATH=\$_guard_path"\)/, 'the claude pane is not given the cleaned PATH, or other runners get a second PATH key');
   assert.match(block, /KOSMOS_GUARD_PANE_PATH="\$_guard_path"/, 'the guard is not given the same PATH');
   assert.match(block, /KOSMOS_GUARD_RUN_DIRS="\$\(dirname "\$CLAUDE"\):\$\(dirname "\$TMUX_BIN"\):\$_eng:\$\(dirname "\$NODE_BIN"\)"/, 'the guard is not given the claude, tmux, engine and node folders as the supervisor spells them');
+  assert.match(block, /KOSMOS_GUARD_CONFIG_DIRS="\$\{AGENT_WORKFORCE_DATA:-\$\{_app:-\}\}\/launch-secrets"/, 'the guard is not given the launch-secrets folder');
+  assert.ok(sup.includes('_launch_secret_dir="${AGENT_WORKFORCE_DATA:-$_app}/launch-secrets"'), 'the launch-secrets folder moved: the guard\'s spelling must follow it');
   // Review 8: no later line gives a claude pane a second PATH key (only the codex/gemini/grok line adds one, gated).
   const later = sup.slice(sup.indexOf('unset _guard_path', i)).split('\n').filter((l) => /PANE_ENV\+=\(-e "PATH=/.test(l));
   assert.equal(later.length, 1, 'another PATH key for the pane: ' + JSON.stringify(later));
@@ -200,8 +202,10 @@ test('#5516 review 2: broken links, folders as entries and the scan cap', () => 
   // CONTROL: under the cap, no cap note.
   const r2 = setup.launchPathDirs(agentDir('lp-odd2'), { ...PIN, panePath: pd, ownPath: '', linkScanMax: 100 });
   assert.ok(!r2.unsafe.some((u) => u.startsWith(realOr(pd))), JSON.stringify(r2.unsafe));
-  // Review 7: the dangling link's folder is covered (whatever is later made there runs by that name).
-  assert.ok(r2.dirs.includes(realOrLeafT(path.join(SANDBOX, 'nowhere'))), 'a dangling link\'s folder was not covered: ' + JSON.stringify(r2.dirs));
+  // Review 7 and 13: what a dangling link names is denied as a file (whatever is later made there runs by that name),
+  // and its folder is not denied whole.
+  assert.ok(r2.files.includes(path.join(realOrLeafT(path.join(SANDBOX, 'nowhere')), 'gone')), 'a dangling link\'s target was not denied: ' + JSON.stringify(r2.files));
+  assert.ok(!r2.dirs.includes(realOrLeafT(path.join(SANDBOX, 'nowhere'))), 'the dangling target\'s whole folder was denied');
 });
 
 test('#5516 review 2: odd entries in the board process PATH are skipped quietly; the pane PATH is held strictly', () => {
@@ -347,10 +351,11 @@ test('#5516 review 8: the claude and tmux folders the supervisor passes are cove
   const cl = binDir('claude-home');
   const tm = binDir('tmux-home');
   const was = process.env.KOSMOS_GUARD_RUN_DIRS;
-  process.env.KOSMOS_GUARD_RUN_DIRS = [cl, tm].join(path.delimiter);
+  process.env.KOSMOS_GUARD_RUN_DIRS = [cl, tm, '.'].join(path.delimiter);   // review 13: a bare name's "." is skipped
   try {
     const r = setup.launchPathDirs(agentDir('lp-run'), { ...PIN, ownProgramDirs: undefined, panePath: '/usr/bin', ownPath: '' });
     for (const d of [cl, tm]) assert.ok(r.dirs.includes(realOr(d)), 'not covered: ' + d);
+    assert.ok(!r.unsafe.includes('.'), 'a bare program name made the guard not whole: ' + JSON.stringify(r.unsafe));
   } finally { if (was === undefined) delete process.env.KOSMOS_GUARD_RUN_DIRS; else process.env.KOSMOS_GUARD_RUN_DIRS = was; }
   // CONTROL: without the variable, neither is named.
   const r2 = setup.launchPathDirs(agentDir('lp-run'), { ...PIN, ownProgramDirs: undefined, panePath: '/usr/bin', ownPath: '' });
@@ -495,4 +500,43 @@ test('#5516 review 12: a file to deny that is a link is denied where it leads to
       assert.ok(t.files.some((x) => x.endsWith(tail)), 'missing ' + tail + ' in ' + JSON.stringify(t.files));
     }
   } finally { if (was === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = was; }
+});
+
+test('#5516 review 13: a link into a shared folder is said, never denied whole; the launch-secrets folder is covered', () => {
+  const pd = binDir('shared-path');
+  const shared = binDir('pretend-tmp');
+  fs.writeFileSync(path.join(shared, 'prog'), '#!/bin/sh\n', { mode: 0o755 });
+  fs.symlinkSync(path.join(shared, 'prog'), path.join(pd, 'prog'));
+  const r = setup.launchPathDirs(agentDir('lp-shared'), { ...PIN, launchShared: [shared], panePath: pd, ownPath: '' });
+  assert.ok(!r.dirs.includes(realOr(shared)), 'a shared folder was denied whole');
+  assert.ok(r.unsafe.some((u) => u.includes('a shared folder')), JSON.stringify(r.unsafe));
+  // CONTROL: the same layout, the folder not shared: covered.
+  const r2 = setup.launchPathDirs(agentDir('lp-shared'), { ...PIN, launchShared: [], panePath: pd, ownPath: '' });
+  assert.ok(r2.dirs.includes(realOr(shared)) && r2.unsafe.length === 0, JSON.stringify(r2));
+  // The real defaults include the temp root.
+  const tmpd = setup.launchPathDirs(agentDir('lp-shared'), { ...PIN, panePath: require('os').tmpdir(), ownPath: '' });
+  assert.ok(tmpd.unsafe.some((u) => u.includes('a shared folder')), JSON.stringify(tmpd));
+  // The launch-secrets folder the supervisor passes: covered, not scanned.
+  const ls = binDir('launch-secrets');
+  const was = process.env.KOSMOS_GUARD_CONFIG_DIRS;
+  process.env.KOSMOS_GUARD_CONFIG_DIRS = ls;
+  try {
+    const r3 = setup.launchPathDirs(agentDir('lp-ls'), { ...PIN, launchConfigDirs: undefined, platform: 'linux', panePath: '/usr/bin', ownPath: '' });
+    assert.ok(r3.dirs.includes(realOr(ls)), JSON.stringify(r3.dirs));
+  } finally { if (was === undefined) delete process.env.KOSMOS_GUARD_CONFIG_DIRS; else process.env.KOSMOS_GUARD_CONFIG_DIRS = was; }
+});
+
+test('#5516 review 13: a FILE rule the rules cannot carry is reported, and a throw in the scan still writes the rest of the guard', () => {
+  const dir = agentDir('lp-filepat');
+  const odd = path.join(binDir('odd (cfg)'), 'tmux.conf');
+  const r = setup.guardTokenOnlyFolder(dir, 'lp-filepat', { ...BASE, panePath: '/usr/bin', launchFiles: [odd] });
+  assert.equal(r.ok, false, JSON.stringify(r));
+  const s = readSettings(dir);
+  assert.ok(!s.permissions.deny.some((x) => x.includes('odd (cfg)')), 'a rule with a pattern character was written');
+  assert.ok(s.sandbox.filesystem.denyWrite.some((x) => x.endsWith('/odd (cfg)/tmux.conf')), 'the shell layer lost the file');
+  // A throw: the rest of the guard is written and it is not whole.
+  const dir2 = agentDir('lp-throw');
+  const r2 = setup.guardTokenOnlyFolder(dir2, 'lp-throw', { ...BASE, panePath: '/usr/bin', launchLookups: { browserToolDir: () => { throw new Error('boom'); } }, ownProgramDirs: undefined });
+  assert.equal(r2.ok, false, JSON.stringify(r2));
+  assert.ok(readSettings(dir2).sandbox.filesystem.denyWrite.length > 0, 'the rest of the guard was not written');
 });
