@@ -46,6 +46,7 @@ const SEND_PAST_MS = PAST_MS - 3600 * 1000;   // an hour short of 7 days, so a q
    file. */
 const CALLS = new Map();
 let TURN = 0;   // which agent is read first this tick (review 5), kept in memory
+const UNLISTABLE_SAID = new Set();   // said once per agent per process (review 21)
 const UNGUARDED_SAID = new Set();   // said once per agent per process (review 17: never silent)
 const CALLS_MAX = 2000;
 const TICK_READ_MAX = 16 * 1024 * 1024;   // bytes read across ALL transcripts in one tick (review 2: the read is sync)
@@ -153,9 +154,9 @@ function targetClass(tool, input, ctx) {
   /* Only the words that could not be resolved are looked at (review 20: the whole command matched a named world's own
      agent folders, which sit under Application Support/Kosmos, and relabelled an agent's own files as the board's). */
   if (hidden.length) {
-    const cmd = hidden.join(' ');
-    const board = /board\.token|agent-token-only\.json|worlds\.json|Application Support\/Kosmos\/[^/]*$/i.test(cmd);
-    const config = /(^|[\s/'"])\.claude(\/|\b)|CLAUDE\.md|\.mcp\.json/.test(cmd);
+    /* Each hidden word on its own (review 21: anchored to the end of all of them joined, a later hidden word hid it). */
+    const board = hidden.some((w) => /board\.token|agent-token-only\.json|worlds\.json|Application Support\/Kosmos\/[^/]*$/i.test(w));
+    const config = hidden.some((w) => /(^|[\s/'"])\.claude(\/|\b)|CLAUDE\.md|\.mcp\.json/.test(w));
     if (board && RANK.indexOf('board-files') < RANK.indexOf(best)) best = 'board-files';
     else if (config && RANK.indexOf('agent-config') < RANK.indexOf(best)) best = 'agent-config';
   }
@@ -437,7 +438,12 @@ async function tick(opts) {
     {
       const every = src.everyAgent();
       if (!Array.isArray(every)) return { sent: 0, because: 'the agent list could not be read; nothing changed' };
+      /* A folder whose transcript location cannot be worked out cannot be compared (review 21): nothing is read. */
       const flat = (d) => new Set(src.transcriptDirsOf(d));
+      try { [...dirs.values()].filter(Boolean).forEach(flat); } catch (e) {
+        console.error('agentevents: a transcript folder could not be worked out; nothing read (' + String((e && e.message) || e) + ')');
+        return { sent: 0, because: 'a transcript folder could not be worked out; nothing changed' };
+      }
       /* An agent whose folder cannot be resolved cannot be compared (review 11): that is unreadable too, not "no clash". */
       /* The guard pass FIRST (review 18): a listed agent whose guard is not in force runs under the person's own rules, so
          it is not read, and it counts among the "others" a read agent must not share a folder with. */
@@ -449,7 +455,11 @@ async function tick(opts) {
       }
       const otherDirs = every.filter((n) => !names.includes(n)).map((n) => src.dirOf(n));
       if (otherDirs.some((d) => !d)) return { sent: 0, because: 'an agent\'s folder could not be resolved; nothing changed' };
-      const others = [...otherDirs, ...unguarded].map(flat);
+      let others;
+      try { others = [...otherDirs, ...unguarded].map(flat); } catch (e) {
+        console.error('agentevents: an agent\'s transcript folder could not be worked out; nothing read (' + String((e && e.message) || e) + ')');
+        return { sent: 0, because: 'a transcript folder could not be worked out; nothing changed' };
+      }
       for (const [n, d] of [...dirs]) {
         if (!d) continue;
         const mine = flat(d);
@@ -486,7 +496,13 @@ async function tick(opts) {
       const fromMs = Math.max(sinceMs, st.listed[agent]);
       const fromS = Math.max(sinceS, Math.floor(st.listed[agent] / 1000));
       if (!Number.isFinite(fromS)) continue;   // fail closed (review 3)
-      for (const file of await src.transcripts(dir)) {
+      /* One agent whose transcripts cannot be listed is skipped, never every agent (review 21). */
+      let files;
+      try { files = await src.transcripts(dir); } catch (e) {
+        if (!UNLISTABLE_SAID.has(agent)) { UNLISTABLE_SAID.add(agent); console.error('agentevents: ' + agent + '\'s transcripts could not be listed; skipped (' + String((e && e.message) || e) + ')'); }
+        continue;
+      }
+      for (const file of files) {
         seen.add(file);
         let off = Object.prototype.hasOwnProperty.call(st.offsets, file) ? st.offsets[file] : null;
         if (off === null) {
