@@ -3074,3 +3074,42 @@ test.after(() => {
   if (!mine.startsWith(tmp + path.sep) || !path.basename(mine).startsWith('kosmos-projects-')) return;
   fs.rmSync(mine, { recursive: true, force: true });
 });
+
+test('#5688: every member the Issue pill counts carries why, and the pill is exactly those members', () => {
+  reset();
+  const selfreport = require('./selfreport');
+  const p = projects.create({ name: 'Why', folder: folder('why'), agents: ['wk88', 'qq88', 'rl88', 'cl88'] });
+  const elsewhere = projects.create({ name: 'Elsewhere', folder: folder('elsewhere'), agents: ['qq88'] });
+  assert.equal(selfreport.record('qq88', { state: 'needs_you', because: 'Which domain?', project: p.id }).recorded, true);
+  // The real cards, with the fields server.js attaches to /api/status rows (stuckterminal.peek, crashloop) set the way
+  // it sets them: a rate limit that has stood past its threshold, and a crash loop on a working agent.
+  const roster = cards([fleet.agent('wk88', { state: 'working' }), fleet.agent('qq88', { state: 'needs_you' }),
+    fleet.agent('rl88', { state: 'rate_limited' }), fleet.agent('cl88', { state: 'working' })]).map((c) => (
+    c.sessionName === 'rl88' ? { ...c, stuckError: { stuck: true, state: 'rate_limited', forMs: 30 * 60000 } }
+      : c.sessionName === 'cl88' ? { ...c, crashLoop: { looping: true, count: 4 } } : c));
+  const row = projects.list(roster).find((x) => x.id === p.id);
+  const why = Object.fromEntries(row.agents.map((m) => [m.sessionName, m.needsYouHere]));
+  assert.deepEqual(why, { wk88: null, qq88: 'question', rl88: 'stuck_rate', cl88: 'crash_loop' });
+  assert.equal(row.summary.needsYou, 3, 'the pill counts exactly the members with a reason');
+  // The same question names Why, not Elsewhere (#763): no reason there, and nothing counted.
+  const other = projects.list(roster).find((x) => x.id === elsewhere.id);
+  assert.equal(other.agents[0].needsYouHere, null);
+  assert.equal(other.summary.needsYou, 0);
+});
+
+test('#5688: needsYouReason names each condition needsPerson counts, and none it does not', () => {
+  const base = { present: true, tied: true, state: 'idle', stateProject: null };
+  const r = (over) => projects.needsYouReason({ ...base, ...over }, 'p1');
+  assert.equal(r({ state: 'needs_you', stateProject: 'p1' }), 'question');
+  assert.equal(r({ state: 'needs_you', stateProject: 'p2' }), null, 'a question about another project');
+  assert.equal(r({ state: 'needs_you' }), null, 'a question about no project');
+  assert.equal(r({ state: 'needs_trust' }), 'trust');
+  assert.equal(r({ state: 'connection_lost', reconnect: { phase: 'gave_up' } }), 'gave_up');
+  assert.equal(r({ state: 'connection_lost', reconnect: { phase: 'retrying' } }), null, 'CONTROL: still reconnecting');
+  assert.equal(r({ crashLoop: { looping: true } }), 'crash_loop');
+  assert.equal(r({ state: 'auth_failed', stuckError: { stuck: true, state: 'auth_failed' } }), 'stuck_auth');
+  assert.equal(r({ state: 'rate_limited', stuckError: { stuck: true, state: 'rate_limited' } }), 'stuck_rate');
+  assert.equal(r({ state: 'rate_limited', stuckError: { stuck: false, state: 'rate_limited' } }), null, 'CONTROL: a brief rate limit');
+  assert.equal(r({ state: 'needs_trust', present: false }), null, 'a member Kosmos cannot see');
+  assert.equal(r({ state: 'needs_trust', tied: false }), null, 'a pane it cannot tie to this agent');
+});

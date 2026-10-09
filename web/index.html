@@ -58507,13 +58507,10 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      mapping for "needs-you gets a mark". Gated on m.present
      because a member we cannot see says why instead of a state. LROW_WARN is the agents
      list's warning glyph; it is display:none inside a .lav until the CSS below shows it. */
-  /* #5688: when the engine says why a member is counted (needsYouHere, present on every answer since #5688), the row
-     is red exactly when the project's Issue pill counts it, so a red pill never sits over calm rows (a terminal error
-     that stood too long and an agent's own question were counted but drawn calm) and a question about ANOTHER project
-     does not redden this one (#763). An answer without the field keeps the card read. */
-  const counted = m && Object.prototype.hasOwnProperty.call(m, 'needsYouHere') ? m.needsYouHere !== null : null;
-  const cardSt = cardStOf(liveM).st;
-  const rowSt = counted === null ? cardSt : (counted ? 'attn' : (cardSt === 'attn' ? '' : cardSt));
+  /* #5688: a member the project's Issue pill counts (the engine's needsYouHere) is red, so a red pill never sits over
+     calm rows: a terminal error that stood too long and an agent's own question were counted but drawn calm. Only ADDS
+     red: a row the card already reads as needing the person (a question about no project, say) stays red. */
+  const rowSt = (m && typeof m.needsYouHere === 'string' && m.needsYouHere) ? 'attn' : cardStOf(liveM).st;
   const needsYou = m.present === true && rowSt === 'attn'; // liveM: a given-up connection is red here too (#3410)
   const warn = needsYou ? LROW_WARN : '';
   /* #2711 item 16: the member box takes a ground by state, the same read the

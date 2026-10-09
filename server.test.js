@@ -7696,6 +7696,11 @@ test('#2711 item 16: pjMember takes a state wash class, for working/needs-you/id
   const neutral = member(row('rlm'));
   assert.ok(!/pjm-(working|attn|idle)/.test(neutral),
     'a rate-limited (neutral) member wrongly took a wash class: ' + neutral);
+  // #5688: the same member once the project's Issue pill counts it (a rate limit that stood too long) is red, with
+  // the triangle, so the pill never sits over calm rows. The control above is the uncounted one (needsYouHere null).
+  assert.equal(row('rlm').needsYouHere, null, 'CONTROL: the fixture member is not counted');
+  const counted = member({ ...row('rlm'), needsYouHere: 'stuck_rate' });
+  assert.ok(counted.includes('pjm-attn') && counted.includes('lwarn'), 'a counted member is not red: ' + counted);
 
   // CONTROL: an UNSEEN member takes no wash -- an unseen row says why (its dashed
   // border + reason), not a state colour, so the wash class is gated on presence.
@@ -8058,7 +8063,7 @@ test('the project notice is wired into paintOneProject, not just extractable', (
   // with a control that the box and its CSS still exist.
   const src = pageFnSource('paintOneProject');
   // #4583: the coordinator warning (two coordinating roles on one project) leads the same notice.
-  assert.ok(/const notice = pjCoordNotice\(p\) \+ pjNotice\(roster, p\.id\);/.test(src), 'paintOneProject no longer builds the notice (the #4583 coordinator warning, then the member notice) for this project');
+  assert.ok(/const notice = pjNeedsNotice\(roster\) \+ pjCoordNotice\(p\) \+ pjNotice\(roster, p\.id\);/.test(src), 'paintOneProject no longer builds the notice (the #4583 coordinator warning, then the member notice) for this project');
   assert.ok(/setIfChanged\(noticeBox, notice\);/.test(src), 'the notice is not written into its region');
   assert.ok(!/noticeBox\.hidden/.test(src), 'the live region is hidden again: a notice written into a hidden region is not announced on its first appearance');
   assert.ok(src.includes("getElementById('pj-one-notice')"), 'paintOneProject paints a different box');
