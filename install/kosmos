@@ -4764,7 +4764,8 @@ cmd_task() {
           if [ "$sub" = ran ]; then
             case "$body" in *'"duplicate":true'*) say "That run of task $num on ${project:-the project} was already recorded a moment ago, so it was not recorded twice." ;;
               # kosmos#5643 review 1: from the board's answer, so a run it counted as unchanged (the same note) says so too.
-              *'"lastRunUnchanged":true'*) say "Recorded a run of task $num on ${project:-the project} that found nothing new." ;;
+              *'"lastRunUnchanged":true'*) if [ "$unchanged" = true ]; then say "Recorded a run of task $num on ${project:-the project} that found nothing new."
+                else say "Recorded a run of task $num on ${project:-the project}. It repeats the note before it, so the task's page groups it with the runs like it."; fi ;;   # review 2: inferred, said as such
               *) say "Recorded a run of task $num on ${project:-the project}." ;; esac
           elif [ "$clear" = true ]; then say "Task $num on ${project:-the project} no longer repeats."
           elif [ -z "$every" ] && [ "$reviewer" = none ]; then say "Nobody is told now when task $num on ${project:-the project} misses a run."

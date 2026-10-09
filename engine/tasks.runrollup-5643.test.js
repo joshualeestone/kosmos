@@ -111,3 +111,19 @@ test('#5643 review 1: clearing the repeat, or changing the rule, drops the strea
   assert.equal(t.unchangedRuns, 1, 'the old streak carried over into a rule set again');
   assert.equal(t.lastChangeAt, undefined, 'a change from the cleared rule was kept');
 });
+
+test('#5643 review 2: the board keeps which unchanged runs it only inferred (a repeated note) apart from the ones the agent marked; any numeral counts as a number', () => {
+  const { id, n } = freshRepeating();
+  tasks.recordRun(id, n, 'mara', 'all clear', T0);
+  tasks.recordRun(id, n, 'mara', 'all clear', T0 + 60 * MIN);                       // inferred
+  tasks.recordRun(id, n, 'mara', 'checked', T0 + 120 * MIN, { unchanged: true });   // marked
+  let t = stored(id, n);
+  assert.deepEqual([t.unchangedRuns, t.unchangedInferred], [2, 1]);
+  assert.deepEqual(runs(id, n).slice(1).map((e) => [e.unchanged === true, e.inferred === true]), [[true, true], [true, false]]);
+  tasks.recordRun(id, n, 'mara', 'found something', T0 + 180 * MIN);
+  assert.equal(stored(id, n).unchangedInferred, undefined, 'the inferred count survived a change');
+  // A numeral in another script is a number too.
+  tasks.recordRun(id, n, 'mara', 'found \u0662 new', T0 + 240 * MIN);
+  tasks.recordRun(id, n, 'mara', 'found \u0662 new', T0 + 300 * MIN);
+  assert.equal(stored(id, n).unchangedRuns, undefined, 'an Arabic-Indic digit was not taken as a number');
+});

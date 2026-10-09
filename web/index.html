@@ -6514,8 +6514,8 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tkact-roll > summary::-webkit-details-marker { display: none; }
 /* A disclosure mark the flex row would otherwise lose; the alt text after the slash is empty, so a screen reader does
    not read the triangle out before the row's words (review 1). */
-.tkact-roll > summary .tkact-what::before { content: '\25B8\00A0' / ''; }
-.tkact-roll[open] > summary .tkact-what::before { content: '\25BE\00A0' / ''; }
+.tkact-roll > summary .tkact-what::before { content: '\25B8\00A0'; content: '\25B8\00A0' / ''; }   /* the plain line first: a browser without the alt-text form keeps the mark (review 2) */
+.tkact-roll[open] > summary .tkact-what::before { content: '\25BE\00A0'; content: '\25BE\00A0' / ''; }
 .tkact-roll > summary .tkact-what { color: var(--label-2); }
 .tkact-roll .tkact-rows { padding-left: 18px; }
 .tkact-roll + .tkact, .tkact + .tkact-roll { border-top: 1px solid var(--k-rule); }
@@ -59760,7 +59760,10 @@ function tskRepeatSentence(t, now) {
     /* kosmos#5643: how many runs in a row found nothing new, and when (and what) the last change was. */
     const same = Number(t.unchangedRuns);
     if (same >= 1) {
-      s += ' ' + (same === 1 ? 'It found nothing new' : 'The last ' + same + ' runs found nothing new');
+      // Review 2: as the history says it: found nothing new (marked), the same note (inferred), or both.
+      const guessed = Number(t.unchangedInferred) || 0;
+      const what = guessed === 0 ? 'found nothing new' : guessed >= same ? (same === 1 ? 'repeated the note before it' : 'repeated the same note') : 'found nothing new or repeated the same note';
+      s += ' ' + (same === 1 ? 'It ' + what : 'The last ' + same + ' runs ' + what);
       const changedAt = Date.parse(t.lastChangeAt || '');
       // Review 1: the change's note only when it is not the last run's, which the sentence has just said.
       if (Number.isFinite(changedAt)) s += '; the last change was ' + (agoWords(now - changedAt) || 'just now') + (t.lastChangeNote && t.lastChangeNote !== t.lastRunNote ? ': ' + t.lastChangeNote : '');
@@ -60766,7 +60769,7 @@ function tkActPhrase(ev, p) {
     // kosmos#4787: a recurring task's rule, and each run its owner reported (kosmos task ran).
     case 'repeat-set': return ev.words ? 'Set to repeat ' + ev.words : 'Set to repeat';
     case 'repeat-cleared': return 'No longer repeats';
-    case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.late ? ', late' : '') + (ev.unchanged ? ', nothing new' : '') + (ev.note ? ': ' + ev.note : ''); }   // kosmos#5643: nothing new
+    case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.late ? ', late' : '') + (ev.unchanged ? (ev.inferred ? ', the same note again' : ', nothing new') : '') + (ev.note ? ': ' + ev.note : ''); }   // kosmos#5643: said, or only a repeated note
     /* kosmos#4787 slice 3 (review 5): who reviews it, and a missed run with who was told. */
     case 'reviewer-set': return ev.person ? 'You will be told if a run is missed' : (nameOf(ev.who) || 'An agent') + ' will be told if a run is missed';
     case 'reviewer-cleared': return 'Nobody is told now if a run is missed';
@@ -61053,8 +61056,11 @@ function tkActRowsHtml(events, p, now) {
       const when = Number.isFinite(at) ? agoWords(now - at) : '';
       // The key is the group's place in the history AND its first run's time: two rollups can share a time to the
       // millisecond, and the history only grows at its end, so an earlier group keeps its place.
+      // Review 2: say what is known. Marked by the agent: found nothing new; inferred from a repeated note: the same note.
+      const inferred = group.filter((ev) => ev.inferred === true).length;
+      const what = inferred === 0 ? ' runs found nothing new' : inferred === group.length ? ' runs repeated the same note' : ' runs found nothing new or repeated the same note';
       out.push('<details class="tkact-roll" data-first="' + esc(i + '@' + String(group[0].at)) + '"><summary class="tkact"><time datetime="' + esc(String(last.at)) + '">' + esc(when) + '</time>'
-        + '<span class="tkact-what">' + esc(group.length + ' runs found nothing new') + '</span></summary>'
+        + '<span class="tkact-what">' + esc(group.length + what) + '</span></summary>'
         + '<div class="tkact-rows">' + group.map(row).join('') + '</div></details>');
       i = j;
     } else {

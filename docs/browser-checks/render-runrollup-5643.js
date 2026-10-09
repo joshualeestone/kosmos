@@ -97,7 +97,7 @@ function chk(ok, label, extra) {
         const top = [...h.children].map((c) => (c.matches('details') ? 'ROLL:' + c.querySelector('summary').textContent.trim() : c.textContent.trim()));
         return { rolls: rolls.map((d) => ({ open: d.open, summary: d.querySelector('summary').textContent.trim(), rows: d.querySelectorAll('.tkact-rows .tkact').length })), top };
       });
-      chk(hist.rolls.length === 2 && /3 runs found nothing new/.test(hist.rolls[0].summary) && /2 runs found nothing new/.test(hist.rolls[1].summary),
+      chk(hist.rolls.length === 2 && /3 runs found nothing new or repeated the same note/.test(hist.rolls[0].summary) && /2 runs found nothing new or repeated the same note/.test(hist.rolls[1].summary),
         `${tag} R1 two streaks roll up, 3 runs then 2`, JSON.stringify(hist.rolls));
       const order = hist.top.map((x) => (x.startsWith('ROLL:') ? 'roll' : /two prices went up/.test(x) ? 'change1' : /out of stock/.test(x) ? 'change2' : 'other'));
       chk(JSON.stringify(order.filter((o) => o !== 'other')) === JSON.stringify(['change1', 'roll', 'change2', 'roll']),
@@ -111,7 +111,7 @@ function chk(ok, label, extra) {
         const box = d.querySelector('.tkact-rows .tkact');
         return { open: d.open, rows, visible: !!box && box.getBoundingClientRect().height > 0 };
       });
-      chk(opened.open && opened.visible && opened.rows.length === 3 && opened.rows.every((r) => /nothing new: checked every item/.test(r)),
+      chk(opened.open && opened.visible && opened.rows.length === 3 && /nothing new: checked every item/.test(opened.rows[0]) && opened.rows.slice(1).every((r) => /the same note again: checked every item/.test(r)),
         `${tag} R2 pressing it shows each run with its words`, JSON.stringify(opened));
       // R2b (review 1): a redraw of the history (after an action on the task) keeps open the rollup the person opened.
       const kept = await page.evaluate(async () => {
@@ -121,13 +121,13 @@ function chk(ok, label, extra) {
       });
       chk(JSON.stringify(kept) === '[true,false]', `${tag} R2b a redraw keeps the opened rollup open, and the other closed`, JSON.stringify(kept));
       const line = await page.evaluate(() => { const l = document.getElementById('tk-repeat-line'); return l && !l.hidden ? l.textContent : null; });
-      chk(/The last 2 runs found nothing new; the last change was .*: one supplier is out of stock\./.test(line || ''),
+      chk(/The last 2 runs found nothing new or repeated the same note; the last change was .*: one supplier is out of stock\./.test(line || ''),
         `${tag} R3 the status line says the streak and the last change`, String(line));
       if (shots) await page.screenshot({ path: path.join(shots, `runrollup-${theme}-${width}.png`), fullPage: false });
 
       await openTask(page, 2);
       const control = await page.evaluate(() => ({ rolls: document.querySelectorAll('#tk-activity details.tkact-roll').length, line: document.getElementById('tk-repeat-line').textContent, rows: document.querySelectorAll('#tk-activity .tkact').length }));
-      chk(control.rolls === 0 && control.rows >= 3 && !/nothing new/.test(control.line), `${tag} R4 the control task has no rollup and no nothing-new words`, JSON.stringify(control));
+      chk(control.rolls === 0 && control.rows >= 3 && !/nothing new|same note/.test(control.line), `${tag} R4 the control task has no rollup and no nothing-new words`, JSON.stringify(control));
 
       const wide = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
       chk(wide <= 0, `${tag} R5 no sideways scroll`, String(wide));

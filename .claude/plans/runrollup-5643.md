@@ -18,6 +18,10 @@ From a user's feedback (2026-10-09, triaged by Splinter). A long monitoring task
     agent that has not been taught the flag ("all clear", "no new items") gets the rollup today. Never a note with a
     digit in it (review 1): "found 2 new errors" can repeat word for word over two different pairs of errors, so a
     repeated count or reading is unchanged only when the agent says so.
+  - **The page says which is which** (review 2). A run the agent marked "found nothing new"; one the board inferred from
+    a repeated note "repeated the same note" (in the history, the status line and both CLIs), since the same words can
+    still cover new things ("found two new errors"). An inference never reads as a fact. Any numeral (Unicode \p{N})
+    keeps a note out of the automatic match.
   - A run with no note and no flag is not unchanged: nothing says so.
   - Rejected: guessing from words like "no change". A note saying "no change in X, but Y is down" would roll up a
     finding.
@@ -44,3 +48,7 @@ That repeating agents write the same note, with no number in it, when nothing ch
     - the disclosure mark has empty alt text;
     - a comment on the count versus the history;
     - the route test's name.
+- **Round 2 (sonnet):** 0 blockers.
+  - W fixed: the digit guard was a partial patch. Now the board records which unchanged runs it inferred, and the page and both CLIs say those as "repeated the same note", never "found nothing new"; \p{N} instead of \d.
+  - CONVENTION fixed: a plain `content` line before the alt-text form, for older browsers.
+  - NIT decided: after a rule change, `lastRunNote` still carries, so the first run with the same note can read "repeated the note before it" with no change named. That is true, and harmless.
