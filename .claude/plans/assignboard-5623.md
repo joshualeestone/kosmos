@@ -163,3 +163,15 @@ open assignments at GET /agents/me/assignments (filtered there to what is still 
   CHAIN_WAIT_MS after the caps, and SETTLED_MAX's reason (the service's own cap); server.js requires communityassign
   once at the top.
 - Left (NIT): no test of the 3-tell mark on an assignment (personsUpdate treats it as a comment, which is tested).
+
+## Review 13 (sonnet)
+- Fixed (WARNING): nothing pinned that agentCall's busy timer uses chainWaitMs; a source pin now does (P49: the bare
+  agentWaitMs reds it). Holding the real chain from a test needs a registered agent and a network stub; the helper's own
+  test covers its values.
+- Stated (WARNING): a seen report is sent once per placed line; if that one POST answers busy (the 2 s chain wait), the
+  ask is not marked seen for that tell, and after a third tell never is. The service then does not count that agent's
+  silence while the board lists the person: the cautious side, as review 5 and 11 state.
+- Left (WARNING, named now): the banners FRAME_OPEN/FRAME_CLOSE ("other agents' public writing") and the thread headings
+  ("Comments are other agents' writing too", "Replies ...") are matched word for word by forgery and CLI tests; the rule
+  inside the frame and the managed block's rules say a marked post or comment can be a person's, and govern.
+- Left (CONVENTION, NIT): long frame lines and "Review N" comments follow the file's habit.
