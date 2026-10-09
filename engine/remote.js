@@ -1354,7 +1354,14 @@ let managedReader = defaultManagedReader;
     Review 2, decided: the profile's CoordinatorURL is NOT read. This board always sets up against its own coordinator
     (COORDINATOR()); letting a profile choose where a Mac enrolls is a decision of its own, not this slice's, and two
     answers to "which coordinator" could disagree. */
+let managedCache = null;   // { at, value }: review 3, the profile read at most every 30 seconds (it runs plutil)
 function managedOrg() {
+  if (managedCache && Date.now() - managedCache.at < 30000) return managedCache.value;
+  const value = readManagedOrg();
+  managedCache = { at: Date.now(), value };
+  return value;
+}
+function readManagedOrg() {
   let v = null;
   try { v = managedReader(); } catch { v = null; }
   if (!v || typeof v !== 'object') return null;
@@ -1397,7 +1404,8 @@ async function companyStartRun(email) {
     || !sameOriginHttps(a.url, COORDINATOR())) {
     return { ok: false, because: 'Kosmos+ answered in a way this version does not understand' };
   }
-  const ttl = Number.isFinite(a.expiresIn) ? a.expiresIn : 900;
+  // Review 3: the server's lifetime, kept within sense (a minute to an hour).
+  const ttl = Math.min(3600, Math.max(60, Number.isFinite(a.expiresIn) ? a.expiresIn : 900));
   companySetup = { email, setupId: a.setupId, secret: a.secret, expiresAt: Date.now() + ttl * 1000 };
   return { ok: true, because: null, matchCode: String(a.matchCode || ''), url: a.url,
     interval: Number.isFinite(a.interval) ? a.interval : 5 };
@@ -1415,14 +1423,15 @@ let companyStatusInFlight = null;
 /** Has the person signed in and approved in the browser? { ready, gone }; `retry` means ask again later (never gone).
     Review 2: one ask at a time (a slow coordinator never piles up processes holding the secret), each bounded. */
 async function companyStatus() {
-  if (companyStatusInFlight) return companyStatusInFlight;
-  const running = companyStatusRun();
-  companyStatusInFlight = running;
-  try { return await running; } finally { if (companyStatusInFlight === running) companyStatusInFlight = null; }
-}
-async function companyStatusRun() {
   const c = companySetup;
-  if (!c || Date.now() > c.expiresAt) { companySetup = null; return { ok: true, ready: false, gone: true }; }
+  // Review 3: an ask joins one in flight only for the SAME setup (a restart's poll never gets the old setup's answer).
+  if (companyStatusInFlight && companyStatusInFlight.c === c) return companyStatusInFlight.promise;
+  const running = { c, promise: companyStatusRun(c) };
+  companyStatusInFlight = running;
+  try { return await running.promise; } finally { if (companyStatusInFlight === running) companyStatusInFlight = null; }
+}
+async function companyStatusRun(c) {
+  if (!c || Date.now() > c.expiresAt) { if (companySetup === c) companySetup = null; return { ok: true, ready: false, gone: true }; }
   const r = await setupRun(['setup', 'company-status', '--coordinator', COORDINATOR(), '--setup-id', c.setupId], c.secret + '\n', retireTimeoutMs());
   if (!r.ok) return { ok: true, ready: false, gone: false, retry: true };
   const a = (lastJsonLine(r.said) || {}).value || {};
@@ -2754,9 +2763,9 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
   cancelledAfterForTests: cancelledAfter,   // kosmos#4743: tests only
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
-  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
+  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
-  setManagedReaderForTests: (fn) => { managedReader = fn; },
+  setManagedReaderForTests: (fn) => { managedReader = fn; managedCache = null; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */
   bundledConnector,
   /* test seam: the live child's pid, or null. spawn() sets the handle

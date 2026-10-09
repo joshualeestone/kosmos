@@ -71,6 +71,7 @@ if (args[0] === 'setup' && args[1] === 'company-start') {
 }
 if (args[0] === 'setup' && args[1] === 'company-status') {
   fs.writeFileSync(${JSON.stringify(RECORD)} + '.stdin', fs.readFileSync(0, 'utf8'));
+  if (mode.includes('slow-company-status')) { const until = Date.now() + Number(process.env.FAKE_REGISTER_MS || 1200); while (Date.now() < until) { /* wait */ } }
   if (mode.includes('company-gone')) { console.log(JSON.stringify({ ready: false, gone: true })); process.exit(0); }
   if (mode.includes('company-fail')) { process.stderr.write('Kosmos+ is unreachable\\n'); process.exit(1); }
   console.log(JSON.stringify({ ready: true, gone: false }));
@@ -4014,4 +4015,15 @@ test('kosmos#5628 review 2: a Forget during a start, a sign out before the finis
   // An address on another origin is not relayed.
   process.env.FAKE_TUNNEL_MODE = 'company-other-origin';
   assert.equal((await remote.companyStart('ann@acme.test')).ok, false, 'another origin reached the page');
+});
+
+test('kosmos#5628 review 3: a status ask joins one in flight only for the same setup', async () => {
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  process.env.FAKE_TUNNEL_MODE = 'slow-company-status';
+  const slow = remote.companyStatus();   // setup A's ask, still out
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);   // start over: setup B
+  await remote.companyStatus();   // B's own ask
+  await slow;
+  assert.equal(recorded().filter((c) => c[1] === 'company-status').length, 2, "the restart's poll joined the old setup's ask");
 });
