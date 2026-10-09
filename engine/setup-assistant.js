@@ -1090,29 +1090,41 @@ function ruleTarget(r) {
   const m = /^(?:Edit|Read)\(\/\/(.*?)(?:\/\*\*)?\)$/.exec(String(r));
   return m ? '/' + m[1] : null;
 }
-/* The paths that reach the profile (both sandbox lists, and the targets of the Edit and Read deny rules), each counted
-   once: their raw length, and their distinct prefixes (sorted, each path adds what it does not share with the one
-   before it). */
+/* The paths that reach the profile, counted per clause as the profile is likely built (review 5): the read clause (denyRead
+   and the Read rule targets) and the write clause (denyWrite and the Edit rule targets), each path once within its
+   clause, so a path in both is paid for twice. Per clause: their raw length, and their distinct prefixes (sorted, each
+   path adds what it does not share with the one before it). Every measured set was one clause, so this counting is at
+   least what was measured, never less. */
 function sandboxDenySize(fsb, deny) {
-  const paths = [...new Set([...((fsb && fsb.denyRead) || []), ...((fsb && fsb.denyWrite) || []), ...(deny || []).map(ruleTarget).filter(Boolean)].map(String))].sort();
+  const rules = (deny || []).map(String);
+  const targets = (kind) => rules.filter((r) => r.startsWith(kind + '(')).map(ruleTarget).filter(Boolean);
+  const clauses = [
+    [...((fsb && fsb.denyRead) || []), ...targets('Read')],
+    [...((fsb && fsb.denyWrite) || []), ...targets('Edit')],
+  ];
+  let count = 0;
   let raw = 0;
   let prefixes = 0;
-  let prev = '';
-  for (const x of paths) {
-    let i = 0;
-    while (i < x.length && i < prev.length && x[i] === prev[i]) i++;
-    raw += x.length;
-    prefixes += x.length - i;
-    prev = x;
+  for (const clause of clauses) {
+    const paths = [...new Set(clause.map(String))].sort();
+    let prev = '';
+    for (const x of paths) {
+      let i = 0;
+      while (i < x.length && i < prev.length && x[i] === prev[i]) i++;
+      raw += x.length;
+      prefixes += x.length - i;
+      prev = x;
+    }
+    count += paths.length;
   }
-  return { paths: paths.length, raw, prefixes };
+  return { paths: count, raw, prefixes };
 }
 /* #5663 review 1: a refresh does not always have the launch inputs (the board's own start has no pane PATH), so "not a
    launch rule now" alone would let one caller prune what another wrote. A recorded entry is pruned only by a refresh
    that has them (an agent's launch), and only when it is not current AND its path no longer exists (an upgraded tool's
    removed version folder, or a removed version file in a folder that stays); a path that cannot be read is kept.
    Review 2: a folder only gone for now (an unmounted volume) is on the launching PATH if the agent runs from it, so it
-   is current and kept. */
+   is current and kept. "Gone" is lstat ENOENT: a dangling link still exists, so its rule is kept (the safe direction). */
 function launchPathGone(p) {
   if (typeof p !== 'string' || !p.startsWith('/')) return false;
   try { fs.lstatSync(p); return false; } catch (e) { return !!(e && e.code === 'ENOENT'); }

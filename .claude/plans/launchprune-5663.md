@@ -1,7 +1,7 @@
 # launchprune-5663: the token-only guard prunes launch rules of removed tool versions, and says when its deny paths pass a measured sandbox ceiling (kosmos#5663)
 
 ## Finished looks like
-An agent launch after an upgrade leaves no rule for the removed version folder or file, in either layer. The person's own rules and the rest of the guard are untouched. A guard whose denied paths would pass a measured sandbox ceiling says so as a warning.
+An agent launch after an upgrade leaves no rule for a removed version folder or file that was recorded (every launch rule written from this change on), in either layer. The person's own rules and the rest of the guard are untouched. A guard whose denied paths would pass a measured sandbox ceiling says so as a warning.
 
 ## Built (current, after reviews 1 and 2)
 - engine/setup-assistant.js:
@@ -11,7 +11,7 @@ An agent launch after an upgrade leaves no rule for the removed version folder o
 - engine/launchprune-5663.test.js.
 
 ## Decided
-- No record (a guard written before this) prunes nothing; the record starts at the next refresh.
+- No record (a guard written before this) prunes nothing; the record starts at the next refresh. Launch rules themselves arrived with #5516 part 1 (#5660, merged 2026-10-09 03:03), so the only unrecorded launch rules are those written by a board running main between that merge and this one. No migration (review 5): a guess at which old rules were launch-shaped could drop a rule the guard did not write, and the leftover is bounded to one version per tool.
 - A rule the person also wrote that equals one the guard wrote for launch is pruned with it when its path is gone. Accepted: such a rule names a path that no longer exists.
 - The record is read and written without a lock. Two refreshes at once can lose a recorded entry. That entry is then never pruned: kept, not dropped. Accepted, because the failure direction is safe.
 - Pruning assumes every launch passes the same launch inputs (the supervisor always does). A launch rule for a path that is deliberately denied while absent stays current at every launch, so it is not pruned.
@@ -48,3 +48,12 @@ An agent launch after an upgrade leaves no rule for the removed version folder o
 - A record rule that cannot be written (a pattern character in the agent's folder path) now marks the guard not whole, as reviews 16 and 17 rule for any dropped self-protection rule. It is not separately testable: the same folder path already drops the guard's other rules.
 - The use-strict guard now also sees a double-quoted directive, and one with no semicolon.
 - Not taken: `ruleTarget` counts a `.*` tmp glob as literal characters. That over-counts slightly, in the safe direction.
+
+## Review 5 (Opus) and what changed
+
+- The ceiling now counts per clause: the read clause is denyRead plus the Read targets; the write clause is denyWrite plus the Edit targets. A path in both is paid for twice. Every measured set was one clause, so this counts at least what was measured. Real guard here: 616 paths, 7,706 distinct, 36,007 raw.
+- Legacy rules: the claim is bounded to recorded rules, with no migration (see Decided).
+- A test drives the launch through KOSMOS_GUARD_PANE_PATH, as the supervisor does, so a rename of that variable reds.
+- The use-strict guard sees a directive with a trailing comment.
+- The comment says that a dangling link counts as present (kept).
+- Not taken: carrying the warning into the board's page. It is on stderr, as decided in review 4.

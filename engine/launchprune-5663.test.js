@@ -205,7 +205,9 @@ test('#5663: a corrupt or wrong-shaped record prunes nothing, even a gone path',
 test('#5663: the ceiling counts the Edit and Read deny paths too, by distinct prefix and by raw length, and turns at exactly each limit', () => {
   // Counting: both sandbox lists and the Edit/Read rule targets, each path once; a path adds what it does not share with
   // the one sorted before it.
-  assert.deepEqual(setup.sandboxDenySize({ denyWrite: ['/ab/c', '/ab/d'] }, ['Edit(//ab/c/**)', 'Read(//x)', 'Bash(rm:*)']), { paths: 3, raw: 12, prefixes: 7 });
+  // Per clause (review 5): write = denyWrite + Edit targets, read = denyRead + Read targets; a path in both is paid twice.
+  assert.deepEqual(setup.sandboxDenySize({ denyWrite: ['/ab/c', '/ab/d'] }, ['Edit(//ab/c/**)', 'Read(//x)', 'Bash(rm:*)']), { paths: 3, raw: 12, prefixes: 8 });
+  assert.deepEqual(setup.sandboxDenySize({ denyWrite: ['/ab/c'], denyRead: ['/ab/c'] }, []), { paths: 2, raw: 10, prefixes: 10 });
   const dir = agentDir('lp-edge');
   setup.guardTokenOnlyFolder(dir, 'lp-edge', { ...BASE });
   const s0 = readSettings(dir);
@@ -233,4 +235,22 @@ test('#5663: the ceiling counts the Edit and Read deny paths too, by distinct pr
   const overRaw = withPaths(rawSet(1));
   assert.equal(overRaw.ok, true); assert.match(overRaw.warning, new RegExp(`, ${R + 1} in all\\)`));
   assert.ok(Number(/\((\d+) distinct/.exec(overRaw.warning)[1]) < P, 'CONTROL: the raw arm turned it, not the prefix arm');
+});
+
+test('#5663 review 5: a real launch passes its PATH in KOSMOS_GUARD_PANE_PATH (as the supervisor does), and that is what lets it prune', () => {
+  const dir = agentDir('lp-env');
+  const v1 = binDir('envtool/1.0/bin');
+  const v2 = binDir('envtool/2.0/bin');
+  const run = (pane) => {
+    if (pane === undefined) delete process.env.KOSMOS_GUARD_PANE_PATH; else process.env.KOSMOS_GUARD_PANE_PATH = pane;
+    try { return setup.guardTokenOnlyFolder(dir, 'lp-env', { ...BASE }); } finally { delete process.env.KOSMOS_GUARD_PANE_PATH; }
+  };
+  assert.deepEqual(run(v1), { ok: true });
+  const r1 = dirRule(v1);
+  assert.ok(readSettings(dir).permissions.deny.includes(r1), 'CONTROL: the env PATH was read');
+  fs.rmSync(path.join(SANDBOX, 'bins', 'envtool', '1.0'), { recursive: true });
+  assert.deepEqual(run(undefined), { ok: true });
+  assert.ok(readSettings(dir).permissions.deny.includes(r1), 'CONTROL: without it (a board start), nothing is pruned');
+  assert.deepEqual(run(v2), { ok: true });
+  assert.ok(!readSettings(dir).permissions.deny.includes(r1), 'a launch with the env PATH did not prune a gone folder');
 });
