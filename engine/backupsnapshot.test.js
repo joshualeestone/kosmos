@@ -426,7 +426,7 @@ test('whatever the ceiling, a run either stores a manifest that fits or uploads 
     fs.mkdirSync(path.join(root, 'agents', 'a'), { recursive: true });
     for (let i = 0; i < 60; i++) fs.writeFileSync(path.join(root, 'agents', 'a', `f${String(i).padStart(2, '0')}.md`), `file ${i} ${crypto.randomBytes(8).toString('hex')}\n`);
     let fits = 0, refused = 0;
-    for (let budget = 8000; budget <= 80000; budget += 4000) {
+    for (let budget = 8000; budget <= 200000; budget += 8000) {
       const st = store({ longKeys: true });
       const r = await take(k, root, st, { deps: { maxManifestJson: budget, batchBytes: 1 } });
       if (r.ok) {
@@ -510,5 +510,38 @@ test('an empty file round-trips as an entry with no chunks', async () => {
     const { opened, sink } = await restoreFrom(k, st, st.manifests[0].bytes);
     assert.deepEqual(opened.files.find((x) => x.path === 'agents/a/empty.md').chunks, []);
     assert.equal(sink.committed.get('agents/a/empty.md').length, 0);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('one file far over the size cap is a skip entry, not a reason to refuse the whole snapshot', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const img = path.join(w.root, 'vm.img');
+    const fd = fs.openSync(img, 'w'); fs.ftruncateSync(fd, 20 * 1024 ** 3); fs.closeSync(fd);   // sparse: no disk used
+    const r = await take(k, w.root, st);
+    assert.equal(r.ok, true, r.because);
+    const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+    assert.ok(m.skipped.some((x) => x.path === 'vm.img' && /too large/.test(x.why)));
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a key granted twice, or for a chunk this run did not ask to store, fails the run before the manifest', async () => {
+  const w = workKosmos(), k = keys();
+  try {
+    let first = null;
+    const st = store({ keyFor: (key) => { if (!first) { first = key; return key; } return first; } });
+    const r = await take(k, w.root, st, { deps: { batchBytes: 1 } });
+    assert.equal(r.ok, false); assert.match(r.because, /repeats a key/);
+    assert.equal(st.manifests.length, 0);
+    assert.equal(r.added.size, 1, 'the first use of the key is kept, the repeat is not');
+    const st2 = store();
+    const real = st2.uploadChunks;
+    const r2 = await take(k, w.root, st2, { deps: { uploadChunks: async (d, batch) => {
+      const res = await real(d, batch);
+      res.keys.set('f'.repeat(64), `o1/acct1/1/${PERIOD}/foreign`); res.lockedUntil.set('f'.repeat(64), LOCK);
+      return res;
+    } } });
+    assert.equal(r2.ok, false); assert.match(r2.because, /did not ask/);
+    assert.ok(!r2.added.has('f'.repeat(64)));
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });

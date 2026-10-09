@@ -150,7 +150,8 @@ function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_S
 function readListed(fs, rootReal, f, maxFile) {
   const abs = path.join(rootReal, f.path);
   const c = fs.constants || nodeFs.constants;
-  const flags = c.O_RDONLY | (c.O_NOFOLLOW || 0) | (c.O_NONBLOCK || 0);
+  // O_NOCTTY: a terminal device swapped in is refused by the fstat check below, and must not become ours first.
+  const flags = c.O_RDONLY | (c.O_NOFOLLOW || 0) | (c.O_NONBLOCK || 0) | (c.O_NOCTTY || 0);
   let fd;
   try { fd = fs.openSync(abs, flags); } catch { return { why: 'a file that could not be opened (gone, or replaced by a link)' }; }
   try {
@@ -182,14 +183,19 @@ function readListed(fs, rootReal, f, maxFile) {
 const isKey32 = (b) => Buffer.isBuffer(b) && b.length === 32;
 // A manifest entry's JSON size, for the running budget (canonicalJson writes the same characters as JSON.stringify).
 const entryBytes = (x) => Buffer.byteLength(JSON.stringify(x)) + 1;
-/* An UPPER bound on what one listed file can add to the manifest, from its size alone: every chunk but a file's last is
-   at least CDC.min, and the stored bytes are allowed to be twice the file's (redaction can lengthen text), so it has
-   at most floor(2 * size / CDC.min) + 1 chunks; each adds a name to the file entry and one objects entry with the
-   longest key accepted; plus the entry itself and a redaction record. */
-function upperBound(f) {
-  const n = Math.floor((2 * f.size) / CDC.min) + 1;
+/* An UPPER bound on what one listed file can add to the manifest, from its size alone. A file over maxFile is only ever
+   a skip entry (review 5: counting its size made one big disk image fail every snapshot). Otherwise every chunk but a
+   file's last is at least CDC.min, and the stored bytes may be at most twice the file's (redaction can lengthen text),
+   so it has at most floor(2 * size / CDC.min) + 1 chunks; each adds a name to the file entry and one objects entry
+   with the longest key accepted; plus the entry itself and a redaction record (at most secretmask's 11 kinds, about
+   530 bytes past the path) or a skip entry, within the fixed 1024.
+   So a snapshot is limited to about 20 GB of files under maxFile: past that this bound passes the manifest ceiling
+   even where the real manifest would not (at 1 MiB average chunks and real key lengths it is about a tenth). */
+function upperBound(f, maxFile) {
   const pathJson = Buffer.byteLength(JSON.stringify(f.path));
-  return 2 * pathJson + 400 + n * (CHUNK_NAME_LEN + 3) + n * (CHUNK_NAME_LEN + 6 + MAX_KEY_LEN);
+  if (f.size > maxFile) return 2 * pathJson + 1024;
+  const n = Math.floor((2 * f.size) / CDC.min) + 1;
+  return 2 * pathJson + 1024 + n * (CHUNK_NAME_LEN + 3) + n * (CHUNK_NAME_LEN + 6 + MAX_KEY_LEN);
 }
 
 /**
@@ -244,12 +250,16 @@ async function snapshotInner(input, deps, added, state, fail) {
   if (index.size) {
     if (typeof input.bucket !== 'string' || !input.bucket) return fail('an index of earlier chunks needs the bucket they are stored under', { staleIndex: true });
     for (const [name, e] of index) {
-      const why = typeof name !== 'string' || name.length !== CHUNK_NAME_LEN || !e ? 'malformed'
+      const why = typeof name !== 'string' || !/^[0-9a-f]{64}$/.test(name) || !e ? 'malformed'
         : keyProblem(e.key, ctx) || (Number.isSafeInteger(e.lockedUntilMs) ? null : 'no lock end');
       if (why) return fail(`the index holds an entry this snapshot cannot name (${why})`, { staleIndex: true });
     }
     state.bucket = input.bucket;
   }
+  // Every key this snapshot names, so none is ever named for two chunks (review 5: a repeat across batches, or of an
+  // index key, would point two names at one object; on a versioned bucket restore could only open one of them).
+  const usedKeys = new Set([...index.values()].map((e) => e.key));
+  if (usedKeys.size !== index.size) return fail('the index names one key for two chunks', { staleIndex: true });
 
   let rootReal;
   try { rootReal = fs.realpathSync(root); } catch { return fail('the work Kosmos folder could not be read'); }
@@ -260,7 +270,9 @@ async function snapshotInner(input, deps, added, state, fail) {
   //   reserve   the upper bound of every listed file not yet finished (the current one included)
   // estimate + reserve is an upper bound on the final manifest at every point, and it is checked before each batch.
   let estimate = 1024;
-  let reserve = listed.files.reduce((n, f) => n + upperBound(f), 0);
+  const ub = (f) => upperBound(f, maxFile);
+  let reserve = listed.files.reduce((n, f) => n + ub(f), 0);
+  const listedBytes = listed.files.reduce((n, f) => n + (f.size > maxFile ? 0 : f.size), 0);
   const over = () => estimate + reserve > budget;
 
   const skipped = [];
@@ -269,7 +281,8 @@ async function snapshotInner(input, deps, added, state, fail) {
   let skippedExtra = listed.skippedExtra;
   const skip = (s) => { if (skipped.length < MAX_SKIPPED) { estimate += entryBytes(s); skipped.push(s); } else skippedExtra++; };
   for (const s of listed.skipped) skip(s);
-  if (over()) return fail('the manifest for this many files could pass its size ceiling', { tooLarge: true });
+  const tooLargeWhy = () => `the work Kosmos is too large for one snapshot: ${listed.files.length} files, ${Math.round(listedBytes / 2 ** 20)} MB, could make a manifest past its ceiling (one snapshot holds about 20 GB of files)`;
+  if (over()) return fail(tooLargeWhy(), { tooLarge: true });
   const files = [], redacted = [];
   const objects = {};        // every referenced chunk: name -> key (filled as chunks are stored or reused)
   const pending = new Map(); // sealed this run, not yet uploaded: name -> object
@@ -280,7 +293,7 @@ async function snapshotInner(input, deps, added, state, fail) {
     if (!pending.size) return null;
     // The manifest so far, with every entry this run will add for what is pending, must still fit: stop BEFORE
     // uploading, so a manifest that cannot be stored never leaves locked chunks behind.
-    if (over()) return fail('the manifest for this many files could pass its size ceiling', { tooLarge: true });
+    if (over()) return fail(tooLargeWhy(), { tooLarge: true });
     const batch = [...pending].map(([name, object]) => ({ name, object }));
     const r = await putChunks(deps, batch);
     const stored = (r && r.keys instanceof Map) ? r.keys : new Map();
@@ -299,12 +312,15 @@ async function snapshotInner(input, deps, added, state, fail) {
     const wrongPeriod = [];
     let noLock = false, badKey = null;
     for (const [name, key] of stored) {
+      if (!pending.has(name)) { badKey = badKey || 'for a chunk this run did not ask to store'; continue; }
+      if (usedKeys.has(key)) { badKey = badKey || 'repeats a key already named'; continue; }
       const kp = keyProblem(key, ctx);
       if (kp && kp.startsWith('in period')) { wrongPeriod.push(periodOfKey(key)); continue; }
       if (kp) { badKey = badKey || kp; continue; }
       if (!Number.isSafeInteger(lockOf(name))) { noLock = true; continue; }
       if (Buffer.byteLength(key) > MAX_KEY_LEN) { badKey = badKey || `longer than ${MAX_KEY_LEN} characters`; continue; }
       added.set(name, { key, lockedUntilMs: lockOf(name) });
+      usedKeys.add(key);
       objects[name] = key;
       if (pending.has(name)) estimate += Buffer.byteLength(key) - MAX_KEY_LEN;   // charged at MAX_KEY_LEN when it was sealed
     }
@@ -320,13 +336,13 @@ async function snapshotInner(input, deps, added, state, fail) {
 
   for (const f of listed.files) {
     const got = readListed(fs, rootReal, f, maxFile);
-    if (!got.buf) { skip({ path: f.path, why: got.why }); reserve -= upperBound(f); continue; }
+    if (!got.buf) { skip({ path: f.path, why: got.why }); reserve -= ub(f); continue; }
     const d = scanFile(f.path, got.buf);
-    if (d.action !== 'store') { skip({ path: f.path, why: d.why || 'not stored' }); reserve -= upperBound(f); continue; }
+    if (d.action !== 'store') { skip({ path: f.path, why: d.why || 'not stored' }); reserve -= ub(f); continue; }
     const data = d.data;
     // The reserve assumed at most twice the file's size; a copy past that would break the bound, so it is not stored.
     // (The +1 adds no chunk to upperBound's floor(2 * size / CDC.min) + 1: 2 * size + 1 is odd and CDC.min is even.)
-    if (data.length > 2 * f.size + 1) { skip({ path: f.path, why: 'its redacted copy is over twice its size' }); reserve -= upperBound(f); continue; }
+    if (data.length > 2 * f.size + 1) { skip({ path: f.path, why: 'its redacted copy is over twice its size' }); reserve -= ub(f); continue; }
     if (d.redacted && d.redacted.length) { redacted.push({ path: f.path, kinds: d.redacted }); estimate += entryBytes(redacted[redacted.length - 1]); }
     const names = [];
     for (const piece of chunkBuffer(data)) {
@@ -342,13 +358,13 @@ async function snapshotInner(input, deps, added, state, fail) {
     }
     const entry = { path: f.path, size: data.length, sha256: crypto.createHash('sha256').update(data).digest('hex'), chunks: names };
     estimate += entryBytes(entry);
-    reserve -= upperBound(f);
+    reserve -= ub(f);
     files.push(entry);
   }
-  if (estimate > budget) return fail('the manifest for this many files would pass its size ceiling', { tooLarge: true });
+  if (estimate > budget) return fail(tooLargeWhy(), { tooLarge: true });
   const stop = await flush();
   if (stop) return stop;
-  if (estimate > budget) return fail('the manifest for this many files would pass its size ceiling', { tooLarge: true });
+  if (estimate > budget) return fail(tooLargeWhy(), { tooLarge: true });
 
   // Every chunk a file names, with its key and lock end, for the manifest uploader's checks.
   const chunks = [];
