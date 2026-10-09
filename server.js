@@ -21149,6 +21149,18 @@ function orgRollupTick() {
     require('./engine/orgrollup').tick().catch(() => { /* best effort */ }).finally(() => { ORG_ROLLUP_RUNNING = false; });
   } catch { ORG_ROLLUP_RUNNING = false; }
 }
+/** #5683 slice 1: the work Kosmos reads its token-only agents' new transcript lines for refusals by the company's own
+    rules and sends them (engine/agentevents.js decides what counts). Same gates as the rollup. */
+let AGENT_EVENTS_RUNNING = false;
+function agentEventsTick() {
+  if (AGENT_EVENTS_RUNNING) return;
+  if (!liveExecution.liveExecutionAllowed()) return;
+  try {
+    if (!require('./engine/orgenroll').isEnrolledHere()) return;   // not the work Kosmos: no transcript is read
+    AGENT_EVENTS_RUNNING = true;
+    require('./engine/agentevents').tick().catch(() => { /* best effort */ }).finally(() => { AGENT_EVENTS_RUNNING = false; });
+  } catch { AGENT_EVENTS_RUNNING = false; }
+}
 function start(port = PORT) {
   snapshotWorlds();   // #5247: the worlds the gate may accept, as of now
   /* #5254: cached first pages whose PDF, project or agent is gone are removed now and hourly (engine/filepreview.js). */
@@ -21166,6 +21178,7 @@ function start(port = PORT) {
   /* #5532: the enrolled work Kosmos's rollup, a minute after start (once the refresh has answered) and then on a tick. */
   setTimeout(orgRollupTick, 60 * 1000).unref();
   setInterval(orgRollupTick, ORG_ROLLUP_TICK_MS).unref();
+  setInterval(agentEventsTick, ORG_ROLLUP_TICK_MS).unref();   // #5683: every five minutes, as the rollup
   /* #4408: what this board is running, taken now, before anything can edit the app folder under it. The
      restart module is loaded first: it is otherwise required lazily, and the button depends on it. */
   try { require('./engine/boardrestart'); } catch { /* the restart route reports its own failure */ }
