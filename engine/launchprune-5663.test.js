@@ -152,24 +152,52 @@ test('#5663 review 2: the ceiling is a macOS check, and its reason is said besid
   assert.match(both.because, /could not cover/); assert.match(both.because, /denied paths/);
 });
 
-test('#5663: a launch path not current but still on disk (or whose parent is) is kept; a corrupt record prunes nothing', () => {
+test('#5663: a launch path not current but still on disk is kept; once it is gone it is pruned, even in a folder that stays', () => {
   const dir = agentDir('lp-keep');
   const a = binDir('keep/a/bin');
   const b = binDir('keep/b/bin');
   setup.guardTokenOnlyFolder(dir, 'lp-keep', { ...BASE, panePath: [a, b].join(path.delimiter) });
+  const rb = dirRule(b);
   // A narrower launch: b is no longer on the PATH but is still on disk.
   setup.guardTokenOnlyFolder(dir, 'lp-keep', { ...BASE, panePath: a });
-  assert.ok(readSettings(dir).permissions.deny.includes(dirRule(b)), 'a folder still on disk was pruned');
-  // b's leaf goes, its parent stays: kept (a moved or relinked folder, not a removed version).
+  assert.ok(readSettings(dir).permissions.deny.includes(rb), 'a folder still on disk was pruned');
+  // Review 3: b goes and its parent stays: pruned.
   fs.rmSync(b, { recursive: true });
   setup.guardTokenOnlyFolder(dir, 'lp-keep', { ...BASE, panePath: a });
-  assert.ok(readSettings(dir).permissions.deny.includes(dirRule(b)), 'pruned while its parent folder is still there');
-  // A corrupt record: nothing is pruned, even a gone path.
-  fs.rmSync(path.join(SANDBOX, 'bins', 'keep', 'b'), { recursive: true });
+  assert.ok(!readSettings(dir).permissions.deny.includes(rb), 'a gone folder in a folder that stays was kept');
+});
+
+test('#5663 review 3: a version FILE removed from a versions folder that stays (one file per version) is pruned', () => {
+  const dir = agentDir('lp-verfile');
+  const store = binDir('verstore/versions');
+  for (const v of ['1.0', '2.0']) fs.writeFileSync(path.join(store, v), '#!/bin/sh\n', { mode: 0o755 });
+  const pd = binDir('verstore-path');
+  fs.symlinkSync(path.join(store, '1.0'), path.join(pd, 'tool'));
+  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-verfile', { ...BASE, panePath: pd }), { ok: true });
+  const r1 = `Edit(${ruleAbs(path.join(realOr(store), '1.0'))})`;
+  assert.ok(readSettings(dir).permissions.deny.includes(r1), 'CONTROL: the version file is named: ' + readSettings(dir).permissions.deny.filter((x) => x.includes('verstore')).join(' '));
+  // The tool upgrades itself: the link now names 2.0 and 1.0 is removed; the versions folder stays.
+  fs.unlinkSync(path.join(pd, 'tool'));
+  fs.symlinkSync(path.join(store, '2.0'), path.join(pd, 'tool'));
+  fs.unlinkSync(path.join(store, '1.0'));
+  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-verfile', { ...BASE, panePath: pd }), { ok: true });
+  const s = readSettings(dir);
+  assert.ok(!s.permissions.deny.includes(r1), 'the removed version file stayed');
+  assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(path.join(realOr(store), '2.0'))})`), 'the new version file is not named');
+});
+
+test('#5663: a corrupt or wrong-shaped record prunes nothing, even a gone path', () => {
   for (const bad of ['{not json', '[]', '{"deny":"x","denyWrite":7}']) {
+    const name = 'lp-corrupt-' + bad.length;
+    const dir = agentDir(name);
+    const a = binDir(`corrupt${bad.length}/a/bin`);
+    const b = binDir(`corrupt${bad.length}/b/bin`);
+    setup.guardTokenOnlyFolder(dir, name, { ...BASE, panePath: [a, b].join(path.delimiter) });
+    const rb = dirRule(b);
+    fs.rmSync(b, { recursive: true });
     fs.writeFileSync(path.join(dir, '.claude', 'kosmos-launch-rules.json'), bad);
-    assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-keep', { ...BASE, panePath: a }), { ok: true });
-    assert.ok(readSettings(dir).permissions.deny.includes(dirRule(b)), 'a corrupt record pruned a rule: ' + bad);
+    assert.deepEqual(setup.guardTokenOnlyFolder(dir, name, { ...BASE, panePath: a }), { ok: true });
+    assert.ok(readSettings(dir).permissions.deny.includes(rb), 'a corrupt record pruned a rule: ' + bad);
   }
 });
 

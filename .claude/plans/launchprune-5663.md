@@ -1,12 +1,12 @@
 # launchprune-5663: the token-only guard prunes launch rules of removed tool versions, and says when its deny paths pass a measured sandbox ceiling (kosmos#5663)
 
 ## Finished looks like
-An agent launch after an upgrade leaves no rule for the removed version folder, in either layer. The person's own rules and the rest of the guard are untouched. A guard whose denied paths would pass a measured sandbox ceiling says it is not whole.
+An agent launch after an upgrade leaves no rule for the removed version folder or file, in either layer. The person's own rules and the rest of the guard are untouched. A guard whose denied paths would pass a measured sandbox ceiling says it is not whole.
 
 ## Built (current, after reviews 1 and 2)
 - engine/setup-assistant.js:
   - A record of the launch rules the guard wrote, at `.claude/kosmos-launch-rules.json`. It is denied to the file tools, and the sandbox denies its folder. The record is a union: what was recorded and not pruned, plus what is current.
-  - Pruning is done only by an agent launch, which is the refresh that carries the pane PATH. It drops a recorded launch entry that is not current AND whose path and parent folder are both gone from disk. This happens in both layers. Every other rule merges as before.
+  - Pruning is done only by an agent launch, which is the refresh that carries the pane PATH. It drops a recorded launch entry that is not current AND whose path is gone from disk. This happens in both layers. Every other rule merges as before.
   - The ceiling, macOS only, counts every path that reaches the sandbox profile: both sandbox lists, plus the targets of the Edit and Read deny rules, each counted once. Past 40 KB of distinct prefixes or 160 KB raw, the guard is written and says it is not whole. That reason is given beside an uncovered-PATH reason, not instead of it.
 - engine/launchprune-5663.test.js.
 
@@ -14,6 +14,7 @@ An agent launch after an upgrade leaves no rule for the removed version folder, 
 - No record (a guard written before this) prunes nothing; the record starts at the next refresh.
 - A rule the person also wrote that equals one the guard wrote for launch is pruned with it when its path is gone. Accepted: such a rule names a path that no longer exists.
 - The record is read and written without a lock. Two refreshes at once can lose a recorded entry. That entry is then never pruned: kept, not dropped. Accepted, because the failure direction is safe.
+- Pruning assumes every launch passes the same launch inputs (the supervisor always does). A launch rule for a path that is deliberately denied while absent stays current at every launch, so it is not pruned.
 - Plan file name: the PR hook requires `.claude/plans/<branch>.md`. CLAUDE.md's timestamped name is not used here, as on every kosmos branch.
 
 ## Review 1 (Opus) and what changed
@@ -34,3 +35,9 @@ An agent launch after an upgrade leaves no rule for the removed version folder, 
 - The ceiling ran off macOS on a sandbox block already in the file. It is now macOS only, and its reason is given beside an uncovered-PATH reason.
 - The comment on the record no longer claims what the lock-free write cannot promise (see Decided).
 - The #5663 block was moved above the doc comment it had split from its function.
+
+## Review 3 (Opus) and what changed
+
+- Review 2's block move put the #5663 code above `'use strict'`, which turned the whole module into sloppy mode silently. The code is moved back above the token-only doc comment, and `'use strict'` is line 1 again. Class guard: `engine/use-strict-first-5663.test.js`. Every tracked .js file that says 'use strict' must say it first (1,902 files; all pass), with a control that the check sees a misplaced directive. Proven red by prepending a statement to setup-assistant.js.
+- A version kept as one file in a folder that stays (`versions/<n>`) was never pruned, because the parent always existed. Now that only a launch prunes, the parent-folder condition protected nothing the launch gate does not, so it is dropped: a path that is not current and is gone is pruned. A test covers that layout.
+- Nits taken: the size-limit comment now sits on its check; a record rule that cannot be written is said on stderr; the current launch writes are a Set.

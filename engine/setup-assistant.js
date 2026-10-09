@@ -1,49 +1,3 @@
-/* #5663: the launch-rule record, and the sandbox layer's ceiling. */
-const LAUNCH_RECORD_FILE = 'kosmos-launch-rules.json';
-/* MEASURED (claude -p with a sandbox on, 2026-10-09): Claude Code puts the Edit and Read deny rules into the sandbox profile
-   too, not only sandbox.filesystem (a shell write to an Edit-denied file was refused), and two limits then stop EVERY
-   sandboxed command:
-   - sandbox-exec refuses a profile past 65,535 bytes of compiled data. The compiled size follows the paths' distinct
-     prefixes (paths sharing a long prefix cost little), not their raw bytes: every set that ran had at most 34,216
-     distinct prefix characters (4,312 paths built from this machine's PATH had 33,636), every set that failed had at
-     least 51,816 (which compiled to 65,766 bytes).
-   - the profile is passed on a command line: 248,670 raw path bytes failed with E2BIG, 223,734 ran.
-   The ceilings below sit under both with a margin; past either, the guard may still run, but Kosmos can no longer say
-   it will. */
-const SANDBOX_DENY_PREFIX_MAX = 40 * 1024;
-const SANDBOX_DENY_RAW_MAX = 160 * 1024;
-// A rule's path, for the rule shapes this guard writes (a path with a pattern character is never written, #4491 review 14).
-function ruleTarget(r) {
-  const m = /^(?:Edit|Read)\(\/\/(.*?)(?:\/\*\*)?\)$/.exec(String(r));
-  return m ? '/' + m[1] : null;
-}
-/* The paths that reach the profile (both sandbox lists, and the targets of the Edit and Read deny rules), each counted
-   once: their raw length, and their distinct prefixes (sorted, each path adds what it does not share with the one
-   before it). */
-function sandboxDenySize(fsb, deny) {
-  const paths = [...new Set([...((fsb && fsb.denyRead) || []), ...((fsb && fsb.denyWrite) || []), ...(deny || []).map(ruleTarget).filter(Boolean)].map(String))].sort();
-  let raw = 0;
-  let prefixes = 0;
-  let prev = '';
-  for (const x of paths) {
-    let i = 0;
-    while (i < x.length && i < prev.length && x[i] === prev[i]) i++;
-    raw += x.length;
-    prefixes += x.length - i;
-    prev = x;
-  }
-  return { paths: paths.length, raw, prefixes };
-}
-/* #5663 review 1: a refresh does not always have the launch inputs (the board's own start has no pane PATH), so "not a
-   launch rule now" alone would let one caller prune what another wrote. A recorded entry is pruned only by a refresh
-   that has them (an agent's launch), and only when it is not current AND neither its path nor its parent folder exists
-   any more (an upgraded tool's removed version folder); a path that cannot be read is kept. Review 2: a folder only
-   gone for now (an unmounted volume) is on the launching PATH if the agent runs from it, so it is current and kept. */
-function launchPathGone(p) {
-  if (typeof p !== 'string' || !p.startsWith('/')) return false;
-  const exists = (x) => { try { fs.lstatSync(x); return true; } catch (e) { return !(e && e.code === 'ENOENT'); } };
-  return !exists(p) && !exists(path.dirname(p));
-}
 'use strict';
 
 /*
@@ -1117,24 +1071,52 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs,
   // Review 21: whether a file's folder is or holds a shared one, for the pattern-name fallback above.
   return { cands: kept, unsafe, files: files.map((f) => Object.assign({}, f, RULE_SYNTAX.test(path.basename(f.real)) ? { folderShared: holds(path.dirname(f.real)) } : {}, f.prog ? { inTemp: inTemp(path.dirname(f.real)) } : {})) };
 }
-/*
- * #4491: the deny rules and sandbox filesystem paths for a TOKEN-ONLY agent (one listed in
- * sendertoken.tokenOnlyFile). Unlike the guide, a token-only agent is a normal working agent, so its
- * own data folder is NOT denied -- only:
- *  - board.token (Read), and its temp copy, in EVERY root tokenOnlyTokenRoots returns, so the shell
- *    cannot read the board token slice 9 (#4864) already stops it SENDING; this stops it READING;
- *  - the settings.json / settings.local.json it could plant to turn its own guard off (Edit): in its
- *    own folder, and in the per-account config homes the adversarial pass found -- ~/.claude AND the
- *    ~/.claude-* variants (CLAUDE_CONFIG_DIR, e.g. ~/.claude-account-f), which user settings can relax
- *    the sandbox from where the agent-folder's cannot. Every ~/.claude-* account home that EXISTS is
- *    enumerated and gets CONCRETE settings-file denies in BOTH layers (so a non-default-account agent's
- *    real config home is covered by a measured file-write deny, not only the glob). A trailing
- *    ~/.claude-* glob stays in the permission layer for a home created later. What is NOT measured is
- *    whether Seatbelt translates a permission Edit-GLOB to a subprocess write (the guide's measurement
- *    only proved a Read-glob -> subprocess read); that is why existing homes are made concrete, and the
- *    glob-only future-home case is the reasoned residual the plan records.
- * dataRoot/home are overridable for tests (guideDenyRulesFor does the same); production passes neither.
- */
+/* #5663: the launch-rule record, and the sandbox layer's ceiling. */
+const LAUNCH_RECORD_FILE = 'kosmos-launch-rules.json';
+/* MEASURED (claude -p with a sandbox on, 2026-10-09): Claude Code puts the Edit and Read deny rules into the sandbox profile
+   too, not only sandbox.filesystem (a shell write to an Edit-denied file was refused), and two limits then stop EVERY
+   sandboxed command:
+   - sandbox-exec refuses a profile past 65,535 bytes of compiled data. The compiled size follows the paths' distinct
+     prefixes (paths sharing a long prefix cost little), not their raw bytes: every set that ran had at most 34,216
+     distinct prefix characters (4,312 paths built from this machine's PATH had 33,636), every set that failed had at
+     least 51,816 (which compiled to 65,766 bytes).
+   - the profile is passed on a command line: 248,670 raw path bytes failed with E2BIG, 223,734 ran.
+   The ceilings below sit under both with a margin; past either, the guard may still run, but Kosmos can no longer say
+   it will. */
+const SANDBOX_DENY_PREFIX_MAX = 40 * 1024;
+const SANDBOX_DENY_RAW_MAX = 160 * 1024;
+// A rule's path, for the rule shapes this guard writes (a path with a pattern character is never written, #4491 review 14).
+function ruleTarget(r) {
+  const m = /^(?:Edit|Read)\(\/\/(.*?)(?:\/\*\*)?\)$/.exec(String(r));
+  return m ? '/' + m[1] : null;
+}
+/* The paths that reach the profile (both sandbox lists, and the targets of the Edit and Read deny rules), each counted
+   once: their raw length, and their distinct prefixes (sorted, each path adds what it does not share with the one
+   before it). */
+function sandboxDenySize(fsb, deny) {
+  const paths = [...new Set([...((fsb && fsb.denyRead) || []), ...((fsb && fsb.denyWrite) || []), ...(deny || []).map(ruleTarget).filter(Boolean)].map(String))].sort();
+  let raw = 0;
+  let prefixes = 0;
+  let prev = '';
+  for (const x of paths) {
+    let i = 0;
+    while (i < x.length && i < prev.length && x[i] === prev[i]) i++;
+    raw += x.length;
+    prefixes += x.length - i;
+    prev = x;
+  }
+  return { paths: paths.length, raw, prefixes };
+}
+/* #5663 review 1: a refresh does not always have the launch inputs (the board's own start has no pane PATH), so "not a
+   launch rule now" alone would let one caller prune what another wrote. A recorded entry is pruned only by a refresh
+   that has them (an agent's launch), and only when it is not current AND its path no longer exists (an upgraded tool's
+   removed version folder, or a removed version file in a folder that stays); a path that cannot be read is kept.
+   Review 2: a folder only gone for now (an unmounted volume) is on the launching PATH if the agent runs from it, so it
+   is current and kept. */
+function launchPathGone(p) {
+  if (typeof p !== 'string' || !p.startsWith('/')) return false;
+  try { fs.lstatSync(p); return false; } catch (e) { return !!(e && e.code === 'ENOENT'); }
+}
 function readLaunchRecord(file) {
   const none = { deny: [], denyWrite: [] };
   try {
@@ -1156,6 +1138,24 @@ function writeLaunchRecord(file, rec) {
   } catch { return false; }
 }
 
+/*
+ * #4491: the deny rules and sandbox filesystem paths for a TOKEN-ONLY agent (one listed in
+ * sendertoken.tokenOnlyFile). Unlike the guide, a token-only agent is a normal working agent, so its
+ * own data folder is NOT denied -- only:
+ *  - board.token (Read), and its temp copy, in EVERY root tokenOnlyTokenRoots returns, so the shell
+ *    cannot read the board token slice 9 (#4864) already stops it SENDING; this stops it READING;
+ *  - the settings.json / settings.local.json it could plant to turn its own guard off (Edit): in its
+ *    own folder, and in the per-account config homes the adversarial pass found -- ~/.claude AND the
+ *    ~/.claude-* variants (CLAUDE_CONFIG_DIR, e.g. ~/.claude-account-f), which user settings can relax
+ *    the sandbox from where the agent-folder's cannot. Every ~/.claude-* account home that EXISTS is
+ *    enumerated and gets CONCRETE settings-file denies in BOTH layers (so a non-default-account agent's
+ *    real config home is covered by a measured file-write deny, not only the glob). A trailing
+ *    ~/.claude-* glob stays in the permission layer for a home created later. What is NOT measured is
+ *    whether Seatbelt translates a permission Edit-GLOB to a subprocess write (the guide's measurement
+ *    only proved a Read-glob -> subprocess read); that is why existing homes are made concrete, and the
+ *    glob-only future-home case is the reasoned residual the plan records.
+ * dataRoot/home are overridable for tests (guideDenyRulesFor does the same); production passes neither.
+ */
 function tokenOnlySettingsRules(dir, deps = {}) {
   const home = deps.home || kosmosHome();
   const dataRoot = deps.dataRoot || store.ROOT;
@@ -1261,6 +1261,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const launchRecord = path.join(settingsDir, LAUNCH_RECORD_FILE);
   const recordRule = `Edit(${ruleAbs(launchRecord)})`;
   if (!ruleHasPatternChar(recordRule)) safeDeny.push(recordRule);
+  else process.stderr.write(`#5663: ${launchRecord} has a character the permission rules cannot carry; the file tools are not denied it\n`);
   return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites, undoDirs, tokenDirs, undoSwitches, launchDirs: launch.dirs, launchFiles: launch.files || [], launchUnsafe, launchRules, launchRecord, launchKnown: !!launch.paneKnown };
 }
 
@@ -1337,9 +1338,10 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
        every other rule merges as before, the person's own and the rest of the guard included. */
     const prev = readLaunchRecord(rules.launchRecord);
     const launchDenyNow = new Set(rules.launchRules || []);
-    const launchWritesNow = [...(rules.launchDirs || []), ...(rules.launchFiles || [])];
+    const launchWritesNow = [...new Set([...(rules.launchDirs || []), ...(rules.launchFiles || [])])];
+    const launchWritesNowSet = new Set(launchWritesNow);
     const stale = new Set(rules.launchKnown ? prev.deny.filter((r) => !launchDenyNow.has(r) && launchPathGone(ruleTarget(r))) : []);
-    const staleWrites = new Set(rules.launchKnown ? prev.denyWrite.filter((x) => !launchWritesNow.includes(x) && launchPathGone(x)) : []);
+    const staleWrites = new Set(rules.launchKnown ? prev.denyWrite.filter((x) => !launchWritesNowSet.has(x) && launchPathGone(x)) : []);
     /* The record is a union: what was recorded and not pruned, and what is current. It is read and written without a
        lock, so two refreshes at once can lose an entry; that entry is then never pruned (kept, not dropped). */
     const recDeny = [...new Set([...prev.deny.filter((r) => !stale.has(r)), ...launchDenyNow])];
@@ -1401,13 +1403,11 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     // #5663: what this refresh wrote for launch coverage, for the next refresh to replace. A record that cannot be
     // written leaves this refresh's rules in place (nothing is lost; the next refresh only cannot prune them): said.
     if (!writeLaunchRecord(rules.launchRecord, { deny: recDeny, denyWrite: recWrites })) process.stderr.write(`#5663: ${rules.launchRecord} could not be written; old launch rules will not be pruned until it can\n`);
-    // #5663: the sandbox profile has a size limit (measured: past 64 KB of data every sandboxed command fails), so a
-    // guard whose shell layer passes the ceiling says it is not whole rather than leaving the agent unable to run.
-
     // #5516 review 1: the guard is written in full first; a PATH entry it could not cover only makes it NOT WHOLE (said),
     // never a reason to write nothing.
     const notWhole = [];
     if (rules.launchUnsafe && rules.launchUnsafe.length) notWhole.push('the PATH this agent starts with has an entry Kosmos could not cover (' + rules.launchUnsafe.join(', ') + '); the rest of the guard is in place');
+    // #5663: the sandbox profile has size limits (SANDBOX_DENY_PREFIX_MAX); past them the guard says it is not whole.
     const sz = (deps.platform || process.platform) === 'darwin' ? sandboxDenySize(next.sandbox.filesystem, next.permissions.deny) : null;
     if (sz && (sz.prefixes > SANDBOX_DENY_PREFIX_MAX || sz.raw > SANDBOX_DENY_RAW_MAX)) notWhole.push(`its ${sz.paths} denied paths (${sz.prefixes} distinct characters, ${sz.raw} in all) are past what Kosmos can say the sandbox will take (${SANDBOX_DENY_PREFIX_MAX} and ${SANDBOX_DENY_RAW_MAX}); the guard is written but may stop the agent's shell`);
     if (notWhole.length) return { ok: false, because: notWhole.join('; and ') };
