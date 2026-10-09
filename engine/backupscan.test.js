@@ -60,7 +60,8 @@ test('#5686 review 3: a writer\'s temp copy of a denied file is denied with it, 
     // review 9: a staging tail whose random hex is letters only; undo's copies under a hash or a hash prefix
     'Kosmos/remote/signin-device.key.new-4711-abcdef', 'x/tls.key.new-12-fe', 'Kosmos/undo/blobs/' + 'a1'.repeat(32),
     'Kosmos/undo-saved/20261009T1200/0123456789abcdef-id_rsa', 'Kosmos/undo-saved/s/0123456789abcdef-.npmrc',
-    'worlds/w1/Kosmos/undo/blobs/' + 'b2'.repeat(32)]) {
+    'worlds/w1/Kosmos/undo/blobs/' + 'b2'.repeat(32), 'Kosmos/undo copy/blobs/' + 'c3'.repeat(32), 'Kosmos/undo.old/blobs/x',
+    'agents/a/.kosmos-undo-0a1b2c3d']) {
     assert.equal(bs.pathDecision(p).include, false, `${p} must be skipped`);
   }
   for (const p of ['agents/a/notes.md.tmp', 'projects/site/draft.tmp', 'agents/a/secrets-plan.md', 'Kosmos/remote/.mac_id.tmp',
@@ -70,7 +71,7 @@ test('#5686 review 3: a writer\'s temp copy of a denied file is denied with it, 
     'notes/secrets.new-approach.md', 'notes/plan.v1.2.md', 'agents/a/.env.example', 'notes/secrets.tmp-abcxyz.md',
     'notes/keyboard.tokens.csv', 'notes/billboard.token-ideas.md', 'projects/site/remote/api.keys.md',
     'projects/site/remote/talk.keynote', 'projects/site/remote/imac_keyboard.md', 'projects/site/communitysend-notes.md',
-    'projects/site/undo/notes.md', 'notes/undo-saved-ideas.md', 'projects/site/remote/notes.md.bak', 'w/' + '\u{1F600}'.repeat(130) + '.tmp']) {
+    'projects/site/undo/notes.md', 'notes/undo-saved-ideas.md', 'projects/site/undo/blobs.md', 'projects/site/remote/notes.md.bak', 'w/' + '\u{1F600}'.repeat(130) + '.tmp']) {
     assert.equal(bs.pathDecision(p).include, true, `CONTROL: ${p} is a temp of ordinary work, or not a temp, and is kept`);
   }
 });
@@ -90,7 +91,7 @@ test('#5686 review 7: a hostile copy-shaped name cannot backtrack exponentially 
   }
   const ms2 = Number(process.hrtime.bigint() - t2) / 1e6;
   assert.ok(ms2 < 1000, `long single segments took ${ms2} ms (uncapped token patterns took 2 to 17 s each)`);
-  assert.equal(bs.pathDecision('w/' + 'a'.repeat(1017) + '.md').include, true, 'CONTROL: a 1020-character name, the most a filesystem allows, is judged, not refused');
+  assert.equal(bs.pathDecision('w/' + 'a'.repeat(1017) + '.md').include, true, 'CONTROL: a 1020-character name, at the loose cap, is judged, not refused');
   assert.equal(bs.pathDecision('w/' + 'a'.repeat(1018) + '.md').include, false, 'one character over is refused');
 });
 

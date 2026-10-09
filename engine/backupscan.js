@@ -75,7 +75,9 @@ const KOSMOS_STORES = [
   // engine/undo.js keeps a copy of every file an agent edits, under a hash (undo/blobs/<sha256>) or behind a hash prefix
   // (undo-saved/<stamp>/<sha16>-<name>), so no name rule can see a key or .env inside. The files themselves are backed
   // up at their own paths; the cost is that a version the person undid is not in the backup.
-  [/(^|\/)undo\/blobs\//i, 'Kosmos undo copies (the files are backed up at their own paths)'],
+  [new RegExp(`(^|\\/)${TOKEN('undo')}\\/blobs\\/`, 'i'), 'Kosmos undo copies (the files are backed up at their own paths)'],
+  // undo's in-place temp beside the file it restores (engine/undo.js), which briefly holds the old version.
+  [STORE_NAME('\\.kosmos-undo-[0-9a-z]+'), 'Kosmos undo copies (the files are backed up at their own paths)'],
   [STORE_FOLDER('undo-saved'), 'Kosmos undo copies (the files are backed up at their own paths)'],
 ];
 
@@ -107,8 +109,9 @@ function pathDecision(rel) {
   if (typeof rel !== 'string' || !rel || rel.includes('\0')) return { include: false, why: 'unusable path' };
   const p = rel.split(path.sep).join('/');
   if (p.startsWith('/') || p.split('/').includes('..')) return { include: false, why: 'path outside the work Kosmos' };
-  // No filesystem allows a name this long (255 bytes, so at most 1020 UTF-16 units). Refused before any pattern runs, so
-  // a hostile segment cannot make the token patterns below take quadratic time.
+  // A deliberately loose cap, far above any real file name (filesystems stop at 255 characters or bytes), so it never
+  // refuses a legal name in any script. Refused before any pattern runs, so a hostile segment cannot make the token
+  // patterns below take more than bounded time.
   if (p.split('/').some((seg) => seg.length > MAX_SEGMENT)) return { include: false, why: 'a name too long to check' };
   // Kosmos's own stores are judged BEFORE the template exemption (the generic secrets/ folder rule, older, is still
   // judged after it, so secrets/github.token.example is kept): `mac_key.example` or `board.token.sample` is a copy
