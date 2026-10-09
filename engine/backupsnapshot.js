@@ -318,7 +318,9 @@ function rootsOf(input) {
     if (!r || typeof r.name !== 'string') return 'each root needs a name';
     const bad = rootNameProblem(r.name);
     if (bad) return bad;
-    if (typeof r.path !== 'string' || !path.isAbsolute(r.path)) return `the root ${r.name} must be an absolute path`;
+    // refused: a root its caller could not take safely (engine/backupsessions.js), recorded in skipped with that reason.
+    if (r.refused !== undefined && (typeof r.refused !== 'string' || !r.refused || r.optional !== true)) return `the root ${r.name} can be refused only as an optional root, with a reason`;
+    if (r.refused === undefined && (typeof r.path !== 'string' || !path.isAbsolute(r.path))) return `the root ${r.name} must be an absolute path`;
     // One name inside another (`sessions` and `sessions/claude`) would let two roots write the same restored path.
     if (names.some((n) => n === r.name || n.startsWith(r.name + '/') || r.name.startsWith(n + '/'))) return `the root name ${r.name} repeats or contains another root's name`;
     if (r.only !== undefined && (!Array.isArray(r.only) || r.only.some((x) => typeof x !== 'string' || !x))) return `the root ${r.name}'s only must be a list of paths inside it`;
@@ -329,7 +331,7 @@ function rootsOf(input) {
   // So the files (and the manifest) come out in one order, sorted by stored path, whatever order the caller lists them in.
   // Sorted by name + '/', which is the order of the stored paths they start (by name alone, `data-old` would follow
   // `data`, while `data-old/x` sorts before `data/x`).
-  return input.roots.map((r) => ({ name: r.name, path: r.path, exclude: r.exclude, optional: r.optional === true, only: r.only === undefined ? undefined : [...new Set(r.only)] })).sort((x, y) => { const a = x.name + '/', b = y.name + '/'; return a < b ? -1 : a > b ? 1 : 0; });
+  return input.roots.map((r) => ({ name: r.name, path: r.path, exclude: r.exclude, optional: r.optional === true, refused: r.refused, only: r.only === undefined ? undefined : [...new Set(r.only)] })).sort((x, y) => { const a = x.name + '/', b = y.name + '/'; return a < b ? -1 : a > b ? 1 : 0; });
 }
 
 /* The last folders of a named root's real path, as a prefix ('Users/me/.claude/'): enough for every deny rule anchored
@@ -346,34 +348,44 @@ function nearOf(real) {
    path is prefixed with the root's name. A root inside another (by folder identity) is refused: its files would be stored
    twice. The file and skipped limits count every root together. Returns the merged listing, or why not (a sentence). */
 async function listRoots(roots, fs) {
-  const reals = [], ids = [], gone = [];
-  const kept = [];
+  const gone = [];
+  // An optional root (a provider's session folder, which the provider can remove, move or misplace at any time) is
+  // recorded in skipped and left out whenever it cannot be taken safely; a required root that cannot fails the snapshot,
+  // so a world's data is never silently absent. leave() decides which, for one root and a reason.
+  const leave = (r, why) => { if (r.optional) { gone.push({ path: r.name, why }); return null; } return r.name ? `the root ${r.name} ${why}` : `the work Kosmos folder ${why}`; };
+  let entries = [];
   for (const r of roots) {
-    if (r.only && r.only.length > MAX_FILES) { gone.push({ path: r.name, why: `more than ${MAX_FILES} files named, more than one snapshot can list` }); continue; }
-    try {
-      const real = fs.realpathSync(r.path), st = fs.statSync(real, { bigint: true });
-      if (!st.isDirectory()) throw new Error('not a folder');
-      reals.push(real); ids.push(`${st.dev}:${st.ino}`); kept.push(r);
-    } catch {
-      // An optional root (a provider's session folder, which the provider can remove at any time) is recorded and left
-      // out; any other root missing fails the snapshot, so a world's data is never silently absent.
-      if (r.optional) { gone.push({ path: r.name, why: 'a folder that could not be read' }); continue; }
-      return r.name ? `the root ${r.name} could not be read` : 'the work Kosmos folder could not be read';
-    }
+    if (typeof r.refused === 'string') { const f = leave(r, r.refused); if (f) return f; continue; }
+    if (r.only && r.only.length > MAX_FILES) { const f = leave(r, `names more than ${MAX_FILES} files, more than one snapshot can list`); if (f) return f; continue; }
+    let real, st;
+    try { real = fs.realpathSync(r.path); st = fs.statSync(real, { bigint: true }); } catch { real = null; }
+    if (!real || !st.isDirectory()) { const f = leave(r, 'could not be read'); if (f) return f; continue; }
+    // A root chosen file by file (`only`) was checked by its caller at its real path: if that path is not its real
+    // path any more (a folder below it became a link), what was checked is not what would be walked.
+    if (r.only && real !== path.resolve(r.path)) { const f = leave(r, 'changed after it was chosen (its path is no longer its real path)'); if (f) return f; continue; }
+    entries.push({ r, real, id: `${st.dev}:${st.ino}` });
   }
-  roots = kept;
-  // A root inside another is found by the folders' identity, not their spelling: a real path keeps the case it was
-  // given (on a case-insensitive volume /USERS/x and /Users/x are one folder) and a firmlink gives one folder two paths.
-  // So every folder from each root up to the volume's top is compared, by device and inode, with every other root.
-  for (let i = 0; i < reals.length; i++) {
-    let at = reals[i];
+  // A root inside another is found by the folders' identity, not their spelling: a real path keeps the case it was given
+  // (on a case-insensitive volume /USERS/x and /Users/x are one folder). So every folder from each root up to the
+  // volume's top is compared, by device and inode, with every other root. The same folder is allowed for roots that
+  // each keep only named files (every agent's Codex rollouts share one sessions folder): each takes only its own.
+  // A conflict leaves out every optional root in it; between required roots only, it fails the snapshot.
+  const conflict = (x, y, why) => {
+    if (!x.r.optional && !y.r.optional) return `the root ${x.r.name} ${why} the root ${y.r.name}`;
+    for (const e of [x, y]) if (e.r.optional && !e.out) { e.out = true; gone.push({ path: e.r.name, why: `${why} the root ${(e === x ? y : x).r.name}` }); }
+    return null;
+  };
+  for (const e of entries) {
+    let at = e.real;
     for (;;) {
       let id;
       try { const st = fs.statSync(at, { bigint: true }); id = `${st.dev}:${st.ino}`; } catch { id = null; }
-      // The same folder is allowed for roots that each keep only named files (every agent's Codex rollouts share one
-      // sessions folder; two agents' Claude folders can be one): each takes only its own. A root inside another is not.
-      const j = ids.findIndex((x, k) => k !== i && x === id && !(at === reals[i] && reals[k] === reals[i] && roots[i].only && roots[k].only));
-      if (j >= 0) return `the root ${roots[i].name} is inside the root ${roots[j].name}, or is the same folder, so its files would be stored twice`;
+      for (const o of entries) {
+        if (o === e || o.id !== id || o.out || e.out) continue;
+        if (at === e.real && o.real === e.real && e.r.only && o.r.only) continue;
+        const f = conflict(e, o, at === e.real ? 'is the same folder as' : 'is inside');
+        if (f) return `${f}, so its files would be stored twice`;
+      }
       const up = path.dirname(at);
       if (up === at) break;
       at = up;
@@ -381,13 +393,18 @@ async function listRoots(roots, fs) {
   }
   // Roots sharing one folder must not name the same file: it would be stored twice, under two agents.
   const claimed = new Map();
-  for (let i = 0; i < reals.length; i++) {
-    for (const rel of roots[i].only || []) {
-      const key = `${ids[i]}\0${rel}`;
-      if (claimed.has(key)) return `the roots ${claimed.get(key)} and ${roots[i].name} both name one file in the same folder`;
-      claimed.set(key, roots[i].name);
+  for (const e of entries) {
+    if (e.out) continue;
+    for (const rel of e.r.only || []) {
+      const key = `${e.id}\0${rel}`;
+      const prev = claimed.get(key);
+      if (prev && !prev.out && !e.out) { const f = conflict(prev, e, 'names a file also named by'); if (f) return f; }
+      if (!prev) claimed.set(key, e);
     }
   }
+  entries = entries.filter((e) => !e.out);
+  roots = entries.map((e) => e.r);
+  const reals = entries.map((e) => e.real);
   const out = { files: [], skipped: gone.slice(0, MAX_SKIPPED), skippedExtra: Math.max(0, gone.length - MAX_SKIPPED), over: false };
   const pre = (name, p) => (!name ? p : p === '.' ? name : `${name}/${p}`);
   for (let i = 0; i < roots.length && !out.over; i++) {

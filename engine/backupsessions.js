@@ -22,6 +22,7 @@
  * A transcript Claude Code wrote under a shortened name (a very long folder) is not found, as status.js does not find it.
  *
  * sessionsFor(agentDir, { id, claudeRoots, geminiHome, codexHome }) -> [{ name, path, optional: true, only? }]
+ *   (or { name, refused, optional: true } where a session folder is a link: the snapshot records it as skipped)
  *   id     the agent's stored name, one plain segment of lowercase letters, digits and hyphens (any other id gives
  *          nothing: the caller derives it); every name built from it must pass the snapshot's rootNameProblem, or nothing is
  *          returned (an id such as `aux` or `secrets` would otherwise fail the whole world's snapshot)
@@ -46,14 +47,23 @@ const idOf = (p) => { try { const st = fs.statSync(p, { bigint: true }); return 
 // may be a link (a config folder kept elsewhere). No part is a link, so this names the real folder (in the case the
 // parts were given in, on a case-insensitive volume). Else null.
 function exactFolder(base, ...rest) {
+  const r = folderCheck(base, ...rest);
+  return r.real || null;
+}
+
+/* { real } for `<base>/<rest...>` with no link below base; { link: true } when a part below base exists and is a link
+   (refused, and said so); {} when it is not there. */
+function folderCheck(base, ...rest) {
   try {
     let at = fs.realpathSync(base);
     for (const part of rest) {
       at = path.join(at, part);
-      if (fs.lstatSync(at).isSymbolicLink()) return null;
+      let st;
+      try { st = fs.lstatSync(at); } catch { return {}; }
+      if (st.isSymbolicLink()) return { link: true };
     }
-    return isDir(at) ? at : null;   // no part below base is a link, so `at` is the real path
-  } catch { return null; }
+    return isDir(at) ? { real: at } : {};
+  } catch { return {}; }
 }
 
 // Every regular file (no links) under dir whose name passes keep, as '/'-separated paths relative to dir. Bounded.
@@ -80,18 +90,23 @@ function belongsTo(agentDir) {
 
 function claudeRoots(agentDir, claudeRootsIn, id, belongs) {
   const canon = trust.canonicalOnDisk(agentDir);
-  const spellings = [['', flatten(canon)], ['-raw', flatten(agentDir)]];
+  const spellings = [['', flatten(canon)]];
+  if (flatten(agentDir) !== flatten(canon)) spellings.push(['-raw', flatten(agentDir)]);
   const out = [], seen = new Set();
   (Array.isArray(claudeRootsIn) ? claudeRootsIn : []).forEach((root, i) => {
     if (typeof root !== 'string' || !path.isAbsolute(root)) return;
     for (const [tag, flat] of spellings) {
-      const real = exactFolder(root, 'projects', flat);
+      // The name comes from WHICH root and WHICH spelling, never from how many were found.
+      const name = `sessions/${id}/claude${i ? `-${i + 1}` : ''}${tag}`;
+      const c = folderCheck(root, 'projects', flat);
+      // A link where the board would read sessions (status.js follows it): refused, and said so in the snapshot.
+      if (c.link) { if (!out.some((x) => x.name === name)) out.push({ name, refused: 'a session folder that is a link (not followed)', optional: true }); continue; }
+      const real = c.real;
       const fid = real ? idOf(real) : null;
       if (!fid || seen.has(fid)) continue;
       seen.add(fid);
       const only = claudeOwned(real, belongs);
-      // The name comes from WHICH root and WHICH spelling, never from how many were found.
-      if (only.length) out.push({ name: `sessions/${id}/claude${i ? `-${i + 1}` : ''}${tag}`, path: real, optional: true, only });
+      if (only.length) out.push({ name, path: real, optional: true, only });
     }
   });
   return out;
@@ -132,9 +147,12 @@ function geminiRoot(agentDir, geminiHome, id) {
     if (trust.canonicalOnDisk(cwd) !== want) continue;
     // The slug becomes a folder name under tmp/: one plain segment only, never a path out of it.
     if (typeof slug !== 'string' || !slug || slug === '.' || slug === '..' || /[\\/\0]/.test(slug)) return null;
-    const real = exactFolder(geminiHome, 'tmp', slug, 'chats');
+    const c = folderCheck(geminiHome, 'tmp', slug, 'chats');
+    if (c.link) return { name: `sessions/${id}/gemini`, refused: 'a session folder that is a link (not followed)', optional: true };
+    const real = c.real;
     if (!real) return null;
-    // The session files forWorkdir reads, named: two folders mapped to one slug can then share the folder.
+    // The session files forWorkdir reads, named. Two agent folders mapped to one slug would both name them: the snapshot
+    // then leaves both out and records why, since it cannot tell whose they are.
     const only = filesUnder(real, (n) => /^session-.*\.jsonl$/.test(n), 0);
     return only.length ? { name: `sessions/${id}/gemini`, path: real, optional: true, only } : null;
   }
@@ -143,7 +161,9 @@ function geminiRoot(agentDir, geminiHome, id) {
 
 function codexRoot(agentDir, codexHome, id, belongs) {
   if (typeof codexHome !== 'string' || !path.isAbsolute(codexHome)) return null;
-  const real = exactFolder(codexHome, 'sessions');
+  const c = folderCheck(codexHome, 'sessions');
+  if (c.link) return { name: `sessions/${id}/codex`, refused: 'a session folder that is a link (not followed)', optional: true };
+  const real = c.real;
   if (!real) return null;
   const only = filesUnder(real, (n) => /^rollout-.*\.jsonl$/.test(n), 3).filter((rel) => {
     const meta = codexsession.metaOf(path.join(real, rel));

@@ -104,8 +104,10 @@ test('#5686: on a case-insensitive volume, the agent folder spelled in another c
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
-test('#5686: a session folder that is a link, or sits under one below the provider\'s folder, is not returned', () => {
+test('#5686: a session folder that is a link, or sits under one below the provider\'s folder, is refused and said so', () => {
   const w = world();
+  // Review 12: refused roots carry a reason and no path, so the snapshot records them instead of nothing appearing.
+  const refused = (roots) => roots.map((r) => [r.name, !!r.refused && r.path === undefined]);
   try {
     const flat = path.join(w.claude, 'projects', bs.flatten(w.agent));
     fs.rmSync(flat, { recursive: true }); fs.symlinkSync(w.base, flat);
@@ -115,15 +117,16 @@ test('#5686: a session folder that is a link, or sits under one below the provid
     const realTmp = path.join(w.base, 'elsewhere-tmp');
     fs.renameSync(path.join(w.gemini, 'tmp'), realTmp); fs.symlinkSync(realTmp, path.join(w.gemini, 'tmp'));
     fs.rmSync(path.join(realTmp, 'mikey-slug', 'chats'), { recursive: true, force: true }); fs.mkdirSync(path.join(realTmp, 'mikey-slug', 'chats'));
-    assert.deepEqual(bs.sessionsFor(w.agent, { id: 'mikey', geminiHome: w.gemini }), [], 'a linked tmp/ is refused');
+    assert.deepEqual(refused(bs.sessionsFor(w.agent, { id: 'mikey', geminiHome: w.gemini })), [['sessions/mikey/gemini', true]], 'a linked tmp/ is refused');
     const codexSessions = path.join(w.codex, 'sessions');
     fs.renameSync(codexSessions, codexSessions + '-real'); fs.symlinkSync(codexSessions + '-real', codexSessions);
-    assert.deepEqual(bs.sessionsFor(w.agent, { id: 'mikey', claudeRoots: [w.claude], geminiHome: w.gemini, codexHome: w.codex }), []);
+    assert.deepEqual(refused(bs.sessionsFor(w.agent, { id: 'mikey', claudeRoots: [w.claude], geminiHome: w.gemini, codexHome: w.codex })),
+      [['sessions/mikey/claude', true], ['sessions/mikey/gemini', true], ['sessions/mikey/codex', true]]);
     // A link to another agent's folder, or to all of projects/, inside the provider's folder: refused too.
     fs.rmSync(flat); fs.symlinkSync(path.join(w.claude, 'projects', bs.flatten(w.other)), flat);
-    assert.deepEqual(bs.sessionsFor(w.agent, { id: 'mikey', claudeRoots: [w.claude] }), []);
+    assert.deepEqual(refused(bs.sessionsFor(w.agent, { id: 'mikey', claudeRoots: [w.claude] })), [['sessions/mikey/claude', true]]);
     fs.rmSync(flat); fs.symlinkSync(path.join(w.claude, 'projects'), flat);
-    assert.deepEqual(bs.sessionsFor(w.agent, { id: 'mikey', claudeRoots: [w.claude] }), []);
+    assert.deepEqual(refused(bs.sessionsFor(w.agent, { id: 'mikey', claudeRoots: [w.claude] })), [['sessions/mikey/claude', true]]);
     // CONTROL: the config folder itself kept elsewhere behind a link is fine; the real path is returned.
     fs.rmSync(flat); w.w(path.join(flat, 's1.jsonl'), transcript(w.agent));
     const linkedRoot = path.join(w.base, 'claude-link');

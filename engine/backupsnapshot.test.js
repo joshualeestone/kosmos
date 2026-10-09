@@ -1460,7 +1460,7 @@ test('#5686 review 10: two agents\' sessions in one shared folder (Codex) are ea
     assert.deepEqual([...sink.committed.keys()].sort(), ['sessions/a/codex/2026/10/09/rollout-1.jsonl', 'sessions/b/codex/2026/10/09/rollout-2.jsonl']);
     // Two roots on one folder naming the same file: refused (it would be stored twice).
     const both = await takeRoots(k, [{ name: 'x', path: roots[0].path, only: ['2026/10/09/rollout-1.jsonl'] }, { name: 'y', path: roots[0].path, only: ['2026/10/09/rollout-1.jsonl'] }], store());
-    assert.match(both.because, /both name one file/);
+    assert.match(both.because, /names a file also named by/);
     // And one folder without only beside one with: still refused as the same folder.
     const bare = await takeRoots(k, [{ name: 'x', path: roots[0].path }, { name: 'y', path: roots[0].path, only: ['2026/10/09/rollout-1.jsonl'] }], store());
     assert.match(bare.because, /same folder/);
@@ -1475,6 +1475,41 @@ test('#5686 review 10: two agents\' sessions in one shared folder (Codex) are ea
     assert.ok(bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st3.manifests[0].bytes).skipped.some((x) => x.path === 'x' && /more than/.test(x.why)));
     const fatal = await takeRoots(k, [{ name: 'x', path: roots[0].path, only: many }], store());
     assert.match(fatal.because, /more than/);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('#5686 review 12: an optional root that conflicts (one file named twice, nested, changed, refused) is left out and recorded', async () => {
+  const w = threeRoots(), k = keys();
+  try {
+    const shared = path.join(w.base, 'shared');
+    fs.mkdirSync(shared); fs.writeFileSync(path.join(shared, 'session-1.jsonl'), 'x\n');
+    const nested = path.join(w.roots.workers, 'a');   // inside the required workers root
+    const linkAt = path.join(w.base, 'via-link');
+    fs.symlinkSync(shared, linkAt);                  // its real path is not the path given
+    const st = store();
+    const r = await takeRoots(k, [
+      { name: 'data', path: w.roots.data },
+      { name: 'workers', path: w.roots.workers },
+      { name: 'sessions/a/gemini', path: shared, only: ['session-1.jsonl'], optional: true },
+      { name: 'sessions/b/gemini', path: shared, only: ['session-1.jsonl'], optional: true },
+      { name: 'sessions/c/claude', path: nested, only: ['notes.md'], optional: true },
+      { name: 'sessions/d/codex', path: linkAt, only: ['session-1.jsonl'], optional: true },
+      { name: 'sessions/e/claude', refused: 'a session folder that is a link', optional: true },
+    ], st);
+    assert.equal(r.ok, true, r.because);
+    const { opened, sink } = await restoreFrom(k, st, st.manifests[0].bytes);
+    assert.ok(![...sink.committed.keys()].some((p) => p.startsWith('sessions/')), 'none of the conflicting session roots stored');
+    assert.ok(sink.committed.has('workers/a/notes.md'), 'the required root is untouched');
+    const why = Object.fromEntries(opened.skipped.map((x) => [x.path, x.why]));
+    assert.match(why['sessions/a/gemini'], /names a file also named by/);
+    assert.match(why['sessions/b/gemini'], /names a file also named by/);
+    assert.match(why['sessions/c/claude'], /inside the root workers/);
+    assert.match(why['sessions/d/codex'], /changed after it was chosen/);
+    assert.equal(why['sessions/e/claude'], 'a session folder that is a link');
+    // CONTROL: the same conflicts between REQUIRED roots fail the snapshot.
+    const req = await takeRoots(k, [{ name: 'workers', path: w.roots.workers }, { name: 'sessions/c/claude', path: nested, only: ['notes.md'] }], store());
+    assert.equal(req.ok, false);
+    assert.match(req.because, /inside/);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
