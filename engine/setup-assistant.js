@@ -1089,6 +1089,37 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs,
  *    glob-only future-home case is the reasoned residual the plan records.
  * dataRoot/home are overridable for tests (guideDenyRulesFor does the same); production passes neither.
  */
+/* #5663: the launch-rule record, and the sandbox layer's ceiling. */
+const LAUNCH_RECORD_FILE = 'kosmos-launch-rules.json';
+/* MEASURED (sandbox-exec on macOS): a profile past 65,535 bytes of data is refused and every command fails; 500 deny
+   paths already added about 38 ms per command. The rules Claude Code builds from denyRead and denyWrite are counted
+   here as each path plus 40 bytes of rule text, and kept well under the limit. */
+const SANDBOX_DENY_BYTES_MAX = 48 * 1024;
+function sandboxDenyBytes(fsb) {
+  const all = [...((fsb && fsb.denyRead) || []), ...((fsb && fsb.denyWrite) || [])];
+  return all.reduce((n, x) => n + Buffer.byteLength(String(x)) + 40, 0);
+}
+function readLaunchRecord(file) {
+  const none = { deny: [], denyWrite: [] };
+  try {
+    const j = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const strings = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
+    return { deny: strings(j && j.deny), denyWrite: strings(j && j.denyWrite) };
+  } catch { return none; }
+}
+function writeLaunchRecord(file, rec) {
+  try {
+    const text = JSON.stringify(rec, null, 2) + '\n';
+    let old = null;
+    try { old = fs.readFileSync(file, 'utf8'); } catch { /* none yet */ }
+    if (old === text) return true;
+    const tmp = `${file}.${process.pid}.new`;
+    fs.writeFileSync(tmp, text, { mode: 0o600 });
+    fs.renameSync(tmp, file);
+    return true;
+  } catch { return false; }
+}
+
 function tokenOnlySettingsRules(dir, deps = {}) {
   const home = deps.home || kosmosHome();
   const dataRoot = deps.dataRoot || store.ROOT;
@@ -1188,7 +1219,13 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     return false;
   });
   safeDeny.push(...launchRules);
-  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites, undoDirs, tokenDirs, undoSwitches, launchDirs: launch.dirs, launchFiles: launch.files || [], launchUnsafe };
+  /* #5663: the record of the launch rules this guard wrote last time, so a refresh can REPLACE them (deny lists only
+     grew before: every upgrade added versioned paths for good). It sits in the agent's .claude folder, which the
+     sandbox denies whole, and the file tools are denied it here, so the agent cannot rewrite what gets pruned. */
+  const launchRecord = path.join(settingsDir, LAUNCH_RECORD_FILE);
+  const recordRule = `Edit(${ruleAbs(launchRecord)})`;
+  if (!ruleHasPatternChar(recordRule)) safeDeny.push(recordRule);
+  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites, undoDirs, tokenDirs, undoSwitches, launchDirs: launch.dirs, launchFiles: launch.files || [], launchUnsafe, launchRules, launchRecord };
 }
 
 /*
@@ -1260,7 +1297,14 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     // Review 16: off macOS no sandbox block is written: said at create time as well as at board start.
     if ((deps.platform || process.platform) !== 'darwin' && !deps.atLaunch) process.stderr.write('#4491 note: off macOS ' + agentName + ' gets permission rules only (its shell is not sandboxed)\n');
     const perms = cur.permissions && typeof cur.permissions === 'object' && !Array.isArray(cur.permissions) ? cur.permissions : {};
-    const had = Array.isArray(perms.deny) ? perms.deny.filter((r) => typeof r === 'string') : [];
+    /* #5663: last time's launch rules that are not launch rules now are dropped (an upgraded tool's old versioned path);
+       every other rule merges as before, the person's own and the rest of the guard included. */
+    const prev = readLaunchRecord(rules.launchRecord);
+    const launchDenyNow = new Set(rules.launchRules || []);
+    const launchWritesNow = [...(rules.launchDirs || []), ...(rules.launchFiles || [])];
+    const stale = new Set(prev.deny.filter((r) => !launchDenyNow.has(r)));
+    const staleWrites = new Set(prev.denyWrite.filter((x) => !launchWritesNow.includes(x)));
+    const had = Array.isArray(perms.deny) ? perms.deny.filter((r) => typeof r === 'string' && !stale.has(r)) : [];
     const deny = [...new Set([...had, ...rules.deny])];
     /* Review 24: permissions.additionalDirectories widens where the sandboxed shell may write, as allowWrite does, so
        it goes too (Kosmos never writes it for an agent) and the board log says so. */
@@ -1272,7 +1316,7 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
       const net = sb.network && typeof sb.network === 'object' && !Array.isArray(sb.network) ? sb.network : {};
       const fsb = sb.filesystem && typeof sb.filesystem === 'object' && !Array.isArray(sb.filesystem) ? sb.filesystem : {};
       const dr = Array.isArray(fsb.denyRead) ? fsb.denyRead.filter((x) => typeof x === 'string') : [];
-      const dw = Array.isArray(fsb.denyWrite) ? fsb.denyWrite.filter((x) => typeof x === 'string') : [];
+      const dw = Array.isArray(fsb.denyWrite) ? fsb.denyWrite.filter((x) => typeof x === 'string' && !staleWrites.has(x)) : [];
       // Canonicalize the paths: Seatbelt matches resolved paths, so a symlinked data dir or
       // /var -> /private/var would otherwise slip a denyRead/denyWrite (the guide realOr's its own
       // folder for the same reason). The token files and the home settings files often do not exist
@@ -1314,6 +1358,13 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
       try { fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* gone */ } throw e; }   // review 24
     }
     cleanLocalSettings(path.join(settingsDir, 'settings.local.json'));
+    // #5663: what this refresh wrote for launch coverage, for the next refresh to replace. A record that cannot be
+    // written leaves this refresh's rules in place (nothing is lost; the next refresh only cannot prune them): said.
+    if (!writeLaunchRecord(rules.launchRecord, { deny: [...launchDenyNow], denyWrite: launchWritesNow })) process.stderr.write(`#5663: ${rules.launchRecord} could not be written; old launch rules will not be pruned until it can\n`);
+    // #5663: the sandbox profile has a size limit (measured: past 64 KB of data every sandboxed command fails), so a
+    // guard whose shell layer passes the ceiling says it is not whole rather than leaving the agent unable to run.
+    const sbBytes = next.sandbox ? sandboxDenyBytes(next.sandbox.filesystem) : 0;
+    if (sbBytes > SANDBOX_DENY_BYTES_MAX) return { ok: false, because: `its sandbox rules are ${sbBytes} bytes, past the ${SANDBOX_DENY_BYTES_MAX} the sandbox can safely take; the guard is written but may stop the agent's shell` };
     // #5516 review 1: the guard is written in full first; a PATH entry it could not cover only makes it NOT WHOLE (said),
     // never a reason to write nothing.
     if (rules.launchUnsafe && rules.launchUnsafe.length) return { ok: false, because: 'the PATH this agent starts with has an entry Kosmos could not cover (' + rules.launchUnsafe.join(', ') + '); the rest of the guard is in place' };
