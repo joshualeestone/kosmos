@@ -1401,14 +1401,16 @@ async function companyStartRun(email) {
   const a = (lastJsonLine(r.said) || {}).value;
   // Review 1: the address the page opens in the browser is an https page; review 2: on the coordinator's own origin.
   if (!a || typeof a.setupId !== 'string' || typeof a.secret !== 'string' || typeof a.url !== 'string'
-    || !sameOriginHttps(a.url, COORDINATOR())) {
+    || !sameOriginHttps(a.url, COORDINATOR())
+    // Review 4: a code to compare is the point of the approval page; none is refused.
+    || typeof a.matchCode !== 'string' || !a.matchCode.trim()) {
     return { ok: false, because: 'Kosmos+ answered in a way this version does not understand' };
   }
   // Review 3: the server's lifetime, kept within sense (a minute to an hour).
   const ttl = Math.min(3600, Math.max(60, Number.isFinite(a.expiresIn) ? a.expiresIn : 900));
-  companySetup = { email, setupId: a.setupId, secret: a.secret, expiresAt: Date.now() + ttl * 1000 };
-  return { ok: true, because: null, matchCode: String(a.matchCode || ''), url: a.url,
-    interval: Number.isFinite(a.interval) ? a.interval : 5 };
+  companySetup = { email, setupId: a.setupId, secret: a.secret, ttl, expiresAt: Date.now() + ttl * 1000 };
+  return { ok: true, because: null, matchCode: a.matchCode.trim(), url: a.url,
+    interval: Math.min(60, Math.max(1, Number.isFinite(a.interval) ? a.interval : 5)) };
 }
 
 /** Whether `url` is https on the same origin as `base`. */
@@ -1436,11 +1438,14 @@ async function companyStatusRun(c) {
   if (!r.ok) return { ok: true, ready: false, gone: false, retry: true };
   const a = (lastJsonLine(r.said) || {}).value || {};
   if (a.gone === true && companySetup === c) companySetup = null;
+  // Review 4: approval gives the setup fresh time on the server (its whole life from approval), so the engine's own
+  // clock restarts when it sees ready; it can never outlive the server's, which started earlier.
+  if (a.ready === true && companySetup === c) c.expiresAt = Date.now() + c.ttl * 1000;
   return { ok: true, ready: a.ready === true, gone: a.gone === true, retry: a.retry === true };
 }
 
 /** Finish the approved setup: this computer gets its identity and its name, as the code setup does. */
-async function companyComplete(name, acceptTerms) {
+async function companyComplete(name, acceptTerms, second) {
   { const b = busy(); if (b) return b; }
   const c = companySetup;
   if (!c || Date.now() > c.expiresAt) {
@@ -1456,9 +1461,14 @@ async function companyComplete(name, acceptTerms) {
   }
   const args = ['setup', 'complete', '--coordinator', COORDINATOR(), '--email', c.email,
     '--sso-setup', c.setupId, '--name', name, '--state-dir', STATE_DIR()];
-  if (typeof acceptTerms === 'string' && acceptTerms.trim()) args.push('--accept-terms', acceptTerms.trim());
+  if (typeof acceptTerms === 'string' && acceptTerms.trim()) args.push('--accept-terms=' + acceptTerms.trim());
+  // Review 4: an existing account with a second step needs its current code to add a computer (#3830); the grant is
+  // still unspent when that is refused, so the page asks for it and finishes again.
+  if (typeof second === 'string' && second.trim()) args.push('--second=' + second.trim());
   const result = await runSetupComplete(args, c.secret + '\n', name);
-  if (result.ok) { companySetup = null; write({ email: c.email }, { repair: true }); }
+  // Review 4: as the in-app sign-in's register (#3827): set up means switched on, or the managed Mac is enrolled and
+  // unreachable until someone finds the switch.
+  if (result.ok) { companySetup = null; write({ email: c.email }, { repair: true }); turnOnAfterSignin(); }
   return result;
 }
 

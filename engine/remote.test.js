@@ -3955,12 +3955,15 @@ test('kosmos#5628: the company setup keeps its secret in the engine and gives it
   assert.equal(fs.readFileSync(RECORD + '.stdin', 'utf8').trim(), 'S3CRET-only-in-the-engine', 'the secret was not on stdin');
   for (const call of recorded()) assert.equal(call.join(' ').includes('S3CRET'), false, 'the secret was on a command line: ' + call.join(' '));
   // Finishing sets this computer up through the same guarded run as the code setup.
-  const done = await remote.companyComplete('Ann', '2026-09-28');
+  const done = await remote.companyComplete('Ann', '2026-09-28', '123456');
   assert.equal(done.ok, true, done.because);
   const complete = recorded().find((c) => c[0] === 'setup' && c[1] === 'complete');
   assert.deepEqual([complete[complete.indexOf('--sso-setup') + 1], complete.includes('--code')], ['setup-abc', false]);
   assert.equal(complete[complete.indexOf('--name') + 1], 'ann', 'the name is lowercased as the code setup does');
-  assert.equal(complete[complete.indexOf('--accept-terms') + 1], '2026-09-28');
+  assert.equal(complete.includes('--accept-terms=2026-09-28'), true, complete.join(' '));
+  // Review 4: an account's second step reaches the binary; and set up means switched on (#3827), as the register does.
+  assert.equal(complete.includes('--second=123456'), true, complete.join(' '));
+  assert.equal(remote.read().on, true, 'a company setup left Kosmos+ switched off');
   assert.equal(fs.readFileSync(RECORD + '.stdin', 'utf8').trim(), 'S3CRET-only-in-the-engine');
   // Spent: a second finish has nothing to finish.
   assert.match((await remote.companyComplete('ann')).because, /expired; start again/);

@@ -9499,7 +9499,8 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         const got = await remote.companyComplete(String(body.name || '').trim(),
-          typeof body.acceptTerms === 'string' ? body.acceptTerms : null);
+          typeof body.acceptTerms === 'string' ? body.acceptTerms : null,
+          typeof body.second === 'string' ? body.second : null);
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
         try { remote.ensure(); } catch { /* status says what happened */ }
         sendJson(res, 200, { ok: true, status: remote.status() });
