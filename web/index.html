@@ -37331,6 +37331,7 @@ function paintTalkThread(body, name) {
   for (const r of allRows) if (r && typeof r.at === 'string' && (DM_ROWS_OLDEST === null || r.at < DM_ROWS_OLDEST)) DM_ROWS_OLDEST = r.at;
   dmReplyPaint(DM_ROWS_OF);
   convPaint();   // #5624 review 1: the toggle follows the agent on screen, whatever this paint shows
+  if (TALK_QUERY && String(TALK_QUERY).trim()) convPause();   // #5624 review 4: any search, a no-match one too
   /* #5624 review 1: an empty thread starts with nothing heard, so the agent's first reply is read. */
   /* Review 3: "empty" means no row any agent wrote (another agent's rows are drawn here too), and a conversation already
      being followed is never re-seeded (that would make its rows read again on every poll). */
@@ -66909,6 +66910,7 @@ document.addEventListener('click', (e) => {
   const on = !convIsOn(key);
   convSet(key, on);
   if (!on) { CONV.seq++; if (CONV.key === key) convStop(); }   // review 2: also voids a pending voice-list wait
+  CONV.novoice = false;   // review 4: the no-voice notice is re-learned at the next reading, not carried over
   convPaint();
 });
 /* #2700: fold a run of consecutive room refusals that share one reason into a
