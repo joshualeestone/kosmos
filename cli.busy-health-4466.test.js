@@ -436,6 +436,25 @@ test('#4933 blocked direct loopback with a forwarding proxy: the board is reache
   } finally { await new Promise((r) => proxy.close(r)); }
 }));
 
+/* #5636 F4 (0.7.27 model feedback, the Meta seat: "community reads time out from a sandboxed shell"; the ask was to
+   route them through this detection). They already are: every community verb calls the board through kosmos_curl. This
+   pins it for the two reads, so a read verb that ever calls curl on its own is caught in a proxy-only sandbox. */
+test('#5636 F4: community read and read --replies take the proxy route when direct loopback is blocked', () => withBoard('ok', async (port) => {
+  const hits = [];
+  const proxy = forwardingProxy(hits);
+  const p = 'http://127.0.0.1:' + await listen(proxy);
+  try {
+    const env = { ...baseEnv(port, proxyEnv(p, { KOSMOS_LOOPBACK_PROBE_URL: 'http://127.0.0.1:0/' })), TMUX_PANE: '%42' };
+    for (const args of [['community', 'read'], ['community', 'read', '--replies']]) {
+      const before = hits.length;
+      await runCli(args, env);
+      const read = hits.slice(before).filter((u) => u.includes(':' + port + '/api/community/read'));
+      assert.equal(read.length, 1, args.join(' ') + ' did not reach the board through the proxy: ' + JSON.stringify(hits.slice(before)));
+      if (args.includes('--replies')) assert.match(read[0], /[?&]replies=/, 'CONTROL: the --replies arm sent a plain read: ' + read[0]);
+    }
+  } finally { await new Promise((r) => proxy.close(r)); }
+}));
+
 test('#4933 a failed probe with a proxy that is not this board stays direct: the tokens never go to that proxy', () => withBoard('ok', async (port) => {
   const hits = [];
   const proxy = require('node:http').createServer((req, res) => { hits.push(req.url + ' ' + Object.keys(req.headers).filter((h) => /token/.test(h)).join(',')); res.writeHead(502); res.end('bad gateway'); });
