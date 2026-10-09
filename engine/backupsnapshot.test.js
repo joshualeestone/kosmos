@@ -1492,6 +1492,8 @@ test('#5686 review 12: an optional root that conflicts (one file named twice, ne
       { name: 'workers', path: w.roots.workers },
       { name: 'sessions/a/gemini', path: shared, only: ['session-1.jsonl'], optional: true },
       { name: 'sessions/b/gemini', path: shared, only: ['session-1.jsonl'], optional: true },
+      // Review 13: a third claimant of the same file is left out too.
+      { name: 'sessions/f/gemini', path: shared, only: ['session-1.jsonl'], optional: true },
       { name: 'sessions/c/claude', path: nested, only: ['notes.md'], optional: true },
       { name: 'sessions/d/codex', path: linkAt, only: ['session-1.jsonl'], optional: true },
       { name: 'sessions/e/claude', refused: 'a session folder that is a link', optional: true },
@@ -1503,6 +1505,7 @@ test('#5686 review 12: an optional root that conflicts (one file named twice, ne
     const why = Object.fromEntries(opened.skipped.map((x) => [x.path, x.why]));
     assert.match(why['sessions/a/gemini'], /names a file also named by/);
     assert.match(why['sessions/b/gemini'], /names a file also named by/);
+    assert.match(why['sessions/f/gemini'], /names a file also named by/);
     assert.match(why['sessions/c/claude'], /inside the root workers/);
     assert.match(why['sessions/d/codex'], /changed after it was chosen/);
     assert.equal(why['sessions/e/claude'], 'a session folder that is a link');

@@ -392,14 +392,26 @@ async function listRoots(roots, fs) {
     }
   }
   // Roots sharing one folder must not name the same file: it would be stored twice, under two agents.
-  const claimed = new Map();
+  // Every claimant of each file is kept, not just the first: with three, the third would otherwise keep a file the first
+  // two were left out over. A file named by two or more roots leaves out every optional one of them; two required
+  // roots naming one file fail the snapshot.
+  const claimants = new Map();
   for (const e of entries) {
     if (e.out) continue;
     for (const rel of e.r.only || []) {
       const key = `${e.id}\0${rel}`;
-      const prev = claimed.get(key);
-      if (prev && !prev.out && !e.out) { const f = conflict(prev, e, 'names a file also named by'); if (f) return f; }
-      if (!prev) claimed.set(key, e);
+      if (!claimants.has(key)) claimants.set(key, []);
+      claimants.get(key).push(e);
+    }
+  }
+  for (const list of claimants.values()) {
+    if (list.length < 2) continue;
+    const required = list.filter((e) => !e.r.optional);
+    if (required.length > 1) return `the root ${required[0].r.name} names a file also named by the root ${required[1].r.name}`;
+    for (const e of list) {
+      if (!e.r.optional || e.out) continue;
+      e.out = true;
+      gone.push({ path: e.r.name, why: `names a file also named by the root ${list.find((o) => o !== e).r.name}` });
     }
   }
   entries = entries.filter((e) => !e.out);
