@@ -159,3 +159,31 @@ test('#5516 review 2: odd entries in the board process PATH are skipped quietly;
   assert.deepEqual(r.unsafe, [], JSON.stringify(r.unsafe));
   assert.ok(r.dirs.includes(realOr('/bin')));
 });
+
+test('#5516 review 3: a launch folder whose path the rules cannot carry is reported, but the REST of the guard is written', () => {
+  const dir = agentDir('lp-paren');
+  const odd = binDir('App (Beta)');
+  const r = setup.guardTokenOnlyFolder(dir, 'lp-paren', { ...BASE, panePath: ['/usr/bin', odd].join(path.delimiter) });
+  assert.equal(r.ok, false, 'the guard claimed to be whole');
+  assert.match(r.because, /could not cover/);
+  const s = readSettings(dir);   // written: the guard was not abandoned
+  assert.equal(s.sandbox.enabled, true);
+  assert.ok(s.sandbox.filesystem.denyWrite.includes(realOr(odd)), 'the shell layer lost the folder too');
+  assert.equal(s.permissions.deny.some((x) => x.includes('App (Beta)')), false, 'a rule the syntax cannot carry was written');
+  assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(realOr('/usr/bin'))}/**)`), 'the other launch folders lost their rule');
+  // CONTROL: the same agent with a plain PATH is whole.
+  assert.deepEqual(setup.guardTokenOnlyFolder(agentDir('lp-paren-control'), 'lp-paren-control', { ...BASE, panePath: '/usr/bin' }), { ok: true });
+});
+
+test('#5516 review 3: a PATH entry not created yet is resolved through a symlinked parent', () => {
+  const dir = agentDir('lp-leaf');
+  const link = path.join(SANDBOX, 'link-to-agent');
+  try { fs.symlinkSync(dir, link); } catch { /* exists */ }
+  // Not created yet, and inside the agent's own folder once the link is followed: must be reported, not denied.
+  const r = setup.guardTokenOnlyFolder(dir, 'lp-leaf', { ...BASE, panePath: ['/usr/bin', path.join(link, 'bin-not-yet')].join(path.delimiter) });
+  assert.equal(r.ok, false, 'an entry inside the agent folder (through a link, not yet created) was taken as coverable');
+  // CONTROL: the same layout with the entry outside the agent folder is whole.
+  const out = path.join(SANDBOX, 'link-to-bins');
+  try { fs.symlinkSync(path.join(SANDBOX, 'bins'), out); } catch { /* exists */ }
+  assert.deepEqual(setup.guardTokenOnlyFolder(agentDir('lp-leaf-control'), 'lp-leaf-control', { ...BASE, panePath: ['/usr/bin', path.join(out, 'not-yet')].join(path.delimiter) }), { ok: true });
+});

@@ -24,3 +24,16 @@ rest of the guard is still written.
 - Round 1 (opus): 2 BLOCKER, 4 WARNING, 2 CONVENTION, 1 NIT. Fixed, or recorded privately for measurement.
 - Round 2 (sonnet): 0 BLOCKER, 5 WARNING, 1 CONVENTION, 2 NIT. Fixed (ancestors, an empty cleaned PATH, the board
   PATH held loosely, a runnable test of the cleaning, public text cut back, one scan per refresh pass).
+- Round 3 (opus; a fresh review by Renet Tilley, who took the card over, since round 3's own findings were not recorded):
+  - FIXED (BLOCKER): a launch folder with a rule-pattern character no longer stops the whole guard from being written.
+    Its file-tool rule is left out and the folder reported (the guard says it is not whole), and the shell layer keeps
+    its concrete path. Test with a control; the mutation makes it fail.
+  - FIXED: PATH entries that do not exist yet resolve through a symlinked parent (realOrLeaf). Test with a control;
+    the mutation makes it fail.
+  - FIXED: the comments claim only what is covered.
+  - OPEN, the next work on this card: programs the supervisor starts by absolute path from folders not on the pane
+    PATH (its own engine scripts, node, tmux, the Claude binary). They are to be passed to the guard as well. Measure
+    first which are writable by the agent's file tools.
+  - OPEN, a recorded residual until decided: code a covered program loads from beside it (a package's lib, a keg's
+    dylibs). The candidate is to widen coverage to the package or keg root.
+

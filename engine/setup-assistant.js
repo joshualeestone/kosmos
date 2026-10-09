@@ -729,7 +729,9 @@ function ruleHasPatternChar(rule, sep = path.sep) {
  * dataRoot/home are overridable for tests (guideDenyRulesFor does the same); production passes neither.
  */
 /* #5516: the guard denies the agent's file tools (Edit) and shell (denyWrite) any write to the folders on the PATH its
-   pane starts with, and to the folders the programs there resolve into. Sources: the pane PATH the supervisor passes
+   pane starts with, and to the folders the programs there resolve into. That is ALL it covers (review 3): not programs
+   the supervisor starts by absolute path from folders off that PATH, not the code a covered program loads from beside
+   it (a package's lib, a keg's dylibs), and not shell rc files or git config (the plan names these as open). Sources: the pane PATH the supervisor passes
    (KOSMOS_GUARD_PANE_PATH), this process's own PATH, and the plist's fixed folders. An entry that cannot be covered
    (empty, relative, or inside the agent's own folder) is returned in `unsafe`. */
 const LAUNCH_PATH_FIXED = ['/opt/homebrew/bin', '/usr/local/bin'];
@@ -738,7 +740,7 @@ function launchPathDirs(agentDir, deps = {}) {
   const pane = deps.panePath !== undefined ? deps.panePath : process.env.KOSMOS_GUARD_PANE_PATH;
   const ownPath = deps.ownPath !== undefined ? deps.ownPath : process.env.PATH;
   const max = deps.linkScanMax || LINK_SCAN_MAX;
-  const own = realOr(agentDir);
+  const own = realOrLeaf(agentDir);
   // Review 2: refreshTokenOnlyGuards passes one Map for its whole pass, so a PATH is scanned once, not once per agent.
   const cache = deps.launchCache instanceof Map ? deps.launchCache : null;
   const key = JSON.stringify([pane, ownPath, own, max]);
@@ -750,7 +752,9 @@ function launchPathDirs(agentDir, deps = {}) {
   const unsafe = [];
   const add = (e, strict) => {
     if (!e || !path.isAbsolute(e)) { if (strict) unsafe.push(e === '' ? '(an empty entry)' : e); return; }
-    const real = realOr(e);
+    // realOrLeaf (review 3): an entry not created yet is still resolved through a symlinked parent, so the agent-folder
+    // check cannot fail open and the sandbox gets the spelling it matches (/private/var, not /var).
+    const real = realOrLeaf(e);
     if (uncoverable(real)) { unsafe.push(e); return; }
     if (!dirs.includes(real)) dirs.push(real);
   };
@@ -838,8 +842,18 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     `Edit(${ruleAbs(listFile)})`,
     ...worldRules,
     ...editTargets.map((t) => `Edit(${ruleAbs(t.f)})`),
-    ...launch.dirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // #5516: nothing the agent writes can run at its next start
   ];
+  /* #5516 (review 3): the launch folders' file-tool rules are kept OUT of the filter below. A launch folder whose path
+     has a rule-pattern character (an installed "App (Beta)") must not stop the WHOLE guard from being written: its rule
+     is left out and the folder reported in launchUnsafe (the guard then says it is not whole), while the sandbox layer
+     still carries its concrete path (launchDirs, below). */
+  const launchRules = [];
+  const launchUnsafe = [...launch.unsafe];   // a copy: launchPathDirs caches its answer for the whole refresh pass
+  for (const d of launch.dirs) {
+    const r = `Edit(${ruleAbs(d)}/**)`;
+    if (ruleHasPatternChar(r)) launchUnsafe.push(`${d} (its path has a character the permission rules cannot carry)`);
+    else launchRules.push(r);
+  }
   /* #4491 review 14: a path with a character the rule syntax reads as a pattern (the guide's #4752 RULE_SYNTAX) would
      misparse the rule, or make Claude Code reject the whole file. Such a rule is dropped and said on the board log; the
      sandbox layer still carries the concrete path. The globs this function adds itself are taken out before testing. */
@@ -850,7 +864,8 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     tokenRuleDropped = true;   // reviews 16 and 17: ANY dropped rule leaves part of the guard out (a token read, or its own self-protection)
     return false;
   });
-  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites, undoDirs, tokenDirs, undoSwitches, launchDirs: launch.dirs, launchUnsafe: launch.unsafe };
+  safeDeny.push(...launchRules);
+  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites, undoDirs, tokenDirs, undoSwitches, launchDirs: launch.dirs, launchUnsafe };
 }
 
 /*
