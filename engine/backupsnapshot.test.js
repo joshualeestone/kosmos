@@ -221,3 +221,16 @@ test('never throws: an uploader that throws is a failed snapshot', async () => {
     assert.ok(r.added instanceof Map);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('a chunk two files share is uploaded once, even when a batch boundary falls between them', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    fs.writeFileSync(path.join(w.root, 'agents', 'a', 'copy-of-notes.md'), w.files['agents/a/notes.md']);
+    const r = await take(k, w.root, st, { deps: { batchBytes: 1 } });
+    assert.equal(r.ok, true, r.because);
+    const opened = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+    const byPath = Object.fromEntries(opened.files.map((f) => [f.path, f.chunks]));
+    assert.deepEqual(byPath['agents/a/copy-of-notes.md'], byPath['agents/a/notes.md'], 'same content, same chunk name');
+    assert.equal(st.objects.size, Object.keys(opened.objects).length, 'one stored object per chunk name, none twice');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
