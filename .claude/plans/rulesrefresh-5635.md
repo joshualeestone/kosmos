@@ -64,3 +64,8 @@ That the test agents' stale text was a known earlier block. If the multi-model t
   - W4: the re-read line no longer says "with your person's OK".
   - C1 plan wording fixed. C2: F2's new shape is in the plan; the projectview JSDoc is left as is (nothing reads idleKind as "idle" without the state).
   - N1-N4 fixed: title, dead field noted, a control on the newer-summary arm, and the three new arms.
+- **Round 6 (sonnet):** 0 blockers.
+  - W fixed: the boot log's filter never matched ("instruction file", singular). A missing file is now `left` from refreshUnedited itself, with no string match, and refreshFleet is tested with an agent that has no file.
+  - C fixed: the wholeKnownBlock comment is back above it.
+  - NITs fixed: "may bring this block up to date" (no overclaim); the clean boundary takes a real heading line only (`#{1,6} `).
+  - NIT decided: the source-level pin that the board calls refreshFleet stays; the behaviour is tested through refreshFleet itself.

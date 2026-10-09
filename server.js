@@ -22092,9 +22092,9 @@ if (require.main === module) {
      re-read line, as a click is. Josh's 2026-10-07 feedback found agents still on a line fixed five days earlier. */
   try {
     const done = doctrine.refreshFleet(safeRoster(), instructionRereadOwe);
-    /* An agent with no instructions file yet has nothing to bring up to date; only a real failure is said (review 1). */
+    /* Only a real failure is said: an agent with no instructions file yet is `left` (review 6), not `could_not`. */
     for (const d of done) {
-      if (d.state === 'could_not' && !/no instructions file yet/.test(String(d.because))) process.stderr.write(`Kosmos could not bring ${d.sessionName}'s working rules up to date: ${d.because}\n`);
+      if (d.state === 'could_not') process.stderr.write(`Kosmos could not bring ${d.sessionName}'s working rules up to date: ${d.because}\n`);
     }
   } catch (err) {
     process.stderr.write(`Kosmos could not bring agents' working rules up to date: ${String(err && err.message)}\n`);

@@ -66,7 +66,7 @@ function clickDate(now) {
    TRUE: an unedited span is recomposed at board start, an edited one only through the click. */
 /* kosmos#5635: every frame line says what Kosmos now does with the block: keeps it current by itself while nobody has
    edited it, and asks first once somebody has. Each starts with the words sectionContentOf strips. */
-const KEEPS = 'Kosmos keeps this block up to date when the rules change while it is exactly as Kosmos wrote it, and asks first otherwise; your own words above and below it are never touched.';
+const KEEPS = 'Kosmos may bring this block up to date when the rules change while it is exactly as Kosmos wrote it, and asks first otherwise; your own words above and below it are never touched.';
 function openingLine(now) {
   return `<!-- Kosmos added the working rules below on ${clickDate(now)}, with your OK. ${KEEPS} -->`;
 }
@@ -143,9 +143,6 @@ function hasPlainCurrent(body) {
   return plainCurrentAt(body) >= 0;
 }
 
-/* kosmos#5635: rules text that is, byte for byte, a WHOLE earlier block. The only span content refreshUnedited writes
-   over: the per-section match below also accepts a span with a section deleted or the sections reordered (review 1),
-   which is the person's edit and waits for the click. */
 /* kosmos#5635 review 5: the profile as the no-click write must read it. store.readProfile answers {} for ANY failure,
    which would read a Not now and the restore record as absent and then let writeProfile replace the file (its id
    too). Only a profile that does not exist is empty; one that exists and cannot be read or parsed is null. */
@@ -159,6 +156,9 @@ function profileStrict(sessionName) {
 function currentBlockHash() {
   return crypto.createHash('sha256').update(defaults.block()).digest('hex');
 }
+/* kosmos#5635: rules text that is, byte for byte, a WHOLE earlier block. The only span content refreshUnedited writes
+   over: the per-section match below also accepts a span with a section deleted or the sections reordered (review 1),
+   which is the person's edit and waits for the click. */
 function wholeKnownBlock(content, past) {
   const rows = past || PAST;
   const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
@@ -443,7 +443,8 @@ function refreshUnedited(sessionName, roster, opts) {
   try {
     if (!projects.heldExactly(sessionName, roster)) return { state: 'could_not', because: 'we could not tell that this agent is ours' };
     const current = instructions.read(sessionName);
-    if (!current.exists) return { state: 'could_not', because: current.because || 'it has no instructions file yet' };
+    // Review 6: no file is nothing to bring up to date (a fresh agent), not a failure to report at every boot.
+    if (!current.exists) return { state: 'left', because: current.because || 'it has no instructions file yet' };
     const plan = planFor(current.text || '', opts && opts.now, opts && opts.past, autoLine(opts && opts.now));   // `past`: tests only
     if (plan.state !== 'refresh') return plan;
     /* Review 1 (the blocker): a span is written over only when its content is a WHOLE earlier block. planFor's
@@ -474,7 +475,7 @@ function refreshUnedited(sessionName, roster, opts) {
       const text = current.text || '';
       const old = pastBlockIn(text, opts && opts.past, span && !span.ambiguous ? span : null);
       const rest = old ? text.slice(old.end).replace(/^\r?\n/, '') : '';
-      if (!old || !(rest === '' || /^(?:\r?\n|#|<!--)/.test(rest))) return notWhole;
+      if (!old || !(rest === '' || /^(?:\r?\n|#{1,6} |<!--)/.test(rest))) return notWhole;
     }
     /* A last guard on the plan itself: the checks above already leave every edited span, so `edited` is not reached
        today; a plan that is neither an update nor a replace (sections missing from a file with no block) is the

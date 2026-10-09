@@ -73,7 +73,7 @@ test('#5635: the file never claims an OK nobody gave: an automatic refresh write
   const line = read(f).split('\n').find((l) => l.startsWith('<!-- Kosmos added the working rules below on '));
   assert.equal(line, doctrine.autoLine(NOW));
   assert.ok(!/with your OK/.test(line), 'an automatic write said the person agreed');
-  assert.match(line, /keeps this block up to date when the rules change while it is exactly as Kosmos wrote it, and asks first otherwise/);
+  assert.match(line, /may bring this block up to date when the rules change while it is exactly as Kosmos wrote it, and asks first otherwise/);
   assert.equal(doctrine.planFor(read(f), NOW, OLD_TABLE).state, 'current', 'the new frame line is read as a change to the rules');
 });
 
@@ -126,8 +126,8 @@ test('#5635: an agent that is not exactly ours is never written', () => {
 
 test('#5635: the birth and click frames say the same thing about keeping the block current', () => {
   const born = doctrine.atBirth('# Mine\n', NOW);
-  assert.match(born, /when it set up this agent\. Kosmos keeps this block up to date when the rules change while it is exactly as Kosmos wrote it, and asks first otherwise;/);
-  assert.match(doctrine.spanBody(defaults.sections(), NOW), /with your OK\. Kosmos keeps this block up to date/);
+  assert.match(born, /when it set up this agent\. Kosmos may bring this block up to date when the rules change while it is exactly as Kosmos wrote it, and asks first otherwise;/);
+  assert.match(doctrine.spanBody(defaults.sections(), NOW), /with your OK\. Kosmos may bring this block up to date/);
   for (const t of [born, doctrine.autoLine(NOW)]) assert.ok(!t.includes('—') && !t.includes('–'), 'a dash');
 });
 
@@ -292,4 +292,20 @@ test('#5635 review 5: a profile that exists but cannot be read stops the write, 
   assert.equal(fs.readFileSync(pf, 'utf8'), good.slice(0, -3), 'the unreadable profile was replaced');
   fs.writeFileSync(pf, good);   // CONTROL: readable again, the Not now holds
   assert.equal(run('badprofile').state, 'left');
+});
+
+test('#5635 review 6: an agent with no instructions file is left quietly (nothing to bring up to date), never a failure', () => {
+  const board = fleet.install([fleet.agent('nofileyet', { state: 'idle' })]);
+  const roster = board.agents;
+  board.restore();
+  const done = doctrine.refreshFleet(roster, () => {}, { now: NOW, past: OLD_TABLE });
+  assert.equal(done.length, 1);
+  assert.equal(done[0].state, 'left', 'a missing file reads as a failure the board logs at every start: ' + JSON.stringify(done[0]));
+});
+
+test('#5635 review 6: a line starting with # that is not a heading, typed under the last section, is the person\'s', () => {
+  const typed = `# Mine\n\n${OLD}\n#note to self\n`;
+  const f = agentFile('hashnote', typed);
+  assert.equal(run('hashnote').state, 'left');
+  assert.equal(read(f), typed);
 });
