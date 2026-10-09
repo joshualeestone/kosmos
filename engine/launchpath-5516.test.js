@@ -40,9 +40,10 @@ test('#5516: every folder on the pane PATH is denied to the file tools AND the s
   const dir = agentDir('lp-a');
   const a = binDir('claude-bin');
   const b = binDir('brew-bin');
-  // launchFixed unpinned here: this test checks the real fixed list (rules only, which do not depend on the host).
-  const r = setup.guardTokenOnlyFolder(dir, 'lp-a', { ...BASE, panePath: [a, b, '/usr/bin'].join(path.delimiter), launchFixed: undefined });
-  assert.deepEqual(r, { ok: true });
+  // launchFixed unpinned here: this checks the real fixed list's RULES only, which do not depend on the host. Whether the
+  // guard is whole depends on the host's real folders, so that is asserted on a pinned call below (review 20).
+  setup.guardTokenOnlyFolder(dir, 'lp-a', { ...BASE, panePath: [a, b].join(path.delimiter), launchFixed: undefined });
+  assert.deepEqual(setup.guardTokenOnlyFolder(agentDir('lp-a-pinned'), 'lp-a-pinned', { ...BASE, panePath: [a, b].join(path.delimiter), ownPath: '' }), { ok: true });
   const s = readSettings(dir);
   for (const d of [a, b]) {
     assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(realOr(d))}/**)`), `no Edit deny for ${d}: ${JSON.stringify(s.permissions.deny)}`);
@@ -176,9 +177,14 @@ test('#5516 review 2: the supervisor cleans the pane PATH with a function this t
   assert.match(block, /\[ "\$RUNNER" = claude \] && PANE_ENV\+=\(-e "PATH=\$_guard_path"\)/, 'the claude pane is not given the cleaned PATH, or other runners get a second PATH key');
   assert.match(block, /KOSMOS_GUARD_PANE_PATH="\$_guard_path"/, 'the guard is not given the same PATH');
   assert.match(block, /KOSMOS_GUARD_RUN_DIRS="\$\(dirname "\$CLAUDE"\):\$\(dirname "\$TMUX_BIN"\):\$_eng:\$\(dirname "\$NODE_BIN"\)"/, 'the guard is not given the claude, tmux, engine and node folders as the supervisor spells them');
-  assert.match(block, /KOSMOS_GUARD_CONFIG_DIRS="\$\{AGENT_WORKFORCE_DATA:-\$\{_app:-\}\}\/launch-secrets"/, 'the guard is not given the launch-secrets folder');
+  assert.match(block, /_ls_base="\$\{AGENT_WORKFORCE_DATA:-\$\{_app:-\}\}"/, 'the launch-secrets base is not the folder prepare_secret_entry writes');
+  assert.match(block, /KOSMOS_GUARD_CONFIG_DIRS="\$\{_ls_base:\+\$_ls_base\/launch-secrets\}"/, 'the guard is not given the launch-secrets folder, or is given a bare one');
   assert.match(block, /KOSMOS_GUARD_RUN_PROGS="\$CLAUDE:\$TMUX_BIN:\$NODE_BIN"/, 'the guard is not given the programs the supervisor starts');
   assert.ok(sup.includes('_launch_secret_dir="${AGENT_WORKFORCE_DATA:-$_app}/launch-secrets"'), 'the launch-secrets folder moved: the guard\'s spelling must follow it');
+  // Review 20: the spelling evaluates right: a base gives base/launch-secrets, no base gives nothing (never /launch-secrets).
+  const ev = (data, app) => require('child_process').execFileSync('/bin/bash', ['-c', 'set -u; AGENT_WORKFORCE_DATA="$1"; _app="$2"; _ls_base="${AGENT_WORKFORCE_DATA:-${_app:-}}"; printf %s "${_ls_base:+$_ls_base/launch-secrets}"', 'x', data, app], { encoding: 'utf8' });
+  assert.equal(ev('/d', '/a'), '/d/launch-secrets'); assert.equal(ev('', '/a'), '/a/launch-secrets'); assert.equal(ev('', ''), '');
+  assert.match(sup, /#5516: no sender token was minted for \$_roster this launch/, 'a launch with no token skips the PATH guard in silence');
   // Review 8: no later line gives a claude pane a second PATH key (only the codex/gemini/grok line adds one, gated).
   const later = sup.slice(sup.indexOf('unset _guard_path', i)).split('\n').filter((l) => /PANE_ENV\+=\(-e "PATH=/.test(l));
   assert.equal(later.length, 1, 'another PATH key for the pane: ' + JSON.stringify(later));
@@ -411,7 +417,7 @@ test('#5516 review 9: a link along a path is followed one name at a time; the fo
   const outside = binDir('through-out');
   fs.symlinkSync(outside, path.join(dir, 'tools'));
   const r2 = setup.launchPathDirs(dir, { ...PIN, panePath: path.join(dir, 'tools'), ownPath: '' });
-  assert.ok(r2.unsafe.includes(path.join(dir, 'tools')), JSON.stringify(r2));
+  assert.ok(r2.unsafe.some((x) => x.startsWith(path.join(dir, 'tools'))), JSON.stringify(r2));
   // Review 11: its written spelling (inside the agent folder) is never written as a rule either.
   assert.ok(!r2.aliases.includes(path.join(dir, 'tools')), 'a path inside the agent folder became a rule: ' + JSON.stringify(r2.aliases));
   // CONTROL: the same folder given by its own path is coverable.
@@ -421,7 +427,7 @@ test('#5516 review 9: a link along a path is followed one name at a time; the fo
   fs.writeFileSync(path.join(outside, 'tool'), '#!/bin/sh\n', { mode: 0o755 });
   fs.symlinkSync(path.join(dir, 'tools', 'tool'), path.join(pd3, 'tool'));
   const r3 = setup.launchPathDirs(dir, { ...PIN, panePath: pd3, ownPath: '' });
-  assert.ok(r3.unsafe.includes(path.join(realOr(pd3), 'tool')), JSON.stringify(r3));
+  assert.ok(r3.unsafe.some((x) => x.startsWith(path.join(realOr(pd3), 'tool'))), JSON.stringify(r3));
   // A file named on PATH runs nothing: not reported (CONTROL for the could-not-be-listed note).
   const f = path.join(SANDBOX, 'bins', 'a-file');
   fs.writeFileSync(f, '');

@@ -634,22 +634,28 @@ if [ -z "$adopt" ]; then
           _guard_path="$(abs_path_only "$_guard_path" "$WORKDIR")"
           # Review 5: only for claude, the one runner the guard covers; the others keep their own PATH line (one key).
           [ "$RUNNER" = claude ] && PANE_ENV+=(-e "PATH=$_guard_path")
+          # Review 20: the launch-secrets base, only when there is one (never a bare /launch-secrets).
+          _ls_base="${AGENT_WORKFORCE_DATA:-${_app:-}}"
           # Review 8: and the folders of claude and tmux, which this script starts by absolute path (from the plist);
           # review 11: and the engine and node as THIS script spells them (the guard's own are resolved); review 13: and
           # the launch-secrets folder the pane entry reads its names from (the same spelling prepare_secret_entry uses).
-          KOSMOS_GUARD_PANE_PATH="$_guard_path" KOSMOS_GUARD_RUN_DIRS="$(dirname "$CLAUDE"):$(dirname "$TMUX_BIN"):$_eng:$(dirname "$NODE_BIN")" KOSMOS_GUARD_CONFIG_DIRS="${AGENT_WORKFORCE_DATA:-${_app:-}}/launch-secrets" KOSMOS_GUARD_RUN_PROGS="$CLAUDE:$TMUX_BIN:$NODE_BIN" "$NODE_BIN" -e '
+          KOSMOS_GUARD_PANE_PATH="$_guard_path" KOSMOS_GUARD_RUN_DIRS="$(dirname "$CLAUDE"):$(dirname "$TMUX_BIN"):$_eng:$(dirname "$NODE_BIN")" KOSMOS_GUARD_CONFIG_DIRS="${_ls_base:+$_ls_base/launch-secrets}" KOSMOS_GUARD_RUN_PROGS="$CLAUDE:$TMUX_BIN:$NODE_BIN" "$NODE_BIN" -e '
             try {
               const out = require(process.argv[1]).refreshTokenOnlyGuards({ only: process.argv[2] });
               for (const u of out.unguarded) process.stderr.write("#4491: " + u.name + " is listed token-only but is NOT guarded: " + u.because + "\n");
             } catch (e) { process.stderr.write("#4491: the token-only guard could not be checked at launch: " + ((e && e.message) || e) + "\n"); }
           ' "$_eng/setup-assistant.js" "$_roster" || true
-          unset _guard_path
+          unset _guard_path _ls_base
         else
           echo "#4491: $_roster is listed token-only but its guard could not be checked at launch (no setup-assistant.js)" >&2
         fi
       fi
       # Kept only in this shell for Antigravity's one launch-time status report.
       _LAUNCH_TOKEN="$KOSMOS_AGENT_TOKEN"
+    elif [ -n "${_roster:-}" ]; then
+      # #5516 review 20: no token this launch, so the token-only switch, the cleaned pane PATH and the launch-time guard
+      # refresh above are all skipped. Said, so a listed agent is not launched on the board's last guard in silence.
+      echo "#5516: no sender token was minted for $_roster this launch; if it is listed token-only, its launch PATH guard was not refreshed (the board's last one stands)" >&2
     fi
     KOSMOS_AGENT_TOKEN=""
 

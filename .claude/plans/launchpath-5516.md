@@ -275,3 +275,13 @@ rest of the guard is still written.
     review-17 comment was softened to say so.
   - FIXED (nits): a piece of the supervisor's lists that is not a full path (a ":" in a folder name) is said, not
     dropped; the shell test runs the function under set -u with every pattern character. Mutation fails.
+- Round 20 (sonnet): 0 BLOCKER, 2 WARNING, 4 NIT.
+  - FIXED: a launch with no sender token skips the cleaned pane PATH and the launch-time refresh (they live in the token
+    branch, as #4491's refresh did). It is now said in the log, so a listed agent is not launched on the board's last
+    guard in silence. Pinned by a source check.
+  - FIXED: the first test asserted the guard whole while reading the host's real folders; the wholeness is now asserted
+    on a pinned call, and the real fixed list is checked for its rules only.
+  - FIXED (nits): the launch-secrets folder is passed only when there is a base (never a bare /launch-secrets; the
+    spelling is evaluated in the test); a link held in the agent's own folder is said with its reason.
+  - NOT CHANGED (nits): KOSMOS_GUARD_PANE_PATH also reaches the guard for runners that get no cleaned PATH (those
+    return "unsupported" today); the walk memo caches a "too long" result (only reports more).

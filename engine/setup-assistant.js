@@ -828,7 +828,7 @@ function launchPathDirs(agentDir, deps = {}) {
          it (review 9): not whole. Held in a shared folder below the agent folder, the sandboxed shell can: said. Held
          anywhere else, neither the file tools nor the shell can replace it. */
       const r = fold(c.real);
-      if (inOwn(r)) unsafe.push(c.shown);
+      if (inOwn(r)) unsafe.push(`${c.shown} (a link on its way is held in the agent's own folder)`);
       else if (c.inTemp && !rel(r, ownF)) unsafe.push(`${c.shown} (a link on its way is held in ${c.real}, a temp folder the agent's shell can write)`);
       continue;
     }
