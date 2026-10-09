@@ -19,9 +19,19 @@
  * caps the file, not each platform's view), so that platform's window shows fewer. Tag an item only when it truly is
  * one platform's; build refuses a list that leaves a platform with none.
  *
- *   node tools/whats-new-pool.js build <version> [--max=5] [--pool=<file>] [--out=<file>]
+ *   node tools/whats-new-pool.js build <version> [--max=5] [--pool=<file>] [--out=<file>] [--offline]
+ *       #5713: FIRST it reads what Mac PROD serves (installkosmos.com's prod pointer and its manifest, which names the
+ *       app commit the build was cut from) and, if that is newer than the pool's lastProd, marks that version's
+ *       highlights shown (read at that commit) and records it, so nothing is run by hand after a promote; commit the pool
+ *       with the build. It refuses, writing nothing, when it cannot read prod or match what prod showed; --offline builds
+ *       without checking, and says so. Then:
  *       writes web/whats-new.json: the top --max pending highlights by rank (ties: newest first), checked with
  *       engine/whatsnew.js's own rules (the cut's step 1b-ii runs the same check).
+ *   node tools/whats-new-pool.js shown <version> --promoted --none [--pool=<file>]
+ *       #5713: records a version that reached prod with NO What's New (a cut with KOSMOS_CUT_NO_WHATS_NEW=1), nothing marked.
+ *   node tools/whats-new-pool.js prod-check [--pool=<file>]
+ *       #5713, the cut's read-only check (release.sh 1b-ii): exit 0 when the pool records what Mac prod serves, 3 when
+ *       prod is newer (build again and commit the pool), 4 when prod cannot be read. Writes nothing.
  *   node tools/whats-new-pool.js shown <version> --promoted [--pool=<file>] (--from-history --ref=<frozen sha> | --from=<file>)
  *       after <version> is PROMOTED to prod: every pool entry whose title is in that version's What's New becomes
  *       shown (shownIn <version>), and lastProd becomes <version>. Run it from the promote, not the cut: --promoted is
@@ -101,6 +111,95 @@ function fromHistory(version, root, ref) {
   return obj && obj.version === version ? obj : null;
 }
 
+/**
+ * Mark what Mac PROD version `version` showed (shownObj, its What's New) as shown, in place. { ok, marked } or
+ * { ok: false, because }. Refuses, marking nothing, for another version's file, a version older than the recorded prod,
+ * or a shown title the pool does not have. Shared by `shown` and the #5713 sync before a build.
+ */
+function markShown(pool, version, shownObj, from) {
+  if (!shownObj || shownObj.version !== version || !Array.isArray(shownObj.highlights)) {
+    return { ok: false, because: from + ' is not the What\'s New of ' + version + '; nothing marked' };
+  }
+  if (pool.lastProd && newerFirst(version, pool.lastProd) > 0) {   // > 0: lastProd is the newer of the two
+    return { ok: false, because: 'the pool already records prod ' + pool.lastProd + ', newer than ' + version + '; nothing marked' };
+  }
+  // Every highlight prod showed must be found in the pool, or a reworded one would stay pending and show again.
+  const byTitle = new Set(pool.items.map((it) => it.title));
+  const unmatched = shownObj.highlights.map((h) => h.title).filter((t) => !byTitle.has(t));
+  if (unmatched.length) {
+    return { ok: false, because: 'these highlights of ' + version + ' are not in the pool (reworded after the build?): '
+      + unmatched.map((t) => '"' + t + '"').join(', ') + '. Make the pool titles match, then run this again; nothing marked' };
+  }
+  const titles = new Set(shownObj.highlights.map((h) => h.title));
+  let marked = 0;
+  for (const it of pool.items) {
+    // Review 9: the pool tracks MAC prod, and the Mac never shows a highlight tagged for other platforms only, so a
+    // Mac promote leaves it pending for the platform that has not shown it yet.
+    const onMac = !Array.isArray(it.platforms) || !it.platforms.length || it.platforms.includes('mac');
+    if (titles.has(it.title) && it.status === 'pending' && onMac) { it.status = 'shown'; it.shownIn = version; marked++; }
+  }
+  pool.lastProd = version;
+  return { ok: true, marked };
+}
+
+function writePool(pool, poolFile) {
+  // Temp file then rename: a crash mid-write must not truncate the only record of what prod showed.
+  const tmpFile = poolFile + '.tmp-' + process.pid;
+  try {
+    fs.writeFileSync(tmpFile, JSON.stringify(pool, null, 2) + '\n');
+    fs.renameSync(tmpFile, poolFile);
+  } finally { fs.rmSync(tmpFile, { force: true }); }
+}
+
+/* #5713: what Mac PROD serves, read from the site itself: the prod pointer names the version and its manifest, and
+   the manifest names the app commit that build was cut from (the cut's frozen sha). KOSMOS_PROD_POINTER_URL points
+   elsewhere for a test (curl reads file:// too). { ok, version, commit } or { ok: false, because }. */
+const PROD_POINTER_URL = 'https://installkosmos.com/dist/latest.json';
+function servedProd(env = process.env) {
+  const { execFileSync } = require('node:child_process');
+  const url = env.KOSMOS_PROD_POINTER_URL || PROD_POINTER_URL;
+  const get = (u) => JSON.parse(execFileSync('curl', ['-sfL', '--max-time', '20', u], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 16 << 20 }));
+  let ptr;
+  try { ptr = get(url); } catch { return { ok: false, because: 'could not read what prod serves (' + url + ')' }; }
+  if (!ptr || typeof ptr.version !== 'string' || !/^\d+\.\d+\.\d+$/.test(ptr.version) || typeof ptr.manifest !== 'string' || /[/\\]|\.\./.test(ptr.manifest)) {
+    return { ok: false, because: 'the prod pointer (' + url + ') names no version and manifest we can read' };
+  }
+  const mUrl = url.replace(/[^/]*$/, '') + ptr.manifest;
+  let man;
+  try { man = get(mUrl); } catch { return { ok: false, because: 'could not read prod\'s manifest (' + mUrl + ')' }; }
+  const commit = man && man.app && typeof man.app.commit === 'string' && /^[0-9a-f]{7,40}$/.test(man.app.commit) ? man.app.commit : null;
+  if (!commit) return { ok: false, because: 'prod\'s manifest (' + mUrl + ') names no app commit' };
+  return { ok: true, version: ptr.version, commit };
+}
+
+/* #5713: before a build, bring the pool up to what Mac PROD has shown, so a promote needs no hand step: if prod serves a
+   version newer than the pool's lastProd, its highlights (read at that build's own commit) are marked shown and the
+   pool is written. Refuses, writing nothing, when that cannot be done exactly. { ok, note } or { ok: false, because }. */
+function syncWithProd(pool, poolFile, env = process.env, root = ROOT) {
+  const served = servedProd(env);
+  if (!served.ok) return { ok: false, because: served.because + '. Build again when the site answers, or pass --offline and run shown by hand after the next prod promote' };
+  if (pool.lastProd && newerFirst(served.version, pool.lastProd) >= 0) {
+    return { ok: true, note: 'prod serves ' + served.version + '; the pool already records prod ' + pool.lastProd };
+  }
+  const obj = fromHistory(served.version, root, served.commit);
+  if (!obj) {
+    return { ok: false, because: 'prod serves ' + served.version + ' (cut from ' + served.commit + '), but this checkout has no What\'s New for it at that commit.'
+      + ' git fetch, then build again; or, if ' + served.version + ' shipped with no highlights (a cut with KOSMOS_CUT_NO_WHATS_NEW=1), record it with'
+      + ' node tools/whats-new-pool.js shown ' + served.version + ' --promoted --none' };
+  }
+  const before = pool.lastProd || null;
+  const r = markShown(pool, served.version, obj, 'the What\'s New at ' + served.commit);
+  if (!r.ok) return { ok: false, because: 'prod serves ' + served.version + ', and recording what it showed failed: ' + r.because };
+  writePool(pool, poolFile);
+  /* Review 1: only the version prod serves NOW can be read here; one promoted in between (two promotes before a build)
+     is not, so the note says how to record it. */
+  return { ok: true, wrote: served.version, note: 'prod serves ' + served.version + ': ' + r.marked + ' highlight(s) marked shown there'
+    + (r.marked === 0 ? ' (every one was already recorded, or is Windows-only)' : '')
+    + ', and the pool now records it (commit release/whats-new-pool.json with the build)'
+    + (before ? '. If a version between ' + before + ' and ' + served.version + ' also reached prod, record it with: node tools/whats-new-pool.js shown <that version> --promoted --from-history --ref=<its commit>' : '')
+    + (env.KOSMOS_PROD_POINTER_URL ? ' [prod read from ' + env.KOSMOS_PROD_POINTER_URL + ']' : '') };
+}
+
 function opt(args, name, dflt) {
   const a = args.find((x) => x.startsWith('--' + name + '='));
   return a ? a.slice(name.length + 3) : dflt;
@@ -109,12 +208,28 @@ function opt(args, name, dflt) {
 function main(argv) {
   const whatsnew = require('../engine/whatsnew');
   // Only --name=value flags this tool knows: a typo (`--outt=`) or `--max 4` must not silently do something else.
-  const unknown = argv.filter((a) => a.startsWith('--') && !/^--(max|pool|out|from|ref)=./.test(a) && a !== '--promoted' && a !== '--from-history');
+  const unknown = argv.filter((a) => a.startsWith('--') && !/^--(max|pool|out|from|ref)=./.test(a) && a !== '--promoted' && a !== '--from-history' && a !== '--offline' && a !== '--none');
   if (unknown.length) {
-    process.stderr.write('unknown or malformed option(s): ' + unknown.join(' ') + ' (use --max=N, --pool=FILE, --out=FILE, --from=FILE, --from-history, --ref=COMMIT, --promoted)\n');
+    process.stderr.write('unknown or malformed option(s): ' + unknown.join(' ') + ' (use --max=N, --pool=FILE, --out=FILE, --from=FILE, --from-history, --ref=COMMIT, --promoted, --offline)\n');
     return 2;
   }
   const positional = argv.filter((a) => !a.startsWith('--'));
+  /* #5713 review 1: `prod-check` is the cut's read-only check (release.sh 1b-ii): 0 when the pool records what Mac prod
+     serves (or newer), 3 when prod is newer (a promote since the last build: build again and commit the pool),
+     4 when prod cannot be read. Writes nothing. */
+  if (positional.length === 1 && positional[0] === 'prod-check') {
+    const pool = readPool(opt(argv, 'pool', POOL));
+    const served = servedProd();
+    if (!served.ok) { process.stderr.write(served.because + '\n'); return 4; }
+    if (pool.lastProd && newerFirst(served.version, pool.lastProd) >= 0) {
+      process.stdout.write('the pool records prod ' + pool.lastProd + '; prod serves ' + served.version + '\n');
+      return 0;
+    }
+    process.stderr.write('prod serves ' + served.version + ' but the pool records ' + (pool.lastProd || 'no prod release') + ': its highlights are not'
+      + ' recorded as shown, so this What\'s New may show them again. Run node tools/whats-new-pool.js build <version> and commit'
+      + ' release/whats-new-pool.json and web/whats-new.json to main, then cut again\n');
+    return 3;
+  }
   const [cmd, version] = positional;
   if (positional.length !== 2 || !['build', 'shown'].includes(cmd) || !version || !whatsnew.VERSION_RE.test(version)) {
     process.stderr.write('usage: node tools/whats-new-pool.js build|shown <version like 0.7.36> [--max=5] [--pool=<file>] [--out=<file>] [--promoted] [--from-history --ref=<frozen sha> | --from=<file>]\n');
@@ -123,36 +238,47 @@ function main(argv) {
   const poolFile = opt(argv, 'pool', POOL);
   const pool = readPool(poolFile);
   if (cmd === 'build') {
+    /* #5713: first, what Mac prod has already shown leaves the eligible set (no hand step after a promote). --offline
+       skips it on purpose, and says so. */
+    // Review 1: usage first, so a typo never leaves a synced pool behind a refusal.
+    const max = Number(opt(argv, 'max', String(whatsnew.MAX_HIGHLIGHTS)));
+    if (!Number.isInteger(max) || max < 1 || max > whatsnew.MAX_HIGHLIGHTS) {
+      process.stderr.write('--max must be 1 to ' + whatsnew.MAX_HIGHLIGHTS + '\n');
+      return 2;
+    }
+    let syncNote = '';
+    let synced = null;
+    if (argv.includes('--offline')) syncNote = 'Built --offline: the pool was not checked against what prod serves.';
+    else {
+      const sync = syncWithProd(pool, poolFile);
+      if (!sync.ok) { process.stderr.write(sync.because + '; nothing written\n'); return 3; }
+      syncNote = sync.note[0].toUpperCase() + sync.note.slice(1) + '.';
+      synced = sync.wrote || null;
+    }
+    /* Review 1: a refusal AFTER the sync wrote the pool says so, or the next build would report "already records"
+       and the pool's change would never be committed. */
+    const refuse = (msg, code) => {
+      process.stderr.write(msg + (synced ? ' (The pool was already updated to record prod ' + synced + ': commit release/whats-new-pool.json to main.)' : '') + '\n');
+      return code;
+    };
     // Every pending item must be one the window can show, checked now rather than the day it reaches the top 5.
     // (Only on build: a malformed pending item must not stop `shown` recording what prod showed.)
     for (const it of pool.items.filter((i) => i.status === 'pending')) {
       const h = { icon: it.icon, title: it.title, line: it.line };
       if (Array.isArray(it.platforms) && it.platforms.length) h.platforms = it.platforms;   // as choose() does
       const bad = whatsnew.problems({ version, highlights: [h] }, version);
-      if (bad.length) {
-        process.stderr.write('the pool item "' + it.title + '" is not one the window can show: ' + bad.join('; ') + '\n');
-        return 3;
-      }
-    }
-    const max = Number(opt(argv, 'max', String(whatsnew.MAX_HIGHLIGHTS)));
-    if (!Number.isInteger(max) || max < 1 || max > whatsnew.MAX_HIGHLIGHTS) {
-      process.stderr.write('--max must be 1 to ' + whatsnew.MAX_HIGHLIGHTS + '\n');
-      return 2;
+      if (bad.length) return refuse('the pool item "' + it.title + '" is not one the window can show: ' + bad.join('; '), 3);
     }
     // A What's New is for a version AFTER the last prod release (the window shows what is new since it).
     if (pool.lastProd && newerFirst(version, pool.lastProd) >= 0) {
-      process.stderr.write(version + ' is not newer than the last PROD release the pool records (' + pool.lastProd + '); nothing written\n');
-      return 3;
+      return refuse(version + ' is not newer than the last PROD release the pool records (' + pool.lastProd + '); nothing written', 3);
     }
     const obj = { version, highlights: choose(pool, max) };
     const bad = whatsnew.problems(obj, version);
     // The cut also checks each platform has a highlight (release.sh --platform=mac; the Windows build --platform=windows).
     const per = whatsnew.countsByPlatform(obj);
     for (const p of whatsnew.PLATFORMS) if (!per[p]) bad.push('no highlight for ' + p + ' (every chosen one is tagged for another platform)');
-    if (bad.length) {
-      process.stderr.write('the pool cannot make a What\'s New for ' + version + ':\n' + bad.map((b) => '  - ' + b).join('\n') + '\n');
-      return 3;
-    }
+    if (bad.length) return refuse('the pool cannot make a What\'s New for ' + version + ':\n' + bad.map((b) => '  - ' + b).join('\n'), 3);
     const out = opt(argv, 'out', whatsnew.FILE);
     const tmpOut = out + '.tmp-' + process.pid;
     try {
@@ -162,10 +288,7 @@ function main(argv) {
     const rel = path.relative(process.cwd(), out);
     process.stdout.write((rel.startsWith('..') ? out : rel) + ': ' + obj.highlights.length + ' highlight(s) for ' + version
       + ':\n' + obj.highlights.map((h) => '  - ' + h.title).join('\n') + '\n'
-      + 'The pool says the last PROD release was ' + (pool.lastProd || 'not recorded') + '. If a newer version reached prod, first'
-      + ' run, ON an up-to-date MAIN (main\'s pool, never a release checkout\'s):'
-      + ' node tools/whats-new-pool.js shown <that version> --promoted --from-history --ref=<its cut\'s frozen sha>, then commit release/whats-new-pool.json to main.'
-      + ' Otherwise prod users see its highlights again.\n'
+      + syncNote + '\n'
       + 'Eligible means not yet ANNOUNCED to PROD users: a prod user may already have a feature listed here (it shipped in an\n'
       + 'earlier prod build whose window did not name it) and is being told about it now, as Josh asked on #5711.\n'
       + 'Edit titles and lines in release/whats-new-pool.json and build again, never in the built file: `shown` matches by title.\n');
@@ -176,6 +299,19 @@ function main(argv) {
     process.stderr.write('shown retires highlights for good: run it only after ' + version + ' is PROMOTED to prod, and say so with'
       + ' --promoted. Nothing marked.\n');
     return 2;
+  }
+  /* #5713 review 2: a version that reached prod with NO What's New (cut with KOSMOS_CUT_NO_WHATS_NEW=1) has nothing to read
+     anywhere, so it is recorded as prod with nothing marked, or lastProd could never pass it. */
+  if (argv.includes('--none')) {
+    if (argv.includes('--from-history') || opt(argv, 'from', null) !== null || opt(argv, 'ref', null) !== null) {
+      process.stderr.write('--none records a prod version that showed no highlights; it takes no --from, --from-history or --ref. Nothing marked\n');
+      return 2;
+    }
+    const r = markShown(pool, version, { version, highlights: [] }, 'no What\'s New');
+    if (!r.ok) { process.stderr.write(r.because + '\n'); return 3; }
+    writePool(pool, poolFile);
+    process.stdout.write('prod ' + version + ' recorded with no highlights shown\n');
+    return 0;
   }
   const fromHist = argv.includes('--from-history');
   if (fromHist && opt(argv, 'from', null) !== null) {
@@ -195,37 +331,10 @@ function main(argv) {
   }
   const from = fromHist ? 'git history at ' + opt(argv, 'ref', '') : opt(argv, 'from', whatsnew.FILE);
   const shownObj = fromHist ? fromHistory(version, ROOT, opt(argv, 'ref', '')) : JSON.parse(fs.readFileSync(from, 'utf8'));
-  if (!shownObj || shownObj.version !== version || !Array.isArray(shownObj.highlights)) {
-    process.stderr.write(from + ' is not the What\'s New of ' + version + '; nothing marked\n');
-    return 3;
-  }
-  if (pool.lastProd && newerFirst(version, pool.lastProd) > 0) {   // > 0: lastProd is the newer of the two
-    process.stderr.write('the pool already records prod ' + pool.lastProd + ', newer than ' + version + '; nothing marked\n');
-    return 3;
-  }
-  // Every highlight prod showed must be found in the pool, or a reworded one would stay pending and show again.
-  const byTitle = new Set(pool.items.map((it) => it.title));
-  const unmatched = shownObj.highlights.map((h) => h.title).filter((t) => !byTitle.has(t));
-  if (unmatched.length) {
-    process.stderr.write('these highlights of ' + version + ' are not in the pool (reworded after the build?): '
-      + unmatched.map((t) => '"' + t + '"').join(', ') + '. Make the pool titles match, then run this again; nothing marked\n');
-    return 3;
-  }
-  const titles = new Set(shownObj.highlights.map((h) => h.title));
-  let marked = 0;
-  for (const it of pool.items) {
-    // Review 9: the pool tracks MAC prod, and the Mac never shows a highlight tagged for other platforms only, so a
-    // Mac promote leaves it pending for the platform that has not shown it yet.
-    const onMac = !Array.isArray(it.platforms) || !it.platforms.length || it.platforms.includes('mac');
-    if (titles.has(it.title) && it.status === 'pending' && onMac) { it.status = 'shown'; it.shownIn = version; marked++; }
-  }
-  pool.lastProd = version;
-  // Temp file then rename: a crash mid-write must not truncate the only record of what prod showed.
-  const tmpFile = poolFile + '.tmp-' + process.pid;
-  try {
-    fs.writeFileSync(tmpFile, JSON.stringify(pool, null, 2) + '\n');
-    fs.renameSync(tmpFile, poolFile);
-  } finally { fs.rmSync(tmpFile, { force: true }); }
+  const r = markShown(pool, version, shownObj, from);
+  if (!r.ok) { process.stderr.write(r.because + '\n'); return 3; }
+  const marked = r.marked;
+  writePool(pool, poolFile);
   process.stdout.write(marked + ' highlight(s) marked shown in prod ' + version + ' (read from ' + from + ')'
     + (marked === 0 ? ': every one was already recorded (or is Windows-only)' : '') + '\n');
   return 0;
@@ -239,4 +348,4 @@ if (require.main === module) {
   }
   process.exit(code);
 }
-module.exports = { main, choose, readPool, newerFirst, fromHistory };
+module.exports = { main, choose, readPool, newerFirst, fromHistory, markShown, servedProd, syncWithProd, PROD_POINTER_URL };

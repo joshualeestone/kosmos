@@ -695,6 +695,16 @@ if [ "${KOSMOS_CUT_NO_WHATS_NEW:-}" = "1" ]; then
   whats_new_optout_note "$REPO"
 else
   node "$REPO/tools/whats-new-check.js" "$V" "$REPO/web/whats-new.json" --platform=mac || exit 1
+  # #5713: the pool must record what Mac PROD serves, or this What's New can re-offer highlights prod already showed (a
+  # promote since the last build, or a build made --offline). Read-only; refused when prod is newer, told (never
+  # refused) when prod cannot be read, as a cut that cannot reach the site has bigger problems later anyway. A broken
+  # pool or tool refuses.
+  _pc=0; node "$REPO/tools/whats-new-pool.js" prod-check --pool="$REPO/release/whats-new-pool.json" || _pc=$?
+  case "$_pc" in
+    0) ;;
+    4) echo "NOTE: could not read what prod serves, so the What's New pool was not checked against it; the cut goes on." ;;
+    *) exit 1 ;;   # 3: prod is newer than the pool records; anything else: the pool or the tool is broken (review 2)
+  esac
 fi
 
 step "== 1c. the signing key answers, before anything is bumped or built (#3579) =="

@@ -500,6 +500,12 @@ function git_sandbox(version, { diverge = 'none', whatsNewFor = null } = {}) {
      the sandbox carries both and a committed highlights file for the version being cut, so the arms
      past step 1 exercise that check in place rather than dying on a missing module. */
   fs.copyFileSync(path.join(__dirname, 'tools', 'whats-new-check.js'), path.join(dir, 'tools', 'whats-new-check.js'));
+  /* #5713: step 1b-ii also runs tools/whats-new-pool.js prod-check against what prod serves. The sandbox carries the tool
+     and a pool that records prod as this base version, and the site dir (below) serves a prod pointer and manifest for
+     it, read through KOSMOS_PROD_POINTER_URL as a file:// URL: no network, and the check passes in place. */
+  fs.copyFileSync(path.join(__dirname, 'tools', 'whats-new-pool.js'), path.join(dir, 'tools', 'whats-new-pool.js'));
+  fs.mkdirSync(path.join(dir, 'release'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'release', 'whats-new-pool.json'), JSON.stringify({ lastProd: version, items: [] }));
   fs.mkdirSync(path.join(dir, 'engine'), { recursive: true });
   fs.copyFileSync(path.join(__dirname, 'engine', 'whatsnew.js'), path.join(dir, 'engine', 'whatsnew.js'));
   /* #4160: step 1e runs browser-checks-quarantine-guard.test.js against docs/browser-checks, so the
@@ -524,6 +530,9 @@ function git_sandbox(version, { diverge = 'none', whatsNewFor = null } = {}) {
      that has nothing to do with the guard under test. */
   const site = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-gitgate-site-'));
   fs.mkdirSync(path.join(site, 'dist'), { recursive: true });
+  // #5713: the prod pointer step 1b-ii's prod-check reads (see the pool above).
+  fs.writeFileSync(path.join(site, 'dist', 'latest.json'), JSON.stringify({ version, manifest: 'kosmos-' + version + '-arm64.manifest.json' }));
+  fs.writeFileSync(path.join(site, 'dist', 'kosmos-' + version + '-arm64.manifest.json'), JSON.stringify({ version, app: { commit: 'a'.repeat(40) } }));
 
   /* #1455: mirror the real repo's ignore of the pending entry file, committed BEFORE
      the base commit so a later fixture write leaves the tree clean. Without it the
@@ -652,6 +661,7 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending 
       KOSMOS_FUTURE_BOUND: undefined,
       HOME: home,
       KOSMOS_SITE: site,
+      KOSMOS_PROD_POINTER_URL: 'file://' + path.join(site, 'dist', 'latest.json'),   // #5713: never the live site
       KOSMOS_HARNESS_IGNORE_CUT: '1',
       /* #3619: and the other direction. release.sh also refuses while an install harness
          (tools/test-install.sh) runs anywhere on the Mac, and tools/test-cut-guard.sh starts
