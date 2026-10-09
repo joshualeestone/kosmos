@@ -1096,10 +1096,10 @@ function ruleTarget(r, platform = process.platform, home = null) {
   if (m[1] === '//') return rulePath(m[2], platform);
   return home ? path.join(home, m[2]) : null;
 }
-/* The paths THIS AGENT'S settings file sends to the profile, counted per clause as the profile is likely built (review 5).
-   Review 11: the person's user-level settings files (~/.claude, ~/.claude-<label>) also reach it and are not counted
-   here (which one an agent reads is its account's; the open card for it is #5668). Rule targets are the guard's '//abs' spelling
-   and the person's '~/' one (against home); a person's other spellings (a relative or a match-anywhere pattern) are not counted, so the count
+/* The paths the given settings lists send to the profile, counted per clause as the profile is likely built (review 5).
+   #5668: its caller passes the agent's settings.json merged with the other files that reach the same profile (the
+   account's settings.json, the agent folder's settings.local.json, the managed settings file). Rule targets are the
+   guard's '//abs' spelling and the person's '~/' one (against home); a person's other spellings (a relative or a match-anywhere pattern) are not counted, so the count
    can be low for them (review 15). The read clause (denyRead
    and the Read rule targets) and the write clause (denyWrite and the Edit rule targets), each path once within its
    clause, so a path in both is paid for twice. Per clause: their raw length, and their distinct prefixes (sorted, each
@@ -1330,8 +1330,12 @@ function tokenOnlySettingsRules(dir, deps = {}) {
 const GUARD_STATE_DIR = 'token-only-guard';
 function guardStateDir(deps = {}) { return path.join(deps.dataRoot || store.ROOT, GUARD_STATE_DIR); }
 function guardStateFileFor(agentName, deps) { return path.join(guardStateDir(deps), encodeURIComponent(agentName) + '.json'); }
+// The one test of a usable line (review 8), for the board's read and for the board start's replace alike.
+function guardLineOf(text) {
+  try { const j = JSON.parse(text); return j && typeof j === 'object' && !Array.isArray(j) && typeof j.ok === 'boolean' ? j : null; } catch { return null; }
+}
 function readableGuardLine(file) {
-  try { const j = JSON.parse(fs.readFileSync(file, 'utf8')); return !!(j && typeof j === 'object' && !Array.isArray(j) && typeof j.ok === 'boolean'); } catch { return false; }
+  try { return guardLineOf(fs.readFileSync(file, 'utf8')) !== null; } catch { return false; }
 }
 function readGuardState(deps = {}) {
   const out = {};
@@ -1342,8 +1346,8 @@ function readGuardState(deps = {}) {
     let name;
     try { name = decodeURIComponent(f.slice(0, -5)); } catch { continue; }
     try {
-      const j = JSON.parse(fs.readFileSync(path.join(guardStateDir(deps), f), 'utf8'));
-      if (j && typeof j === 'object' && !Array.isArray(j) && typeof j.ok === 'boolean') out[name] = j;
+      const j = guardLineOf(fs.readFileSync(path.join(guardStateDir(deps), f), 'utf8'));
+      if (j) out[name] = j;
     } catch { /* unreadable: as if never recorded */ }
   }
   return out;
@@ -1385,7 +1389,9 @@ function recordGuardState(agentName, r, deps = {}) {
            cannot be read (cut off by a crash) is replaced, or it would hide every later board start's reading. */
         try { fs.linkSync(tmp, file); } catch (e) {
           if (e && e.code !== 'EEXIST') {
-            // No hard links on this filesystem (review 7): a plain rename, but only where there is no line.
+            /* No hard links on this filesystem (review 7): a plain rename, but only where there is no line. Residual (review
+               8): a launch renaming in between that check and this rename is written over; the same microsecond window as
+               below, and only where the filesystem refuses hard links (APFS does not). */
             if (!fs.existsSync(file)) fs.renameSync(tmp, file);
           } else {
             /* Unreadable: remove it and link again, still exclusive (review 6). Only that agent's file is read, and it is

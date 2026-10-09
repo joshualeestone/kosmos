@@ -89,3 +89,9 @@ For an agent listed token-only, its page shows a notice when the last guard run 
 - **Without hard links** (a filesystem that refuses them), a board start falls back to a rename where there is no line, rather than recording nothing.
 - **Windows, decided:** the guard returns "not shown to hold yet" on Windows, so every token-only agent's page there shows the "not complete" notice from the first board start. That is honest: Kosmos does not claim the guard on Windows. To tell Homer on #5664 when this merges.
 - The design-shots step is struck; Decided explains why.
+
+## Review 8 (Sonnet) and what changed
+- The comment above `sandboxDenySize` (written for #5663) said the user-level files were not counted and pointed at this card. Reworded: its caller passes the merged lists.
+- One test of a usable line (`guardLineOf`), shared by the board's read and the board start's replace, so they cannot drift (a loosened validator goes red).
+- The no-hard-links rename fallback names its own microsecond window in its comment; it applies only where the filesystem refuses hard links.
+- Not an issue: the agent folder's settings.local.json is a separate file, and `cleanLocalSettings` keeps its denies there, not in settings.json. So they are not already in `next.permissions.deny`, and there is no double count.
