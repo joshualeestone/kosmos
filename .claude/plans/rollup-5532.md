@@ -415,3 +415,9 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
   a persistent refusal other than words-changed or not-enrolled (a restored Mac, say) leaves the view saying it reports,
   with Review neither offered nor allowed; the way out is Leave and Join. Also kept: a review Accept the company answers
   with no pinned print records no words (review 16), so the view says "not accepted" until Accept succeeds.
+- Review 34: a print that cannot be made at all (a malformed salt or company: a bug) is said as that ("cannot report
+  yet: Kosmos could not check this computer", reportingWait 'printError', no Review), not as a read that will retry.
+  MEASURED in kosmos-relay (coordinator/src/org.rs), so not changed: a leave or undo carrying a print for a member with
+  no pinned print is accepted (print_matches returns true when nothing is pinned); and a codeless enroll that sends no
+  print UNPINS (the binding is rewritten with a fresh salt and no print), so a review's Accept that sends none rightly
+  records no salt and printPinned false.

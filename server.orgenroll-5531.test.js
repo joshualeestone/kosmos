@@ -445,6 +445,9 @@ test('#5532 rollup review 24: start() arms the rollup tick, and the joined view 
   assert.equal((await call('/api/org', { method: 'GET', headers: SCREEN })).json.reporting, true, 'a print wait under old words outlived new words');
   fs.writeFileSync(stateFile, JSON.stringify({ enrolledAs, printWaitAt: Date.now() - 1000, printWaitHash: H }));
   assert.equal((await call('/api/org', { method: 'GET', headers: SCREEN })).json.reporting, false, 'CONTROL: under these words it waits');
+  // Review 34: a wait whose print cannot be made at all gives its own reason.
+  fs.writeFileSync(stateFile, JSON.stringify({ enrolledAs, printWaitAt: Date.now() - 1000, printWaitHash: H, printWaitWhy: 'error' }));
+  assert.equal((await call('/api/org', { method: 'GET', headers: SCREEN })).json.reportingWait, 'printError');
   // Review 31: words accepted here that ask for NO reports are said as that (never "not accepted"), and a hash with no
   // words kept here says nothing more than "not reporting" (the page offers Review then).
   fs.writeFileSync(stateFile, JSON.stringify({ enrolledAs }));

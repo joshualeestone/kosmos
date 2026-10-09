@@ -421,10 +421,12 @@ async function tick(opts) {
     // Said where the joined view reads it (review 18): it must not claim this Kosmos reports while it waits for a print.
     // Tied to the words it waits under too (rollup review 32), as a failure's wait is: new words accepted start afresh.
     // Rewritten when the words changed too (rollup review 33): a note kept from other words would read as no wait.
-    if (!st.printWaitAt || st.printWaitHash !== (rec.consentHash || null)) writeState(root, Object.assign({}, st, { enrolledAs, printWaitAt: now, printWaitHash: rec.consentHash || null }));
+    // And why (rollup review 34): a read that will retry ('later') is not a print that cannot be made at all ('error').
+    const why = pf.send === 'error' ? 'error' : 'later';
+    if (!st.printWaitAt || st.printWaitHash !== (rec.consentHash || null) || st.printWaitWhy !== why) writeState(root, Object.assign({}, st, { enrolledAs, printWaitAt: now, printWaitHash: rec.consentHash || null, printWaitWhy: why }));
     return { sent: false, because: 'this computer could not be read yet' };
   }
-  if (st.printWaitAt) { delete st.printWaitAt; writeState(root, Object.assign({}, st, { enrolledAs })); }   // readable again
+  if (st.printWaitAt) { delete st.printWaitAt; delete st.printWaitWhy; writeState(root, Object.assign({}, st, { enrolledAs })); }   // readable again
   const g = await gather(o.sources);
   /* Usage leaves only under a consent that named it (review 8): a reader added to the sources later cannot turn it on
      by itself. Until the enrollment records `usageConsented` (set by the consent follow-up when the accepted words name
@@ -490,7 +492,9 @@ function waitingForPrint(root) {
   // Only this enrollment's (review 19): a note left by an earlier one does not belong to a Kosmos that joined again.
   const rec = require('./orgenroll').readEnrollment(root ? { root } : undefined);
   const enrolledAs = rec ? rec.world + '|' + ((rec.org && rec.org.id) || '') + '|' + (rec.enrolledAt || '') : null;
-  return !!st.printWaitAt && st.enrolledAs === enrolledAs && (st.printWaitHash === undefined || st.printWaitHash === ((rec && rec.consentHash) || null));
+  const waits = !!st.printWaitAt && st.enrolledAs === enrolledAs && (st.printWaitHash === undefined || st.printWaitHash === ((rec && rec.consentHash) || null));
+  // Rollup review 34: false, 'later' (a read that will retry) or 'error' (a print that cannot be made: a bug, said as such).
+  return waits ? (st.printWaitWhy === 'error' ? 'error' : 'later') : false;
 }
 
 module.exports = {

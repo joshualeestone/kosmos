@@ -408,6 +408,11 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     // offered (it is how such a Kosmos learns its company's words changed).
     const reviewWhenNoReports = await offeredWhen('noReports');
     const sayNoReports = await page.evaluate(() => document.getElementById('plus-org-say').textContent);
+    // Rollup review 34: a print that cannot be made at all: not offered Review, and said as that (never "once it has read").
+    const reviewWhenPrintError = await offeredWhen('printError');
+    const sayPrintError = await page.evaluate(() => document.getElementById('plus-org-say').textContent);
+    chk(!reviewWhenPrintError && /cannot report to your company yet/.test(sayPrintError) && !/once it has read/.test(sayPrintError),
+      'O15c a print that cannot be made is said as that, with no Review', JSON.stringify({ reviewWhenPrintError, sayPrintError }));
     const reviewWhenNoWords = await offeredWhen(null);
     chk(!reviewWhenPrintWait && reviewWhenNoReports && reviewWhenNoWords && /words ask it to report nothing/.test(sayNoReports) && !/not accepted/.test(sayNoReports),
       'O15c Review is not offered while waiting for the computer\'s identity; it is for words that ask for no reports (the way to new words), said as that', JSON.stringify({ reviewWhenPrintWait, reviewWhenNoReports, sayNoReports, reviewWhenNoWords }));

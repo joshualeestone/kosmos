@@ -260,7 +260,7 @@ test('#5532 rollup review 18: while the rollup waits for a pinned print, it says
   const src = { snapshot: () => ({ counts: {}, agents: [] }), survey: () => ({ ok: true, agents: [] }), removed: () => [], projects: () => [], linkedProject: () => false };
   cp._testRunner(() => DUMP, { platform: 'linux' });   // no print now; one was pinned
   await rollup.tick({ root, remote: co, sources: src, now: Date.UTC(2026, 9, 8, 12) });
-  assert.equal(rollup.waitingForPrint(root), true, 'the rollup waited for a print but the view would say it reports');
+  assert.equal(rollup.waitingForPrint(root), 'later', 'the rollup waited for a print but the view would say it reports');
   cp._testRunner(() => DUMP, { platform: 'darwin' });
   await rollup.tick({ root, remote: co, sources: src, now: Date.UTC(2026, 9, 8, 12, 5) });
   assert.equal(rollup.waitingForPrint(root), false, 'CONTROL: once the print can be read, it no longer says it waits');
@@ -284,7 +284,7 @@ test('#5532 rollup review 33: a print wait under new words is recorded under the
   const src = { snapshot: () => ({ counts: {}, agents: [] }), survey: () => ({ ok: true, agents: [] }), removed: () => [], projects: () => [], linkedProject: () => false };
   const T0 = Date.UTC(2026, 9, 8, 12);
   await rollup.tick({ root, remote: company(root), sources: src, now: T0 });
-  assert.equal(rollup.waitingForPrint(root), true, 'CONTROL: it waits under the first words');
+  assert.equal(rollup.waitingForPrint(root), 'later', 'CONTROL: it waits under the first words');
   // New words accepted (a review's Accept keeps the enrollment), and the print still cannot be read.
   const H2 = 'ef'.repeat(32);
   const f = path.join(root, oe.ENROLLMENT_FILE);
@@ -292,5 +292,19 @@ test('#5532 rollup review 33: a print wait under new words is recorded under the
   keep(H2);
   assert.equal(rollup.waitingForPrint(root), false, 'CONTROL: the old note does not speak for the new words');
   await rollup.tick({ root, remote: company(root), sources: src, now: T0 + 6 * 60e3 });
-  assert.equal(rollup.waitingForPrint(root), true, 'a wait under the new words was not recorded: the view would say it reports');
+  assert.equal(rollup.waitingForPrint(root), 'later', 'a wait under the new words was not recorded: the view would say it reports');
+});
+
+test('#5532 rollup review 34: a print that cannot be made at all is said as that, not as a read that will retry', async (t) => {
+  const root = sandbox(t);
+  const co = company(root);
+  await join(root, co);
+  fs.writeFileSync(path.join(root, oe.CONSENT_FILE), JSON.stringify({ order: [HASH], byHash: { [HASH]: { reports: ['agent names'], usageConsented: false } } }));
+  const f = path.join(root, oe.ENROLLMENT_FILE);
+  // A salt that is not one (a bug, never a passing read): the print cannot be made.
+  fs.writeFileSync(f, JSON.stringify(Object.assign(JSON.parse(fs.readFileSync(f, 'utf8')), { computerSalt: 'not-a-salt' })));
+  const src = { snapshot: () => ({ counts: {}, agents: [] }), survey: () => ({ ok: true, agents: [] }), removed: () => [], projects: () => [], linkedProject: () => false };
+  const tk = await rollup.tick({ root, remote: co, sources: src, now: Date.UTC(2026, 9, 8, 12) });
+  assert.equal(tk.sent, false, JSON.stringify(tk));
+  assert.equal(rollup.waitingForPrint(root), 'error', 'a print that cannot be made read as a read that will retry');
 });
