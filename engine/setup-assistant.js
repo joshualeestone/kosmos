@@ -1402,8 +1402,17 @@ function recordGuardState(agentName, r, deps = {}) {
     const file = guardStateFileFor(agentName, deps);
     const line = { ok: !!(r && r.ok), ...(r && r.because ? { because: String(r.because) } : {}), ...(r && r.warning ? { warning: String(r.warning) } : {}), at: new Date().toISOString() };
     const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.new`;
-    fs.writeFileSync(tmp, JSON.stringify(line, null, 2) + '\n', { mode: 0o600 });
+    /* #5434 slice 25: written through a descriptor and FLUSHED before either publish below (the exclusive hard link or
+       the rename), so a crash cannot leave the guard-state line at full length but zero-filled (#5431); the folder is
+       flushed after. The temp name, the exclusive link and the `.new` sweep of this folder are unchanged. */
+    const { flushOrThrow, syncDir } = require('./securewrite');
     try {
+      {
+        const fd = fs.openSync(tmp, 'w', 0o600);
+        let pending = null;
+        try { fs.writeFileSync(fd, JSON.stringify(line, null, 2) + '\n'); flushOrThrow(fd); } catch (e) { pending = e; throw e; }
+        finally { try { fs.closeSync(fd); } catch (e) { if (!pending) throw e; } }
+      }
       if (deps.exclusive) {
         /* Only when there is no line, and atomically (review 5): a hard link of the whole temp file either lands or
            fails with EEXIST, so a line another run wrote first is kept and no half-written file is left. A line that
@@ -1428,6 +1437,7 @@ function recordGuardState(agentName, r, deps = {}) {
           }
         }
       } else fs.renameSync(tmp, file);
+      syncDir(dir);   // #5434 slice 25: the link or rename itself, POSIX only, never throws
     } finally { try { fs.unlinkSync(tmp); } catch { /* renamed, or gone */ } }
   } catch (e) { process.stderr.write(`#5668: the guard state for ${agentName} could not be recorded (${(e && e.code) || e})\n`); }
 }
