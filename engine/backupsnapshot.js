@@ -24,9 +24,12 @@
  *  - A file is opened once, without following a final link and without blocking (a FIFO swapped in cannot hang the
  *    run), and the open descriptor must be a regular file with the device and inode the walk saw. (O_NOFOLLOW,
  *    O_NONBLOCK and O_NOCTTY are POSIX: where the platform lacks them, as on Windows, they are 0, and the device,
- *    inode and real-path checks below are what holds.) So what is read is
- *    the very file the walk found inside the work Kosmos, whatever was renamed or swapped in between. Its real path is
- *    then checked (inside the work Kosmos, and the deny-list again on it), and at most maxFile + 1 bytes are read.
+ *    inode and real-path checks below are what holds.) Its real path is then checked (inside the work Kosmos, naming
+ *    the same inode, and the deny-list again on it), and at most maxFile + 1 bytes are read.
+ *    KNOWN RESIDUAL: only the FINAL path component is pinned. Node has no openat or F_GETPATH, so every check resolves
+ *    the folders again; a process running as this person that keeps swapping a folder inside the work Kosmos for a link
+ *    and back can, with timing luck, have a file from outside read. Such a process can already read those files itself,
+ *    and the content scan still runs on what is read.
  *
  * Memory: sealed chunks wait in batches of at most batchBytes; one file is read whole (backupscan works on one
  * buffer), so the per-file peak is a few times maxFile (the bytes, a decoded copy, the redacted copy).
@@ -94,7 +97,7 @@ const manifestLockAt = (t) => MONDAY_EPOCH + (Math.floor((t - MONDAY_EPOCH) / WE
 const memberKeyIdOf = (pk) => crypto.createHash('sha256').update('kosmos-backup v1 member-key-id\0').update(pk).digest().subarray(0, 16).toString('hex');
 
 /** The coordinator's period label for a time: the ISO week of the Monday 00:00 UTC that starts it, "2026-W41". (The
-    coordinator falls back to "p<start>" for a time its time crate cannot hold, years past 9999; takeSnapshot refuses a
+    coordinator falls back to "p<start>" for a time its time crate cannot hold, outside years -9999 to 9999; takeSnapshot refuses a
     clock that far off before using this.) */
 function periodOf(ms) {
   const start = MONDAY_EPOCH + Math.floor((ms - MONDAY_EPOCH) / WEEK_MS) * WEEK_MS;
@@ -340,8 +343,8 @@ async function snapshotInner(input, deps, added, state, fail) {
   try { checkBackupContext(ctx); } catch (err) { return fail(err.message); }
   const t = now();
   // A Date can hold only about 275,000 years either side of 1970: past that, periodOf reads "NaN-WNaN".
-  // And no later than year 9999, past which the coordinator labels periods differently ("p<start>").
-  const usable = (x) => Number.isFinite(x) && Number.isFinite(new Date(x).getTime()) && new Date(x).getUTCFullYear() <= 9999;
+  // And within years -9999 to 9999, outside which the coordinator labels periods differently ("p<start>").
+  const usable = (x) => Number.isFinite(x) && Number.isFinite(new Date(x).getTime()) && Math.abs(new Date(x).getUTCFullYear()) <= 9999;
   if (!usable(t)) return fail('this computer\'s clock gave no usable time');
   const period = periodOf(t);
   // newPeriod, not retryLater: the same input fails again; the caller needs this period's context and naming key.
@@ -430,12 +433,14 @@ async function snapshotInner(input, deps, added, state, fail) {
       // bucket are dropped from it (stored, locked, and named by nothing until their lock ends), deliberately.
       added.clear(); state.bucket = r.bucket;
       for (const [name, key] of stored) {
-        if (pending.has(name) && !usedKeys.has(key) && !keyProblem(key, ctx) && (!owner || ownerOf(key) === owner) && Buffer.byteLength(key) <= MAX_KEY_LEN && Number.isSafeInteger(lockOf(name))) {
+        if (pending.has(name) && !usedKeys.has(key) && !keyProblem(key, ctx) && (!owner || ownerOf(key) === owner) && Buffer.byteLength(key) <= MAX_KEY_LEN && Number.isSafeInteger(lockOf(name)) && lockOf(name) >= manifestLockAt(t)) {
           added.set(name, { key, lockedUntilMs: lockOf(name), memberKeyId: mkid }); usedKeys.add(key);
         }
       }
       // staleIndex only when there was an index to drop; without one, the next run is a full snapshot anyway.
-      return fail((index.size ? 'a grant named another bucket than the index\'s: drop the index and take a full snapshot' : 'two grants in one snapshot named different buckets: take a full snapshot') + '; chunks stored under the earlier bucket in this run are not kept', Object.assign(index.size ? { staleIndex: true } : {}, spent));
+      return fail((index.size ? 'a grant named another bucket than the index\'s: drop the index and take a full snapshot' : 'two grants in one snapshot named different buckets: take a full snapshot') + '; chunks stored under the earlier bucket in this run are not kept', Object.assign(index.size ? { staleIndex: true } : {}, spent,
+        // The same answer's own signals are kept (unsure keys, a spent allowance, a retry).
+        r.unsure ? { unsure: r.unsure } : {}, r.code === 'backup_quota' ? { overAllowance: true } : {}, r.retryLater && r.code !== 'backup_quota' ? { retryLater: true } : {}));
     }
     if (r && r.bucket && !state.bucket) state.bucket = r.bucket;
     // Stored keys with no bucket named: whether or not an index set one, they cannot be checked
