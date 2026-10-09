@@ -723,3 +723,14 @@ test('#5683 r14: in a named world, the default world\'s base is not the board\'s
   assert.equal(ae.targetClass('Bash', { command: 'FOO=1 curl https://x' }, ctx()), 'network-host');
 });
 
+/* ---- review 15 ---- */
+
+test('#5683 r15: in a named world, the default world\'s own board files are still the board\'s', () => {
+  const base = '/Users/ann/Library/Application Support/Kosmos';
+  const c = ctx({ boardRoot: base + '/worlds/work/Kosmos', boardRoots: [base, base + '/worlds/work/Kosmos'],
+    agentDir: base + '/worlds/work/workers/scout', otherAgentDirs: [] });
+  assert.equal(ae.targetClass('Bash', { command: 'cat "' + base + '/board.token"' }, c), 'board-files');
+  assert.equal(ae.targetClass('Read', { file_path: base + '/worlds.json' }, c), 'board-files');
+  assert.equal(ae.targetClass('Read', { file_path: base + '/worlds/work/workers/scout/notes.txt' }, c), 'other', "the agent's own file");
+});
+
