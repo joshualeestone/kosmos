@@ -48,7 +48,7 @@ test('#4920 setup.sh writes no systemd unit of its own (one unit: piece B\'s)', 
 });
 
 test('#4920 the install snippet passes KOSMOS_HOME and the port, and says lingering or not', () => {
-  const lb = standIn(`exports.boardUnitPath = (home) => home + '/unit'; exports.loadedBoardJob = (home) => ({ ok: true, active: require('fs').existsSync(home + '/active') }); exports.installBoard = (home, port) => { require('fs').writeFileSync(${JSON.stringify(path.join(WORK, 'args'))}, JSON.stringify([home, port])); if (require('fs').existsSync(home + '/unit')) require('fs').writeFileSync(home + '/unit', 'new text'); return { ok: true, lingering: home.endsWith('L') }; };`);
+  const lb = standIn(`exports.boardUnitPath = (home) => home + '/unit'; exports.loadedBoardJob = (home) => ({ ok: true, active: require('fs').existsSync(home + '/active') }); exports.installBoard = (home, port) => { require('fs').writeFileSync(${JSON.stringify(path.join(WORK, 'args'))}, JSON.stringify([home, port])); if (require('fs').existsSync(home + '/unit')) require('fs').writeFileSync(home + '/unit', 'new text'); return { ok: true, lingering: home.endsWith('/kosmosL') }; };`);
   let r = run(installSnippet, [lb, '/home/u/kosmosL', '16180']);
   assert.equal(r.status, 0);
   assert.equal(r.stdout, 'loose lingering', 'systemd not running it: loose');

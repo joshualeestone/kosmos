@@ -48,8 +48,8 @@ test('#4356: the choice is read before anything starts, and a connect computer n
   assert.ok(read < launch.indexOf('loadBoard()'), 'the board can start before the choice is read');
   assert.match(launch, /if computerMode == \.connect \{\n[^\n]*\n\s+loadConnect\(\)\n\s+stopBoardIfRunning\(\)\n\s+\} else \{\n\s+loadBoard\(\)\n\s+\}/,
     'a connect computer starts its board, or a run computer does not');
-  assert.match(launch, /if computerMode != \.connect \{[\s\S]*startA11yTrustChecks\(\)[\s\S]*startPromptRequestWatcher\(\)\n\s+\}/,
-    'a connect computer runs the Accessibility checks and prompt watcher of a board it does not have');
+  assert.match(launch, /if computerMode != \.connect \{[\s\S]*startA11yTrustChecks\(\)[\s\S]*startPromptRequestWatcher\(\)[\s\S]*?startBoardWakeWatch\(\)\n\s+\}/,
+    'a connect computer runs the board-only startup work (Accessibility, prompt watcher, #4342 wake watch) of a board it does not have');
 });
 
 test('#4356: the choice comes from $KOSMOS_HOME/mode, the file the installer reads', () => {

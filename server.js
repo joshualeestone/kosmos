@@ -9755,7 +9755,14 @@ const server = http.createServer(async (req, res) => {
       const refused = here ? oe.leaveRefusedFor() : null;   // a retried leave refused as the last admin: said ONCE (review 21)
       const refusedUndo = refused ? oe.leaveRefusedKind() === 'undo' : false;   // an undo, not the person's leave (review 31)
       if (refused && req.method === 'GET') oe.clearLeaveRefused();
-      sendJson(res, 200, { enrolled: here, reporting: here ? oe.mayReport() : false, stoppedFor: stopped, leaveRefused: refused, leaveRefusedUndo: refusedUndo, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
+      // Rollup review 29: WHY it does not report, so the page never says "not accepted" of a Kosmos that only waits for its print.
+      const accepted = here ? oe.acceptedConsent() : null;
+      const hasWords = !!accepted && accepted.reports.length > 0;
+      const waitsForPrint = hasWords && require('./engine/orgrollup').waitingForPrint();
+      // Review 31: words accepted here that ask for no reports are said as that, never as "not accepted".
+      const why = waitsForPrint === 'error' ? 'printError' : waitsForPrint ? 'print' : (accepted && !hasWords ? 'noReports' : null);
+      sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why,   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
+       stoppedFor: stopped, leaveRefused: refused, leaveRefusedUndo: refusedUndo, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
     } catch { sendJson(res, 200, { enrolled: false, org: null, role: null, enrolledAt: null }); }
     return;
   }
@@ -9781,6 +9788,8 @@ const server = http.createServer(async (req, res) => {
               // with the enrollment. None served (or a malformed one): nothing is recorded, so mayReport fails closed
               // rather than report on words the company cannot match (consenthash review 2).
               consentHash: r.served || null,
+              consent: r.consent,   // #5532: the words shown, remembered by their hash so the rollup sends only the accepted report lines
+              computerSalt: r.salt || null,   // #5532 (v1.5): the salt the join's computer print is made with
               review: r.review === true,   // a review's Accept: a lost answer is never taken as accepted (orgreview review 1)
               orgId: r.org && typeof r.org.id === 'string' ? r.org.id : null };   // WHICH company they were for (review 37)
             r.ticket = ORG_TICKET.value;
@@ -9799,7 +9808,7 @@ const server = http.createServer(async (req, res) => {
           }
           const spent = body.accepted === true ? ORG_TICKET : null;
           if (spent) ORG_TICKET = null;   // one use
-          r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true, spent ? { consentHash: spent.consentHash, orgId: spent.orgId, review: spent.review === true } : undefined);
+          r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true, spent ? { consentHash: spent.consentHash, consent: spent.consent, orgId: spent.orgId, computerSalt: spent.computerSalt, review: spent.review === true } : undefined);
           // Not joined for a passing reason (no public code: unreachable, busy; or org_bad_world, which says "Try again"):
           // the same consent may be accepted again.
           if (spent && r && r.ok === false && (!r.code || r.code === 'org_bad_world') && !r.declined && Date.now() - spent.at <= ORG_TICKET_MS
@@ -20827,6 +20836,21 @@ function orgEnrollRefresh() {
     oe.refresh().catch(() => { /* best effort: an unreachable company changes nothing */ });
   } catch { /* best effort */ }
 }
+/** #5532: how often the work Kosmos checks whether its rollup is due (it sends daily, and on a change at most every
+    ten minutes; engine/orgrollup.js decides). */
+const ORG_ROLLUP_TICK_MS = 5 * 60 * 1000;
+let ORG_ROLLUP_RUNNING = false;
+function orgRollupTick() {
+  if (ORG_ROLLUP_RUNNING) return;   // one at a time: a slow read must not start a second send
+  // Rollup review 28: a send to the company is a real side effect, so it waits for live execution like the board's other
+  // background sweeps; a test or a board that never turned it on sends nothing, enrolled fixture or not.
+  if (!liveExecution.liveExecutionAllowed()) return;
+  try {
+    if (!require('./engine/orgenroll').isEnrolledHere()) return;   // not the work Kosmos: nothing is read or sent
+    ORG_ROLLUP_RUNNING = true;
+    require('./engine/orgrollup').tick().catch(() => { /* best effort */ }).finally(() => { ORG_ROLLUP_RUNNING = false; });
+  } catch { ORG_ROLLUP_RUNNING = false; }
+}
 function start(port = PORT) {
   snapshotWorlds();   // #5247: the worlds the gate may accept, as of now
   /* #5254: cached first pages whose PDF, project or agent is gone are removed now and hourly (engine/filepreview.js). */
@@ -20841,6 +20865,9 @@ function start(port = PORT) {
   setInterval(orgEnrollRefresh, ORG_REFRESH_MS).unref();
   // Fast only for a day: a marker that stays unclear that long (Kosmos+ switched off, say) falls back to the daily pass.
   setInterval(() => { try { const oe = require('./engine/orgenroll'); const age = oe.joinUnknownAge(); if (oe.joinUnknown() && age !== null && age < 24 * 60 * 60 * 1000) orgEnrollRefresh();   /* an unreadable time: the daily pass */ } catch { /* best effort */ } }, ORG_UNSURE_MS).unref();
+  /* #5532: the enrolled work Kosmos's rollup, a minute after start (once the refresh has answered) and then on a tick. */
+  setTimeout(orgRollupTick, 60 * 1000).unref();
+  setInterval(orgRollupTick, ORG_ROLLUP_TICK_MS).unref();
   /* #4408: what this board is running, taken now, before anything can edit the app folder under it. The
      restart module is loaded first: it is otherwise required lazily, and the button depends on it. */
   try { require('./engine/boardrestart'); } catch { /* the restart route reports its own failure */ }

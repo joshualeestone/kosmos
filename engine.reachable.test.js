@@ -44,6 +44,15 @@ const EXCUSED = {
   recordSeen: 'engine/restorerequest.js (#5536 E0.7 design v2/v2.1): the reference for recording when the unwrap service first saw a request, keyed by requestId (keyed by anything else, a second request could inherit a wait). Its caller is the unwrap service, which needs E0.1/E0.2 device keys. If E0.7 is abandoned, this goes with it.',
   signRequest: 'engine/restorerequest.js (#5536 E0.7 design v2/v2.1): the signed two-admin restore request, its canonical bytes and the unwrap service\'s release check, with fixed vectors for any other implementation of that service. Landed and tested on its own first, like E0.6\'s pure slices; its callers are the admins\' boards (signing) and the unwrap service (checking), which need E0.1/E0.2 device keys. If E0.7 is abandoned, this goes with it.',
   checkRelease: 'engine/restorerequest.js (#5536 E0.7 design v2/v2.1): the signed two-admin restore request, its canonical bytes and the unwrap service\'s release check, with fixed vectors for any other implementation of that service. Landed and tested on its own first, like E0.6\'s pure slices; its callers are the admins\' boards (signing) and the unwrap service (checking), which need E0.1/E0.2 device keys. If E0.7 is abandoned, this goes with it.',
+  namingKeyId: 'engine/backupkeys.js (#5535 E0.6, the pure half of the backup keys): member backup key pairs, the member key wrapped to the org, device or destination public key, and per-period naming keys wrapped to the member key. Landed and tested on its own first, like backupformat.js; its callers are the slice-3 walker and the key storage that E0.1/E0.2 enable. If E0.6 is abandoned, this module goes with it.',
+  newMemberKey: 'engine/backupkeys.js (#5535 E0.6, the pure half of the backup keys): member backup key pairs, the member key wrapped to the org, device or destination public key, and per-period naming keys wrapped to the member key. Landed and tested on its own first, like backupformat.js; its callers are the slice-3 walker and the key storage that E0.1/E0.2 enable. If E0.6 is abandoned, this module goes with it.',
+  newNamingKey: 'engine/backupkeys.js (#5535 E0.6, the pure half of the backup keys): member backup key pairs, the member key wrapped to the org, device or destination public key, and per-period naming keys wrapped to the member key. Landed and tested on its own first, like backupformat.js; its callers are the slice-3 walker and the key storage that E0.1/E0.2 enable. If E0.6 is abandoned, this module goes with it.',
+  wrapMemberKey: 'engine/backupkeys.js (#5535 E0.6, the pure half of the backup keys): member backup key pairs, the member key wrapped to the org, device or destination public key, and per-period naming keys wrapped to the member key. Landed and tested on its own first, like backupformat.js; its callers are the slice-3 walker and the key storage that E0.1/E0.2 enable. If E0.6 is abandoned, this module goes with it.',
+  unwrapMemberKey: 'engine/backupkeys.js (#5535 E0.6, the pure half of the backup keys): the RESTORE side, opening a wrapped member key or naming key. Its callers are restore (#5536) and the unwrap service, never the backup walker: a Mac must not unwrap a naming key to name new chunks. Landed and tested with the wrap side first, like backupformat.js. If E0.6 is abandoned, this module goes with it.',
+  wrapNamingKey: 'engine/backupkeys.js (#5535 E0.6, the pure half of the backup keys): member backup key pairs, the member key wrapped to the org, device or destination public key, and per-period naming keys wrapped to the member key. Landed and tested on its own first, like backupformat.js; its callers are the slice-3 walker and the key storage that E0.1/E0.2 enable. If E0.6 is abandoned, this module goes with it.',
+  unwrapNamingKey: 'engine/backupkeys.js (#5535 E0.6, the pure half of the backup keys): the RESTORE side, opening a wrapped member key or naming key. Its callers are restore (#5536) and the unwrap service, never the backup walker: a Mac must not unwrap a naming key to name new chunks. Landed and tested with the wrap side first, like backupformat.js. If E0.6 is abandoned, this module goes with it.',
+  memberContextBytes: 'engine/backupkeys.js (#5535 E0.6, the pure half of the backup keys): member backup key pairs, the member key wrapped to the org, device or destination public key, and per-period naming keys wrapped to the member key. Landed and tested on its own first, like backupformat.js; its callers are the slice-3 walker and the key storage that E0.1/E0.2 enable. If E0.6 is abandoned, this module goes with it.',
+  namingContextBytes: 'engine/backupkeys.js (#5535 E0.6, the pure half of the backup keys): member backup key pairs, the member key wrapped to the org, device or destination public key, and per-period naming keys wrapped to the member key. Landed and tested on its own first, like backupformat.js; its callers are the slice-3 walker and the key storage that E0.1/E0.2 enable. If E0.6 is abandoned, this module goes with it.',
   createChunker: 'engine/backupformat.js (#5535 E0.6 slice 3): the streaming form of chunkBuffer, so a file larger than memory can be backed up; its caller is the slice-3 walker, for files above a size threshold. If E0.6 is abandoned, this goes with it.',
   chunkBuffer: 'engine/backupformat.js (#5535 E0.6 slice 2, the pure half): the bytes of the Enterprise backup (chunking, sealed chunks, signed manifests). Landed and tested on its own first, as slice 1 was; its caller is slice 3, the snapshot walker. If E0.6 is abandoned, this module goes with it.',
   sealNamedChunk: 'engine/backupformat.js (#5535 E0.6 slice 2, the pure half): the bytes of the Enterprise backup (chunking, sealed chunks, signed manifests). Landed and tested on its own first, as slice 1 was; its caller is slice 3, the uploader, and it is the ONLY way the uploader seals a chunk (the name is derived from the content, so it always restores).',
@@ -264,7 +273,6 @@ const TRIAGED_5548 = {
   setIntervalMinutes: ['engine/heartbeat-setting.js', ACCESSOR + ' (a single-field setter beside the patch setter the PUT route uses, #1722)'],
   labelFor: ['engine/communityindustry.js', 'pending: slice 2 of OPEN #4375 (the public label for an owner\'s industry)'],
   HANDOFF_CHECK_FOR_SERVING_AFTER_MS: ['engine/win32handoff.js', 'mirrored by tools/windows/KosmosLauncher.cs (CheckForServingAfterMs), pinned equal by tools.win-launcher-native.test.js'],
-  costOf: ['engine/usageprice.js', 'pending: #5532\'s rollup sender (its next piece) is the first caller; merged in #5556 after this guard, nothing calls it yet by design, and usageprice.test.js pins it to the page\'s usageApiCost'],
 };
 
 const engineDir = path.join(__dirname, 'engine');
@@ -425,11 +433,7 @@ const engineModules = engineFiles.map((f) => ({ rel: path.posix.join('engine', f
 
 /* EXCUSED is by name (an excuse covers the name wherever it is exported); SEAMS_5548 and TRIAGED_5548 are by file, so a pending
    name cannot cover a new orphan of the same name in another module (#5548 review 1). */
-/* #5532 (E0.3, contract v1.5): the computer print landed and tested on its own first. Its first caller is the enroll,
-   leave and rollup wiring after #5531 merges. By file, and armed: the test below fails once it has a caller, so this
-   excuse cannot outlive its reason. */
-const FIRST_CALLER_5532 = { printFor: 'engine/computerprint.js' };
-const skipped = (n, rel) => Boolean(EXCUSED[n]) || SEAMS_5548[n] === rel || (TRIAGED_5548[n] && TRIAGED_5548[n][0] === rel) || FIRST_CALLER_5532[n] === rel;
+const skipped = (n, rel) => Boolean(EXCUSED[n]) || SEAMS_5548[n] === rel || (TRIAGED_5548[n] && TRIAGED_5548[n][0] === rel);
 
 test('no engine export is tested, excused by nobody, and reachable from nowhere', () => {
   const orphans = findOrphans(engineModules, sources, testBlob, skipped);
@@ -513,15 +517,6 @@ test('#5548 self-test: a one-line exports block, a comment mention and a string 
   assert.deepEqual(findOrphans([{ rel: 'engine/t.js', text: tre }], [{ f: 'server.js', text: 'user()' }], 'viaTemplate() user()', () => false), []);
   const multi2 = 'function lonelyExport() {}\nmodule.exports = {\n  lonelyExport, // lonelyExport\n};\n';
   assert.deepEqual(findOrphans([{ rel: 'engine/m.js', text: multi2 }], [], 'lonelyExport()', () => false), ['engine/m.js exports lonelyExport']);
-});
-
-test('#5532: printFor is excused only until its first caller lands', () => {
-  const without = (n, rel) => Boolean(EXCUSED[n]) || SEAMS_5548[n] === rel || (TRIAGED_5548[n] && TRIAGED_5548[n][0] === rel);
-  const still = new Set(findOrphans(engineModules, sources, testBlob, without));
-  for (const [n, file] of Object.entries(FIRST_CALLER_5532)) {
-    assert.ok(still.has(file + ' exports ' + n), n + ' has a caller now: remove it from FIRST_CALLER_5532');
-  }
-  assert.equal(skipped('printFor', 'engine/some-other-module.js'), false, 'the excuse must not cover another module');
 });
 
 test('#5548 slice 2 review 1: a bin/ comment naming an export does not count as a call', () => {

@@ -140,6 +140,48 @@ _kosmos_supervisor_tmux() {
   fi
   return 0
 }
+# #5516: a PATH with only its absolute entries (empty and relative ones mean "the current folder"), split on ':' alone
+# and never globbed; the system default when nothing absolute is left. Tested by engine/launchpath-5516.test.js.
+# Review 4: given the agent's folder as $2, an entry that is that folder, inside it or above it (as written, or once
+# resolved) goes too: the guard cannot deny those (it would deny the agent's own folder), so they must not be on the
+# PATH at all. _phys_dir: an existing folder's spelling with links resolved (empty if it cannot be entered).
+_phys_dir() {
+  cd -P "$1" 2>/dev/null && pwd || true
+}
+_path_left_out() { printf '#5516: the PATH entry %s was left out of the agent pane (%s)\n' "$1" "$2" >&2; }
+abs_path_only() {
+  local _out="" _e _r _w _own="" _ownp="" _ownw="" _old_ifs="$IFS" _noglob=""
+  case "$-" in *f*) _noglob=1 ;; esac   # review 8: put noglob back as it was
+  if [ -n "${2:-}" ]; then _own="${2%/}"; _ownp="$(_phys_dir "$_own")"; [ -n "$_ownp" ] || _ownp="$_own"; _ownp="$(printf '%s' "$_ownp" | tr '[:upper:]' '[:lower:]')"; _ownw="$(printf '%s' "$_own" | tr '[:upper:]' '[:lower:]')"; fi
+  IFS=':'; set -f
+  for _e in $1; do
+    case "$_e" in /*) ;; *) continue ;; esac
+    if [ -n "$_own" ]; then
+      # Review 22: repeated slashes are one ("///" is "/"), and every entry left out is said once in this launch's log,
+      # with why, so a tool the agent cannot find has a trace.
+      _e="$(printf '%s' "$_e" | tr -s /)"
+      # Review 6: an entry the guard cannot name exactly goes too: one with a character the permission rules read as a
+      # pattern (its file-tool rule is left out), or a . or .. segment (resolved differently here and in the guard).
+      case "$_e" in *[\*\?\[\]\(\)\{\}\!\\]*|*/./*|*/../*|*/.|*/..) _path_left_out "$_e" "its name cannot be carried by the permission rules"; continue ;; esac
+      # Review 7: a folder not made yet goes (the guard is written again at the next start, when it exists: until then
+      # it stays off this pane's PATH), and the comparison ignores letter case, as the guard does on macOS.
+      [ -d "$_e" ] || { _path_left_out "$_e" "it does not exist yet; it is added at the next start once it does"; continue; }
+      # Review 22: a folder that cannot be listed cannot be checked by the guard, which would never be whole.
+      { [ -r "$_e" ] && [ -x "$_e" ]; } || { _path_left_out "$_e" "it cannot be listed"; continue; }
+      _r="$(_phys_dir "${_e%/}")"; [ -n "$_r" ] || _r="${_e%/}"   # unresolvable: compare as written
+      _r="$(printf '%s' "$_r" | tr '[:upper:]' '[:lower:]')"
+      # Review 9: as written too (a link inside the agent folder that points out of it), against both spellings of it.
+      _w="$(printf '%s' "${_e%/}" | tr '[:upper:]' '[:lower:]')"
+      case "$_r/" in "$_ownp"/*|"$_ownw"/*) _path_left_out "$_e" "it is the agent's own folder or inside it"; continue ;; esac
+      case "$_w/" in "$_ownp"/*|"$_ownw"/*) _path_left_out "$_e" "it is the agent's own folder or inside it"; continue ;; esac
+      case "$_ownp/" in "${_r%/}"/*|"${_w%/}"/*) _path_left_out "$_e" "it holds the agent's own folder"; continue ;; esac
+      case "$_ownw/" in "${_r%/}"/*|"${_w%/}"/*) _path_left_out "$_e" "it holds the agent's own folder"; continue ;; esac
+    fi
+    _out="${_out:+$_out:}$_e"
+  done
+  [ -n "$_noglob" ] || set +f; IFS="$_old_ifs"
+  printf '%s' "${_out:-/usr/bin:/bin:/usr/sbin:/sbin}"
+}
 LOG="${5:-}"
 # The model this agent runs on, optional and NEW as of the create-agent
 # branch (2026-08-16). Empty means claude's own default. Existing plists
@@ -591,18 +633,35 @@ if [ -z "$adopt" ]; then
         # started is not run unguarded until the next board start. Unchanged guards are not rewritten. A guard that
         # cannot be written is said in this log; the launch goes on, as the switch's other failures do.
         if [ -f "$_eng/setup-assistant.js" ]; then
-          "$NODE_BIN" -e '
+          # #5516: the PATH the pane starts with (the tmux server's), with empty and relative entries removed, is given to
+          # the pane AND to the guard, so the guard covers exactly the folders the pane uses.
+          _guard_path="$("$TMUX_BIN" show-environment -g PATH 2>/dev/null || true)"
+          case "$_guard_path" in PATH=?*) _guard_path="${_guard_path#PATH=}" ;; *) _guard_path="$PATH" ;; esac
+          _guard_path="$(abs_path_only "$_guard_path" "$WORKDIR")"
+          # Review 5: only for claude, the one runner the guard covers; the others keep their own PATH line (one key).
+          [ "$RUNNER" = claude ] && PANE_ENV+=(-e "PATH=$_guard_path")
+          # Review 20: the launch-secrets base, only when there is one (never a bare /launch-secrets).
+          _ls_base="${AGENT_WORKFORCE_DATA:-${_app:-}}"
+          # Review 8: and the folders of claude and tmux, which this script starts by absolute path (from the plist);
+          # review 11: and the engine and node as THIS script spells them (the guard's own are resolved); review 13: and
+          # the launch-secrets folder the pane entry reads its names from (the same spelling prepare_secret_entry uses).
+          KOSMOS_GUARD_PANE_PATH="$_guard_path" KOSMOS_GUARD_RUN_DIRS="$(dirname "$CLAUDE"):$(dirname "$TMUX_BIN"):$_eng:$(dirname "$NODE_BIN")" KOSMOS_GUARD_CONFIG_DIRS="${_ls_base:+$_ls_base/launch-secrets}" KOSMOS_GUARD_RUN_PROGS="$CLAUDE:$TMUX_BIN:$NODE_BIN" "$NODE_BIN" -e '
             try {
               const out = require(process.argv[1]).refreshTokenOnlyGuards({ only: process.argv[2] });
               for (const u of out.unguarded) process.stderr.write("#4491: " + u.name + " is listed token-only but is NOT guarded: " + u.because + "\n");
             } catch (e) { process.stderr.write("#4491: the token-only guard could not be checked at launch: " + ((e && e.message) || e) + "\n"); }
           ' "$_eng/setup-assistant.js" "$_roster" || true
+          unset _guard_path _ls_base
         else
           echo "#4491: $_roster is listed token-only but its guard could not be checked at launch (no setup-assistant.js)" >&2
         fi
       fi
       # Kept only in this shell for Antigravity's one launch-time status report.
       _LAUNCH_TOKEN="$KOSMOS_AGENT_TOKEN"
+    elif [ -n "${_roster:-}" ]; then
+      # #5516 review 20: no token this launch, so the token-only switch, the cleaned pane PATH and the launch-time guard
+      # refresh above are all skipped. Said, so a listed agent is not launched on the board's last guard in silence.
+      echo "#5516: no sender token was minted for $_roster this launch; if it is listed token-only, its launch PATH guard was not refreshed (the board's last one stands)" >&2
     fi
     KOSMOS_AGENT_TOKEN=""
 

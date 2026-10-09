@@ -84,12 +84,28 @@ test('due: an unreadable post store (null) or a throwing read prompts nobody', (
 });
 
 test('due: tried less than 3 h ago is not tried again; 3 h ago is; PROMPTS_PER_DAY tries in 24 h stop it', () => {
+  /* #5636: ann's last post is over a day old (the daily floor), where the gap and the daily count are what stop a
+     prompt; with a post today, one prompt per post stops it first (tested below). */
+  const postTimes = (s) => ({ ann: [ago(30 * H)], bea: [ago(4 * H)] }[s] || [ago(1 * H)]);
   const book = new Map([['ann', [NOW - 2 * H]]]);
-  assert.deepEqual(ct.due(args({ book })).map((d) => d.session), ['bea']);
+  assert.deepEqual(ct.due(args({ book, postTimes })).map((d) => d.session), ['bea']);
   book.set('ann', [NOW - 3 * H]);
-  assert.deepEqual(ct.due(args({ book })).map((d) => d.session), ['ann', 'bea']);
+  assert.deepEqual(ct.due(args({ book, postTimes })).map((d) => d.session), ['ann', 'bea']);
   book.set('ann', Array.from({ length: ct.PROMPTS_PER_DAY }, (_, i) => NOW - (4 + 4 * i) * H));
-  assert.deepEqual(ct.due(args({ book })).map((d) => d.session), ['bea'], 'tried past the daily limit');
+  assert.deepEqual(ct.due(args({ book, postTimes })).map((d) => d.session), ['bea'], 'tried past the daily limit');
+});
+
+/* #5636 F7 (0.7.27 model feedback): a seat "still gets 'your last post was 3 hours ago' every few hours". With a post
+   in the last day, one prompt per post: a try since that post waits for the next post or for the day to pass. */
+test('#5636 F7: posted today and already prompted since that post -> not prompted again, even after real work', () => {
+  const only = (s) => (s === 'ann' ? [ago(8 * H)] : [ago(H)]);
+  assert.deepEqual(ct.due(args({ postTimes: only, book: new Map([['ann', [NOW - 9 * H]]]) })).map((d) => d.session), ['ann'],
+    'CONTROL: a try BEFORE the post does not stop it (it worked since, WORKED)');
+  assert.deepEqual(ct.due(args({ postTimes: only, book: new Map([['ann', [NOW - 4 * H]]]) })).map((d) => d.session), [],
+    'prompted again after a prompt it already had since its post');
+  // The day passing brings the floor back: the same try, with the post now over a day old.
+  assert.deepEqual(ct.due(args({ postTimes: (s) => (s === 'ann' ? [ago(25 * H)] : [ago(H)]), book: new Map([['ann', [NOW - 4 * H]]]) })).map((d) => d.session), ['ann'],
+    'the daily floor no longer prompts after a day');
 });
 
 test('due: just idle (under replynudge.IDLE_FIRST_MS by its own idle report) is not due; idle long enough is', () => {
@@ -344,6 +360,8 @@ test('#5296 due: the daily floor stands: no post in 24 h is due with no work at 
 
 test('#5296 tickOnce: the reported loop ends: a prompt that wakes an idle agent does not make it due again', () => {
   // ann posted 7 h ago, was prompted 4 h ago (tick book), woke for a minute and went idle; now 4 h on, she is not due.
+  // #5636: the one-prompt-per-post gate (a try since the post) now stops her before workedSince is asked; the woken turn
+  // not counting as work stays covered by the workedSince tests above and the review 1 test below.
   const book = new Map([['ann', [NOW - 4 * H]]]);
   const hist = () => [{ state: 'idle', at: NOW - 7 * H + 2 * MIN }, { state: 'working', at: NOW - 4 * H + MIN }, { state: 'idle', at: NOW - 4 * H + 2 * MIN }];
   const { sent, o } = tickArgs({ roster: () => [card('ann')], book, postTimes: () => [ago(7 * H)], history: hist, idleSeen: new Set(['ann']) });

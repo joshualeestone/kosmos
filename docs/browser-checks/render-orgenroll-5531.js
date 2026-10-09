@@ -64,7 +64,7 @@ function harness() {
       if (u.endsWith('/api/org') && window.__orgFail) throw new Error('offline');
       if (u.endsWith('/api/org') && window.__orgState) return enc(window.__orgState);
       if (u.endsWith('/api/org')) return enc(window.__refused
-        ? { enrolled: true, reporting: window.__notReporting !== true, stoppedFor: null, leaveRefused: window.__refused, leaveRefusedUndo: window.__refusedUndo === true, org: { name: 'Acme', slug: 'acme' }, role: 'admin', enrolledAt: '2026-10-07T00:00:00.000Z' }
+        ? { enrolled: true, reporting: window.__notReporting !== true && window.__printWait !== true, reportingWait: window.__printWait === true ? 'print' : null, stoppedFor: null, leaveRefused: window.__refused, leaveRefusedUndo: window.__refusedUndo === true, org: { name: 'Acme', slug: 'acme' }, role: 'admin', enrolledAt: '2026-10-07T00:00:00.000Z' }
         : { enrolled: false, stoppedFor: window.__stopped || null, leaveRefused: null, org: null, role: null, enrolledAt: null });
       if (u.endsWith('/api/remote') && !(init && init.method)) return enc({ enrolled: true, on: true });   // a connected computer
       if (u.includes('/api/history')) return enc({ readable: false });   // Settings' history row, in the shape the engine sends when it has none
@@ -203,6 +203,15 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     chk(/sends your company nothing: its words were not accepted on this computer\.$/.test(o12c) && !/reports to it/.test(o12c) && !/until you accept/.test(o12c)
       && /It sends your company nothing/.test(say12c),
       'O12 a Kosmos that may not report is never told it reports, and its joined view says it sends nothing', JSON.stringify({ o12c, say12c }));
+    // O12d (rollup review 29): a Kosmos whose words ARE accepted but whose rollup waits for the computer's identity is
+    // never told its words were not accepted; it is told it reports once that is read. CONTROL: O12c above.
+    await page.evaluate(() => { window.__notReporting = false; window.__printWait = true; PLUS_ORG.at = 0; document.getElementById('plus-org-msg').textContent = 'an earlier line'; plusOrgMaybe(); });
+    await page.waitForFunction(() => /identity/.test(document.getElementById('plus-org-msg').textContent), null, { timeout: 5000 }).catch(() => {});
+    const o12d = await page.evaluate(() => ({ msg: document.getElementById('plus-org-msg').textContent, say: document.getElementById('plus-org-say').textContent }));
+    chk(/It reports to your company once it has read this computer's identity\.$/.test(o12d.msg) && !/not accepted/.test(o12d.msg)
+      && /once it has read this computer's identity/.test(o12d.say) && !/not accepted/.test(o12d.say),
+      'O12 a Kosmos waiting for the computer\'s identity is told it reports once that is read, never that its words were not accepted', JSON.stringify(o12d));
+    await page.evaluate(() => { window.__printWait = false; });
     await page.evaluate(() => { window.__notReporting = false; window.__refused = null; window.__refusedUndo = false; PLUS_ORG.state = { enrolled: false, org: null, role: null }; plusOrgPaint(); });
 
     // O8: the company stopped naming this world. The next /api/org read carries stoppedFor; the block says so.
@@ -341,7 +350,7 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
       codeField: !document.getElementById('plus-org-out').hidden }));
     // A refused Review press (another screen accepted meanwhile: "already reports") reads the state back too, keeping its
     // line: the button and "sends nothing" go (review 9).
-    await page.evaluate(() => { window.__reviewRefuse = { ok: false, because: 'This Kosmos already reports to your company on the words it accepted here.' };
+    await page.evaluate(() => { window.__reviewRefuse = { ok: false, because: 'This Kosmos already has its company\'s words accepted here.' };
       window.__orgState = { enrolled: true, reporting: true, stoppedFor: null, leaveRefused: null, org: { name: 'Acme', slug: 'acme' }, role: 'member', enrolledAt: '2026-10-01T00:00:00.000Z' };
       PLUS_ORG.state = { enrolled: true, reporting: false, org: { name: 'Acme', slug: 'acme' }, role: 'member' }; PLUS_ORG.at = Date.now(); PLUS_ORG.preview = null;
       document.getElementById('plus-org-msg').textContent = ''; plusOrgPaint(); });
@@ -372,7 +381,7 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
       && late.msg === 'These words were open too long. Press Review what your company sees to read them again.' && late.review
       && !other.consent && other.review
       && gone.msg === 'This Kosmos is no longer your work Kosmos, so nothing was sent.' && !gone.inView && gone.codeField
-      && already.msg === 'This Kosmos already reports to your company on the words it accepted here.' && !already.review && !/sends your company nothing/.test(already.say)
+      && already.msg === 'This Kosmos already has its company\'s words accepted here.' && !already.review && !/sends your company nothing/.test(already.say)
       && acc.enroll.length === enrollsBefore + 1 && last.body.accepted === true && !('code' in last.body) && typeof last.body.ticket === 'string'
       && acc.inView && acc.join === 'Join with this Kosmos' && acc.reread && acc.reviewGone && !/sends your company nothing/.test(acc.say),
       'O15 a Kosmos that sends nothing reviews its company\'s words and accepts them with no code; Not now changes nothing; one that reports is not offered it',
@@ -390,6 +399,31 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
       await page.click('#plus-org-notnow');
       return got;
     };
+    // O15c (#5532 review 29): a Kosmos whose words are accepted and that only waits for this computer's identity is
+    // not offered Review (the engine refuses it as already reporting). CONTROL: the same view without the wait offers it.
+    const offeredWhen = (wait) => page.evaluate((w) => { PLUS_ORG.preview = null; PLUS_ORG.state = { enrolled: true, reporting: false, reportingWait: w, org: { name: 'Acme', slug: 'acme' }, role: 'member' }; plusOrgPaint();
+      const el = document.getElementById('plus-org-review'); return !el.hidden && el.getClientRects().length > 0; }, wait);
+    const reviewWhenPrintWait = await offeredWhen('print');
+    // #5532 reviews 31, 32: words accepted that ask for no reports are said as that (never "not accepted"), and Review is
+    // offered (it is how such a Kosmos learns its company's words changed).
+    const reviewWhenNoReports = await offeredWhen('noReports');
+    const sayNoReports = await page.evaluate(() => document.getElementById('plus-org-say').textContent);
+    // Rollup review 35: opening Review for words that ask for no reports does not promise reporting.
+    await page.evaluate(() => { window.__review = true; });
+    await page.click('#plus-org-review');
+    await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
+    const askNoReports = await page.evaluate(() => document.getElementById('plus-org-ask').textContent);
+    await page.click('#plus-org-notnow');
+    await page.evaluate(() => { window.__review = false; });
+    chk(/Accept what it asks now:$/.test(askNoReports) && !/so this Kosmos can report/.test(askNoReports), 'O15c the Review prompt for words that ask for no reports promises no reporting', JSON.stringify(askNoReports));
+    // Rollup review 34: a print that cannot be made at all: not offered Review, and said as that (never "once it has read").
+    const reviewWhenPrintError = await offeredWhen('printError');
+    const sayPrintError = await page.evaluate(() => document.getElementById('plus-org-say').textContent);
+    chk(!reviewWhenPrintError && /cannot report to your company yet/.test(sayPrintError) && !/once it has read/.test(sayPrintError),
+      'O15c a print that cannot be made is said as that, with no Review', JSON.stringify({ reviewWhenPrintError, sayPrintError }));
+    const reviewWhenNoWords = await offeredWhen(null);
+    chk(!reviewWhenPrintWait && reviewWhenNoReports && reviewWhenNoWords && /words ask it to report nothing/.test(sayNoReports) && !/not accepted/.test(sayNoReports),
+      'O15c Review is not offered while waiting for the computer\'s identity; it is for words that ask for no reports (the way to new words), said as that', JSON.stringify({ reviewWhenPrintWait, reviewWhenNoReports, sayNoReports, reviewWhenNoWords }));
     const rvNone = await reviewBackup('said');
     const rvList = await reviewBackup(false);
     chk(rvNone.items.length === 1 && rvNone.items[0] === 'Nothing is backed up.' && !rvNone.opener && rvNone.title

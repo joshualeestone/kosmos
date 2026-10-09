@@ -1,0 +1,429 @@
+# rollup-5532: the rollup a work Kosmos sends its company (#5532, Enterprise E0.3, board side)
+
+Umbrella #5529. Coordinator side: PigeonPete, kosmos-relay `.claude/plans/rollup3-5532.md` (route
+`POST /v1/mac/org/rollup`, Mac-signed; codes org_not_member, org_not_enrolled, org_bad_world, org_rollup_bad,
+org_rollup_too_big, replayed). Now on main (#5531, #5556, #5565, #5571 merged) plus #5531 follow-up b (consenthash-5531,
+PR #5604); rebased onto main once that merges. THE CURRENT STATE IS "Carried onto main and wired" BELOW: where the
+sections above it disagree with it, they describe the dormant branch.
+
+## What this branch builds
+- `engine/orgrollup.js`:
+  - `build(input)`, pure: the contract body from plain fields only (names, provider, model, a status word, token
+    counts). Every string through externalName, 120 max. At most 200 agents, 200 projects (50 names each), 7 days of
+    40 usage rows; the serialized body is trimmed to 56 KB (oldest usage day first, then projects, then agents);
+    anything left out, or a partial read, sets `truncated: true`. `costUsd` from engine/usageprice.js, null when a
+    model has no published price, never 0.
+  - `gather(sources)`: the board's agents (running cards from the status snapshot, then the offline list with
+    /api/status's own filter, as `stopped` with no model), minus agents whose removal hides the card; projects with
+    members mapped to the names the board shows; usage `byDay` only (never `byFolder`, whose keys are paths); last
+    active as the latest per-agent working sample. A partial pane read withholds the offline list, as /api/status does.
+  - `tick()`: (SUPERSEDED: the gate is now `mayReport()` plus `acceptedConsent()`; see below) sends only when `isEnrolledHere()`; daily, and on a change to the agents or projects at most every 10
+    minutes; quiet for an hour after a failure; refused as org_not_enrolled or org_not_member, it asks the company at
+    once (orgenroll.refresh), which stops this world on a clear answer.
+- `server.js`: `orgRollupTick` a minute after start and every 5 minutes, one at a time, and only in the enrolled world.
+
+## Decided
+- Status words: the THREE the consent names, "working, waiting or stopped" (review 6; was five). Working: working,
+  restarting. Stopped: stopped. Waiting: everything else on the board, so the company is never told an agent hit a
+  rate limit, lost its account or connection, or could not be read. AGREED by PigeonPete 2026-10-07 22:09: the
+  contract enum is working | waiting | stopped (anything else is org_rollup_bad).
+- Provider of a usage row from its model id (claude, gpt/o-series/codex, gemini, grok, llama); unknown is null.
+- Weakest premise (measured now, was assumed): usage. It is withheld rather than scoped. Second: gather() repeats /api/status's offline filter (not removed, a folder or a job, not seen, not
+  hidden by removal) rather than calling the route, whose 600 lines also build display-only fields. If that filter
+  changes in the route, this copy must change with it.
+
+## Review 1 (blind, opus)
+- BLOCKER, FIXED by withholding: engine/usage.js reads every Claude config folder on the computer (status.configRoots:
+  ~/.claude, ~/.claude-*, CLAUDE_CONFIG_DIR) with no filter by world or agent, so its per-model numbers include the
+  person's other Kosmoses, their personal accounts and their sessions outside Kosmos. The rollup now sends
+  `usage: []` (with `usageWithheld: true` since contract v1.1; `truncated` stays for real cuts) and does not run the scan at all (which also ends a rescan on every 5-minute
+  tick). A test plants another session's transcript, proves the computer-wide reader sees it (control), and proves
+  the rollup carries none of it; putting the reader back reddens it.
+- Consent: the coordinator's `consent.reports` lines must name what is actually sent. Today that is agent names,
+  providers, models and status words; project names and their members; last active. NOT usage, until a reader scoped
+  to this world exists. Told to PigeonPete, who owns the words.
+- `providerOfModel` is a best guess from the model id (claude, gpt and o-series and codex, gemini, grok, llama);
+  unknown is null.
+- A record gone between the gate and the read returns "not sent" instead of throwing.
+
+## Review 2 (blind, sonnet)
+- FIXED: the offline list now requires `profile: true`. survey() also returns stray rows (a folder in the shared
+  workers root that no profile in THIS world accounts for, which can be another Kosmos's agent or any folder someone
+  made); those were sent as agents named after the folder.
+- FIXED: an agent's model is sent only when it names a known family; the running model is read off a pane.
+- MEASURED, not a leak: the status snapshot drops another Kosmos's sessions (status.js, agentNameFromSession answers
+  null for another world); activity records live under this world's own data root (activity.js DIR = store.ROOT).
+  So agents, projects and last active are this world's. Usage was the one computer-wide reader (review 1).
+- Consent words (PigeonPete, kosmos-relay#310): reports = agent names, provider and model, working/waiting/stopped;
+  project names and their agents; when you were last active. backsUp is empty until E0.6. When the scoped usage
+  reader ships, the words change, the consent hash changes, and v1.4 asks every member to accept again: a board must
+  not send usage under an enrollment whose consent hash predates the usage words.
+
+## Review 3 (blind, opus)
+- PARTLY FIXED (corrected by review 5): status words left the change signature, but the model stayed in it, and a
+  running agent carries a model while a stopped one does not, so starting and stopping still sent changes.
+- FIXED: tick() checks the enrollment again right before sending, so a leave that lands while the board is read
+  stops the send (the person has been told this Kosmos stopped reporting).
+- FIXED, safe by default: tick() sends only when the enrollment records the report lines the person accepted. Records
+  written by #5531 do not carry them yet, so NOTHING is sent until a follow-up keeps the accepted lines (from the
+  consent shown) with the enrollment. A missing consent is never read as a yes.
+- FIXED: a paneless card takes its recorded runner (it was reported as anthropic); archived projects are not reported;
+  codex matches only at the start of a model id; the state file is written temp-then-rename; requires at the top.
+  CLAUDE.md has a row for the rollup.
+- AGREED with PigeonPete (rollup contract v1.1): `usageWithheld: true` while usage is withheld (usage then must be [],
+  and the console says "usage not reported yet", never 0); `truncated` means only a real trim or a partial read.
+
+## Review 4 (blind, sonnet)
+- FIXED: a model is sent only when the WHOLE string is one model-id token (lower-case letters, digits, . _ : -) of a
+  known family; a pane line with text after the id is sent as null.
+- FIXED: the sender's timing belongs to one enrollment (world, org, enrolled at); a new one starts fresh.
+- FIXED: a card with no shown name is not sent (never the internal session name), and the body says partial.
+- DEFERRED to the consent follow-up: tie the accepted consent to this body's field set, so a field added later cannot
+  ride an older acceptance (v1.4's served hash changes whenever the words change; the board will refuse a send whose
+  recorded hash is not the one served with words naming every field it sends).
+
+## Review 5 (blind, opus)
+- BLOCKER (mine, from review 3's fix), FIXED: the change signature is now WHICH agents there are (name, provider) and
+  the projects, sorted; nothing that moves when an agent starts, stops, works or waits. The reviewer measured four sends
+  in 33 minutes from one agent starting and stopping; a test now runs that exact sequence and expects one daily send.
+- FIXED: a partial read is never a change; the attempt is recorded BEFORE sending and an unrecordable one is not sent
+  (an unwritable data folder would otherwise send a full body every tick); last active is sent as the day only; an
+  unreadable runner sends provider null, never anthropic; the body is built once with its reason.
+- TODO PINNED: the consent follow-up must check that the accepted lines cover every field build() sends; a test.todo
+  names it so it cannot land as "a non-empty list is enough".
+
+## Review 6 (blind, sonnet)
+- FIXED: status narrowed to the consent's three words (above). A model id is a known family and at most six short
+  version parts; a long tail after the family is not sent.
+- PINNED as test.todo (both must land before any send is enabled): the accepted lines must cover every field sent,
+  bound to the served consentHash; and the per-computer fingerprint (v1.5), since a copied data folder carries the
+  enrollment, the world id and the Kosmos+ key.
+- NOTED for the consent words (PigeonPete): project and agent names are sent exactly as the person typed them.
+
+## Review 7 (blind, opus)
+- BLOCKER, FIXED: a project linked from another Kosmos (federation: someone else's project joined here as `member`, or
+  one from another computer of this account as `self`, which may be a personal Kosmos) was reported by name. Any
+  project with a federation link is skipped now; a test plants one with a control.
+- FIXED: the real runner lookup falls back to claude (create.recordedRunner), so "provider null, never a guess" was
+  only true in the test stub. The board's source now answers null when neither the launch job nor the profile names
+  a runner; a real-store test pins both arms (null for nothing recorded, codex for an openai profile).
+- (SUPERSEDED 2026-10-08: the words are kept by hash in org-consent.json and refresh keeps only consentHash and computerSalt; see "Carried onto main and wired".) FIXED: orgenroll.refresh keeps the accepted report lines on the record (it rebuilt the record and would have
+  dropped them, silently stopping the rollup once the consent follow-up lands).
+- FIXED: a model id's parts must be version numbers, known tier words or an 8-digit date; an alias named after a
+  client (gpt-4o-acmecorp-pilot) is not sent.
+- NOTED: the model is sent only in the daily body, for an agent running when it is built.
+
+## Review 8 (blind, sonnet)
+- FIXED: usage rows' model keys take the same model-id rule as agents; a key that is not one (a path, a client-named
+  alias) drops the row.
+- FIXED: usage is sent only when the enrollment records `usageConsented: true` (set by the consent follow-up when the
+  accepted words name usage). Adding a usage reader to the sources cannot turn usage on by itself.
+- DUPLICATES: consent coverage of every field and the per-computer fingerprint (both pinned as test.todo; nothing is
+  sent until they land); names as typed (consent wording, with PigeonPete).
+
+## Review 9 (blind, opus)
+- FIXED (both from my own fixes): the change signature is agent NAMES and projects only (a provider differs between a
+  running card, read from its pane, and a stopped agent with nothing recorded, so it moved on start and stop); and (superseded on
+  2026-10-08, as above) the refresh keeps consent fields from one list (`CONSENT_FIELDS`: consentHash, reports, usageConsented), since
+  usageConsented, added in review 8, was dropped the same way reports had been in review 7.
+- FIXED: stale wording (test title, the plan's truncated-for-withheld sentences, the module header); `tryAt` is
+  documented as a write probe.
+
+## Not done here
+- (Done 2026-10-08, by hash: see "Carried onto main and wired".)
+- A usage reader scoped to THIS world's agents (their transcripts or launch folders only), so `usage` can be sent.
+  Until then the company sees no tokens or cost from this board, and the body says usageWithheld.
+- (DONE on this branch, see below.) The per-computer fingerprint (contract v1.5, agreed 2026-10-07): a full copy of the data folder carries the Kosmos+
+  key, so the company cannot tell it from the real computer. Next piece: sha256(salt from status + IOPlatformUUID or
+  MachineGuid), sent on rollup, enroll and leave once the coordinator accepts it, and the "looks like a copy" screen.
+- policyVersion is sent as null: no policy version exists on the board yet.
+- backup.lastOk is null until E0.6.
+
+## Tests
+- Also `engine/orgenroll-print-5532.test.js` (the print's two caller guards and every path that carries it) and
+  `engine/orgrollup-scope-5532.test.js`.
+- `engine/orgrollup-5532.test.js`: the body's shape and status words; a planted secret and planted content in every
+  field a record carries (task, transcript, folder, description) never reach the body; bounds and the byte cap;
+  gather's agent list, project names, partial reads; the sender's gate (a Kosmos that never joined sends nothing),
+  timings, quiet hour, and a refusal that makes it ask. Every guard was mutated and reddens.
+
+## Carried onto main and wired (2026-10-08)
+The dormant branch (head 9bf14764f; reviews 1 to 9 above) was re-applied onto follow-up b (consenthash-5531,
+PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wired:
+- **Gate:** tick() runs only when `orgenroll.mayReport()` holds: the work Kosmos, with the company's served consent
+  hash recorded on this computer (b). It is re-checked right before the send, against the same hash.
+- **The accepted words, by hash:** `rememberConsent` writes `org-consent.json` ({consentHash, reports,
+  usageConsented}) from the words the screen showed (the server's ticket), BEFORE the enroll is sent.
+  `acceptedConsent` returns them only for the hash on the record. So the paths that carry only the hash find them
+  without carrying them: a lost answer settled later, an undo refused and rebuilt, the daily refresh. No file, or
+  another hash, sends nothing. The file goes when the world id retires.
+- **Usage:** consented only by accepted words naming token usage (the coordinator's `CONSENT_NAMES_USAGE` rule, keyed on
+  token/usage/cost). Today's words do not, so usage stays withheld. The usage reader (#5571) is not wired into
+  gather() yet: it would be dead code until the words name usage.
+- **Rollup 409 org_consent_changed:** the company holds other words now. `consentWithdrawn` drops the record's hash, so
+  this Kosmos stops reporting and the joined view says it sends nothing. The membership is untouched. Accepting the
+  new words is #5531 follow-up a0 (orgreview-5531).
+- **The computer print (v1.5, #5565), from orgenroll.js only:**
+  - **Join:** `computerPrint` and `computerSalt` (the salt from redeem or status, through the ticket). The company is
+    the one whose consent was accepted (review 39 refuses an answer naming another). The salt is recorded.
+  - **Leave:** the print for the record's salt and company; an undo with no record uses the join's own, kept in the
+    pending-leave file so a retry still has it.
+  - **Rollup:** the print for the record's salt and company.
+  - **Retrying or malformed:** a read still retrying (`later`) or a malformed salt or company (`error`) sends nothing. A
+    join says so; a leave stays pending; the rollup waits for the next tick (not a failure).
+  - **Allowlisted:** orgenroll.js is the print module's first allowed loader, with its two guards in
+    `engine/orgenroll-print-5532.test.js`: nothing logged carries a print, the id or a body with one (captured, plus a
+    source scan); every print is for the record's company. The print's FIRST_CALLER_5532 excuse is gone.
+- **Field coverage (review 6's todo), decided rather than built:** the board does not match consent lines to body
+  fields. The words are the coordinator's: it serves them with their hash, writes them for the contract's fixed field
+  set, refuses a rollup unless the hash accepted here is the one it serves now (v1.4), and stores only the worded
+  fields. A board-side text match would be a second, drifting copy of that rule. The question is recorded as a decided note in the test file. Weakest premise: that the coordinator's words keep naming every field the contract carries; a field added
+  to the contract without a consent line is the coordinator's to refuse.
+- **Weakest premise:** a synchronous ioreg read can block the board for up to five seconds on a join, a leave or a
+  rollup tick, at most once a minute while reads fail and once an hour after giving up. Accepted here; an
+  asynchronous read is the alternative if it is measured as a problem.
+
+
+## Review 10 (blind, Opus), on the carried and wired branch
+- FIXED (BLOCKER, mine): the print guard test's fake ioreg text tripped the repo-wide raw-read guard. My earlier green
+  run was before the file was tracked, and that guard lists TRACKED files. The test is now a named exclusion with its
+  reason (its fake text reaches the module only through `_testRunner`).
+- FIXED (BLOCKER): duplicate names. The coordinator refuses a whole rollup listing an agent or a project twice, and the
+  board allows both, which meant a silent hourly refusal forever. Agents are now kept once by cleaned name (the first
+  wins; the body says it was trimmed), and same-named projects are sent as one with their agents together. A test uses
+  the coordinator's own refusals as the oracle.
+- FIXED: the joined view said "reports" for a record with a hash but no remembered words. It now asks the same question
+  tick() does (`acceptedConsent`).
+- FIXED: the words file had one slot, so a failed or stale join attempt could take away the words the record reports
+  on. It is now keyed by hash, with a few kept, and the record's own hash is never dropped.
+- FIXED: a change send carried status and model. It now carries neither: they ride on the daily send only, as the
+  contract and the comments say.
+- DECIDED (field coverage, see above): the coordinator's hash binding, not a board-side text match.
+- NITs taken: the comment placement in the ticket; the CLAUDE.md row; the join code is checked before the hardware read.
+- Each fix's mutation makes it fail.
+
+## Review 11 (blind, Sonnet)
+- FIXED (my review-10 change made it live): change sends no longer carry status, so they must not move the daily clock.
+  The daily send has its own `dailyAt`, written only by a daily success; older state falls back to lastAt once. Test:
+  a change send between two days does not delay the next daily.
+- FIXED: `consentWithdrawn` acts only when the record still carries the hash the refused report was sent under, so a
+  join made while that request was out keeps its words. Test.
+- NITs taken: one read each in the /api/org reporting check and in rememberConsent; superseded plan lines marked;
+  refresh keeps the print's salt only for the same company id.
+
+
+## Review 12 (blind, Opus)
+- FIXED: the record rebuilt after an undo is refused as the last admin got its consent hash but not the print's salt.
+  Its rollups then went without the print, which the company refuses and logs against the real computer as a copy,
+  hourly. It now takes the salt from the pending-leave file (same company only). Every record-building path was checked
+  for the class: the join, the lost answer settled later, refresh (same company), and this rebuild all carry the salt.
+  Test; the mutation makes it fail.
+- NITs taken: the servedHash comment is back above its function; NAMES_USAGE says it is deliberately narrower than the
+  coordinator's substring match (a disagreement only withholds); the print tests use gather()'s real source shape; the
+  field-coverage todo is now a decided note.
+
+## Review 13 (blind, Sonnet)
+- FIXED (latent until usage is consented): a usage row with tokens and no model id the board vouches for is dropped,
+  and now the body says it was trimmed, so the company never reads an undercount as whole. Test; the mutation makes it fail.
+- NITs taken: a leave falls back to the record's salt if the pending-leave file could not be written; NAMES_USAGE says
+  it cannot see negation.
+- NITs kept: gather() every five minutes (it is the change detection); an offline agent with no shown name is sent by its
+  profile name (skipping it could drop real agents; `profile === true` rows only).
+
+## Review 14 (blind, Opus)
+- FIXED: after the reader gives up, printFor answers `none`, and the rollup (and a leave) went without a print. If a print
+  was pinned, the company counts that as a copy's: it refuses every rollup and logs against the real computer. The
+  record now says whether this join pinned a print (`printPinned`: each enroll pins exactly what it sends), carried by
+  the lost-answer marker, refresh (same company), the pending-leave file and the last-admin rebuild. While pinned, `none`
+  WAITS (`pinnedWait`) instead of sending without. Tests; the mutation makes them fail.
+- (SUPERSEDED by review 16: the provider goes on every send again, read from the record for running and stopped agents
+  alike.) FIXED: a change send still carried the provider, which differs between a running card (from its pane) and a
+  stopped agent (from its record, can be null), so it showed which agents were running. Change sends now carry no
+  provider either. Test.
+- FIXED (C): the plan's header described the dormant branch's gate and "not done" items; marked superseded, the Tests
+  section names the new files, and the contract is cited as rollup3-5532.md (the file that exists).
+- NITs taken: the undo gates on a salt AND a company, as enroll does; the stale "withheld ... truncated" comment.
+
+
+## Review 15 (blind, Sonnet)
+- FIXED: a saved time after now (a clock that was ahead once) counts as never, so it cannot hold "waiting after a
+  failure" or "nothing due" for days. Test; mutation makes it fail.
+- FIXED: when nothing can go (not due, and too soon after the last send for a change) the board is not read at all
+  (the snapshot is a pane capture per agent, synchronously). Test counts the reads; mutation makes it fail.
+- FIXED: the daily is also due on a new UTC day, since the company takes statuses from the first daily send of each UTC
+  day and a rolling 24 hours drifts past whole days. At most two dailies within minutes around UTC midnight. Test;
+  mutation makes it fail.
+- FIXED: `printPinned` is the company's own enroll answer when it gives one (a print it did not pin must not make every
+  rollup wait), else "a print was sent". Test; mutation makes it fail.
+- NITs kept: the signature covers names and projects, not providers (decided in review 9; the consent wording is the
+  coordinator's to align); the model-id allow-list can pass a made-up but harmless id; "cost" in a report line turns
+  usage consent on (no usage reader exists; the coordinator's flag decides).
+
+## Review 16 (blind, Opus)
+- FIXED, my review-14 change: the company keeps only model and status across sends, so a change send without the
+  provider blanked every provider until the next daily, and the contract lets change sends carry it. The provider goes
+  on every send again. Review 14's concern (it differed between a running card and a stopped agent) is met at the
+  source: gather() reads the RECORDED runner for running and stopped agents alike, never the pane's, so it cannot move
+  on start or stop. Tests; each mutation makes them fail.
+- FIXED: a print sent and NOT pinned (the company's `printPinned: false`: a salt it does not hold, or a failed binding
+  write). The join stands, but its words are not recorded as accepted here: it sends nothing, the joined view says so,
+  and accepting again (#5531 follow-up a0) enrolls again with a fresh salt. Logged once, without the print. Test;
+  mutation makes it fail.
+- NITs taken: the print is checked BEFORE the board is read (a print that must wait means nothing can go); no last send on
+  record counts as long ago in the change check.
+- NIT kept: "cost" in a report line (no usage reader; the coordinator's flag decides).
+
+
+## Review 17 (blind, Sonnet)
+- FIXED: an undo of a first join assumed the join pinned a print. On a computer with no readable id the join sent none,
+  so the undo waited forever and the company kept listing the Kosmos. The undo is now pinned only when the join sent a
+  print (`printSent`). The SAME CLASS on the other undo path: an undo settled later from a lost answer built its
+  pending leave with no print source at all, so a pinned print would have refused every retry. It now takes the join's
+  salt, company and print from the marker. Tests for both paths; each mutation makes them fail.
+- NITs kept: gather() after the ten-minute window (it is the change detection); `truncated` stays set while a duplicate
+  name exists (accurate); the offline profile-name fallback (review 13).
+
+## Review 18 (blind, Opus)
+- FIXED: a refused rollup left no trace (the tick's result is dropped by its caller), so a contract mismatch could
+  refuse every hour in silence. Each refusal logs its code once, never the body or a print. Test.
+- FIXED: the joined view said "reports" while the rollup waited for a pinned print it could not read. The tick records
+  `printWaitAt` in its own state (cleared once the print can be read), and `/api/org` reads that, never the hardware.
+  Test; mutation makes it fail.
+- NITs taken: a failed write of the accepted words is logged; usage days must be real calendar days not after tomorrow
+  (the company refuses the whole rollup otherwise); the stale "the todo stays" sentence; the NAMES_USAGE note moved
+  into its block comment.
+- DEPENDS ON #5531 follow-up a0 (orgreview-5531, "Review what your company sees") for the way back from every state
+  this branch leaves as "accepted words not recorded here": a print sent and not pinned, a refusal because the words
+  changed, and an enrollment written before org-consent.json existed. Until a0 merges, that way back is leave and
+  join again with a new code.
+
+## Review 19 (blind, Sonnet)
+- FIXED (the gap my review-15 clamp left): any saved time that is not a finite number in [0, now] (a string, NaN, a
+  huge value from a cut-off or edited file) counts as unset; before, toISOString() threw on every tick and the rollup
+  stopped for good in silence. Test with a string and a huge negative; mutation makes it fail.
+- NIT taken: `waitingForPrint` reads only the current enrollment's note.
+- NITs kept: a pinned record whose id never becomes readable cannot leave from here (the coordinator lets another
+  computer of the account leave; the plan's weakest premise); the usage rule's two-sided test waits for the usage
+  reader to be wired.
+
+## Review 20 (blind, Opus)
+- FIXED (my review-15 rule made it live): "due on a new UTC day" sent every board's daily in the same five minutes
+  after midnight, and retried them together. Each world now turns its day over at its own fixed minute in the first
+  hour (sha256 of its world id), so the first daily of the day stays the first and the fleet spreads out. Test (deterministic since review 21).
+- NITs taken: build() checks days against the tick's own clock (`nowMs`), so it is a pure function of its input;
+  acceptedConsent guards a missing record.
+- Decided, recorded: `lastActive` is the latest day any agent was working, which can include unattended work; the
+  consent words are PigeonPete's to match. And the joined view says "reports" while every rollup is refused with the
+  same code: that is what this board intends and keeps trying; the refusal is logged (review 18) and refresh acts on
+  the codes that mean "stop".
+
+## Review 21 (blind, Sonnet)
+- FIXED: the review-20 test used a random world, so its "not before its minute" arm ran about 5 runs in 6. It now
+  enrolls a chosen world id whose minute is past the change window, so both arms always run; the mutation makes it fail.
+- FIXED: a malformed salt or company logged on every five-minute tick. Now once per salt and company per process. Test;
+  mutation makes it fail.
+- NIT taken: a comment that `org_consent_changed` is taken as the company's final word with no confirming retry (it
+  answers it only when the words it serves differ from the member's record).
+- NITs kept: after `printPinned: false` an older pin with another salt could refuse a later leave (rare: the salt is per
+  account; the way back is accepting again); the pending-leave print source is checked by world, not company (a record
+  that predates the print only).
+
+## Review 22 (blind, Opus)
+- FIXED: a snapshot that FAILED left no running agent seen, so the offline list sent every running agent as stopped,
+  and the company keeps the day's statuses from its first daily. The offline list is withheld on a failed snapshot, as
+  on unreadable pane lines. Test (with its control); mutation makes it fail.
+- FIXED: a partial read at the daily minute is held, not sent, for up to an hour of ticks (`partialSince`), and sent
+  partial only if the board stays unreadable that long. A whole read sends the daily at once. Test; mutation makes it
+  fail.
+- NIT taken: only known runners and providers map to a provider (create's maps fall back to claude/anthropic, a guess).
+- NITs kept: `at` defaults to the wall clock (tick always passes it); the pre-send re-check guards less than its comment
+  says while gather() has no await (the coordinator's refusal and refresh cover the real window).
+
+## Review 23 (blind, Sonnet): no new code; two limits DECIDED
+- ACCEPTED LIMIT: a computer whose print was pinned and whose id later becomes unreadable cannot finish a leave from
+  here (pinnedWait keeps it pending). Sending it without the print would have the company log a copy against the real
+  computer. The way out is another computer of the account (the coordinator lets a non-enrolled Mac leave) or the
+  company's console. Raised as a NIT in review 19; kept for the same reason.
+- ACCEPTED LIMIT: a join settled later from a lost answer, or a move that re-reads status, records "pinned" from "a
+  print was sent", because the status answer carries no printPinned. If the company did not pin it: with no earlier
+  pin the coordinator accepts any print (print_matches), so nothing changes; with an earlier pin made with another salt,
+  rollups are refused as not enrolled, each refusal is logged once (review 18), and refresh acts on it. Rare (one salt
+  per account) and fails closed.
+- NITs kept: reportPrint on ticks between dailies (bounded by the reader's backoff); the print added after fit() (64
+  characters against 4 KB of headroom under the coordinator's 60 KB).
+
+## Review 24 (blind, Opus)
+- FIXED: the change signature came from a daily-shaped body after the 56 KB trim, so on a board over the cap a running
+  agent's model id changed how many rows survived, and agents starting or stopping made a change send (review 5's
+  defect, back by size). The signature now comes from a change-shaped body (no model, no status). Tick-level test on a
+  trimmed board; mutation makes it fail. One change send may follow the upgrade (old signatures), names only.
+- FIXED: the server wiring was untested. A source check that start() arms the rollup (first run and tick), and a route
+  test that a print wait for the current enrollment turns "reports" off (with its control). Each mutation makes them fail.
+- NITs taken: a failure clears the partial-read hold (it belongs to one day's daily); clean() strips the whole tag block
+  U+E0000 to U+E007F, as the coordinator refuses it (test; mutation makes it fail).
+- RECORDED: change detection is NARROWER than the consent line ("when your agents, their providers, or your projects
+  change"): names and projects only (review 9), so a provider change alone sends nothing until the daily.
+
+
+## After merging main (2026-10-08 evening)
+- Mortals full suite found the rollup tests hand-built 16 agent cards (fixture-discipline). They now take real cards from
+  test-support/fleet; only the model is set on top, and content is planted in every text field and null content field
+  a real card carries.
+- Review 26 (after the merge) said a real card always has a name (the session name, nameDerived false, when no
+  display name is recorded) and that this name could be internal; gather then skipped such cards. Review 27 showed
+  that was WRONG twice over: the skipped agent still went out through the offline list (it was not in `seen`), and one
+  unnamed agent made every send partial, so no change send ever went again. And the premise was false: no session name
+  carries a world prefix; the fallback is the agent's own name, the one the board shows and the offline list sends.
+  DECIDED (one rule for both paths): the rollup sends the name the board shows. Every card's session name goes into
+  `seen`, as /api/status builds it, so a running agent is never listed again as stopped. A card with no name at all
+  (defensive) is not sent and the send says partial. Tested with an unmodified real card and its survey row.
+- The second Mortals run found tools/test-connector-verbs.sh pins the mac-request callers: orgrollup.js is re-decided
+  there (an old connector refuses the rollup route; the rollup only sends for a Kosmos already enrolled, which needs
+  a new connector; nothing that works today breaks).
+- Review 28: the rollup tick sends a signed request to the company, a real side effect, so it now waits for live
+  execution like the board's other background sweeps (a test, or a board that never turned it on, sends nothing even
+  with an enrolled fixture). Pinned by a source check that the gate comes before the send; the mutation fails.
+  Not changed here: main's orgEnrollRefresh (from #5531) has the same shape; noted on #5531 for a follow-up.
+- Review 29: /api/org says WHY a joined Kosmos does not report (reportingWait 'print' when its words are accepted but the
+  rollup waits for the computer's identity), and the page no longer says "not accepted" in that case (O12d; mutation
+  fails). The gate test matches the gate on a line of code, not a comment.
+  DECIDED: an enrollment made before this branch (main's #5531) has a consent hash but no record of the words, so it
+  stops reporting after the upgrade until the words are accepted again. The way back while joined is "Review what your
+  company sees" (#5644). Cost accepted: no real users yet. When #5644 and this branch are both on main, the Review button
+  must not be offered to a Kosmos that only waits for its print (reportingWait 'print'): done at this branch's rebase.
+  NOT CHANGED: project members are not limited to the listed agents (the coordinator's rules, as the test oracle models
+  them, accept a member that is not listed; decided in reviews 7 and 10).
+- Merged main again after #5644 ("Review what your company sees") landed: conflicts resolved keeping both (ticket and
+  enroll carry the rollup's consent and salt and main's review flag; exports united; the export guard keeps neither
+  retired excuse). Two places the two features meet were wired: a review now carries the company's served salt, so its
+  Accept pins a computer print as a join does (engine test with a control), and the Review button is not offered to a
+  Kosmos that only waits for its print (O15c, mutation fails).
+- Review 31 (after the #5644 merge) found where the two features disagreed: the page said a Kosmos reports only with
+  words kept here, while the review refused on a consent hash alone, so a Kosmos joined before its words were kept here
+  (or whose words were withdrawn) was told "not accepted", shown Review, and refused as "already reports". FIXED: one
+  test for both (accepted words with report lines on record here); words accepted that ask for no reports are said as
+  that (reportingWait 'noReports') and [superseded by review 32: Review IS offered for them]; a failure's retry wait belongs to the words it was sent under,
+  so accepting new words ends it. Tests: engine (legacy record can Review), route (noReports, no words), rollup (wait
+  ends with new words), page (O15c); each mutation fails.
+- Review 32: Review stays offered for words that ask for no reports (such a Kosmos never sends, so it never hears that
+  its company's words changed; Review is how it finds out); hidden only while it waits for this computer's identity.
+  The print wait is tied to the words it was set under, as a failure's wait is (a review's Accept keeps the enrollment).
+  Tests: O15c, route (wait under other words does not hold, control), each mutation fails.
+- Review 33: in a review, the print-read retry says "press Accept again", not Join; the print-wait note is rewritten when
+  the words changed (latent ordering dependency removed); the review's refusal says the words are already accepted here
+  (not "reports", which a print wait can make untrue). Considered with #5644 in place and kept as decided in review 20:
+  a persistent refusal other than words-changed or not-enrolled (a restored Mac, say) leaves the view saying it reports,
+  with Review neither offered nor allowed; the way out is Leave and Join. Also kept: a review Accept the company answers
+  with no pinned print records no words (review 16), so the view says "not accepted" until Accept succeeds.
+- Review 34: a print that cannot be made at all (a malformed salt or company: a bug) is said as that ("cannot report
+  yet: Kosmos could not check this computer", reportingWait 'printError', no Review), not as a read that will retry.
+  MEASURED in kosmos-relay (coordinator/src/org.rs), so not changed: a leave or undo carrying a print for a member with
+  no pinned print is accepted (print_matches returns true when nothing is pinned); and a codeless enroll that sends no
+  print UNPINS (the binding is rewritten with a fresh salt and no print), so a review's Accept that sends none rightly
+  records no salt and printPinned false.
+- Review 35: the Review prompt for words that ask for no reports says "Accept what it asks now" (not "so this Kosmos
+  can report", which Accept would not do); a partial-read hold does not survive a print wait; README and CLAUDE.md say
+  /api/org reads the rollup's state and gives reportingWait.
+- Review 36: the print-wait rule is one named helper (notePrintWait) instead of one long line; tryAt is clamped with
+  the other saved times; printWaitHash is cleared with the note. Kept as decided: the change-detection board read every
+  five minutes once ten minutes have passed (the cost of change sends).

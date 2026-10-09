@@ -47458,7 +47458,7 @@ function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state sta
     if (j && j.enrolled !== true && j.stoppedFor) msg.textContent = 'This Kosmos is no longer the work Kosmos for ' + j.stoppedFor + ', so it has stopped reporting.';
     // #5531 review 21: a leave the person was told would be sent again was refused, so this Kosmos reports again.
     // "reports to it" only when it may (review 33): a record with no consent recorded here sends nothing.
-    const reports = j && j.reporting === true ? ' and reports to it.' : '. It sends your company nothing: its words were not accepted on this computer.';
+    const reports = j && j.reporting === true ? ' and reports to it.' : j && j.reportingWait === 'print' ? '. It reports to your company once it has read this computer\'s identity.' : j && j.reportingWait === 'printError' ? '. It cannot report to your company yet: Kosmos could not check this computer.' : j && j.reportingWait === 'noReports' ? '. Your company\'s words ask it to report nothing.' : '. It sends your company nothing: its words were not accepted on this computer.';
     if (j && j.enrolled === true && j.leaveRefused) msg.textContent = j.leaveRefusedUndo === true
       ? 'Your company could not undo joining ' + j.leaveRefused + ': you are its last admin. This Kosmos is your work Kosmos' + reports
       : 'Your leave from ' + j.leaveRefused + ' was refused: you are its last admin. This Kosmos is your work Kosmos again' + reports;
@@ -47488,13 +47488,17 @@ function plusOrgPaint() {
   document.getElementById('plus-org-title').hidden = !full;
   document.getElementById('plus-org-in').hidden = !here || !!PLUS_ORG.preview;   // a review's consent shows in place of the joined view
   // #5531 follow-up: a Kosmos whose words were not accepted on this computer can read and accept them without leaving.
-  document.getElementById('plus-org-review').hidden = !(here && st.reporting === false);
+  // Not for a Kosmos whose words ARE accepted and that only waits for this computer's identity (#5532 review 29): the
+  // engine refuses that review as already reporting.
+  // Not while it only waits for this computer's identity; offered for words that ask for no reports (rollup review 32: it
+  // is the only way such a Kosmos learns its company's words changed, since it never sends).
+  document.getElementById('plus-org-review').hidden = !(here && st.reporting === false && st.reportingWait !== 'print' && st.reportingWait !== 'printError');
   document.getElementById('plus-org-join').textContent = PLUS_ORG.preview && PLUS_ORG.preview.review ? 'Accept' : 'Join with this Kosmos';
   document.getElementById('plus-org-out').hidden = !full || !!here || !!PLUS_ORG.preview;
   document.getElementById('plus-org-consent').hidden = !PLUS_ORG.preview;
   if (!here) plusOrgLeaveArm(false);   // a Leave confirmation never stays open under a view that is gone (review 31)
   // A record with no consent recorded here sends nothing, and the joined view says so (review 34).
-  if (here) document.getElementById('plus-org-say').textContent = 'This Kosmos is your work Kosmos for ' + (st.org.name || 'your company') + '. ' + (st.reporting === false ? 'It sends your company nothing: its words were not accepted on this computer. ' : '') + 'Your other Kosmoses on this computer are not part of it.';
+  if (here) document.getElementById('plus-org-say').textContent = 'This Kosmos is your work Kosmos for ' + (st.org.name || 'your company') + '. ' + (st.reporting === false ? (st.reportingWait === 'print' ? 'It reports to your company once it has read this computer\'s identity. ' : st.reportingWait === 'printError' ? 'It cannot report to your company yet: Kosmos could not check this computer. ' : st.reportingWait === 'noReports' ? 'Your company\'s words ask it to report nothing. ' : 'It sends your company nothing: its words were not accepted on this computer. ') : '') + 'Your other Kosmoses on this computer are not part of it.';
 }
 /* #5531: one POST to the board's org routes. Each URL is written out as a literal (web.api-routes-3957.test.js checks
    every /api path the page fetches against a board route, and a URL held in a variable cannot be checked). */
@@ -47576,7 +47580,9 @@ async function plusOrgReview() {
   // A refusal can mean the state moved (another screen accepted: "already reports"), so read it back, keeping the line (review 9).
   if (!r.ok || r.review !== true) { msg.textContent = r.because || 'Your company\'s words could not be read just now.'; PLUS_ORG.at = 0; plusOrgMaybe(true); return; }
   PLUS_ORG.preview = { code: null, org: r.org, ticket: r.ticket, review: true };
-  document.getElementById('plus-org-ask').textContent = 'This is what ' + (r.org.name || 'your company') + ' asks of this Kosmos. Accept it so this Kosmos can report:';
+  // Rollup review 35: words that ask for no reports are not accepted "so it can report"; the prompt promises only what Accept does.
+  const noReports = PLUS_ORG.state && PLUS_ORG.state.reportingWait === 'noReports';
+  document.getElementById('plus-org-ask').textContent = 'This is what ' + (r.org.name || 'your company') + ' asks of this Kosmos. ' + (noReports ? 'Accept what it asks now:' : 'Accept it so this Kosmos can report:');
   plusOrgList('plus-org-reports', r.consent.reports);
   // The same words as a code's consent (orgreview review 11): a stated empty list says so, as the hash records it.
   plusOrgList('plus-org-backsup', r.consent.backsUp, r.consent.backsUpNone === true ? 'Nothing is backed up.' : null);

@@ -27,6 +27,10 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+// #5645: the scratch base in its LONG form. A Windows runner's TEMP can be spelled in 8.3 short form (RUNNER~1),
+// while the product reports the long form (runneradmin): same folder, different text. realpathSync.native expands
+// 8.3 names (and resolves links), so expected paths are built from the spelling the product reports.
+const scratchBase = () => fs.realpathSync.native(os.tmpdir());
 const { spawn, spawnSync } = require('node:child_process');
 
 const REPO = __dirname;
@@ -99,7 +103,7 @@ test('the engine helpers are armed by --yes, and speak the flags and report tags
   const relocator = require('./engine/win32relocate');
   assert.equal(constant('UninstallHelperScript'), 'win32uninstall.js');
   assert.equal(constant('RelocateHelperScript'), 'win32relocate.js');
-  const report = path.join(os.tmpdir(), 'kosmos-flags-' + process.pid + '.txt');
+  const report = path.join(scratchBase(), 'kosmos-flags-' + process.pid + '.txt');
   try {
     /* AWAITED (kosmos#4273): cliMain is async, so the bare call compared a Promise with 64
        (always unequal, so it could not fail) and returned before writing the report, which
@@ -312,7 +316,7 @@ let probeBuild = null;
 function probe(t) {
   if (!fs.existsSync(CSC)) { t.skip('no .NET Framework compiler on this machine'); return null; }
   if (!probeBuild) {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-installer-probe-'));
+    const dir = fs.mkdtempSync(path.join(scratchBase(), 'kosmos-installer-probe-'));
     fs.writeFileSync(path.join(dir, 'InstallerProbe.cs'), PROBE_SOURCE);
     const exe = path.join(dir, 'probe.exe');
     const built = spawnSync(CSC, ['/nologo', '/target:exe', '/main:InstallerProbe', '/out:' + exe, SOURCE_PATH, path.join(dir, 'InstallerProbe.cs')], { encoding: 'utf8', windowsHide: true });
@@ -327,7 +331,7 @@ function probe(t) {
     return { code: r.status, out: String(r.stdout || '').trim() + (r.stderr ? String(r.stderr).trim() : '') };
   };
 }
-test.after(() => { if (probeBuild) fs.rmSync(probeBuild.dir, { recursive: true, force: true }); });
+test.after(() => { if (probeBuild) fs.rmSync(probeBuild.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); });
 /** The compiled probe, for a test that runs it alongside another (after probe(t) built it). */
 function probeExe() { return probeBuild.exe; }
 
@@ -378,7 +382,7 @@ function assertFootprintUnchanged(t, before, after) {
 }
 
 function scratch() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-installer-'));
+  return fs.mkdtempSync(path.join(scratchBase(), 'kosmos-installer-'));
 }
 
 test('W-20 probe: the shortcut is written into a temp Start Menu, points where it should, follows a new folder, and is removed', WINDOWS_ONLY, (t) => {
@@ -406,7 +410,7 @@ test('W-20 probe: the shortcut is written into a temp Start Menu, points where i
     assert.ok(!fs.existsSync(lnk), 'the shortcut is still there');
     assert.deepEqual(run('unshortcut', programs), { code: 0, out: 'OK' }, 'removing a shortcut that is already gone is not a success');
   } finally {
-    fs.rmSync(base, { recursive: true, force: true });
+    fs.rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     after = realInstallFootprint();
   }
   assertFootprintUnchanged(t, before, after);
@@ -498,7 +502,7 @@ test('🛑 finding 4 probe: a stale or same-build copy in Downloads hands off to
       'a stale copy re-pointed the Start menu, the Apps entry or the pointer, or did not start the installed Kosmos');
     const console = fields(run('duties', r.here, r.programs, 'HANDOFF', 'ok', r.kept, 'nobody', 'temp').out);
     assert.equal(console.refreshed, 'False', 'with --console a stale copy re-pointed everything');
-  } finally { fs.rmSync(r.base, { recursive: true, force: true }); }
+  } finally { fs.rmSync(r.base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
 
 test('🛑 #3286 probe: a NEWER copy updates the installed Kosmos through the updater and starts it, so there is only ever one install', WINDOWS_ONLY, (t) => {
@@ -535,7 +539,7 @@ test('🛑 #3286 probe: a NEWER copy updates the installed Kosmos through the up
     const noHelper = fields(run('duties', r.here, r.programs, 'NEWER', 'null', r.kept, 'person', 'temp').out);
     assert.match(noHelper.told, /^NOTICE This Kosmos is newer .* could not update it \(the update did not say what happened \(the runtime would not start\)\)\./);
     assert.equal(noHelper.refreshed, 'True');
-  } finally { fs.rmSync(r.base, { recursive: true, force: true }); }
+  } finally { fs.rmSync(r.base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
 
 test('🛑 #3286 review probe: SAME is an update that finished; a board the replace ended always runs again; a copy Kosmos was not pointed at is not installed', WINDOWS_ONLY, (t) => {
@@ -554,7 +558,7 @@ test('🛑 #3286 review probe: SAME is an update that finished; a board the repl
     assert.equal(blocked.exit, 'null', 'a board the replace ended was left off');
     assert.equal(blocked.refreshed, 'True');
     assert.match(blocked.told, /^ERROR Kosmos is updated in .*, but it would not start from there \(blocked by antivirus\)\. This copy runs Kosmos from here for now/);
-  } finally { fs.rmSync(r.base, { recursive: true, force: true }); }
+  } finally { fs.rmSync(r.base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
   /* Finding 5: in place, but Kosmos could not be pointed at it: the plain note, and a run from here. */
   const empty = dutiesRig(false);
   try {
@@ -565,7 +569,7 @@ test('🛑 #3286 review probe: SAME is an update that finished; a board the repl
     /* The first install's own start failure already ran from here (StaysHere), before this review. */
     const firstBlocked = fields(run('duties', empty.here, empty.programs, 'NONE', 'ok', empty.kept, 'person', 'temp', '-', 'startfails').out);
     assert.equal(firstBlocked.exit, 'null');
-  } finally { fs.rmSync(empty.base, { recursive: true, force: true }); }
+  } finally { fs.rmSync(empty.base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
 
 test('🛑 #3286 review finding 2 probe: a second launch during an install WAITS for it, rather than racing it', WINDOWS_ONLY, async (t) => {
@@ -584,7 +588,7 @@ test('🛑 #3286 review finding 2 probe: a second launch during an install WAITS
     assert.equal(second.exit, '0', 'the second launch did not carry on once the first let go');
   } finally {
     try { holder.kill(); } catch { /* already gone */ }
-    fs.rmSync(r.base, { recursive: true, force: true });
+    fs.rmSync(r.base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
 
@@ -598,7 +602,7 @@ test('🛑 round 2 finding 4 probe: an old copy in a folder that is NOT cleaned 
       'a stale copy outside a temporary place re-pointed the Start menu, the Apps entry or the pointer');
     assert.deepEqual(fields(run('duties', r.here, r.programs, 'NONE', 'ok', r.kept, 'person', 'elsewhere').out),
       { exit: 'null', refreshed: 'True', started: '-', helpers: COMPARE, working: '-', told: '-' }, 'a folder somebody chose, not a cleaned-up one, was installed from');
-  } finally { fs.rmSync(r.base, { recursive: true, force: true }); }
+  } finally { fs.rmSync(r.base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
 
 test('🛑 #3286 probe: from a cleaned-up place with nothing installed, Kosmos installs itself WITHOUT asking and starts the installed copy; a refusal is a plain note', WINDOWS_ONLY, (t) => {
@@ -623,7 +627,7 @@ test('🛑 #3286 probe: from a cleaned-up place with nothing installed, Kosmos i
     fs.rmSync(path.join(empty.here, 'manifest.json'));
     assert.deepEqual(fields(run('duties', empty.here, empty.programs, 'NONE', 'ok', empty.kept, 'person', 'temp').out),
       { exit: 'null', refreshed: 'False', started: '-', helpers: '', working: '-', told: '-' }, 'a folder that is not a real build did an installer\'s job');
-  } finally { fs.rmSync(empty.base, { recursive: true, force: true }); }
+  } finally { fs.rmSync(empty.base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
   /* A compare that could not run, with a Kosmos.exe installed: carries on as with nothing installed, and
      the install then meets whatever is in the target (the engine refuses a folder holding other files). */
   const r = dutiesRig(true);
@@ -631,7 +635,7 @@ test('🛑 #3286 probe: from a cleaned-up place with nothing installed, Kosmos i
     const failed = fields(run('duties', r.here, r.programs, 'fail', 'refused', r.kept, 'person', 'temp').out);
     assert.equal(failed.helpers, COMPARE + ',' + MOVE, 'a compare that could not run did not fall back to installing');
     assert.equal(failed.refreshed, 'True');
-  } finally { fs.rmSync(r.base, { recursive: true, force: true }); }
+  } finally { fs.rmSync(r.base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
 
 /* ---- the round 3 review, fixed in round 4 ------------------------------------ */
@@ -664,7 +668,7 @@ test('round 3 finding 5 probe: a compare helper that hangs is stopped after comp
   } finally {
     const pid = helperPid();
     if (pid && alive(pid)) { try { process.kill(pid); } catch { /* already gone */ } }
-    fs.rmSync(r.base, { recursive: true, force: true });
+    fs.rmSync(r.base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
 
@@ -696,7 +700,7 @@ test('🛑 round 3 finding 6 probe: the installed copy hands off to a newer copy
     assert.deepEqual(duties('HANDOFF', r.here), runsHere, 'the installed copy handed off to itself');
     assert.deepEqual(duties('HANDOFF', path.join(r.base, 'gone')), runsHere, 'the installed copy handed off to a copy that is not there');
     assert.deepEqual(duties('fail', r.pointed), runsHere, 'a compare that could not run stopped the installed copy');
-  } finally { fs.rmSync(r.base, { recursive: true, force: true }); }
+  } finally { fs.rmSync(r.base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
 
 /**
@@ -841,7 +845,7 @@ test('🛑 uninstall probe: nobody to ask, or a No, runs nothing and removes not
       'something ran after a No to the first question');
   } finally {
     spawnSync('reg.exe', ['delete', 'HKCU\\' + parent, '/f'], { windowsHide: true });
-    fs.rmSync(base, { recursive: true, force: true });
+    fs.rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
 
@@ -883,7 +887,7 @@ test('🛑 uninstall probe: a clean removal takes the shortcut, the Apps entry a
     spawnSync('reg.exe', ['delete', 'HKCU\\' + parent, '/f'], { windowsHide: true });
     const rest = spawnSync('reg.exe', ['query', 'HKCU\\Software\\KosmosTest'], { encoding: 'utf8', windowsHide: true });
     if (rest.status === 0 && !/HKEY_CURRENT_USER\\Software\\KosmosTest\\/.test(String(rest.stdout))) spawnSync('reg.exe', ['delete', 'HKCU\\Software\\KosmosTest', '/f'], { windowsHide: true });
-    fs.rmSync(base, { recursive: true, force: true });
+    fs.rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
 
@@ -934,7 +938,7 @@ test('probe: a real build names kosmos and win32 at the top of its manifest, and
     assert.equal(run('manifest', write('nested', '{"x":{"product":"kosmos","platform":"win32"}}')).out, 'False|', 'nested keys were read as the manifest\'s own');
     assert.equal(run('manifest', write('escaped', '{"product":"kos\\u006dos","platform":"win32","version":"0.6.\\"60"}')).out, 'True|0.6."60');
     assert.equal(run('manifest', write('broken', '{"product":"kosmos","platform":"win')).out, 'False|');
-  } finally { fs.rmSync(base, { recursive: true, force: true }); }
+  } finally { fs.rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
 
 test('probe: the size Settings > Apps shows counts the build\'s folders and the exe, never the rest of the folder', WINDOWS_ONLY, (t) => {
@@ -951,7 +955,7 @@ test('probe: the size Settings > Apps shows counts the build\'s folders and the 
     put('Downloads-junk.iso', 10 * 1024 * 1024);
     put('Projects\\garden\\big.bin', 1024 * 1024);
     assert.equal(run('size', base, path.join(base, 'Kosmos.exe')).out, String(Math.ceil((3000 + 5000 + 1024 + 8192 + 2048) / 1024)));
-  } finally { fs.rmSync(base, { recursive: true, force: true }); }
+  } finally { fs.rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
 
 test('probe: an argument that ends in a backslash cannot escape its closing quote', WINDOWS_ONLY, (t) => {
@@ -987,8 +991,23 @@ test('🛑 Kosmos.exe --uninstall with nobody to confirm does nothing at all, an
     assert.ok(!fs.existsSync(marker), 'the uninstall helper ran with nobody to confirm it');
     assert.ok(!said.includes('Starting Kosmos'), '--uninstall went on to launch Kosmos');
   } finally {
-    fs.rmSync(base, { recursive: true, force: true });
+    fs.rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     after = realInstallFootprint();
   }
   assertFootprintUnchanged(t, before, after);
+});
+
+test('#5645: the scratch base is the LONG form even when TEMP is spelled as an 8.3 short name', WINDOWS_ONLY, (t) => {
+  const long = scratchBase();
+  // The base is already in its expanded form. On a runner whose TEMP is short this fails if scratchBase() ever goes back
+  // to plain os.tmpdir() (the short-form arm below would then only skip); a real folder named with ~1 still passes.
+  assert.strictEqual(fs.realpathSync.native(long), long, 'scratchBase() is not in its expanded (long) form');
+  // cmd's %~sI prints the 8.3 short form of a path (the same text as the long form where the volume keeps none).
+  const r = spawnSync('cmd.exe', ['/d', '/c', `for %I in ("${long}") do @echo %~sI`],
+    { encoding: 'utf8', windowsVerbatimArguments: true, windowsHide: true });  // verbatim: node would escape the inner quotes and cmd would read another command
+  const short = String(r.stdout || '').trim();
+  assert.ok(short, 'cmd did not print a short form: ' + (r.error ? r.error.message : (r.stderr || 'status ' + r.status)));
+  if (short.toLowerCase() === long.toLowerCase()) { t.skip('this volume keeps no 8.3 names, so there is no short form to expand'); return; }
+  // The arm that broke CI: a short-form base must expand to exactly the long form the product reports.
+  assert.strictEqual(fs.realpathSync.native(short), long);  // exact: the other tests compare the product's text exactly
 });

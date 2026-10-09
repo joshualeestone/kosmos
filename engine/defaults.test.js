@@ -36,7 +36,7 @@ test('the doctrine version and the block text move together', () => {
   const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8', 23: '91ad3a6c31f4b409', 24: 'a660bad12cb659d6', 25: 'f0ceb95a6b07007f' };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8', 23: '91ad3a6c31f4b409', 24: 'a660bad12cb659d6', 25: 'f0ceb95a6b07007f', 26: 'a440157c2d9efd2d' };
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
@@ -574,21 +574,43 @@ test('#4873: the block tells every agent not to start a message with its own nam
 
 /* kosmos#5152 slice 0 (Josh, 2026-10-03 11:07: "it would be ideal if the agent wrote that and the task"). Pinned as
    CONTENT: the measured section (claude -p, 4/4 with it, 0/4 without) is what makes agents file the task with its
-   "Done when:" checks and report each one when they mark it built, so a reword that drops either command is a
+   "done when" checks (since v26: one --done each, or done-when on a given task) and report each one when they mark it built, so a reword that drops either command is a
    behaviour change, not a style edit. */
 test('#5152: work goes on a task first, with Done when checks, and the built note reports each check', () => {
   const sec = defaults.sections().find((s) => s.heading === '### Put the work on a task first');
   assert.ok(sec, 'the "Put the work on a task first" section is missing from the block');
-  assert.match(sec.text, /`kosmos task add <project-id> "<the work, in one line>" "Done when: 1\) \.\.\. 2\) \.\.\. 3\) \.\.\." --who me`/);
+  // v26 (#5152): the checks go on as their own field, one --done each, not into the detail.
+  assert.match(sec.text, /`kosmos task add <project-id> "<the work, in one line>" --done "<check 1>" --done "<check 2>" --who me`/);
+  assert.match(sec.text, /one `--done` per check, up to three/);
   assert.match(sec.text, /`kosmos task built <project-id> <task-number> "1 met\. 2 met\. 3 not met: <why>"`/);
-  assert.match(sec.text, /`kosmos task message <project-id> <task-number> "Done when: 1\) \.\.\. 2\) \.\.\. 3\) \.\.\."`/);
+  assert.match(sec.text, /`kosmos task done-when <project-id> <task-number> "<check 1>" "<check 2>"`/);
+  // v26 (#5643 slice 2): a scheduled run that found nothing new is flagged and not posted in the room.
+  assert.match(sec.text, /`kosmos task ran <project-id> <task-number> --unchanged "what it checked"`/);
+  assert.match(sec.text, /do not post about\s+it on your own/);
+  // Review 1: asked, an agent answers; a change goes to whoever asked, where they asked; a run that could not check is
+  // Blocked, never unchanged; and a person's checks are kept, as task list shows them.
+  assert.match(sec.text, /If someone asks, answer as usual\./);
+  assert.match(sec.text, /tell\s+whoever asked for the check, where they asked/);
+  assert.match(sec.text, /A run that could not check is not unchanged/);
+  // Review 3: the whole command (a bare `report blocked` is refused by both CLIs), needs_you when only the person can fix
+  // it, and how it ends.
+  assert.match(sec.text, /`kosmos report blocked --on "<what\s+stopped it>"`/);
+  assert.match(sec.text, /`needs_you` as above if only the person can fix it/);   // the verb itself stays in its own section (#1253)
+  assert.match(sec.text, /`kosmos report clear`/);
+  // The words the rules quote are the words both CLIs print (review 3): a CLI reword must not strand the rule.
+  for (const f of ['install/kosmos', 'tools/windows/kosmos-cli.js']) {
+    assert.ok(require('node:fs').readFileSync(require('node:path').join(__dirname, '..', f), 'utf8').includes('set by the person'), f + ' no longer prints "set by the person"');
+  }
+  assert.match(sec.text, /if nobody is asking right now, post it in the room the task belongs\s+to/);
+  assert.match(sec.text, /"set by the person" \(keep those\)/);
+  assert.doesNotMatch(sec.text, /Done when: 1\)/, 'the v24 checks-in-the-detail form is back');
   assert.match(sec.text, /If the work came to you as a task already, do not add another\./);
   assert.match(sec.text, /Right after adding it, run `kosmos task list <project-id>` and note your\s+task's number/);   // wraps in BLOCK
   assert.match(sec.text, /The one line holds 200\s+characters/);
   assert.match(sec.text, /A question, a quick answer or small talk is not a task\./);
   assert.match(sec.text, /If you are on no\s+project, or the work belongs to none of yours, do not guess another: write the\s+checks in your reply/);   // wraps in BLOCK
   // Review round 3: a check with a backtick or $ is expanded by the shell inside double quotes (the block's own trap).
-  assert.match(sec.text, /If a check holds a backtick or a `\$`, use single quotes/);
+  assert.match(sec.text, /If a check holds a\s+backtick or a `\$`, use single quotes/);   // wraps in BLOCK since v26
   // Review round 3: several agents asked in one room add one task, not one each.
   assert.match(sec.text, /If several of you were asked in one room, add one task between you\./);
   // The person cannot edit a task's words yet (no edit path in engine/tasks.js), so the section must not say they can.
