@@ -251,3 +251,12 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   the same hash would send the gap: while enrolled with no words accepted, the state is marked withdrawn. Test.
 - Stated: the guard check reads the deny rules, not the sandbox block; a failed state write after a read degrades the
   next read's target classes (the coordinator dedupes the repeat).
+
+## Review 18 (opus), all fixed unless stated
+- The collision check compared only against agents OFF the token-only list, but since review 16 a listed agent whose
+  guard is not in force runs under the person's own rules: the guard pass runs first, and those agents count among
+  the others a read agent must not share a transcript folder with. Test (two colliding listed agents, one unguarded).
+- The guard round-trip test fails on a Mac when the guard cannot be written (it skipped, which could never fail).
+- The words-lost test proves a refusal in the gap is not sent and one after re-acceptance is.
+- Time bounds round UP to whole seconds (an event a fraction of a second before a boundary no longer counts).
+- Stated: a failed state re-read after a send writes the fallback over the queue (a loss, never a leak; listed resets).
