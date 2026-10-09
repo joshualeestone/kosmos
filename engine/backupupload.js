@@ -556,7 +556,9 @@ async function uploadManifestInner(deps, bytes, o, st) {
   const now = deps.now || Date.now;
   const sleep = deps.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
   if (!Buffer.isBuffer(bytes)) return { ok: false, grantSpent: false, because: 'the manifest is not bytes' };
-  bytes = Buffer.from(bytes);   // our own copy: what is hashed is what is sent, whatever the caller does meanwhile
+  // Our own copy: what is hashed is what is sent, whatever the caller does meanwhile (at the 64 MiB ceiling, a second
+  // 64 MiB held for the call; a walker that wants less should keep manifests small).
+  bytes = Buffer.from(bytes);
   if (bytes.length < MIN_OBJECT || bytes.length > MAX_MANIFEST) return { ok: false, grantSpent: false, because: `the manifest is ${bytes.length} bytes, outside ${MIN_OBJECT} to ${MAX_MANIFEST}` };
   if (typeof o.bucket !== 'string' || !o.bucket) return { ok: false, grantSpent: false, because: "no bucket for the manifest (its chunks' bucket path)" };
   // The shape uploadChunks returns, host/ or host/bucket/ with the host in lower case (a URL's host always is) and no
@@ -592,7 +594,9 @@ async function uploadManifestInner(deps, bytes, o, st) {
   const owners = new Set([...avoid].map(ownerOf));
   if (owners.has(null) || owners.size !== 1) return { ok: false, grantSpent: false, because: "the manifest's chunk keys are not all under one <org>/<account> path" };
   const owner = [...owners][0];
-  if (floor < now() + MANIFEST_LOCK_FLOOR_MS + GRANT_WINDOW_MS) return { ok: false, outlastsChunks: true, grantSpent: false, because: `a manifest granted now stays locked past ${new Date(floor).toISOString()}, when the earliest chunk it names may be gone; upload those chunks again first` };
+  // Plus the clockSkew hour: near Monday 00:00 UTC a Mac clock slightly behind the coordinator's would pass here and be
+  // locked to the next period after the grant, spending one of the 50 manifest grants on a refusal.
+  if (floor < now() + MANIFEST_LOCK_FLOOR_MS + GRANT_WINDOW_MS + 60 * 60 * 1000) return { ok: false, outlastsChunks: true, grantSpent: false, because: `a manifest granted now stays locked past ${new Date(floor).toISOString()}, when the earliest chunk it names may be gone; upload those chunks again first` };
   const timeoutMs = Number.isFinite(o.putTimeoutMs) && o.putTimeoutMs > 0 ? o.putTimeoutMs : putTimeoutFor(bytes.length, 1);
   const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
   for (let grants = 0; grants <= MAX_REGRANTS; grants++) {
