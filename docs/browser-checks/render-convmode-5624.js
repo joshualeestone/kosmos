@@ -115,7 +115,12 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
         const shown = (id) => { const b = document.getElementById(id); return !!b && getComputedStyle(b).display !== 'none'; };
         return { dm: shown('d-conv'), pj: shown('pj-conv'), speakable: document.documentElement.classList.contains('has-speak'),
           stored: localStorage.getItem('kosmos.convmode'),
-          drawn: (document.getElementById('panel-detail').innerText || '').includes('A new message after the hold.') };
+          // The rows the mode would read: two distinct agent messages, the new one among them.
+          drawn: (() => {
+            const rows = [...document.querySelectorAll('#panel-detail .msg:not(.you):not(.ext)[data-mid]')];
+            return new Set(rows.map((r) => r.getAttribute('data-mid'))).size >= 2
+              && rows.some((r) => (r.textContent || '').includes('A new message after the hold.'));
+          })() };
       });
       const said0 = await spoken(p0);
       chk(c0.speakable && c0.drawn && c0.stored === '{"dm:april":true}' && !c0.dm && !c0.pj && !/after the hold/.test(said0), 'C0 held: no toggle is drawn and a conversation stored as on reads nothing', JSON.stringify({ c0, said0 }));
