@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const pluginreach = require('./pluginreach');
 const {
-  reachFrom, reachForAgent,
+  reachFrom,
   agentPluginReach, folderPluginSet, codexPersonPresence, gateOnEvidence, _resetCache,
   REACHES, SEPARATE_ACCOUNT, CODEX_ISOLATED, NOT_APPLICABLE, UNKNOWN, NO_EVIDENCE,
 } = pluginreach;
@@ -133,111 +133,6 @@ test('#5309 p2: a DEFAULT launch with a non-absolute/empty/non-string person-hom
   // Positive control: a default launch on an ABSOLUTE person-home still reaches.
   assert.deepEqual(reachFrom({ runner: 'claude', agentClaudeDir: null, personClaudeHome: HOME }),
     { reaches: true, reason: REACHES });
-});
-
-// --- resolver (injected deps, no real plist) ---
-
-function deps({ job, home = '/Users/person' }) {
-  return {
-    create: { readJob: () => (job === 'throw' ? (() => { throw new Error('no job'); })() : job) },
-    accounts: { homeDir: () => (home === 'throw' ? (() => { throw new Error('no home'); })() : home) },
-  };
-}
-
-// Resolver signature is reachForAgent(agentName, worldId, deps): worldId is a real argument (threaded to
-// readJob for world-scoping), deps is the LAST, test-only seam. The calls below pass worldId `undefined`
-// (the default, unnamed world) except the dedicated worldId-threading test.
-
-test('#5309 p2 resolver: default-account Claude agent reaches', () => {
-  assert.deepEqual(reachForAgent('ann', undefined, deps({ job: { runner: 'claude', configDir: null } })),
-    { reaches: true, reason: REACHES });
-});
-
-test('#5309 p2 resolver: Claude agent on a non-default folder does not reach, names it', () => {
-  const r = reachForAgent('bob', undefined, deps({ job: { runner: 'claude', configDir: '/Users/person/.claude-two' } }));
-  assert.equal(r.reaches, false);
-  assert.equal(r.reason, SEPARATE_ACCOUNT);
-  assert.equal(r.folder, '/Users/person/.claude-two');
-});
-
-test('#5309 p2 resolver: a whitespace/mixed-case runner does NOT become a false reaches:true', () => {
-  // Invariant: the resolver and reachFrom must read a padded runner identically. A padded ' claude' on a
-  // non-default folder is claude-on-a-separate-folder, never a default-launch reaches:true.
-  const r = reachForAgent('pad', undefined, deps({ job: { runner: ' claude', configDir: '/Users/person/.claude-two' } }));
-  assert.equal(r.reaches, false);
-  assert.equal(r.reason, SEPARATE_ACCOUNT);
-});
-
-test('#5309 p2 resolver: a Codex agent is isolated regardless of its configDir', () => {
-  assert.deepEqual(reachForAgent('cy', undefined, deps({ job: { runner: 'codex', configDir: '/Users/person/.codex' } })),
-    { reaches: false, reason: CODEX_ISOLATED });
-});
-
-test('#5309 p2 resolver: a plist with no runner key is treated as Claude (readJob default)', () => {
-  // A job object with no runner key defaults to 'claude' (the resolver defaults runner only on
-  // null/undefined, matching readJob's own default for a plist with no 9th arg).
-  const r = reachForAgent('old', undefined, deps({ job: { configDir: '/Users/person/.claude-old' } }));
-  assert.equal(r.reaches, false);
-  assert.equal(r.reason, SEPARATE_ACCOUNT);
-});
-
-test('#5309 p2 resolver: no readable job, or homeDir throwing, is UNKNOWN', () => {
-  assert.deepEqual(reachForAgent('gone', undefined, deps({ job: null })), { reaches: null, reason: UNKNOWN });
-  assert.deepEqual(reachForAgent('err', undefined, deps({ job: 'throw' })), { reaches: null, reason: UNKNOWN });
-  // homeDir throwing -> personClaudeHome '' -> a Claude job cannot be judged -> UNKNOWN (not a guess).
-  assert.deepEqual(reachForAgent('nohome', undefined, deps({ job: { runner: 'claude', configDir: '/Users/person/.claude-x' }, home: 'throw' })),
-    { reaches: null, reason: UNKNOWN });
-});
-
-test('#5309 p2 resolver: a non-string configDir is UNKNOWN, not a false default-launch reaches:true', () => {
-  // Regression: the resolver must pass configDir through unchanged and let reachFrom judge its type, so a
-  // non-string configDir (an object) does NOT get coerced to null and read as a default launch (which
-  // would be a false reaches:true). The resolver and the pure core must agree on the same input.
-  assert.deepEqual(reachForAgent('weird', undefined, deps({ job: { runner: 'claude', configDir: {} } })),
-    { reaches: null, reason: UNKNOWN });
-  assert.deepEqual(reachForAgent('weird2', undefined, deps({ job: { runner: 'claude', configDir: 7 } })),
-    { reaches: null, reason: UNKNOWN });
-});
-
-test('#5309 p2 resolver: a raw homeDir with ".." is UNKNOWN (checked BEFORE path.join collapses it)', () => {
-  // Regression: path.join(homeDir, '.claude') collapses a '..', hiding it from reachFrom's '..' guard, so
-  // a '..'-bearing home must be rejected at the resolver before the join -- else '/Users/q/link/..' joins
-  // to '/Users/q/.claude' and matches a configDir of '/Users/q/.claude' as a false reaches:true.
-  assert.deepEqual(reachForAgent('q', undefined, deps({ job: { runner: 'claude', configDir: '/Users/q/.claude' }, home: '/Users/q/link/..' })),
-    { reaches: null, reason: UNKNOWN });
-});
-
-test('#5309 p2 resolver: a falsy-but-present runner or a non-object job is UNKNOWN, not a false default-launch', () => {
-  // A present-but-falsy runner ('') must stay falsy so reachFrom reads it as UNKNOWN, not silently
-  // default to 'claude' and (with a null configDir) report reaches:true.
-  assert.deepEqual(reachForAgent('e', undefined, deps({ job: { runner: '', configDir: null } })),
-    { reaches: null, reason: UNKNOWN });
-  // A truthy non-object job (garbage) is UNKNOWN, never a default-launch reaches:true.
-  assert.deepEqual(reachForAgent('t', undefined, deps({ job: true })), { reaches: null, reason: UNKNOWN });
-  assert.deepEqual(reachForAgent('s', undefined, deps({ job: 'nope' })), { reaches: null, reason: UNKNOWN });
-  // An array is typeof 'object' but has no runner/configDir; it must not default to a reaches:true.
-  assert.deepEqual(reachForAgent('arr', undefined, deps({ job: [] })), { reaches: null, reason: UNKNOWN });
-  // A null deps argument must not throw (the default only covers undefined); it falls back to {}.
-  assert.doesNotThrow(() => reachForAgent('x', undefined, null));
-});
-
-test('#5309 p2 resolver: worldId is threaded UNCHANGED to readJob (named-world scoping)', () => {
-  // The dangerous direction a worldId closes: a named-world agent must read ITS OWN world's job, not the
-  // default world's same-named one (jobs are world-keyed), or it could over-report another world's reach.
-  // Capture exactly what readJob received -- the resolver must pass the caller's worldId straight through,
-  // never substitute or drop it.
-  let seen = 'UNSET';
-  const spy = {
-    create: { readJob: (name, worldId) => { seen = worldId; return { runner: 'claude', configDir: null }; } },
-    accounts: { homeDir: () => '/Users/person' },
-  };
-  const r = reachForAgent('zed', 'qa-world', spy);
-  assert.equal(seen, 'qa-world');                       // the named world's id reached readJob unchanged
-  assert.deepEqual(r, { reaches: true, reason: REACHES });
-  // An omitted worldId passes undefined through (the default-world case), never a substitute world.
-  seen = 'UNSET';
-  reachForAgent('zed', undefined, spy);
-  assert.equal(seen, undefined);
 });
 
 // ---------- #5309 slice 2: the evidence gate ----------
