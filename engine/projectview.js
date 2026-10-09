@@ -401,8 +401,8 @@ const SUMMARY_WORDS = {
   current: (s) => 'current (' + one(s.file) + ', ' + ago(s.ageMinutes) + ')',
   /* #5635 F2: a stale summary of a member idle now says so, so idle reads differently from overdue (idleNoted). */
   stale: (s) => {
-    /* 0.7.33 report F2: an idle or rate-limited member's line leads with what it is doing now, not with "older than the
-       rhythm", which read as overdue. A working member's line is unchanged. */
+    /* 0.7.33 report F2: a reporting runner that went idle more than the rhythm after its summary leads with that gap
+       (measured), and being rate limited now is added to the overdue line. A working member's line is unchanged. */
     /* Review 2: the overdue fact stays; being rate limited now is added, never offered as why it is old. */
     if (s.limitedNow) return 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + one(s.file) + ', ' + ago(s.ageMinutes) + '); rate limited now, so it cannot work until the limit lifts';
     if (Number.isFinite(s.idleMinutes) && !s.idleReported && s.beforeIdleGap === true) {
