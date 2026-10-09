@@ -407,7 +407,7 @@ async function uploadInner(deps, objects, opts, keys, run) {
     // clock that is far off). The PUTs are bounded by S3's own check on arrival either way.
     const deadline = asked + g.lifetimeMs - 10 * 1000;
     const left = [], stuck = [];   // stuck: [{ chunk, key }], a write that may have landed under key
-    const unreached = [];           // chunks that met only pre-connect failures until the deadline: nothing written
+    const unreached = [];           // chunks that met a pre-connect failure and no trouble until the deadline: nothing written
     const troubledNow = run.troubled; // name -> { c, key } for chunks that met trouble and are not (yet) stored
     // anyReached: some attempt on THIS grant, by any chunk, got past connecting (S3 answered, or the request may have
     // left). Then the bucket is reachable, and chunks that only failed to connect are re-granted like any chunk left.
@@ -632,8 +632,9 @@ async function uploadManifestInner(deps, bytes, o, st) {
     // S3 has seen nothing from this grant, so its first answer being "expired" is the clock case below.
     let troubled = false, preOnly = false, cleanRanOut = false, reached = false;
     for (let attempt = 0; ; attempt++) {
-      // Out of time after only pre-connect failures: the bucket cannot be reached, and a new grant could not reach it
-      // either, so no re-grant (below). Unlike S3 answering "expired" (next arm), which proves the bucket answers.
+      // Out of time when no attempt on this grant got past connecting: the bucket cannot be reached, and a new grant
+      // could not reach it either, so no re-grant (below). If one did reach it (say S3 answered "committed nothing"),
+      // a connect failure was passing and a new grant is asked for. Unlike S3 answering "expired" (next arm).
       if (deadline - now() <= 0) {
         // Out of time before a single attempt: the grant's answer itself took its whole life, so a new grant would be
         // as slow. Stop rather than spend another of the period's 50 manifest grants. (The chunk worker re-grants

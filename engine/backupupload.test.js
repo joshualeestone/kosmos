@@ -700,6 +700,24 @@ test('a chunk that never connected, on a grant where ANOTHER chunk reached the b
   } finally { await b.close(); }
 });
 
+test('a chunk that never connected, beside one that met trouble on the same grant, ends with the trouble: unsure named, no new grant', async () => {
+  const b = await bucket();
+  try {
+    const c = coordinator(b);
+    const one = chunk(1), two = chunk(2);
+    // Chunk 1 never connects; chunk 2 gets 503 every time (it may have landed: troubled).
+    const f = async (url, init) => {
+      if (init.body.length === one.object.length) { const e = new TypeError('fetch failed'); e.cause = { code: 'ECONNREFUSED' }; throw e; }
+      return new Response('<Error><Code>SlowDown</Code></Error>', { status: 503 });
+    };
+    const r = await up.uploadChunks(deps(c, Object.assign({ fetch: f }, clock())), [one, two]);
+    assert.strictEqual(c.bodies.length, 1, 'trouble that may have landed must never be followed by a new grant');
+    assert.strictEqual(r.ok, false); assert.strictEqual(r.retryLater, true);
+    assert.match(r.because, /met bucket or network trouble/);
+    assert.deepStrictEqual(r.unsure.map((x) => x.name), [two.name], 'only the troubled chunk is unsure');
+  } finally { await b.close(); }
+});
+
 test('a lock date given as a number (not an ISO string) is refused', () => {
   const c = chunk(1);
   const data = { expires_at: '2030-01-01T00:15:00Z', uploads: [{ key: 'a/k', url: `http://bucket.example/b/a/k?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=c&X-Amz-Date=20300101T000000Z&X-Amz-Expires=900&X-Amz-SignedHeaders=${encodeURIComponent(SIGNED)}&X-Amz-Signature=00`, headers: { 'content-md5': md5(c.object), 'if-none-match': '*', 'x-amz-object-lock-mode': 'COMPLIANCE', 'x-amz-object-lock-retain-until-date': Date.UTC(2030, 1, 3) } }] };
