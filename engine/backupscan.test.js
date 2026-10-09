@@ -61,7 +61,9 @@ test('#5686 review 3: a writer\'s temp copy of a denied file is denied with it, 
     'Kosmos/remote/signin-device.key.new-4711-abcdef', 'x/tls.key.new-12-fe', 'Kosmos/undo/blobs/' + 'a1'.repeat(32),
     'Kosmos/undo-saved/20261009T1200/0123456789abcdef-id_rsa', 'Kosmos/undo-saved/s/0123456789abcdef-.npmrc',
     'worlds/w1/Kosmos/undo/blobs/' + 'b2'.repeat(32), 'Kosmos/undo copy/blobs/' + 'c3'.repeat(32), 'Kosmos/undo.old/blobs/x',
-    'agents/a/.kosmos-undo-0a1b2c3d']) {
+    'agents/a/.kosmos-undo-0a1b2c3d',
+    // review 11: Kosmos's other key files are judged before the template exemption too
+    'Kosmos/remote/signin-device.key.example', 'Kosmos/remote/tls.key.sample', 'Kosmos/win32-channel/a.key.dist']) {
     assert.equal(bs.pathDecision(p).include, false, `${p} must be skipped`);
   }
   for (const p of ['agents/a/notes.md.tmp', 'projects/site/draft.tmp', 'agents/a/secrets-plan.md', 'Kosmos/remote/.mac_id.tmp',

@@ -55,7 +55,9 @@ const TEMPLATE = /\.(example|sample|template|dist)$/i;
 // FOLDER is matched the same way, as a token in a folder name (`sendertokens.bak/`, `old sendertokens/`,
 // `communitysend copy/`), and in a community folder any file named with the token `keys` is a key file
 // (`keys.json`, `keys.bak.json`). Cost, on the safe side: a person's own file or folder whose name holds one of these
-// store names as a whole token (`mac_key-notes.md`, `chats/mac_key-chat.jsonl`, a project's own `communitysend/keys.json`).
+// store names as a whole token (`mac_key-notes.md`, `chats/mac_key-chat.jsonl`, a project's own `communitysend/keys.json`,
+// a keys file under any folder named with the token such as `projects/communitysend-notes/keys.json`, and a person's
+// `projects/undo/blobs/README.md`).
 const TOKEN = (name) => `([^/]*[^a-z0-9/])?${name}([^a-z0-9/][^/]*)?`;
 const STORE_NAME = (name) => new RegExp(`(^|\\/)${TOKEN(name)}$`, 'i');
 const STORE_FOLDER = (name) => new RegExp(`(^|\\/)${TOKEN(name)}\\/`, 'i');
@@ -78,6 +80,11 @@ const KOSMOS_STORES = [
   [new RegExp(`(^|\\/)${TOKEN('undo')}\\/blobs\\/`, 'i'), 'Kosmos undo copies (the files are backed up at their own paths)'],
   // undo's in-place temp beside the file it restores (engine/undo.js), which briefly holds the old version.
   [STORE_NAME('\\.kosmos-undo-[0-9a-z]+'), 'Kosmos undo copies (the files are backed up at their own paths)'],
+  // Kosmos's other key files, so they too are judged before the template exemption: the tunnel's TLS key and its
+  // device key (DER binary, which the content scan cannot read), and the Windows channel's key folder (engine/win32channel.js).
+  // The generic .key rule already denies them under their own names; this adds `tls.key.example` and the like.
+  [STORE_NAME('(tls|signin-device)\\.key'), 'Kosmos Mac signing key'],
+  [STORE_FOLDER('win32-channel'), 'Kosmos Windows channel keys'],
   [STORE_FOLDER('undo-saved'), 'Kosmos undo copies (the files are backed up at their own paths)'],
 ];
 
@@ -143,7 +150,8 @@ function pathDecision(rel) {
    cookies-recipe.md.tmp, contract.docx.bak, .git-blame.bak, server.key.md.bak although server.key.md is kept,
    .env.example.bak although .env.example is kept: the template exemption is not applied to an origin).
    Bounded (review 4, review 7): the tail repeats only after a separator, so COPY_SHAPED cannot backtrack
-   exponentially, and pathDecision refuses a name longer than any filesystem allows before any pattern sees it. A copy-shaped name over 255 characters is skipped outright, so at most 510 leading runs are
+   exponentially, and pathDecision refuses a segment over MAX_SEGMENT (a loose cap, above any real name) first.
+   A copy-shaped name over 255 characters is skipped outright, so at most 510 leading runs are
    tried and a hostile name cannot make the scan quadratic. (Filesystems cap a name in bytes, not characters; this caps
    the work, and a real name over it is rare and skipped on the safe side.) */
 const COPY_SHAPED = /(\.(tmp|temp|part|swp|swo|swx|bak|backup|old|orig|save|prev|new)(?:(?=[-.0-9a-z]*\d)\d*([-.][0-9a-z]+)*)?|~|\.\d+| \d+| copy( \d+)?| \(\d+\))$/i;
