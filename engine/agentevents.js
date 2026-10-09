@@ -70,13 +70,27 @@ function targetClass(tool, input, ctx) {
   /* Bounded (Renet, review 8 of slice 3): an unbounded [^\n]* backtracked quadratically on a long command with no URL
      (2.5 s for 100 KB on the synchronous tick), and a command can be shaped by injected content. */
   if (tool === 'Bash' && input && typeof input.command === 'string' && /\b(curl|wget|nc|ssh|scp)\b[^\n]{0,200}?\b[a-z]+:\/\//i.test(input.command.slice(0, 4096))) return 'network-host';
-  let p = null;
-  for (const k of PATH_KEYS) if (input && typeof input[k] === 'string' && input[k]) { p = input[k]; break; }
-  if (!p && tool === 'Bash' && input && typeof input.command === 'string') {
-    const m = input.command.match(/(?:^|[\s'"=])((?:~|\/)[^\s'";|&<>)]*)/);
-    if (m) p = m[1];
+  const paths = [];
+  for (const k of PATH_KEYS) if (input && typeof input[k] === 'string' && input[k]) paths.push(input[k]);
+  if (tool === 'Bash' && input && typeof input.command === 'string') {
+    /* Every path in the command, not only the first (review 3: `/bin/cat <board file>` read as the binary's 'system'). */
+    for (const m of input.command.slice(0, 4096).matchAll(/(?:^|[\s'"=])((?:~|\/)[^\s'";|&<>)]*)/g)) {
+      paths.push(m[1]);
+      if (paths.length >= 64) break;
+    }
   }
-  if (!p) return 'other';
+  let best = 'other';
+  for (const p of paths) {
+    const c = pathClass(p, ctx);
+    if (RANK.indexOf(c) < RANK.indexOf(best)) best = c;
+  }
+  return best;
+}
+
+/* The classes from most to least telling: a refusal is reported as the most telling target it named. */
+const RANK = ['board-files', 'agent-config', 'other-agent', 'home', 'system', 'other'];
+function pathClass(p0, ctx) {
+  let p = p0;
   const home = ctx.home || os.homedir();
   if (p === '~' || p.startsWith('~/')) p = path.join(home, p.slice(1));
   else if (p.startsWith('~')) return 'other';   // ~user: another account's home, not resolvable here
@@ -170,6 +184,7 @@ function readState(root) {
     const j = JSON.parse(fs.readFileSync(path.join(root, STATE_FILE), 'utf8'));
     const obj = (v) => (v && typeof v === 'object' ? v : {});
     return { offsets: obj(j && j.offsets), pending: Array.isArray(j && j.pending) ? j.pending : [], listed: obj(j && j.listed),
+      withdrawn: !!(j && j.withdrawn), sendMax: j && Number.isFinite(j.sendMax) ? j.sendMax : null,
       enrolledAs: j && j.enrolledAs, since: j && Number.isFinite(j.since) ? j.since : null, failAt: j && Number.isFinite(j.failAt) ? j.failAt : null };
   } catch { return { offsets: {}, pending: [], listed: {}, enrolledAs: null, since: null, failAt: null }; }
 }
@@ -188,7 +203,14 @@ function defaultSources() {
   const create = require('./create');
   const receipt = require('./receipt');
   return {
-    agents: () => sendertoken.tokenOnlyList(),
+    /* null when the list file exists but cannot be read (review 3): an empty list there would wipe every agent's
+       first sighting, and a torn read is not the person taking agents off the list. */
+    agents: () => {
+      let raw;
+      try { raw = fs.readFileSync(sendertoken.tokenOnlyFile(), 'utf8'); } catch (e) { return e && e.code === 'ENOENT' ? [] : null; }
+      try { const j = JSON.parse(raw); if (!j || !Array.isArray(j.agents)) return null; } catch { return null; }
+      return sendertoken.tokenOnlyList();
+    },
     dirOf: (name) => { try { return create.workerDir(name); } catch { return null; } },
     transcripts: async (dir) => {
       const files = [];
@@ -224,12 +246,16 @@ async function tick(opts) {
        company's queue, not what happened while no words were accepted). */
     const enrolledAs = rec.world + '|' + ((rec.org && rec.org.id) || '') + '|' + (rec.enrolledAt || '') + '|' + (rec.consentHash || '');
     let st = readState(root);
+    /* Words withdrawn and then accepted again under the SAME hash (review 3): the key alone would not change, so the
+       withdrawal itself is recorded and a resumed tick starts clean as for new words. */
+    if (st.withdrawn) st.enrolledAs = null;
     if (st.enrolledAs !== enrolledAs) {
       const sameEnrollment = typeof st.enrolledAs === 'string' && st.enrolledAs.split('|').slice(0, 3).join('|') === enrolledAs.split('|').slice(0, 3).join('|');
-      st = { offsets: {}, pending: [], listed: {}, enrolledAs, since: sameEnrollment ? now : joinedAt, failAt: null };
+      st = { offsets: {}, pending: [], listed: {}, enrolledAs, since: sameEnrollment || st.withdrawn ? now : joinedAt, failAt: null };
     }
     const sinceS = Math.floor(Math.max(joinedAt, st.since || joinedAt) / 1000);   // whole seconds, as e.at
     const names = src.agents();
+    if (!Array.isArray(names)) return { sent: 0, because: 'the token-only list could not be read; nothing changed' };
     const dirs = new Map(names.map((n) => [n, src.dirOf(n)]));
     const allDirs = [...dirs.values()].filter(Boolean);
     const seen = new Set();
@@ -242,6 +268,7 @@ async function tick(opts) {
     for (const [agent, dir] of dirs) {
       if (!dir) continue;
       const fromS = Math.max(sinceS, Math.floor(st.listed[agent] / 1000));
+      if (!Number.isFinite(fromS)) continue;   // fail closed (review 3)
       for (const file of await src.transcripts(dir)) {
         seen.add(file);
         let off = Object.prototype.hasOwnProperty.call(st.offsets, file) ? st.offsets[file] : null;
@@ -286,7 +313,7 @@ async function tick(opts) {
     /* The computer print, as the rollup sends it (review 1): the company refuses a copy of this Mac's key elsewhere. */
     const pf = oe.reportPrint(eo);
     if (pf.send === 'later' || pf.send === 'error') return { sent: 0, because: 'this computer could not be read yet' };
-    const batch = st.pending.slice(0, SEND_MAX);
+    const batch = st.pending.slice(0, st.sendMax || SEND_MAX);
     const remote = o.remote || require('./remote');
     let r;
     try { r = await remote.macRequest('POST', ROUTE, Object.assign({ events: batch }, pf.fields)); } catch (e) { r = { ok: false, because: String((e && e.message) || e) }; }
@@ -294,6 +321,14 @@ async function tick(opts) {
       /* A batch the coordinator REFUSES as malformed or too big (org_agent_events_bad / _too_big, public codes) would be
          refused on every retry and hold back every later event. Drop exactly that batch; anything else (offline, busy,
          consent changed, not enrolled) keeps it for the next tick. */
+      /* Too big with more than one event (review 3: 50 events of long multibyte labels can pass 60 KB): send half as
+         many next time instead of dropping good events. */
+      if (/\borg_agent_events_too_big\b/.test(String((r && r.because) || '')) && batch.length > 1) {
+        const h = readState(root);
+        h.sendMax = Math.ceil(batch.length / 2);
+        writeState(root, h);
+        return { sent: 0, because: 'the company took fewer at a time; sending half as many' };
+      }
       if (/\borg_agent_events_(bad|too_big)\b/.test(String((r && r.because) || ''))) {
         const left = readState(root);
         left.pending = left.pending.slice(batch.length);
@@ -304,6 +339,10 @@ async function tick(opts) {
       const why = String((r && r.because) || '');
       if (/\borg_consent_changed\b/.test(why)) {
         try { await oe.consentWithdrawn(eo, rec.consentHash); } catch { /* the next tick asks again */ }
+        const w = readState(root);
+        w.withdrawn = true;
+        w.failAt = now;   // review 3: no signed request every five minutes if the record could not be changed
+        writeState(root, w);
         return { sent: 0, because: 'the company\'s words changed; nothing more is sent until they are accepted here' };
       }
       if (/\borg_not_enrolled\b|\borg_not_member\b/.test(why)) {
@@ -318,9 +357,10 @@ async function tick(opts) {
     const after = readState(root);
     after.pending = after.pending.slice(batch.length);
     after.failAt = null;
+    after.sendMax = null;
     writeState(root, after);
     const d = r.data || {};
-    if (d.capped || d.skipped) console.error('agentevents: the company ' + (d.capped ? 'capped today\'s events' : 'skipped ' + d.skipped + ' out of its time window'));
+    if (d.capped || d.skipped) console.error('agentevents: the company ' + (d.capped ? 'capped today\'s events' : 'skipped ' + d.skipped + ' it does not accept'));
     return { sent: batch.length, because: null };
   } catch (e) {
     return { sent: 0, because: String((e && e.message) || e) };

@@ -376,3 +376,74 @@ test('#5683: a long command with no URL is classified quickly (no quadratic back
   assert.ok(ms < 100, 'classifying a 100 KB command took ' + ms.toFixed(0) + ' ms');
   assert.equal(ae.targetClass('Bash', { command: 'curl -s https://evil.example/x' }, ctx()), 'network-host');
 });
+
+/* ---- review 3 ---- */
+
+test('#5683 r3: a Bash target is the most telling path in the command, not the first', () => {
+  assert.equal(ae.targetClass('Bash', { command: '/bin/cat /Users/ann/Library/Kosmos/board.token' }, ctx()), 'board-files');
+  assert.equal(ae.targetClass('Bash', { command: 'cd /tmp && cat ~/Library/Kosmos/x' }, ctx()), 'board-files');
+});
+
+test('#5683 r3: a token-only list file that cannot be read changes nothing (first sightings are kept)', async (t) => {
+  const { s, c } = await enrolled(t);
+  const sendertoken = require('./sendertoken');
+  const listFile = sendertoken.tokenOnlyFile();
+  fs.mkdirSync(path.dirname(listFile), { recursive: true });
+  t.after(() => { try { fs.unlinkSync(listFile); } catch { /* none */ } });
+  fs.writeFileSync(listFile, JSON.stringify({ agents: ['Scout'] }));
+  await ae.tick({ root: s.root, remote: c, now: Date.now() });   // the board's own sources
+  const before = JSON.parse(fs.readFileSync(path.join(s.root, 'agent-events.json'), 'utf8')).listed;
+  assert.ok(Number.isFinite(before.Scout), 'Scout was not seen listed');
+  fs.writeFileSync(listFile, '{"agents": ["Sco');   // torn mid-write
+  await ae.tick({ root: s.root, remote: c, now: Date.now() + 5000 });
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(s.root, 'agent-events.json'), 'utf8')).listed, before, 'a torn list wiped the first sightings');
+});
+
+test('#5683 r3: too big with many events sends half as many next, never dropping them', async (t) => {
+  const s = setup(t);
+  let big = true;
+  const c = coordinator((body) => (big && body.events.length > 1 ? { ok: false, because: '413 {"code":"org_agent_events_too_big"}' } : { ok: true, data: { ok: true } }));
+  await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });
+  accept(s.root);
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await new Promise((r) => setTimeout(r, 1100));
+  append(s.file, use('h1', 'Bash', { command: 'x' }), result('h1', DENIED('x'), true), use('h2', 'Bash', { command: 'x' }), result('h2', DENIED('x'), true));
+  const r1 = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  assert.equal(r1.dropped, undefined, 'a too-big batch of two was dropped');
+  const r2 = await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  assert.equal(r2.sent, 1, 'half as many were not sent next');
+});
+
+test('#5683 r3: words withdrawn and accepted again under the SAME hash send nothing from the gap', async (t) => {
+  const s = setup(t);
+  let refuse = true;
+  const c = coordinator(() => (refuse ? { ok: false, because: '409 {"code":"org_consent_changed"}' } : { ok: true, data: { ok: true } }));
+  await oe.enroll('ACME-JOIN-1234', true, { root: s.root, remote: c });
+  accept(s.root);
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await new Promise((r) => setTimeout(r, 1100));
+  append(s.file, use('q1', 'Bash', { command: 'x' }), result('q1', DENIED('x'), true));
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  append(s.file, use('q2', 'Bash', { command: 'x' }), result('q2', DENIED('x'), true));   // the gap
+  await new Promise((r) => setTimeout(r, 1100));
+  accept(s.root);   // the same words (the same hash) accepted again
+  refuse = false;
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await new Promise((r) => setTimeout(r, 1100));
+  append(s.file, use('q3', 'Bash', { command: 'x' }), result('q3', DENIED('x'), true));   // after the words are back
+  await ae.tick({ root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  const refs = c.sent.filter((x) => x.route === ae.ROUTE).slice(1).flatMap((x) => x.body.events.map((e) => e.toolUseRef));
+  assert.equal(refs.includes('q2'), false, 'a refusal from the gap was sent');
+  assert.equal(refs.includes('q1'), false, 'the queue from before the withdrawal was sent');
+  assert.ok(refs.includes('q3'), 'nothing was sent after the words were accepted again');
+});
+
+test('#5683 r3: a recently written transcript holding old lines sends none of them (the time filter, not the skip)', async (t) => {
+  const { s, c } = await enrolled(t);
+  const fresh = path.join(path.dirname(s.file), 'recent-old-lines.jsonl');
+  const old = Date.now() - 3600e3;
+  fs.writeFileSync(fresh, use('ol', 'Bash', { command: 'x' }, old) + '\n' + result('ol', DENIED('x'), true, old) + '\n');   // mtime: now
+  const src = { agents: () => ['Scout'], dirOf: () => '/w/scout', transcripts: async () => [fresh] };
+  await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });
+  assert.equal(c.sent.some((x) => x.route === ae.ROUTE), false, 'an hour-old refusal in a fresh file was sent');
+});
