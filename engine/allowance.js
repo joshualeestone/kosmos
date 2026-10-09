@@ -221,9 +221,14 @@ function calibrate(accountDir, tokensToday, { now = Date.now(), dayStart } = {})
       const next = { tokensPerPoint: counted / (points + 1), points, tokens: counted, day: dayStart, at: now };
       if (sameDay && stored.points === points && stored.tokens === counted) return stored;   // nothing moved: no write
       const file = path.join(accountDir, CALIBRATION_FILE);
-      const tmp = file + '.' + process.pid + '.new';
-      try { fs.writeFileSync(tmp, JSON.stringify(next) + '\n'); fs.renameSync(tmp, file); }
-      catch { try { fs.unlinkSync(tmp); } catch { /* nothing to clean */ } }
+      /* #5434 slice 5: flushed before the rename, as the account's settings are (reporthook.writeSettings): an
+         existing file keeps its mode (not on Windows), a new one takes the umask default; a failed save leaves the old
+         file; in the provider's folder only this file's own dead temps are reaped. A failed save is not an error here
+         (the estimate is returned either way, as before). */
+      let mode = null;
+      if (process.platform !== 'win32') { try { mode = fs.statSync(file).mode & 0o777; } catch { mode = null; } }
+      try { require('./securewrite').writeSecret(file, JSON.stringify(next) + '\n', mode, { atomicOnly: true, ownTempsOnly: true, umaskDefault: true }); }
+      catch { /* not saved this time; the next calibration tries again */ }
       return next;
     }
   } catch { /* fall through to what is stored */ }
