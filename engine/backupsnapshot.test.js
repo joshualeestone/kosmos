@@ -682,3 +682,26 @@ test('a second run in the period, reusing what the first stored, is not refused 
     assert.equal(r.uploaded, 0, 'nothing changed, nothing uploaded');
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('a device key that cannot sign is refused before anything is read or uploaded', async () => {
+  const w = workKosmos(), k = keys();
+  try {
+    for (const bad of [null, crypto.generateKeyPairSync('ed25519').publicKey, crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey]) {
+      const st = store();
+      const r = await snap.takeSnapshot({ root: w.root, memberPk: k.member.pk, namingKey: k.nk, namingKeyId: k.nkId, deviceKey: bad, ctx: k.ctx },
+        { now: () => NOW, uploadChunks: st.uploadChunks, uploadManifest: st.uploadManifest });
+      assert.equal(r.ok, false); assert.match(r.because, /device key/); assert.equal(st.batches.length, 0);
+    }
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a folder on another volume is not crossed, and is named', () => {
+  const w = workKosmos();
+  try {
+    const { f } = spyFs({ lstatSync: (real, p2, o) => { const s2 = real(p2, o); return String(p2).endsWith(path.join('agents', 'a', 'memory')) ? Object.assign(Object.create(Object.getPrototypeOf(s2)), s2, { dev: s2.dev + 1n }) : s2; } });
+    const l = snap.listFiles(w.root, f);
+    assert.ok(l.skipped.some((x) => x.path === 'agents/a/memory' && /another volume/.test(x.why)));
+    assert.ok(!l.files.some((x) => x.path.startsWith('agents/a/memory/')));
+    assert.ok(l.files.some((x) => x.path === 'agents/a/notes.md'), 'control');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});

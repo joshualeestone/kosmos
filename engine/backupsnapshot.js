@@ -102,6 +102,10 @@ const folderDenied = (rel) => { const d = pathDecision(`${rel}/x`); return d.inc
     device and inode seen, and what was skipped (links, denied folders and files, anything not a file or folder, a
     folder that could not be read). Nothing is opened but folders. fs is injectable for tests. */
 function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_SKIPPED } = {}) {
+  // Another volume mounted inside the work Kosmos (an external disk, a network share) is not crossed (review 11): what
+  // is backed up is this computer's work Kosmos, and a mount can bring in anything. Recorded as skipped.
+  let rootDev = null;
+  try { rootDev = fs.lstatSync(root, { bigint: true }).dev; } catch { /* the walk reports the unreadable root */ }
   const files = [];
   const skipped = [];
   let skippedExtra = 0, over = false;
@@ -121,6 +125,7 @@ function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_S
       try { st = fs.lstatSync(path.join(root, r), { bigint: true }); } catch { skip({ path: r, why: 'an entry that could not be read' }); continue; }
       if (st.isSymbolicLink()) { skip({ path: r, why: 'a link (links are not followed)' }); continue; }
       if (st.isDirectory()) {
+        if (rootDev !== null && st.dev !== rootDev) { skip({ path: r, why: 'another volume mounted inside the work Kosmos (not crossed)' }); continue; }
         const why = folderDenied(r);
         if (why) skip({ path: r, why }); else walk(r, depth + 1);
         continue;
@@ -263,6 +268,9 @@ async function snapshotInner(input, deps, added, state, fail) {
   if (typeof root !== 'string' || !path.isAbsolute(root)) return fail('the work Kosmos folder must be an absolute path');
   if (!isKey32(memberPk) || !isKey32(namingKey)) return fail('the member key and the naming key must be 32-byte Buffers');
   if (typeof namingKeyId !== 'string' || !/^[0-9a-f]{32}$/.test(namingKeyId)) return fail('the naming key id must be 32 lowercase hex characters');
+  // The device key is used only to sign the manifest, after every chunk is uploaded: checked here, before anything is
+  // spent (review 11), with sealManifest's own rule.
+  if (!deviceKey || deviceKey.type !== 'private' || deviceKey.asymmetricKeyType !== 'ed25519') return fail('the device key must be an Ed25519 private key');
   try { checkBackupContext(ctx); } catch (err) { return fail(err.message); }
   const t = now();
   if (!Number.isFinite(t)) return fail('this computer\'s clock gave no usable time');
@@ -427,7 +435,7 @@ async function snapshotInner(input, deps, added, state, fail) {
   }
   if (!chunks.length) return fail('there is nothing to back up: no file with content was found (a manifest must name at least one chunk)');
   const manifest = {
-    format: FORMAT, takenAt: new Date(now()).toISOString(), namingKeyId,
+    format: FORMAT, takenAt: new Date(t).toISOString(), namingKeyId,   // t: the reading already checked (review 11)
     files, objects, redacted, skipped, skippedNotListed: skippedExtra,
   };
   // Cannot throw on this content (review 8): paths passed pathProblem, every other value is a fixed sentence, a number,
