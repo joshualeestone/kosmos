@@ -7765,6 +7765,13 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
 .micbtn { display: none; touch-action: manipulation; flex: 0 0 auto; place-items: center; width: 34px; height: 34px;
   border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
 html.has-voice .micbtn { display: grid; }
+/* #5624: conversation mode, beside the mic in a conversation's box: shown where the page can speak (html.has-speak). */
+.convbtn { display: none; touch-action: manipulation; flex: 0 0 auto; place-items: center; width: 34px; height: 34px;
+  border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
+html.has-speak .convbtn { display: grid; }
+.convbtn:hover { background: rgba(20,22,26,.07); color: var(--k-ink); }
+.convbtn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.convbtn[aria-pressed="true"] { color: var(--k-accent, #1f6feb); background: color-mix(in srgb, var(--k-accent, #1f6feb) 12%, transparent); }
 /* #4409 slice 2: the mic inside a dialog's text box: top right of a textarea (clear of its resize grip), centred in a
    one-line input. The wrapper takes the box's place in its row (a .frow is a flex row that sized the input itself), so
    no box changes size where the mic is not drawn; the box gets room on the right only where it is (html.has-voice). */
@@ -12624,7 +12631,7 @@ window.kosmosMeasureScrollbarWidth();
            grey smiley and panel, driven by the same code (EMOJI_AT below), so there is one list
            of emoji and one behaviour. The panel sits inside this box, which is its anchor. -->
       <!-- #4409: the mic. Drawn only where a voice bridge exists (html.has-voice): the Mac app, or a phone (slice 3). -->
-      <button class="micbtn" id="d-mic" type="button" data-voice-for="d-say" data-voice-msg="d-say-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+      <button class="micbtn" id="d-mic" type="button" data-voice-for="d-say" data-voice-msg="d-say-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button><button class="convbtn" id="d-conv" type="button" data-conv-for="dm" aria-pressed="false" aria-label="Read new messages aloud as they arrive" title="Read new messages aloud"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
       <button class="emojibtn" id="d-emoji-btn" type="button" aria-label="Add an emoji" title="Add an emoji" aria-expanded="false" aria-controls="d-emoji"><span class="emojibtn-glyph" aria-hidden="true">&#128512;</span></button>
             <button class="btn uprime cpost" id="d-send" type="button">Post</button>
       <div class="emojipanel" id="d-emoji" role="group" aria-label="Pick an emoji" hidden></div>
@@ -16508,7 +16515,7 @@ window.kosmosMeasureScrollbarWidth();
                app: "the yellow post button", match the pack. So Post and the
                agent page's Send wear `.uprime`, the build's gold. The
                argument above stays as the record of what it cost. -->
-                    <button class="micbtn" id="pj-mic" type="button" data-voice-for="pj-post" data-voice-msg="pj-room-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+                    <button class="micbtn" id="pj-mic" type="button" data-voice-for="pj-post" data-voice-msg="pj-room-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button><button class="convbtn" id="pj-conv" type="button" data-conv-for="pj" aria-pressed="false" aria-label="Read new messages aloud as they arrive" title="Read new messages aloud"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
                     <button class="emojibtn" id="pj-emoji-btn" type="button" aria-label="Add an emoji" title="Add an emoji" aria-expanded="false" aria-controls="pj-emoji"><span class="emojibtn-glyph" aria-hidden="true">&#128512;</span></button>
                     <button class="btn uprime cpost" id="pj-post-go" type="button">Post</button>
         </div>
@@ -37450,6 +37457,7 @@ function paintTalkThread(body, name) {
       if (r) { r.setAttribute('tabindex', '-1'); r.focus({ preventScroll: true }); }
     }
     if (!filtering && CURRENT && CURRENT.sessionName) unreadEdgeApply(thread, 'dm:' + CURRENT.sessionName);   // #3743
+    if (!filtering && CURRENT && CURRENT.sessionName) { convFollow(thread, 'dm:' + CURRENT.sessionName); convPaint(); }   // #5624
   }
 }
 async function paintTalk(sessionName, agentName) {
@@ -66753,6 +66761,101 @@ document.addEventListener('click', (e) => {
   if (b) { e.preventDefault(); speakRow(b); }
 });
 window.addEventListener('pagehide', () => { if (SPEAK.btn) speakStop(); });
+
+/* ---- #5624: conversation mode ----
+   While it is on for a conversation (an agent's direct thread, or a project room), each NEW message from an agent
+   there is read aloud as it arrives, with the read-aloud parts above (on-device voice, code announced not spelled).
+   On/off is per conversation, remembered on this computer only (localStorage), and always visible on its button.
+   Nothing already on screen is read: a conversation's messages count as heard the first time they are drawn, and
+   when the mode is turned on. A newer message stops the one being read; leaving the conversation or turning the mode
+   off stops it too. A long message is read up to CONV_MAX characters, cut at a sentence end. */
+const CONV_STORE = 'kosmos.convmode';
+const CONV_MAX = 600;
+const CONV = { on: null, seen: Object.create(null), key: '', seq: 0 };
+function convLoad() {
+  if (CONV.on) return CONV.on;
+  let o = null;
+  try { o = JSON.parse(localStorage.getItem(CONV_STORE) || '{}'); } catch { o = null; }
+  CONV.on = o && typeof o === 'object' && !Array.isArray(o) ? o : {};
+  return CONV.on;
+}
+function convIsOn(key) { return !!key && convLoad()[key] === true; }
+function convSet(key, on) {
+  const o = convLoad();
+  if (on) o[key] = true; else delete o[key];
+  try { localStorage.setItem(CONV_STORE, JSON.stringify(o)); } catch { /* kept for this page only */ }
+}
+/* PURE: the ids in `mids` not in `seen`, in their order. */
+function convNewMids(seen, mids) { return mids.filter((m) => m && !seen.has(m)); }
+/* PURE: the opening of a message, at most `max` characters, at whole pieces (sentence ends). */
+function convOpening(text, max) {
+  let out = '';
+  for (const part of speechChunks(text, 220)) {
+    if (out && (out + ' ' + part).length > max) break;
+    out = out ? out + ' ' + part : part;
+  }
+  return out;
+}
+/* The conversation each toggle is for, as the unread edge keys it. */
+function convKeyFor(which) {
+  if (which === 'dm') return (typeof CURRENT !== 'undefined' && CURRENT && CURRENT.sessionName) ? 'dm:' + CURRENT.sessionName : '';
+  if (which === 'pj') return (typeof PJ_CURRENT !== 'undefined' && PJ_CURRENT != null) ? 'pj:' + PJ_CURRENT : '';
+  return '';
+}
+function convPaint() {
+  document.querySelectorAll('.convbtn').forEach((b) => {
+    const on = convIsOn(convKeyFor(b.getAttribute('data-conv-for')));
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    b.title = on ? 'Reading new messages aloud. Click to stop.' : 'Read new messages aloud';
+    b.setAttribute('aria-label', on ? 'Stop reading new messages aloud' : 'Read new messages aloud as they arrive');
+  });
+}
+function convStop() {
+  CONV.seq++; CONV.key = '';
+  try { if (speakCan()) window.speechSynthesis.cancel(); } catch { /* nothing to stop */ }
+}
+function convSpeak(row, key) {
+  const text = convOpening(speechTextOfRow(row), CONV_MAX);
+  if (!text) return;
+  const voice = speakVoice();
+  if (!voice) return;   // no on-device voice: the per-message button says why when pressed
+  if (SPEAK.btn) speakStop();   // a per-message reading gives way to the new message
+  try { window.speechSynthesis.cancel(); } catch { /* nothing playing */ }
+  const mine = ++CONV.seq;
+  CONV.key = key;
+  for (const part of speechChunks(text, 220)) {
+    const u = new SpeechSynthesisUtterance(part);
+    u.voice = voice; u.lang = voice.lang;
+    u.onstart = () => { if (CONV.seq !== mine) try { window.speechSynthesis.cancel(); } catch { /* gone */ } };
+    window.speechSynthesis.speak(u);
+  }
+}
+/* Called after a conversation is drawn (root: its thread, key: as unread edge keys it). */
+function convFollow(root, key) {
+  if (!root || !key) return;
+  const rows = Array.from(root.querySelectorAll('.msg:not(.you)[data-mid]'))
+    .filter((r) => !String(r.getAttribute('data-mid')).startsWith('pending:'));
+  const mids = rows.map((r) => r.getAttribute('data-mid'));
+  const seen = CONV.seen[key];
+  if (CONV.key && CONV.key !== key) convStop();   // the conversation on screen changed
+  if (!seen) { CONV.seen[key] = new Set(mids); return; }   // first sight: nothing already there is read
+  const fresh = convNewMids(seen, mids);
+  fresh.forEach((m) => seen.add(m));
+  if (!fresh.length || !convIsOn(key) || !speakCan()) return;
+  if (typeof document !== 'undefined' && document.hidden === true) return;   // a hidden window does not talk
+  convSpeak(rows[mids.lastIndexOf(fresh[fresh.length - 1])], key);   // the newest only: it stops the one before
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('.convbtn');
+  if (!b) return;
+  e.preventDefault();
+  const key = convKeyFor(b.getAttribute('data-conv-for'));
+  if (!key) return;
+  const on = !convIsOn(key);
+  convSet(key, on);
+  if (!on && CONV.key === key) convStop();
+  convPaint();
+});
 /* #2700: fold a run of consecutive room refusals that share one reason into a
    single 'refused-group' row, so a valve-stopped busy room shows ONE band
    naming every held agent (see the refused-group branch in pjRoomRow) instead
@@ -67342,6 +67445,7 @@ function paintRoom(body) {
   /* #3743: after the paint, and on every poll; not on a read that did not answer (ok false, no rows), which would
      make the room's whole history look new on the next one. */
   if (!filtering && body.ok !== false) unreadEdgeApply(box, 'pj:' + PJ_CURRENT);
+  if (!filtering && body.ok !== false) { convFollow(box, 'pj:' + PJ_CURRENT); convPaint(); }   // #5624
 }
 /* The search input repaints from the cached body (loadRoom keeps it on
    the box) so typing filters instantly between polls; the query resets
