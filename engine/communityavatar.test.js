@@ -626,7 +626,8 @@ test('#5302 saveRefitAvatar: a stale version writes nothing; otherwise the origi
   assert.equal(fs.readdirSync(dir).filter((f) => f.startsWith(store.safeKey('kos') + '.')).length, 2);
   // A keep that fails writes nothing.
   store.saveAvatar('kos', 'image/gif', GIF); bump(20);
-  // (#5434: the original is kept through securewrite, whose temp is written with writeSync)
+  // (#5434: the original is kept through securewrite, whose temp is written with fs.writeSync in its write loop; if
+  // that primitive ever changes this stub stops matching and assert.throws below fails, never a silent pass)
   const real = fs.writeSync;
   fs.writeSync = () => { throw Object.assign(new Error('disk full'), { code: 'ENOSPC' }); };
   try { assert.throws(() => store.saveRefitAvatar('kos', 'image/png', png(6), store.avatarVersion('kos')), /disk full/); }

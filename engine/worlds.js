@@ -573,8 +573,8 @@ function worldWorkersDir(base, world, env) {
 
 /* What counts as a profile file, named ONCE so agentCount (which reports the number)
    and engine/worldimport.js (which lists and copies them) can never disagree about it. A profile is
-   `<safeKey(name)>.json`; the store writes a `<name>.json.tmp` mid-write, which
-   `.endsWith('.json')` correctly excludes (it ends with .tmp). */
+   `<safeKey(name)>.json`; the store writes a `<name>.json.kosmos-<pid>-...tmp` temp mid-write (#5434),
+   which `.endsWith('.json')` correctly excludes (it ends with .tmp). */
 function isProfileFile(f) { return f.endsWith('.json'); }
 
 /*

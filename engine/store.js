@@ -15,6 +15,7 @@
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const securewrite = require('./securewrite');   // #5434 slice 4: the store's saves flush before they rename
 const os = require('node:os');
 const path = require('node:path');
 // ⚠️ `ping.js` requires THIS module at its top (for ROOT), so the identity
@@ -509,8 +510,8 @@ function avatarLookup(name) {
 
 /* kosmos#5302: before Kosmos fits an older picture in place, the picture as it was is copied to avatar-originals/ beside
    the avatars folder (never a name the avatar lookup reads), one per version and size (`<key>.<version>-<size><ext>`), so a fitted copy
-   never costs the person a picture. Copied to a temporary name and renamed, so a copy that dies part way never stands
-   as an original. Throws when it cannot be kept; saveRefitAvatar then writes nothing. */
+   never costs the person a picture. Read and written through securewrite (flushed, then renamed; #5434), so a copy that
+   dies part way never stands as an original. It takes the umask default mode, not the picture's. Throws when it cannot be kept; saveRefitAvatar then writes nothing. */
 function originalsDir() { return path.join(path.dirname(avatarsDir()), 'avatar-originals'); }
 function keepAvatarOriginal(name) {
   const file = avatarPath(name);
@@ -652,7 +653,13 @@ function removeAvatar(name) {
   const existing = avatarPath(name);
   if (existing) fs.unlinkSync(existing);
   // kosmos#5302: a removed picture takes the originals kept for it too.
-  try { const key = safeKey(name); for (const f of fs.readdirSync(originalsDir())) if (f.startsWith(key + '.')) fs.unlinkSync(path.join(originalsDir(), f)); } catch { /* none kept */ }
+  // A writer's temp (`<key>.<ver>-<size><ext>.kosmos-...tmp`, #5434) is another process's keep in flight: never taken.
+  try {
+    const key = safeKey(name);
+    for (const f of fs.readdirSync(originalsDir())) {
+      if (f.startsWith(key + '.') && securewrite.tempWriterGone(f) === null) fs.unlinkSync(path.join(originalsDir(), f));
+    }
+  } catch { /* none kept */ }
   return Boolean(existing);
 }
 
@@ -711,9 +718,11 @@ function stripIdentity(profile) {
    the rename makes them the file (a crash otherwise can leave it at full length, zero-filled; #5431). An existing
    file keeps its mode; a new one takes the umask default, as writeFileSync gave. atomicOnly: a failed save throws and
    leaves the old file as it was. These folders are Kosmos's own, so any provably dead writer temp there is reaped. */
+// (statSync follows a link: a linked file passes its target's mode, and the rename replaces the link with a regular
+// file, as the old write-then-rename did)
 function modeOf(file) { try { return fs.statSync(file).mode & 0o7777; } catch { return null; } }
 function saveFlushed(file, data) {
-  require('./securewrite').writeSecret(file, data, modeOf(file), { atomicOnly: true, umaskDefault: true });
+  securewrite.writeSecret(file, data, modeOf(file), { atomicOnly: true, umaskDefault: true });
 }
 
 function writeProfile(name, patch) {

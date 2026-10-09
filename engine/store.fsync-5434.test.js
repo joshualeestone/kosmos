@@ -107,3 +107,24 @@ test('#5434: a writer temp beside a picture is never taken for the picture', () 
   assert.equal(store.avatarPath('dee'), dest);
   assert.equal(store.avatarLookup('dee').file, dest);
 });
+
+test('#5434: removing a picture never takes another process\'s keep in flight in avatar-originals', () => {
+  store.saveAvatar('eve', 'image/png', PNG);
+  const kept = store.keepAvatarOriginal('eve');
+  const dir = path.dirname(kept);
+  const inflight = path.join(dir, path.basename(kept) + '.kosmos-' + process.pid + '-t0-1-1.tmp');   // a live writer's temp
+  fs.writeFileSync(inflight, 'in flight');
+  store.removeAvatar('eve');
+  assert.equal(fs.existsSync(kept), false, 'CONTROL: the kept original was not removed with the picture');
+  assert.equal(fs.existsSync(inflight), true, 'a keep in flight was unlinked');
+  fs.unlinkSync(inflight);
+});
+
+test('#5434: a writer temp in the profiles folder is never listed as a profile', () => {
+  store.writeProfile('fay', { role: 'r' });
+  const file = path.join(store.PROFILES, store.profileFileName('fay'));
+  fs.writeFileSync(file + '.kosmos-2147483646-t0-1-1.tmp', '{}');
+  const listed = require('./register').known().names;
+  assert.ok(listed.includes('fay'), 'CONTROL: the profile itself was not listed');
+  assert.equal(listed.some((n) => n.includes('kosmos-')), false, 'a temp was listed as a profile');
+});
