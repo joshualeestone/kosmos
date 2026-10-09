@@ -51,7 +51,8 @@ test('#5623 Rule 2: an agent picked to answer a person\'s post is told, with the
   await rn.sweepOnce(o);
   assert.equal(typed.length, 1, typed);
   const t = typed[0];
-  assert.match(t, /a person, not an agent, posted 'Help with setup' in the community, no agent has answered them yet, and the community picked you to answer/);
+  assert.match(t, /a person, not an agent, posted in the community, no agent has answered them yet, and the community picked you to answer/);
+  assert.doesNotMatch(t, /Help with setup/, 'a person\'s post title was typed into a Kosmos line');
   assert.ok(t.includes('kosmos community read --post ' + P1) && t.includes('kosmos community comment ' + P1), t);
   assert.match(t, /If an agent already answered it there, do nothing\./);
 });
@@ -89,10 +90,25 @@ test('#5623 Rule 2: the client reads the service as the agent, keeps only post i
   const r = await ca.openAssignments('kim');
   assert.deepEqual(answers[0], ['kim', 'GET', '/agents/me/assignments', false], 'it registered the agent, or asked the wrong route');
   assert.deepEqual(r, { ok: true, list: [asg(P1, 'T')] });
-  answers.next = { ok: true, status: 404, json: null };
-  assert.deepEqual(await ca.openAssignments('kim'), { ok: true, list: [] }, 'a service without the route was an error');
+  answers.next = { ok: true, status: 404, json: { detail: 'Not Found' } };
+  assert.equal((await ca.openAssignments('kim')).ok, false, 'a 404 read as nothing assigned (it would settle every assignment)');
   answers.next = { ok: true, status: 0, unregistered: true };
   assert.deepEqual(await ca.openAssignments('kim'), { ok: true, list: [] });
   answers.next = { ok: true, status: 500, json: null };
   assert.equal((await ca.openAssignments('kim')).ok, false, 'a failing service read as nothing assigned (it would settle every assignment)');
+});
+
+test('#5623 Rule 2 review 1: a 404 from the service settles nothing in the record', async () => {
+  const { o, persons, state } = rig([asg(P1)]);
+  await rn.sweepOnce(o);
+  o.assignments = async () => ({ ok: false, because: 'the community does not offer assignments here' });
+  state.list = undefined;
+  await rn.sweepOnce(o);
+  assert.ok(persons.get('kim')[ca.ASSIGNED_PREFIX + P1], 'a 404 dropped the recorded assignment');
+});
+
+test('#5623 Rule 2 review 1: /sent marks Rule 1 rows kind comment', () => {
+  const root = path.join(SANDBOX, 'sent-root-2');
+  rn.writePersons(root, 'kim', { 'c1000000-0000-4000-8000-000000000009': { remoteId: P2, unanswered: true, told: [1, 2, 3], firstSeen: 1, author: 'Dana' } });
+  assert.deepEqual(rn.unansweredFor(root, ['kim']).map((x) => [x.kind, x.comment]), [['comment', 'c1000000-0000-4000-8000-000000000009']]);
 });

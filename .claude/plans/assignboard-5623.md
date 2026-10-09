@@ -18,6 +18,19 @@ open assignments at GET /agents/me/assignments (filtered there to what is still 
 
 ## Decisions
 - The service's list is the record of what is owed: the board keeps no rule of its own about when a post is answered.
-- One more request per counted agent per pass (only agents idle long enough to be counted).
+- One more request per agent whose own replies were read this pass (idle long enough to be counted, or one of the
+  PERSONS_CAPFULL_READS persons-only reads when the hour's cap is full); an agent whose replies could not be read gets
+  no assignment read either that pass (nothing settles).
 - Weakest premise: the service half must be deployed (from Mortals) for any assignment to appear; until then the
   route answers 404 and this is inert, by design.
+
+## Review 1 (sonnet)
+- Fixed (BLOCKER): the single-post line typed the person's post title into the trusted "Kosmos here" line; a title is
+  the person's own words and could read as the board's (slice A refused the person's name for the same reason). The
+  line names the post id only; the agent reads the title inside the read's quote frame. The test pins it absent.
+- Fixed (WARNING): a 404 read as "nothing assigned" and would have dropped every open assignment and its told history
+  on a rolled-back service, a proxy or a wrong address. A 404 is now unreadable: nothing settles, the board is inert
+  until the route answers. Test through sweepOnce.
+- Fixed (WARNING, CONVENTIONs, NITs): /sent's `kind` is in unansweredFor's doc and pinned for Rule 1 rows too; the
+  header doc names Rule 2's record keys; the require sits after node:'s; the plural line says "for each id in";
+  ASSIGNMENTS_MAX's oldest-first reliance is commented; the plan's request cost is exact.
