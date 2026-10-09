@@ -24225,9 +24225,9 @@ async function tick() {
        count, not the count. The summary under the row already says lines were
        unreadable; a tile printing `11` beside it is the number a person
        believes. Not `?`: unlike Not running, this is knowable in part, and
-       replacing a true floor with nothing would hide a fact we hold. Working
-       and Idle are cut from the same parsed list, so they are floors on the
-       same poll and carry the same mark. */
+       replacing a true floor with nothing would hide a fact we hold. The state
+       tiles (Working, Idle, and Waiting since #5540) are cut from the same
+       parsed list, so they are floors on the same poll and carry the same mark. */
     const floor = (c.unreadableLines || 0) > 0;
     /* ⚠️ AN UNKNOWN AGENT FLOORS THE STATE TILES TOO (#369). Measured on the
        live board: a Fable session mid-turn read unknown, and the row said

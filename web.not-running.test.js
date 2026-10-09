@@ -301,15 +301,18 @@ test('on a partial read the headline tiles are marked as floors, never printed a
   assert.equal(tileCount(0, true), '0+', 'zero parsed on a partial read is still a floor, not a claim of none');
   for (const bad of [null, undefined, NaN, '11']) assert.equal(tileCount(bad, false), '?', `${String(bad)} rendered as a number`);
   // The three tiles use it, gated on the same fact the summary reads.
-  const paint = SCRIPT.slice(SCRIPT.indexOf("const c = data.counts;"), SCRIPT.indexOf("const c = data.counts;") + 2600);
+  /* #5540: up to the Issue tile's write rather than a fixed 2600 characters, which a third state tile outgrew. */
+  const paintFrom = SCRIPT.indexOf("const c = data.counts;");
+  const paint = SCRIPT.slice(paintFrom, SCRIPT.indexOf("getElementById('st-attn').textContent", paintFrom));
+  assert.ok(paint.length > 0 && paint.includes("getElementById('st-idle')"), 'CONTROL: the tile writes were not found');
   assert.match(paint, /const floor = \(c\.unreadableLines \|\| 0\) > 0;/, 'the floor is not derived from unreadableLines');
   /* #369 split the gate: the Agents total floors only on unreadable lines,
-     while Working and Idle also floor on any unknown agent, via `stateFloor`,
+     while the state tiles (Working, Idle, Waiting #5540) also floor on any unknown agent, via `stateFloor`,
      which must itself INCLUDE the partial-read floor or #291 regresses. */
   assert.match(paint, /const stateFloor = floor \|\| unknowns > 0;/,
     'the state tiles\' floor no longer includes the partial-read floor');
   assert.match(paint, new RegExp("getElementById\\('st-agents'\\)\\.textContent =\\s*tileCount\\([^;]*, floor\\)"), 'st-agents is not marked as a floor');
-  for (const id of ['st-working', 'st-idle']) {
+  for (const id of ['st-working', 'st-idle', 'st-blocked']) {
     assert.match(paint, new RegExp("getElementById\\('" + id + "'\\)\\.textContent =\\s*tileCount\\([^;]*, stateFloor\\)"), id + ' is not marked as a floor');
   }
   // And the engine really produces the gate on the mangled fixture (control).
