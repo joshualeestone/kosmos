@@ -476,3 +476,17 @@ test('#5663 review 18: a board start does not read the record, so a corrupt one 
   assert.deepEqual(fs.readdirSync(path.join(dir, '.claude')).filter((f) => f.includes('.unreadable-')), [], 'a board start copied the record');
   assert.equal(fs.readFileSync(rec, 'utf8'), '{broken');
 });
+
+test('#5663 review 19: the dated copy of an unparseable record is byte for byte, invalid UTF-8 included', () => {
+  const dir = agentDir('lp-bytes');
+  setup.guardTokenOnlyFolder(dir, 'lp-bytes', { ...BASE, atLaunch: true, panePath: binDir('bytes/bin') });
+  const rec = path.join(dir, '.claude', 'kosmos-launch-rules.json');
+  const bad = Buffer.from([0x7b, 0xff, 0xfe, 0x00, 0x80, 0x7d]);   // not JSON, not UTF-8
+  fs.writeFileSync(rec, bad);
+  const real = process.stderr.write;
+  process.stderr.write = () => true;
+  try { setup.guardTokenOnlyFolder(dir, 'lp-bytes', { ...BASE, atLaunch: true, panePath: binDir('bytes/bin') }); } finally { process.stderr.write = real; }
+  const copies = fs.readdirSync(path.join(dir, '.claude')).filter((f) => f.startsWith('kosmos-launch-rules.json.unreadable-'));
+  assert.equal(copies.length, 1);
+  assert.ok(fs.readFileSync(path.join(dir, '.claude', copies[0])).equals(bad), 'the copy is not the original bytes');
+});

@@ -111,7 +111,7 @@ An agent launch after an upgrade leaves no rule for a removed version folder or 
 
 - A launch that prunes now says so in the log, as counts only. Test: one line when it prunes, none when it does not; removing it goes red.
 - The mode-000 arm runs only for an ordinary user, because root reads a mode-000 file.
-- Decided risk, stated so nobody reads pruning as strictly safe: once a removed path's rule is pruned, the path is unguarded until a launch names it again. The file tools could create something there in that window. A later launch runs it only if that exact path (a removed version's folder) is back on the launch PATH, and that launch denies it again before the agent starts. This is inherent to pruning at all, the card's purpose. Before #5663 the rule stayed for good, which is the growth this card removes.
+- Decided risk, stated so nobody reads pruning as strictly safe: once a recorded path's rule is pruned (it left the launch PATH and was removed, a version folder or any other folder, review 19), the path is unguarded until a launch names it again. The file tools could create something there in that window. A later launch runs it only if that exact path (a removed version's folder) is back on the launch PATH, and that launch denies it again before the agent starts. This is inherent to pruning at all, the card's purpose. Before #5663 the rule stayed for good, which is the growth this card removes.
 - Duplicates of decided points: the lock-free record; the warning reaching only the log (#5668); the use-strict guard's scope; other rule spellings not counted (review 11); review-number comments.
 
 ## Review 13 (Opus) and what changed
@@ -164,3 +164,13 @@ An agent launch after an upgrade leaves no rule for a removed version folder or 
   - the use-strict guard's scope and its known false reds;
   - non-path rules over-counted in the safe direction;
   - the plan name and commit subjects.
+
+## Review 19 (Opus) and what changed
+
+- The post-prune risk is wider than removed version folders. It covers any recorded path that leaves the launch PATH and is removed, such as a deleted `~/bin`. The decided-risk sentence now says so. In practice the exposure is files rather than programs: a file the file tools make is not executable, and the sandboxed shell cannot chmod outside its own folder.
+- The dated copy of an unparseable record is byte for byte, including invalid UTF-8. Test with a mutation that goes red.
+- One parser reads rule paths: `ruleTarget` takes the person's `~/` spelling when given a home (the size count), so the two readings cannot drift.
+- Not changed:
+  - The plan-name conflict between CLAUDE.md and the PR hook. Both live in the org's shared setup (the global import block and the hook), not in this repo's lane, and every kosmos branch meets it.
+  - The PR title will use the `#5663: ...` form.
+  - The use-strict guard stays where the branch that needed it put it.

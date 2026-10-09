@@ -1089,9 +1089,12 @@ const SANDBOX_DENY_PREFIX_MAX = 40 * 1024;
 const SANDBOX_DENY_RAW_MAX = 160 * 1024;
 // A rule's path, for the rule shapes this guard writes (a path with a pattern character is never written, #4491 review 14).
 // Review 13: the wrapper is stripped here and the path read back by rulePath, the one inverse of ruleAbs.
-function ruleTarget(r, platform = process.platform) {
-  const m = /^(?:Edit|Read)\(\/\/(.*?)(?:\/\*\*)?\)$/.exec(String(r));
-  return m ? rulePath(m[1], platform) : null;
+// With a home, the person's '~/' spelling is read too (the size count); the guard itself writes only '//'.
+function ruleTarget(r, platform = process.platform, home = null) {
+  const m = /^(?:Edit|Read)\((\/\/|~\/)(.*?)(?:\/\*\*)?\)$/.exec(String(r));
+  if (!m) return null;
+  if (m[1] === '//') return rulePath(m[2], platform);
+  return home ? path.join(home, m[2]) : null;
 }
 /* The paths THIS AGENT'S settings file sends to the profile, counted per clause as the profile is likely built (review 5).
    Review 11: the person's user-level settings files (~/.claude, ~/.claude-<label>) also reach it and are not counted
@@ -1105,13 +1108,7 @@ function ruleTarget(r, platform = process.platform) {
 function sandboxDenySize(fsb, deny, home, platform = process.platform) {
   const rules = (deny || []).map(String);
   const at = home || kosmosHome();
-  const target = (r) => {
-    const t = ruleTarget(r, platform);
-    if (t) return t;
-    const m = /^(?:Edit|Read)\(~\/(.*?)(?:\/\*\*)?\)$/.exec(r);
-    return m ? path.join(at, m[1]) : null;
-  };
-  const targets = (kind) => rules.filter((r) => r.startsWith(kind + '(')).map(target).filter(Boolean);
+  const targets = (kind) => rules.filter((r) => r.startsWith(kind + '(')).map((r) => ruleTarget(r, platform, at)).filter(Boolean);
   const clauses = [
     [...((fsb && fsb.denyRead) || []), ...targets('Read')],
     [...((fsb && fsb.denyWrite) || []), ...targets('Edit')],
@@ -1149,8 +1146,8 @@ function launchPathGone(p) { return launchPathState(p) === 'gone'; }
 function launchPathPresent(p) { return launchPathState(p) === 'present'; }
 function readLaunchRecord(file) {
   const none = { deny: [], denyWrite: [] };
-  let raw;
-  try { raw = fs.readFileSync(file, 'utf8'); } catch (e) {
+  let buf;
+  try { buf = fs.readFileSync(file); } catch (e) {
     if (e && e.code === 'ENOENT') return none;   // none yet (a guard from before #5663)
     /* Review 11: a record that exists and cannot be read is not replaced (that would forget it): nothing is pruned and
        it is not written this time, and the log says so. */
@@ -1158,16 +1155,16 @@ function readLaunchRecord(file) {
     return { ...none, keep: true };
   }
   let j;
-  try { j = JSON.parse(raw); } catch { j = undefined; }
+  try { j = JSON.parse(buf.toString('utf8')); } catch { j = undefined; }
   if (!j || typeof j !== 'object' || Array.isArray(j)) {
     /* Review 10: a record that does not parse is read as none, which prunes nothing, and the next write replaces it;
        a dated copy is kept first (as the settings file does, #4491 review 18) so what it named is not lost unseen. */
     // Review 11: one copy per content, so a record that also cannot be written is not copied again at every refresh.
     let keep = null;
-    try { keep = fs.readdirSync(path.dirname(file)).filter((f) => f.startsWith(path.basename(file) + '.unreadable-')).map((f) => path.join(path.dirname(file), f)).find((f) => { try { return fs.statSync(f).size === Buffer.byteLength(raw) && fs.readFileSync(f, 'utf8') === raw; } catch { return false; } }) || null; } catch { keep = null; }
+    try { keep = fs.readdirSync(path.dirname(file)).filter((f) => f.startsWith(path.basename(file) + '.unreadable-')).map((f) => path.join(path.dirname(file), f)).find((f) => { try { return fs.statSync(f).size === buf.length && fs.readFileSync(f).equals(buf); } catch { return false; } }) || null; } catch { keep = null; }
     if (!keep) {
       const at = `${file}.unreadable-${Date.now()}`;
-      try { fs.writeFileSync(at, raw, { mode: 0o600 }); keep = at; } catch (e) {
+      try { fs.writeFileSync(at, buf, { mode: 0o600 }); keep = at; } catch (e) {   // the bytes as they were (review 19)
         // Review 17: no copy, so the record is left as it is (as an unreadable one is), and the log says no copy.
         process.stderr.write(`#5663: ${file} could not be read, and no copy could be kept (${(e && e.code) || e}); nothing is pruned and it is left as it is\n`);
         return { ...none, keep: true };
