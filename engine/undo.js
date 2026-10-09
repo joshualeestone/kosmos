@@ -318,8 +318,8 @@ function sweep(now = Date.now()) {
        - the index CANNOT BE READ (EACCES, EIO, a directory in its place): its records are intact and will read again,
          so every copy is still restorable. Never collect then.
        - the index has content but no parsable record (zero-filled by a crash): those records are gone, so Undo can no
-         longer restore those copies; they are kept only until the next record is appended (then the sweep collects as
-         usual), a window for recovery by hand, not a promise. Holding them forever would keep files nothing can restore.
+         longer restore those copies; they are kept until the first sweep after the next record is appended (sweeps run
+         at board start and at most daily, so up to about a day), a window for recovery by hand, not a promise. Holding them forever would keep files nothing can restore.
        Dead `.tmp` blobs (a keep that died) are reaped either way. */
     let holdKept = false;
     if (!all.length) {
