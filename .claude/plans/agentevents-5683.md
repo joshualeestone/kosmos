@@ -358,3 +358,15 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   at 5 and 10 minutes, then 25 and a few seconds).
 - Stated: path classing resolves, it does not follow symlinks (a link the agent made to the board's files reads 'other';
   making the link is itself a write in its own folder); a line larger than the tick's remaining budget waits a tick.
+
+## Review 28 (opus), all fixed unless stated
+- A guard gap and a collision in the same tick erased the collision mark, so once the other agent was deleted its
+  sessions were read as this agent's: the gap clears only a gap-only mark. Test.
+- The collision check compared flattened transcript folders case-sensitively, but a Mac volume is case-blind
+  (Orch.Main and orch_main flatten to one folder): it folds case on a Mac. Test (darwin).
+- An agent connected at the home folder or ~/Library contained the store, so its own-folder branch hid every
+  board-files refusal: a board root inside the agent's folder is checked first. Test.
+- A reset state lists every field.
+- Stated: the guard gap is wall-clock time, so a laptop asleep for over the gap also starts its agents from now (a loss,
+  never a leak, and more frequent than a board left down); a hidden word starting with another variable ($MYDIR) is
+  not dropped as the agent's own (over-claims).
