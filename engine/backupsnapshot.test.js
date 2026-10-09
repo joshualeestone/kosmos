@@ -220,7 +220,7 @@ test('never throws: an uploader that throws is a failed snapshot', async () => {
   const w = workKosmos(), k = keys(), st = store();
   try {
     const r = await take(k, w.root, st, { deps: { uploadChunks: async () => { throw new Error('boom'); } } });
-    assert.equal(r.ok, false); assert.match(r.because, /boom/);
+    assert.equal(r.ok, false); assert.match(r.because, /failed unexpectedly/); assert.doesNotMatch(r.because, /boom/, 'an error\'s own message (which can carry paths) is not passed on');
     assert.ok(r.added instanceof Map);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
@@ -554,5 +554,47 @@ test('a file that grew after the walk is skipped as changed, not as a redaction 
     assert.equal(r.ok, true, r.because);
     const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
     assert.ok(m.skipped.some((x) => x.path === 'readme.txt' && /grew/.test(x.why)), JSON.stringify(m.skipped));
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a file over the cap at walk time is never read, even if it shrank since', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const { f, opened } = spyFs({ lstatSync: (real, p2, o) => { const s2 = real(p2, o); return String(p2).endsWith('notes.md') ? Object.assign(Object.create(Object.getPrototypeOf(s2)), s2, { size: BigInt(2 * 1024 * 1024) }) : s2; } });
+    const r = await take(k, w.root, st, { deps: { fs: f, maxFile: 1024 * 1024 } });
+    assert.equal(r.ok, true, r.because);
+    assert.ok(!opened.some((p2) => p2.endsWith('notes.md')), 'not opened');
+    const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+    assert.ok(m.skipped.some((x) => x.path === 'agents/a/notes.md' && /too large/.test(x.why)));
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('an index under two accounts, or with a lock end no grant could set, is stale before anything is read', async () => {
+  const w = workKosmos(), k = keys();
+  try {
+    const idx = (entries) => new Map(entries.map((e, i) => [String(i).repeat(64).slice(0, 64).replace(/[^0-9]/g, '0'), e]));
+    for (const [what, entries] of [
+      ['two accounts', [{ key: `o1/acct1/1/${PERIOD}/k1`, lockedUntilMs: LOCK }, { key: `o1/acct2/1/${PERIOD}/k2`, lockedUntilMs: LOCK }]],
+      ['seconds, not ms', [{ key: `o1/acct1/1/${PERIOD}/k1`, lockedUntilMs: Math.floor(LOCK / 1000) }]],
+      ['a lock too far ahead', [{ key: `o1/acct1/1/${PERIOD}/k1`, lockedUntilMs: NOW + 90 * 86400 * 1000 }]],
+      ['a key with a quote', [{ key: `o1/acct1/1/${PERIOD}/k"1`, lockedUntilMs: LOCK }]],
+    ]) {
+      const st = store();
+      const { f, opened } = spyFs();
+      const r = await take(k, w.root, st, { input: { index: idx(entries), bucket: 'bucket/' }, deps: { fs: f } });
+      assert.equal(r.ok, false, what); assert.equal(r.staleIndex, true, what);
+      assert.equal(st.batches.length, 0, what); assert.equal(opened.length, 0, what);
+    }
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a grant under another account than the run\'s first fails the run before the manifest', async () => {
+  const w = workKosmos(), k = keys();
+  try {
+    let i = 0;
+    const st = store({ keyFor: (key) => (++i === 2 ? key.replace('acct1', 'acct9') : key) });
+    const r = await take(k, w.root, st, { deps: { batchBytes: 1 } });
+    assert.equal(r.ok, false); assert.match(r.because, /account path/);
+    assert.equal(st.manifests.length, 0);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
