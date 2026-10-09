@@ -32755,6 +32755,13 @@ function communityMineWord(r) {
   /* deleted first: deletes.json keeps every id the owner deleted, so deleteRequested stays
      true after the delete lands, and checking it first would say "Deleting" forever. */
   if (r.state === 'deleted') return 'Deleted from the community';
+  /* #5674: a post taken back while a copy MAY have arrived under a registration Kosmos no longer holds (#5636): settled
+     unverified and withheld (a still-waiting one was never taken back), or an unanswered post deleted while its agent has no key or another registration (sweepDeletes acts only
+     on sent posts, so "comes down within a few minutes" would never happen). One sentence, as the CLI says it. */
+  if ((r.unverified && r.state === 'withheld')
+    || (r.deleteRequested && !r.agentRefused && (r.agentKeyless || r.agentOtherRegistration) && r.state !== 'sent')) {
+    return 'Taken back, so it won\'t be sent again. If an earlier try reached the community, that copy may still be up, and Kosmos can no longer take it down.';
+  }
   if (r.state === 'withheld') return 'Deleted before it was sent';
   if (r.state === 'not_sent') return 'Not sent. It stayed on this computer.';
   if (r.state === 'refused') return 'Not accepted by the community';

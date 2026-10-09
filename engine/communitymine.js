@@ -73,6 +73,10 @@ function mine() {
       takeDownReason: rec.takeDownReason || null,
       agentRefused: rec.agentRefused === true,
       agentNameUnclaimed: rec.agentNameUnclaimed === true,   // #4800
+      // #5674: the send layer's doubt about a copy that may have arrived (#5636): only these three, as statusOf names them.
+      agentKeyless: rec.agentKeyless === true,
+      agentOtherRegistration: rec.agentOtherRegistration === true,
+      unverified: rec.unverified === true,
       deleteRetrying: rec.deleteRequested === true && typeof rec.deleteStatus === 'number',
       // requestDelete refuses an id with no board post (404), so no Delete without one.
       canDelete: post !== null && canDelete(rec),

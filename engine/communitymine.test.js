@@ -126,7 +126,7 @@ test('a row carries no remote id, send time or the record\'s own agent field, wh
   writeSent({ [a.id]: { state: 'sent', agent: 'record-only-agent', remoteId: 'remote-123', sentAt: '2026-09-28T08:00:00Z' } });
   const row = mine.mine()[0];
   assert.deepEqual(Object.keys(row).sort(),
-    ['agent', 'agentNameUnclaimed', 'agentRefused', 'canDelete', 'deleteRequested', 'deleteRetrying', 'id', 'postedAt', 'state', 'takeDownReason', 'takenDown', 'title']);
+    ['agent', 'agentKeyless', 'agentNameUnclaimed', 'agentOtherRegistration', 'agentRefused', 'canDelete', 'deleteRequested', 'deleteRetrying', 'id', 'postedAt', 'state', 'takeDownReason', 'takenDown', 'title', 'unverified']);
   const text = JSON.stringify(row);
   for (const leak of ['remote-123', 'record-only-agent', '2026-09-28T08:00:00Z']) assert.ok(!text.includes(leak), leak);
 });
@@ -192,4 +192,25 @@ test('#4800: a post held because its agent\'s name is taken without a key reache
   assert.equal(row.agentNameUnclaimed, true, 'the owner\'s row lost the flag, so the page never says why');
   fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ ava: { registering: { name: 'Ava', at: new Date().toISOString() } } }));
   assert.equal(mine.mine().find((r) => r.id === a.id).agentNameUnclaimed, false, 'a mark not yet found taken was flagged');
+});
+
+test('#5674: the send layer\'s doubt about a copy that may have arrived reaches the owner\'s row, and only then', () => {
+  const keyless = agentPost('ava', { topic: 'keyless', body: 'x' }).id;
+  const other = agentPost('bo', { topic: 'other', body: 'y' }).id;
+  const doubted = agentPost('cy', { topic: 'doubted', body: 'z' }).id;
+  const plain = agentPost('di', { topic: 'plain', body: 'w' }).id;
+  writeKeys({ bo: { apiKey: 'k-bo', remoteId: 'svc-new' }, cy: { apiKey: 'k-cy', remoteId: 'svc-cy' }, di: { apiKey: 'k-di', remoteId: 'svc-di' } });
+  writeSent({
+    [keyless]: { state: 'pending', agent: 'ava', attempted: true },                      // no answer, no key held now
+    [other]: { state: 'pending', agent: 'bo', attempted: true, agentId: 'svc-old' },     // no answer, another registration held
+    [doubted]: { state: 'withheld', agent: 'cy', unverified: true },                      // settled "not there" under a new one
+    [plain]: { state: 'pending', agent: 'di', attempted: true, agentId: 'svc-di' },      // CONTROL: no answer, its own key
+  });
+  const by = () => Object.fromEntries(mine.mine().map((r) => [r.title, [r.state, r.agentKeyless, r.agentOtherRegistration, r.unverified]]));
+  assert.deepEqual(by(), {
+    keyless: ['unconfirmed', true, false, false],
+    other: ['unconfirmed', false, true, false],
+    doubted: ['withheld', false, false, true],
+    plain: ['unconfirmed', false, false, false],
+  });
 });
