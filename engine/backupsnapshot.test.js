@@ -49,7 +49,7 @@ function workKosmos() {
 }
 
 /* A store standing in for both uploaders: keeps every object, hands out keys in the given period. */
-function store({ period = PERIOD, failChunksAfter, failManifest, bucket = 'bucket/', manifestAnswer, longKeys } = {}) {
+function store({ period = PERIOD, failChunksAfter, failManifest, bucket = 'bucket/', manifestAnswer, longKeys, org = 'o1', epoch = '1', keyFor } = {}) {
   const objects = new Map(), batches = [], manifests = [];
   let n = 0;
   return {
@@ -60,8 +60,9 @@ function store({ period = PERIOD, failChunksAfter, failManifest, bucket = 'bucke
       for (const { name, object } of batch) {
         if (failChunksAfter !== undefined && n >= failChunksAfter) return { ok: false, retryLater: true, because: 'grant ran out', keys, lockedUntil, bucket };
         // longKeys: the coordinator's real shape, two ids then two 32-hex ids (about 140 characters).
-        const key = longKeys ? `org-${'a'.repeat(32)}/acct-${'b'.repeat(32)}/1/${period}/${crypto.randomBytes(32).toString('hex')}` : `o1/acct1/1/${period}/k${++n}`;
-        objects.set(key, Buffer.from(object)); keys.set(name, key); lockedUntil.set(name, LOCK);
+        const key = longKeys ? `o1/acct-${'b'.repeat(68)}/1/${period}/${crypto.randomBytes(32).toString('hex')}` : `${org}/acct1/${epoch}/${period}/k${++n}`;
+        const k2 = keyFor ? keyFor(key, n) : key;
+        objects.set(k2, Buffer.from(object)); keys.set(name, k2); lockedUntil.set(name, LOCK);
       }
       return { ok: true, keys, lockedUntil, bucket };
     },
@@ -274,7 +275,7 @@ test('a denied folder is pruned during the walk and recorded once; nothing in it
 test('a file replaced after the walk (another inode) is skipped, not read', async () => {
   const w = workKosmos(), k = keys(), st = store();
   try {
-    const { f } = spyFs({ fstatSync: (real, fd) => { const s2 = real(fd); return s2.size === w.files['agents/a/notes.md'].length ? Object.assign(Object.create(Object.getPrototypeOf(s2)), s2, { ino: s2.ino + 1 }) : s2; } });
+    const { f } = spyFs({ fstatSync: (real, fd, o) => { const s2 = real(fd, o); return Number(s2.size) === w.files['agents/a/notes.md'].length ? Object.assign(Object.create(Object.getPrototypeOf(s2)), s2, { ino: s2.ino + 1n }) : s2; } });
     const r = await take(k, w.root, st, { deps: { fs: f } });
     assert.equal(r.ok, true, r.because);
     const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
@@ -456,5 +457,58 @@ test('a file whose name is another entry\'s folder, to restore, is skipped: rest
     assert.deepEqual(stored, ['q'], 'the first in sorted order is kept, the two under it skipped');
     const { r: rr } = await restoreFrom(k, st, st.manifests[0].bytes);
     assert.equal(rr.failed.length, 0, `restore refuses nothing the walker stored: ${JSON.stringify(rr.failed)}`);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a granted key under another org or key epoch, or over-long, fails the run, and every usable chunk is still kept', async () => {
+  const w = workKosmos(), k = keys();
+  try {
+    for (const [what, opts] of [['epoch', { epoch: '2' }], ['org', { org: 'o9' }]]) {
+      const st = store(opts);
+      const r = await take(k, w.root, st);
+      assert.equal(r.ok, false); assert.match(r.because, new RegExp(what), what);
+      assert.equal(st.manifests.length, 0); assert.equal(r.added.size, 0, `${what}: none of these can be named`);
+    }
+    let i = 0;
+    const st = store({ keyFor: (key) => (++i === 2 ? key + 'x'.repeat(300) : key) });
+    const r = await take(k, w.root, st, { deps: { batchBytes: 1024 * 1024 * 1024 } });
+    assert.equal(r.ok, false); assert.match(r.because, /longer than 256/);
+    assert.equal(r.added.size, st.objects.size - 1, 'every usable chunk in the batch is kept, before and after the long one');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('an index entry under another key epoch is a stale index (sealed to another member key)', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const r = await take(k, w.root, st, { input: { index: new Map([['a'.repeat(64), { key: `o1/acct1/2/${PERIOD}/k1`, lockedUntilMs: LOCK }]]), bucket: 'bucket/' } });
+    assert.equal(r.ok, false); assert.equal(r.staleIndex, true); assert.match(r.because, /epoch/);
+    assert.equal(st.batches.length, 0);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('the walk stops past maxFiles and only counts skips past maxSkipped', () => {
+  const w = workKosmos();
+  try {
+    for (let i = 0; i < 30; i++) fs.writeFileSync(path.join(w.root, `n${String(i).padStart(2, '0')}.md`), 'x');
+    for (let i = 0; i < 30; i++) fs.writeFileSync(path.join(w.root, `s${String(i).padStart(2, '0')}.env`), 'x');
+    const all = snap.listFiles(w.root);
+    assert.equal(all.over, false); assert.ok(all.files.length > 30); assert.equal(all.skippedExtra, 0);
+    const capped = snap.listFiles(w.root, fs, { maxFiles: 10 });
+    assert.equal(capped.over, true); assert.ok(capped.files.length <= 11, `stopped early (${capped.files.length})`);
+    const few = snap.listFiles(w.root, fs, { maxSkipped: 5 });
+    assert.equal(few.over, false); assert.equal(few.skipped.length, 5);
+    assert.equal(few.skippedExtra, all.skipped.length - 5, 'every skip past the cap is counted');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('an empty file round-trips as an entry with no chunks', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    fs.writeFileSync(path.join(w.root, 'agents', 'a', 'empty.md'), '');
+    const r = await take(k, w.root, st);
+    assert.equal(r.ok, true, r.because);
+    const { opened, sink } = await restoreFrom(k, st, st.manifests[0].bytes);
+    assert.deepEqual(opened.files.find((x) => x.path === 'agents/a/empty.md').chunks, []);
+    assert.equal(sink.committed.get('agents/a/empty.md').length, 0);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });

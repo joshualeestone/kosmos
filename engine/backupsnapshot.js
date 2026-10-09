@@ -73,34 +73,54 @@ function periodOfKey(key) {
   return parts.length === 5 ? parts[3] : null;
 }
 
+/* Why a coordinator key cannot stand for a chunk of this context, or null: it must be <org>/<account>/<epoch>/<period>/<random>
+   with the context's org, epoch and period. A chunk under another epoch was sealed to another member key, and one
+   under another period was named with another naming key: a manifest naming it would not restore. */
+function keyProblem(key, ctx) {
+  const parts = typeof key === 'string' ? key.split('/') : [];
+  if (parts.length !== 5 || parts.some((x) => !x)) return 'not a coordinator object key';
+  if (parts[0] !== ctx.org) return `under org ${parts[0]}, not ${ctx.org}`;
+  if (parts[2] !== ctx.epoch) return `under key epoch ${parts[2]}, not ${ctx.epoch}`;
+  if (parts[3] !== ctx.period) return `in period ${parts[3]}, not ${ctx.period}`;
+  return null;
+}
+
 /* A folder the deny-list refuses: every folder rule ends in '/', so a bare child name matches exactly those. */
 const folderDenied = (rel) => { const d = pathDecision(`${rel}/x`); return d.include ? null : d.why; };
 
 /** Every regular file under root (absolute) the deny-list allows, as sorted '/'-separated relative paths with the
     device and inode seen, and what was skipped (links, denied folders and files, anything not a file or folder, a
     folder that could not be read). Nothing is opened but folders. fs is injectable for tests. */
-function listFiles(root, fs = nodeFs) {
-  const files = [], skipped = [];
+function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_SKIPPED } = {}) {
+  const files = [];
+  const skipped = [];
+  let skippedExtra = 0, over = false;
+  // Bounded, whatever the tree holds: past maxFiles the walk stops, and skips past maxSkipped are only counted.
+  const skip = (x) => { if (skipped.length < maxSkipped) skipped.push(x); else skippedExtra++; };
   const walk = (rel) => {
+    if (over) return;
     let names;
-    try { names = fs.readdirSync(path.join(root, rel)); } catch { skipped.push({ path: rel || '.', why: 'a folder that could not be read' }); return; }
+    try { names = fs.readdirSync(path.join(root, rel)); } catch { skip({ path: rel || '.', why: 'a folder that could not be read' }); return; }
     for (const name of names.sort()) {
+      if (over) return;
       const r = rel ? `${rel}/${name}` : name;
       let st;
-      try { st = fs.lstatSync(path.join(root, r)); } catch { skipped.push({ path: r, why: 'an entry that could not be read' }); continue; }
-      if (st.isSymbolicLink()) { skipped.push({ path: r, why: 'a link (links are not followed)' }); continue; }
+      // bigint: device and inode compared exactly (a Number loses precision above 2^53).
+      try { st = fs.lstatSync(path.join(root, r), { bigint: true }); } catch { skip({ path: r, why: 'an entry that could not be read' }); continue; }
+      if (st.isSymbolicLink()) { skip({ path: r, why: 'a link (links are not followed)' }); continue; }
       if (st.isDirectory()) {
         const why = folderDenied(r);
-        if (why) skipped.push({ path: r, why }); else walk(r);
+        if (why) skip({ path: r, why }); else walk(r);
         continue;
       }
-      if (!st.isFile()) { skipped.push({ path: r, why: 'not a regular file' }); continue; }
+      if (!st.isFile()) { skip({ path: r, why: 'not a regular file' }); continue; }
       const d = pathDecision(r);
-      if (!d.include) { skipped.push({ path: r, why: d.why }); continue; }
+      if (!d.include) { skip({ path: r, why: d.why }); continue; }
       // A path restore would refuse (engine/backuprestore.js pathProblem) is not stored: it could never come back.
       const problem = pathProblem(r);
-      if (problem) { skipped.push({ path: r, why: `${problem}: restore cannot write it` }); continue; }
-      files.push({ path: r, dev: st.dev, ino: st.ino, size: st.size });
+      if (problem) { skip({ path: r, why: `${problem}: restore cannot write it` }); continue; }
+      files.push({ path: r, dev: st.dev, ino: st.ino, size: Number(st.size) });
+      if (files.length > maxFiles) over = true;
     }
   };
   walk('');
@@ -119,11 +139,11 @@ function listFiles(root, fs = nodeFs) {
     }
     if (!clash && n.file) clash = n.file;
     if (!clash && n.kids.size) clash = 'a folder of the same name';
-    if (clash) { skipped.push({ path: f.path, why: `restore would refuse it beside ${clash} (names it treats as one)` }); continue; }
+    if (clash) { skip({ path: f.path, why: `restore would refuse it beside ${clash} (names it treats as one)` }); continue; }
     n.file = f.path; kept.push(f);
   }
   if (collidingPaths(kept).size) throw new Error('the walker kept paths restore would refuse as colliding');
-  return { files: kept, skipped };
+  return { files: kept, skipped, skippedExtra, over };
 }
 
 /* Read the file the walk found, or say why not: { buf } or { why }. One open, no final link followed, never blocking. */
@@ -134,19 +154,20 @@ function readListed(fs, rootReal, f, maxFile) {
   let fd;
   try { fd = fs.openSync(abs, flags); } catch { return { why: 'a file that could not be opened (gone, or replaced by a link)' }; }
   try {
-    const st = fs.fstatSync(fd);
+    const st = fs.fstatSync(fd, { bigint: true });
     if (!st.isFile() || st.dev !== f.dev || st.ino !== f.ino) return { why: 'replaced while the snapshot was taken' };
     // A hard link has no real path of its own to check: another name for it may be outside the work Kosmos.
-    if (st.nlink > 1) return { why: 'a hard link (another name for it may be outside the work Kosmos)' };
+    if (st.nlink > 1n) return { why: 'a hard link (another name for it may be outside the work Kosmos)' };
     // The real path, from the path opened; the descriptor's identity already ties it to the file the walk saw.
     const real = fs.realpathSync(abs);
     if (!insideWorkKosmos(real, rootReal)) return { why: 'its real path is outside the work Kosmos' };
     const relReal = path.relative(rootReal, real).split(path.sep).join('/');
     const d = pathDecision(relReal);
     if (!d.include) return { why: d.why };
-    if (st.size > maxFile) return { why: `larger than ${Math.round(maxFile / 1024 / 1024)} MB, too large to scan` };
+    const size = Number(st.size);
+    if (size > maxFile) return { why: `larger than ${Math.round(maxFile / 1024 / 1024)} MB, too large to scan` };
     // One byte more than allowed: filling it means the file grew past maxFile after the size check.
-    const buf = Buffer.alloc(Math.min(st.size, maxFile) + 1);
+    const buf = Buffer.alloc(Math.min(size, maxFile) + 1);
     let n = 0;
     for (;;) {
       const got = fs.readSync(fd, buf, n, buf.length - n, null);
@@ -223,9 +244,9 @@ async function snapshotInner(input, deps, added, state, fail) {
   if (index.size) {
     if (typeof input.bucket !== 'string' || !input.bucket) return fail('an index of earlier chunks needs the bucket they are stored under', { staleIndex: true });
     for (const [name, e] of index) {
-      if (typeof name !== 'string' || name.length !== CHUNK_NAME_LEN || !e || periodOfKey(e.key) !== ctx.period || !Number.isSafeInteger(e.lockedUntilMs)) {
-        return fail(`the index holds an entry that is not a chunk of period ${ctx.period} with its key and lock end`, { staleIndex: true });
-      }
+      const why = typeof name !== 'string' || name.length !== CHUNK_NAME_LEN || !e ? 'malformed'
+        : keyProblem(e.key, ctx) || (Number.isSafeInteger(e.lockedUntilMs) ? null : 'no lock end');
+      if (why) return fail(`the index holds an entry this snapshot cannot name (${why})`, { staleIndex: true });
     }
     state.bucket = input.bucket;
   }
@@ -233,7 +254,7 @@ async function snapshotInner(input, deps, added, state, fail) {
   let rootReal;
   try { rootReal = fs.realpathSync(root); } catch { return fail('the work Kosmos folder could not be read'); }
   const listed = listFiles(rootReal, fs);
-  if (listed.files.length > MAX_FILES) return fail(`the work Kosmos holds ${listed.files.length} files, more than one snapshot can list (${MAX_FILES})`, { tooLarge: true });
+  if (listed.over) return fail(`the work Kosmos holds more than ${MAX_FILES} files, more than one snapshot can list`, { tooLarge: true });
   // The manifest budget, kept so that NOTHING is uploaded unless the finished manifest is sure to fit (review 3):
   //   estimate  the exact JSON so far (entries, objects, skips), with keys not yet granted charged at MAX_KEY_LEN
   //   reserve   the upper bound of every listed file not yet finished (the current one included)
@@ -245,7 +266,8 @@ async function snapshotInner(input, deps, added, state, fail) {
   const skipped = [];
   // Every skip is charged to the manifest estimate as it happens, so the last batch is never uploaded for a manifest
   // its skipped list would push over the ceiling (review 2).
-  const skip = (s) => { if (skipped.length < MAX_SKIPPED) estimate += entryBytes(s); skipped.push(s); };
+  let skippedExtra = listed.skippedExtra;
+  const skip = (s) => { if (skipped.length < MAX_SKIPPED) { estimate += entryBytes(s); skipped.push(s); } else skippedExtra++; };
   for (const s of listed.skipped) skip(s);
   if (over()) return fail('the manifest for this many files could pass its size ceiling', { tooLarge: true });
   const files = [], redacted = [];
@@ -269,21 +291,24 @@ async function snapshotInner(input, deps, added, state, fail) {
       // becomes what this batch stored under the NEW bucket; chunks earlier batches of this run stored under the old
       // bucket are dropped from it (stored, locked, and named by nothing until their lock ends), deliberately.
       added.clear(); state.bucket = r.bucket;
-      for (const [name, key] of stored) if (periodOfKey(key) === ctx.period && Number.isSafeInteger(lockOf(name))) added.set(name, { key, lockedUntilMs: lockOf(name) });
+      for (const [name, key] of stored) if (!keyProblem(key, ctx) && Buffer.byteLength(key) <= MAX_KEY_LEN && Number.isSafeInteger(lockOf(name))) added.set(name, { key, lockedUntilMs: lockOf(name) });
       return fail(index.size ? 'a grant named another bucket than the index\'s: drop the index and take a full snapshot' : 'two grants in one snapshot named different buckets: take a full snapshot', Object.assign({ staleIndex: true }, spent));
     }
     if (r && r.bucket && !state.bucket) state.bucket = r.bucket;
     // Every usable stored chunk is recorded before any failure is returned, so the caller's index keeps it (review 2).
     const wrongPeriod = [];
-    let noLock = false;
+    let noLock = false, badKey = null;
     for (const [name, key] of stored) {
-      if (periodOfKey(key) !== ctx.period) { wrongPeriod.push(periodOfKey(key)); continue; }
+      const kp = keyProblem(key, ctx);
+      if (kp && kp.startsWith('in period')) { wrongPeriod.push(periodOfKey(key)); continue; }
+      if (kp) { badKey = badKey || kp; continue; }
       if (!Number.isSafeInteger(lockOf(name))) { noLock = true; continue; }
-      if (Buffer.byteLength(key) > MAX_KEY_LEN) return fail(`a granted key is longer than ${MAX_KEY_LEN} characters`, spent);
+      if (Buffer.byteLength(key) > MAX_KEY_LEN) { badKey = badKey || `longer than ${MAX_KEY_LEN} characters`; continue; }
       added.set(name, { key, lockedUntilMs: lockOf(name) });
       objects[name] = key;
       if (pending.has(name)) estimate += Buffer.byteLength(key) - MAX_KEY_LEN;   // charged at MAX_KEY_LEN when it was sealed
     }
+    if (badKey) return fail(`a granted key is not one this snapshot can name (${badKey})`, spent);
     if (noLock) return fail('a stored chunk came back without its lock end', spent);
     if (wrongPeriod.length) return fail(`a chunk was granted in period ${wrongPeriod[0]}, not ${ctx.period} (a period boundary passed); start again in the new period`, Object.assign({ newPeriod: true }, spent));
     if (!r || !r.ok) return fail(`chunks could not be uploaded: ${(r && r.because) || 'no answer'}`, Object.assign({}, r && r.retryLater ? { retryLater: true } : {}, r && r.unsure ? { unsure: r.unsure } : {}, spent));
@@ -300,6 +325,7 @@ async function snapshotInner(input, deps, added, state, fail) {
     if (d.action !== 'store') { skip({ path: f.path, why: d.why || 'not stored' }); reserve -= upperBound(f); continue; }
     const data = d.data;
     // The reserve assumed at most twice the file's size; a copy past that would break the bound, so it is not stored.
+    // (The +1 adds no chunk to upperBound's floor(2 * size / CDC.min) + 1: 2 * size + 1 is odd and CDC.min is even.)
     if (data.length > 2 * f.size + 1) { skip({ path: f.path, why: 'its redacted copy is over twice its size' }); reserve -= upperBound(f); continue; }
     if (d.redacted && d.redacted.length) { redacted.push({ path: f.path, kinds: d.redacted }); estimate += entryBytes(redacted[redacted.length - 1]); }
     const names = [];
@@ -334,7 +360,7 @@ async function snapshotInner(input, deps, added, state, fail) {
   if (!chunks.length) return fail('there is nothing to back up: no file with content was found (a manifest must name at least one chunk)');
   const manifest = {
     format: FORMAT, takenAt: new Date(now()).toISOString(), namingKeyId,
-    files, objects, redacted, skipped: skipped.slice(0, MAX_SKIPPED), skippedNotListed: Math.max(0, skipped.length - MAX_SKIPPED),
+    files, objects, redacted, skipped, skippedNotListed: skippedExtra,
   };
   const sealed = sealManifest(memberPk, deviceKey, ctx, manifest);
   const m = await putManifest(deps, sealed, { bucket: state.bucket, chunks });
@@ -344,7 +370,7 @@ async function snapshotInner(input, deps, added, state, fail) {
       m && m.retryLater ? { retryLater: true } : {}, m && m.unsure ? { unsure: m.unsure } : {},
       m && m.outlastsChunks ? { staleIndex: true } : {}, m && m.grantSpent !== undefined ? { grantSpent: m.grantSpent } : {}));
   }
-  return { ok: true, manifestKey: m.key, files: files.length, skipped: skipped.length, uploaded, reused, added, bucket: state.bucket };
+  return { ok: true, manifestKey: m.key, files: files.length, skipped: skipped.length + skippedExtra, uploaded, reused, added, bucket: state.bucket };
 }
 
 module.exports = { periodOf, periodOfKey, listFiles, takeSnapshot, MAX_FILE, BATCH_BYTES, MAX_FILES };
