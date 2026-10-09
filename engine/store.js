@@ -510,7 +510,7 @@ function avatarLookup(name) {
 
 /* kosmos#5302: before Kosmos fits an older picture in place, the picture as it was is copied to avatar-originals/ beside
    the avatars folder (never a name the avatar lookup reads), one per version and size (`<key>.<version>-<size><ext>`), so a fitted copy
-   never costs the person a picture. Read and written through securewrite (flushed, then renamed; #5434), so a copy that
+   never costs the person a picture. Written through securewrite (flushed, then renamed; #5434), so a copy that
    dies part way never stands as an original. It takes the umask default mode, not the picture's. Throws when it cannot be kept; saveRefitAvatar then writes nothing. */
 function originalsDir() { return path.join(path.dirname(avatarsDir()), 'avatar-originals'); }
 function keepAvatarOriginal(name) {
@@ -652,6 +652,8 @@ function saveAvatar(name, contentType, buffer) {
 function removeAvatar(name) {
   const existing = avatarPath(name);
   if (existing) fs.unlinkSync(existing);
+  // #5434: a dead writer's temp beside the picture (`<key>.<ext>.kosmos-...tmp`) holds a copy of it: taken too
+  for (const ext of AVATAR_EXTS) securewrite.reapDeadTempsOf(path.join(avatarsDir(), safeKey(name) + ext));
   // kosmos#5302: a removed picture takes the originals kept for it too.
   // A writer's temp (`<key>.<ver>-<size><ext>.kosmos-...tmp`, #5434) whose writer may be alive is another process's
   // keep in flight: never taken. One whose writer is provably gone holds a copy of the removed picture: taken.

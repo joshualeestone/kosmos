@@ -134,3 +134,15 @@ test('#5434: a writer temp in the profiles folder is never listed as a profile',
   assert.ok(listed.includes('fay'), 'CONTROL: the profile itself was not listed');
   assert.equal(listed.some((n) => n.includes('kosmos-')), false, 'a temp was listed as a profile');
 });
+
+test('#5434: removing a picture also takes a dead writer\'s copy of it beside the picture, never a live one', () => {
+  const dest = store.saveAvatar('gus', 'image/png', PNG);
+  const dead = dest + '.kosmos-2147483646-t0-1-1.tmp';
+  const live = dest + '.kosmos-' + process.ppid + '-t0-1-1.tmp';
+  fs.writeFileSync(dead, 'copy'); fs.writeFileSync(live, 'in flight');
+  store.removeAvatar('gus');
+  assert.equal(fs.existsSync(dest), false, 'CONTROL: the picture was not removed');
+  assert.equal(fs.existsSync(dead), false, 'a dead writer\'s copy of the removed picture was left');
+  assert.equal(fs.existsSync(live), true, 'a live writer\'s temp was taken');
+  fs.unlinkSync(live);
+});
