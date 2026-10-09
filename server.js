@@ -2154,7 +2154,12 @@ function sentenceForWhoami(account, model, runner) {
       // #3939: no Kosmos account either; Muse has one sign-in per person on this Mac.
       : runner === 'muse' ? 'it uses the Muse sign-in on this computer'
       : 'we cannot tell which account it runs on') : why));
-  parts.push(model && model.name ? 'and its model is ' + model.name : 'and we cannot tell which model it is running');
+  /* #5636 F5 (0.7.33 report: "names the provider, not the model"): Muse names its model only inside a turn, and Kosmos
+     keeps it once a turn has (engine/musefront.js keepModel). Say so, with the one step that fixes a helper started
+     before it kept the model: a restart. Every other runner's words are unchanged. */
+  parts.push(model && model.name ? 'and its model is ' + model.name
+    : runner === 'muse' ? 'and we cannot tell which model it is running yet: Muse names its model only during a turn, and Kosmos shows it once a turn has. If this still says so after its next turn, restart the agent'
+      : 'and we cannot tell which model it is running');
   return parts.join(', ') + '.';
 }
 
