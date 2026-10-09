@@ -753,7 +753,10 @@ async function taskList(ctx, args) {
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); return 1; }
   const tasks = (r.json && Array.isArray(r.json.tasks)) ? r.json.tasks : null;
   if (!tasks) { ctx.out(String(r.text || '')); return 0; }
-  if (!tasks.length) { ctx.out('No tasks for this project yet. Add one: kosmos task add <project-id> <what the task is>'); return 0; }
+  /* #5705 review 1: an older board ignores --state and lists every task; never pass that off as the group asked for. */
+  if (only && r.json.listState !== args[2]) { ctx.err('This board is older than --state, so it listed every task. Update Kosmos, or list without --state.'); return 1; }
+  const GROUP_WORDS = { open: 'open tasks', built: 'built tasks', held: 'tasks on hold', done: 'done tasks' };
+  if (!tasks.length) { ctx.out(only ? 'No ' + GROUP_WORDS[args[2]] + ' in this project.' : 'No tasks for this project yet. Add one: kosmos task add <project-id> <what the task is>'); return 0; }
   for (const x of tasks) {
     const who = (x.whoNames && x.whoNames.length) ? ' (' + x.whoNames.join(', ') + ')'
       /* #5678, as install/kosmos: nobody on it directly, but an open task in its tree is somebody's: theirs. */
