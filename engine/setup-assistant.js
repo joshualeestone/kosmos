@@ -1320,8 +1320,9 @@ function tokenOnlySettingsRules(dir, deps = {}) {
 }
 
 /* #5668: the last guard run per agent, so the board can say on the agent's page when a token-only agent's guard is not
-   whole or past the sandbox size. Written by every guard run (board start, each launch through the supervisor, a
-   separate process, and creation); read by the board, never recomputed per request (a run scans the PATH). One file
+   whole or past the sandbox size. Written by each launch through the supervisor (a separate process) and by creation;
+   a board start writes only an agent with no line yet (see guardTokenOnlyFolder). Read by the board, never recomputed
+   per request (a run scans the PATH). One file
    per agent in one folder (review 2): a run writes only its own agent's file, so two runs at once (the board and a
    launch) cannot write an older copy over each other's line. */
 const GUARD_STATE_DIR = 'token-only-guard';
@@ -1356,21 +1357,33 @@ function pruneGuardState(keepNames, deps = {}) {
     // Review 3: by the folder's own listing, so a malformed file for an agent no longer listed goes too.
     if (name === null || !keep.has(name)) { try { fs.unlinkSync(path.join(guardStateDir(deps), f)); } catch { /* gone */ } }
   }
+  // Review 5: a temp file left by a writer that died before its rename, once it is clearly not in use.
+  for (const f of files) {
+    if (!f.endsWith('.new')) continue;
+    const at = path.join(guardStateDir(deps), f);
+    try { if (Date.now() - fs.statSync(at).mtimeMs > 60 * 1000) fs.unlinkSync(at); } catch { /* gone */ }
+  }
 }
 function recordGuardState(agentName, r, deps = {}) {
+  if (typeof agentName !== 'string' || !agentName) return;   // review 5: no name, no line
   try {
     const dir = guardStateDir(deps);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     const file = guardStateFileFor(agentName, deps);
     const line = { ok: !!(r && r.ok), ...(r && r.because ? { because: String(r.because) } : {}), ...(r && r.warning ? { warning: String(r.warning) } : {}), at: new Date().toISOString() };
-    if (deps.exclusive) {
-      // Only when there is no line: an exclusive create, so a line another run wrote first is kept (review 4).
-      try { fs.writeFileSync(file, JSON.stringify(line, null, 2) + '\n', { mode: 0o600, flag: 'wx' }); } catch (e) { if (e && e.code === 'EEXIST') return; throw e; }
-      return;
-    }
     const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.new`;
     fs.writeFileSync(tmp, JSON.stringify(line, null, 2) + '\n', { mode: 0o600 });
-    try { fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* gone */ } throw e; }
+    try {
+      if (deps.exclusive) {
+        /* Only when there is no line, and atomically (review 5): a hard link of the whole temp file either lands or
+           fails with EEXIST, so a line another run wrote first is kept and no half-written file is left. A line that
+           cannot be read (cut off by a crash) is replaced, or it would hide every later board start's reading. */
+        try { fs.linkSync(tmp, file); } catch (e) {
+          if (!(e && e.code === 'EEXIST')) throw e;
+          if (!Object.prototype.hasOwnProperty.call(readGuardState(deps), agentName)) fs.renameSync(tmp, file);
+        }
+      } else fs.renameSync(tmp, file);
+    } finally { try { fs.unlinkSync(tmp); } catch { /* renamed, or gone */ } }
   } catch (e) { process.stderr.write(`#5668: the guard state for ${agentName} could not be recorded (${(e && e.code) || e})\n`); }
 }
 /* #5668 (Pete's step 3): the user-level settings file the agent's ACCOUNT reads also reaches its sandbox profile, so its
@@ -1434,7 +1447,9 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
      only an agent with no line yet (created exclusively, review 4: a launch's line that lands first is never written
      over); a launch and creation always record. Review 4, decided: a launch's line stays until the next launch even if
      a board start now reads better, because the running agent keeps its launch PATH and Claude Code built its sandbox
-     profile at that launch, so the launch's reading IS what the running agent has. */
+     profile at that launch, so the launch's reading IS what the running agent has. Unmeasured (review 5): whether
+     Claude Code reloads the file-tool rules mid-session; if it does, a board-start fix to that layer is live before the
+     page stops saying "not complete". */
   recordGuardState(agentName, r, { ...deps, exclusive: !!deps.boardStart });
   return r;
 }

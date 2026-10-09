@@ -7,8 +7,8 @@ For an agent listed token-only, its page shows a notice when the last guard run 
 
 ## Plan
 1. engine/setup-assistant.js:
-   - a guard-state record per agent, `store.ROOT/token-only-guard/<name>.json` `{ ok, because?, warning?, at }`, written atomically (temp + rename) (review 2: one file per agent, not one shared file);
-   - written for every agent `refreshTokenOnlyGuards` guards (board start, and each launch through the supervisor, a separate process) and at creation;
+   - a guard-state record per agent, `store.ROOT/token-only-guard/<name>.json` `{ ok, because?, warning?, at }`, written atomically: temp + rename for a launch and creation, temp + hard link (exclusive) for a board start (reviews 2, 4, 5);
+   - written by each launch through the supervisor (a separate process) and at creation; a board start writes only an agent with no line (reviews 3, 4);
    - read by the board, never recomputed per request (a refresh scans the PATH).
 2. The size count adds the agent's account's user-level settings file:
    - the folder is the account's config home from the agent's launch job (`create.readJob(name).configDir`), or `~/.claude` when the job names none;
@@ -34,8 +34,8 @@ For an agent listed token-only, its page shows a notice when the last guard run 
 - server.js: `withTokenGuard` on the `/api/status` rows.
 - web/index.html: `#d-tokenguard`, painted in `paintDetailState`.
 - Tests:
-  - engine/guardstate-5668.test.js (4 tests; 9 mutations red);
-  - server.tokenguard-5668.test.js (route: not whole, warning, guarded, no record, not listed, no list; 3 mutations red);
+  - engine/guardstate-5668.test.js (14 tests by review 5; each fix's mutation red);
+  - server.tokenguard-5668.test.js (3 tests: route states, no list, the cache re-reads after a write; mutations red);
   - docs/browser-checks/render-tokenguard-5668.js (gated, README row; 12 arms on both engines; 2 page mutations red).
 
 ## Review 1 (Opus) and what changed
@@ -67,3 +67,10 @@ For an agent listed token-only, its page shows a notice when the last guard run 
 - **An empty token-only list prunes nothing.** `tokenOnlyList` reads an unreadable list as empty, and one bad read must not wipe every agent's line; the route shows only listed agents anyway. Tested with a control that a list without the agent prunes it.
 - **The route re-reads the record only when its folder changed** (a write is a rename into it, which moves the folder's mtime), not on every poll. Tested; a never-invalidating cache goes red.
 - The two comments spliced onto one line are split.
+
+## Review 5 (Opus) and what changed
+- **A launch replacing an existing line was untested**, and the whole design depends on it. It is now tested, with a mutation that made every launch exclusive going red.
+- **The board-start create was not atomic.** A crash mid-write left a partial file that no later board start could replace. It is now temp + hard link (atomic, EEXIST like an exclusive create). A line that cannot be read is replaced by a board start; a readable one is not (control).
+- **Comments and the README said every run writes.** Corrected to say what is true: each launch and creation write, and a board start writes only an agent with no line. This plan's drift is corrected too.
+- **Pruning sweeps a temp file a dead writer left**, once it is a minute old (a fresh one may still be in use; control). An empty agent name records nothing.
+- **The decision's "what would change it" now names the unmeasured question:** whether Claude Code reloads the file-tool rules mid-session.

@@ -4,7 +4,7 @@
  * #5668: a token-only agent's page says when its last guard run was not whole (with the reason), or when its denied
  * paths are past what the sandbox is known to take (its commands may stop running). A guarded agent shows nothing.
  *
- * Boots a real sandboxed board with three token-only agents, whose guard record (the file every guard run writes)
+ * Boots a real sandboxed board with three token-only agents, whose guard record (the file each launch writes)
  * says: not whole, past the size, and guarded. Opens each agent's page through the real card click, on chromium
  * and webkit, and reads #d-tokenguard. Then rewrites the not-whole agent's record as guarded and waits one poll:
  * the notice goes (it follows the poll).

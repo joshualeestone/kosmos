@@ -230,3 +230,47 @@ test('#5668 review 4: an empty token-only list (none listed, or unreadable) prun
   quiet(() => setup.refreshTokenOnlyGuards({ ...BASE, workerDir: () => null }));
   assert.ok(!fs.existsSync(path.join(dir, 'gs-kept.json')), 'CONTROL: a list without it did not prune it');
 });
+
+test('#5668 review 5: a launch replaces an existing line (what the running agent has), and a board start replaces only an unreadable one', () => {
+  const sendertoken = require('./sendertoken');
+  const empty = path.join(SANDBOX, 'accounts', 'r5');
+  fs.mkdirSync(empty, { recursive: true });
+  const dir = path.join(store.ROOT, setup.GUARD_STATE_DIR);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['gs-r5'] }) + '\n');
+  agentDir('gs-r5');
+  fs.writeFileSync(path.join(dir, 'gs-r5.json'), JSON.stringify({ ok: true, at: 't-old' }));
+  // A launch through the supervisor's call, on a runner the guard cannot cover: the old "ok" line is replaced.
+  quiet(() => setup.refreshTokenOnlyGuards({ ...BASE, runnerOf: () => 'codex', accountConfigDir: empty, workerDir: (n) => path.join(SANDBOX, 'workers', n), only: 'gs-r5' }));
+  let line = setup.readGuardState()['gs-r5'];
+  assert.ok(line.at !== 't-old' && line.ok === false, 'a launch did not replace the existing line: ' + JSON.stringify(line));
+  // A line cut off by a crash: a board start replaces it (it would otherwise hide every later reading).
+  fs.writeFileSync(path.join(dir, 'gs-r5.json'), '{"ok": tr');
+  quiet(() => setup.refreshTokenOnlyGuards({ ...BASE, accountConfigDir: empty, workerDir: (n) => path.join(SANDBOX, 'workers', n) }));
+  line = setup.readGuardState()['gs-r5'];
+  assert.ok(line && line.ok === true, 'a board start left an unreadable line in place: ' + JSON.stringify(line));
+  // CONTROL: a readable line is still not replaced by a board start.
+  fs.writeFileSync(path.join(dir, 'gs-r5.json'), JSON.stringify({ ok: false, because: 'launch said so', at: 't-launch' }));
+  quiet(() => setup.refreshTokenOnlyGuards({ ...BASE, accountConfigDir: empty, workerDir: (n) => path.join(SANDBOX, 'workers', n) }));
+  assert.equal(setup.readGuardState()['gs-r5'].at, 't-launch');
+  assert.deepEqual(fs.readdirSync(dir).filter((f) => f.endsWith('.new')), [], 'a temp file was left behind');
+});
+
+test('#5668 review 5: pruning sweeps a temp file a dead writer left (once it is old), and an empty agent name records nothing', () => {
+  const sendertoken = require('./sendertoken');
+  const dir = path.join(store.ROOT, setup.GUARD_STATE_DIR);
+  fs.mkdirSync(dir, { recursive: true });
+  const old = path.join(dir, 'gs-x.json.123.abcd.new');
+  const fresh = path.join(dir, 'gs-y.json.124.abce.new');
+  fs.writeFileSync(old, '{}');
+  fs.writeFileSync(fresh, '{}');
+  const past = (Date.now() - 5 * 60 * 1000) / 1000;
+  fs.utimesSync(old, past, past);
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['gs-somebody'] }) + '\n');
+  quiet(() => setup.refreshTokenOnlyGuards({ ...BASE, workerDir: () => null }));
+  assert.ok(!fs.existsSync(old), 'an old temp file stayed');
+  assert.ok(fs.existsSync(fresh), 'CONTROL: a temp file that may still be in use was removed');
+  fs.rmSync(fresh, { force: true });
+  setup.guardTokenOnlyFolder(agentDir('gs-noname'), '', { ...BASE, accountConfigDir: null });
+  assert.ok(!fs.existsSync(path.join(dir, '.json')), 'an empty name wrote a line');
+});

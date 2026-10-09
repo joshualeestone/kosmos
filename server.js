@@ -132,9 +132,10 @@ function withoutStamp(m) {
 }
 
 /* #5668: a token-only agent's last guard run, for its page: 'notWhole' (with the reason), 'warning' (whole, but its
-   denied paths are past the measured sandbox size, so its shell may not run) or 'guarded'. Read from the record every
-   guard run writes (setup-assistant.recordGuardState), never recomputed here: a run scans the PATH. Only an agent on
-   the token-only list carries it, and only once a run has recorded it. */
+   denied paths are past the measured sandbox size, so its shell may not run) or 'guarded'. Read from the record the
+   guard writes (setup-assistant.recordGuardState: each launch and creation; a board start only for an agent with no
+   line), never recomputed here: a run scans the PATH. Only an agent on the token-only list carries it, and only once a
+   run has recorded it. */
 let TOKEN_GUARD_CACHE = null;
 function withTokenGuard(rows) {
   let listed;
