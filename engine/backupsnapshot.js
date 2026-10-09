@@ -321,13 +321,15 @@ function rootsOf(input) {
     if (typeof r.path !== 'string' || !path.isAbsolute(r.path)) return `the root ${r.name} must be an absolute path`;
     // One name inside another (`sessions` and `sessions/claude`) would let two roots write the same restored path.
     if (names.some((n) => n === r.name || n.startsWith(r.name + '/') || r.name.startsWith(n + '/'))) return `the root name ${r.name} repeats or contains another root's name`;
-    if (r.only !== undefined && (!Array.isArray(r.only) || r.only.length > MAX_FILES || r.only.some((x) => typeof x !== 'string' || !x))) return `the root ${r.name}'s only must be a list of paths inside it`;
+    if (r.only !== undefined && (!Array.isArray(r.only) || r.only.some((x) => typeof x !== 'string' || !x))) return `the root ${r.name}'s only must be a list of paths inside it`;
+    // More named files than one snapshot can hold: an optional root is left out (recorded), any other fails the snapshot.
+    if (r.only !== undefined && new Set(r.only).size > MAX_FILES && !r.optional) return `the root ${r.name} names more than ${MAX_FILES} files, more than one snapshot can list`;
     names.push(r.name);
   }
   // So the files (and the manifest) come out in one order, sorted by stored path, whatever order the caller lists them in.
   // Sorted by name + '/', which is the order of the stored paths they start (by name alone, `data-old` would follow
   // `data`, while `data-old/x` sorts before `data/x`).
-  return input.roots.map((r) => ({ name: r.name, path: r.path, exclude: r.exclude, optional: r.optional === true, only: r.only })).sort((x, y) => { const a = x.name + '/', b = y.name + '/'; return a < b ? -1 : a > b ? 1 : 0; });
+  return input.roots.map((r) => ({ name: r.name, path: r.path, exclude: r.exclude, optional: r.optional === true, only: r.only === undefined ? undefined : [...new Set(r.only)] })).sort((x, y) => { const a = x.name + '/', b = y.name + '/'; return a < b ? -1 : a > b ? 1 : 0; });
 }
 
 /* The last folders of a named root's real path, as a prefix ('Users/me/.claude/'): enough for every deny rule anchored
@@ -347,6 +349,7 @@ async function listRoots(roots, fs) {
   const reals = [], ids = [], gone = [];
   const kept = [];
   for (const r of roots) {
+    if (r.only && r.only.length > MAX_FILES) { gone.push({ path: r.name, why: `more than ${MAX_FILES} files named, more than one snapshot can list` }); continue; }
     try {
       const real = fs.realpathSync(r.path), st = fs.statSync(real, { bigint: true });
       if (!st.isDirectory()) throw new Error('not a folder');

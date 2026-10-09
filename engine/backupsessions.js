@@ -10,7 +10,7 @@
  *                <session>/ folder (subagent transcripts, tool results), and memory/ when the folder is this agent's
  *                alone (see claudeOwned). Both spellings of the folder are tried, as status.js does.
  *   Gemini       <gemini home>/tmp/<slug>/chats, the slug looked up for the agent folder in <gemini home>/projects.json
- *                (engine/geminisession.js forWorkdir's rule). One slug per folder, so the whole chats folder is a root.
+ *                (engine/geminisession.js forWorkdir's rule), with `only` its session-*.jsonl files, as forWorkdir reads.
  *   Codex        <codex home>/sessions/<yyyy>/<mm>/<dd>/rollout-*.jsonl, ONE date tree for every agent: the sessions
  *                folder is a root with an `only` list, the rollouts whose first line names this agent's folder
  *                (engine/codexsession.js metaOf).
@@ -22,7 +22,8 @@
  * A transcript Claude Code wrote under a shortened name (a very long folder) is not found, as status.js does not find it.
  *
  * sessionsFor(agentDir, { id, claudeRoots, geminiHome, codexHome }) -> [{ name, path, optional: true, only? }]
- *   id     the agent's stored name; every name built from it must pass the snapshot's rootNameProblem, or nothing is
+ *   id     the agent's stored name, one plain segment of lowercase letters, digits and hyphens (any other id gives
+ *          nothing: the caller derives it); every name built from it must pass the snapshot's rootNameProblem, or nothing is
  *          returned (an id such as `aux` or `secrets` would otherwise fail the whole world's snapshot)
  *   names  `sessions/<id>/claude` (the first config root, the folder as on disk), `-raw` (as given), `-<n>` (the n-th
  *          config root); `sessions/<id>/gemini`; `sessions/<id>/codex`
@@ -41,8 +42,9 @@ const flatten = (p) => String(p).replace(/[^A-Za-z0-9]/g, '-');   // engine/stat
 const isDir = (p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
 const idOf = (p) => { try { const st = fs.statSync(p, { bigint: true }); return `${st.dev}:${st.ino}`; } catch { return null; } };
 
-// The real path of `<base>/<rest...>`, only if no part below base is a link and it is a folder; base itself may be a
-// link (a config folder kept elsewhere). Else null.
+// `<base>/<rest...>` with base's real path in front, only if no part below base is a link and it is a folder; base itself
+// may be a link (a config folder kept elsewhere). No part is a link, so this names the real folder (in the case the
+// parts were given in, on a case-insensitive volume). Else null.
 function exactFolder(base, ...rest) {
   try {
     let at = fs.realpathSync(base);
@@ -99,7 +101,8 @@ function claudeRoots(agentDir, claudeRootsIn, id, belongs) {
    recorded working folder is the agent's (status.js reads ownership the same way); EVERYTHING under <session>/ (its
    subagent transcripts, whatever their own working folder, a worktree for instance; its tool-results/) goes with it.
    memory/ (Claude Code's per-project memory) belongs to the folder, not a session: kept only when every session in the
-   folder that says whose it is, is this agent's, because the flattening can give two folders one projects folder. */
+   folder is this agent's (one that does not say whose it is counts against), because the flattening can give two
+   folders one projects folder. Files more than six folders below a session are not taken (filesUnder's depth). */
 function claudeOwned(real, belongs) {
   let top;
   try { top = fs.readdirSync(real, { withFileTypes: true }); } catch { return []; }
@@ -113,7 +116,7 @@ function claudeOwned(real, belongs) {
       only.push(e.name);
       const session = e.name.slice(0, -'.jsonl'.length);
       if (top.some((d) => d.isDirectory() && d.name === session)) for (const rel of filesUnder(path.join(real, session), () => true)) only.push(`${session}/${rel}`);
-    } else if (cwd) foreign = true;
+    } else foreign = true;   // another folder's, or one that does not say: either way memory/ may not be this agent's
   }
   if (mine && !foreign && top.some((d) => d.isDirectory() && d.name === 'memory')) for (const rel of filesUnder(path.join(real, 'memory'), () => true)) only.push(`memory/${rel}`);
   return only.sort();
@@ -130,7 +133,10 @@ function geminiRoot(agentDir, geminiHome, id) {
     // The slug becomes a folder name under tmp/: one plain segment only, never a path out of it.
     if (typeof slug !== 'string' || !slug || slug === '.' || slug === '..' || /[\\/\0]/.test(slug)) return null;
     const real = exactFolder(geminiHome, 'tmp', slug, 'chats');
-    return real ? { name: `sessions/${id}/gemini`, path: real, optional: true } : null;
+    if (!real) return null;
+    // The session files forWorkdir reads, named: two folders mapped to one slug can then share the folder.
+    const only = filesUnder(real, (n) => /^session-.*\.jsonl$/.test(n), 0);
+    return only.length ? { name: `sessions/${id}/gemini`, path: real, optional: true, only } : null;
   }
   return null;
 }
