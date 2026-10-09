@@ -3,8 +3,9 @@
 # variable KOSMOS_CI_RUNNER is exactly `on` and the code is this repo's own (a push to main, or a PR whose
 # head repo is this repo). (This is the honest path only; the machine's job guard is what refuses fork code:
 # tools/test-ci-runner-job-guard-5488.sh.) This runs the REAL decide step body, under GitHub's own shell flags,
-# taken from the parsed workflow, with each input, and pins the suite's runs-on expression (its fallback to
-# macos-latest when scope gave nothing is read from that pinned string, not evaluated). #4601: and that a
+# taken from the parsed workflow, with each input, and pins the suite's runs-on expression and also evaluates it
+# with GitHub's &&/|| rules (the evaluator splits on " || " and " && ", so a respaced or parenthesised edit fails
+# there as "unknown term": read that as "update the evaluator", not as a routing bug). #4601: and that a
 # shell shard follows the node part there only when KOSMOS_CI_SHELL_SHARDS names it.
 set -u
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
