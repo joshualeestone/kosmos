@@ -26,3 +26,16 @@ it off stops it. The state is visible on the button and remembered per conversat
 - Phone later (the card says so).
 
 ## Review log
+- **Round 1 (opus, blind):** 0 BLOCKER, 7 WARNING, 2 CONVENTION, 2 NIT. All fixed:
+  - a direct thread drawn empty never read the agent's first reply: seeded empty (C10);
+  - the toggle kept the last conversation's state on an empty or unreadable paint: painted at the top of both painters;
+  - coming back to a conversation read what arrived meanwhile: re-marked as heard on any change of conversation, after a
+    search, and after a hidden window (C11, C12);
+  - leaving or hiding did not stop speech: each piece checks the view and visibility, hiding stops it (C12b);
+  - Chrome's empty voice list lost the first message: wait for voiceschanged once (C13);
+  - speech into a listening mic: nothing is read while the mic listens (C14);
+  - outside guests (.ext) were read: agents only;
+  - tests that could not fail: the room is drawn by the real paintRoom (C8), C6 checks the cancel comes first, and
+    C10, C11, C12b, C13, C14 were run against the first version and were RED there.
+  - CONVENTION: the pressed colour used an undefined token; now the ink colour, which follows dark mode. CONV.key is
+    cleared when speech ends. NIT: one stable label (the pressed state says on/off).
