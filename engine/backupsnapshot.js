@@ -51,6 +51,11 @@ const MAX_FILES = 500000;
 const MANIFEST_JSON_BUDGET = Math.floor(MAX_MANIFEST * 0.8);
 const MAX_SKIPPED = 100000;
 const MAX_DEPTH = 256;
+// The coordinator's allowance per member per weekly period (docs/coordinator-api.md "Allowances"): chunk objects and
+// bytes, spent at grant time. A snapshot that could pass either is refused before it spends any (review 9).
+const CHUNK_ALLOWANCE = 200000, BYTE_ALLOWANCE = 64 * 2 ** 30;
+// A sealed chunk object at most: the chunk, Padme padding (at most about 12%, here 13%), framing; never below the floor.
+const sealedMax = (n) => Math.max(4148, Math.ceil(n * 1.13) + 4096);
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_MS = 7 * DAY_MS;
 const MONDAY_EPOCH = Date.UTC(1970, 0, 5);   // the first Monday 00:00 UTC after the Unix epoch
@@ -169,10 +174,13 @@ function readListed(fs, rootReal, f, maxFile) {
     if (!st.isFile() || st.dev !== f.dev || st.ino !== f.ino) return { why: 'replaced while the snapshot was taken' };
     // A hard link has no real path of its own to check: another name for it may be outside the work Kosmos.
     if (st.nlink > 1n) return { why: 'a hard link (another name for it may be outside the work Kosmos)' };
-    // The identity check above is the guard: the bytes read are the file the walk saw. The real-path and deny-list checks
-    // below are a second layer; a rename between the open and realpath can only make them skip the file (review 8).
+    // The real path, which must name the very file opened (review 9: a folder swapped for a link during the walk, and
+    // back again before this lookup, would otherwise let the path checked differ from the file read). With hard links
+    // refused above, the same device and inode mean the same file.
     const real = fs.realpathSync(abs);
     if (!insideWorkKosmos(real, rootReal)) return { why: 'its real path is outside the work Kosmos' };
+    const rs = fs.statSync(real, { bigint: true });
+    if (rs.dev !== st.dev || rs.ino !== st.ino) return { why: 'replaced while the snapshot was taken' };
     const relReal = path.relative(rootReal, real).split(path.sep).join('/');
     const d = pathDecision(relReal);
     if (!d.include) return { why: d.why };
@@ -185,7 +193,9 @@ function readListed(fs, rootReal, f, maxFile) {
       const got = fs.readSync(fd, buf, n, buf.length - n, null);
       if (got === 0) break;
       n += got;
-      if (n === buf.length) return { why: `larger than ${Math.round(maxFile / 1024 / 1024)} MB, too large to scan` };
+      // The buffer holds one byte more than the file had: filling it means it grew during the read (review 9), or,
+      // when it was already at the cap, that it passed the cap.
+      if (n === buf.length) return { why: size >= maxFile ? `larger than ${Math.round(maxFile / 1024 / 1024)} MB, too large to scan` : 'it grew while the snapshot was taken' };
     }
     return { buf: buf.subarray(0, n) };
   } catch { return { why: 'a file that could not be read' }; } finally { try { fs.closeSync(fd); } catch { /* already closed */ } }
@@ -202,10 +212,11 @@ const entryBytes = (x) => Buffer.byteLength(JSON.stringify(x)) + 1;
    530 bytes past the path) or a skip entry, within the fixed 1024.
    So a snapshot is limited to about 20 GB of files under maxFile: past that this bound passes the manifest ceiling
    even where the real manifest would not (at 1 MiB average chunks and real key lengths it is about a tenth). */
+const chunksMax = (f, maxFile) => (f.size > maxFile ? 0 : Math.floor((2 * f.size) / CDC.min) + 1);
 function upperBound(f, maxFile) {
   const pathJson = Buffer.byteLength(JSON.stringify(f.path));
   if (f.size > maxFile) return 2 * pathJson + 1024;
-  const n = Math.floor((2 * f.size) / CDC.min) + 1;
+  const n = chunksMax(f, maxFile);
   return 2 * pathJson + 1024 + n * (CHUNK_NAME_LEN + 3) + n * (CHUNK_NAME_LEN + 6 + MAX_KEY_LEN);
 }
 
@@ -266,7 +277,10 @@ async function snapshotInner(input, deps, added, state, fail) {
     for (const [name, e] of index) {
       const why = typeof name !== 'string' || !/^[0-9a-f]{64}$/.test(name) || !e ? 'malformed'
         : keyProblem(e.key, ctx)
-          || (!Number.isSafeInteger(e.lockedUntilMs) || e.lockedUntilMs < LOCK_FLOOR_MS || e.lockedUntilMs > now() + LOCK_MAX_MS + 3600 * 1000 ? 'a lock end no grant could set' : null);
+          || (!Number.isSafeInteger(e.lockedUntilMs) || e.lockedUntilMs < LOCK_FLOOR_MS || e.lockedUntilMs > t + LOCK_MAX_MS + 3600 * 1000 ? 'a lock end no grant could set' : null)
+          // A lock that ends before any manifest granted now would (period end + 30 days + the window; at least now + 30
+          // days + 15 min): uploadManifest would refuse it as outlasting it (review 9 NIT).
+          || (e.lockedUntilMs < t + 30 * 86400 * 1000 + 15 * 60 * 1000 ? 'a lock that ends before this snapshot\'s manifest would' : null);
       if (why) return fail(`the index holds an entry this snapshot cannot name (${why})`, { staleIndex: true });
     }
     state.bucket = input.bucket;
@@ -301,6 +315,13 @@ async function snapshotInner(input, deps, added, state, fail) {
   let skippedExtra = listed.skippedExtra;
   const skip = (s) => { if (skipped.length < MAX_SKIPPED) { estimate += entryBytes(s); skipped.push(s); } else skippedExtra++; };
   for (const s of listed.skipped) skip(s);
+  // The allowance, before anything is spent: this period's earlier chunks (the index) plus this run's upper bound.
+  const chunkBound = index.size + listed.files.reduce((n, f) => n + chunksMax(f, maxFile), 0);
+  const byteBound = [...index.values()].length * sealedMax(CDC.max)
+    + listed.files.reduce((n, f) => n + (f.size > maxFile ? 0 : sealedMax(2 * f.size) + chunksMax(f, maxFile) * 4148), 0);
+  if (chunkBound > CHUNK_ALLOWANCE || byteBound > BYTE_ALLOWANCE) {
+    return fail(`the work Kosmos could need more than a week's backup allowance (${CHUNK_ALLOWANCE} chunks, 64 GB): ${listed.files.length} files, ${Math.round(listedBytes / 2 ** 20)} MB`, { tooLarge: true, overAllowance: true });
+  }
   const tooLargeWhy = () => `the work Kosmos is too large for one snapshot: ${listed.files.length} files, ${Math.round(listedBytes / 2 ** 20)} MB, could make a manifest past its ceiling (one snapshot holds about 20 GB of files)`;
   if (over()) return fail(tooLargeWhy(), { tooLarge: true });
   const files = [], redacted = [];
@@ -348,6 +369,9 @@ async function snapshotInner(input, deps, added, state, fail) {
     if (badKey) return fail(`a granted key is not one this snapshot can name (${badKey})`, spent);
     if (noLock) return fail('a stored chunk came back without its lock end', spent);
     if (wrongPeriod.length) return fail(`a chunk was granted in period ${wrongPeriod[0]}, not ${ctx.period} (a period boundary passed); start again in the new period (chunks granted there are not kept: they stay stored, unnamed, until their lock ends)`, Object.assign({ newPeriod: true }, spent));
+    // backup_quota: this period's allowance is spent (by earlier runs, or anything signing as this computer): not a
+    // retry this period (review 9).
+    if (r && r.code === 'backup_quota') return fail(`the period's backup allowance is used up: ${r.because || 'backup_quota'}`, Object.assign({ overAllowance: true }, r.unsure ? { unsure: r.unsure } : {}, spent));
     if (!r || !r.ok) return fail(`chunks could not be uploaded: ${(r && r.because) || 'no answer'}`, Object.assign({}, r && r.retryLater ? { retryLater: true } : {}, r && r.unsure ? { unsure: r.unsure } : {}, spent));
     for (const name of pending.keys()) if (!objects[name]) return fail('the uploader reported success without a key for every chunk');
     uploaded += pending.size;
