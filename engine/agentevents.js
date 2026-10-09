@@ -265,7 +265,7 @@ function readState(root) {
     const j = JSON.parse(fs.readFileSync(path.join(root, STATE_FILE), 'utf8'));
     const obj = (v) => (v && typeof v === 'object' ? v : {});
     return { offsets: obj(j && j.offsets), pending: Array.isArray(j && j.pending) ? j.pending : [], listed: obj(j && j.listed),
-      withdrawn: !!(j && j.withdrawn), sendMax: j && Number.isFinite(j.sendMax) ? j.sendMax : null,
+      withdrawn: !!(j && j.withdrawn), collided: Array.isArray(j && j.collided) ? j.collided : [], sendMax: j && Number.isFinite(j.sendMax) ? j.sendMax : null,
       enrolledAs: j && j.enrolledAs, since: j && Number.isFinite(j.since) ? j.since : null, failAt: j && Number.isFinite(j.failAt) ? j.failAt : null };
   } catch { return { offsets: {}, pending: [], listed: {}, enrolledAs: null, since: null, failAt: null }; }
 }
@@ -350,10 +350,13 @@ async function tick(opts) {
        so orch.main and orch-main share one transcript folder (review 10). A token-only agent whose folder collides with
        an agent that is NOT token-only would carry that agent's refusals, by the PERSON's own rules, to the company: it
        is not read at all (fail closed), and neither is anything when the agent list cannot be read. */
-    if (typeof src.everyAgent === 'function') {
+    const collidedNow = new Set();
+    /* Required (review 12: an absent check read as "no clash"). */
+    if (typeof src.everyAgent !== 'function' || typeof src.transcriptDirsOf !== 'function') return { sent: 0, because: 'the agent list cannot be checked; nothing changed' };
+    {
       const every = src.everyAgent();
       if (!Array.isArray(every)) return { sent: 0, because: 'the agent list could not be read; nothing changed' };
-      const flat = (d) => new Set((src.transcriptDirsOf ? src.transcriptDirsOf(d) : []));
+      const flat = (d) => new Set(src.transcriptDirsOf(d));
       /* An agent whose folder cannot be resolved cannot be compared (review 11): that is unreadable too, not "no clash". */
       const otherDirs = every.filter((n) => !names.includes(n)).map((n) => src.dirOf(n));
       if (otherDirs.some((d) => !d)) return { sent: 0, because: 'an agent\'s folder could not be resolved; nothing changed' };
@@ -363,6 +366,7 @@ async function tick(opts) {
         const mine = flat(d);
         if (others.some((o) => [...o].some((x) => mine.has(x)))) {
           dirs.delete(n);
+          collidedNow.add(n);
           console.error('agentevents: ' + n + ' shares its transcript folder with an agent that is not token-only; not read');
         }
       }
@@ -372,6 +376,11 @@ async function tick(opts) {
     /* When each agent was first seen on the token-only list (review 2): before that, a refusal was the PERSON's own
        rule, never the company's, so nothing of it is sent. An agent already listed when this state began counts from
        the first tick that saw it (the list keeps no history), the private side of the doubt. */
+    /* An agent whose collision just cleared counts from NOW (review 12): its shared folder's older lines were another
+       agent's, so its files start at their end, as an agent first listed this tick. Recorded while it collides. */
+    const before = new Set(Array.isArray(st.collided) ? st.collided : []);
+    for (const n of names) if (before.has(n) && !collidedNow.has(n)) st.listed[n] = now;
+    st.collided = [...collidedNow];
     for (const n of names) if (!Number.isFinite(st.listed[n])) st.listed[n] = now;
     for (const n of Object.keys(st.listed)) if (!names.includes(n)) delete st.listed[n];   // off the list: starts again
     let budget = TICK_READ_MAX;
