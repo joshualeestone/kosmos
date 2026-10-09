@@ -58,7 +58,7 @@ test('#3955: each shape the window cannot draw is named (a problem per rule, wit
 });
 
 test('#3955: the committed web/whats-new.json, when there is one, is a file the window can draw', () => {
-  if (!fs.existsSync(whatsnew.FILE)) return;   // written by the operator before a cut, not by this change
+  if (!fs.existsSync(whatsnew.FILE)) return;   // built from release/whats-new-pool.json by tools/whats-new-pool.js before a cut, not by this change
   const obj = JSON.parse(fs.readFileSync(whatsnew.FILE, 'utf8'));
   assert.deepEqual(whatsnew.problems(obj, obj.version), [], 'web/whats-new.json cannot be shown');
 });

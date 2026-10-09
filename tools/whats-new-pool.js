@@ -72,6 +72,12 @@ function opt(args, name, dflt) {
 
 function main(argv) {
   const whatsnew = require('../engine/whatsnew');
+  // Only --name=value flags this tool knows: a typo (`--outt=`) or `--max 4` must not silently do something else.
+  const unknown = argv.filter((a) => a.startsWith('--') && !/^--(max|pool|out|from)=./.test(a));
+  if (unknown.length) {
+    process.stderr.write('unknown or malformed option(s): ' + unknown.join(' ') + ' (use --max=N, --pool=FILE, --out=FILE, --from=FILE)\n');
+    return 2;
+  }
   const [cmd, version] = argv.filter((a) => !a.startsWith('--'));
   if (!['build', 'shown'].includes(cmd) || !version || !whatsnew.VERSION_RE.test(version)) {
     process.stderr.write('usage: node tools/whats-new-pool.js build|shown <version like 0.7.36> [--max=5] [--pool=<file>] [--out=<file>] [--from=<file>]\n');
@@ -79,6 +85,16 @@ function main(argv) {
   }
   const poolFile = opt(argv, 'pool', POOL);
   const pool = readPool(poolFile);
+  // Every pending item must be one the window can show, checked now rather than the day it reaches the top 5.
+  for (const it of pool.items.filter((i) => i.status === 'pending')) {
+    const h = { icon: it.icon, title: it.title, line: it.line };
+    if (it.platforms) h.platforms = it.platforms;
+    const bad = whatsnew.problems({ version, highlights: [h] }, version);
+    if (bad.length) {
+      process.stderr.write('the pool item "' + it.title + '" is not one the window can show: ' + bad.join('; ') + '\n');
+      return 3;
+    }
+  }
   if (cmd === 'build') {
     const max = Number(opt(argv, 'max', String(whatsnew.MAX_HIGHLIGHTS)));
     if (!Number.isInteger(max) || max < 1 || max > whatsnew.MAX_HIGHLIGHTS) {
@@ -103,8 +119,10 @@ function main(argv) {
     fs.writeFileSync(out, JSON.stringify(obj, null, 2) + '\n');
     process.stdout.write(path.relative(process.cwd(), out) + ': ' + obj.highlights.length + ' highlight(s) for ' + version
       + ':\n' + obj.highlights.map((h) => '  - ' + h.title).join('\n') + '\n'
-      + 'The pool says the last PROD release was ' + (pool.lastProd || 'not recorded') + '. If a newer version reached prod, run'
-      + ' `node tools/whats-new-pool.js shown <that version>` from its tree first, or prod users see its highlights again.\n'
+      + 'The pool says the last PROD release was ' + (pool.lastProd || 'not recorded') + '. If a newer version reached prod, first'
+      + ' run, ON MAIN (main\'s pool, never a release checkout\'s): git show "v<that version>:web/whats-new.json" > /tmp/wn.json &&'
+      + ' node tools/whats-new-pool.js shown <that version> --from=/tmp/wn.json, then commit release/whats-new-pool.json to main.'
+      + ' Otherwise prod users see its highlights again.\n'
       + 'Edit titles and lines in release/whats-new-pool.json and build again, never in the built file: `shown` matches by title.\n');
     return 0;
   }

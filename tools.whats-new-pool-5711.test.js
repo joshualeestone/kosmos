@@ -118,3 +118,20 @@ test('#5711 review 2: a build for a version not newer than the last PROD release
     assert.equal(quiet(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`])), 0, 'CONTROL: the next version builds');
   } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
 });
+
+test('#5711 review 3: an unknown or malformed option is refused, never silently ignored', () => {
+  const t = tmp({ items: [item('A', 1, 'pending')] });
+  try {
+    assert.equal(quiet(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`, '--max', '4'])), 2);
+    assert.equal(quiet(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--outt=${t.out}`])), 2);
+    assert.equal(fs.existsSync(t.out), false);
+  } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
+});
+
+test('#5711 review 3: a malformed pending item anywhere in the pool is refused at once, not when it reaches the top 5', () => {
+  const t = tmp({ items: [item('Good', 1, 'pending'), item('Bad icon far down', 40, 'pending', { icon: 'rocket' })] });
+  try {
+    assert.equal(quiet(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`, '--max=1'])), 3);
+    assert.equal(fs.existsSync(t.out), false);
+  } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
+});
