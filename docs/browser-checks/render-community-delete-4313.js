@@ -337,6 +337,21 @@ async function run() {
     const u2 = await readList(p7);
     check('UNREAD: posts are still listed, with no comment rows, and the line shows', u2.rows.length === 1 && u2.rows[0].id === 'a1' && u2.unreadHidden === false && u2.emptyHidden === true, JSON.stringify(u2));
     await p7.close();
+
+    // DOUBT (#5674): a take-back whose earlier copy may be up under a registration Kosmos no longer holds.
+    const p9 = await page();
+    await p9.route(MINE, answer({ posts: [
+      row('k1', { state: 'withheld', deleteRequested: true, unverified: true, canDelete: false }),
+      row('k2', { state: 'unconfirmed', deleteRequested: true, agentKeyless: true, canDelete: false }),
+      row('k3', { state: 'unconfirmed', deleteRequested: true, agentOtherRegistration: true, canDelete: false }),
+      row('k4', { state: 'withheld', deleteRequested: true, canDelete: false }),   // CONTROL: plainly never sent
+    ], comments: [] }));
+    await openAutomation(p9);
+    const dz = await readList(p9);
+    const DOUBT = /Taken back, so it won't be sent again\. If an earlier try reached the community, that copy may still be up, and Kosmos can no longer take it down\./;
+    check('DOUBT: the three doubtful take-backs say the one sentence, with no Delete', dz.rows.length === 4 && dz.rows.slice(0, 3).every((x) => DOUBT.test(x.text) && !x.del && !/Deleting|Deleted before/.test(x.text)), JSON.stringify(dz.rows));
+    check('DOUBT CONTROL: a post plainly withheld keeps "Deleted before it was sent"', /Deleted before it was sent/.test(dz.rows[3].text) && !DOUBT.test(dz.rows[3].text), JSON.stringify(dz.rows[3]));
+    await p9.close();
   } finally {
     await browser.close();
   }
