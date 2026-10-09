@@ -100,8 +100,12 @@ function keyProblem(key, ctx) {
   return null;
 }
 
+/* The deny-list, on the path AS RESTORE WILL WRITE IT (review 15): restore reads '\\' as a folder separator, so a Mac
+   name like ".ssh\\id_rsa" comes back as .ssh/id_rsa; every rule anchors on '/', so the name as written would pass. */
+const asRestored = (rel) => rel.replace(/\\/g, '/');
+const denied = (rel) => pathDecision(asRestored(rel));
 /* A folder the deny-list refuses: every folder rule ends in '/', so a bare child name matches exactly those. */
-const folderDenied = (rel) => { const d = pathDecision(`${rel}/x`); return d.include ? null : d.why; };
+const folderDenied = (rel) => { const d = denied(`${rel}/x`); return d.include ? null : d.why; };
 
 /** Every regular file under root (absolute) the deny-list allows, as sorted '/'-separated relative paths with the
     device and inode seen, and what was skipped (links, denied folders and files, anything not a file or folder, a
@@ -143,7 +147,7 @@ function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_S
         continue;
       }
       if (!st.isFile()) { skip({ path: r, why: 'not a regular file' }); continue; }
-      const d = pathDecision(r);
+      const d = denied(r);
       if (!d.include) { skip({ path: r, why: d.why }); continue; }
       // A path restore would refuse (engine/backuprestore.js pathProblem) is not stored: it could never come back.
       const problem = pathProblem(r);
@@ -199,7 +203,7 @@ function readListed(fs, rootReal, f, maxFile) {
     const rs = fs.statSync(real, { bigint: true });
     if (rs.dev !== st.dev || rs.ino !== st.ino) return { why: 'replaced while the snapshot was taken' };
     const relReal = path.relative(rootReal, real).split(path.sep).join('/');
-    const d = pathDecision(relReal);
+    const d = denied(relReal);
     if (!d.include) return { why: d.why };
     const size = Number(st.size);
     if (size > maxFile) return { why: `larger than ${Math.round(maxFile / 1024 / 1024)} MB, too large to scan` };
@@ -252,7 +256,8 @@ function upperBound(f, maxFile) {
  *   overAllowance: the week's backup allowance would be passed, or is used up (backup_quota): not this period.
  *   newPeriod: a period boundary passed (the context's, or a grant's): start again with the new period's context and
  *     naming key; this input can never succeed.
- *   added (Map name -> { key, lockedUntilMs }) is every chunk this run stored in ctx.period under `bucket`, failed or not.
+ *   added (Map name -> { key, lockedUntilMs, memberKeyId }) is every chunk this run stored in ctx.period under `bucket`,
+ *     failed or not; keep memberKeyId with each entry (an index entry without it is stale).
  *   staleIndex: the index cannot be used (another bucket or period, malformed, or chunks whose locks end too soon):
  *     drop it, keep `added` under `bucket`, and take the next snapshot from that.
  *   tooLarge: the manifest would pass its ceiling (too many files): not a retry.
@@ -456,11 +461,20 @@ async function snapshotInner(input, deps, added, state, fail) {
     if (!e) return fail('a chunk the manifest names has no stored key');
     chunks.push({ key: e.key, lockedUntilMs: e.lockedUntilMs });
   }
-  if (!chunks.length) return fail('there is nothing to back up: no file with content was found (a manifest must name at least one chunk)');
+  if (!chunks.length) return fail('there is nothing to back up: no file with content (empty files alone make no snapshot, since a manifest must name at least one chunk)');
   const manifest = {
     format: FORMAT, takenAt: new Date(t).toISOString(), namingKeyId,   // t: the reading already checked (review 11)
     files, objects, redacted, skipped, skippedNotListed: skippedExtra,
   };
+  // A period boundary passed during the run (review 15): the coordinator locks this manifest to the NEW period's date,
+  // so every chunk it names must last until then, or the manifest grant is spent on a refusal (outlastsChunks). Stop
+  // first, as newPeriod, before asking for that grant.
+  const tEnd = now();
+  if (Number.isFinite(tEnd) && periodOf(tEnd) !== ctx.period) {
+    const start = MONDAY_EPOCH + Math.floor((tEnd - MONDAY_EPOCH) / WEEK_MS) * WEEK_MS;
+    const manifestLock = start + WEEK_MS + 30 * DAY_MS + 15 * 60 * 1000;   // backup.rs retain_until_for(new period end)
+    if (chunks.some((c) => c.lockedUntilMs < manifestLock)) return fail(`a period boundary passed during the snapshot (now ${periodOf(tEnd)}): its earlier chunks would not last as long as a manifest granted now; start again in the new period`, { newPeriod: true });
+  }
   // Cannot throw on this content (review 8): file and redacted paths passed pathProblem, skipped ones are walk paths, every other value is a fixed sentence, a number,
   // hex or a key of plain segments, and the context and keys were checked before anything was read. If it ever did,
   // takeSnapshot's catch returns `added` intact.

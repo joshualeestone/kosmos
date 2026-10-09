@@ -349,7 +349,7 @@ test('a manifest that would pass its ceiling stops the run before any chunk is u
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
-test('a manifest refused for outlasting the index\'s chunks is a stale index, with the grant reported spent', async () => {
+test('a manifest refused for outlasting the index\'s chunks is a stale index, with grantSpent passed through as answered', async () => {
   const w = workKosmos(), k = keys(), st = store({ manifestAnswer: { ok: false, outlastsChunks: true, grantSpent: false, because: 'outlasts' } });
   try {
     const r = await take(k, w.root, st);
@@ -751,5 +751,38 @@ test('stored chunks answered without a bucket are a failure, not recorded under 
     assert.equal(r.ok, false); assert.match(r.because, /without naming their bucket/);
     assert.equal(r.added.size, 0); assert.equal(r.grantSpent, true);
     assert.equal(st.manifests.length, 0);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a Mac name with a backslash is judged as restore will write it: ".ssh\\id_rsa" is a credential path, never stored', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    for (const n of ['.ssh\\id_rsa', 'secrets\\db.txt', 'x\\.npmrc']) fs.writeFileSync(path.join(w.root, n), 'PLAIN-SECRET-BYTES');
+    const r = await take(k, w.root, st);
+    assert.equal(r.ok, true, r.because);
+    const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+    for (const n of ['.ssh\\id_rsa', 'secrets\\db.txt', 'x\\.npmrc']) {
+      assert.ok(!m.files.some((x) => x.path === n), `${JSON.stringify(n)} was stored`);
+      assert.ok(m.skipped.some((x) => x.path === n), `${JSON.stringify(n)} is named as skipped`);
+    }
+    for (const [name, key] of Object.entries(m.objects)) assert.ok(!bf.openVerifiedChunk(k.member.sk, k.nk, name, st.objects.get(key)).includes('PLAIN-SECRET-BYTES'));
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a period boundary passed between the chunks and the manifest stops the run as newPeriod before the manifest grant', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    // The clock reads inside the period until the chunks are stored, then just past Monday 00:00 UTC.
+    let calls = 0, stored = false;
+    const real = st.uploadChunks;
+    const r = await take(k, w.root, st, { deps: {
+      now: () => (stored ? Date.parse('2026-10-12T00:00:05Z') : (calls++, NOW)),
+      uploadChunks: async (d, batch) => { const res = await real(d, batch); stored = true; return res; },
+    } });
+    assert.equal(r.ok, false); assert.equal(r.newPeriod, true); assert.match(r.because, /period boundary/);
+    assert.equal(st.manifests.length, 0, 'no manifest grant asked for');
+    assert.ok(r.added.size > 0, 'the stored chunks are still returned');
+    const ok = await take(k, w.root, store());
+    assert.equal(ok.ok, true, `control: the same run inside the period stores its manifest (${ok.because})`);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
