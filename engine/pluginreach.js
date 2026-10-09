@@ -24,21 +24,21 @@
  *
  * Fail-safe direction: an unreadable runner, a missing/garbage/non-absolute home, or an unreadable job
  * maps to UNKNOWN (reaches: null), so those never produce a spurious reaches:true or reaches:false.
- * ONE known over-report remains and is NOT yet closed in this slice: a default-account Claude agent
+ * ONE known over-report REMAINS, documented and deliberately not closed: a default-account Claude agent
  * whose pane was pinned to another folder via a leaked tmux-global EFFECTIVE_CCD (bin/agent-supervisor.sh
- * ~888-902) is recorded reaches:true here, because the plist configDir the resolver reads is null for it
- * while the pane actually runs elsewhere. reachFrom takes the effective dir as input, so slice 2 (which
- * has the live pane env) passes the pane's real CLAUDE_CONFIG_DIR and closes it. Until then, treat a
- * reaches:true as "reaches, unless the pane was EFFECTIVE_CCD-pinned".
+ * ~888-902) is recorded reaches:true, because the plist configDir is null for it while the pane actually
+ * runs elsewhere. The live pane env is NOT available at /api/status (only the plist configDir is), so
+ * slice 2 cannot pass the pane's real CLAUDE_CONFIG_DIR. Because the board renders ONLY reaches:false,
+ * this makes the board STAY SILENT in that narrow leaked-global case -- a missed notice, never a false
+ * one, which is the safe direction for a UI whose fail-safe is silence. Closing it needs new snapshot
+ * plumbing to surface the pane env; left to a follow-up. Treat a reaches:true as "reaches, unless the
+ * pane was EFFECTIVE_CCD-pinned".
  *
- * TWO obligations for slice 2 before it wires reachForAgent into a live caller (both are safe to leave
- * open here because reachForAgent has NO production caller yet):
- *   1. Pass the pane's live CLAUDE_CONFIG_DIR as agentClaudeDir (closes the EFFECTIVE_CCD over-report above).
- *   2. Pass the WORLD's id. reachForAgent now TAKES a worldId and threads it to create.readJob(agentName,
- *      worldId), so the scoping is wired here rather than left to prose. The residual obligation is on the
- *      caller: jobs are keyed by world, and an OMITTED worldId reads the DEFAULT world's same-named job, so
- *      for a NAMED-world agent slice 2 MUST pass that world's id (undefined is correct ONLY for the default,
- *      unnamed world). The /api/status caller slice 2 wires in has the world in hand.
+ * WORLD SCOPING: the live caller is agentPluginReach (below), wired onto the /api/status per-agent map,
+ * which passes the row's ALREADY-resolved runner + account.dir -- the same resolution the card's account
+ * field uses. So reach is world-scoped exactly as that account field is (no separate world-keyed read),
+ * which keeps reach and the account shown on the same card from ever disagreeing. agentPluginReach reads
+ * no job itself, so there is no worldId for it to thread.
  */
 
 const path = require('node:path');
@@ -104,58 +104,6 @@ function reachFrom(input) {
   }
   if (r === '') return { reaches: null, reason: UNKNOWN };
   return { reaches: null, reason: NOT_APPLICABLE };
-}
-
-/*
- * Thin resolver for a live agent by name. Mirrors status.claudeAccountDirOf: the plist's configDir
- * when set, else (for Claude) the person's ~/.claude via the null-default in reachFrom. `deps` is
- * injectable so tests need no real plist. Runner AND dir interpretation are left entirely to reachFrom,
- * so the resolver and the core never judge the same input differently. A readJob or homeDir that throws,
- * or no readable job, yields UNKNOWN (the tests lock this in).
- *
- * `worldId` is threaded to create.readJob(agentName, worldId) so a NAMED Kosmos world reads ITS OWN job,
- * not the default world's same-named one (jobs are world-keyed). Omitting it reads the default world --
- * correct ONLY for the default, unnamed world; a named-world caller MUST pass the world's id or risk a
- * cross-world over-report. The field names this reads back, `configDir` and `runner`, are exactly the two
- * that create.js emits on every platform arm (readPlistJob on mac, readUnitJob on linux, the win32 spec);
- * the injected-deps tests exercise those same names, so a rename there would surface as a resolver test
- * failure rather than a silent default-launch reaches:true.
- *
- * Slice 2: where the live pane env is available, pass the pane's CLAUDE_CONFIG_DIR as agentClaudeDir
- * instead of the plist value, to catch the EFFECTIVE_CCD leak-pin on a default-account agent (see the
- * module header). `deps` stays LAST so the test seam does not sit between the two real arguments.
- */
-function reachForAgent(agentName, worldId, deps) {
-  deps = (deps && typeof deps === 'object') ? deps : {};
-  let personClaudeHome = '';
-  let job = null;
-  // Everything that can throw -- the module requires, accounts.homeDir(), create.readJob() -- is inside
-  // ONE try, so any of them throwing yields UNKNOWN (the documented posture), not an escape.
-  try {
-    const create = deps.create || require('./create');
-    const accounts = deps.accounts || require('./accounts');
-    const rawHome = accounts.homeDir();
-    // Guard the RAW home BEFORE path.join collapses a '..': reachFrom's '..' guard cannot see a '..' that
-    // join has already normalised away (homeDir '/q/link/..' + '.claude' joins to '/q/.claude'). Join only
-    // a clean absolute no-'..' home; otherwise pass the raw value so reachFrom's own guard returns UNKNOWN.
-    personClaudeHome = (typeof rawHome === 'string' && path.isAbsolute(rawHome) && !rawHome.split(/[\\/]/).includes('..'))
-      ? path.join(rawHome, '.claude')
-      : rawHome;
-    // worldId scopes the read to the agent's own world; create.readJob's own default applies when it is
-    // null/undefined (the default world). Passed straight through -- reachForAgent does not invent a world.
-    job = create.readJob(agentName, worldId);
-  } catch { return { reaches: null, reason: UNKNOWN }; }
-  // A null/undefined, non-object, or array job (garbage) is UNKNOWN, never a default-launch reaches:true.
-  // (Array.isArray because `typeof [] === 'object'`, and an array has no runner/configDir fields.)
-  if (!job || typeof job !== 'object' || Array.isArray(job)) return { reaches: null, reason: UNKNOWN };
-  // Default the runner only on null/undefined (readJob's own default); a FALSY-but-present runner ('',0)
-  // must stay falsy so reachFrom reads it as UNKNOWN, not silently become 'claude'.
-  const runner = (job.runner === null || job.runner === undefined) ? 'claude' : job.runner;
-  // Pass configDir through UNCHANGED (only null/undefined -> null); reachFrom judges its type and shape,
-  // so a non-string value becomes UNKNOWN there, not a false default-launch here. The resolver never
-  // re-interprets the runner or the dir, so it and the core cannot disagree on the same input.
-  const configDir = (job.configDir === null || job.configDir === undefined) ? null : job.configDir;
-  return reachFrom({ runner, agentClaudeDir: configDir, personClaudeHome });
 }
 
 /* ===========================================================================================
@@ -309,7 +257,7 @@ function gateOnEvidence(reach, evidence) {
  */
 function agentPluginReach(inputs, deps) {
   const i = (inputs && typeof inputs === 'object') ? inputs : {};
-  // Default the runner the SAME way reachForAgent/readJob do: a null/undefined runner is a default
+  // Default the runner the SAME way readJob does: a null/undefined runner is a default
   // launch, which is Claude. The /api/status caller's row runner (runnerOfCard) is null for exactly that
   // case (null and 'claude' are indistinguishable to the board), so a separate-account Claude agent with
   // an unrecorded runner must still be judged as Claude, not fall to UNKNOWN. A present-but-empty runner
@@ -333,7 +281,6 @@ function _resetCache() { _folderSetCache.clear(); }
 
 module.exports = {
   reachFrom,
-  reachForAgent,
   agentPluginReach,
   folderPluginSet,
   codexPersonPresence,
