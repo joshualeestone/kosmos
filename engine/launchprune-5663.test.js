@@ -314,3 +314,32 @@ test('#5663 review 9: a folder a launch denied while it was absent is never reco
   for (const r of before) assert.ok(s2.permissions.deny.includes(r), 'a launch pruned a folder denied while absent: ' + r);
   for (const p of beforeW) assert.ok(s2.sandbox.filesystem.denyWrite.includes(p), 'a launch pruned a sandbox entry denied while absent: ' + p);
 });
+
+test('#5663 review 11: the size counts the person\'s ~/ rule spelling against home; an unreadable record is left as it is and prunes nothing; one copy per unparseable content', () => {
+  assert.deepEqual(setup.sandboxDenySize({}, ['Read(~/x/**)', 'Edit(~/y)'], '/h'), { paths: 2, raw: 8, prefixes: 8 });
+  assert.deepEqual(setup.sandboxDenySize({}, ['Read(./rel)', 'Bash(x)'], '/h'), { paths: 0, raw: 0, prefixes: 0 }, 'CONTROL: other spellings are not guessed at');
+  // A record that exists and cannot be read (mode 000): nothing pruned, not replaced.
+  const dir = agentDir('lp-unreadable');
+  const v = binDir('unreadable/1.0/bin');
+  setup.guardTokenOnlyFolder(dir, 'lp-unreadable', { ...BASE, panePath: v });
+  const rv = dirRule(v);
+  const rec = path.join(dir, '.claude', 'kosmos-launch-rules.json');
+  const before = fs.readFileSync(rec, 'utf8');
+  fs.chmodSync(rec, 0o000);
+  fs.rmSync(path.join(SANDBOX, 'bins', 'unreadable', '1.0'), { recursive: true });
+  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-unreadable', { ...BASE, panePath: binDir('unreadable/other/bin') }), { ok: true });
+  assert.ok(readSettings(dir).permissions.deny.includes(rv), 'an unreadable record pruned a rule');
+  assert.equal(fs.statSync(rec).mode & 0o777, 0, 'an unreadable record was replaced');
+  fs.chmodSync(rec, 0o600);
+  assert.equal(fs.readFileSync(rec, 'utf8'), before, 'an unreadable record was rewritten');
+  // The same unparseable content twice gets one dated copy.
+  const dir2 = agentDir('lp-onecopy');
+  setup.guardTokenOnlyFolder(dir2, 'lp-onecopy', { ...BASE, panePath: binDir('onecopy/bin') });
+  const rec2 = path.join(dir2, '.claude', 'kosmos-launch-rules.json');
+  for (let i = 0; i < 2; i++) {
+    fs.writeFileSync(rec2, '{broken');
+    setup.guardTokenOnlyFolder(dir2, 'lp-onecopy', { ...BASE, panePath: binDir('onecopy/bin') });
+  }
+  const copies = fs.readdirSync(path.join(dir2, '.claude')).filter((f) => f.startsWith('kosmos-launch-rules.json.unreadable-'));
+  assert.equal(copies.length, 1, 'copied again: ' + copies.join(' '));
+});

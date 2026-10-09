@@ -1092,14 +1092,24 @@ function ruleTarget(r) {
   const m = /^(?:Edit|Read)\(\/\/(.*?)(?:\/\*\*)?\)$/.exec(String(r));
   return m ? '/' + m[1] : null;
 }
-/* The paths that reach the profile, counted per clause as the profile is likely built (review 5): the read clause (denyRead
+/* The paths THIS AGENT'S settings file sends to the profile, counted per clause as the profile is likely built (review 5).
+   Review 11: the person's user-level settings files (~/.claude, ~/.claude-<label>) also reach it and are not counted
+   here (which one an agent reads is its account's; #5668 carries that). Rule targets are the guard's '//abs' spelling
+   and the person's '~/' one (against home). The read clause (denyRead
    and the Read rule targets) and the write clause (denyWrite and the Edit rule targets), each path once within its
    clause, so a path in both is paid for twice. Per clause: their raw length, and their distinct prefixes (sorted, each
    path adds what it does not share with the one before it). Every measured set was one clause, so this counting is at
    least what was measured, never less. */
-function sandboxDenySize(fsb, deny) {
+function sandboxDenySize(fsb, deny, home) {
   const rules = (deny || []).map(String);
-  const targets = (kind) => rules.filter((r) => r.startsWith(kind + '(')).map(ruleTarget).filter(Boolean);
+  const at = home || kosmosHome();
+  const target = (r) => {
+    const t = ruleTarget(r);
+    if (t) return t;
+    const m = /^(?:Edit|Read)\(~\/(.*?)(?:\/\*\*)?\)$/.exec(r);
+    return m ? path.join(at, m[1]) : null;
+  };
+  const targets = (kind) => rules.filter((r) => r.startsWith(kind + '(')).map(target).filter(Boolean);
   const clauses = [
     [...((fsb && fsb.denyRead) || []), ...targets('Read')],
     [...((fsb && fsb.denyWrite) || []), ...targets('Edit')],
@@ -1134,14 +1144,25 @@ function launchPathGone(p) {
 function readLaunchRecord(file) {
   const none = { deny: [], denyWrite: [] };
   let raw;
-  try { raw = fs.readFileSync(file, 'utf8'); } catch { return none; }   // none yet (a guard from before #5663)
+  try { raw = fs.readFileSync(file, 'utf8'); } catch (e) {
+    if (e && e.code === 'ENOENT') return none;   // none yet (a guard from before #5663)
+    /* Review 11: a record that exists and cannot be read is not replaced (that would forget it): nothing is pruned and
+       it is not written this time, and the log says so. */
+    process.stderr.write(`#5663: ${file} could not be read (${(e && e.code) || e}); nothing is pruned and it is left as it is\n`);
+    return { ...none, keep: true };
+  }
   let j;
   try { j = JSON.parse(raw); } catch { j = undefined; }
   if (!j || typeof j !== 'object' || Array.isArray(j)) {
     /* Review 10: a record that does not parse is read as none, which prunes nothing, and the next write replaces it;
        a dated copy is kept first (as the settings file does, #4491 review 18) so what it named is not lost unseen. */
-    const keep = `${file}.unreadable-${Date.now()}`;
-    try { fs.writeFileSync(keep, raw, { mode: 0o600 }); } catch { /* the log still says it */ }
+    // Review 11: one copy per content, so a record that also cannot be written is not copied again at every refresh.
+    let keep = null;
+    try { keep = fs.readdirSync(path.dirname(file)).filter((f) => f.startsWith(path.basename(file) + '.unreadable-')).map((f) => path.join(path.dirname(file), f)).find((f) => { try { return fs.readFileSync(f, 'utf8') === raw; } catch { return false; } }) || null; } catch { keep = null; }
+    if (!keep) {
+      keep = `${file}.unreadable-${Date.now()}`;
+      try { fs.writeFileSync(keep, raw, { mode: 0o600 }); } catch { /* the log still says it */ }
+    }
     process.stderr.write(`#5663: ${file} could not be read; kept a copy at ${keep}; nothing is pruned this time\n`);
     return none;
   }
@@ -1314,7 +1335,8 @@ function tokenOnlySettingsRules(dir, deps = {}) {
  * supervisor script, or drop a LaunchAgent that runs at next login, and a hardlink of the token outside
  * the denied path is a further residual. Root-owned MANAGED settings (an admin step, parked on the card)
  * stop it editing this guard away, nothing more. refreshTokenOnlyGuards warns when they are absent.
- * { ok: true } | { ok: false, because }. Never throws.
+ * { ok: true } | { ok: false, because }, either with `warning` when the deny paths pass the measured sandbox ceiling
+ * (#5663: the guard is still whole; the agent's shell may not run). Never throws.
  */
 function guardTokenOnlyFolder(dir, agentName, deps = {}) {
   try {
@@ -1435,7 +1457,7 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     // #5663: what this refresh wrote for launch coverage, for the next refresh to replace. A record that cannot be
     // written leaves this refresh's rules in place (nothing is lost; the next refresh only cannot prune them): said.
     // Review 7: written before the local-settings clean, so a throw there cannot leave settings.json's rules unrecorded.
-    if (!writeLaunchRecord(rules.launchRecord, { deny: recDeny, denyWrite: recWrites })) process.stderr.write(`#5663: ${rules.launchRecord} could not be written; old launch rules will not be pruned until it can\n`);
+    if (!prev.keep && !writeLaunchRecord(rules.launchRecord, { deny: recDeny, denyWrite: recWrites })) process.stderr.write(`#5663: ${rules.launchRecord} could not be written; old launch rules will not be pruned until it can\n`);
     cleanLocalSettings(path.join(settingsDir, 'settings.local.json'));
     // #5516 review 1: the guard is written in full first; a PATH entry it could not cover only makes it NOT WHOLE (said),
     // never a reason to write nothing.
@@ -1444,7 +1466,7 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
        to measurements (review 4), and a refusal would stop an agent being created on an estimate. It is said beside
        an uncovered PATH entry, not instead of it. Its readers are the logs (stderr: the board's log at board start and
        creation, the supervisor's at a launch); no caller carries `warning` further today (reviews 5 and 6). */
-    const sz = (deps.platform || process.platform) === 'darwin' ? sandboxDenySize(next.sandbox.filesystem, next.permissions.deny) : null;
+    const sz = (deps.platform || process.platform) === 'darwin' ? sandboxDenySize(next.sandbox.filesystem, next.permissions.deny, deps.home) : null;
     const warning = sz && (sz.prefixes > SANDBOX_DENY_PREFIX_MAX || sz.raw > SANDBOX_DENY_RAW_MAX)
       ? `its ${sz.paths} denied paths (${sz.prefixes} distinct characters, ${sz.raw} in all) are past what Kosmos can say the sandbox will take (${SANDBOX_DENY_PREFIX_MAX} and ${SANDBOX_DENY_RAW_MAX}); the guard is written but may stop the agent's shell`
       : null;

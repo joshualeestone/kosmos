@@ -3,11 +3,11 @@
 ## Finished looks like
 An agent launch after an upgrade leaves no rule for a removed version folder or file that was recorded (every launch rule written from this change on), in either layer. The person's own rules and the rest of the guard are untouched. A guard whose denied paths would pass a measured sandbox ceiling says so as a warning.
 
-## Built (current, after reviews 1 and 2)
+## Built (current)
 - engine/setup-assistant.js:
   - A record of the launch rules the guard wrote at an agent's launch, at `.claude/kosmos-launch-rules.json`. It is denied to the file tools, and the sandbox denies its folder. The record is a union: what was recorded and not pruned, plus what this launch wrote and that exists on disk. A board start never adds to it.
   - Pruning is done only by an agent launch, which is the refresh that carries the pane PATH. It drops a recorded launch entry that is not current AND whose path is gone from disk. This happens in both layers. Every other rule merges as before.
-  - The ceiling, macOS only, counts every path that reaches the sandbox profile: both sandbox lists, plus the targets of the Edit and Read deny rules, each counted once. Past 40 KB of distinct prefixes or 160 KB raw, the guard is written and whole, and it returns a `warning` (also written to stderr), never a refusal. The warning is given beside an uncovered-PATH reason, not instead of it.
+  - The ceiling, macOS only, counts the paths THIS AGENT'S settings file sends to the sandbox profile, per clause: the read clause is denyRead plus the Read targets; the write clause is denyWrite plus the Edit targets. Rule targets are taken in the guard's `//abs` spelling and the person's `~/` one. The person's user-level settings files also reach the profile and are not counted (#5668). Past 40 KB of distinct prefixes or 160 KB raw, the guard is written and whole, and it returns a `warning` (also written to stderr), never a refusal. The warning is given beside an uncovered-PATH reason, not instead of it.
 - engine/launchprune-5663.test.js.
 
 ## Decided
@@ -97,3 +97,11 @@ An agent launch after an upgrade leaves no rule for a removed version folder or 
   - The use-strict guard's dependence on `git ls-files`. Every test here runs from a checkout.
   - The ceiling test's 1,400 folders. It is the through-the-guard arm, and its boundary twin is the synthetic one.
   - Review-number comments. That is the file's style.
+
+## Review 11 (Opus) and what changed
+
+- The size claim is narrowed to what is counted: this agent's settings file. The person's `~/` rule spelling is now counted against home. User-level settings files are not counted, because which one an agent reads is its account's. #5668 carries that, with a comment.
+- A record that exists but cannot be read (EACCES, EISDIR, EIO) was treated as none and then overwritten. Now only ENOENT means none yet. Any other error is logged, nothing is pruned, and the record is left as it is. Test: a mode-000 record keeps its rule, and the file is unchanged; both mutations go red.
+- An unparseable record gets one dated copy per content, not one at every refresh.
+- The doc comment states the `warning` field. The plan's Built heading says current.
+- Not taken: parsing the first statement for the use-strict guard. Its false-red shape is named in its header, and none exists.
