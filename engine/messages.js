@@ -205,10 +205,11 @@ function unspill(file) {
 const SPILL_AT = 700;
 /* #5706 (user feedback, 2026-10-09): what the pane shows of a long message, so the agent can tell from the line alone
    whether to open the file. The envelope already names the sender; this is the message's first sentence when it is a
-   real one and ends within SPILL_HEAD characters, else the opening cut at a whole word, plus how long the whole is. */
+   real one and ends within SPILL_HEAD characters, else the opening cut at a whole word, plus how long the whole is.
+   Either way it ends in an ellipsis: there is always more in the file. */
 const SPILL_HEAD = 200;
 /* Review 2: words ending in a full stop that do not end a sentence (titles, company forms, months, and the like). */
-const NOT_AN_END = /^(?:mr|mrs|ms|dr|prof|sr|jr|st|vs|etc|inc|corp|ltd|co|no|nos|fig|vol|dept|approx|est|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec|gen|sen|rep|gov|pres|capt|lt|col|sgt|rev|hon|mt|ft|ave|rd|blvd|univ)\.$/i;
+const NOT_AN_END = /^(?:mr|mrs|ms|dr|prof|sr|jr|st|vs|etc|inc|corp|ltd|co|no|nos|fig|vol|dept|approx|est|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec|gen|sen|rep|gov|pres|capt|lt|col|sgt|rev|hon|mt|ft|ave|rd|blvd|univ|al|cf|ca|ch|sec|eq|ex|pp|ref)\.$/i;
 /* Never end a cut on the first half of a two-unit character (an emoji), which would type a broken character. */
 const wholeChars = (s) => (/[\uD800-\uDBFF]$/.test(s) ? s.slice(0, -1) : s);
 function spillHead(text) {
@@ -223,7 +224,9 @@ function spillHead(text) {
     const last = upto.slice(upto.lastIndexOf(' ') + 1);
     /* A list number ("1."), a dotted form ("e.g.", "U.S."), a single initial ("J."), or a known abbreviation. */
     if (/^\(?\d+[.)]$/.test(last) || /\..*[.!?]$/.test(last) || /^[A-Za-z]\.$/.test(last) || NOT_AN_END.test(last)) continue;
-    if (upto.length >= 20) { head = upto; break; }
+    /* Review 4: a spilled message always goes on past its first sentence, so the head always ends in an ellipsis. A
+       word this list misses can then never pass a fragment off as the whole message; the list only picks a better cut. */
+    if (upto.length >= 20) { head = upto + ' \u2026'; break; }
   }
   if (!head) {
     /* At a whole word: a space right after the 200th character means the slice already ends on one. */
