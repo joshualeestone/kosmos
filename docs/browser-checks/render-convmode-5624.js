@@ -26,6 +26,7 @@
  *   C15 a no-match search, then clearing it, reads nothing late (review 4)
  *   C16 the no-voice notice clears when the toggle changes (review 4)
  *   C17 pressing the mic, through its real handler, stops a reading (review 4)
+ *   C18 coming back to the same conversation after a gap reads nothing that arrived meanwhile (review 5)
  *   C9 no page errors
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-convmode-5624.js [shots-dir]
@@ -120,7 +121,7 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
     await page.click('#d-conv');
     const c3 = await page.evaluate(() => document.getElementById('d-conv').getAttribute('aria-pressed'));
     await paint(page, thread);
-    chk(c3 === 'true' && (await spoken(page)) === '', 'C3 turning it on reads nothing already on screen', JSON.stringify({ c3, said: await spoken(page) }));
+    chk(c3 === 'true' && (await spoken(page)) === '', 'C3 turning it on does not clear what was heard (nothing already on screen is read)', JSON.stringify({ c3, said: await spoken(page) }));
     if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.locator('#d-conv').scrollIntoViewIfNeeded(); await page.screenshot({ path: path.join(SHOTS, 'convmode-on.png') }); }
 
     // C4: a new agent message with a code block is read with the on-device voice.
@@ -306,6 +307,16 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
     const i17c = c17.findIndex((x, i) => i > i17s && x.cancel);
     await page.evaluate(() => { if (VOICE.btn) voiceCancel(); });
     chk(i17s >= 0 && i17c > i17s, 'C17 pressing the mic stops a reading', JSON.stringify(c17));
+
+    // C18 (review 5): away from the conversation (its poll stopped), a message arrives, back after the gap: not read.
+    await resetSpoken(page);
+    await page.evaluate(() => { if (CONV.at) CONV.at['dm:april'] = Date.now() - 60000; });   // as if away for a minute
+    thread = [...thread, agentRow(42, 'Arrived while the board was open.')];
+    await paint(page, thread);
+    const away = await spoken(page);
+    thread = [...thread, agentRow(43, 'Arrived once back.')];
+    await paint(page, thread);
+    chk(!/board was open/.test(away) && /once back/.test(await spoken(page)), 'C18 coming back after a gap reads nothing that arrived meanwhile, then reads again', JSON.stringify({ away, then: await spoken(page) }));
 
     chk(errs.length === 0, 'C9 no page errors', errs.slice(0, 3).join(' | '));
     await page.close();

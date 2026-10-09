@@ -70,3 +70,10 @@ it off stops it. The state is visible on the button and remembered per conversat
   - NIT (decided, kept): leaving to a view that is not a conversation and coming back to the SAME one may read what
     arrived meanwhile, if the thread kept polling. Kept: it is one message, the newest, and only while the mode is on
     there. NIT (kept): a newest row with no words skips the earlier ones (rare; documented here).
+- **Round 5 (opus, blind):** 0 BLOCKER, 1 WARNING, 2 NIT. Fixed:
+  - WARNING: my round 4 "kept" decision rested on a wrong premise. I wrote that coming back to the same conversation
+    might read a late message "if the thread kept polling"; the reviewer measured the opposite: both polls stop while
+    their view is hidden, so it happened EVERY time, possibly hours late. Now a conversation not followed for more
+    than 12 s (two polls) counts as first sight on its next draw. C18: RED on the round 4 page, green now.
+  - NIT: a browser that never fires voiceschanged now gets the no-voice notice after 3 s. NIT: C3's label now says
+    only what it tests.
