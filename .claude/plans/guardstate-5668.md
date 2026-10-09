@@ -37,3 +37,11 @@ For an agent listed token-only, its page shows a notice when the last guard run 
   - engine/guardstate-5668.test.js (4 tests; 9 mutations red);
   - server.tokenguard-5668.test.js (route: not whole, warning, guarded, no record, not listed, no list; 3 mutations red);
   - docs/browser-checks/render-tokenguard-5668.js (gated, README row; 12 arms on both engines; 2 page mutations red).
+
+## Review 1 (Opus) and what changed
+- **Creation counted the wrong account.** The agent's launch job is not written when creation runs the guard. Creation now passes the account it is creating the agent on (`accountConfigDir: configDir`); a source pin and a mutation cover it.
+- **The agent folder's own settings.local.json was not counted.** Its denies are kept, and they reach the same profile. It now counts. The account side reads only settings.json, the one user-level file Claude Code reads. Both are tested, with mutations.
+- **The record was not protected.** An agent could overwrite it to hide its own notice. It is now Edit-denied and sandbox write-denied, as the token-only list is. Tested in both layers.
+- **Stale lines.** The board-start refresh drops lines for agents no longer listed; a launch refresh (one agent) does not.
+- The default account's file comes from `trust.defaultAgentSettings`, the one derivation of it.
+- The browser check renders the combined case: not whole and past the size.

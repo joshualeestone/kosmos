@@ -8,6 +8,7 @@
  * says: not whole, past the size, and guarded. Opens each agent's page through the real card click, on chromium
  * and webkit, and reads #d-tokenguard. Then rewrites the not-whole agent's record as guarded and waits one poll:
  * the notice goes (it follows the poll).
+ * Then not whole AND past the size: both sentences, the size one as "Also".
  * Control: the guarded agent's page shows no notice, so a shown notice is not the page's default.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-tokenguard-5668.js
@@ -103,6 +104,13 @@ async function notice(page, shown) {
         const warned = await notice(page, 'Wilf');
         chk(warned.hidden === false && warned.text.includes('Wilf') && /commands may stop running/.test(warned.text) && !/not complete/.test(warned.text),
           `${engineName}: a guarded agent past the sandbox size is told its commands may stop running (not that it is unprotected)`, JSON.stringify(warned));
+        // Not whole AND past the size (review 1): both sentences, the size one as "Also".
+        record({ tokwhole: { ok: false, because: BECAUSE, warning: 'past', at: AT }, tokwarn: { ok: true, warning: 'past', at: AT }, tokgood: { ok: true, at: AT } });
+        await page.goto(URL);
+        await page.waitForSelector('.acard .namego', { timeout: 20000 });
+        const both = await notice(page, 'Tamsin');
+        chk(both.hidden === false && both.text.includes('not complete') && both.text.includes(BECAUSE) && /Also, its list of blocked paths/.test(both.text),
+          `${engineName}: not whole and past the size says both, the size as "Also"`, JSON.stringify(both));
         chk(errs.length === 0, `${engineName}: no page errors`, errs.join(' | '));
       } finally { await browser.close(); }
     }

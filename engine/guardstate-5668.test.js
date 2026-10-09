@@ -108,3 +108,54 @@ test('#5668: an unreadable or wrong-shaped record reads as none, and the next ru
   setup.guardTokenOnlyFolder(agentDir('gs-fresh'), 'gs-fresh', { ...BASE, accountConfigDir: empty });
   assert.equal(setup.readGuardState()['gs-fresh'].ok, true);
 });
+
+test('#5668 review 1: the agent folder\'s own settings.local.json counts toward the size (its denies are kept), and only settings.json is read from the account', () => {
+  const dir = agentDir('gs-local');
+  const empty = path.join(SANDBOX, 'accounts', 'local-empty');
+  fs.mkdirSync(empty, { recursive: true });
+  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'gs-local', { ...BASE, accountConfigDir: empty }), { ok: true }, 'CONTROL: under the size without the local file');
+  const deny = Array.from({ length: 700 }, (_, i) => `Read(//local/${String(i).padStart(4, '0')}-${'q'.repeat(60)}-${i})`);
+  fs.writeFileSync(path.join(dir, '.claude', 'settings.local.json'), JSON.stringify({ permissions: { deny } }));
+  const r = quiet(() => setup.guardTokenOnlyFolder(dir, 'gs-local', { ...BASE, accountConfigDir: empty }));
+  assert.ok(r.warning, 'the agent folder\'s settings.local.json did not count: ' + JSON.stringify(r));
+  fs.rmSync(path.join(dir, '.claude', 'settings.local.json'));
+  // The account's settings.local.json is not a file Claude Code reads at user level: not counted.
+  const acctLocal = path.join(SANDBOX, 'accounts', 'acct-local');
+  fs.mkdirSync(acctLocal, { recursive: true });
+  fs.writeFileSync(path.join(acctLocal, 'settings.local.json'), JSON.stringify({ permissions: { deny } }));
+  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'gs-local', { ...BASE, accountConfigDir: acctLocal }), { ok: true });
+});
+
+test('#5668 review 1: the record is denied to the agent in both layers, so it cannot hide its own notice', () => {
+  const dir = agentDir('gs-protect');
+  setup.guardTokenOnlyFolder(dir, 'gs-protect', { ...BASE, accountConfigDir: null });
+  const s = JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8'));
+  const rec = stateFile();
+  const ruleAbs = (p) => '//' + String(p).replace(/^\/+/, '');
+  const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
+  assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(rec)})`), 'the record is not denied to the file tools');
+  assert.ok(s.sandbox.filesystem.denyWrite.includes(real(rec)), 'the record is not denied to the sandboxed shell');
+  // CONTROL: the token-only list beside it is denied the same way.
+  const sendertoken = require('./sendertoken');
+  assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(sendertoken.tokenOnlyFile())})`));
+});
+
+test('#5668 review 1: the board-start refresh drops lines for agents no longer listed; a launch refresh does not', () => {
+  const sendertoken = require('./sendertoken');
+  const dir = agentDir('gs-keep');
+  fs.writeFileSync(stateFile(), JSON.stringify({ agents: { 'gs-gone': { ok: false, because: 'old', at: 't' }, 'gs-keep': { ok: true, at: 't' } } }));
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['gs-keep'] }) + '\n');
+  quiet(() => setup.refreshTokenOnlyGuards({ ...BASE, accountConfigDir: null, workerDir: () => dir, only: 'gs-keep' }));
+  assert.ok(setup.readGuardState()['gs-gone'], 'a launch refresh (one agent) pruned another agent\'s line');
+  quiet(() => setup.refreshTokenOnlyGuards({ ...BASE, accountConfigDir: null, workerDir: () => dir }));
+  const rec = setup.readGuardState();
+  assert.equal(rec['gs-gone'], undefined, 'a line for an agent no longer listed stayed');
+  assert.ok(rec['gs-keep'], 'CONTROL: the listed agent\'s line stays');
+});
+
+test('#5668 review 1: creation names the account it creates the agent on (its launch job is not written yet)', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8');
+  const call = src.split('\n').find((l) => /guardTokenOnlyFolder\(workerDir\(name\), name, \{/.test(l) && !/^\s*(\/\/|\*)/.test(l));
+  assert.ok(call, 'CONTROL: the creation guard call is found');
+  assert.match(call, /accountConfigDir: configDir\b/, 'creation does not pass the account it is creating on');
+});
