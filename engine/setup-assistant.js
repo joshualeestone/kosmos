@@ -815,9 +815,16 @@ function launchPathDirs(agentDir, deps = {}) {
       continue;
     }
     if (c.kind === 'link') {
-      // A link to a file, by its own name, to the file tools. In the agent folder it is the agent's: not whole.
+      // A link to a file, by its own name, to the file tools. In the agent folder it is the agent's: not whole. In a
+      // temp folder the agent's shell could replace it (review 17): said, and still named.
       if (inOwn(fold(c.link))) { unsafe.push(c.shown); continue; }
+      if (c.inTemp && !rel(fold(path.dirname(c.link)), ownF)) unsafe.push(`${c.shown} (a link on its way, ${c.link}, is in a temp folder the agent's shell can write)`);
       if (!linkNames.includes(c.link)) linkNames.push(c.link);
+      continue;
+    }
+    if (c.kind === 'alias') {
+      // A second spelling of a file or file link, to the file tools; never one in or above the agent folder.
+      if (!aliasBad(c.link) && !linkNames.includes(c.link)) linkNames.push(c.link);
       continue;
     }
     if (uncoverable(c.real)) { unsafe.push(c.shown); continue; }
@@ -911,6 +918,13 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs,
   };
   /* Follow one name to where its chain ends: each file link by its own name, the final file by its name. `inCovered`:
      the name sits in a folder already denied whole, so it needs no rule of its own. */
+  /* Review 17: a file or file link reached THROUGH a folder link has a second spelling (the one written through the
+     link). It is named too, to the file tools only, as folders are (review 5), so the rules do not depend on how Claude
+     Code matches a linked path. Only a spelling with no . or .. names (path.resolve would fold them by text). */
+  const alias = (p, real, shown) => {
+    if (p === real || p.split(path.sep).some((x) => x === '.' || x === '..')) return;
+    cands.push({ kind: 'alias', link: p, shown });
+  };
   const follow = (p0, shown, inCovered) => {
     let p = p0;
     for (let hop = 0; ; hop++) {
@@ -918,14 +932,14 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs,
       let st;
       try { st = fs.lstatSync(p); } catch {   // dangling (review 13): what is later made at that exact name runs
         const at = folderOf(p, shown);
-        if (!wholeDirs.has(at)) files.push({ real: path.join(at, path.basename(p)), shown });
+        if (!wholeDirs.has(at)) { files.push({ real: path.join(at, path.basename(p)), shown }); alias(p, path.join(at, path.basename(p)), shown); }
         return;
       }
       if (st.isDirectory()) return;   // a folder, not a program (its own name is not run)
       const at = covered ? null : folderOf(p, shown);
       const named = at !== null && !wholeDirs.has(at);
-      if (!st.isSymbolicLink()) { if (named) files.push({ real: path.join(at, path.basename(p)), shown }); return; }
-      if (named) cands.push({ kind: 'link', link: path.join(at, path.basename(p)), shown });
+      if (!st.isSymbolicLink()) { if (named) { files.push({ real: path.join(at, path.basename(p)), shown }); alias(p, path.join(at, path.basename(p)), shown); } return; }
+      if (named) { cands.push({ kind: 'link', link: path.join(at, path.basename(p)), shown }); alias(p, path.join(at, path.basename(p)), shown); }
       if (hop >= LINK_HOPS_MAX) { unsafe.push(`${shown} (a link chain too long to follow)`); return; }
       let t;
       try { t = fs.readlinkSync(p); } catch { unsafe.push(`${shown} (a link that could not be read)`); return; }
@@ -981,7 +995,9 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs,
   for (const c of cands) {
     if (c.kind === 'dir' && holds(c.real)) { unsafe.push(`${c.shown} (it leads into ${c.real}, which is or holds a shared folder that is not denied whole)`); continue; }
     // A middle link held in a temp folder (where the sandboxed shell CAN write): decided per agent.
-    kept.push(c.kind === 'middle' && inTemp(c.real) ? Object.assign({}, c, { inTemp: true }) : c);
+    // Review 17: a file link held in a temp folder too (the shell could replace it; link names reach the file tools only).
+    const tempHeld = (c.kind === 'middle' && inTemp(c.real)) || (c.kind === 'link' && inTemp(path.dirname(c.link)));
+    kept.push(tempHeld ? Object.assign({}, c, { inTemp: true }) : c);
   }
   return { cands: kept, unsafe, files };
 }

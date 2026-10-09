@@ -596,6 +596,8 @@ test('#5516 review 15 and 16: a link to a file is named (file tools only); a lin
   assert.ok(r.linkNames.includes(path.join(realOr(home), '.tmux.conf')), 'the file link was not named: ' + JSON.stringify(r.linkNames));
   assert.ok(r.files.includes(path.join(realOr(store15), 'tmux.conf')), JSON.stringify(r.files));
   assert.ok(!r.linkNames.includes(path.join(realOr(home), '.dotfiles')), 'a folder link was named (it would cover the whole folder)');
+  // Review 17: the file's spelling written THROUGH the folder link is named too (file tools), as folders are.
+  assert.ok(r.linkNames.includes(path.join(home, '.dotfiles', 'tmux.conf')), 'the spelling through the folder link was not named: ' + JSON.stringify(r.linkNames));
   assert.ok(!r.dirs.includes(realOr(home)), 'the home folder was denied whole');
   // A PATH entry through a folder link held in a TEMP folder (the agent's shell can write there): said, no rule.
   const lib = binDir('lib-lp15');
@@ -616,4 +618,29 @@ test('#5516 review 15 and 16: a link to a file is named (file tools only); a lin
   assert.ok(st.permissions.deny.includes(`Edit(${ruleAbs(ln)})`), 'no file-tool rule for the link');
   assert.ok(!st.sandbox.filesystem.denyWrite.includes(ln), 'a link name went to the sandbox layer');
   assert.ok(st.sandbox.filesystem.denyWrite.includes(path.join(realOr(store15), 'tmux.conf')), 'the file it leads to is not in the sandbox layer');
+});
+
+test('#5516 review 17: a file link on a program\'s chain held in a temp folder is said (the shell could replace it), and still named', () => {
+  const pd = binDir('tl-path');
+  const tmpLike = binDir('tl-temp');
+  const realProg = path.join(binDir('tl-real'), 'tool');
+  fs.writeFileSync(realProg, '#!/bin/sh\n', { mode: 0o755 });
+  fs.symlinkSync(realProg, path.join(tmpLike, 'tool'));
+  fs.symlinkSync(path.join(tmpLike, 'tool'), path.join(pd, 'tool'));
+  const r = setup.launchPathDirs(agentDir('lp-tl'), { ...PIN, launchTemps: [tmpLike], panePath: pd, ownPath: '' });
+  assert.ok(r.unsafe.some((u) => u.includes('is in a temp folder')), JSON.stringify(r.unsafe));
+  assert.ok(r.linkNames.includes(path.join(realOr(tmpLike), 'tool')), JSON.stringify(r.linkNames));
+  // CONTROL: not a temp folder: named, nothing said.
+  const r2 = setup.launchPathDirs(agentDir('lp-tl'), { ...PIN, launchTemps: [], panePath: pd, ownPath: '' });
+  assert.ok(r2.unsafe.length === 0 && r2.linkNames.includes(path.join(realOr(tmpLike), 'tool')), JSON.stringify(r2));
+  // A second spelling inside the agent folder (written through a folder link there) is never named as a rule.
+  const dir = agentDir('lp-alias-own');
+  const outside = binDir('alias-own-out');
+  fs.writeFileSync(path.join(outside, 'f'), '#!/bin/sh\n', { mode: 0o755 });
+  fs.symlinkSync(outside, path.join(dir, 'out'));
+  const pd2 = binDir('alias-own-path');
+  fs.symlinkSync(path.join(dir, 'out', 'f'), path.join(pd2, 'f'));
+  const r3 = setup.launchPathDirs(dir, { ...PIN, panePath: pd2, ownPath: '' });
+  assert.ok(!r3.linkNames.includes(path.join(dir, 'out', 'f')), 'a spelling inside the agent folder became a rule: ' + JSON.stringify(r3.linkNames));
+  assert.ok(r3.files.includes(path.join(realOr(outside), 'f')), 'CONTROL: the file itself is denied');
 });

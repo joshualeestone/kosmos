@@ -239,3 +239,14 @@ rest of the guard is still written.
   - NOT CHANGED (nits): create-time judges the board's own PATH while launch judges the pane's (launch only adds
     coverage; recorded); the extracted shell function runs without set -u in the test (checked by hand); the
     `[ "$RUNNER" = claude ] &&` line relies on there being no set -e (true today).
+- Round 17 (opus): 0 BLOCKER, 2 WARNING, 4 NIT.
+  - FIXED: a file link on a program's chain held in a temp folder is said (the sandboxed shell could replace it; link
+    names reach the file tools only), and still named. Test with a control; mutation fails.
+  - FIXED: a file or file link reached through a folder link is also named by the spelling written through that link,
+    to the file tools only, as folders are (review 5), so the file-tool rules do not rest on how Claude Code matches a
+    linked path. Never a spelling in or above the agent folder, never one with . or .. names. Tests; mutations fail.
+  - NOT CHANGED (nits, recorded): a covered item strictly inside a temp folder could be swapped by renaming its holder
+    (the temp part of the ancestor residual; whether the sandbox blocks that rename is not measured); programs in a PATH
+    folder dropped as shared or the agent's own get no file rule (the guard is not whole there anyway); a dangling
+    target later made as a folder would be denied whole (rare, over-denial only); a folder link in an ancestor inside a
+    temp folder (not a production layout).
