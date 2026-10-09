@@ -199,3 +199,16 @@ test('#5534 review 3: joining another company by code ends the old company\'s po
   assert.equal(org.readEnrollment({ root }).org.id, 'org_2', 'premise: the record is the new company\'s');
   assert.equal(orgpolicy.current(), null, 'the old company\'s policy stayed in force after a move to another company');
 });
+
+test('#5534 review 4: a refused last-admin leave whose answer carries an unusable bundle keeps the policy in force', async () => {
+  reset();
+  const root = tmp('aw-polapply-world-');
+  await org.refresh({ root, remote: coordinatorServing(root, sign(bundle())) });
+  const expired = coordinatorServing(root, sign(bundle({ version: 2, exp: now() - 5, policy: { ...POLICY, providers_allowed: null } })));
+  const lastAdmin = { macRequest: async (m, route, body) => (route === org.ROUTES.leave
+    ? { ok: false, because: '409 {"because":"org_last_admin"}' }
+    : expired.macRequest(m, route, body)) };
+  const r = await org.leave({ root, remote: lastAdmin });
+  assert.equal(r.still, true, JSON.stringify(r));
+  assert.equal(create.policyAllows('openai', null).ok, false, 'an unusable bundle on a refused leave dropped the policy');
+});
