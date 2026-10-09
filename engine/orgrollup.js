@@ -85,7 +85,7 @@ function providerOfModel(model) {
  *   agents       [{ name, provider, model, state }]
  *   projects     [{ name, agents: [agent name] }]
  *   usageByDay   { 'YYYY-MM-DD': { model: { input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens } } }
- *   lastActive, backupLastOk, policyVersion
+ *   lastActive, backupLastOk, policyVersion, policyRefused
  */
 function build(input) {
   const i = input || {};
@@ -177,7 +177,10 @@ function build(input) {
     world: typeof i.world === 'string' ? i.world : null,
     at: iso(i.at) || new Date().toISOString(),
     reason: i.reason === 'change' ? 'change' : 'daily',
-    policyVersion: clean(i.policyVersion),
+    /* #5534: the company policy version this Kosmos applied (a whole number the company saved, else none) and whether
+       it refused one the company sent. Both only under words naming the policy (the tick passes them only then). */
+    policyVersion: Number.isSafeInteger(i.policyVersion) && i.policyVersion >= 1 ? i.policyVersion : null,
+    policyRefused: i.policyRefused === true,
     lastActive: notAfterTomorrow(day(i.lastActive), nowMs),   // the day only: "when you were last active", not a timeline (review 5)
     backup: { lastOk: iso(i.backupLastOk) },
     agents, projects, usage,
@@ -445,6 +448,16 @@ async function tick(opts) {
      by itself. Until the enrollment records `usageConsented` (set by the consent follow-up when the accepted words name
      usage), any usage read is dropped and the body says usageWithheld. */
   if (accepted.usageConsented !== true) { g.usageByDay = {}; g.usageWithheld = true; }
+  /* #5534: the policy version, and whether a bundle was refused, leave only under words that name the policy. Read as a
+     create reads it (orgpolicy.refresh: the bundle on disk verified, the last good one kept). Never throws. */
+  delete g.policyVersion; delete g.policyRefused;
+  if (accepted.policyConsented === true) {
+    try {
+      const pr = (o.orgpolicy || require('./orgpolicy')).refresh();
+      g.policyVersion = pr.applied ? pr.applied.version : null;
+      g.policyRefused = !!pr.refused;
+    } catch { /* none sent: the next tick reads it again */ }
+  }
   if (due && g.partial) {
     const since = Number.isFinite(st.partialSince) && st.partialSince <= now ? st.partialSince : null;
     if (since === null) { writeState(root, Object.assign({}, st, { enrolledAs, partialSince: now })); return { sent: false, because: 'the board could not be read in full; waiting before the daily' }; }
