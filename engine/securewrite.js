@@ -66,8 +66,9 @@ const { threadId: THREAD } = require('node:worker_threads');
    weak half: the temp is 0600, owner-only, exactly the protection the credential
    file sitting legitimately beside it has, so a permissions objection can be waved
    away and the reviewer would be right.
-   (For a config-file caller, #5434 slice 3, the temp is created at the file's own mode or the
-   umask default instead; its content is a person's settings, not a secret.)
+   (For a config-file caller, #5434 slice 3, the temp is created at the file's own mode, the
+   umask default, or an explicit mode for a file the caller creates (trust.js, 0600) instead; its
+   content is a person's settings, not a secret.)
 
    🛑 THE REAL PROBLEM IS THAT A SECRET OUTLIVES ITS OWN REVOCATION. `forget()`
    unlinks `FILE` and nothing else, so a stale temp holds the OLD token past a
