@@ -20,8 +20,10 @@
  * the wrap (whoever can write there could supply a forged wrap and a matching value together):
  *   - unwrapMemberKey REQUIRES the public key the result must derive to, taken from the coordinator-signed policy
  *     bundle (decision 7). A wrap of the wrong key (a forgery, a wrapper bug, another epoch's key under this
- *     context) is refused. (Equal up to X25519 clamping: secrets differing only in clamped bits are the same key, so the bytes returned
- *     are the bytes that were WRAPPED: code that hashes or compares raw secret bytes must not assume one form.)
+ *     context) is refused.
+ *   - The check is equality of PUBLIC keys, so it holds up to X25519 clamping: a secret differing only in clamped
+ *     bits is the same key and passes. The bytes returned are the bytes that were wrapped; code that hashes,
+ *     fingerprints or compares raw secret bytes must not assume one form (see unwrapMemberKey).
  *   - unwrapNamingKey REQUIRES the naming-key id, taken from the device-SIGNED, verified manifest. A forged naming
  *     key cannot have that id, so it is refused outright.
  *
@@ -132,7 +134,10 @@ function wrapMemberKey(memberSk, recipientPk, ctx) {
   return wrap(MEMBER_MAGIC, INFO, memberContext(ctx), sk, pk);
 }
 
-/** The member private key from a wrap, only if it derives to expectedPk; null on ANY failure. Never throws. */
+/** The member private key from a wrap, only if it derives to expectedPk (from an authenticated source, see the
+    header); null on ANY failure. Never throws. CONTRACT: the bytes returned are the bytes that were wrapped, and a
+    secret differing only in X25519-clamped bits derives to the same public key, so never fingerprint, compare or
+    de-duplicate the RAW secret bytes; compare public keys. */
 function unwrapMemberKey(recipientSk, wrapped, ctx, expectedPk) {
   try {
     const sk = asBuf(recipientSk), want = asBuf(expectedPk);
