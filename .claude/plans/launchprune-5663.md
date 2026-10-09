@@ -11,7 +11,7 @@ An agent launch after an upgrade leaves no rule for a removed version folder or 
 - engine/launchprune-5663.test.js.
 
 ## Decided
-- No record (a guard written before this) prunes nothing; the record starts at the next refresh. Launch rules themselves arrived with #5516 part 1 (#5660, merged 2026-10-09 03:03), so the only unrecorded launch rules are those written by a board running main between that merge and this one. No migration (review 5): a guess at which old rules were launch-shaped could drop a rule the guard did not write, and the leftover is bounded to one version per tool.
+- No record (a guard written before this) prunes nothing; the record starts at the next refresh. Launch rules themselves arrived with #5516 part 1 (#5660, merged 2026-10-09 03:03), so the only unrecorded launch rules are those written by a board running main between that merge and this one. No migration (review 5): a guess at which old rules were launch-shaped could drop a rule the guard did not write, and the leftover is the launch rules of each upgrade made on a board running main between #5660 and this merge (unmeasured, not bounded per tool; on this fleet's real guard the whole list is 616 paths, 7,706 distinct characters, far under the ceiling).
 - A rule the person also wrote that equals one the guard wrote for launch is pruned with it when its path is gone. Accepted: such a rule names a path that no longer exists.
 - The record is read and written without a lock. Two refreshes at once can lose a recorded entry. That entry is then never pruned: kept, not dropped. Accepted, because the failure direction is safe.
 - Only a launch records, so a launch prunes only what a launch wrote. A board start's launch rules come from its own inputs (its PATH, its XDG_CONFIG_HOME), are never recorded, and so are never pruned. Launch inputs are NOT stable: the pane PATH is the tmux server's global PATH (review 9). So the record holds only paths that existed when they were recorded. A path denied while absent on purpose is never recorded, and is never pruned, whichever launch drops it.
@@ -140,3 +140,8 @@ An agent launch after an upgrade leaves no rule for a removed version folder or 
 - Prune and record read rule paths for the platform the guard was asked for, as the size count does.
 - The comment no longer says the sandbox denies the record's folder whole: it denies writes. A note at the size function says which rule spellings are not counted.
 - Not changed: the first commit's body describes the earlier 48 KB "not whole" design. The squash merge takes the PR title and body, which describe the current one.
+
+## Review 16 (Sonnet) and what changed
+
+- The plan's "bounded to one version per tool" for the unrecorded leftovers was a claim nobody measured. It now says what the leftover is: the launch rules of each upgrade between #5660 and this merge. It also gives the measured size of the real guard here.
+- Duplicates of decided points: the lock-free record; the warning reaching only the log (#5668); review-number comments and long lines (the file's style); the plan file name; the dated-copy lookup.
