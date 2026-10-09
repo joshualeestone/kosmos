@@ -35,3 +35,4 @@ reason (withheld under load, or the agent gone), never a TypeError.
 - **Round 2 (opus):** 0 blockers, 1 warning, 2 NITs.
   - W fixed: the comment, the plan and one sentence blamed couldNotAccount, which this fixture cannot reach (an empty stub reads as zero unreadable lines). Under load the read times out and the route answers 500 with { error, detail }. The comment and plan now say so, and the failure sentence quotes the server's own error and detail (proven with a throwaway variant); the notRunning-null sentence no longer claims load.
   - NITs fixed: the sandbox is owned by a wrapper that removes it whatever happens after mkdtemp (setup included), and a failed removal never replaces the read's own error.
+- **Round 3 (sonnet):** nothing above NIT. Converged. All three taken: the #5658 block moved above the original docblock so it stays with its function; the not-a-roster hint says "for example" (the quoted error names the real cause); a stale assert message.

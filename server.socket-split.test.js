@@ -35,12 +35,6 @@ const REPO = __dirname;
 const create = require('./engine/create');
 const jobfix = require('./test-support/jobfixture');   // #5500: the agent's job as this platform keeps it (plist / systemd unit)
 
-/**
- * A board with one created-looking agent (profile, folder, job) that has no
- * visible session, with launchd answering `list` as the caller says. Returns
- * the parsed /api/status. #5500: on Linux the job is a systemd unit and systemd answers `list-units` (the active
- * units) as the caller says instead.
- */
 /* #5658 (Renet, a loaded full-suite run): the control half rendered a missing ghost row as a TypeError. Under load the
    likeliest path (review 2, measured with a stub tmux slower than status.js's 5 s tmux wait) is the pane list read
    timing out: listPanes throws and /api/status answers 500 with { error, detail } and no agents at all. The route can
@@ -51,6 +45,12 @@ const jobfix = require('./test-support/jobfixture');   // #5500: the agent's job
    Weakest premise: a route that fails one poll in three now passes; one that fails every poll still fails. */
 const READS = 3;
 const ghostOf = (status) => (status.agents || []).find((a) => a.sessionName === 'ghost');
+/**
+ * A board with one created-looking agent (profile, folder, job) that has no
+ * visible session, with launchd answering `list` as the caller says. Returns
+ * the parsed /api/status. #5500: on Linux the job is a systemd unit and systemd answers `list-units` (the active
+ * units) as the caller says instead.
+ */
 function boardWithUnseenAgent(launchctlListStdout, systemdActiveUnits) {
   let status = null;
   for (let i = 0; i < READS; i++) {
@@ -65,7 +65,7 @@ function ghostRow(status, what) {
   const counts = status && status.counts;
   assert.ok(row, `${what}: no ghost row in ${READS} reads of /api/status`
     + (!counts ? ` (the last answer was not a roster: ${JSON.stringify({ error: status && status.error, detail: status && status.detail })};`
-      + ' under load this is the pane list read timing out)'
+      + ' for example the pane list read timing out under load)'
       : counts.notRunning === null ? ' (the last one withheld the offline list: it reported pane lines it could not read)'
         : ' (the agent fell out of the roster, its row failed to compose, or the survey of created agents failed every time)'));
   return row;
@@ -194,7 +194,7 @@ function renderOffline(which, a) {
 
 test('#668: the card and the row wear the could-not-check pill, not a confident "Not running"', () => {
   const row = ghostRow(boardWithUnseenAgent(...RUNNING), 'running job');
-  assert.ok(row.jobRunningUnseen === true, 'no unseen row to render; the route half of this fix regressed');
+  assert.ok(row.jobRunningUnseen === true, 'the row is there but not flagged running-unseen; the route half of this fix regressed');
   for (const which of ['card', 'lrow']) {
     const html = renderOffline(which, row);
     assert.ok(html.includes('st-unknown'), which + ' still dresses the pill in the stopped class');
