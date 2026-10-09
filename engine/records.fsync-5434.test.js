@@ -52,10 +52,15 @@ test('#5434 commitments: a report is flushed before its rename', () => {
   flushedBeforeRename(events, commitments.recordPath('flushme'));
 });
 
-test('#5434 instruction-adds: the record is flushed before its rename, at exactly 0600', () => {
+test('#5434 instruction-adds: the record is flushed before its rename, and an existing 0644 record ends exactly 0600', () => {
   fs.mkdirSync(path.join(ROOT, 'sally'), { recursive: true });
   fs.writeFileSync(path.join(ROOT, 'sally', 'CLAUDE.md'), 'You are the sales agent. Answer leads from the shared inbox, politely and quickly.\n');
-  const prev = process.umask(0o077);
+  // review 1: an ordinary umask and a LOOSE existing record, so only an exact-mode save gives 0600 (saveFlushed would
+  // keep 0644 here, and under umask 077 would have given 0600 by accident).
+  fs.mkdirSync(path.dirname(adds.FILE), { recursive: true });
+  fs.writeFileSync(adds.FILE, '{}\n', { mode: 0o644 });
+  fs.chmodSync(adds.FILE, 0o644);
+  const prev = process.umask(0o022);
   let rec;
   try { rec = recording(() => adds.propose('sally', 'When a lead goes quiet for two days, write once. Then tell me.', 'Ops lead')); }
   finally { process.umask(prev); }
@@ -64,12 +69,31 @@ test('#5434 instruction-adds: the record is flushed before its rename, at exactl
   if (process.platform !== 'win32') assert.equal(fs.statSync(adds.FILE).mode & 0o777, 0o600);
 });
 
+test('#5434 agent permission settings: an existing 0644 file ends exactly 0600 (review 1)', { skip: process.platform === 'win32' && 'POSIX modes' }, () => {
+  const ap = require('./agentpermission');
+  const file = path.join(DATA, 'ap-mode', 'agent-permission-settings.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, 'old\n', { mode: 0o644 });
+  fs.chmodSync(file, 0o644);
+  const prev = process.umask(0o022);
+  let rec;
+  try { rec = recording(() => ap.ensureSettings({ platform: 'darwin', node: '/usr/local/bin/node', script: '/tmp/hook.js', file })); }
+  finally { process.umask(prev); }
+  assert.equal(rec.out, file, 'the settings were not written: ' + String(rec.out));
+  flushedBeforeRename(rec.events, file);
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+});
+
 test('#5434: all twelve writers save flushed, with no hand-made temp renamed', () => {
   const files = ['commitments.js', 'instructionadds.js', 'worldbootguard.js', 'worldstarts.js', 'federation.js', 'fedmembers.js',
     'agentpermission.js', 'restartnote.js', 'roomhold.js', 'orgrollup.js', 'styles.js', 'communitystore.js'];
   for (const f of files) {
     const src = fs.readFileSync(path.join(__dirname, f), 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
     assert.match(src, /(?:saveFlushed|writeSecret)\(/, f + ': no flushed save');
-    assert.doesNotMatch(src, /renameSync\(tmp/, f + ': still renames a hand-made temp');
+    // Any rename at all, except the two documented MOVES (review 1): instructionadds' unreadable-file aside and the
+    // community store's corrupt-file quarantine.
+    const count = (needle) => src.split(needle).length - 1;
+    const moves = count('renameSync(file(), aside)') + count('renameSync(file, `${file}.corrupt-');
+    assert.equal(count('renameSync(') - moves, 0, f + ': still renames by hand');
   }
 });
