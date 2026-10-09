@@ -23,6 +23,8 @@
  *       writes web/whats-new.json: the top --max pending highlights by rank (ties: newest first), checked with
  *       engine/whatsnew.js's own rules (the cut's step 1b-ii runs the same check).
  *   node tools/whats-new-pool.js shown <version> --promoted [--pool=<file>] [--from=<file> | --from-history [--ref=<commit>]]
+ *       Prefer --from-history --ref: --from reads any file you name (by default main's working-tree web/whats-new.json,
+ *       which can differ from what was cut).
  *       after <version> is PROMOTED to prod: every pool entry whose title is in that version's What's New becomes
  *       shown (shownIn <version>), and lastProd becomes <version>. Run it from the promote, not the cut: --promoted is
  *       required, so it is never run by reflex after a cut (that would retire highlights prod users never saw).
@@ -164,7 +166,8 @@ function main(argv) {
       + ' run, ON an up-to-date MAIN (main\'s pool, never a release checkout\'s):'
       + ' node tools/whats-new-pool.js shown <that version> --promoted --from-history --ref=<its cut\'s frozen sha>, then commit release/whats-new-pool.json to main.'
       + ' Otherwise prod users see its highlights again.\n'
-      + 'Eligible means not yet shown to PROD users, so people who ran earlier staging builds may see some of these again (#5711).\n'
+      + 'Eligible means not yet ANNOUNCED to PROD users: a prod user may already have a feature listed here (it shipped in an\n'
+      + 'earlier prod build whose window did not name it) and is being told about it now, as Josh asked on #5711.\n'
       + 'Edit titles and lines in release/whats-new-pool.json and build again, never in the built file: `shown` matches by title.\n');
     return 0;
   }
@@ -223,7 +226,8 @@ function main(argv) {
     fs.writeFileSync(tmpFile, JSON.stringify(pool, null, 2) + '\n');
     fs.renameSync(tmpFile, poolFile);
   } finally { fs.rmSync(tmpFile, { force: true }); }
-  process.stdout.write(marked + ' highlight(s) marked shown in prod ' + version + ' (read from ' + from + ')\n');
+  process.stdout.write(marked + ' highlight(s) marked shown in prod ' + version + ' (read from ' + from + ')'
+    + (marked === 0 ? ': every one was already recorded (or is Windows-only)' : '') + '\n');
   return 0;
 }
 
