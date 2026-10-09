@@ -18,7 +18,7 @@
  * 🛑 THE EXE IS ONLY EVER RUN WHERE IT CANNOT REACH THE HAND-OFF. The board's
  * hand-off to its logon task (registering \Kosmos\board, moving engine-path)
  * lives in the real app\server.js, and no test ever gives the exe one. Every run
- * below is in a scratch folder under os.tmpdir(), in one of three states:
+ * below is in a scratch folder under scratchBase() (os.tmpdir() in long form), in one of three states:
  *   1. no runtime\node.exe: Main returns before any Process.Start;
  *   2. a placeholder runtime\node.exe and no app\server.js: Main returns before
  *      any Process.Start;
