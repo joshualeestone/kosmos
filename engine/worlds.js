@@ -121,12 +121,12 @@ function readRegistry(base) {
   return { version: 1, activeWorldId, worlds };
 }
 
-/* Atomic publish: write to a temp in the same dir, then rename over the target,
-   so a concurrent reader sees the old file or the new one, never a partial. */
+/* Atomic publish through store.saveFlushed (a temp, flushed, then renamed over the target), so a concurrent reader
+   sees the old file or the new one, never a partial, and a crash never leaves it zero-filled. */
 function writeRegistry(base, reg) {
   fs.mkdirSync(base, { recursive: true });
   // #5434 slice 17: store.saveFlushed (securewrite: flushed before the rename, the folder after on POSIX; a unique temp; the existing mode kept), so a crash cannot leave it at full length but zero-filled (#5431).
-  require('./store').saveFlushed(registryPath(base), JSON.stringify(reg, null, 2) + '\n');
+  store.saveFlushed(registryPath(base), JSON.stringify(reg, null, 2) + '\n');
 }
 
 /* #2935: the user-facing switcher list drops hidden worlds. `readRegistry` deliberately keeps them

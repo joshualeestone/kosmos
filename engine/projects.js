@@ -360,7 +360,7 @@ function writeAll(list) {
   // leave a half-written file that parses as no projects and silently loses
   // every one of them.
   // #5434 slice 17: store.saveFlushed (securewrite: flushed before the rename, the folder after on POSIX; a unique temp; the existing mode kept), so a crash cannot leave it at full length but zero-filled (#5431).
-  require('./store').saveFlushed(file(), JSON.stringify(list, null, 2));
+  store.saveFlushed(file(), JSON.stringify(list, null, 2));
   return list;
 }
 

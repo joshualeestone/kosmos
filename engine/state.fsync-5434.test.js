@@ -23,6 +23,7 @@ const store = require('./store');
 fs.mkdirSync(store.ROOT, { recursive: true });
 const you = require('./you');
 const policy = require('./policy');
+const worlds = require('./worlds');
 
 function recording(fn, failFsyncOf) {
   const events = [];
@@ -69,6 +70,15 @@ test('#5434 policy.json: flushed before its rename', () => {
   const { events, err } = recording(() => policy.add({ name: 'House rules', text: 'Be kind to customers.', source: 'pasted' }));
   assert.equal(err, null, String(err));
   flushedBeforeRename(events, policy.FILE);
+});
+
+test('#5434 worlds registry: flushed before its rename (review 1)', () => {
+  const base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'state-fsync-worlds-')));
+  try {
+    const { events, err } = recording(() => worlds.createWorld(base, 'Shop'));
+    assert.equal(err, null, String(err));
+    flushedBeforeRename(events, worlds.registryPath(base));
+  } finally { fs.rmSync(base, { recursive: true, force: true }); }
 });
 
 test('#5434: none of the five writers renames a hand-made temp any more', () => {
