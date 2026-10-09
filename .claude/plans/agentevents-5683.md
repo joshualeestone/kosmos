@@ -420,3 +420,16 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - Stated: a script given another way (python -c, osascript -e, ssh host "cmd", watch "cmd") is still one argument as
   well as split, so a quoted script there that starts with / can read as that path (over-claims only to system or
   the class of its first path).
+
+## Review 33 (sonnet), all fixed unless stated
+- Review 32's globRe mis-read bracket forms ([]o], [[:lower:]], [[:space:]]) and broke on a brace spanning a /, so a
+  token read by an agent at the home folder read as other. Rather than patch each form, globs are read the shell's
+  way: {a,b} is expanded first (at most 64 words; an unbalanced brace is literal; a word left with no glob is classed
+  as a path), a [...] class of plain characters and ranges is that class and any other bracket form is any one
+  character (it can only match more). Tests.
+- A hidden word naming no board file literally (Kos[m]os, board.t[o]ken, a star in every segment) was not the board's:
+  a hidden word whose segments, as globs, match every segment of a board root reaches the board's files, the glob
+  analogue of pathClass. Tests, with controls that must stay home or other (src/b*, ~/{a,b}/notes.txt, ~/Library/*).
+- Stated: a glob of stars deep enough to reach the board folder (~/*/*/*/notes) reads as board-files (it can reach
+  it); past 64 brace expansions the rest are not looked at; a quoted sentence starting with a path is that path
+  (echo "/path/board.token is the file"), an over-claim.
