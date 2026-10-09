@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: winrunnav-5492
-diff_hash: 1edfd83007f9cf274b9ff057e496a995d0d2d76dc9ead7cbc7f46500437186be
+diff_hash: 347f285f6a384473d2b0b6d947da5b50e4f55e8b9c8db609ddaeb5cc7c6e4162
 validation: passed (validation_log PASSED for stack=typescript hash=1208face88b9, full tools/run-tests.sh on main after #5610; tools.windows-computer-mode-4381.test.js 11 pass, Windows-only probe rows skip off Windows)
 subdir_audit: passed
-timestamp: 2026-10-09T07:08:10Z
+timestamp: 2026-10-09T07:26:37Z
 iterations: 2
 converged: true
 ---
@@ -46,4 +46,8 @@ converged: true
 (long vs 8.3 temp path) in the installer and launcher probes, main included; #5645 / #5647 (Baron) fixed the probes. A
 re-run re-tests the old merge commit, so this is a fresh push. This branch's own lines are unchanged; the local full
 validation ran on the previous base, and CI's full run on this head validates the rebased diff.
+
+**After the CI fix:** Windows CI then showed a real defect of mine: [WARNING] the probe's row count was pinned at 66 in three
+places (the C# probe and two asserts) while review 1's added row made 67. FIXED (counted independently: 67 calls). The
+assertion only runs on Windows, so the local runs skipped it. No logic changed.
 
