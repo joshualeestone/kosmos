@@ -31,7 +31,9 @@
  * `history` keeps each forward step with the moment it was first seen, which
  * is what the calibration reads (tokens Kosmos measured per point of weekly
  * movement). Concurrent writers can still race: the rename keeps the file
- * whole, and whichever renames last stands until the next reading.
+ * whole, and whichever renames last stands until the next reading. (Since #5434 the flush before the rename widens
+ * that window by a few ms. A lower usedPct landing last is replaced by the next forward reading; a history row
+ * written by the losing session is lost for good, which can lower the calibration's point count a little.)
  *
  * Never throws and always exits 0: a statusline that errors shows its error
  * in the person's pane, and nothing here is worth that.
@@ -75,9 +77,27 @@ function record(dir, reading, now) {
   const history = cur && Array.isArray(cur.history) ? cur.history.slice(-(HISTORY_MAX - 1)) : [];
   history.push([now, reading.usedPct, reading.resetsAt]);
   const next = { usedPct: reading.usedPct, resetsAt: reading.resetsAt, at: now, history };
+  const data = JSON.stringify(next) + '\n';
+  /* #5434 slice 5: flushed before the rename (a crash otherwise can leave the file zero-filled, #5431), through
+     securewrite, required only when there is something to write (this runs on every repaint and must stay cheap and
+     must never show an error). In the provider's folder, only this file's own dead temps are reaped (ownTempsOnly).
+     An existing file keeps its mode (not on Windows, where a mode is only the read-only bit); a new one takes the umask
+     default. Should securewrite be MISSING (a copy outside the app folder; an older securewrite that loads is not covered), the
+     unflushed write below still records the reading; a save through it that fails returns false, and the reading is
+     recorded on its next forward move. */
+  let securewrite = null;
+  try { securewrite = require('./securewrite'); } catch { securewrite = null; }
+  if (securewrite) {
+    // (the same mode rule as allowance.calibrate's save; kept inline here because this file must work copied alone;
+    // statSync follows a link, so a symlinked file is replaced by a regular file at its target's mode)
+    let mode = null;
+    if (process.platform !== 'win32') { try { mode = fs.statSync(file).mode & 0o777; } catch { mode = null; } }
+    try { securewrite.writeSecret(file, data, mode, { atomicOnly: true, ownTempsOnly: true, umaskDefault: true }); return true; }
+    catch { return false; }
+  }
   const tmp = file + '.' + process.pid + '.new';
   try {
-    fs.writeFileSync(tmp, JSON.stringify(next) + '\n');
+    fs.writeFileSync(tmp, data);
     fs.renameSync(tmp, file);
     return true;
   } catch {

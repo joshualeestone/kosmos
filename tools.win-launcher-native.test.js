@@ -546,7 +546,9 @@ test('#1118: the window keeps the board\'s own pages and sends every other web a
     assert.equal(ask('web', 'file:///C:/Windows/System32/'), 'False', 'a page could hand ShellExecute a file: address');
     assert.equal(ask('web', 'ms-settings:privacy'), 'False');
     /* #3285 review: in the window itself only its own pages stay; mailto:, ms-settings:, search-ms:
-       and file: are cancelled and refused (OnNavigationStarting), not left to WebView2's app prompt. */
+       and file: are cancelled and refused (OnNavigationStarting), not left to WebView2's app prompt.
+       #5492: this older rule now covers only a computer whose mode is Unset or Unreadable; run, both
+       and connect go through ConnectLinkDecision (#5169), pinned in tools.windows-computer-mode-4381.test.js. */
     assert.equal(ask('own', 'about:blank'), 'True');
     assert.equal(ask('own', 'data:text/html;charset=utf-8,Starting'), 'True', 'the Starting Kosmos page would be cancelled');
     for (const other of ['mailto:someone@example.invalid', 'ms-settings:privacy', 'search-ms:query=x', 'file:///C:/Windows/', 'http://127.0.0.1:16181/']) {

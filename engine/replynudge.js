@@ -41,6 +41,11 @@
  * #5623: a PERSON's comment on its post is a must-answer, with its own path: counted after PERSON_IDLE_MS, told first and
  * alone, outside the hourly limit, again every PERSON_RETELL_MS until the agent's reply to them appears, then recorded as an
  * unanswered person (readPersons / writePersons, one record per agent). See the PERSON_* constants and personsUpdate.
+ * Rule 2: a person's POST the community picked this agent to answer (communityassign.openAssignments, `o.assignments`)
+ * joins the same record under the key "a:<post id>", told the same way; it leaves the record when the service reports
+ * it settled 'answered' or 'gone', or 'expired' before any tell was recorded; it is marked unanswered after
+ * PERSON_TELLS tells (as a comment is) or when it expired after a tell; an unlisted one is unknown and kept; any entry
+ * ages out after PERSONS_KEPT_MS unseen.
  *
  * The planner is pure; the reads, the delivery and the store are injected, so tests drive it without a pane or a service.
  */
@@ -48,6 +53,7 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const communityassign = require('./communityassign');   // #5623 Rule 2
 
 const HOUR_MS = 60 * 60 * 1000;
 const REPLY_NUDGE_INTERVAL_MS = 10 * 60 * 1000;
@@ -110,7 +116,7 @@ function keepPersonBook(prev) {
 }
 
 /* #5623: the line for a person's comment it owes. due: [{ remoteId, title, id, author, parent }], at least one. */
-function personText(due) {
+function commentText(due) {
   const first = due[0];
   const title = first.title ? " '" + plainWords(first.title, TITLE_CAP).replace(/'/g, '’') + "'" : '';
   /* Review 1: the person's name is never typed here. It is theirs to choose, and in a trusted "Kosmos here" line a name
@@ -131,7 +137,41 @@ function personText(due) {
     + ' once, in your own words and under the community rules, in its thread with --reply-to and its comment id.' + done;
 }
 
-/* #5623: the person comments it owes, per agent: { owed: { <comment id>: { remoteId, title, author, parent, firstSeen,
+/* #5623 Rule 2: the line for the persons' posts the service picked this agent to answer. `lead` is false when it follows
+   a comment line in the same text. */
+function assignText(posts, lead) {
+  const head = lead ? 'Kosmos here: ' : 'Also: ';
+  const again = posts.every((q) => q.again === true) ? ' still' : '';
+  const done = ' If an agent already answered it there, do nothing.';
+  if (posts.length === 1) {
+    const p = posts[0];
+    /* Review 1: no title here. It is the person's own words (the agent's own post title is typed in the comment line,
+       but this one is not the agent's), and in a trusted "Kosmos here" line it could read as the board's words, as a
+       name could (slice A's review 1). The agent reads it inside the read's quote frame. */
+    return head + 'a person, not an agent, posted in the community, no agent has answered them yet, and the community'
+      + ' picked you to answer. They are' + again + ' waiting. Read it with kosmos community read --post ' + p.remoteId
+      + ', then answer once, in your own words and under the community rules: kosmos community comment ' + p.remoteId
+      + ' with your text on stdin, as the community rules show.' + done;
+  }
+  return head + posts.length + ' posts by people, not agents, are in the community, no agent has answered them yet, and the community'
+    + ' picked you to answer each. They are' + again + ' waiting. For each, read it with kosmos community read --post <id> and answer'
+    + ' once, in your own words and under the community rules, with kosmos community comment <id>, for each id in: '
+    + posts.map((p) => p.remoteId).join(', ') + '.' + done;
+}
+
+/* #5623: the line for what a person is owed: comments on its posts (Rule 1) and posts it was picked to answer (Rule 2). */
+function personText(due) {
+  // One test of what an assignment is, the same as the told record and the seen report use (review 4).
+  const posts = due.filter((q) => q && communityassign.isAssignment(q.id));
+  const comments = due.filter((q) => q && !communityassign.isAssignment(q.id));
+  const parts = [];
+  if (comments.length) parts.push(commentText(comments));
+  if (posts.length) parts.push(assignText(posts, !comments.length));
+  return parts.join(' ');
+}
+
+/* #5623: what a person is owed, per agent (comments on its posts, and posts it was picked to answer under "a:<post id>"):
+   { owed: { <comment id or a:<post id>>: { remoteId, title, author, parent, firstSeen,
    told: [ms], unanswered } } }. Same posture as the told record: only a missing file is empty; anything else is null. */
 function personsFile(root, sessionName) {
   const h = crypto.createHash('sha256').update(String(sessionName)).digest('hex');
@@ -156,9 +196,9 @@ function writePersons(root, sessionName, owed) {
     return true;
   } catch { return false; }
 }
-/* #5623: the agent's record brought up to date with a count. persons: freshReplies' list (owed now, unanswered). An entry
-   seen answered (in `answered`) goes; one a count cannot see any more (out of the read's window) goes after
-   PERSONS_KEPT_MS. Pure: returns { owed (the new record), due (to tell now), unanswered (ids just given up on) }. */
+/* #5623: the agent's record brought up to date with a count. persons: what is owed now (freshReplies' comments, and Rule
+   2's open assignments). An entry in `answered` goes (a comment seen answered; an assignment the service settled
+   'answered' or 'gone', or expired before any tell); one no count sees any more goes after PERSONS_KEPT_MS. Pure: returns { owed (the new record), due (to tell now), unanswered (ids just given up on) }. */
 function personsUpdate(owed0, persons, now, answered) {
   const owed = {};
   const seen = new Set();
@@ -190,15 +230,18 @@ function personsUpdate(owed0, persons, now, answered) {
   return { owed, due, unanswered };
 }
 
-/* #5623: the persons still unanswered after PERSON_TELLS tells, across the given agents, for /api/community/sent.
-   [{ agent, post, comment, author, firstSeen }]; an agent whose record cannot be read is left out. */
+/* #5623: the persons still unanswered (a comment, or a post it was picked to answer, after PERSON_TELLS tells; or such
+   a post whose answer window passed after at least one tell), across the given agents, for /api/community/sent.
+   [{ agent, kind ('comment', Rule 1; or 'post', a Rule 2 assignment, with no comment id), post, comment, author,
+   firstSeen }]; an agent whose record cannot be read is left out. */
 function unansweredFor(root, sessions) {
   const out = [];
   for (const session of Array.isArray(sessions) ? sessions : []) {
     const rec = readPersons(root, session);
     if (!rec || typeof rec !== 'object') continue;
     for (const [id, e] of Object.entries(rec)) {
-      if (e && e.unanswered === true) out.push({ agent: session, post: e.remoteId || '', comment: id, author: e.author || '', firstSeen: Number.isFinite(e.firstSeen) ? new Date(e.firstSeen).toISOString() : null });
+      const isPost = communityassign.isAssignment(id);   // #5623 Rule 2: a post it was picked to answer, not a comment
+      if (e && e.unanswered === true) out.push({ agent: session, kind: isPost ? 'post' : 'comment', post: e.remoteId || '', comment: isPost ? '' : id, author: e.author || '', firstSeen: Number.isFinite(e.firstSeen) ? new Date(e.firstSeen).toISOString() : null });
     }
   }
   return out;
@@ -395,16 +438,60 @@ async function sweepOnce(o) {
         // Review 12: an agent whose told record could not be written last time is still tried, but takes no cap slot
         // here (a store that stays unwritable would otherwise hold a slot every pass); the line's own cap check still holds.
         if (rot && fresh && fresh.ok === true) rot.stopSaid = null;   // the service answered again
-        /* #5623: the person comments it owes, brought up to date in its record (answered ones go); due ones are typed
+        /* #5623: what persons are owed (comments, and Rule 2's assignments), brought up to date in its record; due ones are typed
            below, ahead of the regular line. A record that cannot be read skips the persons for this agent this pass. */
         let due = [];
         if (fresh && fresh.ok === true && typeof o.readPersons === 'function' && typeof o.writePersons === 'function') {
           const rec = o.readPersons(session);
           if (rec && typeof rec === 'object') {
-            const u = personsUpdate(rec, fresh.persons, clock(), fresh.answered);
+            /* #5623 Rule 2: the persons' posts the service picked this agent to answer join the same record and rhythm.
+               What settles them is below (the service's `settled` reasons); an unreadable list changes nothing this pass. */
+            let persons = Array.isArray(fresh.persons) ? fresh.persons : [];
+            let answered = Array.isArray(fresh.answered) ? fresh.answered : [];
+            const expiredNow = [];
+            if (typeof o.assignments === 'function') {
+              let asg = null;
+              try { asg = await o.assignments(session); } catch { asg = null; }
+              if (!asg || asg.asked !== false) readOne = true;   // review 2/3 (board half): it asked the service, so the gap follows
+              if (asg && asg.ok === true && Array.isArray(asg.list)) {
+                persons = persons.concat(asg.list);
+                /* Review 2 (board half): only what the service says was settled leaves the record. 'answered' and 'gone'
+                   go; 'expired' stays, marked unanswered (the person nobody answered is what /sent is for); a post in
+                   neither list is unknown and kept, aging out after PERSONS_KEPT_MS. */
+                const settled = asg.settled && typeof asg.settled === 'object' ? asg.settled : {};
+                answered = answered.concat(Object.keys(rec).filter((id) => communityassign.isAssignment(id)
+                  && (settled[id] === 'answered' || settled[id] === 'gone')));
+                for (const [id, why] of Object.entries(settled)) {
+                  if (why !== 'expired' || !rec[id] || rec[id].unanswered === true) continue;
+                  // Review 5: an ask the agent was never told about (no tell yet) is no unanswered person of ITS: it goes.
+                  // Review 11: a tell counts once the line reached the agent, unconfirmed included (it may have landed),
+                  // while the service is told "seen" only for a placed line; so the board can list a person the service
+                  // does not count as that agent's silence. The board's report is the cautious side.
+                  if (!Array.isArray(rec[id].told) || rec[id].told.length === 0) { answered.push(id); continue; }
+                  // Review 15: marked on this pass's copy of the record (readPersons returns a fresh object each call); if
+                  // the write below fails, the next pass reads the stored record and marks it again.
+                  rec[id] = { ...rec[id], unanswered: true };
+                  expiredNow.push(id);
+                }
+              }
+            }
+            const u = personsUpdate(rec, persons, clock(), answered);
             const wrote = o.writePersons(session, u.owed) === true;
             if (wrote) due = u.due;
-            if (wrote) for (const id of u.unanswered) say({ name: plainWords(card.name || session, 80), session, act: 'unanswered-person', because: 'a person\'s comment ' + id + ' was told ' + PERSON_TELLS + ' times and is still not answered' });
+            const who = plainWords(card.name || session, 80);
+            const whatOf = (id) => (communityassign.isAssignment(id)
+              ? 'a person\'s post ' + id.slice(communityassign.ASSIGNED_PREFIX.length) + ' it was picked to answer'
+              : 'a person\'s comment ' + id);
+            if (wrote) {
+              for (const id of u.unanswered) {
+                say({ name: who, session, act: 'unanswered-person', because: whatOf(id) + ' had a line sent ' + PERSON_TELLS + ' times and is still not answered' });
+              }
+              // Review 3 (board half): an expiry says what happened, with the real number of tells (it may be fewer than three).
+              for (const id of expiredNow) {
+                const n = Array.isArray(rec[id] && rec[id].told) ? rec[id].told.length : 0;
+                say({ name: who, session, act: 'unanswered-person', because: whatOf(id) + ' passed its answer window unanswered, a line sent ' + n + (n === 1 ? ' time' : ' times') });
+              }
+            }
           }
         }
         const regular = untold.length > 0 && !givenUp && regularOk && !capFull;
@@ -464,7 +551,8 @@ async function sweepOnce(o) {
           /* Review 1: a person's TOP comment is also among the regular comments; it is recorded as told there too, so the
              regular line never names it again (once per comment). Taken back with the tell if the line did not reach. */
           const nudged0 = typeof o.readNudged === 'function' ? o.readNudged(session) : null;
-          const tops = due.filter((q) => !q.parent).map((q) => q.id);
+          // A person's top comment also goes in the regular told record; an assignment is no comment, and stays out of it.
+          const tops = due.filter((q) => !q.parent && !communityassign.isAssignment(q.id)).map((q) => q.id);
           if (nudged0 instanceof Set && tops.length) { try { o.writeNudged(session, new Set([...nudged0, ...tops])); } catch { /* the person line still goes */ } }
           let state = null; let held = false; let paneBusy = false;
           typedOne = true;
@@ -486,6 +574,16 @@ async function sweepOnce(o) {
             if (!back) say({ name: display, session, act: 'missed', because: 'its person record could not be put back, so this tell counts' });
           }
           results.push({ session, name: display, act: 'person', delivered: reached, delivery: state, because });
+          /* Review 2 (board half): the service counts silence only on asks the agent was TOLD about, so the board says so
+             once a line was PLACED (review 3), never on a read alone. Best effort: a failed report only means silence is not counted. */
+          // Review 3 (board half): only a line PLACED counts as told; an unconfirmed one may never have reached the agent, and
+          // reporting it would let the service count silence on an ask it never saw (a re-tell follows instead). A report
+          // the service misses (its call busy) means only that silence is not counted for that ask.
+          const placed = !held && !paneBusy && D.PLACED != null && state === D.PLACED;
+          if (placed && typeof o.assignmentsSeen === 'function') {
+            const seenIds = due.filter((q) => communityassign.isAssignment(q.id)).map((q) => q.remoteId);
+            if (seenIds.length) { try { await o.assignmentsSeen(session, seenIds); } catch { /* best effort */ } }
+          }
           // Review 7: a held line or a busy pane is not a failed try (as the regular path): it reached nothing unreachable.
           { const b = book.get(session) || {}; const fails = reached ? 0 : (held || paneBusy) ? (Number.isInteger(b.personFails) ? b.personFails : 0) : (Number.isInteger(b.personFails) ? b.personFails : 0) + 1;
             // Review 13: the rest starts only when a try actually failed, so a busy pane on the one retry does not restart it.

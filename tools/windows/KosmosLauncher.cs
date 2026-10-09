@@ -1012,8 +1012,10 @@ class KosmosLauncher
     // asks again, as a fresh Mac does.
 
     /* 🚦 THE RELEASE SWITCH, the Windows twin of the Mac's kosmosFirstRunChoice (Liu Kang m2647). OFF,
-       first run is exactly today's: the window never asks, never reads the mode file, never connects,
-       so nothing below changes a Windows computer. It stays off until a connect computer can update
+       first run is exactly today's: the window never asks, never reads the mode file, never connects.
+       One exception, on purpose (#5492, Mac parity): the #5169 navigation rules apply to a run computer
+       too, so with the switch off they reach EVERY Windows computer, as the Mac applies #5169 with its
+       switch off. Everything else below is unchanged while it is off. It stays off until a connect computer can update
        itself (#4382), whose Windows half turns it on; tools.windows-computer-mode-4381.test.js pins it
        off on main. `static readonly`, not const, only so the unreachable ON branches do not warn. */
     internal static readonly bool FirstRunChoice = false;
@@ -1181,10 +1183,14 @@ class KosmosLauncher
     // links only from a click, and then in the browser; about:blank for the page's own use; every
     // other scheme refused. So another site can never REPLACE the window's page with a fake Kosmos
     // screen, and this computer's stopped board is never loaded by a script.
-    internal static ConnectLink ConnectLinkDecision(string address, bool clicked, bool fromKosmosPlusPage = false)
+    // #5492 (the Mac's #5169 `board:`): a run or both computer passes the port its own board serves, and
+    // that board's pages stay in the window, clicked or not. A connect computer passes none (its board is
+    // stopped), so for connect nothing changes.
+    internal static ConnectLink ConnectLinkDecision(string address, bool clicked, bool fromKosmosPlusPage = false, int boardPort = 0)
     {
         Uri uri;
         if (address == null || !Uri.TryCreate(address, UriKind.Absolute, out uri)) return ConnectLink.Block;
+        if (boardPort > 0 && IsBoardAddress(address, boardPort)) return ConnectLink.InApp;
         // An if chain, not a string switch: this compiler turns a switch of six or more strings into a
         // class named by a fresh GUID each build, which verify-launcher.ps1 would then have to mask.
         string scheme = uri.Scheme.ToLowerInvariant();
@@ -3074,19 +3080,22 @@ class BoardWindowForm : System.Windows.Forms.Form
         BeginInvoke(new Action(Close));
     }
 
-    // A navigation of the whole window away from the board (a plain link to another site) goes to
-    // the person's browser instead: this window has no address bar and no Back button to return by.
-    // Any other scheme (mailto:, ms-settings:, search-ms:, file:) is refused with the same box as a
-    // new-window link (review of #3285): left alone it reaches WebView2's own "open this app?"
-    // prompt. The window's own pages stay: the board, and the about:/data: page NavigateToString
-    // shows while the board starts.
+    // A computer that has chosen a mode decides every main-frame navigation by ConnectLinkDecision, as the
+    // Mac does (#4381 for connect; #5492, the Mac's #5169, for run and both): this window has no address
+    // bar and no Back button, so another site may never replace its page. A clicked link to another site
+    // opens in the person's browser; an unclicked one (a redirect or a script) is refused. A run or both
+    // computer's own board stays, and so does the about:/data: page NavigateToString shows while the board
+    // starts. A computer that has not chosen (or whose choice cannot be read) keeps the older rule below:
+    // its board and the window's own pages stay, anything else goes to the browser, and a scheme that is not
+    // a web link is refused with the same box as a new-window link (review of #3285).
     internal void OnNavigationStarting(ICoreWebView2NavigationStartingEventArgs args)
     {
         string uri;
         args.get_Uri(out uri);
-        // #4381: a connect computer's window follows the connect rules instead (ConnectLinkDecision);
-        // nothing changes on a computer that runs agents.
-        if (mode == KosmosLauncher.ComputerMode.Connect)
+        // #5492: the page NavigateToString shows while the board starts stays in the window (the Mac has no such page).
+        bool runsBoard = mode == KosmosLauncher.ComputerMode.Run || mode == KosmosLauncher.ComputerMode.Both;
+        if (runsBoard && KosmosLauncher.IsWindowOwnPage(uri)) return;
+        if (mode == KosmosLauncher.ComputerMode.Connect || runsBoard)
         {
             int userInitiated;
             args.get_IsUserInitiated(out userInitiated);
@@ -3096,12 +3105,12 @@ class BoardWindowForm : System.Windows.Forms.Form
             args.get_NavigationId(out navId);
             // The first load is the navigation to the sign-in address itself (not a redirect), not merely the
             // first to start: a script on the page being left can start one a moment earlier.
-            if (connectLoadPending && !connectLoadNavKnown && redirected == 0 && string.Equals(uri.TrimEnd('/'), KosmosLauncher.KosmosPlusSignIn.TrimEnd('/'), StringComparison.OrdinalIgnoreCase))
+            if (!runsBoard && connectLoadPending && !connectLoadNavKnown && redirected == 0 && string.Equals(uri.TrimEnd('/'), KosmosLauncher.KosmosPlusSignIn.TrimEnd('/'), StringComparison.OrdinalIgnoreCase))
             { connectLoadNavId = navId; connectLoadNavKnown = true; }
             // #5483, as the Mac: a redirect is never a click (WebKit calls it .other, however the navigation
             // began; WebView2 counts its own Navigate as user-initiated), and only a committed Kosmos Plus
             // SITE page may send the window to another site by script.
-            KosmosLauncher.ConnectLink decided = KosmosLauncher.ConnectLinkDecision(uri, userInitiated != 0 && redirected == 0, KosmosLauncher.IsKosmosPlusSiteAddress(committedPage));
+            KosmosLauncher.ConnectLink decided = KosmosLauncher.ConnectLinkDecision(uri, userInitiated != 0 && redirected == 0, KosmosLauncher.IsKosmosPlusSiteAddress(committedPage), runsBoard ? port : 0);
             if (decided == KosmosLauncher.ConnectLink.InApp) { connectInWindow[navId] = uri; return; }
             if (decided == KosmosLauncher.ConnectLink.Block && connectLoadPending && connectLoadNavKnown && navId == connectLoadNavId) connectLoadRefused = true;
             args.put_Cancel(1);
@@ -3141,7 +3150,8 @@ class BoardWindowForm : System.Windows.Forms.Form
     // An error page, or a document no in-window navigation was allowed for, is not the site.
     internal void OnContentLoading(ICoreWebView2ContentLoadingEventArgs args)
     {
-        if (mode != KosmosLauncher.ComputerMode.Connect) return;
+        // #5492: run and both too, so a Kosmos Plus page opened in their window can hand off to checkout.
+        if (mode != KosmosLauncher.ComputerMode.Connect && mode != KosmosLauncher.ComputerMode.Run && mode != KosmosLauncher.ComputerMode.Both) return;
         ulong navId;
         args.get_NavigationId(out navId);
         int isErrorPage;
@@ -3158,7 +3168,9 @@ class BoardWindowForm : System.Windows.Forms.Form
     // never reached Kosmos Plus, so the box shows and Reopen (SignInAgain) loads it again.
     internal void OnNavigationCompleted(ICoreWebView2NavigationCompletedEventArgs args)
     {
-        if (mode != KosmosLauncher.ComputerMode.Connect) return;
+        // #5492: run and both record their in-window pages too (OnNavigationStarting), so they forget them here;
+        // the first-load check below is connect's alone (connectLoadPending is never set on run or both).
+        if (mode != KosmosLauncher.ComputerMode.Connect && mode != KosmosLauncher.ComputerMode.Run && mode != KosmosLauncher.ComputerMode.Both) return;
         ulong navId;
         args.get_NavigationId(out navId);
         int success;

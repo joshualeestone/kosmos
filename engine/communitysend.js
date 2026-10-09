@@ -1573,7 +1573,10 @@ async function settleUnconfirmed(keys, sent, now) {
     if (found === undefined) continue;                // cannot tell yet: next sweep
     if (found) sent[id] = settle(rec, { state: 'sent', remoteId: found, sentAt: new Date(now).toISOString() });
     // Not on the server: an ordinary unsent post, unless its agent was deleted (#4994), when it is never sent.
-    else sent[id] = String(rec.agent).startsWith(RETIRED_PREFIX) ? settle(rec, { state: 'not_sent', reasons: ['agent_deleted'] }) : settle(rec, {});
+    // #5636 follow-up (review 2): "not there" under a NEW registration says nothing about the old account's posts, so
+    // the record keeps that doubt (unverified) for status and a repeat take-back to say.
+    else sent[id] = String(rec.agent).startsWith(RETIRED_PREFIX) ? settle(rec, { state: 'not_sent', reasons: ['agent_deleted'] })
+      : settle(rec, knownOtherRegistration(rec, k) ? { unverified: true } : {});
   }
 }
 
@@ -1935,6 +1938,8 @@ const busy = () => ({ ok: false, local: true, because: 'Kosmos is busy talking t
  * request's timeout, so a hook doing optional work can skip it when the time is short.
  * Review 2 (BLOCKER): every answer here is read up to RESPONSE_CAP (256 KiB), not the sweep's larger default.
  * #4884: `body` is sent as JSON with the request (a vote's { value }); left out, nothing is sent, as before.
+ * #5623: `waitMs` bounds how long the call waits for the chain before answering busy (default AGENT_WAIT_MS), for a
+ * background caller (the reply nudge) that must not stall behind a send sweep.
  */
 /* #4940: what an agent is told while it cannot be registered yet. A follow is NOT queued (run it again); what it has
    queued is kept, and `kosmos community status` says which of it will go (#4939 review 7). No trailing period: the CLIs add their own. */
@@ -1954,6 +1959,14 @@ function joiningWords(agentKey, k) {
   return null;
 }
 
+/* #5623: how long agentCall waits for the chain before answering busy: the caller's `waitMs` when it is a finite number
+   of zero or more, else agentWaitMs (AGENT_WAIT_MS unless a test set it; every caller that does not pass it keeps the
+   old wait). */
+function chainWaitMs(opts) {
+  const w = opts && opts.waitMs;
+  return Number.isFinite(w) && w >= 0 ? w : agentWaitMs;
+}
+
 function agentCall(agentKey, method, pathname, opts = {}) {
   if (agentsInCall.has(agentKey)) return Promise.resolve(busy());
   agentsInCall.add(agentKey);
@@ -1966,7 +1979,7 @@ function agentCall(agentKey, method, pathname, opts = {}) {
       gaveUp = true;
       agentsInCall.delete(agentKey);
       resolve(busy());
-    }, agentWaitMs);
+    }, chainWaitMs(opts));
     const done = (r) => { if (gaveUp) return; agentsInCall.delete(agentKey); resolve(r); };
     exclusive(async () => {
       if (gaveUp) return null;                        // answered busy already: it never runs later
@@ -2114,6 +2127,13 @@ function withdrawFor(agentId, kind, id) {
   const rec = recs[local] || {};
   const no = (because) => ({ ok: false, notEligible: true, because });
   if (rec.state === 'deleted') return { ok: true, state: 'deleted' };
+  /* #5636 follow-up (review 2, 3): settled "not there" under a new registration (unverified) is not "before it was sent"
+     for sure, withheld already or still pending (not resent yet: an earlier ON period, a cap, the switch off). */
+  if (rec.unverified === true && (rec.state === 'withheld' || (rec.state === 'pending' && !rec.attempted))) {
+    if (rec.state === 'withheld') return { ok: true, state: 'unconfirmed_keyless' };
+    const taken = requestDelete(local);
+    return taken.ok ? { ok: true, state: 'unconfirmed_keyless' } : taken;
+  }
   // Review 3: moderators already took it down: it is not public, which is what the agent asked for.
   if (rec.takenDown === true) return { ok: true, state: 'deleted' };
   if (rec.state === 'refused') return no('The community did not accept this post, so there is nothing to take back');
@@ -2126,6 +2146,17 @@ function withdrawFor(agentId, kind, id) {
     if (!keys) return { ok: false, retryable: true, because: 'Kosmos could not read its community registrations just now' };
     const k = keys[rec.agent];
     if (k && k.refused) return no('The community refused this agent, so Kosmos cannot take its posts back');
+    /* #5636 follow-up: a post whose send got no answer, from an agent with no key now, is still taken back: a new key
+       (registered by a later sweep or community call, under a new account) would find no copy under it, settle the post
+       as never sent and send it again, a second public copy after the agent was told it could not take the first back.
+       Recorded here, the sweep withholds it before any resend. What it cannot do is reach a copy that did arrive under
+       the old account, and the answer says so (unconfirmed_keyless). */
+    // Review 1: or a new key is held already (registered since, so the record names another registration): the next
+    // sweep settles it under the new account the same way and resends it.
+    if (rec.state === 'pending' && rec.attempted && (!k || !k.apiKey || knownOtherRegistration(rec, k))) {
+      const taken = requestDelete(local);
+      return taken.ok ? { ok: true, state: 'unconfirmed_keyless' } : taken;
+    }
     if (!k || !k.apiKey) return no('Kosmos no longer holds the registration that sent this post, so it cannot take it back');
     // Review 4: and it must be the registration that SENT it (agentId, or for an older record a registration no newer than
     // the send), or the take-down goes out as another service agent, gets a 404 and reads as removed while still public.
@@ -2211,8 +2242,16 @@ async function editNow(who, kind, raw, words, deadline) {
   if (state === 'refused') return no('The community did not accept this ' + w + ', so there is nothing to edit');
   if (state === 'deleted') return no('This ' + w + ' has been taken down from the community, so it cannot be edited');
   if ((state === 'pending' && rec && rec.attempted) || state === 'unconfirmed') {
-    return no(kind === 'comment' ? 'Kosmos never learned whether this comment arrived, so it cannot edit it'
-      : 'Kosmos has not yet heard whether this post arrived; try again after its next send');
+    if (kind === 'comment') return no('Kosmos never learned whether this comment arrived, so it cannot edit it');
+    /* #5636 follow-up: settleUnconfirmed asks about such a post only with the live key of the agent that sent it, and a
+       refused agent's never comes back (nothing clears `refused`), so "after its next send" never comes for it; say what
+       the sent-post check below says. Review 1: NOT for a missing key: the next sweep (sendPost's ensureRegistered)
+       registers a new one, the post is settled and resent, and then it can be edited. */
+    const ukeys = loadJson(keysFile());
+    if (!ukeys) return retry('Kosmos could not read its community registrations just now');
+    const uk = ukeys[rec.agent];
+    if (uk && uk.refused) return no('The community refused this agent, so Kosmos cannot edit its posts');
+    return no('Kosmos has not yet heard whether this post arrived; try again after its next send');
   }
   if (state !== 'pending' && state !== 'sent') return no('This ' + w + ' cannot be edited right now');
   // The new words, checked as a new one's are. A post keeps its title unless a new one is given (its title is its topic,
@@ -2356,6 +2395,10 @@ function statusOf(id, sent, deletes, keys) {
     // #5636: an unconfirmed send whose own agent has no key to ask with (settleUnconfirmed skips it); only then, likewise.
     // Not gated on the state: settle() drops `attempted` from every record that leaves pending, so only an unconfirmed one has it.
     ...(rec.attempted && rec.agent && !(k && k.apiKey) ? { agentKeyless: true } : {}),
+    // #5636 follow-up (review 2): the record names a registration other than the one held, and the doubt kept from a
+    // settle under a new one; only when true, likewise.
+    ...(rec.attempted && knownOtherRegistration(rec, k) ? { agentOtherRegistration: true } : {}),
+    ...(rec.unverified === true ? { unverified: true } : {}),
     ...(typeof rec.lastStatus === 'number' ? { lastStatus: rec.lastStatus } : {}),
     ...(typeof rec.deleteStatus === 'number' && rec.state === 'sent' ? { deleteStatus: rec.deleteStatus } : {}),
     ...(Array.isArray(rec.reasons) ? { reasons: rec.reasons } : {}),
@@ -2626,7 +2669,7 @@ module.exports = {
   switchOn, switchState, notOnWords, willSend, NOT_SENDING, notSendingWords, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete, withdrawFor, editFor,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
   sendAddress: endpoint,   // #5415: communitystatus takes a sent item's public link host from it, and whether there is one
-  setSender, resetPauses, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
+  setSender, resetPauses, _chainWaitMs: chainWaitMs, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL, endpointAllowed, KOSMOS_BUGS_SLUG,
   CHANNELS, channelChoice, leadingChannelWord, // kosmos#5171
   _paths: { dir, retireDir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile, installGroupFile },

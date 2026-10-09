@@ -204,15 +204,15 @@ test('#4381: "Run agents on this computer" is in the system menu only on a conne
 
 test('#4381: a connect window follows the connect link rules; Kosmos Plus not answering is said', () => {
   const nav = method('internal void OnNavigationStarting(ICoreWebView2NavigationStartingEventArgs args)');
-  inOrder(nav, ['if (mode == KosmosLauncher.ComputerMode.Connect)', 'args.get_IsUserInitiated(out userInitiated);', 'args.get_IsRedirected(out redirected);',
+  inOrder(nav, ['if (mode == KosmosLauncher.ComputerMode.Connect || runsBoard)', 'args.get_IsUserInitiated(out userInitiated);', 'args.get_IsRedirected(out redirected);',
     'args.get_NavigationId(out navId);',
-    'KosmosLauncher.ConnectLinkDecision(uri, userInitiated != 0 && redirected == 0, KosmosLauncher.IsKosmosPlusSiteAddress(committedPage))',
+    'KosmosLauncher.ConnectLinkDecision(uri, userInitiated != 0 && redirected == 0, KosmosLauncher.IsKosmosPlusSiteAddress(committedPage), runsBoard ? port : 0)',
     'if (decided == KosmosLauncher.ConnectLink.InApp) { connectInWindow[navId] = uri; return; }',
     'args.put_Cancel(1);', 'OpenInPersonsBrowser(uri, true)', 'return;', 'KosmosLauncher.IsBoardAddress(uri, port)'], 'the connect rules');
   const popup = method('internal void OnNewWindowRequested(ICoreWebView2NewWindowRequestedEventArgs args)');
   assert.match(popup, /KosmosLauncher\.ConnectLinkDecision\(uri, true\)/);
   const done = method('internal void OnNavigationCompleted(ICoreWebView2NavigationCompletedEventArgs args)');
-  assert.match(done, /if \(mode != KosmosLauncher\.ComputerMode\.Connect\) return;/);
+  assert.match(done, /if \(mode != KosmosLauncher\.ComputerMode\.Connect && mode != KosmosLauncher\.ComputerMode\.Run && mode != KosmosLauncher\.ComputerMode\.Both\) return;/);
   assert.match(done, /connectLoadFailed = \(success == 0 && status != COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED\) \|\| connectLoadRefused;/);
   // #5483: a first load the connect rules refused counts as failed (box + Reopen), set only while it is pending.
   // Scoped to the first load's own navigation (one id across its redirects), never another nav's refusal.
@@ -228,7 +228,7 @@ test('#4381: a connect window follows the connect link rules; Kosmos Plus not an
     /committedPage = isErrorPage == 0 && connectInWindow\.TryGetValue\(navId, out inWindow\) \? inWindow : null;/);
   assert.match(SOURCE, /webView\.add_ContentLoading\(new ContentLoading\(this\), out token\);/);
   // The first load is captured by its own address, not as whichever navigation starts first.
-  assert.match(nav, /if \(connectLoadPending && !connectLoadNavKnown && redirected == 0 && string\.Equals\(uri\.TrimEnd\('\/'\), KosmosLauncher\.KosmosPlusSignIn\.TrimEnd\('\/'\), StringComparison\.OrdinalIgnoreCase\)\)/);
+  assert.match(nav, /if \(!runsBoard && connectLoadPending && !connectLoadNavKnown && redirected == 0 && string\.Equals\(uri\.TrimEnd\('\/'\), KosmosLauncher\.KosmosPlusSignIn\.TrimEnd\('\/'\), StringComparison\.OrdinalIgnoreCase\)\)/);
   // Cleared where the Mac clears committedPageURL: a switch either way, a crashed page, a fresh first load.
   assert.match(method('void SwitchToConnect()'), /mode = KosmosLauncher\.ComputerMode\.Connect;[\s\S]*?committedPage = null;\s*connectInWindow\.Clear\(\);/);
   assert.match(method('internal void OnProcessFailed(ICoreWebView2ProcessFailedEventArgs args)'), /committedPage = null;/);
@@ -244,6 +244,25 @@ test('#4381: a connect window follows the connect link rules; Kosmos Plus not an
     ['get_Uri', 'get_IsUserInitiated', 'get_IsRedirected', 'get_RequestHeaders', 'get_Cancel', 'put_Cancel', 'get_NavigationId']);   // WebView2.h 1.0.4191.47
 });
 
+
+test('#5492: a run or both window follows the same link rules, keeping its own board and its Starting page', () => {
+  const nav = method('internal void OnNavigationStarting(ICoreWebView2NavigationStartingEventArgs args)');
+  // The Mac's #5169: run and both are decided by ConnectLinkDecision too, with this computer's board port; the
+  // window's own Starting page (NavigateToString) is let through first, since ConnectLinkDecision refuses data:.
+  inOrder(nav, ['bool runsBoard = mode == KosmosLauncher.ComputerMode.Run || mode == KosmosLauncher.ComputerMode.Both;',
+    'if (runsBoard && KosmosLauncher.IsWindowOwnPage(uri)) return;',
+    'if (mode == KosmosLauncher.ComputerMode.Connect || runsBoard)',
+    'runsBoard ? port : 0)'], 'run and both by the link rules');
+  // A connect computer passes no board: its board is stopped and is never loaded by a script.
+  assert.doesNotMatch(nav, /ConnectLinkDecision\([^;]*,\s*port\)/, 'a connect computer would keep its stopped board');
+  // The board check runs before any scheme rule, and only for a port that was given.
+  const decide = SOURCE.slice(SOURCE.indexOf('internal static ConnectLink ConnectLinkDecision('), SOURCE.indexOf('string scheme = uri.Scheme.ToLowerInvariant();'));
+  assert.match(decide, /int boardPort = 0\)/);
+  assert.match(decide, /if \(boardPort > 0 && IsBoardAddress\(address, boardPort\)\) return ConnectLink\.InApp;/);
+  // Run and both record the page they commit, so a Kosmos Plus page in their window can still hand off to checkout.
+  assert.match(method('internal void OnContentLoading(ICoreWebView2ContentLoadingEventArgs args)'),
+    /if \(mode != KosmosLauncher\.ComputerMode\.Connect && mode != KosmosLauncher\.ComputerMode\.Run && mode != KosmosLauncher\.ComputerMode\.Both\) return;/);
+});
 test('#4381: the updater\'s board starts obey the mode too (engine/win32apply.js), so an update never brings a connect computer\'s board back', () => {
   const apply = fs.readFileSync(path.join(REPO, 'engine', 'win32apply.js'), 'utf8');
   const confirm = apply.slice(apply.indexOf('async function startAndConfirm('), apply.indexOf('/* â”€â”€â”€ H5 and H6'));
@@ -272,6 +291,8 @@ static class ModeProbe
     // #5483: the Mac's navCase and siteIs: fromKosmosPlusPage computed from the PAGE, so these pin the whole
     // chain (which page counts as the site), as the launcher's OnNavigationStarting computes it.
     static void Nav(string s, bool clicked, string page, KosmosLauncher.ConnectLink want, string why) { var got = KosmosLauncher.ConnectLinkDecision(s, clicked, KosmosLauncher.IsKosmosPlusSiteAddress(page)); Row(got == want, got.ToString(), why); }
+    // #5492: the Mac's navCase with board:, as a run or both computer's window decides (the board's port).
+    static void Board(string s, bool clicked, int boardPort, KosmosLauncher.ConnectLink want, string why) { var got = KosmosLauncher.ConnectLinkDecision(s, clicked, false, boardPort); Row(got == want, got.ToString(), why); }
     static void Site(string s, bool want, string why) { bool got = KosmosLauncher.IsKosmosPlusSiteAddress(s); Row(got == want, got ? "site" : "not-site", why); }
 
     static int Main(string[] a)
@@ -338,6 +359,10 @@ static class ModeProbe
         Nav("https://evil.example/", false, "http://127.0.0.1:27500/", KosmosLauncher.ConnectLink.Block, "#5169: an unclicked foreign nav from the local board page is refused");
         Nav("https://evil.example/", false, null, KosmosLauncher.ConnectLink.Block, "#5169: an unclicked foreign nav with no current page is refused");
         Nav("https://checkout.stripe.com/", true, "http://127.0.0.1:27500/", KosmosLauncher.ConnectLink.Browser, "#5169: a CLICKED foreign link opens in the browser even from the board (the person chose it)");
+        Board("http://127.0.0.1:27500/", false, 27500, KosmosLauncher.ConnectLink.InApp, "#5169: a run/both computer's OWN local board stays in-app, even unclicked");
+        Board("http://127.0.0.1:27501/", false, 27500, KosmosLauncher.ConnectLink.Block, "#5169: a DIFFERENT local port is not this computer's board; refused unclicked");
+        Board("http://127.0.0.1:27500/", true, 27500, KosmosLauncher.ConnectLink.InApp, "#5492 review 1: a CLICKED link to this computer's own board stays in-app too");
+        Board("http://localhost:27500/?mode=run", false, 27500, KosmosLauncher.ConnectLink.InApp, "WINDOWS: localhost is the same board to IsBoardAddress (wider than the Mac's one host; nothing names it today: the window and open-board.js both use 127.0.0.1)");
         Site("https://login.kosmosplus.com/signin", true, "#5169: the sign-in coordinator IS the Kosmos+ site");
         Site("https://josh.kosmosplus.com/", false, "#5169: a computer's board address is NOT the site (so a board page stays blocked)");
         Site("https://checkout.stripe.com/", false, "#5169: a foreign host is not the site");
@@ -365,7 +390,7 @@ static class ModeProbe
         KosmosLauncher.computerModeFile = () => file;
         Row(KosmosLauncher.LaunchComputerMode() == KosmosLauncher.ComputerMode.Run, "switch", "WITH THE SWITCH OFF every computer runs agents, whatever the file holds");
 
-        const int expected = 63;
+        const int expected = 67;   // #5492 review 1: +1 clicked own-board row
         if (ran != expected) { Console.WriteLine("\nmode-check: only " + ran + " of " + expected + " rows ran, so this proved nothing"); return 1; }
         if (bad > 0) { Console.WriteLine("\nmode-check: " + bad + " row(s) wrong"); return 1; }
         Console.WriteLine("\nmode-check: all good (" + ran + " rows)");
@@ -400,8 +425,8 @@ test('#4381: the Mac selftest\'s rows, and Windows\' own, all run and all pass (
   if (!needsProbe(t)) return;
   const r = probe(['rows', fs.mkdtempSync(path.join(probeDir, 'disk-'))]);
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.match(r.stdout, /\nmode-check: all good \(63 rows\)\s*$/, 'the probe exited 0 without its verdict: ' + r.stdout);
-  assert.equal((r.stdout.match(/^PASS /gm) || []).length, 63, r.stdout);
+  assert.match(r.stdout, /\nmode-check: all good \(67 rows\)\s*$/, 'the probe exited 0 without its verdict: ' + r.stdout);   // #5492 review 1: +1 clicked own-board row
+  assert.equal((r.stdout.match(/^PASS /gm) || []).length, 67, r.stdout);
   assert.doesNotMatch(r.stdout, /^FAIL /m, r.stdout);
   /* The Mac's rows are all here, by their words: a row dropped on one side is a rule the two no longer share. */
   const mac = fs.readFileSync(path.join(REPO, 'native-app', 'main.swift'), 'utf8');
@@ -409,14 +434,11 @@ test('#4381: the Mac selftest\'s rows, and Windows\' own, all run and all pass (
   // #5483: navCase and siteIs too, not only mode and link: the #5169 checkout exception lives in navCase.
   const macWhys = [...selftest.matchAll(/^\s+(?:mode|link|navCase|siteIs)\([^\n]*, "([^"]+)"\)$/gm)].map((m) => m[1]);
   // Mac selftest rows that Windows deliberately does NOT share, each with the one condition that would
-  // make its exception wrong. #5483 ported #5169's connect rules, so only the two run/both board rows
-  // remain (#5492: Windows applies these rules on connect computers only). A green run reads as full
-  // parity only while this is empty, and the test says so, naming every excused rule, whenever it is not.
+  // make its exception wrong. Empty since #5492 ported the run/both board rows: a green run is full parity.
+  // A green run reads as full parity only while this is empty, and the test says so, naming every excused
+  // rule, whenever it is not.
   //   ['<the Mac why, verbatim>', { card: '#NNNN', wrongIf: '<the one condition that makes this wrong>' }],
-  const MAC_ONLY_WHYS = new Map([
-    ["#5169: a run/both computer's OWN local board stays in-app, even unclicked", { card: '#5492', wrongIf: 'the Windows launcher applies ConnectLinkDecision on run/both computers with the board host:port' }],
-    ["#5169: a DIFFERENT local port is not this computer's board; refused unclicked", { card: '#5492', wrongIf: 'the Windows launcher applies ConnectLinkDecision on run/both computers with the board host:port' }],
-  ]);
+  const MAC_ONLY_WHYS = new Map([]);
   assert.equal(macWhys.length, 46, 'the Mac selftest\'s rows could not be read');   // 35 mode and link rows, 8 navCase, 3 siteIs (#5483)
   for (const [why, x] of MAC_ONLY_WHYS) {
     assert.ok(macWhys.includes(why), 'a MAC_ONLY_WHYS entry is no longer a Mac selftest row; remove it: ' + why);

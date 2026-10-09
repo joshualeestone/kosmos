@@ -33,7 +33,7 @@ function backend() {
     req.on('data', (d) => { raw += d; });
     req.on('end', () => {
       const body = raw ? JSON.parse(raw) : undefined;
-      st.seen.push({ method: req.method, url: req.url, body });
+      st.seen.push({ method: req.method, url: req.url, body, auth: req.headers.authorization || null });
       const send = (code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(obj === undefined ? '' : JSON.stringify(obj)); };
       if (req.method === 'POST' && req.url === '/agents/register') {
         const id = 'a' + (++st.n);
@@ -49,8 +49,13 @@ function backend() {
       if (req.method === 'POST' && req.url === '/posts') {
         if (!a) return send(401, { detail: 'invalid or expired token' });
         const id = crypto.randomUUID();
-        st.posts.push({ id, agent: a.id });
+        st.posts.push({ id, agent: a.id, title: body && body.title, body: body && body.body, channel: body && body.channel, sub_channel: (body && body.sub_channel) || null });
         return send(201, { id });
+      }
+      // #5636: the agent's own posts, as kosmos-community answers them, so an unanswered send can be settled.
+      if (req.method === 'GET' && req.url === '/agents/me/posts') {
+        if (!a) return send(401, { detail: 'invalid or expired token' });
+        return send(200, st.posts.filter((x) => x.agent === a.id));
       }
       const pd = /^\/posts\/([^/]+)$/.exec(req.url);
       if (req.method === 'DELETE' && pd) {
@@ -261,23 +266,69 @@ test('review 1: a new agent given a removed agent\'s name cannot take back the o
   assert.equal(cs.withdrawFor('ava', 'comment', mine.id).ok, true, 'CONTROL: its own queued comment is taken back');
 });
 
-test('review 3: with no live registration, neither a sent post nor an unanswered one is "taken back"', () => {
+test('review 3: with no live registration, a sent post is not "taken back"; #5636: an unanswered one is, and says what it cannot reach', () => {
   const sent = post('ava', 'Sent');
   const lost = post('ava', 'Lost');
   writeJson(cs._paths.sentFile(), {
     [sent.id]: { state: 'sent', agent: 'ava', remoteId: crypto.randomUUID() },
     [lost.id]: { state: 'pending', attempted: true, agent: 'ava' },
   });
-  writeJson(cs._paths.keysFile(), { ava: { registering: { at: '2026-10-08T00:00:00Z' }, name: 'ava' } });   // no apiKey
-  for (const p of [sent, lost]) {
-    const r = cs.withdrawFor('ava', 'post', p.id);
-    assert.equal(r.notEligible, true, JSON.stringify(r));
-    assert.match(r.because, /no longer holds the registration/);
-  }
   writeJson(cs._paths.keysFile(), { ava: { refused: true, name: 'ava' } });
-  assert.match(cs.withdrawFor('ava', 'post', lost.id).because, /refused this agent/, 'an unanswered post from a refused agent too');
-  assert.deepEqual(readJson(cs._paths.deletesFile()), {});
+  assert.match(cs.withdrawFor('ava', 'post', lost.id).because, /refused this agent/, 'an unanswered post from a refused agent is not taken back');
+  assert.deepEqual(readJson(cs._paths.deletesFile()), {}, 'nothing recorded for a refused agent');
+  writeJson(cs._paths.keysFile(), { ava: { registering: { at: '2026-10-08T00:00:00Z' }, name: 'ava' } });   // no apiKey
+  const s1 = cs.withdrawFor('ava', 'post', sent.id);
+  assert.equal(s1.notEligible, true, JSON.stringify(s1));
+  assert.match(s1.because, /no longer holds the registration/);
+  // #5636 follow-up: a new key would settle the unanswered post as never sent and send it again, so it is taken back.
+  const l1 = cs.withdrawFor('ava', 'post', lost.id);
+  assert.equal(l1.ok, true, JSON.stringify(l1));
+  assert.equal(l1.state, 'unconfirmed_keyless');
+  assert.deepEqual(Object.keys(readJson(cs._paths.deletesFile())), [lost.id], 'only the unanswered post is recorded');
 });
+
+/* #5636 follow-up: the take-back holds when a new key arrives, measured: without it the post is resent under the new
+   account (the second public copy the agent was told it could not take back); with it, it is not. Review 1: each agent
+   also has an ordinary post, so a sweep really registers a new key for it and the settle under that key is reached. */
+async function keylessScenario(takeBackFirst) {
+  await on();
+  const mine = post('ava', 'Ava lost');
+  const ctl = post('bo', 'Bo lost');
+  post('ava', 'Ava other');
+  post('bo', 'Bo other');
+  writeJson(cs._paths.sentFile(), {
+    [mine.id]: { state: 'pending', attempted: true, agent: 'ava', agentId: 'old-ava' },
+    [ctl.id]: { state: 'pending', attempted: true, agent: 'bo', agentId: 'old-bo' },
+  });
+  writeJson(cs._paths.keysFile(), {});   // the keys that sent them are lost
+  let r;
+  if (takeBackFirst) r = cs.withdrawFor('ava', 'post', mine.id);
+  await cs.sweep();                      // registers new keys (the ordinary posts go out)
+  if (!takeBackFirst) {
+    assert.ok(readJson(cs._paths.keysFile()).ava && readJson(cs._paths.keysFile()).ava.apiKey, 'fixture: ava has a new key');
+    r = cs.withdrawFor('ava', 'post', mine.id);
+  }
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.state, 'unconfirmed_keyless');
+  await cs.sweep();
+  await cs.sweep();
+  const titles = be.st.seen.filter((x) => x.method === 'POST' && x.url === '/posts').map((x) => x.body.title);
+  // (Review 3: that the settle under ava's new key ran is shown by `unverified` below, which only it writes.)
+  assert.ok(titles.includes('Bo lost'), 'CONTROL: a post not taken back is resent under the new key: ' + JSON.stringify(titles));
+  assert.ok(titles.includes('Ava other'), 'fixture: ava registered a new key and sent its ordinary post');
+  assert.ok(!titles.includes('Ava lost'), 'the post taken back was sent again: ' + JSON.stringify(titles));
+  assert.equal(readJson(cs._paths.sentFile())[mine.id].state, 'withheld', 'the post taken back did not end withheld');
+  // Review 2: "not there" under the NEW registration does not say the old copy never arrived: the doubt is kept.
+  assert.equal(readJson(cs._paths.sentFile())[mine.id].unverified, true, 'the settle under a new registration dropped the doubt');
+  const items = require('./communitystatus').itemsFor('ava');
+  assert.equal(items.find((x) => x.title === 'Ava lost').state, 'unconfirmed_taken_back', 'status reads a doubtful post as never sent');
+  assert.equal(cs.withdrawFor('ava', 'post', mine.id).state, 'unconfirmed_keyless', 'a repeat take-back says "before it was sent"');
+  // CONTROL: an ordinary queued post taken back is withheld with no doubt, and says so.
+  const plain = post('ava', 'Ava plain');
+  assert.equal(cs.withdrawFor('ava', 'post', plain.id).state, 'withheld');
+}
+test('#5636: an unanswered post taken back with no key is not resent when a new key arrives; CONTROL: one not taken back is', () => keylessScenario(true));
+test('#5636 review 1: taken back after the new key arrived (the record names the old registration), it is not resent either', () => keylessScenario(false));
 
 test('review 3: a comment already held back answers as done on a retry, and a moderator-removed post as already down', async () => {
   await on();
@@ -291,7 +342,7 @@ test('review 3: a comment already held back answers as done on a retry, and a mo
   assert.deepEqual(cs.withdrawFor('ava', 'post', p.id), { ok: true, state: 'deleted' });
 });
 
-test('review 4+6: a post that names a registration since replaced is not "taken back"; an older record without one is, as on main', () => {
+test('review 4+6: a sent post that names a registration since replaced is not "taken back" (#5636: an unanswered one is); an older record without one is, as on main', () => {
   const sent = post('ava', 'Sent by the old registration');
   const lost = post('ava', 'Unanswered under the old registration');
   const legacy = post('ava', 'An older record with no agentId');
@@ -301,12 +352,15 @@ test('review 4+6: a post that names a registration since replaced is not "taken 
     [legacy.id]: { state: 'sent', agent: 'ava', remoteId: crypto.randomUUID(), sentAt: '2026-10-01T00:00:00.000Z' },
   });
   writeJson(cs._paths.keysFile(), { ava: { apiKey: 'kc_key_new', remoteId: 'r-new', name: 'ava-2', registeredAt: '2026-10-05T00:00:00.000Z' } });
-  for (const p of [sent, lost]) {
-    const r = cs.withdrawFor('ava', 'post', p.id);
-    assert.equal(r.notEligible, true, p.id + ' ' + JSON.stringify(r));
-    assert.match(r.because, /no longer holds the registration that sent this post/);
-  }
+  const r = cs.withdrawFor('ava', 'post', sent.id);
+  assert.equal(r.notEligible, true, JSON.stringify(r));
+  assert.match(r.because, /no longer holds the registration that sent this post/);
   assert.deepEqual(readJson(cs._paths.deletesFile()), {});
+  // #5636 follow-up (review 1): an UNANSWERED one is taken back: the new key would settle it as never sent and resend it.
+  const l = cs.withdrawFor('ava', 'post', lost.id);
+  assert.equal(l.ok, true, JSON.stringify(l));
+  assert.equal(l.state, 'unconfirmed_keyless');
+  assert.deepEqual(Object.keys(readJson(cs._paths.deletesFile())), [lost.id]);
   assert.equal(cs.withdrawFor('ava', 'post', legacy.id).ok, true, 'an older record is treated as the held registration\'s, as main does');
   // CONTROL: the registration that sent them can.
   writeJson(cs._paths.keysFile(), { ava: { apiKey: 'kc_key_old', remoteId: 'r-old', name: 'ava', registeredAt: '2026-09-01T00:00:00.000Z' } });
@@ -393,4 +447,17 @@ test('review 8: a comment already marked for removal but unconfirmed or untracea
   assert.match(r2.because, /no way to find this comment again/);
   writeJson(cs._paths.keysFile(), { ava: { apiKey: 'kc_key_old', remoteId: 'r-old', name: 'ava' } });
   assert.equal(cs.withdrawFor('ava', 'comment', gone.id).ok, true, 'CONTROL: with the registration that sent it, it is taken back');
+});
+
+test('#5636 review 3: settled "not there" under a new registration and not resent yet, the FIRST take-back keeps the doubt', () => {
+  const p = post('ava', 'Settled doubtful');
+  writeJson(cs._paths.sentFile(), { [p.id]: { state: 'pending', agent: 'ava', agentId: 'old-ava', unverified: true } });
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'kc_new', remoteId: 'new-ava', name: 'ava' } });
+  const r = cs.withdrawFor('ava', 'post', p.id);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.state, 'unconfirmed_keyless', 'the first take-back said "before it was sent"');
+  assert.ok(readJson(cs._paths.deletesFile())[p.id], 'the take-back was not recorded');
+  // CONTROL: the same pending record with no doubt is an ordinary queued take-back.
+  const q = post('ava', 'Plain pending');
+  assert.equal(cs.withdrawFor('ava', 'post', q.id).state, 'withheld');
 });

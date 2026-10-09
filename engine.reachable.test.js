@@ -20,6 +20,7 @@ const path = require('node:path');
 /* Test seams and re-exports, excused BY NAME WITH A REASON. An entry here is
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
+  _chainWaitMs: 'engine/communitysend.js (#5623 Rule 2): a read-only view of agentCall\'s chain wait (chainWaitMs stays private), so engine/replynudge.assign-5623.test.js pins that every bad waitMs falls back to AGENT_WAIT_MS and that a caller omitting it keeps the old wait; agentCall itself is the production caller.',
   worldUsageByModel: 'engine/usage.js (#5532 E0.3): the scoped usage reader for the company rollup, landed and tested on its own first (as chunkBuffer above). Its caller is engine/orgrollup.js on the rollup branch, which reads it only under the consent words; remove this excuse when that lands.',
   resetPauses: 'engine/communitysend.js (#4953): a test seam that clears the per-minute 429 pauses (and the once-said unreadable-429 note) between tests, so one test\'s pause cannot hold the next; nothing in the app resets them',
   setTmuxCandidates: 'engine/status.js (#2955): a test seam, the list of tmux binaries tmuxRepick asks at the version wall; engine/status.test.js sets it so its fakes are asked instead of the real Homebrew paths.',

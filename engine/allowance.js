@@ -22,9 +22,10 @@
  * unverified).
  *
  * MERGE-ONLY, NEVER CLOBBER, through the same read/write/#1582 helpers as
- * engine/reporthook.js, so there is one copy of each. It requires only
- * reporthook and kosmos-statusline, neither of which requires any other
- * engine module, so accounts.js can require this without a cycle.
+ * engine/reporthook.js, so there is one copy of each. It requires
+ * reporthook, kosmos-statusline and (to save) securewrite. securewrite needs
+ * only node built-ins, and the other two need no engine module but
+ * securewrite, so accounts.js can require this without a cycle.
  */
 
 const fs = require('node:fs');
@@ -221,9 +222,17 @@ function calibrate(accountDir, tokensToday, { now = Date.now(), dayStart } = {})
       const next = { tokensPerPoint: counted / (points + 1), points, tokens: counted, day: dayStart, at: now };
       if (sameDay && stored.points === points && stored.tokens === counted) return stored;   // nothing moved: no write
       const file = path.join(accountDir, CALIBRATION_FILE);
-      const tmp = file + '.' + process.pid + '.new';
-      try { fs.writeFileSync(tmp, JSON.stringify(next) + '\n'); fs.renameSync(tmp, file); }
-      catch { try { fs.unlinkSync(tmp); } catch { /* nothing to clean */ } }
+      /* #5434 slice 5: flushed before the rename, as the account's settings are (reporthook.writeSettings): an
+         existing file keeps its mode, a new one takes the umask default; a failed save leaves the old file; in the
+         provider's folder only this file's own dead temps are reaped. A failed save is not an error here (the
+         estimate is returned either way, as before). No mode is carried on Windows, where a mode is only the
+         read-only bit (as store.js does); reporthook.readSettings carries it everywhere, a difference left for the
+         slice that aligns the two settings writers. */
+      // (the same mode rule as kosmos-statusline's record, which keeps its own copy: it must work copied alone)
+      let mode = null;
+      if (process.platform !== 'win32') { try { mode = fs.statSync(file).mode & 0o777; } catch { mode = null; } }
+      try { require('./securewrite').writeSecret(file, JSON.stringify(next) + '\n', mode, { atomicOnly: true, ownTempsOnly: true, umaskDefault: true }); }
+      catch { /* not saved this time; the next calibration tries again */ }
       return next;
     }
   } catch { /* fall through to what is stored */ }

@@ -108,3 +108,17 @@ test('#5574 review 2: one whose send got no answer says what Kosmos will do abou
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(out.stdout, '  Taken back: Kosmos never heard whether this post arrived, so on its next send it takes it down if it did, or stops it if it did not.\n');
 }, { status: 200, body: { ok: true, kind: 'post', state: 'unconfirmed' } }));
+
+/* #5636 follow-up: an unanswered post taken back by an agent with no key now (the board records it, so a new key never
+   resends it) says what it cannot reach, and the Windows CLI says the same words. */
+const KEYLESS = 'Taken back: Kosmos never heard whether this post arrived, and it no longer holds the registration that sent it. It will not be sent again, but if it did arrive, that copy cannot be taken down.';
+test('#5636: an unanswered post taken back with no key says it will not go again and what it cannot reach', () => withStubBoard(async (port) => {
+  const out = await runCli(['community', 'withdraw', 'post', ID], envFor(port));
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.equal(out.stdout, '  ' + KEYLESS + '\n');
+}, { status: 200, body: { ok: true, kind: 'post', state: 'unconfirmed_keyless' } }));
+test('#5636: the Windows CLI carries the same words for it', () => {
+  const win = require('node:fs').readFileSync(require('node:path').join(__dirname, 'tools', 'windows', 'kosmos-cli.js'), 'utf8');
+  assert.ok(win.includes("st === 'unconfirmed' ?"), 'CONTROL: the Windows withdraw words were not found');
+  assert.ok(win.includes("st === 'unconfirmed_keyless' ? '" + KEYLESS + "'"), 'the Windows CLI says something else for it');
+});

@@ -1109,6 +1109,7 @@ const roomhold = require('./engine/roomhold'); // #4624: a colleague's un-addres
 const missedtell = require('./engine/missedtell'); // kosmos#4787 slice 3: a repeating task's reviewer is told of a missed run
 const agentnudge = require('./engine/agentnudge'); // #4544: the Prompter's nudge to the AGENT (an idle agent that still has open work)
 const replynudge = require('./engine/replynudge'); // #4951: tell an idle agent its community post has new comments, once per comment
+const communityassign = require('./engine/communityassign');   // #5623 Rule 2
 const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter's local in-app nudge store (the delivery half #2623 removed)
 const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle
 const connlostHeal = require('./engine/connlost-heal'); // #3410 PR 2b: nudge a network-wedged agent when the network is back
@@ -4995,7 +4996,8 @@ const server = http.createServer(async (req, res) => {
      reason). Board-token gated like the moderation queue above; carries no keys. */
   if (pathname === '/api/community/sent' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
-      // #5623: and the persons left unanswered after the board told the agent PERSON_TELLS times.
+      // #5623: and the persons left unanswered (a comment, or a post an agent was picked for, after PERSON_TELLS tells;
+      // or such a post whose answer window passed after a tell).
       let unanswered = [];
       try { unanswered = replynudge.unansweredFor(store.ROOT, (safeRoster() || []).map((c) => c && c.sessionName).filter(Boolean)); } catch { unanswered = []; }
       sendJson(res, 200, { posts: communitysend.statuses(), comments: communitysend.commentStatuses(), unanswered });
@@ -20738,6 +20740,7 @@ fedseats.configure({
   recordExternal: (projectId, msg) => messages.externalPost(projectId, msg),
   externalKeptOn: (projectId, day) => messages.externalKeptOn(projectId, day),
   enrolled: () => remote.enrolled(),
+  allowed: () => liveExecution.liveExecutionAllowed(),   // #5671
   projectExists: (projectId) => { try { return !!projects.get(projectId, []); } catch { return true; } },
   projectCreatedAt: (projectId) => { try { const p = projects.get(projectId, []); return p ? (p.createdAt || null) : null; } catch { return undefined; } },
   note: (projectId, text) => messages.roomNote(projectId, text),
@@ -20846,6 +20849,8 @@ const ORG_REFRESH_MS = 24 * 60 * 60 * 1000;
 /** While a join's outcome is not known (org-join-unknown.json), it is asked about this often, not daily (review 26). */
 const ORG_UNSURE_MS = 2 * 60 * 1000;
 function orgEnrollRefresh() {
+  // #5670: a refresh sends to the company, so it waits for live execution, as the rollup tick does (#5532).
+  if (!liveExecution.liveExecutionAllowed()) return;
   try {
     const oe = require('./engine/orgenroll');
     if (!oe.readEnrollment() && !oe.leavePending() && !oe.joinUnknown()) return;   // never joined: nothing is sent
@@ -21619,6 +21624,8 @@ function start(port = PORT) {
           writeNudged: (session, set) => replynudge.writeNudged(store.ROOT, session, set),
           readPersons: (session) => replynudge.readPersons(store.ROOT, session),   // #5623: a person's comment is a must-answer
           writePersons: (session, owed) => replynudge.writePersons(store.ROOT, session, owed),
+          assignments: (session) => communityassign.openAssignments(session),   // #5623 Rule 2
+          assignmentsSeen: (session, ids) => communityassign.markSeen(session, ids),
           book: REPLY_NUDGE_BOOK, sent: AGENT_NUDGE_SENT, rotation: REPLY_NUDGE_ROTATION, idleSeen: REPLY_NUDGE_IDLE_SEEN,
           quotaHeld: (session, roster) => require('./engine/agyquota').heldForAgy(session, roster, Date.now()) !== null,   // #4588 ask 3: the cap too
           deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
@@ -22279,6 +22286,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  orgEnrollRefresh, // #5670: the company refresh, so its live-execution gate is tested by behaviour
   knowWorld, // #5247: a world this board made counts at its gate, for its test
   taskMessageSummary, // #4540: the sentence the CLIs print after a task message, for its test
   calibrateSwarmAllowances, // #3946: the sweep's calibration step, for its test

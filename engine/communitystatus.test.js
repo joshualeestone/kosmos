@@ -270,7 +270,16 @@ test('every state this module or the send layer can produce has words (read from
   const NOT_STATES = new Set(['comment', 'post', 'pending', 'string', 'empty']);
   const fromStateOf = [...own.slice(own.indexOf('function stateOf'), own.indexOf('function itemsFor')).matchAll(/'([a-z_]+)'/g)].map((m) => m[1])
     .filter((w) => !NOT_STATES.has(w));
-  const fromSend = [...send.matchAll(/state(?:: | = )'([a-z_]+)'/g)].map((m) => m[1]).filter((s) => s !== 'pending');
+  /* #5636 follow-up: 'unconfirmed_keyless' is withdrawFor's ANSWER to the agent (the CLI words it), never a state
+     written to a send record, so status never reads it. */
+  const ANSWER_ONLY = new Set(['unconfirmed_keyless']);
+  const fromSend = [...send.matchAll(/state(?:: | = )'([a-z_]+)'/g)].map((m) => m[1]).filter((s) => s !== 'pending' && !ANSWER_ONLY.has(s));
+  // That it is an answer only: every place it is assigned as a state is inside withdrawFor (its answers), none elsewhere.
+  const wf = send.slice(send.indexOf('function withdrawFor('), send.indexOf('\n}\n', send.indexOf('function withdrawFor(')));
+  const everywhere = [...send.matchAll(/state(?:: | = )'unconfirmed_keyless'/g)].length;
+  const inWithdraw = [...wf.matchAll(/state(?:: | = )'unconfirmed_keyless'/g)].length;
+  assert.ok(inWithdraw > 0, 'CONTROL: withdrawFor\'s answer was not found');
+  assert.equal(everywhere, inWithdraw, 'unconfirmed_keyless is assigned as a state outside withdrawFor, so it may reach a send record');
   assert.ok(fromStateOf.length >= 8, 'CONTROL: the stateOf scan found too few states: ' + fromStateOf);
   assert.ok(fromSend.includes('sent') && fromSend.includes('unconfirmed'), 'CONTROL: the send-layer scan found ' + fromSend);
   for (const st of new Set([...fromStateOf, ...fromSend, 'held', 'sending'])) {
@@ -485,4 +494,24 @@ test('#5636 review 3: the key that decides is the record\'s own agent\'s (a reti
   // CONTROL: the record's own agent with no key is the unasked case.
   writeJson(cs._paths.keysFile(), { ava: { apiKey: 'new' } });
   assert.equal(stateOfTitle('ava', 'Retired post'), 'unconfirmed_unasked', 'the reader\'s key was read as the record\'s');
+});
+
+test('#5636 follow-up: an unanswered post taken back says it will not be sent again, not that Kosmos will ask about it', () => {
+  const p = post('ava', 'Taken back unsure');
+  writeJson(cs._paths.sentFile(), { [p.id]: { state: 'pending', attempted: true, agent: 'ava' } });
+  writeJson(cs._paths.keysFile(), {});
+  assert.equal(stateOfTitle('ava', 'Taken back unsure'), 'unconfirmed_unasked', 'CONTROL: before the take-back');
+  writeJson(cs._paths.deletesFile(), { [p.id]: '2026-10-09T10:00:00Z' });
+  assert.equal(stateOfTitle('ava', 'Taken back unsure'), 'unconfirmed_taken_back');
+  assert.match(status.statusText('ava').text, /"Taken back unsure".*: taken back, so it will not be sent again\. Kosmos never heard whether it arrived; if it did, that copy may still be up$/m);
+});
+
+test('#5636 review 2: "may still be up" only where no take-down can reach it; with the sending key held, the plain words', () => {
+  const p = post('ava', 'Live key taken back');
+  writeJson(cs._paths.sentFile(), { [p.id]: { state: 'pending', attempted: true, agent: 'ava', agentId: 'r1' } });
+  writeJson(cs._paths.deletesFile(), { [p.id]: '2026-10-09T10:00:00Z' });
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'k', remoteId: 'r1' } });
+  assert.equal(stateOfTitle('ava', 'Live key taken back'), 'unconfirmed', 'with the sending key held the next sweep takes it down or holds it');
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'k', remoteId: 'r2' } });   // a replaced registration
+  assert.equal(stateOfTitle('ava', 'Live key taken back'), 'unconfirmed_taken_back');
 });
