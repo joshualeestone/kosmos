@@ -128,7 +128,7 @@ test('#5434: the current version saved aside is flushed before the file is repla
   }
 });
 
-test('#5434: a read-only file is still restored, at its mode', { skip: process.platform === 'win32' && 'POSIX modes' }, () => {
+test('#5434: a read-only file is still restored, at its mode', { skip: (process.platform === 'win32' && 'POSIX modes') || (process.getuid && process.getuid() === 0 && 'root opens a 0444 file read-write') }, () => {
   const { project, f, orig } = scenario('cy', 0o444);
   fs.chmodSync(f, 0o444);   // read-only at undo time too, so the saved-aside copy is 0444 (flushPath's read-only open)
   const realOpen = fs.openSync;
