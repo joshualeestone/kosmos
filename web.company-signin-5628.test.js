@@ -121,7 +121,8 @@ test('a second step is asked for when the account has one, and sent with the fin
   assert.equal(w.el('plus-si-company-second-row').hidden, false, 'no field for the second step');
   // Review 1: no text message is sent on this path, and the words say so rather than wait for one.
   assert.match(w.line(), /authenticator app/);
-  assert.match(w.line(), /text message, this way cannot send it yet/);
+  assert.match(w.line(), /text message, this way cannot finish yet/);
+  assert.doesNotMatch(w.line(), /Email me a code/, 'review 3: Email me a code is no way out where the company requires its own sign-in');
   w.el('plus-si-company-second').value = '123456';
   await w.ctx.finish(w.el('plus-si-company-go'));
   assert.deepEqual(w.calls.at(-1), ['/api/remote/company/complete', { name: 'neo-mac', second: '123456' }]);
@@ -160,4 +161,31 @@ test('review 1: when the engine cannot open the page, the step says to use the l
   await w.ctx.start(w.el('plus-signin-company'));
   assert.match(w.el('plus-si-company-lead').textContent, /with the link below/);
   assert.doesNotMatch(w.el('plus-si-company-lead').textContent, /opened/);
+});
+
+test('review 3: the name-held sentence is said in the coordinator words; a refused code is not sent again; a new start is empty', async () => {
+  const sent = [];
+  const w = world(Object.assign({}, START, {
+    '/api/remote/company/status': () => [200, { ready: true }],
+    '/api/remote/company/complete': (b) => { sent.push(b); return [400, { error: b.second
+      ? 'wrong second code; 4 tries left'
+      : 'that name is held by a computer on this account; to move it to this one, enter the code from your second step' }]; },
+  }));
+  w.el('plus-signin-email').value = 'neo@acme.test';
+  await w.ctx.start(w.el('plus-signin-company'));
+  await w.tick();
+  w.el('plus-si-company-name').value = 'old-laptop';
+  await w.ctx.finish(w.el('plus-si-company-go'));
+  assert.match(w.line(), /held by a computer on this account/, 'the takeover was hidden behind the generic words');
+  assert.equal(w.el('plus-si-company-second-row').hidden, false);
+  w.el('plus-si-company-second').value = '111111';
+  await w.ctx.finish(w.el('plus-si-company-go'));
+  assert.equal(sent.length, 2);
+  await w.ctx.finish(w.el('plus-si-company-go'));          // the same refused code, pressed again
+  assert.equal(sent.length, 2, 'a just-refused code was sent again, spending another try');
+  assert.match(w.line(), /just refused/);
+  // A new start: both boxes are empty.
+  await w.ctx.start(w.el('plus-signin-company'));
+  assert.equal(w.el('plus-si-company-name').value, '', 'a stale name was left for the next start');
+  assert.equal(w.el('plus-si-company-second').value, '', 'a refused code was left for the next start');
 });

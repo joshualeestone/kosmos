@@ -48067,7 +48067,7 @@ function plusSiStage(stage, data) {
    code or a previously-typed name sitting in a later step for a returning person to
    submit without noticing. Sign out clears too (#3796), so nothing typed outlives it. */
 function plusSiClear() {
-  for (const id of ['plus-signin-email', 'plus-si-code-in', 'plus-si-second-in', 'plus-si-phone', 'plus-si-enrol-code', 'plus-si-name', 'plus-si-secret']) {
+  for (const id of ['plus-signin-email', 'plus-si-code-in', 'plus-si-second-in', 'plus-si-phone', 'plus-si-enrol-code', 'plus-si-name', 'plus-si-secret', 'plus-si-company-name', 'plus-si-company-second']) {
     const el = document.getElementById(id);
     if (el) el.value = '';
   }
@@ -48900,6 +48900,7 @@ document.getElementById('plus-si-register-go').addEventListener('click', () => {
    person new to Kosmos+ agreed to the terms on the approval page (slice 2c), so there is no terms step here. The
    setup's secret stays in the engine; nothing here carries it. */
 let PLUS_CO_EPOCH = 0;
+let PLUS_CO_REFUSED = '';   // review 3: the second-step code just refused, never sent again unchanged
 async function plusCompanyManaged() {
   let r = null;
   try { const res = await fetch('/api/remote/managed', { cache: 'no-store' }); r = res.ok ? await res.json() : null; } catch { r = null; }
@@ -48921,6 +48922,10 @@ async function plusCompanyStart(btn) {
   document.getElementById('plus-si-company-open').href = r.data.url;
   document.getElementById('plus-si-company-finish').hidden = true;
   document.getElementById('plus-si-company-second-row').hidden = true;
+  // Review 3: a new start begins with empty boxes (a stale name or a refused code is never one Enter from being sent).
+  document.getElementById('plus-si-company-name').value = '';
+  document.getElementById('plus-si-company-second').value = '';
+  PLUS_CO_REFUSED = '';
   plusSiShow('plus-si-company');
   plusSiMsg('Waiting for you to approve in your browser.');
   // Review 1: the engine opens it (the Mac app blocks a late window.open); say "opened" only when it did.
@@ -48961,6 +48966,7 @@ async function plusCompanyFinish(btn) {
   const row = document.getElementById('plus-si-company-second-row');
   const second = row.hidden ? '' : String(document.getElementById('plus-si-company-second').value || '').trim();
   if (!row.hidden && !second) { plusSiMsg('enter the code from your second step'); return; }
+  if (second && second === PLUS_CO_REFUSED) { plusSiMsg('that code was just refused; enter a new one'); return; }
   btn.disabled = true;
   plusSiMsg('Setting up this computer.');
   const body = { name };
@@ -48970,12 +48976,23 @@ async function plusCompanyFinish(btn) {
   if (r.stale) return;
   if (!r.ok) {
     const why = String(r.because || '');
-    // The coordinator's words for an account with a second step (signin.rs): ask for its code here.
-    if (/has a second step|code from your second step/i.test(why)) {
+    // Review 3: ANY refusal of a sent code (a wrong code says "N tries left") keeps it from being sent again unchanged.
+    if (second) PLUS_CO_REFUSED = second;
+    // The coordinator's words for an account with a second step (signin.rs): ask for its code here. Review 3: its
+    // other sentence (the name is held by another computer on the account, which the code moves here) is said in its
+    // own words, so nobody replaces a computer unknowingly.
+    const takeover = /is held by a computer/i.test(why);
+    if (takeover || /has a second step|code from your second step/i.test(why)) {
+      const sentInput = document.getElementById('plus-si-company-second');
+      if (second && sentInput.select) sentInput.select();
       row.hidden = false;
-      // Review 1: nothing on this path sends a text message (kosmos#5651), so only an authenticator app's code works.
-      plusSiMsg('This account has a second step: enter the code from your authenticator app, then finish. If your second step is a text message, this way cannot send it yet: use Email me a code instead.');
-      document.getElementById('plus-si-company-second').focus();
+      // Review 1: nothing here sends a text message (kosmos#5651). Review 3: and "Email me a code" is no way out
+      // where the company requires its own sign-in, so it is not offered.
+      const sms = ' If your second step is a text message, this way cannot finish yet: switch it to an authenticator app in your Kosmos+ account, or ask your company\'s Kosmos+ admin.';
+      plusSiMsg(second && !takeover ? why
+        : takeover ? why + ' Enter the code from your authenticator app.' + sms
+        : 'This account has a second step: enter the code from your authenticator app, then finish.' + sms);
+      sentInput.focus();
       return;
     }
     if (/start again/i.test(why)) { PLUS_CO_EPOCH += 1; plusSiShow('plus-si-email'); plusSiMsg(why); return; }
