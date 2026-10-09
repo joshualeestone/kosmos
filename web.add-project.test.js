@@ -3,7 +3,7 @@
  * #750: Add a project, styled like New agent: no box, "Name", "Description", no folder
  * talk, a dropdown behind Add an agent, and a big yellow Create project.
  * #3312 (Josh 2026-09-19) / #3495: the screen has two modes, "Create a project" and
- * "Join an external project" (relay federation MVP), behind a segmented toggle, and the two
+ * "Join a project" (relay federation MVP; "Join an external project" until #4649 named one path for both kinds of code), behind a segmented toggle, and the two
  * external-add doors mint an invite code for a Kosmos+ member.
  *
  *   node --test web.add-project.test.js
@@ -26,14 +26,14 @@ test('the words: Name, Description; no folder sentence, no folder door, no "skip
   assert.match(VIEW, /id="pj-will-be" hidden/, 'the folder sentence can still show');
 });
 
-test('#3312/#3495: the top toggle offers Create a project vs Join an external project (native radios, Mona Lisa #178)', () => {
+test('#3312/#3495/#4649: the top toggle offers Create a project vs Join a project (native radios, Mona Lisa #178)', () => {
   // Native radios grouped by name in a fieldset -- the browser owns arrow-key movement and the
   // `checked` source of truth, with no hand-rolled aria-checked desync (the roles-picker ruling).
   // #3495 (Josh) relabelled the two options and dropped the "or" span for a segmented look; the
   // native-radio structure below is unchanged.
   assert.match(VIEW, /<fieldset class="pj-mode">/);
   assert.match(VIEW, /<label class="pj-mode-opt"><input type="radio" name="pj-add-mode" id="pj-mode-create" value="create" checked> Create a project<\/label>/);
-  assert.match(VIEW, /<label class="pj-mode-opt"><input type="radio" name="pj-add-mode" id="pj-mode-join" value="join"> Join an external project<\/label>/);
+  assert.match(VIEW, /<label class="pj-mode-opt"><input type="radio" name="pj-add-mode" id="pj-mode-join" value="join"> Join a project<\/label>/);
   assert.doesNotMatch(VIEW, /pj-mode-opt[^>]*role="radio"[^>]*aria-checked/, 'the hand-rolled role=radio + aria-checked anti-pattern is back');
 });
 
@@ -48,7 +48,7 @@ test('#3312: the two external doors are LIVE now (they mint an invite code), no 
 });
 
 test('#3312: the Join-External mode carries a code + Verify and a Join Project submit', () => {
-  assert.match(VIEW, /Enter your code to access an external project:/);
+  assert.match(VIEW, /Enter your code to join a project:/);
   assert.match(VIEW, /<button class="btn" id="pj-join-verify" type="button">Verify<\/button>/);
   assert.match(VIEW, /id="pj-join-result" hidden/);
   assert.match(VIEW, /<button class="btn uprime big" id="pj-join-submit" type="button">Join Project<\/button>/);

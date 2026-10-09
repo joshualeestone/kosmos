@@ -17137,7 +17137,7 @@ window.kosmosMeasureScrollbarWidth();
     <fieldset class="pj-mode">
       <legend class="vh">Create a new project or join an external one</legend>
       <label class="pj-mode-opt"><input type="radio" name="pj-add-mode" id="pj-mode-create" value="create" checked> Create a project</label>
-      <label class="pj-mode-opt"><input type="radio" name="pj-add-mode" id="pj-mode-join" value="join"> Join an external project</label>
+      <label class="pj-mode-opt"><input type="radio" name="pj-add-mode" id="pj-mode-join" value="join"> Join a project</label>
     </fieldset>
 
 
@@ -17344,7 +17344,7 @@ window.kosmosMeasureScrollbarWidth();
          external people or agents, because it is not your project. The submit reads "Join Project". -->
     <div id="pj-join-mode" hidden>
       <div class="field">
-        <label class="flabel" for="pj-join-code">Enter your code to access an external project:</label>
+        <label class="flabel" for="pj-join-code">Enter your code to join a project:</label>
         <div class="frow">
           <input type="text" id="pj-join-code" class="tk-inp" autocomplete="off" spellcheck="false"
                  placeholder="Paste the code you were given">
@@ -62674,7 +62674,7 @@ async function pjsOwnAdd() {
     }
     document.getElementById('pjs-own-code').value = body.code;
     document.getElementById('pjs-own-row').hidden = false;
-    msg.textContent = 'On your other computer, open Projects, Join a project, and paste this code.';
+    msg.textContent = 'On your other computer, open Projects, press + Add Project, choose Join a project, and paste this code.';   // #4649: the page's own labels, in order
   } catch {
     if (PJS_OWN.projectId === forProject) msg.textContent = 'Kosmos could not make a code just now. Try again in a moment.';
   } finally {
@@ -72370,7 +72370,7 @@ function fedInviteCopyReset() {
    field arrives the name stands alone. Only an OWNER's answer counts (`owner: true`): a member's answer carries the
    owner_name of the project it joined, another account's. It is never taken from this computer's own address: a second computer, or
    a first one retired, has an address that is not the account's name. The step words are the page's own labels
-   ("+ Add Project", "Join an external project", "Verify"); the check's arm C3 fails if one of them is renamed. */
+   ("+ Add Project", "Join a project", "Verify"); the check's arm C3 fails if one of them is renamed. */
 function fedInviteText(made) {
   // One line each: a name or project with a newline or a control character must not break the invitation's lines.
   // Bidi controls and invisible marks are dropped too (embeddings, overrides, isolates, LRM/RLM/ALM, the zero-width
@@ -72391,7 +72391,7 @@ function fedInviteText(made) {
   return who + ' invited you to ' + (project ? 'the project "' + project + '"' : 'a project') + ' on Kosmos.\n'
     + '\n'
     + '1. Open Kosmos on your computer. If you do not have it yet, get it at installkosmos.com and sign in to Kosmos+.\n'
-    + '2. Go to Projects, press + Add Project, then Join an external project.\n'
+    + '2. Go to Projects, press + Add Project, then Join a project.\n'
     + '3. Paste this code and press Verify:\n'
     + '\n'
     + made.code + '\n'
