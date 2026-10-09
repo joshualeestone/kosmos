@@ -105,3 +105,10 @@ An agent launch after an upgrade leaves no rule for a removed version folder or 
 - An unparseable record gets one dated copy per content, not one at every refresh.
 - The doc comment states the `warning` field. The plan's Built heading says current.
 - Not taken: parsing the first statement for the use-strict guard. Its false-red shape is named in its header, and none exists.
+
+## Review 12 (Sonnet) and what changed
+
+- A launch that prunes now says so in the log, as counts only. Test: one line when it prunes, none when it does not; removing it goes red.
+- The mode-000 arm runs only for an ordinary user, because root reads a mode-000 file.
+- Decided risk, stated so nobody reads pruning as strictly safe: once a removed path's rule is pruned, the path is unguarded until a launch names it again. The file tools could create something there in that window. A later launch runs it only if that exact path (a removed version's folder) is back on the launch PATH, and that launch denies it again before the agent starts. This is inherent to pruning at all, the card's purpose. Before #5663 the rule stayed for good, which is the growth this card removes.
+- Duplicates of decided points: the lock-free record; the warning reaching only the log (#5668); the use-strict guard's scope; other rule spellings not counted (review 11); review-number comments.

@@ -318,20 +318,24 @@ test('#5663 review 9: a folder a launch denied while it was absent is never reco
 test('#5663 review 11: the size counts the person\'s ~/ rule spelling against home; an unreadable record is left as it is and prunes nothing; one copy per unparseable content', () => {
   assert.deepEqual(setup.sandboxDenySize({}, ['Read(~/x/**)', 'Edit(~/y)'], '/h'), { paths: 2, raw: 8, prefixes: 8 });
   assert.deepEqual(setup.sandboxDenySize({}, ['Read(./rel)', 'Bash(x)'], '/h'), { paths: 0, raw: 0, prefixes: 0 }, 'CONTROL: other spellings are not guessed at');
-  // A record that exists and cannot be read (mode 000): nothing pruned, not replaced.
+  // A record that exists and cannot be read (mode 000): nothing pruned, not replaced. As root mode 000 still reads, so
+  // that arm runs only for an ordinary user (review 12).
   const dir = agentDir('lp-unreadable');
   const v = binDir('unreadable/1.0/bin');
   setup.guardTokenOnlyFolder(dir, 'lp-unreadable', { ...BASE, panePath: v });
   const rv = dirRule(v);
   const rec = path.join(dir, '.claude', 'kosmos-launch-rules.json');
   const before = fs.readFileSync(rec, 'utf8');
-  fs.chmodSync(rec, 0o000);
+  const asRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+  if (!asRoot) fs.chmodSync(rec, 0o000);
   fs.rmSync(path.join(SANDBOX, 'bins', 'unreadable', '1.0'), { recursive: true });
   assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-unreadable', { ...BASE, panePath: binDir('unreadable/other/bin') }), { ok: true });
-  assert.ok(readSettings(dir).permissions.deny.includes(rv), 'an unreadable record pruned a rule');
-  assert.equal(fs.statSync(rec).mode & 0o777, 0, 'an unreadable record was replaced');
-  fs.chmodSync(rec, 0o600);
-  assert.equal(fs.readFileSync(rec, 'utf8'), before, 'an unreadable record was rewritten');
+  if (!asRoot) {
+    assert.ok(readSettings(dir).permissions.deny.includes(rv), 'an unreadable record pruned a rule');
+    assert.equal(fs.statSync(rec).mode & 0o777, 0, 'an unreadable record was replaced');
+    fs.chmodSync(rec, 0o600);
+    assert.equal(fs.readFileSync(rec, 'utf8'), before, 'an unreadable record was rewritten');
+  }
   // The same unparseable content twice gets one dated copy.
   const dir2 = agentDir('lp-onecopy');
   setup.guardTokenOnlyFolder(dir2, 'lp-onecopy', { ...BASE, panePath: binDir('onecopy/bin') });
@@ -342,4 +346,24 @@ test('#5663 review 11: the size counts the person\'s ~/ rule spelling against ho
   }
   const copies = fs.readdirSync(path.join(dir2, '.claude')).filter((f) => f.startsWith('kosmos-launch-rules.json.unreadable-'));
   assert.equal(copies.length, 1, 'copied again: ' + copies.join(' '));
+});
+
+test('#5663 review 12: a launch that prunes says so in the log (counts only), and one that prunes nothing says nothing', () => {
+  const dir = agentDir('lp-log');
+  const v1 = binDir('logtool/1.0/bin');
+  const v2 = binDir('logtool/2.0/bin');
+  const said = [];
+  const real = process.stderr.write;
+  const run = (pane) => {
+    process.stderr.write = (chunk, ...rest) => { if (String(chunk).startsWith('#5663:')) said.push(String(chunk)); else return real.call(process.stderr, chunk, ...rest); return true; };
+    try { return setup.guardTokenOnlyFolder(dir, 'lp-log', { ...BASE, panePath: pane }); } finally { process.stderr.write = real; }
+  };
+  run(v1);
+  run(v1);
+  assert.deepEqual(said.filter((l) => /pruned/.test(l)), [], 'CONTROL: nothing pruned, nothing said');
+  fs.rmSync(path.join(SANDBOX, 'bins', 'logtool', '1.0'), { recursive: true });
+  run(v2);
+  const lines = said.filter((l) => /pruned/.test(l));
+  assert.equal(lines.length, 1, said.join(''));
+  assert.match(lines[0], /lp-log: pruned [1-9]\d* file-tool and [1-9]\d* sandbox launch rule/);
 });
