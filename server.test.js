@@ -13709,7 +13709,7 @@ test('#3939: a Meta Muse agent reads as Meta Muse, with no account by design', (
   assert.match(said, /^This is a Meta Muse agent, and it uses the Muse sign-in on this computer/, said);
   assert.doesNotMatch(said, /cannot tell which account|a muse agent/);
   // #5636 F5 (0.7.33): with no model kept yet, it says why and what fixes it; with one, it names it.
-  assert.match(said, /and we cannot tell which model it is running: Kosmos has not read one for this Muse agent yet \(it reads it once a turn names it\)\. If a later turn still says so, tell your person that Kosmos cannot read this agent's model\.$/, said);
+  assert.match(said, /and we cannot tell which model it is running: Kosmos has not read one for this Muse agent yet \(it normally reads it once a turn names it\)\. If whoami still says this after a later turn, tell your person once that Kosmos cannot read this agent's model\.$/, said);
   assert.match(sentenceForWhoami(null, { id: 'muse-spark-1.3', name: 'muse-spark-1.3' }, 'muse'), /and its model is muse-spark-1\.3\.$/);
   // CONTROL: another runner with no model keeps the plain words.
   assert.match(sentenceForWhoami(null, null, 'codex'), /and we cannot tell which model it is running\.$/);
