@@ -9923,8 +9923,12 @@ const server = http.createServer(async (req, res) => {
           const spent = body.accepted === true ? ORG_TICKET : null;
           if (spent) ORG_TICKET = null;   // one use
           r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true, spent ? { consentHash: spent.consentHash, consent: spent.consent, orgId: spent.orgId, computerSalt: spent.computerSalt, review: spent.review === true } : undefined);
-          // #5534 review 1: a fresh join fetches and applies the company's policy now, not at the next daily refresh.
-          if (r && r.ok === true) orgEnrollRefresh();
+          /* #5534 review 1: a fresh join fetches and applies the company's policy now, not at the next daily refresh.
+             Review 3: and the join answers once it has (up to 5 seconds), so no agent is made in between. */
+          if (r && r.ok === true) {
+            const fetched = orgEnrollRefresh();
+            if (fetched) await Promise.race([fetched, new Promise((res) => setTimeout(res, 5000).unref())]);
+          }
           // Not joined for a passing reason (no public code: unreachable, busy; or org_bad_world, which says "Try again"):
           // the same consent may be accepted again.
           if (spent && r && r.ok === false && (!r.code || r.code === 'org_bad_world') && !r.declined && Date.now() - spent.at <= ORG_TICKET_MS
@@ -20963,7 +20967,7 @@ function orgEnrollRefresh() {
   try {
     const oe = require('./engine/orgenroll');
     if (!oe.readEnrollment() && !oe.leavePending() && !oe.joinUnknown()) return;   // never joined: nothing is sent
-    oe.refresh().catch(() => { /* best effort: an unreachable company changes nothing */ });
+    return oe.refresh().catch(() => { /* best effort: an unreachable company changes nothing */ });
   } catch { /* best effort */ }
 }
 /** #5532: how often the work Kosmos checks whether its rollup is due (it sends daily, and on a change at most every

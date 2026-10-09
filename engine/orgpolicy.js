@@ -26,9 +26,12 @@
  * (it is not signed), or replace the pinned coordinator key in the tunnel's folder. This module keeps an honest board
  * from drifting and refuses forged or tampered bundles; it does not stop the Mac's own user.
  *
- * Not yet: gating on enrollment and leaving a company (E0.2; until then a policy stays in force once applied, and
- * only a bundle signed by the pinned coordinator key can set one), reporting the applied version (E0.3), the AI
- * policy text. The policy is per Kosmos on a Mac, as enrollment is: another Kosmos on the same Mac has its own.
+ * Enrollment (engine/orgenroll.js): the policy ends when this Kosmos stops being the company's enrolled one, and a
+ * policy of another company than the enrolled one is cleared before the new company's is applied. The highest version
+ * seen for each org is kept across that clear. An expired bundle does not lift the policy in force: the last good one
+ * stays until the company serves a newer one or the enrollment ends (fails closed).
+ *
+ * Not yet: reporting the applied version (E0.3), the AI policy text. The policy is per Kosmos on a Mac, as enrollment is: another Kosmos on the same Mac has its own.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -54,6 +57,17 @@ function readApplied() {
     const j = JSON.parse(raw);
     return j && Number.isInteger(j.version) && j.policy && typeof j.policy === 'object' ? j : null;
   } catch { return null; }
+}
+
+/** The highest version seen for each company, kept even while no policy is in force (review 3). */
+function readMarks() {
+  try {
+    const m = JSON.parse(readText(APPLIED()) || 'null');
+    const marks = m && m.marks && typeof m.marks === 'object' && !Array.isArray(m.marks) ? m.marks : {};
+    const out = {};
+    for (const [k, v] of Object.entries(marks)) if (Number.isInteger(v)) out[k] = v;
+    return out;
+  } catch { return {}; }
 }
 
 function writeApplied(rec) {
@@ -94,7 +108,7 @@ function refresh({ now, pinned } = {}) {
   if (p.v !== 1 || typeof p.org !== 'string' || !p.org || !Number.isInteger(p.version) || p.version < 1 || !shapeOk(p.policy)) {
     return { applied, refused: 'the policy bundle is not one this Kosmos understands' };
   }
-  const marks = applied && applied.marks && typeof applied.marks === 'object' && !Array.isArray(applied.marks) ? applied.marks : {};
+  const marks = readMarks();
   const mark = Math.max(Number.isInteger(marks[p.org]) ? marks[p.org] : 0, applied && applied.org === p.org ? applied.version : 0);
   if (p.version < mark) return { applied, refused: `an older policy (version ${p.version}) than one already applied (${mark})` };
   if (applied && applied.org === p.org) {
@@ -149,10 +163,36 @@ function allows({ provider, model } = {}, policy = inForce()) {
 }
 
 /* #5534 review 1: the board stopped being this company's enrolled Kosmos (it left, was removed, or the company stopped
-   naming it): its policy no longer applies here. The bundle and the applied record both go, so nothing re-applies it;
-   a later join brings the company's current one. Never throws. */
+   naming it): its policy no longer applies here. The bundle and the policy go, so nothing re-applies it; a later join
+   brings the company's current one. Review 3: the highest version seen for each company stays, so an older bundle
+   replayed after a rejoin is still refused. Never throws. */
 function clear() {
-  for (const f of [BUNDLE(), APPLIED()]) { try { fs.rmSync(f, { force: true }); } catch { /* already gone */ } }
+  const a = readApplied();
+  const marks = readMarks();
+  if (a && typeof a.org === 'string') marks[a.org] = Math.max(Number.isInteger(marks[a.org]) ? marks[a.org] : 0, a.version);
+  try { fs.rmSync(BUNDLE(), { force: true }); } catch { /* already gone */ }
+  try {
+    if (Object.keys(marks).length) writeApplied({ marks });
+    else fs.rmSync(APPLIED(), { force: true });
+  } catch { try { fs.rmSync(APPLIED(), { force: true }); } catch { /* already gone */ } }
 }
 
-module.exports = { refresh, current, inForce, allows, clear, TYP, BUNDLE, PINNED, APPLIED };
+/* #5534 review 3: the bundle and the record as they are on disk, and putting them back (a leave the company refused).
+   Restored files are re-verified on every read, so this cannot put back anything the pinned key did not sign. */
+/** The company whose policy is in force, or null (review 3: a policy of a company this Kosmos left is cleared). */
+function appliedOrg() { const a = readApplied(); return a && typeof a.org === 'string' ? a.org : null; }
+
+function snapshot() { return { bundle: readText(BUNDLE()), applied: readText(APPLIED()) }; }
+function restore(snap) {
+  if (!snap) return;
+  for (const [file, text] of [[BUNDLE(), snap.bundle], [APPLIED(), snap.applied]]) {
+    if (typeof text !== 'string') continue;
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+      const tmp = `${file}.${process.pid}.tmp`;
+      try { fs.writeFileSync(tmp, text, { mode: 0o600 }); fs.renameSync(tmp, file); } finally { fs.rmSync(tmp, { force: true }); }
+    } catch { /* best effort */ }
+  }
+}
+
+module.exports = { refresh, current, inForce, allows, clear, appliedOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };

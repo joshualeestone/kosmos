@@ -99,10 +99,12 @@ function writeWhole(file, text) {
   try { fs.writeFileSync(tmp, text, { mode: 0o600 }); fs.renameSync(tmp, file); }
   catch (e) { try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to remove */ } throw e; }
 }
+const policyMod = (opts) => (opts && opts.orgpolicy) || require('./orgpolicy');
+
 function clearEnrollment(opts) {
   try { fs.rmSync(path.join(storeRoot(opts), ENROLLMENT_FILE), { force: true }); } catch { /* already gone */ }
   // #5534 review 1: every end of an enrollment comes through here, so the company's policy ends with it.
-  try { ((opts && opts.orgpolicy) || require('./orgpolicy')).clear(); } catch { /* best effort */ }
+  try { policyMod(opts).clear(); } catch { /* best effort */ }
 }
 
 /* This world's id if it was ever minted; never mints (the gate and a page read must not write). */
@@ -532,6 +534,9 @@ async function enrollNow(code, accepted, opts) {
   }
   setLeavePending(false, opts);   // joined again after an unconfirmed leave: that old leave must never be sent now
   setStopped(null, opts); setLeaveRefused(null, opts); setJoinUnknown(null, opts);
+  /* #5534 review 3: joined to another company than the policy in force here (a move by code): the old company's policy
+     ends now, whether or not the follow-up refresh reaches the new company. */
+  try { const had = policyMod(opts).appliedOrg(); if (had && had !== org.id) policyMod(opts).clear(); } catch { /* best effort */ }
   return { ok: true, ...rec };
 }
 
@@ -711,6 +716,11 @@ async function leaveNow(opts, retry) {
   /* The pending marker goes down BEFORE the record goes, so a restart in between can never leave neither: the next pass
      then sends the leave (review 32). Every clear outcome below removes it. */
   setLeavePending(true, opts, before, undo, pendingConsentHash(opts));
+  /* #5534 review 3: what was in force, so a leave the company refuses (last admin) can put it back when its answer
+     carries no policy field (an older coordinator). A leave not yet confirmed still drops it at once: the person chose
+     to leave, and this Kosmos stops reporting at the same moment (decided on the card). */
+  let heldPolicy = null;
+  try { heldPolicy = policyMod(opts).snapshot(); } catch { heldPolicy = null; }
   clearEnrollment(opts);   // stop at once, whatever happens next
   /* Ask first. A leave ends the WHOLE membership (by account, not by computer), so it is sent only when the company
      confirms this world AND this signer. That stops a stale record, a moved enrollment, and a copy whose Kosmos+ key
@@ -764,7 +774,9 @@ async function leaveNow(opts, retry) {
     let kept = false;
     if (back) { try { writeEnrollment(back, opts); kept = true; } catch { /* below */ } }
     // #5534 review 2: still enrolled, so the company's policy (cleared with the record above) comes back from this answer.
-    if (kept && back.org) applyPolicy(d.policy, opts, back.org.id);
+    if (kept && back.org && !applyPolicy(d.policy, opts, back.org.id) && !('policy' in d)) {
+      try { policyMod(opts).restore(heldPolicy); } catch { /* best effort */ }
+    }
     setLeavePending(!kept, opts, back, undo, hashBefore);
     // Told "stopped" (or "not reporting") earlier: say once that it reports again, in words for what was refused (reviews 27, 31).
     if (kept && retry) setLeaveRefused((back.org && back.org.name) || 'your company', opts, undo ? 'undo' : 'leave');
@@ -832,13 +844,14 @@ async function refreshNow(opts) {
   let saved = true;
   try { writeEnrollment(rec, opts); } catch { saved = false; /* keep the old record; the next refresh tries again */ }
   // Review 1: a policy only once the enrollment it belongs to is on record here, or a later stop would never clear it.
+  /* Review 3: a policy of another company than this answer's: it ends BEFORE the new one is applied, so a bundle of
+     the new company's that is refused leaves no policy rather than the old company's. Keyed on the policy's own
+     company, not the record's, so a move by code that never cleared is caught here too. */
+  if (saved) { try { const had = policyMod(opts).appliedOrg(); if (had && had !== org.id) policyMod(opts).clear(); } catch { /* best effort */ } }
   const policy = saved ? applyPolicy(d.policy, opts, org.id) : null;
   /* Review 2: a policy is not kept past what the company serves. An answer saying none (policy: null, the company has
-     no policy) or a different company than the record's with none of its own: the old one no longer applies. An answer
-     from an older coordinator without the field changes nothing. */
-  if (saved && !policy && (('policy' in d && d.policy === null) || (before && before.org && before.org.id !== org.id))) {
-    try { require('./orgpolicy').clear(); } catch { /* best effort */ }
-  }
+     no policy) clears it. An answer from an older coordinator without the field changes nothing. */
+  if (saved && 'policy' in d && d.policy === null) { try { policyMod(opts).clear(); } catch { /* best effort */ } }
   return { ok: true, enrolled: true, member: true, ...rec, ...(policy ? { policy } : {}) };
 }
 
@@ -849,8 +862,10 @@ async function refreshNow(opts) {
    saved or applied leaves the enrollment as it is, and the next refresh (on start and daily) tries again. */
 function applyPolicy(token, opts, orgId) {
   if (typeof token !== 'string' || !token || token.length > 64 * 1024) return null;
-  const orgpolicy = (opts && opts.orgpolicy) || require('./orgpolicy');
-  // Review 1: a bundle for another company than the one this answer names is not saved (a coordinator mix-up).
+  const orgpolicy = policyMod(opts);
+  /* Review 1: a bundle for another company than the one this answer names is not saved (a coordinator mix-up). A
+     mix-up guard, not a security check: the payload is read before its signature is checked, and orgpolicy.refresh()
+     verifies the whole bundle against the pinned key. */
   if (orgId) {
     let named = null;
     try { named = JSON.parse(Buffer.from(token.split('.')[1] || '', 'base64url').toString('utf8')).org; } catch { named = null; }
