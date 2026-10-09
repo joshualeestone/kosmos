@@ -9,10 +9,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { _spillHead: spillHead } = require('./messages');
 
-test('#5706: a first sentence that ends within 200 characters is the head, whole, with no ellipsis', () => {
+test('#5706: a first sentence that ends within 200 characters is the head, then an ellipsis (there is always more)', () => {
   const text = 'The lease renewal is due on the first of the month. ' + 'More detail follows here. '.repeat(60);
   const r = spillHead(text);
-  assert.equal(r.head, 'The lease renewal is due on the first of the month.');
+  assert.equal(r.head, 'The lease renewal is due on the first of the month. \u2026');
   assert.equal(r.words, (text.match(/\S+/g) || []).length);
 });
 
@@ -48,11 +48,11 @@ test('#5706 review 1: a list number or an abbreviation is not a sentence end, so
     'I met with the landlord at 3 p.m. Then we walked through the whole flat together. ' + 'More. '.repeat(150),
   ]) {
     const r = spillHead(text);
-    assert.ok(!/(?:\b1\.|e\.g\.|p\.m\.)$/.test(r.head), 'a fragment read as a sentence: ' + r.head);
+    assert.ok(!/(?:\b1\.|e\.g\.|p\.m\.)(?: …)?$/.test(r.head), 'a fragment read as a sentence: ' + r.head);
   }
   // CONTROL: a real sentence after such a word is still found.
   assert.equal(spillHead('I met with the landlord at 3 p.m. Then we walked through the whole flat. Next. ' + 'More. '.repeat(150)).head,
-    'I met with the landlord at 3 p.m. Then we walked through the whole flat.');
+    'I met with the landlord at 3 p.m. Then we walked through the whole flat. \u2026');
 });
 
 test('#5706 review 1: a full stop at the 200th character inside a word (release3.5) is not a sentence end', () => {
@@ -82,17 +82,27 @@ test('#5706 review 2: known abbreviations are not sentence ends, and a short rea
     'The letter came from Prof. Jones about the grant application and its budget. ' + 'More. '.repeat(150),
     'I had a long meeting yesterday with Gen. Smith about the budget for next year. ' + 'More. '.repeat(150),
     'Yesterday we hiked up Mt. Rainier with the whole team and two of the dogs too. ' + 'More. '.repeat(150),
+    'Results were reported by Smith et al. The study showed a clear effect on rents. ' + 'More. '.repeat(150),
   ]) {
     const r = spillHead(text);
-    assert.ok(!/(?:Mrs|Inc|Prof|Gen|Mt)\.$/.test(r.head), 'an abbreviation read as a sentence end: ' + r.head);
+    assert.ok(!/(?:Mrs|Inc|Prof|Gen|Mt|al)\.(?: …)?$/.test(r.head), 'an abbreviation read as a sentence end: ' + r.head);
   }
   // CONTROL: a real sentence that ends in a short word is still the head.
   assert.equal(spillHead('Please send the signed lease back to me. Then we can book the movers for May. ' + 'More. '.repeat(150)).head,
-    'Please send the signed lease back to me.');
+    'Please send the signed lease back to me. \u2026');
 });
 
 test('#5706 review 2: a cut never ends on half of an emoji', () => {
   const r = spillHead('a' + '\u{1F600}'.repeat(150));
   assert.ok(!/[\uD800-\uDBFF]\u2026$/.test(r.head), 'a lone high surrogate before the ellipsis');
   assert.ok(r.head.endsWith('\u{1F600}\u2026'), JSON.stringify(r.head.slice(-4)));
+});
+
+test('#5706 review 4: every head ends in an ellipsis, so even a word the list misses cannot pass a fragment off as whole', () => {
+  // "Messrs." is not in the list: the head may stop there, but it still says there is more.
+  const r = spillHead('The deed was signed by the brothers, Messrs. Hart and Lowe, at the bank on Friday. ' + 'More. '.repeat(150));
+  assert.ok(r.head.endsWith('\u2026'), r.head);
+  for (const text of ['A real first sentence that is long enough. ' + 'More. '.repeat(150), 'the lease detail '.repeat(80)]) {
+    assert.ok(spillHead(text).head.endsWith('\u2026'), spillHead(text).head);
+  }
 });
