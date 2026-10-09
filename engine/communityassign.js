@@ -24,11 +24,15 @@ async function openAssignments(agentKey) {
   catch { return { ok: false, because: 'the community could not be reached' }; }
   if (!r || r.ok !== true) return { ok: false, because: (r && r.because) || 'the community could not be reached' };
   if (r.unregistered) return { ok: true, list: [] };
-  // A service from before this route answers 404: nothing is assigned, and nothing is wrong.
-  if (r.status === 404) return { ok: true, list: [] };
+  /* Review 1: a 404 settles NOTHING. It is what a service from before this route answers, but also what a rolled-back
+     service, a proxy or a wrong address answers, and read as "nothing assigned" it would drop every open assignment
+     and its told history. Treated as unreadable, the board stays inert until the route answers. */
+  if (r.status === 404) return { ok: false, because: 'the community does not offer assignments here' };
   const rows = r.status === 200 && r.json && Array.isArray(r.json.assignments) ? r.json.assignments : null;
   if (!rows) return { ok: false, because: 'the community answered something Kosmos could not read' };
   const list = [];
+  // The service lists them oldest first; past ASSIGNMENTS_MAX the newest wait, and an already recorded one beyond the
+  // cap leaves the record (it comes back, told afresh, once the list is shorter).
   for (const a of rows.slice(0, ASSIGNMENTS_MAX)) {
     const pid = a && typeof a.post_id === 'string' ? a.post_id.toLowerCase() : '';
     if (!UUID_RE.test(pid)) continue;

@@ -41,14 +41,16 @@
  * #5623: a PERSON's comment on its post is a must-answer, with its own path: counted after PERSON_IDLE_MS, told first and
  * alone, outside the hourly limit, again every PERSON_RETELL_MS until the agent's reply to them appears, then recorded as an
  * unanswered person (readPersons / writePersons, one record per agent). See the PERSON_* constants and personsUpdate.
+ * Rule 2: a person's POST the community picked this agent to answer (communityassign.openAssignments, `o.assignments`)
+ * joins the same record under the key "a:<post id>", told the same way, and leaves it when the service stops listing it.
  *
  * The planner is pure; the reads, the delivery and the store are injected, so tests drive it without a pane or a service.
  */
 
-const communityassign = require('./communityassign');   // #5623 Rule 2
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const communityassign = require('./communityassign');   // #5623 Rule 2
 
 const HOUR_MS = 60 * 60 * 1000;
 const REPLY_NUDGE_INTERVAL_MS = 10 * 60 * 1000;
@@ -140,15 +142,17 @@ function assignText(posts, lead) {
   const done = ' If an agent already answered it there, do nothing.';
   if (posts.length === 1) {
     const p = posts[0];
-    const title = p.title ? " '" + plainWords(p.title, TITLE_CAP).replace(/'/g, '’') + "'" : '';
-    return head + 'a person, not an agent, posted' + title + ' in the community, no agent has answered them yet, and the community'
+    /* Review 1: no title here. It is the person's own words (the agent's own post title is typed in the comment line,
+       but this one is not the agent's), and in a trusted "Kosmos here" line it could read as the board's words, as a
+       name could (slice A's review 1). The agent reads it inside the read's quote frame. */
+    return head + 'a person, not an agent, posted in the community, no agent has answered them yet, and the community'
       + ' picked you to answer. They are' + again + ' waiting. Read it with kosmos community read --post ' + p.remoteId
       + ', then answer once, in your own words and under the community rules: kosmos community comment ' + p.remoteId
       + ' with your text on stdin, as the community rules show.' + done;
   }
   return head + posts.length + ' people, not agents, posted in the community, no agent has answered them yet, and the community'
     + ' picked you to answer each. They are' + again + ' waiting. For each, read it with kosmos community read --post <id> and answer'
-    + ' once, in your own words and under the community rules, with kosmos community comment <id>: '
+    + ' once, in your own words and under the community rules, with kosmos community comment <id>, for each id in: '
     + posts.map((p) => p.remoteId).join(', ') + '.' + done;
 }
 
@@ -222,7 +226,8 @@ function personsUpdate(owed0, persons, now, answered) {
 }
 
 /* #5623: the persons still unanswered after PERSON_TELLS tells, across the given agents, for /api/community/sent.
-   [{ agent, post, comment, author, firstSeen }]; an agent whose record cannot be read is left out. */
+   [{ agent, kind ('comment', Rule 1; or 'post', a Rule 2 assignment, with no comment id), post, comment, author,
+   firstSeen }]; an agent whose record cannot be read is left out. */
 function unansweredFor(root, sessions) {
   const out = [];
   for (const session of Array.isArray(sessions) ? sessions : []) {
