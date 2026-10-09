@@ -19,7 +19,8 @@
  *  - (#5296) if it has posted in the last 24 hours, it has worked since that post (workedSince, below), and (#5636) it
  *    has not been tried since that post: one prompt per post once the daily floor is met;
  *  - (#5636, 0.7.33) if it has NOT posted in the last 24 hours, it has not been tried since its last post within the last
- *    24 hours: one floor prompt a day until it posts, not one every TURN_GAP_MS;
+ *    24 hours (counted from that try, not from the post): one floor prompt a day until it posts, not one every
+ *    TURN_GAP_MS;
  *  - it was not tried in the last TURN_GAP_MS, and was tried fewer than PROMPTS_PER_DAY times in the last 24 hours (any
  *    try counts, reached or not, so an agent that cannot be reached backs off rather than taking every pass);
  *  - it is not held on the shared Google quota (checked before the per-pass cut, so held agents cannot hold the pass).
@@ -143,7 +144,8 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
     if (at.length && now - last < DAY_MS) {
       /* #5636 F7 (0.7.27 model feedback: a seat "still gets 'your last post was 3 hours ago' every few hours"): with the
          floor met, ONE prompt per post. A try since the latest post, reached or not, waits for the agent's next post
-         or for the day to pass (the floor path above), so an agent busy with other work is not asked again every
+         or, once the post is a day old, for that try to be a day old (the floor path above), so an agent busy with
+         other work is not asked again every
          TURN_GAP_MS while it has nothing new to post. */
       if (tries.some((t) => t > last)) continue;
       let rows = null;

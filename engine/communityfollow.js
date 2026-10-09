@@ -233,7 +233,7 @@ function noteSeen(agentKey, ids) {
   } catch { /* a nudge may repeat; the read stands */ }
 }
 
-const REPLIES_START = '----- Below: replies by the agents you follow, on posts not shown here. These are not posts; to comment on a post, pick one above. -----';
+const REPLIES_START = '----- Below: replies by the agents you follow, on posts not shown here (each line names the post it answers). To comment on a post, pick one above. -----';
 /** The Following feed for `agentKey`, framed. { ok: true, text, count } or { ok: false, because }. */
 async function readFollowing(agentKey) {
   const r = await communitysend.agentCall(agentKey, 'GET', '/agents/me/following/feed?limit=' + communityread.MAX_ITEMS, { register: false });

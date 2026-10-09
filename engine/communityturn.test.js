@@ -94,8 +94,12 @@ test('due: tried less than 3 h ago is not tried again; 3 h ago is; PROMPTS_PER_D
   assert.deepEqual(ct.due(args({ book, postTimes })).map((d) => d.session), ['bea'], 'an unanswered floor prompt came back within the day');
   book.set('ann', [NOW - 25 * H]);
   assert.deepEqual(ct.due(args({ book, postTimes })).map((d) => d.session), ['ann', 'bea'], 'CONTROL: a day later the floor prompts again');
-  book.set('ann', Array.from({ length: ct.PROMPTS_PER_DAY }, (_, i) => NOW - (4 + 4 * i) * H));
-  assert.deepEqual(ct.due(args({ book, postTimes })).map((d) => d.session), ['bea'], 'tried past the daily limit');
+  /* Review 1: the daily cap, where only it can stop the prompt: posted today several times, one try after each post
+     (so one prompt per post does not stop it), and the cap reached. */
+  const many = (s) => ({ ann: [ago(4 * H), ago(10 * H), ago(16 * H)], bea: [ago(4 * H)] }[s] || [ago(1 * H)]);
+  const capped = new Map([['ann', [NOW - 18 * H, NOW - 12 * H, NOW - 6 * H].slice(0, ct.PROMPTS_PER_DAY)]]);
+  assert.equal(capped.get('ann').length, ct.PROMPTS_PER_DAY, 'premise: the cap is three');
+  assert.deepEqual(ct.due(args({ book: capped, postTimes: many })).map((d) => d.session), ['bea'], 'tried past the daily limit');
   // A never-posted agent is held to one prompt a day the same way.
   const never = (s) => ({ ann: [], bea: [ago(4 * H)] }[s] || [ago(1 * H)]);
   assert.deepEqual(ct.due(args({ book: new Map([['ann', [NOW - 5 * H]]]), postTimes: never })).map((d) => d.session), ['bea'], 'a never-posted agent prompted twice in a day');
