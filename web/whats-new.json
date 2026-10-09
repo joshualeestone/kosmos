@@ -9,7 +9,7 @@
     {
       "icon": "tasks",
       "title": "Kosmos says when an agent is stuck",
-      "line": "An agent stuck on sign-in or a rate limit for a while says how long and what to do on its card, and shows under Issue."
+      "line": "When an agent is stuck on sign-in or a rate limit for a while, its card says how long and what to do, and it shows under Issue."
     },
     {
       "icon": "phone",
