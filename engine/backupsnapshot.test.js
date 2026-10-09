@@ -1202,6 +1202,10 @@ test('#5686: three named roots round-trip under their names; each root keeps its
 test('#5686: roots that cannot be used are refused before anything is read or uploaded', async () => {
   const w = threeRoots(), k = keys();
   try {
+    // A symlink to a folder inside another root: realpath resolves it there.
+    const other = path.join(w.base, 'other'); fs.mkdirSync(other);
+    fs.symlinkSync(w.roots.data, path.join(other, 'to-data'));
+    fs.symlinkSync(w.roots.data, path.join(w.base, 'link-to-data'));
     const cases = [
       [[{ name: 'data', path: w.roots.data }, { name: 'data', path: w.roots.workers }], /repeats or contains/],
       [[{ name: 'sessions', path: w.roots.data }, { name: 'sessions/claude', path: w.roots.workers }], /repeats or contains/],
@@ -1211,6 +1215,15 @@ test('#5686: roots that cannot be used are refused before anything is read or up
       [[{ name: 'data', path: path.join(w.base, 'missing') }], /could not be read/],
       // A root inside another, by real path: its files would be stored twice.
       [[{ name: 'all', path: w.base }, { name: 'data', path: w.roots.data }], /inside the root all/],
+      // Review 1: a name restore refuses, or the deny-list skips, would store files that never come back.
+      [[{ name: 'con', path: w.roots.data }], /not one every system accepts/],
+      [[{ name: 'sessions/aux', path: w.roots.data }], /not one every system accepts/],
+      [[{ name: 'secrets', path: w.roots.data }], /never stores/],
+      // Review 1: nesting by the folders' identity, not their spelling.
+      [[{ name: 'one', path: w.roots.data }, { name: 'two', path: w.roots.data }], /same folder/],
+      [[{ name: 'one', path: w.roots.data }, { name: 'two', path: w.roots.data + '/' }], /same folder/],
+      [[{ name: 'all', path: w.base }, { name: 'link', path: path.join(w.base, 'link-to-data') }], /inside the root all|inside the root link/],
+      [[{ name: 'workers', path: w.roots.workers }, { name: 'linked', path: path.join(other, 'to-data') }, { name: 'data', path: w.roots.data }], /same folder/],
       [[], /1 to 64/],
     ];
     for (const [roots, want] of cases) {
@@ -1227,6 +1240,34 @@ test('#5686: roots that cannot be used are refused before anything is read or up
     // CONTROL: the same roots, correctly named and not nested, are accepted.
     const ok = await takeRoots(k, [{ name: 'data', path: w.roots.data }, { name: 'sessions-claude', path: w.roots.workers }], store());
     assert.equal(ok.ok, true, ok.because);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('#5686 review 1: a root spelled in another case is the same folder on a case-insensitive volume, and is refused', async (t) => {
+  const w = threeRoots(), k = keys();
+  try {
+    const upper = w.roots.data.replace(/AppSupport/, 'APPSUPPORT');
+    let sameFolder = false;
+    try { sameFolder = fs.statSync(upper).ino === fs.statSync(w.roots.data).ino; } catch { /* a case-sensitive volume */ }
+    if (!sameFolder) { t.skip('this volume is case-sensitive: the two spellings are two folders'); return; }
+    const st = store();
+    const r = await takeRoots(k, [{ name: 'data', path: w.roots.data }, { name: 'again', path: upper }], st);
+    assert.equal(r.ok, false);
+    assert.match(r.because, /same folder/);
+    assert.equal(st.batches.length + st.manifests.length, 0);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('#5686 review 1: an unreadable root folder is named by its root name in skipped', async () => {
+  const w = threeRoots(), k = keys(), st = store();
+  try {
+    const realFs = require('fs');
+    const fakeFs = Object.assign({}, realFs, { readdirSync: (p, ...a) => { if (p === w.roots.projects) { const e = new Error('denied'); e.code = 'EACCES'; throw e; } return realFs.readdirSync(p, ...a); } });
+    fakeFs.realpathSync = realFs.realpathSync; fakeFs.constants = realFs.constants;
+    const r = await takeRoots(k, [{ name: 'data', path: w.roots.data }, { name: 'projects', path: w.roots.projects }], st, { fs: fakeFs });
+    assert.equal(r.ok, true, r.because);
+    const opened = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+    assert.ok(opened.skipped.some((x) => x.path === 'projects'), JSON.stringify(opened.skipped));
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 

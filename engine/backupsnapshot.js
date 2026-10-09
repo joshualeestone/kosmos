@@ -299,6 +299,10 @@ function rootsOf(input) {
     if (typeof r.path !== 'string' || !path.isAbsolute(r.path)) return `the root ${r.name} must be an absolute path`;
     // One name inside another (`sessions` and `sessions/claude`) would let two roots write the same restored path.
     if (names.some((n) => n === r.name || n.startsWith(r.name + '/') || r.name.startsWith(n + '/'))) return `the root name ${r.name} repeats or contains another root's name`;
+    // A name restore refuses (a Windows device name such as con or aux) would store files that can never come back,
+    // and a name the deny-list refuses as a folder (secrets) would have every file read and then dropped.
+    if (pathProblem(`${r.name}/x`)) return `the root name ${r.name} is not one every system accepts`;
+    if (!pathDecision(`${r.name}/x`).include) return `the root name ${r.name} is one the backup never stores`;
     names.push(r.name);
   }
   return input.roots.map((r) => ({ name: r.name, path: r.path, exclude: r.exclude }));
@@ -308,20 +312,39 @@ function rootsOf(input) {
    path is prefixed with the root's name. A root inside another (by real path) is refused: its files would be stored
    twice. The file limit counts every root together. Returns the merged listing, or why not (a sentence). */
 async function listRoots(roots, fs) {
-  const reals = [];
+  const reals = [], ids = [];
   for (const r of roots) {
-    try { reals.push(fs.realpathSync(r.path)); } catch { return r.name ? `the root ${r.name} could not be read` : 'the work Kosmos folder could not be read'; }
+    try {
+      const real = fs.realpathSync(r.path), st = fs.statSync(real, { bigint: true });
+      reals.push(real); ids.push(`${st.dev}:${st.ino}`);
+    } catch { return r.name ? `the root ${r.name} could not be read` : 'the work Kosmos folder could not be read'; }
   }
+  // A root inside another is found by the folders' identity, not their spelling: a real path keeps the case it was
+  // given (on a case-insensitive volume /USERS/x and /Users/x are one folder) and a firmlink gives one folder two paths.
+  // So every folder from each root up to the volume's top is compared, by device and inode, with every other root.
   for (let i = 0; i < reals.length; i++) {
-    for (let j = 0; j < reals.length; j++) {
-      if (i !== j && insideWorkKosmos(reals[i], reals[j])) return `the root ${roots[i].name} is inside the root ${roots[j].name}, so its files would be stored twice`;
+    let at = reals[i];
+    for (;;) {
+      let id;
+      try { const st = fs.statSync(at, { bigint: true }); id = `${st.dev}:${st.ino}`; } catch { id = null; }
+      const j = ids.findIndex((x, k) => k !== i && x === id);
+      if (j >= 0) return `the root ${roots[i].name} is inside the root ${roots[j].name}, or is the same folder, so its files would be stored twice`;
+      const up = path.dirname(at);
+      if (up === at) break;
+      at = up;
     }
   }
   const out = { files: [], skipped: [], skippedExtra: 0, over: false };
-  const pre = (name, p) => (name ? `${name}/${p}` : p);
+  const pre = (name, p) => (!name ? p : p === '.' ? name : `${name}/${p}`);
   for (let i = 0; i < roots.length && !out.over; i++) {
-    const got = await listFiles(reals[i], fs, { exclude: roots[i].exclude, maxFiles: MAX_FILES - out.files.length });
-    for (const f of got.files) out.files.push(Object.assign({}, f, { rel: f.path, path: pre(roots[i].name, f.path), rootReal: reals[i] }));
+    const got = await listFiles(reals[i], fs, { exclude: roots[i].exclude, maxFiles: MAX_FILES - out.files.length, maxSkipped: Math.max(0, MAX_SKIPPED - out.skipped.length) });
+    for (const f of got.files) {
+      const stored = pre(roots[i].name, f.path);
+      // The walk judged the path inside the root; restore judges the stored one, which is longer by the name.
+      const problem = roots[i].name ? pathProblem(stored) : null;
+      if (problem) { if (out.skipped.length < MAX_SKIPPED) out.skipped.push({ path: stored, why: `restore would refuse it: ${problem}` }); else out.skippedExtra++; continue; }
+      out.files.push(Object.assign({}, f, { rel: f.path, path: stored, rootReal: reals[i] }));
+    }
     for (const x of got.skipped) out.skipped.push(Object.assign({}, x, { path: pre(roots[i].name, x.path) }));
     out.skippedExtra += got.skippedExtra;
     out.over = got.over;
