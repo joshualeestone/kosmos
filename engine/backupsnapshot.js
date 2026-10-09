@@ -38,6 +38,7 @@ const path = require('path');
 const { chunkBuffer, sealNamedChunk, sealManifest, checkBackupContext } = require('./backupformat');
 const { scanFile, pathDecision, insideWorkKosmos } = require('./backupscan');
 const { uploadChunks, uploadManifest, MAX_MANIFEST } = require('./backupupload');
+const { pathProblem, collisionKey } = require('./backuprestore');
 
 const FORMAT = 1;
 // A file is read whole to be scanned (backupscan works on one buffer), so a bigger one is skipped, and says so.
@@ -94,12 +95,23 @@ function listFiles(root, fs = nodeFs) {
       if (!st.isFile()) { skipped.push({ path: r, why: 'not a regular file' }); continue; }
       const d = pathDecision(r);
       if (!d.include) { skipped.push({ path: r, why: d.why }); continue; }
+      // A path restore would refuse (engine/backuprestore.js pathProblem) is not stored: it could never come back.
+      const problem = pathProblem(r);
+      if (problem) { skipped.push({ path: r, why: `${problem}: restore cannot write it` }); continue; }
       files.push({ path: r, dev: st.dev, ino: st.ino, size: st.size });
     }
   };
   walk('');
   files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-  return { files, skipped };
+  // Names restore treats as one (case, invisible characters, '\\' as '/'): restore refuses every one of them, so the
+  // first in sorted order is kept and the rest are skipped and named.
+  const seen = new Map(), kept = [];
+  for (const f of files) {
+    const k = collisionKey(f.path);
+    if (seen.has(k)) skipped.push({ path: f.path, why: `restore treats it as the same name as ${seen.get(k)}` });
+    else { seen.set(k, f.path); kept.push(f); }
+  }
+  return { files: kept, skipped };
 }
 
 /* Read the file the walk found, or say why not: { buf } or { why }. One open, no final link followed, never blocking. */
@@ -112,6 +124,8 @@ function readListed(fs, rootReal, f, maxFile) {
   try {
     const st = fs.fstatSync(fd);
     if (!st.isFile() || st.dev !== f.dev || st.ino !== f.ino) return { why: 'replaced while the snapshot was taken' };
+    // A hard link has no real path of its own to check: another name for it may be outside the work Kosmos.
+    if (st.nlink > 1) return { why: 'a hard link (another name for it may be outside the work Kosmos)' };
     // The real path, from the path opened; the descriptor's identity already ties it to the file the walk saw.
     const real = fs.realpathSync(abs);
     if (!insideWorkKosmos(real, rootReal)) return { why: 'its real path is outside the work Kosmos' };
@@ -119,6 +133,7 @@ function readListed(fs, rootReal, f, maxFile) {
     const d = pathDecision(relReal);
     if (!d.include) return { why: d.why };
     if (st.size > maxFile) return { why: `larger than ${Math.round(maxFile / 1024 / 1024)} MB, too large to scan` };
+    // One byte more than allowed: filling it means the file grew past maxFile after the size check.
     const buf = Buffer.alloc(Math.min(st.size, maxFile) + 1);
     let n = 0;
     for (;;) {
@@ -200,7 +215,11 @@ async function snapshotInner(input, deps, added, state, fail) {
   if (estimate > budget) return fail('the manifest for this many files would pass its size ceiling', { tooLarge: true });
   estimate = 1024;
 
-  const skipped = listed.skipped.slice();
+  const skipped = [];
+  // Every skip is charged to the manifest estimate as it happens, so the last batch is never uploaded for a manifest
+  // its skipped list would push over the ceiling (review 2).
+  const skip = (s) => { if (skipped.length < MAX_SKIPPED) estimate += entryBytes(s); skipped.push(s); };
+  for (const s of listed.skipped) skip(s);
   const files = [], redacted = [];
   const objects = {};        // every referenced chunk: name -> key (filled as chunks are stored or reused)
   const pending = new Map(); // sealed this run, not yet uploaded: name -> object
@@ -218,19 +237,24 @@ async function snapshotInner(input, deps, added, state, fail) {
     const lockOf = (name) => (r && r.lockedUntil instanceof Map ? r.lockedUntil.get(name) : undefined);
     const spent = r && r.grantSpent !== undefined ? { grantSpent: r.grantSpent } : {};
     if (r && r.bucket && state.bucket && r.bucket !== state.bucket) {
-      // Another bucket than the index's: the index cannot be used with these. Keep what this batch stored, under ITS bucket.
+      // Another bucket than the index's: the index cannot be used with these. `added` is reported under ONE bucket, so it
+      // becomes what this batch stored under the NEW bucket; chunks earlier batches of this run stored under the old
+      // bucket are dropped from it (stored, locked, and named by nothing until their lock ends), deliberately.
       added.clear(); state.bucket = r.bucket;
       for (const [name, key] of stored) if (periodOfKey(key) === ctx.period && Number.isSafeInteger(lockOf(name))) added.set(name, { key, lockedUntilMs: lockOf(name) });
       return fail('a grant named another bucket than the index\'s: drop the index and take a full snapshot', Object.assign({ staleIndex: true }, spent));
     }
     if (r && r.bucket && !state.bucket) state.bucket = r.bucket;
+    // Every usable stored chunk is recorded before any failure is returned, so the caller's index keeps it (review 2).
     const wrongPeriod = [];
+    let noLock = false;
     for (const [name, key] of stored) {
       if (periodOfKey(key) !== ctx.period) { wrongPeriod.push(periodOfKey(key)); continue; }
-      if (!Number.isSafeInteger(lockOf(name))) return fail('a stored chunk came back without its lock end', spent);
+      if (!Number.isSafeInteger(lockOf(name))) { noLock = true; continue; }
       added.set(name, { key, lockedUntilMs: lockOf(name) });
       objects[name] = key;
     }
+    if (noLock) return fail('a stored chunk came back without its lock end', spent);
     if (wrongPeriod.length) return fail(`a chunk was granted in period ${wrongPeriod[0]}, not ${ctx.period} (a period boundary passed); retry in the new period`, Object.assign({ retryLater: true }, spent));
     if (!r || !r.ok) return fail(`chunks could not be uploaded: ${(r && r.because) || 'no answer'}`, Object.assign({}, r && r.retryLater ? { retryLater: true } : {}, r && r.unsure ? { unsure: r.unsure } : {}, spent));
     for (const name of pending.keys()) if (!objects[name]) return fail('the uploader reported success without a key for every chunk');
@@ -241,9 +265,9 @@ async function snapshotInner(input, deps, added, state, fail) {
 
   for (const f of listed.files) {
     const got = readListed(fs, rootReal, f, maxFile);
-    if (!got.buf) { skipped.push({ path: f.path, why: got.why }); continue; }
+    if (!got.buf) { skip({ path: f.path, why: got.why }); continue; }
     const d = scanFile(f.path, got.buf);
-    if (d.action !== 'store') { skipped.push({ path: f.path, why: d.why || 'not stored' }); continue; }
+    if (d.action !== 'store') { skip({ path: f.path, why: d.why || 'not stored' }); continue; }
     const data = d.data;
     if (d.redacted && d.redacted.length) { redacted.push({ path: f.path, kinds: d.redacted }); estimate += entryBytes(redacted[redacted.length - 1]); }
     const names = [];
@@ -262,13 +286,18 @@ async function snapshotInner(input, deps, added, state, fail) {
     estimate += entryBytes(entry);
     files.push(entry);
   }
-  for (const s of skipped.slice(0, MAX_SKIPPED)) estimate += entryBytes(s);
+  if (estimate > budget) return fail('the manifest for this many files would pass its size ceiling', { tooLarge: true });
   const stop = await flush();
   if (stop) return stop;
   if (estimate > budget) return fail('the manifest for this many files would pass its size ceiling', { tooLarge: true });
 
   // Every chunk a file names, with its key and lock end, for the manifest uploader's checks.
-  const chunks = Object.keys(objects).map((name) => { const e = added.get(name) || index.get(name); return { key: e.key, lockedUntilMs: e.lockedUntilMs }; });
+  const chunks = [];
+  for (const name of Object.keys(objects)) {
+    const e = added.get(name) || index.get(name);
+    if (!e) return fail('a chunk the manifest names has no stored key');
+    chunks.push({ key: e.key, lockedUntilMs: e.lockedUntilMs });
+  }
   if (!chunks.length) return fail('there is nothing to back up: no file with content was found (a manifest must name at least one chunk)');
   const manifest = {
     format: FORMAT, takenAt: new Date(now()).toISOString(), namingKeyId,

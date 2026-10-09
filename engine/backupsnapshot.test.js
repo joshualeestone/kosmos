@@ -353,3 +353,64 @@ test('a manifest refused for outlasting the index\'s chunks is a stale index, wi
     assert.equal(r.ok, false); assert.equal(r.staleIndex, true); assert.equal(r.grantSpent, false);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('a hard link is skipped: another name for it may be outside the work Kosmos', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    fs.linkSync(path.join(w.base, 'outside', 'secret.txt'), path.join(w.root, 'agents', 'a', 'hard.txt'));
+    const r = await take(k, w.root, st);
+    assert.equal(r.ok, true, r.because);
+    const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+    assert.ok(m.skipped.some((x) => x.path === 'agents/a/hard.txt' && /hard link/.test(x.why)));
+    assert.ok(m.files.some((x) => x.path === 'readme.txt'), 'control: a file with one link is stored');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a path restore would refuse, or two names restore treats as one, is skipped at backup time and named', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    for (const n of ['aux.c', 'a:b.txt', 'trailing.txt ', 'Icon\r']) fs.writeFileSync(path.join(w.root, 'agents', 'a', n), 'x');
+    fs.mkdirSync(path.join(w.root, 'q'));
+    fs.writeFileSync(path.join(w.root, 'q', 'r.txt'), 'folder form');
+    fs.writeFileSync(path.join(w.root, 'q\\r.txt'), 'backslash form');
+    const r = await take(k, w.root, st);
+    assert.equal(r.ok, true, r.because);
+    const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+    const why = Object.fromEntries(m.skipped.map((x) => [x.path, x.why]));
+    for (const n of ['aux.c', 'a:b.txt', 'trailing.txt ', 'Icon\r']) assert.match(why[`agents/a/${n}`] || '', /restore cannot write it/, JSON.stringify(n));
+    const qs = ['q/r.txt', 'q\\r.txt'];
+    assert.equal(qs.filter((p) => m.files.some((x) => x.path === p)).length, 1, 'exactly one of two colliding names is stored');
+    assert.ok(qs.some((p) => /same name as/.test(why[p] || '')), 'the other is named');
+    const { r: rr } = await restoreFrom(k, st, st.manifests[0].bytes);
+    assert.equal(rr.failed.length, 0, `restore refuses nothing the walker stored: ${JSON.stringify(rr.failed)}`);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a skipped list that would push the manifest over its ceiling stops the run before the last batch is uploaded', async () => {
+  const w = workKosmos(), k = keys();
+  try {
+    // Control: the same work Kosmos without the extra skipped files fits the same ceiling.
+    const control = await take(k, w.root, store(), { deps: { maxManifestJson: 16 * 1024 } });
+    assert.equal(control.ok, true, `control: ${control.because}`);
+    for (let i = 0; i < 400; i++) fs.writeFileSync(path.join(w.root, 'agents', 'a', `k${String(i).padStart(3, '0')}.env`), 'X=1');
+    const st = store();
+    const r = await take(k, w.root, st, { deps: { maxManifestJson: 16 * 1024 } });
+    assert.equal(r.ok, false); assert.equal(r.tooLarge, true);
+    assert.equal(st.batches.length, 0, 'nothing was locked for a manifest that could not be stored');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('chunks stored in a batch are all kept for the index even when one comes back without its lock end', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const realUpload = st.uploadChunks;
+    let first = true;
+    const r = await take(k, w.root, st, { deps: { batchBytes: 1024 * 1024 * 1024, uploadChunks: async (d, batch) => {
+      const res = await realUpload(d, batch);
+      if (first) { first = false; res.lockedUntil.delete(batch[0].name); }
+      return res;
+    } } });
+    assert.equal(r.ok, false); assert.match(r.because, /lock end/);
+    assert.equal(r.added.size, st.objects.size - 1, 'every chunk with its lock end is kept, not only those before the bad one');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
