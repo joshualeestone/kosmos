@@ -49,7 +49,7 @@ function workKosmos() {
 }
 
 /* A store standing in for both uploaders: keeps every object, hands out keys in the given period. */
-function store({ period = PERIOD, failChunksAfter, failManifest, bucket = 'bucket/', manifestAnswer } = {}) {
+function store({ period = PERIOD, failChunksAfter, failManifest, bucket = 'bucket/', manifestAnswer, longKeys } = {}) {
   const objects = new Map(), batches = [], manifests = [];
   let n = 0;
   return {
@@ -59,7 +59,8 @@ function store({ period = PERIOD, failChunksAfter, failManifest, bucket = 'bucke
       const keys = new Map(), lockedUntil = new Map();
       for (const { name, object } of batch) {
         if (failChunksAfter !== undefined && n >= failChunksAfter) return { ok: false, retryLater: true, because: 'grant ran out', keys, lockedUntil, bucket };
-        const key = `o1/acct1/1/${period}/k${++n}`;
+        // longKeys: the coordinator's real shape, two ids then two 32-hex ids (about 140 characters).
+        const key = longKeys ? `org-${'a'.repeat(32)}/acct-${'b'.repeat(32)}/1/${period}/${crypto.randomBytes(32).toString('hex')}` : `o1/acct1/1/${period}/k${++n}`;
         objects.set(key, Buffer.from(object)); keys.set(name, key); lockedUntil.set(name, LOCK);
       }
       return { ok: true, keys, lockedUntil, bucket };
@@ -380,7 +381,7 @@ test('a path restore would refuse, or two names restore treats as one, is skippe
     for (const n of ['aux.c', 'a:b.txt', 'trailing.txt ', 'Icon\r']) assert.match(why[`agents/a/${n}`] || '', /restore cannot write it/, JSON.stringify(n));
     const qs = ['q/r.txt', 'q\\r.txt'];
     assert.equal(qs.filter((p) => m.files.some((x) => x.path === p)).length, 1, 'exactly one of two colliding names is stored');
-    assert.ok(qs.some((p) => /same name as/.test(why[p] || '')), 'the other is named');
+    assert.ok(qs.some((p) => /restore would refuse it beside/.test(why[p] || '')), 'the other is named');
     const { r: rr } = await restoreFrom(k, st, st.manifests[0].bytes);
     assert.equal(rr.failed.length, 0, `restore refuses nothing the walker stored: ${JSON.stringify(rr.failed)}`);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
@@ -390,12 +391,12 @@ test('a skipped list that would push the manifest over its ceiling stops the run
   const w = workKosmos(), k = keys();
   try {
     // Control: the same work Kosmos without the extra skipped files fits the same ceiling.
-    const control = await take(k, w.root, store(), { deps: { maxManifestJson: 16 * 1024, batchBytes: 1 } });
+    const control = await take(k, w.root, store(), { deps: { maxManifestJson: 64 * 1024, batchBytes: 1 } });
     assert.equal(control.ok, true, `control: ${control.because}`);
-    for (let i = 0; i < 400; i++) fs.writeFileSync(path.join(w.root, 'agents', 'a', `k${String(i).padStart(3, '0')}.env`), 'X=1');
+    for (let i = 0; i < 1200; i++) fs.writeFileSync(path.join(w.root, 'agents', 'a', `k${String(i).padStart(4, '0')}.env`), 'X=1');
     const st = store();
     // batchBytes 1: every chunk is its own batch, so a skip charged late would let batches go up mid-walk.
-    const r = await take(k, w.root, st, { deps: { maxManifestJson: 16 * 1024, batchBytes: 1 } });
+    const r = await take(k, w.root, st, { deps: { maxManifestJson: 64 * 1024, batchBytes: 1 } });
     assert.equal(r.ok, false); assert.equal(r.tooLarge, true);
     assert.equal(st.batches.length, 0, 'nothing was locked for a manifest that could not be stored');
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
@@ -413,5 +414,47 @@ test('chunks stored in a batch are all kept for the index even when one comes ba
     } } });
     assert.equal(r.ok, false); assert.match(r.because, /lock end/);
     assert.equal(r.added.size, st.objects.size - 1, 'every chunk with its lock end is kept, not only those before the bad one');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('whatever the ceiling, a run either stores a manifest that fits or uploads nothing at all (real-length keys)', async () => {
+  const k = keys();
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kbsnap-')));
+  const root = path.join(base, 'kosmos');
+  try {
+    fs.mkdirSync(path.join(root, 'agents', 'a'), { recursive: true });
+    for (let i = 0; i < 60; i++) fs.writeFileSync(path.join(root, 'agents', 'a', `f${String(i).padStart(2, '0')}.md`), `file ${i} ${crypto.randomBytes(8).toString('hex')}\n`);
+    let fits = 0, refused = 0;
+    for (let budget = 8000; budget <= 80000; budget += 4000) {
+      const st = store({ longKeys: true });
+      const r = await take(k, root, st, { deps: { maxManifestJson: budget, batchBytes: 1 } });
+      if (r.ok) {
+        fits++;
+        const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+        assert.ok(Buffer.byteLength(bf.canonicalJson(m)) <= budget, `budget ${budget}: the stored manifest is over its ceiling`);
+      } else {
+        refused++;
+        assert.equal(r.tooLarge, true, `budget ${budget}: ${r.because}`);
+        assert.equal(st.objects.size, 0, `budget ${budget}: ${st.objects.size} chunks locked for a manifest that was never stored`);
+      }
+    }
+    assert.ok(fits > 0 && refused > 0, `the range must cover both outcomes (fits ${fits}, refused ${refused})`);
+  } finally { fs.rmSync(base, { recursive: true, force: true }); }
+});
+
+test('a file whose name is another entry\'s folder, to restore, is skipped: restore would refuse both', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    fs.writeFileSync(path.join(w.root, 'q'), 'a file named q');
+    fs.writeFileSync(path.join(w.root, 'q\\s.txt'), 'backslash under q');
+    fs.mkdirSync(path.join(w.root, 'q\u200b'));
+    fs.writeFileSync(path.join(w.root, 'q\u200b', 'r.txt'), 'under an invisible q');
+    const r = await take(k, w.root, st);
+    assert.equal(r.ok, true, r.because);
+    const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+    const stored = m.files.map((x) => x.path).filter((p) => p.startsWith('q'));
+    assert.deepEqual(stored, ['q'], 'the first in sorted order is kept, the two under it skipped');
+    const { r: rr } = await restoreFrom(k, st, st.manifests[0].bytes);
+    assert.equal(rr.failed.length, 0, `restore refuses nothing the walker stored: ${JSON.stringify(rr.failed)}`);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });

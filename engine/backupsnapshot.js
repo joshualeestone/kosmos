@@ -35,10 +35,10 @@
 const crypto = require('crypto');
 const nodeFs = require('fs');
 const path = require('path');
-const { chunkBuffer, sealNamedChunk, sealManifest, checkBackupContext } = require('./backupformat');
+const { CDC, chunkBuffer, sealNamedChunk, sealManifest, checkBackupContext } = require('./backupformat');
 const { scanFile, pathDecision, insideWorkKosmos } = require('./backupscan');
 const { uploadChunks, uploadManifest, MAX_MANIFEST } = require('./backupupload');
-const { pathProblem, collisionKey } = require('./backuprestore');
+const { pathProblem, collisionKey, collidingPaths } = require('./backuprestore');
 
 const FORMAT = 1;
 // A file is read whole to be scanned (backupscan works on one buffer), so a bigger one is skipped, and says so.
@@ -54,6 +54,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_MS = 7 * DAY_MS;
 const MONDAY_EPOCH = Date.UTC(1970, 0, 5);   // the first Monday 00:00 UTC after the Unix epoch
 const CHUNK_NAME_LEN = 64;
+// The longest object key the walker accepts (the coordinator's are about 140: two ids, epoch, period, two 32-hex ids).
+const MAX_KEY_LEN = 256;
 
 /** The coordinator's period label for a time: the ISO week of the Monday 00:00 UTC that starts it, "2026-W41". */
 function periodOf(ms) {
@@ -103,14 +105,24 @@ function listFiles(root, fs = nodeFs) {
   };
   walk('');
   files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-  // Names restore treats as one (case, invisible characters, '\\' as '/'): restore refuses every one of them, so the
-  // first in sorted order is kept and the rest are skipped and named.
-  const seen = new Map(), kept = [];
+  // Restore refuses every entry that collides (engine/backuprestore.js collidingPaths): the same key (case, invisible
+  // characters, '\\' as '/'), or a file whose key is another entry's folder. Keep-first, in sorted order, on a trie of
+  // key segments; the rest are skipped and named. The kept set is then checked with restore's own rule.
+  const node = () => ({ kids: new Map(), file: null });
+  const trie = node(), kept = [];
   for (const f of files) {
-    const k = collisionKey(f.path);
-    if (seen.has(k)) skipped.push({ path: f.path, why: `restore treats it as the same name as ${seen.get(k)}` });
-    else { seen.set(k, f.path); kept.push(f); }
+    let n = trie, clash = null;
+    for (const seg of collisionKey(f.path).split('/')) {
+      if (n.file) { clash = n.file; break; }
+      if (!n.kids.has(seg)) n.kids.set(seg, node());
+      n = n.kids.get(seg);
+    }
+    if (!clash && n.file) clash = n.file;
+    if (!clash && n.kids.size) clash = 'a folder of the same name';
+    if (clash) { skipped.push({ path: f.path, why: `restore would refuse it beside ${clash} (names it treats as one)` }); continue; }
+    n.file = f.path; kept.push(f);
   }
+  if (collidingPaths(kept).size) throw new Error('the walker kept paths restore would refuse as colliding');
   return { files: kept, skipped };
 }
 
@@ -149,6 +161,15 @@ function readListed(fs, rootReal, f, maxFile) {
 const isKey32 = (b) => Buffer.isBuffer(b) && b.length === 32;
 // A manifest entry's JSON size, for the running budget (canonicalJson writes the same characters as JSON.stringify).
 const entryBytes = (x) => Buffer.byteLength(JSON.stringify(x)) + 1;
+/* An UPPER bound on what one listed file can add to the manifest, from its size alone: every chunk but a file's last is
+   at least CDC.min, and the stored bytes are allowed to be twice the file's (redaction can lengthen text), so it has
+   at most floor(2 * size / CDC.min) + 1 chunks; each adds a name to the file entry and one objects entry with the
+   longest key accepted; plus the entry itself and a redaction record. */
+function upperBound(f) {
+  const n = Math.floor((2 * f.size) / CDC.min) + 1;
+  const pathJson = Buffer.byteLength(JSON.stringify(f.path));
+  return 2 * pathJson + 400 + n * (CHUNK_NAME_LEN + 3) + n * (CHUNK_NAME_LEN + 6 + MAX_KEY_LEN);
+}
 
 /**
  * Take one snapshot.
@@ -210,16 +231,20 @@ async function snapshotInner(input, deps, added, state, fail) {
   try { rootReal = fs.realpathSync(root); } catch { return fail('the work Kosmos folder could not be read'); }
   const listed = listFiles(rootReal, fs);
   if (listed.files.length > MAX_FILES) return fail(`the work Kosmos holds ${listed.files.length} files, more than one snapshot can list (${MAX_FILES})`, { tooLarge: true });
-  // A lower bound on the manifest, before anything is uploaded: every listed file's entry with one chunk.
-  let estimate = 1024 + listed.files.reduce((n, f) => n + entryBytes({ path: f.path, size: f.size, sha256: 'x'.repeat(64), chunks: ['x'.repeat(64)] }), 0);
-  if (estimate > budget) return fail('the manifest for this many files would pass its size ceiling', { tooLarge: true });
-  estimate = 1024;
+  // The manifest budget, kept so that NOTHING is uploaded unless the finished manifest is sure to fit (review 3):
+  //   estimate  the exact JSON so far (entries, objects, skips), with keys not yet granted charged at MAX_KEY_LEN
+  //   reserve   the upper bound of every listed file not yet finished (the current one included)
+  // estimate + reserve is an upper bound on the final manifest at every point, and it is checked before each batch.
+  let estimate = 1024;
+  let reserve = listed.files.reduce((n, f) => n + upperBound(f), 0);
+  const over = () => estimate + reserve > budget;
 
   const skipped = [];
   // Every skip is charged to the manifest estimate as it happens, so the last batch is never uploaded for a manifest
   // its skipped list would push over the ceiling (review 2).
   const skip = (s) => { if (skipped.length < MAX_SKIPPED) estimate += entryBytes(s); skipped.push(s); };
   for (const s of listed.skipped) skip(s);
+  if (over()) return fail('the manifest for this many files could pass its size ceiling', { tooLarge: true });
   const files = [], redacted = [];
   const objects = {};        // every referenced chunk: name -> key (filled as chunks are stored or reused)
   const pending = new Map(); // sealed this run, not yet uploaded: name -> object
@@ -230,7 +255,7 @@ async function snapshotInner(input, deps, added, state, fail) {
     if (!pending.size) return null;
     // The manifest so far, with every entry this run will add for what is pending, must still fit: stop BEFORE
     // uploading, so a manifest that cannot be stored never leaves locked chunks behind.
-    if (estimate > budget) return fail('the manifest for this many files would pass its size ceiling', { tooLarge: true });
+    if (over()) return fail('the manifest for this many files could pass its size ceiling', { tooLarge: true });
     const batch = [...pending].map(([name, object]) => ({ name, object }));
     const r = await putChunks(deps, batch);
     const stored = (r && r.keys instanceof Map) ? r.keys : new Map();
@@ -251,8 +276,10 @@ async function snapshotInner(input, deps, added, state, fail) {
     for (const [name, key] of stored) {
       if (periodOfKey(key) !== ctx.period) { wrongPeriod.push(periodOfKey(key)); continue; }
       if (!Number.isSafeInteger(lockOf(name))) { noLock = true; continue; }
+      if (Buffer.byteLength(key) > MAX_KEY_LEN) return fail(`a granted key is longer than ${MAX_KEY_LEN} characters`, spent);
       added.set(name, { key, lockedUntilMs: lockOf(name) });
       objects[name] = key;
+      if (pending.has(name)) estimate += Buffer.byteLength(key) - MAX_KEY_LEN;   // charged at MAX_KEY_LEN when it was sealed
     }
     if (noLock) return fail('a stored chunk came back without its lock end', spent);
     if (wrongPeriod.length) return fail(`a chunk was granted in period ${wrongPeriod[0]}, not ${ctx.period} (a period boundary passed); retry in the new period`, Object.assign({ retryLater: true }, spent));
@@ -265,10 +292,12 @@ async function snapshotInner(input, deps, added, state, fail) {
 
   for (const f of listed.files) {
     const got = readListed(fs, rootReal, f, maxFile);
-    if (!got.buf) { skip({ path: f.path, why: got.why }); continue; }
+    if (!got.buf) { skip({ path: f.path, why: got.why }); reserve -= upperBound(f); continue; }
     const d = scanFile(f.path, got.buf);
-    if (d.action !== 'store') { skip({ path: f.path, why: d.why || 'not stored' }); continue; }
+    if (d.action !== 'store') { skip({ path: f.path, why: d.why || 'not stored' }); reserve -= upperBound(f); continue; }
     const data = d.data;
+    // The reserve assumed at most twice the file's size; a copy past that would break the bound, so it is not stored.
+    if (data.length > 2 * f.size + 1) { skip({ path: f.path, why: 'its redacted copy is over twice its size' }); reserve -= upperBound(f); continue; }
     if (d.redacted && d.redacted.length) { redacted.push({ path: f.path, kinds: d.redacted }); estimate += entryBytes(redacted[redacted.length - 1]); }
     const names = [];
     for (const piece of chunkBuffer(data)) {
@@ -277,13 +306,14 @@ async function snapshotInner(input, deps, added, state, fail) {
       if (objects[name] || pending.has(name)) continue;
       const known = index.get(name);
       // Every name this snapshot references gets one objects entry: its JSON is counted once, here.
-      estimate += CHUNK_NAME_LEN + 6 + Buffer.byteLength(known ? known.key : 'o/a/e/p/' + 'x'.repeat(48));
+      estimate += CHUNK_NAME_LEN + 6 + (known ? Buffer.byteLength(known.key) : MAX_KEY_LEN);
       if (known) { objects[name] = known.key; reused++; continue; }
       pending.set(name, object); pendingBytes += object.length;
       if (pendingBytes >= batchBytes) { const stop = await flush(); if (stop) return stop; }
     }
     const entry = { path: f.path, size: data.length, sha256: crypto.createHash('sha256').update(data).digest('hex'), chunks: names };
     estimate += entryBytes(entry);
+    reserve -= upperBound(f);
     files.push(entry);
   }
   if (estimate > budget) return fail('the manifest for this many files would pass its size ceiling', { tooLarge: true });
