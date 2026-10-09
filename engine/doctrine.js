@@ -63,14 +63,21 @@ function clickDate(now) {
    line inside the constant markers, never the marker itself. "Kosmos may
    update this block" is TRUE: a later consented refresh recomposes the
    span through this same module. */
+/* kosmos#5635: every frame line says what Kosmos now does with the block: keeps it current by itself while nobody has
+   edited it, and asks first once somebody has. Each starts with the words sectionContentOf strips. */
+const KEEPS = 'Kosmos keeps this block up to date when the rules change while nobody has edited it, and asks first once someone has; your own words above and below it are never touched.';
 function openingLine(now) {
-  return `<!-- Kosmos added the working rules below on ${clickDate(now)}, with your OK. Kosmos may update this block when the rules change; your own words above and below it are never touched. -->`;
+  return `<!-- Kosmos added the working rules below on ${clickDate(now)}, with your OK. ${KEEPS} -->`;
+}
+/* kosmos#5635: the frame of a refresh nobody clicked (refreshUnedited), so the file never claims an OK nobody gave. */
+function autoLine(now) {
+  return `<!-- Kosmos added the working rules below on ${clickDate(now)}, bringing its own earlier copy up to date. ${KEEPS} -->`;
 }
 const CLOSING_LINE = '<!-- end of the working rules -->';
 /* #4890: the same frame at birth, where nobody clicked. It starts with the words sectionContentOf strips, so a
    refresh compares the rules and never this line. */
 function birthLine(now) {
-  return `<!-- Kosmos added the working rules below on ${clickDate(now)}, when it set up this agent. Kosmos may update this block when the rules change, with your OK; your own words above and below it are never touched. -->`;
+  return `<!-- Kosmos added the working rules below on ${clickDate(now)}, when it set up this agent. ${KEEPS} -->`;
 }
 
 /** The span body for a given set of sections, dated the day of the click (or of the birth, given `opening`). */
@@ -188,7 +195,7 @@ function sectionContentOf(spanInner) {
  * file that changed since the dialog (the could-not arm of the race is an
  * honest "look again", never a write on a guess).
  */
-function planFor(text, now, past) {
+function planFor(text, now, past, opening) {   // `opening`: the frame line (kosmos#5635), the click's by default
   const body = String(text == null ? '' : text);
   const found = projects.findBlock(body, START, END);
   if (found && found.ambiguous) {
@@ -205,7 +212,7 @@ function planFor(text, now, past) {
        person who clicked an earlier refresh that added only missing headings), another earlier copy, or today's
        own plain copy. One click then leaves one copy of the current rules. */
     if (found || pastBlockIn(without, past) || hasPlainCurrent(without)) {
-      const plan = planFor(without, now, past);
+      const plan = planFor(without, now, past, opening);
       if (plan.state === 'refresh') return { ...plan, replacing: true, hash: hashOf(plan.fileNext) };
       if (plan.state === 'current') {
         const kept = all.filter((s) => without.includes(s.heading));
@@ -218,7 +225,7 @@ function planFor(text, now, past) {
     const outside = body.slice(0, old.start) + body.slice(old.end);
     const wanted = all.filter((s) => !outside.includes(s.heading));
     if (wanted.length) {
-      const spanNext = spanBody(wanted, now);
+      const spanNext = spanBody(wanted, now, opening);
       const fileNext = body.slice(0, old.start) + `${START}\n${spanNext}\n${END}` + body.slice(old.end);
       return { state: 'refresh', replacing: true, sections: wanted, spanNext, fileNext, hash: hashOf(fileNext) };
     }
@@ -241,7 +248,7 @@ function planFor(text, now, past) {
     if (!wanted.length) return { state: 'current' };
     const wantedContent = wanted.map((s) => s.text).join('\n');
     if (sectionContentOf(spanInner) === wantedContent) return { state: 'current' };
-    const spanNext = spanBody(wanted, now);
+    const spanNext = spanBody(wanted, now, opening);
     const fileNext = projects.spliceBlock(body, spanNext, START, END);
     /* #4890: a span that is not text Kosmos wrote (knownContent) is `edited`, which the fleet click leaves. */
     const known = knownContent(sectionContentOf(spanInner), past);
@@ -252,7 +259,7 @@ function planFor(text, now, past) {
      carrying every section as the person's own text appends NOTHING. */
   const missing = defaults.missingFrom(body);
   if (!missing.length) return { state: 'current' };
-  const spanNext = spanBody(missing, now);
+  const spanNext = spanBody(missing, now, opening);
   const fileNext = projects.spliceBlock(body, spanNext, START, END);
   return { state: 'refresh', sections: missing, spanNext, fileNext, hash: hashOf(fileNext) };
 }
@@ -398,7 +405,7 @@ function refreshUnedited(sessionName, roster, opts) {
     if (!projects.heldExactly(sessionName, roster)) return { state: 'could_not', because: 'we could not tell that this agent is ours' };
     const current = instructions.read(sessionName);
     if (!current.exists) return { state: 'could_not', because: current.because || 'it has no instructions file yet' };
-    const plan = planFor(current.text || '', opts && opts.now, opts && opts.past);   // `past`: tests only
+    const plan = planFor(current.text || '', opts && opts.now, opts && opts.past, autoLine(opts && opts.now));   // `past`: tests only
     if (plan.state !== 'refresh') return plan;
     /* `edited` is checked on EVERY path: a plain copy cut beside a span (replacing) carries the span's plan, edited or not. */
     if (plan.edited === true || !(plan.replacing === true || plan.updating === true)) {
@@ -427,4 +434,4 @@ function decline(sessionName) {
   }
 }
 
-module.exports = { START, END, spanBody, clickDate, planFor, status, refresh, refreshUnedited, decline, hashOf, atBirth, birthLine, pastBlockIn, FLEET_LEAVES_REPLACE, FLEET_LEAVES_EDITED, fleetLeaves };
+module.exports = { START, END, spanBody, clickDate, autoLine, planFor, status, refresh, refreshUnedited, decline, hashOf, atBirth, birthLine, pastBlockIn, FLEET_LEAVES_REPLACE, FLEET_LEAVES_EDITED, fleetLeaves };
