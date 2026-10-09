@@ -130,3 +130,18 @@ test('#5534 review 2: a company that stops serving a policy (null) clears it; an
   await org.refresh({ root, remote: coordinatorServing(root, null) });
   assert.equal(create.policyAllows('openai', null).ok !== false, true, 'a policy the company no longer serves stayed in force');
 });
+
+test('#5534 review 2: a leave the company refuses (last admin) keeps this Kosmos enrolled, and its policy with it', async () => {
+  reset();
+  const root = tmp('aw-polapply-world-');
+  await org.refresh({ root, remote: coordinatorServing(root, sign(bundle())) });
+  assert.equal(create.policyAllows('openai', null).ok, false, 'premise: in force');
+  const serving = coordinatorServing(root, sign(bundle()));
+  const lastAdmin = { macRequest: async (m, route, body) => (route === org.ROUTES.leave
+    ? { ok: false, because: '409 {"because":"org_last_admin"}' }
+    : serving.macRequest(m, route, body)) };
+  const r = await org.leave({ root, remote: lastAdmin });
+  assert.equal(r.still, true, JSON.stringify(r));
+  assert.ok(org.readEnrollment({ root }), 'premise: the record came back');
+  assert.equal(create.policyAllows('openai', null).ok, false, 'a refused leave dropped the policy of a Kosmos still enrolled');
+});
