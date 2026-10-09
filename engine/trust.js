@@ -209,15 +209,20 @@ function withWriteLock(target, inner) {
  *
  * Through securewrite.writeSecret, which carries every guard the old inline writers had:
  * - a temp name that is OURS (pid, thread, start time, sequence), created `wx`, so a symlink
- *   planted at it is refused rather than followed, and a planted file is never unlinked;
+ *   planted at it is refused rather than followed, and a file planted at the name an attempt creates is
+ *   never unlinked (the unlink is gated on that attempt having created it);
  * - born at the preserved mode and then set to it on the fd, for umask exactness. That set is best effort
  *   now (the old chmod's failure refused the save); a temp it misses is still never looser than the
  *   preserved mode, because it was created at that mode less the umask;
  * - an atomic rename, never an in-place rewrite (`atomicOnly`), so a failed save leaves the old file.
  * and adds what they lacked: the temp is flushed before the rename and the folder after it, so a
  * crash cannot leave the file at full length but zero-filled (#5431). `ownTempsOnly`: this is the
- * person's own folder, so only THIS file's dead temps are reaped, never a folder-wide sweep. That
- * also retires the old writers' "a crash can leave one stray file and nothing ever removes it".
+ * person's own folder, so only THIS file's dead temps are reaped, never a folder-wide sweep.
+ * ⚠️ THAT REAP IS THE ONE NEW DELETE PATH in the person's folder (their home folder, for the default
+ * account): a file beside the target whose name has securewrite's exact temp shape for THIS file and
+ * whose writer's pid is dead is unlinked, a planted one included (a link is unlinked, never followed).
+ * The old writers deleted nothing they had not created. It narrows, not retires, "a crash can leave a
+ * stray file": old-named `.new` temps are never reaped, nor is a temp whose dead writer's pid was reused.
  * Returns false on any failure; the callers turn that into their own refusal.
  */
 function saveConfig(target, data, prevMode) {
@@ -451,7 +456,8 @@ function trustFolderInner(dir, opts) {
   if (madeFile) { try { fs.mkdirSync(path.dirname(target), { recursive: true }); } catch { /* exists, or the write reports it */ } }
   // #5434 slice 6: through securewrite, which keeps every guard this writer had (a unique temp
   // name created `wx`, so a symlink planted at it is refused, never followed; born at the preserved
-  // mode, then the mode set on the fd for umask exactness; a planted temp is never unlinked) and adds
+  // mode, then the mode set on the fd for umask exactness; a file planted at an attempt's own temp name
+  // is never unlinked; see saveConfig for the one reap it adds) and adds
   // the flush before the rename and the folder flush after it, so a crash cannot leave this file at
   // full length but zero-filled (#5431). MODE IS STILL THE ONLY THING CARRIED OVER: the rename
   // replaces the inode, so ACLs, extended attributes, chflags and hard links do not survive.
