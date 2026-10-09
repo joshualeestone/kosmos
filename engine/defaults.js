@@ -412,8 +412,8 @@ const BLOCK = [
   '',
   'Use the project the work belongs to, from Your projects. The one line holds 200',
   'characters, and so does each check (one `--done` per check, up to three). The',
-  'person sees the task and its checks on that project.',
-  'If a check holds a backtick or a `$`, use single quotes, as in the trap above.',
+  'person sees the task and its checks on that project. If a check holds a',
+  'backtick or a `$`, use single quotes, as in the trap above.',
   '**Right after adding it, run `kosmos task list <project-id>` and note your',
   "task's number:** you need it to mark the task built.",
   '',
@@ -422,7 +422,8 @@ const BLOCK = [
   'number in the room.',
   '',
   '**If the work came to you as a task already, do not add another.** Put the',
-  'checks on that one, unless it already has checks the person wrote (keep those):',
+  'checks on that one, unless `kosmos task list <project-id>` shows its checks',
+  'were "set by the person" (keep those):',
   '',
   '`kosmos task done-when <project-id> <task-number> "<check 1>" "<check 2>"`',
   '',
@@ -445,9 +446,12 @@ const BLOCK = [
   '',
   '`kosmos task ran <project-id> <task-number> "what this run found"`',
   '',
-  '**If a run found nothing new, say so with `--unchanged`, and post nothing about',
-  'it in the room:** the task folds such runs together so the ones that matter',
-  'stand out. Post in the room only when a run finds something.',
+  '**If a run found nothing new, say so with `--unchanged`, and do not post about',
+  'it on your own:** the task folds such runs together so the ones that matter',
+  'stand out. If someone asks, answer as usual. When a run finds something, tell',
+  'whoever asked for the check, where they asked: in the room, or in your reply to',
+  'the person. A run that could not check is not unchanged: record what stopped',
+  'it, without `--unchanged`, and report it as Blocked.',
   '',
   '`kosmos task ran <project-id> <task-number> --unchanged "what it checked"`',
   '',
@@ -944,7 +948,8 @@ function block() {
  *     schedules two agents made came from tools this Mac's agents have that a new Kosmos agent may not (slice 2, the
  *     missed-run alert, is what makes a missed run visible). The test agents also read this Mac's own global
  *     instructions (both arms alike), and Codex and Gemini agents were not measured.
- *  26. kosmos#5152 (doneWhen as its own field, #5639) and kosmos#5643 slice 2 (unchanged runs, #5646), under `### Put the
+ *  26. kosmos#5152 (doneWhen as its own field, #5639) and kosmos#5643 slice 2 (teaching the --unchanged flag that #5646,
+ *     slice 1, adds), under `### Put the
  *     work on a task first`. The checks go on with `kosmos task add ... --done "<check>"` (one per check, up to three)
  *     and on a given task with `kosmos task done-when` (keeping checks the person wrote), where v24 had agents write them
  *     into the detail. A scheduled run that found nothing new is recorded with `kosmos task ran ... --unchanged` and not

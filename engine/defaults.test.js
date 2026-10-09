@@ -574,7 +574,7 @@ test('#4873: the block tells every agent not to start a message with its own nam
 
 /* kosmos#5152 slice 0 (Josh, 2026-10-03 11:07: "it would be ideal if the agent wrote that and the task"). Pinned as
    CONTENT: the measured section (claude -p, 4/4 with it, 0/4 without) is what makes agents file the task with its
-   "Done when:" checks and report each one when they mark it built, so a reword that drops either command is a
+   "done when" checks (since v26: one --done each, or done-when on a given task) and report each one when they mark it built, so a reword that drops either command is a
    behaviour change, not a style edit. */
 test('#5152: work goes on a task first, with Done when checks, and the built note reports each check', () => {
   const sec = defaults.sections().find((s) => s.heading === '### Put the work on a task first');
