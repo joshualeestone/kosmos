@@ -204,8 +204,11 @@ test('#5154: both "needs the person" rules count a crash loop, and agree with ea
     { state: 'needs_you' },
     { state: 'connection_lost', reconnect: { phase: 'gave_up' } },
     { state: 'connection_lost', reconnect: { phase: 'waiting' } },
+    // #5154 slice C: a stuck terminal error is an Issue in BOTH rules; a brief (not-stuck) one is not.
+    { state: 'auth_failed', stuckError: { stuck: true } },
+    { state: 'rate_limited', stuckError: { stuck: false } },
   ];
-  const want = [true, false, false, true, true, false];
+  const want = [true, false, false, true, true, false, true, false];
   rows.forEach((r, i) => {
     assert.equal(needsPerson(r), want[i], 'needsPerson row ' + i);
     assert.equal(agentNeedsAttention(r), want[i], 'agentNeedsAttention row ' + i);

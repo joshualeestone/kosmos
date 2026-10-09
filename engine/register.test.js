@@ -500,3 +500,32 @@ test('#1400 CONTROL: a CORRUPT profile still repairs, on the default runner', ()
   assert.doesNotMatch(fs.readFileSync(create.plistPath('corruptrepair'), 'utf8'),
     /<string>codex<\/string>/, 'a runner was invented from a profile that could not be read');
 });
+
+test('#5534: Repair does not start an import the company policy held, but restores an agent that ran before', () => {
+  reset();
+  const orgpolicy = require('./orgpolicy');
+  agent('heldcodex');
+  agent('rancodex');
+  store.writeProfile('heldcodex', { provider: 'openai', policyHeld: true });
+  store.writeProfile('rancodex', { provider: 'openai' });
+  fs.mkdirSync(path.dirname(orgpolicy.APPLIED()), { recursive: true });
+  fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 1, applied_at: 1,
+    policy: { providers_allowed: ['anthropic'], models_allowed: null } }));
+  try {
+    const out = mac.repair();
+    const held = out.results.find((r) => r.name === 'heldcodex');
+    assert.ok(held, 'the held agent was not in the repair list at all');
+    assert.equal(held.ok, false, 'Repair started an agent the policy held');
+    assert.match(String(held.because), /policy does not allow openai/);
+    assert.equal(fs.existsSync(create.plistPath('heldcodex')), false, 'a job was written for the held agent');
+    assert.equal(fs.existsSync(create.plistPath('rancodex')), true, 'CONTROL: an agent that ran before is restored (nothing is bricked)');
+    // Review 3: once the policy allows it and Repair has started it, it is an agent that ran: the mark clears.
+    fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 2, applied_at: 1,
+      policy: { providers_allowed: null, models_allowed: null } }));
+    const again = mac.repair().results.find((r) => r.name === 'heldcodex');
+    assert.equal(again && again.ok, true, 'the held agent was not restored once allowed: ' + (again && again.because));
+    assert.equal(store.readProfile('heldcodex').policyHeld, false, 'the mark stayed after Repair started the agent');
+  } finally {
+    fs.rmSync(orgpolicy.APPLIED(), { force: true });
+  }
+});

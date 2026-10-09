@@ -106,3 +106,56 @@ test('#5359 review 7: both windows hold at exactly WINDOW_MS and close one milli
   // The window is the 15 minutes the words and the plan promise.
   assert.equal(W, 15 * 60 * 1000);
 });
+
+test('#5450: who started the board decides it when the launcher says so; the timer only guesses when nothing does', () => {
+  // A crash, then the machine waited 40 minutes at a login screen before the login item brought Kosmos back.
+  const late = { now: NOW, uptimeSec: up(40), lastAliveAt: at(41 * MIN) };
+  assert.equal(rn.noteFor(late), null, 'CONTROL: unknown, the timer reads a late start as a person opening it');
+  assert.ok(rn.noteFor({ ...late, startedBy: 'supervisor' }), 'the supervisor brought it back, so it came back by itself');
+  // A person opening Kosmos 5 minutes after a restart that caught it running: never "by itself".
+  const quick = { now: NOW, uptimeSec: up(5), lastAliveAt: at(6 * MIN) };
+  assert.ok(rn.noteFor(quick), 'CONTROL: unknown and quick, the timer says by itself');
+  assert.equal(rn.noteFor({ ...quick, startedBy: 'person' }), null, 'a person started it, so it did not come back by itself');
+  // Review 6: board-run sends the STRING 'unknown' for a mark it cannot judge: the timer decides, exactly as undefined.
+  assert.equal(rn.noteFor({ ...late, startedBy: 'unknown' }), null, 'an unjudgeable mark switched the timer off: a false note');
+  assert.ok(rn.noteFor({ ...quick, startedBy: 'unknown' }), 'CONTROL: unknown and quick, the timer still says by itself');
+  // The other rules still hold for the supervisor: alive since this boot, or last alive long before it, is no note.
+  assert.equal(rn.noteFor({ now: NOW, uptimeSec: up(40), lastAliveAt: at(10 * MIN), startedBy: 'supervisor' }), null, 'alive since this boot');
+  assert.equal(rn.noteFor({ now: NOW, uptimeSec: up(40), lastAliveAt: at(40 * MIN + rn.WINDOW_MS + MIN), startedBy: 'supervisor' }), null, 'not running when it went down');
+});
+
+test('#5450: atStart uses the launcher\'s word it is given, and consumes the person\'s mark only after using it', () => {
+  fs.rmSync(path.dirname(rn._files.aliveFile()), { recursive: true, force: true });
+  fs.mkdirSync(path.dirname(rn._files.aliveFile()), { recursive: true });
+  fs.writeFileSync(rn._files.aliveFile(), JSON.stringify({ at: at(41 * MIN) }));
+  assert.ok(rn.atStart({ now: () => NOW, uptime: () => up(40), startedBy: 'supervisor' }), 'the supervisor\'s late start made no note');
+  // A person's start: no note, and the mark it left is removed now that it has been read (review 1).
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'kosmos-5450-mark-'));
+  try {
+    const mark = path.join(dir, 'board.person-start');
+    fs.writeFileSync(mark, '1');
+    fs.writeFileSync(rn._files.aliveFile(), JSON.stringify({ at: at(6 * MIN) }));
+    assert.equal(rn.atStart({ now: () => NOW, uptime: () => up(5), startedBy: 'person', personMark: mark }), null);
+    assert.equal(fs.existsSync(mark), false, 'the mark was left, so the next start would read as a person\'s too');
+    // Review 7: removed whoever started the board, or an unjudgeable mark would make every later relaunch unknown.
+    for (const who of ['supervisor', 'unknown']) {
+      fs.writeFileSync(mark, '1');
+      rn.atStart({ now: () => NOW, uptime: () => up(5), startedBy: who, personMark: mark });
+      assert.equal(fs.existsSync(mark), false, 'the mark was left after a start by ' + who);
+    }
+    // Review 9: the mark goes only AFTER this start's beat, so a kill in between never leaves no mark AND an old alive
+    // record (a false note on the next start).
+    fs.writeFileSync(mark, '1');
+    fs.writeFileSync(rn._files.aliveFile(), JSON.stringify({ at: at(6 * MIN) }));
+    const realUnlink = fs.unlinkSync;
+    let aliveAtUnlink = null;
+    fs.unlinkSync = (p) => { if (p === mark) aliveAtUnlink = JSON.parse(fs.readFileSync(rn._files.aliveFile(), 'utf8')).at; return realUnlink(p); };
+    try { rn.atStart({ now: () => NOW, uptime: () => up(5), startedBy: 'person', personMark: mark }); } finally { fs.unlinkSync = realUnlink; }
+    assert.equal(aliveAtUnlink, new Date(NOW).toISOString(), 'the mark was removed before this start wrote its alive record');
+    // Only the launcher's own mark file, by its name: a stray path is never deleted.
+    const other = path.join(dir, 'something-else');
+    fs.writeFileSync(other, 'x');
+    rn.atStart({ now: () => NOW, uptime: () => up(5), startedBy: 'person', personMark: other });
+    assert.equal(fs.existsSync(other), true, 'a file that is not the mark was deleted');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

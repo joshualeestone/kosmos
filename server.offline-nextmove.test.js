@@ -34,6 +34,7 @@ const { execFileSync } = require('node:child_process');
 const REPO = __dirname;
 const create = require('./engine/create');
 const page = require('./test-support/page');
+const jobfix = require('./test-support/jobfixture');   // #5500: the agent's job as this platform keeps it (plist / systemd unit)
 
 function boardWithStoppedAgent({ job, named = true }) {
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-nm-'));
@@ -45,8 +46,8 @@ function boardWithStoppedAgent({ job, named = true }) {
   fs.writeFileSync(nodePath.join(profiles, 'quiet.json'),
     JSON.stringify(named ? { role: 'Researcher', displayName: 'Quiet' } : { role: 'Researcher' }));
   if (job) {
-    fs.writeFileSync(nodePath.join(launch, 'com.kosmos.agent.quiet.plist'),
-      create.plistFor('quiet', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-opus-5'));
+    fs.writeFileSync(jobfix.jobPathIn(launch, 'quiet'),
+      jobfix.jobFor('quiet', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-opus-5'));
   }
   const bin = nodePath.join(sb, 'bin');
   fs.mkdirSync(bin, { recursive: true });
@@ -57,11 +58,20 @@ function boardWithStoppedAgent({ job, named = true }) {
     const create = require(${JSON.stringify(nodePath.join(REPO, 'engine', 'create.js'))});
     // launchd faked at the run() seam: the job is parked (no pid), and no
     // probe touches the launchd of the machine running this suite.
-    create.setProbePlatformForTests('darwin');   // #5445: launchd's arm on any runner (a Linux one asks systemctl)
+    // #5445: launchd's arm on any runner but Linux; #5500: a Linux board asks systemctl, and no unit is active.
+    if (process.platform !== 'linux') create.setProbePlatformForTests('darwin');
+    /* #5500 review 3: with a systemd folder set, linuxjob no longer refuses systemctl on its own in this child (it is
+       not a test process), so a call that bypasses create's runner fails closed here and never reaches the host. */
+    require(${JSON.stringify(nodePath.join(REPO, 'engine', 'linuxjob.js'))}).setRunnerForTests(() => ({ ok: false, code: 1, stdout: '', because: 'test child: no real systemd' }));
+    /* #5500: this child is not a test process, so on Linux the sentence would read the HOST's linger record
+       (linuxjob.lingerFileOn) and change with the machine running the suite. Pinned on: then Linux's sentence is
+       create.SELF_STARTS, the one asserted below (with linger off it is "while you are logged in", create.selfStarts). */
+    if (process.platform === 'linux') require(${JSON.stringify(nodePath.join(REPO, 'engine', 'linuxjob.js'))}).lingerFileOn = () => true;
     create.setRunner((file, args) => {
       if (/launchctl$/.test(String(file)) && args && args[0] === 'list') {
         return { ok: true, stdout: 'PID\\tStatus\\tLabel\\n-\\t0\\tcom.kosmos.agent.quiet\\n' };
       }
+      if (/systemctl$/.test(String(file)) && args && args[1] === 'list-units') return { ok: true, stdout: '' };
       return { ok: true, stdout: '' };
     });
     const app = require(${JSON.stringify(nodePath.join(REPO, 'server.js'))});
@@ -87,6 +97,8 @@ function boardWithStoppedAgent({ job, named = true }) {
       AGENT_WORKFORCE_DATA: nodePath.join(sb, 'data'),
       AGENT_WORKFORCE_WORKERS: nodePath.join(sb, 'workers'),
       AGENT_WORKFORCE_LAUNCH: launch,
+      // #5500: the unit folder jobPathIn wrote to; a sandbox without one refuses every systemd call.
+      AGENT_WORKFORCE_SYSTEMD_DIR: nodePath.join(launch, 'systemd', 'user'),
       AGENT_WORKFORCE_PROJECTS: nodePath.join(sb, 'projects'), // sandboxed whole (#634)
     },
   });
@@ -95,14 +107,8 @@ function boardWithStoppedAgent({ job, named = true }) {
 }
 
 
-/* #5432: on a Linux host an agent's job is a systemd user unit, so the job-dependent part of these tests (a plist
-   launchctl answers for) does not hold there.
-   Skipped on Linux ONLY for the tests that fail there; macOS and Windows are unchanged. */
-const LINUX_LAUNCHD = process.platform === 'linux'
-  ? { skip: 'macOS launchd test on a Linux host (#5432): ' + 'the job-dependent sentence or flag comes from a macOS plist and launchctl answers. What it asserts is platform-neutral and is tested on macOS, but NOT yet on Linux: #5500 ports it.' }
-  : {};
 
-test('#671: the plain offline sentence carries the launch model and the honest could-not-tell', LINUX_LAUNCHD, () => {
+test('#671: the plain offline sentence carries the launch model and the honest could-not-tell', () => {
   const row = (boardWithStoppedAgent({ job: true }).agents || []).find((a) => a.sessionName === 'quiet');
   assert.ok(row, 'the stopped agent fell out of the roster');
   assert.equal(row.running, false);
@@ -122,14 +128,14 @@ test('#671: the plain offline sentence carries the launch model and the honest c
     'the sentence still asserts the cause is unknowable, beside the box that holds it (#1663)');
 });
 
-test('#671: a job-less agent gets no self-starting claim, because nothing will start it', LINUX_LAUNCHD, () => {   // #5432: a control for the tests skipped above; alone on Linux it proves nothing
+test('#671: a job-less agent gets no self-starting claim, because nothing will start it', () => {
   const row = (boardWithStoppedAgent({ job: false }).agents || []).find((a) => a.sessionName === 'quiet');
   assert.ok(row, 'the job-less agent fell out of the roster');
   assert.doesNotMatch(row.because, /starts itself/,
     'the sentence promises a self-start to an agent with no job, which is false');
 });
 
-test('#671: the composer speaks the row\'s own cause at the decision point, and leaves live-pane reasons alone', LINUX_LAUNCHD, () => {
+test('#671: the composer speaks the row\'s own cause at the decision point, and leaves live-pane reasons alone', () => {
   const PAGE_SCRIPT = page.scriptOf(fs.readFileSync(nodePath.join(REPO, 'web', 'index.html'), 'utf8'));
   // eslint-disable-next-line no-new-func
   const dmOffLine = new Function(

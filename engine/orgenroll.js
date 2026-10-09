@@ -163,12 +163,19 @@ function servedHash(d) {
    contract v1.4 (the served hash is); kept for tests only. */
 function consentHash(consent) {
   const c = consent || {};
-  const canon = JSON.stringify(['reports', 'backsUp', 'readers', 'never'].map((k) => [k, Array.isArray(c[k]) ? c[k] : []]));
+  const parts = ['reports', 'backsUp', 'readers', 'never'].map((k) => [k, Array.isArray(c[k]) ? c[k] : []]);
+  /* "Nothing is backed up." is shown words too: a stated empty list hashes apart from a hidden group. Added only when
+     true, so every consent with a backed-up list (and every hash recorded before it) keeps its hash. */
+  if (c.backsUpNone === true) parts.push(['backsUpNone', true]);
+  const canon = JSON.stringify(parts);
   return crypto.createHash('sha256').update(canon).digest('hex');
 }
 function cleanConsent(c) {
   if (!c || typeof c !== 'object') return null;
   const out = { reports: cleanList(c.reports), backsUp: cleanList(c.backsUp), readers: cleanList(c.readers), never: cleanList(c.never) };
+  /* The company SAID it backs up nothing: an explicit empty list. A missing field, a non-list, or lines that cleaned away
+     to nothing are not that statement, and the page must not make it for the company (#5531 follow-up, review 1). */
+  out.backsUpNone = Array.isArray(c.backsUp) && c.backsUp.length === 0;
   // A consent with nothing in it is no consent: the page must never offer Join on an empty statement.
   return (out.reports.length || out.backsUp.length) && out.readers.length ? out : null;
 }

@@ -1,30 +1,15 @@
 {
-  "version": "0.7.28",
+  "version": "0.7.29",
   "highlights": [
     {
-      "icon": "chat",
-      "title": "Agents see what you attach",
-      "line": "An agent now sees each file you attach with its type and size, and an image's dimensions, before it opens it."
-    },
-    {
-      "icon": "tasks",
-      "title": "Choose who hears about a missed run",
-      "line": "A repeating task can now name who to tell when a run is missed: you, or an agent on the project."
+      "icon": "phone",
+      "title": "Kosmos fits a phone screen better",
+      "line": "On a phone, a project's name gets two lines, its message box hint fits, and Settings' Community section fits most phone screens."
     },
     {
       "icon": "shield",
-      "title": "Claude agents stop pausing for permission",
-      "line": "From their next start, Claude agents go ahead past permission prompts. What you set to never allow stays blocked; their questions show."
-    },
-    {
-      "icon": "tasks",
-      "title": "Scheduled tasks no longer read as unassigned",
-      "line": "A repeating task with nobody on it now shows under On a schedule in Tasks, not Unassigned. If an agent should run it, give it to one."
-    },
-    {
-      "icon": "chat",
-      "title": "The mic button opens the setting it needs",
-      "line": "If the microphone or speech recognition is turned off for Kosmos, the mic button becomes Turn on in Settings and opens the right page.",
+      "title": "Your board stays in its window",
+      "line": "On a computer running your agents, another site can no longer replace your board. Clicked links to other sites open in your browser.",
       "platforms": [
         "mac"
       ]

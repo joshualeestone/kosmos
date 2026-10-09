@@ -19,14 +19,11 @@
  *   node --test server.world-offline-rows-1704.test.js
  */
 const test = require('node:test');
-/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that seeds, reads or drives the job as a
-   launchd plist cannot run unchanged there. Skipped on Linux only; its reason says whether a Linux test covers it, or
-   that it is not tested on Linux yet (#5500). macOS and Windows unchanged. */
-const LINUX_PLIST_5432 = process.platform === 'linux' ? { skip: "macOS launchd fixture on a Linux host (#5432): the test seeds or reads the agent's job as a macOS plist, or its runner stub answers launchctl only. What it asserts is platform-neutral and is tested on macOS, but NOT yet on Linux: #5500 ports it." } : {};
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const nodePath = require('node:path');
+const jobfix = require('./test-support/jobfixture');   // #5500: the agent's job as this platform keeps it (plist / systemd unit)
 
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-world-offline-1704-'));
 process.env.AGENT_WORKFORCE_HOME = nodePath.join(SANDBOX, 'home');
@@ -56,8 +53,10 @@ const { start, server } = require('./server');
 const WORLD = 'test';
 const savedWorld = process.env.KOSMOS_WORLD;
 
-/* What launchd answers right now: `launchctl list` and `print-disabled`. */
-let launchd = { list: '', disabled: '' };
+/* What launchd answers right now: `launchctl list` and `print-disabled`. #5500: on Linux, what systemd answers:
+   `list-units` (running) and `list-unit-files` (switched off). */
+let launchd = { list: '', disabled: '', units: '', unitFiles: '' };
+const linuxHost = process.platform === 'linux';
 
 let base;
 test.before(async () => {
@@ -71,11 +70,15 @@ test.before(async () => {
   fs.mkdirSync(nodePath.join(process.env.AGENT_WORKFORCE_WORKERS, 'ava'), { recursive: true });
   fs.mkdirSync(process.env.AGENT_WORKFORCE_LAUNCH, { recursive: true });
   for (const world of [undefined, WORLD]) {
-    fs.writeFileSync(nodePath.join(process.env.AGENT_WORKFORCE_LAUNCH, `${create.serviceLabel('ava', world)}.plist`), '<plist/>');
+    fs.writeFileSync(jobfix.jobPath('ava', world), '<plist/>');   // #5500: the systemd unit's path on Linux; only its presence is read
   }
 
-  create.setProbePlatformForTests('darwin');   // #5445: create's two fleet probes (switched off, running) ask the launchctl fake below on any runner; the roster and survey still follow the host
+  // #5445: create's two fleet probes (switched off, running) ask the launchctl fake below on any runner; the roster and
+  // survey still follow the host. #5500: on Linux they ask systemd, as a Linux board does.
+  create.setProbePlatformForTests(linuxHost ? null : 'darwin');
   create.setRunner((file, args) => {
+    if (/systemctl$/.test(String(file)) && args && args[1] === 'list-units') return { ok: true, stdout: launchd.units };
+    if (/systemctl$/.test(String(file)) && args && args[1] === 'list-unit-files') return { ok: true, stdout: launchd.unitFiles };
     if (args && args[0] === 'list') return { ok: true, stdout: launchd.list };
     if (args && args[0] === 'print-disabled') return { ok: true, stdout: launchd.disabled };
     return { ok: true, stdout: '' };
@@ -99,7 +102,7 @@ test.after(() => {
 /** The `ava` row, as a board serving `world` (undefined = Kosmos 1) shows it while launchd says `answer`. */
 async function avaRow(world, answer) {
   if (world === undefined) delete process.env.KOSMOS_WORLD; else process.env.KOSMOS_WORLD = world;
-  launchd = { list: '', disabled: '', ...answer };
+  launchd = { list: '', disabled: '', units: '', unitFiles: '', ...answer };
   status.setPaneSource(() => '');   // no session anywhere: ava is offline
   try {
     const body = await (await fetch(base + '/api/status')).json();
@@ -111,11 +114,15 @@ async function avaRow(world, answer) {
   }
 }
 
-const running = (key) => ({ list: `PID\tStatus\tLabel\n90870\t0\tcom.kosmos.agent.${key}\n` });
-const switchedOff = (key) => ({ disabled: `disabled services = {\n\t"com.kosmos.agent.${key}" => disabled\n}\n` });
+/* #5500: the unit systemd names the job by, for a launch key (`ava`, `ava+test`). */
+const unitOf = (key) => { const { name, worldId } = launchidentity.parseKey(key); return require('./engine/linuxjob').unitName(name, worldId); };
+const running = (key) => ({ list: `PID\tStatus\tLabel\n90870\t0\tcom.kosmos.agent.${key}\n`,
+  units: `${unitOf(key)} loaded active running x\n` });
+const switchedOff = (key) => ({ disabled: `disabled services = {\n\t"com.kosmos.agent.${key}" => disabled\n}\n`,
+  unitFiles: `${unitOf(key)} disabled enabled\n` });
 const SWITCHED_OFF = /background job was switched off/;
 
-test('a named Kosmos\'s offline ava is NOT running-unseen because Kosmos 1\'s ava is running; its own ava+test running is', LINUX_PLIST_5432, async () => {
+test('a named Kosmos\'s offline ava is NOT running-unseen because Kosmos 1\'s ava is running; its own ava+test running is', async () => {
   const kosmos1Running = await avaRow(WORLD, running('ava'));
   assert.equal(kosmos1Running.jobRunningUnseen, false, 'Kosmos 1\'s running ava dressed the named Kosmos\'s ava in running-unseen');
   assert.equal(kosmos1Running.state, 'stopped');
@@ -124,7 +131,7 @@ test('a named Kosmos\'s offline ava is NOT running-unseen because Kosmos 1\'s av
   assert.equal(ownRunning.jobRunningUnseen, true, 'the control: the named Kosmos\'s own running job is its fact');
 });
 
-test('a named Kosmos\'s offline ava is NOT "switched off" because Kosmos 1\'s ava is; its own ava+test switched off IS', LINUX_PLIST_5432, async () => {
+test('a named Kosmos\'s offline ava is NOT "switched off" because Kosmos 1\'s ava is; its own ava+test switched off IS', async () => {
   const kosmos1Off = await avaRow(WORLD, switchedOff('ava'));
   assert.doesNotMatch(String(kosmos1Off.because), SWITCHED_OFF, 'Kosmos 1\'s switched-off job was told as the named Kosmos\'s');
 
@@ -132,7 +139,7 @@ test('a named Kosmos\'s offline ava is NOT "switched off" because Kosmos 1\'s av
   assert.match(String(ownOff.because), SWITCHED_OFF, 'the named Kosmos\'s own switched-off job fell through to another sentence');
 });
 
-test('control: Kosmos 1 still reads its own ava running and switched off', LINUX_PLIST_5432, async () => {
+test('control: Kosmos 1 still reads its own ava running and switched off', async () => {
   assert.equal((await avaRow(undefined, running('ava'))).jobRunningUnseen, true);
   assert.match(String((await avaRow(undefined, switchedOff('ava'))).because), SWITCHED_OFF);
   assert.equal((await avaRow(undefined, running(launchidentity.launchKey('ava', WORLD)))).jobRunningUnseen, false,

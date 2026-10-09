@@ -53,6 +53,14 @@ if (require.main === module) {
   logstamp.install(process.stdout, 1, { shared, logPaths });
   logstamp.install(process.stderr, 2, { shared, logPaths });
 }
+/* #5450: who started this board (install/kosmos board-run and start), taken out of the environment before anything
+   can start a process that would inherit it (the log stamp above starts none; #4199 keeps it right after the bootstrap); engine/restartnote.js atStart reads these values. (engine/worldenv.js
+   froze a copy of the environment above; its only reader takes paths from it and starts nothing.) */
+const BOARD_STARTED_BY = process.env.KOSMOS_BOARD_STARTED_BY;
+const BOARD_PERSON_MARK = process.env.KOSMOS_BOARD_PERSON_MARK;
+delete process.env.KOSMOS_BOARD_STARTED_BY;
+delete process.env.KOSMOS_BOARD_PERSON_MARK;
+delete process.env.KOSMOS_START_BY;   // the watchdog's word to `kosmos start`; the launchers strip it, this is the backstop
 /* #5112: before any tmux is asked anything, forget an inherited $TMUX (engine/sandbox.js says why). The real start only:
    the routing tests require this file, and the test runner's own $TMUX is not this board's to change. */
 if (require.main === module) require('./engine/sandbox').dropInheritedTmux(process.env);
@@ -1105,6 +1113,7 @@ const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter'
 const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle
 const connlostHeal = require('./engine/connlost-heal'); // #3410 PR 2b: nudge a network-wedged agent when the network is back
 const crashloop = require('./engine/crashloop'); // #5154 slice A: an agent that keeps crashing on start, said on its card
+const stuckterminal = require('./engine/stuckterminal'); // #5154 slice C: an agent stuck on a recurring terminal error (auth_failed / rate_limited), said on its card
 const firstreplyNudge = require('./engine/firstreply-nudge'); // #3226: one reminder to an agent that has not answered its first message
 const liveExecution = require('./engine/live-execution'); // #2808 class-1 (c): gate the auto-handle sweep on the board's live-execution opt-in
 /* #3410: the self-heal's per-agent record, at module scope so /api/status can say where a
@@ -2429,7 +2438,16 @@ function safeRoster() {
         : a;
       // #5154 slice A: the roster carries the crash loop too, as /api/status's rows do, so routes counting
       // "needs the person" (status.needsPerson) agree with the board.
-      return a.isNamedOurs ? Object.assign({}, withReconnect, { crashLoop: crashloop.read(a.sessionName) }) : withReconnect;
+      // #5154 slice C: and whether it is stuck on a recurring terminal error. READ-ONLY here
+      // (stuckterminal.peek, not read): the 60s sweep is the only writer of the anchor. Gated on the
+      // CURRENT state still being terminal, so a just-recovered agent stops showing "stuck" at once
+      // rather than for up to a sweep (the anchor itself is cleared on the next sweep).
+      return a.isNamedOurs
+        ? Object.assign({}, withReconnect, {
+            crashLoop: crashloop.read(a.sessionName),
+            stuckError: stuckterminal.peek(a.sessionName, a.state, Date.now()),   // peek returns not-stuck unless the anchor matches the CURRENT state
+          })
+        : withReconnect;
     });
   } catch {
     return null;
@@ -5329,6 +5347,12 @@ const server = http.createServer(async (req, res) => {
         /* #5154 slice A: Kosmos has restarted this agent LOOP_RUNS times in WINDOW_MS and each run ended within
            SHORT_RUN_MS (engine/crashloop.js). Only for an agent we started (its supervisor writes the run file). */
         crashLoop: a.isNamedOurs ? crashloop.read(a.sessionName) : null,
+        /* #5154 slice C: whether this agent is stuck on a recurring terminal error (an expired login or a
+           rate limit that has not lifted). READ-ONLY (stuckterminal.peek); the 60s sweep is the only writer
+           of the anchor, so the board cannot advance the clock by polling. peek returns the not-stuck shape
+           unless the stored anchor matches the agent's CURRENT state, so a just-recovered or just-switched
+           agent drops "stuck" (and the stale sentence) immediately. */
+        stuckError: a.isNamedOurs ? stuckterminal.peek(a.sessionName, a.state, Date.now()) : null,
         // The name only. `plannedModelArg` returns null for "we do not know",
         // and null travels as null: the screen must not be able to tell a
         // missing job from a default.
@@ -5545,6 +5569,11 @@ const server = http.createServer(async (req, res) => {
                 /* #5154 slice A: stated on the offline row too. Between crashes a looping agent can have no session
                    at all, which is exactly when this row is the one the board draws. */
                 crashLoop: crashloop.read(k.name),
+                /* #5154 slice C: and stuckError, as a matched pair with crashLoop, so needsPerson /
+                   agentNeedsAttention can read it on this row without a strict-shape miss. Always null here:
+                   a terminal-error clock is kept only by the 60s sweep over RUNNING agents (stuckterminal.peek
+                   in safeRoster), and this row is an agent with no live session to be stuck. */
+                stuckError: null,
                 stateConfidence: unseen ? 'none' : 'structured',
                 /* #310: when the job exists and launchd holds an override
                    against it, the Login Items switch is the story, and it is
@@ -8330,6 +8359,7 @@ const server = http.createServer(async (req, res) => {
            engine states a default and names it, exactly as before. */
         const wrote = create.setProvider(name, body && body.provider, {
           accountDir: body && typeof body.account === 'string' ? body.account : null,
+          model: wantModel,   // #5534: the company policy is asked about the model the switch will run
           /* WHETHER A PERSON CHOSE, sent separately from WHICH. The account is
              honoured whenever the page shows the menu; only this decides whether
              the answer says "you picked" rather than "we picked and are telling
@@ -20681,7 +20711,7 @@ function start(port = PORT) {
   setInterval(() => { try { filepreview.sweep(); } catch { /* best effort */ } }, 60 * 60 * 1000).unref();
   /* #5359: read when this board was last alive BEFORE it says it is alive now, so a restart of the computer under a
      running Kosmos is noticed; then say so once a minute. Best effort: a courtesy, never a reason not to start. */
-  try { const rn = require('./engine/restartnote'); rn.atStart(); rn.startBeating(); } catch { /* best effort */ }
+  try { const rn = require('./engine/restartnote'); rn.atStart({ startedBy: BOARD_STARTED_BY, personMark: BOARD_PERSON_MARK }); rn.startBeating(); } catch { /* best effort */ }
   /* #5531: an enrolled work Kosmos asks its company on start and daily whether it is still the enrolled world, and
      stops reporting at once if not. Only a world with an enrollment asks: one that never joined sends nothing. */
   orgEnrollRefresh();
@@ -21483,19 +21513,49 @@ function start(port = PORT) {
          (phonenotify's own needs_you cooldown is the second guard). Logged every time it is told, so the threshold
          can be tuned from real boards. Reading the run files only; it never restarts or stops anything. unref'd. */
       const CRASHLOOP_TOLD = new Set();
+      const STUCK_TOLD = new Set();   // #5154 slice C: told once per stuck-terminal episode (cleared on recovery)
+      // #5154 slice C: wipe stuck-terminal anchors once at boot so a RESTART re-anchors from the live state.
+      // The anchor is a derived clock, not ground truth: a board that was down must not judge an agent stuck
+      // on a clock from before the downtime (the chief false-alarm risk). This runs only on real startup
+      // (requiring server.js in a test does not reach this block).
+      try { stuckterminal.clearAll(); } catch { /* never block boot */ }
       const crashLoopTick = setInterval(() => {
         try {
           /* Review 1: read the run files themselves, not the live roster. Between crashes a looping agent has no
              session, so a roster-based tick missed it most minutes and re-pushed each time it reappeared; it also
-             cost a full snapshot a minute. A session is forgotten ONLY when its own read says the loop is over. */
-          let names = new Map();
-          try { for (const a of safeRoster() || []) if (a && a.sessionName) names.set(store.safeKey(a.sessionName), a.name || a.sessionName); } catch { /* names are a courtesy */ }
+             cost a full snapshot a minute. A session is forgotten ONLY when its own read says the loop is over.
+             #5154 slice C captures the one roster read here and reuses it for the stuck-terminal sweep below, so
+             the two sweeps still cost a single snapshot a minute between them. */
+          // #5154 slice C: distinguish a FAILED snapshot (null) from a genuinely empty roster. On a failed
+          // read the stuck sweep is skipped entirely (below) so it never mis-advances an anchor; crashloop is
+          // unaffected either way (it reads its own run files, not the roster).
+          let roster = null;
+          try { roster = safeRoster(); } catch { /* a snapshot can fail; the stuck sweep skips this tick */ }
+          const names = new Map();
+          for (const a of (roster || [])) if (a && a.sessionName) names.set(store.safeKey(a.sessionName), a.name || a.sessionName);
           crashloop.tellLoops({
             keys: crashloop.keys(), told: CRASHLOOP_TOLD, readOne: (key) => crashloop.read(key),
             tell: (key, c) => {
               const shown = names.get(key) || key;
               process.stdout.write(`crash-loop: ${shown} (${key}) restarted ${c.count} times in ${crashloop.WINDOW_MS / 60000} min, each run under ${crashloop.SHORT_RUN_MS / 60000} min; told the person\n`);
               phonenotify.happened({ kind: 'needs_you', id: 'crashloop:' + key + ':' + c.firstAt, agent: shown, session: key, project: null });
+            },
+          });
+          /* #5154 slice C: the stuck-terminal sweep, over the SAME roster read. sweepRoster is the single
+             entry point (pinned by stuckterminal.test.js, review 5): it owns the null-skip SAFETY INVARIANT
+             (a FAILED snapshot, roster === null, never advances or prunes an anchor -- only a genuinely empty
+             [] prunes) and the our-own-named-agents filter, then hands the mapped rows to tellStuck, the ONLY
+             writer of the on-disk anchor -- which advances/clears each anchor, tells the person ONCE per
+             episode at the threshold (naming the error), clears the told-mark on recovery, and prunes a
+             departed agent's anchor on a good roster. Lifecycle-forget of a removed agent is
+             stuckterminal.forget (wired into create/remove/delete-leftover beside crashloop.forget).
+             Precedence is structural: an agent showing its OWN needs_you is, by status.js's classification,
+             not in a terminal error here, so this can never mask the agent's own question. */
+          stuckterminal.sweepRoster({
+            roster: roster, told: STUCK_TOLD, now: Date.now(),
+            tell: (key, r, shown) => {
+              process.stdout.write(`stuck-terminal: ${shown} (${key}) stuck on ${r.state} for ${Math.round(r.forMs / 60000)} min; told the person\n`);
+              phonenotify.happened({ kind: 'needs_you', id: 'stuckterminal:' + key + ':' + r.sinceAt, agent: shown, session: key, project: null });
             },
           });
         } catch { /* never breaks the board */ }

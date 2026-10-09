@@ -60,9 +60,6 @@ const SOLO = claudeAccount('solo', 'solo@example.com', false);
 const create = require('./create');
 const store = require('./store');
 const accounts = require('./accounts');
-/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that seeds, reads or drives the job as a
-   launchd plist cannot run unchanged there. Skipped on Linux only; its reason says whether a Linux test covers it, or
-   that it is not tested on Linux yet (#5500). macOS and Windows unchanged. */
 
 const plistText = (name) => fs.readFileSync(jobfix.jobPath(name), 'utf8');
 // #5432 review 9: read through create.readJob, which reads the plist on macOS and the unit on Linux; a plist regex

@@ -1947,6 +1947,12 @@ function connect(dir, opts) {
   const taken = folderTakenBy(given, name, { store });
   if (!taken.ok) return { ok: false, because: FOLDER_UNREADABLE };
   if (taken.other) return { ok: false, because: folderTakenSentence(taken.other, taken.home, taken.removed) };
+  /* #5534: connecting a folder starts a new agent, so a company policy that does not allow its provider (or the
+     provider's default model, which is what it will run) refuses it here, before anything is written. */
+  {
+    const allowed = create.policyAllows(create.runnerProvider(runner), '');
+    if (!allowed.ok) return { ok: false, because: allowed.because };
+  }
   /* 🛑 THE PROVIDER GOES IN THE PROFILE TOO, NOT ONLY THE JOB (#1159). #1347 made
      adoption write a codex JOB; the profile still said nothing, and
      `server.js` derives a card's runner from `profile.provider` whenever the

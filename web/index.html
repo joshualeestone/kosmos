@@ -11257,6 +11257,7 @@ body.plus-active:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.att
 #s-sec-plus .plus-org-g { margin-top: 12px; }
 #s-sec-plus .plus-org-h { font-weight: 600; color: #E6EBF7; font-size: .8125rem; margin: 0 0 4px; }
 #s-sec-plus .plus-org-lists ul { margin: 0; padding-left: 20px; }
+#s-sec-plus .plus-org-lists li.plus-org-none { list-style: none; margin-left: -20px; color: var(--k-ink-2); }   /* a statement, not an item */
 #s-sec-plus .plus-org-box .frow { margin-top: 16px; }   /* Mona's NIT: room above the two buttons */
 @media (max-width: 600px) {
   #s-sec-plus .plus-org-lists { grid-template-columns: 1fr; }
@@ -20563,6 +20564,19 @@ function stateReason(a, opts) {
     const n = Number(a.crashLoop.count) || 3;
     return 'Kosmos has restarted it ' + n + ' times in the last half hour, and each time it stopped within a couple of minutes. Kosmos will keep trying. Open it to see what it shows.';
   }
+  /* #5154 slice C: the same terminal error has stood past its threshold (engine/stuckterminal.js), so the card
+     names what is wrong and what to do. Placed before the plain auth_failed / rate_limited rules below so a
+     STUCK agent gets this sharper sentence; a brief one still falls through to the ordinary state sentence.
+     Plain words, consistent with the "Keeps stopping" card; Mona can refine later. DELIBERATE: slice C escalates
+     the SENTENCE, the Issue-filter membership (agentNeedsAttention / needsPerson) and one phone push -- not the
+     card's look or pill. auth_failed and rate_limited already render attn:true pills ("Sign-in isn't working" /
+     "Paused"), so a stuck card already reads as an issue; restyling cardStOf/stateCopyOf would recolour those
+     paused states wholesale, which is out of this slice's scope. */
+  if (a && a.stuckError && a.stuckError.stuck === true && a.state === a.stuckError.state) {   // state-match: never a stale sentence on a mid-sweep switch
+    const mins = Math.max(1, Math.round((Number(a.stuckError.forMs) || 0) / 60000));
+    if (a.stuckError.state === 'auth_failed') return 'Kosmos has seen this agent unable to sign in for about ' + mins + ' minutes. It cannot work until you reconnect its account. Open Settings to reconnect it.';
+    if (a.stuckError.state === 'rate_limited') return 'Kosmos has seen this agent paused by a rate limit for about ' + mins + ' minutes. It will keep trying when the limit lifts. You can wait, or switch its model.';
+  }
   /* #2019: a disruption we started names itself calmly. This mirrors boardfail's
      "This is not the same as having none": it pre-empts the fear the state exists
      to answer. Placed FIRST so it is not swallowed by the rate_limited guard
@@ -20984,7 +20998,10 @@ function agentNeedsAttention(a) {
   return !!(a && (a.state === 'needs_you' || a.state === 'needs_trust'
     || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')
     // #5154 slice A: an agent Kosmos keeps restarting and that keeps stopping within minutes.
-    || (a.crashLoop && a.crashLoop.looping === true)));
+    || (a.crashLoop && a.crashLoop.looping === true)
+    // #5154 slice C: an agent stuck past the threshold on the same terminal error (auth_failed / rate_limited).
+    // Keep byte-for-byte aligned with engine/status.js needsPerson.
+    || (a.stuckError && a.stuckError.stuck === true)));
 }
 
 /* ⚠️ ONE encoding of the memory thresholds, because there were four: the
@@ -47350,12 +47367,15 @@ function plusOrgMaybe() {
       : 'Your leave from ' + j.leaveRefused + ' was refused: you are its last admin. This Kosmos is your work Kosmos again' + reports;
   }).catch(() => { /* the next minute tries again */ });
 }
-function plusOrgList(id, items) {
+function plusOrgList(id, items, none) {
   const ul = document.getElementById(id);
   ul.textContent = '';
   for (const t of items || []) { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); }   // text, never markup
+  /* #5531 follow-up: a group with a sentence for "none" says it rather than vanish (a company that backs up nothing
+     yet sends an empty list, and a missing heading reads as "not shown", not "nothing"). */
+  if (!(items && items.length) && none) { const li = document.createElement('li'); li.className = 'plus-org-none'; li.textContent = none; ul.appendChild(li); }
   // The whole group, heading and list; the Never group always shows, for this Kosmos's own line under it.
-  ul.parentElement.hidden = !(items && items.length) && id !== 'plus-org-never';
+  ul.parentElement.hidden = !(items && items.length) && !none && id !== 'plus-org-never';
 }
 function plusOrgPaint() {
   const st = PLUS_ORG.state || {};
@@ -47393,7 +47413,7 @@ async function plusOrgCheck() {
     ? 'You are already in ' + (r.org.name || 'your company') + '. Make this Kosmos your work Kosmos? Here is what that means:'
     : (r.org.name || 'Your company') + ' invites you to join' + (r.role === 'admin' ? ' as an admin' : r.role === 'recovery' ? ' in its recovery role' : '') + '. Joining makes this Kosmos your work Kosmos. Here is what that means:';
   plusOrgList('plus-org-reports', r.consent.reports);
-  plusOrgList('plus-org-backsup', r.consent.backsUp);
+  plusOrgList('plus-org-backsup', r.consent.backsUp, r.consent.backsUpNone === true ? 'Nothing is backed up.' : null);
   plusOrgList('plus-org-readers', r.consent.readers);
   plusOrgList('plus-org-never', r.consent.never);
   plusOrgPaint();
@@ -57924,7 +57944,8 @@ function pjMember(m, suppressTold, withMinus, hideState) {
   /* #5154: the crash loop. The projection carries it (projects.js, from safeRoster); one that never had the field (`in`)
      borrows it from the latest /api/status, so the members row and the card agree. Before liveM, which keeps its shape. */
   if (m && typeof m === 'object' && !('crashLoop' in m) && typeof LAST !== 'undefined' && Array.isArray(LAST)) {
-    m = Object.assign({}, m, { crashLoop: ((LAST.find((a) => a && a.sessionName === m.sessionName)) || {}).crashLoop || null });
+    const lastRow = (LAST.find((a) => a && a.sessionName === m.sessionName)) || {};
+    m = Object.assign({}, m, { crashLoop: lastRow.crashLoop || null, stuckError: lastRow.stuckError || null });   // #5154 slice C: stuckError too
   }
   /* #3410: where the automatic reconnect stands. #3726: the member projection now carries it
      (m.reconnect, from the same /api/projects answer the project's Issue pill counts from), so the

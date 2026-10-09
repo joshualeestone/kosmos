@@ -22,6 +22,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 
 const BRIDGE_FILE = path.join(__dirname, '..', 'bin', 'agy-report-bridge.js');
+const TRACE_FILE = path.join(__dirname, '..', 'test-support', 'agy-bridge-trace.js');   // #5576
 const bridge = require(BRIDGE_FILE);
 
 function standInBoard() {
@@ -44,7 +45,13 @@ function standInBoard() {
 function runOnce(event, env, spawnFn = spawn) {
   return new Promise((resolve) => {
     let child;
-    try { child = spawnFn(process.execPath, [BRIDGE_FILE, event], { env, stdio: ['ignore', 'pipe', 'pipe'] }); }   // </dev/null, as the supervisor runs it
+    /* #5576: the child carries a preload that marks, straight to fd 2, its stdio fds at start and exit, its fetch and
+       its exit (test-support/agy-bridge-trace.js), so a libuv abort that only a loaded CI runner shows says which
+       path it died on. Not NODE_DEBUG: that opens a stream on fd 2 the bridge never has, the kind of handle the
+       abort is about, so it could change what it measures. A quiet stretch after this lands is still not evidence. */
+    // Quoted, so a checkout path with a space stays one argument (review 2).
+    const childEnv = { ...env, NODE_OPTIONS: ((env.NODE_OPTIONS || '') + ' --require ' + JSON.stringify(TRACE_FILE)).trim() };
+    try { child = spawnFn(process.execPath, [BRIDGE_FILE, event], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] }); }   // </dev/null, as the supervisor runs it
     catch (err) { resolve({ code: null, signal: null, error: String(err && err.code || err), out: '', err: '' }); return; }
     let out = '';
     let errText = '';
@@ -93,7 +100,9 @@ async function runBridge(event, env, run = runOnce, wait = (ms) => new Promise((
   }
   return { ...tries[tries.length - 1], tries };
 }
-const howItEnded = (r) => JSON.stringify((r.tries || [r]).map((x) => ({ code: x.code, signal: x.signal, error: x.error, stderr: String(x.err || '').slice(0, 600) })));
+/* #5576: the head AND the tail of stderr. With the trace markers on, an abort's own line comes LAST, after them. */
+const stderrOf = (t) => (t.length <= 1600 ? t : t.slice(0, 300) + ' [...] ' + t.slice(-1200));
+const howItEnded = (r) => JSON.stringify((r.tries || [r]).map((x) => ({ code: x.code, signal: x.signal, error: x.error, stderr: stderrOf(String(x.err || '')) })));
 
 test('#4417: the launch event reports idle from the new pane, with its launch token', async (t) => {
   const board = await standInBoard();
@@ -269,4 +278,61 @@ test('#5560 review 11: every member of the retry sets is pinned, both ways', asy
   for (const line of ['uv_thread_create failed', 'pthread_create: Resource temporarily unavailable', '# Check failed: x', 'Assertion failed: (fd > STDERR_FILENO), function uv__close, file core.c, line 646.',
     "node: ../deps/uv/src/unix/core.c:646: uv__close: Assertion `fd > STDERR_FILENO' failed."]) assert.equal(await tried({ ...base, signal: 'SIGABRT', err: line }), true, 'not retried: ' + line);
   assert.equal(await tried({ ...base, signal: 'SIGABRT', err: 'bridge: something else' }), false, 'a bridge abort was retried');
+});
+
+test('#5576: a failure message keeps the END of a long stderr, where the abort line is', () => {
+  const abort = 'Assertion failed: (fd > STDERR_FILENO), function uv__close, file core.c, line 646.';
+  const long = 'NET 1: connect '.repeat(400) + abort;
+  const said = JSON.parse(howItEnded({ code: null, signal: 'SIGABRT', error: null, err: long }))[0].stderr;
+  assert.ok(said.includes(abort), 'the abort line at the end of a long stderr was cut from the message');
+  assert.ok(said.startsWith('NET 1: connect'), 'the head was dropped');
+  assert.ok(said.length < 1600, 'the message is not bounded');
+  assert.equal(JSON.parse(howItEnded({ code: 1, signal: null, error: null, err: 'short' }))[0].stderr, 'short', 'CONTROL: a short stderr is kept whole');
+});
+
+test('#5576: the bridge child carries the trace preload, and it records the fds at start, fetch and exit on stderr only', async () => {
+  // The setting reaches the child (a fake spawn sees the options it was given).
+  let seen = null;
+  await runOnce('x', { NODE_OPTIONS: '--max-old-space-size=64' }, (_bin, _args, opts) => {
+    seen = opts.env.NODE_OPTIONS;
+    throw Object.assign(new Error('fake'), { code: 'ENOENT' });
+  });
+  assert.match(String(seen), /^--max-old-space-size=64 --require "[^"]+agy-bridge-trace\.js"$/, 'the preload did not reach the child quoted, or replaced its options');
+  // A real run, through the same retry as the other real runs here (review 3: it can meet the very abort it hunts).
+  const data = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'aw-agyseed-trace-'));   // a local require, as the file's other tests do
+  let board = null;
+  try {
+    board = await standInBoard();
+    const r = await runBridge('Stop', { ...process.env, AGENT_WORKFORCE_DATA: data, KOSMOS_PORT: String(board.port), TMUX_PANE: '%trace-' + process.pid });
+    assert.equal(r.code, 0, howItEnded(r));
+    const fds = '0:\\w+@\\d+ 1:\\w+@\\d+ 2:\\w+@\\d+';
+    for (const step of ['start', 'fetch begin', 'fetch end ok', 'exit called 0', 'exit 0']) {
+      assert.match(r.err, new RegExp('^agy-trace ' + step + ' \\| ' + fds + '$', 'm'), 'no "' + step + '" line with the fd record: ' + r.err.slice(0, 400));
+    }
+    assert.ok(!/agy-trace/.test(r.out), 'a line reached stdout, the hook\'s answer');
+  } finally {
+    if (board) board.server.close();
+    fs.rmSync(data, { recursive: true, force: true });
+  }
+});
+
+test('#5576: a line is never written into fd 2 once its number belongs to something else', async () => {
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'aw-agyseed-fd2-'));
+  try {
+    const file = path.join(dir, 'took-fd-2.txt');
+    // The child closes fd 2 and opens a file, which takes the lowest free number, 2; then it exits (an exit line is due).
+    const script = 'const fs=require("node:fs");fs.closeSync(2);const fd=fs.openSync(' + JSON.stringify(file) + ',"w");'
+      + 'process.stdout.write(String(fd),()=>process.exit(0));';
+    const out = await new Promise((resolve) => {
+      // Its own data root (#4796), as every child here gets, though this one never reaches a board.
+      const c = spawn(process.execPath, ['-e', script], { env: { ...process.env, AGENT_WORKFORCE_DATA: dir, NODE_OPTIONS: '--require ' + JSON.stringify(TRACE_FILE) }, stdio: ['ignore', 'pipe', 'pipe'] });
+      let text = '';
+      c.stdout.on('data', (d) => { text += d; });
+      c.on('close', () => resolve(text));
+    });
+    assert.equal(out, '2', 'CONTROL: the file did not take fd 2, so this test cannot see a write into it');
+    assert.equal(fs.readFileSync(file, 'utf8'), '', 'a trace line was written into the file that took fd 2');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

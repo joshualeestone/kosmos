@@ -100,6 +100,15 @@ function readRecords() {
 const madeAt = (x) => String(x.releasedAt || x.receivedAt || '');
 const byAgent = (x, sessionName) => x && x.agent === sessionName && x.author && x.author.type === 'agent';
 
+/* #5460: made inside a window communitysend recorded in state.json's `endedUnreadable` ({ since, at, until }): from the
+   period's start until the switch was next read (or, before any sweep has read it again, without an end). */
+function inUnreadableWindow(item, ctx) {
+  const made = madeAt(item);
+  if (!made || !Array.isArray(ctx.endedUnreadable)) return false;
+  return ctx.endedUnreadable.some((w) => w && typeof w.since === 'string' && made >= w.since
+    && (typeof w.until !== 'string' || made < w.until));
+}
+
 /**
  * One item's state. `rec` is the send layer's status for it (statuses() / commentRecords()), or undefined when the
  * layer has not met it yet. `ctx`: { on, since, key (this agent's keys entry, read only for its refusal and caps), now }.
@@ -123,13 +132,15 @@ function stateOf(kind, rec, item, ctx) {
   // #5435: a switch file that cannot be read is not the person turning Community off, so its words are not the switch's,
   // and they match the post command's (review 7). The sweep ends the period for it within a minute, as on main.
   if (ctx.switchUnreadable) return 'switch_unreadable';
-  if (!ctx.on) return ctx.since && madeAt(item) >= ctx.since ? 'paused' : 'before_on';
+  // #5460: a period the sweep ended because the switch could not be read, now repaired: still that reason, not "off".
+  const before = inUnreadableWindow(item, ctx) ? 'switch_unreadable' : 'before_on';
+  if (!ctx.on) return ctx.since && madeAt(item) >= ctx.since ? 'paused' : before;
   // The sweep sends only items made at or after the ON period's recorded start (`since`). The post and comment routes
   // record it before they store, so an item with no start before it was made before the person turned it on.
   // #5435 review 6: an address Kosmos does not send to records no start at all, so the item was not made "before the
   // person turned it on": say it was not sending, as the post command did, never "switched off".
   if (!ctx.since && !ctx.addressOk) return 'not_sent';
-  if (!ctx.since || madeAt(item) < ctx.since) return 'before_on';
+  if (!ctx.since || madeAt(item) < ctx.since) return before;
   if (!ctx.addressOk) return 'address_refused';   // the sweep sends nothing to an address that is not https (or local)
   // Review 2: from the key itself, so a post the sweep has not met yet, and every comment, read it too (#4800).
   if ((rec && rec.agentNameUnclaimed) || (ctx.key && !ctx.key.apiKey && ctx.key.registering && ctx.key.registering.taken)) return 'name_unclaimed';
@@ -154,6 +165,7 @@ function itemsFor(sessionName, now = Date.now()) {
   } catch { return null; }
   const sw = communitysend.switchState();
   const ctx = { on: sw === 'on', switchUnreadable: sw === 'unreadable', since: typeof recs.state.since === 'string' ? recs.state.since : null,
+    endedUnreadable: Array.isArray(recs.state.endedUnreadable) ? recs.state.endedUnreadable : [],
     key: recs.keys[sessionName] || null, now, addressOk: communitysend.endpointAllowed() };
   const out = [];
   for (const p of communitystore.publishedPosts()) {

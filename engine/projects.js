@@ -980,6 +980,7 @@ function describe(project, roster, all) {
          the person here as it does on the board. Same tied gate as `state`. */
       reconnect: (card && card.isNamedOurs && 'reconnect' in card && card.reconnect) ? card.reconnect : null,   // `in`: a raw snapshot() roster has no reconnect field
       crashLoop: (card && card.isNamedOurs && 'crashLoop' in card && card.crashLoop) ? card.crashLoop : null,   // #5154: as reconnect (safeRoster carries it; `in` for a raw snapshot roster)
+      stuckError: (card && card.isNamedOurs && 'stuckError' in card && card.stuckError) ? card.stuckError : null,   // #5154 slice C: carried like crashLoop so needsPerson lights the project's Issue pill too (two-derivations rule)
       /* #2808 class 2: carry the card's `stateReportedBy` onto the member (same isNamedOurs gate
          as `state`), so pjMember's shared `cardStOf(m).st==='attn'` render de-alarms a deliberate
          agent question here just as it does on the home card / list row / org node. WITHOUT this,

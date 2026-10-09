@@ -387,3 +387,20 @@ test('#5531 follow-up b review 1: a malformed served hash is never echoed or rec
   assert.equal(oe.mayReport(), false, 'a malformed served hash left a join that may report');
   await call('/api/org/leave', { body: {}, headers: SCREEN });
 });
+
+test('#5531 follow-up: a company\'s stated empty backed-up list reaches the screen through the real preview route', async (t) => {
+  const remote = require('./engine/remote');
+  const orig = remote.macRequest;
+  let backsUp = [];
+  remote.macRequest = async (method, route) => (route === oe.ROUTES.redeem
+    ? { ok: true, data: { org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: { reports: ['agent names'], backsUp, readers: ['you'], never: [] } } }
+    : { ok: false, because: 'unexpected ' + route });
+  t.after(() => { remote.macRequest = orig; });
+  const said = await call('/api/org/preview', { body: { code: 'ACME-JOIN-1234' }, headers: SCREEN });
+  assert.equal(said.json.ok, true, JSON.stringify(said.json));
+  assert.equal(said.json.consent.backsUpNone, true, 'the stated empty list did not reach the screen: ' + JSON.stringify(said.json.consent));
+  // CONTROL: a company that sends a list is not told "nothing is backed up".
+  backsUp = ['agent folders'];
+  const listed = await call('/api/org/preview', { body: { code: 'ACME-JOIN-1234' }, headers: SCREEN });
+  assert.equal(listed.json.consent.backsUpNone, false);
+});

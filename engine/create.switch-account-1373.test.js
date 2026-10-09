@@ -78,9 +78,6 @@ const create = require('./create');
 // #5432 review 9: through create.readJob (plist on macOS, unit on Linux); a plist regex read null on Linux.
 const codexHomeOf = (name) => { const j = create.readJob(name); return j ? j.configDir : null; };
 const store = require('./store');
-/* #5432: on a Linux host an agent's job is a systemd user unit, so a test that seeds, reads or drives the job as a
-   launchd plist cannot run unchanged there. Skipped on Linux only; its reason says whether a Linux test covers it, or
-   that it is not tested on Linux yet (#5500). macOS and Windows unchanged. */
 /**
  * An agent seeded DIRECTLY: its launch job and its profile, which is all
  * `setProvider` reads.

@@ -33,6 +33,7 @@ const create = require('./create');
 const win32job = require('./win32job');
 const win32stop = require('./win32stop');
 const worldstarts = require('./worldstarts');
+const store = require('./store');
 
 // The darwin arm builds gui/<uid>/<label>; win32 has no getuid.
 if (typeof process.getuid !== 'function') process.getuid = () => 501;
@@ -847,4 +848,43 @@ test('R1 TEST-GAP (Windows, the path this box ships): no task yet -> the folder 
   assert.deepEqual(got, [{ name: 'wen', opts: { platform: WIN, model: 'claude-opus-4', configDir: account } }]);
   const cfg = fs.readFileSync(nodePath.join(account, '.claude.json'), 'utf8');
   assert.ok(cfg.includes('wen') && cfg.includes('hasTrustDialogAccepted'), 'the copy was not trusted on the account it will run on');
+});
+
+test('#5534: an imported agent on a provider the company policy does not allow is not started here, and says why', () => {
+  const orgpolicy = require('./orgpolicy');
+  fs.mkdirSync(nodePath.dirname(orgpolicy.APPLIED()), { recursive: true });
+  fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 1, applied_at: 1,
+    policy: { providers_allowed: ['anthropic'], models_allowed: { anthropic: ['opus'] } } }));
+  try {
+    const before = calls.length;
+    assert.match(String(worldstarts.firstStartOfImport({ name: 'importcodex', runner: 'codex' }, MAC)),
+      /importcodex was not started here: .*does not allow openai/);
+    assert.match(String(worldstarts.firstStartOfImport({ name: 'importhaiku', runner: 'claude', model: 'claude-haiku-4-5-20251001' }, MAC)),
+      /does not allow the model haiku/, 'a model outside the list, given by its full id, was not refused');
+    assert.equal(calls.length, before, 'a refused import ran a command');
+    assert.equal(store.readProfile('importcodex').policyHeld, true, 'a held import was not marked, so Repair could start it');
+    const allowed = worldstarts.firstStartOfImport({ name: 'importopus', runner: 'claude', model: 'claude-opus-5' }, MAC);
+    assert.doesNotMatch(String(allowed || ''), /policy/, 'CONTROL: an allowed provider and model is not refused for policy');
+    fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 2, applied_at: 1,
+      policy: { providers_allowed: null, models_allowed: null } }));
+    // The install is stood in for (a real one needs a runner binary, so the result would depend on the machine:
+    // it passed locally and failed in CI). Allowed but the install fails: it has not run, so the mark stays and
+    // Repair still asks. Then the install succeeds: it counts as an agent that ran, and the mark clears.
+    const realInstall = create.installJob;
+    let installs = 0;
+    try {
+      create.installJob = () => { installs += 1; return { ok: false, because: 'no folder for it on this computer' }; };
+      const failed = worldstarts.firstStartOfImport({ name: 'importcodex', runner: 'codex' }, MAC);
+      assert.match(String(failed), /could not set importcodex up/, 'setup: the install was expected to fail here');
+      assert.equal(store.readProfile('importcodex').policyHeld, true, 'the mark cleared although the agent never ran');
+      create.installJob = () => { installs += 1; return { ok: true }; };
+      const second = worldstarts.firstStartOfImport({ name: 'importcodex', runner: 'codex' }, MAC);
+      assert.equal(store.readProfile('importcodex').policyHeld, false, 'the mark stayed after the import was set up to run: ' + second);
+      assert.equal(installs, 2, 'CONTROL: both imports reached the install (the policy allowed them)');
+    } finally {
+      create.installJob = realInstall;
+    }
+  } finally {
+    fs.rmSync(orgpolicy.APPLIED(), { force: true });
+  }
 });
