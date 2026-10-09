@@ -370,3 +370,12 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - Stated: the guard gap is wall-clock time, so a laptop asleep for over the gap also starts its agents from now (a loss,
   never a leak, and more frequent than a board left down); a hidden word starting with another variable ($MYDIR) is
   not dropped as the agent's own (over-claims).
+
+## Review 29 (sonnet), all fixed unless stated
+- Two token-only agents sharing one transcript folder were both read, and a file's events took whichever name the
+  rotation read first: a folder shared by two read agents is a collision too, so neither is read. Test.
+- Review 25's note on the refresh interval is marked superseded (review 27 set GUARD_REFRESH_MS, 10 minutes).
+- Stated: a tool_use line over READ_MAX is skipped, so a refusal of that call is classed 'other'; an agent taken off
+  the list keeps its offsets and call maps until its files go (ids and classes only, never sent); an unexpected throw
+  in a tick returns its text, which the server's timer drops (as nothing else reads it in part 1a); "Operation not
+  permitted" also matches TCC/SIP refusals (the stated text-match premise).

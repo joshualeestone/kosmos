@@ -502,13 +502,19 @@ async function tick(opts) {
         console.error('agentevents: an agent\'s transcript folder could not be worked out; nothing read (' + String((e && e.message) || e) + ')');
         return { sent: 0, because: 'a transcript folder could not be worked out; nothing changed' };
       }
-      for (const [n, d] of [...dirs]) {
-        if (!d) continue;
-        const mine = flat(d);
-        if (others.some((o) => [...o].some((x) => mine.has(x)))) {
+      /* Two READ agents sharing a folder clash too (review 29): one file's events would be labelled with whichever
+         agent the rotation read first, so the console would name the wrong agent. Neither is read. */
+      let readFlats;
+      try { readFlats = [...dirs].filter(([, d]) => d).map(([m, d]) => [m, flat(d)]); } catch (e) {
+        console.error('agentevents: an agent\'s transcript folder could not be worked out; nothing read (' + String((e && e.message) || e) + ')');
+        return { sent: 0, because: 'a transcript folder could not be worked out; nothing changed' };
+      }
+      for (const [n, mine] of readFlats) {
+        const peers = readFlats.filter(([m]) => m !== n).map(([, f]) => f);
+        if ([...others, ...peers].some((o) => [...o].some((x) => mine.has(x)))) {
           dirs.delete(n);
           collidedNow.add(n); clashNow.add(n);
-          console.error('agentevents: ' + n + ' shares its transcript folder with an agent not under the company\'s rules; not read');
+          console.error('agentevents: ' + n + ' shares its transcript folder with another agent; not read');
         }
       }
     }
