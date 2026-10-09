@@ -2659,8 +2659,8 @@ function cleanParent(value, childId) {
 /**
  * Every writable field, applied in ONE mutate.
  *
- * ⚠️ One write on purpose. The PUT route used to run rename, setDescription
- * and setArchived as independent read-modify-writes -- so a failure in a
+ * ⚠️ One write on purpose. The PUT route used to run rename and two separate
+ * setters (description, archived) as independent read-modify-writes -- so a failure in a
  * later one answered the caller "your save failed" about a change that had
  * already persisted. Validation happens for EVERY carried field BEFORE any
  * write (cleanName and cleanDescription throw; archived refuses anything
@@ -2711,6 +2711,8 @@ function edit(id, fields = {}) {
       } else { delete next.paused; delete next.pausedByPerson; }   // absent = not paused, as every older record reads
     }
     if (fields.archived !== undefined) {
+      // Archiving is a display state, not a removal: members and agents are
+      // deliberately not re-told, and nothing else on the record changes.
       next.archived = fields.archived;
       // Archiving an already-archived project keeps its original date;
       // restoring clears it rather than leaving a stale "archived at"
@@ -2770,22 +2772,6 @@ function rename(id, name) {
   return edit(id, { name });
 }
 
-function setDescription(id, text) {
-  // Records written before this field existed simply gain it here; readers
-  // treat a missing description as ''.
-  return edit(id, { description: text });
-}
-
-/**
- * Archive or restore a project.
- *
- * ⚠️ A display state, not a removal. The record stays in the store, the folder
- * is untouched, and the agents that were on it stay as they are -- so nothing
- * here re-tells the members: their instructions still describe a project that
- * still exists under the same name. Restoring clears the timestamp rather than
- * leaving a stale "archived at" beside a project that is not archived, which
- * would be a sentence about a thing that is no longer true.
- */
 /**
  * An archive date is published only when it is a parseable STRING: the heal
  * for the flag taught the read side to distrust strays, and 12345 beside
@@ -2833,21 +2819,6 @@ function setSwarmOn(projectId, name, on) {
   });
 }
 const SWARM_OFF_SENTENCE = (who) => `${who} is switched off in this project. Switch it on in the project's members to send it work here.`;
-
-/**
- * Archive or restore a project.
- *
- * ⚠️ A display state, not a removal. The record stays in the store, the folder
- * is untouched, and the agents that were on it stay as they are -- so nothing
- * here re-tells the members: their instructions still describe a project that
- * still exists under the same name. Restoring clears the timestamp rather than
- * leaving a stale "archived at" beside a project that is not archived, which
- * would be a sentence about a thing that is no longer true.
- */
-function setArchived(id, want) {
-  // One rule: this is edit with one field carried.
-  return edit(id, { archived: want });
-}
 
 /* The membership valve (#803, extended by Splinter's ruling 2026-08-25): a
    membership change rewrites the member's instruction file, the most
@@ -3704,7 +3675,7 @@ module.exports = {
   joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, teamBlockState, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, andList, setRoleHere, ROLE_HERE_MAX,
-  list, get, projectsFor, namesFor, create, edit, moveFolder, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
+  list, get, projectsFor, namesFor, create, edit, moveFolder, rename, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
   BRIEF_STUB_FILENAME, BRIEF_GOAL_PLACEHOLDER, briefStubContent, seedBriefStub, briefIsPending, BRIEF_PENDING_NOTE, BRIEF_PENDING_NOTES_BEFORE_AUDIENCE,
   BRIEF_DONE_PLACEHOLDER, BRIEF_DONE_PLACEHOLDERS, doneIsPending, doneWrittenIn, doneHeadingIsOwn, doneNotWrittenNote, doneMarkdown, DONE_PENDING_NOTE, BRIEF_AND_DONE_PENDING_NOTE, cleanDone, coordinatorWarning, fillDone, PROJECT_COORDINATOR, WELCOME_DONE,

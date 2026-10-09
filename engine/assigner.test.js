@@ -250,7 +250,7 @@ test('an archived project is never assigned from', () => {
   const w = world([{ name: 'arch' }]);
   try {
     addTask(w.pid, 'in an archived project');
-    projects.setArchived(w.pid, true);
+    projects.edit(w.pid, { archived: true });
     assert.equal(afterIdle(w).toAssign.length, 0);
   } finally { w.restore(); }
 });
@@ -259,7 +259,7 @@ test('open work in an ARCHIVED project still means the agent is not free', () =>
   const w = world([{ name: 'archw' }]);
   try {
     tasks.create(w.pid, { sentence: 'mine, in a project about to be archived', who: w.key.archw, made: { via: 'screen' } });
-    projects.setArchived(w.pid, true);
+    projects.edit(w.pid, { archived: true });
     const live = projects.create({ name: 'Assigner Live ' + (++seq) });
     projects.addAgent(live.id, w.key.archw, w.cards);
     tasks.create(live.id, { sentence: 'free, in a live project', made: { via: 'screen' } });

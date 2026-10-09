@@ -230,7 +230,6 @@ const SEAMS_5548 = {
 const TEST_SEAM = 'test seam: only its own tests call it (its source comment says so, or it injects or reports state for them)';
 const INTERNAL = 'used inside its own module; exported only so its test can pin it';
 const ACCESSOR = 'a thin accessor of a sibling export that production does call (the capability is reached through that sibling)';
-const SUPERSEDED = 'superseded: production uses another path; deletion tracked on #5582';
 const TRIAGED_5548 = {
   newPoolMemo: ['engine/agyquota.js', TEST_SEAM + ' (an isolated memo for a test; production uses the module default)'],
   stopAll: ['engine/fedseats.js', TEST_SEAM + ' (its docblock: only tests call it; board shutdown closes stdin)'],
@@ -257,16 +256,10 @@ const TRIAGED_5548 = {
   hasPicture: ['engine/you.js', ACCESSOR + ' (picturePath() !== null; server.js calls picturePath)'],
   rotateForRevoked: ['engine/fedseats.js', ACCESSOR + ' (a wrapper over revokeCheck, which production calls)'],
   setIntervalMinutes: ['engine/heartbeat-setting.js', ACCESSOR + ' (a single-field setter beside the patch setter the PUT route uses, #1722)'],
-  wireText: ['engine/chat.js', SUPERSEDED + ' (its comment: nothing calls it in production; deliver() pastes the raw wire, #3419)'],
-  setDescription: ['engine/projects.js', SUPERSEDED + ' (the PUT route moved to one-write edit())'],
-  setArchived: ['engine/projects.js', SUPERSEDED + ' (as setDescription; also a fixture helper in six test files)'],
-  labelForMember: ['engine/fedmembers.js', SUPERSEDED + ' (a convenience over labelsFor that no screen uses)'],
   labelFor: ['engine/communityindustry.js', 'pending: slice 2 of OPEN #4375 (the public label for an owner\'s industry)'],
   HANDOFF_CHECK_FOR_SERVING_AFTER_MS: ['engine/win32handoff.js', 'mirrored by tools/windows/KosmosLauncher.cs (CheckForServingAfterMs), pinned equal by tools.win-launcher-native.test.js'],
   costOf: ['engine/usageprice.js', 'pending: #5532\'s rollup sender (its next piece) is the first caller; merged in #5556 after this guard, nothing calls it yet by design, and usageprice.test.js pins it to the page\'s usageApiCost'],
   exportAgent: ['engine/agentfile.js', 'an UNREACHABLE capability (the export half of #1652): wire or delete on #5581'],
-  // Review 2: NOT superseded (collapse does not bound a sequential loop): an unwired cost defence.
-  minInterval: ['engine/inflight.js', 'an UNREACHABLE capability (the connections-sweep guard of #1645, never wired): wire or delete on #5583'],
 };
 
 const engineDir = path.join(__dirname, 'engine');

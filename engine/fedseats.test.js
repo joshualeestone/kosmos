@@ -1252,7 +1252,7 @@ test('#4649 slice 3: pinning a member remembers the coordinator\'s account for t
   await settle();
   say(seat, { event: 'message', data: fedseal.helloFrame(inv.s, inv.code, fedseal.newKeyPair(), room) });
   await settle();
-  assert.strictEqual(fm.labelForMember('proj-stamp-o', 'acct-dana'), 'Dana Ruiz', 'the pinned member\'s account was not remembered');
+  assert.strictEqual((fm.labelsFor('proj-stamp-o').get('acct-dana') || null), 'Dana Ruiz', 'the pinned member\'s account was not remembered');
 });
 
 test('#3728: an owner never speaks or listens in the clear once it has made a sealing invite, key or no key yet', async () => {

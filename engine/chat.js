@@ -492,60 +492,6 @@ function storedProblem(raw) {
   return storedWithin(raw, MAX_TEXT) === null ? STORE_TOO_SPACED : null;
 }
 
-/**
- * The person's text, as it has to be spelled ON THE WIRE to arrive intact.
- *
- * ⚠️ MEASURED, on this machine, tmux 3.6a, against a scratch session created
- * and killed for the probe — not read off the parser and not assumed. tmux
- * splits its argv into a COMMAND LIST before running anything, and a `;` at the
- * very end of the last element is that split's separator rather than a
- * character. What the pane really showed:
- *
- *   typed `const total = 0;`          → pane `const total = 0`   (semicolon eaten)
- *   typed `;`                         → pane ``                  (NOTHING arrives)
- *   typed `wait;;`                    → pane `wait;`             (exactly one eaten)
- *   typed `const a = 1; const b = 2`  → unchanged  (a middle `;` is safe)
- *   typed `const total = 0; `         → unchanged  (a trailing SPACE saves it)
- *   typed `foo\`                      → unchanged  (a lone trailing backslash is safe)
- *   typed `foo\;`                     → pane `foo;`  (the `\` escapes the `;`: one pair, one semicolon)
- *   typed `foo\\;` (2 backslashes)    → pane `foo\;` (so the ESCAPED form round-trips exactly)
- *
- * The last two rows settle the input class this function's own design lives
- * on (measured 2026-08-14, same scratch-session instrument): a message
- *   ending `\;` wires to `…\\;` and arrives as `…\;`, the person's text
- * exactly. tmux's splitter consumes one backslash to escape the final
- * semicolon and nothing else; it does not treat `\\` as a general escape
- * that would leave a bare separator behind.
- *
- * Two different harms. The first is quiet: the text delivered is not the text
- * we checked, recorded and rendered, and the verdict still says `placed` — the
- * screen shows the person a semicolon their agent never received. The second is
- * not quiet at all: a message of exactly `;` types NOTHING, and the separate
- * Enter still fires, so a bare submit lands in a live composer. On the
- * permission prompt this whole feature exists for, a bare submit takes the
- * highlighted default. We would have reported that as `placed`.
- *
- * Escaping the trailing one as `\;` makes the parser hand it back as a literal.
- * Measured to round-trip all eight cases above, including `wait;;` (sent as
- * `wait;\;`) and a message ending in a backslash, which is untouched.
- *
- * ⚠️ APPLIED AT THE SEND AND NOWHERE ELSE. `cleanMessage` is what gets checked,
- * recorded and shown, and it must stay the person's own text — an escape that
- * leaked into the record would put a backslash in their history and in the
- * thread on screen.
- */
-const WIRE_SEMICOLON = String.fromCharCode(92) + ';';
-
-// 📌 RETAINED THOUGH NO LONGER ON THE SEND PATH (#3419). This escaped a trailing
-// `;` so `send-keys -l` would not eat it; deliver() now PASTES the raw wire, which
-// delivers a `;` literally, so nothing calls this in production. Kept (exported,
-// unit-tested) rather than removed: it is a correct pure helper, and its test
-// documents the measured tmux command-list behaviour a future send path could hit.
-function wireText(text) {
-  const said = String(text == null ? '' : text);
-  return said.endsWith(';') ? said.slice(0, -1) + WIRE_SEMICOLON : said;
-}
-
 /* ── the paste transport (#3419) ─────────────────────────────────────────────
  *
  * 🛑 WHY THIS REPLACED `send-keys -l -- <text>`. A raw `send-keys -l` streams the
@@ -680,9 +626,9 @@ function chunkUtf8(str, maxBytes) {
  * ⚠️ THE CHUNK IS PASSED AS ARGV AFTER `--`, never through a shell (execFileSync
  * takes no shell) and never as send-keys keystrokes. So message content of any
  * bytes — a leading `-`, a `;`, `$(…)`, unicode — is data, never a command and
- * never a tmux flag. This is why `wireText`'s trailing-`;` escaping is not needed
- * on this path (a paste delivers the literal character), and why the raw `wire`
- * is pasted rather than `wireText(wire)`.
+ * never a tmux flag. A paste also delivers a trailing `;` literally, so the
+ * raw `wire` is pasted with no escaping (the old send-keys path's trailing-`;`
+ * escape, and its measured tmux table, were removed in #5582: git history).
  */
 function pasteWire(target, wire) {
   const chunks = chunkUtf8(wire, PASTE_CHUNK_BYTES);
@@ -1561,8 +1507,8 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
   // note and the size-adaptive delay below).
   // ⚠️ THE TEXT IS PASTED, not typed with `send-keys -l`. A raw keystroke stream
   // is silently shredded into a busy pane (kosmos#3419); `pasteWire` delivers it
-  // atomically in UTF-8-safe chunks. The raw `wire` is pasted, not `wireText`:
-  // a paste delivers a trailing `;` literally, so no escaping is needed.
+  // atomically in UTF-8-safe chunks. The raw `wire` is pasted unescaped: a paste
+  // delivers a trailing `;` literally, so no escaping is needed.
   const typed = pasteWire(target, wire);
   // ⚠️ A MULTI-CHUNK PASTE THAT FAILED PART-WAY is UNCONFIRMED, not COULD_NOT,
   // and this branch must come first because the failure below it would otherwise
@@ -3583,7 +3529,7 @@ function markDmReactionsTold(agent, named) {
 module.exports = {
   setMovedTell,   // #5400
   DELIVERY, DIRECT, dmOwes, noticeStands, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES, STORE_GROWTH, storedWithin, storedProblem,
-  cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
+  cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
   deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
