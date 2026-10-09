@@ -267,14 +267,15 @@ function rootIn(tree, task) {
 /**
  * #5678 review 1: who holds each tree of project `p`: tree (rootIn) -> the set of the project's own agents holding an
  * open part of an open task in it. A holder no longer on the project holds nothing here (#5034's membership rule), so
- * work left by someone who left is not stuck.
+ * work left by someone who left is not stuck. `holds(task, who)`, when given, says whether that holding counts (the
+ * Assigner passes "keeps the agent busy", so a parked hold does not lock a tree for good).
  */
-function treeHolders(p, tree) {
+function treeHolders(p, tree, holds) {
   const members = new Set(Array.isArray(p && p.agents) ? p.agents : []);
   const out = new Map();
   for (const t of (p && p.tasks) || []) {
     if (!t || typeof t.number !== 'number' || progressOf(t).closed) continue;
-    const who = openHolders(t).filter((w) => members.has(w));
+    const who = openHolders(t).filter((w) => members.has(w) && (typeof holds !== 'function' || holds(t, w)));
     if (!who.length) continue;
     const r = rootIn(tree, t);
     if (!out.has(r)) out.set(r, new Set());

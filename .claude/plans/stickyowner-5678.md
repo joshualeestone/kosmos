@@ -16,7 +16,11 @@ both CLIs.
   if any of the project's agents holds an open part of an open task in it (tasks.treeHolders), nobody else is given any
   task in it, and the holder may be (when it reads free: a built or on-hold parent, between runs). Within one pass, a
   tree given to one agent is not given to another (`taken` carries the tree and the agent). A holder no longer on the
-  project holds nothing (#5034). A finished task holds nothing, whatever its parts say.
+  project holds nothing (#5034). A finished task holds nothing, whatever its parts say. Review 2: only a BUSY hold
+  counts (busyHold: hasOpenWork's rules, plus the project's swarm switch), so a parked hold (on hold, built and freed,
+  between runs) never locks a tree for good. Failover moves a part only into a tree no other busy agent holds.
+- Not covered on purpose: a busy holder rate-limited with failover off keeps its tree for the reset window (it is
+  still that builder's work; failover is the release, as for its own parts).
 - The task list SHOWS the nearest open held ancestor (tasks.ownerIn, members only) on a task nobody is on directly.
 - Shown where an agent looks before starting (`kosmos task list`, from the /api/tasks rows' new ownerNames/ownerFrom).
   The page already shows the parent's holder and the child's "under task N" breadcrumb; an owner line on the page is
@@ -44,3 +48,8 @@ both CLIs.
   - W3 fixed: a held CHILD did not keep its unheld parent from a second builder (nothing checked descendants). The whole tree is one unit now.
   - W4 fixed: the finished-parent cases could not fail (legacy `who` + closedAt closes the part too); now a closed task with a part still open (red by mutation).
   - NITs taken: owner names folded to one line in both CLIs. Left: failover's write-time race (a person gives the parent out between read and write); the dead `if (!a)` removed; webhook wording beside an owner line is mixed but not unsafe.
+- **Round 2 (sonnet):** 0 blockers, 3 warnings, 1 convention, 3 NITs.
+  - W1 fixed: a parked hold (built, on hold, between runs, or a holder switched off here) locked a tree from everyone for good, while the holder read free. Holds now count only when they keep the holder busy (busyHold, hasOpenWork's own rules). Tested built and on-hold parents (red by mutation).
+  - W2 fixed: failover could move a part into a tree another busy agent holds. failoverPick now checks the tree (leaving out the stalled holder) and this pass's trees; both paths record the tree in `taken`. Tested both ways (red by mutation).
+  - W3: resolved by W1 (the holder exception mattered only in the parked states, which no longer lock).
+  - C taken: the plan states what "holds" means. NITs left: `[...taken].some` per candidate and per-pick tree building (bounded; fine at current sizes); `pick`'s choice carries treeKey for step (stripped before it leaves step).

@@ -142,6 +142,23 @@ function liveProjects(records) {
    holding an open part of a task
    some other agent marked is still busy (review round 4: the mark is on the task, the work is per part). New work on
    it (a part added, put back, or given to somebody) drops the mark (tasks.writeParts), and it counts again. */
+/* #5678 review 2: does `who` holding an open part of `t` keep it busy, by hasOpenWork's own rules (on hold, between
+   runs, built and freed: not busy) and the project's swarm switch? A tree is locked only by holds like that, so a
+   parked hold (or a holder switched off here) never locks a tree for good, and "holds the tree" agrees with "is busy". */
+function busyHold(p, t, who) {
+  if (tasks.isOnHold(t) || require('./taskrepeat').waitingForNextRun(t)) return false;
+  if (t.builtAt && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(who)))) return false;
+  return !isSwarmOff(p, who);
+}
+/* #5678: is this tree (by its root) another builder's: held busy by somebody else, or given to somebody else this pass?
+   `except` is a holder to leave out (failover moves that holder's part). */
+function treeIsOthers(p, tree, holdersOf, root, session, taken, except) {
+  const held = [...(holdersOf.get(root) || [])].filter((w) => w !== except);
+  if (held.length && !held.includes(session)) return true;
+  const treeKey = p.id + '#tree#' + root + '#';
+  return [...taken].some((k) => k.startsWith(treeKey) && k !== treeKey + session);
+}
+
 function hasOpenWork(session, projects) {
   for (const p of projects) {
     /* #4771: held work (a task on hold, or a paused project) does not keep an agent busy, so the agent can be given
@@ -188,7 +205,7 @@ function pick(session, projects, taken) {
        an open part of an open task in it), or, this pass, the agent it was just given to (`taken` carries
        "<project>#tree#<root>#<agent>", review 1: a parent and its subtask given to two idle agents in one tick). */
     const tree = tasks.treeOf(p);
-    const holdersOf = tasks.treeHolders(p, tree);
+    const holdersOf = tasks.treeHolders(p, tree, (t, who) => busyHold(p, t, who));
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
       if (typeof t.number !== 'number') continue;
       if (tasks.isOnHold(t)) continue;   // #4771: a task on hold is never handed out
@@ -205,13 +222,10 @@ function pick(session, projects, taken) {
       /* #5678 (user feedback 10-09): never a second builder on one tree. Its holder may take more of it when free
          (review 1: the owner was shut out of its own subtasks); anyone else is not given it. */
       const root = tasks.rootIn(tree, t);
-      const holders = holdersOf.get(root);
-      if (holders && holders.size && !holders.has(session)) continue;
-      const treeKey = p.id + '#tree#' + root + '#';
-      if ([...taken].some((k) => k.startsWith(treeKey) && k !== treeKey + session)) continue;
+      if (treeIsOthers(p, tree, holdersOf, root, session, taken, null)) continue;
       const part = prog.parts.find((x) => !x.closedAt);
       if (!part) continue;
-      candidates.push({ projectId: p.id, n: t.number, partId: part.id, due: dueKey(t), age: ageKey(t), treeKey: treeKey + session });
+      candidates.push({ projectId: p.id, n: t.number, partId: part.id, due: dueKey(t), age: ageKey(t), treeKey: p.id + '#tree#' + root + '#' + session });
     }
   }
   candidates.sort((a, b) => (a.due < b.due ? -1 : a.due > b.due ? 1 : a.age - b.age));
@@ -385,12 +399,19 @@ function personGiveAt(t, x) {
 
 /* #5382: the stalled part this idle agent takes, if any: in a project it belongs to (and is not swarm-off in), held by
    an agent on a DIFFERENT provider (the same provider is likely the same limit), not already moved this step. */
-function failoverPick(session, runner, stalled, projects, movedParts) {
+function failoverPick(session, runner, stalled, projects, movedParts, taken = new Set()) {
   for (const s of stalled) {
     if (!s.fromRunner || !runner || s.fromRunner === runner || movedParts.has(s.projectId + '#' + s.n + '#' + s.partId)) continue;
     const p = projects.find((q) => q.id === s.projectId);
     if (!p || !(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session)) continue;
-    return s;
+    /* #5678 review 2: a moved part must not make a second builder on its tree: the tree's other busy holders (leaving
+       out the stalled one, whose part this is) must be none or this agent, and no one else got the tree this pass. */
+    const tree = tasks.treeOf(p);
+    const t = tree.byNum.get(s.n);
+    if (!t) continue;
+    const root = tasks.rootIn(tree, t);
+    if (treeIsOthers(p, tree, tasks.treeHolders(p, tree, (x, who) => busyHold(p, x, who)), root, session, taken, s.from)) continue;
+    return { ...s, treeKey: p.id + '#tree#' + root + '#' + session };
   }
   return null;
 }
@@ -471,16 +492,17 @@ function step({ prev, roster, setting, records, commitments, goals, now, runners
     try { held = require('./agyquota').heldForAgy(session, roster, now); } catch { held = null; }   // #4588 ask 3: the cap too
     if (held !== null) continue;
     /* #5382: work stalled on a rate-limited agent comes before the backlog: it was already started for somebody. */
-    const moved = stalled.length ? failoverPick(session, runnerOf.get(session) || null, stalled, projects, movedParts) : null;
+    const moved = stalled.length ? failoverPick(session, runnerOf.get(session) || null, stalled, projects, movedParts, taken) : null;
     const choice = moved
-      ? { projectId: moved.projectId, n: moved.n, partId: moved.partId, from: moved.from }
+      ? { projectId: moved.projectId, n: moved.n, partId: moved.partId, from: moved.from, treeKey: moved.treeKey }
       : pick(session, projects, taken);
     if (choice) {
       // The assignment caps gate assignments only; the ask below has its own.
       if (log.length >= MAX_PER_HOUR) continue;
       if (log.filter((e) => e.session === session).length >= MAX_PER_AGENT_PER_HOUR) continue;
       if (moved) movedParts.add(choice.projectId + '#' + choice.n + '#' + choice.partId);
-      else { taken.add(choice.projectId + '#' + choice.n); if (choice.treeKey) taken.add(choice.treeKey); }   // #5678
+      else taken.add(choice.projectId + '#' + choice.n);
+      if (choice.treeKey) taken.add(choice.treeKey);   // #5678: the tree is this agent's for the rest of the pass
       const { treeKey: _tk, ...given } = choice;
       toAssign.push({ session, name: a.name || session, ...given });
       log.push({ at: now, session });
