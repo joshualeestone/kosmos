@@ -315,10 +315,12 @@ async function snapshotInner(input, deps, added, state, fail) {
   let skippedExtra = listed.skippedExtra;
   const skip = (s) => { if (skipped.length < MAX_SKIPPED) { estimate += entryBytes(s); skipped.push(s); } else skippedExtra++; };
   for (const s of listed.skipped) skip(s);
-  // The allowance, before anything is spent: this period's earlier chunks (the index) plus this run's upper bound.
+  // The allowance, before anything is spent. Chunks: this period's earlier ones (the index) plus this run's upper bound.
+  // Bytes: this run's upper bound only (review 10): the index records no sizes, and charging each earlier chunk at the
+  // largest size refused ordinary second runs. Bytes spent earlier in the period are caught by the coordinator's
+  // backup_quota refusal, which ends the run as overAllowance below.
   const chunkBound = index.size + listed.files.reduce((n, f) => n + chunksMax(f, maxFile), 0);
-  const byteBound = [...index.values()].length * sealedMax(CDC.max)
-    + listed.files.reduce((n, f) => n + (f.size > maxFile ? 0 : sealedMax(2 * f.size) + chunksMax(f, maxFile) * 4148), 0);
+  const byteBound = listed.files.reduce((n, f) => n + (f.size > maxFile ? 0 : sealedMax(2 * f.size) + chunksMax(f, maxFile) * 4148), 0);
   if (chunkBound > CHUNK_ALLOWANCE || byteBound > BYTE_ALLOWANCE) {
     return fail(`the work Kosmos could need more than a week's backup allowance (${CHUNK_ALLOWANCE} chunks, 64 GB): ${listed.files.length} files, ${Math.round(listedBytes / 2 ** 20)} MB`, { tooLarge: true, overAllowance: true });
   }
@@ -345,7 +347,7 @@ async function snapshotInner(input, deps, added, state, fail) {
       // becomes what this batch stored under the NEW bucket; chunks earlier batches of this run stored under the old
       // bucket are dropped from it (stored, locked, and named by nothing until their lock ends), deliberately.
       added.clear(); state.bucket = r.bucket;
-      for (const [name, key] of stored) if (pending.has(name) && !keyProblem(key, ctx) && (!owner || ownerOf(key) === owner) && Buffer.byteLength(key) <= MAX_KEY_LEN && Number.isSafeInteger(lockOf(name))) added.set(name, { key, lockedUntilMs: lockOf(name) });
+      for (const [name, key] of stored) if (pending.has(name) && !usedKeys.has(key) && !keyProblem(key, ctx) && (!owner || ownerOf(key) === owner) && Buffer.byteLength(key) <= MAX_KEY_LEN && Number.isSafeInteger(lockOf(name))) added.set(name, { key, lockedUntilMs: lockOf(name) });
       return fail(index.size ? 'a grant named another bucket than the index\'s: drop the index and take a full snapshot' : 'two grants in one snapshot named different buckets: take a full snapshot', Object.assign({ staleIndex: true }, spent));
     }
     if (r && r.bucket && !state.bucket) state.bucket = r.bucket;
