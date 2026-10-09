@@ -464,6 +464,9 @@ async function sweepOnce(o) {
                 for (const [id, why] of Object.entries(settled)) {
                   if (why !== 'expired' || !rec[id] || rec[id].unanswered === true) continue;
                   // Review 5: an ask the agent was never told about (no tell yet) is no unanswered person of ITS: it goes.
+                  // Review 11: a tell counts once the line reached the agent, unconfirmed included (it may have landed),
+                  // while the service is told "seen" only for a placed line; so the board can list a person the service
+                  // does not count as that agent's silence. The board's report is the cautious side.
                   if (!Array.isArray(rec[id].told) || rec[id].told.length === 0) { answered.push(id); continue; }
                   rec[id] = { ...rec[id], unanswered: true };
                   expiredNow.push(id);
