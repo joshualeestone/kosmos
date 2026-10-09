@@ -904,7 +904,8 @@ test('chunks whose lock ends within 30 days are refused before any grant is aske
     assert.strictEqual(r.outlastsChunks, true);
     assert.strictEqual(r.grantSpent, false);
     assert.strictEqual(mc.bodies.length, 0, 'a grant was asked for');
-    // CONTROL: 31 days asks (the stub locks for 33 days from the grant, so set the floor past that for the PUT too).
+    // CONTROL: 31 days asks. The stub would lock 33 days out, past this floor, so it is told to lock just UNDER 31 days
+    // (the grant's start + 31 d - 60 s): the post-grant check then passes and the manifest is stored.
     const ok = await up.uploadManifest(deps(manifestCoordinator(b, { retainMs: (e) => e - 15 * 60 * 1000 + 31 * DAY - 60 * 1000 })), manifestBytes(), mOpts(b, { chunks: oneChunk(Date.now() + 31 * DAY) }));
     assert.strictEqual(ok.ok, true, ok.because);
   } finally { await b.close(); }
@@ -1127,9 +1128,10 @@ test('the pre-grant floor counts the grant window: chunks locked until now + 30 
     assert.strictEqual(mc.bodies.length, 0);
     // CONTROL: 30 days + 30 minutes is what a chunk granted earlier in a period ending 15 minutes from now carries;
     // its manifest is valid, so a grant is asked for (the stub then locks it 33 days out and the post-grant check
-    // refuses; only "was a grant asked" is the point here).
-    await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunks: oneChunk(Date.now() + 30 * DAY + 30 * 60 * 1000) }));
+    // refuses it, after the grant).
+    const asked = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunks: oneChunk(Date.now() + 30 * DAY + 30 * 60 * 1000) }));
     assert.strictEqual(mc.bodies.length, 1);
+    assert.strictEqual(asked.outlastsChunks, true); assert.strictEqual(asked.grantSpent, true);
   } finally { await b.close(); }
 });
 
@@ -1164,7 +1166,7 @@ test('a chunk lock end later than any grant can set (a wrong unit, or not a lock
   try {
     const mc = manifestCoordinator(b);
     for (const bad of [(Date.now() + 38 * DAY) * 1000, Date.now() + 40 * DAY]) {
-      const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunks: [...oneChunk(), ...oneChunk(bad, 'org1/bad')] }));
+      const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunks: [...oneChunk(), ...oneChunk(bad, 'org1/acct1/1/2026-W41/bad')] }));
       assert.strictEqual(r.ok, false); assert.match(r.because, /later than any lock a grant can set/);
     }
     assert.strictEqual(mc.bodies.length, 0);
@@ -1431,7 +1433,7 @@ test('S3 saying "expired" on the FIRST manifest attempt (a clock disagreement) e
     b.script.get = () => [[403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>']];
     const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b));
     assert.strictEqual(r.ok, false); assert.strictEqual(r.retryLater, true); assert.strictEqual(r.grantSpent, true);
-    assert.match(r.because, /expired on the first attempt/);
+    assert.match(r.because, /expired on the first attempt that reached it/);
     assert.strictEqual(mc.bodies.length, 1);
     assert.strictEqual(b.puts, 1);
   } finally { await b.close(); }
@@ -1450,5 +1452,23 @@ test('a refusal of the FIRST manifest grant\'s answer does not claim an earlier 
     assert.strictEqual(r.ok, false); assert.strictEqual(r.grantSpent, true);
     assert.match(r.because, /^the manifest grant answer has no readable expires_at/);
     assert.doesNotMatch(r.because, /earlier manifest grant/);
+  } finally { await b.close(); }
+});
+
+test('S3 saying "expired" after only connection failures is still the clock case: retryLater, no re-grant', async () => {
+  const b = await bucket();
+  try {
+    const mc = manifestCoordinator(b);
+    b.script.get = () => [[403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>']];
+    let n = 0;
+    const refusedFirst = async (...a) => {
+      if (++n <= 2) { const e = new TypeError('fetch failed'); e.cause = { code: 'ECONNREFUSED' }; throw e; }
+      return fetch(...a);
+    };
+    const r = await up.uploadManifest(deps(mc, { fetch: refusedFirst }), manifestBytes(), mOpts(b));
+    assert.strictEqual(r.ok, false); assert.strictEqual(r.retryLater, true); assert.strictEqual(r.grantSpent, true);
+    assert.match(r.because, /expired on the first attempt that reached it/);
+    assert.strictEqual(mc.bodies.length, 1, 'a new grant was asked for');
+    assert.strictEqual(n, 3);
   } finally { await b.close(); }
 });
