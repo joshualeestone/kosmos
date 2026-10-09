@@ -960,7 +960,8 @@ test('a manifest grant in another bucket on a run with no index hands back no ch
 test('a token split across three folder levels is caught, and the manifest holds no part of the joined token', async () => {
   const w = workKosmos(), k = keys(), st = store();
   try {
-    const [a, b, c] = [TOKEN.slice(0, 12), TOKEN.slice(12, 26), TOKEN.slice(26)];
+    // Cut so that no PAIR of these fires a specific kind (measured: ghp_ | 16 | the rest); only all three joined do.
+    const [a, b, c] = [TOKEN.slice(0, 4), TOKEN.slice(4, 20), TOKEN.slice(20)];
     fs.mkdirSync(path.join(w.root, 'agents', 'a', a, b), { recursive: true });
     fs.writeFileSync(path.join(w.root, 'agents', 'a', a, b, c), 'x');
     const r = await take(k, w.root, st);
