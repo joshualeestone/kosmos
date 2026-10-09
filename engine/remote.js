@@ -1387,19 +1387,37 @@ let companyStartInFlight = null;
 /* kosmos#5628 slice 2b-ui review 1: the company's page is opened by the ENGINE, from the address it already checked
    (https, the coordinator's own origin), not by the page: in the Mac app a page's window.open after a slow request
    is blocked as a pop-up, and the page would say "opened" of a page that never opened. */
-function defaultCompanyOpener(url) {
-  const [cmd, args] = process.platform === 'win32' ? ['rundll32', ['url.dll,FileProtocolHandler', url]]
+function companyOpenCommand(url) {
+  if (companyOpenCommandForTests) return [companyOpenCommandForTests[0], companyOpenCommandForTests.slice(1)];
+  return process.platform === 'win32' ? ['rundll32', ['url.dll,FileProtocolHandler', url]]
     : process.platform === 'darwin' ? ['/usr/bin/open', [url]] : ['xdg-open', [url]];
-  const ch = spawn(cmd, args, { detached: true, stdio: 'ignore' });
-  ch.on('error', () => {});
-  ch.unref();
 }
-let companyOpener = defaultCompanyOpener;
-function companyOpen() {
+let companyOpenCommandForTests = null;
+/* Review 2: "opened" only when the opener says so: its exit 0. A missing opener (an 'error') or a refusal (a non-zero
+   exit, e.g. no default browser) is a failure the page then words as "use the link". One still running after a few
+   seconds has launched the browser. */
+function runCompanyOpener(url) {
+  return new Promise((resolve) => {
+    const [cmd, args] = companyOpenCommand(url);
+    let done = false;
+    const end = (ok) => { if (!done) { done = true; clearTimeout(t); resolve(ok); } };
+    const t = setTimeout(() => end(true), 5000);
+    let ch;
+    try { ch = spawn(cmd, args, { stdio: 'ignore' }); } catch { end(false); return; }
+    ch.on('error', () => end(false));
+    ch.on('exit', (code) => end(code === 0));
+  });
+}
+let companyOpenedAt = 0;
+async function companyOpen() {
   const c = companySetup;
-  if (!c || !c.url || Date.now() > c.expiresAt) return { ok: false, because: 'that company sign-in has expired; start again' };
-  try { companyOpener(c.url); return { ok: true, because: null }; }
-  catch { return { ok: false, because: 'Kosmos could not open your browser; use the link below' }; }
+  // Review 2: the setup's own expiry rule (the grace before approval), as status uses.
+  if (!c || !c.url || companyExpired(c)) return { ok: false, because: 'that company sign-in has expired; start again' };
+  // Review 2: a page cannot open a tab a second at a time; the link is there for another.
+  if (Date.now() - companyOpenedAt < 3000) return { ok: false, because: 'your company\'s sign-in was just opened; use the link below' };
+  companyOpenedAt = Date.now();
+  return (await runCompanyOpener(c.url)) ? { ok: true, because: null }
+    : { ok: false, because: 'Kosmos could not open your browser; use the link below' };
 }
 
 async function companyStart(email) {
@@ -1436,7 +1454,8 @@ async function companyStartRun(email) {
   }
   // Review 3: the server's lifetime, kept within sense (a minute to an hour).
   const ttl = Math.min(3600, Math.max(60, Number.isFinite(a.expiresIn) ? a.expiresIn : 900));
-  companySetup = { email, setupId: a.setupId, secret: a.secret, ttl, expiresAt: Date.now() + ttl * 1000, url: a.url };
+  // Review 2: the address as parsed (and checked by sameOriginHttps above), never the raw string, goes to the opener.
+  companySetup = { email, setupId: a.setupId, secret: a.secret, ttl, expiresAt: Date.now() + ttl * 1000, url: new URL(a.url).href };
   return { ok: true, because: null, matchCode: a.matchCode.trim(), url: a.url,
     interval: Math.min(60, Math.max(1, Number.isFinite(a.interval) ? a.interval : 5)) };
 }
@@ -2833,10 +2852,10 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
   cancelledAfterForTests: cancelledAfter,   // kosmos#4743: tests only
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
-  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpener = defaultCompanyOpener; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
+  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenedAt = 0; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   setManagedReaderForTests: (fn) => { managedReader = fn; managedCache = null; },
-  setCompanyOpenerForTests: (fn) => { companyOpener = fn || defaultCompanyOpener; },
+  setCompanyOpenCommandForTests: (argv) => { companyOpenCommandForTests = argv || null; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */
   bundledConnector,
   /* test seam: the live child's pid, or null. spawn() sets the handle

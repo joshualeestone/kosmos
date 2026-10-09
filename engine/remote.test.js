@@ -4122,16 +4122,22 @@ test('kosmos#5628 review 9: another account cannot take over a computer by its n
   await finishing;
 });
 
-test('kosmos#5628 slice 2b-ui review 1: the engine opens the checked company sign-in address, and nothing once it is gone', async () => {
-  const opened = [];
-  remote.setCompanyOpenerForTests((u) => opened.push(u));
-  assert.equal(remote.companyOpen().ok, false, 'opened with no setup');
-  const st = await remote.companyStart('ann@acme.test');
-  assert.equal(st.ok, true);
-  assert.deepEqual(remote.companyOpen(), { ok: true, because: null });
-  assert.deepEqual(opened, [st.url], 'it opened something other than the checked address');
-  remote.signinCancel && remote.signinCancel();
-  assert.equal(remote.companyOpen().ok, false, 'opened after the setup was dropped');
-  assert.equal(opened.length, 1);
-  remote.setCompanyOpenerForTests(null);
+test('kosmos#5628 slice 2b-ui reviews 1 and 2: opened only when the opener exits 0, never for a gone setup, not twice at once', async () => {
+  assert.equal((await remote.companyOpen()).ok, false, 'opened with no setup');
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  // A real spawn of a command that exits 0, then one that exits 1, then one that does not exist.
+  remote.setCompanyOpenCommandForTests(['/usr/bin/true']);
+  assert.deepEqual(await remote.companyOpen(), { ok: true, because: null });
+  assert.match((await remote.companyOpen()).because, /just opened/, 'a second open a moment later opened another tab');
+  remote.resetForTests();
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  remote.setCompanyOpenCommandForTests(['/usr/bin/false']);
+  assert.match((await remote.companyOpen()).because, /could not open your browser/, 'a refusing opener was called opened');
+  remote.resetForTests();
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  remote.setCompanyOpenCommandForTests(['/nonexistent/opener-5628']);
+  assert.match((await remote.companyOpen()).because, /could not open your browser/, 'a missing opener was called opened');
+  remote.signinCancel();
+  assert.equal((await remote.companyOpen()).ok, false, 'opened after the setup was dropped');
+  remote.setCompanyOpenCommandForTests(null);
 });
