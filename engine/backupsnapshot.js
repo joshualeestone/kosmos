@@ -19,6 +19,8 @@
  * What is read, and how:
  *  - The deny-list (backupscan pathDecision) is applied BEFORE anything is opened: a denied folder (.git, .ssh,
  *    secrets/ ...) is pruned during the walk and recorded once; a denied file is recorded without being read.
+ *  - Hard links are never read (a file with more than one name): a hard-linked tree, such as a pnpm node_modules, is
+ *    never backed up, and each such file is named in `skipped`.
  *  - Links are never followed (a followed link needs a check-then-read, and a folder link can loop): each is
  *    recorded as skipped.
  *  - A file is opened once, without following a final link and without blocking (a FIFO swapped in cannot hang the
@@ -354,7 +356,7 @@ async function snapshotInner(input, deps, added, state, fail) {
   const t = now();
   // A Date can hold only about 275,000 years either side of 1970: past that, periodOf reads "NaN-WNaN".
   // And within years -9999 to 9999, outside which the coordinator labels periods differently ("p<start>").
-  const usable = (x) => Number.isFinite(x) && Number.isFinite(new Date(x).getTime()) && Math.abs(new Date(x).getUTCFullYear()) <= 9999;
+  const usable = (x) => Number.isFinite(x) && Number.isFinite(new Date(x).getTime()) && Math.abs(new Date(x).getUTCFullYear()) <= 9998;   // 9998: an ISO week year can run one past the calendar's
   if (!usable(t)) return fail('this computer\'s clock gave no usable time');
   const period = periodOf(t);
   // newPeriod, not retryLater: the same input fails again; the caller needs this period's context and naming key.
@@ -576,7 +578,9 @@ async function snapshotInner(input, deps, added, state, fail) {
     // With or without an index, every chunk this run stored is in that bucket: none is handed back, and no bucket is named.
     if (m && m.otherBucket) { added.clear(); state.bucket = null; }
     return fail(`the manifest could not be uploaded: ${(m && m.because) || 'no answer'}`, Object.assign({},
-      m && m.retryLater ? { retryLater: true } : {}, m && m.unsure ? { unsure: m.unsure } : {},
+      // backup_quota on the manifest grant is the period's allowance, as on chunks: not this period, never a retry.
+      m && m.code === 'backup_quota' ? { overAllowance: true } : (m && m.retryLater ? { retryLater: true } : {}),
+      m && m.unsure ? { unsure: m.unsure } : {},
       passed ? { newPeriod: true } : (m && m.outlastsChunks && index.size ? { staleIndex: true } : {}),
       m && m.otherBucket && index.size ? { staleIndex: true } : {}, m && m.grantSpent !== undefined ? { grantSpent: m.grantSpent } : {}));
   }

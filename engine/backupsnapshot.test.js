@@ -1048,3 +1048,11 @@ test('an index lock is measured against the CONTEXT period\'s manifest lock when
     assert.notEqual(r.staleIndex, true, `a usable index was called stale: ${r.because}`);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('backup_quota on the manifest grant is overAllowance, not a retry, as it is on chunks', async () => {
+  const w = workKosmos(), k = keys(), st = store({ manifestAnswer: { ok: false, code: 'backup_quota', retryLater: true, because: 'refused (HTTP 429, code backup_quota)' } });
+  try {
+    const r = await take(k, w.root, st);
+    assert.equal(r.ok, false); assert.equal(r.overAllowance, true); assert.equal(r.retryLater, undefined);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
