@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: mdm2b-board-company
-diff_hash: 4c723e9e2d2d09b96b054ca59f60e24cb10b1784fbab0d4aa9bc555dcbe42079
+diff_hash: 1062f031aa1ca338ab7e31dddc989066d621ee9314082cd9f4c8fef8e0a75f41
 validation: rebased onto origin/main 90c64b981 (head 78cccbf46 before the plan commit): engine/remote.test.js 187/187, server.test.js 356/356 (whole file, exit 0), the guards fixture-discipline, no-brand-refs-1881, no-name-refs-3071, tool-guard-4326, all-node-tests-considered-1934, every-test-runs and no-phone-home-4253 57/57. Each review fix has a mutant control measured to fail without it (rounds 5, 6, 7, 8 and 10). No page uses the routes yet, so no browser check applies. The PR's CI runs the whole suite.
 subdir_audit: passed
 timestamp: 2026-10-09T03:23:50Z
@@ -46,3 +46,4 @@ mismatch the page will show as expiry).
 - [NIT] an unparseable status answer polls until the local clock ends the setup -> accepted (bounded)
 - [CI] engine.reachable.test.js: setManagedReaderForTests exported and reachable from nowhere -> FIXED (excused by name with its reason; guard 8/8)
 - [MERGE] main merged (140 commits, clean); remote.test.js 187/187, guards 65/65, route test green on the merged head
+- [MERGE] main merged again (36 commits, clean); remote.test.js 187/187, guards 65/65 on the merged head
