@@ -1118,12 +1118,16 @@ test('a refused manifest PUT names the key as unsure only when an earlier attemp
   }
 });
 
-test('the pre-grant floor counts the grant window: chunks locked until now + 30 days + 10 minutes are refused with no grant', async () => {
+test('the pre-grant floor counts the grant window AND the clock hour: each is the only thing refusing one case, with no grant', async () => {
   const b = await bucket();
   try {
     const mc = manifestCoordinator(b);
-    const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunks: oneChunk(Date.now() + 30 * DAY + 10 * 60 * 1000) }));
-    assert.strictEqual(r.ok, false); assert.strictEqual(r.grantSpent, false);
+    // now + 30 d + 70 min: refused only because of the 15-minute grant window (30 d + 60 min + 15 min > it).
+    // now + 30 d + 30 min: refused only because of the clock hour (30 d + 15 min < it < 30 d + 75 min).
+    for (const extra of [70, 30]) {
+      const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { chunks: oneChunk(Date.now() + 30 * DAY + extra * 60 * 1000) }));
+      assert.strictEqual(r.ok, false, String(extra)); assert.strictEqual(r.outlastsChunks, true); assert.strictEqual(r.grantSpent, false);
+    }
     assert.strictEqual(mc.bodies.length, 0);
   } finally { await b.close(); }
 });
