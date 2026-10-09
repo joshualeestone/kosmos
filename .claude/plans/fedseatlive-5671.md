@@ -13,9 +13,9 @@ as before; the board wires the gate; a test proves both arms.
 ## Decision (reversible)
 
 - Gate inside fedseats.ensure (an optional `allowed()` dep beside `enrolled()`), so the minute sweep and the route
-  calls (a project made or joined) follow one rule. Wired in server.js to liveExecution.liveExecutionAllowed().
-- After the local link checks (a stale link is still dropped on sight: local, reaches no room), before anything that
-  reaches out.
+  calls (a project made or joined) follow one rule, and at the top of ensureAll (review 1: its owner-room check asks
+  for edges without going through ensure). Wired in server.js to liveExecution.liveExecutionAllowed().
+- In ensure, after every local check (a stale link dropped, a removed project's link forgotten), before the seat.
 - Rejected: a NODE_TEST_CONTEXT check (live-execution.js explains why an inherited env var is the wrong key) and gating
   only the timer (the route calls would stay inconsistent).
 - No production change: server.js states live execution on the real-start path (before start(), line order checked),
@@ -31,4 +31,8 @@ as before; the board wires the gate; a test proves both arms.
 
 ## Review log
 
-(filled in per round)
+- **Round 1 (opus):** 0 blockers, 1 warning, 2 NITs.
+  - W fixed: ensureAll's owner-room check (checkRoom -> revokeCheck) asked Kosmos+ for edges every minute for a sealed owner room with a pinned member, without going through ensure. The pass now waits for live execution at its top, as the company rollup's tick does; the test seeds such a room so its "asked nothing" assertion can fail (red by mutation of the new gate).
+  - NIT fixed: the per-seat gate now sits after the removed-project cleanup (local), as the plan said.
+  - NIT left: the wiring check reads server.js's text; the start order was checked by hand and by the reviewer.
+  - Recorded, not changed: ensureAll has the same gap for `enrolled()` (it predates this card; a signed edges request from an unenrolled board is refused by the coordinator).

@@ -268,6 +268,9 @@ test('#4318: federation seats gate on enrollment and project link, independent o
 /* #5671: the sweep waits for live execution too, so a test that fakes an enrollment still reaches no room. */
 test('#5671: an enrolled board starts no seat, and asks the edges nothing, until live execution is stated; CONTROL: then it does', async () => {
   federation.recordLink('proj-live', { role: 'owner', ref: 'ref-live' });
+  /* Review 1: a sealed owner room with a pinned member, so the sweep's owner-room check (revokeCheck) would ask for
+     edges if the pass were not gated; without it, off.asked below could not fail on ensureAll. */
+  fedseal.setRoomState('proj-live', { role: 'owner', s: fedseal.randomSecret(), epoch: 0, keys: { 0: fedseal.randomSecret() }, peers: { 'pub-live': { edge: 'edge-live' } } });
   const off = harness({ enrolled: true, allowed: false, edges: [{ id: 'edge-live', project_ref: 'ref-live', status: 'active' }] });
   assert.strictEqual(await fedseats.ensure('proj-live'), null);
   await fedseats.ensureAll();
