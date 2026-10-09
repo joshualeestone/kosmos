@@ -306,3 +306,11 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   (dirOf never returns null in production).
 - Untested (stated): the new-named-world case itself (it needs a world registry made after the guard is written); the
   round-trip test pins that the narrowed check still reads a real guard as guarded and an unguarded folder as not.
+
+## Review 23 (sonnet), all fixed unless stated
+- A failed state write after a scan had already consumed those lines' calls, so the re-read was classed without its
+  target (which most hurts board-files): the scan works on copies of the call maps, kept only once the state is
+  written. Test (the state folder made unwritable for one tick).
+- Stated: a line over 4 MB is skipped unread, so a refusal inside such a line is lost (a miss, not a leak); a bare
+  relative filename with no slash or dot prefix (cat board.token after a relative cd) is not taken as a path.
+- The orphaned review-11 comment sits above its code; the module header says scanText is not pure.

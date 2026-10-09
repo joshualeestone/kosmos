@@ -23,8 +23,8 @@
  *
  * Part 1a reads this Kosmos's own agents; the other Kosmoses on the same computer (Josh 08:43) are part 1b.
  *
- * scanText() reads lines (it updates the call map it is given); tick() keeps a small state file, gates on the
- * enrollment, and sends.
+ * scanText() reads lines and is NOT pure: it updates the call map it is given. tick() keeps a small state file, gates on
+ * the enrollment, and sends.
  */
 const fs = require('fs');
 const path = require('path');
@@ -447,7 +447,6 @@ async function tick(opts) {
         console.error('agentevents: a transcript folder could not be worked out; nothing read (' + String((e && e.message) || e) + ')');
         return { sent: 0, because: 'a transcript folder could not be worked out; nothing changed' };
       }
-      /* An agent whose folder cannot be resolved cannot be compared (review 11): that is unreadable too, not "no clash". */
       /* The guard pass FIRST (review 18): a listed agent whose guard is not in force runs under the person's own rules, so
          it is not read, and it counts among the "others" a read agent must not share a folder with. */
       const unguarded = [];
@@ -457,6 +456,7 @@ async function tick(opts) {
         dirs.delete(n); collidedNow.add(n); unguarded.push(d);
         if (!UNGUARDED_SAID.has(n)) { UNGUARDED_SAID.add(n); console.error('agentevents: ' + n + ' is token-only but its guard is not in force; its refusals are not read'); }
       }
+      /* An agent whose folder cannot be resolved cannot be compared (review 11): that is unreadable too, not "no clash". */
       const otherDirs = every.filter((n) => !names.includes(n)).map((n) => src.dirOf(n));
       if (otherDirs.some((d) => !d)) return { sent: 0, because: 'an agent\'s folder could not be resolved; nothing changed' };
       let others;
@@ -487,6 +487,7 @@ async function tick(opts) {
     for (const n of names) if (!Number.isFinite(st.listed[n])) st.listed[n] = now;
     for (const n of Object.keys(st.listed)) if (!names.includes(n)) delete st.listed[n];   // off the list: starts again
     let budget = TICK_READ_MAX;
+    const nextCalls = new Map();   // file -> its call map after this tick's lines (review 23)
     const boardRoots = typeof src.boardRoots === 'function' ? src.boardRoots() : [];
     const configRoots = typeof src.configRoots === 'function' ? src.configRoots() : [];
     /* The agent read first rotates each tick (review 5): a large backlog cannot starve the others' files of the
@@ -532,7 +533,7 @@ async function tick(opts) {
         budget -= r.read;   // the bytes actually read (review 5: a rewritten file's reset offset made this negative)
         st.offsets[file] = r.next;
         if (!r.text) continue;
-        const calls = CALLS.get(file) || new Map();
+        const calls = new Map(CALLS.get(file) || []);   // a copy, kept only once the state is written (review 23)
         const ctx = { agent, session: sessionOf(file), platform: o.platform, boardRoot: root, boardRoots, configRoots, agentDir: dir,
           otherAgentDirs: allDirs.filter((d) => d !== dir), home: o.home, now };
         for (const e of scanText(r.text, calls, ctx)) {
@@ -543,7 +544,7 @@ async function tick(opts) {
           st.pending.push(Object.assign({ world: rec.world }, e));
         }
         while (calls.size > CALLS_MAX) calls.delete(calls.keys().next().value);
-        CALLS.set(file, calls);
+        nextCalls.set(file, calls);
         await new Promise((r) => setImmediate(r));   // review 15: the read and parse are synchronous; let the board breathe
       }
     }
@@ -555,6 +556,9 @@ async function tick(opts) {
     st.pending = st.pending.filter((e) => e.at * 1000 >= now - SEND_PAST_MS);
     /* Written only when it changed (review 9: thousands of offsets rewritten every five minutes for nothing). */
     if (JSON.stringify(st) !== stRaw && !writeState(root, st)) return { sent: 0, because: 'this Kosmos cannot record what it has read' };
+    /* The calls are kept only now: had the write failed, the next tick re-reads those lines WITH their calls (review 23:
+       a consumed call left the re-read classed without its target). */
+    for (const [f, m] of nextCalls) CALLS.set(f, m);
     if (st.pending.length === 0) return { sent: 0, because: null };
     if (st.failAt && now - st.failAt < RETRY_AFTER_FAIL_MS) return { sent: 0, because: 'waiting after a failed send' };
     /* Re-checked after the scan (review 2, the rollup's review 3): a Leave pressed, or words withdrawn, while the

@@ -857,3 +857,19 @@ test('#5683 r21: one agent whose transcripts cannot be listed does not silence t
   assert.equal(r.because, null);
 });
 
+/* ---- review 23 ---- */
+
+test('#5683 r23: a failed state write keeps the calls, so the re-read is classed with its call', async (t) => {
+  const { s, c } = await enrolled(t);
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await new Promise((r) => setTimeout(r, 1100));
+  append(s.file, use('wf', 'Bash', { command: 'touch /etc/x' }));
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });   // the call: written
+  append(s.file, result('wf', 'touch: /etc/x: Operation not permitted', true));
+  /* The result lands in a tick whose state write fails (the state folder unwritable), so that tick must not consume the call. */
+  fs.chmodSync(s.root, 0o500);
+  try { await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() }); } finally { fs.chmodSync(s.root, 0o700); }
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });   // the re-read
+  const ev = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events);
+  assert.deepEqual(ev.map((e) => [e.toolUseRef, e.targetClass]), [['wf', 'system']], 'the call was lost with the failed write');
+});
