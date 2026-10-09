@@ -17,12 +17,15 @@ test('#5686 deny-list: Kosmos credential stores in the data root are skipped by 
     'sendertokens/a.json', 'Kosmos/launch-secrets/agent-secrets.Ab12Cd', 'worlds/w1/Kosmos/launch-secrets/agent-secrets.Ab12Cd',
     'Kosmos/communitysend/234a7f2dbb0a/keys.json', 'worlds/w1/Kosmos/communitysend/234a7f2dbb0a/keys.json',
     'Kosmos/communitysend/234a7f2dbb0a/keys.json.0a1b2c3d4e5f.tmp', 'Kosmos/fed-seal-key.json', 'Kosmos/fed-seal-rooms.json',
-    'worlds/w1/Kosmos/fed-seal-key.json', 'Kosmos/fed-seal-rooms.json.4711.0a1b2c3d4e5f.tmp']) {
+    'worlds/w1/Kosmos/fed-seal-key.json', 'Kosmos/fed-seal-rooms.json.4711.0a1b2c3d4e5f.tmp', 'Kosmos/remote/mac_key',
+    'worlds/w1/Kosmos/remote/mac_key', 'remote/mac_key', 'Kosmos/remote/phone-notify.json', 'Kosmos/remote/phone-notify.json.a1b2.tmp',
+    'acct/.kosmos-claude-apikey', 'acct/.kosmos-gemini-apikey', 'workers/a/.cfg/.kosmos-grok-apikey']) {
     assert.equal(bs.pathDecision(p).include, false, `${p} must be skipped`);
   }
   for (const p of ['Kosmos/communitysend/234a7f2dbb0a/sent.json', 'Kosmos/chats/direct..mikey.json', 'Kosmos/messages.jsonl',
     'Kosmos/task-chats/a.task-7.jsonl', 'Kosmos/agent-token-only.json', 'projects/site/keys.json', 'notes/launch-secrets.md',
-    'Kosmos/fed-seal-notes.md', 'projects/site/keys.jsonc.md']) {
+    'Kosmos/fed-seal-notes.md', 'projects/site/keys.jsonc.md',
+    'Kosmos/remote/mac_id', 'Kosmos/remote/pending.json', 'Kosmos/remote/tls.crt', 'projects/site/remote/notes.md', 'docs/kosmos-apikey-howto.md']) {
     assert.equal(bs.pathDecision(p).include, true, `CONTROL: ${p} is a conversation or ordinary work and is kept`);
   }
 });
