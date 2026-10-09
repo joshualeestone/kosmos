@@ -458,7 +458,7 @@ async function uploadInner(deps, objects, opts, keys, run) {
   }
   // Every chunk asked for has a key, or this is not a success.
   for (const c of todo) if (!keys.has(c.name)) return { ok: false, because: 'a chunk was left without a stored key', keys };
-  // uploadChunks adds lockedUntil (each chunk's lock end, ms) and bucket (the bucket path every key is under; null only
+  // uploadChunks' withStored adds lockedUntil (each chunk's lock end, ms) and bucket (the bucket path every key is under; null only
   // for an empty list, since a repeated name is still uploaded once). A walker that skips chunks stored by EARLIER runs
   // must keep their bucket path itself, as it keeps their lock ends and keys.
   return { ok: true, keys };
