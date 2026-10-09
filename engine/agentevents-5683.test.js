@@ -699,3 +699,14 @@ test('#5683 r12: sources without the agent-list check send nothing', async (t) =
   assert.match(r.because, /cannot be checked/);
 });
 
+/* ---- review 13 ---- */
+
+test('#5683 r13: the guard\'s other roots and the app are the board\'s files; CLAUDE.md and the account config are config', () => {
+  const c = ctx({ boardRoots: ['/Users/ann/Library/Application Support/Kosmos-other', '/Applications/Kosmos.app/engine'], configRoots: ['/Users/ann/.claude'] });
+  assert.equal(ae.targetClass('Read', { file_path: '/Users/ann/Library/Application Support/Kosmos-other/board.token' }, c), 'board-files');
+  assert.equal(ae.targetClass('Edit', { file_path: '/Applications/Kosmos.app/engine/server.js' }, c), 'board-files');
+  assert.equal(ae.targetClass('Edit', { file_path: '/Users/ann/.claude/settings.json' }, c), 'agent-config');
+  assert.equal(ae.targetClass('Write', { file_path: '/Users/ann/work/workers/scout/CLAUDE.md' }, c), 'agent-config');
+  assert.equal(ae.targetClass('Write', { file_path: '/Users/ann/work/workers/scout/.mcp.json' }, c), 'agent-config');
+});
+
