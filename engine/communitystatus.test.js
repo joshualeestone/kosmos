@@ -455,7 +455,7 @@ test('#5636 review 2: no key, or an address Kosmos does not send to: no promise 
   // Send records are kept per address, so the record is written again under this one.
   writeJson(cs._paths.sentFile(), { [p.id]: { state: 'pending', attempted: true, agent: 'ava' } });
   writeJson(cs._paths.keysFile(), { ava: { apiKey: 'k' } });
-  assert.equal(cs.endpointAllowed(), false, 'fixture: the address is one Kosmos sends to');
+  assert.equal(cs.endpointAllowed(), false, 'fixture: the address is still one Kosmos sends to (it must not be)');
   assert.equal(stateOfTitle('ava', 'Unasked post'), 'unconfirmed_unasked');
 });
 

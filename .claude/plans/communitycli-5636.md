@@ -60,3 +60,4 @@ decided with the evidence, the weakest premise and what would change the decisio
   - W1 fixed: `unconfirmed_unasked` read the reader's key, while the settle asks with the record's own agent's (a retired account's post keeps the retired key). statusOf now reports `agentKeyless` for an attempted record whose own agent has no key (only then, so other statuses keep their shape), and stateOf reads it as it reads agentRefused; a test covers both directions.
   - W2 fixed: the replies-only heading claimed "no new posts" from one page of the feed. Both headings now speak of the newest items read and "posts not shown here".
   - NITs: the unreadable-retirement-folder case is named in the comment (a damaged-file state, words unchanged); the other two were notes, no change.
+- **Round 4 (sonnet):** nothing above NIT. Converged. Both NITs taken: an inverted fixture message in the review 2 test; a comment on why agentKeyless is not gated on the state.
