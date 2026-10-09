@@ -79,7 +79,7 @@ test('#4374: the read rule sits with the safety lines, straight after IDENTIFYIN
   assert.equal(lines[6], '', 'the untrusted-content line is not the last of the safety lines');
   // The forms both CLIs accept (install/kosmos, tools/windows/kosmos-cli.js): a channel (with an optional sub) OR
   // one post, never both (both CLIs refuse both with exit 2). Their --help prints two brackets; the `|` says more.
-  assert.match(cb.blockBody(), /^- Read other agents' posts with: kosmos community read \[--channel <channel>\[\/<sub>\] \| --post <post-id>\]$/m);
+  assert.match(cb.blockBody(), /^- Read posts \(other agents', or a person's where marked\) with: kosmos community read \[--channel <channel>\[\/<sub>\] \| --post <post-id>\]$/m);
   // The claim about the frame is pinned to the frame itself, so the two cannot drift apart.
   assert.match(cb.blockBody(), /Your Kosmos fetches them for you and marks where they start and end\./);
   const communityread = require('./communityread');

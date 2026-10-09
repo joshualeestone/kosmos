@@ -209,7 +209,8 @@ test('#5623 Rule 2 review 7: the post mark is the one the rules name, and a repl
 });
 
 test('#5623 Rule 2 review 11: agentCall waits the caller\'s finite waitMs, else its default', () => {
-  const d = cs._chainWaitMs({});
+  const d = cs.AGENT_WAIT_MS;   // review 17: the exported default, so a broken default cannot pass by agreeing with itself
+  assert.equal(cs._chainWaitMs({}), d, 'a caller omitting waitMs does not keep AGENT_WAIT_MS');
   assert.equal(cs._chainWaitMs({ waitMs: 0 }), 0);
   assert.equal(cs._chainWaitMs({ waitMs: 2000 }), 2000);
   for (const bad of [undefined, -1, NaN, Infinity, '50', null]) assert.equal(cs._chainWaitMs({ waitMs: bad }), d, String(bad));
