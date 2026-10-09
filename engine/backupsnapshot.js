@@ -22,7 +22,9 @@
  *  - Links are never followed (a followed link needs a check-then-read, and a folder link can loop): each is
  *    recorded as skipped.
  *  - A file is opened once, without following a final link and without blocking (a FIFO swapped in cannot hang the
- *    run), and the open descriptor must be a regular file with the device and inode the walk saw. So what is read is
+ *    run), and the open descriptor must be a regular file with the device and inode the walk saw. (O_NOFOLLOW,
+ *    O_NONBLOCK and O_NOCTTY are POSIX: where the platform lacks them, as on Windows, they are 0, and the device,
+ *    inode and real-path checks below are what holds; review 16.) So what is read is
  *    the very file the walk found inside the work Kosmos, whatever was renamed or swapped in between. Its real path is
  *    then checked (inside the work Kosmos, and the deny-list again on it), and at most maxFile + 1 bytes are read.
  *
@@ -152,6 +154,7 @@ function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_S
       // A path restore would refuse (engine/backuprestore.js pathProblem) is not stored: it could never come back.
       const problem = pathProblem(r);
       if (problem) { skip({ path: r, why: `${problem}: restore cannot write it` }); continue; }
+      // Number: exact up to 2^53 bytes, far past maxFile, so the cap test stays right.
       files.push({ path: r, dev: st.dev, ino: st.ino, size: Number(st.size) });
       if (files.length > maxFiles) over = true;
     }
@@ -304,7 +307,8 @@ async function snapshotInner(input, deps, added, state, fail) {
     if (typeof input.bucket !== 'string' || !input.bucket) return fail('an index of earlier chunks needs the bucket they are stored under', { staleIndex: true });
     for (const [name, e] of index) {
       const why = typeof name !== 'string' || !/^[0-9a-f]{64}$/.test(name) || !e ? 'malformed'
-        : keyProblem(e.key, ctx) || (e.memberKeyId !== mkid ? 'sealed to another member key' : null)
+        : keyProblem(e.key, ctx) || (Buffer.byteLength(e.key) > MAX_KEY_LEN ? `a key longer than ${MAX_KEY_LEN} characters` : null)
+          || (e.memberKeyId !== mkid ? 'sealed to another member key' : null)
           || (!Number.isSafeInteger(e.lockedUntilMs) || e.lockedUntilMs < LOCK_FLOOR_MS || e.lockedUntilMs > t + LOCK_MAX_MS + 3600 * 1000 ? 'a lock end no grant could set' : null)
           // A lock that ends before any manifest granted now would (period end + 30 days + the window; at least now + 30
           // days + 15 min): uploadManifest would refuse it as outlasting it (review 9 NIT). Mirrors the coordinator's
@@ -470,7 +474,8 @@ async function snapshotInner(input, deps, added, state, fail) {
   // so every chunk it names must last until then, or the manifest grant is spent on a refusal (outlastsChunks). Stop
   // first, as newPeriod, before asking for that grant.
   const tEnd = now();
-  if (Number.isFinite(tEnd) && periodOf(tEnd) !== ctx.period) {
+  if (!Number.isFinite(tEnd)) return fail('this computer\'s clock gave no usable time');   // fails closed, as at the start
+  if (periodOf(tEnd) !== ctx.period) {
     const start = MONDAY_EPOCH + Math.floor((tEnd - MONDAY_EPOCH) / WEEK_MS) * WEEK_MS;
     const manifestLock = start + WEEK_MS + 30 * DAY_MS + 15 * 60 * 1000;   // backup.rs retain_until_for(new period end)
     if (chunks.some((c) => c.lockedUntilMs < manifestLock)) return fail(`a period boundary passed during the snapshot (now ${periodOf(tEnd)}): its earlier chunks would not last as long as a manifest granted now; start again in the new period`, { newPeriod: true });
@@ -484,7 +489,7 @@ async function snapshotInner(input, deps, added, state, fail) {
     // outlastsChunks: the index's chunks lock out too soon for this manifest (a period passed): they cannot be named.
     return fail(`the manifest could not be uploaded: ${(m && m.because) || 'no answer'}`, Object.assign({},
       m && m.retryLater ? { retryLater: true } : {}, m && m.unsure ? { unsure: m.unsure } : {},
-      m && m.outlastsChunks ? { staleIndex: true } : {}, m && m.grantSpent !== undefined ? { grantSpent: m.grantSpent } : {}));
+      m && m.outlastsChunks ? Object.assign({ staleIndex: true }, periodOf(now()) !== ctx.period ? { newPeriod: true } : {}) : {}, m && m.grantSpent !== undefined ? { grantSpent: m.grantSpent } : {}));
   }
   return { ok: true, manifestKey: m.key, files: files.length, skipped: skipped.length + skippedExtra, uploaded, reused, added, bucket: state.bucket };
 }
