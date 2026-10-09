@@ -48907,7 +48907,8 @@ let PLUS_CO_TEXTING = false;   // kosmos#5651 board reviews 1-2: a text request 
 let PLUS_CO_LEAD = '';
 let PLUS_CO_FINISHING = false;   // board review 3: a finish (a code being checked) is out
 let PLUS_CO_HOLD_UNTIL = 0;      // board review 3: the coordinator's "wait N seconds" ends at this time
-let PLUS_CO_TEXT_SEQ = 0;        // board review 3: only the newest text request clears TEXTING
+let PLUS_CO_TEXT_SEQ = 0;
+let PLUS_CO_FINISH_SEQ = 0;      // board review 5: only the newest finish clears FINISHING        // board review 3: only the newest text request clears TEXTING
 /* Board review 3: "Text me again" is set from these facts in one place, never saved and restored. */
 function plusCompanySyncResend() {
   const resend = document.getElementById('plus-si-company-resend');
@@ -48941,6 +48942,8 @@ async function plusCompanyStart(btn) {
   PLUS_CO_TEXTING = false;
   PLUS_CO_FINISHING = false;
   PLUS_CO_HOLD_UNTIL = 0;
+  // Board review 5: a new setup starts with Finish free (an older request's late answer changes nothing).
+  document.getElementById('plus-si-company-go').disabled = false;
   PLUS_CO_LEAD = '';
   document.getElementById('plus-si-company-resend').hidden = true;
   plusSiShow('plus-si-company');
@@ -49047,11 +49050,14 @@ async function plusCompanyFinish(btn) {
   btn.disabled = true;
   // Board review 2: no new text while a code is being checked (it could replace that code).
   PLUS_CO_FINISHING = true;
+  const fseq = ++PLUS_CO_FINISH_SEQ;
   plusCompanySyncResend();
   plusSiMsg('Setting up this computer.');
   const body = { name };
   if (second) body.second = second;
   const r = await plusSiPost('/api/remote/company/complete', body, PLUS_REGISTER_TIMEOUT_MS);
+  // Board review 5: only the newest finish frees the buttons (a late answer for an older setup does not).
+  if (fseq !== PLUS_CO_FINISH_SEQ) return;
   btn.disabled = false;
   PLUS_CO_FINISHING = false;
   plusCompanySyncResend();

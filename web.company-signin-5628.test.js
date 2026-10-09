@@ -360,3 +360,28 @@ test('kosmos#5651 board review 4: "all the texts ... or start again" keeps the p
   assert.equal(w.el('plus-si-company-resend').hidden, true, 'Text me again offered after all the texts');
   assert.equal(w.el('plus-si-company-second-row').hidden, false);
 });
+
+test('kosmos#5651 board review 5: a late finish answer for an older setup does not free the newer finish', async () => {
+  const releases = [];
+  const w = world(Object.assign({}, START, {
+    '/api/remote/company/status': () => [200, { ready: true }],
+    '/api/remote/company/complete': () => new Promise((r) => releases.push(() => r([400, { error: 'that name is not allowed' }]))),
+  }));
+  w.el('plus-signin-email').value = 'neo@acme.test';
+  await w.ctx.start(w.el('plus-signin-company'));
+  await w.tick();
+  w.el('plus-si-company-name').value = 'neo-mac';
+  const a = w.ctx.finish(w.el('plus-si-company-go'));       // setup A's finish is out
+  await new Promise((r) => setImmediate(r));
+  await w.ctx.start(w.el('plus-signin-company'));          // setup B
+  assert.equal(w.el('plus-si-company-go').disabled, false, 'a new setup started with Finish held by the old one');
+  await w.tick();
+  w.el('plus-si-company-name').value = 'neo-mac2';
+  const b = w.ctx.finish(w.el('plus-si-company-go'));       // B's finish is out
+  await new Promise((r) => setImmediate(r));
+  releases[0]();                                           // A's late answer
+  await a;
+  assert.equal(w.el('plus-si-company-go').disabled, true, 'a late answer for setup A freed Finish during B\'s finish');
+  releases[1]();
+  await b;
+});
