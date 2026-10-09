@@ -802,11 +802,12 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       if (!t) throw new Error('there is no task by that number on this project');
       if (progressOf(t).closed) { closed = true; throw NO_WRITE; }
       if (t.repeat) { repeating = true; throw NO_WRITE; }   // kosmos#4787 review 3: a recurring job is never "built, waiting"
+      if (refusePersonMark && t.builtAt && t.builtByPerson === true) { personMark = true; throw NO_WRITE; }
       /* #5705 (user feedback): a task stayed "built" though the work was never done. A task with done-when checks
          (#5152) says what finished means, so an agent's mark on it must say how the checks went; the rules already ask
-         for that note, and now a bare mark is refused. The person's mark from the screen never is. */
+         for that note, and now a bare mark is refused. The person's mark from the screen never is. After the
+         person-mark refusal (review 1), so an agent hears the real answer first. */
       if (!isPerson && !said && Array.isArray(t.doneWhen) && t.doneWhen.length) { unsaid = t.doneWhen.length; throw NO_WRITE; }
-      if (refusePersonMark && t.builtAt && t.builtByPerson === true) { personMark = true; throw NO_WRITE; }
       /* The same mark again (same marker, same note) changes no field and records nothing (review round 3: a looping
          agent re-marking wrote a history line each time), and writes nothing (review round 15). */
       if (t.builtAt && (t.builtBy || null) === who && (t.builtByPerson === true) === isPerson && (t.builtNote || '') === said) {
@@ -829,7 +830,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
   if (repeating) return { ok: false, because: 'that task repeats, so it is never built and waiting: record each run with kosmos task ran instead' };
   if (unsaid) {
     return { ok: false, needsNote: true, because: 'this task has ' + (unsaid === 1 ? 'a done-when check' : unsaid + ' done-when checks')
-      + ', so mark it built with a note saying how ' + (unsaid === 1 ? 'it' : 'each') + ' went: kosmos task built ' + projectId + ' ' + n + ' "1 met. 2 not met: <why>"' };
+      + ', so mark it built with a note saying how ' + (unsaid === 1 ? 'it' : 'each') + ' went: kosmos task built ' + projectId + ' ' + n + " '1 met. 2 not met: <why>'" };   // review 1: single quotes, which the Mac command's error reader keeps
   }
   if (personMark) return { ok: false, person: true, because: 'the person marked this task built, so only the person can change that mark' };
   if (same) return { ok: true, task: changed, changed: false };
