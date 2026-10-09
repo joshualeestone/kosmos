@@ -27,6 +27,10 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+// #5645: the scratch base in its LONG form. A Windows runner's TEMP can be spelled in 8.3 short form (RUNNER~1),
+// while the product reports the long form (runneradmin): same folder, different text. realpathSync.native expands
+// 8.3 names (and resolves links), so expected paths are built from the spelling the product reports.
+const scratchBase = () => fs.realpathSync.native(os.tmpdir());
 const { spawn, spawnSync } = require('node:child_process');
 
 const REPO = __dirname;
@@ -99,7 +103,7 @@ test('the engine helpers are armed by --yes, and speak the flags and report tags
   const relocator = require('./engine/win32relocate');
   assert.equal(constant('UninstallHelperScript'), 'win32uninstall.js');
   assert.equal(constant('RelocateHelperScript'), 'win32relocate.js');
-  const report = path.join(os.tmpdir(), 'kosmos-flags-' + process.pid + '.txt');
+  const report = path.join(scratchBase(), 'kosmos-flags-' + process.pid + '.txt');
   try {
     /* AWAITED (kosmos#4273): cliMain is async, so the bare call compared a Promise with 64
        (always unequal, so it could not fail) and returned before writing the report, which
@@ -312,7 +316,7 @@ let probeBuild = null;
 function probe(t) {
   if (!fs.existsSync(CSC)) { t.skip('no .NET Framework compiler on this machine'); return null; }
   if (!probeBuild) {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-installer-probe-'));
+    const dir = fs.mkdtempSync(path.join(scratchBase(), 'kosmos-installer-probe-'));
     fs.writeFileSync(path.join(dir, 'InstallerProbe.cs'), PROBE_SOURCE);
     const exe = path.join(dir, 'probe.exe');
     const built = spawnSync(CSC, ['/nologo', '/target:exe', '/main:InstallerProbe', '/out:' + exe, SOURCE_PATH, path.join(dir, 'InstallerProbe.cs')], { encoding: 'utf8', windowsHide: true });
@@ -378,7 +382,7 @@ function assertFootprintUnchanged(t, before, after) {
 }
 
 function scratch() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-installer-'));
+  return fs.mkdtempSync(path.join(scratchBase(), 'kosmos-installer-'));
 }
 
 test('W-20 probe: the shortcut is written into a temp Start Menu, points where it should, follows a new folder, and is removed', WINDOWS_ONLY, (t) => {
@@ -991,4 +995,16 @@ test('🛑 Kosmos.exe --uninstall with nobody to confirm does nothing at all, an
     after = realInstallFootprint();
   }
   assertFootprintUnchanged(t, before, after);
+});
+
+test('#5645: the scratch base is the LONG form even when TEMP is spelled as an 8.3 short name', WINDOWS_ONLY, (t) => {
+  const long = scratchBase();
+  // cmd's %~sI prints the 8.3 short form of a path (the same text as the long form where the volume keeps none).
+  const r = spawnSync('cmd.exe', ['/d', '/c', `for %I in ("${long}") do @echo %~sI`], { encoding: 'utf8' });
+  const short = String(r.stdout || '').trim();
+  assert.ok(short, 'cmd did not print a short form: ' + (r.stderr || ''));
+  if (short.toLowerCase() === long.toLowerCase()) { t.skip('this volume keeps no 8.3 names, so there is no short form to expand'); return; }
+  // The arm that broke CI: a short-form base must expand to exactly the long form the product reports.
+  assert.strictEqual(fs.realpathSync.native(short).toLowerCase(), long.toLowerCase());
+  assert.ok(!long.includes('~'), 'the scratch base still carries an 8.3 short segment: ' + long);
 });
