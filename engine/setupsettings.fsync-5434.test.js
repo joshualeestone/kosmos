@@ -210,3 +210,13 @@ for (const W of WRITERS) {
     assert.equal(fs.statSync(file).mode & 0o7777, 0o644, 'the guard file took the link target\'s mode');
   });
 }
+
+/* Review 2: the special bits never survive onto a guard file. */
+for (const W of WRITERS) {
+  test(`#5434 ${W.name}: setuid and setgid bits are dropped`, { skip: process.platform === 'win32' && 'POSIX modes' }, () => {
+    const { file, save } = W.make();
+    fs.chmodSync(file, 0o6644);
+    assert.equal(save(), true, 'the save did not happen');
+    assert.equal(fs.statSync(file).mode & 0o7777, 0o644, 'a special bit survived on the guard file');
+  });
+}
