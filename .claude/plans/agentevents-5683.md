@@ -582,3 +582,17 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   than what it was; the event still says the action was a run, and the board token is never anything else's.
 - Stated (already, plans lines on python -c, a relative read after cd, node -e): a token read through an interpreter's
   own code is not classed as the board's.
+
+## Review 44 (opus), all fixed unless stated
+- BLOCKER in review 43's own fix: a DAMAGED state (empty or bad JSON after a power loss; writeState renames without
+  an fsync) made readStateForUpdate return null on every tick, forever, with no log line: all reporting stopped. The
+  state is written whole by rename, so a reader never sees half of one; a parse failure is damage, not a passing
+  error. It now starts again as withdrawn (reporting resumes from now, nothing from before is read) and logs once.
+  Only a read that fails with an error code (EMFILE, EISDIR...) changes nothing. The r43 test now uses a directory
+  for "unreadable"; a new test shows damage recovers with nothing from before sent. Red by mutation and on the
+  pre-fix file.
+- A relative word with a slash and a space ("Library/Application Support/Kosmos/board.token" from an agent at home)
+  is one path. Test.
+- cd steps followed: at most 32, the folder at most 1024 characters (a chain of cd a cost seconds per file). Tested
+  as a ratio against a command of the same length with no cd (uncapped: 9.2 times; capped: under 4).
+- Stated: env -C dir cat board.token is not followed (rare).

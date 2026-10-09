@@ -1481,24 +1481,58 @@ test('#5683 r42: a stop on a state that cannot be read now is carried to the nex
 /* ---- review 43 ---- */
 
 test('#5683 r43: a state that cannot be read is never overwritten with an empty one', async (t) => {
+  /* Review 44: an unreadable state is an I/O error (here a directory in its place), never a parse failure, which is
+     damage and recovers (next test). */
   const { s } = await enrolled(t);
   const file = path.join(s.root, 'agent-events.json');
-  let tear = false;
-  const c = coordinator(() => { if (tear) fs.writeFileSync(file, '{"torn'); return { ok: true, data: { ok: true } }; });
+  let block = false;
+  const c = coordinator(() => { if (block) { fs.rmSync(file); fs.mkdirSync(file); } return { ok: true, data: { ok: true } }; });
   await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   await new Promise((r) => setTimeout(r, 1100));
   append(s.file, use('t1', 'Bash', { command: 'x' }), result('t1', DENIED('x'), true));
-  tear = true;   // the state becomes unreadable while the send is in flight
+  block = true;   // the state cannot be read while the send is in flight
   const r = await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  block = false;
   assert.equal(r.sent, 1, JSON.stringify(r));
-  assert.equal(fs.readFileSync(file, 'utf8'), '{"torn', 'the unreadable state was overwritten after the send');
-  tear = false;
-  // and a tick that starts on an unreadable state reads and writes nothing
+  assert.match(r.because || '', /could not be updated/);
+  assert.ok(fs.statSync(file).isDirectory(), 'the unreadable state was replaced');
   const readBefore = s.read.length;
   const r2 = await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
   assert.match(r2.because || '', /could not be read/);
   assert.equal(s.read.length, readBefore, 'a tick on an unreadable state opened transcripts');
-  assert.equal(fs.readFileSync(file, 'utf8'), '{"torn', 'a tick on an unreadable state wrote over it');
+  fs.rmdirSync(file);
+});
+
+test('#5683 r44: a damaged state starts again as withdrawn: nothing from before is sent, and reporting resumes', async (t) => {
+  const { s, c } = await enrolled(t);
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await new Promise((r) => setTimeout(r, 1100));
+  const file = path.join(s.root, 'agent-events.json');
+  append(s.file, use('before', 'Bash', { command: 'x' }), result('before', DENIED('x'), true));
+  fs.writeFileSync(file, '');   // damaged (a power loss)
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  assert.doesNotThrow(() => JSON.parse(fs.readFileSync(file, 'utf8')), 'the damaged state was not rewritten');
+  await new Promise((r) => setTimeout(r, 2100));
+  append(s.file, use('after', 'Bash', { command: 'x' }), result('after', DENIED('x'), true));
+  for (let i = 0; i < 2; i++) await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  const refs = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events.map((e) => e.toolUseRef));
+  assert.equal(refs.includes('before'), false, 'a refusal from before the damage was sent');
+  assert.ok(refs.includes('after'), 'reporting never resumed after the damage: ' + refs.join(','));
+});
+
+test('#5683 r44: a relative path with a space is one path; a long cd chain is cheap', () => {
+  const R = '/Users/ann/Library/Application Support/Kosmos';
+  const h = ctx({ agentDir: '/Users/ann', home: '/Users/ann', boardRoot: R });
+  assert.equal(ae.targetClass('Bash', { command: 'cat "Library/Application Support/Kosmos/board.token"' }, h), 'board-files');
+  assert.equal(ae.targetClass('Bash', { command: 'ls Library/Application\\ Support/Kosmos' }, h), 'board-files');
+  assert.equal(ae.targetClass('Bash', { command: 'cat "My Docs/x.txt"' }, h), 'other');
+  /* Against a command of the same length with no cd, so the bound is a ratio, not a load assertion (uncapped, the cd
+     chain cost about 9 times the plain one). */
+  const time = (cmd) => { const t0 = process.hrtime.bigint(); for (let i = 0; i < 60; i++) ae.targetClass('Bash', { command: cmd }, h); return Number(process.hrtime.bigint() - t0); };
+  time('ls a;'.repeat(800));   // warm
+  const plain = time('ls a;'.repeat(800) + 'grep -r x .');
+  const chain = time('cd a;'.repeat(800) + 'grep -r x .');
+  assert.ok(chain < plain * 4, 'a cd chain cost ' + (chain / plain).toFixed(1) + ' times a plain command of its length');
 });
 
 test('#5683 r43: a network command that reads the board\'s token is board-files (review 5 overturned for that class)', () => {
