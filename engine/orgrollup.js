@@ -178,9 +178,12 @@ function build(input) {
     at: iso(i.at) || new Date().toISOString(),
     reason: i.reason === 'change' ? 'change' : 'daily',
     /* #5534: the company policy version this Kosmos applied (a whole number the company saved, else none) and whether
-       it refused one the company sent. Both only under words naming the policy (the tick passes them only then). */
-    policyVersion: Number.isSafeInteger(i.policyVersion) && i.policyVersion >= 1 ? i.policyVersion : null,
-    policyRefused: i.policyRefused === true,
+       it refused one the company sent. Both only when the tick read them under words naming the policy; otherwise the
+       fields are left out, and the company keeps what it had. */
+    ...('policyVersion' in i ? {
+      policyVersion: Number.isSafeInteger(i.policyVersion) && i.policyVersion >= 1 ? i.policyVersion : null,
+      policyRefused: i.policyRefused === true,
+    } : {}),
     lastActive: notAfterTomorrow(day(i.lastActive), nowMs),   // the day only: "when you were last active", not a timeline (review 5)
     backup: { lastOk: iso(i.backupLastOk) },
     agents, projects, usage,
@@ -364,7 +367,11 @@ function signature(body) {
      from its record, and the two can differ (null when nothing is recorded), so a provider here moved on start/stop. */
   const agents = body.agents.map((a) => a.name).sort();
   const projects = body.projects.map((p) => [p.name, [...p.agents].sort()]).sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0));
-  return crypto.createHash('sha256').update(JSON.stringify([agents, projects])).digest('hex');
+  /* #5534: a policy newly applied (or refused) is a change, so the company sees it within minutes, not at the next
+     daily. Added only when the body carries it, so a board under words not naming the policy keeps its signature. */
+  const parts = [agents, projects];
+  if ('policyVersion' in body) parts.push([body.policyVersion, body.policyRefused === true]);
+  return crypto.createHash('sha256').update(JSON.stringify(parts)).digest('hex');
 }
 
 /* The print-wait note, where the joined view reads it (review 18): /api/org must not say this Kosmos reports while its
@@ -449,14 +456,23 @@ async function tick(opts) {
      usage), any usage read is dropped and the body says usageWithheld. */
   if (accepted.usageConsented !== true) { g.usageByDay = {}; g.usageWithheld = true; }
   /* #5534: the policy version, and whether a bundle was refused, leave only under words that name the policy. Read as a
-     create reads it (orgpolicy.refresh: the bundle on disk verified, the last good one kept). Never throws. */
+     create reads it (orgpolicy.refresh: the bundle on disk verified, the last good one kept; it may apply a newer
+     bundle, as a create would, and reads the shared data folder, not o.root). Only this company's: a policy another
+     company left behind is not reported as this one's. A refusal counts when the bundle refused is not the one in
+     force (an expired copy of it is not something new) and is not this Kosmos failing to save it. A read that throws
+     leaves both fields out, so the company keeps what it had. Never throws. Not reported: refusals applyPolicy makes
+     before saving (an oversize bundle, another company's), which never reach the disk. */
   delete g.policyVersion; delete g.policyRefused;
   if (accepted.policyConsented === true) {
     try {
-      const pr = (o.orgpolicy || require('./orgpolicy')).refresh();
-      g.policyVersion = pr.applied ? pr.applied.version : null;
-      g.policyRefused = !!pr.refused;
-    } catch { /* none sent: the next tick reads it again */ }
+      const op = o.orgpolicy || require('./orgpolicy');
+      const pr = op.refresh();
+      const mine = pr.applied && rec.org && pr.applied.org === rec.org.id ? pr.applied : null;
+      const waiting = typeof op.bundleInfo === 'function' ? op.bundleInfo() : null;
+      const sameAsInForce = !!(mine && waiting && waiting.org === mine.org && waiting.version === mine.version);
+      g.policyVersion = mine ? mine.version : null;
+      g.policyRefused = !!pr.refused && pr.local !== true && !sameAsInForce;
+    } catch { delete g.policyVersion; delete g.policyRefused; }
   }
   if (due && g.partial) {
     const since = Number.isFinite(st.partialSince) && st.partialSince <= now ? st.partialSince : null;
