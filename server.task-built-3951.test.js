@@ -264,7 +264,7 @@ test('#5705: an agent marks a checked task built only with a note; the person fr
   const mona = sendertoken.mint('mona');
   const bare = await post(`/api/project/${projectId}/task/${n}/built`, {}, { 'x-kosmos-agent-token': mona.token });
   assert.equal(bare.status, 400, JSON.stringify(bare.json));
-  assert.match(bare.json.error, /this task has 2 done-when checks, so mark it built with a note saying how each went: kosmos task built \S+ \d+ "/);
+  assert.match(bare.json.error, /this task has 2 done-when checks, so mark it built with a note saying how each went: kosmos task built \S+ \d+ '1 met\. 2 not met: <why>'$/);
   assert.equal('builtAt' in stored(n), false, 'a refused mark wrote the task');
   assert.ok(!taskchat.read(projectId, n).some((e) => e.kind === 'built'), 'a refused mark wrote a history line');
   const blank = await post(`/api/project/${projectId}/task/${n}/built`, { note: '   ' }, { 'x-kosmos-agent-token': mona.token });
@@ -274,6 +274,11 @@ test('#5705: an agent marks a checked task built only with a note; the person fr
   assert.equal(stored(n).builtNote, '1 met. 2 met.');
   const p = tasks.create(projectId, { sentence: 'Checked, marked by the person', who: 'mona', doneWhen: ['it works'] }).number;
   assert.equal((await post(`/api/project/${projectId}/task/${p}/built`, {}, screen)).status, 200, 'the person was refused a bare mark');
+  // Review 1: the Mac command reads the error with sed up to the first double quote; the whole sentence reaches the agent.
+  const m = tasks.create(projectId, { sentence: 'Checked, marked from a Mac', who: 'mona', doneWhen: ['it works'] }).number;
+  const macOut = await mac(['task', 'built', projectId, String(m)], { KOSMOS_AGENT_TOKEN: mona.token });
+  assert.notEqual(macOut.code, 0, macOut.out);
+  assert.match(macOut.out, /so mark it built with a note saying how it went: kosmos task built \S+ \d+ '1 met\. 2 not met: <why>'/, macOut.out);
   // CONTROL: a task with no checks still takes a bare agent mark, as before.
   const plain = newTask('No checks on this one');
   assert.equal((await post(`/api/project/${projectId}/task/${plain}/built`, {}, { 'x-kosmos-agent-token': mona.token })).status, 200);
