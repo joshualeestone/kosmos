@@ -208,7 +208,7 @@ const SPILL_AT = 700;
    real one and ends within SPILL_HEAD characters, else the opening cut at a whole word, plus how long the whole is. */
 const SPILL_HEAD = 200;
 /* Review 2: words ending in a full stop that do not end a sentence (titles, company forms, months, and the like). */
-const NOT_AN_END = /^(?:mr|mrs|ms|dr|prof|sr|jr|st|vs|etc|inc|corp|ltd|co|no|nos|fig|vol|dept|approx|est|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\.$/i;
+const NOT_AN_END = /^(?:mr|mrs|ms|dr|prof|sr|jr|st|vs|etc|inc|corp|ltd|co|no|nos|fig|vol|dept|approx|est|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec|gen|sen|rep|gov|pres|capt|lt|col|sgt|rev|hon|mt|ft|ave|rd|blvd|univ)\.$/i;
 /* Never end a cut on the first half of a two-unit character (an emoji), which would type a broken character. */
 const wholeChars = (s) => (/[\uD800-\uDBFF]$/.test(s) ? s.slice(0, -1) : s);
 function spillHead(text) {

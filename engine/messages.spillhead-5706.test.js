@@ -66,8 +66,11 @@ test('#5706 review 1: a full stop at the 200th character inside a word (release3
 });
 
 test('#5706 review 1: a slice that already ends on a whole word keeps it, and a trailing comma is dropped', () => {
-  const r = spillHead('abcd '.repeat(40) + 'efgh, ' + 'more '.repeat(200));
-  assert.equal(r.head, 'abcd '.repeat(40).trim() + '\u2026');
+  /* Review 3: "vwxyz" ends exactly at the 200th character and a space follows it, so the cut must keep it. */
+  const text = 'abcd '.repeat(39) + 'vwxyz' + ' ' + 'more '.repeat(200);
+  assert.equal(text.charAt(200), ' ', 'CONTROL: a space follows the 200th character');
+  const r = spillHead(text);
+  assert.equal(r.head, 'abcd '.repeat(39) + 'vwxyz\u2026');
   const comma = spillHead('a'.repeat(150) + ' ' + 'b'.repeat(40) + ', ' + 'c'.repeat(300));
   assert.ok(!/,\u2026$/.test(comma.head), comma.head.slice(-10));
 });
@@ -77,9 +80,11 @@ test('#5706 review 2: known abbreviations are not sentence ends, and a short rea
     'Please forward this to Mrs. Smith before the end of the week, thanks a lot. ' + 'More. '.repeat(150),
     'The meeting with Acme Inc. Was moved to Thursday at the usual place and time. ' + 'More. '.repeat(150),
     'The letter came from Prof. Jones about the grant application and its budget. ' + 'More. '.repeat(150),
+    'I had a long meeting yesterday with Gen. Smith about the budget for next year. ' + 'More. '.repeat(150),
+    'Yesterday we hiked up Mt. Rainier with the whole team and two of the dogs too. ' + 'More. '.repeat(150),
   ]) {
     const r = spillHead(text);
-    assert.ok(!/(?:Mrs|Inc|Prof)\.$/.test(r.head), 'an abbreviation read as a sentence end: ' + r.head);
+    assert.ok(!/(?:Mrs|Inc|Prof|Gen|Mt)\.$/.test(r.head), 'an abbreviation read as a sentence end: ' + r.head);
   }
   // CONTROL: a real sentence that ends in a short word is still the head.
   assert.equal(spillHead('Please send the signed lease back to me. Then we can book the movers for May. ' + 'More. '.repeat(150)).head,
