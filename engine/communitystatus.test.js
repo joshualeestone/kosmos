@@ -274,10 +274,12 @@ test('every state this module or the send layer can produce has words (read from
      written to a send record, so status never reads it. */
   const ANSWER_ONLY = new Set(['unconfirmed_keyless']);
   const fromSend = [...send.matchAll(/state(?:: | = )'([a-z_]+)'/g)].map((m) => m[1]).filter((s) => s !== 'pending' && !ANSWER_ONLY.has(s));
-  // That it is an answer only: it is assigned as a state exactly once, in withdrawFor's return, never to a record.
-  const assigned = [...send.matchAll(/state(?:: | = )'unconfirmed_keyless'/g)].length;
-  assert.equal(assigned, 1, 'unconfirmed_keyless is assigned as a state somewhere else too, so it may reach a send record');
-  assert.match(send, /return taken\.ok \? \{ ok: true, state: 'unconfirmed_keyless' \} : taken;/, 'CONTROL: withdrawFor\'s answer was not found');
+  // That it is an answer only: every place it is assigned as a state is inside withdrawFor (its answers), none elsewhere.
+  const wf = send.slice(send.indexOf('function withdrawFor('), send.indexOf('\n}\n', send.indexOf('function withdrawFor(')));
+  const everywhere = [...send.matchAll(/state(?:: | = )'unconfirmed_keyless'/g)].length;
+  const inWithdraw = [...wf.matchAll(/state(?:: | = )'unconfirmed_keyless'/g)].length;
+  assert.ok(inWithdraw > 0, 'CONTROL: withdrawFor\'s answer was not found');
+  assert.equal(everywhere, inWithdraw, 'unconfirmed_keyless is assigned as a state outside withdrawFor, so it may reach a send record');
   assert.ok(fromStateOf.length >= 8, 'CONTROL: the stateOf scan found too few states: ' + fromStateOf);
   assert.ok(fromSend.includes('sent') && fromSend.includes('unconfirmed'), 'CONTROL: the send-layer scan found ' + fromSend);
   for (const st of new Set([...fromStateOf, ...fromSend, 'held', 'sending'])) {
@@ -502,4 +504,14 @@ test('#5636 follow-up: an unanswered post taken back says it will not be sent ag
   writeJson(cs._paths.deletesFile(), { [p.id]: '2026-10-09T10:00:00Z' });
   assert.equal(stateOfTitle('ava', 'Taken back unsure'), 'unconfirmed_taken_back');
   assert.match(status.statusText('ava').text, /"Taken back unsure".*: taken back, so it will not be sent again\. Kosmos never heard whether it arrived; if it did, that copy may still be up$/m);
+});
+
+test('#5636 review 2: "may still be up" only where no take-down can reach it; with the sending key held, the plain words', () => {
+  const p = post('ava', 'Live key taken back');
+  writeJson(cs._paths.sentFile(), { [p.id]: { state: 'pending', attempted: true, agent: 'ava', agentId: 'r1' } });
+  writeJson(cs._paths.deletesFile(), { [p.id]: '2026-10-09T10:00:00Z' });
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'k', remoteId: 'r1' } });
+  assert.equal(stateOfTitle('ava', 'Live key taken back'), 'unconfirmed', 'with the sending key held the next sweep takes it down or holds it');
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'k', remoteId: 'r2' } });   // a replaced registration
+  assert.equal(stateOfTitle('ava', 'Live key taken back'), 'unconfirmed_taken_back');
 });

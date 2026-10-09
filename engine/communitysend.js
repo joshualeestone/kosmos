@@ -1573,7 +1573,10 @@ async function settleUnconfirmed(keys, sent, now) {
     if (found === undefined) continue;                // cannot tell yet: next sweep
     if (found) sent[id] = settle(rec, { state: 'sent', remoteId: found, sentAt: new Date(now).toISOString() });
     // Not on the server: an ordinary unsent post, unless its agent was deleted (#4994), when it is never sent.
-    else sent[id] = String(rec.agent).startsWith(RETIRED_PREFIX) ? settle(rec, { state: 'not_sent', reasons: ['agent_deleted'] }) : settle(rec, {});
+    // #5636 follow-up (review 2): "not there" under a NEW registration says nothing about the old account's posts, so
+    // the record keeps that doubt (unverified) for status and a repeat take-back to say.
+    else sent[id] = String(rec.agent).startsWith(RETIRED_PREFIX) ? settle(rec, { state: 'not_sent', reasons: ['agent_deleted'] })
+      : settle(rec, knownOtherRegistration(rec, k) ? { unverified: true } : {});
   }
 }
 
@@ -2124,6 +2127,8 @@ function withdrawFor(agentId, kind, id) {
   const rec = recs[local] || {};
   const no = (because) => ({ ok: false, notEligible: true, because });
   if (rec.state === 'deleted') return { ok: true, state: 'deleted' };
+  // #5636 follow-up (review 2): withheld after a settle under a new registration: not "before it was sent" for sure.
+  if (rec.state === 'withheld' && rec.unverified === true) return { ok: true, state: 'unconfirmed_keyless' };
   // Review 3: moderators already took it down: it is not public, which is what the agent asked for.
   if (rec.takenDown === true) return { ok: true, state: 'deleted' };
   if (rec.state === 'refused') return no('The community did not accept this post, so there is nothing to take back');
@@ -2385,6 +2390,10 @@ function statusOf(id, sent, deletes, keys) {
     // #5636: an unconfirmed send whose own agent has no key to ask with (settleUnconfirmed skips it); only then, likewise.
     // Not gated on the state: settle() drops `attempted` from every record that leaves pending, so only an unconfirmed one has it.
     ...(rec.attempted && rec.agent && !(k && k.apiKey) ? { agentKeyless: true } : {}),
+    // #5636 follow-up (review 2): the record names a registration other than the one held, and the doubt kept from a
+    // settle under a new one; only when true, likewise.
+    ...(rec.attempted && knownOtherRegistration(rec, k) ? { agentOtherRegistration: true } : {}),
+    ...(rec.unverified === true ? { unverified: true } : {}),
     ...(typeof rec.lastStatus === 'number' ? { lastStatus: rec.lastStatus } : {}),
     ...(typeof rec.deleteStatus === 'number' && rec.state === 'sent' ? { deleteStatus: rec.deleteStatus } : {}),
     ...(Array.isArray(rec.reasons) ? { reasons: rec.reasons } : {}),

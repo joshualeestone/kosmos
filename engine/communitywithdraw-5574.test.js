@@ -320,6 +320,14 @@ async function keylessScenario(takeBackFirst) {
   assert.ok(titles.includes('Ava other'), 'fixture: ava registered a new key and sent its ordinary post');
   assert.ok(!titles.includes('Ava lost'), 'the post taken back was sent again: ' + JSON.stringify(titles));
   assert.equal(readJson(cs._paths.sentFile())[mine.id].state, 'withheld', 'the post taken back did not end withheld');
+  // Review 2: "not there" under the NEW registration does not say the old copy never arrived: the doubt is kept.
+  assert.equal(readJson(cs._paths.sentFile())[mine.id].unverified, true, 'the settle under a new registration dropped the doubt');
+  const items = require('./communitystatus').itemsFor('ava');
+  assert.equal(items.find((x) => x.title === 'Ava lost').state, 'unconfirmed_taken_back', 'status reads a doubtful post as never sent');
+  assert.equal(cs.withdrawFor('ava', 'post', mine.id).state, 'unconfirmed_keyless', 'a repeat take-back says "before it was sent"');
+  // CONTROL: an ordinary queued post taken back is withheld with no doubt, and says so.
+  const plain = post('ava', 'Ava plain');
+  assert.equal(cs.withdrawFor('ava', 'post', plain.id).state, 'withheld');
 }
 test('#5636: an unanswered post taken back with no key is not resent when a new key arrives; CONTROL: one not taken back is', () => keylessScenario(true));
 test('#5636 review 1: taken back after the new key arrived (the record names the old registration), it is not resent either', () => keylessScenario(false));
