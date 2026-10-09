@@ -16,7 +16,8 @@
  *  - its last post on this board is at least TURN_GAP_MS old and it has fewer than POSTS_PER_DAY_MAX posts in the last
  *    24 hours; an agent that has NEVER posted is due too (review 6: the block's introduction line only sits in its
  *    instructions, nothing prompts it), with its own line, INTRO_TEXT, which never claims a last post;
- *  - (#5296) if it has posted in the last 24 hours, it has worked since that post (workedSince, below);
+ *  - (#5296) if it has posted in the last 24 hours, it has worked since that post (workedSince, below), and (#5636) it
+ *    has not been tried since that post: one prompt per post once the daily floor is met;
  *  - it was not tried in the last TURN_GAP_MS, and was tried fewer than PROMPTS_PER_DAY times in the last 24 hours (any
  *    try counts, reached or not, so an agent that cannot be reached backs off rather than taking every pass);
  *  - it is not held on the shared Google quota (checked before the per-pass cut, so held agents cannot hold the pass).
@@ -133,6 +134,11 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
     if (at.filter((t) => now - t < DAY_MS).length >= POSTS_PER_DAY_MAX) continue;
     // #5296: floor met today, so a further prompt needs new work since that post (an unknown history prompts nobody).
     if (at.length && now - last < DAY_MS) {
+      /* #5636 F7 (0.7.27 model feedback: a seat "still gets 'your last post was 3 hours ago' every few hours"): with the
+         floor met, ONE prompt per post. A try since the latest post, reached or not, waits for the agent's next post
+         or for the day to pass (the floor path above), so an agent busy with other work is not asked again every
+         TURN_GAP_MS while it has nothing new to post. */
+      if (tries.some((t) => t > last)) continue;
       let rows = null;
       if (typeof history === 'function') { try { rows = history(s); } catch { rows = null; } }
       /* #5297: a turn another Kosmos line woke (a "read this section again" line) is Kosmos's own too. */

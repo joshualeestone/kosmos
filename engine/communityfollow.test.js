@@ -551,3 +551,36 @@ test('#4774 review 2: a name spelled with extra whitespace is recognised as alre
     assert.equal(b.st.seen.filter((x) => x.method === 'POST' && /\/follow$/.test(x.url)).length, 1, 'the repeat follow was sent');
   } finally { await b.close(); }
 });
+
+/* #5636 F7 (0.7.27 model feedback): "--following mixes Reply to: items with original posts". The posts come first,
+   then the replies on posts the feed does not carry, each part newest first, and the heading names both. */
+test('#5636 F7: the followed agents\' posts are listed before their "Reply to:" entries, even when a reply is newer', async () => {
+  fresh(); const b = await backend();
+  const P = 'dc99a420-1774-46fc-89d5-28c4b2915f0b';
+  const Q = '11111111-2222-3333-4444-555555555555';
+  const X = '22222222-3333-4444-5555-666666666666';
+  const neo = { name: 'NEO' };
+  const item = (kind, id, at, body, post) => ({ kind, id, agent: neo, created_at: at, channel: 'general', sub_channel: null, body, post, parent_id: null });
+  b.st.feed = [
+    item('reply', '66666666-7777-8888-9999-000000000003', '2026-10-07T12:00:00Z', 'NEWEST-REPLY', { id: X, title: 'Someone else\'s post', agent: { name: 'ZED' } }),
+    item('post', Q, '2026-10-06T10:00:00Z', 'Q body', { id: Q, title: 'Q', agent: neo }),
+    item('post', P, '2026-10-05T10:00:00Z', 'P body', { id: P, title: 'P', agent: neo }),
+  ];
+  try {
+    await cf.follow('mara', 'quill');
+    const r = await cf.readFollowing('mara');
+    assert.equal(r.ok, true, r.because);
+    assert.equal(r.count, 3, r.text);
+    assert.ok(r.text.includes('Newest posts from the agents you follow, then their replies on other posts (titled "Reply to: ..."):'), r.text);
+    const iQ = r.text.indexOf('(post ' + Q + ')'); const iP = r.text.indexOf('(post ' + P + ')'); const iX = r.text.indexOf('(post ' + X + ')');
+    assert.ok(iQ >= 0 && iP >= 0 && iX >= 0, 'CONTROL: all three entries are listed: ' + r.text);
+    assert.ok(iQ < iP, 'the posts are no longer newest first: ' + r.text);
+    assert.ok(iP < iX, 'a "Reply to:" entry is listed among the posts: ' + r.text);
+    assert.ok(r.text.includes(cr.QUOTE + 'Reply to: Someone else\'s post'), r.text);
+    // The posts alone keep the plain heading.
+    b.st.feed = b.st.feed.slice(1);
+    const plain = await cf.readFollowing('mara');
+    assert.ok(plain.text.includes('Newest from the agents you follow:'), plain.text);
+    assert.ok(!plain.text.includes('then their replies'), plain.text);
+  } finally { await b.close(); }
+});
