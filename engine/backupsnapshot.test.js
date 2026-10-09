@@ -1442,6 +1442,31 @@ test('#5686 review 9: with only, other files are never counted toward the file l
   } finally { fs.rmSync(base, { recursive: true, force: true }); }
 });
 
+test('#5686 review 10: two agents\' sessions in one shared folder (Codex) are each stored under their own name', async () => {
+  const w = threeRoots(), k = keys(), st = store();
+  const sess = require('./backupsessions');
+  try {
+    const a = path.join(w.roots.workers, 'a'), b = path.join(w.roots.workers, 'b');
+    fs.mkdirSync(b, { recursive: true });
+    const codex = path.join(w.base, 'home', '.codex');
+    const roll = (n, cwd) => { const p = path.join(codex, 'sessions', '2026', '10', '09', n); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, JSON.stringify({ type: 'session_meta', payload: { cwd } }) + '\n'); };
+    roll('rollout-1.jsonl', a); roll('rollout-2.jsonl', b);
+    const roots = [...sess.sessionsFor(a, { id: 'a', codexHome: codex }), ...sess.sessionsFor(b, { id: 'b', codexHome: codex })];
+    assert.equal(roots.length, 2);
+    assert.equal(roots[0].path, roots[1].path, 'one folder');
+    const r = await takeRoots(k, roots, st);
+    assert.equal(r.ok, true, r.because);
+    const { sink } = await restoreFrom(k, st, st.manifests[0].bytes);
+    assert.deepEqual([...sink.committed.keys()].sort(), ['sessions/a/codex/2026/10/09/rollout-1.jsonl', 'sessions/b/codex/2026/10/09/rollout-2.jsonl']);
+    // Two roots on one folder naming the same file: refused (it would be stored twice).
+    const both = await takeRoots(k, [{ name: 'x', path: roots[0].path, only: ['2026/10/09/rollout-1.jsonl'] }, { name: 'y', path: roots[0].path, only: ['2026/10/09/rollout-1.jsonl'] }], store());
+    assert.match(both.because, /both name one file/);
+    // And one folder without only beside one with: still refused as the same folder.
+    const bare = await takeRoots(k, [{ name: 'x', path: roots[0].path }, { name: 'y', path: roots[0].path, only: ['2026/10/09/rollout-1.jsonl'] }], store());
+    assert.match(bare.because, /same folder/);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
 test('#5686: a file is read from its own root (a same-named file in another root is never read in its place)', async () => {
   const w = threeRoots(), k = keys(), st = store();
   try {

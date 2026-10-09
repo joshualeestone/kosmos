@@ -144,13 +144,30 @@ test('#5686: a root\'s stored name depends on which config root and spelling, no
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
+test('#5686 review 10: a session\'s whole folder goes with it (a worktree subagent, tool results); memory only when the folder is the agent\'s alone', () => {
+  const w = world();
+  try {
+    const flat = path.join(w.claude, 'projects', bs.flatten(w.agent));
+    w.w(path.join(flat, 's1', 'subagents', 'agent-wt.jsonl'), transcript(path.join(w.base, 'work', 'wt-branch')));
+    w.w(path.join(flat, 's1', 'tool-results', 'r1.txt'), 'output\n');
+    w.w(path.join(flat, 'memory', 'MEMORY.md'), '- notes\n');
+    let only = bs.sessionsFor(w.agent, { id: 'mikey', claudeRoots: [w.claude] })[0].only;
+    assert.deepEqual(only, ['memory/MEMORY.md', 's1.jsonl', 's1/subagents/agent-1.jsonl', 's1/subagents/agent-wt.jsonl', 's1/tool-results/r1.txt']);
+    // A stranger's session in the same folder (the flattening is many-to-one): memory is no longer only this agent's.
+    w.w(path.join(flat, 'z9.jsonl'), transcript(path.join(w.base, 'someone')));
+    w.w(path.join(flat, 'z9', 'tool-results', 'theirs.txt'), 'theirs\n');
+    only = bs.sessionsFor(w.agent, { id: 'mikey', claudeRoots: [w.claude] })[0].only;
+    assert.deepEqual(only, ['s1.jsonl', 's1/subagents/agent-1.jsonl', 's1/subagents/agent-wt.jsonl', 's1/tool-results/r1.txt']);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
 test('#5686: what cannot be used gives nothing, never a guess', () => {
   const w = world();
   try {
     const all = { claudeRoots: [w.claude], geminiHome: w.gemini, codexHome: w.codex };
     // Review 8: ids whose names the snapshot refuses (restore, the deny-list, the name shape): nothing, not a whole
     // world's snapshot failed on one agent.
-    for (const id of ['aux', 'con', 'secrets', 'Mikey', '../x']) assert.deepEqual(bs.sessionsFor(w.agent, Object.assign({ id }, all)), [], id);
+    for (const id of ['aux', 'con', 'secrets', 'Mikey', '../x', 'x/claude', 'sessions/x']) assert.deepEqual(bs.sessionsFor(w.agent, Object.assign({ id }, all)), [], id);
     assert.deepEqual(bs.sessionsFor('relative/mikey', Object.assign({ id: 'mikey' }, all)), []);
     assert.deepEqual(bs.sessionsFor(w.agent, { id: 'mikey', claudeRoots: ['relative'], geminiHome: 'relative', codexHome: 'relative' }), []);
     // A slug that would climb out of tmp/ is refused, not followed (../.. would land on <base>/chats, made real here).
