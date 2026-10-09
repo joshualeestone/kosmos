@@ -5,7 +5,7 @@ An agent launch after an upgrade leaves no rule for a removed version folder or 
 
 ## Built (current, after reviews 1 and 2)
 - engine/setup-assistant.js:
-  - A record of the launch rules the guard wrote, at `.claude/kosmos-launch-rules.json`. It is denied to the file tools, and the sandbox denies its folder. The record is a union: what was recorded and not pruned, plus what is current.
+  - A record of the launch rules the guard wrote at an agent's launch, at `.claude/kosmos-launch-rules.json`. It is denied to the file tools, and the sandbox denies its folder. The record is a union: what was recorded and not pruned, plus what this launch wrote. A board start never adds to it.
   - Pruning is done only by an agent launch, which is the refresh that carries the pane PATH. It drops a recorded launch entry that is not current AND whose path is gone from disk. This happens in both layers. Every other rule merges as before.
   - The ceiling, macOS only, counts every path that reaches the sandbox profile: both sandbox lists, plus the targets of the Edit and Read deny rules, each counted once. Past 40 KB of distinct prefixes or 160 KB raw, the guard is written and whole, and it returns a `warning` (also written to stderr), never a refusal. The warning is given beside an uncovered-PATH reason, not instead of it.
 - engine/launchprune-5663.test.js.
@@ -14,7 +14,7 @@ An agent launch after an upgrade leaves no rule for a removed version folder or 
 - No record (a guard written before this) prunes nothing; the record starts at the next refresh. Launch rules themselves arrived with #5516 part 1 (#5660, merged 2026-10-09 03:03), so the only unrecorded launch rules are those written by a board running main between that merge and this one. No migration (review 5): a guess at which old rules were launch-shaped could drop a rule the guard did not write, and the leftover is bounded to one version per tool.
 - A rule the person also wrote that equals one the guard wrote for launch is pruned with it when its path is gone. Accepted: such a rule names a path that no longer exists.
 - The record is read and written without a lock. Two refreshes at once can lose a recorded entry. That entry is then never pruned: kept, not dropped. Accepted, because the failure direction is safe.
-- Pruning assumes every launch passes the same launch inputs (the supervisor always does). A launch rule for a path that is deliberately denied while absent stays current at every launch, so it is not pruned.
+- Only a launch records, so a launch prunes only what a launch wrote. A board start's launch rules come from its own inputs (its PATH, its XDG_CONFIG_HOME), are never recorded, and so are never pruned. Pruning assumes every launch passes the same launch inputs (the supervisor always does). A launch rule for a path that is deliberately denied while absent stays current at every launch, so it is not pruned.
 - Plan file name: the PR hook requires `.claude/plans/<branch>.md`. CLAUDE.md's timestamped name is not used here, as on every kosmos branch.
 
 ## Review 1 (Opus) and what changed
@@ -64,3 +64,10 @@ An agent launch after an upgrade leaves no rule for a removed version folder or 
 - The record's temp file name is unique per write, so two refreshes in one process cannot share it.
 - The warning's readers are stated in the doc comment: the board's and the supervisor's logs. No caller carries it further (decided in review 4, raised again in reviews 5 and 6).
 - Not taken: a directive written inline after code on one line (`x; 'use strict';`). The guard covers the class review 3 found, a block inserted above the directive.
+
+## Review 7 (Opus) and what changed
+
+- BLOCKER-class (raised as a WARNING), fixed: a board start recorded launch rules built from the board's own inputs. Some of those deliberately name absent paths, because what is later made there would run, such as an XDG tmux.conf or an absent folder on the board's PATH. The next launch, whose inputs need not include them, saw those rules as not current and gone, and pruned them. That uncovered such a path for the whole session. Now only a launch adds to the record. Test: a board-only absent folder survives two launches. Both mutations (recording board-start entries in either layer) go red.
+- The record is written before the local-settings clean, so a throw there cannot leave this refresh's rules unrecorded.
+- Not taken: settings.json's own temp name (`<pid>.new`) is unchanged. It is existing code from #4491 review 24, not this card.
+- Not taken: the use-strict detector anchors on an unindented directive line, so a function-level (indented) one is not flagged. An unindented directive line inside a template literal would be a false red; none exists.

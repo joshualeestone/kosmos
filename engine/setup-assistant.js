@@ -1355,10 +1355,14 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     const launchWritesNowSet = new Set(launchWritesNow);
     const stale = new Set(rules.launchKnown ? prev.deny.filter((r) => !launchDenyNow.has(r) && launchPathGone(ruleTarget(r))) : []);
     const staleWrites = new Set(rules.launchKnown ? prev.denyWrite.filter((x) => !launchWritesNowSet.has(x) && launchPathGone(x)) : []);
-    /* The record is a union: what was recorded and not pruned, and what is current. It is read and written without a
-       lock, so two refreshes at once can lose an entry; that entry is then never pruned (kept, not dropped). */
-    const recDeny = [...new Set([...prev.deny.filter((r) => !stale.has(r)), ...launchDenyNow])];
-    const recWrites = [...new Set([...prev.denyWrite.filter((x) => !staleWrites.has(x)), ...launchWritesNow])];
+    /* The record is a union: what was recorded and not pruned, and what THIS LAUNCH wrote. Review 7: only a launch adds to
+       it. A board start builds its launch rules from its own inputs (its PATH, its XDG_CONFIG_HOME), which a launch need
+       not share, and some name a path that is absent on purpose (what is later made there would run); recorded, the
+       next launch would see it as not current and gone, and prune it. So a launch prunes only what a launch wrote.
+       It is read and written without a lock, so two refreshes at once can lose an entry; that entry is then never pruned
+       (kept, not dropped). */
+    const recDeny = [...new Set([...prev.deny.filter((r) => !stale.has(r)), ...(rules.launchKnown ? launchDenyNow : [])])];
+    const recWrites = [...new Set([...prev.denyWrite.filter((x) => !staleWrites.has(x)), ...(rules.launchKnown ? launchWritesNow : [])])];
     const had = Array.isArray(perms.deny) ? perms.deny.filter((r) => typeof r === 'string' && !stale.has(r)) : [];
     const deny = [...new Set([...had, ...rules.deny])];
     /* Review 24: permissions.additionalDirectories widens where the sandboxed shell may write, as allowWrite does, so
@@ -1412,10 +1416,11 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
       fs.writeFileSync(tmp, text, 'utf8');
       try { fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* gone */ } throw e; }   // review 24
     }
-    cleanLocalSettings(path.join(settingsDir, 'settings.local.json'));
     // #5663: what this refresh wrote for launch coverage, for the next refresh to replace. A record that cannot be
     // written leaves this refresh's rules in place (nothing is lost; the next refresh only cannot prune them): said.
+    // Review 7: written before the local-settings clean, so a throw there cannot leave settings.json's rules unrecorded.
     if (!writeLaunchRecord(rules.launchRecord, { deny: recDeny, denyWrite: recWrites })) process.stderr.write(`#5663: ${rules.launchRecord} could not be written; old launch rules will not be pruned until it can\n`);
+    cleanLocalSettings(path.join(settingsDir, 'settings.local.json'));
     // #5516 review 1: the guard is written in full first; a PATH entry it could not cover only makes it NOT WHOLE (said),
     // never a reason to write nothing.
     /* #5663: the sandbox profile has size limits (SANDBOX_DENY_PREFIX_MAX). Past them the guard is still whole (the token

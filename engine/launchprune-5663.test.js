@@ -254,3 +254,20 @@ test('#5663 review 5: a real launch passes its PATH in KOSMOS_GUARD_PANE_PATH (a
   assert.deepEqual(run(v2), { ok: true });
   assert.ok(!readSettings(dir).permissions.deny.includes(r1), 'a launch with the env PATH did not prune a gone folder');
 });
+
+test('#5663 review 7: a launch never prunes what only a board start wrote (an absent path on the board\'s own PATH, denied on purpose)', () => {
+  const dir = agentDir('lp-asym');
+  const absent = path.join(SANDBOX, 'bins', 'asym-not-made-yet', 'bin');   // never created: what is later made there would run
+  const v = binDir('asym/1.0/bin');
+  // The board starts with that folder on its PATH; the launch's inputs do not have it.
+  setup.guardTokenOnlyFolder(dir, 'lp-asym', { ...BASE, ownPath: absent });
+  const s1 = readSettings(dir);
+  assert.ok(s1.permissions.deny.some((r) => r.includes('asym-not-made-yet')), 'CONTROL: the board start denied the absent folder: ' + s1.permissions.deny.filter((r) => r.includes('asym')).join(' '));
+  const before = s1.permissions.deny.filter((r) => r.includes('asym-not-made-yet'));
+  const beforeW = s1.sandbox.filesystem.denyWrite.filter((x) => x.includes('asym-not-made-yet'));
+  setup.guardTokenOnlyFolder(dir, 'lp-asym', { ...BASE, panePath: v });
+  setup.guardTokenOnlyFolder(dir, 'lp-asym', { ...BASE, panePath: v });
+  const s2 = readSettings(dir);
+  for (const r of before) assert.ok(s2.permissions.deny.includes(r), 'a launch pruned what only the board start wrote: ' + r);
+  for (const x of beforeW) assert.ok(s2.sandbox.filesystem.denyWrite.includes(x), 'a launch pruned a board-start sandbox entry: ' + x);
+});
