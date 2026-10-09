@@ -1263,11 +1263,11 @@ async function setupComplete(code, name) {
 /* #1010 (shared since kosmos#5628 review 1): a reinstall whose state survived, at the address this name maps to, is
    this Mac already set up: bring the tunnel up rather than enrol again (a new identity key, a scarce certificate, and
    the coordinator's 409 about this Mac's own previous life). Both setups ask it; MDM fleets reinstall often. */
-function alreadySetUpAs(name) {
+function alreadySetUpAs(name, bringUp = true) {
   if (!enrolled()) return null;
   const have = address();
   if (have && have.split('.')[0] === name) {
-    ensure(localPort);
+    if (bringUp) ensure(localPort);
     return { ok: true, because: null, alreadySetUp: true, address: have };
   }
   return null;
@@ -1440,7 +1440,8 @@ async function companyStatusRun(c) {
   if (a.gone === true && companySetup === c) companySetup = null;
   // Review 4: approval gives the setup fresh time on the server (its whole life from approval), so the engine's own
   // clock restarts when it sees ready; it can never outlive the server's, which started earlier.
-  if (a.ready === true && companySetup === c) c.expiresAt = Date.now() + c.ttl * 1000;
+  // Review 5: once, at the first ready (a page still polling must not keep pushing it out).
+  if (a.ready === true && companySetup === c && !c.approved) { c.approved = true; c.expiresAt = Date.now() + c.ttl * 1000; }
   return { ok: true, ready: a.ready === true, gone: a.gone === true, retry: a.retry === true };
 }
 
@@ -1454,8 +1455,13 @@ async function companyComplete(name, acceptTerms, second) {
   }
   if (typeof name === 'string') name = name.trim().toLowerCase();
   // Review 1: a reinstall already set up at this name is recognised here too (#1010), the setup then not needed.
-  const recognised = alreadySetUpAs(name);
-  if (recognised) { companySetup = null; return recognised; }
+  if (alreadySetUpAs(name, false)) {
+    // Review 5: set up means switched on here too (a reinstall whose settings reset has `on` false), then up.
+    companySetup = null;
+    write({ email: c.email }, { repair: true });
+    turnOnAfterSignin();
+    return alreadySetUpAs(name);
+  }
   if (typeof name !== 'string' || !NAME_RULE.test(name)) {
     return { ok: false, because: 'the name is 3 to 32 letters, digits or hyphens' };
   }

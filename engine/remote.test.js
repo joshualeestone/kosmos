@@ -4030,3 +4030,14 @@ test('kosmos#5628 review 3: a status ask joins one in flight only for the same s
   await slow;
   assert.equal(recorded().filter((c) => c[1] === 'company-status').length, 2, "the restart's poll joined the old setup's ask");
 });
+
+test('kosmos#5628 review 5: a reinstall recognised by the company setup is switched on too', async () => {
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  assert.equal((await remote.companyComplete('ann')).ok, true);
+  remote.setOn(false);   // the reinstall's settings reset; its identity survived
+  assert.equal(remote.read().on, false, 'CONTROL: switched off before the second finish');
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  const again = await remote.companyComplete('ann');
+  assert.equal(again.alreadySetUp, true, JSON.stringify(again));
+  assert.equal(remote.read().on, true, 'a recognised reinstall was left switched off');
+});
