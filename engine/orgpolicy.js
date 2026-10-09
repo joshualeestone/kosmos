@@ -74,10 +74,9 @@ function readMarks() {
 
 function writeApplied(rec) {
   const file = APPLIED();
-  const tmp = `${file}.${process.pid}.tmp`;
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(tmp, JSON.stringify(rec, null, 2) + '\n', { mode: 0o600 });
-  fs.renameSync(tmp, file);
+  // #5434 slice 15: through securewrite.writeSecret (flushed before the rename, the folder after; a unique `wx` temp; exact 0600), so a crash cannot leave it at full length but zero-filled (#5431). atomicOnly: a failed save leaves the old file.
+  require('./securewrite').writeSecret(file, JSON.stringify(rec, null, 2) + '\n', 0o600, { atomicOnly: true });
 }
 
 const list = (v) => (v === null || v === undefined ? null : Array.isArray(v) && v.every((x) => typeof x === 'string') ? v : undefined);

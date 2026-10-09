@@ -91,9 +91,8 @@ function writeState(next) {
   try {
     const f = file();
     fs.mkdirSync(path.dirname(f), { recursive: true, mode: 0o700 });
-    const tmp = f + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(next) + '\n', { mode: 0o600 });
-    fs.renameSync(tmp, f);
+    // #5434 slice 15: through securewrite.writeSecret (flushed before the rename, the folder after; a unique `wx` temp; exact 0600), so a crash cannot leave it at full length but zero-filled (#5431). atomicOnly: a failed save leaves the old file.
+    require('./securewrite').writeSecret(f, JSON.stringify(next) + '\n', 0o600, { atomicOnly: true });
     return { ok: true };
   } catch {
     return { ok: false, because: 'we could not save that setting' };

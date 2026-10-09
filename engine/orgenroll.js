@@ -71,9 +71,7 @@ function worldId(opts) {
   const id = crypto.randomBytes(16).toString('hex');
   try {
     fs.mkdirSync(root, { recursive: true });
-    const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
-    try { fs.writeFileSync(tmp, id + '\n', { mode: 0o600 }); fs.renameSync(tmp, file); }
-    catch (e) { try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to remove */ } throw e; }
+    writeWhole(file, id + '\n');
     return id;
   } catch { return null; }
 }
@@ -87,17 +85,14 @@ function readEnrollment(opts) {
   } catch { return null; }
 }
 function writeEnrollment(rec, opts) {
-  const file = path.join(storeRoot(opts), ENROLLMENT_FILE);
-  const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
-  try { fs.writeFileSync(tmp, JSON.stringify(rec) + '\n', { mode: 0o600 }); fs.renameSync(tmp, file); }
-  catch (e) { try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to remove */ } throw e; }
+  writeWhole(path.join(storeRoot(opts), ENROLLMENT_FILE), JSON.stringify(rec) + '\n');
 }
 /* The small marker files are written whole too (review 35): a torn pending leave would still count as pending but
    lose its undo flag and the consent it carries. */
+/* #5434 slice 15: through securewrite.writeSecret (flushed before the rename, the folder after; a unique `wx` temp; exact 0600), so a crash cannot leave it at full length but zero-filled (#5431). atomicOnly: a failed save leaves the old file.
+   The world id, the enrollment record and these markers all save through it; it throws, as before. */
 function writeWhole(file, text) {
-  const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
-  try { fs.writeFileSync(tmp, text, { mode: 0o600 }); fs.renameSync(tmp, file); }
-  catch (e) { try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to remove */ } throw e; }
+  require('./securewrite').writeSecret(file, text, 0o600, { atomicOnly: true });
 }
 const policyMod = (opts) => (opts && opts.orgpolicy) || require('./orgpolicy');
 
