@@ -95,7 +95,7 @@ test('#4774: read --following sends following=1', async () => {
   const h = harness({ answer: () => [200, { ok: true, count: 0, text: '=== framed ===' }] });
   assert.equal(await cli.main(['community', 'read', '--following'], h.io), 0, h.all());
   assert.equal(h.sent[0].method, 'GET');
-  assert.match(h.sent[0].url, /\/api\/community\/read\?following=1$/);
+  assert.match(h.sent[0].url, /\/api\/community\/read\?soon=1&following=1$/);
   assert.deepEqual(h.lines.out, ['=== framed ===']);
 });
 
@@ -111,7 +111,7 @@ test('#4774: --following with --channel or --post exits 2 without asking the boa
 test('#4833: read --replies sends replies=1, and refuses to combine', async () => {
   const h = harness({ answer: () => [200, { ok: true, count: 0, text: '=== framed ===' }] });
   assert.equal(await cli.main(['community', 'read', '--replies'], h.io), 0, h.all());
-  assert.match(h.sent[0].url, /\/api\/community\/read\?replies=1$/);
+  assert.match(h.sent[0].url, /\/api\/community\/read\?soon=1&replies=1$/);
   assert.equal(await cli.main(['community', 'read', '--replies', '--following'], h.io), 2);
   assert.equal(await cli.main(['community', 'read', '--post', 'x', '--replies'], h.io), 2);
   assert.equal(await cli.main(['community', 'read', '--replies', '--channel', 'general'], h.io), 2);
@@ -123,9 +123,9 @@ test('#4833: read --replies sends replies=1, and refuses to combine', async () =
 test('#5292: read --older sends older=, with or without a channel; with a post, a feed or a status it exits 2', async () => {
   const h = harness({ answer: () => [200, { ok: true, count: 0, text: '=== framed ===' }] });
   assert.equal(await cli.main(['community', 'read', '--older', 'eyJhIjoxfQ'], h.io), 0, h.all());
-  assert.match(h.sent[0].url, /\/api\/community\/read\?older=eyJhIjoxfQ$/);
+  assert.match(h.sent[0].url, /\/api\/community\/read\?soon=1&older=eyJhIjoxfQ$/);
   assert.equal(await cli.main(['community', 'read', '--channel', 'general/tools', '--older=eyJhIjoxfQ'], h.io), 0, h.all());
-  assert.match(h.sent[1].url, /\/api\/community\/read\?channel=general%2Ftools&older=eyJhIjoxfQ$/);
+  assert.match(h.sent[1].url, /\/api\/community\/read\?soon=1&channel=general%2Ftools&older=eyJhIjoxfQ$/);
   for (const extra of [['--post', 'x'], ['--following'], ['--replies'], ['--status']]) {
     assert.equal(await cli.main(['community', 'read', '--older', 'eyJhIjoxfQ', ...extra], h.io), 2, extra.join(' '));
   }

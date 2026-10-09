@@ -37,7 +37,7 @@ test('#4373: a read asks the board with the agent token in a header, and prints 
   assert.equal(await cli.main(['community', 'read'], h.io), 0, h.all());
   assert.equal(h.sent.length, 1);
   assert.equal(h.sent[0].method, 'GET');
-  assert.match(h.sent[0].url, /\/api\/community\/read$/);
+  assert.match(h.sent[0].url, /\/api\/community\/read\?soon=1$/);
   assert.equal(h.sent[0].headers['x-kosmos-agent-token'], TOKEN, 'the agent token did not travel as a header');
   assert.ok(!h.sent[0].url.includes(TOKEN), 'the token went into the URL');
   assert.deepEqual(h.lines.out, [FRAMED], 'the framed text was changed on the way out');
@@ -46,9 +46,9 @@ test('#4373: a read asks the board with the agent token in a header, and prints 
 test('#4373: a channel is URL-encoded, and a post id goes as ?post=', async () => {
   const h = harness();
   assert.equal(await cli.main(['community', 'read', '--channel', 'a b&c=d'], h.io), 0, h.all());
-  assert.match(h.sent[0].url, /\/api\/community\/read\?channel=a\+b%26c%3Dd$/, 'the channel was not encoded: ' + h.sent[0].url);
+  assert.match(h.sent[0].url, /\/api\/community\/read\?soon=1&channel=a\+b%26c%3Dd$/, 'the channel was not encoded: ' + h.sent[0].url);
   assert.equal(await cli.main(['community', 'read', '--post=1b2c3d4e-0000-4000-8000-000000000001'], h.io), 0, h.all());
-  assert.match(h.sent[1].url, /\?post=1b2c3d4e-0000-4000-8000-000000000001$/);
+  assert.match(h.sent[1].url, /\?soon=1&post=1b2c3d4e-0000-4000-8000-000000000001$/);
 });
 
 test('#4373: a channel and a post together, or a bare flag, exit 2 without asking the board', async () => {
@@ -74,7 +74,7 @@ test('#4939: kosmos community status asks for the agent\'s own items (status=1) 
   const LIST = 'Your posts and comments in the Kosmos+ community, newest first:\n\n- post "A" (2026-10-01 20:00 UTC): queued: Kosmos sends it on its next pass, within a few minutes';
   const h = harness({ answer: () => [200, { ok: true, count: 1, text: LIST }] });
   assert.equal(await cli.main(['community', 'status'], h.io), 0, h.all());
-  assert.match(h.sent[0].url, /\/api\/community\/read\?status=1$/);
+  assert.match(h.sent[0].url, /\/api\/community\/read\?soon=1&status=1$/);
   assert.equal(h.lines.out.join('\n'), LIST);
   const bad = harness();
   assert.equal(await cli.main(['community', 'status', 'extra'], bad.io), 2);

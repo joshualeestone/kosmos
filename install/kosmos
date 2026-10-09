@@ -3467,7 +3467,7 @@ cmd_community_read() {
   # After about 25 s, say so: the board keeps the finished answer, so running the command again gets it at once. A board
   # older than this ignores soon=1 and answers as before (each request keeps its 30 s).
   local _body _rc=0 _code _ask=0 _asks="${KOSMOS_READ_ASKS:-5}"
-  case "$_asks" in ''|*[!0-9]*|0) _asks=5 ;; esac   # a test sets fewer; anything else is the default
+  case "$_asks" in ''|*[!0-9]*|0*|?????*) _asks=5 ;; esac   # a test sets fewer (1 to 9999); anything else is the default
   while :; do
     _rc=0
     _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 30 -w $'\n%{http_code}' "$URL/api/community/read?soon=1${_q:+&$_q}" 2>/dev/null) || _rc=$?

@@ -62,3 +62,9 @@ test('#5636 F4: two asks at once of the same question share one read', async () 
   assert.equal(x.value, 'shared');
   assert.equal(y.value, 'shared');
 });
+
+test('#5636 F4 review 1: a read that fails is finished (null), so the next ask is not "still reading" for good', async () => {
+  const a = await readjobs.ask('k', () => Promise.reject(new Error('down')), 100);
+  assert.deepEqual(a, { done: true, value: null });
+  assert.equal(readjobs._size(), 0);
+});
