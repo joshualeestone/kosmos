@@ -9928,7 +9928,7 @@ const server = http.createServer(async (req, res) => {
              policy applied when the fetch lands, and an agent made before then is not checked against it. */
           if (r && r.ok === true) {
             const fetched = orgEnrollRefresh();
-            if (fetched) await Promise.race([fetched, new Promise((res) => setTimeout(res, 5000).unref())]);
+            if (fetched) await Promise.race([fetched, new Promise((done) => setTimeout(done, 5000).unref())]);
           }
           // Not joined for a passing reason (no public code: unreachable, busy; or org_bad_world, which says "Try again"):
           // the same consent may be accepted again.

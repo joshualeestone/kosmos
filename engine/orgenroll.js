@@ -775,7 +775,9 @@ async function leaveNow(opts, retry) {
     if (back) { try { writeEnrollment(back, opts); kept = true; } catch { /* below */ } }
     /* #5534 reviews 2 and 4: still enrolled, so the policy cleared with the record above comes back first, then this
        answer's is taken over it as on any refresh: a newer one applies, a refused one leaves the restored one in force,
-       none (null) clears it, and one of another company than the record's is ended. */
+       and one of another company than the record's is ended. Not covered (review 5, decided): a leave left pending
+       and retried after a restart snapshots after the first clear, so a later last-admin refusal from a coordinator
+       without the field brings nothing back; the next refresh from a current coordinator restores the policy. */
     if (kept && back.org) {
       try { policyMod(opts).restore(heldPolicy); } catch { /* best effort */ }
       takePolicy(d, opts, back.org.id);
@@ -862,18 +864,19 @@ async function refreshNow(opts) {
 /* #5534 review 3: a policy of another company than `orgId` ends (a move, or a company change on the answer), so a
    refused or missing bundle of the new company leaves no policy rather than the old company's. */
 function endForeignPolicy(opts, orgId) {
-  try { const had = policyMod(opts).appliedOrg(); if (had && had !== orgId) policyMod(opts).clear(); } catch { /* best effort */ }
+  // The applied one, or a bundle on disk not yet applied (review 5: it would apply at the next create).
+  try { const m = policyMod(opts); const had = m.appliedOrg(), waiting = m.bundleOrg(); if ((had && had !== orgId) || (waiting && waiting !== orgId)) m.clear(); } catch { /* best effort */ }
 }
 
 /* The policy on a status answer `d` that confirmed this Kosmos as `orgId`'s, the same way on every path that has one
    (refresh, a settled join, a refused leave; review 4). Another company's policy ends first (review 3). A bundle is
-   applied, or refused with the last good one kept. `policy: null` (the company has none) clears it (review 2). An
-   answer without the field, from an older coordinator, changes nothing. Returns what applyPolicy does. */
+   applied, or refused with the last good one kept. No bundle (`policy: null`, or no field from an older coordinator)
+   changes nothing (review 5): the coordinator keeps every company's newest policy and has no way to delete one, so a
+   company lifts its rules by saving an open policy, which is signed; an unsigned null must not lift them. Returns
+   what applyPolicy does. */
 function takePolicy(d, opts, orgId) {
   endForeignPolicy(opts, orgId);
-  const policy = applyPolicy(d && d.policy, opts, orgId);
-  if (d && 'policy' in d && d.policy === null) { try { policyMod(opts).clear(); } catch { /* best effort */ } }
-  return policy;
+  return applyPolicy(d && d.policy, opts, orgId);
 }
 
 function applyPolicy(token, opts, orgId) {
