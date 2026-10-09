@@ -2,9 +2,10 @@
 require('../test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 /**
  * kosmos#5434 slice 17: five records Kosmos needs to start save through store.saveFlushed (securewrite), so they are
- * flushed before the rename makes them the file (#5431): the worlds registry, projects.json, the removed-agents list,
- * you.json and policy.json. you.json and policy.json are driven through their public saves; all five writers are
- * held to "no bare rename" by reading their source.
+ * flushed before the rename makes them the file (#5431): projects.json, the removed-agents list, you.json and
+ * policy.json through store.saveFlushed, and the worlds registry through its own writer (it keeps its dot-named temp).
+ * you.json, policy.json and the registry are driven through their public saves; the four store writers are held to
+ * "no bare rename" by reading their source.
  *
  *   node --test engine/state.fsync-5434.test.js
  */
@@ -81,6 +82,20 @@ test('#5434 worlds registry: flushed before its rename (review 1)', () => {
     // review 2: the temp keeps the dot name the guide's sandbox rules and Undo's protected paths recognise
     const r = events.find((e) => e[0] === 'rename' && e[2] === worlds.registryPath(base));
     assert.match(path.basename(r[1]), /^\.worlds\.json\.\d+\.tmp$/, 'the registry temp lost the dot name its guards match: ' + r[1]);
+  } finally { fs.rmSync(base, { recursive: true, force: true }); }
+});
+
+test('#5434 worlds registry: a failed flush throws, keeps the registry, and leaves no temp (review 3)', () => {
+  const base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'state-fsync-worlds-')));
+  try {
+    worlds.createWorld(base, 'First');
+    const before = fs.readFileSync(worlds.registryPath(base), 'utf8');
+    const isTemp = (p) => /[\\/]\.worlds\.json\.\d+\.tmp$/.test(p);
+    const { events, err } = recording(() => worlds.createWorld(base, 'Second'), isTemp);
+    assert.ok(events.some((e) => e[0] === 'fsync' && isTemp(e[1] || '')), 'the registry temp was never flushed, so this tests nothing');
+    assert.ok(err, 'a registry save whose flush failed was reported as done');
+    assert.equal(fs.readFileSync(worlds.registryPath(base), 'utf8'), before, 'a save whose flush failed changed the registry');
+    assert.deepEqual(fs.readdirSync(base).filter((n) => /^\.worlds\.json\..*\.tmp$/.test(n)), [], 'the registry temp was left behind');
   } finally { fs.rmSync(base, { recursive: true, force: true }); }
 });
 
