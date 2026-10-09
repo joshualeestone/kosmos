@@ -2568,7 +2568,14 @@ function tomlProjectKeyString(pathStr) {
 /* #5434 slice 16: flush a staged file (written by path) before it is renamed into place. Throws on a real flush
    failure (securewrite.flushOrThrow; "cannot flush" on this file system is not one). */
 function flushStaged(p) {
-  const fd = fs.openSync(p, 'r+');
+  let fd;
+  try { fd = fs.openSync(p, 'r+'); }
+  catch (e) {
+    // On Windows a scanner briefly holding the fresh copy can refuse the open: that is "cannot flush", as
+    // flushOrThrow treats EPERM there, not a reason to refuse the install (review 1).
+    if (process.platform === 'win32' && e && (e.code === 'EPERM' || e.code === 'EBUSY')) return;
+    throw e;
+  }
   let pending = null;
   try { require('./securewrite').flushOrThrow(fd); } catch (e) { pending = e; throw e; }
   finally { try { fs.closeSync(fd); } catch (e) { if (!pending) throw e; } }
@@ -3004,13 +3011,16 @@ function installSupervisor() {
        Best effort, and last: a supervisor that is installed and current
        matters more than a token, exactly as the mint itself is written to
        never cost a launch. */
+    const ptrDest = path.join(path.dirname(dest), 'engine-path');
+    const ptrStaging = `${ptrDest}.${process.pid}.new`;
     try {
-      const ptrDest = path.join(path.dirname(dest), 'engine-path');
-      const ptrStaging = `${ptrDest}.${process.pid}.new`;
       fs.writeFileSync(ptrStaging, `${__dirname}\n`);
       flushStaged(ptrStaging);   // #5434 slice 16
       fs.renameSync(ptrStaging, ptrDest);
-    } catch { /* the mint degrades to no token, never to a failed install */ }
+    } catch {
+      // the mint degrades to no token, never to a failed install; and no staging file is left behind (review 1)
+      try { fs.rmSync(ptrStaging, { force: true }); } catch { /* best effort */ }
+    }
     require('./securewrite').syncDir(path.dirname(dest));   // #5434 slice 16: the renames above, once (POSIX; never throws)
     return { ok: true };
   } catch (err) {

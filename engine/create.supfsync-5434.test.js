@@ -76,3 +76,13 @@ test('#5434: the installed supervisor and bridges stay executable', { skip: proc
   assert.equal(create.installSupervisor().ok, true);
   assert.equal(fs.statSync(create.supervisorPath()).mode & 0o777, 0o755);
 });
+
+test('#5434: a failed flush of the engine-path pointer does not refuse the install and leaves no staging file', () => {
+  assert.equal(create.installSupervisor().ok, true, 'setup');
+  const bin = path.dirname(create.supervisorPath());
+  const isPtr = (p) => p === path.join(bin, `engine-path.${process.pid}.new`);
+  const { events, out } = recording(() => create.installSupervisor(), isPtr);
+  assert.ok(events.some((e) => e[0] === 'fsync' && isPtr(e[1] || '')), 'the pointer was never flushed, so this tests nothing');
+  assert.equal(out.ok, true, 'a best-effort pointer refused the install');
+  assert.deepEqual(fs.readdirSync(bin).filter((n) => n.endsWith('.new')), [], 'the pointer\'s staging file was left');
+});
