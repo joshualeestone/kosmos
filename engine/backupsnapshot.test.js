@@ -956,3 +956,17 @@ test('a manifest grant in another bucket on a run with no index hands back no ch
     assert.equal(r.ok, false); assert.equal(r.added.size, 0); assert.equal(r.grantSpent, true);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('a token split across three folder levels is caught, and the manifest holds no part of the joined token', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const [a, b, c] = [TOKEN.slice(0, 12), TOKEN.slice(12, 26), TOKEN.slice(26)];
+    fs.mkdirSync(path.join(w.root, 'agents', 'a', a, b), { recursive: true });
+    fs.writeFileSync(path.join(w.root, 'agents', 'a', a, b, c), 'x');
+    const r = await take(k, w.root, st);
+    assert.equal(r.ok, true, r.because);
+    const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+    assert.ok(!JSON.stringify(m).includes(a + b + c));
+    assert.ok(m.skipped.some((x) => x.path === 'agents/a/\u2022\u2022\u2022\u2022' && /credential/.test(x.why)), JSON.stringify(m.skipped.filter((x) => /credential/.test(x.why))));
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
