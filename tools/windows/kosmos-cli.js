@@ -810,7 +810,7 @@ async function taskAdd(ctx, args) {
       const clean = typeof n === 'string' ? n.replace(/[\t\r\n]/g, ' ').replace(/[\u0000-\u001f\u007f]/g, '') : '';
       if (!clean.trim() || n.startsWith('-')) { ctx.err('--done needs a check, in quotes: what will be true when the task is finished.'); return 2; }
       done.push(clean); i += 1;
-      if (done.length > 3) { ctx.err('A task holds up to 3 "done when" checks.'); return 2; }
+      if (done.length > 3) { ctx.err('A task holds up to 3 done-when checks.'); return 2; }
       continue;
     }
     if (rest[i] === '--who') {
@@ -1002,14 +1002,14 @@ async function taskDoneWhen(ctx, args) {
   }
   if (clear && checks.length) { ctx.err('--clear takes the checks off, so it takes no checks. Run it without them.'); return 2; }
   if (!clear && !checks.length) { ctx.err(DONE_WHEN_USAGE); return 2; }
-  if (checks.length > 3) { ctx.err('A task holds up to 3 "done when" checks. Quote each check, so its words stay together.'); return 2; }
+  if (checks.length > 3) { ctx.err('A task holds up to 3 done-when checks. Quote each check, so its words stay together.'); return 2; }
   const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/done-when', { doneWhen: clear ? null : checks, from_pane: '' });
   if (!r.reached) {
     return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
       : ctx.unreachable('change that task');
   }
   if (r.json && r.json.task) {
-    ctx.out(clear ? 'Took the "done when" checks off task ' + num + ' on ' + project + '.'
+    ctx.out(clear ? 'Took the done-when checks off task ' + num + ' on ' + project + '.'
       : 'Task ' + num + ' on ' + project + ' is done when its checks are met. See them with: kosmos task list ' + project);
     return 0;
   }

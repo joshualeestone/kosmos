@@ -19115,7 +19115,7 @@ const server = http.createServer(async (req, res) => {
       const refusal = who.refusal || notOnProjectRefusal(who, id, 'change its tasks', 'the task was not changed');
       if (refusal) { sendJson(res, refusal[0], { error: refusal[1] }); return; }
       try {
-        const t = tasks.setDoneWhen(id, taskDoneWhen[2], body.doneWhen, { by: who.card ? who.card.sessionName : null });
+        const t = tasks.setDoneWhen(id, taskDoneWhen[2], body.doneWhen, { by: who.card ? who.card.sessionName : null, person: viaScreen });
         sendJson(res, 200, { task: t });
       } catch (err) {
         const msg = String((err && err.message) || '');

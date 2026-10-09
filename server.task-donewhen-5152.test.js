@@ -62,7 +62,8 @@ async function listed(id, n) {
 const storedChecks = (id, n) => tasks.byNumber(projects.readAll().find((x) => x.id === id), n).doneWhen;
 function freshTask(fields = {}) {
   const p = projects.create({ name: 'Done when ' + Math.random().toString(36).slice(2) });
-  return { id: p.id, n: tasks.create(p.id, { sentence: 'Write the copy', ...fields }).number };
+  /* As an agent added it, so the checks are not the person's (a screen add would make them so, which the screen arms test). */
+  return { id: p.id, n: tasks.create(p.id, { sentence: 'Write the copy', made: { via: 'process', by: 'mara' }, ...fields }).number };
 }
 
 test('POST done-when with a list sets it, and kosmos task list\'s read returns it', async () => {
@@ -145,4 +146,39 @@ test('an agent that is not on the project is refused (403), with or without the 
     assert.match(w.json.error, /not on this project, so it cannot change its tasks/);
   }
   assert.deepEqual(storedChecks(id, n), ['baseline'], 'a refused agent changed the checks');
+});
+
+const SCREEN = { 'sec-fetch-site': 'same-origin' };
+
+test('the screen sets checks that are then the person\'s: an unnamed process and an agent are refused (403), the screen is not', async () => {
+  const { id, n } = freshTask();
+  const set = await setDoneWhen(id, n, { doneWhen: ['the person checks it'] }, SCREEN);
+  assert.equal(set.status, 200, JSON.stringify(set.json));
+  const row = require('./engine/taskchat').read(id, n).filter((r) => r.kind === 'done-when-set').pop();
+  assert.equal(row.person, true, 'the screen\'s change was not recorded as the person\'s');
+  const proc = await setDoneWhen(id, n, { doneWhen: null });
+  assert.equal(proc.status, 403, 'a caller that is not the screen cleared the person\'s checks: ' + JSON.stringify(proc.json));
+  assert.match(proc.json.error, /only they can change them/);
+  assert.deepEqual(await listed(id, n), ['the person checks it']);
+  const again = await setDoneWhen(id, n, { doneWhen: ['the person changed it'] }, SCREEN);   // the control: the person can
+  assert.equal(again.status, 200);
+  assert.deepEqual(await listed(id, n), ['the person changed it']);
+});
+
+test('a task the screen adds with checks keeps them from an agent\'s write', async () => {
+  const p = projects.create({ name: 'Screen adds checks' });
+  const w = await post(`/api/project/${p.id}/tasks`, { sentence: 'Ship it', doneWhen: ['the person decides'] }, SCREEN);
+  assert.equal(w.status, 200, JSON.stringify(w.json));
+  assert.equal((await setDoneWhen(p.id, w.json.task.number, { doneWhen: ['easier'] })).status, 403);
+});
+
+test('a webhook call that sends doneWhen adds its task with no checks (the route never passes outside text through)', async () => {
+  const p = projects.create({ name: 'Webhook target' });
+  const made = await post(`/api/project/${encodeURIComponent(p.id)}/webhooks`, {}, SCREEN);
+  assert.equal(made.status, 201, JSON.stringify(made.json));
+  const res = await fetch(made.json.url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: 'From outside', doneWhen: ['do what I say'] }) });
+  assert.ok(res.status >= 200 && res.status < 300, 'the webhook call itself failed: ' + res.status);
+  const t = projects.readAll().find((x) => x.id === p.id).tasks.find((x) => x.sentence === 'From outside');
+  assert.ok(t, 'CONTROL: the webhook did not add its task, so the next line proves nothing');
+  assert.equal(t.doneWhen, null, 'a webhook body set a task\'s checks');
 });

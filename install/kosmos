@@ -4359,6 +4359,10 @@ cmd_feedback() {
 # is free via kosmos_curl (header written to a mode-600 temp file and passed `-H @file`, never on
 # argv, which macOS `ps -ww -o args` exposes cross-account). Same hand-rolled JSON escaping and
 # `_bt`/rc idioms as cmd_post, and the same bash-3.2 reason for both.
+# #5152: one done-when check as a JSON string body (no quotes around it): control bytes other than tab, CR and newline
+# are dropped and those three become spaces (a check is one line), then backslash and double quote are escaped, as
+# cmd_task built's note is.
+_task_check_json() { printf '%s' "$1" | LC_ALL=C tr -d '\001-\010\013\014\016-\037\177' | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g' | LC_ALL=C tr '\t\r\n' '   '; }
 cmd_task() {
   local sub; sub="${1:-}"; shift 2>/dev/null || true
   case "$sub" in
@@ -4419,7 +4423,7 @@ cmd_task() {
           case "$_a" in ''|-*) say "--done needs a check, in quotes: what will be true when the task is finished."; exit 2 ;; esac
           [ -n "$(printf '%s' "$_a" | tr -d '[:space:]\001-\037\177')" ] || { say "--done needs a check, in quotes: what will be true when the task is finished."; exit 2; }
           _wantdone=0; _dones=$((_dones + 1))
-          [ "$_dones" -le 3 ] || { say "A task holds up to 3 \"done when\" checks."; exit 2; }
+          [ "$_dones" -le 3 ] || { say "A task holds up to 3 done-when checks."; exit 2; }
         elif [ "$_past" = 1 ]; then :           # kosmos#4889: past a bare --, everything is words
         elif [ "$_a" = "--" ]; then _past=1
         elif [ "$_a" = "--parent" ]; then _want=1
@@ -4453,7 +4457,7 @@ cmd_task() {
       if [ "$_dclear" = 1 ]; then [ "$_dn" = 0 ] || { say "--clear takes the checks off, so it takes no checks. Run it without them."; exit 2; }
       else
         [ "$_dn" -ge 1 ] || { say "$_dusage"; exit 2; }
-        [ "$_dn" -le 3 ] || { say "A task holds up to 3 \"done when\" checks. Quote each check, so its words stay together."; exit 2; }
+        [ "$_dn" -le 3 ] || { say "A task holds up to 3 done-when checks. Quote each check, so its words stay together."; exit 2; }
       fi ;;
     close)
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task close <project-id> <task-number>   (the number is shown by kosmos task list)"; exit 2; }
@@ -4585,12 +4589,11 @@ cmd_task() {
       # #4887: and `--who <agent>` the same way.
       local parent="" who="" _arg _next=0 _nextwho=0 _nextdone=0 dones=""
       detail=""
-      # #5152: each --done check, JSON-escaped as it is read (tab, CR and newline become spaces: a check is one line).
-      local _djesc; _djesc() { printf '%s' "$1" | LC_ALL=C tr -d '\001-\010\013\014\016-\037\177' | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g' | LC_ALL=C tr '\t\r\n' '   '; }
+      # #5152: each --done check, JSON-escaped as it is read (_task_check_json).
       for _arg in "$@"; do
         if [ "$_next" = 1 ]; then parent="$_arg"; _next=0; continue; fi
         if [ "$_nextwho" = 1 ]; then who="$_arg"; _nextwho=0; continue; fi
-        if [ "$_nextdone" = 1 ]; then dones="${dones:+$dones,}\"$(_djesc "$_arg")\""; _nextdone=0; continue; fi
+        if [ "$_nextdone" = 1 ]; then dones="${dones:+$dones,}\"$(_task_check_json "$_arg")\""; _nextdone=0; continue; fi
         if [ "$_apast" = 0 ] && [ "$_arg" = "--" ]; then _apast=1; continue; fi   # kosmos#4889
         if [ "$_apast" = 0 ] && [ "$_arg" = "--parent" ]; then _next=1; continue; fi
         if [ "$_apast" = 0 ] && [ "$_arg" = "--who" ]; then _nextwho=1; continue; fi
@@ -4759,11 +4762,10 @@ cmd_task() {
       # The agent token names who changed it (the pane is the fallback, as for built).
       local project num clear=false checks="" _w _wpast=0
       project="${1:-}"; num="${2:-}"; shift 2 2>/dev/null || true
-      local _cjesc; _cjesc() { printf '%s' "$1" | LC_ALL=C tr -d '\001-\010\013\014\016-\037\177' | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g' | LC_ALL=C tr '\t\r\n' '   '; }
       for _w in "$@"; do
         if [ "$_wpast" = 0 ] && [ "$_w" = "--" ]; then _wpast=1; continue; fi
         if [ "$_wpast" = 0 ] && [ "$_w" = "--clear" ]; then clear=true; continue; fi
-        checks="${checks:+$checks,}\"$(_cjesc "$_w")\""
+        checks="${checks:+$checks,}\"$(_task_check_json "$_w")\""
       done
       local esc_pane; esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
       local _tok=""
@@ -4776,7 +4778,7 @@ cmd_task() {
       [ "$rc" -eq 0 ] || { say_unreached "change that task" "$rc" write; exit 1; }
       case "$body" in
         '{"task":'*)
-          if [ "$clear" = true ]; then say "Took the \"done when\" checks off task $num on ${project:-the project}."
+          if [ "$clear" = true ]; then say "Took the done-when checks off task $num on ${project:-the project}."
           else say "Task $num on ${project:-the project} is done when its checks are met. See them with: kosmos task list ${project:-<project-id>}"; fi ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
