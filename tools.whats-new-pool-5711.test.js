@@ -139,7 +139,10 @@ test('#5711 review 5: --from-history finds the What\'s New a version shipped in 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wnpool-hist-'));
   try {
     const copy = path.join(dir, 'pool.json');
-    fs.copyFileSync(path.join(__dirname, 'release', 'whats-new-pool.json'), copy);
+    // The real pool's items, with lastProd pinned to 0.7.35: a later PROD promote moves the live lastProd past 0.7.35,
+    // and this test must not turn red on main the day that happens (review 10).
+    const real = JSON.parse(fs.readFileSync(path.join(__dirname, 'release', 'whats-new-pool.json'), 'utf8'));
+    fs.writeFileSync(copy, JSON.stringify(Object.assign(real, { lastProd: '0.7.35' })));
     assert.equal(quiet(() => tool.main(['shown', '0.7.35', '--promoted', '--from-history', '--ref=HEAD', `--pool=${copy}`])), 0);
     assert.equal(quiet(() => tool.main(['shown', '0.0.1', '--promoted', '--from-history', '--ref=HEAD', `--pool=${copy}`])), 3, 'CONTROL');
     // Review 9: no default ref (HEAD can hold wording that was never cut).

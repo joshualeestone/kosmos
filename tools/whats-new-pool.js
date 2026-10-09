@@ -13,6 +13,9 @@
  * shows whichever list is current when its build is made (its number goes in the built file's "also", by hand,
  * on the release branch, docs/windows RELEASING.md); the pool does not record Windows promotes.
  *   held     a feature that is held or dropped (conversation mode, Josh 10:49): never chosen, whatever its rank
+ * A highlight tagged for ONE platform still takes one of the 5 slots of the one file both platforms read (the engine
+ * caps the file, not each platform's view), so that platform's window shows fewer. Tag an item only when it truly is
+ * one platform's; build refuses a list that leaves a platform with none.
  *
  *   node tools/whats-new-pool.js build <version> [--max=5] [--pool=<file>] [--out=<file>]
  *       writes web/whats-new.json: the top --max pending highlights by rank (ties: newest first), checked with
