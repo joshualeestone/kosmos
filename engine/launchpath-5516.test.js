@@ -187,3 +187,14 @@ test('#5516 review 3: a PATH entry not created yet is resolved through a symlink
   try { fs.symlinkSync(path.join(SANDBOX, 'bins'), out); } catch { /* exists */ }
   assert.deepEqual(setup.guardTokenOnlyFolder(agentDir('lp-leaf-control'), 'lp-leaf-control', { ...BASE, panePath: ['/usr/bin', path.join(out, 'not-yet')].join(path.delimiter) }), { ok: true });
 });
+
+test('#5516 review 3 (W3b): the folders of the programs the supervisor starts by absolute path are covered too', () => {
+  const dir = agentDir('lp-own');
+  const r = setup.guardTokenOnlyFolder(dir, 'lp-own', { ...BASE, panePath: '/usr/bin' });
+  assert.deepEqual(r, { ok: true });
+  const s = readSettings(dir);
+  for (const d of [path.join(__dirname), path.join(__dirname, '..', 'bin'), path.dirname(process.execPath)]) {
+    assert.ok(s.sandbox.filesystem.denyWrite.includes(realOr(d)), 'no denyWrite for ' + d);
+    assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(realOr(d))}/**)`), 'no Edit deny for ' + d);
+  }
+});

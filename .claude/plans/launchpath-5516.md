@@ -31,9 +31,9 @@ rest of the guard is still written.
   - FIXED: PATH entries that do not exist yet resolve through a symlinked parent (realOrLeaf). Test with a control;
     the mutation makes it fail.
   - FIXED: the comments claim only what is covered.
-  - OPEN, the next work on this card: programs the supervisor starts by absolute path from folders not on the pane
-    PATH (its own engine scripts, node, tmux, the Claude binary). They are to be passed to the guard as well. Measure
-    first which are writable by the agent's file tools.
+  - FIXED (W3b): programs the supervisor starts by absolute path from folders not on the pane PATH. Measured: the guard
+    did not deny the install's own folders. It now covers this install's engine and bin folders and node's folder (the
+    guard runs from the same install). Claude's and tmux's folders are on the pane PATH. Test; the mutation makes it fail.
   - OPEN, a recorded residual until decided: code a covered program loads from beside it (a package's lib, a keg's
     dylibs). The candidate is to widen coverage to the package or keg root.
 

@@ -759,6 +759,10 @@ function launchPathDirs(agentDir, deps = {}) {
     if (!dirs.includes(real)) dirs.push(real);
   };
   for (const e of LAUNCH_PATH_FIXED) add(e, true);
+  /* Review 3 (W3b): what the supervisor starts by ABSOLUTE path from folders that may be off the pane PATH: the engine
+     scripts and the supervisor itself (this install's engine and bin), and node (this process's own binary). The
+     guard runs from the same install, so these are its own folders. Claude's and tmux's folders are on the pane PATH. */
+  for (const e of deps.ownProgramDirs || [__dirname, path.join(__dirname, '..', 'bin'), path.dirname(process.execPath)]) add(e, true);
   // The pane's PATH is held strictly; this process's own (review 2) only contributes its absolute entries.
   if (typeof pane === 'string') for (const e of pane.split(path.delimiter)) add(e, true);
   if (typeof ownPath === 'string') for (const e of ownPath.split(path.delimiter)) add(e, false);
