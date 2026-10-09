@@ -149,13 +149,13 @@
       "title": "A project says which agent needs you, and why",
       "line": "A red project now names each agent that needs you, says why in plain words, and opens that agent with one button.",
       "icon": "list",
-      "rank": 3,
+      "rank": 2.5,
       "since": "0.7.36",
       "status": "pending"
     },
     {
       "title": "Long agent messages say what they are about",
-      "line": "When a long message is saved to a file for an agent, its pane line now gives the first sentence and the length.",
+      "line": "When a long message is saved to a file for an agent, its pane line now shows how it starts and its length.",
       "icon": "chat",
       "rank": 17,
       "since": "0.7.36",
