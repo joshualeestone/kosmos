@@ -1045,3 +1045,29 @@ test('#5683 r32: bracket and brace globs hide a path too', () => {
   assert.equal(ae.targetClass('Bash', { command: 'cat ~/Library/App*/Kosm[o]s/board.token' }, h), 'board-files');
   assert.equal(ae.targetClass('Bash', { command: 'cat ./[ab]*/notes' }, h), 'other');
 });
+
+/* ---- review 33 ---- */
+
+test('#5683 r33: bracket forms, a brace spanning a slash, and a glob that only reaches the board folder are the board\'s', () => {
+  const R = '/Users/ann/Library/Application Support/Kosmos';
+  for (const agentDir of ['/Users/ann', '/Users/ann/work/workers/a']) {
+    const c = ctx({ agentDir, home: '/Users/ann', boardRoot: R });
+    for (const cmd of [
+      'cat ~/Library/Application\\ Support/Kosm[]o]s/board.token',
+      'cat ~/Library/Application\\ Support/Kosm[[:lower:]]s/board.token',
+      'cat ~/Library/Application[[:space:]]Support/Kosmos/board.token',
+      'cat ~/{Library/Application\\ Support,x}/Kosmos/board.token',
+      'ls ~/Library/Application\\ Support/Kos[m]os',
+      'cat ~/L*/A*/K*/b*',
+      'cat ~/Library/App*/Kosmos/board.t[o]ken',
+    ]) assert.equal(ae.targetClass('Bash', { command: cmd }, c), 'board-files', agentDir + ': ' + cmd);
+  }
+});
+
+test('#5683 r33: globs and braces that cannot reach the board folder stay what they are', () => {
+  const c = ctx({ agentDir: '/Users/ann/work/workers/a', home: '/Users/ann', boardRoot: '/Users/ann/Library/Application Support/Kosmos' });
+  assert.equal(ae.targetClass('Bash', { command: 'cat src/b*' }, c), 'other');
+  assert.equal(ae.targetClass('Bash', { command: 'cat ~/{a,b}/notes.txt' }, c), 'home');
+  assert.equal(ae.targetClass('Bash', { command: 'ls ~/Library/*' }, c), 'home');
+  assert.equal(ae.targetClass('Bash', { command: '[ -f x ] && { echo hi; }' }, c), 'other');
+});
