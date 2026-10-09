@@ -89,23 +89,27 @@ const USAGE = {
   inbox: 'Usage: kosmos inbox [--limit N]   (your recent messages with the person, newest last; 10 by default, 50 at most)',
   room: 'Usage: kosmos room <project-id> [-n N]   (read a room, the last 40 rows or the last N, up to 200; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
   task: [
-    'Usage: kosmos task <list|add|assign|close|message|built|hold|unhold|repeat|ran>',
+    'Usage: kosmos task <list|add|assign|close|message|built|done-when|hold|unhold|repeat|ran>',
     '  kosmos task list <project-id>                                 list this project\'s tasks',
     '  kosmos task add  <project-id> "<what the task is>" ["more detail"]  add one (quote each part)',
     '      --parent <task-number>                                   make it a subtask of that task',
     '      --who <agent>                                            give it to that agent (--who me: to you)',
+    '      --done "<check>"                                         what finished means for it; up to 3, one --done each',
     '  kosmos task assign <project-id> <task-number> <agent|me|nobody>  give it to that agent, to you, or to nobody',
     '      --part <part-number>                                     which part, when the task has several',
     '  kosmos task close <project-id> <task-number>                  close one (number is from list)',
     '  kosmos task message <project-id> <task-number> "<what to say>"  say something in a task\'s conversation',
     '  kosmos task built <project-id> <task-number> ["what is left"]  mark it built, waiting to be released or checked',
     '      --clear                                                  take the built mark off',
+    '  kosmos task done-when <project-id> <task-number> "<check>" ["<check>" ["<check>"]]  say what finished means for it',
+    '      --clear                                                  take its checks off',
     '  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)',
     '  kosmos task unhold <project-id> <task-number>                 take it off hold',
     '  kosmos task repeat <project-id> <task-number> <hourly|daily|weekly>  a job you run on a schedule: the board shows when it runs',
     '      --at <HH:MM>  (hourly: --at :MM)   --on <mon|tue|...> (weekly)   --clear  stop it repeating',
     '  kosmos task repeat <project-id> <task-number> --reviewer <agent|none>  who is told when a run is missed',
     '  kosmos task ran <project-id> <task-number> ["what this run found"]  record that a repeating task\'s job just ran',
+    '      --unchanged                                              it found nothing new (the task\'s page rolls such runs up)',
     '  (project ids are in your instructions\' Your projects section.)',
   ].join('\n'),
   project: [
@@ -765,7 +769,17 @@ async function taskList(ctx, args) {
     const by = (x.addedVia === 'process' && x.addedBy && !(x.whoNames || []).some((n) => key(n) !== '' && key(n) === key(x.addedBy))) ? ' [added by ' + q(x.addedBy) + ']' : '';
     /* kosmos#4787 review 3, as install/kosmos: a repeating task says so, with its next run in the board's words. */
     const rep = !x.isClosed && x.repeatWords ? ' [repeats ' + one(x.repeatWords) + (x.repeatNextWords ? ', next ' + one(x.repeatNextWords) : '') + ']' : '';
+    /* #5152, as install/kosmos: what finished means for it, so an agent can read its checks back, and who set them
+       (review 2): the person, or the agent named, as [added by] names who added the task. */
+    const setBy = x.doneWhenByPerson === true ? ', set by the person' : (x.doneWhenBy ? ', set by ' + q(x.doneWhenBy) : '');
+    /* Review 3: a check's own brackets are folded to parentheses, so a check cannot print a second [done when, set
+       by ...] mark of its own (as q() folds them in a webhook's words). */
+    const fold = (c) => one(c).replace(/[\p{Ps}[]/gu, '(').replace(/[\p{Pe}\]]/gu, ')');
+    /* Review 5: on its OWN indented line under the task, never on the task's line: a task's sentence is folded onto
+       one line, so it can never print this line, and so cannot forge a set-by mark (a check's brackets are folded too). */
+    const dw = Array.isArray(x.doneWhen) && x.doneWhen.length ? '    done when' + setBy + ': ' + x.doneWhen.map((c, i) => (i + 1) + ') ' + fold(c)).join(' ') : '';
     ctx.out('[' + (x.number != null ? x.number : '?') + '] ' + (x.isClosed ? '[done] ' : ((x.onHold === true || x.projectPaused === true) ? '[on hold] ' : '') + (x.builtAt ? '[built] ' : '')) + words + who + by + up + kids + rep);
+    if (dw) ctx.out(dw);
   }
   return 0;
 }
@@ -776,7 +790,7 @@ async function taskAdd(ctx, args) {
      and the option check work as usual, so `add <p> -- --t --parent 3` files a subtask, not "--parent 3" as detail. */
   const escaped = args[1] === '--';
   const sentence = escaped ? args[2] : args[1];
-  if (!project || !sentence) { ctx.err('Usage: kosmos task add <project-id> "<what the task is>" ["more detail"] [--parent <task-number>] [--who <agent>|me]'); return 2; }
+  if (!project || !sentence) { ctx.err('Usage: kosmos task add <project-id> "<what the task is>" ["more detail"] [--parent <task-number>] [--who <agent>|me] [--done "<check>"]'); return 2; }
   /* #3861, as install/kosmos cmd_task add: the sentence comes first, and `--parent <n>` is
      taken out of the rest wherever it sits; everything else is still the detail. */
   /* Review 3, as install/kosmos: `--parent=3` in the title slot gets the same words as anywhere else. */
@@ -784,10 +798,13 @@ async function taskAdd(ctx, args) {
   if (!escaped && sentence === '--parent') { ctx.err('Put what the task is first: kosmos task add <project-id> "<what the task is>" --parent <task-number>'); return 2; }
   /* #4887, as install/kosmos: --who is taken out the same way, and refused in the sentence's place. */
   if (!escaped && (sentence === '--who' || sentence.startsWith('--who='))) { ctx.err('Put what the task is first: kosmos task add <project-id> "<what the task is>" --who <agent>'); return 2; }
-  if (!escaped && /^--[A-Za-z]/.test(sentence)) { refuseOption(ctx, 'task add', 'Usage: kosmos task add <project-id> "<what the task is>" ["more detail"] [--parent <task-number>] [--who <agent>|me]', sentence); return 2; }
+  /* #5152 review 3, as install/kosmos: --done in the sentence's place too. */
+  if (!escaped && (sentence === '--done' || sentence.startsWith('--done='))) { ctx.err('Put what the task is first: kosmos task add <project-id> "<what the task is>" --done "<check>"'); return 2; }
+  if (!escaped && /^--[A-Za-z]/.test(sentence)) { refuseOption(ctx, 'task add', 'Usage: kosmos task add <project-id> "<what the task is>" ["more detail"] [--parent <task-number>] [--who <agent>|me] [--done "<check>"]', sentence); return 2; }
   const rest = args.slice(escaped ? 3 : 2);
   let parent = null;
   let who = null;
+  const done = [];   // #5152: the --done checks, in order
   const words = [];
   let past = false;
   for (let i = 0; i < rest.length; i += 1) {
@@ -796,13 +813,24 @@ async function taskAdd(ctx, args) {
     if (rest[i] === '--') { past = true; continue; }
     if (rest[i].startsWith('--parent=')) { ctx.err('Write it as --parent <task-number>, with a space.'); return 2; }
     if (rest[i].startsWith('--who=')) { ctx.err('Write it as --who <agent>, with a space.'); return 2; }
+    if (rest[i].startsWith('--done=')) { ctx.err('Write it as --done "<check>", with a space.'); return 2; }
+    if (rest[i] === '--done') {
+      /* #5152, as install/kosmos: one check per --done, up to 3. Control characters go, tab, CR and newline become
+         spaces (a check is one line), as install/kosmos sends them. */
+      const n = rest[i + 1];
+      const clean = typeof n === 'string' ? n.replace(/[\t\r\n]/g, ' ').replace(/[\u0000-\u001f\u007f]/g, '') : '';
+      if (!clean.trim() || n.startsWith('-')) { ctx.err('--done needs a check, in quotes: what will be true when the task is finished.'); return 2; }
+      done.push(clean); i += 1;
+      if (done.length > 3) { ctx.err('A task holds up to 3 done-when checks.'); return 2; }
+      continue;
+    }
     if (rest[i] === '--who') {
       const n = rest[i + 1];
       const clean = typeof n === 'string' ? n.replace(/[\u0000-\u001f\u007f]/g, '') : '';   // as install/kosmos drops them
       if (!clean.trim() || n.startsWith('-')) { ctx.err("--who needs the name of an agent on the project (or me)."); return 2; }
       who = clean; i += 1; continue;
     }
-    if (rest[i] !== '--parent' && /^--[A-Za-z]/.test(rest[i])) { refuseOption(ctx, 'task add', 'Usage: kosmos task add <project-id> "<what the task is>" ["more detail"] [--parent <task-number>] [--who <agent>|me]', rest[i]); return 2; }
+    if (rest[i] !== '--parent' && /^--[A-Za-z]/.test(rest[i])) { refuseOption(ctx, 'task add', 'Usage: kosmos task add <project-id> "<what the task is>" ["more detail"] [--parent <task-number>] [--who <agent>|me] [--done "<check>"]', rest[i]); return 2; }
     if (rest[i] === '--parent') {
       const n = rest[i + 1];
       if (typeof n !== 'string' || !/^[0-9]+$/.test(n)) { ctx.err('--parent needs a task number, from: kosmos task list <project-id>.'); return 2; }
@@ -814,6 +842,7 @@ async function taskAdd(ctx, args) {
   const body = { sentence, detail, from_pane: '' };
   if (parent !== null) body.parent = parent;
   if (who !== null) body.who = who;
+  if (done.length) body.doneWhen = done;
   const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/tasks', body);   // #4491 slice 5: with the agent's own token
   if (!r.reached) return ctx.unreachable('add that task');
   if (r.json && r.json.task) {
@@ -965,6 +994,41 @@ async function taskBuilt(ctx, args) {
   return 1;
 }
 
+/* #5152 slice 1, as install/kosmos cmd_task done-when: set what finished means for a task (1 to 3 checks, each one
+   argument), or take them off with --clear. The agent token names who changed it. */
+const DONE_WHEN_USAGE = 'Usage: kosmos task done-when <project-id> <task-number> "<check>" ["<check>" ["<check>"]]   (or --clear)';
+async function taskDoneWhen(ctx, args) {
+  const [project, num] = args;
+  if (!project || !num || args.length < 3) { ctx.err(DONE_WHEN_USAGE); return 2; }
+  if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
+  let clear = false, past = false;
+  const checks = [];
+  for (const a of args.slice(2)) {
+    if (!past && a === '--') { past = true; continue; }
+    if (!past && a === '--clear') { clear = true; continue; }
+    if (!past && /^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task done-when', DONE_WHEN_USAGE, a); return 2; }
+    const c = String(a).replace(/[\t\r\n]/g, ' ').replace(/[\u0000-\u001f\u007f]/g, '');
+    if (!c.trim()) { ctx.err('Each check has to say something. ' + DONE_WHEN_USAGE); return 2; }
+    checks.push(c);
+  }
+  if (clear && checks.length) { ctx.err('--clear takes the checks off, so it takes no checks. Run it without them.'); return 2; }
+  if (!clear && !checks.length) { ctx.err(DONE_WHEN_USAGE); return 2; }
+  if (checks.length > 3) { ctx.err('A task holds up to 3 done-when checks. Quote each check, so its words stay together.'); return 2; }
+  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/done-when', { doneWhen: clear ? null : checks, from_pane: '' });
+  if (!r.reached) {
+    return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
+      : ctx.unreachable('change that task');
+  }
+  if (r.json && r.json.task) {
+    ctx.out(clear ? 'Took the done-when checks off task ' + num + ' on ' + project + '.'
+      : 'Task ' + num + ' on ' + project + ' is done when its checks are met. See them with: kosmos task list ' + project);
+    return 0;
+  }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos could not change that task: ' + ctx.refusedBy(r) + '.'); return 1; }
+  ctx.err('Kosmos gave an answer we could not read when changing that task.');
+  return 1;
+}
+
 /* kosmos#4787, as install/kosmos cmd_task repeat / ran: a repeating task's rule, and a run of its job. The agent token
    names who ran it (no pane on Windows); the board checks the rule whole and refuses a caller it cannot name. */
 const REPEAT_USAGE = 'Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly> [--at HH:MM] [--on mon] [--reviewer <agent|none>]   (or --clear)';
@@ -994,23 +1058,24 @@ async function taskRepeat(ctx, args) {
   if (reviewer) body.reviewer = reviewer;
   return taskRepeatCall(ctx, project, num, 'repeat', body, clear, every ? '' : reviewer, every && reviewer && reviewer !== 'none' ? reviewer : '');
 }
-const RAN_USAGE = 'Usage: kosmos task ran <project-id> <task-number> ["what this run found"]   (or --note "...")';
+const RAN_USAGE = 'Usage: kosmos task ran <project-id> <task-number> ["what this run found"]   (or --note "...") [--unchanged]';
 async function taskRan(ctx, args) {
   const [project, num] = args;
   if (!project || !num) { ctx.err(RAN_USAGE); return 2; }
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
   /* #4787 review 1, as install/kosmos: --note is ran's one option, a bare -- ends options, any other --word is refused. */
   const words = [];
-  let past = false, want = false;
+  let past = false, want = false, unchanged = false;
   for (const a of args.slice(2)) {
     if (want) { words.push(a); want = false; continue; }
     if (!past && a === '--') { past = true; continue; }
     if (!past && a === '--note') { want = true; continue; }
+    if (!past && a === '--unchanged') { unchanged = true; continue; }   // kosmos#5643, as install/kosmos
     if (!past && /^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task ran', RAN_USAGE, a); return 2; }
     words.push(a);
   }
   if (want) { ctx.err('--note needs the note. ' + RAN_USAGE); return 2; }
-  return taskRepeatCall(ctx, project, num, 'ran', { note: words.join(' '), from_pane: '' }, false);
+  return taskRepeatCall(ctx, project, num, 'ran', { note: words.join(' '), unchanged, from_pane: '' }, false);
 }
 async function taskRepeatCall(ctx, project, num, which, body, clear, reviewerOnly, alsoReviewer) {
   const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/' + which, body);
@@ -1022,7 +1087,7 @@ async function taskRepeatCall(ctx, project, num, which, body, clear, reviewerOnl
       : ctx.unreachable('change that task');
   }
   if (r.json && r.json.task) {
-    ctx.out(which === 'ran' ? (r.json.duplicate === true ? 'That run of task ' + num + ' on ' + project + ' was already recorded a moment ago, so it was not recorded twice.' : 'Recorded a run of task ' + num + ' on ' + project + '.')
+    ctx.out(which === 'ran' ? (r.json.duplicate === true ? 'That run of task ' + num + ' on ' + project + ' was already recorded a moment ago, so it was not recorded twice.' : 'Recorded a run of task ' + num + ' on ' + project + (r.json.task && r.json.task.lastRunUnchanged === true ? (body && body.unchanged === true ? ' that found nothing new.' : ". It repeats the note before it.") : '.'))   // kosmos#5643 review 1/2: the board's answer, and who said it
       : clear ? 'Task ' + num + ' on ' + project + ' no longer repeats.'
         : reviewerOnly === 'none' ? 'Nobody is told now when task ' + num + ' on ' + project + ' misses a run.'
         : reviewerOnly ? reviewerOnly + ' will be told when task ' + num + ' on ' + project + ' misses a run.'
@@ -1808,7 +1873,7 @@ const SUBCOMMAND_HANDLERS = {
     clear: (ctx, args) => verbReport(ctx, ['working', ...args], { clear: true }),
   },
   room: { reopen: roomReopen },
-  task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, message: taskMessage, built: taskBuilt, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan },
+  task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, message: taskMessage, built: taskBuilt, 'done-when': taskDoneWhen, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan },
   project: { list: projectList, show: projectShow, create: projectCreate, pause: projectPause, role: projectRole },
   agent: { create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },

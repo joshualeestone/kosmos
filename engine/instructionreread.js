@@ -7,7 +7,8 @@
  * still following the community rules and the CLI text they started with, days after both changed. Each change Kosmos
  * writes while agents run owes the agent a line telling it to read that section again (SECTIONS), for example:
  *   - community: the Kosmos+ community block, refreshed at every board start (communityblock.refreshEveryone);
- *   - rules: the working rules, rewritten only when the person accepts the refresh (engine/doctrine.js refresh, #539).
+ *   - rules: the working rules, rewritten when the person accepts the refresh (engine/doctrine.js refresh, #539), and
+ *     since kosmos#5635 at board start where they were Kosmos's own unedited text (doctrine.refreshUnedited).
  *
  * chat drops a line it cannot place (the shared-quota hold, a busy or unreachable pane), so the debt is kept on disk
  * until a line lands (see settle: PLACED, or UNCONFIRMED, which may have been typed and is never typed twice; if it was
@@ -32,7 +33,8 @@ const MAX_PER_PASS = 3;   // lines typed per pass; the timer delivers the rest
 const lastOf = (debt) => (Number.isFinite(debt.last) ? debt.last : debt.at);
 const SECTIONS = Object.freeze({
   community: 'the section headed "The Kosmos+ community"',
-  rules: 'the working rules (Kosmos added or updated them with your person\'s OK)',
+  // kosmos#5635 review 5: no "with your person's OK": a board-start update had none, and the agent may repeat this.
+  rules: 'the working rules (Kosmos added or updated them)',
   // kosmos#5304: the blocks the board-start sweeps and the About-you save rewrite.
   you: 'the section headed "Who you work for"',
   reports: 'the section headed "Who you report to"',

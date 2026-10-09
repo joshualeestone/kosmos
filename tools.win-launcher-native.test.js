@@ -18,7 +18,7 @@
  * 🛑 THE EXE IS ONLY EVER RUN WHERE IT CANNOT REACH THE HAND-OFF. The board's
  * hand-off to its logon task (registering \Kosmos\board, moving engine-path)
  * lives in the real app\server.js, and no test ever gives the exe one. Every run
- * below is in a scratch folder under os.tmpdir(), in one of three states:
+ * below is in a scratch folder under scratchBase() (os.tmpdir() in long form), in one of three states:
  *   1. no runtime\node.exe: Main returns before any Process.Start;
  *   2. a placeholder runtime\node.exe and no app\server.js: Main returns before
  *      any Process.Start;
@@ -41,6 +41,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+// #5645: the scratch base in its LONG form. A Windows runner's TEMP can be spelled in 8.3 short form (RUNNER~1),
+// while the product reports the long form (runneradmin): same folder, different text. realpathSync.native expands
+// 8.3 names (and resolves links), so expected paths are built from the spelling the product reports.
+const scratchBase = () => fs.realpathSync.native(os.tmpdir());
 const { spawn, spawnSync } = require('node:child_process');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -548,7 +552,7 @@ test('#1118: the window keeps the board\'s own pages and sends every other web a
     for (const other of ['mailto:someone@example.invalid', 'ms-settings:privacy', 'search-ms:query=x', 'file:///C:/Windows/', 'http://127.0.0.1:16181/']) {
       assert.equal(ask('own', other), 'False', other + ' would stay in the window');
     }
-  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+  } finally { fs.rmSync(s.base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
 
 /* ---- the zip README ---------------------------------------------------- */
@@ -603,7 +607,7 @@ function runConsole(exe, tempFolder, timeoutMs) {
 }
 
 function scratch() {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'kln-'));
+  const base = fs.mkdtempSync(path.join(scratchBase(), 'kln-'));
   const temp = path.join(base, 'fake-temp');
   const elsewhere = path.join(base, 'Users', 'someone');
   fs.mkdirSync(temp, { recursive: true });
@@ -619,7 +623,7 @@ test('W-04: run from Explorer\'s zip view (a Temp1_*.zip folder under TEMP, no r
     assert.equal(r.code, 1, r.out);
     assert.ok(r.out.includes(INSIDE_ZIP_MESSAGE), 'no inside-the-zip message: ' + r.out);
     assert.ok(!r.out.includes(PARTIAL_EXTRACT_ADVICE), 'the zip case got the partial-extract message too');
-  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+  } finally { fs.rmSync(s.base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
 
 test('W-04: any extraction under TEMP (7-Zip, WinRAR) with no runtime is the zip case too', WINDOWS_ONLY, () => {
@@ -629,7 +633,7 @@ test('W-04: any extraction under TEMP (7-Zip, WinRAR) with no runtime is the zip
     const r = runConsole(exe, s.temp);
     assert.equal(r.code, 1, r.out);
     assert.ok(r.out.includes(INSIDE_ZIP_MESSAGE), 'a Temp extraction was not recognised: ' + r.out);
-  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+  } finally { fs.rmSync(s.base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
 
 test('W-04: a folder named *.zip outside TEMP, with no runtime, is the zip case', WINDOWS_ONLY, () => {
@@ -639,7 +643,7 @@ test('W-04: a folder named *.zip outside TEMP, with no runtime, is the zip case'
     const r = runConsole(exe, s.temp);
     assert.equal(r.code, 1, r.out);
     assert.ok(r.out.includes(INSIDE_ZIP_MESSAGE), 'a .zip path segment was not recognised: ' + r.out);
-  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+  } finally { fs.rmSync(s.base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
 
 function shortNameOf(p) {
@@ -670,7 +674,7 @@ test('W-04: an 8.3 short name on either side (TEMP or the exe\'s own path) still
     r = runConsole(shortExe, longTemp);
     assert.equal(r.code, 1, r.out);
     assert.ok(r.out.includes(INSIDE_ZIP_MESSAGE), 'an exe launched by its short path did not match the long TEMP: ' + r.out);
-  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+  } finally { fs.rmSync(s.base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
 
 test('W-04 CONTROL: an ordinary folder with no runtime is a partial extract, NOT the zip case', WINDOWS_ONLY, () => {
@@ -682,7 +686,7 @@ test('W-04 CONTROL: an ordinary folder with no runtime is a partial extract, NOT
     assert.ok(r.out.includes('Kosmos could not start: the bundled runtime is missing (runtime\\node.exe).'), r.out);
     assert.ok(r.out.includes(PARTIAL_EXTRACT_ADVICE), 'no partial-extract advice: ' + r.out);
     assert.ok(!r.out.includes(INSIDE_ZIP_MESSAGE), 'an ordinary folder was taken for the inside of a zip');
-  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+  } finally { fs.rmSync(s.base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
 
 test('round 1: a sibling of TEMP that merely starts with its name (Temp2 beside Temp) is NOT inside the zip', WINDOWS_ONLY, () => {
@@ -695,7 +699,7 @@ test('round 1: a sibling of TEMP that merely starts with its name (Temp2 beside 
     assert.equal(r.code, 1, r.out);
     assert.ok(!r.out.includes(INSIDE_ZIP_MESSAGE), 'a folder beside TEMP with a longer name was taken for TEMP: ' + r.out);
     assert.ok(r.out.includes(PARTIAL_EXTRACT_ADVICE), r.out);
-  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+  } finally { fs.rmSync(s.base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
 
 test('round 1: TEMP set to a whole drive (C:\\) does not make every folder on it "inside the zip"', WINDOWS_ONLY, () => {
@@ -706,7 +710,7 @@ test('round 1: TEMP set to a whole drive (C:\\) does not make every folder on it
     assert.equal(r.code, 1, r.out);
     assert.ok(!r.out.includes(INSIDE_ZIP_MESSAGE), 'a drive-root TEMP claimed a folder on that drive: ' + r.out);
     assert.ok(r.out.includes(PARTIAL_EXTRACT_ADVICE), r.out);
-  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+  } finally { fs.rmSync(s.base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
 
 test('round 1 CONVENTION: --console with both outputs captured and no console to attach to opens no window and does not hold', WINDOWS_ONLY, async () => {
@@ -745,7 +749,7 @@ test('round 1 CONVENTION: --console with both outputs captured and no console to
       'the launcher allocated a console window of its own although both outputs were captured: ' + result.text);
     assert.equal(result.code, 1, result.text);
     assert.ok(result.text.includes(PARTIAL_EXTRACT_ADVICE), 'the captured outputs did not get the message: ' + result.text);
-  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+  } finally { fs.rmSync(s.base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
 
 /* A folder with a real node.exe and a FAKE app\server.js: the launcher's own
@@ -753,8 +757,8 @@ test('round 1 CONVENTION: --console with both outputs captured and no console to
    the board, so no hand-off exists to reach. No open-board.js, so no opener. */
 const FAKE_BOARD_MARKER = '// fake board written by tools.win-launcher-native.test.js';
 function stageFakeBoard(folder, serverScript) {
-  const scratchRoot = path.resolve(os.tmpdir()).toLowerCase() + path.sep;
-  assert.ok(path.resolve(folder).toLowerCase().startsWith(scratchRoot), 'a fake board must be staged under os.tmpdir(), never beside a real install: ' + folder);
+  const scratchRoot = path.resolve(scratchBase()).toLowerCase() + path.sep;
+  assert.ok(path.resolve(folder).toLowerCase().startsWith(scratchRoot), 'a fake board must be staged under scratchBase(), never beside a real install: ' + folder);
   fs.mkdirSync(path.join(folder, 'runtime'), { recursive: true });
   fs.mkdirSync(path.join(folder, 'app'), { recursive: true });
   const exe = path.join(folder, 'Kosmos.exe');
@@ -776,7 +780,7 @@ test('--console waits on the board and passes its exit code through, with the co
     assert.equal(r.code, 7, 'the board\'s exit code did not come back: ' + r.out);
     assert.ok(r.out.includes('Starting Kosmos. It will open in a moment.'), r.out);
     assert.ok(r.out.includes('Kosmos stopped. The lines above say why.'), r.out);
-  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+  } finally { fs.rmSync(s.base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
 
 /* The top-level windows a process owns: its main window handle, and how many message
@@ -874,7 +878,7 @@ test('rounds 1-3 BUG, --console arm: a board LISTENING past the check mark is ne
     assert.ok(!out.includes('Kosmos stopped'), out);
   } finally {
     if (launcher && launcher.exitCode === null) killTree(launcher.pid);
-    fs.rmSync(s.base, { recursive: true, force: true });
+    fs.rmSync(s.base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
 
@@ -937,7 +941,7 @@ test('rounds 2-3: the listener lookup says listening (IPv4 or IPv6), not listeni
     assert.equal(lookup(v6.child.pid), 'Listening', 'an IPv6-only listener was not found');
   } finally {
     for (const child of children) { try { child.kill(); } catch { /* already gone */ } }
-    fs.rmSync(s.base, { recursive: true, force: true });
+    fs.rmSync(s.base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
 
@@ -976,7 +980,7 @@ test('#2983: the serve-here signal check says present for a written file, absent
     assert.equal(present(''), 'absent', 'an empty signal path was taken for present');
     assert.equal(present(), 'absent', 'a null signal path was taken for present');
   } finally {
-    fs.rmSync(s.base, { recursive: true, force: true });
+    fs.rmSync(s.base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
 
@@ -989,5 +993,5 @@ test('a runtime with no app is a partial extract naming app\\server.js, and neve
     assert.equal(r.code, 1, r.out);
     assert.ok(r.out.includes('Kosmos could not start: the application is missing (app\\server.js).'), r.out);
     assert.ok(!r.out.includes('Starting Kosmos'), 'the launcher went past the app check');
-  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+  } finally { fs.rmSync(s.base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });

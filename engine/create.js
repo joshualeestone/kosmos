@@ -5607,6 +5607,21 @@ function createAgentInner(opts) {
     if (!guarded.ok) throw new Error(guarded.because || 'the guards could not be written');
   });
 
+  /* #4491: an agent listed in agent-token-only.json (slice 9) is also kept from READING board.token,
+     by a sandbox guard in its folder, written BEFORE it can start for the same reason as the guide's.
+     Any role (the list is not role-scoped). Gating like the guide: an unguarded token-only agent is
+     exactly what this card forbids, so a guard that could not be written refuses the creation. */
+  // tokenOnlyFor never throws today (it swallows a bad or absent file). If a future version did, the throw stays inside
+  // the rollback gate and fails closed: the agent is treated as token-only and guarded (review 11).
+  let isTokenOnly = false;
+  try { isTokenOnly = require('./sendertoken').tokenOnlyFor(name); } catch { isTokenOnly = true; }
+  const guardedTokenOnly = DRY_RUN || !isTokenOnly || step('kept the board token out of its reach', () => {
+    // #4491 review WARNING 1: the runner is named, so a non-Claude agent is refused with the reason rather than
+    // reported guarded by a settings file it never reads.
+    const guarded = require('./setup-assistant').guardTokenOnlyFolder(workerDir(name), name, { runner });
+    if (!guarded.ok) throw new Error(guarded.because || 'the guards could not be written');
+  });
+
   /**
    * The display name, written where the board reads it.
    *
@@ -5734,7 +5749,7 @@ function createAgentInner(opts) {
    * your computer either way" — a sentence that is false in exactly the case
    * that produced it.
    */
-  if (!wroteInstructions || !guardedGuide || !installedSupervisor || !wroteJob) {
+  if (!wroteInstructions || !guardedGuide || !guardedTokenOnly || !installedSupervisor || !wroteJob) {
     rollBack();
     // ⚠️ A missing supervisor gets its OWN sentence. It is not "try again":
     // `bin/agent-supervisor.sh` is missing from the installation, so retrying

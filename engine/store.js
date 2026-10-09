@@ -509,8 +509,8 @@ function avatarLookup(name) {
 
 /* kosmos#5302: before Kosmos fits an older picture in place, the picture as it was is copied to avatar-originals/ beside
    the avatars folder (never a name the avatar lookup reads), one per version and size (`<key>.<version>-<size><ext>`), so a fitted copy
-   never costs the person a picture. Copied to a temporary name and renamed, so a copy that dies part way never stands
-   as an original. Throws when it cannot be kept; saveRefitAvatar then writes nothing. */
+   never costs the person a picture. Written through securewrite (flushed, then renamed; #5434), so a copy that
+   dies part way never stands as an original. It takes the umask default mode, not the picture's. Throws when it cannot be kept; saveRefitAvatar then writes nothing. */
 function originalsDir() { return path.join(path.dirname(avatarsDir()), 'avatar-originals'); }
 function keepAvatarOriginal(name) {
   const file = avatarPath(name);
@@ -519,8 +519,7 @@ function keepAvatarOriginal(name) {
   const size = fs.statSync(file).size;
   const dest = path.join(originalsDir(), safeKey(name) + '.' + avatarVersion(name) + '-' + size + path.extname(file).toLowerCase());
   if (fs.existsSync(dest)) return dest;
-  const tmp = path.join(originalsDir(), '.' + safeKey(name) + '.' + crypto.randomBytes(6).toString('hex') + '.tmp');
-  try { fs.copyFileSync(file, tmp); fs.renameSync(tmp, dest); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* never written */ } throw e; }
+  saveFlushed(dest, fs.readFileSync(file));   // #5434: flushed before the rename, so a crash never leaves a zeroed original
   return dest;
 }
 /* kosmos#5302: the page's refit of an older picture. Refused (code CHANGED) when the picture is not the version the page
@@ -630,16 +629,10 @@ function saveAvatar(name, contentType, buffer) {
   const existing = avatarPath(name);
   const dest = path.join(avatarsDir(), key + ext);
   /* #4885: written beside, then renamed into place, so there is never a moment with no picture or half of one (the
-     community sender reads this folder every sweep, and "no picture" there takes the public one down). The temporary
-     name starts with a dot, so it is never anybody's picture. */
-  const tmp = path.join(avatarsDir(), '.' + key + '.' + crypto.randomBytes(6).toString('hex') + '.tmp');
-  try {
-    fs.writeFileSync(tmp, buffer);
-    fs.renameSync(tmp, dest);
-  } catch (e) {
-    try { fs.unlinkSync(tmp); } catch { /* never written */ }
-    throw e;
-  }
+     community sender reads this folder every sweep, and "no picture" there takes the public one down). #5434: flushed
+     before the rename. The temporary name is `<key>.<ext>.kosmos-...tmp`, which the lookup (`<key>.<ext>` only)
+     never takes for a picture. */
+  saveFlushed(dest, buffer);
   // Replace rather than accumulate: one avatar per agent, and an old .png
   // left beside a new .jpg would win or lose by directory order.
   // The new picture is already in place, so a failure here is not a failed save. On a disk that ignores case (the
@@ -658,8 +651,26 @@ function saveAvatar(name, contentType, buffer) {
 function removeAvatar(name) {
   const existing = avatarPath(name);
   if (existing) fs.unlinkSync(existing);
-  // kosmos#5302: a removed picture takes the originals kept for it too.
-  try { const key = safeKey(name); for (const f of fs.readdirSync(originalsDir())) if (f.startsWith(key + '.')) fs.unlinkSync(path.join(originalsDir(), f)); } catch { /* none kept */ }
+  // #5434: a dead writer's temp beside the picture (`<key>.<any ext, any case>.kosmos-...tmp`) holds a copy of it, so
+  // it is taken too; a live writer's temp never is.
+  try {
+    const key = safeKey(name);
+    for (const f of fs.readdirSync(avatarsDir())) {
+      if (f.startsWith(key + '.') && securewrite().tempWriterGone(f) === true) { try { fs.unlinkSync(path.join(avatarsDir(), f)); } catch { /* gone already */ } }
+    }
+  } catch { /* no avatars folder */ }
+  // kosmos#5302: a removed picture takes the originals kept for it too. (A keep another process has in flight is left alone,
+  // so it can still land after this returns; the next removal for the name takes it.)
+  // A writer's temp (`<key>.<ver>-<size><ext>.kosmos-...tmp`, #5434) whose writer may be alive is another process's
+  // keep in flight: never taken. One whose writer is provably gone holds a copy of the removed picture: taken.
+  try {
+    const key = safeKey(name);
+    for (const f of fs.readdirSync(originalsDir())) {
+      // tempWriterGone: null is an ordinary kept original (taken, as before), true a dead writer's temp (taken), false a
+      // writer that may be alive, or another thread of this process (kept)
+      if (f.startsWith(key + '.') && securewrite().tempWriterGone(f) !== false) { try { fs.unlinkSync(path.join(originalsDir(), f)); } catch { /* one held open (Windows) does not stop the rest */ } }
+    }
+  } catch { /* none kept */ }
   return Boolean(existing);
 }
 
@@ -714,6 +725,26 @@ function stripIdentity(profile) {
   return profile;
 }
 
+/* #5434 slice 4: every store.js save goes through securewrite.writeSecret, so the bytes are flushed to disk before
+   the rename makes them the file (a crash otherwise can leave it at full length, zero-filled; #5431). An existing
+   file keeps its mode; a new one takes the umask default, as writeFileSync gave. atomicOnly: a failed save throws and
+   leaves the old file as it was. These folders are Kosmos's own, so any provably dead writer temp there is reaped. */
+// (statSync follows a link: a linked file passes its target's mode, and the rename replaces the link with a regular
+// file, as the old write-then-rename did)
+// On Windows a mode is only the read-only bit (0o444 or 0o666); carrying it would make a temp read-only and the rename
+// over a read-only file fail, so there the writer's default stands (null, umaskDefault)
+function modeOf(file) {
+  if (process.platform === 'win32') return null;
+  try { return fs.statSync(file).mode & 0o777; } catch { return null; }
+}
+/* securewrite is required at CALL time, never at load: the kosmos CLI's board_token() requires store.js by itself
+   (and a test copies store.js alone into a minimal KOSMOS_HOME, cli.task-2662.test.js), so a load-time require of a
+   sibling module would break loading it there. */
+function securewrite() { return require('./securewrite'); }
+function saveFlushed(file, data) {
+  securewrite().writeSecret(file, data, modeOf(file), { atomicOnly: true, umaskDefault: true });
+}
+
 function writeProfile(name, patch) {
   ensure(profilesDir());
   const had = readProfile(name);
@@ -745,11 +776,9 @@ function writeProfile(name, patch) {
     next.id = crypto.randomBytes(6).toString('hex');
     next.idInstall = install;
   }
-  // Write-then-rename, so an interrupted write cannot leave a half-written
+  // Write-then-rename (flushed first), so an interrupted write cannot leave a half-written or zero-filled
   // file that parses as an empty profile and silently loses someone's edits.
-  const tmp = profilePath(name) + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
-  fs.renameSync(tmp, profilePath(name));
+  saveFlushed(profilePath(name), JSON.stringify(next, null, 2));
   return next;
 }
 
@@ -808,9 +837,7 @@ function writeSettingsIfReadable(patch) {
 function mergeSettingsInto(had, patch) {
   ensure(root());
   const next = { ...had, ...patch, updatedAt: new Date().toISOString() };
-  const tmp = settingsPath() + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
-  fs.renameSync(tmp, settingsPath());
+  saveFlushed(settingsPath(), JSON.stringify(next, null, 2));
   return next;
 }
 
@@ -836,7 +863,7 @@ function writeSettings(patch) {
  * that names a gone pid on this host). Its test and test-support/data-root-sandbox.js are the
  * callers; nothing in the product calls it but the store itself.
  */
-module.exports = { APP, LEGACY_APP, dataRootFor, resolveDataRoot, TEST_HOME_PREFIX, TEST_HOME_MARK, sweepDeadTestHomes, realDefaultRoot, realish, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
+module.exports = { APP, LEGACY_APP, dataRootFor, resolveDataRoot, TEST_HOME_PREFIX, TEST_HOME_MARK, sweepDeadTestHomes, realDefaultRoot, realish, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, profilePath /* kosmos#5635: a strict read */, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
 
 /* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
    `store.ROOT` still reads like a constant at every call site and now answers

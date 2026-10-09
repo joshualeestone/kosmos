@@ -48,6 +48,7 @@ const ALSO = ['agentpermission-5406.test.js', 'platform.test.js', 'store.test.js
   'setup-assistant.winrules-4752.test.js',   // #4752: the guide's real rules, read on a Windows host
   'securewrite.fsync-5434.test.js',   // #5434: its Windows-only skips (EPERM, EISDIR) run only there
   'accounts.fsync-5434.test.js',   // #5434 slice 2: the account stores' saves must work on Windows too
+  'store.fsync-5434.test.js',   // #5434 slice 4: store.js's profile, settings and picture saves, on Windows too
   'settingswrite.fsync-5434.test.js',   // #5434 slice 3: the provider settings writers, on Windows too
   'store.real-root-5418.test.js',   // #5418: the test-process root rule is live in this job, so its own test runs here too
   'sendertoken.revokeifunchanged-5418.test.js',   // #5418 ask 2: the cleanup's last guard, on Windows too
@@ -67,6 +68,7 @@ const HOST_BRANCH_EXCLUDED = {
   'engine/geminisettings.test.js': 'its win32 branch only skips a POSIX file-mode arm',
   'engine/communitysend.test.js': 'its win32 branch (#5431) only skips a POSIX file-mode arm',
   'engine/communitysend-why-5435.test.js': 'its win32 branch (#5435) skips the read-only-folder arm; its other arms are platform-free and run on the Mac',
+  'engine/undo-credential-4491.test.js': 'its win32 branch only skips the FIFO arm (Windows has no FIFOs); it makes symlinks, which Windows allows only with a privilege, and its sibling undo-5153.test.js is not run on Windows either',
   'engine/attachments.facts-5448.test.js': 'its win32 branch only skips the mkfifo arm (Windows has no FIFOs); its sibling attachments.test.js is not run on Windows either',
   'engine/groksettings.test.js': 'its win32 branch only skips a POSIX file-mode arm',
   'engine/securewrite.test.js': 'POSIX file-mode assertions, measured red on Windows (#1777)',
@@ -88,16 +90,8 @@ const ALL_SKIP_OK = {
 // in it. Every entry names the card that owns it. Names are as node's spec reporter prints them;
 // a failing SUBTEST also marks its parent failing, so list the parent's name as well.
 const KNOWN_RED = {
-  'tools.win-installer-native.test.js': { card: '#4266', tests: [
-    'W-20 probe: the shortcut is written into a temp Start Menu, points where it should, follows a new folder, and is removed',
-    '\u{1F6D1} finding 4 probe: a stale or same-build copy in Downloads hands off to the installed Kosmos and re-points NOTHING',
-    '\u{1F6D1} #3286 probe: a NEWER copy updates the installed Kosmos through the updater and starts it, so there is only ever one install',
-    '\u{1F6D1} #3286 review probe: SAME is an update that finished; a board the replace ended always runs again; a copy Kosmos was not pointed at is not installed',
-    '\u{1F6D1} round 2 finding 4 probe: an old copy in a folder that is NOT cleaned up hands off and re-points nothing; with nothing installed it runs where it is',
-    '\u{1F6D1} #3286 probe: from a cleaned-up place with nothing installed, Kosmos installs itself WITHOUT asking and starts the installed copy; a refusal is a plain note',
-    '\u{1F6D1} round 3 finding 6 probe: the installed copy hands off to a newer copy the pointer names and re-points nothing; otherwise it runs and re-points, never handing off to itself or to nothing',
-    '\u{1F6D1} uninstall probe: a clean removal takes the shortcut, the Apps entry and the kept-here memory; anything left keeps all three',
-  ] },
+  // Empty since #5645: the 8 native-installer probes (#4266) failed on runners whose TEMP is an 8.3 short path; the
+  // installer test now builds its scratch paths in long form.
 };
 
 // Tests whose result on the runner depends on the runner's own network or timing: they may pass

@@ -1707,6 +1707,64 @@ test('a successful PUT rewrites the file and answers with the new stale state', 
   assert.equal(JSON.parse(back.body).text, text, 'a re-read did not see the write');
 });
 
+/* #5581: the agent as one portable file, the export half of #1652. The board answers it as a download; the file
+   round-trips through the import route the create form uses. */
+test('#5581: GET export answers the agent as a downloadable file that imports back; unknown and empty are refused', async (t) => {
+  // Each refusal is the ROUTE's own sentence (a fallthrough 404 would not carry it).
+  const unknown = await req('/api/agent/definitely-not-an-agent/export');
+  assert.equal(unknown.status, 404, 'an unknown agent is refused before anything is read');
+  assert.equal(JSON.parse(unknown.body).because, 'no agent by that name');
+  const bad = await req('/api/agent/%zz/export');
+  assert.equal(bad.status, 404, 'a malformed name is refused, not crashed on');
+  assert.equal(JSON.parse(bad.body).because, 'no agent by that name');
+  // A browser's own download of a refused file gets 204 and nothing to save (the board's download convention).
+  // node:http, not fetch: fetch drops a sec-fetch-mode header, which is the one this convention reads.
+  const nav = await new Promise((resolve, reject) => {
+    const u = new URL(`${base}/api/agent/definitely-not-an-agent/export`);
+    const r = require('node:http').request({ host: u.hostname, port: u.port, path: u.pathname, method: 'GET',
+      headers: { 'sec-fetch-mode': 'navigate' } }, (out) => { out.resume(); out.on('end', () => resolve(out.statusCode)); });
+    r.on('error', reject);
+    r.end();
+  });
+  assert.equal(nav, 204, 'a refused navigation was answered with a body some browsers would save');
+  const name = await anyAgent(t);
+  if (!name) return;
+  const dir = nodePath.join(WORKERS, decodeURIComponent(name));
+  fs.mkdirSync(dir, { recursive: true });
+  const file = nodePath.join(dir, 'CLAUDE.md');
+  const before = fs.existsSync(file) ? fs.readFileSync(file) : null;
+  t.after(() => { if (before === null) fs.rmSync(file, { force: true }); else fs.writeFileSync(file, before); });
+  fs.writeFileSync(file, '# You are Exportable\n\nYou answer the #5581 test.\n');
+  const res = await fetch(`${base}/api/agent/${name}/export`);
+  const text = await res.text();
+  assert.equal(res.status, 200, text);
+  assert.match(res.headers.get('content-type') || '', /^text\/markdown/);
+  assert.match(res.headers.get('content-disposition') || '', /^attachment; filename="[A-Za-z0-9._-]+\.agent\.md"; filename\*=UTF-8''/);
+  assert.equal(res.headers.get('cache-control'), 'no-store');
+  assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(res.headers.get('content-security-policy'), "default-src 'none'; sandbox");
+  // The page's look beside the click: 204 with no body when the download is allowed.
+  const look = await fetch(`${base}/api/agent/${name}/export?check=1`);
+  assert.equal(look.status, 204, 'the check answered something other than "allowed, nothing to save"');
+  assert.equal((await look.text()).length, 0);
+  assert.match(text, /^---\n/, 'the file starts with its header block');
+  assert.match(text, /You answer the #5581 test\./, 'the saved instructions are in the file');
+  // Round trip: the import route the create form uses reads the downloaded file.
+  const imp = await postJson('/api/agent-import', { file: text });
+  const parsed = JSON.parse(imp.body);
+  assert.equal(parsed.ok, true, 'the exported file did not import: ' + parsed.because);
+  assert.equal(parsed.name, decodeURIComponent(name));
+  // HEAD: the headers, no body.
+  const head = await fetch(`${base}/api/agent/${name}/export`, { method: 'HEAD' });
+  assert.equal(head.status, 200);
+  assert.equal((await head.text()).length, 0, 'HEAD sent a body');
+  // Nothing to share: refused with the engine's sentence, not an empty file.
+  fs.writeFileSync(file, '   \n');
+  const empty = await req(`/api/agent/${name}/export`);
+  assert.equal(empty.status, 409, empty.body);
+  assert.match(JSON.parse(empty.body).because, /instructions are empty/);
+});
+
 /* #4406: the version kept beside the file, for the Instructions tab to put back in the box. */
 test('#4406: GET instructions/previous answers the kept version, writes nothing, and refuses an unknown agent', async (t) => {
   const unknown = await req('/api/agent/definitely-not-an-agent/instructions/previous');
@@ -3377,6 +3435,7 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
     const el = () => ({ textContent: '', hidden: undefined });
     const els = {
       'st-agents': el(), 'st-working': el(), 'st-working-tile': el(), 'st-idle': el(),
+      'st-blocked': el(), 'st-blocked-tile': el(),   // #5540
       'st-attn': el(), 'st-attn-tile': el(),
       'st-attn-noproj': el(), 'st-attn-noproj-tile': el(),
       'st-off': el(), 'st-off-tile': el(),
@@ -3440,6 +3499,20 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
     { total: 2, needsYou: 0, notRunning: 0 });
   assert.equal(zeroFloor['st-working-tile'].hidden, true,
     '#4736: zero working WITH an unknown ("0+") hides the tile too (Josh: "if there are 0 working, lets not show the tile")');
+  /* #5540: Waiting (state blocked) has its own tile, counted and floored as Working is, hidden at zero. The fleets
+     above hold no blocked agent, so it is hidden there (CONTROL); one with two blocked shows "2", and one blocked beside
+     an unknown shows "1+". A guide agent is never counted, as for Working and Idle. */
+  assert.equal(known['st-blocked-tile'].hidden, true, 'the Waiting tile shows with nobody waiting');
+  const waiting = drive([{ state: 'working' }, { state: 'blocked' }, { state: 'blocked' }, { state: 'idle' }, { state: 'blocked', isGuide: true }], { total: 4, needsYou: 0, notRunning: 0 });
+  assert.equal(waiting['st-blocked'].textContent, '2', 'the Waiting tile does not count the blocked agents');
+  assert.equal(waiting['st-blocked-tile'].hidden, false, 'the Waiting tile is hidden while two agents wait');
+  assert.equal(waiting['st-idle'].textContent, '1', 'CONTROL: a blocked agent is not counted as idle');
+  assert.equal(waiting['st-working'].textContent, '1', 'CONTROL: a blocked agent is not counted as working');
+  const waitingFloor = drive([{ state: 'blocked' }, { state: 'unknown' }], { total: 2, needsYou: 0, notRunning: 0 });
+  assert.equal(waitingFloor['st-blocked'].textContent, '1+', 'an unknown agent must floor the Waiting tile as it floors Working');
+  // Review 1: a FLOORED zero ("0+") hides the tile too, as Working's does (#4736).
+  assert.equal(zeroFloor['st-blocked'].textContent, '0+', 'fixture: zero blocked beside an unknown reads "0+"');
+  assert.equal(zeroFloor['st-blocked-tile'].hidden, true, '#5540: "0+" Waiting must hide as Working does (#4736)');
   assert.equal(zeroFloor['st-working'].textContent, '0+',
     'the number underneath is still the floored 0+ (only the tile is hidden)');
   /* #4736: the OTHER way to "0+", unreadable pane lines with no unknown agent, hides the tile too. */
@@ -3519,6 +3592,8 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
        failed poll must bring the Working tile BACK showing "?", not leave it hidden
        claiming none are working -- the same rule as the not-running tile below. */
     'st-working-tile': { textContent: '', hidden: true, innerHTML: '' },
+    // #5540: seeded with a last-success count and hidden, so "?" and showing are both measured transitions.
+    'st-blocked': el('2'), 'st-blocked-tile': { textContent: '', hidden: true, innerHTML: '' },
     'st-attn-tile': { textContent: '', hidden: false, innerHTML: '' },
     /* #1898: the no-project drill-down, seeded with a last-success count and
        SHOWN, so the failed poll must blank it to `?` and hide it like its parent. */
@@ -3576,7 +3651,7 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
     'the failure card must reach both containers, whichever layout is up');
   assert.match(els.grid.innerHTML, /not the same as having none/,
     'the failure card stopped drawing the distinction it exists for');
-  for (const id of ['st-agents', 'st-working', 'st-idle', 'st-attn', 'st-attn-noproj']) {
+  for (const id of ['st-agents', 'st-working', 'st-idle', 'st-blocked', 'st-attn', 'st-attn-noproj']) {
     assert.equal(els[id].textContent, '?',
       `${id} still asserts a count beside "we cannot see them" -- a headline number the failed poll cannot stand behind`);
   }
@@ -3586,6 +3661,7 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
     '#1898: the no-project drill-down must hide on a blind poll too, for the same reason as its parent');
   assert.equal(els['st-working-tile'].hidden, false,
     '#2157: the Working tile (seeded hidden, as a prior known-zero tick left it) must come BACK on a blind poll showing "?", unlike the alert tile -- hiding it would claim none are working on the one poll that knows nothing');
+  assert.equal(els['st-blocked-tile'].hidden, false, '#5540: a failed poll left the Waiting tile hidden, which says nobody is waiting');
   // (#734) There is no summary slot any more, so nothing here can assert last-tick counts beside the failure card.
   assert.equal(els.orgmap.innerHTML, '',
     'the org view still draws the last fleet it saw beside "we cannot see them"');

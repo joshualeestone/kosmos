@@ -76,7 +76,7 @@ test('#5531: from the screen, a decline sends nothing and records nothing; a pre
 
 test('#5531: GET /api/org reports this world\'s own record, and only one that names this world', async () => {
   const none = await call('/api/org', { method: 'GET', headers: SCREEN });
-  assert.deepEqual(none.json, { enrolled: false, reporting: false, stoppedFor: null, leaveRefused: null, leaveRefusedUndo: false, org: null, role: null, enrolledAt: null });
+  assert.deepEqual(none.json, { enrolled: false, reporting: false, reportingWait: null, stoppedFor: null, leaveRefused: null, leaveRefusedUndo: false, org: null, role: null, enrolledAt: null });
   const world = oe.worldId();
   fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', world, enrolledAt: '2026-10-07T00:00:00.000Z' }));
   const yes = await call('/api/org', { method: 'GET', headers: SCREEN });
@@ -388,6 +388,77 @@ test('#5531 follow-up b review 1: a malformed served hash is never echoed or rec
   await call('/api/org/leave', { body: {}, headers: SCREEN });
 });
 
+test('#5532 rollup review 10: the joined view says "reports" only when the rollup has accepted words to send under', async (t) => {
+  const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
+  t.after(() => { fs.rmSync(enrollmentFile(), { force: true }); fs.rmSync(path.join(store.ROOT, oe.CONSENT_FILE), { force: true }); });
+  const H = 'ab'.repeat(32);
+  // An enrollment with a consent hash but no remembered words (one written before the words were kept, say).
+  fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-08T00:00:00.000Z', consentHash: H }));
+  const st = async () => {
+    const remote = require('./engine/remote'); const orig = remote.macRequest;
+    remote.macRequest = async () => ({ ok: true, data: { member: true, org: ACME, role: 'member', enrolled: { computer: 'c1', world: oe.worldId(), thisComputer: true } } });
+    try { return (await call('/api/org', { method: 'GET', headers: SCREEN })).json; } finally { remote.macRequest = orig; }
+  };
+  const before = await st();
+  assert.equal(before.enrolled, true, JSON.stringify(before));
+  assert.equal(before.reporting, false, 'the view said it reports, but the rollup has no accepted words and sends nothing');
+  fs.writeFileSync(path.join(store.ROOT, oe.CONSENT_FILE), JSON.stringify({ order: [H], byHash: { [H]: { reports: ['agent names'], usageConsented: false } } }));
+  assert.equal((await st()).reporting, true, 'CONTROL: with the words remembered, it reports');
+});
+
+test('#5532 rollup review 24: start() arms the rollup tick, and the joined view says it waits when the rollup waits for a print', async (t) => {
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const start = src.slice(src.indexOf('function start(port = PORT)'));
+  const body = start.slice(0, start.indexOf('\n}\n'));
+  assert.match(body, /setTimeout\(orgRollupTick, /, 'start() never runs the first rollup');
+  assert.match(body, /setInterval\(orgRollupTick, ORG_ROLLUP_TICK_MS\)/, 'start() never runs the rollup on its tick');
+  // Review 28: the tick sends only under live execution, checked before anything is read or sent.
+  const serverSrc = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const fn = serverSrc.slice(serverSrc.indexOf('function orgRollupTick()'), serverSrc.indexOf('\n}\n', serverSrc.indexOf('function orgRollupTick()')));
+  // On a line of code, not in a comment (review 29: a commented-out gate must not pass).
+  const gateLine = fn.split('\n').find((l) => /^\s*if \(!liveExecution\.liveExecutionAllowed\(\)\) return;/.test(l));
+  const gate = gateLine ? fn.indexOf(gateLine) : -1;
+  assert.ok(gate > 0 && gate < fn.indexOf("require('./engine/orgrollup').tick()"), 'the rollup tick is not gated on live execution before it sends');
+  // The route: words remembered, but the rollup's own state says it waits for a print: not "reports".
+  const rollup = require('./engine/orgrollup');
+  const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
+  const H = 'ab'.repeat(32);
+  const stateFile = path.join(store.ROOT, rollup.STATE_FILE);
+  t.after(() => { for (const f of [enrollmentFile(), path.join(store.ROOT, oe.CONSENT_FILE), stateFile]) fs.rmSync(f, { force: true }); });
+  const rec = { org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-08T00:00:00.000Z', consentHash: H };
+  fs.writeFileSync(enrollmentFile(), JSON.stringify(rec));
+  fs.writeFileSync(path.join(store.ROOT, oe.CONSENT_FILE), JSON.stringify({ order: [H], byHash: { [H]: { reports: ['agent names'], usageConsented: false } } }));
+  const enrolledAs = rec.world + '|' + ACME.id + '|' + rec.enrolledAt;
+  const remote = require('./engine/remote'); const orig = remote.macRequest;
+  remote.macRequest = async () => ({ ok: true, data: { member: true, org: ACME, role: 'member', enrolled: { computer: 'c1', world: oe.worldId(), thisComputer: true } } });
+  t.after(() => { remote.macRequest = orig; });
+  fs.writeFileSync(stateFile, JSON.stringify({ enrolledAs }));
+  const reportingNow = (await call('/api/org', { method: 'GET', headers: SCREEN })).json;
+  assert.equal(reportingNow.reporting, true, 'CONTROL: with the words and no wait, it reports');
+  assert.equal(reportingNow.reportingWait, null);
+  fs.writeFileSync(stateFile, JSON.stringify({ enrolledAs, printWaitAt: Date.now() - 1000 }));
+  const waiting = (await call('/api/org', { method: 'GET', headers: SCREEN })).json;
+  assert.equal(waiting.reporting, false, 'the view said it reports while the rollup waited for a print');
+  assert.equal(waiting.reportingWait, 'print', 'the view does not say WHY (review 29): the page would say the words were not accepted');
+  // Review 32: a wait set under OTHER words (before a review's Accept, which keeps the enrollment) does not hold.
+  fs.writeFileSync(stateFile, JSON.stringify({ enrolledAs, printWaitAt: Date.now() - 1000, printWaitHash: 'ef'.repeat(32) }));
+  assert.equal((await call('/api/org', { method: 'GET', headers: SCREEN })).json.reporting, true, 'a print wait under old words outlived new words');
+  fs.writeFileSync(stateFile, JSON.stringify({ enrolledAs, printWaitAt: Date.now() - 1000, printWaitHash: H }));
+  assert.equal((await call('/api/org', { method: 'GET', headers: SCREEN })).json.reporting, false, 'CONTROL: under these words it waits');
+  // Review 34: a wait whose print cannot be made at all gives its own reason.
+  fs.writeFileSync(stateFile, JSON.stringify({ enrolledAs, printWaitAt: Date.now() - 1000, printWaitHash: H, printWaitWhy: 'error' }));
+  assert.equal((await call('/api/org', { method: 'GET', headers: SCREEN })).json.reportingWait, 'printError');
+  // Review 31: words accepted here that ask for NO reports are said as that (never "not accepted"), and a hash with no
+  // words kept here says nothing more than "not reporting" (the page offers Review then).
+  fs.writeFileSync(stateFile, JSON.stringify({ enrolledAs }));
+  fs.writeFileSync(path.join(store.ROOT, oe.CONSENT_FILE), JSON.stringify({ order: [H], byHash: { [H]: { reports: [], usageConsented: false } } }));
+  const noReports = (await call('/api/org', { method: 'GET', headers: SCREEN })).json;
+  assert.equal(noReports.reporting, false); assert.equal(noReports.reportingWait, 'noReports', JSON.stringify(noReports));
+  fs.rmSync(path.join(store.ROOT, oe.CONSENT_FILE), { force: true });
+  const noWords = (await call('/api/org', { method: 'GET', headers: SCREEN })).json;
+  assert.equal(noWords.reporting, false); assert.equal(noWords.reportingWait, null, JSON.stringify(noWords));
+});
+
 test('#5531 follow-up: a company\'s stated empty backed-up list reaches the screen through the real preview route', async (t) => {
   const remote = require('./engine/remote');
   const orig = remote.macRequest;
@@ -403,4 +474,58 @@ test('#5531 follow-up: a company\'s stated empty backed-up list reaches the scre
   backsUp = ['agent folders'];
   const listed = await call('/api/org/preview', { body: { code: 'ACME-JOIN-1234' }, headers: SCREEN });
   assert.equal(listed.json.consent.backsUpNone, false);
+});
+
+test('#5531 follow-up: a joined Kosmos with no consent recorded reviews the words and accepts them with no code, through the real routes', async (t) => {
+  const remote = require('./engine/remote');
+  const orig = remote.macRequest;
+  const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
+  const consent = { reports: ['agent names'], backsUp: ['agent folders'], readers: ['you'], never: ['your messages'] };
+  const sent = [];
+  remote.macRequest = async (method, route, body) => {
+    sent.push({ route, body });
+    if (route === oe.ROUTES.status) return { ok: true, data: { member: true, org: ACME, role: 'member', consent, consentHash: 'cd'.repeat(32), enrolled: { computer: 'c1', world: oe.worldId(), thisComputer: true } } };
+    if (route === oe.ROUTES.enroll) return { ok: true, data: { ok: true, org: ACME, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } };
+    return { ok: true, data: { ok: true } };
+  };
+  t.after(() => { remote.macRequest = orig; fs.rmSync(enrollmentFile(), { force: true }); });
+  // Not the work Kosmos: the review is refused and the company is not asked.
+  const no = await call('/api/org/preview', { body: { review: true }, headers: SCREEN });
+  assert.equal(no.json.ok, false, JSON.stringify(no.json));
+  assert.equal(sent.length, 0, 'a Kosmos with no record asked its company');
+  // A record with no consent recorded here (as refresh re-adopts one).
+  fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-08T00:00:00.000Z' }));
+  assert.equal(oe.mayReport(), false, 'CONTROL: it may not report yet');
+  const pv = await call('/api/org/preview', { body: { review: true }, headers: SCREEN });
+  assert.equal(pv.json.ok, true, JSON.stringify(pv.json));
+  assert.equal(pv.json.review, true);
+  assert.deepEqual(pv.json.org, { name: 'Acme', slug: 'acme' }, 'the page got more than the company\'s name and slug');
+  assert.ok(typeof pv.json.ticket === 'string' && pv.json.ticket, 'no ticket for the review');
+  const ok = await call('/api/org/enroll', { body: { accepted: true, ticket: pv.json.ticket }, headers: SCREEN });
+  assert.equal(ok.json.ok, true, JSON.stringify(ok.json));
+  const body = sent.filter((x) => x.route === oe.ROUTES.enroll).pop().body;
+  assert.equal(body.code, undefined, 'accepting sent a code');
+  assert.equal(body.consentHash, 'cd'.repeat(32), 'accepting did not send the company\'s hash');
+  assert.equal(oe.mayReport(), true, 'accepting the words did not let this Kosmos report');
+});
+
+test('#5531 follow-up review 3: a review\'s lost Accept through the real routes records nothing (the ticket carries the review)', async (t) => {
+  const remote = require('./engine/remote');
+  const orig = remote.macRequest;
+  const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
+  const consent = { reports: ['agent names'], backsUp: ['agent folders'], readers: ['you'], never: ['your messages'] };
+  remote.macRequest = async (method, route) => {
+    // The company keeps naming this world here (it did before Accept was pressed), and the Accept's answer is lost.
+    if (route === oe.ROUTES.status) return { ok: true, data: { member: true, org: ACME, role: 'member', consent, consentHash: 'ef'.repeat(32), enrolled: { computer: 'c1', world: oe.worldId(), thisComputer: true } } };
+    if (route === oe.ROUTES.enroll) return { ok: false, because: 'the tunnel program did not answer in time' };
+    return { ok: false, because: 'unexpected ' + route };
+  };
+  t.after(() => { remote.macRequest = orig; fs.rmSync(enrollmentFile(), { force: true }); });
+  fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-08T00:00:00.000Z' }));
+  const pv = await call('/api/org/preview', { body: { review: true }, headers: SCREEN });
+  assert.equal(pv.json.ok, true, JSON.stringify(pv.json));
+  const r = await call('/api/org/enroll', { body: { accepted: true, ticket: pv.json.ticket }, headers: SCREEN });
+  assert.equal(r.json.ok, false, 'a lost Accept was taken as accepted: ' + JSON.stringify(r.json));
+  assert.match(r.json.because, /press Accept again/);
+  assert.equal(oe.mayReport(), false, 'a lost Accept let this Kosmos report');
 });

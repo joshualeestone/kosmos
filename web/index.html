@@ -6507,6 +6507,19 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tkact + .tkact { border-top: 1px solid var(--k-rule); }
 .tkact time { flex: 0 0 auto; min-width: 96px; color: var(--label-2); font-size: .8rem; }
 .tkact .tkact-what { flex: 1; min-width: 0; }
+/* kosmos#5643: a run of runs that found nothing new or repeated their note is one row; pressing it shows each. */
+.tkact-roll { border-top: 1px solid var(--k-rule); }
+.tkact-roll:first-child { border-top: 0; }
+.tkact-roll > summary { cursor: pointer; list-style: none; }
+.tkact-roll > summary::-webkit-details-marker { display: none; }
+/* A disclosure mark the flex row would otherwise lose; the alt text after the slash is empty, so a screen reader does
+   not read the triangle out before the row's words (review 1). */
+.tkact-roll > summary .tkact-what::before { content: '\25B8\00A0'; content: '\25B8\00A0' / ''; }   /* the plain line first: a browser without the alt-text form keeps the mark (review 2) */
+.tkact-roll[open] > summary .tkact-what::before { content: '\25BE\00A0'; content: '\25BE\00A0' / ''; }
+.tkact-roll > summary .tkact-what { color: var(--label-2); }
+.tkact-roll .tkact-rows { padding-left: 18px; }
+.tkact-roll[open] .tkact-rows { border-top: 1px solid var(--k-rule); }
+.tkact-roll + .tkact { border-top: 1px solid var(--k-rule); }
 /* #5153 slice 3: Profile's Recent work rows: the task's sentence over a muted line. */
 .dwork-list { display: flex; flex-direction: column; }
 .dwork-row { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 9px 0; color: inherit; font: inherit; cursor: pointer; }
@@ -13115,6 +13128,9 @@ window.kosmosMeasureScrollbarWidth();
          simply the wrong name. What the reader needs is that the old version
          still exists, not what it is called. -->
     <div class="fpath" id="d-instr-prev" hidden>The previous version is kept alongside it, so nothing you replace is lost. <button class="linkish" id="d-instr-prev-load" type="button">Put the previous version in the box</button></div>
+    <!-- kosmos#5581: the agent as one file (its name and its saved instructions), for another Kosmos to import with
+         "import my existing agent". Shown only when there is a saved, non-empty file to put in it. -->
+    <div class="fpath" id="d-instr-export" hidden>Keep or share this agent as one file, with its name and saved instructions. Another Kosmos can bring it in. <a class="linkish" id="d-instr-export-link" href="#" download>Download this agent</a></div>
     <div class="fmsg" id="d-instr-msg" role="status" aria-live="polite"></div>
     <!-- #4406: while the box loads it says so with the loading mark, never an empty box; a failed load offers a retry. -->
     <p class="dhint" id="d-instr-loading" role="status" aria-live="polite" hidden style="margin:6px 0 0;"><span class="spin spin-sweep" style="--sz:14px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span> Loading instructions…</p>
@@ -18961,7 +18977,7 @@ window.kosmosMeasureScrollbarWidth();
         <p class="setname" id="plus-org-title" hidden>Your company</p>
         <div id="plus-org-in" hidden>
           <p class="fhint" id="plus-org-say"></p>
-          <div class="frow" id="plus-org-leave-row"><button class="btn" type="button" id="plus-org-leave">Leave company</button></div>
+          <div class="frow" id="plus-org-leave-row"><button class="btn" type="button" id="plus-org-review" hidden>Review what your company sees</button><button class="btn" type="button" id="plus-org-leave">Leave company</button></div>
           <div id="plus-org-leave-ask" hidden>
             <p class="fhint" id="plus-org-leave-sure"></p>
             <div class="frow">
@@ -19141,6 +19157,12 @@ window.kosmosMeasureScrollbarWidth();
          grammar the alert tile uses. A failed poll shows "?" and keeps the tile (that is not a zero). -->
     <div class="stat" id="st-working-tile"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><b id="st-working" data-count="working">0</b><span class="slab">Working</span></div>
     <div class="stat"><span class="rest" aria-hidden="true"></span><b id="st-idle" data-count="idle">0</b><span class="slab">Idle</span></div>
+    <!-- #5540 (a read-only pass on 0.7.27: 7 agents, 2 Waiting, and no tile counted them): agents whose card says
+         Waiting (state blocked) get a tile, hidden at zero like Working, with the card's own pause glyph. It sits
+         after Idle and before Issue: the row rises in urgency to the red tile, and Waiting is not red (CARD_ST's blocked
+         line: "red stays reserved for somebody is waiting on YOU"). Not every state has a tile (Not running has none, #653),
+         so the row still need not add up when an agent is stopped or paused. -->
+    <div class="stat" id="st-blocked-tile" hidden><span class="pause" aria-hidden="true"><i></i><i></i></span><b id="st-blocked" data-count="blocked">0</b><span class="slab">Waiting</span></div>
     <!-- 🔑 THE FOURTH TILE, and it is the row's existing grammar with one more
          member rather than a new idea: a TOTAL followed by STATES, with a rule
          already in place for a state that is not always interesting. It hides
@@ -24226,9 +24248,9 @@ async function tick() {
        count, not the count. The summary under the row already says lines were
        unreadable; a tile printing `11` beside it is the number a person
        believes. Not `?`: unlike Not running, this is knowable in part, and
-       replacing a true floor with nothing would hide a fact we hold. Working
-       and Idle are cut from the same parsed list, so they are floors on the
-       same poll and carry the same mark. */
+       replacing a true floor with nothing would hide a fact we hold. The state
+       tiles (Working, Idle, and Waiting since #5540) are cut from the same
+       parsed list, so they are floors on the same poll and carry the same mark. */
     const floor = (c.unreadableLines || 0) > 0;
     /* ⚠️ AN UNKNOWN AGENT FLOORS THE STATE TILES TOO (#369). Measured on the
        live board: a Fable session mid-turn read unknown, and the row said
@@ -24247,6 +24269,11 @@ async function tick() {
     document.getElementById('st-working-tile').hidden = workingCount === 0;
     document.getElementById('st-idle').textContent =
       tileCount(data.agents.filter((a) => !(a && a.isGuide === true)).filter((a) => a.state === 'idle').length, stateFloor);
+    /* #5540: Waiting (state blocked), counted from the fleet as Working and Idle are, floored the same way, and hidden
+       whenever it reads zero ("0+" included), as Working is (#4736). */
+    const blockedCount = data.agents.filter((a) => !(a && a.isGuide === true)).filter((a) => a.state === 'blocked').length;
+    document.getElementById('st-blocked').textContent = tileCount(blockedCount, stateFloor);
+    document.getElementById('st-blocked-tile').hidden = blockedCount === 0;
     /* ⚠️ FROM THE COUNT, not from filtering the roster on `running`. The two
        agree today and the tile is a claim about the FLEET, which is what the
        engine counted; a second derivation here is how a headline starts
@@ -24562,6 +24589,9 @@ async function tick() {
        ("0" or "0+") may have hidden it, and "?" is not a zero, so the tile shows it. */
     document.getElementById('st-working-tile').hidden = false;
     document.getElementById('st-idle').textContent = '?';
+    /* #5540: the Waiting tile likewise ("?" is not a zero, so hiding it would say nobody is waiting). */
+    document.getElementById('st-blocked').textContent = '?';
+    document.getElementById('st-blocked-tile').hidden = false;
     /* ⚠️ SHOWN AS UNKNOWN RATHER THAN HIDDEN, unlike the alert tile beside it,
        and the two differ for a reason. Red hides at zero because a red zero
        teaches people to ignore red. This one hiding would say "none of them
@@ -40124,15 +40154,15 @@ function usageCharts4Html(series, totals, grandTotal) {
 const USAGE_MODEL_PRICES = {
   // id: { in, out, cw, cr }  -- $ per MILLION tokens
   // opus-5-5 in/out/cr are the published Anthropic rates. cr is $0.20 = 0.05x input,
-  // a real break from the 0.1x the other Claude tiers use (like fable-5-1) -- do not
+  // a real break from the 0.1x most other Claude tiers use (sonnet-5-5 shares it, fable-5-1 is 0.025x) -- do not
   // "correct" it to 0.40. cw is the standard 1.25x input 5-minute write, as every row.
   'claude-opus-5-5': { in: 4, out: 20, cw: 5.00, cr: 0.20 },
   'claude-opus-5': { in: 5, out: 25, cw: 6.25, cr: 0.50 },
   'claude-opus-4-8': { in: 5, out: 25, cw: 6.25, cr: 0.50 },
-  // sonnet-5-5 (#4439): the same tier as sonnet-5, tier_2_10 in Claude Code 2.1.284's model
-  // catalog (input 2, output 10, 5-minute write 2.5, cache read 0.2). That catalog gives
-  // opus-5-5 exactly the published rates above, which is why it is trusted here.
-  'claude-sonnet-5-5': { in: 2, out: 10, cw: 2.50, cr: 0.20 },
+  // sonnet-5-5 (#4439, cache read corrected by #5627): input 2, output 10, 5-minute write 2.5 as sonnet-5, but cache
+  // hits at 0.10, which is 0.05x of input, the same multiplier as opus-5-5 (published Anthropic pricing, read 2026-10-08).
+  // The 0.20 first used here came from the Claude Code 2.1.284 tier_2_10 catalog entry, which the published price overrides.
+  'claude-sonnet-5-5': { in: 2, out: 10, cw: 2.50, cr: 0.10 },
   'claude-sonnet-5': { in: 2, out: 10, cw: 2.50, cr: 0.20 },
   'claude-sonnet-4-6': { in: 3, out: 15, cw: 3.75, cr: 0.30 },
   // #5626: claude-haiku-5-5 at the published Anthropic base rates (platform.claude.com pricing, 2026-10-08): input 0.10,
@@ -41375,9 +41405,14 @@ function setWritesOffered(a, tied) {
     INSTR_READY = false;
     INSTR_BANNER = false;   // not our card: nothing here is about the agent on screen
     INSTR_VERSION = null;
-    for (const id of ['d-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev', 'd-instr-updating', 'd-instr-loading', 'd-instr-retry-row', 'd-instr-personal', 'd-instr-add']) {
+    for (const id of ['d-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev', 'd-instr-updating', 'd-instr-loading', 'd-instr-retry-row', 'd-instr-personal', 'd-instr-add', 'd-instr-export']) {
       const el = document.getElementById(id);
       if (el) el.hidden = true;
+    }
+    const exLink = document.getElementById('d-instr-export-link');   // #5581: the last agent's file is not this card's
+    if (exLink) {
+      if (document.activeElement === exLink) { const m = document.getElementById('d-instr-msg'); if (m) { m.tabIndex = -1; m.focus(); } }
+      exLink.setAttribute('href', '#');
     }
     const personal = document.getElementById('d-instr-personal');   // #4446: emptied too, not only hidden
     if (personal) personal.textContent = '';
@@ -41691,6 +41726,36 @@ async function instrAddAct(sessionName, act, note, buttons) {
   }
   loadInstructions(sessionName);
 }
+/* kosmos#5581: "Download this agent". The download starts in the person's click (the link itself), and beside it the
+   page asks the same route with ?check=1, as kplusDownload does: a refusal is said on the panel's message line instead
+   of left to the browser. The address is written out here so the route test can read it (#3957). */
+let INSTR_EXPORT_LATEST = null;   // the last click's ticket: an older look's answer never lands on a newer click
+document.addEventListener('click', (e) => {
+  const link = e.target && e.target.closest && e.target.closest('#d-instr-export-link');
+  if (!link) return;
+  if ((link.getAttribute('href') || '#') === '#' || !CURRENT || !CURRENT.sessionName) { e.preventDefault(); return; }
+  const forAgent = CURRENT.sessionName;
+  const forLoad = INSTR_LOAD;   // the same agent reloaded since the click is a different panel (as Save checks)
+  const ticket = {};
+  INSTR_EXPORT_LATEST = ticket;
+  const msg = document.getElementById('d-instr-msg');
+  if (msg) msg.textContent = '';
+  fetch('/api/agent/' + encodeURIComponent(forAgent) + '/export?check=1', { cache: 'no-store' }).then(async (res) => {
+    if (res.ok || INSTR_EXPORT_LATEST !== ticket || INSTR_LOAD !== forLoad || !CURRENT || CURRENT.sessionName !== forAgent) return;
+    let said = '';
+    try { const b = await res.json(); said = (b && (b.because || b.error)) || ''; } catch { said = ''; }
+    if (msg) msg.textContent = 'Not downloaded: ' + (asSentence(said) || 'That agent could not be put in a file.');
+  }).catch(() => { /* the download itself is already under way; a failed look is not a failed download */ });
+});
+/* Offer the row when there is a saved, non-empty file to put in it (the engine refuses an empty or missing one, and a
+   link that answers a refusal is a broken promise). Painted on a load and after a Save. */
+function paintInstrExport(sessionName, has) {
+  const ex = document.getElementById('d-instr-export');
+  const link = document.getElementById('d-instr-export-link');
+  if (!ex || !link) return;
+  link.setAttribute('href', has ? '/api/agent/' + encodeURIComponent(sessionName) + '/export' : '#');
+  ex.hidden = !has;
+}
 async function loadInstructions(sessionName) {
   const mine = ++INSTR_LOAD;
   INSTR_EPOCH += 1;
@@ -41729,6 +41794,10 @@ async function loadInstructions(sessionName) {
   // failed load showed "the version before your last save is kept" about an
   // agent with no folder at all.
   document.getElementById('d-instr-prev').hidden = true;
+  { const ex = document.getElementById('d-instr-export');   // #5581: the last agent's file is not this one's
+    if (ex.contains(document.activeElement)) { const m = document.getElementById('d-instr-msg'); m.tabIndex = -1; m.focus(); }
+    ex.hidden = true;
+    document.getElementById('d-instr-export-link').setAttribute('href', '#'); }
   paintPersonalInstr(null);   // #4446: the last agent's sentence is not this one's
   renderStale(null);
   /* #4406: an empty, greyed box while the load is in flight read as "the instructions are gone" (a restart can
@@ -41779,6 +41848,9 @@ async function loadInstructions(sessionName) {
     // knows about is half a safety net, and this is the screen where someone
     // is about to replace an agent's entire boot file.
     document.getElementById('d-instr-prev').hidden = !data.hasPrevious;
+    /* #5581: the export carries the SAVED file, so it is offered only when there is one with something in it (the
+       engine refuses an empty or missing one, and a link that answers a refusal is a broken promise). */
+    paintInstrExport(sessionName, !!data.exists && !!String(data.text || '').trim());
     // Only claim editability when it is a file this screen can actually
     // save to (the sentence about an agent with no folder would be false).
     // The PATH itself is not shown -- pack ruling, Josh 2026-08-17.
@@ -42354,6 +42426,7 @@ document.getElementById('d-instr-save').addEventListener('click', async () => {
     // moment it matters most.
     document.getElementById('d-instr-prev').hidden =
       !(data.keptPrevious || (data.unchanged && data.hasPrevious));
+    paintInstrExport(forAgent, !!text.trim());   // #5581: a first save makes something to download
     // Re-derive rather than assume: saving makes the file newer than the
     // session, so this is exactly when the stale state becomes true.
     renderStale(data.staleness);
@@ -47408,7 +47481,7 @@ async function paintPlus() {
 /* ---- #5531 (Enterprise E0.2): this Kosmos joining a company. The 5-second repaint above asks at most once a minute,
    and never while the person is reading a consent or a call is out. */
 var PLUS_ORG = { at: 0, busy: false, state: null, preview: null, open: false };   // open: the person opened the company block (10-08)
-function plusOrgMaybe() {
+function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state stays when the state turns out changed
   if (PLUS_ORG.busy || PLUS_ORG.preview) return;
   if (Date.now() - PLUS_ORG.at < 60000) { if (PLUS_ORG.state) plusOrgPaint(); return; }   // at most once a minute, failed reads included
   PLUS_ORG.at = Date.now();
@@ -47417,12 +47490,12 @@ function plusOrgMaybe() {
     PLUS_ORG.state = j;
     const msg = document.getElementById('plus-org-msg');
     // A line about the old state ("not known yet", "left") must not sit under the new one (review 31).
-    if (j && (j.enrolled === true) !== was) msg.textContent = '';
+    if (j && (j.enrolled === true) !== was && keepMsg !== true) msg.textContent = '';
     // The server shows this note once, so it replaces whatever line is there rather than waiting for an empty one.
     if (j && j.enrolled !== true && j.stoppedFor) msg.textContent = 'This Kosmos is no longer the work Kosmos for ' + j.stoppedFor + ', so it has stopped reporting.';
     // #5531 review 21: a leave the person was told would be sent again was refused, so this Kosmos reports again.
     // "reports to it" only when it may (review 33): a record with no consent recorded here sends nothing.
-    const reports = j && j.reporting === true ? ' and reports to it.' : '. It sends your company nothing: its words were not accepted on this computer.';
+    const reports = j && j.reporting === true ? ' and reports to it.' : j && j.reportingWait === 'print' ? '. It reports to your company once it has read this computer\'s identity.' : j && j.reportingWait === 'printError' ? '. It cannot report to your company yet: Kosmos could not check this computer.' : j && j.reportingWait === 'noReports' ? '. Your company\'s words ask it to report nothing.' : '. It sends your company nothing: its words were not accepted on this computer.';
     if (j && j.enrolled === true && j.leaveRefused) msg.textContent = j.leaveRefusedUndo === true
       ? 'Your company could not undo joining ' + j.leaveRefused + ': you are its last admin. This Kosmos is your work Kosmos' + reports
       : 'Your leave from ' + j.leaveRefused + ' was refused: you are its last admin. This Kosmos is your work Kosmos again' + reports;
@@ -47450,12 +47523,19 @@ function plusOrgPaint() {
   const full = !!here || !!PLUS_ORG.preview || PLUS_ORG.open === true || msgOn || !!st.stoppedFor || !!st.leaveRefused;
   document.getElementById('plus-org-open').hidden = full;
   document.getElementById('plus-org-title').hidden = !full;
-  document.getElementById('plus-org-in').hidden = !here;
+  document.getElementById('plus-org-in').hidden = !here || !!PLUS_ORG.preview;   // a review's consent shows in place of the joined view
+  // #5531 follow-up: a Kosmos whose words were not accepted on this computer can read and accept them without leaving.
+  // Not for a Kosmos whose words ARE accepted and that only waits for this computer's identity (#5532 review 29): the
+  // engine refuses that review as already reporting.
+  // Not while it only waits for this computer's identity; offered for words that ask for no reports (rollup review 32: it
+  // is the only way such a Kosmos learns its company's words changed, since it never sends).
+  document.getElementById('plus-org-review').hidden = !(here && st.reporting === false && st.reportingWait !== 'print' && st.reportingWait !== 'printError');
+  document.getElementById('plus-org-join').textContent = PLUS_ORG.preview && PLUS_ORG.preview.review ? 'Accept' : 'Join with this Kosmos';
   document.getElementById('plus-org-out').hidden = !full || !!here || !!PLUS_ORG.preview;
   document.getElementById('plus-org-consent').hidden = !PLUS_ORG.preview;
   if (!here) plusOrgLeaveArm(false);   // a Leave confirmation never stays open under a view that is gone (review 31)
   // A record with no consent recorded here sends nothing, and the joined view says so (review 34).
-  if (here) document.getElementById('plus-org-say').textContent = 'This Kosmos is your work Kosmos for ' + (st.org.name || 'your company') + '. ' + (st.reporting === false ? 'It sends your company nothing: its words were not accepted on this computer. ' : '') + 'Your other Kosmoses on this computer are not part of it.';
+  if (here) document.getElementById('plus-org-say').textContent = 'This Kosmos is your work Kosmos for ' + (st.org.name || 'your company') + '. ' + (st.reporting === false ? (st.reportingWait === 'print' ? 'It reports to your company once it has read this computer\'s identity. ' : st.reportingWait === 'printError' ? 'It cannot report to your company yet: Kosmos could not check this computer. ' : st.reportingWait === 'noReports' ? 'Your company\'s words ask it to report nothing. ' : 'It sends your company nothing: its words were not accepted on this computer. ') : '') + 'Your other Kosmoses on this computer are not part of it.';
 }
 /* #5531: one POST to the board's org routes. Each URL is written out as a literal (web.api-routes-3957.test.js checks
    every /api path the page fetches against a board route, and a URL held in a variable cannot be checked). */
@@ -47500,6 +47580,11 @@ async function plusOrgJoin() {
   PLUS_ORG.busy = false; join.disabled = false; document.getElementById('plus-org-notnow').disabled = false;
   if (!r.ok) {
     msg.textContent = r.because || 'Joining did not go through.';
+    // A review has no code to check again: its way back is the Review button (orgreview review 1).
+    if (p.review && r.code === 'org_ticket') msg.textContent = 'These words were open too long. Press Review what your company sees to read them again.';
+    // A review refused with a reason points at the Review button, so the joined view (and that button) comes back.
+    // The view is read back too (review 7): a refusal like org_not_here means the joined view above it is no longer true.
+    if (p.review && r.code) { PLUS_ORG.preview = null; plusOrgPaint(); PLUS_ORG.at = 0; plusOrgMaybe(true); return; }
     // A code that is used, expired, or for another company will not work on a second press: back to the code field.
     // Also an outcome not known yet, or an undo still to send (review 25): the code may be spent, and "Not now" would say nothing was joined.
     if (['org_code_used', 'org_code_expired', 'org_code_unknown', 'org_other_org', 'org_wrong_domain', 'org_ticket', 'org_not_accepted', 'org_already_member', 'org_join_unknown', 'org_undo_pending', 'org_consent_changed'].includes(r.code)) { PLUS_ORG.preview = null; plusOrgPaint(); }
@@ -47511,11 +47596,38 @@ async function plusOrgJoin() {
   PLUS_ORG.at = Date.now();
   msg.textContent = '';
   plusOrgPaint();
+  // An accepted review: whether this Kosmos now reports is the engine's answer, not a copy of its rule (review 6).
+  if (p.review) { PLUS_ORG.at = 0; plusOrgMaybe(); }
 }
 function plusOrgNotNow() {
+  const review = !!(PLUS_ORG.preview && PLUS_ORG.preview.review);
   PLUS_ORG.preview = null;
-  document.getElementById('plus-org-msg').textContent = 'Not joined. Only the code was checked; none of this Kosmos\'s data was sent.';
+  document.getElementById('plus-org-msg').textContent = review ? 'Nothing changed on this computer.' : 'Not joined. Only the code was checked; none of this Kosmos\'s data was sent.';
   plusOrgPaint();
+}
+/* #5531 follow-up: the words of the company this Kosmos already is the work Kosmos for. Accepting goes through Join with
+   no code (the coordinator records it as accepting again); nothing binds until then. */
+async function plusOrgReview() {
+  const msg = document.getElementById('plus-org-msg');
+  if (PLUS_ORG.busy) return;
+  msg.textContent = '';
+  PLUS_ORG.busy = true;
+  const r = await plusOrgPost('preview', { review: true });
+  PLUS_ORG.busy = false;
+  // A refusal can mean the state moved (another screen accepted: "already reports"), so read it back, keeping the line (review 9).
+  if (!r.ok || r.review !== true) { msg.textContent = r.because || 'Your company\'s words could not be read just now.'; PLUS_ORG.at = 0; plusOrgMaybe(true); return; }
+  PLUS_ORG.preview = { code: null, org: r.org, ticket: r.ticket, review: true };
+  // Rollup review 35: words that ask for no reports are not accepted "so it can report"; the prompt promises only what Accept does.
+  const noReports = PLUS_ORG.state && PLUS_ORG.state.reportingWait === 'noReports';
+  document.getElementById('plus-org-ask').textContent = 'This is what ' + (r.org.name || 'your company') + ' asks of this Kosmos. ' + (noReports ? 'Accept what it asks now:' : 'Accept it so this Kosmos can report:');
+  plusOrgList('plus-org-reports', r.consent.reports);
+  // The same words as a code's consent (orgreview review 11): a stated empty list says so, as the hash records it.
+  plusOrgList('plus-org-backsup', r.consent.backsUp, r.consent.backsUpNone === true ? 'Nothing is backed up.' : null);
+  plusOrgList('plus-org-readers', r.consent.readers);
+  plusOrgList('plus-org-never', r.consent.never);
+  plusOrgLeaveArm(false);
+  plusOrgPaint();
+  document.getElementById('plus-org-join').focus();
 }
 function plusOrgLeaveArm(on) {
   const st = PLUS_ORG.state || {};
@@ -47552,6 +47664,7 @@ document.getElementById('plus-org-code').addEventListener('keydown', (e) => { if
 document.getElementById('plus-org-join').addEventListener('click', plusOrgJoin);
 document.getElementById('plus-org-notnow').addEventListener('click', plusOrgNotNow);
 document.getElementById('plus-org-leave').addEventListener('click', () => plusOrgLeaveArm(true));
+document.getElementById('plus-org-review').addEventListener('click', plusOrgReview);
 document.getElementById('plus-org-leave-no').addEventListener('click', () => plusOrgLeaveArm(false));
 document.getElementById('plus-org-leave-yes').addEventListener('click', plusOrgLeave);
 /* ---- kosmos#4794 slice 1: this computer JOINING (Mona Lisa's design, 2026-10-03). Both computers show one six-digit
@@ -59942,6 +60055,18 @@ function tskRepeatSentence(t, now) {
     const ago = agoWords(now - Date.parse(t.lastRunAt));
     const who = t.lastRunByPerson === true ? 'you' : t.lastRunBy ? tskAgentName(t.lastRunBy) : '';   // review 5: a flag, never the name 'operator'
     s += ' Last run ' + (ago || 'just now') + (who ? ' by ' + who : '') + (t.lastRunLate === true ? ', late' : '') + (t.lastRunNote ? ': ' + t.lastRunNote : '') + '.';
+    /* kosmos#5643: how many runs in a row found nothing new, and when (and what) the last change was. */
+    const same = Number(t.unchangedRuns);
+    if (same >= 1) {
+      // Review 2: as the history says it: found nothing new (marked), the same note (inferred), or both.
+      const guessed = Number(t.unchangedInferred) || 0;
+      const what = guessed === 0 ? 'found nothing new' : guessed >= same ? (same === 1 ? 'repeated the note before it' : 'repeated the same note') : 'found nothing new or repeated the same note';
+      s += ' ' + (same === 1 ? 'It ' + what : 'The last ' + same + ' runs ' + what);
+      const changedAt = Date.parse(t.lastChangeAt || '');
+      // Review 1: the change's note only when it is not the last run's, which the sentence has just said.
+      if (Number.isFinite(changedAt)) s += '; the last change was ' + (agoWords(now - changedAt) || 'just now') + (t.lastChangeNote && t.lastChangeNote !== t.lastRunNote ? ': ' + t.lastChangeNote : '');
+      s += '.';
+    }
   } else if (!missed) {
     s += ' No run reported yet.';   // #5444 (Mona Lisa): after "Missed 3 runs" it said the same thing twice
   }
@@ -60927,13 +61052,16 @@ function tkPaintSubtasks(p, t, closed) {
 function tkActPhrase(ev, p) {
   const nameOf = (sn) => (sn ? tkMemberName(p, sn) : null);
   switch (ev.kind) {
-    case 'created': { const who = nameOf(ev.who); return (who ? 'Created and given to ' + who : 'Created') + (ev.parent ? ', under task ' + ev.parent : ''); }
+    case 'created': { const who = nameOf(ev.who); return (who ? 'Created and given to ' + who : 'Created') + (ev.parent ? ', under task ' + ev.parent : '') + (ev.doneWhen ? '. Done when: ' + ev.doneWhen : ''); }
     case 'assigned': { const who = nameOf(ev.who); return who ? who + ' put on a part' : 'A part left with nobody on it'; }
     case 'part-added': return 'A part added' + (ev.sentence ? ': ' + ev.sentence : '');
     case 'part-closed': return 'A part marked done';
     case 'part-reopened': return 'A part put back';
     case 'due-set': return ev.dueDate ? 'Due date set to ' + ev.dueDate : 'Due date set';
     case 'due-cleared': return 'Due date cleared';
+    // #5152: what finished means for the task, set or taken off (by an agent, named, or from the screen).
+    case 'done-when-set': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' set' : 'Set') + ' what done means' + (ev.doneWhen ? ': ' + ev.doneWhen : ''); }
+    case 'done-when-cleared': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' took' : 'Took') + ' off what done means'; }
     case 'hold-set': return ev.via === 'agent' ? 'Put on hold by an agent' : 'Put on hold';
     case 'hold-cleared': return ev.via === 'agent' ? 'Taken off hold by an agent' : ev.via === 'close' ? 'Taken off hold, as it was closed' : 'Taken off hold';
     // #3861: a task put under another task on its project, or taken out from under one.
@@ -60942,7 +61070,7 @@ function tkActPhrase(ev, p) {
     // kosmos#4787: a recurring task's rule, and each run its owner reported (kosmos task ran).
     case 'repeat-set': return ev.words ? 'Set to repeat ' + ev.words : 'Set to repeat';
     case 'repeat-cleared': return 'No longer repeats';
-    case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.late ? ', late' : '') + (ev.note ? ': ' + ev.note : ''); }
+    case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.late ? ', late' : '') + (ev.unchanged ? (ev.inferred ? ', the same note again' : ', nothing new') : '') + (ev.note ? ': ' + ev.note : ''); }   // kosmos#5643: said, or only a repeated note
     /* kosmos#4787 slice 3 (review 5): who reviews it, and a missed run with who was told. */
     case 'reviewer-set': return ev.person ? 'You will be told if a run is missed' : (nameOf(ev.who) || 'An agent') + ' will be told if a run is missed';
     case 'reviewer-cleared': return 'Nobody is told now if a run is missed';
@@ -61040,6 +61168,8 @@ const TKU_WHY = {
   'not-a-file': 'no longer a plain file here: left as it is',
   moved: 'its folder has moved: left as it is',
   'copy-missing': 'its copy is missing: left as it is',
+  protected: 'a protected settings or key file: left as it is',
+  'cannot-check': 'Kosmos could not check whether it may change this file: left as it is',
 };
 function tkUndoListHtml(plan) {
   const files = Array.isArray(plan && plan.files) ? plan.files : [];
@@ -61198,12 +61328,51 @@ async function paintTaskActivity(n) {
     return;
   }
   const now = Date.now();
-  holder.innerHTML = events.map((ev) => {
+  /* Review 1: a redraw (after a due date, a part, close or reopen) keeps open the rollups the person opened, keyed by
+     their place in the history and their first run's time (tkActRowsHtml's data-first). */
+  const canQuery = typeof holder.querySelectorAll === 'function';
+  const wasOpen = new Set(canQuery ? [...holder.querySelectorAll('details.tkact-roll[open]')].map((d) => d.dataset.first) : []);
+  holder.innerHTML = tkActRowsHtml(events, p, now);
+  if (canQuery && wasOpen.size) for (const d of holder.querySelectorAll('details.tkact-roll')) if (wasOpen.has(d.dataset.first)) d.open = true;
+}
+/* kosmos#5643: the history's rows. Two or more runs in a row that found nothing new (not late: lateness is news) are
+   ONE row, "N runs found nothing new" (or "repeated the same note" for runs the board only inferred, or both), which
+   opens to show each; a change, a late run and every other event keep their own row. Pure over its inputs, so a test
+   can lift it.
+   The repeat line's count (unchangedRuns) counts late runs too, so "The last 5 runs found nothing new" can sit beside
+   two rollups split by a late run: the line counts what was found, the history shows when (review 1). */
+function tkActRowsHtml(events, p, now) {
+  const row = (ev) => {
     const at = Date.parse(ev.at);
     const when = Number.isFinite(at) ? agoWords(now - at) : '';
     return '<div class="tkact"><time datetime="' + esc(String(ev.at)) + '">' + esc(when) + '</time>'
       + '<span class="tkact-what">' + esc(tkActPhrase(ev, p)) + '</span></div>';
-  }).join('');
+  };
+  const quiet = (ev) => ev && ev.kind === 'run' && ev.unchanged === true && ev.late !== true;
+  const out = [];
+  for (let i = 0; i < events.length;) {
+    let j = i;
+    while (j < events.length && quiet(events[j])) j += 1;
+    if (j - i >= 2) {
+      const group = events.slice(i, j);
+      const last = group[group.length - 1];
+      const at = Date.parse(last.at);
+      const when = Number.isFinite(at) ? agoWords(now - at) : '';
+      // The key is the group's place in the history AND its first run's time: two rollups can share a time to the
+      // millisecond, and the history only grows at its end, so an earlier group keeps its place.
+      // Review 2: say what is known. Marked by the agent: found nothing new; inferred from a repeated note: the same note.
+      const inferred = group.filter((ev) => ev.inferred === true).length;
+      const what = inferred === 0 ? ' runs found nothing new' : inferred === group.length ? ' runs repeated the same note' : ' runs found nothing new or repeated the same note';
+      out.push('<details class="tkact-roll" data-first="' + esc(i + '@' + String(group[0].at)) + '"><summary class="tkact"><time datetime="' + esc(String(last.at)) + '">' + esc(when) + '</time>'
+        + '<span class="tkact-what">' + esc(group.length + what) + '</span></summary>'
+        + '<div class="tkact-rows">' + group.map(row).join('') + '</div></details>');
+      i = j;
+    } else {
+      out.push(row(events[i]));
+      i += 1;
+    }
+  }
+  return out.join('');
 }
 function openTaskPage(n) {
   const p = pjById(PJ_CURRENT);

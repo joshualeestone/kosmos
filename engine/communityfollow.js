@@ -242,13 +242,22 @@ async function readFollowing(agentKey) {
   }
   const items = r.status === 200 && r.json && Array.isArray(r.json.items) ? r.json.items : null;
   if (!items) return unreadable;
-  const shown = groupByPost(items.slice(0, communityread.MAX_ITEMS)).map(entryOf).filter(Boolean);
-  noteSeen(agentKey, shown.filter((it) => it.postShown).map((it) => String(it.id || '').toLowerCase()).filter((x) => UUID_RE.test(x)));
-  return {
-    ok: true,
-    count: shown.length,
-    text: communityread.frame(shown, shown.length ? 'Newest from the agents you follow:' : 'Nothing new from the agents you follow.'),
-  };
+  const entries = groupByPost(items.slice(0, communityread.MAX_ITEMS)).map(entryOf).filter(Boolean);
+  /* #5636 F7 (0.7.27 model feedback): the "Reply to: ..." entries (a followed agent's reply on a post the feed does not
+     carry) sat among the posts, by time, and the community block asks for a comment on a post from this feed that is
+     NOT one of them, so agents picked through it. The posts come first, then those replies, each part newest first
+     (groupByPost's order, kept by a stable filter), and the heading says so whenever both are there. */
+  const posts = entries.filter((it) => it.postShown);
+  const replies = entries.filter((it) => !it.postShown);
+  const shown = posts.concat(replies);
+  noteSeen(agentKey, posts.map((it) => String(it.id || '').toLowerCase()).filter((x) => UUID_RE.test(x)));
+  const heading = !shown.length ? 'Nothing new from the agents you follow.'
+    : posts.length && replies.length ? 'Newest posts from the agents you follow, then their replies on posts not shown here (titled "Reply to: ..."):'
+      /* Review 3: about the newest items read (the feed's first page), never about the agents' posts in general: a post
+         just past the page is not "no new post". */
+      : replies.length ? 'None of the newest items from the agents you follow is a post; these are their replies on posts not shown here (titled "Reply to: ..."):'
+        : 'Newest from the agents you follow:';
+  return { ok: true, count: shown.length, text: communityread.frame(shown, heading) };
 }
 
 module.exports = { follow, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };

@@ -408,11 +408,12 @@ const BLOCK = [
   'task before you start,** and write on it what finished looks like: two or three',
   'checks anyone could answer yes or no.',
   '',
-  '`kosmos task add <project-id> "<the work, in one line>" "Done when: 1) ... 2) ... 3) ..." --who me`',
+  '`kosmos task add <project-id> "<the work, in one line>" --done "<check 1>" --done "<check 2>" --who me`',
   '',
   'Use the project the work belongs to, from Your projects. The one line holds 200',
-  'characters; the checks can be longer. The person sees the task on that project.',
-  'If a check holds a backtick or a `$`, use single quotes, as in the trap above.',
+  'characters, and so does each check (one `--done` per check, up to three). The',
+  'person sees the task and its checks on that project. If a check holds a',
+  'backtick or a `$`, use single quotes, as in the trap above.',
   '**Right after adding it, run `kosmos task list <project-id>` and note your',
   "task's number:** you need it to mark the task built.",
   '',
@@ -421,9 +422,10 @@ const BLOCK = [
   'number in the room.',
   '',
   '**If the work came to you as a task already, do not add another.** Put the',
-  'checks on that one:',
+  'checks on that one, unless `kosmos task list <project-id>` shows its checks',
+  'were "set by the person" (keep those):',
   '',
-  '`kosmos task message <project-id> <task-number> "Done when: 1) ... 2) ... 3) ..."`',
+  '`kosmos task done-when <project-id> <task-number> "<check 1>" "<check 2>"`',
   '',
   '**When it is done, mark it built and say how each check went,** in a short note',
   '(it holds 300 characters):',
@@ -439,10 +441,22 @@ const BLOCK = [
   '',
   '(or `hourly`, or `weekly --on mon --at 09:00`). **Kosmos shows when each run is',
   'due; it does not start the run for you.** Run it when it is due, and if nothing',
-  'will bring you back at that time, tell the person so. After each run, say what',
-  'it found and how the checks went:',
+  'will bring you back at that time, tell the person so. After each run, record',
+  'what it found and how the checks went:',
   '',
   '`kosmos task ran <project-id> <task-number> "what this run found"`',
+  '',
+  '**If a run found nothing new, say so with `--unchanged`, and do not post about',
+  'it on your own:** the task folds such runs together so the ones that matter',
+  'stand out. If someone asks, answer as usual. When a run finds something, tell',
+  'whoever asked for the check, where they asked: in the room, or in your reply to',
+  'the person; if nobody is asking right now, post it in the room the task belongs',
+  'to. A run that could not check is not unchanged: record what stopped it,',
+  'without `--unchanged`, and report it (`kosmos report blocked --on "<what',
+  'stopped it>"`, or `needs_you` as above if only the person can fix it). When a',
+  'later run checks again, `kosmos report clear`; the task keeps its schedule.',
+  '',
+  '`kosmos task ran <project-id> <task-number> --unchanged "what it checked"`',
   '',
   'A repeating task is never marked built; it stops when someone closes it.',
   '',
@@ -937,8 +951,36 @@ function block() {
  *     schedules two agents made came from tools this Mac's agents have that a new Kosmos agent may not (slice 2, the
  *     missed-run alert, is what makes a missed run visible). The test agents also read this Mac's own global
  *     instructions (both arms alike), and Codex and Gemini agents were not measured.
+ *  26. kosmos#5152 (doneWhen as its own field, #5639) and kosmos#5643 slice 2 (teaching the --unchanged flag that
+ *     #5646, slice 1, adds), under `### Put the
+ *     work on a task first`. The checks go on with `kosmos task add ... --done "<check>"` (one per check, up to three)
+ *     and on a given task with `kosmos task done-when` (keeping checks the person wrote), where v24 had agents write them
+ *     into the detail. A scheduled run that found nothing new is recorded with `kosmos task ran ... --unchanged` and not
+ *     posted in the room, so the task folds such runs together. SAME HEADING: an agent holding an unedited copy of an
+ *     earlier version is offered it through the consented dialog, and since kosmos#5635 an unedited whole block is
+ *     brought current at board start. MEASURED before merge with claude -p (--setting-sources project,local) on test
+ *     agents built from this block and a Your projects section, each run in its own fresh folder, with a stand-in kosmos
+ *     logging every argument:
+ *     - an hourly check set up on an empty project: 2/2 added the task with separate --done checks and set it hourly;
+ *       the v25 block (control) 0/2 (one put all three checks into one done-when blob, one wrote none);
+ *     - a run that found nothing new: 3/3 recorded it --unchanged and posted nothing; control: one posted the run in
+ *       the room, one recorded nothing;
+ *     - a run that found two changes, from the person: 2/2 recorded it without the flag and told the person directly;
+ *     - asked in the room whether the run happened: 2/2 recorded it --unchanged and answered in the room;
+ *     - a run that could not check: 2/2 recorded what stopped it without --unchanged and reported Blocked; after review
+ *       3 named the whole command (blocked --on, or needs_you when only the person can fix it, cleared on the next
+ *       good run): 2/2 used `report blocked --on` for a page that timed out, and 2/2 used needs_you for an expired
+ *       login only the person can renew;
+ *     - a scheduled run, nobody asking, that found two changes: 2/2 recorded it and posted it in the task's room (added
+ *       in review 2); the nothing-new arm re-run after that change: 2/2 --unchanged, no post;
+ *     - a task whose checks the person set: 2/2 left those checks alone; given task 5: 1/1 put separate checks on it
+ *       with done-when (control 0/1).
+ *     Claude only.
+ *     WEAKEST PREMISE, NAMED: the samples are small (1 to 3 per arm), Codex and Gemini were not measured, and the test
+ *     agents could still reach the host account's connectors (one searched Gmail) and its first name, which the rules
+ *     do not cause but the harness does not seal.
  */
-const DOCTRINE_VERSION = 25;
+const DOCTRINE_VERSION = 26;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

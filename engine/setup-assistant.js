@@ -329,6 +329,24 @@ function ruleUnwritable(p, platform = process.platform) {
 const RULE_SYNTAX = /[*?[\](){}!\\]/;
 /* A folder's real path when it can be read, else the path as given. */
 function realOr(p) { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } }
+/* #4491: canonicalize a path whose LEAF may not exist yet (a settings.json not written, a board.token
+   not minted). First resolve the WHOLE path -- if the leaf exists, even as a symlink, Seatbelt checks
+   the target, so the literal must be the target too. Only when that throws (the leaf is absent) fall
+   back to resolving the deepest existing ancestor and rejoining the rest, so a symlinked PARENT
+   (e.g. ~/.claude -> elsewhere) is still followed. */
+function realOrLeaf(p) {
+  const abs = path.resolve(p);
+  try { return fs.realpathSync.native(abs); } catch { /* leaf absent: climb to the existing ancestor */ }
+  let dir = path.dirname(abs);
+  const tail = [path.basename(abs)];
+  for (;;) {
+    try { return path.join(fs.realpathSync.native(dir), ...tail); } catch { /* climb */ }
+    const parent = path.dirname(dir);
+    if (parent === dir) return abs;   // reached the root with nothing resolvable
+    tail.unshift(path.basename(dir));
+    dir = parent;
+  }
+}
 /* A path as a Claude Code rule spells an absolute one: two slashes, then the path without its leading slashes.
    On Windows Claude Code matches a rule against the path in POSIX form (its permissions docs: C:\Users\alice
    becomes /c/Users/alice), so a drive path is written that way: C:\Users\x becomes //c/Users/x. The native
@@ -587,6 +605,834 @@ function guardGuideFolder(dir, agentName, deps = {}) {
   } catch (err) {
     return { ok: false, because: String((err && err.message) || err) };
   }
+}
+
+/*
+ * #4491: every board.token root a token-only agent could read -- this store, plus the pre-#2439 legacy
+ * roots and the default world's base, each of which carries its own board.token that is a valid token
+ * for that board. Derived the way the guide does, but DEFENSIVELY: worlds resolution can throw, and a
+ * throw here never throws out of this function. Review 22: it is NAMED in `missed`, and the token-only
+ * guard then refuses (create then refuses that token-only agent) instead of reporting a guard with a
+ * store's token left out; undo's set passes no `missed` and keeps the roots it found. Every named world that exists now is listed here, and
+ * tokenOnlySettingsRules also writes the worlds-folder glob for a world made later.
+ */
+function tokenOnlyTokenRoots(dataRoot, home, deps = {}, missed = null) {
+  const roots = [dataRoot];
+  const add = (r) => { if (r && typeof r === 'string' && !roots.includes(r)) roots.push(r); };
+  /* Review 22: a lookup that throws is NAMED in `missed` (when the caller passes it), so the token-only guard can
+     refuse rather than report guarded with a store left out. The undo set (boardCredentialPaths) passes none. */
+  const miss = (what) => { if (Array.isArray(missed)) missed.push(what); };
+  try { const lr = deps.legacyRoots !== undefined ? deps.legacyRoots : guideLegacyRoots(home); if (Array.isArray(lr)) lr.forEach(add); } catch { miss('the older Kosmos stores'); }
+  let base = null;
+  try {
+    base = deps.worldsBase !== undefined ? deps.worldsBase : guideWorldsBase();
+    if (base && base !== dataRoot) add(base);   // the default world's base, when this agent is in a named world
+  } catch { miss('the default world'); }
+  // #4491 review: EVERY named world's store too, since the board accepts any world's token. Concrete paths
+  // for the worlds that exist now; the
+  // board-start refresh rewrites the guard, so a world made later is covered from the agent's next start.
+  try {
+    if (base) {
+      const worlds = deps.worlds || require('./worlds');
+      // Review 24: hidden worlds too (hiding is not revoking: the board keeps their tokens valid), and a miss names the id.
+      const all = typeof worlds.readRegistry === 'function' ? worlds.readRegistry(base).worlds : worlds.listWorlds(base);
+      for (const w of all) { try { add(worlds.worldStoreRoot(base, w)); } catch { miss('world ' + ((w && w.id) || '?')); } }
+    }
+  } catch { miss('the list of worlds'); }
+  return roots;
+}
+
+/* #4491 (post-rebase review): what the token-only guard protects, plus the sender tokens, for a board-side copier or
+   restorer (engine/undo.js) that must refuse it. files: board.token in every root and its temp copies there, the
+   token-only list, the worlds registry and its temp and lock names that exist now, the account config homes'
+   settings files. dirs: the sender tokens folder in every root (not read-denied by the guard, but another agent's
+   token is never undo material), and each TOKEN-ONLY agent's own .claude folder (the guard write-denies that whole
+   folder for those agents only; an ordinary agent's .claude stays ordinary). home, regDir and regBase let a caller
+   also catch a temp, lock or account-home settings file made later, by name and place, as the guard's globs do.
+   Throws when the token-only list exists but cannot be read: the caller must then say it could not check. */
+function boardCredentialPaths(deps = {}) {
+  const home = deps.home || kosmosHome();
+  const dataRoot = deps.dataRoot || store.ROOT;
+  const tokenFile = require('./boardauth').TOKEN_FILE;
+  const sendertoken = require('./sendertoken');
+  const roots = tokenOnlyTokenRoots(dataRoot, home, deps);
+  const listFile = sendertoken.tokenOnlyFile();
+  const files = [...roots.map((r) => path.join(r, tokenFile)), listFile, ...roots.map((r) => path.join(r, 'undo.json'))];   // undo's switch (review 19)
+  const dotNamed = (dir, prefix) => { try { return fs.readdirSync(dir).filter((n) => n.startsWith(prefix)).map((n) => path.join(dir, n)); } catch { return []; } };
+  for (const r of roots) files.push(...dotNamed(r, '.' + tokenFile + '.'));
+  let regDir = null;
+  let regBase = null;
+  try {
+    const base = deps.worldsBase !== undefined ? deps.worldsBase : guideWorldsBase();
+    if (base) {
+      const reg = (deps.worlds || require('./worlds')).registryPath(base);
+      regDir = path.dirname(reg);
+      regBase = path.basename(reg);
+      files.push(reg, ...dotNamed(regDir, '.' + regBase + '.'));
+    }
+  } catch { /* the files above */ }
+  for (const h of accountConfigHomes(home)) files.push(path.join(h, 'settings.json'), path.join(h, 'settings.local.json'));
+  const dirs = [sendertoken.DIR, ...roots.map((r) => path.join(r, 'sendertokens'))];
+  // The undo stores (the guard read- and write-denies them): a record must never move or replace undo's own files. By
+  // place only: they hold no credential to match by identity, and undo-saved grows with every undo (review 8).
+  const placeOnly = roots.flatMap((r) => [path.join(r, 'undo'), path.join(r, 'undo-saved')]);
+  let raw = null;
+  try { raw = fs.readFileSync(listFile, 'utf8'); } catch (err) { if (!err || err.code !== 'ENOENT') throw new Error('the token-only list could not be read'); }
+  if (raw !== null) {
+    const j = JSON.parse(raw);
+    if (!j || !Array.isArray(j.agents)) throw new Error('the token-only list is not readable');
+    const create = require('./create');
+    for (const name of j.agents) { if (typeof name === 'string' && name) { try { dirs.push(path.join(create.workerDir(name), '.claude')); } catch { /* no folder */ } } }
+  }
+  return { files: [...new Set(files)], dirs: [...new Set(dirs)], placeOnly: [...new Set(placeOnly)], home, regDir, regBase };
+}
+
+/* #4491: ~/.claude plus every EXISTING ~/.claude-<label> (a CLAUDE_CONFIG_DIR account home). Enumerated
+   the way guideDenyRulesFor enumerates store entries, so an agent's real account home gets concrete
+   denies rather than only the glob. A readdir failure degrades to ~/.claude plus the glob. */
+function accountConfigHomes(home) {
+  const out = [path.join(home, '.claude')];
+  try {
+    for (const d of fs.readdirSync(home, { withFileTypes: true })) {
+      if (/^\.claude-/.test(d.name) && (d.isDirectory() || d.isSymbolicLink())) out.push(path.join(home, d.name));
+    }
+  } catch { /* home unreadable: the permission-layer glob below still covers it */ }
+  return out;
+}
+
+/* #4491 reviews 14 and 15: true when a rule's PATH has a character the rule syntax reads as a pattern (the guide's #4752
+   RULE_SYNTAX). The separator is made '/' first, as the guide does, so a Windows path's backslashes are not read as
+   pattern characters (review 15: without that every Windows rule was dropped); the globs this file adds itself are
+   taken out before testing. */
+function ruleHasPatternChar(rule, sep = path.sep) {
+  const ownGlobs = String(rule).replace(/\/\*\*\)$/, ')').replace(/\.\*\)$/, ')').replace(/\/\*\//g, '/').replace(/\.claude-\*/g, '.claude-x');
+  const inner = ownGlobs.replace(/^\w+\(/, '').replace(/\)$/, '').split(sep).join('/');
+  return RULE_SYNTAX.test(inner.replace(/\*\*$/, '').replace(/\/\*$/, ''));
+}
+
+/* #5516: the guard denies the agent's file tools (Edit) and shell (denyWrite) any write to what the agent's next start
+   runs or reads as instructions. Review 16 settled HOW WIDELY: a folder whose contents run by name is denied whole (the
+   PATH folders, and the folders of what the supervisor starts by absolute path: this install's engine and bin, the
+   installed supervisor's folder, node's, claude's and tmux's folders, the browser tool's tree); the launchd jobs
+   folder and the launch-secrets folder likewise. A program's own FILE, where its link chain ends, is denied by name
+   (not its folder, which can be a project or a package tree), and so are the --settings file and tmux's config files;
+   each LINK TO A FILE on the way is named to the file tools. Sources: the pane PATH the supervisor passes
+   (KOSMOS_GUARD_PANE_PATH), this process's own PATH, the plist's fixed folders, and KOSMOS_GUARD_RUN_DIRS and
+   KOSMOS_GUARD_CONFIG_DIRS from the supervisor.
+   Every path is followed one name at a time (review 9), so a link anywhere along it is seen; a link to a FOLDER on
+   the way gets no rule (scanLaunch says why).
+   NOT covered (the plan records why): code a covered program loads from beside it, interpreters and callees named
+   inside scripts, what shell startup adds to PATH, a link held in an ancestor of the agent folder (such as /var in /),
+   replacing an ancestor of a covered folder, and, as a later part of #5516: programs named in Claude's own config
+   files (MCP servers, hooks, plugins, the status line), the code in shell startup files, and what a file the start
+   reads can pull in or run in turn (tmux includes, run-shell and plugins; config other started programs read, such as
+   git's). Program files are named to the file tools only (review 23: the sandbox profile has a size limit). Both layers match by
+   PATH, so a hard link to a user-owned program made under another name is not covered either (as #4491 says of the
+   token), nor is a soft link the agent makes itself in its own folder or in temp and then uses with the file tools
+   (the file-tool layer rests on Claude Code resolving links before it matches; the sandbox layer matches resolved
+   paths); and a rule is written in the disk's own letter case. A program repointed by an update between starts is
+   covered at the next start, except claude's, tmux's and node's own folders, which are denied whole.
+   Returned in `unsafe` (the guard then says it is not whole): an empty or relative pane entry; a folder that is the
+   agent's own, inside it or above it; a program or link folder that resolves there; a folder that could not be listed;
+   a folder past the scan cap; a link chain too long or unreadable; a launch input whose place could not be worked
+   out; a folder whose contents run that is or holds a shared one; a link to a folder held in a temp folder (where the
+   agent's shell can write); and, later, a rule the permission syntax cannot carry. */
+const LAUNCH_PATH_FIXED = ['/opt/homebrew/bin', '/usr/local/bin'];
+// Review 5: the folder the installed supervisor runs from (create.supervisorPath(), what launchd and the pane start), which
+// also holds the engine pointer and the bridges. Not this source tree's bin, which nothing runs in an install.
+function installedSupervisorDir() { try { return path.dirname(create.supervisorPath()); } catch { return null; } }
+// Review 7: every claude pane starts with --mcp-config naming the browser tool's tree (its script, config and browser).
+function browserToolDir() { try { return require('./agentbrowser').homeDir(); } catch { return null; } }
+function permissionSettingsFile() { try { return require('./agentpermission').settingsPath(); } catch { return null; } }
+const LINK_SCAN_MAX = 4000;
+const LINK_HOPS_MAX = 40;
+// Review 8: the folders of the claude and tmux programs the supervisor starts by absolute path (from the plist), which
+// it passes here, so they are covered whether or not they are on the PATH.
+function supervisorRunDirs() {
+  const v = process.env.KOSMOS_GUARD_RUN_DIRS;
+  // Only absolute folders: a bare program name's dirname is "." (review 13).
+  return typeof v === 'string' && v ? v.split(path.delimiter) : [];
+}
+// Review 19: the programs themselves the supervisor starts by absolute path (claude, tmux, node).
+function supervisorRunProgs() {
+  const v = process.env.KOSMOS_GUARD_RUN_PROGS;
+  return typeof v === 'string' && v ? v.split(path.delimiter) : [];
+}
+// Review 13: folders the supervisor reads instructions from at the next start (the launch-secrets folder).
+function supervisorConfigDirs() {
+  const v = process.env.KOSMOS_GUARD_CONFIG_DIRS;
+  return typeof v === 'string' && v ? v.split(path.delimiter) : [];
+}
+function launchPathDirs(agentDir, deps = {}) {
+  /* Review 12: not on Windows yet. A standard Windows PATH has folders whose names the rules read as patterns and a
+     system folder past the scan cap, so the guard would never be whole there and every token-only agent would be
+     refused. Windows coverage is measured and built in the Windows lane (#5516 later part); until then the Windows
+     guard is what it was. */
+  if ((deps.platform || process.platform) === 'win32') return { dirs: [], aliases: [], files: [], linkNames: [], unsafe: [] };
+  const pane = deps.panePath !== undefined ? deps.panePath : process.env.KOSMOS_GUARD_PANE_PATH;
+  const ownPath = deps.ownPath !== undefined ? deps.ownPath : process.env.PATH;
+  const max = deps.linkScanMax || LINK_SCAN_MAX;
+  const own = realOrLeaf(agentDir);
+  const fixed = Array.isArray(deps.launchFixed) ? deps.launchFixed : LAUNCH_PATH_FIXED;
+  // Review 9: a launch input whose place could not be worked out is said (the guard is then not whole), never dropped.
+  const missed = [];
+  const look = Object.assign({ installedSupervisorDir, browserToolDir, permissionSettingsFile }, deps.launchLookups);   // a test seam
+  /* The supervisor's lists: a bare program name's "." (or an empty piece) is skipped; any other piece that is not a full
+     path (a folder name with a ":" split in two, review 19) is said, so the guard is not whole rather than wrong. */
+  const fromSupervisor = (list, what) => list.filter((d) => {
+    if (path.isAbsolute(d)) return true;
+    if (d !== '.' && d !== '') missed.push(`(${what}: "${d}" is not a full path)`);
+    return false;
+  });
+  const need = (what, v) => { if (!v) missed.push(`(${what}: its place could not be worked out)`); return v; };
+  const ownProgs = deps.ownProgramDirs || [__dirname, path.join(__dirname, '..', 'bin'), need('the installed supervisor', look.installedSupervisorDir()), path.dirname(process.execPath), need('the browser tool', look.browserToolDir()), ...fromSupervisor(supervisorRunDirs(), 'a folder the supervisor starts from')].filter(Boolean);
+  /* Review 11: what the next start reads as instructions, beside what it runs: tmux's config (read when the supervisor
+     starts a new tmux server) and the launchd jobs folder (each agent's job names the supervisor, claude and tmux). */
+  const home = deps.home || kosmosHome();
+  // Both tmux spellings: the board's XDG_CONFIG_HOME need not be the one the tmux server sees (review 12).
+  const tmuxConf = [...new Set([path.join(home, '.tmux.conf'), path.join(home, '.config', 'tmux', 'tmux.conf'), ...(process.env.XDG_CONFIG_HOME ? [path.join(process.env.XDG_CONFIG_HOME, 'tmux', 'tmux.conf')] : [])])];
+  const fileList = deps.launchFiles || [need('the permission settings file', look.permissionSettingsFile()), ...tmuxConf].filter(Boolean);
+  const configDirs = deps.launchConfigDirs || [...((deps.platform || process.platform) === 'darwin' ? [path.join(home, 'Library', 'LaunchAgents')] : []), ...fromSupervisor(supervisorConfigDirs(), 'a folder the supervisor reads')];
+  /* Review 13: folders too widely used to deny whole (the temp roots, the home folder and its everyday folders, the
+     Kosmos data root). A program or link that leads straight into one makes the guard NOT whole, said, instead of
+     silently denying the agent its temp folder or Downloads. Only these exact folders, not what is inside them. */
+  // The temp roots are also where the agent's sandboxed shell can write, which matters for a link on the way (review 16).
+  const temps = deps.launchTemps || [require('os').tmpdir(), '/tmp', '/private/tmp', '/var/tmp', '/private/var/tmp'];
+  const shared = deps.launchShared || [...temps, home,
+    ...['Desktop', 'Documents', 'Downloads'].map((d) => path.join(home, d)), deps.dataRoot || store.ROOT];
+  const plat = deps.platform || process.platform;
+  /* Review 2 and 8: refreshTokenOnlyGuards passes one Map for its whole pass. The SCAN (which folders, and the program
+     each name resolves into) is the same for every agent, so it is cached without the agent folder and done once per
+     pass; only the agent-folder check below runs per agent. */
+  const cache = deps.launchCache instanceof Map ? deps.launchCache : null;
+  const runProgs = deps.launchRunProgs || fromSupervisor(supervisorRunProgs(), 'a program the supervisor starts');
+  const key = JSON.stringify([pane, ownPath, max, fixed, ownProgs, fileList, configDirs, shared, temps, runProgs]);
+  let scan = cache ? cache.get(key) : undefined;
+  if (!scan) { scan = scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs, shared, temps, runProgs }); if (cache) cache.set(key, scan); }
+  // A folder that is the agent's own, inside it, or ABOVE it (review 2: denying an ancestor would deny the agent's own
+  // folder) cannot be covered. Review 7: compared without case on macOS and Windows, whose disks usually ignore it (a
+  // not-yet entry keeps the case it was typed in); that only ever reports more as uncoverable.
+  const fold = plat === 'darwin' || plat === 'win32' ? (x) => x.toLowerCase() : (x) => x;
+  const ownF = fold(own);
+  const rel = (r, o) => r === o || r.startsWith(o + path.sep) || o.startsWith(r === path.sep ? r : r + path.sep);
+  const uncoverable = (real) => rel(fold(real), ownF);
+  // A written spelling is compared with the agent folder as written too (/var against /private/var, review 11).
+  const ownW = fold(path.resolve(agentDir));
+  const aliasBad = (w) => rel(fold(w), ownF) || rel(fold(w), ownW);
+  const inOwn = (r) => r === ownF || r.startsWith(ownF + path.sep);
+  const dirs = [];
+  const aliases = [];
+  const linkNames = [];
+  const patAliases = [];
+  const unsafe = [...missed, ...scan.unsafe];
+  for (const c of scan.cands) {
+    if (c.kind === 'middle') {
+      /* A link to a folder on the way: no rule (scanLaunch says why). Held inside the agent folder the agent can repoint
+         it (review 9): not whole. Held in a temp folder, the sandboxed shell can: said. Held anywhere else, neither the
+         file tools nor the shell can replace it. */
+      const r = fold(c.real);
+      if (inOwn(r)) unsafe.push(`${c.shown} (a link on its way is held in the agent's own folder)`);
+      else if (c.inTemp && !rel(r, ownF)) unsafe.push(`${c.shown} (a link on its way is held in ${c.real}, a temp folder the agent's shell can write)`);
+      continue;
+    }
+    if (c.kind === 'link') {
+      // A link to a file, by its own name, to the file tools. In the agent folder it is the agent's: not whole. In a
+      // temp folder the agent's shell could replace it (review 17): said, and still named.
+      if (inOwn(fold(c.link))) { unsafe.push(c.shown); continue; }
+      if (c.inTemp && !rel(fold(path.dirname(c.link)), ownF)) unsafe.push(`${c.shown} (a link on its way, ${c.link}, is in a temp folder the agent's shell can write)`);
+      if (!linkNames.includes(c.link)) linkNames.push(c.link);
+      continue;
+    }
+    if (c.kind === 'alias') {
+      // A second spelling of a file or file link, to the file tools; never one in or above the agent folder.
+      if (aliasBad(c.link)) continue;
+      // Review 21: a name the rules cannot carry: its folder, by this spelling, as the file itself falls back to.
+      const ad = path.dirname(c.link);
+      // Decided after the files below: only when the real file's folder was denied whole (never a shared one).
+      if (RULE_SYNTAX.test(path.basename(c.link))) { if (!RULE_SYNTAX.test(ad) && !aliasBad(ad)) patAliases.push(ad); continue; }
+      if (!linkNames.includes(c.link)) linkNames.push(c.link);
+      continue;
+    }
+    if (uncoverable(c.real)) { unsafe.push(c.shown); continue; }
+    if (!dirs.includes(c.real)) dirs.push(c.real);
+    // Review 11: an alias is checked like the folder (dropping one is safe: the real path is covered).
+    if (c.written && c.written !== c.real && !aliasBad(c.written) && !aliases.includes(c.written)) aliases.push(c.written);
+  }
+  const files = [];
+  for (const f of scan.files) {
+    const r = fold(f.real);
+    if (r === ownF || r.startsWith(ownF + path.sep)) { unsafe.push(f.shown); continue; }   // a file in the agent's own folder
+    /* Review 21: a file whose own NAME has a character the rules read as a pattern (Homebrew's coreutils ships "g[")
+       cannot be named in a file-tool rule. Its folder is denied whole instead, when that folder can be named and is not
+       shared, above or the agent's own; otherwise the file stays (the shell layer keeps it; the file-tool rule is
+       dropped and said). */
+    const d = path.dirname(f.real);
+    if (RULE_SYNTAX.test(path.basename(f.real)) && !RULE_SYNTAX.test(d) && !f.folderShared && !uncoverable(d)) {
+      if (!dirs.includes(d)) dirs.push(d);
+      continue;
+    }
+    /* Review 23 (MEASURED): a program's own file goes to the file tools only. The sandbox refuses a profile past 64 KB of
+       data (5,000 file paths failed every command; 500 added about 40 ms to each), deny lists only grow with upgrades,
+       and the sandboxed shell cannot write outside the agent folder and the temp folders anyway. A program file in a
+       temp folder is therefore said. The files the start reads (few, fixed) keep both layers. */
+    if (f.prog) {
+      if (f.inTemp && !rel(fold(d), ownF)) unsafe.push(`${f.shown} (it ends in ${f.real}, in a temp folder the agent's shell can write)`);
+      if (!linkNames.includes(f.real)) linkNames.push(f.real);
+      continue;
+    }
+    if (!files.includes(f.real)) files.push(f.real);
+  }
+  for (const ad of patAliases) if (dirs.includes(realOrLeaf(ad)) && ad !== realOrLeaf(ad) && !aliases.includes(ad)) aliases.push(ad);
+  // Review 10: one uncoverable folder can name every program in it; the reason is kept readable.
+  const said = [...new Set(unsafe)];
+  const UNSAFE_SHOWN = 40;
+  if (said.length > UNSAFE_SHOWN) said.splice(UNSAFE_SHOWN, said.length - UNSAFE_SHOWN, `(and ${said.length - UNSAFE_SHOWN} more)`);
+  return { dirs, aliases, files, linkNames, unsafe: said };
+}
+/* The agent-independent half of launchPathDirs: every candidate folder in order, as { real, shown, written }, and what
+   cannot be covered whatever the agent (an empty or relative pane entry, an unlistable folder, the scan cap). */
+function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs, shared, temps, runProgs = [] }) {
+  const cands = [];
+  const files = [];
+  const unsafe = [];
+  /* Review 9: a path is resolved one name at a time, so a link ANYWHERE along it (not only at its end) is seen: the
+     folder holding that link decides where the path leads, so it is covered too (or, if it is the agent's own, the
+     guard says it cannot cover it). `holders` keeps, for each path, the folders holding the links passed through.
+     Review 8: memoized per path, so a folder scanned once is not walked again for each program in it. */
+  const walked = new Map();
+  const lst = new Map();
+  const lstatOf = (q) => { if (!lst.has(q)) { let st = null; try { st = fs.lstatSync(q); } catch { /* not there */ } lst.set(q, st); } return lst.get(q); };
+  /* Review 10: names are taken as written, never folded first. The system follows a link and THEN applies a later
+     "..", to the link's target, so ".." here steps up from the folder already reached, and a link target is joined
+     as text (path.resolve would fold "lnk/.." away before the link was followed). */
+  const under = (base, t) => (path.isAbsolute(t) ? t : (base.endsWith(path.sep) ? base + t : base + path.sep + t));
+  const walk = (q, depth) => {
+    const abs = path.isAbsolute(q) ? q : path.resolve(q);
+    if (walked.has(abs)) return walked.get(abs);
+    let cur = path.parse(abs).root;
+    const holders = [];
+    let bad = null;
+    for (const part of abs.slice(cur.length).split(path.sep).filter(Boolean)) {
+      if (part === '.') continue;
+      if (part === '..') { cur = path.dirname(cur); continue; }
+      const nxt = path.join(cur, part);
+      const st = lstatOf(nxt);
+      if (st && st.isSymbolicLink()) {
+        if (depth >= LINK_HOPS_MAX) { bad = 'a link chain too long to follow'; cur = nxt; continue; }
+        // Review 15: each link on the way, by its own name as well as the folder holding it.
+        { const d = realOrLeaf(cur); holders.push({ dir: d, link: path.join(d, part) }); }
+        let t;
+        try { t = fs.readlinkSync(nxt); } catch { bad = 'a link that could not be read'; cur = nxt; continue; }
+        const w = walk(under(cur, t), depth + 1);
+        holders.push(...w.holders);
+        if (w.bad) bad = w.bad;
+        cur = w.real;
+      } else cur = nxt;
+    }
+    // Review 11: the disk's own spelling (letter case) once links are followed, as the sandbox matches it.
+    const out = { real: realOrLeaf(cur), holders, bad };
+    walked.set(abs, out);
+    return out;
+  };
+  /* Review 16: WHAT is denied, and how widely.
+     - A FOLDER whose contents run by name (a PATH folder, the folder of a program the supervisor starts by path, the
+       launchd jobs folder): denied whole, in both layers.
+     - A program's own FILE, where its link chain ends (or the exact name a dangling link points at): denied by name, in
+       both layers. Not its folder: that can be a project the agent works in, or a package tree.
+     - A LINK TO A FILE on that chain: denied by its own name, to the file tools only. Writing through the link writes
+       the file it leads to, and how a rule on the link's own path is matched by the sandbox is not measured.
+     - A LINK TO A FOLDER on the way (a "middle" link): no rule. A rule naming it would cover the whole folder it leads
+       to (the rules read paths as gitignore does), the file tools cannot replace a link, and the sandboxed shell
+       writes only in the agent folder and the temp folders. So a middle link held INSIDE the agent folder makes the
+       guard not whole (review 9), and one held in a temp folder is said; elsewhere nothing is needed. */
+  const middle = (w, shown) => { for (const h of w.holders) cands.push({ kind: 'middle', real: h.dir, link: h.link, shown }); };
+  const push = (q, shown, written, noScan) => {
+    const w = walk(q, 0);
+    if (w.bad) unsafe.push(`${shown} (${w.bad})`);
+    cands.push({ kind: 'dir', real: w.real, shown, written, noScan });
+    middle(w, shown);
+    return w.real;
+  };
+  const realDir = (d) => walk(d, 0).real;
+  // The folder a name sits in, as the system reaches it, with its middle links checked.
+  const folderOf = (q, shown) => {
+    const w = walk(path.dirname(q), 0);
+    if (w.bad) unsafe.push(`${shown} (${w.bad})`);
+    middle(w, shown);
+    return w.real;
+  };
+  /* Follow one name to where its chain ends: each file link by its own name, the final file by its name. `inCovered`:
+     the name sits in a folder already denied whole, so it needs no rule of its own. */
+  /* Review 17: a file or file link reached THROUGH a folder link has a second spelling (the one written through the
+     link). It is named too, to the file tools only, as folders are (review 5), so the spellings that already exist do
+     not depend on how Claude Code matches a linked path. A NEW spelling the agent makes itself (a soft link in its own
+     folder or in temp) still does: the #4491 residual this card carries, recorded in the plan. Only a spelling with no
+     . or .. names (path.resolve would fold them by text). */
+  const alias = (p, real, shown) => {
+    if (p === real || p.split(path.sep).some((x) => x === '.' || x === '..')) return;
+    cands.push({ kind: 'alias', link: p, shown });
+  };
+  const follow = (p0, shown, inCovered, prog) => {
+    let p = p0;
+    for (let hop = 0; ; hop++) {
+      const covered = hop === 0 && inCovered;
+      let st;
+      try { st = fs.lstatSync(p); } catch {   // dangling (review 13): what is later made at that exact name runs
+        const at = folderOf(p, shown);
+        if (!wholeDirs.has(at)) { files.push({ real: path.join(at, path.basename(p)), shown, prog }); alias(p, path.join(at, path.basename(p)), shown); }
+        return;
+      }
+      if (st.isDirectory()) return;   // a folder, not a program (its own name is not run)
+      const at = covered ? null : folderOf(p, shown);
+      const named = at !== null && !wholeDirs.has(at);
+      if (!st.isSymbolicLink()) { if (named) { files.push({ real: path.join(at, path.basename(p)), shown, prog }); alias(p, path.join(at, path.basename(p)), shown); } return; }
+      /* Review 19: a link that leads to a FOLDER is never named, wherever it sits on the chain: a rule on its name would
+         cover everything under it (a link to /tmp would deny the whole temp folder). It is a middle link: no rule, and
+         said only where the agent can replace it. */
+      let toFolder = false;
+      try { toFolder = fs.statSync(p).isDirectory(); } catch { /* dangling or unreadable: followed below */ }
+      if (toFolder) { if (at !== null) cands.push({ kind: 'middle', real: at, link: path.join(at, path.basename(p)), shown }); return; }
+      if (named) { cands.push({ kind: 'link', link: path.join(at, path.basename(p)), shown }); alias(p, path.join(at, path.basename(p)), shown); }
+      if (hop >= LINK_HOPS_MAX) { unsafe.push(`${shown} (a link chain too long to follow)`); return; }
+      let t;
+      try { t = fs.readlinkSync(p); } catch { unsafe.push(`${shown} (a link that could not be read)`); return; }
+      p = under(realDir(path.dirname(p)), t);   // as text: a ".." in it applies after the link (review 10)
+    }
+  };
+  // Review 5: each covered folder's spelling as written (a link, /var for /private/var), so the file-tool rules can name
+  // both and do not depend on how Claude Code matches a linked path. The sandbox layer gets the resolved one.
+  const add = (e, strict) => {
+    if (!e || !path.isAbsolute(e)) { if (strict) unsafe.push(e === '' ? '(an empty entry)' : e); return; }
+    // The written spelling is an alias only when it has no . or .. names (path.resolve would fold them by text).
+    push(e, e, e.split(path.sep).some((x) => x === '.' || x === '..') ? undefined : path.resolve(e));
+  };
+  for (const e of fixed) add(e, true);
+  /* Review 3 (W3b): what the supervisor starts by ABSOLUTE path from folders that may be off the pane PATH: the engine
+     scripts and the supervisor itself (this install's engine and bin, and the installed supervisor's folder), node (this
+     process's own binary), the browser tool's tree, and claude's and tmux's folders (review 8, passed by the
+     supervisor). The guard runs from the same install, so most of these are its own folders. */
+  for (const e of ownProgs) add(e, true);
+  // The pane's PATH is held strictly. This process's own (review 2) skips empty and relative entries quietly; an absolute
+  // one that cannot be covered is still reported.
+  if (typeof pane === 'string') for (const e of pane.split(path.delimiter)) add(e, true);
+  if (typeof ownPath === 'string') for (const e of ownPath.split(path.delimiter)) add(e, false);
+  // Review 11: folders whose files the next start READS as instructions (the launchd jobs): covered, never scanned.
+  for (const d of configDirs) push(d, d, undefined, true);
+  // Each program in a scanned folder, followed to where it ends (review 7, 16). A name in a folder already denied whole
+  // needs no rule of its own.
+  const wholeDirs = new Set(cands.filter((c) => c.kind === 'dir').map((c) => c.real));
+  const scanned = new Set();
+  for (const { kind, real: d, noScan } of [...cands]) {
+    if (kind !== 'dir' || noScan || scanned.has(d)) continue;
+    scanned.add(d);
+    let names = [];
+    try { names = fs.readdirSync(d); } catch (e) {
+      // Review 7: a folder that is missing has nothing to run; one that cannot be listed still runs its programs by name.
+      // (A file named on PATH, ENOTDIR, runs nothing either.)
+      if (!(e && (e.code === 'ENOENT' || e.code === 'ENOTDIR'))) unsafe.push(`${d} (could not be listed: ${(e && e.code) || e})`);
+      continue;
+    }
+    if (names.length > max) { unsafe.push(`${d} (more than ${max} entries; the rest were not checked, and which ones is not known)`); names = names.slice(0, max); }
+    for (const n of names) follow(path.join(d, n), path.join(d, n), true, true);
+  }
+  /* Review 19: the programs the supervisor starts by absolute path (claude, tmux, node) end their chains in a store of
+     versions that an update repoints into mid-session; that folder is denied whole, so a version written there after
+     the guard was written is covered too. A shared folder still is not (the filter below says so). */
+  // (A link here that cannot be read, or a chain too long, ends this quietly: the same program is also scanned through
+  // its folder in KOSMOS_GUARD_RUN_DIRS, where follow() says so.)
+  for (const prog of runProgs) {
+    let q = prog;
+    for (let hop = 0; hop <= LINK_HOPS_MAX; hop++) {
+      let st;
+      try { st = fs.lstatSync(q); } catch { break; }
+      if (!st.isSymbolicLink()) { if (st.isFile()) push(path.dirname(q), prog); break; }
+      let t;
+      try { t = fs.readlinkSync(q); } catch { break; }
+      q = under(realDir(path.dirname(q)), t);
+    }
+  }
+  // Review 12: a file the next start reads, followed the same way (a dotfile kept in another tree).
+  for (const f of fileList) follow(f, f, false, false);
+  /* Review 13 and 14: a shared folder (or one that holds one) is never denied whole; a folder whose contents run that
+     leads into one is said. Each shared folder in every spelling: as given, resolved, and with only its parent
+     resolved (a shared folder that is itself a link, as /tmp is, is reached by name through its resolved parent). */
+  const sharedList = [...new Set((shared || []).filter(Boolean).flatMap((d) => [path.resolve(d), realOrLeaf(d), path.join(realOrLeaf(path.dirname(path.resolve(d))), path.basename(d))]))];
+  const holds = (r) => sharedList.some((d) => d === r || d.startsWith(r === path.sep ? r : r + path.sep));
+  const tempList = [...new Set((temps || []).filter(Boolean).flatMap((d) => [path.resolve(d), realOrLeaf(d)]))];
+  const inTemp = (r) => tempList.some((t) => r === t || r.startsWith(t + path.sep));
+  const kept = [];
+  for (const c of cands) {
+    if (c.kind === 'dir' && holds(c.real)) { unsafe.push(`${c.shown} (it leads into ${c.real}, which is or holds a shared folder that is not denied whole)`); continue; }
+    // A middle link held in a temp folder (where the sandboxed shell CAN write): decided per agent.
+    // Review 17: a file link held in a temp folder too (the shell could replace it; link names reach the file tools only).
+    const tempHeld = (c.kind === 'middle' && inTemp(c.real)) || (c.kind === 'link' && inTemp(path.dirname(c.link)));
+    kept.push(tempHeld ? Object.assign({}, c, { inTemp: true }) : c);
+  }
+  // Review 21: whether a file's folder is or holds a shared one, for the pattern-name fallback above.
+  return { cands: kept, unsafe, files: files.map((f) => Object.assign({}, f, RULE_SYNTAX.test(path.basename(f.real)) ? { folderShared: holds(path.dirname(f.real)) } : {}, f.prog ? { inTemp: inTemp(path.dirname(f.real)) } : {})) };
+}
+/*
+ * #4491: the deny rules and sandbox filesystem paths for a TOKEN-ONLY agent (one listed in
+ * sendertoken.tokenOnlyFile). Unlike the guide, a token-only agent is a normal working agent, so its
+ * own data folder is NOT denied -- only:
+ *  - board.token (Read), and its temp copy, in EVERY root tokenOnlyTokenRoots returns, so the shell
+ *    cannot read the board token slice 9 (#4864) already stops it SENDING; this stops it READING;
+ *  - the settings.json / settings.local.json it could plant to turn its own guard off (Edit): in its
+ *    own folder, and in the per-account config homes the adversarial pass found -- ~/.claude AND the
+ *    ~/.claude-* variants (CLAUDE_CONFIG_DIR, e.g. ~/.claude-account-f), which user settings can relax
+ *    the sandbox from where the agent-folder's cannot. Every ~/.claude-* account home that EXISTS is
+ *    enumerated and gets CONCRETE settings-file denies in BOTH layers (so a non-default-account agent's
+ *    real config home is covered by a measured file-write deny, not only the glob). A trailing
+ *    ~/.claude-* glob stays in the permission layer for a home created later. What is NOT measured is
+ *    whether Seatbelt translates a permission Edit-GLOB to a subprocess write (the guide's measurement
+ *    only proved a Read-glob -> subprocess read); that is why existing homes are made concrete, and the
+ *    glob-only future-home case is the reasoned residual the plan records.
+ * dataRoot/home are overridable for tests (guideDenyRulesFor does the same); production passes neither.
+ */
+function tokenOnlySettingsRules(dir, deps = {}) {
+  const home = deps.home || kosmosHome();
+  const dataRoot = deps.dataRoot || store.ROOT;
+  const tokenFile = require('./boardauth').TOKEN_FILE;
+  const settingsDir = path.join(dir, '.claude');
+  const rootsMissed = [];
+  const tokenRoots = tokenOnlyTokenRoots(dataRoot, home, deps, rootsMissed);
+  const tokenPaths = tokenRoots.map((r) => path.join(r, tokenFile));
+  const tokenTmps = tokenRoots.map((r) => path.join(r, '.' + tokenFile));
+  // Concrete config homes get a denyWrite on their settings FILES (not the whole dir: a config home holds
+  // Claude Code's own runtime state, so a dir-level denyWrite there would break normal operation).
+  const concreteHomes = accountConfigHomes(home);
+  const settingsFileDirs = [settingsDir, ...concreteHomes];
+  const settingsFiles = settingsFileDirs.flatMap((d) => [path.join(d, 'settings.json'), path.join(d, 'settings.local.json')]);
+  // Permission-layer Edit denies: the concrete homes above, plus a ~/.claude-* glob for a home made later.
+  const editTargets = [...settingsFiles.map((p) => ({ f: p })), { f: path.join(home, '.claude-*', 'settings.json') }, { f: path.join(home, '.claude-*', 'settings.local.json') }];
+  // #4491 review: the token paths, their temp copy and the token-only list are write-denied as well as
+  // read-denied (Claude Code's Edit rule covers every file-writing tool), and in the sandbox denyWrite below (the
+  // registry's own path there; its temp and lock names by the permission-layer .* glob only).
+  const listFile = require('./sendertoken').tokenOnlyFile();
+  // #4491 re-review (independent): the gate's list of worlds comes from the worlds registry, so the
+  // registry (and its temp and lock names) is write-denied too, and every world's store gets a glob, so a world
+  // added after this was written is covered as well. The `*` mid-path is the guide's rule shape (#4752, measured
+  // refused on Claude Code 2.1.285).
+  const worldRules = [];
+  const worldWrites = [];
+  try {
+    const base = deps.worldsBase !== undefined ? deps.worldsBase : guideWorldsBase();
+    if (base) {
+      const worlds = deps.worlds || require('./worlds');
+      const reg = worlds.registryPath(base);
+      worldRules.push(`Edit(${ruleAbs(reg)})`, `Edit(${ruleAbs(path.join(base, '.' + path.basename(reg)))}.*)`);
+      worldWrites.push(reg);
+      const worldsDir = path.join(base, worlds.WORLDS_SUBDIR);
+      for (const leaf of [store.APP, store.LEGACY_APP]) {
+        for (const verb of ['Read', 'Edit']) {
+          worldRules.push(`${verb}(${ruleAbs(worldsDir)}/*/${leaf}/${tokenFile})`, `${verb}(${ruleAbs(worldsDir)}/*/${leaf}/.${tokenFile}.*)`);
+        }
+      }
+    }
+  } catch { rootsMissed.push('the worlds registry'); }
+  // #4491 (post-rebase review): the undo copy store (engine/undo.js, #5153) holds copies of files the board read for an
+  // agent, so it is read-denied (a copy there must not be readable by the agent's shell) and write-denied (restore
+  // writes its records back out).
+  const undoDirs = tokenRoots.flatMap((r) => [path.join(r, 'undo'), path.join(r, 'undo-saved')]);
+  // Review 15: other agents' sender tokens (a token-only agent's own comes in its environment, KOSMOS_AGENT_TOKEN, and
+  // only the board reads this folder), and undo's on/off switch file, which turning off deletes every kept copy.
+  const tokenDirs = tokenRoots.map((r) => path.join(r, 'sendertokens'));
+  const undoSwitches = tokenRoots.map((r) => path.join(r, 'undo.json'));
+  // Review 11: whatever happens in the scan, the rest of the guard is still written, and the guard says it is not whole.
+  let launch;
+  try { launch = launchPathDirs(dir, deps); } catch (e) { launch = { dirs: [], aliases: [], files: [], linkNames: [], unsafe: ['(the launch folders could not be worked out: ' + ((e && e.message) || e) + ')'] }; }
+  const deny = [
+    ...tokenPaths.map((p) => `Read(${ruleAbs(p)})`),
+    ...undoDirs.map((d) => `Read(${ruleAbs(d)}/**)`),
+    ...undoDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),   // review 2: a forged record there is what restore writes out
+    ...tokenDirs.map((d) => `Read(${ruleAbs(d)}/**)`),
+    ...tokenDirs.map((d) => `Edit(${ruleAbs(d)}/**)`),
+    ...undoSwitches.map((f) => `Edit(${ruleAbs(f)})`),
+    ...tokenTmps.map((p) => `Read(${ruleAbs(p)}.*)`),
+    ...tokenPaths.map((p) => `Edit(${ruleAbs(p)})`),
+    ...tokenTmps.map((p) => `Edit(${ruleAbs(p)}.*)`),
+    `Edit(${ruleAbs(listFile)})`,
+    ...worldRules,
+    ...editTargets.map((t) => `Edit(${ruleAbs(t.f)})`),
+  ];
+  /* #5516 (review 3): the launch folders' file-tool rules are kept OUT of the filter below. A launch folder whose path
+     has a rule-pattern character (an installed "App (Beta)") must not stop the WHOLE guard from being written: its rule
+     is left out and the folder reported in launchUnsafe (the guard then says it is not whole), while the sandbox layer
+     still carries its concrete path (launchDirs, below). */
+  const launchRules = [];
+  const launchUnsafe = [...launch.unsafe];   // a copy: launchPathDirs caches its answer for the whole refresh pass
+  for (const d of [...launch.dirs, ...(launch.aliases || [])]) {
+    const r = `Edit(${ruleAbs(d)}/**)`;
+    if (ruleHasPatternChar(r)) launchUnsafe.push(`${d} (its path has a character the permission rules cannot carry)`);
+    else launchRules.push(r);
+  }
+  // Review 15: links denied by their own name, to the file tools only (see launchPathDirs).
+  for (const l of launch.linkNames || []) {
+    const r = `Edit(${ruleAbs(l)})`;
+    if (ruleHasPatternChar(r)) launchUnsafe.push(`${l} (its path has a character the permission rules cannot carry)`);
+    else launchRules.push(r);
+  }
+  for (const f of launch.files || []) {
+    const r = `Edit(${ruleAbs(f)})`;
+    if (ruleHasPatternChar(r)) launchUnsafe.push(`${f} (its path has a character the permission rules cannot carry)`);
+    else launchRules.push(r);
+  }
+  /* #4491 review 14: a path with a character the rule syntax reads as a pattern (the guide's #4752 RULE_SYNTAX) would
+     misparse the rule, or make Claude Code reject the whole file. Such a rule is dropped and said on the board log; the
+     sandbox layer still carries the concrete path. The globs this function adds itself are taken out before testing. */
+  let tokenRuleDropped = false;
+  const safeDeny = deny.filter((r) => {
+    if (!ruleHasPatternChar(r)) return true;
+    process.stderr.write(`#4491: no rule ${r}: its path has a character the rule syntax reads as a pattern\n`);
+    tokenRuleDropped = true;   // reviews 16 and 17: ANY dropped rule leaves part of the guard out (a token read, or its own self-protection)
+    return false;
+  });
+  safeDeny.push(...launchRules);
+  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites, undoDirs, tokenDirs, undoSwitches, launchDirs: launch.dirs, launchFiles: launch.files || [], launchUnsafe };
+}
+
+/*
+ * #4491: write a token-only agent's <folder>/.claude/settings.json so a sandboxed shell in it cannot
+ * read board.token and cannot turn its own guard off, while its normal work (its own data folder, the
+ * loopback board, the network) still works. Mirrors guardGuideFolder's read-merge-write (preserve a
+ * person's own rules, idempotent, never throw, tmp+rename). On macOS (where Claude Code's sandbox is
+ * Seatbelt and this was measured) the sandbox block applies the same deny paths to every subprocess;
+ * the filesystem.denyWrite is what stops a shell `printf > settings.json` that the permission Edit-deny
+ * alone does not (measured, this branch's spike arm 3). It denies the AGENT's own .claude DIR (safe:
+ * Claude Code writes no runtime state there) but only the specific settings FILES under the config home
+ * ~/.claude (NOT the whole dir: that holds Claude Code's own session/config state, so a dir-level
+ * denyWrite there would break normal operation). Every ~/.claude-<label> account home that EXISTS when the
+ * guard is written gets the same concrete settings-file denies in both layers (tokenOnlySettingsRules); a
+ * home made later is covered only by the permission-layer ~/.claude-* glob until the next board start
+ * rewrites the guard. The board.token temp copy is covered by the permission-layer Read deny, which Seatbelt
+ * translates to subprocesses (measured for the guide: its permission Read-glob blocked a subprocess read
+ * with EPERM). The person's own user settings are never edited; refreshTokenOnlyGuards logs any sandbox
+ * key there that weakens this guard (review 21). allowUnsandboxedCommands false stops a
+ * refused command being re-run with dangerouslyDisableSandbox (every Kosmos agent runs
+ * --dangerously-skip-permissions); allowLocalBinding true keeps the loopback board reachable.
+ *
+ * NOT A BOUNDARY, honestly (#4491 review WARNING 2): this raises the bar for an agent's shell and its file
+ * tools. It does not shut out a determined agent running as the same Mac user, managed settings or not:
+ * the file tools can still rewrite a hook script its settings already run, its own launch job or the
+ * supervisor script, or drop a LaunchAgent that runs at next login, and a hardlink of the token outside
+ * the denied path is a further residual. Root-owned MANAGED settings (an admin step, parked on the card)
+ * stop it editing this guard away, nothing more. refreshTokenOnlyGuards warns when they are absent.
+ * { ok: true } | { ok: false, because }. Never throws.
+ */
+function guardTokenOnlyFolder(dir, agentName, deps = {}) {
+  try {
+    if (!dir || !agentName) return { ok: false, because: 'no folder' };
+    // #4491 review WARNING 1: this guard is a Claude Code settings file. Codex runs with its approvals and
+    // sandbox bypassed, and Gemini, Grok, Antigravity and Muse never read it, so writing it for them guarded
+    // nothing while every caller reported it guarded. Say so instead. The caller names the runner; an
+    // unknown one is not assumed to be Claude.
+    const runner = deps.runner;
+    if (runner !== 'claude') return { ok: false, unsupported: true, because: 'only Claude agents can be kept from reading the board token so far; this agent runs on ' + (runner || 'an unknown runner') };
+    /* Review 24: on Windows Claude Code matches rules against a POSIX form of the path (//c/...), and the rules here
+       are written with the native spelling, so a deny may never match. Not measured on Windows, so the guard says it
+       cannot keep the token out there yet rather than reporting a guard that may hold nothing. */
+    if ((deps.platform || process.platform) === 'win32') return { ok: false, unsupported: true, because: 'on Windows this guard has not been shown to hold yet, so Kosmos does not claim it' };
+    const settingsDir = path.join(dir, '.claude');
+    fs.mkdirSync(settingsDir, { recursive: true });
+    const file = path.join(settingsDir, 'settings.json');
+    let cur = {};
+    let raw = null;
+    try { raw = fs.readFileSync(file, 'utf8'); } catch { raw = null; }
+    if (raw !== null) {
+      let parsed;
+      try { parsed = JSON.parse(raw); } catch { parsed = undefined; }
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) cur = parsed;
+      else {
+        /* Review 18: a file that does not parse is not silently replaced: a dated copy is kept beside it and the board
+           log says so, then the guard is written (an unguarded agent is the worse outcome). */
+        const keep = `${file}.unreadable-${Date.now()}`;
+        try { fs.writeFileSync(keep, raw, { mode: 0o600 }); } catch { /* the log still says it */ }
+        process.stderr.write(`#4491: ${file} could not be read as settings; kept a copy at ${keep} and wrote the guard\n`);
+      }
+    }
+    const rules = tokenOnlySettingsRules(dir, deps);
+    /* Reviews 16 and 17: a rule that could not be written leaves part of the guard out (the board.token read, or the
+       Edit rules that keep the agent from editing its own guard away), so the guard is NOT in place: say so (create then
+       refuses; the refresh lists the agent as unguarded). Rename or move the folder whose path holds the character. */
+    // Review 22: as with a dropped rule, a store or registry that could not be worked out leaves a token place unguarded.
+    if (rules.rootsMissed && rules.rootsMissed.length) return { ok: false, because: 'Kosmos could not work out where ' + rules.rootsMissed.join(', ') + ' keep the board token, so the guard cannot be written whole' };
+    if (rules.tokenRuleDropped) return { ok: false, because: 'a folder path (the agent, its home or Kosmos) has a character the permission rules cannot carry, so the guard cannot be written whole' };
+    // Review 16: off macOS no sandbox block is written: said at create time as well as at board start.
+    if ((deps.platform || process.platform) !== 'darwin' && !deps.atLaunch) process.stderr.write('#4491 note: off macOS ' + agentName + ' gets permission rules only (its shell is not sandboxed)\n');
+    const perms = cur.permissions && typeof cur.permissions === 'object' && !Array.isArray(cur.permissions) ? cur.permissions : {};
+    const had = Array.isArray(perms.deny) ? perms.deny.filter((r) => typeof r === 'string') : [];
+    const deny = [...new Set([...had, ...rules.deny])];
+    /* Review 24: permissions.additionalDirectories widens where the sandboxed shell may write, as allowWrite does, so
+       it goes too (Kosmos never writes it for an agent) and the board log says so. */
+    const { additionalDirectories: _dropDirs, ...permsKept } = perms;
+    if (_dropDirs !== undefined) console.error(`token-only guard: removed permissions.additionalDirectories from ${file}; a token-only agent's shell may not write outside its folder`);
+    const next = { ...cur, permissions: { ...permsKept, deny } };
+    if ((deps.platform || process.platform) === 'darwin') {
+      const sb = cur.sandbox && typeof cur.sandbox === 'object' && !Array.isArray(cur.sandbox) ? cur.sandbox : {};
+      const net = sb.network && typeof sb.network === 'object' && !Array.isArray(sb.network) ? sb.network : {};
+      const fsb = sb.filesystem && typeof sb.filesystem === 'object' && !Array.isArray(sb.filesystem) ? sb.filesystem : {};
+      const dr = Array.isArray(fsb.denyRead) ? fsb.denyRead.filter((x) => typeof x === 'string') : [];
+      const dw = Array.isArray(fsb.denyWrite) ? fsb.denyWrite.filter((x) => typeof x === 'string') : [];
+      // Canonicalize the paths: Seatbelt matches resolved paths, so a symlinked data dir or
+      // /var -> /private/var would otherwise slip a denyRead/denyWrite (the guide realOr's its own
+      // folder for the same reason). The token files and the home settings files often do not exist
+      // yet, so use realOrLeaf (resolves the existing parent, keeps the absent leaf) rather than realOr,
+      // which would leave a symlinked parent un-followed. The agent's own .claude was just mkdir'd, so
+      // realOr resolves it directly.
+      const denyReadPaths = [...rules.tokenPaths.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf)];
+      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile), ...rules.worldWrites.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf), ...(rules.undoSwitches || []).map(realOrLeaf), ...(rules.launchDirs || []), ...(rules.launchFiles || [])];
+      // NEVER add an allowWrite for the Kosmos store, the worlds base or the home here (the independent re-review): the
+      // shell's write scope is what covers a world created mid-session until the agent's next start, so a fix
+      // for 'the sandbox limits normal work' must widen it somewhere else, never to those.
+      /* #4491 whole-branch review: keys already in this file survive the merge, and some undo the guard: commands that
+         run outside the sandbox (excludedCommands) and paths re-opened inside a deny (filesystem allowRead / allowWrite).
+         A token-only agent's settings are Kosmos's, so those are dropped here, at every refresh. Review 22: so are the
+         Unix-socket allowances, since a socket can reach a server outside the sandbox that runs commands for its
+         caller (tmux, which every agent runs in, is one). */
+      const { excludedCommands: _dropExcluded, ...sbKept } = sb;
+      const { allowRead: _dropAllowRead, allowWrite: _dropAllowWrite, ...fsbKept } = fsb;
+      const { allowUnixSockets: _dropSockets, allowAllUnixSockets: _dropAllSockets, ...netKept } = net;
+      const dropped = [['sandbox.excludedCommands', _dropExcluded], ['sandbox.filesystem.allowRead', _dropAllowRead], ['sandbox.filesystem.allowWrite', _dropAllowWrite],
+        ['sandbox.network.allowUnixSockets', _dropSockets], ['sandbox.network.allowAllUnixSockets', _dropAllSockets]]
+        .filter(([, v]) => v !== undefined).map(([k]) => k);
+      // Review 10: a dropped key may have been the person's own (a repo the agent wrote to): say so, never silently.
+      if (dropped.length) console.error(`token-only guard: removed ${dropped.join(', ')} from ${file}; a token-only agent's shell may not run outside the sandbox or reopen a denied path`);
+      next.sandbox = {
+        ...sbKept, enabled: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false,
+        network: { ...netKept, allowLocalBinding: true },
+        filesystem: {
+          ...fsbKept,
+          denyRead: [...new Set([...dr, ...denyReadPaths])],
+          denyWrite: [...new Set([...dw, ...denyWritePaths])],
+        },
+      };
+    }
+    const text = JSON.stringify(next, null, 2) + '\n';
+    if (text !== raw) {   // review 20: an unchanged guard is not rewritten at every board start
+      const tmp = `${file}.${process.pid}.new`;
+      fs.writeFileSync(tmp, text, 'utf8');
+      try { fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* gone */ } throw e; }   // review 24
+    }
+    cleanLocalSettings(path.join(settingsDir, 'settings.local.json'));
+    // #5516 review 1: the guard is written in full first; a PATH entry it could not cover only makes it NOT WHOLE (said),
+    // never a reason to write nothing.
+    if (rules.launchUnsafe && rules.launchUnsafe.length) return { ok: false, because: 'the PATH this agent starts with has an entry Kosmos could not cover (' + rules.launchUnsafe.join(', ') + '); the rest of the guard is in place' };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, because: String((err && err.message) || err) };
+  }
+}
+
+/* #4491: Claude Code's root-owned managed-settings file on macOS. With the right content (the sandbox on, unsandboxed
+   commands off, the board.token deny), it makes the token-only guard durable: the agent's uid cannot write this path.
+   Installing it is an admin step, parked on the card. This code only checks that the file EXISTS (review 15: not its
+   content), so a missing warning means "a managed file is there", not "the guard is durable". */
+const MANAGED_SETTINGS_PATH = '/Library/Application Support/ClaudeCode/managed-settings.json';
+function managedSettingsPresent(platform = process.platform) {
+  if (platform !== 'darwin') return false;   // managed-settings is a macOS/Seatbelt concept here
+  try { return fs.existsSync(MANAGED_SETTINGS_PATH); } catch { return false; }
+}
+
+const STARTS_A_PROCESS = ['hooks', 'statusLine', 'apiKeyHelper', 'mcpServers', 'enableAllProjectMcpServers', 'enabledMcpjsonServers'];
+
+/* #4491 review 11: settings.local.json in the agent's .claude takes precedence over settings.json, and a token-only
+   agent may have written one before the guard existed. The keys that would undo the guard are removed from it too (a
+   sandbox switched off, unsandboxed commands allowed, commands run outside it, paths reopened), logged, and the file
+   rewritten only when something changed. A file that does not parse is left as it is. A failure to rewrite it
+   throws on purpose (review 12): the guard then reports not ok, because keys left there could undo it. */
+function cleanLocalSettings(file) {
+  let cur;
+  try { cur = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return; }
+  if (!cur || typeof cur !== 'object') return;
+  /* Review 22: keys that start a process when the agent next starts (outside the sandbox) are the person's call and
+     #5516's scope; Kosmos never writes this file, so any here was put there by someone. Said, not removed. */
+  const starts = STARTS_A_PROCESS.filter((k) => cur[k] !== undefined);
+  if (starts.length) process.stderr.write(`#4491: ${file} has ${starts.join(', ')}, which start a process outside the sandbox when the agent starts; Kosmos left them\n`);
+  const dropped = [];
+  if (cur.permissions && typeof cur.permissions === 'object' && cur.permissions.additionalDirectories !== undefined) {
+    delete cur.permissions.additionalDirectories; dropped.push('permissions.additionalDirectories');   // review 24
+  }
+  /* Review 23: an ALLOWLIST, not a list of known-bad keys and values: this file outranks the guard's settings.json,
+     so a value of another type ("false", 0) or a sandbox key Claude Code adds later could still undo it. The guard
+     writes the whole sandbox block in settings.json; all this file may add is more denies. */
+  const sb = cur.sandbox === undefined ? undefined : cur.sandbox && typeof cur.sandbox === 'object' && !Array.isArray(cur.sandbox) ? cur.sandbox : null;
+  if (sb === undefined) { /* no sandbox block */ } else if (!sb) { delete cur.sandbox; dropped.push('sandbox'); } else {
+    for (const k of Object.keys(sb)) {
+      if (k !== 'filesystem') { delete sb[k]; dropped.push('sandbox.' + k); continue; }
+      const f = sb.filesystem;
+      if (!f || typeof f !== 'object' || Array.isArray(f)) { delete sb.filesystem; dropped.push('sandbox.filesystem'); continue; }
+      for (const fk of Object.keys(f)) {
+        if ((fk === 'denyRead' || fk === 'denyWrite') && Array.isArray(f[fk])) continue;
+        delete f[fk]; dropped.push('sandbox.filesystem.' + fk);
+      }
+    }
+  }
+  if (!dropped.length) return;
+  const tmp = `${file}.${process.pid}.new`;
+  fs.writeFileSync(tmp, JSON.stringify(cur, null, 2) + '\n', 'utf8');
+  try { fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* gone */ } throw e; }   // review 24
+  console.error(`token-only guard: removed ${dropped.join(', ')} from ${file}; they would undo the guard`);
+}
+
+/* #4491: at board start, guard every agent currently listed in agent-token-only.json, so a pilot listed
+   before this shipped (echo) is guarded from its next session without a re-create. Warns (once per board
+   start, no cross-start dedup) when the root-owned managed belt is absent (the durable close is the
+   parked admin step). workerDir is overridable for tests. { guarded: [names], unguarded: [{ name, because }], managed: boolean }. Never throws. */
+function refreshTokenOnlyGuards(deps = {}) {
+  const platform = deps.platform || process.platform;
+  const out = { guarded: [], unguarded: [], managed: managedSettingsPresent(platform) };
+  let names;
+  try { names = require('./sendertoken').tokenOnlyList(); } catch { return out; }   // the roster's own reader (#4491)
+  // Review 22: the supervisor guards ONE listed agent at its launch (a name listed after board start), not them all.
+  if (deps.only) { names = names.filter((n) => n === deps.only); deps = { ...deps, atLaunch: true }; }   // review 23: notes said at board start, not each launch
+  if (!(deps.launchCache instanceof Map)) deps = { ...deps, launchCache: new Map() };   // #5516: one PATH scan per pass
+  const toDir = deps.workerDir || create.workerDir;
+  for (const name of names) {
+    let dir = null;
+    try { dir = toDir(name); } catch { dir = null; }
+    let runner = null;
+    try { runner = deps.runnerOf ? deps.runnerOf(name) : create.recordedRunner(name); } catch { runner = null; }
+    /* Review 11: never CREATE a folder for a listed name. A name can be listed before its agent is made, or stay
+       listed after removal; guarding would make <name>/.claude, and an existing folder refuses creating that name. */
+    const exists = dir ? (() => { try { return fs.statSync(dir).isDirectory(); } catch { return false; } })() : false;
+    const g = exists ? guardTokenOnlyFolder(dir, name, { ...deps, runner }) : { ok: false, because: 'no agent folder yet' };
+    if (g.ok) out.guarded.push(name); else out.unguarded.push({ name, because: g.because });
+  }
+  /* Review 21: the person's own user settings (~/.claude, ~/.claude-<label>) also reach a token-only agent. They are
+     the person's, so the guard never edits them; it says when one holds a key that weakens the sandbox. Board start
+     only, not at each launch (review 22). */
+  if (out.guarded.length && !deps.only) {
+    for (const h of accountConfigHomes(deps.home || kosmosHome())) {
+      for (const f of ['settings.json', 'settings.local.json']) {
+        let j = null;
+        try { j = JSON.parse(fs.readFileSync(path.join(h, f), 'utf8')); } catch { continue; }
+        const sb = j && j.sandbox && typeof j.sandbox === 'object' ? j.sandbox : {};
+        const weak = [];
+        if (j && j.permissions && j.permissions.additionalDirectories !== undefined) weak.push('permissions.additionalDirectories');   // review 24
+        // Review 22: only the list keys, which merge across files; enabled and allowUnsandboxedCommands are single values
+        // the agent's own guard sets, and it outranks these files.
+        if (sb.excludedCommands !== undefined) weak.push('excludedCommands');
+        if (sb.network && (sb.network.allowUnixSockets !== undefined || sb.network.allowAllUnixSockets !== undefined)) weak.push('Unix-socket allowances');
+        if (sb.filesystem && (sb.filesystem.allowRead !== undefined || sb.filesystem.allowWrite !== undefined)) weak.push('filesystem allowRead/allowWrite');
+        if (weak.length) process.stderr.write(`#4491: ${path.join(h, f)} (your own Claude settings) has sandbox ${weak.join(', ')}, which also reaches token-only agents and can weaken their guard\n`);
+      }
+    }
+  }
+  /* Review 12: a listed name with no agent folder (not made yet, or removed and still listed) is a note, not a guard
+     failure: nothing is running under that name to guard. */
+  const failed = out.unguarded.filter((u) => u.because !== 'no agent folder yet');
+  const noFolder = out.unguarded.filter((u) => u.because === 'no agent folder yet');
+  if (failed.length) {
+    process.stderr.write('#4491: ' + failed.length + ' token-only agent(s) NOT guarded from reading the board token: '
+      + failed.map((u) => u.name + ' (' + u.because + ')').join('; ') + '\n');
+  }
+  if (noFolder.length) process.stderr.write('#4491 note: listed as token-only but no agent folder (nothing to guard yet): ' + noFolder.map((u) => u.name).join(', ') + '\n');
+  // The managed-belt warning is a macOS-only concern: off darwin no sandbox block is written and
+  // managed-settings does not apply, so warning there would be misleading.
+  if (out.guarded.length && platform === 'darwin' && !out.managed && !deps.only) {   // board start only, not each launch (review 22)
+    process.stderr.write('#4491: ' + out.guarded.length + ' token-only agent(s) guarded by per-agent settings only; the root-owned managed-settings belt is absent, so the guard is defense-in-depth (see card #4491).\n');
+  }
+  return out;
 }
 
 /* #3769, for a guide made before it: add the secrets section to its instructions if it has none (its
@@ -1043,6 +1889,8 @@ module.exports = {
   ruleUnwritable,
   migrateKept,
   finalDeny,
+  boardCredentialPaths,
+  ruleHasPatternChar,
   SETUP_ROLE_KEY,
   GUIDE_CREATED_BY,
   GUIDE_PURPOSE_PREFIXES,
@@ -1050,6 +1898,11 @@ module.exports = {
   armSetupAssistant,
   guideDenyRules,
   guardGuideFolder,
+  guardTokenOnlyFolder,
+  realOrLeaf,
+  refreshTokenOnlyGuards,
+  launchPathDirs,
+  managedSettingsPresent,
   refreshGuideGuards,
   armExistingInstall,
   listedModels,

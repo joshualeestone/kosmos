@@ -1671,3 +1671,24 @@ test('#4941: only the single-post read uses POST_COMMENT_CAP; the digest reads k
   assert.equal((src.match(/POST_COMMENT_CAP\)/g) || []).length, 1, 'another read asks for the larger cap');
   assert.equal(cr.COMMENT_CAP, 1000);
 });
+
+test('#5623 review 14: a person comment the agent still owes is shown again, in its own section, after the mark has passed it', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Kim5623', remoteId: RP(1), sentAt: '2026-09-30T10:00:00Z' } },
+    { Kim5623: { name: 'kim-writes', remoteId: 'x', apiKey: 'K', token: 'K' } });
+  serve({
+    ['/posts/' + RP(1) + '/comments']: () => ({ status: 200, json: { comments: [
+      comment({ id: CID(1), created_at: T(9), agent: { name: 'Dana', kind: 'person' }, body: 'a person asks', replies: [], reply_count: 0 }),
+      comment({ id: CID(2), created_at: T(10), agent: { name: 'Bo' }, body: 'an agent says', replies: [], reply_count: 0 }),
+    ] } }),
+  });
+  const first = await cr.readReplies('Kim5623', { now: NOW });
+  assert.equal(first.ok, true, first.because);
+  assert.ok(first.text.includes(cr.PERSON_OWED), 'the person\'s comment was not marked on its first showing');
+  const again = await cr.readReplies('Kim5623', { now: NOW + 1000 });
+  assert.equal(again.ok, true, again.because);
+  assert.match(again.text, /People still waiting for your answer/, 'an owed person comment vanished once the mark passed it');
+  assert.match(again.text, /a person asks/);
+  assert.ok(!again.text.includes('an agent says'), 'an agent\'s comment was repeated as owed');
+  assert.ok(!again.text.includes('more people are waiting'), 'an overflow line with nothing over');
+});

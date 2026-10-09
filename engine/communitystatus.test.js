@@ -363,7 +363,8 @@ test('#5415: a refused agent\'s sent post still links; taken down, unconfirmed a
   const by = Object.fromEntries(status.itemsFor('ava').map((x) => [x.title, x]));
   assert.equal(by['Sent then refused'].state, 'sent_refused', 'fixture');
   assert.ok(by['Sent then refused'].link, 'CONTROL: a post that is in the community lost its link');
-  assert.deepEqual(['Taken down', 'Unconfirmed', 'Refused'].map((t) => by[t].state), ['taken_down', 'unconfirmed', 'refused'], 'fixture');
+  // #5636: a refused agent's unconfirmed post is never asked about again, so it has its own words (and still no link).
+  assert.deepEqual(['Taken down', 'Unconfirmed', 'Refused'].map((t) => by[t].state), ['taken_down', 'unconfirmed_refused', 'refused'], 'fixture');
   for (const t of ['Taken down', 'Unconfirmed', 'Refused']) assert.equal(by[t].link, undefined, t + ' was given a link (state ' + by[t].state + ')');
 });
 
@@ -410,4 +411,78 @@ test('#5415 review 1: a comment on a post id that is not a plain id is refused a
   const r = feedpublish.publishServiceComment({ kind: 'community_post', agent: 'ava', at: new Date().toISOString(), body: 'Odd parent.', servicePostId: 'not/a plain id' }, { agentId: 'ava' });
   assert.equal(r.ok, false, 'an odd parent id was stored: ' + JSON.stringify(r));
   assert.equal(status.itemsFor('ava').length, 0);
+});
+
+/* #5636 F3b (0.7.27 model feedback): "sent, but the community did not confirm it" left the agent wondering. Each
+   unconfirmed line now says whether and when Kosmos checks again (communitysend.test.js holds the send layer to it). */
+test('#5636: an unconfirmed post says Kosmos asks again on its next pass and the line will change', () => {
+  const p = post('ava', 'Unsure post');
+  writeJson(cs._paths.sentFile(), { [p.id]: { state: 'pending', attempted: true, agent: 'ava' } });
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'k' } });
+  assert.equal(stateOfTitle('ava', 'Unsure post'), 'unconfirmed', 'fixture');
+  const t = status.statusText('ava').text;
+  assert.match(t, /"Unsure post".*: sent, but the community has not confirmed it yet\. Kosmos asks again on its next pass, within a few minutes, and this line changes once it knows; it may already be there, so do not post it again$/m);
+});
+
+test('#5636: a refused agent\'s unconfirmed post promises no check; an ordinary one does (control)', () => {
+  const p = post('ava', 'Refused unsure');
+  writeJson(cs._paths.sentFile(), { [p.id]: { state: 'pending', attempted: true, agent: 'ava' } });
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'k' } });
+  assert.match(status.statusText('ava').text, /asks again on its next pass/, 'CONTROL: not refused');
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'k', refused: true } });
+  assert.equal(stateOfTitle('ava', 'Refused unsure'), 'unconfirmed_refused');
+  const t = status.statusText('ava').text;
+  assert.doesNotMatch(t, /asks again/, 'a refused agent was promised a check that never runs');
+  assert.match(t, /"Refused unsure".*it has since refused this agent, so Kosmos cannot ask about it again and this will not change; it may already be there, so do not post it again$/m);
+});
+
+test('#5636 review 2: no key, or an address Kosmos does not send to: no promise of a check; CONTROL: with a key, the promise', (tc) => {
+  const p = post('ava', 'Unasked post');
+  writeJson(cs._paths.sentFile(), { [p.id]: { state: 'pending', attempted: true, agent: 'ava' } });
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'k' } });
+  assert.equal(stateOfTitle('ava', 'Unasked post'), 'unconfirmed', 'CONTROL: with a key it is asked about');
+  for (const keys of [{}, { ava: {} }]) {
+    writeJson(cs._paths.keysFile(), keys);
+    assert.equal(stateOfTitle('ava', 'Unasked post'), 'unconfirmed_unasked', JSON.stringify(keys));
+    const t = status.statusText('ava').text;
+    assert.doesNotMatch(t, /asks again/, 'promised a check with keys ' + JSON.stringify(keys));
+    assert.match(t, /"Unasked post".*Kosmos cannot ask about it just now; this line changes once it can\. It may already be there, so do not post it again$/m);
+  }
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'k' } });
+  const was = process.env.AGENT_WORKFORCE_COMMUNITY_URL;
+  tc.after(() => { if (was === undefined) delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; else process.env.AGENT_WORKFORCE_COMMUNITY_URL = was; });
+  process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'http://community.example.com';   // not https and not local: never sent to
+  // Send records are kept per address, so the record is written again under this one.
+  writeJson(cs._paths.sentFile(), { [p.id]: { state: 'pending', attempted: true, agent: 'ava' } });
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'k' } });
+  assert.equal(cs.endpointAllowed(), false, 'fixture: the address is still one Kosmos sends to (it must not be)');
+  assert.equal(stateOfTitle('ava', 'Unasked post'), 'unconfirmed_unasked');
+});
+
+test('#5636: an unconfirmed comment says it will not change and names the read that can find it; a queued one does not', () => {
+  const POST = '7a1b2c3d-0000-4000-8000-000000000001';
+  const c = comment('ava', 'Unsure comment.');
+  comment('ava', 'Queued comment.');
+  writeJson(cs._paths.commentsSentFile(), { [c.id]: { state: 'pending', attempted: true, agent: 'ava', post: POST } });
+  assert.equal(stateOfTitle('ava', 'Unsure comment.'), 'unconfirmed', 'fixture');
+  assert.equal(stateOfTitle('ava', 'Queued comment.'), 'queued', 'fixture');
+  const lines = status.statusText('ava').text.split('\n');
+  const at = lines.findIndex((l) => l.includes('"Unsure comment."'));
+  assert.match(lines[at], /Kosmos has no way to ask about a comment later, so this will not change; it may already be there, so do not send it again$/);
+  assert.equal(lines[at + 1], '  look for it under the post with: kosmos community read --post ' + POST + ' (in a long thread it may be past the comments shown)');
+  const q = lines.findIndex((l) => l.includes('"Queued comment."'));
+  assert.ok(q >= 0, 'CONTROL: the queued comment is listed');
+  assert.ok(!(lines[q + 1] || '').includes('read --post'), 'a queued comment was sent to look for itself');
+});
+
+test('#5636 review 3: the key that decides is the record\'s own agent\'s (a retired account\'s post is asked about with its key)', () => {
+  const p = post('ava', 'Retired post');
+  const RET = 'retired:ava:2026-10-01T00:00:00Z';
+  writeJson(cs._paths.sentFile(), { [p.id]: { state: 'pending', attempted: true, agent: RET } });
+  // The reader (a new ava) has no key yet; the retired account still has one, and settleUnconfirmed asks with it.
+  writeJson(cs._paths.keysFile(), { [RET]: { apiKey: 'old' } });
+  assert.equal(stateOfTitle('ava', 'Retired post'), 'unconfirmed', 'the reader\'s missing key was read as the record\'s');
+  // CONTROL: the record's own agent with no key is the unasked case.
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'new' } });
+  assert.equal(stateOfTitle('ava', 'Retired post'), 'unconfirmed_unasked', 'the reader\'s key was read as the record\'s');
 });
