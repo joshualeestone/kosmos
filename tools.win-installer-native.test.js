@@ -1006,5 +1006,5 @@ test('#5645: the scratch base is the LONG form even when TEMP is spelled as an 8
   assert.ok(short, 'cmd did not print a short form: ' + (r.error ? r.error.message : (r.stderr || 'status ' + r.status)));
   if (short.toLowerCase() === long.toLowerCase()) { t.skip('this volume keeps no 8.3 names, so there is no short form to expand'); return; }
   // The arm that broke CI: a short-form base must expand to exactly the long form the product reports.
-  assert.strictEqual(fs.realpathSync.native(short).toLowerCase(), long.toLowerCase());
+  assert.strictEqual(fs.realpathSync.native(short), long);  // exact: the other tests compare the product's text exactly
 });
