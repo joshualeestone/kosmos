@@ -6507,6 +6507,16 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tkact + .tkact { border-top: 1px solid var(--k-rule); }
 .tkact time { flex: 0 0 auto; min-width: 96px; color: var(--label-2); font-size: .8rem; }
 .tkact .tkact-what { flex: 1; min-width: 0; }
+/* kosmos#5643: a run of runs that found nothing new is one row; pressing it shows each. */
+.tkact-roll { border-top: 1px solid var(--k-rule); }
+.tkact-roll:first-child { border-top: 0; }
+.tkact-roll > summary { cursor: pointer; list-style: none; }
+.tkact-roll > summary::-webkit-details-marker { display: none; }
+.tkact-roll > summary .tkact-what::before { content: '\25B8\00A0'; }   /* a disclosure mark the flex row would otherwise lose */
+.tkact-roll[open] > summary .tkact-what::before { content: '\25BE\00A0'; }
+.tkact-roll > summary .tkact-what { color: var(--label-2); }
+.tkact-roll .tkact-rows { padding-left: 18px; }
+.tkact-roll + .tkact, .tkact + .tkact-roll { border-top: 1px solid var(--k-rule); }
 /* #5153 slice 3: Profile's Recent work rows: the task's sentence over a muted line. */
 .dwork-list { display: flex; flex-direction: column; }
 .dwork-row { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 9px 0; color: inherit; font: inherit; cursor: pointer; }
@@ -59779,6 +59789,14 @@ function tskRepeatSentence(t, now) {
     const ago = agoWords(now - Date.parse(t.lastRunAt));
     const who = t.lastRunByPerson === true ? 'you' : t.lastRunBy ? tskAgentName(t.lastRunBy) : '';   // review 5: a flag, never the name 'operator'
     s += ' Last run ' + (ago || 'just now') + (who ? ' by ' + who : '') + (t.lastRunLate === true ? ', late' : '') + (t.lastRunNote ? ': ' + t.lastRunNote : '') + '.';
+    /* kosmos#5643: how many runs in a row found nothing new, and when (and what) the last change was. */
+    const same = Number(t.unchangedRuns);
+    if (same >= 1) {
+      s += ' ' + (same === 1 ? 'It found nothing new' : 'The last ' + same + ' runs found nothing new');
+      const changedAt = Date.parse(t.lastChangeAt || '');
+      if (Number.isFinite(changedAt)) s += '; the last change was ' + (agoWords(now - changedAt) || 'just now') + (t.lastChangeNote ? ': ' + t.lastChangeNote : '');
+      s += '.';
+    }
   } else if (!missed) {
     s += ' No run reported yet.';   // #5444 (Mona Lisa): after "Missed 3 runs" it said the same thing twice
   }
@@ -60782,7 +60800,7 @@ function tkActPhrase(ev, p) {
     // kosmos#4787: a recurring task's rule, and each run its owner reported (kosmos task ran).
     case 'repeat-set': return ev.words ? 'Set to repeat ' + ev.words : 'Set to repeat';
     case 'repeat-cleared': return 'No longer repeats';
-    case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.late ? ', late' : '') + (ev.note ? ': ' + ev.note : ''); }
+    case 'run': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' ran it' : 'Ran') + (ev.late ? ', late' : '') + (ev.unchanged ? ', nothing new' : '') + (ev.note ? ': ' + ev.note : ''); }   // kosmos#5643: nothing new
     /* kosmos#4787 slice 3 (review 5): who reviews it, and a missed run with who was told. */
     case 'reviewer-set': return ev.person ? 'You will be told if a run is missed' : (nameOf(ev.who) || 'An agent') + ' will be told if a run is missed';
     case 'reviewer-cleared': return 'Nobody is told now if a run is missed';
@@ -61040,12 +61058,38 @@ async function paintTaskActivity(n) {
     return;
   }
   const now = Date.now();
-  holder.innerHTML = events.map((ev) => {
+  holder.innerHTML = tkActRowsHtml(events, p, now);
+}
+/* kosmos#5643: the history's rows. Two or more runs in a row that found nothing new (not late: lateness is news) are ONE
+   row, "N runs found nothing new", which opens to show each; a change, a late run and every other event keep their own
+   row. Pure over its inputs, so a test can lift it. */
+function tkActRowsHtml(events, p, now) {
+  const row = (ev) => {
     const at = Date.parse(ev.at);
     const when = Number.isFinite(at) ? agoWords(now - at) : '';
     return '<div class="tkact"><time datetime="' + esc(String(ev.at)) + '">' + esc(when) + '</time>'
       + '<span class="tkact-what">' + esc(tkActPhrase(ev, p)) + '</span></div>';
-  }).join('');
+  };
+  const quiet = (ev) => ev && ev.kind === 'run' && ev.unchanged === true && ev.late !== true;
+  const out = [];
+  for (let i = 0; i < events.length;) {
+    let j = i;
+    while (j < events.length && quiet(events[j])) j += 1;
+    if (j - i >= 2) {
+      const group = events.slice(i, j);
+      const last = group[group.length - 1];
+      const at = Date.parse(last.at);
+      const when = Number.isFinite(at) ? agoWords(now - at) : '';
+      out.push('<details class="tkact-roll"><summary class="tkact"><time datetime="' + esc(String(last.at)) + '">' + esc(when) + '</time>'
+        + '<span class="tkact-what">' + esc(group.length + ' runs found nothing new') + '</span></summary>'
+        + '<div class="tkact-rows">' + group.map(row).join('') + '</div></details>');
+      i = j;
+    } else {
+      out.push(row(events[i]));
+      i += 1;
+    }
+  }
+  return out.join('');
 }
 function openTaskPage(n) {
   const p = pjById(PJ_CURRENT);

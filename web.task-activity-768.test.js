@@ -79,7 +79,7 @@ test.before(() => {
    `events`. Returns the #tk-activity element so a test can read its innerHTML. */
 async function render(events, { openNum, fetchOk = true } = {}) {
   const src = [fnSource('esc'), fnSource('agoWords'), fnSource('tkMemberName'),
-    fnSource('tkActPhrase'), fnSource('paintTaskActivity')].join('\n');
+    fnSource('tkActPhrase'), fnSource('tkActRowsHtml'), fnSource('paintTaskActivity')].join('\n');
   const acts = { innerHTML: '' };
   const doc = { getElementById: (id) => (id === 'tk-activity' ? acts : null) };
   const fetchStub = async () => ({
@@ -186,7 +186,7 @@ test('the guard also fires at the SECOND await (res.json), not only after fetch'
   // this. TK_OPEN is read as a free global here so the stub can flip it mid-call
   // (the real page reads the `let TK_OPEN` global the same way).
   const src = [fnSource('esc'), fnSource('agoWords'), fnSource('tkMemberName'),
-    fnSource('tkActPhrase'), fnSource('paintTaskActivity')].join('\n');
+    fnSource('tkActPhrase'), fnSource('tkActRowsHtml'), fnSource('paintTaskActivity')].join('\n');
   const acts = { innerHTML: '' };
   const doc = { getElementById: (id) => (id === 'tk-activity' ? acts : null) };
   const prev = globalThis.TK_OPEN;
