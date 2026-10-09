@@ -474,3 +474,19 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   handling; my probes did not use either and passed, the suite caught it.
 - Stated: the "listed this tick" first-sight clause has no test of its own (it is exercised by every test that lists an
   agent, but removing it is not caught); backticks are not kept inside their word as $( ) now is.
+
+## Review 37 (sonnet), all fixed unless stated
+- CORRECTION to the review-36 commit message, which said "five mutations each turn their test red": true of the five I
+  ran, but the r36 withdrawal test ticked between, which drained the queue, so it passed with the queue clearing, the
+  queue-entry filter, or the send-size check removed. Replaced by direct tests (markWithdrawn on a written state;
+  _readState, exported for this, on bad entries and send sizes). Each verified red by mutation.
+- Nothing pinned that a never-enrolled Kosmos writes no state: tested on an empty root, a corrupt file and enrolledAs
+  null.
+- isEnrolledHere is false on ANY read error, so a blip cleared the queue for good: withdrawIfStopped() marks only a
+  real stop (enrolled with no accepted words, a Leave pending, the enrollment file absent, a record naming another
+  world); a read that fails marks nothing. The server's timer and the tick call it. Tests for both blips and for
+  absence, each mutation-verified.
+- Stated: the "only a missing file, not any stat error" line is unpinned; every error that fails the stat (a
+  permission error on the store) also stops the state from being read, so markWithdrawn writes nothing and no test can
+  see it (a permission-error arm was written, found unable to fail, and removed). The server.js wiring test is a
+  source-text match: it pins the call, not the behaviour, and a reformat turns it red.

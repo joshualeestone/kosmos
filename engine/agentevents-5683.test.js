@@ -1148,7 +1148,7 @@ test('#5683 r36: refusals made while the Kosmos was not reporting (a Leave the c
     assert.ok(enr.length >= 1, 'no enrollment file found to remove');
     const saved = enr.map((f) => [f, fs.readFileSync(f)]);
     for (const [f] of saved) fs.rmSync(f);   // Leave pressed: the enrollment is cleared
-    if (arm === 'with') ae.markWithdrawn(s.root);   // what the server's timer does while it is not enrolled here
+    if (arm === 'with') ae.withdrawIfStopped({ root: s.root });   // what the server's timer does while it is not enrolled here
     append(s.file, use('left-' + arm, 'Bash', { command: 'x' }), result('left-' + arm, DENIED('x'), true));
     for (const [f, b] of saved) fs.writeFileSync(f, b);   // the company refused the Leave: the SAME record back
     await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
@@ -1161,22 +1161,70 @@ test('#5683 r36: refusals made while the Kosmos was not reporting (a Leave the c
 test('#5683 r36: the server timer marks the state withdrawn when this is not the work Kosmos', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const fn = src.slice(src.indexOf('function agentEventsTick()'), src.indexOf('function agentEventsTick()') + 1200);
-  assert.match(fn, /if \(!require\('\.\/engine\/orgenroll'\)\.isEnrolledHere\(\)\) \{ require\('\.\/engine\/agentevents'\)\.markWithdrawn\(\); return; \}/);
+  assert.match(fn, /if \(!require\('\.\/engine\/orgenroll'\)\.isEnrolledHere\(\)\) \{ require\('\.\/engine\/agentevents'\)\.withdrawIfStopped\(\); return; \}/);
 });
 
-test('#5683 r36: withdrawal keeps no queue, and a bad queue entry or send size is dropped on read', async (t) => {
-  const { s, c } = await enrolled(t);
-  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
-  const file = path.join(s.root, 'agent-events.json');
-  const st = JSON.parse(fs.readFileSync(file, 'utf8'));
-  st.pending = [null, 5, { at: 'x' }, { at: Math.floor(Date.now() / 1000), kind: 'refused' }];
-  st.sendMax = -3;
-  fs.writeFileSync(file, JSON.stringify(st));
-  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });   // does not throw on null
-  ae.markWithdrawn(s.root);
+test('#5683 r37: a withdrawal keeps no queue (checked directly, no tick in between)', (t) => {
+  /* Review 37: the r36 version ticked between, which drained the queue, so it passed with the clearing removed. */
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agentevents-5683-mw-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, 'agent-events.json');
+  fs.writeFileSync(file, JSON.stringify({ enrolledAs: 'x', withdrawn: false, offsets: {}, pending: [{ at: 1, kind: 'refused' }] }));
+  ae.markWithdrawn(root);
   const after = JSON.parse(fs.readFileSync(file, 'utf8'));
   assert.equal(after.withdrawn, true);
   assert.deepEqual(after.pending, [], 'a queue was kept after withdrawal');
+});
+
+test('#5683 r37: a bad queue entry or send size is dropped on read', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agentevents-5683-rs-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const good = { at: 5, kind: 'refused' };
+  for (const [sendMax, want] of [[-3, null], [0, null], [2.5, null], [4, 4]]) {
+    fs.writeFileSync(path.join(root, 'agent-events.json'), JSON.stringify({ pending: [null, 5, { at: 'x' }, good], sendMax }));
+    const st = ae._readState(root);
+    assert.deepEqual(st.pending, [good], 'a bad queue entry was kept');
+    assert.equal(st.sendMax, want, 'send size ' + sendMax);
+  }
+});
+
+test('#5683 r37: a Kosmos that was never enrolled writes no state', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agentevents-5683-ne-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, 'agent-events.json');
+  ae.withdrawIfStopped({ root });
+  ae.markWithdrawn(root);
+  assert.equal(fs.existsSync(file), false, 'a state file was created on a Kosmos never enrolled');
+  for (const body of ['not json', JSON.stringify({ enrolledAs: null, pending: [] })]) {
+    fs.writeFileSync(file, body);
+    ae.markWithdrawn(root);
+    assert.equal(fs.readFileSync(file, 'utf8'), body, 'a never-enrolled state was rewritten');
+  }
+});
+
+test('#5683 r37: a read that fails is not a Leave (nothing is marked); an absent enrollment is', async (t) => {
+  const { s, c } = await enrolled(t);
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  const file = path.join(s.root, 'agent-events.json');
+  const enr = path.join(s.root, oe.ENROLLMENT_FILE);
+  const wid = path.join(s.root, oe.WORLD_ID_FILE);
+  const keep = [fs.readFileSync(enr), fs.readFileSync(wid)];
+  const marked = () => JSON.parse(fs.readFileSync(file, 'utf8')).withdrawn === true;
+  // the world id cannot be read (a directory in its place): a blip
+  fs.rmSync(wid); fs.mkdirSync(wid);
+  ae.withdrawIfStopped({ root: s.root });
+  assert.equal(marked(), false, 'an unreadable world id marked the state withdrawn');
+  fs.rmdirSync(wid); fs.writeFileSync(wid, keep[1]);
+  // the enrollment cannot be read (a directory in its place): a blip
+  fs.rmSync(enr); fs.mkdirSync(enr);
+  ae.withdrawIfStopped({ root: s.root });
+  assert.equal(marked(), false, 'an unreadable enrollment marked the state withdrawn');
+  fs.rmdirSync(enr); fs.writeFileSync(enr, keep[0]);
+  fs.rmSync(enr);
+  // gone (a Leave removes the file): stopped
+  ae.withdrawIfStopped({ root: s.root });
+  assert.equal(marked(), true, 'an absent enrollment did not mark the state withdrawn');
+  fs.writeFileSync(enr, keep[0]);
 });
 
 test('#5683 r36: a halved send size resets once the backlog drains', async (t) => {

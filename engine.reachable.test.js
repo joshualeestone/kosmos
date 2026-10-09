@@ -20,6 +20,7 @@ const path = require('node:path');
 /* Test seams and re-exports, excused BY NAME WITH A REASON. An entry here is
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
+  _readState: 'engine/agentevents.js (#5683 slice 1, review 37): the state reader, so engine/agentevents-5683.test.js can check that a bad queue entry or send size is dropped on read without a tick in between (a tick drained the queue and hid the check).',
   _defaultSources: 'engine/agentevents.js (#5683 slice 1, review 17): the board\'s real sources, so engine/agentevents-5683.test.js can check its guard-in-force test against a folder guardTokenOnlyFolder actually wrote (a stub would agree with itself).',
   _chainWaitMs: 'engine/communitysend.js (#5623 Rule 2): a read-only view of agentCall\'s chain wait (chainWaitMs stays private), so engine/replynudge.assign-5623.test.js pins that every bad waitMs falls back to AGENT_WAIT_MS and that a caller omitting it keeps the old wait; agentCall itself is the production caller.',
   worldUsageByModel: 'engine/usage.js (#5532 E0.3): the scoped usage reader for the company rollup, landed and tested on its own first (as chunkBuffer above). Its caller is engine/orgrollup.js on the rollup branch, which reads it only under the consent words; remove this excuse when that lands.',
