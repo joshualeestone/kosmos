@@ -13,5 +13,10 @@ a refused mark. The person's mark from the screen is never refused; a task with 
   (`kosmos task done-when ... --clear`) and then mark bare. Checks the person set cannot be cleared by an agent.
   Closing it means refusing a bare mark after an agent cleared checks, which needs a reading of the history; left
   for a follow-up if it is seen.
+- Also not closed here, and older than this change (review 3): the person's mark is told apart from an agent's by
+  how the request arrives, so an agent that presents as the screen gets the person's mark. That boundary is the
+  board's, not this card's, and is tracked separately from this slice.
+- Review 3: a note of only zero-width or other format characters is no note; the example command sits in brackets so
+  a closing full stop is not copied into it; the help text says the note is how each check went.
 - Weakest premise: that requiring a note is enough. A note can still be untrue; it is a stated claim the person can
   read, which is what the feedback asked for ("a visible reason on built").

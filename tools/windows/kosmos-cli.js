@@ -99,7 +99,7 @@ const USAGE = {
     '      --part <part-number>                                     which part, when the task has several',
     '  kosmos task close <project-id> <task-number>                  close one (number is from list)',
     '  kosmos task message <project-id> <task-number> "<what to say>"  say something in a task\'s conversation',
-    '  kosmos task built <project-id> <task-number> ["what is left"]  mark it built, waiting to be released or checked',
+    '  kosmos task built <project-id> <task-number> ["note"]  mark it built; with checks, the note says how each went',
     '      --clear                                                  take the built mark off',
     '  kosmos task done-when <project-id> <task-number> "<check>" ["<check>" ["<check>"]]  say what finished means for it',
     '      --clear                                                  take its checks off',
@@ -975,7 +975,7 @@ function taskHoldAs(want) {
    off with --clear. Presents the agent token, as message does, so the board names who marked it. */
 async function taskBuilt(ctx, args) {
   const [project, num] = args;
-  if (!project || !num) { ctx.err('Usage: kosmos task built <project-id> <task-number> ["what is left"]   (or --clear to take the mark off)'); return 2; }
+  if (!project || !num) { ctx.err('Usage: kosmos task built <project-id> <task-number> ["note"]   (a note on how each check went, if it has checks; or --clear to take the mark off)'); return 2; }
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
   /* kosmos#4889, as install/kosmos: --clear is built's one option; any other --word is refused, and past a bare --
      everything is the note. */
@@ -985,7 +985,7 @@ async function taskBuilt(ctx, args) {
   for (const a of rest) {
     if (!past && a === '--') { past = true; continue; }
     if (!past && a === '--clear') { clear = true; continue; }
-    if (!past && /^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task built', 'Usage: kosmos task built <project-id> <task-number> ["what is left"]   (or --clear to take the mark off)', a); return 2; }
+    if (!past && /^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task built', 'Usage: kosmos task built <project-id> <task-number> ["note"]   (a note on how each check went, if it has checks; or --clear to take the mark off)', a); return 2; }
     words.push(a);
   }
   const note = words.join(' ');

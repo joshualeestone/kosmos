@@ -264,7 +264,7 @@ test('#5705: an agent marks a checked task built only with a note; the person fr
   const mona = sendertoken.mint('mona');
   const bare = await post(`/api/project/${projectId}/task/${n}/built`, {}, { 'x-kosmos-agent-token': mona.token });
   assert.equal(bare.status, 400, JSON.stringify(bare.json));
-  assert.match(bare.json.error, /this task has 2 done-when checks, so mark it built with a note saying how each went: kosmos task built \S+ \d+ '1 met\. 2 not met: <why>'$/);
+  assert.match(bare.json.error, /this task has 2 done-when checks, so mark it built with a note saying how each went \(kosmos task built \S+ \d+ '1 met\. 2 not met: <why>'\)$/);
   assert.equal('builtAt' in stored(n), false, 'a refused mark wrote the task');
   assert.ok(!taskchat.read(projectId, n).some((e) => e.kind === 'built'), 'a refused mark wrote a history line');
   const blank = await post(`/api/project/${projectId}/task/${n}/built`, { note: '   ' }, { 'x-kosmos-agent-token': mona.token });
@@ -278,12 +278,12 @@ test('#5705: an agent marks a checked task built only with a note; the person fr
   const m = tasks.create(projectId, { sentence: 'Checked, marked from a Mac', who: 'mona', doneWhen: ['it works'] }).number;
   const macOut = await mac(['task', 'built', projectId, String(m)], { KOSMOS_AGENT_TOKEN: mona.token });
   assert.notEqual(macOut.code, 0, macOut.out);
-  assert.match(macOut.out, /so mark it built with a note saying how it went: kosmos task built \S+ \d+ '1 met\.'/, macOut.out);
+  assert.match(macOut.out, /so mark it built with a note saying how it went \(kosmos task built \S+ \d+ '1 met\.'\)/, macOut.out);
   // Review 2: the Windows command shows the whole sentence too, and exits 1.
   const w = tasks.create(projectId, { sentence: 'Checked, marked from Windows', who: 'mona', doneWhen: ['a', 'b'] }).number;
   const winOut = await win(['task', 'built', projectId, String(w)], mona.token);
   assert.equal(winOut.code, 1, winOut.err);
-  assert.match(winOut.err, /so mark it built with a note saying how each went: kosmos task built \S+ \d+ '1 met\. 2 not met: <why>'/, winOut.err);
+  assert.match(winOut.err, /so mark it built with a note saying how each went \(kosmos task built \S+ \d+ '1 met\. 2 not met: <why>'\)/, winOut.err);
   assert.equal('builtAt' in stored(w), false);
   // CONTROL: a task with no checks still takes a bare agent mark, as before.
   const plain = newTask('No checks on this one');
