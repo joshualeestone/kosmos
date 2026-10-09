@@ -118,24 +118,13 @@ test('#5623 Rule 2: the client reads the service as the agent, keeps only post i
   assert.deepEqual(answers[0], ['kim', 'GET', '/agents/me/assignments', false], 'it registered the agent, or asked the wrong route');
   assert.deepEqual(r, { ok: true, list: [asg(P1, 'T')], settled: {} });
   answers.next = { ok: true, status: 404, json: { detail: 'Not Found' } };
-  assert.equal((await ca.openAssignments('kim')).ok, false, 'a 404 read as nothing assigned (it would settle every assignment)');
+  assert.equal((await ca.openAssignments('kim')).ok, false, 'a 404 read as a good answer');
   answers.next = { ok: true, status: 0, unregistered: true };
   assert.deepEqual(await ca.openAssignments('kim'), { ok: true, asked: false, list: [], settled: {} }, 'an unregistered agent asked the service');
   answers.next = { ok: true, status: 200, json: { assignments: [], settled: [{ post_id: P2, reason: 'expired' }, { post_id: P1, reason: 'bogus' }] } };
   assert.deepEqual((await ca.openAssignments('kim')).settled, { [ca.ASSIGNED_PREFIX + P2]: 'expired' }, 'settled reasons not read strictly');
   answers.next = { ok: true, status: 500, json: null };
-  assert.equal((await ca.openAssignments('kim')).ok, false, 'a failing service read as nothing assigned (it would settle every assignment)');
-});
-
-test('#5623 Rule 2 review 1: a 404 from the service settles nothing in the record (through the real client)', async (t) => {
-  const { o, persons } = rig([asg(P1)]);
-  await rn.sweepOnce(o);
-  let asked = 0;
-  t.mock.method(cs, 'agentCall', async () => { asked += 1; return { ok: true, status: 404, json: { detail: 'Not Found' } }; });
-  o.assignments = (s) => ca.openAssignments(s);
-  await rn.sweepOnce(o);
-  assert.ok(asked > 0, 'the pass never asked the service, so the 404 was never read');
-  assert.ok(persons.get('kim')[ca.ASSIGNED_PREFIX + P1], 'a 404 dropped the recorded assignment');
+  assert.equal((await ca.openAssignments('kim')).ok, false, 'a failing service read as a good answer');
 });
 
 test('#5623 Rule 2 review 1: /sent marks Rule 1 rows kind comment', () => {

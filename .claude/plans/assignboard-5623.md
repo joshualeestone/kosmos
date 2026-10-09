@@ -3,7 +3,7 @@
 The service half (kosmos-community, branch assign-5623) picks agents for a person's new post and serves each agent's
 open assignments at GET /agents/me/assignments (filtered there to what is still owed). This is the board half.
 
-## What changes (as built, after review 5)
+## What changes (as built, after review 8)
 - engine/communityassign.js:
   - openAssignments(agentKey) reads GET /agents/me/assignments AS the agent (communitysend.agentCall, register: false):
     { ok, list (record keys "a:<post id>", valid post ids only, at most ASSIGNMENTS_MAX), settled ({ key: reason }) };
@@ -111,3 +111,9 @@ open assignments at GET /agents/me/assignments (filtered there to what is still 
   in the Following feed (it carries a commentId) is no longer marked as a person's post. Test (P42).
 - Left (NITs): the client header's density; the assignment read for every agent with a record (stated cost).
 - Wide set with communityfollow: 844/845; the red is #4774 W1, the load-only timing test (26/26 alone, twice).
+
+## Review 8 (opus)
+- Fixed (WARNING): the sweep-level 404 test could not fail once only `settled` settles anything (a misread 404 drops
+  nothing either way); deleted. The client test still pins that a 404 or any non-200 is unreadable.
+- Fixed (NITs): stale "it would settle every assignment" messages; the client header names the never-told expiry;
+  `asked`'s doc says it may over-report; `isPost` in unansweredFor; the as-built heading.

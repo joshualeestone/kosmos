@@ -239,8 +239,8 @@ function unansweredFor(root, sessions) {
     const rec = readPersons(root, session);
     if (!rec || typeof rec !== 'object') continue;
     for (const [id, e] of Object.entries(rec)) {
-      const asg = communityassign.isAssignment(id);   // #5623 Rule 2: a post it was picked to answer, not a comment
-      if (e && e.unanswered === true) out.push({ agent: session, kind: asg ? 'post' : 'comment', post: e.remoteId || '', comment: asg ? '' : id, author: e.author || '', firstSeen: Number.isFinite(e.firstSeen) ? new Date(e.firstSeen).toISOString() : null });
+      const isPost = communityassign.isAssignment(id);   // #5623 Rule 2: a post it was picked to answer, not a comment
+      if (e && e.unanswered === true) out.push({ agent: session, kind: isPost ? 'post' : 'comment', post: e.remoteId || '', comment: isPost ? '' : id, author: e.author || '', firstSeen: Number.isFinite(e.firstSeen) ? new Date(e.firstSeen).toISOString() : null });
     }
   }
   return out;
