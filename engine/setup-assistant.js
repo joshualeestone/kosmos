@@ -821,12 +821,13 @@ function launchPathDirs(agentDir, deps = {}) {
   const dirs = [];
   const aliases = [];
   const linkNames = [];
+  const patAliases = [];
   const unsafe = [...missed, ...scan.unsafe];
   for (const c of scan.cands) {
     if (c.kind === 'middle') {
       /* A link to a folder on the way: no rule (scanLaunch says why). Held inside the agent folder the agent can repoint
-         it (review 9): not whole. Held in a shared folder below the agent folder, the sandboxed shell can: said. Held
-         anywhere else, neither the file tools nor the shell can replace it. */
+         it (review 9): not whole. Held in a temp folder, the sandboxed shell can: said. Held anywhere else, neither the
+         file tools nor the shell can replace it. */
       const r = fold(c.real);
       if (inOwn(r)) unsafe.push(`${c.shown} (a link on its way is held in the agent's own folder)`);
       else if (c.inTemp && !rel(r, ownF)) unsafe.push(`${c.shown} (a link on its way is held in ${c.real}, a temp folder the agent's shell can write)`);
@@ -842,7 +843,12 @@ function launchPathDirs(agentDir, deps = {}) {
     }
     if (c.kind === 'alias') {
       // A second spelling of a file or file link, to the file tools; never one in or above the agent folder.
-      if (!aliasBad(c.link) && !linkNames.includes(c.link)) linkNames.push(c.link);
+      if (aliasBad(c.link)) continue;
+      // Review 21: a name the rules cannot carry: its folder, by this spelling, as the file itself falls back to.
+      const ad = path.dirname(c.link);
+      // Decided after the files below: only when the real file's folder was denied whole (never a shared one).
+      if (RULE_SYNTAX.test(path.basename(c.link))) { if (!RULE_SYNTAX.test(ad) && !aliasBad(ad)) patAliases.push(ad); continue; }
+      if (!linkNames.includes(c.link)) linkNames.push(c.link);
       continue;
     }
     if (uncoverable(c.real)) { unsafe.push(c.shown); continue; }
@@ -854,8 +860,18 @@ function launchPathDirs(agentDir, deps = {}) {
   for (const f of scan.files) {
     const r = fold(f.real);
     if (r === ownF || r.startsWith(ownF + path.sep)) { unsafe.push(f.shown); continue; }   // a file in the agent's own folder
+    /* Review 21: a file whose own NAME has a character the rules read as a pattern (Homebrew's coreutils ships "g[")
+       cannot be named in a file-tool rule. Its folder is denied whole instead, when that folder can be named and is not
+       shared, above or the agent's own; otherwise the file stays (the shell layer keeps it; the file-tool rule is
+       dropped and said). */
+    const d = path.dirname(f.real);
+    if (RULE_SYNTAX.test(path.basename(f.real)) && !RULE_SYNTAX.test(d) && !f.folderShared && !uncoverable(d)) {
+      if (!dirs.includes(d)) dirs.push(d);
+      continue;
+    }
     if (!files.includes(f.real)) files.push(f.real);
   }
+  for (const ad of patAliases) if (dirs.includes(realOrLeaf(ad)) && ad !== realOrLeaf(ad) && !aliases.includes(ad)) aliases.push(ad);
   // Review 10: one uncoverable folder can name every program in it; the reason is kept readable.
   const said = [...new Set(unsafe)];
   const UNSAFE_SHOWN = 40;
@@ -1011,6 +1027,8 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs,
   /* Review 19: the programs the supervisor starts by absolute path (claude, tmux, node) end their chains in a store of
      versions that an update repoints into mid-session; that folder is denied whole, so a version written there after
      the guard was written is covered too. A shared folder still is not (the filter below says so). */
+  // (A link here that cannot be read, or a chain too long, ends this quietly: the same program is also scanned through
+  // its folder in KOSMOS_GUARD_RUN_DIRS, where follow() says so.)
   for (const prog of runProgs) {
     let q = prog;
     for (let hop = 0; hop <= LINK_HOPS_MAX; hop++) {
@@ -1039,7 +1057,8 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs,
     const tempHeld = (c.kind === 'middle' && inTemp(c.real)) || (c.kind === 'link' && inTemp(path.dirname(c.link)));
     kept.push(tempHeld ? Object.assign({}, c, { inTemp: true }) : c);
   }
-  return { cands: kept, unsafe, files };
+  // Review 21: whether a file's folder is or holds a shared one, for the pattern-name fallback above.
+  return { cands: kept, unsafe, files: files.map((f) => (RULE_SYNTAX.test(path.basename(f.real)) ? Object.assign({}, f, { folderShared: holds(path.dirname(f.real)) }) : f)) };
 }
 /*
  * #4491: the deny rules and sandbox filesystem paths for a TOKEN-ONLY agent (one listed in

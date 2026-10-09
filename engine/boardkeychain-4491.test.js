@@ -32,7 +32,10 @@ const TOKEN_FILE = require('./boardauth').TOKEN_FILE;
 fs.mkdirSync(store.ROOT, { recursive: true });
 // runner/runnerOf: the guard is a Claude Code settings file, so it now refuses an unnamed or non-Claude runner
 // (#4491 review WARNING 1); these tests name Claude unless they test that refusal.
-const DEPS = { platform: 'darwin', dataRoot: store.ROOT, home: process.env.AGENT_WORKFORCE_HOME, runner: 'claude', runnerOf: () => 'claude' };
+/* #5516 review 21: the launch-PATH part of the guard is pinned empty here, so these tests do not read this host's real
+   PATH, fixed folders or install (engine/launchpath-5516.test.js tests that part). */
+const LAUNCH_PIN = { panePath: path.join(SANDBOX, 'no-launch-path'), ownPath: '', launchFixed: [], ownProgramDirs: [], launchFiles: [], launchConfigDirs: [], launchTemps: [], launchRunProgs: [] };
+const DEPS = { platform: 'darwin', dataRoot: store.ROOT, home: process.env.AGENT_WORKFORCE_HOME, runner: 'claude', runnerOf: () => 'claude', ...LAUNCH_PIN };
 /* An agent's folder, made as creation makes it: the board-start refresh guards only agents that have one (review 11). */
 function agentDir(name) { const d = path.join(SANDBOX, 'workers', name); fs.mkdirSync(d, { recursive: true }); return d; }
 function readSettings(dir) { return JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8')); }

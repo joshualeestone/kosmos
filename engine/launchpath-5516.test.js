@@ -705,3 +705,26 @@ test('#5516 review 19: the folder a program the supervisor starts by path ends i
   const r2 = setup.launchPathDirs(agentDir('lp-rp'), { ...PIN, launchRunProgs: [], panePath: bin, ownPath: '' });
   assert.ok(!r2.dirs.includes(realOr(versions)) && r2.files.includes(path.join(realOr(versions), '1.0.0')), JSON.stringify(r2));
 });
+
+test('#5516 review 21: a program file whose NAME the rules cannot carry ("g[") has its folder denied whole, and the guard stays whole', () => {
+  const pd = binDir('pat-path');
+  const keg = binDir('pat-cellar/coreutils/9.5/bin');
+  fs.writeFileSync(path.join(keg, 'g['), '#!/bin/sh\n', { mode: 0o755 });
+  fs.symlinkSync(path.join(keg, 'g['), path.join(pd, 'g['));
+  const dir = agentDir('lp-pat');
+  const r = setup.guardTokenOnlyFolder(dir, 'lp-pat', { ...BASE, panePath: pd });
+  assert.deepEqual(r, { ok: true }, 'a pattern character in a program\'s name made the guard not whole: ' + JSON.stringify(r));
+  const s = readSettings(dir);
+  assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(realOr(keg))}/**)`) && s.sandbox.filesystem.denyWrite.includes(realOr(keg)), 'its folder is not denied whole');
+  // CONTROL: a plain program name in the same layout is denied by its file, not its folder.
+  const pd2 = binDir('pat-path-2');
+  const keg2 = binDir('pat-cellar/plain/1.0/bin');
+  fs.writeFileSync(path.join(keg2, 'tool'), '#!/bin/sh\n', { mode: 0o755 });
+  fs.symlinkSync(path.join(keg2, 'tool'), path.join(pd2, 'tool'));
+  const r2 = setup.launchPathDirs(agentDir('lp-pat'), { ...PIN, panePath: pd2, ownPath: '' });
+  assert.ok(!r2.dirs.includes(realOr(keg2)) && r2.files.includes(path.join(realOr(keg2), 'tool')), JSON.stringify(r2));
+  // A pattern-named file in a SHARED folder is not widened to that folder; it stays, and the guard says so.
+  const r3 = setup.launchPathDirs(agentDir('lp-pat'), { ...PIN, launchShared: [keg], panePath: pd, ownPath: '' });
+  assert.ok(!r3.dirs.includes(realOr(keg)) && r3.files.includes(path.join(realOr(keg), 'g[')), JSON.stringify(r3));
+  assert.ok(!r3.aliases.some((x) => realOr(x) === realOr(keg)), 'the shared folder was denied through its other spelling: ' + JSON.stringify(r3.aliases));
+});

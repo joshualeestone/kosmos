@@ -4,21 +4,28 @@ Stacked on boardkeychain-4491 (#5122); rebased onto main once that merges. Route
 Angel's private notes; this plan stays at the level of the class.
 
 ## Finished looks like
-A token-only Claude agent's own file tools and shell cannot write into the folders on the PATH it starts with, or
-the folders the programs there live in. Anything that cannot be covered makes the guard say it is not whole, and the
-rest of the guard is still written.
+A token-only Claude agent's own file tools and shell cannot change what its next start runs or reads as instructions:
+the programs on the PATH it starts with, the programs the supervisor starts by path, and the files and folders the start
+reads. Anything that cannot be covered makes the guard say it is not whole, and the rest of the guard is still written.
 
-## Built
-- engine/setup-assistant.js: launchPathDirs (the pane PATH from the supervisor, the board's own PATH, two fixed
-  folders, and the folders the programs on them live in); an Edit deny and a sandbox denyWrite for each.
-- bin/agent-supervisor.sh: abs_path_only cleans the pane PATH, and the pane and the guard are given the same one.
-- engine/launchpath-5516.test.js.
+## Built (the model settled in review 16, refined to review 21)
+- engine/setup-assistant.js: launchPathDirs and scanLaunch.
+  - A folder whose contents run by name is denied whole, in both layers: the PATH folders (the pane's, the board's own,
+    two fixed ones), the folders of what the supervisor starts by path, the folder the supervisor's own programs end
+    their chains in, the launchd jobs folder and the launch-secrets folder.
+  - A program's own file, where its link chain ends, is denied by name in both layers (its folder when its name has a
+    character the rules cannot carry). A link to a file, and a spelling written through a folder link, are named to the
+    file tools only. A link to a folder gets no rule.
+  - Shared folders are never denied whole; ancestors of the agent folder never at all.
+- bin/agent-supervisor.sh: abs_path_only cleans the pane PATH; the pane and the guard get the same one, and the guard
+  gets the supervisor's own folders and programs (KOSMOS_GUARD_*).
+- engine/launchpath-5516.test.js; engine/boardkeychain-4491.test.js pins the launch part so it does not read the host.
 
 ## Decided
 - Computed at each refresh (board start, and each launch with the pane's own PATH), not from a fixed list.
 - Never a partial write: an uncoverable entry is reported, the rest of the guard is written.
 - An ancestor of the agent folder is never denied (it would lock the agent out of its own work).
-- Deny lists merge, so a folder once covered stays covered (only narrows what the agent may write).
+- Deny lists merge, so a path once covered stays covered (only narrows what the agent may write).
 
 ## Review log
 - Round 1 (opus): 2 BLOCKER, 4 WARNING, 2 CONVENTION, 1 NIT. Fixed, or recorded privately for measurement.
@@ -285,3 +292,17 @@ rest of the guard is still written.
     spelling is evaluated in the test); a link held in the agent's own folder is said with its reason.
   - NOT CHANGED (nits): KOSMOS_GUARD_PANE_PATH also reaches the guard for runners that get no cleaned PATH (those
     return "unsupported" today); the walk memo caches a "too long" result (only reports more).
+- Round 21 (opus): 0 BLOCKER, 3 WARNING, 1 CONVENTION, 4 NIT.
+  - FIXED: a program file whose NAME has a character the rules cannot carry (Homebrew coreutils ships "g[" in a fixed
+    folder) made the guard never whole on any Mac with it, refusing every token-only creation. Its folder is now denied
+    whole instead, when that folder can be named and is not shared or the agent's; its other spelling likewise, only
+    when the real folder was denied. Tests with controls; four mutations fail.
+  - FIXED: boardkeychain-4491.test.js pins the launch part of the guard, so its "whole" assertions do not read this
+    host's PATH, fixed folders or install.
+  - FIXED (convention): the plan's summary describes the current model.
+  - DECIDED, residual: a whole PATH entry the guard declines to deny (a shared folder, or one reached through a folder
+    link in temp) stays on the pane PATH and is said in the log; the supervisor drops only what it can judge itself
+    (the agent folder, above it, not made yet, pattern names, dot names). Closing it means the guard handing the
+    supervisor a drop list, rejected in round 9 (it reorders the launch).
+  - FIXED (nits): a comment said "shared" for "temp"; the run-programs loop says why a bad link there is quiet. NOT
+    CHANGED: the no-token log line names every agent whose mint failed (its wording says "if it is listed").
