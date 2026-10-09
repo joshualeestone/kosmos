@@ -19,3 +19,28 @@ Rounds 1-10 each found WARNINGs, all fixed with tests; the commit for each round
 (git log origin/main..HEAD). Round 11 NIT accepted: an unparseable company-status answer keeps polling until the
 local clock ends the setup (bounded; a tunnel that answers in a shape this version does not know is an older/newer
 mismatch the page will show as expiry).
+
+### Per-Iteration Breakdown (every finding below was a WARNING and was FIXED with a test, unless marked)
+
+#### Iteration 1-4
+- [WARNING] Forget and sign-out left the company setup (and its secret) alive -> FIXED
+- [WARNING] two starts could race; status could run twice at once -> FIXED (single flight, keyed by setup)
+- [WARNING] the approval address was not required to be https on the coordinator's origin -> FIXED
+- [WARNING] start and status had no time bound -> FIXED (retireTimeoutMs)
+- [WARNING] the profile's CoordinatorURL could repoint the board -> FIXED (not read)
+- [WARNING] the setup lifetime and poll interval were taken unclamped from the server -> FIXED (60-3600s, 1-60s)
+- [WARNING] approval gives the server's setup fresh time, the board's clock did not follow -> FIXED
+- [WARNING] the second step was not passed to the tunnel; a missing match code was accepted -> FIXED
+#### Iteration 5-7
+- [WARNING] the clock could restart on every ready -> FIXED (once)
+- [WARNING] an Off pressed during the finish was undone -> FIXED (offEpoch, as the in-app register)
+- [WARNING] an older tunnel gave a meaningless error and polled forever -> FIXED (update Kosmos)
+- [WARNING] a finish refused as expired kept the setup for costly retries -> FIXED
+- [WARNING] success paths could clear a newer setup -> FIXED
+#### Iteration 8-10
+- [WARNING] the board's clock could end a setup the server still held (slow background tab) -> FIXED (120s grace)
+- [WARNING] sentence matching missed refusals that already spent the grant -> FIXED (one status ask)
+- [WARNING] a status poll during the finish read the spent grant as gone -> FIXED (own finish only)
+- [WARNING] the reinstall shortcut could record another account's email and switch its identity on -> FIXED (changes nothing)
+#### Iteration 11 (Sonnet)
+- [NIT] an unparseable status answer polls until the local clock ends the setup -> accepted (bounded)
