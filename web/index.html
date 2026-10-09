@@ -48904,16 +48904,17 @@ document.getElementById('plus-si-register-go').addEventListener('click', () => {
 let PLUS_CO_EPOCH = 0;
 let PLUS_CO_REFUSED = '';   // review 3: the second-step code just refused, never sent again unchanged
 let PLUS_CO_TEXTING = false;   // kosmos#5651 board reviews 1-2: a text request is out (Finish waits; asked once)
-let PLUS_CO_LEAD = '';
+let PLUS_CO_LEAD = '';           // board review 2: the coordinator's takeover words, kept for every text that follows
 let PLUS_CO_FINISHING = false;   // board review 3: a finish (a code being checked) is out
 let PLUS_CO_HOLD_UNTIL = 0;      // board review 3: the coordinator's "wait N seconds" ends at this time
-let PLUS_CO_TEXT_SEQ = 0;
-let PLUS_CO_FINISH_SEQ = 0;      // board review 5: only the newest finish clears FINISHING        // board review 3: only the newest text request clears TEXTING
+let PLUS_CO_TEXT_SEQ = 0;        // board review 3: only the newest text request clears TEXTING
+let PLUS_CO_FINISH_SEQ = 0;      // board review 5: only the newest finish clears FINISHING
+let PLUS_CO_SENT_MSG = '';       // board review 8: where the last text went, kept through a failed resend
 /* Board review 3: "Text me again" is set from these facts in one place, never saved and restored. */
 function plusCompanySyncResend() {
   const resend = document.getElementById('plus-si-company-resend');
   if (resend) resend.disabled = PLUS_CO_TEXTING || PLUS_CO_FINISHING || Date.now() < PLUS_CO_HOLD_UNTIL;
-}   // board review 2: the coordinator's takeover words, kept for every text that follows
+}
 async function plusCompanyManaged() {
   let r = null;
   try { const res = await fetch('/api/remote/managed', { cache: 'no-store' }); r = res.ok ? await res.json() : null; } catch { r = null; }
@@ -48942,6 +48943,7 @@ async function plusCompanyStart(btn) {
   PLUS_CO_TEXTING = false;
   PLUS_CO_FINISHING = false;
   PLUS_CO_HOLD_UNTIL = 0;
+  PLUS_CO_SENT_MSG = '';
   // Board review 5: a new setup starts with Finish free (an older request's late answer changes nothing). Review 6:
   // and no older request is ever "the newest" again.
   PLUS_CO_TEXT_SEQ += 1;
@@ -49014,9 +49016,13 @@ async function plusCompanyText() {
   const sentInput = document.getElementById('plus-si-company-second');
   if (t.ok && t.data.sent) {
     label.textContent = 'The code we texted to your phone';
-    plusSiMsg(lead + (t.data.sentTo ? 'We texted a code to the phone ending ' + t.data.sentTo + '.' : 'We texted a code to your phone.')
-      + ' Enter it, then finish.');
+    PLUS_CO_SENT_MSG = (t.data.sentTo ? 'We texted a code to the phone ending ' + t.data.sentTo + '.' : 'We texted a code to your phone.')
+      + ' Enter it, then finish.';
+    plusSiMsg(lead + PLUS_CO_SENT_MSG);
     resend.hidden = false;
+    // Board review 8: the coordinator texts at most once a minute, so the button waits that minute.
+    PLUS_CO_HOLD_UNTIL = Date.now() + 60000;
+    setTimeout(() => { if (epoch === PLUS_CO_EPOCH) plusCompanySyncResend(); }, 60050);
   } else if (t.ok) {
     label.textContent = 'The code from your authenticator app';
     plusSiMsg(lead + 'Enter the code from your authenticator app, then finish.');
@@ -49028,9 +49034,10 @@ async function plusCompanyText() {
   } else {
     // The coordinator's words (an outage, "wait N seconds", "all the texts this setup can send"). A wait holds the
     // button that long; "all the texts" leaves the code the person has, or Start over.
-    label.textContent = 'The code from your second step';
+    // Board review 8: after a text went, a failed resend keeps saying where that code went.
+    if (!PLUS_CO_SENT_MSG) label.textContent = 'The code from your second step';
     const why = String(t.because || 'we could not ask for the text');
-    plusSiMsg(lead + why);
+    plusSiMsg(lead + (PLUS_CO_SENT_MSG ? PLUS_CO_SENT_MSG + ' ' : '') + why);
     const wait = /wait (\d+) seconds/i.exec(why);
     resend.hidden = /all the texts/i.test(why);
     if (wait) {

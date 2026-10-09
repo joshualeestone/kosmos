@@ -415,3 +415,13 @@ test('kosmos#5651 board review 6: an abandoned setup\'s late text answer does no
   await b;
   assert.equal(w.ctx.painted, 1, 'the new setup finished but the wizard did not move on');
 });
+
+test('kosmos#5651 board review 8: after a text, Text me again waits the minute; a failed resend keeps where the code went', async () => {
+  const answers = [[200, { ok: true, sent: true, second: 'sms', sentTo: '4567' }], [400, { error: 'this computer could not reach the sign-in service' }]];
+  const { w } = await atSecondStep((n) => answers[n - 1]);
+  await w.ctx.finish(w.el('plus-si-company-go'));
+  assert.equal(w.el('plus-si-company-resend').disabled, true, 'Text me again offered inside the coordinator\'s minute');
+  await w.ctx.text();                                      // a resend that fails (the button is driven directly)
+  assert.match(w.line(), /phone ending 4567/, 'a failed resend wiped where the code went');
+  assert.match(w.el('plus-si-company-second-label').textContent, /we texted/);
+});
