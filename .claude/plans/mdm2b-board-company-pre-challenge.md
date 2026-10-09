@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: mdm2b-board-company
-diff_hash: 2ec154484ce1706beaa4f1705084cb30a2638985585f769ced1d35279fa80065
+diff_hash: 92c1840780d560f7fe770530ae773f95ff445ac95c334078fd8ef613161bdf76
 validation: rebased onto origin/main 90c64b981 (head 78cccbf46 before the plan commit): engine/remote.test.js 187/187, server.test.js 356/356 (whole file, exit 0), the guards fixture-discipline, no-brand-refs-1881, no-name-refs-3071, tool-guard-4326, all-node-tests-considered-1934, every-test-runs and no-phone-home-4253 57/57. Each review fix has a mutant control measured to fail without it (rounds 5, 6, 7, 8 and 10). No page uses the routes yet, so no browser check applies. The PR's CI runs the whole suite.
 subdir_audit: passed
 timestamp: 2026-10-09T03:23:50Z
@@ -44,3 +44,4 @@ mismatch the page will show as expiry).
 - [WARNING] the reinstall shortcut could record another account's email and switch its identity on -> FIXED (changes nothing)
 #### Iteration 11 (Sonnet)
 - [NIT] an unparseable status answer polls until the local clock ends the setup -> accepted (bounded)
+- [CI] engine.reachable.test.js: setManagedReaderForTests exported and reachable from nowhere -> FIXED (excused by name with its reason; guard 8/8)
