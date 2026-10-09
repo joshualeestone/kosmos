@@ -21,7 +21,19 @@ So refusing unclicked foreign navigations on run/both breaks no flow the board h
 - An unclicked redirect or script nav to another site is refused instead of opening the browser.
 - A clicked mail, phone or text link opens the person's app for it (the Mac's rule) instead of the "Kosmos only opens web links" box.
 - A Kosmos Plus link opens in the window instead of the browser (the Mac's rule).
-- New-window links (target=_blank) are unchanged, as on the Mac (createWebViewWith is connect-only there too).
+- New-window links (target=_blank) are unchanged (#2007). Not full parity: on the Mac createWebViewWith runs in every mode
+  and sends a new-window link to its own board to the browser, while Windows keeps it in the window. Recorded, not changed.
+
+## Who this reaches (review 2)
+The release switch (FirstRunChoice) is OFF, so LaunchComputerMode() is Run on EVERY Windows computer: these rules reach
+every Windows user at the next release, not only computers that chose run or both. Decided: ship ungated, as the card
+asks (Mac parity: the Mac applies #5169 with its switch off). The switch comment in KosmosLauncher.cs now says so.
+- "Clicked" on Windows is IsUserInitiated && !IsRedirected (#5483's rule). WebView2 also counts a script navigation run
+  inside a click handler as user-initiated, which the Mac's .linkActivated does not; no board handler does that today.
+- Weakest premise: the real WebView2 event wiring (OnNavigationStarting with IsUserInitiated / IsRedirected) is not run
+  by any test here; Windows CI runs the decision rows only. Needs one look on a real Windows computer (the Windows box
+  or Josh's PC laptop) before the release that carries it: open a board, click an outside link (browser opens), and
+  confirm a provider sign-in still completes.
 
 ## Checked
 - Node: tools.windows-computer-mode-4381.test.js passes on the Mac (Windows-only probe tests skip); the #5492 test proven red by three mutations (Starting page line removed, port passed on connect too, board check removed).

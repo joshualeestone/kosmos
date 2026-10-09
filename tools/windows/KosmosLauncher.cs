@@ -1012,8 +1012,10 @@ class KosmosLauncher
     // asks again, as a fresh Mac does.
 
     /* 🚦 THE RELEASE SWITCH, the Windows twin of the Mac's kosmosFirstRunChoice (Liu Kang m2647). OFF,
-       first run is exactly today's: the window never asks, never reads the mode file, never connects,
-       so nothing below changes a Windows computer. It stays off until a connect computer can update
+       first run is exactly today's: the window never asks, never reads the mode file, never connects.
+       One exception, on purpose (#5492, Mac parity): the #5169 navigation rules apply to a run computer
+       too, so with the switch off they reach EVERY Windows computer, as the Mac applies #5169 with its
+       switch off. Everything else below is unchanged while it is off. It stays off until a connect computer can update
        itself (#4382), whose Windows half turns it on; tools.windows-computer-mode-4381.test.js pins it
        off on main. `static readonly`, not const, only so the unreachable ON branches do not warn. */
     internal static readonly bool FirstRunChoice = false;
