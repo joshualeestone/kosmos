@@ -204,3 +204,17 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - Stated (NITs): `world` is the enrollment's own id (not re-checked here; the coordinator skips a malformed one);
   capped and skipped answers count as sent (logged); a busy local macRequest answer waits the 30 minutes as a failure
   does; the timing test is a wall-clock bound (100 ms against a measured 3.7 s regression).
+
+## Review 14 (opus), all fixed unless stated
+- BLOCKER (introduced by review 13's fix): in a named world the guard's roots include the default world's BASE, which
+  contains every agent's folder, so nearly every refusal read as board-files (and the agent's own config too). A board
+  root that contains the agent's own folder is ignored (a base, not a store), and the agent's own folder and the other
+  agents' are classed before the board's roots. Test with a named-world layout.
+- A leading K=V assignment (FOO=1 curl https://x) is skipped to find the program. Test. The scanText doc lists the ctx
+  fields.
+- Stated (WARNING, a privacy premise): a person who runs `claude` themselves in a token-only agent's folder writes into
+  the same transcript folder, and their sessions are read as the agent's (the collision check knows only Kosmos's own
+  agents); their refusals there would go to the company with a session reference. A third weakest premise, beside the
+  shared deny list and the sandbox text match. Recorded on the card.
+- Stated: each tick runs register.survey and the config-roots lookups (on the enrolled board, every five minutes);
+  the case-folding tests run on darwin only.

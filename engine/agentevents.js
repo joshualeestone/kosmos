@@ -102,6 +102,7 @@ function targetClass(tool, input, ctx) {
         if (wrapped && (/^-/.test(w) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(w) || /^\d+[smhd]?$/.test(w))) continue;   // its options, K=V, a duration
         wrapped = false;
         if (first && /^(sudo|env|timeout|nice|nohup|command|xargs|time|exec|doas)$/.test(path.basename(w))) { wrapped = true; continue; }
+        if (first && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) { wrapped = true; continue; }   // FOO=1 curl ... (review 14)
         if (first) {
           /* review 10: ssh, scp, sftp, nc and ncat reach another machine by what they are (they take a host, never a
              URL); curl and wget count with a URL among the words; rsync only with a remote host:path word. */
@@ -178,16 +179,20 @@ function pathClass(p0, ctx) {
     return q === dir || q.startsWith(dir.endsWith(path.sep) ? dir : dir + path.sep);
   };
   /* The board's files are every root the guard denies (review 13: its token roots, other worlds' stores, the legacy
-     roots) and the installed app itself, not only this store. */
-  if (under(ctx.boardRoot) || (ctx.boardRoots || []).some(under)) return 'board-files';
-  if ((ctx.configRoots || []).some(under)) return 'agent-config';   // the account's Claude config folders (review 13)
+     roots) and the installed app itself, not only this store. A root that CONTAINS the agent's own folder is a base
+     (review 14: a named world's workers sit under the default world's base), not the board's files, so it is ignored,
+     and the agent's own folder and the other agents' are classed first. */
+  const agentIn = (root) => !!root && !!ctx.agentDir && (() => { const a = fold(ctx.agentDir); const r = fold(root); return a === r || a.startsWith(r.endsWith(path.sep) ? r : r + path.sep); })();
+  const board = [ctx.boardRoot, ...(ctx.boardRoots || [])].filter((r) => r && !agentIn(r));
   if (under(ctx.agentDir)) {
     const rest = path.relative(fold(ctx.agentDir), fold(p)).split(path.sep);   // folded too (review 9)
     /* The agent's own config: its .claude folder and the instruction and tool files Claude Code reads from its folder
        (review 13). */
     return [fold('.claude'), fold('CLAUDE.md'), fold('.mcp.json'), fold('AGENTS.md')].includes(rest[0]) ? 'agent-config' : 'other';
   }
+  if (board.some(under)) return 'board-files';
   if ((ctx.otherAgentDirs || []).some(under)) return 'other-agent';
+  if ((ctx.configRoots || []).some(under)) return 'agent-config';   // the account's Claude config folders (review 13)
   if (under(home)) return 'home';
   return 'system';   // resolved, so always absolute
 }
@@ -202,7 +207,7 @@ function classify(text, tool) {
 /**
  * Read the complete lines of `text` (a transcript's new bytes) and return the company-rule refusals in it. `calls`
  * carries tool uses across reads (a result can arrive in a later tick than its call). ctx: { agent, session, boardRoot,
- * agentDir, otherAgentDirs, home, now }.
+ * boardRoots, configRoots, agentDir, otherAgentDirs, home, now }.
  */
 function scanText(text, calls, ctx) {
   const out = [];
