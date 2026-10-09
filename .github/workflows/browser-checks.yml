@@ -165,7 +165,13 @@ jobs:
     # in browser-checks-full.yml, #2518.)
     # #4119: 60, up from 40, for the checks the diff selects on top of the allowlist. Their
     # measured cost is on the #4119 card.
-    timeout-minutes: 60
+    # 120, up from 60 (2026-10-08): a page diff that touches widely shared functions (openDetail,
+    # showTab, PJ_CURRENT) selects 146 checks on top of the allowlist, and #5634's run was cut at
+    # 60:27 with 185 checks passed and none failed. Of this workflow's last 60 runs, 12 were
+    # cancelled, 5 of them more than an hour after they were queued (queue time included). A
+    # cut-off run is neither green nor red, so the PR
+    # cannot merge and the selected checks never report. The allowlist-only run is unchanged.
+    timeout-minutes: 120
     steps:
       # #4119: full history, so the selection step below can diff the PR against its merge
       # base (base.sha...HEAD). A shallow clone has no merge base and the diff would fail.
