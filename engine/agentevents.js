@@ -51,7 +51,14 @@ const CALLS_MAX = 2000;
 const TICK_READ_MAX = 16 * 1024 * 1024;   // bytes read across ALL transcripts in one tick (review 2: the read is sync)
 const RETRY_AFTER_FAIL_MS = 30 * 60 * 1000;   // a send that failed waits this long before the next (as the rollup)
 
-const DENIED = /^Permission to use ([A-Za-z][A-Za-z0-9_]*)\b[\s\S]* has been denied\.?\s*$/;
+/* A deny-rule refusal: it starts "Permission to use <Tool>" and ends "has been denied." Tested on the head and the tail
+   only (review 19: one regex over a 4 MB result could backtrack on agent-shaped text). */
+const DENIED_HEAD = /^Permission to use ([A-Za-z][A-Za-z0-9_]*)\b/;
+const DENIED_TAIL = / has been denied\.?\s*$/;
+function denied(text) {
+  const m = DENIED_HEAD.exec(text.slice(0, 200));
+  return m && DENIED_TAIL.test(text.slice(-64)) ? m[1] : null;
+}
 const SANDBOX = /\bOperation not permitted\b/;
 const ACTION = Object.freeze({
   Bash: 'run', Write: 'write', Edit: 'write', MultiEdit: 'write', NotebookEdit: 'write',
@@ -98,8 +105,11 @@ function targetClass(tool, input, ctx) {
     let rsync = false;
     const look = (words, depth) => {
       let wrapped = false;   // the word before was a wrapper (sudo, env, timeout...): this one is the program (review 11)
+      let takesValue = false;
       for (const { w, first: f0 } of words) {
         let first = f0 || wrapped;
+        if (wrapped && takesValue) { takesValue = false; continue; }   // the value of -u, -g, -n... (review 19)
+        if (wrapped && /^-[ugnpUCDTrt]$/.test(w)) { takesValue = true; continue; }
         if (wrapped && (/^-/.test(w) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(w) || /^\d+[smhd]?$/.test(w))) continue;   // its options, K=V, a duration
         wrapped = false;
         if (first && /^(sudo|env|timeout|nice|nohup|command|xargs|time|exec|doas)$/.test(path.basename(w))) { wrapped = true; continue; }
@@ -115,6 +125,7 @@ function targetClass(tool, input, ctx) {
         }
         if (/^[a-z][a-z0-9+.-]*:\/\//i.test(w)) { url = true; continue; }
         if (rsync && /^([^\s/@]+@)?[A-Za-z0-9.-]+::?[^\s]*$/.test(w) && !w.startsWith('/')) { net = true; url = true; }
+        if (/^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:/.test(w)) url = true;   // git@host:repo, user@host:path (review 19)
         if (depth === 0 && /\s/.test(w)) look(shellWords(w), 1);
         let v = w.replace(/^--?[A-Za-z-]+=/, '').replace(/^-[A-Za-z](?=[/~.])/, '').replace(/^@/, '');   // -C/dir too
         v = v.replace(/^\$\{HOME\}|^\$HOME/, '~');
@@ -134,6 +145,15 @@ function targetClass(tool, input, ctx) {
   for (const p of paths) {
     const c = pathClass(p, ctx);
     if (RANK.indexOf(c) < RANK.indexOf(best)) best = c;
+  }
+  /* A path a glob, a variable or a substitution hides cannot be resolved (review 19): when the command names the board
+     token or Kosmos's own folder, or the agent's config, that is the class. */
+  if (tool === 'Bash' && input && typeof input.command === 'string') {
+    const cmd = input.command.slice(0, 4096);
+    const board = /board\.token|Application Support\/Kosmos|agent-token-only\.json|worlds\.json/i.test(cmd);
+    const config = /(^|[\s/'"])\.claude(\/|\b)|CLAUDE\.md|\.mcp\.json/.test(cmd);
+    if (board && RANK.indexOf('board-files') < RANK.indexOf(best)) best = 'board-files';
+    else if (config && RANK.indexOf('agent-config') < RANK.indexOf(best)) best = 'agent-config';
   }
   return best;
 }
@@ -206,7 +226,7 @@ function pathClass(p0, ctx) {
 
 /* A refused call's rule, or null when it is not one the company placed. */
 function classify(text, tool, platform) {
-  if (DENIED.test(text)) return 'token-only-guard';
+  if (denied(text)) return 'token-only-guard';
   if (tool === 'Bash' && SANDBOX.test(text) && (platform || process.platform) === 'darwin') return 'sandbox';   // the sandbox is macOS's (review 16)
   return null;
 }
@@ -232,7 +252,7 @@ function scanText(text, calls, ctx) {
       calls.delete(b.tool_use_id);   // any result answers its call (review 2: a successful one too)
       if (b.is_error !== true) continue;
       const text0 = resultText(b.content);
-      const tool = call.name || ((text0.match(DENIED) || [])[1]) || (SANDBOX.test(text0) ? 'Bash' : null);
+      const tool = call.name || denied(text0) || (SANDBOX.test(text0) ? 'Bash' : null);
       const rule = classify(text0, tool, ctx.platform);
       if (!rule) continue;
       const at = Date.parse(row.timestamp);
@@ -371,7 +391,7 @@ async function tick(opts) {
         if (oe.readEnrollment(eo)) {
           const r0 = o.root || require('./store').ROOT;
           const w = readState(r0);
-          if (w.enrolledAs && !w.withdrawn) { w.withdrawn = true; writeState(r0, w); }
+          if (w.enrolledAs && !w.withdrawn) { w.withdrawn = true; w.pending = []; writeState(r0, w); }   // review 19: no queue kept
         }
       } catch { /* the next tick tries again */ }
       return { sent: 0, because: 'not the enrolled Kosmos, or no accepted words recorded here' };
@@ -554,7 +574,7 @@ async function tick(opts) {
         const w = readState(root);
         /* Only a withdrawal that was recorded starts the next acceptance clean (review 4: a failed write would otherwise
            reset the state, and its wait, on the very next tick). */
-        if (changed) w.withdrawn = true;
+        if (changed) { w.withdrawn = true; w.pending = []; }   // review 19: nothing queued is kept once words are withdrawn
         w.failAt = now;   // review 3: no signed request every five minutes if the record could not be changed
         writeState(root, w);
         return { sent: 0, because: 'the company\'s words changed; nothing more is sent until they are accepted here' };
