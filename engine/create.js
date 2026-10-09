@@ -2565,6 +2565,15 @@ function tomlProjectKeyString(pathStr) {
   return `"${s.replace(/"/g, '\\"')}"`;
 }
 
+/* #5434 slice 16: flush a staged file (written by path) before it is renamed into place. Throws on a real flush
+   failure (securewrite.flushOrThrow; "cannot flush" on this file system is not one). */
+function flushStaged(p) {
+  const fd = fs.openSync(p, 'r+');
+  let pending = null;
+  try { require('./securewrite').flushOrThrow(fd); } catch (e) { pending = e; throw e; }
+  finally { try { fs.closeSync(fd); } catch (e) { if (!pending) throw e; } }
+}
+
 /**
  * Trust an agent's folder for the codex runner, the way the Yes button on
  * codex's own trust dialog would. MEASURED (#245): the bypass flag does
@@ -2878,44 +2887,39 @@ function installSupervisor() {
     // ⚠️ Per-process, because a fixed name lets two installs interleave into one
     // inode (`copyFileSync` opens with O_TRUNC) and rename a truncated script
     // into place for every agent on the machine.
-    const staging = `${dest}.${process.pid}.new`;
-    fs.copyFileSync(supervisorSource(), staging);
-    fs.chmodSync(staging, 0o755);
-    fs.renameSync(staging, dest);
+    /* #5434 slice 16: and FLUSHED before the rename (installCopy), so a crash cannot leave the supervisor that every
+       agent launches through, or a report bridge, at full length but zero-filled (#5431): every launch would fail.
+       The staging name is unchanged, so the cleanup in the catch below still finds it. */
+    const installCopy = (src, to) => {
+      const stg = `${to}.${process.pid}.new`;
+      fs.copyFileSync(src, stg);
+      fs.chmodSync(stg, 0o755);
+      flushStaged(stg);
+      fs.renameSync(stg, to);
+    };
+    installCopy(supervisorSource(), dest);
     // The codex notify bridge rides the same refresh, same staging-rename
     // discipline, same reason (#245). It is read per event rather than held
     // open like the supervisor, but the interleaved-truncation hazard the
     // pattern exists for is identical.
     const bridgeDest = bridgePath();
-    const bridgeStaging = `${bridgeDest}.${process.pid}.new`;
-    fs.copyFileSync(bridgeSource(), bridgeStaging);
-    fs.chmodSync(bridgeStaging, 0o755);
-    fs.renameSync(bridgeStaging, bridgeDest);
+    installCopy(bridgeSource(), bridgeDest);
     // #3296: the gemini report bridge rides the same refresh, same staging-rename
     // discipline, same reason as the codex bridge above. create.js bakes
     // geminiBridgePath() (this destination) into a gemini agent's settings.json at
     // birth, so it must be current here for every existing agent on the next refresh.
     const geminiBridgeDest = geminiBridgePath();
-    const geminiBridgeStaging = `${geminiBridgeDest}.${process.pid}.new`;
-    fs.copyFileSync(geminiBridgeSource(), geminiBridgeStaging);
-    fs.chmodSync(geminiBridgeStaging, 0o755);
-    fs.renameSync(geminiBridgeStaging, geminiBridgeDest);
+    installCopy(geminiBridgeSource(), geminiBridgeDest);
     // #3391: the grok report bridge rides the same refresh, same staging-rename
     // discipline, same reason as the codex/gemini bridges above. create.js bakes
     // grokBridgePath() (this destination) into a grok agent's hook file at birth,
     // so it must be current here for every existing agent on the next refresh.
     const grokBridgeDest = grokBridgePath();
-    const grokBridgeStaging = `${grokBridgeDest}.${process.pid}.new`;
-    fs.copyFileSync(grokBridgeSource(), grokBridgeStaging);
-    fs.chmodSync(grokBridgeStaging, 0o755);
-    fs.renameSync(grokBridgeStaging, grokBridgeDest);
+    installCopy(grokBridgeSource(), grokBridgeDest);
     // #4043: the agy report bridge, same refresh and staging-rename discipline. The supervisor
     // points each agy agent's .agents/hooks.json at this copy before every launch.
     const agyBridgeDest = agyBridgePath();
-    const agyBridgeStaging = `${agyBridgeDest}.${process.pid}.new`;
-    fs.copyFileSync(agyBridgeSource(), agyBridgeStaging);
-    fs.chmodSync(agyBridgeStaging, 0o755);
-    fs.renameSync(agyBridgeStaging, agyBridgeDest);
+    installCopy(agyBridgeSource(), agyBridgeDest);
     /* \u2b50 #1139: TELL THE SUPERVISOR WHERE THE ENGINE IS.
        It resolves `sendertoken.js` as `dirname($0)/../engine`, which is true in
        a checkout and in the bundle and FALSE for every real agent -- the two
@@ -2940,8 +2944,10 @@ function installSupervisor() {
       const ptrDest = path.join(path.dirname(dest), 'engine-path');
       const ptrStaging = `${ptrDest}.${process.pid}.new`;
       fs.writeFileSync(ptrStaging, `${__dirname}\n`);
+      flushStaged(ptrStaging);   // #5434 slice 16
       fs.renameSync(ptrStaging, ptrDest);
     } catch { /* the mint degrades to no token, never to a failed install */ }
+    require('./securewrite').syncDir(path.dirname(dest));   // #5434 slice 16: the renames above, once (POSIX; never throws)
     return { ok: true };
   } catch (err) {
     // Leave nothing half-written beside the real one.
