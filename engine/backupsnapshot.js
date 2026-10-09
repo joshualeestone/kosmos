@@ -41,6 +41,15 @@ const { CDC, chunkBuffer, chunkName, sealNamedChunk, sealManifest, checkBackupCo
 const { scanFile, pathDecision, insideWorkKosmos } = require('./backupscan');
 const { uploadChunks, uploadManifest, MAX_MANIFEST } = require('./backupupload');
 const { pathProblem, collisionKey, collidingPaths } = require('./backuprestore');
+const { mask } = require('./secretmask');
+/* A name holding something shaped like a credential (review 19: names were never checked, so a file named after a
+   pasted token put it in the manifest). secretmask on each segment, specific kinds only: its generic long_token fires
+   on ordinary long names (measured: 271 of 8,146 real paths), the specific kinds on 1 (an "xai" in a plan name).
+   Returns the name with those parts masked, or null when nothing fired. */
+function nameMasked(name) {
+  const m = mask(name);
+  return m.fired.some((f) => f.kind !== 'long_token') ? m.text : null;
+}
 
 const FORMAT = 1;
 // A file is read whole to be scanned (backupscan works on one buffer), so a bigger one is skipped, and says so.
@@ -143,6 +152,9 @@ function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_S
     for (const name of names.sort()) {
       if (over) return;
       const r = rel ? `${rel}/${name}` : name;
+      // Recorded under the masked name: the skipped list leaves the Mac too.
+      const masked = nameMasked(name);
+      if (masked !== null) { skip({ path: rel ? `${rel}/${masked}` : masked, why: 'a name holding something shaped like a credential' }); continue; }
       let st;
       // bigint: device and inode compared exactly (a Number loses precision above 2^53).
       try { st = fs.lstatSync(path.join(root, r), { bigint: true }); } catch { skip({ path: r, why: 'an entry that could not be read' }); continue; }
@@ -301,7 +313,9 @@ async function snapshotInner(input, deps, added, state, fail) {
   if (!deviceKey || deviceKey.type !== 'private' || deviceKey.asymmetricKeyType !== 'ed25519') return fail('the device key must be an Ed25519 private key');
   try { checkBackupContext(ctx); } catch (err) { return fail(err.message); }
   const t = now();
-  if (!Number.isFinite(t)) return fail('this computer\'s clock gave no usable time');
+  // A Date can hold only about 275,000 years either side of 1970 (review 19): past that, periodOf reads "NaN-WNaN".
+  const usable = (x) => Number.isFinite(x) && Number.isFinite(new Date(x).getTime());
+  if (!usable(t)) return fail('this computer\'s clock gave no usable time');
   const period = periodOf(t);
   // newPeriod, not retryLater: the same input fails again; the caller needs this period's context and naming key.
   if (ctx.period !== period) return fail(`the context names period ${ctx.period}, but this computer's clock is in ${period}`, { newPeriod: true });
@@ -485,7 +499,7 @@ async function snapshotInner(input, deps, added, state, fail) {
   // restore looking it up by that period could not open it; and its lock would be the new period's, which earlier
   // chunks may not outlast (review 15). The run starts again in the new period, with its context and naming key.
   const tEnd = now();
-  if (!Number.isFinite(tEnd)) return fail('this computer\'s clock gave no usable time');   // fails closed, as at the start
+  if (!usable(tEnd)) return fail('this computer\'s clock gave no usable time');   // fails closed, as at the start
   if (periodOf(tEnd) !== ctx.period) return fail(`a period boundary passed during the snapshot (now ${periodOf(tEnd)}): start again in the new period`, { newPeriod: true });
   // Cannot throw on this content (review 8): file and redacted paths passed pathProblem, skipped ones are walk paths, every other value is a fixed sentence, a number,
   // hex or a key of plain segments, and the context and keys were checked before anything was read. If it ever did,
@@ -496,8 +510,13 @@ async function snapshotInner(input, deps, added, state, fail) {
     // outlastsChunks: the index's chunks lock out too soon for this manifest (a period passed): they cannot be named.
     return fail(`the manifest could not be uploaded: ${(m && m.because) || 'no answer'}`, Object.assign({},
       m && m.retryLater ? { retryLater: true } : {}, m && m.unsure ? { unsure: m.unsure } : {},
-      m && m.outlastsChunks ? Object.assign({ staleIndex: true }, periodOf(now()) !== ctx.period ? { newPeriod: true } : {}) : {}, m && m.grantSpent !== undefined ? { grantSpent: m.grantSpent } : {}));
+      m && m.outlastsChunks ? Object.assign({ staleIndex: true }, periodOf(tEnd) !== ctx.period ? { newPeriod: true } : {}) : {}, m && m.grantSpent !== undefined ? { grantSpent: m.grantSpent } : {}));
   }
+  // The manifest's key must be this context's (review 19): Monday 00:00 UTC can pass between the check above and the
+  // coordinator signing the grant, and uploadManifest checks only the owner. A key in another period files the manifest
+  // where a restore looking it up by period cannot open it; said, not hidden (it is stored and locked either way).
+  const mk = keyProblem(m.key, ctx) || (owner && ownerOf(m.key) !== owner ? 'under another account path' : null);
+  if (mk) return fail(`the manifest was stored under a key ${mk} (a period boundary passed as it was granted): start again in the new period`, { newPeriod: true, grantSpent: true });
   return { ok: true, manifestKey: m.key, files: files.length, skipped: skipped.length + skippedExtra, uploaded, reused, added, bucket: state.bucket };
 }
 
