@@ -377,7 +377,25 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
       && acc.inView && acc.join === 'Join with this Kosmos' && acc.reread && acc.reviewGone && !/sends your company nothing/.test(acc.say),
       'O15 a Kosmos that sends nothing reviews its company\'s words and accepts them with no code; Not now changes nothing; one that reports is not offered it',
       JSON.stringify({ offeredWhenReporting, offered, rv, nn, late, other, gone, already, last, acc: { inView: acc.inView, join: acc.join, reread: acc.reread, reviewGone: acc.reviewGone, say: acc.say } }));
-    await page.evaluate(() => { window.__review = false; window.__orgState = null; PLUS_ORG.state = { enrolled: false, org: null, role: null }; PLUS_ORG.preview = null; plusOrgPaint(); });
+    // O15b (orgreview review 11): a review of words that say "Nothing is backed up." shows that line, as a code's consent
+    // does (the hash Accept records includes it), and the block stays open with the opener hidden while it is read.
+    // CONTROL: words with a backed-up list show the list.
+    const reviewBackup = async (said) => {
+      await page.evaluate((st) => { window.__orgState = st; PLUS_ORG.at = Date.now(); PLUS_ORG.state = st; PLUS_ORG.preview = null; document.getElementById('plus-org-msg').textContent = ''; plusOrgPaint(); }, JOINED_SILENT);
+      await page.evaluate((x) => { window.__review = true; window.__noBackup = x; }, said);
+      await page.click('#plus-org-review');
+      await page.waitForFunction(() => !document.getElementById('plus-org-consent').hidden);
+      const got = await page.evaluate(() => ({ items: [...document.querySelectorAll('#plus-org-backsup li')].map((li) => li.textContent),
+        opener: !document.getElementById('plus-org-open').hidden, title: !document.getElementById('plus-org-title').hidden }));
+      await page.click('#plus-org-notnow');
+      return got;
+    };
+    const rvNone = await reviewBackup('said');
+    const rvList = await reviewBackup(false);
+    chk(rvNone.items.length === 1 && rvNone.items[0] === 'Nothing is backed up.' && !rvNone.opener && rvNone.title
+      && rvList.items.length === 2 && !rvList.items.includes('Nothing is backed up.'),
+      'O15b a review of words that back up nothing says "Nothing is backed up.", with the block open', JSON.stringify({ rvNone, rvList }));
+    await page.evaluate(() => { window.__review = false; window.__noBackup = false; window.__orgState = null; PLUS_ORG.state = { enrolled: false, org: null, role: null }; PLUS_ORG.preview = null; plusOrgPaint(); });
 
     chk(errs.length === 0, 'O6 no page errors', errs.join(' | '));
   } finally {

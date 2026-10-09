@@ -47519,7 +47519,8 @@ async function plusOrgReview() {
   PLUS_ORG.preview = { code: null, org: r.org, ticket: r.ticket, review: true };
   document.getElementById('plus-org-ask').textContent = 'This is what ' + (r.org.name || 'your company') + ' asks of this Kosmos. Accept it so this Kosmos can report:';
   plusOrgList('plus-org-reports', r.consent.reports);
-  plusOrgList('plus-org-backsup', r.consent.backsUp);
+  // The same words as a code's consent (orgreview review 11): a stated empty list says so, as the hash records it.
+  plusOrgList('plus-org-backsup', r.consent.backsUp, r.consent.backsUpNone === true ? 'Nothing is backed up.' : null);
   plusOrgList('plus-org-readers', r.consent.readers);
   plusOrgList('plus-org-never', r.consent.never);
   plusOrgLeaveArm(false);
