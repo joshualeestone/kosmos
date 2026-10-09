@@ -59,7 +59,8 @@ test('the launcher runs the helper and NOT the pre-fix plain open (#2007)', () =
   assert.doesNotMatch(LAUNCHER_SRC, /Process\.Start\(\s*"http:/,
     'the launcher opens the PLAIN url directly - the #2007 bug is back');
   /* #1118: the ONE shell-execute is the board window handing ANOTHER site's link to the person's
-     browser. It refuses anything that is not http(s), and both of its callers keep the board's own
+     browser (#5492: for run, both and connect computers, which link goes there is now ConnectLinkDecision's
+     call, #5169; the older keep-the-board rule covers only Unset / Unreadable). It refuses anything that is not http(s), and both of its callers keep the board's own
      address in the window, so it can never open the board unsigned. #4381: a connect computer's window
      also hands it a clicked mail, phone or text link, only one its connect rules sent there
      (tools.windows-computer-mode-4381.test.js). */
