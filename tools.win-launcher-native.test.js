@@ -41,6 +41,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+// #5645: the scratch base in its LONG form. A Windows runner's TEMP can be spelled in 8.3 short form (RUNNER~1),
+// while the product reports the long form (runneradmin): same folder, different text. realpathSync.native expands
+// 8.3 names (and resolves links), so expected paths are built from the spelling the product reports.
+const scratchBase = () => fs.realpathSync.native(os.tmpdir());
 const { spawn, spawnSync } = require('node:child_process');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -603,7 +607,7 @@ function runConsole(exe, tempFolder, timeoutMs) {
 }
 
 function scratch() {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'kln-'));
+  const base = fs.mkdtempSync(path.join(scratchBase(), 'kln-'));
   const temp = path.join(base, 'fake-temp');
   const elsewhere = path.join(base, 'Users', 'someone');
   fs.mkdirSync(temp, { recursive: true });
@@ -753,8 +757,8 @@ test('round 1 CONVENTION: --console with both outputs captured and no console to
    the board, so no hand-off exists to reach. No open-board.js, so no opener. */
 const FAKE_BOARD_MARKER = '// fake board written by tools.win-launcher-native.test.js';
 function stageFakeBoard(folder, serverScript) {
-  const scratchRoot = path.resolve(os.tmpdir()).toLowerCase() + path.sep;
-  assert.ok(path.resolve(folder).toLowerCase().startsWith(scratchRoot), 'a fake board must be staged under os.tmpdir(), never beside a real install: ' + folder);
+  const scratchRoot = path.resolve(scratchBase()).toLowerCase() + path.sep;
+  assert.ok(path.resolve(folder).toLowerCase().startsWith(scratchRoot), 'a fake board must be staged under scratchBase(), never beside a real install: ' + folder);
   fs.mkdirSync(path.join(folder, 'runtime'), { recursive: true });
   fs.mkdirSync(path.join(folder, 'app'), { recursive: true });
   const exe = path.join(folder, 'Kosmos.exe');
