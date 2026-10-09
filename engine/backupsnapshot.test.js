@@ -705,3 +705,16 @@ test('a folder on another volume is not crossed, and is named', () => {
     assert.ok(l.files.some((x) => x.path === 'agents/a/notes.md'), 'control');
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('a file swapped for another file of the work Kosmos between the walk and the open is skipped', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    // The walk saw another inode than the one now at that name (a rename over it): the open finds a different file.
+    const { f } = spyFs({ lstatSync: (real, p2, o) => { const s2 = real(p2, o); return String(p2).endsWith('notes.md') ? Object.assign(Object.create(Object.getPrototypeOf(s2)), s2, { ino: s2.ino + 1n }) : s2; } });
+    const r = await take(k, w.root, st, { deps: { fs: f } });
+    assert.equal(r.ok, true, r.because);
+    const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+    assert.ok(m.skipped.some((x) => x.path === 'agents/a/notes.md' && /replaced/.test(x.why)));
+    assert.ok(m.files.some((x) => x.path === 'readme.txt'), 'control');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
