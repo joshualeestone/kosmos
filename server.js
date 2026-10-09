@@ -2160,7 +2160,9 @@ function sentenceForWhoami(account, model, runner) {
   parts.push(model && model.name ? 'and its model is ' + model.name
     /* Review 1: the AGENT reads this about itself, so the step is for its person (never a command it could run), and it
        says what to do if a restart does not help, so it cannot loop. */
-    : runner === 'muse' ? 'and we cannot tell which model it is running yet: Muse names its model only during a turn, and Kosmos shows it once a turn has named it. If this still says so after a turn, ask your person to restart this agent from its page in Kosmos; if it says so after that too, tell them Kosmos cannot read this agent\'s model'
+    /* Review 2: a restart clears the kept model (musefront forgetModel) until the next turn, so the check comes after a
+       turn, and the agent's step is one message to its person, never a loop of its own. */
+    : runner === 'muse' ? 'and we cannot tell which model it is running: Muse names it only during a turn, and Kosmos shows it after one. If this still says so after a turn, tell your person, who can restart this agent from its page in Kosmos and check again after its next turn'
       : 'and we cannot tell which model it is running');
   return parts.join(', ') + '.';
 }
