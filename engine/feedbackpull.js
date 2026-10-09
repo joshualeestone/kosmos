@@ -277,7 +277,7 @@ async function pull(dir, opts) {
       require('./securewrite').writeSecret(dest, toMarkdown(rec), null, { atomicOnly: true, ownTempsOnly: true, umaskDefault: true });
       written += 1;
     } catch (e) {
-      // The code and the report's own name, not the raw message, which now names securewrite's long temp path (review 1).
+      // The code and the report's own name, not the raw message, which would name securewrite's long internal temp path.
       skipped += 1; unwritten += 1; lastWriteError = ((e && e.code) || 'error') + ' saving ' + path.basename(dest);
     }
   }
