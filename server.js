@@ -18105,8 +18105,8 @@ const server = http.createServer(async (req, res) => {
      /seen above, keyed by agent instead of project. POST, behind the same
      cross-site write guard. The count itself is server-derived (see
      withDmUnread); this only moves the cursor. A malformed agent name is a 400
-     (markDmSeen throws BAD_THREAD), any other write failure a 500 -- the sibling
-     shape. */
+     (markDmSeen throws BAD_THREAD), any other write failure a 500 in our own words
+     (#5434 slice 18; the cause goes to the board log, never to the page). */
   const dmSeen = pathname.match(/^\/api\/agent\/([^/]+)\/seen$/);
   if (dmSeen && req.method === 'POST') {
     const name = decodeSegment(dmSeen[1]);
@@ -18116,6 +18116,7 @@ const server = http.createServer(async (req, res) => {
     catch (err) {
       // #5434 slice 18 (review 1): a 500 answers in our words, never the write's errno and internal path.
       const bad = err && err.code === 'BAD_THREAD';
+      if (!bad) console.error('[kosmos] #5434 dm seen-cursor not saved for ' + name + ': ' + String((err && (err.code || err.message)) || err));
       sendJson(res, bad ? 400 : 500, { error: bad ? String(err.message) : 'we could not record that' });
       return;
     }
