@@ -390,7 +390,7 @@ static class ModeProbe
         KosmosLauncher.computerModeFile = () => file;
         Row(KosmosLauncher.LaunchComputerMode() == KosmosLauncher.ComputerMode.Run, "switch", "WITH THE SWITCH OFF every computer runs agents, whatever the file holds");
 
-        const int expected = 66;
+        const int expected = 67;   // #5492 review 1: +1 clicked own-board row
         if (ran != expected) { Console.WriteLine("\nmode-check: only " + ran + " of " + expected + " rows ran, so this proved nothing"); return 1; }
         if (bad > 0) { Console.WriteLine("\nmode-check: " + bad + " row(s) wrong"); return 1; }
         Console.WriteLine("\nmode-check: all good (" + ran + " rows)");
@@ -425,8 +425,8 @@ test('#4381: the Mac selftest\'s rows, and Windows\' own, all run and all pass (
   if (!needsProbe(t)) return;
   const r = probe(['rows', fs.mkdtempSync(path.join(probeDir, 'disk-'))]);
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.match(r.stdout, /\nmode-check: all good \(66 rows\)\s*$/, 'the probe exited 0 without its verdict: ' + r.stdout);
-  assert.equal((r.stdout.match(/^PASS /gm) || []).length, 66, r.stdout);
+  assert.match(r.stdout, /\nmode-check: all good \(67 rows\)\s*$/, 'the probe exited 0 without its verdict: ' + r.stdout);   // #5492 review 1: +1 clicked own-board row
+  assert.equal((r.stdout.match(/^PASS /gm) || []).length, 67, r.stdout);
   assert.doesNotMatch(r.stdout, /^FAIL /m, r.stdout);
   /* The Mac's rows are all here, by their words: a row dropped on one side is a rule the two no longer share. */
   const mac = fs.readFileSync(path.join(REPO, 'native-app', 'main.swift'), 'utf8');
