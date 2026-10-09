@@ -351,11 +351,23 @@ test('a manifest that would pass its ceiling stops the run before any chunk is u
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
-test('a manifest refused for outlasting the index\'s chunks is a stale index, with grantSpent passed through as answered', async () => {
-  const w = workKosmos(), k = keys(), st = store({ manifestAnswer: { ok: false, outlastsChunks: true, grantSpent: false, because: 'outlasts' } });
+test('a manifest refused for outlasting its chunks: a stale index only when there is one; newPeriod when Monday passed', async () => {
+  const w = workKosmos(), k = keys();
   try {
-    const r = await take(k, w.root, st);
-    assert.equal(r.ok, false); assert.equal(r.staleIndex, true); assert.equal(r.grantSpent, false);
+    const ans = { ok: false, outlastsChunks: true, grantSpent: false, because: 'outlasts' };
+    const r0 = await take(k, w.root, store({ manifestAnswer: ans }));
+    assert.equal(r0.ok, false); assert.equal(r0.staleIndex, undefined, 'no index: nothing to drop'); assert.equal(r0.grantSpent, false);
+    const first = await take(k, w.root, store());
+    assert.equal(first.ok, true, first.because);
+    const k2 = Object.assign({}, k, { ctx: Object.assign({}, k.ctx, { snapshot: 's2' }) });
+    const r1 = await take(k2, w.root, store({ manifestAnswer: ans }), { input: { index: first.added, bucket: first.bucket } });
+    assert.equal(r1.staleIndex, true, 'with an index, that is what to drop'); assert.equal(r1.newPeriod, undefined);
+    // Monday passed between the last check and the grant: the fresh reading says newPeriod.
+    const st = store({ manifestAnswer: ans });
+    const real = st.uploadManifest;
+    let manifestAsked = false;
+    const r2 = await take(k, w.root, st, { deps: { now: () => (manifestAsked ? Date.parse('2026-10-12T00:00:01Z') : NOW), uploadManifest: async (d, b, o) => { manifestAsked = true; return real(d, b, o); } } });
+    assert.equal(r2.newPeriod, true); assert.equal(r2.staleIndex, undefined);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
@@ -925,5 +937,22 @@ test('a token split across a folder and a file name is caught on the whole path,
     const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
     assert.ok(!JSON.stringify(m).includes(TOKEN), 'the joined token appears nowhere in the manifest');
     assert.ok(m.skipped.some((x) => /path holding something shaped like a credential/.test(x.why)));
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a chunk granted a lock shorter than this snapshot\'s manifest would get fails the run before the manifest', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const real = st.uploadChunks;
+    const r = await take(k, w.root, st, { deps: { uploadChunks: async (d, b) => { const res = await real(d, b); for (const n of res.lockedUntil.keys()) res.lockedUntil.set(n, NOW + 29 * 86400 * 1000); return res; } } });
+    assert.equal(r.ok, false); assert.match(r.because, /locked for less time/); assert.equal(st.manifests.length, 0);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a manifest grant in another bucket on a run with no index hands back no chunks to keep (they are in the abandoned bucket)', async () => {
+  const w = workKosmos(), k = keys(), st = store({ manifestAnswer: { ok: false, otherBucket: true, grantSpent: true, because: 'another bucket' } });
+  try {
+    const r = await take(k, w.root, st);
+    assert.equal(r.ok, false); assert.equal(r.added.size, 0); assert.equal(r.grantSpent, true);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
