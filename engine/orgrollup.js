@@ -364,11 +364,6 @@ function signature(body) {
   return crypto.createHash('sha256').update(JSON.stringify([agents, projects])).digest('hex');
 }
 
-/**
- * One tick: send if this world is the enrolled one AND (a day has passed OR the agents or projects changed and the
- * last send is CHANGE_MIN_MS old), unless a failure was within RETRY_AFTER_FAIL_MS. Never throws.
- * opts: { root, remote, sources, now } (tests); the board passes nothing.
- */
 /* The print-wait note, where the joined view reads it (review 18): /api/org must not say this Kosmos reports while its
    rollup waits for a print. It belongs to:
    - this enrollment (enrolledAs, review 19);
@@ -384,6 +379,11 @@ function notePrintWait(root, st, enrolledAs, rec, why, now) {
   writeState(root, w);
 }
 
+/**
+ * One tick: send if this world is the enrolled one AND (a day has passed OR the agents or projects changed and the
+ * last send is CHANGE_MIN_MS old), unless a failure was within RETRY_AFTER_FAIL_MS. Never throws.
+ * opts: { root, remote, sources, now } (tests); the board passes nothing.
+ */
 async function tick(opts) {
   const o = opts || {};
   const oe = require('./orgenroll');
