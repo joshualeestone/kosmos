@@ -1,0 +1,84 @@
+/**
+ * #5711: tools/whats-new-pool.js makes ONE cumulative What's New: the top highlights by rank across everything since the
+ * last PROD release, never a held feature and never one prod already showed. Each test has an arm that can fail.
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const tool = require('./tools/whats-new-pool');
+const whatsnew = require('./engine/whatsnew');
+
+const item = (title, rank, status, extra = {}) => Object.assign({ title, line: `What ${title} does, in one sentence.`, icon: 'tasks', rank, since: '0.7.31', status }, extra);
+
+function tmp(pool) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wnpool-'));
+  const file = path.join(dir, 'pool.json');
+  fs.writeFileSync(file, JSON.stringify(pool));
+  return { dir, file, out: path.join(dir, 'whats-new.json') };
+}
+const quiet = (fn) => { const w = process.stdout.write, e = process.stderr.write; process.stdout.write = () => true; process.stderr.write = () => true; try { return fn(); } finally { process.stdout.write = w; process.stderr.write = e; } };
+
+test('#5711: the top highlights by rank; a held one and one prod already showed never appear, whatever their rank', () => {
+  const t = tmp({ lastProd: '0.7.35', items: [
+    item('Held feature', 0, 'held'), item('Already shown', 0, 'shown', { shownIn: '0.7.35' }),
+    item('Third', 3, 'pending'), item('First', 1, 'pending'), item('Second', 2, 'pending'),
+    item('Sixth', 6, 'pending'), item('Fourth', 4, 'pending'), item('Fifth', 5, 'pending'),
+  ] });
+  try {
+    assert.equal(quiet(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`])), 0);
+    const got = JSON.parse(fs.readFileSync(t.out, 'utf8'));
+    assert.equal(got.version, '0.7.36');
+    assert.deepEqual(got.highlights.map((h) => h.title), ['First', 'Second', 'Third', 'Fourth', 'Fifth'], 'rank order, at most 5');
+    assert.deepEqual(whatsnew.problems(got, '0.7.36'), [], 'the window accepts it');
+    // --max narrows it.
+    assert.equal(quiet(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`, '--max=4'])), 0);
+    assert.equal(JSON.parse(fs.readFileSync(t.out, 'utf8')).highlights.length, 4);
+  } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
+});
+
+test('#5711: a tie in rank goes to the newer version', () => {
+  const t = tmp({ items: [item('Older', 1, 'pending', { since: '0.7.31' }), item('Newer', 1, 'pending', { since: '0.7.34' })] });
+  try {
+    assert.equal(quiet(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`, '--max=1'])), 0);
+    assert.deepEqual(JSON.parse(fs.readFileSync(t.out, 'utf8')).highlights.map((h) => h.title), ['Newer']);
+  } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
+});
+
+test('#5711: with nothing eligible (all held or shown) the build refuses rather than writing an empty window', () => {
+  const t = tmp({ items: [item('Held', 1, 'held'), item('Shown', 2, 'shown')] });
+  try {
+    assert.equal(quiet(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`])), 3);
+    assert.equal(fs.existsSync(t.out), false, 'nothing written');
+  } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
+});
+
+test('#5711: after a PROD promote, exactly the titles that version showed become shown, and lastProd moves', () => {
+  const t = tmp({ lastProd: '0.7.35', items: [item('A', 1, 'pending'), item('B', 2, 'pending'), item('C', 3, 'pending'), item('H', 4, 'held')] });
+  try {
+    const shown = path.join(t.dir, 'shown.json');
+    fs.writeFileSync(shown, JSON.stringify({ version: '0.7.36', highlights: [{ icon: 'tasks', title: 'A', line: 'x' }, { icon: 'tasks', title: 'H', line: 'x' }] }));
+    assert.equal(quiet(() => tool.main(['shown', '0.7.36', `--pool=${t.file}`, `--from=${shown}`])), 0);
+    const pool = JSON.parse(fs.readFileSync(t.file, 'utf8'));
+    const by = Object.fromEntries(pool.items.map((i) => [i.title, i]));
+    assert.equal(by.A.status, 'shown'); assert.equal(by.A.shownIn, '0.7.36');
+    assert.equal(by.B.status, 'pending'); assert.equal(by.C.status, 'pending');
+    assert.equal(by.H.status, 'held', 'a held item stays held even if it was named');
+    assert.equal(pool.lastProd, '0.7.36');
+    // The next build no longer shows A.
+    assert.equal(quiet(() => tool.main(['build', '0.7.37', `--pool=${t.file}`, `--out=${t.out}`])), 0);
+    assert.deepEqual(JSON.parse(fs.readFileSync(t.out, 'utf8')).highlights.map((h) => h.title), ['B', 'C']);
+    // A What's New of ANOTHER version marks nothing.
+    assert.equal(quiet(() => tool.main(['shown', '0.7.37', `--pool=${t.file}`, `--from=${shown}`])), 3);
+  } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
+});
+
+test('#5711: the real pool builds a window the cut accepts, without the held conversation mode', () => {
+  const pool = tool.readPool(path.join(__dirname, 'release', 'whats-new-pool.json'));
+  const chosen = tool.choose(pool, 5);
+  assert.equal(chosen.length, 5);
+  assert.deepEqual(whatsnew.problems({ version: '0.7.36', highlights: chosen }, '0.7.36'), []);
+  assert.ok(!chosen.some((h) => /aloud|conversation mode/i.test(h.title + h.line)), 'the held mode never resurfaces');
+  assert.ok(pool.items.some((i) => i.status === 'held' && /aloud/i.test(i.title)), 'CONTROL: the held item is in the pool');
+});
