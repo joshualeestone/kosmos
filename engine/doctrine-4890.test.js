@@ -393,7 +393,7 @@ test('#4890 review 18: the shipped table holds every section of today\'s block',
 });
 
 /* kosmos#5643 slice 2 review 1: tools/doctrine-past.js walks only the branch it runs on, so a regeneration drops blocks
-   released from OTHER branches (two v21 copies and one section, restored by hand in ac8507742 and dropped again here).
+   released from OTHER branches (two v21 copies and one section, restored by hand in ac8507742; a regeneration on a branch drops them again).
    They are pinned so a regeneration that loses them goes red. */
 test('the table keeps released blocks that no single branch history holds (two v21 copies, one section)', () => {
   for (const sha of ['8f049db34502268da4258dda6c2e242f8c13373b38f1e43800091e091c62aa5b', 'ff04f9d92e6c5917a67fff81781e8775d809467e312d8bb3f00aa04f5fed0e53']) {

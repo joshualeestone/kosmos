@@ -452,8 +452,9 @@ const BLOCK = [
   'whoever asked for the check, where they asked: in the room, or in your reply to',
   'the person; if nobody is asking right now, post it in the room the task belongs',
   'to. A run that could not check is not unchanged: record what stopped it,',
-  'without `--unchanged`, and report it as Blocked (`kosmos report blocked`) for',
-  'that run only; the task keeps its schedule.',
+  'without `--unchanged`, and report it (`kosmos report blocked --on "<what',
+  'stopped it>"`, or `needs_you` as above if only the person can fix it). When a',
+  'later run checks again, `kosmos report clear`; the task keeps its schedule.',
   '',
   '`kosmos task ran <project-id> <task-number> --unchanged "what it checked"`',
   '',
@@ -950,8 +951,8 @@ function block() {
  *     schedules two agents made came from tools this Mac's agents have that a new Kosmos agent may not (slice 2, the
  *     missed-run alert, is what makes a missed run visible). The test agents also read this Mac's own global
  *     instructions (both arms alike), and Codex and Gemini agents were not measured.
- *  26. kosmos#5152 (doneWhen as its own field, #5639) and kosmos#5643 slice 2 (teaching the --unchanged flag that #5646,
- *     slice 1, adds), under `### Put the
+ *  26. kosmos#5152 (doneWhen as its own field, #5639) and kosmos#5643 slice 2 (teaching the --unchanged flag that
+ *     #5646, slice 1, adds), under `### Put the
  *     work on a task first`. The checks go on with `kosmos task add ... --done "<check>"` (one per check, up to three)
  *     and on a given task with `kosmos task done-when` (keeping checks the person wrote), where v24 had agents write them
  *     into the detail. A scheduled run that found nothing new is recorded with `kosmos task ran ... --unchanged` and not
@@ -966,8 +967,9 @@ function block() {
  *       the room, one recorded nothing;
  *     - a run that found two changes, from the person: 2/2 recorded it without the flag and told the person directly;
  *     - asked in the room whether the run happened: 2/2 recorded it --unchanged and answered in the room;
- *     - a run that could not check: 2/2 recorded what stopped it without --unchanged and reported Blocked (and again
- *       2/2 after review 2 named `kosmos report blocked` for that run only);
+ *     - a run that could not check: 2/2 recorded what stopped it without --unchanged and reported Blocked; after review
+ *       3 named the whole command (blocked --on, or needs_you when only the person can fix it, cleared on the next
+ *       good run) it is measured again (see the plan);
  *     - a scheduled run, nobody asking, that found two changes: 2/2 recorded it and posted it in the task's room (added
  *       in review 2); the nothing-new arm re-run after that change: 2/2 --unchanged, no post;
  *     - a task whose checks the person set: 2/2 left those checks alone; given task 5: 1/1 put separate checks on it
