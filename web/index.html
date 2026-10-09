@@ -66784,7 +66784,10 @@ window.addEventListener('pagehide', () => { if (SPEAK.btn) speakStop(); });
    off stops it too. A long message is read up to CONV_MAX characters, cut at a sentence end. */
 const CONV_STORE = 'kosmos.convmode';
 const CONV_MAX = 600;
-const CONV = { on: null, seen: Object.create(null), key: '', where: '', last: '', seq: 0, novoice: false };
+const CONV = { on: null, seen: Object.create(null), at: Object.create(null), key: '', where: '', last: '', seq: 0, novoice: false };
+/* Review 5: the thread and room polls stop while their view is hidden, so a conversation not followed for longer than
+   two polls was left and has come back: its next draw is first sight, and nothing on screen is read. */
+const CONV_GAP_MS = 12000;
 function convLoad() {
   if (CONV.on) return CONV.on;
   let o = null;
@@ -66839,6 +66842,7 @@ function convSeedEmpty(key) {
   if (!key) return;
   CONV.seen[key] = new Set();
   CONV.last = key;
+  CONV.at[key] = Date.now();   // so the first reply that follows is not taken for a return after a gap
 }
 function convSpeak(row, key, waited) {
   if (!convIsOn(key)) return;   // review 2: off during a voice-list wait means nothing is read
@@ -66854,6 +66858,8 @@ function convSpeak(row, key, waited) {
     if (!waited && (vs.getVoices() || []).length === 0 && typeof vs.addEventListener === 'function') {
       const where = viewKey();
       vs.addEventListener('voiceschanged', () => { if (CONV.seq === mine && viewKey() === where) convSpeak(row, key, true); }, { once: true });
+      // Review 5: a browser that never sends voiceschanged would leave the mode silently on: say so after 3 s.
+      setTimeout(() => { if (CONV.seq === mine && !speakVoice()) { CONV.novoice = true; convPaint(); } }, 3000);
       return;
     }
     // Review 2: on, but nothing can be read: the button says so rather than sitting silently on.
@@ -66891,7 +66897,10 @@ function convFollow(root, key) {
   if (CONV.key && CONV.key !== key) convStop();   // the conversation on screen changed
   /* First sight, or back after another conversation, a search or a hidden window (review 1): what is on screen now
      counts as heard, and nothing is read. */
-  if (CONV.last !== key || !CONV.seen[key]) { CONV.seen[key] = new Set(mids); CONV.last = key; return; }
+  const now = Date.now();
+  const away = now - (CONV.at[key] || 0) > CONV_GAP_MS;
+  CONV.at[key] = now;
+  if (CONV.last !== key || !CONV.seen[key] || away) { CONV.seen[key] = new Set(mids); CONV.last = key; return; }
   const fresh = convNewMids(CONV.seen[key], mids);
   CONV.seen[key] = new Set(mids);   // review 3: only what is on screen, so the set does not grow without end
   if (!fresh.length || !convIsOn(key) || !speakCan()) return;
