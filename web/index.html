@@ -18724,7 +18724,7 @@ window.kosmosMeasureScrollbarWidth();
             <input class="tk-inp plus-si-wide" id="plus-si-company-name" type="text" maxlength="32" autocomplete="off" spellcheck="false">
           </div>
           <div class="field" id="plus-si-company-second-row" hidden>
-            <label class="flabel" for="plus-si-company-second">The code from your authenticator app</label>
+            <label class="flabel" for="plus-si-company-second" id="plus-si-company-second-label">The code from your authenticator app</label>
             <input class="tk-inp plus-si-otp" id="plus-si-company-second" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="12">
           </div>
           <div class="frow">
@@ -48978,21 +48978,39 @@ async function plusCompanyFinish(btn) {
     const why = String(r.because || '');
     // Review 3: a refusal OF THE CODE (a wrong code says "N tries left") keeps it from being sent again unchanged.
     // Review 4: only that; a timeout or a name refusal never judged the code, which may still be good.
-    if (second && !r.timeout && /second code|tries left|wrong/i.test(why)) PLUS_CO_REFUSED = second;
+    if (second && !r.timeout && /second code|tries left|wrong|not the one we texted|not what the app shows/i.test(why)) PLUS_CO_REFUSED = second;
     // The coordinator's words for an account with a second step (signin.rs): ask for its code here. Review 3: its
     // other sentence (the name is held by another computer on the account, which the code moves here) is said in its
     // own words, so nobody replaces a computer unknowingly.
     const takeover = /is held by a computer/i.test(why);
     if (takeover || /has a second step|code from your second step/i.test(why)) {
       const sentInput = document.getElementById('plus-si-company-second');
-      if (second && sentInput.select) sentInput.select();
+      const label = document.getElementById('plus-si-company-second-label');
+      if (second) {
+        // A code was sent and refused: say the coordinator's words; the box keeps the kind already asked for.
+        if (sentInput.select) sentInput.select();
+        plusSiMsg(why);
+        sentInput.focus();
+        return;
+      }
+      // kosmos#5651: the first time, ask for the account's text (only a text-message step sends one). An older
+      // tunnel or coordinator cannot: then the words say what still works. Review 3: "Email me a code" is no way out
+      // where the company requires its own sign-in, so it is never offered.
+      const lead = takeover ? why + ' ' : '';
+      const t = await plusSiPost('/api/remote/company/second-text', {});
+      if (r.stale || t.stale) return;
       row.hidden = false;
-      // Review 1: nothing here sends a text message (kosmos#5651). Review 3: and "Email me a code" is no way out
-      // where the company requires its own sign-in, so it is not offered.
-      const sms = ' If your second step is a text message, this way cannot finish yet: switch it to an authenticator app in your Kosmos+ account, or ask your company\'s Kosmos+ admin.';
-      plusSiMsg(second && !takeover ? why
-        : takeover ? why + ' Enter the code from your authenticator app.' + sms
-        : 'This account has a second step: enter the code from your authenticator app, then finish.' + sms);
+      if (t.ok && t.data.sent) {
+        label.textContent = 'The code we texted to your phone';
+        plusSiMsg(lead + 'We texted a code to the phone ending ' + (t.data.sentTo || '') + ': enter it, then finish.');
+      } else if (t.ok) {
+        label.textContent = 'The code from your authenticator app';
+        plusSiMsg(lead + 'Enter the code from your authenticator app, then finish.');
+      } else {
+        label.textContent = 'The code from your second step';
+        plusSiMsg(lead + (t.because && !/cannot send that text/i.test(t.because) ? t.because
+          : 'Enter the code from your authenticator app, then finish. If your second step is a text message, this version of Kosmos cannot send it yet: update Kosmos, or ask your company\'s Kosmos+ admin.'));
+      }
       sentInput.focus();
       return;
     }

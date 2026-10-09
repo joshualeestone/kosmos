@@ -9495,6 +9495,14 @@ const server = http.createServer(async (req, res) => {
   }
   /* kosmos#5628 slice 2b-ui review 1: open the company's sign-in page from the address the engine checked (never one
      from the page), because the Mac app blocks a page's late window.open. */
+  /* kosmos#5651: the approved setup's second-step text (the secret stays in the engine). */
+  if (pathname === '/api/remote/company/second-text' && req.method === 'POST') {
+    remote.companySecond()
+      .then((got) => (got.ok ? sendJson(res, 200, { ok: true, sent: got.sent, second: got.second, sentTo: got.sentTo })
+        : sendJson(res, got.unsupported ? 501 : 400, { error: got.because || 'this version cannot send that text', unsupported: !!got.unsupported })))
+      .catch(() => sendJson(res, 400, { error: 'we could not ask for the text' }));
+    return;
+  }
   if (pathname === '/api/remote/company/open' && req.method === 'POST') {
     remote.companyOpen()
       .then((got) => (got.ok ? sendJson(res, 200, { ok: true }) : sendJson(res, 409, { error: got.because })))

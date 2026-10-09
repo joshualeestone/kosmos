@@ -1505,6 +1505,20 @@ async function companyStatusRun(c) {
   return { ok: true, ready: a.ready === true, gone: a.gone === true, retry: a.retry === true };
 }
 
+/* kosmos#5651: an approved setup asks for its account's second-step text before finishing. Answers
+   { ok, sent, second, sentTo } (sent:false for an authenticator account or one with no second step), or a refusal in
+   the coordinator's words. An older tunnel or coordinator answers unsupported, and the page keeps its old words. */
+async function companySecond() {
+  const c = companySetup;
+  if (companyExpired(c)) return { ok: false, because: 'that company sign-in has expired; start again' };
+  const r = await setupRun(['setup', 'company-second', '--coordinator', COORDINATOR(), '--setup-id', c.setupId], c.secret + '\n', retireTimeoutMs());
+  if (olderTunnel(r) || (!r.ok && /\(404\)|not found/i.test(String(r.because || '')))) return { ok: false, unsupported: true, because: null };
+  if (!r.ok) return { ok: false, because: r.because };
+  const a = (lastJsonLine(r.said) || {}).value || {};
+  return { ok: true, sent: a.sent === true, second: typeof a.second === 'string' ? a.second : null,
+    sentTo: typeof a.sentTo === 'string' ? a.sentTo : null };
+}
+
 /** Finish the approved setup: this computer gets its identity and its name, as the code setup does. */
 async function companyComplete(name, acceptTerms, second) {
   { const b = busy(); if (b) return b; }
@@ -2807,6 +2821,7 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
   companyStart,
   companyStatus,
   companyComplete,
+  companySecond,
   companyOpen,
   signinStart,
   signinVerify,

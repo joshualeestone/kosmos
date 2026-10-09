@@ -74,6 +74,13 @@ if (args[0] === 'setup' && args[1] === 'company-start') {
     url: flag('--coordinator').replace(/\\/+$/, '') + '/v1/sso/begin?email=x&device_id=setup-abc', interval: 5, expiresIn: 900 }));
   process.exit(0);
 }
+// kosmos#5651: the second-step text.
+if (args[0] === 'setup' && args[1] === 'company-second') {
+  if (mode.includes('company-old-second')) { process.stderr.write("error: unrecognized subcommand 'company-second'\\n"); process.exit(2); }
+  fs.writeFileSync(${JSON.stringify(RECORD)} + '.stdin', fs.readFileSync(0, 'utf8'));
+  console.log(JSON.stringify({ sent: true, second: 'sms', sentTo: '4567' }));
+  process.exit(0);
+}
 if (args[0] === 'setup' && args[1] === 'company-status') {
   fs.writeFileSync(${JSON.stringify(RECORD)} + '.stdin', fs.readFileSync(0, 'utf8'));
   if (mode.includes('slow-company-status')) { const until = Date.now() + Number(process.env.FAKE_REGISTER_MS || 1200); while (Date.now() < until) { /* wait */ } }
@@ -4143,4 +4150,21 @@ test('kosmos#5628 slice 2b-ui reviews 1 and 2: opened only when the opener exits
   remote.signinCancel();
   assert.equal((await remote.companyOpen()).ok, false, 'opened after the setup was dropped');
   remote.setCompanyOpenCommandForTests(null);
+});
+
+test('kosmos#5651: the second-step text goes through the tunnel with the secret on stdin; an older tunnel is unsupported', async () => {
+  assert.equal((await remote.companySecond()).ok, false, 'asked with no setup');
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  process.env.FAKE_TUNNEL_MODE = 'company-second-sms';
+  const got = await remote.companySecond();
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.deepEqual(got, { ok: true, sent: true, second: 'sms', sentTo: '4567' });
+  const run = recorded().filter((x) => Array.isArray(x) ? x.includes('company-second') : JSON.stringify(x).includes('company-second')).pop();
+  assert.ok(run, 'the tunnel was not asked');
+  assert.ok(!JSON.stringify(run).includes(fs.readFileSync(RECORD + '.stdin', 'utf8').trim()), 'the secret went on argv');
+  assert.match(fs.readFileSync(RECORD + '.stdin', 'utf8'), /\S/, 'nothing on stdin');
+  process.env.FAKE_TUNNEL_MODE = 'company-old-second';
+  const old = await remote.companySecond();
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.deepEqual([old.ok, old.unsupported], [false, true]);
 });

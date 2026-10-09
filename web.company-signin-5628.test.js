@@ -69,6 +69,8 @@ function world(answers) {
 const START = {
   '/api/remote/company/start': () => [200, { ok: true, matchCode: 'K7-3M', url: 'https://login.kosmosplus.com/v1/sso/begin?x', interval: 5 }],
   '/api/remote/company/open': () => [200, { ok: true }],
+  // kosmos#5651: by default an older board/coordinator that cannot send the text.
+  '/api/remote/company/second-text': () => [501, { error: 'this version cannot send that text', unsupported: true }],
 };
 
 test('the company button shows only on a managed computer', async () => {
@@ -121,7 +123,7 @@ test('a second step is asked for when the account has one, and sent with the fin
   assert.equal(w.el('plus-si-company-second-row').hidden, false, 'no field for the second step');
   // Review 1: no text message is sent on this path, and the words say so rather than wait for one.
   assert.match(w.line(), /authenticator app/);
-  assert.match(w.line(), /text message, this way cannot finish yet/);
+  assert.match(w.line(), /text message, this version of Kosmos cannot send it yet/);
   assert.doesNotMatch(w.line(), /Email me a code/, 'review 3: Email me a code is no way out where the company requires its own sign-in');
   w.el('plus-si-company-second').value = '123456';
   await w.ctx.finish(w.el('plus-si-company-go'));
@@ -208,4 +210,38 @@ test('review 4: a timeout or a name refusal does not mark a still-good code refu
   w.el('plus-si-company-name').value = 'neo-mac2';
   await w.ctx.finish(w.el('plus-si-company-go'));          // the same, still-good code is sent
   assert.deepEqual(sent.at(-1), { name: 'neo-mac2', second: '123456' }, 'a code never judged was held back as refused');
+});
+
+test('kosmos#5651: a text-message account is texted and asked for that code; an authenticator account for the app', async () => {
+  for (const [answer, words, label] of [
+    [[200, { ok: true, sent: true, second: 'sms', sentTo: '4567' }], /texted a code to the phone ending 4567/, /we texted/],
+    [[200, { ok: true, sent: false, second: 'totp' }], /authenticator app/, /authenticator app/],
+  ]) {
+    const asked = [];
+    const w = world(Object.assign({}, START, {
+      '/api/remote/company/status': () => [200, { ready: true }],
+      '/api/remote/company/second-text': () => { asked.push(1); return answer; },
+      '/api/remote/company/complete': (b) => (b.second === '424242' ? [200, { ok: true }]
+        : b.second ? [400, { error: 'that code is not the one we texted; 4 tries left' }]
+        : [400, { error: 'this account has a second step, so adding a computer to it needs that code too.' }]),
+    }));
+    w.el('plus-signin-email').value = 'neo@acme.test';
+    await w.ctx.start(w.el('plus-signin-company'));
+    await w.tick();
+    w.el('plus-si-company-name').value = 'neo-mac';
+    await w.ctx.finish(w.el('plus-si-company-go'));
+    assert.equal(asked.length, 1, 'the text was not asked for (or asked twice)');
+    assert.match(w.line(), words);
+    assert.match(w.el('plus-si-company-second-label').textContent, label);
+    assert.doesNotMatch(w.line(), /Email me a code/);
+    // A wrong code is refused in the coordinator's words, and does NOT ask for another text.
+    w.el('plus-si-company-second').value = '111111';
+    await w.ctx.finish(w.el('plus-si-company-go'));
+    assert.match(w.line(), /4 tries left/);
+    assert.equal(asked.length, 1, 'a refused code asked for another text (each one costs, and counts against the account)');
+    w.el('plus-si-company-second').value = '424242';
+    await w.ctx.finish(w.el('plus-si-company-go'));
+    assert.deepEqual(w.calls.at(-1), ['/api/remote/company/complete', { name: 'neo-mac', second: '424242' }]);
+    assert.equal(asked.length, 1, 'a finish with the code asked for another text');
+  }
 });
