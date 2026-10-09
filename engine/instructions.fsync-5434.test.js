@@ -110,8 +110,8 @@ test('#5434: a backup whose flush fails is not claimed, and the save still lands
 /* Not flush coverage (it passes on main too): it guards the move of the mode restore onto the descriptor (review 1). */
 test('#5434: the brief keeps its mode', { skip: process.platform === 'win32' && 'POSIX modes' }, () => {
   const { name, file } = agent();
-  fs.chmodSync(file, 0o600);
-  const prev = process.umask(0o022);
+  fs.chmodSync(file, 0o644);
+  const prev = process.umask(0o077);   // narrows the temp at create, so only the restore on the descriptor gives 0644 (review 2)
   try { instructions.write(name, NEW); } finally { process.umask(prev); }
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  assert.equal(fs.statSync(file).mode & 0o777, 0o644);
 });
