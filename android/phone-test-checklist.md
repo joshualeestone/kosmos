@@ -20,7 +20,7 @@ The card number after each step, like (#4151), is only for us, so we can trace y
 
 ## 1. Install the app
 
-Use the file **Kosmos-android-test.apk** (version 0.1.2) that Liu Kang puts in your Files, with its
+Use the file **Kosmos-android-test.apk** (version 0.1.3) that Liu Kang puts in your Files, with its
 own install note. (#4165, #4090)
 
 1. Get the file onto the phone (email, Google Drive, or a message to yourself) and tap it.
