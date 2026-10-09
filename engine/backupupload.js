@@ -8,16 +8,16 @@
  *      expires_at and retain_until are ISO-8601 UTC strings ("2026-10-08T18:15:00Z").
  *
  * Each upload is a presigned PUT. Its query signature covers content-length, the digest header (content-md5 for a
- * chunk, x-amz-checksum-sha256 for a manifest), host, if-none-match and the two lock headers (six, all required here); `headers` lists exactly what to send (Content-Length and Host are the HTTP client's, so they are
- * NOT in it). Measured on #5535: a matching body 200, a different body 400 BadDigest, a dropped signed header 403, a
+ * chunk, x-amz-checksum-sha256 for a manifest), host, if-none-match and the two lock headers (six, all required
+ * here); `headers` lists exactly what to send (Content-Length and Host are the HTTP client's, so they are NOT in it). Measured on #5535: a matching body 200, a different body 400 BadDigest, a dropped signed header 403, a
  * second PUT 412. Keys are random per upload (two new ids), and each url's path ends with its key.
  *
  * What this module owns, and what it does not:
  *  - Before a single byte leaves, every grant must bind OUR bytes: the digest in its headers (MD5 for a chunk, SHA-256
  *    for a manifest) is the one we asked for, a Content-Length (if listed) is the object's length, X-Amz-SignedHeaders covers those six headers, If-None-Match is
  *    `*`, the url carries exactly SigV4's six query parameters and a signed time that agrees with expires_at, its host
- *    is an AWS S3 endpoint (path-style or virtual-hosted, never a website endpoint), the url is https and carries the upload's own key, and no url or key
- *    repeats. A coordinator bug cannot make the Mac write something other than what it sealed.
+ *    is an AWS S3 endpoint (path-style or virtual-hosted, never a website endpoint), the url is https and carries the
+ *    upload's own key, and no url or key repeats. A coordinator bug cannot make the Mac write something other than what it sealed.
  *  - 412 counts as stored only after an earlier attempt on that key that MAY HAVE WRITTEN it (a lost answer, a failure
  *    after S3 received the request); not after pre-connect failures or S3's "nothing committed" answers. The key
  *    is random and only this grant's url, whose signature fixes our MD5, can write it, so whatever holds it is our
@@ -330,17 +330,23 @@ function clockSkew(nowMs, expiresAtMs) {
 /* Upload sealed chunk objects ([{ name, object }]). deps: { macRequest, fetch?, now?, sleep? }.
    Resolves { ok: true, keys, lockedUntil, bucket }: keys a Map from each chunk's name to the key it is stored under,
    lockedUntil a Map from each name to its lock's end (ms), bucket the bucket path they are all under. Or
-   { ok: false, because, code?, retryLater?, grantSpent?, keys } with the chunks stored so far (grantSpent: true when
-   a grant answered but the run refused it, its checks or its clock: that grant's allowance is spent). Never throws. */
+   { ok: false, because, code?, retryLater?, grantSpent?, keys, lockedUntil, bucket } with the chunks stored so far,
+   their lock ends and bucket (null if none was granted), so a later manifest can name them without uploading them
+   again. grantSpent: true when any grant in this run answered (its allowance is spent), as for uploadManifest; absent
+   when none did. Never throws. */
 async function uploadChunks(deps, objects, opts) {
   const keys = new Map();
   // Run-wide: chunks that met trouble and are not stored (their write may have landed), and every key granted.
-  const run = { troubled: new Map(), seenKeys: new Set(), bucket: { prefix: null }, locked: new Map() };
+  const run = { troubled: new Map(), seenKeys: new Set(), bucket: { prefix: null }, locked: new Map(), granted: false };
+  // Every result carries what was stored: each stored chunk's lock end, the bucket, and whether a grant was spent.
+  const withStored = (r) => Object.assign(r, {
+    lockedUntil: new Map([...keys.keys()].map((n) => [n, run.locked.get(n)])), bucket: run.bucket.prefix,
+  }, !r.ok && run.granted ? { grantSpent: true } : {});
   try {
-    return await uploadInner(deps, objects, opts, keys, run);
+    return withStored(await uploadInner(deps, objects, opts, keys, run));
   } catch (err) {
     const unsure = [...run.troubled.values()].map((x) => ({ name: x.c.name, key: x.key }));
-    return Object.assign({ ok: false, because: `the uploader failed: ${(err && err.message) || err}`, keys }, unsure.length ? { unsure } : {});
+    return withStored(Object.assign({ ok: false, because: `the uploader failed: ${(err && err.message) || err}`, keys }, unsure.length ? { unsure } : {}));
   }
 }
 async function uploadInner(deps, objects, opts, keys, run) {
@@ -378,6 +384,7 @@ async function uploadInner(deps, objects, opts, keys, run) {
     // clock, so the deadline below never runs past the real expiry because the answer was slow.
     const asked = now();
     const g = await askGrant(deps.macRequest, pending, run.seenKeys, run.bucket);
+    if (g.ok || (g.out && g.out.grantSpent)) run.granted = true;
     if (!g.ok) return Object.assign({ ok: false, keys }, g.out);
     for (const u of g.uploads) run.seenKeys.add(u.key);
     if (!run.bucket.prefix) run.bucket.prefix = g.bucketPrefix;
@@ -447,11 +454,10 @@ async function uploadInner(deps, objects, opts, keys, run) {
   }
   // Every chunk asked for has a key, or this is not a success.
   for (const c of todo) if (!keys.has(c.name)) return { ok: false, because: 'a chunk was left without a stored key', keys };
-  // lockedUntil: each chunk's lock end (ms), so the caller can give uploadManifest the earliest one its manifest names;
-  // bucket: the bucket path every key is under, which the manifest must share (null only for an empty list, since a
-  // repeated name is still uploaded once; uploadManifest then refuses with "no bucket"). A walker that skips chunks
-  // stored by EARLIER runs must keep their bucket path itself, as it keeps their lock ends and keys.
-  return { ok: true, keys, lockedUntil: new Map(todo.map((c) => [c.name, run.locked.get(c.name)])), bucket: run.bucket.prefix };
+  // uploadChunks adds lockedUntil (each chunk's lock end, ms) and bucket (the bucket path every key is under; null only
+  // for an empty list, since a repeated name is still uploaded once). A walker that skips chunks stored by EARLIER runs
+  // must keep their bucket path itself, as it keeps their lock ends and keys.
+  return { ok: true, keys };
 }
 
 /* One signed request for a grant, with one fresh-nonce retry for a replayed body. `makeBody()` builds a body with a

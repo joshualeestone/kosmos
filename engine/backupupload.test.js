@@ -1338,3 +1338,51 @@ test('an unexpected throw before any grant was asked for says grantSpent: false;
     assert.strictEqual(r2.grantSpent, true);
   } finally { await b.close(); }
 });
+
+test('a failed chunk run still reports each STORED chunk\'s lock end and the bucket, and grantSpent when any grant answered', async () => {
+  const b = await bucket();
+  try {
+    // Chunk 1 stores; chunk 2 is refused (a 400), so the run fails with chunk 1 stored.
+    b.script.set(keyN(2), [[400, '<Error><Code>BadDigest</Code></Error>']]);
+    const cs = [chunk(1), chunk(2)];
+    const r = await up.uploadChunks(deps(coordinator(b), { }), cs, { concurrency: 1 });
+    assert.strictEqual(r.ok, false);
+    assert.ok(r.keys.has(cs[0].name) && !r.keys.has(cs[1].name));
+    assert.ok(Number.isFinite(r.lockedUntil.get(cs[0].name)), 'no lock end for the stored chunk');
+    assert.ok(!r.lockedUntil.has(cs[1].name));
+    assert.strictEqual(r.bucket, `${new URL(b.base).host}/bucket/`);
+    assert.strictEqual(r.grantSpent, true);
+    // A re-grant request that fails after a grant ran out cleanly: grantSpent still true (call-wide, as for a manifest).
+    let n = 0;
+    const c2 = coordinator(b, { tag: 'r' });
+    const real = c2.macRequest;
+    c2.macRequest = async (...a) => (++n === 1 ? real(...a) : { ok: false, because: 'refused (HTTP 429 on /v1/org/backup/grant, code backup_quota)' });
+    b.script.get = () => [[403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>']];
+    const q = await up.uploadChunks(deps(c2), [chunk(3)]);
+    assert.strictEqual(q.ok, false); assert.strictEqual(q.code, 'backup_quota'); assert.strictEqual(q.grantSpent, true);
+    // CONTROL: a run whose only grant request is refused outright spent nothing it knows of: absent.
+    const none = await up.uploadChunks(deps(coordinator(b, { refuse: ['refused (HTTP 429 on /v1/org/backup/grant, code backup_quota)'] })), [chunk(4)]);
+    assert.strictEqual(none.ok, false); assert.strictEqual(none.grantSpent, undefined); assert.strictEqual(none.bucket, null);
+  } finally { await b.close(); }
+});
+
+test('the production bucket shape (virtual-hosted, test seam off) passes the manifest bucket checks; another bucket does not', async () => {
+  const b = await bucket();
+  const bytes = manifestBytes();
+  let data;
+  await manifestCoordinator(b, { tamper: (d) => { data = d; } }).macRequest('POST', up.MANIFEST_ROUTE, { sha256: sha256hex(bytes), size: bytes.length });
+  await b.close();
+  // Rewrite the stub's path-style local url to a virtual-hosted S3 url: https://bkt1.s3.us-east-1.amazonaws.com/<key>?...
+  const u = new URL(data.upload.url);
+  data.upload.url = `https://bkt1.s3.us-east-1.amazonaws.com/${data.upload.key.split('/').map(encodeURIComponent).join('/')}${u.search}`;
+  up.allowHttpForTests(false);
+  try {
+    assert.strictEqual(up.parseManifestGrant(data, bytes, 'bkt1.s3.us-east-1.amazonaws.com/').ok, true);
+    assert.match(up.parseManifestGrant(data, bytes, 'bkt2.s3.us-east-1.amazonaws.com/').because, /another bucket/);
+    // And the pre-grant bucket shape accepts host/ (asks for a grant).
+    let asked = 0;
+    await up.uploadManifest({ macRequest: async () => { asked++; return { ok: false, because: 'x' }; }, fetch, sleep: async () => {} },
+      bytes, { bucket: 'bkt1.s3.us-east-1.amazonaws.com/', chunks: oneChunk() });
+    assert.strictEqual(asked, 1);
+  } finally { up.allowHttpForTests(true); }
+});
