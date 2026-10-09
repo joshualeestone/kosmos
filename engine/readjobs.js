@@ -64,4 +64,13 @@ function ask(key, run, waitMs = soonWaitMs, now = Date.now(), { resend = () => f
   return Promise.race([job.promise, late]).then(() => { clearTimeout(timer); return take(); });
 }
 
-module.exports = { ask, SOON_WAIT_MS, KEEP_MS, RESEND_MS, MAX_JOBS, setSoonWaitMs: (ms) => { soonWaitMs = ms; }, _reset: () => jobs.clear(), _size: () => jobs.size };
+/* Review 4/5: which answers the community read keeps for a re-ask after it is handed out. Only a good (200) answer to a
+   read that marks what it showed (replies, Following): losing it would lose those items. A channel or post read, and
+   any failure, is read afresh, so a re-read after a comment is never stale and an error is retried. `asked` is the
+   question as the route reads it (URLSearchParams). */
+function worthResending(asked, value) {
+  const marks = !!asked && (asked.get('following') === '1' || asked.get('replies') === '1');
+  return marks && !!value && value.status === 200;
+}
+
+module.exports = { ask, worthResending, SOON_WAIT_MS, KEEP_MS, RESEND_MS, MAX_JOBS, setSoonWaitMs: (ms) => { soonWaitMs = ms; }, _reset: () => jobs.clear(), _size: () => jobs.size };

@@ -19,6 +19,6 @@ cuts. Which limit it is was not measured (the reporting computer is not this one
   collects it within 3 minutes, or the board is holding more than 200 answers and drops the oldest, those items read
   as seen. The message says "in a minute". A good answer to a replies or Following read is kept 30 s
   more once handed out (reviews 3 and 4), so a response lost on the way can be asked for again; the cost is that the
-  same read repeated within 30 s shows the same answer. Channel and post reads, and every failure, are read afresh.
+  same read repeated within 30 s shows the same answer. Channel and post reads, and every failure, are read afresh once handed out; an answer nobody has collected yet (the command gave up) is still served once within 3 minutes, so a re-run in that window can show what was read before a comment made since.
 - Weakest premise: that request length is what cuts the seat's reads. The next multi-model run measures it
   (Splinter has the `time kosmos community read --following` ask in its note).
