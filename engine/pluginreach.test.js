@@ -392,3 +392,17 @@ test('#5309 p2 integration: Codex agent fires on person Codex presence, renders 
   assert.deepEqual(agentPluginReach({ runner: 'codex', agentClaudeDir: null, personClaudeDir: '/person/.claude', personClaudeJson: '/person/.claude.json', personCodexHome: '/person/.codex' }, { fs: fsEmpty }),
     { reaches: null, reason: NO_EVIDENCE });
 });
+
+test('#5309 p2 integration: a NULL runner is treated as Claude (default launch), so a separate-account agent still fires', () => {
+  _resetCache();
+  // runnerOfCard returns null for a default Claude agent; a separate-account one with a null runner must
+  // still be judged as Claude and gated on evidence, never silently UNKNOWN for lack of an explicit runner.
+  const fs = fakeFs({
+    '/person/.claude/settings.json': JSON.stringify({ enabledPlugins: { 'crm@acme': true } }),
+    '/person/.claude.json': '{}', '/agent/settings.json': '{}', '/agent/.claude.json': '{}',
+  }, { '/person/.claude/settings.json': 1, '/person/.claude.json': 1, '/agent/settings.json': 1, '/agent/.claude.json': 1 });
+  const r = agentPluginReach({ runner: null, agentClaudeDir: '/agent', personClaudeDir: '/person/.claude', personClaudeJson: '/person/.claude.json' }, { fs });
+  assert.equal(r.reaches, false);
+  assert.equal(r.reason, SEPARATE_ACCOUNT);
+  assert.deepEqual(r.missing, ['crm@acme']);
+});
