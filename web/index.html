@@ -61071,10 +61071,10 @@ async function paintTaskActivity(n) {
   holder.innerHTML = tkActRowsHtml(events, p, now);
   if (canQuery && wasOpen.size) for (const d of holder.querySelectorAll('details.tkact-roll')) if (wasOpen.has(d.dataset.first)) d.open = true;
 }
-/* kosmos#5643: the history's rows. Two or more runs in a row that found nothing new (not late: lateness is news) are ONE
-   row, "N runs found nothing new" (or "repeated the same note" for runs the board only inferred, or both), which opens
-   to show each; a change, a late run and every other event keep their own
-   row. Pure over its inputs, so a test can lift it.
+/* kosmos#5643: the history's rows. Two or more runs in a row that found nothing new (not late: lateness is news) are
+   ONE row, "N runs found nothing new" (or "repeated the same note" for runs the board only inferred, or both), which
+   opens to show each; a change, a late run and every other event keep their own row. Pure over its inputs, so a test
+   can lift it.
    The repeat line's count (unchangedRuns) counts late runs too, so "The last 5 runs found nothing new" can sit beside
    two rollups split by a late run: the line counts what was found, the history shows when (review 1). */
 function tkActRowsHtml(events, p, now) {

@@ -7,8 +7,9 @@ From a user's feedback (2026-10-09, triaged by Splinter). A long monitoring task
 - A run can be recorded as UNCHANGED, and the task keeps the last change apart from the last run.
 - The task page's repeat line is the status card: what is missed (red, first), the last run, how many runs in a row
   found nothing new since the last change (and what that change was), and the next run.
-- In the task's history, a run of consecutive unchanged runs is ONE row ("12 runs found no change, the latest 4m
-  ago"), and pressing it shows each one. Changes, late runs and missed runs keep their own rows.
+- In the task's history, a streak of 2 or more consecutive unchanged runs is ONE row ("12 runs found nothing new", or
+  "repeated the same note" for runs the board only inferred), and pressing it shows each one. Changes, late runs and
+  missed runs keep their own rows.
 - Both CLIs: `kosmos task ran <project> <n> --unchanged ["what it checked"]`.
 
 ## Decisions (Angel; the card asks the builder to make these)
@@ -61,3 +62,6 @@ That repeating agents write the same note, with no number in it, when nothing ch
     - a test isolating unflagged identical runs;
     - a test that duplicate is said before unchanged in both CLIs;
     - one redundant CSS line.
+- **Round 4 (sonnet):** 0 blockers.
+  - W fixed: two dropRunStreak call sites had no test that could fail (the clear itself, and a task closed by its last part). Both are now tested directly.
+  - NITs fixed: the comment reflowed, and the plan's wording matched to what ships.
