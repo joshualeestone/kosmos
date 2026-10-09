@@ -196,7 +196,7 @@ function targetClass(tool, input, ctx) {
     const ci = process.platform === 'darwin';
     const globMatch = (g, s0) => {
       if (/[{}]/.test(g)) return true;
-      const s1 = ci ? s0.toLowerCase() : s0;
+      const s1 = ci ? s0.toLowerCase() : s0;   // literals compare folded on a Mac (its volume is case-blind)
       const toks = [];
       for (let i = 0; i < g.length; i++) {
         const ch = g[i];
@@ -214,8 +214,10 @@ function targetClass(tool, input, ctx) {
               for (let k = 0; k < b.length; k++) {
                 if (b[k + 1] === '-' && k + 2 < b.length) { set.push([b[k], b[k + 2]]); k += 2; } else set.push([b[k], b[k]]);
               }
-              const lo = (x) => (ci ? x.toLowerCase() : x);
-              toks.push({ set: set.map(([a, z]) => [lo(a), lo(z)]), neg });
+              /* A class is compared in the typed case and, on a Mac, also folded: it matches if either does (review 35:
+                 folding only, [^a-z] stopped matching K and [Z-o] became a reversed range). It can only match more. */
+              const lo = (x) => x.toLowerCase();
+              toks.push({ set, fset: ci ? set.map(([a, z]) => [lo(a), lo(z)]) : null, neg });
             } else toks.push({ any: true });
             i = j;
             continue;
@@ -223,11 +225,13 @@ function targetClass(tool, input, ctx) {
         }
         toks.push({ lit: ci ? ch.toLowerCase() : ch });
       }
-      const one = (t, c) => (t.any ? true : t.lit !== undefined ? t.lit === c : (t.set.some(([a, z]) => a <= c && c <= z) !== t.neg));
+      const inSet = (set, c) => set.some(([a, z]) => a <= c && c <= z);
+      const one = (t, c, raw) => (t.any ? true : t.lit !== undefined ? t.lit === c
+        : (inSet(t.set, raw) !== t.neg) || (!!t.fset && inSet(t.fset, c) !== t.neg));
       let p = 0; let t = 0; let starP = -1; let starT = 0;
       while (t < s1.length) {
         if (p < toks.length && toks[p] === '*') { starP = p++; starT = t; }
-        else if (p < toks.length && one(toks[p], s1[t])) { p++; t++; }
+        else if (p < toks.length && one(toks[p], s1[t], s0[t])) { p++; t++; }
         else if (starP >= 0) { p = starP + 1; t = ++starT; }
         else return false;
       }

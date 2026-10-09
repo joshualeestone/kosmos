@@ -1102,3 +1102,15 @@ test('#5683 r34: a reversed range matches nothing, and a brace-heavy command is 
   for (let i = 0; i < 20; i++) ae.targetClass('Bash', { command: bomb }, c);
   assert.ok(Date.now() - t0 < 5000, '20 brace-heavy commands took ' + (Date.now() - t0) + ' ms');
 });
+
+/* ---- review 35 ---- */
+
+test('#5683 r35: a bracket class keeps its typed case (negation and mixed-case ranges), and folding can only add', () => {
+  const c = ctx({ agentDir: '/Users/ann/work/workers/a', home: '/Users/ann', boardRoot: '/Users/ann/Library/Application Support/Kosmos' });
+  for (const g of ['[^a-z]osmos', 'Kosm[^A-Z]s', 'Kosm[Z-o]s', 'Kosmo[!A-Z]']) {
+    assert.equal(ae.targetClass('Bash', { command: 'cat ~/Library/Application\\ Support/' + g + '/b*' }, c), 'board-files', g);
+  }
+  // a class that excludes the board folder's letter still does
+  assert.equal(ae.targetClass('Bash', { command: 'cat ~/Library/Application\\ Support/Kosm[!o]s/b*' }, c), 'home');
+  assert.equal(ae.targetClass('Bash', { command: 'cat ~/Library/Application\\ Support/Kosmo[!k-z]/b*' }, c), 'home');
+});

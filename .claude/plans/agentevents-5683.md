@@ -446,3 +446,11 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   literal path, home). Test.
 - .. in a glob word is applied before segments are compared (path.normalize), in toBoard and reaches. Test.
 - A reversed range [z-a] matches nothing, as in bash (the regex threw and fell back to matching anything). Test.
+
+## Review 35 (sonnet), all fixed unless stated
+- Review 34's matcher folded a bracket class on a Mac, which bash does not: [^a-z]osmos, Kosm[^A-Z]s, Kosm[Z-o]s and
+  Kosmo[!A-Z] read as home. A class now matches in its typed case OR, on a Mac, folded on both sides (it can only
+  match more). Test, with two classes that truly exclude the board folder staying home.
+- Stated: a segment holding a brace sequence ({1..3}) matches anything, the same over-claim as a deep glob of stars
+  (~/Library/{1..3}/* reads as board-files); the brace-bomb timing test guards a blow-up only (the pre-fix code passed
+  it at 636 ms), not the budget itself, which the 65th-alternative test covers.
