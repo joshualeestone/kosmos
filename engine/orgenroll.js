@@ -536,7 +536,7 @@ async function enrollNow(code, accepted, opts) {
   setStopped(null, opts); setLeaveRefused(null, opts); setJoinUnknown(null, opts);
   /* #5534 review 3: joined to another company than the policy in force here (a move by code): the old company's policy
      ends now, whether or not the follow-up refresh reaches the new company. */
-  endForeignPolicy(opts, org && org.id);
+  if (org && org.id) endForeignPolicy(opts, org.id);
   return { ok: true, ...rec };
 }
 
@@ -856,11 +856,6 @@ async function refreshNow(opts) {
   return { ok: true, enrolled: true, member: true, ...rec, ...(policy ? { policy } : {}) };
 }
 
-/* #5534 (E0.5): the coordinator serves the company's policy, signed, on this enrolled computer's status answer (null when
-   the company has saved none). It is written where engine/orgpolicy.js reads it and applied there, which verifies it
-   AGAIN against the pinned coordinator key and refuses a forged, tampered, expired or older one, keeping the last good
-   one in force. { version, refused } or null when the answer carried no policy. Never throws: a policy that cannot be
-   saved or applied leaves the enrollment as it is, and the next refresh (on start and daily) tries again. */
 /* #5534 review 3: a policy of another company than `orgId` ends (a move, or a company change on the answer), so a
    refused or missing bundle of the new company leaves no policy rather than the old company's. */
 function endForeignPolicy(opts, orgId) {
@@ -879,6 +874,11 @@ function takePolicy(d, opts, orgId) {
   return applyPolicy(d && d.policy, opts, orgId);
 }
 
+/* #5534 (E0.5): the coordinator serves the company's policy, signed, on this enrolled computer's status answer (null when
+   the company has saved none). It is written where engine/orgpolicy.js reads it and applied there, which verifies it
+   AGAIN against the pinned coordinator key and refuses a forged, tampered, expired or older one, keeping the last good
+   one in force. { version, refused } or null when the answer carried no policy. Never throws: a policy that cannot be
+   saved or applied leaves the enrollment as it is, and the next refresh (on start and daily) tries again. */
 function applyPolicy(token, opts, orgId) {
   if (typeof token !== 'string' || !token || token.length > 64 * 1024) return null;
   const orgpolicy = policyMod(opts);

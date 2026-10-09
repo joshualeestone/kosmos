@@ -224,3 +224,12 @@ test('#5534 review 5: a bundle of another company waiting on disk is ended on a 
   assert.equal(fs.existsSync(orgpolicy.BUNDLE()), false, 'another company\'s bundle stayed on disk');
   assert.equal(create.policyAllows('openai', null).ok !== false, true, 'another company\'s bundle applied on this board');
 });
+
+test('#5534 review 6: an expired bundle keeps the last good policy in force (fails closed)', async () => {
+  reset();
+  const root = tmp('aw-polapply-world-');
+  await org.refresh({ root, remote: coordinatorServing(root, sign(bundle())) });
+  const r = await org.refresh({ root, remote: coordinatorServing(root, sign(bundle({ version: 2, exp: now() - 5, policy: { ...POLICY, providers_allowed: null } }))) });
+  assert.ok(r.policy && r.policy.refused, 'an expired bundle was not refused');
+  assert.equal(create.policyAllows('openai', null).ok, false, 'an expired bundle lifted the policy');
+});
