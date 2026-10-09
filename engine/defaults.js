@@ -969,7 +969,8 @@ function block() {
  *     - asked in the room whether the run happened: 2/2 recorded it --unchanged and answered in the room;
  *     - a run that could not check: 2/2 recorded what stopped it without --unchanged and reported Blocked; after review
  *       3 named the whole command (blocked --on, or needs_you when only the person can fix it, cleared on the next
- *       good run) it is measured again (see the plan);
+ *       good run): 2/2 used `report blocked --on` for a page that timed out, and 2/2 used needs_you for an expired
+ *       login only the person can renew;
  *     - a scheduled run, nobody asking, that found two changes: 2/2 recorded it and posted it in the task's room (added
  *       in review 2); the nothing-new arm re-run after that change: 2/2 --unchanged, no post;
  *     - a task whose checks the person set: 2/2 left those checks alone; given task 5: 1/1 put separate checks on it

@@ -42,3 +42,7 @@ The harness is in the scratchpad meas/ (batch3.sh, results3/). Batches 1 and 2 a
   - C fixed: the v26 row is placed newest-first in doctrine-past.js.
   - C fixed: Blocked names `kosmos report blocked`, for that run only (measured 2/2).
   - NIT fixed: "record what it found", not "say".
+- **Round 3 (opus):** 0 blockers.
+  - W fixed: the bare `kosmos report blocked` is refused by both CLIs, and Blocked is wrong when only the person can fix it. Now `blocked --on "<what>"`, or needs_you as above, then `report clear` on the next good run. Measured: timeout 2/2 `blocked --on`; expired login 2/2 needs_you.
+  - C fixed: a test ties "set by the person" to both CLIs' output.
+  - NITs fixed: the log reflow, and the test comment.
