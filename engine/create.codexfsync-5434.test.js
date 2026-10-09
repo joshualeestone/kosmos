@@ -110,14 +110,18 @@ test('#5434: a link planted at the temp name is not written through or removed, 
     return realOpen.call(fs, p, flags, ...rest);
   };
   let out;
-  try { out = forget(home, dir); } finally { fs.openSync = realOpen; }
+  let linkKept = false;
+  try { out = forget(home, dir); } finally {
+    fs.openSync = realOpen;
+    try { linkKept = fs.lstatSync(planted).isSymbolicLink(); } catch { linkKept = false; }
+    if (planted) fs.rmSync(planted, { force: true });
+  }
   assert.ok(planted, 'the plant never happened, so this tests nothing');
   assert.equal(fs.existsSync(elsewhere), false, 'the config was written through the planted link');
-  assert.equal(fs.lstatSync(planted).isSymbolicLink(), true, 'the planted link was removed');
+  assert.equal(linkKept, true, 'the planted link was removed');
   assert.equal(out.removed, true, 'the save did not move on to a fresh name');
   assert.equal(fs.lstatSync(cfg).isSymbolicLink(), false, 'config.toml became a link');
   assert.ok(!fs.readFileSync(cfg, 'utf8').includes('[projects.'), 'the entry was not taken back');   // the home's only entry
-  fs.rmSync(planted, { force: true });
 });
 
 test('#5434: in the person\'s codex folder only config.toml\'s own dead temps are reaped', () => {
