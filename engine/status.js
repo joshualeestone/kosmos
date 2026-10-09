@@ -5031,6 +5031,10 @@ const ASSUMED_LIMIT_MODELS = /^claude-(opus|sonnet|fable)-/;
  * exists — `CONTEXT_LIMITS` is where an observed ceiling belongs.
  */
 const HAIKU_ASSUMED_LIMIT = 200000;
+/* #5626: the Haiku models that are NOT the 200K Haiku above. Anthropic's models page (2026-10-08) lists Haiku 5.5's
+   context window as 1M, like the current Opus, Sonnet and Fable, so it takes the same 1M, still marked an assumption
+   until one is watched. The next 1M Haiku is added here. Matched against the undated id. */
+const HAIKU_1M_MODELS = /^claude-haiku-5-5$/;
 const HAIKU_MODELS = /^claude-haiku-/;
 
 function limitFor(model) {
@@ -5039,6 +5043,7 @@ function limitFor(model) {
   const undated = model.replace(/-\d{8}$/, '');
   if (CONTEXT_LIMITS[undated]) return { limit: CONTEXT_LIMITS[undated], assumed: false };
   if (ASSUMED_LIMIT_MODELS.test(model)) return { limit: ASSUMED_LIMIT, assumed: true };
+  if (HAIKU_1M_MODELS.test(undated)) return { limit: ASSUMED_LIMIT, assumed: true };
   // Its own figure, for the reason above: the 1M assumption is not Haiku's.
   if (HAIKU_MODELS.test(model)) return { limit: HAIKU_ASSUMED_LIMIT, assumed: true };
   return null;
@@ -6268,6 +6273,7 @@ const MODEL_NAMES = {
   'claude-fable-5': 'Claude Fable 5',
   'claude-fable-5-1': 'Claude Fable 5.1', // #1356: added to the picker; name it here too so a running 5.1 agent is not shown its raw id
   'claude-opus-4-8': 'Claude Opus 4.8',
+  'claude-haiku-5-5': 'Claude Haiku 5.5', // #5626: added to the picker; named here so a running 5.5 agent is not shown its raw id
   'claude-haiku-4-5': 'Claude Haiku 4.5',
 };
 

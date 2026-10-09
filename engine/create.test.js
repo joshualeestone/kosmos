@@ -3378,6 +3378,7 @@ test('a different choice comes back different, and every model in the list round
 /* #4439: the card's own acceptance line, asserted for the one new model by name rather than
    left to the loop above: an agent created on Sonnet 5.5 is launched with claude-sonnet-5-5,
    and its card calls it "Claude Sonnet 5.5". The control is the Sonnet 5 agent beside it. */
+
 test('#4439: an agent created on Sonnet 5.5 launches with claude-sonnet-5-5 and is named Claude Sonnet 5.5', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
@@ -3389,6 +3390,21 @@ test('#4439: an agent created on Sonnet 5.5 launches with claude-sonnet-5-5 and 
   const c = create.createAgent({ ...BINS, name: 'sonnetfive', role: 'pm', model: 'sonnet' });
   assert.equal(c.outcome, create.OUTCOME.CREATED, c.because);
   assert.equal(plannedModel('sonnetfive'), 'claude-sonnet-5', 'CONTROL: Sonnet 5 is still Sonnet 5');
+});
+
+/* #5626: the card's acceptance line for Haiku 5.5, as #4439's for Sonnet 5.5 above: an agent created on Haiku 5.5 is
+   launched with claude-haiku-5-5 and its card calls it "Claude Haiku 5.5". The control is the Haiku 4.5 agent beside it. */
+test('#5626: an agent created on Haiku 5.5 launches with claude-haiku-5-5 and is named Claude Haiku 5.5', WIN_LAUNCHD, () => {
+  recorder();
+  create.setDryRun(false);
+  const status = require('./status');
+  const r = create.createAgent({ ...BINS, name: 'haikufivefive', role: 'pm', model: 'haiku55' });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
+  assert.equal(plannedModel('haikufivefive'), 'claude-haiku-5-5');
+  assert.equal(status.modelDisplayName(plannedModel('haikufivefive')), 'Claude Haiku 5.5');
+  const c = create.createAgent({ ...BINS, name: 'haikufourfive', role: 'pm', model: 'haiku' });
+  assert.equal(c.outcome, create.OUTCOME.CREATED, c.because);
+  assert.equal(plannedModel('haikufourfive'), 'claude-haiku-4-5-20251001', 'CONTROL: Haiku 4.5 is still Haiku 4.5');
 });
 
 /**
@@ -5879,7 +5895,8 @@ test("#1026: modelsFor scopes to the provider, and today OpenAI's list is empty"
   // #1356: six anthropic models after Opus 4.8 and Fable 5.1 were added.
   // #3459: seven, after Opus 5.5 was added.
   // #4439: eight, after Sonnet 5.5 was added.
-  assert.equal(create.modelsFor('anthropic').length, 8);
+  // #5626: nine, after Haiku 5.5 was added (Haiku 4.5 kept).
+  assert.equal(create.modelsFor('anthropic').length, 9);
   assert.deepEqual(create.modelsFor('openai'), [],
     'an OpenAI model appeared without anyone adding one, or the filter is wrong');
   // Every entry carries one, or the filter silently drops it from both lists.
@@ -5930,6 +5947,26 @@ test('#4439: the picker offers Claude Sonnet 5.5 by its verified id, and the def
   assert.deepEqual(def.map((m) => m.arg), ['claude-sonnet-5'], 'CONTROL: Sonnet 5 is still the one default');
 });
 
+test('#5626: the picker offers Claude Haiku 5.5 by its published id, keeps Haiku 4.5 and every other model, and the default stays Sonnet 5', () => {
+  const create = require('./create');
+  const status = require('./status');
+  const row = create.MODELS.find((m) => m.arg === 'claude-haiku-5-5');
+  assert.ok(row, 'claude-haiku-5-5 is not offered by the picker');
+  assert.equal(row.provider, 'anthropic');
+  assert.equal(row.label, 'Claude Haiku 5.5');
+  assert.ok(!row.default, 'Haiku 5.5 must not be the default');
+  // The why line states a dated fact, the knowledge cutoff (June 2026, Anthropic's models page): pinned, so a change to it
+  // is deliberate and re-checked against the source.
+  assert.equal(row.why, 'The newest Haiku, with more recent knowledge (to June 2026). The quickest and the cheapest, for small jobs done often.');
+  assert.equal(create.MODELS.find((m) => m.arg === 'claude-haiku-4-5-20251001').why, 'The previous Haiku generation. Quick, for small, simple jobs done often.', 'Haiku 4.5 still claims to be the cheapest');
+  assert.equal(status.modelDisplayName('claude-haiku-5-5'), 'Claude Haiku 5.5', 'the board names it as the picker does');
+  // Josh, 10-08: "Let's not delete any other Claude models". Every model that was offered is still offered.
+  for (const kept of ['claude-fable-5-1', 'claude-fable-5', 'claude-opus-5-5', 'claude-opus-5', 'claude-opus-4-8', 'claude-sonnet-5-5', 'claude-sonnet-5', 'claude-haiku-4-5-20251001']) {
+    assert.ok(create.MODELS.some((m) => m.arg === kept), kept + ' was removed from the picker');
+  }
+  assert.deepEqual(create.MODELS.filter((m) => m.default).map((m) => m.arg), ['claude-sonnet-5'], 'CONTROL: Sonnet 5 is still the one default');
+});
+
 test('#2140: the Claude picker is ordered most-powerful-first in Josh\'s exact order (item 10)', () => {
   const create = require('./create');
   // Josh, 0.6.35 feedback item 10: Fable 5.1, Fable 5, Opus 5, Opus 4.8, Sonnet, Haiku.
@@ -5948,7 +5985,8 @@ test('#2140: the Claude picker is ordered most-powerful-first in Josh\'s exact o
     'claude-opus-4-8',    // Opus 4.8
     'claude-sonnet-5-5',  // Sonnet 5.5 (#4439: newest Sonnet, leads the Sonnet tier)
     'claude-sonnet-5',    // Sonnet (still the default, mid-list by power)
-    'claude-haiku-4-5-20251001', // Haiku (least, last)
+    'claude-haiku-5-5',   // Haiku 5.5 (#5626: newest Haiku, leads the Haiku tier)
+    'claude-haiku-4-5-20251001', // Haiku 4.5 (kept: Josh 10-08, delete no Claude model)
   ], 'the Claude model menu is not in Josh\'s most-powerful-first order (#2140 item 10)');
   // The reorder must NOT have changed the default: Sonnet 5 stays pre-selected.
   const defaults = create.MODELS.filter((m) => m.default);

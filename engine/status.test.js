@@ -3876,6 +3876,34 @@ test('#4439: a Sonnet 5.5 agent is measured against 1M, the window Claude Code\'
   }
 });
 
+test('#5626: a Haiku 5.5 agent is measured against 1M, its published window, not the 200K assumed for other Haiku', () => {
+  /* Anthropic's models page (2026-10-08) lists Haiku 5.5's context window as 1M. Still shown as assumed: a published figure
+     is not a watched one. 100,000 tokens: 10% of 1M (50% would mean it fell into the 200K Haiku rule). */
+  const root = process.env.AGENT_WORKFORCE_CONFIG_ROOT;
+  const name = 'haikufivefive';
+  const dir = nodePath.join(process.env.AGENT_WORKFORCE_WORKERS, name);
+  fs.mkdirSync(dir, { recursive: true });
+  const projects = nodePath.join(root, 'projects', dir.replace(/[^A-Za-z0-9]/g, '-'));
+  fs.mkdirSync(projects, { recursive: true });
+  fs.writeFileSync(nodePath.join(projects, 'sess-haiku55.jsonl'),
+    JSON.stringify({ type: 'summary', sessionId: 'sess-haiku55' }) + '\n'
+    + JSON.stringify({ cwd: dir,
+        message: { model: 'claude-haiku-5-5', usage: { input_tokens: 100000 } } }) + '\n',
+    'utf8');
+  setPaneSource(() => `${name}\t0.0\t2.1.295\t0\t${name}\t✳ Claude Code`);
+  setPaneCapture(() => 'Worked for 1m\n> \n');
+  try {
+    const card = snapshot().agents.find((a) => a.sessionName === name);
+    assert.ok(card, 'the fixture did not produce a card at all');
+    assert.equal(card.context.ceiling, 1000000, 'a Haiku 5.5 agent is measured against the 200K Haiku ceiling');
+    assert.equal(card.context.percent, 10);
+    assert.equal(card.context.ceilingAssumed, true, 'the 1M is a published figure, not a watched one');
+  } finally {
+    setPaneSource(null);
+    setPaneCapture(null);
+  }
+});
+
 test('a Haiku agent gets a ceiling of its own, and it is not the 1M the others assume', () => {
   /**
    * 🛑 JOSH, 2026-08-21: two of eight agents read "Unknown" after the memory fix
