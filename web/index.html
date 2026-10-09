@@ -38810,6 +38810,10 @@ function paintDetailState(card) {
 }
 
 function openDetail(sessionName, section, fromProject) {
+  /* #5624 review 6: opening an agent (again) is first sight for conversation mode: the thread's poll stopped while it
+     was not on screen, so what arrived meanwhile is not read late. An explicit mark, not a clock (review 6: a slow
+     poll must never skip a message the person is watching for). */
+  if (typeof convPause === 'function') convPause();
   // #3050: opening ANY agent - INCLUDING one no longer in LAST (removed while its
   // Update reload was in flight), which is why this precedes the `if (!a) return`
   // below - clears a stranded update-in-progress indicator. The Update button's
@@ -65133,6 +65137,7 @@ function openProject(id) {
      because there is nothing left to do at navigation time. The restore
      below is the only other half. */
   PJ_CURRENT = id;
+  if (typeof convPause === 'function') convPause();   // #5624 review 6: entering a room is first sight, as openDetail
   // #980: selection shows the moment it happens (the painter also writes
   // .open on repaints; this covers the gap between click and next paint).
   pjMarkOpen(id);
@@ -66784,10 +66789,7 @@ window.addEventListener('pagehide', () => { if (SPEAK.btn) speakStop(); });
    off stops it too. A long message is read up to CONV_MAX characters, cut at a sentence end. */
 const CONV_STORE = 'kosmos.convmode';
 const CONV_MAX = 600;
-const CONV = { on: null, seen: Object.create(null), at: Object.create(null), key: '', where: '', last: '', seq: 0, novoice: false };
-/* Review 5: the thread and room polls stop while their view is hidden, so a conversation not followed for longer than
-   two polls was left and has come back: its next draw is first sight, and nothing on screen is read. */
-const CONV_GAP_MS = 12000;
+const CONV = { on: null, seen: Object.create(null), key: '', where: '', last: '', seq: 0, novoice: false };
 function convLoad() {
   if (CONV.on) return CONV.on;
   let o = null;
@@ -66842,7 +66844,6 @@ function convSeedEmpty(key) {
   if (!key) return;
   CONV.seen[key] = new Set();
   CONV.last = key;
-  CONV.at[key] = Date.now();   // so the first reply that follows is not taken for a return after a gap
 }
 function convSpeak(row, key, waited) {
   if (!convIsOn(key)) return;   // review 2: off during a voice-list wait means nothing is read
@@ -66897,10 +66898,7 @@ function convFollow(root, key) {
   if (CONV.key && CONV.key !== key) convStop();   // the conversation on screen changed
   /* First sight, or back after another conversation, a search or a hidden window (review 1): what is on screen now
      counts as heard, and nothing is read. */
-  const now = Date.now();
-  const away = now - (CONV.at[key] || 0) > CONV_GAP_MS;
-  CONV.at[key] = now;
-  if (CONV.last !== key || !CONV.seen[key] || away) { CONV.seen[key] = new Set(mids); CONV.last = key; return; }
+  if (CONV.last !== key || !CONV.seen[key]) { CONV.seen[key] = new Set(mids); CONV.last = key; return; }
   const fresh = convNewMids(CONV.seen[key], mids);
   CONV.seen[key] = new Set(mids);   // review 3: only what is on screen, so the set does not grow without end
   if (!fresh.length || !convIsOn(key) || !speakCan()) return;

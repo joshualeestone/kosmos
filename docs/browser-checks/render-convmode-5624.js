@@ -26,7 +26,7 @@
  *   C15 a no-match search, then clearing it, reads nothing late (review 4)
  *   C16 the no-voice notice clears when the toggle changes (review 4)
  *   C17 pressing the mic, through its real handler, stops a reading (review 4)
- *   C18 coming back to the same conversation after a gap reads nothing that arrived meanwhile (review 5)
+ *   C18 opening the same agent again (openDetail) reads nothing that arrived meanwhile (reviews 5, 6)
  *   C9 no page errors
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-convmode-5624.js [shots-dir]
@@ -308,15 +308,17 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
     await page.evaluate(() => { if (VOICE.btn) voiceCancel(); });
     chk(i17s >= 0 && i17c > i17s, 'C17 pressing the mic stops a reading', JSON.stringify(c17));
 
-    // C18 (review 5): away from the conversation (its poll stopped), a message arrives, back after the gap: not read.
+    // C18 (reviews 5 and 6): away from the conversation (its poll stopped), a message arrives, the agent is opened
+    // again through the real openDetail: what arrived meanwhile is not read; the next new one is.
     await resetSpoken(page);
-    await page.evaluate(() => { if (CONV.at) CONV.at['dm:april'] = Date.now() - 60000; });   // as if away for a minute
-    thread = [...thread, agentRow(42, 'Arrived while the board was open.')];
+    thread = [...thread, agentRow(42, 'Arrived while the board was open.')];   // already there when the agent is reopened
+    await page.evaluate((m) => { window.__fx = { messages: m }; }, thread);
+    await page.evaluate(() => { try { openDetail('april'); } catch (e) { window.__openErr = String(e && e.message); } });
     await paint(page, thread);
     const away = await spoken(page);
     thread = [...thread, agentRow(43, 'Arrived once back.')];
     await paint(page, thread);
-    chk(!/board was open/.test(away) && /once back/.test(await spoken(page)), 'C18 coming back after a gap reads nothing that arrived meanwhile, then reads again', JSON.stringify({ away, then: await spoken(page) }));
+    chk(!/board was open/.test(away) && /once back/.test(await spoken(page)), 'C18 opening the agent again reads nothing that arrived meanwhile, then reads again', JSON.stringify({ away, then: await spoken(page) }));
 
     chk(errs.length === 0, 'C9 no page errors', errs.slice(0, 3).join(' | '));
     await page.close();

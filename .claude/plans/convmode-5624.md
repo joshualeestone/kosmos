@@ -77,3 +77,12 @@ it off stops it. The state is visible on the button and remembered per conversat
     than 12 s (two polls) counts as first sight on its next draw. C18: RED on the round 4 page, green now.
   - NIT: a browser that never fires voiceschanged now gets the no-voice notice after 3 s. NIT: C3's label now says
     only what it tests.
+- **Round 6 (sonnet, blind):** 0 BLOCKER, 2 WARNING, 2 NIT. Round 5's 12 s gap rule was the wrong mechanism:
+  - WARNING: a slow poll or a long send could exceed it while the person watched, so a real new message was skipped
+    silently; and an empty thread's first reply was skipped if it came after 12 s (the empty arm never refreshed the
+    clock). The clock is GONE. Instead, opening a conversation is an explicit first-sight mark: openDetail and entering
+    a room (PJ_CURRENT = id) call convPause. No time-based rule remains, so no stall can skip a message.
+    C18 now goes through the real openDetail with the message already there: RED on the round 4 page, green now; C10
+    (empty thread, first reply) passes again.
+  - NIT: the 3 s no-voice fallback was checked and does not misfire. NIT (kept): the room's empty case has no arm; the
+    room always reaches convFollow, so it has no seeding rule to test.
