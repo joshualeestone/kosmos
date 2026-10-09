@@ -669,10 +669,34 @@ test('a chunk that met one connect failure and then reached the bucket is not "c
   try {
     const c = coordinator(b);
     const r = await up.uploadChunks(deps(c, Object.assign({ fetch: blipThenIncomplete() }, clock())), [chunk(1)]);
-    assert.strictEqual(r.ok, false);
-    assert.doesNotMatch(r.because, /could not be reached/, 'a bucket that answered was reported unreachable');
+    assert.strictEqual(r.ok, false); assert.strictEqual(r.retryLater, true);
+    assert.match(r.because, /grants in a row stored nothing/, 'it must end on the re-grant cap, not an early exit');
     assert.ok(c.bodies.length > 1, `a reachable bucket got no second grant (${c.bodies.length})`);
     assert.strictEqual(r.unsure, undefined, 'S3 said it committed nothing, so nothing is unsure');
+  } finally { await b.close(); }
+});
+
+test('a chunk that never connected, on a grant where ANOTHER chunk reached the bucket, is granted again: the bucket is reachable', async () => {
+  const b = await bucket();
+  try {
+    const c = coordinator(b);
+    const one = chunk(1), two = chunk(2);
+    let toOne = 0, toTwo = 0;
+    // Told apart by size (chunk(n) is MIN_OBJECT + n bytes): chunk 1 never connects, chunk 2 is stored at once.
+    const f = async (url, init) => {
+      if (init.body.length === one.object.length) { toOne++; const e = new TypeError('fetch failed'); e.cause = { code: 'ECONNREFUSED' }; throw e; }
+      toTwo++; return new Response('', { status: 200 });
+    };
+    const r = await up.uploadChunks(deps(c, Object.assign({ fetch: f }, clock())), [one, two]);
+    assert.ok(toOne > 0 && toTwo === 1, `chunk 1 tried, chunk 2 stored once (${toOne}, ${toTwo})`);
+    // Grant 1: chunk 2 reached (stored), so chunk 1 is not "unreachable" there and is granted again. Grant 2 asks for
+    // chunk 1 alone; nothing on it reaches the bucket, so THAT grant ends "could not be reached" with no third grant.
+    assert.strictEqual(c.bodies.length, 2, `grants asked: ${c.bodies.length}`);
+    assert.deepStrictEqual(c.bodies[1].chunks.map((k) => k.size), [one.object.length], 'grant 2 must ask for chunk 1 alone');
+    assert.strictEqual(r.ok, false); assert.strictEqual(r.retryLater, true);
+    assert.match(r.because, /could not be reached \(1 chunks/);
+    assert.ok(r.keys.has(two.name) && !r.keys.has(one.name), 'chunk 2 keeps its stored key');
+    assert.strictEqual(r.unsure, undefined);
   } finally { await b.close(); }
 });
 
@@ -1253,8 +1277,8 @@ test('a manifest that met one connect failure and then reached the bucket is not
   try {
     const mc = manifestCoordinator(b);
     const r = await up.uploadManifest(deps(mc, Object.assign({ fetch: blipThenIncomplete() }, clock())), manifestBytes(), mOpts(b));
-    assert.strictEqual(r.ok, false);
-    assert.doesNotMatch(r.because, /could not be reached/, 'a bucket that answered was reported unreachable');
+    assert.strictEqual(r.ok, false); assert.strictEqual(r.retryLater, true); assert.strictEqual(r.grantSpent, true);
+    assert.match(r.because, /manifest grants in a row ran out/, 'it must end on the re-grant cap, not an early exit');
     assert.ok(mc.bodies.length > 1, `a reachable bucket got no second manifest grant (${mc.bodies.length})`);
     assert.strictEqual(r.unsure, undefined);
   } finally { await b.close(); }
