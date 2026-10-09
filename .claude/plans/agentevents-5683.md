@@ -507,3 +507,18 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - Stated: "a Leave pending" in stoppedReporting cannot be told apart in a test (a pending Leave always also removed the
   record, so the absence arm answers first); a walk from / or ~ (find ~ -name x) reads as board-files, which it can
   reach; a walk named only through a glob or a variable is not counted as one.
+
+## Review 39 (sonnet), all fixed unless stated
+- The review-38 hook still lost to a tick already reading: the tick had loaded its state before the Leave, and its
+  write erased the stop mark; the same record back passed the enrollment check. markWithdrawn now counts stops
+  (state.stops); a tick that sees the count changed while it read writes nothing and sends nothing, and the next tick
+  starts clean from the mark. Test from the reviewer's repro (both ticks), red on the pre-fix file; the write check
+  and the count are each red by mutation. A second check placed just before the send was found unreachable (nothing
+  awaits between the write and the send, so nothing can interleave) and removed rather than kept as a guard that does
+  nothing.
+- A copy's destination (cp, rsync, scp, mv, ditto, install: the last folder; zip: the archive) and tar's -f archive and
+  -C folder are not walked (cp -r build ~/ read as a walk of ~). A cd earlier in the command moves where a later
+  relative walk starts. Test, red on the pre-fix file.
+- Stated: a walk named through a variable ($HOME, review 38's line) IS counted when the variable is $HOME (it is read as
+  ~); other variables are not. Ticks are serialised against each other, not against enroll, leave or refresh: the
+  stop count is what makes that safe.

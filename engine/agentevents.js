@@ -105,7 +105,7 @@ function targetClass(tool, input, ctx) {
      board root reaches the board's files, as a glob that can match one does (review 33). */
   const trees = [];
   for (const k of PATH_KEYS) if (input && typeof input[k] === 'string' && input[k]) paths.push(input[k]);
-  if (tool === 'Grep') trees.push(input && typeof input.path === 'string' && input.path ? input.path : (ctx.agentDir || ''));
+  if (tool === 'Grep') trees.push(input && typeof input.path === 'string' && input.path ? input.path : (ctx.agentDir || ''));   // (resolved below)
   if (tool === 'Bash' && input && typeof input.command === 'string') {
     /* Every path-like word in the command (reviews 3, 4, 6 and 9), split as a shell splits: quotes and backslash-escaped
        spaces keep a word whole (the board's own folder is under "Application Support"), $HOME and ${HOME} are the home
@@ -145,13 +145,20 @@ function targetClass(tool, input, ctx) {
           /* review 10: ssh, scp, sftp, nc and ncat reach another machine by what they are (they take a host, never a
              URL); curl and wget count with a URL among the words; rsync only with a remote host:path word. */
           prog = path.basename(w);
-          cur = { prog, walks: ALWAYS.test(prog), words: [] }; cmds.push(cur);
+          cur = { prog, walks: ALWAYS.test(prog), words: [], skip: false }; cmds.push(cur);
           if (/^(ssh|scp|sftp|nc|ncat)$/.test(prog)) { net = true; url = true; }
           else if (/^(curl|wget|git)$/.test(prog)) net = true;   // git with a URL (push, clone, fetch to it)
           else if (prog === 'rsync') rsync = true;
           continue;   // the program run, not what it was aimed at (review 8)
         }
         if (cur && cur.prog === prog && FLAG[prog] && FLAG[prog].test(w)) cur.walks = true;
+        /* tar's archive (-f) and its target folder (-C) are not walked (review 39: tar -C ~ -xf a.tgz read as a walk of ~). */
+        let notTree = false;   // still a path, only not walked
+        if (cur && cur.prog === prog && prog === 'tar') {
+          if (cur.skip) { cur.skip = false; notTree = true; }
+          else if (/^(-[A-Za-z]*[fC]|--file|--directory)$/.test(w)) { cur.skip = true; continue; }
+          else if (/^(--file|--directory)=|^-C./.test(w)) notTree = true;
+        }
         if (/^[a-z][a-z0-9+.-]*:\/\//i.test(w)) { url = true; continue; }
         if (rsync && /^([^\s/@]+@)?[A-Za-z0-9.-]+::?[^\s]*$/.test(w) && !w.startsWith('/')) { net = true; url = true; }
         if (/^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:/.test(w)) url = true;   // git@host:repo, user@host:path (review 19)
@@ -178,13 +185,25 @@ function targetClass(tool, input, ctx) {
         if (/[*?$`[{]/.test(v)) hidden.push(v);   // [ and { are globs too (review 32: Kosm[o]s, Kosmo{s,})
         /* A path: from ~ or /, ./ or ../, a dotted name (.claude/settings.json, review 7), or a word with a slash and no
            space (a whole quoted command is split above instead); a relative one resolves against the agent's folder. */
-        if (/^(~|\/|\.\.?\/|\.[A-Za-z0-9_])/.test(v) || (v.includes('/') && !/\s/.test(v))) { paths.push(v); if (cur && cur.prog === prog) cur.words.push(v); }
-        else if (cur && cur.prog === prog && /^(~|\.)$/.test(v)) cur.words.push(v);   // ~ and . alone are folders too
+        if (/^(~|\/|\.\.?\/|\.[A-Za-z0-9_])/.test(v) || (v.includes('/') && !/\s/.test(v))) { paths.push(v); if (cur && cur.prog === prog && !notTree) cur.words.push(v); }
+        else if (cur && cur.prog === prog && !notTree && /^(~|\.|\.\.)$/.test(v)) cur.words.push(v);   // ~, . and .. alone are folders too
         if (paths.length >= 64) return;
       }
     };
     look(shellWords(input.command.slice(0, 4096)), 0);
-    for (const c of cmds) if (c.walks) trees.push(...(c.words.length ? c.words : [ctx.agentDir || '']));
+    /* A copy's last folder, and zip's first word (the archive), are where it WRITES, not what it walks (review 39:
+       cp -r build ~/ read as a walk of ~). A cd earlier in the command moves where later relative words resolve. */
+    let cwd = ctx.agentDir || path.sep;
+    const res = (x) => path.resolve(cwd, x === '~' || x.startsWith('~/') ? path.join(ctx.home || os.homedir(), x.slice(1)) : x);
+    for (const c of cmds) {
+      if (c.prog === 'cd') { if (c.words[0] && !/[*?$`[{]/.test(c.words[0])) cwd = res(c.words[0]); continue; }
+      if (!c.walks) continue;
+      let ws = c.words;
+      if (/^(cp|rsync|scp|mv|ditto|install)$/.test(c.prog)) ws = ws.slice(0, -1);
+      else if (c.prog === 'zip') ws = ws.slice(1);
+      if (!ws.length && c.words.length) continue;   // only a destination named: nothing walked that we know of
+      trees.push(...(ws.length ? ws : ['.']).map((x) => (/[*?$`[{]/.test(x) ? x : res(x))));
+    }
     /* A network command is network-host before any path it names (decided, review 5): sending something out is the
        telling part, whatever it sends. */
     if (net && url) return 'network-host';
@@ -508,9 +527,9 @@ function readState(root) {
     /* Queue entries and the send size are checked as offsets are (review 36: a null entry threw on every tick). */
     const pend = Array.isArray(j && j.pending) ? j.pending.filter((e) => e && typeof e === 'object' && Number.isFinite(e.at)) : [];
     return { offsets: nums(j && j.offsets), pending: pend, listed: obj(j && j.listed),
-      confirmed: obj(j && j.confirmed), withdrawn: !!(j && j.withdrawn), collided: Array.isArray(j && j.collided) ? j.collided : [], sendMax: j && Number.isInteger(j.sendMax) && j.sendMax >= 1 ? j.sendMax : null,
+      confirmed: obj(j && j.confirmed), withdrawn: !!(j && j.withdrawn), collided: Array.isArray(j && j.collided) ? j.collided : [], sendMax: j && Number.isInteger(j.sendMax) && j.sendMax >= 1 ? j.sendMax : null, stops: j && Number.isInteger(j.stops) && j.stops >= 0 ? j.stops : 0,
       enrolledAs: j && j.enrolledAs, since: j && Number.isFinite(j.since) ? j.since : null, failAt: j && Number.isFinite(j.failAt) ? j.failAt : null };
-  } catch { return { offsets: {}, pending: [], listed: {}, confirmed: {}, withdrawn: false, collided: [], sendMax: null, enrolledAs: null, since: null, failAt: null }; }
+  } catch { return { offsets: {}, pending: [], listed: {}, confirmed: {}, withdrawn: false, collided: [], sendMax: null, stops: 0, enrolledAs: null, since: null, failAt: null }; }
 }
 
 /* Not reporting now, for any reason (no accepted words, or no enrollment at all: review 36, a Leave the company then
@@ -520,7 +539,9 @@ function readState(root) {
 function markWithdrawn(root0) {
   const root = root0 || require('./store').ROOT;
   const w = readState(root);
-  if (w.enrolledAs && !w.withdrawn) { w.withdrawn = true; w.pending = []; writeState(root, w); }
+  /* stops counts every stop, so a tick that read while one happened can see it even after the same record came back
+     (review 39). */
+  if (w.enrolledAs && !w.withdrawn) { w.withdrawn = true; w.pending = []; w.stops = (w.stops || 0) + 1; writeState(root, w); }
 }
 
 /* Whether this Kosmos has really stopped reporting, not merely failed one read (review 37: isEnrolledHere is false on
@@ -644,12 +665,13 @@ async function tick(opts) {
     const enrolledAs = rec.world + '|' + ((rec.org && rec.org.id) || '') + '|' + (rec.enrolledAt || '') + '|' + (rec.consentHash || '');
     let st = readState(root);
     const stRaw = JSON.stringify(st);
+    const stops0 = st.stops;   // review 39: a stop marked while this tick reads makes it write and send nothing
     /* Words withdrawn and then accepted again under the SAME hash (review 3): the key alone would not change, so the
        withdrawal itself is recorded and a resumed tick starts clean as for new words. */
     if (st.withdrawn) st.enrolledAs = null;
     if (st.enrolledAs !== enrolledAs) {
       const sameEnrollment = typeof st.enrolledAs === 'string' && st.enrolledAs.split('|').slice(0, 3).join('|') === enrolledAs.split('|').slice(0, 3).join('|');
-      st = { offsets: {}, pending: [], listed: {}, confirmed: {}, withdrawn: false, collided: [], sendMax: null, enrolledAs, since: sameEnrollment || st.withdrawn ? now : joinedAt, failAt: null };
+      st = { offsets: {}, pending: [], listed: {}, confirmed: {}, withdrawn: false, collided: [], sendMax: null, stops: stops0, enrolledAs, since: sameEnrollment || st.withdrawn ? now : joinedAt, failAt: null };
     }
     const sinceMs = Math.max(joinedAt, st.since || joinedAt);
     const sinceS = Math.floor(sinceMs / 1000);   // whole seconds, for the file-skipping rules
@@ -801,6 +823,10 @@ async function tick(opts) {
     for (const f of Object.keys(st.offsets)) if (!seen.has(f) && !fs.existsSync(f)) { delete st.offsets[f]; CALLS.delete(f); }
     if (st.pending.length > PENDING_MAX) st.pending = st.pending.slice(-PENDING_MAX);
     st.pending = st.pending.filter((e) => e.at * 1000 >= now - SEND_PAST_MS);
+    /* Review 39: a Leave run while the transcripts were read marks the stop on disk, and a refused Leave writes the SAME
+       record back, so the enrollment check below cannot see it. The state this tick loaded must not overwrite that mark:
+       if a stop was counted meanwhile, nothing is written or sent, and the next tick starts clean from the mark. */
+    if (readState(root).stops !== stops0) return { sent: 0, because: 'reporting stopped while reading; nothing written or sent' };
     /* Written only when it changed (review 9: thousands of offsets rewritten every five minutes for nothing). */
     if (JSON.stringify(st) !== stRaw && !writeState(root, st)) return { sent: 0, because: 'this Kosmos cannot record what it has read' };
     /* The calls are kept only now: had the write failed, the next tick re-reads those lines WITH their calls (review 23:
