@@ -347,7 +347,7 @@ function nearOf(real) {
 /* Every root's listing, merged: each file carries its root's real path and its path inside it (rel), and its stored
    path is prefixed with the root's name. A root inside another (by folder identity) is refused: its files would be stored
    twice. The file and skipped limits count every root together. Returns the merged listing, or why not (a sentence). */
-async function listRoots(roots, fs) {
+async function listRoots(roots, fs, fits) {
   const gone = [];
   // An optional root (a provider's session folder, which the provider can remove, move or misplace at any time) is
   // recorded in skipped and left out whenever it cannot be taken safely; a required root that cannot fails the snapshot,
@@ -382,7 +382,8 @@ async function listRoots(roots, fs) {
       try { const st = fs.statSync(at, { bigint: true }); id = `${st.dev}:${st.ino}`; } catch { id = null; }
       for (const o of entries) {
         if (o === e || o.id !== id || o.out || e.out) continue;
-        if (at === e.real && o.real === e.real && e.r.only && o.r.only) continue;
+        // The same folder (by identity, whatever its spelling) for two roots that each keep only named files.
+        if (at === e.real && e.r.only && o.r.only) continue;
         const f = conflict(e, o, at === e.real ? 'is the same folder as' : 'is inside');
         if (f) return `${f}, so its files would be stored twice`;
       }
@@ -417,28 +418,44 @@ async function listRoots(roots, fs) {
   entries = entries.filter((e) => !e.out);
   roots = entries.map((e) => e.r);
   const reals = entries.map((e) => e.real);
-  const out = { files: [], skipped: gone.slice(0, MAX_SKIPPED), skippedExtra: Math.max(0, gone.length - MAX_SKIPPED), over: false };
+  const out = { files: [], skipped: [], skippedExtra: 0, over: false };   // `gone` is added at the end
   const pre = (name, p) => (!name ? p : p === '.' ? name : `${name}/${p}`);
-  for (let i = 0; i < roots.length && !out.over; i++) {
+  // Required roots first, then optional ones, each optional root taken only if it still fits the file limit and fits()
+  // beside everything taken so far; one that does not is left out and recorded (its own skips with it). Sorted by stored
+  // path at the end, so the order does not depend on this.
+  const order = roots.map((r, i) => i).sort((x, y) => (roots[x].optional === roots[y].optional ? x - y : roots[x].optional ? 1 : -1));
+  for (const i of order) {
+    if (out.over) break;
+    const opt = roots[i].optional;
     const got = await listFiles(reals[i], fs, { exclude: roots[i].exclude, only: roots[i].only, maxFiles: MAX_FILES - out.files.length, maxSkipped: Math.max(0, MAX_SKIPPED - out.skipped.length) });
+    const mine = [], mySkips = [];
+    let myExtra = got.skippedExtra;
     for (const f of got.files) {
       const stored = pre(roots[i].name, f.path);
       // The walk judged the path inside the root; restore judges the stored one, which is longer by the name.
       const problem = roots[i].name ? pathProblem(stored) : null;
-      if (problem) { if (out.skipped.length < MAX_SKIPPED) out.skipped.push({ path: stored, why: `restore would refuse it: ${problem}` }); else out.skippedExtra++; continue; }
+      if (problem) { mySkips.push({ path: stored, why: `restore would refuse it: ${problem}` }); continue; }
       // The deny-list judged the path inside the root, so a rule anchored on a parent folder (.claude/.credentials.json,
       // .gemini/oauth_creds.json, .ssh/) never fired when the root IS that folder. Judged again with the root's own last
       // folders in front, the way the file sits on disk; readListed does the same on the real path.
       // Named roots only: the single `root` (a work Kosmos folder) is judged as it always was.
       const near = roots[i].name ? nearOf(reals[i]) : '';
       const d = near ? pathDecision(near + f.path) : { include: true };
-      if (!d.include) { if (out.skipped.length < MAX_SKIPPED) out.skipped.push({ path: stored, why: d.why }); else out.skippedExtra++; continue; }
-      out.files.push(Object.assign({}, f, { rel: f.path, path: stored, rootReal: reals[i], near }));
+      if (!d.include) { mySkips.push({ path: stored, why: d.why }); continue; }
+      mine.push(Object.assign({}, f, { rel: f.path, path: stored, rootReal: reals[i], near }));
     }
-    for (const x of got.skipped) { if (out.skipped.length < MAX_SKIPPED) out.skipped.push(Object.assign({}, x, { path: pre(roots[i].name, x.path) })); else out.skippedExtra++; }
-    out.skippedExtra += got.skippedExtra;
+    for (const x of got.skipped) mySkips.push(Object.assign({}, x, { path: pre(roots[i].name, x.path) }));
+    if (opt && (got.over || (fits && !fits(out.files.concat(mine))))) {
+      gone.push({ path: roots[i].name, why: got.over ? `more files than one snapshot can list beside the other folders` : 'too large to fit this week\'s backup beside the other folders' });
+      continue;
+    }
+    out.files.push(...mine);
+    for (const x of mySkips) { if (out.skipped.length < MAX_SKIPPED) out.skipped.push(x); else myExtra++; }
+    out.skippedExtra += myExtra;
     out.over = got.over;
   }
+  for (const x of gone.splice(0)) { if (out.skipped.length < MAX_SKIPPED) out.skipped.push(x); else out.skippedExtra++; }
+  out.files.sort((x, y) => (x.path < y.path ? -1 : x.path > y.path ? 1 : 0));
   return out;
 }
 
@@ -608,7 +625,13 @@ async function snapshotInner(input, deps, added, state, fail) {
   if (owners.size > 1) return fail('the index names chunks under more than one account', { staleIndex: true });
   let owner = owners.size ? [...owners][0] : null;
 
-  const listed = await listRoots(roots, fs);
+  // Whether a set of listed files fits this snapshot's three limits: the week's chunk and byte allowance and the
+  // manifest's upper bound (the same arithmetic as the checks after listing). listRoots uses it to take an optional
+  // root only if it still fits beside what is already taken, so session folders never cost the world its data.
+  const fits = (fl) => index.size + fl.reduce((n, f) => n + chunksMax(f, maxFile), 0) <= CHUNK_ALLOWANCE
+    && fl.reduce((n, f) => n + (f.size > maxFile ? 0 : sealedMax(2 * f.size) + chunksMax(f, maxFile) * 4148), 0) + sealedMax(budget) <= BYTE_ALLOWANCE
+    && 1024 + fl.reduce((n, f) => n + upperBound(f, maxFile), 0) <= budget;
+  const listed = await listRoots(roots, fs, fits);
   if (typeof listed === 'string') return fail(listed);
   const pause = yielder();
   if (listed.over) return fail(`the work Kosmos holds more than ${MAX_FILES} files, more than one snapshot can list`, { tooLarge: true });

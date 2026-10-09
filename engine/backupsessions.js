@@ -43,10 +43,6 @@ const flatten = (p) => String(p).replace(/[^A-Za-z0-9]/g, '-');   // engine/stat
 const isDir = (p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
 const idOf = (p) => { try { const st = fs.statSync(p, { bigint: true }); return `${st.dev}:${st.ino}`; } catch { return null; } };
 
-// `<base>/<rest...>` with base's real path in front, only if no part below base is a link and it is a folder; base itself
-// may be a link (a config folder kept elsewhere). No part is a link, so this names the real folder (in the case the
-// parts were given in, on a case-insensitive volume). Else null.
-
 /* { real } for `<base>/<rest...>` with no link below base; { link: true } when a part below base exists and is a link
    (refused, and said so); {} when it is not there. */
 function folderCheck(base, ...rest) {
