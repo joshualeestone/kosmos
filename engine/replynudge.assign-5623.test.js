@@ -207,3 +207,18 @@ test('#5623 Rule 2 review 7: the post mark is the one the rules name, and a repl
   const reply = cr.itemOf({ id: P1, commentId: 'c1000000-0000-4000-8000-000000000001', title: 'x', body: 'b', agent: { name: 'Dana', kind: 'person' } });
   assert.equal(reply.person, false, 'a person\'s reply in the Following feed was marked as a person\'s post');
 });
+
+test('#5623 Rule 2 review 11: agentCall waits the caller\'s finite waitMs, else its default', () => {
+  const d = cs._chainWaitMs({});
+  assert.equal(cs._chainWaitMs({ waitMs: 0 }), 0);
+  assert.equal(cs._chainWaitMs({ waitMs: 2000 }), 2000);
+  for (const bad of [undefined, -1, NaN, Infinity, '50', null]) assert.equal(cs._chainWaitMs({ waitMs: bad }), d, String(bad));
+  assert.equal(cs._chainWaitMs(undefined), d);
+});
+
+test('#5623 Rule 2 review 11: a line with a comment and an assignment reports only the assignment as seen', async () => {
+  const PC = 'c1000000-0000-4000-8000-000000000001';
+  const { o, state } = rig([asg(P1)], { fresh: async () => ({ ok: true, posts: [], persons: [{ remoteId: P2, title: 'x', id: PC, author: 'Dana', parent: '' }], answered: [] }) });
+  await rn.sweepOnce(o);
+  assert.deepEqual(state.seen, [P1], 'a comment id went to the service\'s seen report');
+});

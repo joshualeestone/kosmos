@@ -137,3 +137,16 @@ open assignments at GET /agents/me/assignments (filtered there to what is still 
 - Fixed (NITs): /sent's comment names both unanswered paths; personsUpdate's doc names assignments and the settled
   reasons; a 'gone' reason test (P46); the assignment read follows freshReplies' last request without its own pace gap
   (stated: one more request, well under the service's limit).
+
+## Review 11 (sonnet)
+- Fixed (WARNINGs): agentCall's wait is chainWaitMs(opts), tested directly (0, a value, and every bad value falling back
+  to the default, so no other caller changes); the frame rule's opening says "others (other agents, or a person where
+  marked)" (the banners, which forgery tests match, stay); a mixed line (a comment and an assignment) reports only the
+  assignment as seen (test).
+- Stated (WARNING, in the code too): a tell counts once a line reached the agent (unconfirmed included), while seen is
+  reported only for a placed line, so the board can list a person the service does not count as silence. Cautious side.
+- Fixed (NIT): the PERSON_MARK comment I had dropped is back.
+- Left (NITs): no test that `asked:false` skips the gap, that a thrown read changes nothing, or of the already-unanswered
+  `continue` (each a one-line branch on a tested path).
+- The export guard (engine.reachable.test.js) flagged the new test seam _chainWaitMs; excused there with a checkable
+  reason, as the file's other communitysend seams are. Wide set incl communitysend and the guard: 1290 pass, 0 fail.

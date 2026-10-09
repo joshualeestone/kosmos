@@ -1956,6 +1956,13 @@ function joiningWords(agentKey, k) {
   return null;
 }
 
+/* #5623: how long agentCall waits for the chain before answering busy: the caller's `waitMs` when it is a finite number
+   of zero or more, else AGENT_WAIT_MS (every caller that does not pass it keeps the old wait). */
+function chainWaitMs(opts) {
+  const w = opts && opts.waitMs;
+  return Number.isFinite(w) && w >= 0 ? w : agentWaitMs;
+}
+
 function agentCall(agentKey, method, pathname, opts = {}) {
   if (agentsInCall.has(agentKey)) return Promise.resolve(busy());
   agentsInCall.add(agentKey);
@@ -1968,7 +1975,7 @@ function agentCall(agentKey, method, pathname, opts = {}) {
       gaveUp = true;
       agentsInCall.delete(agentKey);
       resolve(busy());
-    }, Number.isFinite(opts.waitMs) && opts.waitMs >= 0 ? opts.waitMs : agentWaitMs);   // #5623: a caller may wait less
+    }, chainWaitMs(opts));
     const done = (r) => { if (gaveUp) return; agentsInCall.delete(agentKey); resolve(r); };
     exclusive(async () => {
       if (gaveUp) return null;                        // answered busy already: it never runs later
@@ -2632,7 +2639,7 @@ function setSwitch(f) { switchRead = f; }
 function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }
 function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : ms; }
 
-module.exports = {
+module.exports = { _chainWaitMs: chainWaitMs,
   switchOn, switchState, notOnWords, willSend, NOT_SENDING, notSendingWords, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete, withdrawFor, editFor,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
   sendAddress: endpoint,   // #5415: communitystatus takes a sent item's public link host from it, and whether there is one
