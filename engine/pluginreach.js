@@ -309,7 +309,13 @@ function gateOnEvidence(reach, evidence) {
  */
 function agentPluginReach(inputs, deps) {
   const i = (inputs && typeof inputs === 'object') ? inputs : {};
-  const reach = reachFrom({ runner: i.runner, agentClaudeDir: i.agentClaudeDir, personClaudeHome: i.personClaudeDir });
+  // Default the runner the SAME way reachForAgent/readJob do: a null/undefined runner is a default
+  // launch, which is Claude. The /api/status caller's row runner (runnerOfCard) is null for exactly that
+  // case (null and 'claude' are indistinguishable to the board), so a separate-account Claude agent with
+  // an unrecorded runner must still be judged as Claude, not fall to UNKNOWN. A present-but-empty runner
+  // stays as-is (reachFrom reads it as UNKNOWN) -- only null/undefined defaults.
+  const runner = (i.runner === null || i.runner === undefined) ? 'claude' : i.runner;
+  const reach = reachFrom({ runner, agentClaudeDir: i.agentClaudeDir, personClaudeHome: i.personClaudeDir });
   if (!reach || reach.reaches !== false) return reach;
   if (reach.reason === SEPARATE_ACCOUNT) {
     const personSet = folderPluginSet(path.join(i.personClaudeDir, 'settings.json'), i.personClaudeJson, deps);

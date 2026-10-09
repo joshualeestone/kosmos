@@ -983,6 +983,7 @@ const reports = require('./engine/reports');
 const limits = require('./engine/limits');
 const engmode = require('./engine/engmode');
 const accounts = require('./engine/accounts');
+const pluginreach = require('./engine/pluginreach'); // #5309 p2: per-agent "a plugin you added does not reach this agent"
 const observed = require('./engine/observed');
 const codexsigninlive = require('./engine/codexsigninlive');   // #3997: the ChatGPT sign-in's free live check
 const claudeloginlive = require('./engine/claudeloginlive');   // #3997 (ruling C): a Claude login's own date, never a token
@@ -3797,6 +3798,38 @@ function withUnread(list) {
    chats dir, or that one thread) -- unknown is not zero -- and never a 500: an
    agents list that failed because a badge could not be computed would be the
    wrong thing to lose. A per-agent null in the map passes through as null. */
+/* #5309 slice 2: attach a per-agent plugin-reach signal (`a.reach`) to the status rows. For each agent
+   we started (it has an `account` row), does a plugin/connection the person added in their OWN provider
+   app reach this agent -- and if not, is there EVIDENCE they added one it lacks, else render nothing (so
+   a secondary-account or Codex agent with nothing added does NOT false-warn). Resolved from the row's own
+   runner + account.dir, so NO extra launch-file read; the evidence (enabledPlugins / mcpServers, or
+   ~/.codex for Codex) is mtime-cached per folder in engine/pluginreach, so an unchanged poll adds no
+   settings.json/.claude.json read -- the read-once-per-poll discipline #5314 uses, extended to the
+   per-agent-folder case this read needs. `a.reach` is null for a pane we cannot tie to an agent.
+   The live pane's CLAUDE_CONFIG_DIR is not available at /api/status, so a default-account agent
+   EFFECTIVE_CCD-pinned elsewhere stays reaches:true and stays silent -- a missed notice, never a false
+   one (the safe direction). Exported + injectable (opts.fs, opts.personHome) so a test can drive it with
+   fixture rows and count reads, exactly like withAgentSortFields. */
+function attachPluginReach(agents, opts) {
+  const o = opts || {};
+  let personHome;
+  try { personHome = (o.personHome !== undefined) ? o.personHome : accounts.homeDir(); } catch { personHome = null; }
+  const personClaudeDir = personHome ? path.join(personHome, '.claude') : null;
+  const personClaudeJson = personHome ? path.join(personHome, '.claude.json') : null;
+  const personCodexHome = personHome ? path.join(personHome, '.codex') : null;
+  const deps = o.fs ? { fs: o.fs } : undefined;
+  for (const a of (agents || [])) {
+    a.reach = (personClaudeDir && a && a.account)
+      ? pluginreach.agentPluginReach({
+          runner: a.runner,
+          agentClaudeDir: (a.account.dir || null),
+          personClaudeDir, personClaudeJson, personCodexHome,
+        }, deps)
+      : null;
+  }
+  return agents;
+}
+
 function withAgentSortFields(list, supplied) {
   let direct = null; let roomRows = null; let births = null;
   if (supplied) {
@@ -5409,6 +5442,7 @@ const server = http.createServer(async (req, res) => {
           ? projects.toldOverride(instructions.staleness(a.sessionName, undefined, a.session), a.sessionName)
           : { state: 'unknown', editable: false, version: null, startedAt: null, because: 'we cannot tie this pane to an agent by name' },
       }));
+      attachPluginReach(agents); // #5309 slice 2: per-agent plugin-reach notice signal (see the function)
       // ⚠️ THE COUNTS DESCRIBE THE CARDS THAT ARE LEFT. Computed over the
       // unfiltered snapshot they put "12 agents" above 11 cards, and can put
       // "1 needs you" on screen with no card anywhere to click. Recomputed with
@@ -22304,6 +22338,7 @@ module.exports = {
      are pinned DIRECTLY, without an HTTP harness that cannot inject agents. */
   someAgentNeedsClaude,
   withAgentSortFields,
+  attachPluginReach,
   /* #1304: exported so the two-reader precedence can be driven directly. A test
      that needed a real process tree, a tmux server and a signed-in account would
      not run anywhere, and the precedence is the part worth pinning.
