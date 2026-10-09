@@ -20724,6 +20724,7 @@ fedseats.configure({
   recordExternal: (projectId, msg) => messages.externalPost(projectId, msg),
   externalKeptOn: (projectId, day) => messages.externalKeptOn(projectId, day),
   enrolled: () => remote.enrolled(),
+  allowed: () => liveExecution.liveExecutionAllowed(),   // #5671
   projectExists: (projectId) => { try { return !!projects.get(projectId, []); } catch { return true; } },
   projectCreatedAt: (projectId) => { try { const p = projects.get(projectId, []); return p ? (p.createdAt || null) : null; } catch { return undefined; } },
   note: (projectId, text) => messages.roomNote(projectId, text),
