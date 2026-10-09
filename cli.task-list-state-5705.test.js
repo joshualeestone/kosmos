@@ -14,6 +14,7 @@ const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
+const http = require('node:http');
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-taskliststate-cli-'));
 const HOME = path.join(SANDBOX, 'home');
@@ -98,14 +99,38 @@ test('route: ?order=state groups the rows; &state= keeps one; an unknown state i
   assert.deepEqual(names((await read('')).body.tasks), ['open2', 'heldbuilt', 'built', 'open1', 'held', 'done']);
 });
 
+/* Review 1: each printed row's mark agrees with its group. */
+const marksAgree = (out) => out.split('\n').filter((l) => /^\[\d+\] /.test(l)).every((l) => {
+  const k = l.replace(/^.*Task (\S+).*$/, '$1');
+  if (k === 'done') return l.includes('[done]');
+  if (k.startsWith('held')) return l.includes('[on hold]');
+  if (k === 'built') return l.includes('[built]') && !l.includes('[on hold]');
+  return !/\[(done|on hold|built)\]/.test(l);
+});
+/* An older board: ignores order and state and lists everything, with no listState (review 1). */
+async function oldBoard() {
+  const srv = http.createServer((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      if (req.url.startsWith('/api/health')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"ok":true,"app":"kosmos"}'); return; }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ tasks: [{ number: 1, sentence: 'Task open1' }, { number: 2, sentence: 'Task done', isClosed: true }], count: 2 }));
+    });
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  return srv;
+}
+let emptyN = 0;
+const emptyProject = () => projects.create({ name: 'Nothing here ' + (++emptyN) }).id;
+
 const lineOrder = (out) => out.split('\n').filter((l) => /^\[\d+\] /.test(l)).map((l) => l.replace(/^.*Task (\S+).*$/, '$1'));
 
 // ── Windows: tools/windows/kosmos-cli.js ────────────────────────────────────
-async function win(argv) {
+async function win(argv, url = base) {
   const out = []; const err = [];
   const code = await cli.main(argv, {
-    env: {}, url: base,
-    hook: { resolveUrl: () => base, readBoardToken: () => null, agentToken: () => null },
+    env: {}, url,
+    hook: { resolveUrl: () => url, readBoardToken: () => null, agentToken: () => null },
     out: (s) => out.push(s), err: (s) => err.push(s),
   });
   return { code, out: out.join('\n'), err: err.join('\n') };
@@ -121,14 +146,29 @@ test('Windows: task list prints open first, then built, on hold, done; --state k
   const bad = await win(['task', 'list', projectId, '--state', 'active']);
   assert.equal(bad.code, 2);
   assert.match(bad.err, /--state takes one of: open, built, held, done\./);
+  assert.ok(marksAgree(all.out), all.out);
+  // Review 1: an empty group says so, never "No tasks for this project yet".
+  const none = await win(['task', 'list', emptyProject(), '--state', 'held']);
+  assert.equal(none.code, 0, none.err);
+  assert.equal(none.out, 'No tasks on hold in this project.');
+  // Review 1: an older board that ignored --state is refused, not passed off as the group.
+  const old = await oldBoard();
+  try {
+    const r = await win(['task', 'list', 'p1', '--state', 'done'], `http://127.0.0.1:${old.address().port}`);
+    assert.equal(r.code, 1);
+    assert.match(r.err, /older than --state/);
+    assert.doesNotMatch(r.out, /Task open1/);
+    const plain = await win(['task', 'list', 'p1'], `http://127.0.0.1:${old.address().port}`);
+    assert.equal(plain.code, 0, 'CONTROL: without --state an older board still lists');
+  } finally { old.close(); }
 });
 
 // ── Mac: install/kosmos (bash 3.2) ─────────────────────────────────────────
 const MAC_HOME = path.join(SANDBOX, 'kosmos-home');
 fs.mkdirSync(path.join(MAC_HOME, 'runtime', 'bin'), { recursive: true });
 fs.symlinkSync(process.execPath, path.join(MAC_HOME, 'runtime', 'bin', 'node'));
-function mac(args) {
-  const env = { ...process.env, KOSMOS_HOME: MAC_HOME, KOSMOS_PORT: String(server.address().port), TMUX_PANE: '', KOSMOS_NO_LEGACY_MIGRATION: '1', KOSMOS_AGENT_TOKEN: '' };
+function mac(args, port = server.address().port) {
+  const env = { ...process.env, KOSMOS_HOME: MAC_HOME, KOSMOS_PORT: String(port), TMUX_PANE: '', KOSMOS_NO_LEGACY_MIGRATION: '1', KOSMOS_AGENT_TOKEN: '' };
   return new Promise((resolve, reject) => {
     execFile(path.join(__dirname, 'install', 'kosmos'), args, { env, timeout: 20000 }, (err, stdout, stderr) => {
       if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code: ' + (stderr || err.signal))); return; }
@@ -147,4 +187,17 @@ test('Mac: task list prints open first, then built, on hold, done; --state keeps
   const bad = await mac(['task', 'list', projectId, '--state', 'active']);
   assert.equal(bad.code, 2);
   assert.match(bad.out, /--state takes one of: open, built, held, done\./);
+  assert.ok(marksAgree(all.out), all.out);
+  const none = await mac(['task', 'list', emptyProject(), '--state', 'done']);
+  assert.equal(none.code, 0, none.out);
+  assert.equal(none.out.trim(), 'No done tasks in this project.');
+  const old = await oldBoard();
+  try {
+    const r = await mac(['task', 'list', 'p1', '--state', 'done'], old.address().port);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /older than --state/);
+    assert.doesNotMatch(r.out, /Task open1/);
+    const plain = await mac(['task', 'list', 'p1'], old.address().port);
+    assert.equal(plain.code, 0, 'CONTROL: without --state an older board still lists: ' + plain.out);
+  } finally { old.close(); }
 });

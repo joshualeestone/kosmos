@@ -17398,7 +17398,9 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const rows = listOrder || listOnly ? tasks.inListOrder(scoped, listOnly) : scoped;   // #5705
-      sendJson(res, 200, { tasks: rows.map(withRepeatWords), count: rows.length, project: projectScope });   // kosmos#4787
+      /* #5705 review 1: say which group was kept, so a command can tell a filtered answer from an older board that
+         ignored the filter and listed everything. */
+      sendJson(res, 200, { tasks: rows.map(withRepeatWords), count: rows.length, project: projectScope, ...(listOnly ? { listState: listOnly } : {}) });   // kosmos#4787
       return;
     }
     /* #3559: the Tasks view groups by WHERE THE WORK IS, and the engine derives
