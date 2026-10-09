@@ -49,3 +49,13 @@ it off stops it. The state is visible on the button and remembered per conversat
   - CONVENTION (fixed): hover uses the ink token (dark mode). NIT (fixed): the mic and a hidden window are re-checked
     after the voice-list wait. NIT (noted): a mode remembered from storage may be silent after a reload until the page
     is interacted with (the browser's autoplay rule); stored keys are not pruned (one small entry per conversation).
+- **Round 3 (opus, blind):** 1 BLOCKER, 2 WARNING, 3 NIT. All fixed:
+  - BLOCKER: a direct thread holding only OTHER agents' rows counted as empty, so it was re-seeded on every paint and
+    its newest row read on open and on every poll. Now empty means no row any agent wrote, and a followed conversation
+    is never re-seeded. C10b: RED on the round 2 page, green now.
+  - WARNING: the guest exclusion was claimed but untested. C8b posts a real external row: RED on the first version
+    (it read the guest), green now.
+  - WARNING: pressing the mic while a message was read let the voice play into the dictation. Starting to listen now
+    stops conversation mode and any per-message reading.
+  - NIT: the no-voice notice now lasts across paints and reaches a screen reader (aria-label); the heard set holds
+    only what is on screen; the search box's repaint is guarded to the agent on screen (as talkPaintPending is).
