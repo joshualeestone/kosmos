@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: runrollup-5643
-diff_hash: e8f164208ef5a5b4c319f0bae0890c96bbe40c12f1a4476bc5dc3b3199a63e2f
+diff_hash: 3cd2719c0f806659fcb7aec72da8ebb6a109d02b17a86d26d265a2c7fd7cff83
 validation: passed (rebased on origin/main; full node suite 17338 tests, 17105 pass, 0 fail, exit 0; both browser-check gates pass; render-runrollup-5643.js all arms PASS light 1400 and dark 390; the focused suites 88/88; the clear, parts-close and span-key arms red by mutation)
 subdir_audit: passed
 timestamp: 2026-10-09T05:02:22Z
@@ -49,3 +49,5 @@ The full per-round log is in .claude/plans/runrollup-5643.md.
 ### Verification
 - Full node suite on the rebased branch: 17338 tests, 0 fail, REAL_EXIT=0.
 - Both browser-check gates pass; render-runrollup-5643.js passes in both themes.
+
+CI fix (00:12 CDT 2026-10-09): the late-run engine test's fixture used a fixed clock time, and lateness counts from when the rule was set (now), so it failed on CI at a different hour. T0 is now on the hour two hours after now. The engine test passes; nothing else changed. diff_hash recomputed.
