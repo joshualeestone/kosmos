@@ -35,11 +35,12 @@ improvement it gained would have died with the session that wrote it.
    rest, 1 most important), run `node tools/whats-new-pool.js build <version>`, and
    commit both to main before the cut, like the versions entry; release.sh never
    writes it. Change wording in the pool and build again, never in the built file.
-   After a Mac PROD promote, on an up-to-date main run
-   `node tools/whats-new-pool.js shown <version> --promoted --from-history --ref=<frozen sha>`
-   (the cut prints the frozen sha at step 2b; the cut box's `~/.claude/logs/cut-suite-runs.log`
-   keeps it as `frozen_sha=`) and commit the pool, or prod users see the same highlights again (until #5713
-   makes the promote do it). `icon` is one of `swarm`, `tasks`, `phone`,
+   Nothing is run by hand after a Mac PROD promote (#5713): `build` first reads what prod serves
+   (installkosmos.com's prod pointer and its manifest, which names the commit that build was cut from) and,
+   when prod is newer than the pool's `lastProd`, marks that version's highlights shown and records it, so
+   commit `release/whats-new-pool.json` with the build. It refuses, writing nothing, if it cannot read prod or
+   match what prod showed; `--offline` builds without the check and says so (then, after the next PROD promote,
+   run `node tools/whats-new-pool.js shown <version> --promoted --from-history --ref=<that build's commit>`). `icon` is one of `swarm`, `tasks`, `phone`,
    `list`, `chat`, `shield`, `spark`; a title of about 40 characters; one plain
    sentence for the line; no em dashes. A highlight about one platform carries
    `"platforms": ["mac"]` (or `["windows"]`) and shows only there (#5224). A title or

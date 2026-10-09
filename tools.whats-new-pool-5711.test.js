@@ -27,13 +27,13 @@ test('#5711: the top highlights by rank; a held one and one prod already showed 
     item('Sixth', 6, 'pending'), item('Fourth', 4, 'pending'), item('Fifth', 5, 'pending'),
   ] });
   try {
-    assert.equal(quiet(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`])), 0);
+    assert.equal(quiet(() => tool.main(['build', '--offline', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`])), 0);
     const got = JSON.parse(fs.readFileSync(t.out, 'utf8'));
     assert.equal(got.version, '0.7.36');
     assert.deepEqual(got.highlights.map((h) => h.title), ['First', 'Second', 'Third', 'Fourth', 'Fifth'], 'rank order, at most 5');
     assert.deepEqual(whatsnew.problems(got, '0.7.36'), [], 'the window accepts it');
     // --max narrows it.
-    assert.equal(quiet(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`, '--max=4'])), 0);
+    assert.equal(quiet(() => tool.main(['build', '--offline', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`, '--max=4'])), 0);
     assert.equal(JSON.parse(fs.readFileSync(t.out, 'utf8')).highlights.length, 4);
   } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
 });
@@ -42,7 +42,7 @@ test('#5711: a tie in rank goes to the newer version', () => {
   // Titles opposed to the version order, so the title fallback alone would pick the older one.
   const t = tmp({ items: [item('A older', 1, 'pending', { since: '0.7.31' }), item('B newer', 1, 'pending', { since: '0.7.34' })] });
   try {
-    assert.equal(quiet(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`, '--max=1'])), 0);
+    assert.equal(quiet(() => tool.main(['build', '--offline', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`, '--max=1'])), 0);
     assert.deepEqual(JSON.parse(fs.readFileSync(t.out, 'utf8')).highlights.map((h) => h.title), ['B newer']);
   } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
 });
@@ -50,7 +50,7 @@ test('#5711: a tie in rank goes to the newer version', () => {
 test('#5711: with nothing eligible (all held or shown) the build refuses rather than writing an empty window', () => {
   const t = tmp({ items: [item('Held', 1, 'held'), item('Shown', 2, 'shown')] });
   try {
-    assert.equal(quiet(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`])), 3);
+    assert.equal(quiet(() => tool.main(['build', '--offline', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`])), 3);
     assert.equal(fs.existsSync(t.out), false, 'nothing written');
   } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
 });
@@ -68,7 +68,7 @@ test('#5711: after a PROD promote, exactly the titles that version showed become
     assert.equal(by.H.status, 'held', 'a held item stays held even if it was named');
     assert.equal(pool.lastProd, '0.7.36');
     // The next build no longer shows A.
-    assert.equal(quiet(() => tool.main(['build', '0.7.37', `--pool=${t.file}`, `--out=${t.out}`])), 0);
+    assert.equal(quiet(() => tool.main(['build', '--offline', '0.7.37', `--pool=${t.file}`, `--out=${t.out}`])), 0);
     assert.deepEqual(JSON.parse(fs.readFileSync(t.out, 'utf8')).highlights.map((h) => h.title), ['B', 'C']);
     // A What's New of ANOTHER version marks nothing.
     const before = fs.readFileSync(t.file, 'utf8');
@@ -103,7 +103,7 @@ test('#5711: the real pool builds a window the cut accepts, without the held con
       assert.match(String(pool.lastProd), /^\d+\.\d+\.\d+$/, 'the real pool records lastProd');
       const [ma, mi, pa] = pool.lastProd.split('.').map(Number);
       const next = ma + '.' + mi + '.' + (pa + 1);
-      assert.equal(quiet(() => tool.main(['build', next, `--out=${path.join(dir, 'wn.json')}`])), 0, next);
+      assert.equal(quiet(() => tool.main(['build', '--offline', next, `--out=${path.join(dir, 'wn.json')}`])), 0, next);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
 });
@@ -158,14 +158,14 @@ test('#5711 review 5: --from-history finds the What\'s New a version shipped in 
 test('#5711 review 1: a top 5 that leaves a platform with no highlight is refused, as the cut would refuse it', () => {
   const t = tmp({ items: [item('Mac one', 1, 'pending', { platforms: ['mac'] }), item('Mac two', 2, 'pending', { platforms: ['mac'] })] });
   try {
-    assert.equal(quiet(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`])), 3);
+    assert.equal(quiet(() => tool.main(['build', '--offline', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`])), 3);
     assert.equal(fs.existsSync(t.out), false);
   } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
 });
 
 test('#5711 review 1: a pool with one title twice is refused', () => {
   const t = tmp({ items: [item('Same', 1, 'pending'), item('Same', 2, 'pending')] });
-  try { assert.throws(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`]), /appears twice/); }
+  try { assert.throws(() => tool.main(['build', '--offline', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`]), /appears twice/); }
   finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
 });
 
@@ -173,20 +173,20 @@ test('#5711 review 2: a build for a version not newer than the last PROD release
   const t = tmp({ lastProd: '0.7.35', items: [item('A', 1, 'pending')] });
   try {
     for (const v of ['0.7.35', '0.7.34']) {
-      assert.equal(quiet(() => tool.main(['build', v, `--pool=${t.file}`, `--out=${t.out}`])), 3, v);
+      assert.equal(quiet(() => tool.main(['build', '--offline', v, `--pool=${t.file}`, `--out=${t.out}`])), 3, v);
       assert.equal(fs.existsSync(t.out), false);
     }
-    assert.equal(quiet(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`])), 0, 'CONTROL: the next version builds');
+    assert.equal(quiet(() => tool.main(['build', '--offline', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`])), 0, 'CONTROL: the next version builds');
   } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
 });
 
 test('#5711 review 3: an unknown or malformed option is refused, never silently ignored', () => {
   const t = tmp({ items: [item('A', 1, 'pending')] });
   try {
-    assert.equal(quiet(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`, '--max', '4'])), 2);
+    assert.equal(quiet(() => tool.main(['build', '--offline', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`, '--max', '4'])), 2);
     // A misspelt --pool, with a real --out: if the guard ever breaks, the build falls back to the real pool but still
     // writes only to the temp file (never to web/whats-new.json).
-    assert.equal(quiet(() => tool.main(['build', '0.7.36', `--poool=${t.file}`, `--out=${t.out}`])), 2);
+    assert.equal(quiet(() => tool.main(['build', '--offline', '0.7.36', `--poool=${t.file}`, `--out=${t.out}`])), 2);
     assert.equal(fs.existsSync(t.out), false);
   } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
 });
@@ -194,7 +194,7 @@ test('#5711 review 3: an unknown or malformed option is refused, never silently 
 test('#5711 review 3: a malformed pending item anywhere in the pool is refused at once, not when it reaches the top 5', () => {
   const t = tmp({ items: [item('Good', 1, 'pending'), item('Bad icon far down', 40, 'pending', { icon: 'rocket' })] });
   try {
-    assert.equal(quiet(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`, '--max=1'])), 3);
+    assert.equal(quiet(() => tool.main(['build', '--offline', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`, '--max=1'])), 3);
     assert.equal(fs.existsSync(t.out), false);
   } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
 });
@@ -226,7 +226,7 @@ test('#5711 review 4: versions compare as numbers (0.7.10 is newer than 0.7.9)',
   assert.ok(tool.newerFirst('0.7.10', '0.7.9') < 0);
   assert.equal(tool.newerFirst('0.7.10', '0.7.10'), 0);
   const t = tmp({ lastProd: '0.7.9', items: [item('A', 1, 'pending')] });
-  try { assert.equal(quiet(() => tool.main(['build', '0.7.10', `--pool=${t.file}`, `--out=${t.out}`])), 0); }
+  try { assert.equal(quiet(() => tool.main(['build', '--offline', '0.7.10', `--pool=${t.file}`, `--out=${t.out}`])), 0); }
   finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
 });
 
@@ -258,10 +258,10 @@ test('#5711 review 9: a Mac promote leaves a Windows-only highlight pending; ext
 test('#5711 review 11: a malformed lastProd is refused when the pool is read', () => {
   for (const bad of ['0.7.3x', '0.7', 7]) {
     const t = tmp({ lastProd: bad, items: [item('A', 1, 'pending')] });
-    try { assert.throws(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`]), /lastProd/, String(bad)); }
+    try { assert.throws(() => tool.main(['build', '--offline', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`]), /lastProd/, String(bad)); }
     finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
   }
   const t = tmp({ items: [item('A', 1, 'pending')] });   // CONTROL: no lastProd at all is allowed
-  try { assert.equal(quiet(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`])), 0); }
+  try { assert.equal(quiet(() => tool.main(['build', '--offline', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`])), 0); }
   finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
 });
