@@ -12444,6 +12444,13 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #5333 round 9: the restart's follow-up ("Restarted. Waking them...", or where the handoff is) lands here, OUTSIDE
            #d-linklost, which hides the moment the restart works. Cleared on every open, as d-restart-msg is. -->
       <div class="fmsg" id="d-linklost-msg" role="status" aria-live="polite"></div>
+      <!-- #5309 p2: a plugin/connection the person added in their OWN provider app does not reach THIS agent,
+           and there is evidence they added one it lacks (the SERVER gates on that evidence; reach.reaches===false).
+           One sentence of effect + the one remedy, in plain words. Shown ONLY when reach.reaches===false, by
+           reason. Text only: the remedy names Settings, which the person opens themselves (a deep link is a
+           follow-up). A secondary-account or Codex agent with nothing added carries reaches:null and shows
+           nothing, so this never reads as a warning a healthy setup does not need. -->
+      <p class="fhint detail-pluginreach" id="d-pluginreach" hidden><span id="d-pluginreach-text"></span></p>
       <!-- 🛑 THE "ASSIGNED TO" ROW IS GONE (Josh, 2026-08-22), and what went with
            it is worth knowing before anybody brings it back. It listed the
            projects this agent is on, read from the agent's end, and it carried a
@@ -38761,6 +38768,30 @@ function paintDetailState(card) {
       const b = document.getElementById('d-linklost-restart');
       if (b && b.dataset.restartAgent !== a.sessionName) b.dataset.restartAgent = a.sessionName;
     }
+  }
+  /* #5309 p2: the plugin-reach notice. Fires ONLY on reach.reaches===false, switched by the fixed reason
+     strings the engine exports; true / null / a missing reach all hide it, so a secondary-account or Codex
+     agent with nothing added (reaches:null, the server already gated on evidence) shows nothing. Text only,
+     written when it changes, like the re-auth and link-lost notices above. */
+  const preach = document.getElementById('d-pluginreach');
+  if (preach) {
+    const r = a.reach;
+    let words = '';
+    if (r && r.reaches === false) {
+      if (r.reason === 'separate-account-folder') {
+        words = 'The plugins and connections you added in your own Claude app do not reach ' + a.name
+          + ', because it runs on a different Claude account. Restarting will not change that: add them to'
+          + ' that account, or switch ' + a.name + ' to yours in Settings.';
+      } else if (r.reason === 'codex-isolated-runtime') {
+        words = 'The plugins and connections you set up in the Codex app do not reach ' + a.name
+          + ', because Codex agents run in their own private space. Restarting will not change that: connect'
+          + ' the service through the Connections tab in Settings, where ' + a.name + ' can use it.';
+      }
+    }
+    const pt = document.getElementById('d-pluginreach-text');
+    if (pt && pt.textContent !== words) pt.textContent = words;
+    const show = Boolean(words);
+    if (preach.hidden === show) preach.hidden = !show;
   }
   const copy = stateCopyOf(a);
   /* ⚠️ The card's own derivations, not a copy of them: `cardStOf` decides the
