@@ -58052,7 +58052,7 @@ function pjCoordNotice(p) {
    Restart, the reconnect steps), and its Back returns here. No Dismiss: each reason is live and clears itself once
    it is resolved, so hiding one would hide something still true. */
 const PJ_NEEDS_WHY = {
-  question: ['Waiting for your answer about this project.', 'Answer'],
+  question: ['Waiting for your answer.', 'Answer'],   // not "about this project": the project can be inferred from membership
   trust: ['Waiting on a trust prompt before it can start.', 'Open'],
   gave_up: ['Lost its connection, and Kosmos stopped trying to reconnect it.', 'Open'],
   crash_loop: ['Kosmos keeps restarting it, and it keeps stopping within a couple of minutes.', 'Open'],
@@ -58190,9 +58190,10 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      because a member we cannot see says why instead of a state. LROW_WARN is the agents
      list's warning glyph; it is display:none inside a .lav until the CSS below shows it. */
   /* #5688: a member the project's Issue pill counts (the engine's needsYouHere) is red, so a red pill never sits over
-     calm rows: a terminal error that stood too long and an agent's own question were counted but drawn calm. Only ADDS
-     red: a row the card already reads as needing the person (a question about no project, say) stays red. */
-  const rowSt = (m && typeof m.needsYouHere === 'string' && m.needsYouHere) ? 'attn' : cardStOf(liveM).st;
+     calm rows: a terminal error that stood too long was counted but drawn calm. A QUESTION keeps the card's read: an
+     agent's own question stays calm here as everywhere (#2808), and the needs-you block above names it with Answer.
+     Only ADDS red: a row the card already reads as needing the person stays red. */
+  const rowSt = (m && typeof m.needsYouHere === 'string' && m.needsYouHere && m.needsYouHere !== 'question') ? 'attn' : cardStOf(liveM).st;
   const needsYou = m.present === true && rowSt === 'attn'; // liveM: a given-up connection is red here too (#3410)
   const warn = needsYou ? LROW_WARN : '';
   /* #2711 item 16: the member box takes a ground by state, the same read the

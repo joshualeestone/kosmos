@@ -84,7 +84,9 @@ const BASE = require('./fixtures/agent-card.json');
     // derivation. Verify a class-2 member loses the triangle + red text, and a class-1 keeps it.
     let pj = { skipped: 'pjMember not a function' };
     if (typeof pjMember === 'function') {
-      const mkM = (by) => ({ sessionName: 'm-' + (by || 'scr'), name: 'M ' + by, present: true, tied: true, state: 'needs_you', stateReportedBy: by, hasAvatar: false, told: {}, role: null, because: 'q' });
+      // #5688: as the engine sends them, a question about this project counted in the project's Issue (needsYouHere);
+      // the class-2 row stays calm even so, and the needs-you block names it.
+      const mkM = (by) => ({ sessionName: 'm-' + (by || 'scr'), name: 'M ' + by, present: true, tied: true, state: 'needs_you', stateReportedBy: by, hasAvatar: false, told: {}, role: null, because: 'q', needsYouHere: 'question' });
       const h2 = document.createElement('div');
       document.body.appendChild(h2);
       h2.innerHTML = '<div class="pj-members">' + pjMember(mkM('agent'), true, false) + pjMember(mkM('auto'), true, false) + '</div>';
