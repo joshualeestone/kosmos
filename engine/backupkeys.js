@@ -102,7 +102,8 @@ function newNamingKey() { return crypto.randomBytes(KEY_LEN); }
 // A naming key's id: a domain-tagged SHA-256, first 16 bytes, hex. It reveals nothing about a random key, and lets
 // a manifest say WHICH of a period's naming keys names its chunks (a period can hold more than one, see the header).
 const NAMING_ID_TAG = Buffer.from(`kosmos-backup v${FORMAT} naming-key-id\0`);
-/** The id of a naming key (32 hex characters), for a manifest to record and restore to match. Throws on a bad key. */
+/** The id of a naming key (32 LOWERCASE hex characters; an upper-case id never matches), for a manifest to record
+    and restore to match. Throws on a bad key. */
 function namingKeyId(namingKey) {
   const nk = key32(namingKey, 'the naming key');
   return crypto.createHash('sha256').update(NAMING_ID_TAG).update(nk).digest().subarray(0, 16).toString('hex');
