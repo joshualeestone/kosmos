@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: convmode-5624
-diff_hash: df07c29f3f3e57add4a4b3805475f270236c8a36c3b32c858247642d7ddf8b1c
+diff_hash: 79378c3e8e8b62b8098d433a23836d4d1f0512fe461588154ea6b386274f66c2
 validation: passed (rebased on origin/main; render-convmode-5624.js all arms PASS, each arm added after round 0 RED on the version without its fix; web.* + wiring + guards 2533/2533; both browser-check gates pass; the 14 composer surface checks PASS after round 7)
 subdir_audit: passed
 timestamp: 2026-10-09T02:24:52Z
@@ -48,3 +48,5 @@ newest wins; off, leaving, hiding or the mic stop it. The full per-round log is 
 
 #### Iteration 8 (sonnet)
 - Nothing above NIT.
+
+Rebased (00:14 CDT 2026-10-09) onto main after #5640 raised the PR browser-checks job to 120 minutes (the earlier run was cut at 60:27 with 185 checks passed and none failed). Clean rebase. Page tests 2533/2533 and both browser-check gates pass. diff_hash recomputed.
