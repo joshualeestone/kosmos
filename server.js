@@ -131,6 +131,22 @@ function withoutStamp(m) {
   return c;
 }
 
+/* #5668: a token-only agent's last guard run, for its page: 'notWhole' (with the reason), 'warning' (whole, but its
+   denied paths are past the measured sandbox size, so its shell may not run) or 'guarded'. Read from the record every
+   guard run writes (setup-assistant.recordGuardState), never recomputed here: a run scans the PATH. Only an agent on
+   the token-only list carries it, and only once a run has recorded it. */
+function withTokenGuard(rows) {
+  let listed;
+  try { listed = new Set(require('./engine/sendertoken').tokenOnlyList()); } catch { return rows; }
+  if (!listed.size) return rows;
+  const rec = setupAssistant.readGuardState();
+  return rows.map((r) => {
+    const g = r && listed.has(r.sessionName) ? rec[r.sessionName] : null;
+    if (!g) return r;
+    const state = !g.ok ? 'notWhole' : g.warning ? 'warning' : 'guarded';
+    return { ...r, tokenGuard: { state, ...(g.because ? { because: g.because } : {}), ...(g.warning ? { warning: g.warning } : {}), at: g.at } };
+  });
+}
 function someAgentNeedsClaude(agentList) {
   // create.isNonClaudeRunner is the one list of runners that are not Claude (review round 5).
   return Array.isArray(agentList)
@@ -5832,7 +5848,7 @@ const server = http.createServer(async (req, res) => {
          false and the banner stays down. */
       // #3739: the guide is included on purpose: the bubble depends on Claude even though its row is hidden.
       const dependsOnClaude = someAgentNeedsClaude(agents.concat(offline));
-      const rows = withAgentSortFields(agents.concat(offline));
+      const rows = withTokenGuard(withAgentSortFields(agents.concat(offline)));
       /* #3996: what is waiting on the person, in one number (the Dock badge reads it). The same
          rows the Messages tile sums, after the needs-you and projects counts above are final. */
       /* #4025: null when the person switched the icon count off in Settings; the apps clear the badge on null. */

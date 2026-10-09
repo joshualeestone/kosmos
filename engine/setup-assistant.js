@@ -1317,6 +1317,48 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites, undoDirs, tokenDirs, undoSwitches, launchDirs: launch.dirs, launchFiles: launch.files || [], launchUnsafe, launchRules, launchRecord, launchKnown: deps.atLaunch === true && !!launch.paneKnown };   // review 14: a launch says so (refreshTokenOnlyGuards({ only })); an inherited env var never makes one
 }
 
+/* #5668: the last guard run per agent, so the board can say on the agent's page when a token-only agent's guard is not
+   whole or past the sandbox size. Written by every guard run (board start, each launch through the supervisor, a
+   separate process, and creation); read by the board, never recomputed per request (a run scans the PATH). Two runs
+   at once can lose one line; the next run writes it again. */
+const GUARD_STATE_FILE = 'token-only-guard.json';
+function guardStateFile(deps = {}) { return path.join(deps.dataRoot || store.ROOT, GUARD_STATE_FILE); }
+function readGuardState(deps = {}) {
+  try {
+    const j = JSON.parse(fs.readFileSync(guardStateFile(deps), 'utf8'));
+    return j && j.agents && typeof j.agents === 'object' && !Array.isArray(j.agents) ? j.agents : {};
+  } catch { return {}; }
+}
+function recordGuardState(agentName, r, deps = {}) {
+  try {
+    const file = guardStateFile(deps);
+    const agents = readGuardState(deps);
+    agents[agentName] = { ok: !!(r && r.ok), ...(r && r.because ? { because: String(r.because) } : {}), ...(r && r.warning ? { warning: String(r.warning) } : {}), at: new Date().toISOString() };
+    const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.new`;
+    fs.writeFileSync(tmp, JSON.stringify({ agents }, null, 2) + '\n', { mode: 0o600 });
+    try { fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* gone */ } throw e; }
+  } catch (e) { process.stderr.write(`#5668: the guard state for ${agentName} could not be recorded (${(e && e.code) || e})\n`); }
+}
+/* #5668 (Pete's step 3): the user-level settings file the agent's ACCOUNT reads also reaches its sandbox profile, so its
+   deny lists join the size count. The account's config home is the one its launch job names (create.readJob), or
+   ~/.claude when the job names none. Read only; the person's file is never edited. */
+function accountSettingsLists(agentName, deps = {}) {
+  let dir = deps.accountConfigDir;
+  if (dir === undefined) { try { const job = create.readJob(agentName); dir = job && job.configDir; } catch { dir = null; } }
+  if (!dir) dir = path.join(deps.home || kosmosHome(), '.claude');
+  const out = { dir, deny: [], denyRead: [], denyWrite: [] };
+  const strings = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
+  for (const f of ['settings.json', 'settings.local.json']) {
+    let j;
+    try { j = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { continue; }
+    const perms = j && j.permissions && typeof j.permissions === 'object' ? j.permissions : {};
+    const fsb = j && j.sandbox && j.sandbox.filesystem && typeof j.sandbox.filesystem === 'object' ? j.sandbox.filesystem : {};
+    out.deny.push(...strings(perms.deny));
+    out.denyRead.push(...strings(fsb.denyRead));
+    out.denyWrite.push(...strings(fsb.denyWrite));
+  }
+  return out;
+}
 /*
  * #4491: write a token-only agent's <folder>/.claude/settings.json so a sandboxed shell in it cannot
  * read board.token and cannot turn its own guard off, while its normal work (its own data folder, the
@@ -1347,6 +1389,11 @@ function tokenOnlySettingsRules(dir, deps = {}) {
  * (#5663: the guard is still whole; the agent's shell may not run). Never throws.
  */
 function guardTokenOnlyFolder(dir, agentName, deps = {}) {
+  const r = guardTokenOnlyFolderNow(dir, agentName, deps);
+  recordGuardState(agentName, r, deps);
+  return r;
+}
+function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
   try {
     if (!dir || !agentName) return { ok: false, because: 'no folder' };
     // #4491 review WARNING 1: this guard is a Claude Code settings file. Codex runs with its approvals and
@@ -1477,9 +1524,14 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     /* #5663: the sandbox profile has size limits (SANDBOX_DENY_PREFIX_MAX). Past them the guard is still whole (the token
        is denied), but the agent's shell may not run, so it is said as a warning, never a refusal: the limits are fitted
        to measurements (review 4), and a refusal would stop an agent being created on an estimate. It is said beside
-       an uncovered PATH entry, not instead of it. Its readers are the logs (stderr: the board's log at board start and
-       creation, the supervisor's at a launch); no caller carries `warning` further today (reviews 5 and 6). */
-    const sz = (deps.platform || process.platform) === 'darwin' ? sandboxDenySize(next.sandbox.filesystem, next.permissions.deny, deps.home, deps.platform || process.platform) : null;
+       an uncovered PATH entry, not instead of it. It is written to the logs (stderr) and recorded for the agent's page
+       (#5668, recordGuardState). */
+    let sz = null;
+    if ((deps.platform || process.platform) === 'darwin') {
+      const acct = accountSettingsLists(agentName, deps);   // #5668: the account's own file reaches the same profile
+      const fsbNow = next.sandbox.filesystem;
+      sz = sandboxDenySize({ denyRead: [...(fsbNow.denyRead || []), ...acct.denyRead], denyWrite: [...(fsbNow.denyWrite || []), ...acct.denyWrite] }, [...next.permissions.deny, ...acct.deny], deps.home, deps.platform || process.platform);
+    }
     const warning = sz && (sz.prefixes > SANDBOX_DENY_PREFIX_MAX || sz.raw > SANDBOX_DENY_RAW_MAX)
       ? `its ${sz.paths} denied path entries across the read and write clauses (${sz.prefixes} distinct characters, ${sz.raw} in all) are past what Kosmos can say the sandbox will take (${SANDBOX_DENY_PREFIX_MAX} and ${SANDBOX_DENY_RAW_MAX}); the guard is written but may stop the agent's shell`
       : null;
@@ -2104,6 +2156,8 @@ module.exports = {
   markSetupAssistantSeeded,
   defaultHasConnectedAccount,
   seedSetupAssistant,
+  readGuardState,
+  GUARD_STATE_FILE,
   SANDBOX_DENY_PREFIX_MAX,
   SANDBOX_DENY_RAW_MAX,
   sandboxDenySize,
