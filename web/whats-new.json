@@ -4,7 +4,12 @@
     {
       "icon": "spark",
       "title": "Claude Haiku 5.5 is in the model picker",
-      "line": "You can pick Claude Haiku 5.5 for an agent: a fast Claude model that costs less. Kosmos shows its name, context use and price."
+      "line": "You can pick Claude Haiku 5.5 for an agent: the quickest and cheapest Claude model, for small jobs done often."
+    },
+    {
+      "icon": "tasks",
+      "title": "A stuck agent says so on its card",
+      "line": "An agent stuck on sign-in or a rate limit for a while says how long and what to do on its card, and shows under Issue."
     },
     {
       "icon": "phone",
