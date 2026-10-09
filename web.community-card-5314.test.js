@@ -135,6 +135,20 @@ test('#5314: withAgentSortFields reports today, yesterday, and older days ago', 
   assert.equal(byName.dee.lastCommunityPostAt, null);
 });
 
+test('#5696: an unreadable community store hides the line rather than claiming no posts', () => {
+  // The switch is on but the store read failed (communityPosts null, as publishedPostTimesAll's catch leaves it).
+  // The card must say nothing: "No community posts yet" would be a claim the board could not check.
+  const ada = cardOf('ada');
+  const [row] = withAgentSortFields([ada], {
+    communityOn: true,
+    now: '2026-10-05T15:00:00.000Z',
+    communityPosts: null,
+  });
+  assert.equal(row.communityOn, true);
+  assert.equal(row.lastCommunityPost, null);
+  assert.equal(row.lastCommunityPostAt, null);
+});
+
 test('#5314: withAgentSortFields matches agent names case-insensitively and handles Maps', () => {
   const ada = cardOf('ada');
   const map = new Map();
