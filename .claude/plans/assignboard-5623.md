@@ -185,3 +185,10 @@ open assignments at GET /agents/me/assignments (filtered there to what is still 
   'answered' closure appears in `settled`; the board keeps it as unknown in between and does not re-tell it.
 - Fixed (NITs): markSeen's doc says an empty or invalid id list returns true without asking; valid rows fill
   ASSIGNMENTS_MAX (a malformed row takes no place); a 200-column comment line rewrapped.
+
+## Review 15 (sonnet)
+- Fixed (WARNINGs): the expiry log says "a line sent N times" (a line counted as told may have been unconfirmed); a
+  comment says the expiry mark edits this pass's copy of the record (readPersons returns a fresh object), so a failed
+  write is redone next pass; a test of the PERSON_TELLS mark on an assignment key through /sent (kind 'post').
+- Left (NITs): the source pin on chainWaitMs is literal by design (it says so); the plan's review log is long; the
+  frame line's width follows the file.
