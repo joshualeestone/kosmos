@@ -107,6 +107,28 @@ function check(name, pass, detail) {
       await tick();
       out.failedPoll = { hiddenBeforeFail, hidden: tileEl.hidden, count: countEl.textContent };
 
+      /* #5540: the Waiting tile (state blocked), the same hide-at-zero grammar, with the card's pause glyph. */
+      const wTile = document.getElementById('st-blocked-tile');
+      const wCount = document.getElementById('st-blocked');
+      const wGlyph = wTile && wTile.querySelector('.pause');
+      const laid = (el) => !!el && el.offsetParent !== null && el.getBoundingClientRect().width > 0;
+      out.waitWraps = !!(wTile && wCount && wGlyph && wTile.contains(wCount));
+      if (out.waitWraps) {
+        okFetch(['working', 'blocked', 'blocked', 'idle'], { total: 4, unreadableLines: 0 });
+        await tick();
+        // Where it sits: after Idle and before Issue in the row (the row rises in urgency to the red tile).
+        const row = [...wTile.parentNode.children];
+        const idleTile = document.getElementById('st-idle').closest('.stat');
+        out.waiting = { hidden: wTile.hidden, count: wCount.textContent, glyph: laid(wGlyph),
+          afterIdle: row.indexOf(wTile) > row.indexOf(idleTile), beforeIssue: row.indexOf(wTile) < row.indexOf(document.getElementById('st-attn-tile')) };
+        okFetch(['working', 'idle'], { total: 2, unreadableLines: 0 });
+        await tick();
+        out.waitZero = { hidden: wTile.hidden, glyph: laid(wGlyph) };
+        window.fetch = async () => { throw new Error('simulated poll failure'); };
+        await tick();
+        out.waitFailed = { hidden: wTile.hidden, count: wCount.textContent };
+      }
+
       return out;
     });
 
@@ -138,6 +160,17 @@ function check(name, pass, detail) {
     check(`${engine}: a failed poll brings the tile BACK showing "?" (was hidden), never leaves it hidden`,
       seen.failedPoll.hiddenBeforeFail === true && seen.failedPoll.hidden === false && seen.failedPoll.count === '?',
       `hiddenBeforeFail=${seen.failedPoll.hiddenBeforeFail} hidden=${seen.failedPoll.hidden} count=${JSON.stringify(seen.failedPoll.count)}`);
+
+    check(`${engine}: #5540 the Waiting tile wraps its count and the pause glyph`, seen.waitWraps, `waitWraps=${seen.waitWraps}`);
+    if (seen.waitWraps) {
+      check(`${engine}: #5540 two Waiting agents -> tile shown, "2", glyph laid out, after Idle and before Issue`,
+        seen.waiting.hidden === false && seen.waiting.count === '2' && seen.waiting.glyph && seen.waiting.afterIdle && seen.waiting.beforeIssue,
+        JSON.stringify(seen.waiting));
+      check(`${engine}: #5540 nobody Waiting -> tile hidden and its glyph out of layout`,
+        seen.waitZero.hidden === true && seen.waitZero.glyph === false, JSON.stringify(seen.waitZero));
+      check(`${engine}: #5540 a failed poll shows the Waiting tile with "?"`,
+        seen.waitFailed.hidden === false && seen.waitFailed.count === '?', JSON.stringify(seen.waitFailed));
+    }
 
     await browser.close();
   }

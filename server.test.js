@@ -3435,6 +3435,7 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
     const el = () => ({ textContent: '', hidden: undefined });
     const els = {
       'st-agents': el(), 'st-working': el(), 'st-working-tile': el(), 'st-idle': el(),
+      'st-blocked': el(), 'st-blocked-tile': el(),   // #5540
       'st-attn': el(), 'st-attn-tile': el(),
       'st-attn-noproj': el(), 'st-attn-noproj-tile': el(),
       'st-off': el(), 'st-off-tile': el(),
@@ -3498,6 +3499,20 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
     { total: 2, needsYou: 0, notRunning: 0 });
   assert.equal(zeroFloor['st-working-tile'].hidden, true,
     '#4736: zero working WITH an unknown ("0+") hides the tile too (Josh: "if there are 0 working, lets not show the tile")');
+  /* #5540: Waiting (state blocked) has its own tile, counted and floored as Working is, hidden at zero. The fleets
+     above hold no blocked agent, so it is hidden there (CONTROL); one with two blocked shows "2", and one blocked beside
+     an unknown shows "1+". A guide agent is never counted, as for Working and Idle. */
+  assert.equal(known['st-blocked-tile'].hidden, true, 'the Waiting tile shows with nobody waiting');
+  const waiting = drive([{ state: 'working' }, { state: 'blocked' }, { state: 'blocked' }, { state: 'idle' }, { state: 'blocked', isGuide: true }], { total: 4, needsYou: 0, notRunning: 0 });
+  assert.equal(waiting['st-blocked'].textContent, '2', 'the Waiting tile does not count the blocked agents');
+  assert.equal(waiting['st-blocked-tile'].hidden, false, 'the Waiting tile is hidden while two agents wait');
+  assert.equal(waiting['st-idle'].textContent, '1', 'CONTROL: a blocked agent is not counted as idle');
+  assert.equal(waiting['st-working'].textContent, '1', 'CONTROL: a blocked agent is not counted as working');
+  const waitingFloor = drive([{ state: 'blocked' }, { state: 'unknown' }], { total: 2, needsYou: 0, notRunning: 0 });
+  assert.equal(waitingFloor['st-blocked'].textContent, '1+', 'an unknown agent must floor the Waiting tile as it floors Working');
+  // Review 1: a FLOORED zero ("0+") hides the tile too, as Working's does (#4736).
+  assert.equal(zeroFloor['st-blocked'].textContent, '0+', 'fixture: zero blocked beside an unknown reads "0+"');
+  assert.equal(zeroFloor['st-blocked-tile'].hidden, true, '#5540: "0+" Waiting must hide as Working does (#4736)');
   assert.equal(zeroFloor['st-working'].textContent, '0+',
     'the number underneath is still the floored 0+ (only the tile is hidden)');
   /* #4736: the OTHER way to "0+", unreadable pane lines with no unknown agent, hides the tile too. */
@@ -3577,6 +3592,8 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
        failed poll must bring the Working tile BACK showing "?", not leave it hidden
        claiming none are working -- the same rule as the not-running tile below. */
     'st-working-tile': { textContent: '', hidden: true, innerHTML: '' },
+    // #5540: seeded with a last-success count and hidden, so "?" and showing are both measured transitions.
+    'st-blocked': el('2'), 'st-blocked-tile': { textContent: '', hidden: true, innerHTML: '' },
     'st-attn-tile': { textContent: '', hidden: false, innerHTML: '' },
     /* #1898: the no-project drill-down, seeded with a last-success count and
        SHOWN, so the failed poll must blank it to `?` and hide it like its parent. */
@@ -3634,7 +3651,7 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
     'the failure card must reach both containers, whichever layout is up');
   assert.match(els.grid.innerHTML, /not the same as having none/,
     'the failure card stopped drawing the distinction it exists for');
-  for (const id of ['st-agents', 'st-working', 'st-idle', 'st-attn', 'st-attn-noproj']) {
+  for (const id of ['st-agents', 'st-working', 'st-idle', 'st-blocked', 'st-attn', 'st-attn-noproj']) {
     assert.equal(els[id].textContent, '?',
       `${id} still asserts a count beside "we cannot see them" -- a headline number the failed poll cannot stand behind`);
   }
@@ -3644,6 +3661,7 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
     '#1898: the no-project drill-down must hide on a blind poll too, for the same reason as its parent');
   assert.equal(els['st-working-tile'].hidden, false,
     '#2157: the Working tile (seeded hidden, as a prior known-zero tick left it) must come BACK on a blind poll showing "?", unlike the alert tile -- hiding it would claim none are working on the one poll that knows nothing');
+  assert.equal(els['st-blocked-tile'].hidden, false, '#5540: a failed poll left the Waiting tile hidden, which says nobody is waiting');
   // (#734) There is no summary slot any more, so nothing here can assert last-tick counts beside the failure card.
   assert.equal(els.orgmap.innerHTML, '',
     'the org view still draws the last fleet it saw beside "we cannot see them"');
@@ -16478,4 +16496,39 @@ test('#4771: a task is put on hold and taken off through its route; a project is
     assert.equal(projects.isPaused(projects.readAll().find((x) => x.id === p.id)), true, 'a refused resume still resumed');
     assert.equal((await screenPut({ paused: false })).status, 200, 'the person could not resume their own pause');
   } finally { projects.syncAgent = realSync; }
+});
+
+test('kosmos#5628: a managed computer sets up through the company sign-in routes, and no answer carries the secret', async () => {
+  const sb = fs.realpathSync(mkTemp('companyflow-'));
+  const fakeBin = nodePath.join(sb, 'fake-tunnel');
+  fs.writeFileSync(fakeBin, ['#!/usr/bin/env node',
+    "const a = process.argv.slice(2);",
+    "if (a[0] === 'setup' && a[1] === 'company-start') { console.log(JSON.stringify({ setupId: 'setup-r', secret: 'ROUTE-SECRET', matchCode: 'Q4-7X', url: a[a.indexOf('--coordinator') + 1].replace(/\\/+$/, '') + '/v1/sso/begin?x', interval: 5, expiresIn: 900 })); process.exit(0); }",
+    "if (a[0] === 'setup' && a[1] === 'company-status') { require('node:fs').readFileSync(0); console.log(JSON.stringify({ ready: true, gone: false })); process.exit(0); }",
+    "if (a[0] === 'setup' && a[1] === 'complete') { require('node:fs').readFileSync(0); process.exit(0); }",
+    'process.exit(0);', ''].join('\n'));
+  fs.chmodSync(fakeBin, 0o755);
+  const prev = { bin: process.env.AGENT_WORKFORCE_TUNNEL_BIN, state: process.env.AGENT_WORKFORCE_TUNNEL_STATE };
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = fakeBin;
+  process.env.AGENT_WORKFORCE_TUNNEL_STATE = nodePath.join(sb, 'state');
+  const json = (path, body) => req(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
+  try {
+    const managed = await req('/api/remote/managed');
+    assert.equal(managed.status, 200, managed.body);
+    const bad = await json('/api/remote/company/start', { email: 'not an email' });
+    assert.equal(bad.status, 400);
+    const started = await json('/api/remote/company/start', { email: 'ann@acme.test' });
+    assert.equal(started.status, 200, started.body);
+    assert.equal(JSON.parse(started.body).matchCode, 'Q4-7X');
+    const status = await json('/api/remote/company/status');
+    assert.deepEqual(JSON.parse(status.body), { ready: true, gone: false, retry: false });
+    const done = await json('/api/remote/company/complete', { name: 'ann-mac' });
+    assert.equal(done.status, 200, done.body);
+    for (const r of [started, status, done]) assert.equal(r.body.includes('ROUTE-SECRET'), false, 'a route answered the secret');
+  } finally {
+    for (const [k, v] of [['AGENT_WORKFORCE_TUNNEL_BIN', prev.bin], ['AGENT_WORKFORCE_TUNNEL_STATE', prev.state]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+    require('./engine/remote').resetForTests();
+  }
 });

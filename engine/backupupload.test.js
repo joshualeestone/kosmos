@@ -654,6 +654,70 @@ test('a bucket that cannot even be reached (DNS) ends retryLater with nothing un
   assert.strictEqual(c.bodies.length, 1);
 });
 
+// One connect failure, then a bucket that answers (400 IncompleteBody: S3 committed nothing) until the grant runs out.
+// The bucket was reached, so this is not "could not be reached": it re-grants, as the same run without the blip does.
+const blipThenIncomplete = () => {
+  let n = 0;
+  return async () => {
+    if (n++ === 0) { const e = new TypeError('fetch failed'); e.cause = { code: 'ECONNREFUSED' }; throw e; }
+    return new Response('<Error><Code>IncompleteBody</Code></Error>', { status: 400 });
+  };
+};
+
+test('a chunk that met one connect failure and then reached the bucket is not "could not be reached", and re-grants', async () => {
+  const b = await bucket();
+  try {
+    const c = coordinator(b);
+    const r = await up.uploadChunks(deps(c, Object.assign({ fetch: blipThenIncomplete() }, clock())), [chunk(1)]);
+    assert.strictEqual(r.ok, false); assert.strictEqual(r.retryLater, true);
+    assert.match(r.because, /grants in a row stored nothing/, 'it must end on the re-grant cap, not an early exit');
+    assert.ok(c.bodies.length > 1, `a reachable bucket got no second grant (${c.bodies.length})`);
+    assert.strictEqual(r.unsure, undefined, 'S3 said it committed nothing, so nothing is unsure');
+  } finally { await b.close(); }
+});
+
+test('a chunk that never connected, on a grant where ANOTHER chunk reached the bucket, is granted again: the bucket is reachable', async () => {
+  const b = await bucket();
+  try {
+    const c = coordinator(b);
+    const one = chunk(1), two = chunk(2);
+    let toOne = 0, toTwo = 0;
+    // Told apart by size (chunk(n) is MIN_OBJECT + n bytes): chunk 1 never connects, chunk 2 is stored at once.
+    const f = async (url, init) => {
+      if (init.body.length === one.object.length) { toOne++; const e = new TypeError('fetch failed'); e.cause = { code: 'ECONNREFUSED' }; throw e; }
+      toTwo++; return new Response('', { status: 200 });
+    };
+    const r = await up.uploadChunks(deps(c, Object.assign({ fetch: f }, clock())), [one, two]);
+    assert.ok(toOne > 0 && toTwo === 1, `chunk 1 tried, chunk 2 stored once (${toOne}, ${toTwo})`);
+    // Grant 1: chunk 2 reached (stored), so chunk 1 is not "unreachable" there and is granted again. Grant 2 asks for
+    // chunk 1 alone; nothing on it reaches the bucket, so THAT grant ends "could not be reached" with no third grant.
+    assert.strictEqual(c.bodies.length, 2, `grants asked: ${c.bodies.length}`);
+    assert.deepStrictEqual(c.bodies[1].chunks.map((k) => k.size), [one.object.length], 'grant 2 must ask for chunk 1 alone');
+    assert.strictEqual(r.ok, false); assert.strictEqual(r.retryLater, true);
+    assert.match(r.because, /could not be reached \(1 chunks/);
+    assert.ok(r.keys.has(two.name) && !r.keys.has(one.name), 'chunk 2 keeps its stored key');
+    assert.strictEqual(r.unsure, undefined);
+  } finally { await b.close(); }
+});
+
+test('a chunk that never connected, beside one that met trouble on the same grant, ends with the trouble: unsure named, no new grant', async () => {
+  const b = await bucket();
+  try {
+    const c = coordinator(b);
+    const one = chunk(1), two = chunk(2);
+    // Chunk 1 never connects; chunk 2 gets 503 every time (it may have landed: troubled).
+    const f = async (url, init) => {
+      if (init.body.length === one.object.length) { const e = new TypeError('fetch failed'); e.cause = { code: 'ECONNREFUSED' }; throw e; }
+      return new Response('<Error><Code>SlowDown</Code></Error>', { status: 503 });
+    };
+    const r = await up.uploadChunks(deps(c, Object.assign({ fetch: f }, clock())), [one, two]);
+    assert.strictEqual(c.bodies.length, 1, 'trouble that may have landed must never be followed by a new grant');
+    assert.strictEqual(r.ok, false); assert.strictEqual(r.retryLater, true);
+    assert.match(r.because, /met bucket or network trouble/);
+    assert.deepStrictEqual(r.unsure.map((x) => x.name), [two.name], 'only the troubled chunk is unsure');
+  } finally { await b.close(); }
+});
+
 test('a lock date given as a number (not an ISO string) is refused', () => {
   const c = chunk(1);
   const data = { expires_at: '2030-01-01T00:15:00Z', uploads: [{ key: 'a/k', url: `http://bucket.example/b/a/k?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=c&X-Amz-Date=20300101T000000Z&X-Amz-Expires=900&X-Amz-SignedHeaders=${encodeURIComponent(SIGNED)}&X-Amz-Signature=00`, headers: { 'content-md5': md5(c.object), 'if-none-match': '*', 'x-amz-object-lock-mode': 'COMPLIANCE', 'x-amz-object-lock-retain-until-date': Date.UTC(2030, 1, 3) } }] };
@@ -1224,6 +1288,18 @@ test('every manifest exit after a grant answered says grantSpent: a refused PUT,
   const base = b.base; await b.close();
   const unreached = await up.uploadManifest(deps(manifestCoordinator({ base }), clock()), manifestBytes(), { bucket: `${new URL(base).host}/bucket/`, chunks: oneChunk() });
   assert.match(unreached.because, /could not be reached/); assert.strictEqual(unreached.grantSpent, true);
+});
+
+test('a manifest that met one connect failure and then reached the bucket is not "could not be reached", and re-grants', async () => {
+  const b = await bucket();
+  try {
+    const mc = manifestCoordinator(b);
+    const r = await up.uploadManifest(deps(mc, Object.assign({ fetch: blipThenIncomplete() }, clock())), manifestBytes(), mOpts(b));
+    assert.strictEqual(r.ok, false); assert.strictEqual(r.retryLater, true); assert.strictEqual(r.grantSpent, true);
+    assert.match(r.because, /manifest grants in a row ran out/, 'it must end on the re-grant cap, not an early exit');
+    assert.ok(mc.bodies.length > 1, `a reachable bucket got no second manifest grant (${mc.bodies.length})`);
+    assert.strictEqual(r.unsure, undefined);
+  } finally { await b.close(); }
 });
 
 test('a bucket path with an upper-case host is refused before any grant (a URL host is always lower case)', async () => {
