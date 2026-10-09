@@ -17,7 +17,8 @@ const snap = require('./backupsnapshot');
 const NOW = Date.parse('2026-10-08T12:00:00Z');
 const PERIOD = '2026-W41';
 const TOKEN = 'ghp_' + 'Zq8vT2mLp4Rx9Kc1Nw7Hy3Bd6Fg0Js5Ua2Ve';
-const LOCK = Date.parse('2026-11-12T00:15:00Z');
+// What the coordinator sets for a 2026-W41 chunk grant: the period's end (2026-10-12) + 30 days + 15 minutes.
+const LOCK = Date.parse('2026-11-11T00:15:00Z');
 
 function keys() {
   const member = hpkeKeyPair(), nk = crypto.randomBytes(32), dev = crypto.generateKeyPairSync('ed25519');
@@ -773,10 +774,10 @@ test('a period boundary passed between the chunks and the manifest stops the run
   const w = workKosmos(), k = keys(), st = store();
   try {
     // The clock reads inside the period until the chunks are stored, then just past Monday 00:00 UTC.
-    let calls = 0, stored = false;
+    let stored = false;
     const real = st.uploadChunks;
     const r = await take(k, w.root, st, { deps: {
-      now: () => (stored ? Date.parse('2026-10-12T00:00:05Z') : (calls++, NOW)),
+      now: () => (stored ? Date.parse('2026-10-12T00:00:05Z') : NOW),
       uploadChunks: async (d, batch) => { const res = await real(d, batch); stored = true; return res; },
     } });
     assert.equal(r.ok, false); assert.equal(r.newPeriod, true); assert.match(r.because, /period boundary/);
@@ -807,5 +808,22 @@ test('the open works where the platform has no O_NOFOLLOW, O_NONBLOCK or O_NOCTT
     const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
     assert.ok(m.files.some((x) => x.path === 'readme.txt'));
     assert.ok(m.skipped.some((x) => x.path === 'agents/a/link.txt' && /link/.test(x.why)), 'links are still never followed (the walk)');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a run that crosses into the next period never asks for a manifest grant, even with chunks locked long enough', async () => {
+  const w = workKosmos(), k = keys();
+  try {
+    // Last-day grants: the coordinator locks them to the NEXT period's date (2026-10-19 + 30 days + 15 minutes).
+    const longLock = Date.parse('2026-11-18T00:15:00Z');
+    const st = store();
+    const real = st.uploadChunks;
+    let stored = false;
+    const r = await take(k, w.root, st, { deps: {
+      now: () => (stored ? Date.parse('2026-10-12T00:00:05Z') : Date.parse('2026-10-11T23:00:00Z')),
+      uploadChunks: async (d, batch) => { const res = await real(d, batch); for (const n of res.lockedUntil.keys()) res.lockedUntil.set(n, longLock); stored = true; return res; },
+    } });
+    assert.equal(r.ok, false); assert.equal(r.newPeriod, true);
+    assert.equal(st.manifests.length, 0, 'the manifest\'s key and record would name another period than its sealed context');
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
