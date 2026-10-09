@@ -203,6 +203,27 @@ function unspill(file) {
    lines and a path. The full text still goes in the LOG (the screens
    draw conversations from the log, not from panes). */
 const SPILL_AT = 700;
+/* #5706 (user feedback, 2026-10-09): what the pane shows of a long message, so the agent can tell from the line alone
+   whether to open the file. The envelope already names the sender; this is the message's first sentence when it is a
+   real one and ends within SPILL_HEAD characters, else the opening cut at a whole word, plus how long the whole is. */
+const SPILL_HEAD = 200;
+function spillHead(text) {
+  const t = String(text);
+  const words = (t.match(/\S+/g) || []).length;
+  const open = t.slice(0, SPILL_HEAD);
+  const first = open.match(/^[\s\S]*?[.!?](?=\s|$)/);
+  let head;
+  if (first && first[0].trim().length >= 20) head = first[0].trim();
+  else {
+    const sp = open.lastIndexOf(' ');
+    head = (sp >= SPILL_HEAD / 2 ? open.slice(0, sp) : open).trimEnd() + '\u2026';
+  }
+  return { head, words };
+}
+function spillLine(text, file) {
+  const { head, words } = spillHead(text);
+  return head + ' (long message, ' + words + ' words; the full text is in your own folder at ' + file + ')';
+}
 /* The ceiling past which a body is a document, not a message (spill
    relaxes chat's cap, never the idea of one). The log itself has no
    rotation yet -- a RECORDED decision, not an oversight: retention is the
@@ -1295,7 +1316,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     const spill = spillInto(toName, id, cleaned);   // #4447: the recipient's own Inbox
     if (!spill.file) return refuse(toName, 'that message is long enough to need a file, and ' + spill.because);
     spillFile = spill.file;
-    body = cleaned.slice(0, 200) + '… (long message; the full text is in your own folder at ' + spillFile + ')';
+    body = spillLine(cleaned, spillFile);   // #5706
   }
   const envelope = '[message from your colleague ' + from
     + ' · ' + id
@@ -2021,7 +2042,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
       if (!spill.file) { outcomes[name] = chat.DELIVERY.COULD_NOT; return null; }
       const file = spill.file;
       spilled[name] = file;
-      bodyHere = cleaned.slice(0, 200) + '\u2026 (long message; the full text is in your own folder at ' + file + ')';
+      bodyHere = spillLine(cleaned, file);   // #5706
     }
     /* The operator's arrivals carry their OWN markers: an @-mentioned
        member reads a request from the person; everyone else reads the
@@ -2937,6 +2958,7 @@ module.exports = {
   _nextIdForTests: nextIdForTests, // #4888
   _sendPostWithDelivery: sendPostWithDelivery,
   setSenderTextFilter, filteredText, // #3769
+  _spillHead: spillHead, // #5706
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
   projectOfPost, owedElsewhere,
   react, reactionsFor, normalizeReactionEmoji,
