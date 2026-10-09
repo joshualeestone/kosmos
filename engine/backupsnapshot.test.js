@@ -164,7 +164,7 @@ test('chunks are uploaded in bounded batches, never the whole snapshot at once',
 test('a context for another period than this clock\'s is refused before anything is uploaded', async () => {
   const w = workKosmos(), k = keys(), st = store();
   try {
-    const r = await take(k, w.root, st, { deps: { now: () => Date.parse('2026-10-12T00:00:01Z') } });
+    const r = await take(k, w.root, st, { deps: { now: () => Date.parse('2026-10-12T01:30:00Z') } });
     assert.equal(r.ok, false); assert.equal(r.newPeriod, true); assert.equal(r.retryLater, undefined); assert.match(r.because, /2026-W42/);
     assert.equal(st.batches.length, 0);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
@@ -790,7 +790,7 @@ test('a period boundary passed between the chunks and the manifest stops the run
     let stored = false;
     const real = st.uploadChunks;
     const r = await take(k, w.root, st, { deps: {
-      now: () => (stored ? Date.parse('2026-10-12T00:00:05Z') : NOW),
+      now: () => (stored ? Date.parse('2026-10-12T01:30:00Z') : NOW),
       uploadChunks: async (d, batch) => { const res = await real(d, batch); stored = true; return res; },
     } });
     assert.equal(r.ok, false); assert.equal(r.newPeriod, true); assert.match(r.because, /period boundary/);
@@ -833,7 +833,7 @@ test('a run that crosses into the next period never asks for a manifest grant, e
     const real = st.uploadChunks;
     let stored = false;
     const r = await take(k, w.root, st, { deps: {
-      now: () => (stored ? Date.parse('2026-10-12T00:00:05Z') : Date.parse('2026-10-11T23:00:00Z')),
+      now: () => (stored ? Date.parse('2026-10-12T01:30:00Z') : Date.parse('2026-10-11T23:00:00Z')),
       uploadChunks: async (d, batch) => { const res = await real(d, batch); for (const n of res.lockedUntil.keys()) res.lockedUntil.set(n, longLock); stored = true; return res; },
     } });
     assert.equal(r.ok, false); assert.equal(r.newPeriod, true);
@@ -1003,5 +1003,24 @@ test('a clock past year 9999 is refused (the coordinator labels such periods dif
   try {
     const r = await take(k, w.root, st, { deps: { now: () => Date.UTC(10000, 0, 6) } });
     assert.equal(r.ok, false); assert.match(r.because, /clock/); assert.equal(r.newPeriod, undefined);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('with this Mac\'s clock up to an hour off the coordinator\'s around Monday, a retry in the granted period succeeds', async () => {
+  const w = workKosmos(), k = keys();
+  try {
+    const local = Date.parse('2026-10-11T23:40:00Z');   // this Mac: still W41; the coordinator is already in W42
+    const st = store({ period: '2026-W42' });
+    const r = await take(k, w.root, st, { deps: { now: () => local } });
+    assert.equal(r.ok, false); assert.equal(r.newPeriod, true); assert.equal(r.grantedPeriod, '2026-W42');
+    // The caller builds the context in the period the coordinator granted in: accepted, though the local clock says W41.
+    const k2 = Object.assign({}, k, { ctx: Object.assign({}, k.ctx, { period: r.grantedPeriod, snapshot: 's2' }) });
+    const st2 = store({ period: '2026-W42', manifestPeriod: '2026-W42' });
+    const real = st2.uploadChunks;
+    const ok = await take(k2, w.root, st2, { deps: { now: () => local, uploadChunks: async (d, b) => { const res = await real(d, b); for (const n of res.lockedUntil.keys()) res.lockedUntil.set(n, Date.parse('2026-11-18T00:15:00Z')); return res; } } });
+    assert.equal(ok.ok, true, ok.because);
+    // A period two weeks off is still refused.
+    const far = await take(Object.assign({}, k, { ctx: Object.assign({}, k.ctx, { period: '2026-W43' }) }), w.root, store(), { deps: { now: () => local } });
+    assert.equal(far.ok, false); assert.equal(far.newPeriod, true);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });

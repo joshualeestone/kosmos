@@ -72,7 +72,11 @@ const MAX_FILES = 500000;
 const MANIFEST_JSON_BUDGET = Math.floor(MAX_MANIFEST * 0.8);
 const MAX_SKIPPED = 100000;
 const MAX_DEPTH = 256;
-const SPLIT_WINDOW = 8;   // segments joined when looking for a credential split across folder names
+const SPLIT_WINDOW = 8;
+// The clock skew tolerated between this Mac and the coordinator, as backupupload's clock check does (an hour): within it
+// of a Monday, the context may name either neighbouring period, since the coordinator's clock decides the grant's.
+const SKEW_MS = 60 * 60 * 1000;
+const periodsNear = (t) => new Set([periodOf(t - SKEW_MS), periodOf(t), periodOf(t + SKEW_MS)]);   // segments joined when looking for a credential split across folder names
 // The coordinator's allowance per member per weekly period (docs/coordinator-api.md "Allowances"): chunk objects and
 // bytes, spent at grant time. A snapshot that could pass either is refused before it spends any.
 // The bound is cautious (chunks at the 256 KiB minimum, redaction doubling every file), so in practice it refuses at
@@ -307,7 +311,8 @@ function upperBound(f, maxFile) {
  *   overAllowance: the week's backup allowance would be passed (refused before anything is spent), or is used up
  *     (backup_quota, which can arrive after some batches were stored: they are in `added`): not this period.
  *   newPeriod: a period boundary passed (the context's, or a grant's): start again with the new period's context and
- *     naming key; this input can never succeed.
+ *     naming key; this input can never succeed. grantedPeriod, when present, is the period the coordinator granted in:
+ *     build the new context with THAT period (the coordinator's clock decides it; this Mac's may be up to an hour off).
  *   added (Map name -> { key, lockedUntilMs, memberKeyId }) is every chunk this run stored in ctx.period under `bucket`,
  *     failed or not; keep memberKeyId with each entry (an index entry without it is stale).
  *   staleIndex: the index cannot be used (another bucket or period, malformed, or chunks whose locks end too soon):
@@ -352,7 +357,10 @@ async function snapshotInner(input, deps, added, state, fail) {
   if (!usable(t)) return fail('this computer\'s clock gave no usable time');
   const period = periodOf(t);
   // newPeriod, not retryLater: the same input fails again; the caller needs this period's context and naming key.
-  if (ctx.period !== period) return fail(`the context names period ${ctx.period}, but this computer's clock is in ${period}`, { newPeriod: true });
+  // The context's period must be this clock's, or a neighbouring one within the tolerated skew (the coordinator's clock
+  // decides which period a grant lands in; a wrong-period failure reports it as grantedPeriod, and a context built from
+  // that must be accepted, or the retry loops).
+  if (!periodsNear(t).has(ctx.period)) return fail(`the context names period ${ctx.period}, but this computer's clock is in ${period}`, { newPeriod: true });
 
   // The index: every entry this period's, with a lock end, under one named bucket. Checked before anything is read.
   const index = input.index instanceof Map ? input.index : new Map();
@@ -472,7 +480,7 @@ async function snapshotInner(input, deps, added, state, fail) {
     if (badKey) return fail(`a granted key is not one this snapshot can name (${badKey})`, spent);
     if (noLock) return fail('a stored chunk came back without its lock end', spent);
     if (shortLock) return fail('a stored chunk came back locked for less time than this snapshot\'s manifest would be', spent);
-    if (wrongPeriod.length) return fail(`a chunk was granted in period ${wrongPeriod[0]}, not ${ctx.period} (a period boundary passed); start again in the new period (chunks granted there are not kept: they stay stored, unnamed, until their lock ends)`, Object.assign({ newPeriod: true }, spent));
+    if (wrongPeriod.length) return fail(`a chunk was granted in period ${wrongPeriod[0]}, not ${ctx.period} (a period boundary passed); start again in the new period (chunks granted there are not kept: they stay stored, unnamed, until their lock ends)`, Object.assign({ newPeriod: true, grantedPeriod: wrongPeriod[0] }, spent));
     // backup_quota: this period's allowance is spent (by earlier runs, or anything signing as this computer): not a
     // retry this period.
     if (r && r.code === 'backup_quota') return fail(`the period's backup allowance is used up: ${r.because || 'backup_quota'}`, Object.assign({ overAllowance: true }, r.unsure ? { unsure: r.unsure } : {}, spent));
@@ -522,6 +530,7 @@ async function snapshotInner(input, deps, added, state, fail) {
     reserve -= ub(f);
     files.push(entry);
   }
+  // A backstop only: by construction (see the check before the walk) it cannot fire.
   if (estimate > budget) return fail(tooLargeWhy(), { tooLarge: true });
   const stop = await flush();
   if (stop) return stop;
@@ -545,7 +554,8 @@ async function snapshotInner(input, deps, added, state, fail) {
   // chunks may not outlast. The run starts again in the new period, with its context and naming key.
   const tEnd = now();
   if (!usable(tEnd)) return fail('this computer\'s clock gave no usable time');   // fails closed, as at the start
-  if (periodOf(tEnd) !== ctx.period) return fail(`a period boundary passed during the snapshot (now ${periodOf(tEnd)}): start again in the new period`, { newPeriod: true });
+  // Near a Monday the local clock cannot tell; the manifest key is checked after the grant either way.
+  if (!periodsNear(tEnd).has(ctx.period)) return fail(`a period boundary passed during the snapshot (now ${periodOf(tEnd)}): start again in the new period`, { newPeriod: true });
   // Cannot throw on this content: file and redacted paths passed pathProblem, skipped ones are walk paths, every other value is a fixed sentence, a number,
   // hex or a key of plain segments, and the context and keys were checked before anything was read. If it ever did,
   // takeSnapshot's catch returns `added` intact.
