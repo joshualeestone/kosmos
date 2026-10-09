@@ -428,11 +428,11 @@ test('#3948: the rail notice paints only in the consolidated layout with a proje
     const doc = { body: { classList: { contains: (c) => c === 'consolidated' && consolidated } },
       getElementById: (id) => (id === 'alist-pj-notice' ? rn : id === 'alist-pj-notice-said' ? rs : null) };
     // eslint-disable-next-line no-new-func
-    new Function('document', 'PJ_CURRENT', 'pjById', 'pjNeedsNotice', 'pjNotice', 'pjCoordNotice', 'setIfChanged', pageFn('function paintRailPjNotice(') + '\npaintRailPjNotice();')(
+    new Function('document', 'PJ_CURRENT', 'pjById', 'pjNeedsNotice', 'pjNotice', 'pjCoordNotice', 'setIfChanged', 'pjKeepOpenFocus', pageFn('function paintRailPjNotice(') + '\npaintRailPjNotice();')(
       // #5688: the needs-you block is a stand-in too; empty unless a case asks for it.
       doc, current, (id) => projects[id] || null, (roster) => (needs ? 'NEEDS:' + roster.length + ';' : ''), (roster, id) => 'NOTICE:' + id + ':' + roster.length,
       // #4583: the two-coordinator warning is a stand-in too; empty unless a case asks for it.
-      (p) => (coord ? 'COORD:' + p.id + ';' : ''), (el, html) => { el.html = html; });
+      (p) => (coord ? 'COORD:' + p.id + ';' : ''), (el, html) => { el.html = html; }, (box, paint) => paint());
     return { rn, rs };
   };
   const on = run({ consolidated: true, current: 'p1', said: 'p1' });
