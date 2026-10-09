@@ -313,7 +313,7 @@ test('a long body spills to a file and the pane gets the head and the path; the 
     const cleanedLong = chat.cleanMessage(long);
     assert.ok(!typed.includes(cleanedLong.slice(-200)),
       'the pane carries the end of the body, so it got the wall this feature exists to avoid');
-    assert.match(typed, /long message; the full text is in your own folder at /,
+    assert.match(typed, /long message, \d+ words; the full text is in your own folder at /,   // #5706: with its size
       'the pointer does not say where the rest is');
     const spilled = typed.match(/full text is in your own folder at ([^)]+)\)/)[1];
     /* #4447: the file is in the RECIPIENT's own Inbox, beside its instructions, not a board-wide folder. */
@@ -362,8 +362,15 @@ test('#1264: the pane line does not grow with the body, however long the body ge
     };
     /* 1.4 KB against 59 KB: a 43x difference in body, and both under MAX_BODY so
        neither is refused as a document. */
-    const small = typedFor(80);
-    const huge = typedFor(3500);
+    /* #5706: the line now says how many words the whole has, the one part that grows with the body (by digits, not
+       by text). It is blanked before the comparison, which stays an equality; that it is there is asserted below. */
+    const sized = (line) => line.replace(/long message, \d+ words;/, 'long message, N words;');
+    const smallRaw = typedFor(80);
+    const hugeRaw = typedFor(3500);
+    assert.match(smallRaw, /long message, 241 words;/, 'the line does not say how long the message is');
+    assert.match(hugeRaw, /long message, 10501 words;/, 'the line does not say how long the message is');
+    const small = sized(smallRaw);
+    const huge = sized(hugeRaw);
     assert.equal(huge.length, small.length,
       `the pane line grew with the body (${small.length} -> ${huge.length}), so the spill is not `
       + 'decoupling what the agent is handed from how much was written');
@@ -2561,7 +2568,7 @@ test('#4447: a long room post leaves exactly one file in each member\'s own Inbo
       const own = MEMBERS.filter((n) => s.text.includes(path.join(inboxOf(n), out.id + '.txt')));
       assert.equal(own.length, 1, 'a pane was pointed at ' + own.length + ' members\' files: ' + s.text.slice(-160));
       assert.match(String(s.target), new RegExp(own[0]), 'the pane typed into (' + s.target + ') is not ' + own[0] + '\'s, whose file it names');
-      assert.match(s.text, /long message; the full text is in your own folder at /);
+      assert.match(s.text, /long message, \d+ words; the full text is in your own folder at /);   // #5706
       seen.add(own[0]);
     }
     assert.deepEqual([...seen].sort(), [...MEMBERS].sort(), 'not every member was pointed at its own file');
