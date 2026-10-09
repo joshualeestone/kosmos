@@ -120,7 +120,7 @@ test('#5534 review 1: a policy naming another company than the answer is not sav
   assert.equal(create.policyAllows('openai', null).ok !== false, true);
 });
 
-test('#5534 review 2: a company that stops serving a policy (null) clears it; an answer without the field keeps it', async () => {
+test('#5534 review 5: an answer with no bundle (null, or no field) never lifts a policy: only a signed one can', async () => {
   reset();
   const root = tmp('aw-polapply-world-');
   await org.refresh({ root, remote: coordinatorServing(root, sign(bundle())) });
@@ -128,7 +128,9 @@ test('#5534 review 2: a company that stops serving a policy (null) clears it; an
   await org.refresh({ root, remote: coordinatorServing(root, undefined) });   // an older coordinator: no field at all
   assert.equal(create.policyAllows('openai', null).ok, false, 'CONTROL: an answer without the field dropped the policy');
   await org.refresh({ root, remote: coordinatorServing(root, null) });
-  assert.equal(create.policyAllows('openai', null).ok !== false, true, 'a policy the company no longer serves stayed in force');
+  assert.equal(create.policyAllows('openai', null).ok, false, 'an unsigned null lifted the policy');
+  await org.refresh({ root, remote: coordinatorServing(root, sign(bundle({ version: 2, policy: { ...POLICY, providers_allowed: null } }))) });
+  assert.equal(create.policyAllows('openai', null).ok !== false, true, 'CONTROL: an open policy, signed, lifts it');
 });
 
 test('#5534 review 2: a leave the company refuses (last admin) keeps this Kosmos enrolled, and its policy with it', async () => {
@@ -211,4 +213,14 @@ test('#5534 review 4: a refused last-admin leave whose answer carries an unusabl
   const r = await org.leave({ root, remote: lastAdmin });
   assert.equal(r.still, true, JSON.stringify(r));
   assert.equal(create.policyAllows('openai', null).ok, false, 'an unusable bundle on a refused leave dropped the policy');
+});
+
+test('#5534 review 5: a bundle of another company waiting on disk is ended on a company change, not applied later', async () => {
+  reset();
+  const root = tmp('aw-polapply-world-');
+  fs.writeFileSync(orgpolicy.BUNDLE(), sign(bundle({ org: 'org_9' })));   // never applied (nothing read it yet)
+  const r = await org.refresh({ root, remote: coordinatorServing(root, undefined) });
+  assert.equal(r.ok, true, r.because);
+  assert.equal(fs.existsSync(orgpolicy.BUNDLE()), false, 'another company\'s bundle stayed on disk');
+  assert.equal(create.policyAllows('openai', null).ok !== false, true, 'another company\'s bundle applied on this board');
 });

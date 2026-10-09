@@ -177,11 +177,18 @@ function clear() {
   } catch { try { fs.rmSync(APPLIED(), { force: true }); } catch { /* already gone */ } }
 }
 
-/* #5534 review 3: the bundle and the record as they are on disk, and putting them back (a leave the company refused).
-   Restored files are re-verified on every read, so this cannot put back anything the pinned key did not sign. */
 /** The company whose policy is in force, or null (review 3: a policy of a company this Kosmos left is cleared). */
 function appliedOrg() { const a = readApplied(); return a && typeof a.org === 'string' ? a.org : null; }
 
+/** The company the bundle on disk names, unverified (review 5: a mix-up check before it is applied), or null. */
+function bundleOrg() {
+  const t = readText(BUNDLE());
+  if (!t) return null;
+  try { const o = JSON.parse(Buffer.from(t.split('.')[1] || '', 'base64url').toString('utf8')).org; return typeof o === 'string' ? o : null; } catch { return null; }
+}
+
+/* #5534 review 3: the bundle and the record as they are on disk, and putting them back (a leave the company refused).
+   The bundle is verified again on every read; the applied record is put back as it was (it came from this disk). */
 function snapshot() { return { bundle: readText(BUNDLE()), applied: readText(APPLIED()) }; }
 function restore(snap) {
   if (!snap) return;
@@ -195,4 +202,4 @@ function restore(snap) {
   }
 }
 
-module.exports = { refresh, current, inForce, allows, clear, appliedOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };
+module.exports = { refresh, current, inForce, allows, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };
