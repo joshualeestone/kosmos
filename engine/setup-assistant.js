@@ -610,15 +610,18 @@ function guardGuideFolder(dir, agentName, deps = {}) {
    token-only agent's .claude/settings.json and settings.local.json; the agent's folder can be the person's own).
    Through securewrite.writeSecret, as engine/groksettings.js's (slice 3): the temp is flushed before the rename and
    the folder after it (POSIX only), so a crash cannot leave the guard's settings at full length but zero-filled
-   (#5431), which Claude Code would fail to parse, starting the agent with no sandbox at all. An existing file keeps
-   its mode (it took the umask's before, through the temp); a new one takes the umask default (null, umaskDefault).
+   (#5431), which Claude Code would fail to parse, starting the agent with no sandbox at all. The mode: a new file, or
+   one that is a link, takes the umask default (null, umaskDefault), as every save did before. An existing regular
+   file keeps its mode LESS group and other write and the special bits (`& 0o755`): a guard someone made 0600 stays
+   0600, and a guard left 0666 is narrowed, never kept writable by other accounts that could turn its sandbox off
+   (review 1). lstat, not stat: a link's target's mode is not the guard's to inherit.
    atomicOnly: a failed save leaves the file as it was, and no temp. The temp is unique and created `wx` (the old
    `.<pid>.new` was shared by two saves in one process and followed a link planted there). ownTempsOnly: only this
    file's own dead temps are reaped (the one new delete path in that folder); old `.<pid>.new` leftovers are not.
    Throws, as the old writes did; each caller answers as before. */
 function saveSettingsFile(file, text) {
   let mode = null;
-  try { mode = fs.statSync(file).mode & 0o7777; } catch { mode = null; }
+  try { const st = fs.lstatSync(file); mode = st.isFile() ? (st.mode & 0o755) : null; } catch { mode = null; }
   require('./securewrite').writeSecret(file, text, mode, { atomicOnly: true, ownTempsOnly: true, umaskDefault: true });
 }
 
