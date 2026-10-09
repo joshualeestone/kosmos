@@ -1,51 +1,23 @@
-# donewhen-5152: slice 0 of kosmos#5152, instruction-only "done when" contract
+# #5152 slice 1: "done when" as its own task field
 
-Josh, #admin 2026-10-03 11:07: "it would be ideal if the agent wrote that and the task". Splinter's go (11:10): slice 0,
-instruction-only, measured before merge; editable checks and a home for no-project chats wait until after Monday.
+## Finished looks like
+- A task carries `doneWhen`: `null`, or a list of 1 to 3 checks (each a non-empty line of at most 200 characters).
+- An agent sets it when it adds a task (`kosmos task add ... --done "<check>"`, up to three times) and changes or clears it later with a new verb (`kosmos task done-when <project-id> <task-number> "<check>" ["<check>" ["<check>"]]`, or `--clear`). Both CLIs: install/kosmos and tools/windows/kosmos-cli.js.
+- The routes: `POST /api/project/<id>/tasks` takes `doneWhen`; new `POST /api/project/<id>/task/<n>/done-when` with `{ doneWhen: [...] | null }`.
+- `kosmos task list` prints a task's checks, so an agent can read them back.
+- The task transcript records it: the `created` row carries the checks, a change writes `done-when-set` / `done-when-cleared`, and the task page's activity list says those in words.
 
-## Done looks like
-- The working-rules block (engine/defaults.js) has a new section, "### Put the work on a task first", right after
-  "Knowing when you are finished". It tells an agent:
-  - to put work that takes more than a reply on a task before starting, with "Done when:" checks
-  - not to add a second task when the work came as one, but to message the checks onto it
-  - to report each check in the built note
-  - that small talk is not a task, and that with no project the checks go in the reply
-- DOCTRINE_VERSION 24, logged; fingerprint pinned; doctrine-past has the v24 row and the new section's hash (main's
-  rows kept).
-- Existing agents are offered the section (new heading, missingFrom).
-- Measured with claude -p before merge.
+## Decisions (Angel, night shift; Josh's 10-03 11:07 ruling: the agent writes the task and its done-when; the person may edit it with no approval)
+- **A list, at most 3, each at most 200 characters.** Mona's LOE says "up to 3 checks". 200 matches SENTENCE_MAX. Refused rather than truncated, the file's rule for every other field.
+- **A webhook cannot set it.** Webhook text is outside text (see the webhook branch of create) and Mona's risk list says a webhook still cannot set done-when. The webhook route never passes it, and create refuses it from a webhook so that this is a rule, not a habit.
+- **Who may change it:** the screen, or an agent on the project (the create route's `processCaller` + `notOnProjectRefusal`). Not limited to the assignee: Josh's ruling is that the agent writes it, and the agent writing it is often the one that added the task, not the one it is given to.
+- **A closed task can't be changed.** Closing ends the work, so changing what done means afterwards would rewrite history. Refused with a sentence (409). Rejected: allowing it like setDue does. A due date is information about the past; a done-when on a closed task is a claim about what was checked.
+- **Setting the same list records nothing,** as setDue does.
+- **Not in this slice:** editing or showing the checks on the task page (slice 2), per-check reports (slice 3), the assignee's managed block, and the pane line on assignment.
+- **The doctrine line stays as it is in this PR.** Slice 0's line tells agents to write "Done when: 1) ..." into the detail, and that still works. Moving it to `--done` is a follow-up. Every DOCTRINE_VERSION in engine/defaults.js is measured with `claude -p` on test agents before it merges (v24, v25), and engine/doctrine-past.js records each version so that existing agents are offered the change. Rejected: a wording change in this PR without that measurement.
 
-## Measured (claude -p, --setting-sources project, stand-in kosmos logging calls)
-- v1 text: work requests 4/4 filed with Done when and reported each check; control (v23) 0/4; small talk 0/2.
-- v2 text (review round 1 added the existing-task case and where the number comes from):
-  - work requests 11/13 filed and marked built (8 onboarding: 6/8; 2 newsletter: 2/2; 3 with an empty task list: 3/3)
-  - given as task 3: 3/3 added no task, messaged the checks onto task 3, and marked task 3 built
-  - small talk 1/1 filed nothing
-- v3 text (review round 2 added the 200-character line limit and "run kosmos task list right after and note your number"):
-  - work requests 4/4 filed with Done when, ran task list, and marked built
-  - given as task 3: 2/2 added none, messaged the checks, and marked task 3 built
-  - small talk 1/1 filed nothing
+## Weakest premise
+That `kosmos task list` is where an agent reads its checks back. If agents mostly learn their tasks from the managed block, the checks also belong there (a follow-up, because it changes every assignee's instructions).
 
-- v4 text (review round 3 added single quotes for a check with a backtick or $, one task between agents asked in one
-  room, and work outside every project going in the reply):
-  - a work request 1/1 listed first, filed with Done when, and marked built reporting each check
-  - given as task 3: 1/1 added none, messaged the checks onto task 3, marked it built
-  - small talk 1/1 filed nothing
-  - work outside every project (a wedding toast) 1/1 filed no task; whether its reply held checks is not visible to the
-    stand-in (the reply goes over stdin)
-- Content test proven able to fail: a mutant ("add a task each") reds the #5152 test and the fingerprint.
-
-## Steps
-- [x] Section text, measured; rewrapped to the block's width.
-- [x] Version 24, log entry, pin, doctrine-past rows.
-- [x] Content test (reds on main's block).
-- [x] Block-reading tests: defaults, doctrine, doctrine-4890, create*, connect-agent, discover, reports, dmfiles, identity,
-      machine, team.newrole, render-talk-goldencard, server.agent-projects, windows CLI parity.
-
-## Known gaps (named, not built)
-- The agent cannot read its checks back later: `kosmos task list` shows only the task's first line; the checks are in
-  its detail. An agent restarted mid-task loses them. A `task show` verb, or the editable-checks slice, closes it.
-- Codex and Gemini agents not measured.
-- `kosmos task add` does not print the new task's number (install/kosmos and tools/windows/kosmos-cli.js), so the
-  section has the agent run `kosmos task list` right after. Follow-up for both CLIs to print it; routed to Splinter.
-- tools/doctrine-past.js regenerated here drops two v21 rows that main carries; kept main's rows by hand. Worth a card.
+## Review log
+(rounds below)

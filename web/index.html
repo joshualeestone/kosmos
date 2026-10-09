@@ -60691,6 +60691,9 @@ function tkActPhrase(ev, p) {
     case 'part-reopened': return 'A part put back';
     case 'due-set': return ev.dueDate ? 'Due date set to ' + ev.dueDate : 'Due date set';
     case 'due-cleared': return 'Due date cleared';
+    // #5152: what finished means for the task, set or taken off (by an agent, named, or from the screen).
+    case 'done-when-set': { const who = nameOf(ev.by); return (who ? who + ' set' : 'Set') + ' what done means' + (ev.doneWhen ? ': ' + ev.doneWhen : ''); }
+    case 'done-when-cleared': { const who = nameOf(ev.by); return (who ? who + ' took' : 'Took') + ' off what done means'; }
     case 'hold-set': return ev.via === 'agent' ? 'Put on hold by an agent' : 'Put on hold';
     case 'hold-cleared': return ev.via === 'agent' ? 'Taken off hold by an agent' : ev.via === 'close' ? 'Taken off hold, as it was closed' : 'Taken off hold';
     // #3861: a task put under another task on its project, or taken out from under one.

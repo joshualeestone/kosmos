@@ -70,6 +70,35 @@ function dueProblem(dueDate) {
   return null;
 }
 
+/* #5152 slice 1: a task's "done when", the two or three plain checks that say what finished means for it,
+   written before the work starts (Josh, 2026-10-03 11:07: the agent writes the task and its done-when; the
+   person may change it, with no approval step). Its own field rather than words in the detail, so the page and
+   the agent read it as checks. null means none was written. Each check is one line: a check is a sentence the
+   page lists, and a line break inside one would read as two. Over the limits is REFUSED, never cut, the rule
+   every other field here follows. */
+const DONE_WHEN_MAX = 3;
+const DONE_CHECK_MAX = 200;
+function doneWhenProblem(doneWhen) {
+  if (doneWhen === undefined || doneWhen === null) return null; // none / clear
+  if (!Array.isArray(doneWhen)) return '"done when" has to be a list of checks';
+  if (doneWhen.length > DONE_WHEN_MAX) return `"done when" holds up to ${DONE_WHEN_MAX} checks`;
+  for (const c of doneWhen) {
+    if (typeof c !== 'string' || !c.trim()) return 'each "done when" check has to say something';
+    if (/[\r\n]/.test(c)) return 'each "done when" check has to be one line';
+    if (c.trim().length > DONE_CHECK_MAX) return `each "done when" check has to be ${DONE_CHECK_MAX} characters or fewer`;
+  }
+  return null;
+}
+/** The stored form: the trimmed checks, or null for an absent or empty list. */
+function doneWhenValue(doneWhen) {
+  if (!Array.isArray(doneWhen) || !doneWhen.length) return null;
+  return doneWhen.map((c) => c.trim());
+}
+/** The checks as one transcript line, "1) ... 2) ...", which is what engine/taskchat.js can keep (a string). */
+function doneWhenWords(list) {
+  return Array.isArray(list) && list.length ? list.map((c, i) => (i + 1) + ') ' + c).join(' ') : null;
+}
+
 function taskProblem({ sentence, detail, who } = {}) {
   if (typeof sentence !== 'string' || !sentence.trim()) {
     return 'say what needs doing';
@@ -189,9 +218,13 @@ function subtaskProgress(p, n) {
  * write; the number is issued inside the same atomic mutate that stores
  * the task, so two concurrent creates cannot share one.
  */
-function create(projectId, { sentence, detail, who, parent, made: origin } = {}, roster) {
-  const problem = taskProblem({ sentence, detail, who });
+function create(projectId, { sentence, detail, who, parent, doneWhen, made: origin } = {}, roster) {
+  const problem = taskProblem({ sentence, detail, who }) || doneWhenProblem(doneWhen);
   if (problem) throw new Error(problem);
+  // #5152: a webhook's words are outside text, so they never say what finished means for a task.
+  if (origin && origin.via === 'webhook' && doneWhenValue(doneWhen)) {
+    throw new Error('a task a webhook adds has no "done when"; the agent or the person writes it');
+  }
   // #1307: a webhook task is made given to nobody, always (it waits for a person). The route never
   // passes one; this keeps that a rule rather than a habit of the one caller.
   if (origin && origin.via === 'webhook' && typeof who === 'string' && who.trim()) {
@@ -245,6 +278,8 @@ function create(projectId, { sentence, detail, who, parent, made: origin } = {},
       dueDate: null,
       // #3861: the task this one is part of (a task number on this project), or null.
       parent: parentValue(parent),
+      // #5152: what finished means for this task, as checks, or null.
+      doneWhen: doneWhenValue(doneWhen),
     };
     return {
       ...p,
@@ -262,6 +297,7 @@ function create(projectId, { sentence, detail, who, parent, made: origin } = {},
     who: made.who,
     // #3861: a task made as a subtask says so from birth, as a pre-assigned one does.
     ...(made.parent ? { parent: made.parent } : {}),
+    ...(made.doneWhen ? { doneWhen: doneWhenWords(made.doneWhen) } : {}),
   });
   return made;
 }
@@ -841,6 +877,43 @@ function setDue(projectId, n, dueDate) {
     taskchat.record(projectId, changed.number, next
       ? { kind: 'due-set', dueDate: next }
       : { kind: 'due-cleared' });
+  }
+  return changed;
+}
+
+/**
+ * #5152 slice 1: set, change or clear (`doneWhen` null or []) what finished means for a task. Checked whole before
+ * the write. A CLOSED task is refused: closing is the end of the work, and changing what done meant after it would
+ * rewrite what was checked. Setting the list it already has records nothing, as setDue does. `by` is the agent that
+ * changed it (null from the screen), kept in the transcript row.
+ * Returns the task as stored. Throws with a sentence; `err.status` 409 for a closed task.
+ */
+function setDoneWhen(projectId, n, doneWhen, { by = null } = {}) {
+  const problem = doneWhenProblem(doneWhen);
+  if (problem) throw new Error(problem);
+  const next = doneWhenValue(doneWhen);
+  let changed;
+  let didChange = false;
+  projects.mutate(projectId, (p) => {
+    const t = byNumber(p, n);
+    if (!t) throw new Error('there is no task by that number on this project');
+    if (progressOf(t).closed) {
+      const e = new Error('that task is done, so what "done" means for it can no longer change; reopen it first');
+      e.status = 409;
+      throw e;
+    }
+    const before = Array.isArray(t.doneWhen) && t.doneWhen.length ? t.doneWhen : null;
+    didChange = JSON.stringify(before) !== JSON.stringify(next);
+    changed = { ...t, doneWhen: next };
+    return {
+      ...p,
+      tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
+    };
+  });
+  if (didChange) {
+    taskchat.record(projectId, changed.number, next
+      ? { kind: 'done-when-set', doneWhen: doneWhenWords(next), ...(by ? { by } : {}) }
+      : { kind: 'done-when-cleared', ...(by ? { by } : {}) });
   }
   return changed;
 }
@@ -1561,6 +1634,6 @@ function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null,
 
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, waitingOnPerson, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, setParent, tasksEverCreated, tasksTabShown, claimWho,
-  partsOf, progressOf, whoOf, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, say, isOnHold, setOnHold,
+  partsOf, progressOf, whoOf, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, setRepeat, setReviewer, reviewerProblem, recordRun };

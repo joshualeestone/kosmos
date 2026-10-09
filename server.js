@@ -4350,7 +4350,9 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
    own role here only, and refuses an agent that is not on the project (projects.setRoleHere). */
 /* #5293 review 1: POST /api/agent/<name>/instruction-add joins: it only HOLDS a proposal the person applies on the page,
    and its handler names the caller with resolveAgentSender, header token first. */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/agent\/[^/]+\/instruction-add$/, /^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
+/* #5152 slice 1: `kosmos task done-when` (POST .../task/<n>/done-when) joins on the same terms: its handler names the
+   caller (processCaller) and refuses an agent that is not on the project (notOnProjectRefusal). */
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/agent\/[^/]+\/instruction-add$/, /^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran|done-when)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a pane row (`paneless`, on the result or its card): the
@@ -18818,6 +18820,7 @@ const server = http.createServer(async (req, res) => {
         try {
           const made = tasks.create(id, { sentence: body.sentence, detail: body.detail, who: whoAsked,
             parent: body.parent,
+            doneWhen: body.doneWhen,   // #5152: what finished means for it, as checks (engine/tasks.js validates)
             made: { via: viaScreen ? 'screen' : 'process', by: paneCard ? paneCard.sessionName : null } }, roster);
           // Review 8: read right after the add, before any await below, so nothing changed meanwhile can be named.
           /* #5319: the task is added as asked (no silent dedup); the answer names OPEN tasks with the same text, so the
@@ -19049,6 +19052,37 @@ const server = http.createServer(async (req, res) => {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
           { error: msg || 'we could not set that due date' });
+      }
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /* #5152 slice 1: set or clear what finished means for a task. Body { doneWhen: ["check", ...] | null }.
+     The caller is named as task add names it (token, else pane), and an identified agent changes only a task on a
+     project it is on. Any member may: the agent that writes the task's checks is often the one that added it, not
+     the one it is given to (Josh, 2026-10-03 11:07: the agent writes the task and its done-when). tasks.setDoneWhen
+     validates (400), refuses a closed task (409) and records the change in the task's transcript. */
+  const taskDoneWhen = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/done-when$/);
+  if (taskDoneWhen && req.method === 'POST') {
+    const id = decodeSegment(taskDoneWhen[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      if (!body || typeof body !== 'object' || Array.isArray(body) || !('doneWhen' in body)) {
+        sendJson(res, 400, { error: 'we could not read that request' }); return;
+      }
+      const viaScreen = isViaScreen(req, body);
+      const who = processCaller(req, body, safeRoster(), viaScreen, 'the task was not changed');
+      const refusal = who.refusal || notOnProjectRefusal(who, id, 'change its tasks', 'the task was not changed');
+      if (refusal) { sendJson(res, refusal[0], { error: refusal[1] }); return; }
+      try {
+        const t = tasks.setDoneWhen(id, taskDoneWhen[2], body.doneWhen, { by: who.card ? who.card.sessionName : null });
+        sendJson(res, 200, { task: t });
+      } catch (err) {
+        const msg = String((err && err.message) || '');
+        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : err && err.code === 'UNREADABLE' ? 500 : (err && err.status) || 400,
+          { error: msg || 'we could not change that task' });
       }
     }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
