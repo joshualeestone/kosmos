@@ -34,7 +34,8 @@ const FUTURE_SLACK_MINUTES = 5;
  *   expected to write, so stale is a fact to read, not a fault); none: no summaries yet; unreadable: we
  *   could not look (the reader must not take that as none).
  */
-/* overviewOf may then mark a stale summary 'idle', with idleKind ('idle' or 'started'), idleSince and idleMinutes
+/* #5636 0.7.33: a stale summary of a member the board reads as rate limited now carries limitedNow (idleNoted).
+   overviewOf may then mark a stale summary 'idle', with idleKind ('idle' or 'started'), idleSince and idleMinutes
    (#4581 N10, idleExcused), or 'quiet', with quietSince and quietMinutes (#4581 R9, quietExcused). Not the member's
    own state, which also reads 'idle'. */
 function summaryFreshness(folder, nowMs) {
@@ -401,7 +402,9 @@ const SUMMARY_WORDS = {
        rhythm", which read as overdue. A working member's line is unchanged. */
     if (s.limitedNow) return 'last written ' + ago(s.ageMinutes) + ' (' + one(s.file) + '); rate limited now, so it cannot work until the limit lifts';
     if (Number.isFinite(s.idleMinutes) && !s.idleReported) {
-      return (s.idleKind === 'started' ? 'last written before this session started (' : 'last written before it went idle (') + one(s.file) + ', ' + ago(s.ageMinutes)
+      /* Review 1: reached only when idleExcused refused, i.e. written more than the rhythm before the idle report, so it
+         says that plainly: it went past its rhythm while working, then went idle. */
+      return (s.idleKind === 'started' ? 'last written more than ' + SUMMARY_RHYTHM_HOURS + ' hours before this session started (' : 'last written more than ' + SUMMARY_RHYTHM_HOURS + ' hours before it went idle (') + one(s.file) + ', ' + ago(s.ageMinutes)
         + (s.idleKind === 'started' ? '; started ' + ago(s.idleMinutes) + ' and idle since then)' : '; idle since ' + ago(s.idleMinutes) + ')');
     }
     return 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + one(s.file) + ', ' + ago(s.ageMinutes)
