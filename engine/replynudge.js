@@ -460,6 +460,8 @@ async function sweepOnce(o) {
                   && (settled[id] === 'answered' || settled[id] === 'gone')));
                 for (const [id, why] of Object.entries(settled)) {
                   if (why !== 'expired' || !rec[id] || rec[id].unanswered === true) continue;
+                  // Review 5: an ask the agent was never told about (no tell yet) is no unanswered person of ITS: it goes.
+                  if (!Array.isArray(rec[id].told) || rec[id].told.length === 0) { answered.push(id); continue; }
                   rec[id] = { ...rec[id], unanswered: true };
                   expiredNow.push(id);
                 }

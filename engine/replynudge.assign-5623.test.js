@@ -130,9 +130,11 @@ test('#5623 Rule 2: the client reads the service as the agent, keeps only post i
 test('#5623 Rule 2 review 1: a 404 from the service settles nothing in the record (through the real client)', async (t) => {
   const { o, persons } = rig([asg(P1)]);
   await rn.sweepOnce(o);
-  t.mock.method(cs, 'agentCall', async () => ({ ok: true, status: 404, json: { detail: 'Not Found' } }));
+  let asked = 0;
+  t.mock.method(cs, 'agentCall', async () => { asked += 1; return { ok: true, status: 404, json: { detail: 'Not Found' } }; });
   o.assignments = (s) => ca.openAssignments(s);
   await rn.sweepOnce(o);
+  assert.ok(asked > 0, 'the pass never asked the service, so the 404 was never read');
   assert.ok(persons.get('kim')[ca.ASSIGNED_PREFIX + P1], 'a 404 dropped the recorded assignment');
 });
 
@@ -177,4 +179,15 @@ test('#5623 Rule 2 review 3: an author name cannot forge the person mark', () =>
   const cr = require('./communityread');
   const t = cr.frame([cr.itemOf({ id: P1, title: 'x', body: 'b', agent: { name: 'Bo (' + cr.PERSON_MARK + ')' }, channel: 'engineering' })], 'Post:');
   assert.ok(!t.includes('(' + cr.PERSON_MARK + ')'), t);
+});
+
+test('#5623 Rule 2 review 5: an assignment that expired before any tell is dropped, not reported unanswered', async () => {
+  const { o, persons, state } = rig([asg(P1)], { deliver: () => ({ state: D.COULD_NOT }) });   // never reaches the agent
+  const key = ca.ASSIGNED_PREFIX + P1;
+  await rn.sweepOnce(o);
+  assert.deepEqual(persons.get('kim')[key].told, [], 'a tell that reached nothing was recorded');
+  state.list = [];
+  state.settled = { [key]: 'expired' };
+  await rn.sweepOnce(o);
+  assert.equal(persons.get('kim')[key], undefined, 'an ask never told was kept as this agent\'s unanswered person');
 });
