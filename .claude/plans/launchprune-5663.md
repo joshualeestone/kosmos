@@ -1,22 +1,20 @@
-# launchprune-5663: the token-only guard replaces its launch rules, and its sandbox layer has a ceiling (kosmos#5663)
+# launchprune-5663: the token-only guard prunes launch rules of removed tool versions, and says when its deny paths pass a measured sandbox ceiling (kosmos#5663)
 
 ## Finished looks like
-A refresh after an upgrade leaves no stale launch rule in either layer, the person's own rules and the rest of the
-guard untouched; a guard whose sandbox layer would pass a measured ceiling says it is not whole.
+An agent launch after an upgrade leaves no rule for the removed version folder, in either layer. The person's own rules and the rest of the guard are untouched. A guard whose denied paths would pass a measured sandbox ceiling says it is not whole.
 
-## Built
-- engine/setup-assistant.js: a record of the launch rules each refresh wrote (`.claude/kosmos-launch-rules.json`,
-  denied to the file tools; the sandbox already denies that folder). Each refresh drops last time's launch rules that
-  are not launch rules now, in both layers; every other rule merges as before. SANDBOX_DENY_BYTES_MAX (48 KB, counted
-  as each denyRead and denyWrite path plus 40 bytes): past it the guard is written and says it is not whole.
+## Built (current, after reviews 1 and 2)
+- engine/setup-assistant.js:
+  - A record of the launch rules the guard wrote, at `.claude/kosmos-launch-rules.json`. It is denied to the file tools, and the sandbox denies its folder. The record is a union: what was recorded and not pruned, plus what is current.
+  - Pruning is done only by an agent launch, which is the refresh that carries the pane PATH. It drops a recorded launch entry that is not current AND whose path and parent folder are both gone from disk. This happens in both layers. Every other rule merges as before.
+  - The ceiling, macOS only, counts every path that reaches the sandbox profile: both sandbox lists, plus the targets of the Edit and Read deny rules, each counted once. Past 40 KB of distinct prefixes or 160 KB raw, the guard is written and says it is not whole. That reason is given beside an uncovered-PATH reason, not instead of it.
 - engine/launchprune-5663.test.js.
 
 ## Decided
 - No record (a guard written before this) prunes nothing; the record starts at the next refresh.
-- A rule the person also wrote that equals one the guard wrote for launch is pruned with it when it stops being a
-  launch rule. Accepted: the guard's own rules are Kosmos's; the person's are untouched otherwise.
-- The ceiling is under the measured sandbox-exec limit (65,535 bytes of profile data); how Claude Code builds its
-  profile is not measured, so the margin is wide. Weakest premise: the 40-byte per-rule overhead.
+- A rule the person also wrote that equals one the guard wrote for launch is pruned with it when its path is gone. Accepted: such a rule names a path that no longer exists.
+- The record is read and written without a lock. Two refreshes at once can lose a recorded entry. That entry is then never pruned: kept, not dropped. Accepted, because the failure direction is safe.
+- Plan file name: the PR hook requires `.claude/plans/<branch>.md`. CLAUDE.md's timestamped name is not used here, as on every kosmos branch.
 
 ## Review 1 (Opus) and what changed
 
@@ -28,3 +26,11 @@ guard untouched; a guard whose sandbox layer would pass a measured ceiling says 
 - Weakest premise: the prefix model is fitted to eight measured sets. The compiler's real cost could differ for path shapes I did not try (many short unrelated paths cost the most per byte, and that is what the synthetic sets were). What would change it: a set under 40 KB distinct that fails.
 - Tests added: a board-start refresh keeps what a launch wrote (record included), and prunes once the folder is gone; a path still on disk, or whose parent is, is kept; a corrupt or wrong-shaped record prunes nothing; each limit pinned at its exact boundary through the guard, with a control that the raw arm alone turned it.
 - Nits taken: a temp record left on a failed rename is removed. Not taken: comparing records by resolved path (the record stores what the guard wrote, already resolved).
+
+## Review 2 (Sonnet) and what changed
+
+- Two test assertions were vacuous: the expected sandbox path was computed after the folder was deleted, so realOr fell back to the unresolved spelling. Expected values are now taken before deletion, with a control that they were present. The upgrade test also asserts that no spelling of the old folder is left.
+- A folder that is only gone for now (an unmounted volume) would have been pruned by a board start. Now only an agent launch prunes. A folder the launching agent runs from is on its PATH, so it is current and kept.
+- The ceiling ran off macOS on a sandbox block already in the file. It is now macOS only, and its reason is given beside an uncovered-PATH reason.
+- The comment on the record no longer claims what the lock-free write cannot promise (see Decided).
+- The #5663 block was moved above the doc comment it had split from its function.

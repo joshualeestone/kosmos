@@ -46,12 +46,19 @@ test('#5663: an upgrade replaces the old versioned folder in both layers; the pe
   fs.writeFileSync(settingsFile(dir), JSON.stringify(s1, null, 2));
   const tokenRules = s1.permissions.deny.filter((r) => /board\.token/.test(r));
   assert.ok(tokenRules.length > 0, 'CONTROL: the rest of the guard is there to keep');
-  // The tool is upgraded: the PATH now names 2.0, and 1.0's folder is gone from disk (its parent too).
+  // The tool is upgraded: the PATH now names 2.0, and 1.0's folder is gone from disk (its parent too). Review 2: the
+  // expected spellings are taken BEFORE the folder goes (realOr of a gone path falls back to the unresolved spelling).
+  const r1 = dirRule(v1);
+  const w1 = realOr(v1);
+  assert.ok(s1.permissions.deny.includes(r1) && s1.sandbox.filesystem.denyWrite.includes(w1), 'CONTROL: 1.0 was covered before the upgrade');
   fs.rmSync(path.join(SANDBOX, 'bins', 'tool', '1.0'), { recursive: true });
   assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-upgrade', { ...BASE, panePath: v2 }), { ok: true });
   const s2 = readSettings(dir);
-  assert.ok(!s2.permissions.deny.includes(dirRule(v1)), 'the old version\'s folder rule was kept for good');
-  assert.ok(!s2.sandbox.filesystem.denyWrite.includes(realOr(v1)), 'the old version\'s folder stayed in the sandbox layer');
+  assert.ok(!s2.permissions.deny.includes(r1), 'the old version\'s folder rule was kept for good');
+  assert.ok(!s2.sandbox.filesystem.denyWrite.includes(w1), 'the old version\'s folder stayed in the sandbox layer');
+  // Review 2: in no spelling (the file-tool layer also writes a folder's other spellings).
+  const left = [...s2.permissions.deny, ...s2.sandbox.filesystem.denyWrite].filter((x) => x.includes('/bins/tool/1.0'));
+  assert.deepEqual(left, [], 'an old spelling stayed');
   assert.ok(s2.permissions.deny.includes(dirRule(v2)) && s2.sandbox.filesystem.denyWrite.includes(realOr(v2)), 'the new version is not covered');
   assert.ok(s2.permissions.deny.includes('Edit(//person/own/rule)') && s2.sandbox.filesystem.denyWrite.includes('/person/own/path'), 'the person\'s own rules were pruned');
   for (const r of tokenRules) assert.ok(s2.permissions.deny.includes(r), 'a rule of the rest of the guard was pruned: ' + r);
@@ -100,21 +107,49 @@ test('#5663: a sandbox layer past the measured ceiling says the guard is not who
   assert.deepEqual(setup.guardTokenOnlyFolder(agentDir('lp-ceiling-ok'), 'lp-ceiling-ok', { ...BASE, panePath: many.slice(0, 5).join(path.delimiter) }), { ok: true });
 });
 
-test('#5663 review 1: a refresh with no launch inputs (the board\'s own start) keeps what a launch wrote, in both layers and in the record', () => {
+test('#5663 reviews 1 and 2: only an agent launch prunes; the board\'s own start (no launch inputs) keeps what a launch wrote, even once it is gone', () => {
   const dir = agentDir('lp-callers');
   const v = binDir('callers/1.0/bin');
+  const other = binDir('callers/other/bin');
   assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-callers', { ...BASE, panePath: v }), { ok: true });
+  const rv = dirRule(v);
+  const wv = realOr(v);
   // The board's start: no pane PATH, so no launch rules are current.
   assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-callers', { ...BASE }), { ok: true });
   const s = readSettings(dir);
-  assert.ok(s.permissions.deny.includes(dirRule(v)) && s.sandbox.filesystem.denyWrite.includes(realOr(v)), 'a board-start refresh pruned what the launch wrote');
+  assert.ok(s.permissions.deny.includes(rv) && s.sandbox.filesystem.denyWrite.includes(wv), 'a board-start refresh pruned what the launch wrote');
   const rec = JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'kosmos-launch-rules.json'), 'utf8'));
-  assert.ok(rec.deny.includes(dirRule(v)) && rec.denyWrite.includes(realOr(v)), 'the record forgot what the launch wrote: ' + JSON.stringify(rec));
-  // CONTROL: once the folder is gone, the next refresh (any caller) prunes it.
+  assert.ok(rec.deny.includes(rv) && rec.denyWrite.includes(wv), 'the record forgot what the launch wrote: ' + JSON.stringify(rec));
+  // Gone (an unmounted volume looks the same): a board start still keeps it, in the settings and the record.
   fs.rmSync(path.join(SANDBOX, 'bins', 'callers', '1.0'), { recursive: true });
   setup.guardTokenOnlyFolder(dir, 'lp-callers', { ...BASE });
   const s2 = readSettings(dir);
-  assert.ok(!s2.permissions.deny.includes(dirRule(v)) && !s2.sandbox.filesystem.denyWrite.includes(realOr(v)), 'a gone folder was not pruned');
+  assert.ok(s2.permissions.deny.includes(rv) && s2.sandbox.filesystem.denyWrite.includes(wv), 'a board start pruned a gone folder');
+  // CONTROL: the next launch (a PATH without it) prunes it.
+  setup.guardTokenOnlyFolder(dir, 'lp-callers', { ...BASE, panePath: other });
+  const s3 = readSettings(dir);
+  assert.ok(!s3.permissions.deny.includes(rv) && !s3.sandbox.filesystem.denyWrite.includes(wv), 'a launch did not prune a gone folder');
+  const rec3 = JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'kosmos-launch-rules.json'), 'utf8'));
+  assert.ok(!rec3.deny.includes(rv) && !rec3.denyWrite.includes(wv), 'the record kept a pruned entry');
+});
+
+test('#5663 review 2: the ceiling is a macOS check, and its reason is said beside an uncovered PATH entry, not instead of it', () => {
+  // Off macOS no sandbox is written, so a sandbox block the person's file already has is not counted.
+  const dir = agentDir('lp-linux');
+  fs.mkdirSync(path.join(dir, '.claude'), { recursive: true });
+  const huge = Array.from({ length: 900 }, (_, i) => '/' + String(i).padStart(4, '0') + 'x'.repeat(200));
+  fs.writeFileSync(settingsFile(dir), JSON.stringify({ sandbox: { filesystem: { denyWrite: huge } } }));
+  assert.deepEqual(setup.guardTokenOnlyFolder(dir, 'lp-linux', { ...BASE, platform: 'linux' }), { ok: true });
+  // CONTROL: the same file on macOS is past the ceiling.
+  const mac = agentDir('lp-mac-huge');
+  fs.mkdirSync(path.join(mac, '.claude'), { recursive: true });
+  fs.writeFileSync(settingsFile(mac), JSON.stringify({ sandbox: { filesystem: { denyWrite: huge } } }));
+  const rm = setup.guardTokenOnlyFolder(mac, 'lp-mac-huge', { ...BASE });
+  assert.equal(rm.ok, false); assert.match(rm.because, /denied paths/);
+  // Both reasons at once: past the ceiling AND a PATH entry it could not cover.
+  const both = setup.guardTokenOnlyFolder(mac, 'lp-mac-huge', { ...BASE, panePath: 'relative/bin' });
+  assert.equal(both.ok, false);
+  assert.match(both.because, /could not cover/); assert.match(both.because, /denied paths/);
 });
 
 test('#5663: a launch path not current but still on disk (or whose parent is) is kept; a corrupt record prunes nothing', () => {
