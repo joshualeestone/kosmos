@@ -18114,8 +18114,9 @@ const server = http.createServer(async (req, res) => {
     let at;
     try { at = chat.markDmSeen(name); }
     catch (err) {
-      const code = (err && err.code === 'BAD_THREAD') ? 400 : 500;
-      sendJson(res, code, { error: String((err && err.message) || 'we could not record that') });
+      // #5434 slice 18 (review 1): a 500 answers in our words, never the write's errno and internal path.
+      const bad = err && err.code === 'BAD_THREAD';
+      sendJson(res, bad ? 400 : 500, { error: bad ? String(err.message) : 'we could not record that' });
       return;
     }
     sendJson(res, 200, { seen: at, dmUnread: 0 });

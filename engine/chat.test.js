@@ -2199,7 +2199,7 @@ test('an earlier project’s messages being moved aside is reported EVEN when th
     // ⚠️ And the sentence is ours, not an errno. "EISDIR: illegal operation on
     // a directory, open '/var/folders/…new'" is not a thing a person can act on.
     assert.match(kept.because, /could not write this conversation down/);
-    assert.ok(!/EISDIR|\/var\/folders|\.new/.test(kept.because),
+    assert.ok(!/EISDIR|\/var\/folders|\.new|\.tmp|\.kosmos-/.test(kept.because),
       `an error code and an internal path reached the person: ${kept.because}`);
     assert.ok(blocked >= 1, 'the save never tried to create its temp, so this tested nothing');
   } finally {

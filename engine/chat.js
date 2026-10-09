@@ -2990,8 +2990,7 @@ function appendLocked(projectId, agent, entry, bornAt) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     // Write-then-rename, like every other record in this store: an interrupted
     // write must not leave a half-written file that parses as no messages and
-    // silently loses the lot. Per-process temp name, so two windows saving at
-    // once cannot rename each other's half-written file into place.
+    // silently loses the lot.
     // #5434 slice 18: store.saveFlushed (flushed before the rename, the folder after on POSIX; a unique temp), so a crash cannot leave the thread at full length but zero-filled (#5431), which parses as no messages.
     store.saveFlushed(file, JSON.stringify(record, null, 2));
   } catch {
