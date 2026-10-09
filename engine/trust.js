@@ -210,7 +210,9 @@ function withWriteLock(target, inner) {
  * Through securewrite.writeSecret, which carries every guard the old inline writers had:
  * - a temp name that is OURS (pid, thread, start time, sequence), created `wx`, so a symlink
  *   planted at it is refused rather than followed, and a planted file is never unlinked;
- * - born at the preserved mode and then set to it on the fd, for umask exactness;
+ * - born at the preserved mode and then set to it on the fd, for umask exactness. That set is best effort
+ *   now (the old chmod's failure refused the save); a temp it misses is still never looser than the
+ *   preserved mode, because it was created at that mode less the umask;
  * - an atomic rename, never an in-place rewrite (`atomicOnly`), so a failed save leaves the old file.
  * and adds what they lacked: the temp is flushed before the rename and the folder after it, so a
  * crash cannot leave the file at full length but zero-filled (#5431). `ownTempsOnly`: this is the
@@ -622,8 +624,9 @@ function readRecord() {
 /* #5434 slice 6: the record goes through securewrite too, the same way store.js saves Kosmos's own
    files: a unique temp created `wx` (two racing processes never share one), flushed before the rename
    and the folder after it, a failed save leaving the old record. Kosmos owns this folder, so it is not
-   `ownTempsOnly`. An existing record keeps its mode (not on Windows), a new one takes the umask
-   default, as before. Throws on failure, as before: the callers catch it. The bytes are unchanged (no
+   `ownTempsOnly`. A new record takes the umask default, as before. An existing record now keeps its
+   mode (not on Windows), the store.js rule; the old unmoded temp reset it to the umask default on
+   every save. Throws on failure, as before: the callers catch it. The bytes are unchanged (no
    trailing newline). */
 function writeRecordFile(data) {
   fs.mkdirSync(path.dirname(RECORD()), { recursive: true });
