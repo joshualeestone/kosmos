@@ -49,8 +49,14 @@ test('#5688: several members: counted in the heading, each with its own reason; 
   const html = pjNeedsNotice([m('Elon', 'question'), m('Sam', 'crash_loop'), m('Mark', 'gave_up'), m('Demis', 'stuck_rate'), m('Dario', 'trust')]);
   assert.match(html, /<b>5 agents need you on this project\.<\/b>/);
   assert.match(html, /aria-label="Answer Elon">Answer<\/button>/);
-  for (const w of ['Waiting for your answer about this project.', 'keeps restarting it', 'stopped trying to reconnect it',
+  for (const w of ['Waiting for your answer.', 'keeps restarting it', 'stopped trying to reconnect it',
     'Paused by a rate limit', 'Waiting on a trust prompt']) assert.ok(html.includes(w), w);
+});
+
+test('#5688: no reason sentence carries an em dash', () => {
+  const html = pjNeedsNotice(['question', 'trust', 'gave_up', 'crash_loop', 'stuck_auth', 'stuck_rate', 'other'].map((r, i) => m('A' + i, r)));
+  assert.equal((html.match(/data-pn-open=/g) || []).length, 7, 'CONTROL: every reason drew a row');
+  assert.equal(html.includes('\u2014'), false);
 });
 
 test('#5688: a reason the page does not know yet still gets a row, worded generally', () => {

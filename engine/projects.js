@@ -1202,8 +1202,9 @@ function describe(project, roster, all) {
     // Who this project's thread opens on. Published rather than left to the
     // caller for the reason given above the `chat` require.
     defaultAgent: chat.defaultAgentFor(members),
-    /* #4583: whether the brief says what done looks like: false shows a "Done not set" badge, null means the
-       folder is not there to read (its own warning already says so), true is set. */
+    /* #4583: whether the brief says what done looks like: false is not set, null means the folder is not there to
+       read (its own warning already says so), true is set. The list's "Done not set" badge is gone (#5688, Josh 08:50);
+       the field stays for the agents' own ask and kosmos project show. */
     /* Review round 1: no BRIEF.md at all says nothing (null), not "Done not set": a folder the person adopted, or a
        project older than the seeded brief, would otherwise be badged with nothing on screen to clear it. */
     doneSet: (() => {
