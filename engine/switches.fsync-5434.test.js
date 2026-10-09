@@ -97,7 +97,8 @@ test('#5434: all fourteen writers save through store.saveFlushed, with no bare r
     'engmode.js', 'feedbacksend.js', 'heartbeat-setting.js', 'limits.js', 'ping.js', 'recommender-setting.js', 'tips.js',
     'guidestate.js', 'firstrun.js'];
   for (const f of files) {
-    const src = fs.readFileSync(path.join(__dirname, f), 'utf8');
+    // Comments stripped first, so a block-comment example of the call cannot stand in for it (review 2).
+    const src = fs.readFileSync(path.join(__dirname, f), 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
     // the CALL, not a mention in a comment (review 1)
     assert.match(src, /^[^\n/]*(?:store|require\('\.\/store'\))\.saveFlushed\(/m, f + ': not saved through store.saveFlushed');
     assert.doesNotMatch(src, /renameSync\(/, f + ': still renames a hand-made temp');
