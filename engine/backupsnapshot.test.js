@@ -827,3 +827,18 @@ test('a run that crosses into the next period never asks for a manifest grant, e
     assert.equal(st.manifests.length, 0, 'the manifest\'s key and record would name another period than its sealed context');
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('a denied folder or file spelled with an invisible character is denied: restore treats it as the plain name', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    fs.mkdirSync(path.join(w.root, '.git\u200b'));
+    fs.writeFileSync(path.join(w.root, '.git\u200b', 'config'), 'url = https://x:TOKENISH@host/');
+    fs.writeFileSync(path.join(w.root, 'agents', 'a', '.env\u00ad'), 'SECRET=1');
+    const r = await take(k, w.root, st);
+    assert.equal(r.ok, true, r.because);
+    const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+    assert.ok(!m.files.some((x) => x.path.startsWith('.git\u200b')), 'the invisible-.git folder was stored');
+    assert.ok(!m.files.some((x) => x.path === 'agents/a/.env\u00ad'), 'the invisible-.env file was stored');
+    assert.ok(m.files.some((x) => x.path === 'readme.txt'), 'control');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});

@@ -69,6 +69,9 @@ const MAX_KEY_LEN = 256;
 // The bounds backupupload.uploadManifest puts on a chunk's lock end (its LOCK_MAX_MS, plus an hour), checked here up front.
 const LOCK_FLOOR_MS = Date.UTC(2020, 0, 1), LOCK_MAX_MS = 39 * 86400 * 1000;
 const ownerOf = (key) => key.split('/').slice(0, 2).join('/');
+/* The lock a manifest granted at time t gets: its period's end + 30 days + 15 minutes (backup.rs manifest_retain_until,
+   RETAIN_AFTER_PERIOD_SECS and GRANT_SECS). An index chunk must outlast it (review 18: checked here, not after uploads). */
+const manifestLockAt = (t) => MONDAY_EPOCH + (Math.floor((t - MONDAY_EPOCH) / WEEK_MS) + 1) * WEEK_MS + 30 * DAY_MS + 15 * 60 * 1000;
 /* The member key a chunk was sealed to, as recorded in each index entry: the first 16 bytes of a domain-tagged SHA-256 of
    the public key, hex. An index entry under another member key cannot be named (the new private key cannot open it). */
 const memberKeyIdOf = (pk) => crypto.createHash('sha256').update('kosmos-backup v1 member-key-id\0').update(pk).digest().subarray(0, 16).toString('hex');
@@ -105,7 +108,9 @@ function keyProblem(key, ctx) {
 /* The deny-list, on the path AS RESTORE WILL WRITE IT (review 15): restore reads '\\' as a folder separator, so a Mac
    name like ".ssh\\id_rsa" comes back as .ssh/id_rsa; every rule anchors on '/', so the name as written would pass. */
 const asRestored = (rel) => rel.replace(/\\/g, '/');
-const denied = (rel) => pathDecision(asRestored(rel));
+// And on restore's own equivalence of it (review 18): collisionKey drops invisible characters and folds case, so
+// ".git<zero-width space>" is .git to restore. Denied if either reading is.
+const denied = (rel) => { const a = pathDecision(asRestored(rel)); return a.include ? pathDecision(collisionKey(rel)) : a; };
 /* A folder the deny-list refuses: every folder rule ends in '/', so a bare child name matches exactly those. */
 const folderDenied = (rel) => { const d = denied(`${rel}/x`); return d.include ? null : d.why; };
 
@@ -256,7 +261,8 @@ function upperBound(f, maxFile) {
  *   deps: { macRequest, fetch?, now?, sleep?, fs?, uploadChunks?, uploadManifest?, batchBytes?, maxFile?, maxManifestJson? }
  * Resolves { ok: true, manifestKey, files, skipped, uploaded, reused, added, bucket } or
  * { ok: false, because, retryLater?, newPeriod?, staleIndex?, tooLarge?, overAllowance?, grantSpent?, unsure?, added, bucket }.
- *   overAllowance: the week's backup allowance would be passed, or is used up (backup_quota): not this period.
+ *   overAllowance: the week's backup allowance would be passed (refused before anything is spent), or is used up
+ *     (backup_quota, which can arrive after some batches were stored: they are in `added`): not this period.
  *   newPeriod: a period boundary passed (the context's, or a grant's): start again with the new period's context and
  *     naming key; this input can never succeed.
  *   added (Map name -> { key, lockedUntilMs, memberKeyId }) is every chunk this run stored in ctx.period under `bucket`,
@@ -313,7 +319,7 @@ async function snapshotInner(input, deps, added, state, fail) {
           // A lock that ends before any manifest granted now would (period end + 30 days + the window; at least now + 30
           // days + 15 min): uploadManifest would refuse it as outlasting it (review 9 NIT). Mirrors the coordinator's
           // RETAIN_AFTER_PERIOD_SECS (30 days) and GRANT_SECS (15 minutes) in backup.rs retain_until_for (review 14).
-          || (e.lockedUntilMs < t + 30 * 86400 * 1000 + 15 * 60 * 1000 ? 'a lock that ends before this snapshot\'s manifest would' : null);
+          || (e.lockedUntilMs < manifestLockAt(t) ? 'a lock that ends before this snapshot\'s manifest would' : null);
       if (why) return fail(`the index holds an entry this snapshot cannot name (${why})`, { staleIndex: true });
     }
     state.bucket = input.bucket;
