@@ -167,6 +167,7 @@ jobs:
     # card); 120, up from 60 (2026-10-08), because a page diff touching widely shared functions
     # (openDetail, showTab, PJ_CURRENT) selected 146 checks and #5634's run was cut at 60:27 with 185
     # passed and 0 failed. A cut-off run gives the PR no verdict, so the selected checks never report.
+    # The worst case is every check selected, which is the nightly full step: 84 to 94 min (10-03 to 10-08).
     timeout-minutes: 120
     steps:
       # #4119: full history, so the selection step below can diff the PR against its merge
