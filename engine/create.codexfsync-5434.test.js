@@ -42,6 +42,7 @@ function trusted(home) {
 function freshHome() { const h = path.join(SANDBOX, 'codex-' + (++N)); fs.mkdirSync(h, { recursive: true }); return h; }
 const forget = (home, dir) => create.forgetCodexFolder(dir, home);
 
+/* (fdPath maps an fd to its path while `fn` runs; a reused fd number is overwritten by its next open.) */
 function recording(fn) {
   const events = [];
   const fdPath = new Map();
@@ -135,4 +136,40 @@ test('#5434: in the person\'s codex folder only config.toml\'s own dead temps ar
   assert.equal(forget(home, dir).removed, true, 'the forget wrote nothing');
   assert.equal(fs.existsSync(mine), false, 'config.toml\'s own dead temp was not reaped');
   assert.equal(fs.existsSync(other), true, 'another file\'s temp was swept: a folder-wide sweep of the person\'s codex folder');
+});
+
+test('#5434: a flush that fails refuses the forget, leaves config.toml as it was, and leaves no temp', () => {
+  const home = freshHome();
+  const { dir, cfg } = trusted(home);
+  const before = fs.readFileSync(cfg);
+  const realOpen = fs.openSync;
+  const realFsync = fs.fsyncSync;
+  const temps = new Map();
+  let failed = 0;
+  fs.openSync = (p, flags, ...rest) => {
+    const fd = realOpen.call(fs, p, flags, ...rest);
+    if (flags === 'wx' && String(p).startsWith(cfg + '.kosmos-')) temps.set(fd, String(p));
+    return fd;
+  };
+  fs.fsyncSync = (fd) => {
+    if (temps.has(fd)) { failed += 1; const e = new Error('injected'); e.code = 'EIO'; throw e; }
+    return realFsync(fd);
+  };
+  let out;
+  try { out = forget(home, dir); } finally { fs.openSync = realOpen; fs.fsyncSync = realFsync; }
+  assert.ok(failed >= 1, 'the flush of the temp was never reached, so this tests nothing');
+  assert.equal(out.ok, false, 'a save whose flush failed was reported as done');
+  assert.match(out.because, /could not update the codex config/);
+  assert.deepEqual(fs.readFileSync(cfg), before, 'a save whose flush failed changed config.toml');
+  for (const t of temps.values()) assert.equal(fs.existsSync(t), false, 'a temp it created was left behind: ' + t);
+});
+
+test('#5434: a temp whose writer is still running is never reaped', () => {
+  const home = freshHome();
+  const { dir, cfg } = trusted(home);
+  // this process is alive; another thread id makes it a different writer than this save's own
+  const live = cfg + '.kosmos-' + process.pid + '-t999-1-1.tmp';
+  fs.writeFileSync(live, 'x');
+  assert.equal(forget(home, dir).removed, true, 'the forget wrote nothing');
+  assert.equal(fs.existsSync(live), true, 'a live writer\'s temp was reaped');
 });
