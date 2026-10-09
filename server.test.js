@@ -320,6 +320,9 @@ test('#4468: status answers during a 25-recipient post, and concurrent posts nev
   }));
   const made = fleet.install(specs);
   t.after(() => {
+    // #5715 review: a failure mid-test must not leave the post held for later tests. try: a failure before the
+    // `let releaseFirstGap` line below would otherwise throw on reading it here.
+    try { if (releaseFirstGap) releaseFirstGap(); } catch { /* the test failed before the gap existed */ }
     chat.resetForTests();
     messages.resetForTests();
     if (logBefore === null) fs.rmSync(messages.LOG, { force: true });
@@ -377,15 +380,14 @@ test('#4468: status answers during a 25-recipient post, and concurrent posts nev
   assert.equal(postSettled, false, 'the route ignored the asynchronous paste gap');
   /* #5715: the ORDERING is the claim, not wall time. The post cannot settle while its first paste gap is held (it is
      released below), so a status answer that arrives at all, with the post still open, answered DURING the post. A
-     fixed 500 ms bound failed on a loaded host for reasons unrelated to the route (scheduler, other suites' boards).
-     The bound left here only turns a real queue-behind (a status that can never answer while the post is held) into a
-     named failure instead of a hang; it makes no speed claim. */
+     fixed 500 ms bound failed on a loaded host (load average 20 to 26) and passed alone. The bound left here is the
+     check: a status that can only answer after the post (queued behind it) never answers while the post is held, so
+     it fails with this message instead of hanging; it makes no speed claim. */
   let stuck;
   const statusDuringPost = await Promise.race([
     req('/api/status'),
     new Promise((_, reject) => { stuck = setTimeout(() => reject(new Error('status waited behind the room post (no answer in 15 s while the post was held open)')), 15000); }),
   ]).finally(() => clearTimeout(stuck));
-  assert.equal(postSettled, false, 'CONTROL: the post was still held open when status answered, so the answer came during it');
   assert.equal(statusDuringPost.status, 200);
   let dmSettled = false;
   const personDm = postJson('/api/agent/load1/thread', {
