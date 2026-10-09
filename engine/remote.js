@@ -1117,6 +1117,7 @@ async function forget() {
   if (forgetInFlight) return forgetInFlight;
   signinEpoch += 1;
   signinSession = null;
+  companySetup = null;   // kosmos#5628 review 1: a forgotten Mac keeps no half-made company setup (nor its secret)
   forgetting = true;
   // Offline now, not after the wait: the person asked to be forgotten.
   stopChild();
@@ -1241,13 +1242,8 @@ async function setupComplete(code, name) {
      name anyway, so only this app refused "MacbookPro". Lowercase (and trim) FIRST, before the
      recognition below as well as the rule: "Hers" on a Mac enrolled as hers is this Mac (review). */
   if (typeof name === 'string') name = name.trim().toLowerCase();
-  if (enrolled()) {
-    const have = address();
-    if (have && have.split('.')[0] === name) {
-      ensure(localPort);
-      return { ok: true, because: null, alreadySetUp: true, address: have };
-    }
-  }
+  const recognised = alreadySetUpAs(name);
+  if (recognised) return recognised;
   if (!CODE_RULE.test(String(code || ''))) {
     return { ok: false, because: 'the code is six digits' };
   }
@@ -1262,6 +1258,19 @@ async function setupComplete(code, name) {
     '--name', name,
     '--state-dir', STATE_DIR(),
   ], null, name);
+}
+
+/* #1010 (shared since kosmos#5628 review 1): a reinstall whose state survived, at the address this name maps to, is
+   this Mac already set up: bring the tunnel up rather than enrol again (a new identity key, a scarce certificate, and
+   the coordinator's 409 about this Mac's own previous life). Both setups ask it; MDM fleets reinstall often. */
+function alreadySetUpAs(name) {
+  if (!enrolled()) return null;
+  const have = address();
+  if (have && have.split('.')[0] === name) {
+    ensure(localPort);
+    return { ok: true, because: null, alreadySetUp: true, address: have };
+  }
+  return null;
 }
 
 /* kosmos#5628: the guarded run both setups share (the code one above, the company sign-in one below): the same
@@ -1351,15 +1360,29 @@ let companySetup = null;   // { email, setupId, secret, expiresAt }: engine memo
 
 /** Start a company sign-in setup for this email. Answers what the page shows (the code to compare, the address to
     open, how often to ask), never the secret. */
+let companyStartInFlight = null;
 async function companyStart(email) {
   if (typeof email !== 'string' || !email.includes('@')) {
     return { ok: false, because: 'that does not look like an email address' };
   }
   { const b = busy(); if (b) return b; }
+  // Review 1: one start at a time (a double click, two tabs): the second gets the first one's answer, so the engine
+  // never holds a different setup from the one the page shows.
+  if (companyStartInFlight) return companyStartInFlight;
+  const running = companyStartRun(email);
+  companyStartInFlight = running;
+  try { return await running; } finally { if (companyStartInFlight === running) companyStartInFlight = null; }
+}
+async function companyStartRun(email) {
+  const epoch = signinEpoch;
   const r = await setupRun(['setup', 'company-start', '--coordinator', COORDINATOR(), '--email', email]);
   if (!r.ok) return r;
+  // Review 1: a Forget or a sign out that landed while this waited: nothing of it is kept.
+  if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
   const a = (lastJsonLine(r.said) || {}).value;
-  if (!a || typeof a.setupId !== 'string' || typeof a.secret !== 'string' || typeof a.url !== 'string') {
+  // Review 1: the address the page opens in the browser is the coordinator's own https page, nothing else.
+  if (!a || typeof a.setupId !== 'string' || typeof a.secret !== 'string' || typeof a.url !== 'string'
+    || !/^https:\/\/[^\s]+$/.test(a.url)) {
     return { ok: false, because: 'Kosmos+ answered in a way this version does not understand' };
   }
   const ttl = Number.isFinite(a.expiresIn) ? a.expiresIn : 900;
@@ -1388,6 +1411,9 @@ async function companyComplete(name, acceptTerms) {
     return { ok: false, because: 'that company sign-in has expired; start again' };
   }
   if (typeof name === 'string') name = name.trim().toLowerCase();
+  // Review 1: a reinstall already set up at this name is recognised here too (#1010), the setup then not needed.
+  const recognised = alreadySetUpAs(name);
+  if (recognised) { companySetup = null; return recognised; }
   if (typeof name !== 'string' || !NAME_RULE.test(name)) {
     return { ok: false, because: 'the name is 3 to 32 letters, digits or hyphens' };
   }
@@ -2053,6 +2079,7 @@ function pushDeviceName(args, deviceName) {
 function signinCancel() {
   signinEpoch += 1;
   signinSession = null;
+  companySetup = null;   // kosmos#5628 review 1: as the session: no secret is left behind a sign out
   return { ok: true, because: null, data: { stage: 'cancelled' } };
 }
 /* #3796 (review): a step still waiting on the tunnel program when Sign out lands must not
@@ -2699,7 +2726,7 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
   cancelledAfterForTests: cancelledAfter,   // kosmos#4743: tests only
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
-  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
+  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyStartInFlight = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   setManagedReaderForTests: (fn) => { managedReader = fn; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */

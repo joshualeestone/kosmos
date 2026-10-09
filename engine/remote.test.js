@@ -61,6 +61,7 @@ if (args[0] === 'setup' && args[1] === 'start') {
 }
 // kosmos#5628: the company sign-in setup. Each verb that takes the secret records what it read on stdin (never argv).
 if (args[0] === 'setup' && args[1] === 'company-start') {
+  if (mode.includes('company-http-url')) { console.log(JSON.stringify({ setupId: 'setup-abc', secret: 'S', matchCode: 'K7-3M', url: 'javascript:alert(1)', interval: 5, expiresIn: 900 })); process.exit(0); }
   if (mode.includes('company-unavailable')) { process.stderr.write('Kosmos+ said no (404): this address does not sign in through a company provider here\\n'); process.exit(1); }
   console.log(JSON.stringify({ setupId: 'setup-abc', secret: 'S3CRET-only-in-the-engine', matchCode: 'K7-3M',
     url: 'https://login.kosmos.invalid/v1/sso/begin?email=x&device_id=setup-abc', interval: 5, expiresIn: 900 }));
@@ -3961,6 +3962,20 @@ test('kosmos#5628: the company setup keeps its secret in the engine and gives it
   assert.equal(fs.readFileSync(RECORD + '.stdin', 'utf8').trim(), 'S3CRET-only-in-the-engine');
   // Spent: a second finish has nothing to finish.
   assert.match((await remote.companyComplete('ann')).because, /expired; start again/);
+  // Review 1: the secret was on no command line, the finish's included.
+  for (const call of recorded()) assert.equal(call.join(' ').includes('S3CRET'), false, 'the secret was on a command line: ' + call.join(' '));
+});
+
+test('kosmos#5628 review 1: one start at a time, a Forget leaves nothing to finish, and only an https address is opened', async () => {
+  const [a, b] = await Promise.all([remote.companyStart('ann@acme.test'), remote.companyStart('ann@acme.test')]);
+  assert.equal(a.ok && b.ok, true);
+  assert.equal(recorded().filter((c) => c[1] === 'company-start').length, 1, 'two starts ran the binary twice');
+  await remote.forget();
+  assert.match((await remote.companyComplete('ann')).because, /expired; start again/, 'a Forget left the setup to finish');
+  assert.equal((await remote.companyStatus()).gone, true);
+  process.env.FAKE_TUNNEL_MODE = 'company-http-url';
+  const bad = await remote.companyStart('ann@acme.test');
+  assert.equal(bad.ok, false, 'a javascript: address reached the page');
 });
 
 test('kosmos#5628: status says retry on a failure and gone once the setup has ended; nothing to finish without a start', async () => {
