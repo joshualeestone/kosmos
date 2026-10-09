@@ -84,7 +84,22 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       const w = needsWarn.getBoundingClientRect(), f = face.getBoundingClientRect();
       overFace = w.width > 0 && w.height > 0 && w.left < f.right && w.right > f.left && w.top < f.bottom && w.bottom > f.top;
     }
+    /* #5688: a member the project's Issue pill counts (needsYouHere) shows the triangle even in a state the card draws
+       calm (a rate limit that stood too long); the same member uncounted does not (control). And the "needs you" block
+       that names it renders, visible, with an Open button. */
+    const host2 = document.createElement('div');
+    document.body.appendChild(host2);
+    host2.innerHTML = '<div class="pj-members">' + pjMember(Object.assign(mk('rate_limited'), { needsYouHere: 'stuck_rate' }), true, false, true)
+      + pjMember(Object.assign(mk('rate_limited'), { needsYouHere: null }), true, false, true) + '</div>'
+      + '<div class="ny-host-5688">' + (typeof pjNeedsNotice === 'function' ? pjNeedsNotice([Object.assign(mk('rate_limited'), { name: 'Elon', needsYouHere: 'stuck_rate' })]) : '') + '</div>';
+    const r2 = host2.querySelectorAll('.pj-member');
+    const nb = host2.querySelector('.ny-host-5688 .pnotice');
+    const ob = host2.querySelector('.ny-host-5688 [data-pn-open]');
+    const vis = (el) => { if (!el) return false; const b = el.getBoundingClientRect(); return b.width > 0 && b.height > 0 && getComputedStyle(el).visibility !== 'hidden'; };
+    const counted5688 = { countedWarn: !!(r2[0] && r2[0].querySelector('.pj-face .lwarn')), countedWarnDisplay: disp(r2[0] && r2[0].querySelector('.pj-face .lwarn')),
+      uncountedWarn: !!(r2[1] && r2[1].querySelector('.pj-face .lwarn')), noticeShown: vis(nb), noticeText: nb ? nb.textContent : '', openShown: vis(ob), openLabel: ob ? ob.getAttribute('aria-label') : '' };
     return {
+      counted5688,
       needsWarnPresent: !!needsWarn,
       needsWarnDisplay: disp(needsWarn),
       needsWarnOverFace: overFace,
@@ -132,6 +147,12 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   if (r.hiddenIdleHasSmall) fail.push('#3131: an IDLE member with hideState still shows a status <small> label (' + JSON.stringify(r.hiddenIdleSmallText) + ') - the Agents column drops all state text, not just needs-you');
   if (r.hiddenIdleWarnPresent) fail.push('#3131: an IDLE member with hideState got the warning triangle - only needs-you gets the red-!');
 
+  // #5688 arms.
+  const c = r.counted5688 || {};
+  if (!c.countedWarn || c.countedWarnDisplay === 'none') fail.push('#5688: a member the Issue pill counts (a rate limit that stood too long) has no visible triangle');
+  if (c.uncountedWarn) fail.push('#5688 CONTROL: the same member, not counted, got the triangle');
+  if (!c.noticeShown || !/Elon needs you on this project\./.test(c.noticeText) || !/rate limit/.test(c.noticeText)) fail.push('#5688: the needs-you block is not shown or does not say who and why (' + JSON.stringify(c.noticeText) + ')');
+  if (!c.openShown || c.openLabel !== 'Open Elon') fail.push('#5688: the needs-you block has no visible Open for the member (' + JSON.stringify(c.openLabel) + ')');
   if (fail.length) {
     console.error('FAIL  render-project-needsyou-2699: ' + fail.join('; '));
     console.error('  measured=' + JSON.stringify(r));
