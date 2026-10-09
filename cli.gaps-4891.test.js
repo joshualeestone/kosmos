@@ -57,7 +57,7 @@ function withBoard(fn) {
       if (/^\/api\/project\/[^/]+\/room\?/.test(req.url) && req.method === 'GET') {
         res.writeHead(200, { 'content-type': 'text/plain' }); res.end('the room\n'); return;
       }
-      if (req.url === '/api/tasks?project=nosuch') {
+      if (/^\/api\/tasks\?project=nosuch(&|$)/.test(req.url)) {   // #5705: the list now asks &order=state too
         res.writeHead(404, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: 'there is no project by that name' })); return;
       }
       if (/^\/api\/tasks\?project=/.test(req.url)) {

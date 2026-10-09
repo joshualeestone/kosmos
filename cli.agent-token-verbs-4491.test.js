@@ -149,7 +149,7 @@ for (const [route, args] of VERBS) {
         if (args.join(' ') === 'agent roles') assert.equal(got.query, 'catalogue=1', 'kosmos agent roles no longer asks for the catalogue');
         if (args.join(' ') === 'agent role-draft') assert.equal(got.query, '', 'kosmos agent role-draft started asking for the catalogue');
         if (args[0] === 'room') assert.equal(got.query, 'as=text');
-        if (args.join(' ').startsWith('task list')) assert.equal(got.query, 'project=p4491');
+        if (args.join(' ').startsWith('task list')) assert.equal(got.query, 'project=p4491&order=state');   // #5705: grouped by state
       });
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
   });
