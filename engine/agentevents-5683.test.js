@@ -1306,3 +1306,44 @@ test('#5683 r38: a walk from a folder that holds a board root reaches the board\
   }
   assert.equal(ae.targetClass('Grep', { pattern: 'tok' }, c), 'other');
 });
+
+/* ---- review 39 ---- */
+
+test('#5683 r39: a Leave left pending and refused WHILE a tick reads sends nothing from the gap, then or next tick', async (t) => {
+  /* The reviewer's repro: the tick loaded its state before the Leave, so its write erased the stop mark and the same
+     record back passed the enrollment check. Red on the pre-fix agentevents.js. */
+  const { s, c } = await enrolled(t);
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: s.sources(), now: Date.now() });
+  await new Promise((r) => setTimeout(r, 1100));
+  const w = fs.readFileSync(path.join(s.root, oe.WORLD_ID_FILE), 'utf8').trim();
+  const off = { macRequest: async () => ({ ok: false, because: 'unreachable' }) };
+  const refuse = { macRequest: async (m, route) => (route === oe.ROUTES.status
+    ? { ok: true, data: { member: true, org: { id: 'o', name: 'Acme', slug: 'acme' }, role: 'admin', enrolled: { computer: 'c', world: w, thisComputer: true } } }
+    : { ok: false, because: '409 {"code":"org_last_admin"}' }) };
+  const src = s.sources();
+  let once = true;
+  src.transcripts = async (dir) => {
+    if (!dir.endsWith('/scout')) return [];
+    if (once) {
+      once = false;
+      await oe.leave({ root: s.root, remote: off });
+      append(s.file, use('while-left', 'Bash', { command: 'x' }), result('while-left', DENIED('x'), true));
+      await oe.leave({ root: s.root, remote: refuse });
+    }
+    return [s.file];
+  };
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: src, now: Date.now() });
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: src, now: Date.now() });
+  const refs = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events.map((e) => e.toolUseRef));
+  assert.equal(refs.includes('while-left'), false, 'a refusal made while a Leave was pending mid-tick was sent');
+});
+
+test('#5683 r39: a copy\'s destination and tar\'s -C/-f are not walked; a cd moves where a walk starts', () => {
+  const c = ctx({ agentDir: '/Users/ann/work/workers/a', home: '/Users/ann', boardRoot: '/Users/ann/Library/Application Support/Kosmos' });
+  for (const [cmd, want] of [
+    ['cp -r build ~/', 'home'], ['cp -a x ~/Library/', 'home'], ['tar xzf a.tgz -C ~', 'home'], ['tar -C ~ -xf a.tgz', 'home'],
+    ['rsync -a src/ ~/Library/', 'home'], ['cd ~/Library && grep -r tok .', 'board-files'], ['cd /tmp && grep -r tok .', 'system'],
+    ['cd ~/Library/Caches && grep -r tok ..', 'board-files'], ['cp -a ~/Library /tmp/x', 'board-files'],
+    ['zip -r /tmp/x.zip ~/Library', 'board-files'], ['rsync -a ~/Library/ /tmp/x/', 'board-files'],
+  ]) assert.equal(ae.targetClass('Bash', { command: cmd }, c), want, cmd);
+});
