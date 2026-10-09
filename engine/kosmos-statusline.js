@@ -32,7 +32,8 @@
  * is what the calibration reads (tokens Kosmos measured per point of weekly
  * movement). Concurrent writers can still race: the rename keeps the file
  * whole, and whichever renames last stands until the next reading. (Since #5434 the flush before the rename widens
- * that window by a few ms; a lower figure landing last is replaced by the next forward reading.)
+ * that window by a few ms. A lower usedPct landing last is replaced by the next forward reading; a history row
+ * written by the losing session is lost for good, which can lower the calibration's point count a little.)
  *
  * Never throws and always exits 0: a statusline that errors shows its error
  * in the person's pane, and nothing here is worth that.
@@ -87,6 +88,7 @@ function record(dir, reading, now) {
   let securewrite = null;
   try { securewrite = require('./securewrite'); } catch { securewrite = null; }
   if (securewrite) {
+    // (the same mode rule as allowance.calibrate's save; kept inline here because this file must work copied alone)
     let mode = null;
     if (process.platform !== 'win32') { try { mode = fs.statSync(file).mode & 0o777; } catch { mode = null; } }
     try { securewrite.writeSecret(file, data, mode, { atomicOnly: true, ownTempsOnly: true, umaskDefault: true }); return true; }

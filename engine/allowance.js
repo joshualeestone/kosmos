@@ -228,6 +228,7 @@ function calibrate(accountDir, tokensToday, { now = Date.now(), dayStart } = {})
          estimate is returned either way, as before). No mode is carried on Windows, where a mode is only the
          read-only bit (as store.js does); reporthook.readSettings carries it everywhere, a difference left for the
          slice that aligns the two settings writers. */
+      // (the same mode rule as kosmos-statusline's record, which keeps its own copy: it must work copied alone)
       let mode = null;
       if (process.platform !== 'win32') { try { mode = fs.statSync(file).mode & 0o777; } catch { mode = null; } }
       try { require('./securewrite').writeSecret(file, JSON.stringify(next) + '\n', mode, { atomicOnly: true, ownTempsOnly: true, umaskDefault: true }); }
