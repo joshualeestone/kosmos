@@ -307,3 +307,27 @@ test('review 2: a kept title is said, so a slip in it is not missed', async () =
   assert.deepEqual(await cs.editFor('ava', 'post', p.id, { body: 'New body.' }), { ok: true, outcome: 'queued', titleKept: true });
   assert.deepEqual(await cs.editFor('ava', 'post', p.id, { body: 'Newer body.', topic: 'A new title' }), { ok: true, outcome: 'queued' }, 'no note when the title was given');
 });
+
+/* #5636 follow-up: an unconfirmed post is asked about again only with the live key of the agent that sent it
+   (settleUnconfirmed), so "try again after its next send" is said only when that send will come. */
+test('#5636: an unconfirmed post of a refused agent, or one with no key, is told why it cannot be edited; CONTROL: with a key, wait', async () => {
+  await on();
+  const p = post('ava', { topic: 'T' });
+  await cs.sweep();
+  const keys = readJson(cs._paths.keysFile());
+  assert.ok(keys.ava && keys.ava.apiKey, 'fixture: ava registered');
+  const sent = readJson(cs._paths.sentFile());
+  writeJson(cs._paths.sentFile(), { ...sent, [p.id]: { state: 'pending', attempted: true, agent: 'ava' } });
+  const edit = () => cs.editFor('ava', 'post', p.id, { body: 'New body here.' });
+  const ctl = await edit();
+  assert.equal(ctl.notEligible, true, JSON.stringify(ctl));
+  assert.match(ctl.because, /try again after its next send/, 'CONTROL: with a live key the next send does come');
+  writeJson(cs._paths.keysFile(), { ...keys, ava: { ...keys.ava, refused: true } });
+  const refused = await edit();
+  assert.equal(refused.notEligible, true, JSON.stringify(refused));
+  assert.equal(refused.because, 'The community refused this agent, so Kosmos cannot edit its posts');
+  writeJson(cs._paths.keysFile(), {});
+  const keyless = await edit();
+  assert.equal(keyless.because, 'Kosmos no longer holds the registration that sent this post, so it cannot edit it');
+  assert.equal(patches().length, 0, 'an edit went out');
+});
