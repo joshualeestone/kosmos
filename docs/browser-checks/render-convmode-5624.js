@@ -97,7 +97,7 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
   const errs = [];
   try {
     {
-      // C0: the default page, as 0.7.35 ships it. A conversation stored as on from before the hold must stay silent.
+      // C0: the default page, as it ships while held. A conversation stored as on from before the hold must stay silent.
       const p0 = await browser.newPage({ viewport: { width: 1200, height: 800 } });
       p0.on('pageerror', (e) => errs.push(e.message));
       await p0.addInitScript(harness(), { enabled: false, seed: JSON.stringify({ 'dm:april': true }) });
@@ -114,10 +114,11 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
       const c0 = await p0.evaluate(() => {
         const shown = (id) => { const b = document.getElementById(id); return !!b && getComputedStyle(b).display !== 'none'; };
         return { dm: shown('d-conv'), pj: shown('pj-conv'), speakable: document.documentElement.classList.contains('has-speak'),
-          stored: localStorage.getItem('kosmos.convmode') };
+          stored: localStorage.getItem('kosmos.convmode'),
+          drawn: (document.getElementById('panel-detail').innerText || '').includes('A new message after the hold.') };
       });
       const said0 = await spoken(p0);
-      chk(c0.speakable && c0.stored === '{"dm:april":true}' && !c0.dm && !c0.pj && !/after the hold/.test(said0), 'C0 held: no toggle is drawn and a conversation stored as on reads nothing', JSON.stringify({ c0, said0 }));
+      chk(c0.speakable && c0.drawn && c0.stored === '{"dm:april":true}' && !c0.dm && !c0.pj && !/after the hold/.test(said0), 'C0 held: no toggle is drawn and a conversation stored as on reads nothing', JSON.stringify({ c0, said0 }));
       await p0.close();
     }
     const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
