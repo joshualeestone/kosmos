@@ -23,6 +23,9 @@
  *   C13 an empty voice list (Chrome before voiceschanged) reads once the list arrives (review 1)
  *   C13b turning the mode off during a voice-list wait means nothing is read (review 2)
  *   C14 nothing is read while the mic is listening (review 1)
+ *   C15 a no-match search, then clearing it, reads nothing late (review 4)
+ *   C16 the no-voice notice clears when the toggle changes (review 4)
+ *   C17 pressing the mic, through its real handler, stops a reading (review 4)
  *   C9 no page errors
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-convmode-5624.js [shots-dir]
@@ -64,6 +67,9 @@ function harness() {
       addEventListener: (ev, f) => { if (ev === 'voiceschanged') listeners.push(f); },
     } });
     window.SpeechSynthesisUtterance = function (text) { this.text = text; };
+    // The app's on-device dictation bridge, recording only (C17 presses the mic through its real handler).
+    window.__voice = [];
+    window.webkit = { messageHandlers: { kosmosVoice: { postMessage: (m) => window.__voice.push(m) } } };
     try { localStorage.removeItem('kosmos.convmode'); } catch { /* fresh */ }
     const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
     window.fetch = async (url) => (String(url).includes('/thread') ? enc(window.__fx) : enc({}));
@@ -273,6 +279,33 @@ const resetSpoken = (page) => page.evaluate(() => { window.__spoken = []; });
     const micSaid = await spoken(page);
     await page.evaluate(() => { VOICE.btn = null; });
     chk(!/mic listens/.test(micSaid), 'C14 nothing is read while the mic is listening', micSaid);
+
+    // C15 (review 4): a search that matches nothing, a new message, the search cleared: nothing is read late.
+    await resetSpoken(page);
+    await page.evaluate(() => { TALK_QUERY = 'zzzz-no-match'; });
+    thread = [...thread, agentRow(40, 'Arrived during a no-match search.')];
+    await paint(page, thread);
+    await page.evaluate(() => { TALK_QUERY = ''; });
+    await paint(page, thread);
+    chk(!/no-match search/.test(await spoken(page)), 'C15 a no-match search then clearing it reads nothing late', await spoken(page));
+
+    // C16 (review 4): the no-voice notice clears when the mode is turned off and on.
+    await page.evaluate(() => { CONV.novoice = true; convPaint(); });
+    const before16 = await page.evaluate(() => document.getElementById('d-conv').title);
+    await page.click('#d-conv'); await page.click('#d-conv');
+    const after16 = await page.evaluate(() => document.getElementById('d-conv').title);
+    chk(/No voice/.test(before16) && !/No voice/.test(after16), 'C16 the no-voice notice clears when the toggle changes', JSON.stringify({ before16, after16 }));
+
+    // C17 (review 4): pressing the mic, through its real handler, stops a reading.
+    await resetSpoken(page);
+    thread = [...thread, agentRow(41, 'Being read when the mic is pressed.')];
+    await paint(page, thread);
+    await page.evaluate(() => { voiceToggle(document.getElementById('d-mic')); });
+    const c17 = await page.evaluate(() => window.__spoken);
+    const i17s = c17.findIndex((x) => x.text && /mic is pressed/.test(x.text));
+    const i17c = c17.findIndex((x, i) => i > i17s && x.cancel);
+    await page.evaluate(() => { if (VOICE.btn) voiceCancel(); });
+    chk(i17s >= 0 && i17c > i17s, 'C17 pressing the mic stops a reading', JSON.stringify(c17));
 
     chk(errs.length === 0, 'C9 no page errors', errs.slice(0, 3).join(' | '));
     await page.close();

@@ -59,3 +59,14 @@ it off stops it. The state is visible on the button and remembered per conversat
     stops conversation mode and any per-message reading.
   - NIT: the no-voice notice now lasts across paints and reaches a screen reader (aria-label); the heard set holds
     only what is on screen; the search box's repaint is guarded to the agent on screen (as talkPaintPending is).
+- **Round 4 (sonnet, blind):** 0 BLOCKER, 2 WARNING, 3 NIT, and test gaps. Fixed:
+  - WARNING: a search matching nothing skipped both follow and pause, so a message that arrived during it was read late
+    after clearing. Any active search now pauses (top of paintTalkThread). C15: RED on the round 3 page.
+  - WARNING: the no-voice notice was global and sticky. The toggle resets it. C16: RED on the round 3 page.
+  - Test gap: the mic stop is now tested through voiceToggle itself (a recording dictation bridge). C17: RED on the
+    round 2 page (before the stop existed).
+  - Not given an arm, on purpose: "never re-seed a followed conversation". Since the heard set holds only what is on
+    screen, a thread with no agent rows has an empty set either way, so no arm can tell the clause apart; kept as a guard.
+  - NIT (decided, kept): leaving to a view that is not a conversation and coming back to the SAME one may read what
+    arrived meanwhile, if the thread kept polling. Kept: it is one message, the newest, and only while the mode is on
+    there. NIT (kept): a newest row with no words skips the earlier ones (rare; documented here).
