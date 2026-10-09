@@ -5,8 +5,8 @@
  * recorded by name, never stored unchecked.
  *
  *  1. By path: a deny-list of credential-shaped paths (env files, keys and keystores, provider and tool auth
- *     files, cloud and package-manager credentials, Terraform state, Kosmos's own secrets folder and token stores, git internals,
- *     browser profile stores), and compressed containers, whose contents cannot be scanned.
+ *     files, cloud and package-manager credentials, Terraform state, Kosmos's own secrets folder and key and token
+ *     stores, git internals, browser profile stores), and compressed containers, whose contents cannot be scanned.
  *  2. By content: the scan, reusing engine/secretmask.js (the hardened detector the setup guide relies on),
  *     never a second set of patterns.
  *     - Compressed bytes (zip, gzip, zlib, bzip2, xz, zstd, 7z, a git pack, a PDF with Flate streams) are skipped
@@ -62,10 +62,13 @@ const DENY = [
   [/(^|\/)secrets\//i, 'secrets folder'],
   // #5686 (measured on a real data root): Kosmos's own credential stores outside its secrets folder. The data root is
   // inside a named world, so a world snapshot walks past these: per-agent board tokens (engine/sendertoken.js), the
-  // supervisor's launch secrets, and each agent's Kosmos+ community key (engine/communitysend.js keysFile).
+  // supervisor's launch secrets (bin/agent-supervisor.sh), each agent's Kosmos+ community key (engine/communitysend.js
+  // keysFile), and this board's sealing key and room keys (engine/fedseal.js). A file rule also takes any suffix, so
+  // the writer's temp file (name.<hex>.tmp, left by a crash or caught mid-save) is denied with it.
   [/(^|\/)sendertokens\//i, 'Kosmos agent tokens'],
   [/(^|\/)launch-secrets\//i, 'Kosmos launch secrets'],
-  [/(^|\/)communitysend\/[^/]+\/keys\.json$/i, 'Kosmos+ community agent keys'],
+  [/(^|\/)communitysend\/[^/]+\/keys\.json(\.[^/]*)?$/i, 'Kosmos+ community agent keys'],
+  [/(^|\/)fed-seal-(key|rooms)\.json(\.[^/]*)?$/i, 'Kosmos room sealing keys'],
   [/(^|\/)(cookies|login data|web data|local state)(-journal)?$/i, 'browser profile store'],
   [/\.(zip|gz|tgz|bz2|xz|7z|rar|zst|lz4|dmg|jar|war|whl|apk|ipa|docx|xlsx|pptx|odt|ods|odp|epub|pages|numbers)$/i, 'compressed container (contents cannot be scanned)'],
 ];
