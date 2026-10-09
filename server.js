@@ -9705,9 +9705,12 @@ const server = http.createServer(async (req, res) => {
       const refusedUndo = refused ? oe.leaveRefusedKind() === 'undo' : false;   // an undo, not the person's leave (review 31)
       if (refused && req.method === 'GET') oe.clearLeaveRefused();
       // Rollup review 29: WHY it does not report, so the page never says "not accepted" of a Kosmos that only waits for its print.
-      const hasWords = here ? (oe.acceptedConsent() || { reports: [] }).reports.length > 0 : false;
+      const accepted = here ? oe.acceptedConsent() : null;
+      const hasWords = !!accepted && accepted.reports.length > 0;
       const waitsForPrint = hasWords && require('./engine/orgrollup').waitingForPrint();
-      sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: waitsForPrint ? 'print' : null,   // #5532: what tick() itself requires (rollup review 10)
+      // Review 31: words accepted here that ask for no reports are said as that, never as "not accepted".
+      const why = waitsForPrint ? 'print' : (accepted && !hasWords ? 'noReports' : null);
+      sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why,   // #5532: accepted report lines, and not known to be waiting for a print (tick is gated on more than this)es (rollup review 10)
        stoppedFor: stopped, leaveRefused: refused, leaveRefusedUndo: refusedUndo, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
     } catch { sendJson(res, 200, { enrolled: false, org: null, role: null, enrolledAt: null }); }
     return;

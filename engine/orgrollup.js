@@ -393,6 +393,9 @@ async function tick(opts) {
   /* And anything that is not a sane time at all (rollup review 19): a string, NaN, or a number outside [0, now] from a
      cut-off or hand-edited file would make toISOString() throw on every tick, silently and for good. */
   for (const k of ['failAt', 'lastAt', 'dailyAt', 'printWaitAt', 'partialSince']) if (k in st && !(Number.isFinite(st[k]) && st[k] >= 0 && st[k] <= now)) delete st[k];
+  /* A failure's wait belongs to the words it was sent under (rollup review 31): once the person accepts new words (a
+     review's Accept keeps the enrollment), the wait no longer applies, so the screen's "reports to it" is true at once. */
+  if (st.failAt && st.failHash !== (rec.consentHash || null)) delete st.failAt;
   if (st.failAt && now - st.failAt < RETRY_AFTER_FAIL_MS) return { sent: false, because: 'waiting after a failure' };
   /* The daily send has its own clock (rollup review 11): a change send carries no status or model, so it must not push
      the next daily (the only send that does) further out on a board that changes every day. Older state without it
@@ -458,7 +461,7 @@ async function tick(opts) {
     writeState(root, { enrolledAs, lastAt: now, dailyAt: body.reason === 'daily' ? now : (st.dailyAt || st.lastAt || null), lastSig: g.partial ? (st.lastSig || null) : sig });
     return { sent: true, reason: body.reason };
   }
-  const failed = Object.assign({}, st, { failAt: now }); delete failed.partialSince;   // a hold belongs to one day's daily (review 24)
+  const failed = Object.assign({}, st, { failAt: now, failHash: rec.consentHash || null }); delete failed.partialSince;   // a hold belongs to one day's daily (review 24)
   writeState(root, failed);
   /* Said once per failure (review 18): a refusal every hour must leave a trace. Only the code: never the body or a print. */
   const code = (String((r && r.because) || '').match(/\borg_[a-z_]+\b/) || [])[0] || 'no answer';

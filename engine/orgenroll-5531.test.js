@@ -1057,7 +1057,8 @@ test('#5531 follow-up: reviewHere shows this record\'s company\'s words, and acc
   }
   // Accepting: enroll with NO code and the company's hash. It records them, so it may report.
   const sent = fr.sent.length;
-  const ok = await org.enroll(null, true, { root: a, remote: fr, consentHash: r.served, orgId: r.org.id, review: true });
+  // With the words shown, as the server's ticket passes them (#5532), so they are kept here by their hash.
+  const ok = await org.enroll(null, true, { root: a, remote: fr, consentHash: r.served, consent: r.consent, orgId: r.org.id, review: true });
   assert.equal(ok.ok, true, JSON.stringify(ok));
   const body = fr.sent.slice(sent).find((x) => x.route === org.ROUTES.enroll).body;
   assert.equal(body.code, undefined, 'accepting sent a code');
@@ -1084,4 +1085,21 @@ test('#5532 with #5531 a0: a review carries the salt the company serves, so its 
   assert.equal(r.salt, SALT, 'the review did not carry the served salt, so its Accept would pin no print');
   // CONTROL: a company that serves no salt gives none.
   assert.equal((await org.reviewHere({ root: a, remote: withSalt(null) })).salt, null);
+});
+
+test('#5532 review 31: a Kosmos with a consent hash but no words kept here (joined before them) can still Review', async (t) => {
+  const { a } = sandbox(t);
+  const fr = fakeRemote({});
+  const remote = { macRequest: async (m, route, body) => {
+    const r = await fr.macRequest(m, route, body);
+    return route === org.ROUTES.status && r.ok && r.data.member ? { ok: true, data: Object.assign({}, r.data, { consent: CONSENT, consentHash: 'ab'.repeat(32) }) } : r;
+  } };
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fr });
+  // As main's #5531 left it: the hash on the record, no words kept by it here.
+  const f = path.join(a, org.ENROLLMENT_FILE);
+  fs.writeFileSync(f, JSON.stringify(Object.assign(JSON.parse(fs.readFileSync(f, 'utf8')), { consentHash: 'ef'.repeat(32) })));
+  assert.equal(org.mayReport({ root: a }), true, 'CONTROL: the hash alone reads as "may report"');
+  assert.equal(org.acceptedConsent({ root: a }), null, 'CONTROL: no words are kept for it');
+  const r = await org.reviewHere({ root: a, remote });
+  assert.equal(r.ok, true, 'a Kosmos with no words kept here was refused Review as "already reports": ' + JSON.stringify(r));
 });

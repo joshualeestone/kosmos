@@ -404,8 +404,12 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     const offeredWhen = (wait) => page.evaluate((w) => { PLUS_ORG.preview = null; PLUS_ORG.state = { enrolled: true, reporting: false, reportingWait: w, org: { name: 'Acme', slug: 'acme' }, role: 'member' }; plusOrgPaint();
       const el = document.getElementById('plus-org-review'); return !el.hidden && el.getClientRects().length > 0; }, wait);
     const reviewWhenPrintWait = await offeredWhen('print');
+    // #5532 review 31: words accepted that ask for no reports: not offered Review, and said as that, never "not accepted".
+    const reviewWhenNoReports = await offeredWhen('noReports');
+    const sayNoReports = await page.evaluate(() => document.getElementById('plus-org-say').textContent);
     const reviewWhenNoWords = await offeredWhen(null);
-    chk(!reviewWhenPrintWait && reviewWhenNoWords, 'O15c a Kosmos that only waits for its computer\'s identity is not offered Review', JSON.stringify({ reviewWhenPrintWait, reviewWhenNoWords }));
+    chk(!reviewWhenPrintWait && !reviewWhenNoReports && reviewWhenNoWords && /words ask it to report nothing/.test(sayNoReports) && !/not accepted/.test(sayNoReports),
+      'O15c Review is offered only when no words are accepted here (not while waiting for the computer\'s identity, nor for words that ask for no reports)', JSON.stringify({ reviewWhenPrintWait, reviewWhenNoReports, sayNoReports, reviewWhenNoWords }));
     const rvNone = await reviewBackup('said');
     const rvList = await reviewBackup(false);
     chk(rvNone.items.length === 1 && rvNone.items[0] === 'Nothing is backed up.' && !rvNone.opener && rvNone.title

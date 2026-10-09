@@ -348,7 +348,11 @@ async function reviewHere(opts) {
   if (!rec || !isEnrolledHere(opts)) return { ok: false, because: 'This Kosmos is not your work Kosmos, so there is nothing to review here.' };
   // Only for a Kosmos that sends nothing (orgreview review 3): one that reports has its words on record, and the plan
   // rejects a second path to the same state. The page hides the button too; this is the engine's own refusal.
-  if (mayReport(opts)) return { ok: false, because: 'This Kosmos already reports to your company on the words it accepted here.' };
+  /* #5532 review 31: "already reports" by the SAME test /api/org uses (accepted words with report lines on record here),
+     never by a consent hash alone: a Kosmos joined before its words were kept here, or whose words were withdrawn, has
+     a hash and no words, and Review is its way back. */
+  const acc = acceptedConsent(opts);
+  if (acc && acc.reports.length > 0) return { ok: false, because: 'This Kosmos already reports to your company on the words it accepted here.' };
   const st = await signed('POST', ROUTES.status, {}, opts);
   if (!st.ok) return { ok: false, because: 'Your company could not be asked through Kosmos+ just now. Try again in a minute.' };
   const d = st.data;

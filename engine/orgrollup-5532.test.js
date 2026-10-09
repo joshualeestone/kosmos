@@ -762,3 +762,22 @@ test('#5532 rollup review 24: a tag-block character the company refuses never re
   assert.equal(b.projects[0].name, 'P');
   assert.deepEqual(b.projects[0].agents, ['Leo']);
 });
+
+test('#5532 rollup review 31: a failure\'s wait belongs to the words it was sent under; new words accepted end it', async (t) => {
+  const root = world(t);
+  let refuse = true;
+  const c = coordinator(() => (refuse ? { ok: false, because: 'org_unavailable' } : { ok: true, data: { ok: true } }));
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root);
+  const T0 = Date.UTC(2026, 9, 7, 12);
+  assert.equal((await r.tick({ root, remote: c, sources: sources(), now: T0 })).sent, false, 'CONTROL: the first send was refused');
+  refuse = false;
+  // Same words: the hour's wait holds.
+  assert.equal((await r.tick({ root, remote: c, sources: sources(), now: T0 + 10 * 60e3 })).because, 'waiting after a failure');
+  // New words accepted (as a review's Accept records them, keeping the enrollment): the wait no longer applies.
+  const f = path.join(root, oe.ENROLLMENT_FILE);
+  const H2 = 'cd'.repeat(32);
+  fs.writeFileSync(f, JSON.stringify(Object.assign(JSON.parse(fs.readFileSync(f, 'utf8')), { consentHash: H2 })));
+  fs.writeFileSync(path.join(root, oe.CONSENT_FILE), JSON.stringify({ order: [H2], byHash: { [H2]: { reports: ['agent names, the AI provider and model each uses, and whether each is working, waiting or stopped'], usageConsented: false } } }));
+  assert.equal((await r.tick({ root, remote: c, sources: sources(), now: T0 + 11 * 60e3 })).sent, true, 'new words accepted still waited out the old words\' failure');
+});

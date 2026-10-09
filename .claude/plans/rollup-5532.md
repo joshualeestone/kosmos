@@ -398,3 +398,10 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
   retired excuse). Two places the two features meet were wired: a review now carries the company's served salt, so its
   Accept pins a computer print as a join does (engine test with a control), and the Review button is not offered to a
   Kosmos that only waits for its print (O15c, mutation fails).
+- Review 31 (after the #5644 merge) found where the two features disagreed: the page said a Kosmos reports only with
+  words kept here, while the review refused on a consent hash alone, so a Kosmos joined before its words were kept here
+  (or whose words were withdrawn) was told "not accepted", shown Review, and refused as "already reports". FIXED: one
+  test for both (accepted words with report lines on record here); words accepted that ask for no reports are said as
+  that (reportingWait 'noReports') and not offered Review; a failure's retry wait belongs to the words it was sent under,
+  so accepting new words ends it. Tests: engine (legacy record can Review), route (noReports, no words), rollup (wait
+  ends with new words), page (O15c); each mutation fails.

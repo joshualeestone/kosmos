@@ -440,6 +440,15 @@ test('#5532 rollup review 24: start() arms the rollup tick, and the joined view 
   const waiting = (await call('/api/org', { method: 'GET', headers: SCREEN })).json;
   assert.equal(waiting.reporting, false, 'the view said it reports while the rollup waited for a print');
   assert.equal(waiting.reportingWait, 'print', 'the view does not say WHY (review 29): the page would say the words were not accepted');
+  // Review 31: words accepted here that ask for NO reports are said as that (never "not accepted"), and a hash with no
+  // words kept here says nothing more than "not reporting" (the page offers Review then).
+  fs.writeFileSync(stateFile, JSON.stringify({ enrolledAs }));
+  fs.writeFileSync(path.join(store.ROOT, oe.CONSENT_FILE), JSON.stringify({ order: [H], byHash: { [H]: { reports: [], usageConsented: false } } }));
+  const noReports = (await call('/api/org', { method: 'GET', headers: SCREEN })).json;
+  assert.equal(noReports.reporting, false); assert.equal(noReports.reportingWait, 'noReports', JSON.stringify(noReports));
+  fs.rmSync(path.join(store.ROOT, oe.CONSENT_FILE), { force: true });
+  const noWords = (await call('/api/org', { method: 'GET', headers: SCREEN })).json;
+  assert.equal(noWords.reporting, false); assert.equal(noWords.reportingWait, null, JSON.stringify(noWords));
 });
 
 test('#5531 follow-up: a company\'s stated empty backed-up list reaches the screen through the real preview route', async (t) => {
