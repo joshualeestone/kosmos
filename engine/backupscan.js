@@ -69,6 +69,13 @@ const DENY = [
   [/(^|\/)launch-secrets\//i, 'Kosmos launch secrets'],
   [/(^|\/)communitysend\/[^/]+\/keys\.json(\.[^/]*)?$/i, 'Kosmos+ community agent keys'],
   [/(^|\/)fed-seal-(key|rooms)\.json(\.[^/]*)?$/i, 'Kosmos room sealing keys'],
+  // Review 2's sweep of every owner-only writer: the Mac's signing key for the tunnel (engine/remote.js, no extension,
+  // so the .key rule misses it), the phone notify-only token (engine/phonenotify.js), and a provider account's
+  // API key file (claudeaccounts, geminiaccounts, grokaccounts). remote/'s other files (mac_id, pending.json, tls.crt)
+  // name the Mac or hold its public certificate, and are kept; a person's own folder called remote/ is untouched.
+  [/(^|\/)remote\/mac_key(\.[^/]*)?$/i, 'Kosmos Mac signing key'],
+  [/(^|\/)remote\/phone-notify\.json(\.[^/]*)?$/i, 'Kosmos phone notify token'],
+  [/(^|\/)\.kosmos-[a-z0-9]+-apikey(\.[^/]*)?$/i, 'provider API key'],
   [/(^|\/)(cookies|login data|web data|local state)(-journal)?$/i, 'browser profile store'],
   [/\.(zip|gz|tgz|bz2|xz|7z|rar|zst|lz4|dmg|jar|war|whl|apk|ipa|docx|xlsx|pptx|odt|ods|odp|epub|pages|numbers)$/i, 'compressed container (contents cannot be scanned)'],
 ];
