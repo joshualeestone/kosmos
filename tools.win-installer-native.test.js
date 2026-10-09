@@ -1000,11 +1000,12 @@ test('🛑 Kosmos.exe --uninstall with nobody to confirm does nothing at all, an
 test('#5645: the scratch base is the LONG form even when TEMP is spelled as an 8.3 short name', WINDOWS_ONLY, (t) => {
   const long = scratchBase();
   // cmd's %~sI prints the 8.3 short form of a path (the same text as the long form where the volume keeps none).
-  const r = spawnSync('cmd.exe', ['/d', '/c', `for %I in ("${long}") do @echo %~sI`], { encoding: 'utf8' });
+  const r = spawnSync('cmd.exe', ['/d', '/c', `for %I in ("${long}") do @echo %~sI`],
+    { encoding: 'utf8', windowsVerbatimArguments: true, windowsHide: true });  // verbatim: node would escape the inner quotes and cmd would read another command
   const short = String(r.stdout || '').trim();
   assert.ok(short, 'cmd did not print a short form: ' + (r.stderr || ''));
   if (short.toLowerCase() === long.toLowerCase()) { t.skip('this volume keeps no 8.3 names, so there is no short form to expand'); return; }
   // The arm that broke CI: a short-form base must expand to exactly the long form the product reports.
   assert.strictEqual(fs.realpathSync.native(short).toLowerCase(), long.toLowerCase());
-  assert.ok(!long.includes('~'), 'the scratch base still carries an 8.3 short segment: ' + long);
+  assert.ok(!/~\d/.test(long), 'the scratch base still carries an 8.3 short segment: ' + long);
 });
