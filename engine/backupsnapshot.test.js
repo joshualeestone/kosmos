@@ -1464,6 +1464,17 @@ test('#5686 review 10: two agents\' sessions in one shared folder (Codex) are ea
     // And one folder without only beside one with: still refused as the same folder.
     const bare = await takeRoots(k, [{ name: 'x', path: roots[0].path }, { name: 'y', path: roots[0].path, only: ['2026/10/09/rollout-1.jsonl'] }], store());
     assert.match(bare.because, /same folder/);
+    // Review 11: a repeat inside one root's only is not two roots naming one file.
+    const rep = await takeRoots(k, [{ name: 'x', path: roots[0].path, only: ['2026/10/09/rollout-1.jsonl', '2026/10/09/rollout-1.jsonl'] }], store());
+    assert.equal(rep.ok, true, rep.because);
+    // Review 11: an optional root naming more files than a snapshot can list is left out and recorded, not fatal.
+    const many = Array.from({ length: snap.MAX_FILES + 1 }, (_, i) => `f${i}`);
+    const st3 = store();
+    const big = await takeRoots(k, [{ name: 'data', path: w.roots.data }, { name: 'x', path: roots[0].path, only: many, optional: true }], st3);
+    assert.equal(big.ok, true, big.because);
+    assert.ok(bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st3.manifests[0].bytes).skipped.some((x) => x.path === 'x' && /more than/.test(x.why)));
+    const fatal = await takeRoots(k, [{ name: 'x', path: roots[0].path, only: many }], store());
+    assert.match(fatal.because, /more than/);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 

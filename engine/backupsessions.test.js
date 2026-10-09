@@ -47,7 +47,7 @@ test('#5686: an agent\'s Claude transcripts, Gemini chats and Codex rollouts, no
     assert.equal(r['sessions/mikey/claude'].path, path.join(w.claude, 'projects', bs.flatten(w.agent)));
     assert.deepEqual(r['sessions/mikey/claude'].only, ['s1.jsonl', 's1/subagents/agent-1.jsonl']);
     assert.equal(r['sessions/mikey/gemini'].path, path.join(w.gemini, 'tmp', 'mikey-slug', 'chats'));
-    assert.equal(r['sessions/mikey/gemini'].only, undefined, 'one slug per folder: the whole chats folder');
+    assert.deepEqual(r['sessions/mikey/gemini'].only, ['session-1.jsonl'], 'the session files forWorkdir reads');
     assert.equal(r['sessions/mikey/codex'].path, path.join(w.codex, 'sessions'));
     // rollout-c names the folder with a trailing slash: the same folder on disk.
     assert.deepEqual(r['sessions/mikey/codex'].only, ['2026/10/09/rollout-a.jsonl', '2026/10/09/rollout-c.jsonl']);
@@ -158,6 +158,12 @@ test('#5686 review 10: a session\'s whole folder goes with it (a worktree subage
     w.w(path.join(flat, 'z9', 'tool-results', 'theirs.txt'), 'theirs\n');
     only = bs.sessionsFor(w.agent, { id: 'mikey', claudeRoots: [w.claude] })[0].only;
     assert.deepEqual(only, ['s1.jsonl', 's1/subagents/agent-1.jsonl', 's1/subagents/agent-wt.jsonl', 's1/tool-results/r1.txt']);
+    // Review 11: a stranger's transcript that does not say whose it is also keeps memory/ out.
+    fs.rmSync(path.join(flat, 'z9.jsonl')); fs.rmSync(path.join(flat, 'z9'), { recursive: true });
+    w.w(path.join(flat, 'q1.jsonl'), '{"type":"start"}\n');
+    assert.ok(!bs.sessionsFor(w.agent, { id: 'mikey', claudeRoots: [w.claude] })[0].only.includes('memory/MEMORY.md'));
+    fs.rmSync(path.join(flat, 'q1.jsonl'));
+    assert.ok(bs.sessionsFor(w.agent, { id: 'mikey', claudeRoots: [w.claude] })[0].only.includes('memory/MEMORY.md'), 'CONTROL: alone again, memory is kept');
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
