@@ -10640,6 +10640,14 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #panel-detail #d-talk-box { background: var(--k-bg); }
 :root[data-look="new"] body:not(.consolidated) #d-dmthread .msg.you .msg-bd { background-color: var(--nl-grey); }
 :root[data-look="new"] body:not(.consolidated) #d-dmthread .msg:not(.you) .msg-bd { background-color: var(--k-bg); }
+/* #5551: your own messages carry no avatar under the look, as Josh's v9 drawing has them: the side and the grey
+   already say they are yours, so the ink dot (.msg-av.mine) or your photo beside each one is decoration. An agent's
+   message keeps its avatar (it says who). The time stays inside the bubble (the timestamp-inside rulings). */
+:root[data-look="new"] body:not(.consolidated) :is(#pj-one-view, #d-dmthread) .msg.you > .msg-av { display: none; }
+/* With the avatar gone the bubble would end at the thread's edge, and its tail wing (8px past it) and the wing's
+   ground mask (14px past it) would be clipped by the scroller and make it scroll sideways (review 1: the DM has 4px of
+   padding, the room 6px on a phone). So the bubble keeps 14px clear on its right, the mask's full reach. */
+:root[data-look="new"] body:not(.consolidated) :is(#pj-one-view, #d-dmthread) .msg.you > .msg-b { margin-right: 14px; }
 :root[data-look="new"] body:not(.consolidated) #d-dmthread .msg .msg-bd::after { background: var(--k-bg); }
 :root[data-look="new"] body:not(.consolidated) #d-talk-box .dmbar.composerbox { border: 0; border-radius: 24px; padding: 6px 6px 6px 8px; }
 :root[data-look="new"] body:not(.consolidated) #d-talk-box .dmbar.composerbox:not(.dragging) { background: var(--nl-grey); }
@@ -10704,8 +10712,9 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox :is(.btn, .btn-quiet):not(.uprime):not(.danger-btn):disabled { background: transparent; border-color: currentColor; box-shadow: none; }
 /* #4470, the last page in the card's order, the phone (and what it showed on a desktop too). An agent's message has
    no bubble in the new look, so its avatar no longer sits beside a bubble's tail: it goes to the top, beside the name
-   and time, as Josh's drawing draws it (Files/kosmos-project-two-col-v9). Your own messages keep their bubble and
-   today's foot-aligned avatar, and so does an outside sender's message, which keeps its drawn box. Tasks' "+ New task"
+   and time, as Josh's drawing draws it (Files/kosmos-project-two-col-v9). Your own messages keep their bubble
+   (their avatar is hidden by #5551's rule above, as the drawing has none); an outside sender's message keeps its
+   drawn box and its foot-aligned avatar. Tasks' "+ New task"
    is the drawing's main action, a gold pill ("Post"). Up to 60rem, where the project header stacks (the 60rem block
    for .pjmidhead), the project's gear sits in the crumb's row instead of a line of its own; "Made by" stays below. */
 :root[data-look="new"] body:not(.consolidated) :is(#pj-one-view, #d-dmthread) .msg:not(.you):not(.ext) { align-items: flex-start; }   /* .ext keeps its drawn box, so its foot avatar */
