@@ -913,3 +913,17 @@ test('with every chunk reused, a manifest grant in another bucket is a stale ind
     assert.equal(r.staleIndex, true); assert.equal(r.grantSpent, true);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('a token split across a folder and a file name is caught on the whole path, and recorded masked', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const head = TOKEN.slice(0, 20), tail = TOKEN.slice(20);
+    fs.mkdirSync(path.join(w.root, 'agents', 'a', head));
+    fs.writeFileSync(path.join(w.root, 'agents', 'a', head, tail), 'x');
+    const r = await take(k, w.root, st);
+    assert.equal(r.ok, true, r.because);
+    const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+    assert.ok(!JSON.stringify(m).includes(TOKEN), 'the joined token appears nowhere in the manifest');
+    assert.ok(m.skipped.some((x) => /path holding something shaped like a credential/.test(x.why)));
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});

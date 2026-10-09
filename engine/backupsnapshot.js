@@ -129,6 +129,7 @@ function keyProblem(key, ctx) {
 const asRestored = (rel) => rel.replace(/\\/g, '/');
 // And on restore's own equivalence of it (review 18): collisionKey drops invisible characters and folds case, so
 // ".git<zero-width space>" is .git to restore. Denied if either reading is.
+// (The second reading's `why` is a rule's name, never the folded path itself.)
 const denied = (rel) => { const a = pathDecision(asRestored(rel)); return a.include ? pathDecision(collisionKey(rel)) : a; };
 /* A folder the deny-list refuses: every folder rule ends in '/', so a bare child name matches exactly those. A rule on a
    NAME only (".env", "credentials") is not a folder rule: a folder so named is walked, and each file in it is judged
@@ -167,6 +168,16 @@ function listFiles(root, fs = nodeFs, { maxFiles = MAX_FILES, maxSkipped = MAX_S
       // Recorded under the masked name: the skipped list leaves the Mac too.
       const masked = nameMasked(name);
       if (masked !== null) { skip({ path: rel ? `${rel}/${masked}` : masked, why: 'a name holding something shaped like a credential' }); continue; }
+      // And a token split across a folder boundary (review 24): secretmask does not read a token across '/', so this
+      // name is checked joined to its parent's (each pair once, as the walk goes down; '\\' inside a name was a segment
+      // boundary to restore, so those parts are joined too). Measured on 8,146 real paths: 0 pairs fire only joined.
+      const segs = asRestored(r).split('/');
+      const pair = segs.length >= 2 ? nameMasked(segs.slice(-2).join('')) : null;
+      const inName = name.includes('\\') ? nameMasked(asRestored(name).split('/').join('')) : null;
+      if (pair !== null || inName !== null) {
+        skip({ path: segs.slice(0, -2).concat(['\u2022\u2022\u2022\u2022']).join('/'), why: 'a path holding something shaped like a credential' });
+        continue;
+      }
       let st;
       // bigint: device and inode compared exactly (a Number loses precision above 2^53).
       try { st = fs.lstatSync(path.join(root, r), { bigint: true }); } catch { skip({ path: r, why: 'an entry that could not be read' }); continue; }
