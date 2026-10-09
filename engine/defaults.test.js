@@ -601,7 +601,7 @@ test('#5152: work goes on a task first, with Done when checks, and the built not
   assert.match(sec.text, /A question, a quick answer or small talk is not a task\./);
   assert.match(sec.text, /If you are on no\s+project, or the work belongs to none of yours, do not guess another: write the\s+checks in your reply/);   // wraps in BLOCK
   // Review round 3: a check with a backtick or $ is expanded by the shell inside double quotes (the block's own trap).
-  assert.match(sec.text, /If a check holds a backtick or a `\$`, use single quotes/);
+  assert.match(sec.text, /If a check holds a\s+backtick or a `\$`, use single quotes/);   // wraps in BLOCK since v26
   // Review round 3: several agents asked in one room add one task, not one each.
   assert.match(sec.text, /If several of you were asked in one room, add one task between you\./);
   // The person cannot edit a task's words yet (no edit path in engine/tasks.js), so the section must not say they can.
