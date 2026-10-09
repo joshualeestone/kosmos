@@ -77,9 +77,13 @@ test('a member-key wrap never opens as a naming key, nor the reverse (the magic 
 test('a tampered byte anywhere, a truncated or padded wrap, and non-bytes all refuse with null, never a throw', () => {
   const member = keys.newMemberKey(), r = hpkeKeyPair();
   const w = keys.wrapMemberKey(member.sk, r.pk, mctx);
+  const nw = keys.wrapNamingKey(keys.newNamingKey(), member.pk, nctx);
+  assert.ok(keys.unwrapNamingKey(member.sk, nw, nctx), 'CONTROL: the untampered naming wrap opens');
   for (let i = 0; i < w.length; i++) {
     const t = Buffer.from(w); t[i] ^= 0x01;
-    assert.strictEqual(keys.unwrapMemberKey(r.sk, t, mctx, member.pk), null, `byte ${i}`);
+    assert.strictEqual(keys.unwrapMemberKey(r.sk, t, mctx, member.pk), null, `member wrap byte ${i}`);
+    const tn = Buffer.from(nw); tn[i] ^= 0x01;
+    assert.strictEqual(keys.unwrapNamingKey(member.sk, tn, nctx), null, `naming wrap byte ${i}`);
   }
   for (const bad of [w.subarray(0, w.length - 1), Buffer.concat([w, Buffer.alloc(1)]), Buffer.alloc(0), 'KBK1', null, undefined, 42, {}]) {
     assert.strictEqual(keys.unwrapMemberKey(r.sk, bad, mctx, member.pk), null);
@@ -144,4 +148,47 @@ test('wraps are not authenticated, so a FORGED wrap (made by anyone with the pub
   const fake = Buffer.alloc(32, 9);
   const got = keys.unwrapNamingKey(member.sk, forge('KBN1', member.pk, keys.namingContextBytes(nctx), fake), nctx);
   assert.ok(got && got.equals(fake));
+});
+
+test('a known-answer member-key wrap (fixed keys and ephemeral) opens: the bytes any other unwrap service must accept', () => {
+  const h = (x) => Buffer.from(x, 'hex');
+  const memberSk = h('7790330b18d76c45446b7d9d1b15e87d7da80ab3b6f8cdcc0871764f1d767c9c');
+  const memberPk = h('41852320ff367495fa522c94cb83af391e4e89018392725bbf2098dd931bc424');
+  const recipientSk = h('95fe8f32f2036438e7f4c0e9157d5f7d730bc04618e1dd569084f67d3919d1fe');
+  // Made with hpke's vector seams: member and recipient from DeriveKeyPair(32 x 0x01) and (32 x 0x02), the
+  // ephemeral from ikmE = 32 x 0x03, info "kosmos-backup v1 key-wrap", context org1 / acct1 / 1.
+  const wrap = h('4b424b3190ab790ecbf0704232ffe9436faeccc913b66a60e99c688a40bba4d5e2e614503d77a34af2050b776c04ad9f62ff24695eab7e73f78c9bf2bcf8cdf41670962f5d2a78a4a7b04ac79722d66709e74294');
+  const got = keys.unwrapMemberKey(recipientSk, wrap, mctx, memberPk);
+  assert.ok(got && got.equals(memberSk));
+  // And the vector really comes from the seams (so a change to the format breaks it here, not silently).
+  const s = require('./hpke').hpkeVectorSeamsForTests();
+  const recip = s.deriveKeyPair(Buffer.alloc(32, 2));
+  const { sharedSecret, enc } = s.encap(recip.pk, Buffer.alloc(32, 3));
+  const ks = s.keySchedule(sharedSecret, Buffer.from('kosmos-backup v1 key-wrap'));
+  const ct = s.aeadSeal(ks.key, s.nonceFor(ks.baseNonce, 0), keys.memberContextBytes(mctx), s.deriveKeyPair(Buffer.alloc(32, 1)).sk);
+  assert.ok(Buffer.concat([Buffer.from('KBK1'), enc, ct]).equals(wrap));
+});
+
+test('namingKeyId names one naming key: stable, distinct per key, pinned, and refuses a bad key', () => {
+  const nk = Buffer.alloc(32, 5);
+  assert.strictEqual(keys.namingKeyId(nk), keys.namingKeyId(Buffer.from(nk)));
+  assert.match(keys.namingKeyId(nk), /^[0-9a-f]{32}$/);
+  assert.notStrictEqual(keys.namingKeyId(keys.newNamingKey()), keys.namingKeyId(keys.newNamingKey()));
+  const crypto = require('node:crypto');
+  const want = crypto.createHash('sha256').update(Buffer.from('kosmos-backup v1 naming-key-id\0')).update(nk).digest().subarray(0, 16).toString('hex');
+  assert.strictEqual(keys.namingKeyId(nk), want);
+  assert.throws(() => keys.namingKeyId(Buffer.alloc(31)), /naming key must be 32 bytes/);
+  // Restore picks among a period's wraps by id: two keys in one period, each found by its id.
+  const member = keys.newMemberKey(), a = keys.newNamingKey(), b = keys.newNamingKey();
+  const wraps = [a, b].map((k) => keys.wrapNamingKey(k, member.pk, nctx));
+  const byId = (id) => wraps.map((w) => keys.unwrapNamingKey(member.sk, w, nctx)).find((k) => k && keys.namingKeyId(k) === id);
+  assert.ok(byId(keys.namingKeyId(b)).equals(b)); assert.ok(byId(keys.namingKeyId(a)).equals(a));
+});
+
+test('a context value is read once: a getter that passes the check and then turns hostile cannot forge a field', () => {
+  let n = 0;
+  const ctx = { org: 'org1', member: 'acct1', get epoch() { n++; return n === 1 ? '1' : '1\nperiod=x'; } };
+  const b = keys.memberContextBytes(ctx);
+  assert.strictEqual(b.toString(), 'kosmos-backup v1 member-key\norg=org1\nmember=acct1\nepoch=1');
+  assert.strictEqual(n, 1);
 });
