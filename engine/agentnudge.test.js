@@ -484,3 +484,21 @@ test('back off when the agent reports it is waiting (blocked): not nudged while 
     assert.equal(pass(w, { book, hb }).calls.length, 1, 'the next idle stall after blocked was not nudged');
   } finally { w.restore(); }
 });
+
+/* #4787 (10-08 feedback: an hourly check lost results and needed a manual rerun): a DUE repeating task's nudge names the
+   run that is due and how to record it; a plain task's line is unchanged, and one between runs is not nudged at all. */
+test('#4787: a due repeating task is nudged with its due run and the record verb; CONTROLS: plain task, and between runs', () => {
+  const now = Date.now();
+  const hourAgo = new Date(now - 2 * 3600 * 1000).toISOString();
+  const proj = (t) => [{ id: 'rp4787', name: 'Repeats', agents: ['ag'], tasks: [t] }];
+  const due = nudge.openParts('ag', proj({ number: 3, sentence: 'Hourly check', who: 'ag', repeat: { every: 'hour', minute: 0 }, repeatSetAt: hourAgo, createdAt: hourAgo }));
+  assert.equal(due.length, 1, 'fixture: the due repeating task is not open work');
+  assert.ok(typeof due[0].dueWords === 'string' && due[0].dueWords, 'the due run is not named: ' + JSON.stringify(due[0]));
+  const text = nudge.nudgeText(due[0]);
+  assert.match(text, /Its scheduled run \([^)]+\) has not been reported: run it now, then record it with kosmos task ran rp4787 3 \(add --unchanged if it found nothing new\)\./);
+  const plain = nudge.nudgeText(nudge.openParts('ag', proj({ number: 4, sentence: 'Plain', who: 'ag' }))[0]);
+  assert.doesNotMatch(plain, /scheduled run/, 'CONTROL: a plain task\'s line changed');
+  assert.match(plain, /in Repeats\. Pick it up/, 'CONTROL: the plain line lost its shape');
+  const justRan = nudge.openParts('ag', proj({ number: 5, sentence: 'Just ran', who: 'ag', repeat: { every: 'day', at: '09:00' }, repeatSetAt: hourAgo, lastRunAt: new Date(now - 60 * 1000).toISOString() }));
+  assert.equal(justRan.length, 0, 'CONTROL: a repeating task between runs is not open work');
+});
