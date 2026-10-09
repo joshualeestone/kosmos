@@ -52,7 +52,7 @@ test('#5532: the body has the contract shape, the three status words, and names 
     projects: [{ name: 'Launch', agents: ['Leo', 'Raph'] }],
     usageByDay: { [DAY(0)]: { 'claude-opus-5-5': { input_tokens: 1e6, output_tokens: 1e6 }, 'gpt-5.1-codex': { output_tokens: 5 } } },
   });
-  assert.deepEqual(Object.keys(b).sort(), ['agents', 'at', 'backup', 'lastActive', 'policyRefused', 'policyVersion', 'projects', 'reason', 'truncated', 'usage', 'usageWithheld', 'v', 'world'].sort());
+  assert.deepEqual(Object.keys(b).sort(), ['agents', 'at', 'backup', 'lastActive', 'projects', 'reason', 'truncated', 'usage', 'usageWithheld', 'v', 'world'].sort());
   assert.equal(b.v, 1); assert.equal(b.reason, 'daily'); assert.equal(b.truncated, false);
   assert.deepEqual(b.agents.map((a) => a.status), ['working', 'waiting', 'waiting', 'waiting', 'stopped'], 'the consent names three words: working, waiting, stopped');
   for (const a of b.agents) assert.deepEqual(Object.keys(a).sort(), ['model', 'name', 'provider', 'status']);
@@ -785,23 +785,43 @@ test('#5532 rollup review 31: a failure\'s wait belongs to the words it was sent
 });
 
 test('#5534 slice 2: the policy version and a refusal leave only under accepted words that name the policy', async (t) => {
-  const fakePolicy = { refresh: () => ({ applied: { version: 4 }, refused: 'the signature does not match' }) };
-  const send = async (lines) => {
+  const NAMED = ['agent names', "which version of your company's policy this Kosmos has applied, and whether it refused one your company sent"];
+  const send = async (lines, fakePolicy) => {
     const root = world(t);
     const c = coordinator();
     await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
     accept(root, lines);
-    await r.tick({ root, remote: c, sources: sources(), orgpolicy: fakePolicy, now: Date.UTC(2026, 9, 7, 12) });
+    const orgId = oe.readEnrollment({ root }).org.id;
+    await r.tick({ root, remote: c, sources: sources(), orgpolicy: fakePolicy(orgId), now: Date.UTC(2026, 9, 7, 12) });
     const sent = c.sent.find((x) => x.route === r.ROUTE);
     assert.ok(sent, 'premise: a rollup was sent');
     return sent.body;
   };
-  const without = await send(['agent names, the AI provider and model each uses']);
-  assert.equal(without.policyVersion, null, 'the policy version left under words that do not name the policy');
-  assert.equal(without.policyRefused, false, 'a refusal left under words that do not name the policy');
-  const named = await send(['agent names', "which version of your company's policy this Kosmos has applied, and whether it refused one your company sent"]);
-  assert.equal(named.policyVersion, 4, 'CONTROL: under words naming the policy, the version is sent');
-  assert.equal(named.policyRefused, true);
+  const refusedNew = (org) => ({ refresh: () => ({ applied: { org, version: 4 }, refused: 'the signature does not match' }), bundleInfo: () => ({ org, version: 5 }) });
+  const without = await send(['agent names, the AI provider and model each uses'], refusedNew);
+  assert.equal('policyVersion' in without || 'policyRefused' in without, false, 'the policy left under words that do not name it');
+  const named = await send(NAMED, refusedNew);
+  assert.deepEqual([named.policyVersion, named.policyRefused], [4, true], 'CONTROL: under words naming the policy, the version and the refusal are sent');
+  // An expired copy of the policy in force is not a refusal of something new.
+  const expired = await send(NAMED, (org) => ({ refresh: () => ({ applied: { org, version: 4 }, refused: 'the token has expired' }), bundleInfo: () => ({ org, version: 4 }) }));
+  assert.deepEqual([expired.policyVersion, expired.policyRefused], [4, false], 'an expired copy of the applied policy was reported as a refusal');
+  // This Kosmos failing to save is not the company's bundle refused.
+  const local = await send(NAMED, (org) => ({ refresh: () => ({ applied: { org, version: 4 }, refused: 'the policy could not be saved: EACCES', local: true }), bundleInfo: () => ({ org, version: 5 }) }));
+  assert.equal(local.policyRefused, false, 'a local save failure was reported as a refusal');
+  // A policy another company left behind is not reported as this company's.
+  const foreign = await send(NAMED, () => ({ refresh: () => ({ applied: { org: 'org_other', version: 9 }, refused: null }), bundleInfo: () => null }));
+  assert.equal(foreign.policyVersion, null, 'another company\'s version was reported to this one');
+  // A read that throws leaves both out, so the company keeps what it had.
+  const broken = await send(NAMED, () => ({ refresh: () => { throw new Error('disk'); } }));
+  assert.equal('policyVersion' in broken || 'policyRefused' in broken, false, 'a failed read was sent as none applied');
   // A version the company could not have saved is not sent as one.
   for (const bad of [0, -1, 1.5, '4', 2 ** 53]) assert.equal(r.build({ world: 'w', policyVersion: bad }).policyVersion, null, String(bad));
+});
+
+test('#5534 slice 2: a newly applied policy is a change, and a board without it keeps its signature', () => {
+  const base = { world: 'w', agents: [{ name: 'Leo', state: 'idle' }], projects: [] };
+  const sig = (x) => r.signature(r.build(Object.assign({ reason: 'change' }, base, x)));
+  assert.notEqual(sig({ policyVersion: 3, policyRefused: false }), sig({ policyVersion: 4, policyRefused: false }), 'a new policy version was not a change');
+  assert.notEqual(sig({ policyVersion: 4, policyRefused: false }), sig({ policyVersion: 4, policyRefused: true }), 'a refusal was not a change');
+  assert.equal(sig({}), sig({}), 'premise');
 });

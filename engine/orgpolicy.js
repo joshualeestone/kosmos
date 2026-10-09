@@ -31,7 +31,8 @@
  * seen for each org is kept across that clear. An expired bundle does not lift the policy in force: the last good one
  * stays until the company serves a newer one or the enrollment ends (fails closed).
  *
- * Not yet: reporting the applied version (E0.3), the AI policy text. The policy is per Kosmos on a Mac, as enrollment is: another Kosmos on the same Mac has its own.
+ * Reported: the applied version and whether one was refused ride the rollup under consent words naming the policy
+ * (engine/orgrollup.js, #5534 slice 2). Not yet: the AI policy text. The policy is per Kosmos on a Mac, as enrollment is: another Kosmos on the same Mac has its own.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -123,7 +124,8 @@ function refresh({ now, pinned } = {}) {
   // A record written before marks existed has only its own org and version: keep that one as a mark too.
   if (applied && Number.isInteger(applied.version)) nextMarks[applied.org] = Math.max(nextMarks[applied.org] || 0, applied.version);
   const rec = { org: p.org, version: p.version, iat: p.iat, applied_at: Math.floor(Date.now() / 1000), policy: p.policy, marks: nextMarks };
-  try { writeApplied(rec); } catch (e) { return { applied, refused: 'the policy could not be saved: ' + ((e && e.message) || e) }; }
+  // `local`: this Kosmos could not keep a good bundle, which is not a refusal of what the company sent (#5534 slice 2).
+  try { writeApplied(rec); } catch (e) { return { applied, refused: 'the policy could not be saved: ' + ((e && e.message) || e), local: true }; }
   return { applied: rec, refused: null };
 }
 
@@ -182,10 +184,17 @@ function clear() {
 function appliedOrg() { const a = readApplied(); return a && typeof a.org === 'string' ? a.org : null; }
 
 /** The company the bundle on disk names, unverified (review 5: a mix-up check before it is applied), or null. */
-function bundleOrg() {
+function bundleOrg() { const b = bundleInfo(); return b ? b.org : null; }
+
+/** The company and version the bundle on disk names, unverified, or null (#5534 slice 2: an expired copy of the policy
+ *  in force is not a refusal of something new). */
+function bundleInfo() {
   const t = readText(BUNDLE());
   if (!t) return null;
-  try { const o = JSON.parse(Buffer.from(t.split('.')[1] || '', 'base64url').toString('utf8')).org; return typeof o === 'string' ? o : null; } catch { return null; }
+  try {
+    const p = JSON.parse(Buffer.from(t.split('.')[1] || '', 'base64url').toString('utf8'));
+    return p && typeof p.org === 'string' ? { org: p.org, version: Number.isInteger(p.version) ? p.version : null } : null;
+  } catch { return null; }
 }
 
 /* #5534 review 3: the bundle and the record as they are on disk, and putting them back (a leave the company refused).
@@ -203,4 +212,4 @@ function restore(snap) {
   }
 }
 
-module.exports = { refresh, current, inForce, allows, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };
+module.exports = { refresh, current, inForce, allows, clear, appliedOrg, bundleOrg, bundleInfo, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };
