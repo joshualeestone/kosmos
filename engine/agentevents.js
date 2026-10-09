@@ -201,7 +201,9 @@ function targetClass(tool, input, ctx) {
         if (/[*?$`[{]/.test(v)) hidden.push(v);   // [ and { are globs too (review 32: Kosm[o]s, Kosmo{s,})
         /* A path: from ~ or /, ./ or ../, a dotted name (.claude/settings.json, review 7), or a word with a slash and no
            space (a whole quoted command is split above instead); a relative one resolves against the agent's folder. */
-        if (/^(~|\/|\.\.?\/|\.[A-Za-z0-9_])/.test(v) || (v.includes('/') && !/\s/.test(v))) paths.push(v);
+        /* A word with a slash is a path even with a space in it (review 44: "Library/Application Support/Kosmos/..."
+           from an agent at the home folder); a shell's script never reaches here (split and skipped above). */
+        if (/^(~|\/|\.\.?\/|\.[A-Za-z0-9_])/.test(v) || v.includes('/')) paths.push(v);
         /* A command's operands, in order: every word that is not an option, plain names included (review 40: tar -C ~
            Documents named no path, so the walk fell back to the whole of ~). find's come before its first test. */
         if (cur && cur.prog === prog) {
@@ -224,11 +226,16 @@ function targetClass(tool, input, ctx) {
     /* A copy's last folder, and zip's first word (the archive), are where it WRITES, not what it walks (review 39:
        cp -r build ~/ read as a walk of ~). A cd earlier in the command moves where later relative words resolve. */
     let cwd = ctx.agentDir || path.sep;
+    let cds = 0;
     const res = (x) => path.resolve(cwd, x === '~' || x.startsWith('~/') ? path.join(ctx.home || os.homedir(), x.slice(1)) : x);
     for (const c of cmds) {
       if (c.prog === 'cd' || c.prog === 'pushd') {   // a bare cd is the home folder (review 40)
+        /* At most 32 followed, and a folder of at most 1024 characters (review 44: a chain of cd a grew the folder and
+           each step re-resolved all of it, seconds per file). Past that, later walks resolve where the last kept one
+           left them. */
+        if (++cds > 32) continue;
         const d = c.words[0] || (c.bare ? '~' : null);
-        if (d && !/[*?$`[{]/.test(d)) cwd = res(d);
+        if (d && !/[*?$`[{]/.test(d)) { const n = res(d); if (n.length <= 1024) cwd = n; }
         continue;
       }
       if (!c.walks) continue;
@@ -568,7 +575,10 @@ function readState(root) {
     return { offsets: nums(j && j.offsets), pending: pend, listed: obj(j && j.listed),
       confirmed: obj(j && j.confirmed), withdrawn: !!(j && j.withdrawn), collided: Array.isArray(j && j.collided) ? j.collided : [], sendMax: j && Number.isInteger(j.sendMax) && j.sendMax >= 1 ? j.sendMax : null, stops: j && Number.isInteger(j.stops) && j.stops >= 0 ? j.stops : 0,
       enrolledAs: j && j.enrolledAs, since: j && Number.isFinite(j.since) ? j.since : null, failAt: j && Number.isFinite(j.failAt) ? j.failAt : null };
-  } catch { return { offsets: {}, pending: [], listed: {}, confirmed: {}, withdrawn: false, collided: [], sendMax: null, stops: 0, enrolledAs: null, since: null, failAt: null }; }
+  } catch { return emptyState(); }
+}
+function emptyState() {
+  return { offsets: {}, pending: [], listed: {}, confirmed: {}, withdrawn: false, collided: [], sendMax: null, stops: 0, enrolledAs: null, since: null, failAt: null };
 }
 
 /* Not reporting now, for any reason (no accepted words, or no enrollment at all: review 36, a Leave the company then
@@ -580,6 +590,7 @@ function readState(root) {
    uncounted and the gap was sent). The tick and every enrollment writer run in the board process. */
 let STOPS = 0;
 let UNWRITTEN_STOP = false;
+let DAMAGE_SAID = false;
 function markWithdrawn(root0) {
   STOPS++;
   const root = root0 || require('./store').ROOT;
@@ -622,8 +633,17 @@ function withdrawIfStopped(eo) {
    state on ANY error, and writing that back erased the offsets, the listing times and the stop record, so the next
    tick re-read the gap from the enrollment). A missing state is the empty one, as before. */
 function readStateForUpdate(root) {
-  try { JSON.parse(fs.readFileSync(path.join(root, STATE_FILE), 'utf8')); }
-  catch (e) { if (!e || e.code !== 'ENOENT') return null; }
+  let text;
+  try { text = fs.readFileSync(path.join(root, STATE_FILE), 'utf8'); }
+  catch (e) { return e && e.code === 'ENOENT' ? readState(root) : null; }   // a passing read error: change nothing
+  try { JSON.parse(text); } catch {
+    /* DAMAGED, not passing (review 44): the file is written whole by rename, so a reader never sees half of one, and
+       a parse failure stays until something rewrites it. Returning null forever stopped all reporting. It starts
+       again as withdrawn, the reset that is never a leak: reporting resumes from now and nothing from before is
+       read. */
+    if (!DAMAGE_SAID) { DAMAGE_SAID = true; console.error('agentevents: the state file was damaged; reporting starts again from now'); }
+    return Object.assign(emptyState(), { withdrawn: true, enrolledAs: 'damaged' });
+  }
   return readState(root);
 }
 
