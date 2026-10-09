@@ -19136,8 +19136,8 @@ window.kosmosMeasureScrollbarWidth();
     <div class="stat"><span class="rest" aria-hidden="true"></span><b id="st-idle" data-count="idle">0</b><span class="slab">Idle</span></div>
     <!-- #5540 (a read-only pass on 0.7.27: 7 agents, 2 Waiting, and no tile counted them): agents whose card says
          Waiting (state blocked) get a tile, hidden at zero like Working, with the card's own pause glyph. It sits
-         after Idle and before Issue: the row rises in urgency to the red tile, and Waiting is not red (STATE_CARD:
-         "red stays reserved for somebody is waiting on YOU"). Not every state has a tile (Not running has none, #653),
+         after Idle and before Issue: the row rises in urgency to the red tile, and Waiting is not red (CARD_ST's blocked
+         line: "red stays reserved for somebody is waiting on YOU"). Not every state has a tile (Not running has none, #653),
          so the row still need not add up when an agent is stopped or paused. -->
     <div class="stat" id="st-blocked-tile" hidden><span class="pause" aria-hidden="true"><i></i><i></i></span><b id="st-blocked" data-count="blocked">0</b><span class="slab">Waiting</span></div>
     <!-- 🔑 THE FOURTH TILE, and it is the row's existing grammar with one more

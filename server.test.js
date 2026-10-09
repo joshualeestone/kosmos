@@ -3500,14 +3500,19 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
   assert.equal(zeroFloor['st-working-tile'].hidden, true,
     '#4736: zero working WITH an unknown ("0+") hides the tile too (Josh: "if there are 0 working, lets not show the tile")');
   /* #5540: Waiting (state blocked) has its own tile, counted and floored as Working is, hidden at zero. The fleets
-     above hold no blocked agent, so it is hidden there (CONTROL); one with two blocked shows "2", or "2+" beside an unknown. */
+     above hold no blocked agent, so it is hidden there (CONTROL); one with two blocked shows "2", and one blocked beside
+     an unknown shows "1+". A guide agent is never counted, as for Working and Idle. */
   assert.equal(known['st-blocked-tile'].hidden, true, 'the Waiting tile shows with nobody waiting');
-  const waiting = drive([{ state: 'working' }, { state: 'blocked' }, { state: 'blocked' }, { state: 'idle' }], { total: 4, needsYou: 0, notRunning: 0 });
+  const waiting = drive([{ state: 'working' }, { state: 'blocked' }, { state: 'blocked' }, { state: 'idle' }, { state: 'blocked', isGuide: true }], { total: 4, needsYou: 0, notRunning: 0 });
   assert.equal(waiting['st-blocked'].textContent, '2', 'the Waiting tile does not count the blocked agents');
   assert.equal(waiting['st-blocked-tile'].hidden, false, 'the Waiting tile is hidden while two agents wait');
   assert.equal(waiting['st-idle'].textContent, '1', 'CONTROL: a blocked agent is not counted as idle');
+  assert.equal(waiting['st-working'].textContent, '1', 'CONTROL: a blocked agent is not counted as working');
   const waitingFloor = drive([{ state: 'blocked' }, { state: 'unknown' }], { total: 2, needsYou: 0, notRunning: 0 });
   assert.equal(waitingFloor['st-blocked'].textContent, '1+', 'an unknown agent must floor the Waiting tile as it floors Working');
+  // Review 1: a FLOORED zero ("0+") hides the tile too, as Working's does (#4736).
+  assert.equal(zeroFloor['st-blocked'].textContent, '0+', 'fixture: zero blocked beside an unknown reads "0+"');
+  assert.equal(zeroFloor['st-blocked-tile'].hidden, true, '#5540: "0+" Waiting must hide as Working does (#4736)');
   assert.equal(zeroFloor['st-working'].textContent, '0+',
     'the number underneath is still the floored 0+ (only the tile is hidden)');
   /* #4736: the OTHER way to "0+", unreadable pane lines with no unknown agent, hides the tile too. */
