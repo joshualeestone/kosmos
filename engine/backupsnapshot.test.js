@@ -786,3 +786,26 @@ test('a period boundary passed between the chunks and the manifest stops the run
     assert.equal(ok.ok, true, `control: the same run inside the period stores its manifest (${ok.because})`);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('an index key longer than the walker accepts is stale before anything is read', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const long = `o1/acct-${'b'.repeat(300)}/1/${PERIOD}/k1`;
+    const r = await take(k, w.root, st, { input: { index: new Map([['a'.repeat(64), { key: long, lockedUntilMs: LOCK, memberKeyId: snap.memberKeyIdOf(k.member.pk) }]]), bucket: 'bucket/' } });
+    assert.equal(r.ok, false); assert.equal(r.staleIndex, true); assert.match(r.because, /longer than 256/);
+    assert.equal(st.batches.length, 0);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('the open works where the platform has no O_NOFOLLOW, O_NONBLOCK or O_NOCTTY (the identity checks hold)', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const { f } = spyFs();
+    f.constants = { O_RDONLY: fs.constants.O_RDONLY };
+    const r = await take(k, w.root, st, { deps: { fs: f } });
+    assert.equal(r.ok, true, r.because);
+    const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+    assert.ok(m.files.some((x) => x.path === 'readme.txt'));
+    assert.ok(m.skipped.some((x) => x.path === 'agents/a/link.txt' && /link/.test(x.why)), 'links are still never followed (the walk)');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
