@@ -295,9 +295,9 @@ const visible = (page, sel) => page.evaluate((s) => {
               return { id: i.id, raw: c.color + ' on ' + under, want: WANT(i) }; })
               .filter((x) => x.raw !== x.want).map((x) => x.id + ': ' + x.raw) };
         }, theme);
-        chk(r.n === 8, `[${key}] #3596 CONTROL: the Kosmos+ pane's 8 inputs were found (${theme})`, String(r.n));
+        chk(r.n === 10, `[${key}] #3596 CONTROL: the Kosmos+ pane's 10 inputs were found (${theme})`, String(r.n));
         chk(r.badBorder !== r.okBorder, `[${key}] #3596 a field marked .bad still shows the error border (${theme})`, r.badBorder + ' vs ' + r.okBorder);
-        chk(r.wiz === 7 && r.org === 1 && r.n - r.wiz - r.org === 0, `[${key}] #3796 CONTROL: 7 inputs are the wizard's and 1 the company join code (#5531); the enrol flow's went in #4698 (${theme})`, r.wiz + '/' + r.org + '/' + (r.n - r.wiz - r.org));
+        chk(r.wiz === 9 && r.org === 1 && r.n - r.wiz - r.org === 0, `[${key}] #3796 CONTROL: 9 inputs are the wizard's (#5628 added the company sign-in's name and second-step code) and 1 the company join code (#5531); the enrol flow's went in #4698 (${theme})`, r.wiz + '/' + r.org + '/' + (r.n - r.wiz - r.org));
         chk(r.bad.length === 0, `[${key}] #3596/#3796 wizard inputs are light on #16223e (${theme})`, r.bad.join(' | '));
         chk(r.gap >= 8, `[${key}] #3596 a gap separates the email field from "Email me a code" (${theme})`, String(r.gap));
         /* #3841 (plus-rf-3796's review): render-fields cannot measure the wizard on its real ground (the navy
@@ -307,7 +307,7 @@ const visible = (page, sel) => page.evaluate((s) => {
            bar). A restyle that sets any of them to the card's own colour turns this red. */
         const sep = await page.evaluate(WIZ_SEP);
         const low = (xs) => xs.filter((x) => !(x.r >= 1.1)).map((x) => x.id + '=' + (x.r || 0).toFixed(2));
-        chk(sep.fields.length === 7 && low(sep.fields).length === 0, `[${key}] #3841 every wizard field's border separates it from the navy card (${theme})`, sep.fields.length + ' ' + low(sep.fields).join(' '));
+        chk(sep.fields.length === 9 && low(sep.fields).length === 0, `[${key}] #3841 every wizard field's border separates it from the navy card (${theme})`, sep.fields.length + ' ' + low(sep.fields).join(' '));
         chk(sep.sec.length >= 1 && low(sep.sec).length === 0, `[${key}] #3841 the secondary button's stroke separates it from the navy card (${theme})`, sep.sec.map((x) => x.id + '=' + x.r.toFixed(2)).join(' '));
         // The card named seven; addenda 4 and 9 added Start over (timed out) and Done (the landing). Every one counts.
         const named = ['plus-signin-code', 'plus-si-code-go', 'plus-si-second-go', 'plus-si-enrol-totp', 'plus-si-phone-go', 'plus-si-enrol-confirm-go', 'plus-si-register-go'];
@@ -551,7 +551,7 @@ const visible = (page, sel) => page.evaluate((s) => {
             await page.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
             const sep = await page.evaluate(WIZ_SEP);
             const low = (xs, k) => xs.filter((x) => !(x[k] >= 1.1)).map((x) => x.id + '=' + (x[k] || 0).toFixed(2));
-            chk(sep.fields.length === 7 && !low(sep.fields, 'r').length && sep.sec.length >= 1 && !low(sep.sec, 'r').length, `[webkit] #3841 field borders and the secondary stroke separate on the navy card (${theme})`, low(sep.fields, 'r').concat(low(sep.sec, 'r')).join(' '));
+            chk(sep.fields.length === 9 && !low(sep.fields, 'r').length && sep.sec.length >= 1 && !low(sep.sec, 'r').length, `[webkit] #3841 field borders and the secondary stroke separate on the navy card (${theme})`, low(sep.fields, 'r').concat(low(sep.sec, 'r')).join(' '));
             chk(sep.prim.length >= 7 && !low(sep.prim, 'r').length && !low(sep.prim, 'edge').length, `[webkit] #3841 primary faces and edges separate on the navy card (${theme})`, low(sep.prim, 'r').concat(low(sep.prim, 'edge')).join(' '));
           }
           /* #3942 in WebKit too: its monospace runs wider (measured on the web sign-in), so the six

@@ -74,6 +74,18 @@ if (args[0] === 'setup' && args[1] === 'company-start') {
     url: flag('--coordinator').replace(/\\/+$/, '') + '/v1/sso/begin?email=x&device_id=setup-abc', interval: 5, expiresIn: 900 }));
   process.exit(0);
 }
+// kosmos#5651: the second-step text.
+if (args[0] === 'setup' && args[1] === 'company-second') {
+  if (mode.includes('company-old-second')) { process.stderr.write("error: unrecognized subcommand 'company-second'\\n"); process.exit(2); }
+  fs.writeFileSync(${JSON.stringify(RECORD)} + '.stdin', fs.readFileSync(0, 'utf8'));
+  if (mode.includes('slow-company-second')) { const until = Date.now() + 1200; while (Date.now() < until) { /* wait */ } }
+  if (mode.includes('company-second-nojson')) { console.log('ok'); process.exit(0); }
+  if (mode.includes('company-second-off')) { process.stderr.write("Kosmos+ said no (401): your company's sign-in was turned off; sign in with your email code\\n"); process.exit(1); }
+  if (mode.includes('company-second-404')) { process.stderr.write('Kosmos+ said no (404): \\n'); process.exit(1); }
+  if (mode.includes('company-second-401')) { process.stderr.write('Kosmos+ said no (401): that company sign-in is not approved yet, or has expired; start again on the computer\\n'); process.exit(1); }
+  console.log(JSON.stringify({ sent: true, second: 'sms', sentTo: '4567' }));
+  process.exit(0);
+}
 if (args[0] === 'setup' && args[1] === 'company-status') {
   fs.writeFileSync(${JSON.stringify(RECORD)} + '.stdin', fs.readFileSync(0, 'utf8'));
   if (mode.includes('slow-company-status')) { const until = Date.now() + Number(process.env.FAKE_REGISTER_MS || 1200); while (Date.now() < until) { /* wait */ } }
@@ -4120,4 +4132,106 @@ test('kosmos#5628 review 9: another account cannot take over a computer by its n
   const st = await remote.companyStatus();
   assert.deepEqual([st.ready, st.gone], [true, false], 'a finish in progress read as gone');
   await finishing;
+});
+
+test('kosmos#5628 slice 2b-ui reviews 1 and 2: opened only when the opener exits 0, never for a gone setup, not twice at once', async () => {
+  assert.equal((await remote.companyOpen()).ok, false, 'opened with no setup');
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  // A real spawn of a command that exits 0, then one that exits 1, then one that does not exist.
+  remote.setCompanyOpenCommandForTests(['/usr/bin/true']);
+  assert.deepEqual(await remote.companyOpen(), { ok: true, because: null });
+  assert.match((await remote.companyOpen()).because, /just opened/, 'a second open a moment later opened another tab');
+  // Review 4: a NEW setup's page opens at once (the limit is per setup).
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  assert.deepEqual(await remote.companyOpen(), { ok: true, because: null }, 'a new setup was refused as just opened');
+  remote.resetForTests();
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  remote.setCompanyOpenCommandForTests(['/usr/bin/false']);
+  assert.match((await remote.companyOpen()).because, /could not open your browser/, 'a refusing opener was called opened');
+  remote.resetForTests();
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  remote.setCompanyOpenCommandForTests(['/nonexistent/opener-5628']);
+  assert.match((await remote.companyOpen()).because, /could not open your browser/, 'a missing opener was called opened');
+  remote.signinCancel();
+  assert.equal((await remote.companyOpen()).ok, false, 'opened after the setup was dropped');
+  remote.setCompanyOpenCommandForTests(null);
+});
+
+test('kosmos#5651: the second-step text goes through the tunnel with the secret on stdin; an older tunnel is unsupported', async () => {
+  assert.equal((await remote.companySecond()).ok, false, 'asked with no setup');
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  process.env.FAKE_TUNNEL_MODE = 'company-second-sms';
+  const got = await remote.companySecond();
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.deepEqual(got, { ok: true, sent: true, second: 'sms', sentTo: '4567' });
+  const run = recorded().filter((x) => Array.isArray(x) ? x.includes('company-second') : JSON.stringify(x).includes('company-second')).pop();
+  assert.ok(run, 'the tunnel was not asked');
+  assert.ok(!JSON.stringify(run).includes(fs.readFileSync(RECORD + '.stdin', 'utf8').trim()), 'the secret went on argv');
+  // Board review 1: the setup's own secret, exactly (not merely something), went on stdin.
+  assert.equal(fs.readFileSync(RECORD + '.stdin', 'utf8'), 'S3CRET-only-in-the-engine\n', 'the setup secret was not what went on stdin');
+  process.env.FAKE_TUNNEL_MODE = 'company-old-second';
+  const old = await remote.companySecond();
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.deepEqual([old.ok, old.unsupported], [false, true]);
+});
+
+test('kosmos#5651 board review 1: calls at once share one request; an unreadable answer is a failure, not an authenticator', async () => {
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  process.env.FAKE_TUNNEL_MODE = 'company-second-sms';
+  const [a, b] = await Promise.all([remote.companySecond(), remote.companySecond()]);
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.deepEqual(a, b);
+  assert.equal(recorded().filter((x) => JSON.stringify(x).includes('company-second')).length, 1, 'two calls at once ran two requests');
+  process.env.FAKE_TUNNEL_MODE = 'company-second-nojson';
+  const odd = await remote.companySecond();
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.equal(odd.ok, false, 'an answer that could not be read was taken as an authenticator account');
+});
+
+test('kosmos#5651 board review 2: only a bare 404 is an older coordinator; a 401 is the coordinator\'s words', async () => {
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  process.env.FAKE_TUNNEL_MODE = 'company-second-404';
+  const old = await remote.companySecond();
+  process.env.FAKE_TUNNEL_MODE = 'company-second-401';
+  const gone = await remote.companySecond();
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.deepEqual([old.ok, old.unsupported], [false, true], 'a missing route was not called unsupported');
+  assert.equal(gone.unsupported, undefined, 'a refusal was called an older coordinator');
+  assert.match(gone.because, /start again/);
+});
+
+test('kosmos#5651 board review 3: no text is asked for while this computer is finishing (from any tab)', async () => {
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  assert.equal((await remote.companyStatus()).ready, true);
+  process.env.FAKE_TUNNEL_MODE = 'slow-setup';
+  const finishing = remote.companyComplete('ann-mac', null, '123456');
+  await new Promise((r) => setTimeout(r, 200));
+  const t = await remote.companySecond();
+  await finishing;
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.equal(t.ok, false);
+  assert.match(t.because, /finishing/);
+});
+
+test('kosmos#5651 board review 4: no finish while a text is being asked for (from any tab)', async () => {
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  assert.equal((await remote.companyStatus()).ready, true);
+  process.env.FAKE_TUNNEL_MODE = 'company-second-sms slow-company-second';
+  const texting = remote.companySecond();
+  await new Promise((r) => setTimeout(r, 200));
+  const done = await remote.companyComplete('ann-mac', null, '123456');
+  await texting;
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.equal(done.ok, false);
+  assert.match(done.because, /being texted/);
+});
+
+test('kosmos#5651 board review 6: a refusal for a setup that is gone says start again, whatever its words', async () => {
+  assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  process.env.FAKE_TUNNEL_MODE = 'company-second-off company-gone';
+  const t = await remote.companySecond();
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.equal(t.ok, false);
+  assert.equal(t.because, 'that company sign-in has ended; start again on the computer', 'a dead setup was left on the code step');
+  assert.doesNotMatch(t.because, /all the texts|wait \d+ seconds/, 'a gone setup reads like a metered answer');
 });

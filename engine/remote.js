@@ -1384,6 +1384,42 @@ function companyExpired(c) {
 /** Start a company sign-in setup for this email. Answers what the page shows (the code to compare, the address to
     open, how often to ask), never the secret. */
 let companyStartInFlight = null;
+/* kosmos#5628 slice 2b-ui review 1: the company's page is opened by the ENGINE, from the address it already checked
+   (https, the coordinator's own origin), not by the page: in the Mac app a page's window.open after a slow request
+   is blocked as a pop-up, and the page would say "opened" of a page that never opened. */
+function companyOpenCommand(url) {
+  if (companyOpenCommandForTests) return [companyOpenCommandForTests[0], companyOpenCommandForTests.slice(1)];
+  return process.platform === 'win32' ? ['rundll32', ['url.dll,FileProtocolHandler', url]]
+    : process.platform === 'darwin' ? ['/usr/bin/open', [url]] : ['xdg-open', [url]];
+}
+let companyOpenCommandForTests = null;
+/* Review 2: "opened" only when the opener says so: its exit 0. A missing opener (an 'error') or a refusal (a non-zero
+   exit, e.g. no default browser) is a failure the page then words as "use the link". One still running after a few
+   seconds has launched the browser. */
+function runCompanyOpener(url) {
+  return new Promise((resolve) => {
+    const [cmd, args] = companyOpenCommand(url);
+    let done = false;
+    const end = (ok) => { if (!done) { done = true; clearTimeout(t); resolve(ok); } };
+    const t = setTimeout(() => end(true), 5000);
+    let ch;
+    try { ch = spawn(cmd, args, { stdio: 'ignore' }); } catch { end(false); return; }
+    ch.on('error', () => end(false));
+    ch.on('exit', (code) => end(code === 0));
+  });
+}
+let companyOpenedAt = 0;
+async function companyOpen() {
+  const c = companySetup;
+  // Review 2: the setup's own expiry rule (the grace before approval), as status uses.
+  if (!c || !c.url || companyExpired(c)) return { ok: false, because: 'that company sign-in has expired; start again' };
+  // Review 2: a page cannot open a tab a second at a time; the link is there for another.
+  if (Date.now() - companyOpenedAt < 3000) return { ok: false, because: 'your company\'s sign-in was just opened; use the link below' };
+  companyOpenedAt = Date.now();
+  return (await runCompanyOpener(c.url)) ? { ok: true, because: null }
+    : { ok: false, because: 'Kosmos could not open your browser; use the link below' };
+}
+
 async function companyStart(email) {
   if (typeof email !== 'string' || !email.includes('@')) {
     return { ok: false, because: 'that does not look like an email address' };
@@ -1418,7 +1454,9 @@ async function companyStartRun(email) {
   }
   // Review 3: the server's lifetime, kept within sense (a minute to an hour).
   const ttl = Math.min(3600, Math.max(60, Number.isFinite(a.expiresIn) ? a.expiresIn : 900));
-  companySetup = { email, setupId: a.setupId, secret: a.secret, ttl, expiresAt: Date.now() + ttl * 1000 };
+  // Review 2: the address as parsed (and checked by sameOriginHttps above), never the raw string, goes to the opener.
+  companySetup = { email, setupId: a.setupId, secret: a.secret, ttl, expiresAt: Date.now() + ttl * 1000, url: new URL(a.url).href };
+  companyOpenedAt = 0;   // review 4: a new setup's page may open at once (the limit is per setup)
   return { ok: true, because: null, matchCode: a.matchCode.trim(), url: a.url,
     interval: Math.min(60, Math.max(1, Number.isFinite(a.interval) ? a.interval : 5)) };
 }
@@ -1467,9 +1505,53 @@ async function companyStatusRun(c) {
   return { ok: true, ready: a.ready === true, gone: a.gone === true, retry: a.retry === true };
 }
 
+/* kosmos#5651: an approved setup asks for its account's second-step text before finishing. Answers
+   { ok, sent, second, sentTo } (sent:false for an authenticator account or one with no second step), or a refusal in
+   the coordinator's words. An older tunnel or coordinator answers unsupported, and the page keeps its old words. */
+let companySecondInFlight = null;   // board review 1: { c, run } so calls at once share one request (one text)
+function companySecond() {
+  const c = companySetup;
+  if (companyExpired(c)) {
+    if (companySetup === c) companySetup = null;   // board review 2: as companyComplete does
+    return Promise.resolve({ ok: false, because: 'that company sign-in has expired; start again' });
+  }
+  // Board review 3: never beside a finish (a new code could replace the one being checked), from any tab.
+  if (companyFinishing === c) return Promise.resolve({ ok: false, because: 'this computer is finishing its setup; wait a moment' });
+  if (companySecondInFlight && companySecondInFlight.c === c) return companySecondInFlight.run;
+  const run = companySecondRun(c).finally(() => { if (companySecondInFlight && companySecondInFlight.run === run) companySecondInFlight = null; });
+  companySecondInFlight = { c, run };
+  return run;
+}
+async function companySecondRun(c) {
+  const r = await setupRun(['setup', 'company-second', '--coordinator', COORDINATOR(), '--setup-id', c.setupId], c.secret + '\n', retireTimeoutMs());
+  // Board review 1: unsupported only when the tunnel does not know the verb, or the coordinator has no such route
+  // (a bare 404; a setup that is gone answers 401 in words).
+  if (olderTunnel(r) || (!r.ok && /\(404\)/.test(String(r.because || '')))) return { ok: false, unsupported: true, because: null };
+  if (!r.ok) {
+    // Board review 6: whether this setup can still finish is the SERVER's answer (some refusals for a dead setup do not
+    // say "start again"): ask once, and a gone setup is said so the page returns to the email step.
+    // Review 7: not after a timeout (it says nothing about the setup, and a second wait would outlast the page's); a
+    // gone setup gets one plain sentence, never one that reads like the metered "all the texts ... start again".
+    if (companySetup === c && !r.timedOut) {
+      const st = await companyStatusRun(c);
+      if (st.gone) return { ok: false, because: 'that company sign-in has ended; start again on the computer' };
+    }
+    return { ok: false, because: r.because };
+  }
+  const got = lastJsonLine(r.said);
+  const a = got && got.value;
+  // Board review 1: an answer we cannot read is a failure, never "an authenticator account".
+  if (!a || typeof a.sent !== 'boolean') return { ok: false, because: 'Kosmos+ answered in a way this version cannot read; try again' };
+  if (a.retry === true) return { ok: false, because: 'the sign-in service is busy; wait a few seconds and try again' };
+  return { ok: true, sent: a.sent, second: typeof a.second === 'string' ? a.second : null,
+    sentTo: typeof a.sentTo === 'string' ? a.sentTo : null };
+}
+
 /** Finish the approved setup: this computer gets its identity and its name, as the code setup does. */
 async function companyComplete(name, acceptTerms, second) {
   { const b = busy(); if (b) return b; }
+  // Board review 4: never beside a text request for this setup (its new code could replace the one being checked).
+  if (companySecondInFlight && companySecondInFlight.c === companySetup) return { ok: false, because: 'a code is being texted; wait a moment, then finish' };
   const c = companySetup;
   if (companyExpired(c)) {
     if (companySetup === c) companySetup = null;
@@ -2769,6 +2851,8 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
   companyStart,
   companyStatus,
   companyComplete,
+  companySecond,
+  companyOpen,
   signinStart,
   signinVerify,
   signinSecond,
@@ -2814,9 +2898,10 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
   cancelledAfterForTests: cancelledAfter,   // kosmos#4743: tests only
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
-  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
+  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   setManagedReaderForTests: (fn) => { managedReader = fn; managedCache = null; },
+  setCompanyOpenCommandForTests: (argv) => { companyOpenCommandForTests = argv || null; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */
   bundledConnector,
   /* test seam: the live child's pid, or null. spawn() sets the handle
