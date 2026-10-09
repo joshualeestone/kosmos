@@ -116,6 +116,10 @@ jobs:
           HEAD_REF: ${{ github.head_ref }}
           BASE_REF: ${{ github.base_ref }}
           CI_RUNNER: ${{ vars.KOSMOS_CI_RUNNER }}
+          # #4601: leave KOSMOS_CI_SHELL_SHARDS UNSET until (1) a second self-hosted runner carries the kosmos-ci
+          # label (one Mac cannot carry a shard at peak: numbers on #4601), and (2) someone has read what each shell
+          # shard command touches outside its temp folder (some sweep processes by pattern, some touch launchd) and
+          # confirmed the CI user is not the machine owner's user. Two mini-only shell 2/2 failures are unexplained.
           CI_SHELL_SHARDS: ${{ vars.KOSMOS_CI_SHELL_SHARDS }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           THIS_REPO: ${{ github.repository }}
