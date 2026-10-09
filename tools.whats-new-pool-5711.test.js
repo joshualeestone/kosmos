@@ -98,7 +98,9 @@ test('#5711: the real pool builds a window the cut accepts, without the held con
   if (chosen.length) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wnpool-real-'));
     try {
-      const next = '0.' + (Number(pool.lastProd.split('.')[1])) + '.' + (Number(pool.lastProd.split('.')[2]) + 1);
+      assert.match(String(pool.lastProd), /^\d+\.\d+\.\d+$/, 'the real pool records lastProd');
+      const [ma, mi, pa] = pool.lastProd.split('.').map(Number);
+      const next = ma + '.' + mi + '.' + (pa + 1);
       assert.equal(quiet(() => tool.main(['build', next, `--out=${path.join(dir, 'wn.json')}`])), 0, next);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
@@ -115,7 +117,11 @@ test('#5711 review 6: --from-history takes the NEWEST commit naming the version,
   };
   try {
     git('init', '-q');
-    put('0.7.1', 'First wording'); put('0.7.1', 'Fixed wording'); put('0.7.2', 'Next');
+    put('0.7.1', 'First wording');
+    const frozen = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    put('0.7.1', 'Fixed wording'); put('0.7.2', 'Next');
+    // --ref: the wording at the cut's frozen sha, not main's later fix.
+    assert.equal(tool.fromHistory('0.7.1', dir, frozen).highlights[0].title, 'First wording');
     assert.equal(tool.fromHistory('0.7.1', dir).highlights[0].title, 'Fixed wording', 'the newest commit for 0.7.1, not the first');
     assert.equal(tool.fromHistory('0.7.2', dir).highlights[0].title, 'Next');
     assert.equal(tool.fromHistory('0.7.9', dir), null, 'CONTROL: a version never committed');
@@ -212,4 +218,17 @@ test('#5711 review 4: versions compare as numbers (0.7.10 is newer than 0.7.9)',
   const t = tmp({ lastProd: '0.7.9', items: [item('A', 1, 'pending')] });
   try { assert.equal(quiet(() => tool.main(['build', '0.7.10', `--pool=${t.file}`, `--out=${t.out}`])), 0); }
   finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
+});
+
+test('#5711 review 7: --from with --from-history, or --ref without it, is refused and marks nothing', () => {
+  const t = tmp({ lastProd: '0.7.35', items: [item('A', 1, 'pending')] });
+  try {
+    const shown = path.join(t.dir, 'shown.json');
+    fs.writeFileSync(shown, JSON.stringify({ version: '0.7.36', highlights: [{ icon: 'tasks', title: 'A', line: 'x' }] }));
+    const before = fs.readFileSync(t.file, 'utf8');
+    assert.equal(quiet(() => tool.main(['shown', '0.7.36', '--promoted', `--pool=${t.file}`, `--from=${shown}`, '--from-history'])), 2);
+    assert.equal(quiet(() => tool.main(['shown', '0.7.36', '--promoted', `--pool=${t.file}`, `--from=${shown}`, '--ref=HEAD'])), 2);
+    assert.equal(fs.readFileSync(t.file, 'utf8'), before, 'nothing marked');
+    assert.equal(quiet(() => tool.main(['shown', '0.7.36', '--promoted', `--pool=${t.file}`, `--from=${shown}`])), 0, 'CONTROL');
+  } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
 });
