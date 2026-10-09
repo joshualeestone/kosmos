@@ -230,6 +230,10 @@ function pathClass(p0, ctx) {
      and the agent's own folder and the other agents' are classed first. */
   const agentIn = (root) => !!root && !!ctx.agentDir && (() => { const a = fold(ctx.agentDir); const r = fold(root); return a === r || a.startsWith(r.endsWith(path.sep) ? r : r + path.sep); })();
   const board = [ctx.boardRoot, ...(ctx.boardRoots || [])].filter((r) => r && !agentIn(r));
+  /* A board root INSIDE the agent's folder (an agent connected at the home folder or ~/Library, review 28) is the board's
+     files, checked before the agent's own folder. */
+  const inAgent = board.filter((r) => !!ctx.agentDir && (() => { const a = fold(ctx.agentDir); const q = fold(r); return q.startsWith(a.endsWith(path.sep) ? a : a + path.sep); })());
+  if (inAgent.some(under)) return 'board-files';
   if (under(ctx.agentDir)) {
     const rest = path.relative(fold(ctx.agentDir), fold(p)).split(path.sep);   // folded too (review 9)
     /* The agent's own config: its .claude folder and the instruction and tool files Claude Code reads from its folder
@@ -444,7 +448,7 @@ async function tick(opts) {
     if (st.withdrawn) st.enrolledAs = null;
     if (st.enrolledAs !== enrolledAs) {
       const sameEnrollment = typeof st.enrolledAs === 'string' && st.enrolledAs.split('|').slice(0, 3).join('|') === enrolledAs.split('|').slice(0, 3).join('|');
-      st = { offsets: {}, pending: [], listed: {}, confirmed: {}, enrolledAs, since: sameEnrollment || st.withdrawn ? now : joinedAt, failAt: null };
+      st = { offsets: {}, pending: [], listed: {}, confirmed: {}, withdrawn: false, collided: [], sendMax: null, enrolledAs, since: sameEnrollment || st.withdrawn ? now : joinedAt, failAt: null };
     }
     const sinceMs = Math.max(joinedAt, st.since || joinedAt);
     const sinceS = Math.floor(sinceMs / 1000);   // whole seconds, for the file-skipping rules
@@ -456,7 +460,8 @@ async function tick(opts) {
        an agent that is NOT token-only would carry that agent's refusals, by the PERSON's own rules, to the company: it
        is not read at all (fail closed), and neither is anything when the agent list cannot be read. */
     const collidedNow = new Set();
-    const gapNow = new Set();   // review 24: guarded now, but unconfirmed for longer than GUARD_GAP_MS
+    const gapNow = new Set();
+    const clashNow = new Set();   // review 28: agents that collide THIS tick (a gap must not erase that mark)   // review 24: guarded now, but unconfirmed for longer than GUARD_GAP_MS
     const launchCache = new Map();   // review 17: one launch-path scan per tick, shared by every agent's guard check
     /* Required (review 12: an absent check read as "no clash"). */
     if (typeof src.everyAgent !== 'function' || typeof src.transcriptDirsOf !== 'function' || typeof src.guarded !== 'function') return { sent: 0, because: 'the agent list cannot be checked; nothing changed' };
@@ -464,7 +469,10 @@ async function tick(opts) {
       const every = src.everyAgent();
       if (!Array.isArray(every)) return { sent: 0, because: 'the agent list could not be read; nothing changed' };
       /* A folder whose transcript location cannot be worked out cannot be compared (review 21): nothing is read. */
-      const flat = (d) => new Set(src.transcriptDirsOf(d));
+      /* Case-blind on a Mac (review 28: Orch.Main and orch_main flatten to project folders that differ only in case,
+         which are one folder on a case-blind volume). */
+      const foldP = (x) => (process.platform === 'darwin' ? String(x).toLowerCase() : String(x));
+      const flat = (d) => new Set(src.transcriptDirsOf(d).map(foldP));
       try { [...dirs.values()].filter(Boolean).forEach(flat); } catch (e) {
         console.error('agentevents: a transcript folder could not be worked out; nothing read (' + String((e && e.message) || e) + ')');
         return { sent: 0, because: 'a transcript folder could not be worked out; nothing changed' };
@@ -499,7 +507,7 @@ async function tick(opts) {
         const mine = flat(d);
         if (others.some((o) => [...o].some((x) => mine.has(x)))) {
           dirs.delete(n);
-          collidedNow.add(n);
+          collidedNow.add(n); clashNow.add(n);
           console.error('agentevents: ' + n + ' shares its transcript folder with an agent not under the company\'s rules; not read');
         }
       }
@@ -513,7 +521,7 @@ async function tick(opts) {
        agent's, so its files start at their end, as an agent first listed this tick. Recorded while it collides. */
     const before = new Set(Array.isArray(st.collided) ? st.collided : []);
     for (const n of names) if (before.has(n) && !collidedNow.has(n)) st.listed[n] = now;
-    for (const n of gapNow) { st.listed[n] = now; collidedNow.delete(n); }   // read again from now on
+    for (const n of gapNow) { st.listed[n] = now; if (!clashNow.has(n)) collidedNow.delete(n); }   // read again from now on
     st.collided = [...collidedNow];
     for (const n of names) if (!Number.isFinite(st.listed[n])) st.listed[n] = now;
     for (const n of Object.keys(st.listed)) if (!names.includes(n)) delete st.listed[n];   // off the list: starts again

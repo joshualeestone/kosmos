@@ -935,3 +935,34 @@ test('#5683 r26: one missed tick does not trip the guard gap; a bare relative gl
   assert.ok(refs.includes('kept'), 'missed ticks inside the gap reset the agent and lost a refusal');
 });
 
+/* ---- review 28 ---- */
+
+test('#5683 r28: a board root inside an agent folder at the home folder is still the board\'s', () => {
+  const c = ctx({ agentDir: '/Users/ann', boardRoot: '/Users/ann/Library/Application Support/Kosmos' });
+  assert.equal(ae.targetClass('Read', { file_path: '/Users/ann/Library/Application Support/Kosmos/board.token' }, c), 'board-files');
+  assert.equal(ae.targetClass('Read', { file_path: '/Users/ann/notes.txt' }, c), 'other');
+});
+
+test('#5683 r28: transcript folders that differ only in case collide on a Mac', { skip: process.platform !== 'darwin' }, async (t) => {
+  const { s, c } = await enrolled(t);
+  const read = [];
+  const src = { agents: () => ['Orch.Main'], everyAgent: () => ['Orch.Main', 'orch_main'], guarded: () => true,
+    dirOf: (n) => '/w/' + n, transcriptDirsOf: (d) => ['/p/' + d.replace(/[^A-Za-z0-9/]/g, '-')],
+    transcripts: async (d) => { read.push(d); return []; } };
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: src, now: Date.now() });
+  assert.deepEqual(read, [], 'a folder shared through case was read');
+});
+
+test('#5683 r28: a guard gap and a collision in one tick keep the collision', async (t) => {
+  const { s, c } = await enrolled(t);
+  const T0 = Date.now();
+  let every = ['A'];
+  const src = { agents: () => ['A'], everyAgent: () => every, guarded: () => true, dirOf: (n) => '/w/' + n,
+    transcriptDirsOf: (d) => ['/p/shared'], transcripts: async () => [] };
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: src, now: T0 });
+  every = ['A', 'B'];   // B, not token-only, shares A's folder, in the same tick the gap fires
+  await ae.tick({ platform: 'darwin', root: s.root, remote: c, sources: src, now: T0 + 45 * 60e3 });
+  const st = JSON.parse(fs.readFileSync(path.join(s.root, 'agent-events.json'), 'utf8'));
+  assert.ok(st.collided.includes('A'), 'the gap erased the collision mark');
+});
+
