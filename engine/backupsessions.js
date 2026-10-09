@@ -13,12 +13,20 @@
  *                So Codex gives FILES, not a folder: a snapshot root would carry every other agent's sessions.
  *
  * Only session folders and session files are returned, never a provider's whole folder: those hold sign-ins
- * (.credentials.json, oauth_creds.json, auth.json) beside the sessions.
+ * (.credentials.json, oauth_creds.json, auth.json) beside the sessions. A session folder whose real path is outside its
+ * provider's folder (a symlink to ~ or to another agent's folder) is not returned.
+ *
+ * One limit, the provider's own: Claude's flattening is many-to-one (`workers/a-b`, `workers/a.b` and `workers/a/b` share
+ * one projects folder), so "only this agent's" holds while no two agents' folders differ only in punctuation; the caller
+ * must not back up two agents whose folders flatten alike. A name Claude Code shortens (a very long folder) is not found,
+ * as engine/status.js does not find it either.
  *
  * sessionsFor(agentDir, { id, claudeRoots, geminiHome, codexHome }) -> { roots, codexFiles }
  *   id           the agent's stored name: lowercase letters, digits and hyphens (the caller derives it)
  *   claudeRoots  Claude config folders to look in (the agent's own account first); geminiHome, codexHome likewise
- *   roots        [{ name: 'sessions/<id>/claude' | 'sessions/<id>/gemini', path }] for the snapshot's roots
+ *   roots        [{ name, path, optional: true }] for the snapshot's roots: `sessions/<id>/claude` (the first config root,
+ *                as the folder is on disk), `-raw` when only the spelling as given exists, `-<n>` for the n-th config
+ *                root; `sessions/<id>/gemini`. Optional: a provider may remove its folder before the snapshot walks it.
  *   codexFiles   absolute paths of this agent's Codex rollouts
  * Reads only folder listings, projects.json and each rollout's first line. Never throws: a provider it cannot read
  * contributes nothing.
@@ -31,20 +39,31 @@ const codexsession = require('./codexsession');
 const ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const flatten = (p) => String(p).replace(/[^A-Za-z0-9]/g, '-');   // engine/status.js's rule for a Claude project folder
 const isDir = (p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
+// p's real path, if it is a folder inside within's real path (never the same folder); else null.
+function realInside(p, within) {
+  try {
+    const rp = fs.realpathSync(p), rw = fs.realpathSync(within);
+    const rel = path.relative(rw, rp);
+    return isDir(rp) && rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rp : null;
+  } catch { return null; }
+}
 const idOf = (p) => { try { const st = fs.statSync(p, { bigint: true }); return `${st.dev}:${st.ino}`; } catch { return null; } };
 
 function claudeFolders(agentDir, claudeRoots) {
   const canon = trust.canonicalOnDisk(agentDir);
-  const flats = [...new Set([flatten(canon), flatten(agentDir)])];
+  const spellings = [['', flatten(canon)], ['-raw', flatten(agentDir)]];
   const out = [], seen = new Set();
-  for (const root of Array.isArray(claudeRoots) ? claudeRoots : []) {
-    if (typeof root !== 'string' || !path.isAbsolute(root)) continue;
-    for (const flat of flats) {
+  (Array.isArray(claudeRoots) ? claudeRoots : []).forEach((root, i) => {
+    if (typeof root !== 'string' || !path.isAbsolute(root)) return;
+    for (const [tag, flat] of spellings) {
       const p = path.join(root, 'projects', flat);
-      const id = isDir(p) ? idOf(p) : null;
-      if (id && !seen.has(id)) { seen.add(id); out.push(p); }
+      const real = realInside(p, root);
+      const id = real ? idOf(real) : null;
+      // The name comes from WHICH root and WHICH spelling, never from how many were found, so one transcript keeps one
+      // stored path from snapshot to snapshot.
+      if (id && !seen.has(id)) { seen.add(id); out.push({ suffix: `${i ? `-${i + 1}` : ''}${tag}`, path: p }); }
     }
-  }
+  });
   return out;
 }
 
@@ -59,7 +78,7 @@ function geminiFolder(agentDir, geminiHome) {
     // The slug becomes a folder name under tmp/: one plain segment only, never a path out of it.
     if (typeof slug !== 'string' || !slug || slug === '.' || slug === '..' || /[\\/\0]/.test(slug)) return null;
     const p = path.join(geminiHome, 'tmp', slug, 'chats');
-    return isDir(p) ? p : null;
+    return realInside(p, path.join(geminiHome, 'tmp')) ? p : null;
   }
   return null;
 }
@@ -79,9 +98,9 @@ function sessionsFor(agentDir, opts) {
   const o = opts || {};
   if (typeof agentDir !== 'string' || !path.isAbsolute(agentDir) || typeof o.id !== 'string' || !ID.test(o.id)) return { roots: [], codexFiles: [] };
   const roots = [];
-  claudeFolders(agentDir, o.claudeRoots).forEach((p, i) => roots.push({ name: `sessions/${o.id}/claude${i ? `-${i + 1}` : ''}`, path: p }));
+  for (const c of claudeFolders(agentDir, o.claudeRoots)) roots.push({ name: `sessions/${o.id}/claude${c.suffix}`, path: c.path, optional: true });
   const g = geminiFolder(agentDir, o.geminiHome);
-  if (g) roots.push({ name: `sessions/${o.id}/gemini`, path: g });
+  if (g) roots.push({ name: `sessions/${o.id}/gemini`, path: g, optional: true });
   return { roots, codexFiles: codexRollouts(agentDir, o.codexHome) };
 }
 

@@ -1334,6 +1334,52 @@ test('#5686 review 4: a single root is judged as before, whatever folders its re
   } finally { fs.rmSync(base, { recursive: true, force: true }); }
 });
 
+test('#5686 review 6: an optional root that is gone is recorded and left out; a required one fails the snapshot', async () => {
+  const w = threeRoots(), k = keys();
+  try {
+    const gone = path.join(w.base, 'gone');
+    const st = store();
+    const r = await takeRoots(k, [{ name: 'data', path: w.roots.data }, { name: 'sessions/a/claude', path: gone, optional: true }], st);
+    assert.equal(r.ok, true, r.because);
+    const { opened, sink } = await restoreFrom(k, st, st.manifests[0].bytes);
+    assert.ok(sink.committed.has('data/messages.jsonl'));
+    assert.ok(opened.skipped.some((x) => x.path === 'sessions/a/claude' && /could not be read/.test(x.why)), JSON.stringify(opened.skipped));
+    // CONTROL: the same root, not optional, fails before anything is uploaded.
+    const st2 = store();
+    const r2 = await takeRoots(k, [{ name: 'data', path: w.roots.data }, { name: 'sessions/a/claude', path: gone }], st2);
+    assert.equal(r2.ok, false);
+    assert.match(r2.because, /could not be read/);
+    assert.equal(st2.batches.length + st2.manifests.length, 0);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('#5686 review 6: a path restore would refuse only once the root name is in front is skipped, never stored', async () => {
+  // A path inside its root just under restore's 4096-character cap, past it with the root's name in front. No Mac path
+  // is that long (PATH_MAX 1024), so the folders are a fake fs: 20 folders of 200 characters and a file.
+  const w = threeRoots(), k = keys(), st = store();
+  try {
+    const realFs = require('fs');
+    const root = w.roots.projects;
+    const dir = 'd'.repeat(200), file = 'f'.repeat(69);
+    const rootSt = realFs.lstatSync(root, { bigint: true });
+    const depthOf = (p) => (p === root ? 0 : path.relative(root, p).split(path.sep).length);
+    const fake = (kind, n) => ({ dev: rootSt.dev, ino: 1000n + BigInt(n), nlink: 1n, size: 10n,
+      isDirectory: () => kind === 'd', isFile: () => kind === 'f', isSymbolicLink: () => false });
+    const fakeFs = Object.assign({}, realFs, {
+      readdirSync: (p, ...a) => { if (!p.startsWith(root)) return realFs.readdirSync(p, ...a); const d = depthOf(p); return d < 20 ? [dir] : [file]; },
+      lstatSync: (p, ...a) => { if (!p.startsWith(root) || p === root) return realFs.lstatSync(p, ...a); const d = depthOf(p); return d <= 20 ? fake('d', d) : fake('f', d); },
+    });
+    fakeFs.realpathSync = realFs.realpathSync; fakeFs.statSync = realFs.statSync; fakeFs.constants = realFs.constants;
+    const rel = Array(20).fill(dir).join('/') + '/' + file;
+    assert.ok(rel.length <= 4096 && ('projects/' + rel).length > 4096, `inside ${rel.length}, stored ${('projects/' + rel).length}`);
+    const r = await takeRoots(k, [{ name: 'data', path: w.roots.data }, { name: 'projects', path: root }], st, { fs: fakeFs });
+    assert.equal(r.ok, true, r.because);
+    const opened = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+    assert.ok(!opened.files.some((f) => f.path.startsWith('projects/')), 'never stored');
+    assert.ok(opened.skipped.some((x) => x.path.startsWith('projects/ddd') && /restore would refuse/.test(x.why)), 'skipped, with the reason');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
 test('#5686: a file is read from its own root (a same-named file in another root is never read in its place)', async () => {
   const w = threeRoots(), k = keys(), st = store();
   try {

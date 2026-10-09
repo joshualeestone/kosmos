@@ -310,7 +310,7 @@ function rootsOf(input) {
   // So the files (and the manifest) come out in one order, sorted by stored path, whatever order the caller lists them in.
   // Sorted by name + '/', which is the order of the stored paths they start (by name alone, `data-old` would follow
   // `data`, while `data-old/x` sorts before `data/x`).
-  return input.roots.map((r) => ({ name: r.name, path: r.path, exclude: r.exclude })).sort((x, y) => { const a = x.name + '/', b = y.name + '/'; return a < b ? -1 : a > b ? 1 : 0; });
+  return input.roots.map((r) => ({ name: r.name, path: r.path, exclude: r.exclude, optional: r.optional === true })).sort((x, y) => { const a = x.name + '/', b = y.name + '/'; return a < b ? -1 : a > b ? 1 : 0; });
 }
 
 /* The last folders of a named root's real path, as a prefix ('Users/me/.claude/'): enough for every deny rule anchored
@@ -327,13 +327,21 @@ function nearOf(real) {
    path is prefixed with the root's name. A root inside another (by folder identity) is refused: its files would be stored
    twice. The file and skipped limits count every root together. Returns the merged listing, or why not (a sentence). */
 async function listRoots(roots, fs) {
-  const reals = [], ids = [];
+  const reals = [], ids = [], gone = [];
+  const kept = [];
   for (const r of roots) {
     try {
       const real = fs.realpathSync(r.path), st = fs.statSync(real, { bigint: true });
-      reals.push(real); ids.push(`${st.dev}:${st.ino}`);
-    } catch { return r.name ? `the root ${r.name} could not be read` : 'the work Kosmos folder could not be read'; }
+      if (!st.isDirectory()) throw new Error('not a folder');
+      reals.push(real); ids.push(`${st.dev}:${st.ino}`); kept.push(r);
+    } catch {
+      // An optional root (a provider's session folder, which the provider can remove at any time) is recorded and left
+      // out; any other root missing fails the snapshot, so a world's data is never silently absent.
+      if (r.optional) { gone.push({ path: r.name, why: 'a folder that could not be read' }); continue; }
+      return r.name ? `the root ${r.name} could not be read` : 'the work Kosmos folder could not be read';
+    }
   }
+  roots = kept;
   // A root inside another is found by the folders' identity, not their spelling: a real path keeps the case it was
   // given (on a case-insensitive volume /USERS/x and /Users/x are one folder) and a firmlink gives one folder two paths.
   // So every folder from each root up to the volume's top is compared, by device and inode, with every other root.
@@ -349,7 +357,7 @@ async function listRoots(roots, fs) {
       at = up;
     }
   }
-  const out = { files: [], skipped: [], skippedExtra: 0, over: false };
+  const out = { files: [], skipped: gone.slice(0, MAX_SKIPPED), skippedExtra: Math.max(0, gone.length - MAX_SKIPPED), over: false };
   const pre = (name, p) => (!name ? p : p === '.' ? name : `${name}/${p}`);
   for (let i = 0; i < roots.length && !out.over; i++) {
     const got = await listFiles(reals[i], fs, { exclude: roots[i].exclude, maxFiles: MAX_FILES - out.files.length, maxSkipped: Math.max(0, MAX_SKIPPED - out.skipped.length) });
@@ -440,9 +448,10 @@ function upperBound(f, maxFile) {
  *   input: { root | roots, memberPk, namingKey, namingKeyId, deviceKey, ctx, index?, bucket?, exclude? }
  *     exclude      folders to leave out, as '/'-separated paths relative to root (each named once in skipped)
  *     root         the work Kosmos folder (absolute)
- *     roots        instead of root (and exclude): [{ name, path, exclude? }], several folders, each stored under its
+ *     roots        instead of root (and exclude): [{ name, path, exclude?, optional? }], several folders, each stored under its
  *                  name (lowercase letters, digits, hyphens; up to four parts joined by '/'; none inside another, by
- *                  name or by real path). See rootsOf.
+ *                  name or by real path). An optional root that cannot be read is recorded in skipped, not a
+ *                  failure (a provider's session folder may be gone by the walk). See rootsOf.
  *     memberPk     the member's backup public key (32 bytes), namingKey this period's naming key (32 bytes) and
  *                  namingKeyId its id (backupkeys namingKeyId), deviceKey the device's Ed25519 private KeyObject
  *     ctx          the manifest context { org, member, epoch, period, snapshot }; period must be periodOf(now)
