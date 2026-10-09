@@ -28,6 +28,8 @@
  *          returned (an id such as `aux` or `secrets` would otherwise fail the whole world's snapshot)
  *   names  `sessions/<id>/claude` (the first config root, the folder as on disk), `-raw` (as given), `-<n>` (the n-th
  *          config root); `sessions/<id>/gemini`; `sessions/<id>/codex`
+ *          The `-<n>` comes from the position in claudeRoots, so the caller must pass them in a FIXED order (status.js
+ *          configRoots' readdir order is not one): sort them by folder name, or names change between snapshots.
  * Reads folder listings, projects.json and the head of each session file. Never throws: a provider it cannot read
  * contributes nothing.
  */
