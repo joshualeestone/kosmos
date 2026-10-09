@@ -123,7 +123,9 @@ test('#5711 review 3: an unknown or malformed option is refused, never silently 
   const t = tmp({ items: [item('A', 1, 'pending')] });
   try {
     assert.equal(quiet(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`, '--max', '4'])), 2);
-    assert.equal(quiet(() => tool.main(['build', '0.7.36', `--pool=${t.file}`, `--outt=${t.out}`])), 2);
+    // A misspelt --pool, with a real --out: if the guard ever breaks, the build falls back to the real pool but still
+    // writes only to the temp file (never to web/whats-new.json).
+    assert.equal(quiet(() => tool.main(['build', '0.7.36', `--poool=${t.file}`, `--out=${t.out}`])), 2);
     assert.equal(fs.existsSync(t.out), false);
   } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
 });
