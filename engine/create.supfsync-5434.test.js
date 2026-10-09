@@ -86,3 +86,18 @@ test('#5434: a failed flush of the engine-path pointer does not refuse the insta
   assert.equal(out.ok, true, 'a best-effort pointer refused the install');
   assert.deepEqual(fs.readdirSync(bin).filter((n) => n.endsWith('.new')), [], 'the pointer\'s staging file was left');
 });
+
+test('#5434: a failed flush of ANY staged copy refuses the install and leaves no staging file (review 2)', () => {
+  assert.equal(create.installSupervisor().ok, true, 'setup');
+  const bin = path.dirname(create.supervisorPath());
+  const dests = fs.readdirSync(bin).filter((n) => n !== 'engine-path' && !n.endsWith('.new')).map((n) => path.join(bin, n));
+  assert.equal(dests.length, 5, 'expected the supervisor and four bridges: ' + dests.map((d) => path.basename(d)));
+  for (const dest of dests) {
+    assert.equal(create.installSupervisor().ok, true, 'setup');
+    const isStaging = (p) => p === `${dest}.${process.pid}.new`;
+    const { events, out } = recording(() => create.installSupervisor(), isStaging);
+    assert.ok(events.some((e) => e[0] === 'fsync' && isStaging(e[1] || '')), path.basename(dest) + ': never flushed, so this tests nothing');
+    assert.equal(out.ok, false, path.basename(dest) + ': an install whose flush failed was reported as done');
+    assert.deepEqual(fs.readdirSync(path.dirname(dest)).filter((n) => n.endsWith('.new')), [], path.basename(dest) + ': a staging file was left');
+  }
+});
