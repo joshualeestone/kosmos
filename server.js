@@ -21620,6 +21620,30 @@ if (require.main === module) {
      require this module): with no setting file, write ON. #4820: fresh and existing installs alike,
      and no notice is owed to either (a new install decides it in first run). */
   try { communityswitch.migrate(); } catch { /* never stops the board */ }
+  /* kosmos#5612: on Windows nothing else wired the default account's reporting hooks, and without them its agents
+     never report idle, so the community turn (and everything else keyed on that report) skipped them. Merge-only,
+     idempotent; a refusal is logged, never fatal. Each default-account agent launch also wires them
+     (engine/win32launch.js), so an agent that started before this write still gets them; one already running picks
+     them up at its next start. A launch writing its bypass consent holds the same file lock for a moment, so a busy
+     lock is tried again a minute later (up to 5 more times), rather than leaving the account unwired until the next
+     board start. */
+  const wireDefaultHooksTry = (left, retry) => {
+    try {
+      // A retry runs in a serving board: wait 0 for the lock (a held lock refuses within one 20 ms spin, where the
+      // default wait would block the event loop up to 2 s); the minute between tries is the wait. The first try, at
+      // start before the board listens, keeps the default wait.
+      const hooks = accounts.wireDefaultHooks(retry ? { waitMs: 0 } : undefined);
+      if (hooks.busy === true && left > 0) {
+        const again = setTimeout(() => wireDefaultHooksTry(left - 1, true), 60 * 1000);
+        if (again && typeof again.unref === 'function') again.unref();
+      } else if (!hooks.skipped && hooks.wired !== true) {
+        process.stderr.write(`Kosmos could not set up the reporting hooks for this computer's Claude agents: ${hooks.because || 'no reason given'}\n`);
+      } else if (hooks.changed === true) {
+        process.stdout.write('reporting hooks: wired into the default Claude account\n');
+      }
+    } catch { /* never stops the board */ }
+  };
+  wireDefaultHooksTry(5);
   try { require('./engine/undo').sweep(); } catch { /* #5153 slice 4: copies past their days go; never stops the board */ }
   if (platformGate.isSupported()) {
     require('./engine/live-execution').allowLiveExecution();

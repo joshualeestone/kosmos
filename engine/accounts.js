@@ -475,6 +475,50 @@ function prepare(label) {
 }
 
 /**
+ * kosmos#5612: the DEFAULT account's reporting hooks, on Windows. On a Mac install/setup.sh wires them into every
+ * account folder, and prepare() above wires an added one; nothing on Windows ever wired the default folder, so a
+ * Windows agent on the default account never reported working or idle, and everything keyed on that report skipped
+ * it (the community turn first: "no idle report is not idle enough"). Two callers: the board at its start (server.js,
+ * retrying a busy lock), and each default-account agent launch (engine/win32launch.js preacceptClaudeFirstRun, just
+ * before the agent's Claude reads the file), because on Windows the board and the supervisors start in no order.
+ * Merge-only and fail-soft (ensureWired's posture): idempotent, never clobbers a hook somebody else set, and a refusal
+ * is returned, never thrown. Anywhere else it does nothing, because setup.sh owns the Mac. Note: the person's own
+ * Claude Code sessions read this file too, so they run the hook as well, as they always have on a Mac (#561).
+ *   { wired, changed?, because?, skipped, busy? }   busy: the lock was held, so the caller may try again soon
+ * `platform`, `script`, `node` are injectable for tests. `waitMs` is withFileLock's wait for a held lock (its default
+ * when absent); a caller that retries on its own passes 0 (a held lock then refuses within one 20 ms spin), since
+ * withFileLock's wait blocks the event loop.
+ */
+function wireDefaultHooks(opts) {
+  const o = opts || {};
+  const plat = o.platform || process.platform;
+  if (plat !== 'win32') return { wired: false, skipped: true, because: 'setup.sh wires the hooks on this platform' };
+  try {
+    /* The SAME file and the same <target>.lock as trust.preacceptBypass (#3088): each Windows agent launch writes its
+       bypass consent into this file (win32launch preacceptClaudeFirstRun), and two unlocked read-modify-writes would
+       drop one change. Required here, not at the top, so loading accounts.js never loads trust.js. */
+    const settings = require('./trust').defaultAgentSettings();
+    const script = o.script !== undefined ? o.script : reporthook.hookScriptPath(plat);
+    if (!script) return { wired: false, skipped: false, because: 'the reporting hook script is not on this machine' };
+    fs.mkdirSync(path.dirname(settings), { recursive: true });
+    const BUSY = 'another writer held the settings file';
+    const locked = require('./filelock').withFileLock(settings,
+      () => reporthook.ensureWired(settings, script, { platform: plat, node: o.node }),
+      { busy: BUSY, cannotAccess: 'the settings folder refused the lock file, so the hooks were not written', waitMs: o.waitMs });
+    if (!locked || locked.ok !== true) {
+      // Only a held lock is worth trying again; a folder that refuses the lock file will refuse it next time too.
+      // withFileLock returns opts.busy verbatim for a held lock; the lock test runs the real filelock, so drift reds it.
+      return { wired: false, skipped: false, busy: Boolean(locked) && locked.because === BUSY,
+        because: (locked && locked.because) || 'the hooks could not be wired' };
+    }
+    return { ...locked.value, skipped: false };
+  } catch {
+    // A fixed sentence: an error's own message carries the home folder's path into the board's log.
+    return { wired: false, skipped: false, because: 'the settings folder could not be prepared or written, so the hooks were not written' };
+  }
+}
+
+/**
  * The first free work-account spot (#248/#324): ~/.claude-workN where free
  * means the directory does not exist, or exists with no identity signed in
  * to it. The reuse arm is deliberate: a cancelled add-another-account
@@ -899,5 +943,5 @@ function removeAccount(dir, usedBy) {
   return { ok: true, removed: true, because: null };
 }
 
-module.exports = { homeDir, list, listLive, forgetAccount, removeAccount, FORGOTTEN_PREFIX, identityOf, prepare, dirForLabel, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
+module.exports = { homeDir, wireDefaultHooks, list, listLive, forgetAccount, removeAccount, FORGOTTEN_PREFIX, identityOf, prepare, dirForLabel, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); } };

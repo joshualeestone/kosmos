@@ -330,6 +330,9 @@ function binFor(s) {
  *    refusal by returning ok:false rather than throwing, so it is said on stderr (the board
  *    log): a write that fails every launch would otherwise leave an agent on the modal with no
  *    trace. No secret is in `because`.
+ *  - #5612 reporting hooks: for a default-account agent, the hooks that make it report idle and
+ *    needs-you (accounts.wireDefaultHooks), written here because the board's own write may come
+ *    after this agent's Claude has read the file.
  */
 function preacceptClaudeFirstRun(s) {
   if (String(s.runner || 'claude') !== 'claude') return;
@@ -339,6 +342,23 @@ function preacceptClaudeFirstRun(s) {
   catch (e) { r = { ok: false, because: String((e && e.code) || (e && e.message) || e) }; }
   if (r && r.ok === false) {
     process.stderr.write('[win32launch] ' + String(s.name || 'agent') + ': could not pre-accept its Claude settings (' + r.because + '); it starts anyway\n');
+  }
+  /* kosmos#5612: a default-account agent reads <home>\.claude\settings.json once, as its Claude starts, and only the
+     reporting hooks in it make the agent report idle and needs-you. The board wires them at its own start, but the
+     board and the supervisors are separate logon tasks with no order between them, so an agent launched before the
+     board's write would run its whole session without them. So wire them here too, just before this agent's Claude
+     reads the file. Keyed on the REAL platform (process.platform, never the injected s.platform), so a test that
+     injects win32 on a Mac never writes the real settings file. Idempotent, fail-soft: a refusal is said and the
+     agent starts anyway. An added account (configDir) was wired by accounts.prepare. */
+  if (!s.configDir) {
+    let h;
+    // waitMs 0: preacceptBypass just waited on this same lock, and a launch may run in a serving process; a held lock
+    // means another writer is in the file now (often another launch writing these same hooks), so do not wait twice.
+    try { h = require('./accounts').wireDefaultHooks({ waitMs: 0 }); }
+    catch { h = { wired: false, skipped: false, because: 'the hooks could not be wired' }; }
+    if (h && !h.skipped && h.wired !== true) {
+      process.stderr.write('[win32launch] ' + String(s.name || 'agent') + ': could not set up its reporting hooks (' + h.because + '); it starts anyway\n');
+    }
   }
 }
 
