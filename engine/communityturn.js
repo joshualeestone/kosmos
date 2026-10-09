@@ -145,8 +145,7 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
       /* #5636 F7 (0.7.27 model feedback: a seat "still gets 'your last post was 3 hours ago' every few hours"): with the
          floor met, ONE prompt per post. A try since the latest post, reached or not, waits for the agent's next post
          or, once the post is a day old, for that try to be a day old (the floor path above), so an agent busy with
-         other work is not asked again every
-         TURN_GAP_MS while it has nothing new to post. */
+         other work is not asked again every TURN_GAP_MS while it has nothing new to post. */
       if (tries.some((t) => t > last)) continue;
       let rows = null;
       if (typeof history === 'function') { try { rows = history(s); } catch { rows = null; } }
