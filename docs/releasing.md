@@ -29,8 +29,16 @@ improvement it gained would have died with the session that wrote it.
    `1b-ii`).** `web/whats-new.json` holds the 1 to 5 highlights the "Kosmos has
    been updated" window shows after an update:
    `{"version":"0.6.98","highlights":[{"icon":"spark","title":"...","line":"..."}]}`.
-   The operator writes it and commits it to main before the cut, like the versions
-   entry; release.sh never writes it. `icon` is one of `swarm`, `tasks`, `phone`,
+   It is BUILT from `release/whats-new-pool.json` (#5711: one list, the top 5 of
+   everything not yet shown to Mac PROD users): add one pool item per user-visible
+   change in this cut (`since` this version, `status` `pending`, a `rank` among the
+   rest, 1 most important), run `node tools/whats-new-pool.js build <version>`, and
+   commit both to main before the cut, like the versions entry; release.sh never
+   writes it. Change wording in the pool and build again, never in the built file.
+   After a Mac PROD promote, on an up-to-date main run
+   `node tools/whats-new-pool.js shown <version> --promoted --from-history --ref=<frozen sha>`
+   and commit the pool, or prod users see the same highlights again (until #5713
+   makes the promote do it). `icon` is one of `swarm`, `tasks`, `phone`,
    `list`, `chat`, `shield`, `spark`; a title of about 40 characters; one plain
    sentence for the line; no em dashes. A highlight about one platform carries
    `"platforms": ["mac"]` (or `["windows"]`) and shows only there (#5224). A title or

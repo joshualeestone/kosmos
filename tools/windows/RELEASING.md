@@ -46,7 +46,9 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
 1. **Build** from a clean checkout of `main`. A dirty tree is flagged in the zip's manifest, and
    `win-staging-verify.js` refuses to verify it.
 
-   **What's new (#4928).** The build checks that `web/whats-new.json` is for the version it builds
+   **What's new (#4928).** `web/whats-new.json` is built on main from `release/whats-new-pool.json`
+   (#5711, see docs/releasing.md); the `"also"` edit below is the only change made to it by hand.
+   The build checks that `web/whats-new.json` is for the version it builds
    (`package.json`), as the Mac cut does, and stops otherwise. When this Windows number is the same
    release as the Mac's, add it to the file's `"also"` list (`{"version":"0.7.16","also":["0.7.13"],...}`)
    and COMMIT that on the release branch, beside the version bump, before building (an uncommitted edit

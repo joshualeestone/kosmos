@@ -9,17 +9,22 @@
  * status }. rank 1 is the most important. status is
  *   pending  not yet shown to prod users: eligible
  *   shown    shown by a release that reached prod (shownIn names it): never chosen again
+ * "prod" here is the Mac prod family (promote-channel.sh without --family win). Windows is promoted on its own and
+ * shows whichever list is current when its build is made (its number goes in the built file's "also", by hand,
+ * on the release branch, docs/windows RELEASING.md); the pool does not record Windows promotes.
  *   held     a feature that is held or dropped (conversation mode, Josh 10:49): never chosen, whatever its rank
  *
  *   node tools/whats-new-pool.js build <version> [--max=5] [--pool=<file>] [--out=<file>]
  *       writes web/whats-new.json: the top --max pending highlights by rank (ties: newest first), checked with
  *       engine/whatsnew.js's own rules (the cut's step 1b-ii runs the same check).
- *   node tools/whats-new-pool.js shown <version> --promoted [--pool=<file>] [--from=<file> | --from-history]
+ *   node tools/whats-new-pool.js shown <version> --promoted [--pool=<file>] [--from=<file> | --from-history [--ref=<commit>]]
  *       after <version> is PROMOTED to prod: every pool entry whose title is in that version's What's New becomes
  *       shown (shownIn <version>), and lastProd becomes <version>. Run it from the promote, not the cut: --promoted is
  *       required, so it is never run by reflex after a cut (that would retire highlights prod users never saw).
  *       --from-history reads that version's What's New from this checkout's git history (the newest commit whose
- *       web/whats-new.json names it); there are no per-version tags to read it from.
+ *       web/whats-new.json names it); there are no per-version tags to read it from. Give --ref=<the cut's frozen sha>
+ *       (~/.claude/logs/cut-suite-runs.log records it) so a wording changed on main AFTER the freeze is not read as
+ *       what prod showed.
  *
  * Exit 0 on success, 3 when the pool cannot make a showable list (no eligible highlight, or one the window rejects),
  * 2 on a usage error.
@@ -68,11 +73,14 @@ function choose(pool, max) {
     });
 }
 
-/** The What's New <version> shipped: the newest commit in this checkout's history whose web/whats-new.json names it. */
-function fromHistory(version, root = ROOT) {
+/**
+ * The What's New <version> shipped: the newest commit at or before `ref` whose web/whats-new.json names it. With ref
+ * the cut's frozen sha that is exactly what was cut; with HEAD it is main's latest wording for that version.
+ */
+function fromHistory(version, root = ROOT, ref = 'HEAD') {
   const { execFileSync } = require('node:child_process');
   const git = (args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 << 20 });
-  for (const sha of git(['log', '--format=%H', 'HEAD', '--', 'web/whats-new.json']).split('\n').filter(Boolean)) {
+  for (const sha of git(['log', '--format=%H', ref, '--', 'web/whats-new.json']).split('\n').filter(Boolean)) {
     let obj;
     try { obj = JSON.parse(git(['show', sha + ':web/whats-new.json'])); } catch { continue; }   // deleted or unparsable there
     if (obj && obj.version === version) return obj;
@@ -88,14 +96,14 @@ function opt(args, name, dflt) {
 function main(argv) {
   const whatsnew = require('../engine/whatsnew');
   // Only --name=value flags this tool knows: a typo (`--outt=`) or `--max 4` must not silently do something else.
-  const unknown = argv.filter((a) => a.startsWith('--') && !/^--(max|pool|out|from)=./.test(a) && a !== '--promoted' && a !== '--from-history');
+  const unknown = argv.filter((a) => a.startsWith('--') && !/^--(max|pool|out|from|ref)=./.test(a) && a !== '--promoted' && a !== '--from-history');
   if (unknown.length) {
-    process.stderr.write('unknown or malformed option(s): ' + unknown.join(' ') + ' (use --max=N, --pool=FILE, --out=FILE, --from=FILE, --from-history, --promoted)\n');
+    process.stderr.write('unknown or malformed option(s): ' + unknown.join(' ') + ' (use --max=N, --pool=FILE, --out=FILE, --from=FILE, --from-history, --ref=COMMIT, --promoted)\n');
     return 2;
   }
   const [cmd, version] = argv.filter((a) => !a.startsWith('--'));
   if (!['build', 'shown'].includes(cmd) || !version || !whatsnew.VERSION_RE.test(version)) {
-    process.stderr.write('usage: node tools/whats-new-pool.js build|shown <version like 0.7.36> [--max=5] [--pool=<file>] [--out=<file>] [--from=<file> | --from-history] [--promoted]\n');
+    process.stderr.write('usage: node tools/whats-new-pool.js build|shown <version like 0.7.36> [--max=5] [--pool=<file>] [--out=<file>] [--from=<file> | --from-history [--ref=<commit>]] [--promoted]\n');
     return 2;
   }
   const poolFile = opt(argv, 'pool', POOL);
@@ -138,9 +146,9 @@ function main(argv) {
       + ':\n' + obj.highlights.map((h) => '  - ' + h.title).join('\n') + '\n'
       + 'The pool says the last PROD release was ' + (pool.lastProd || 'not recorded') + '. If a newer version reached prod, first'
       + ' run, ON an up-to-date MAIN (main\'s pool, never a release checkout\'s):'
-      + ' node tools/whats-new-pool.js shown <that version> --promoted --from-history, then commit release/whats-new-pool.json to main.'
+      + ' node tools/whats-new-pool.js shown <that version> --promoted --from-history --ref=<its cut\'s frozen sha>, then commit release/whats-new-pool.json to main.'
       + ' Otherwise prod users see its highlights again.\n'
-      + 'Eligible means not yet shown to PROD users, so people who ran staging builds since ' + (pool.lastProd || 'then') + ' may see some of these again (#5711).\n'
+      + 'Eligible means not yet shown to PROD users, so people who ran earlier staging builds may see some of these again (#5711).\n'
       + 'Edit titles and lines in release/whats-new-pool.json and build again, never in the built file: `shown` matches by title.\n');
     return 0;
   }
@@ -151,8 +159,16 @@ function main(argv) {
     return 2;
   }
   const fromHist = argv.includes('--from-history');
+  if (fromHist && opt(argv, 'from', null) !== null) {
+    process.stderr.write('give --from=<file> or --from-history, not both; nothing marked\n');
+    return 2;
+  }
+  if (!fromHist && opt(argv, 'ref', null) !== null) {
+    process.stderr.write('--ref only goes with --from-history; nothing marked\n');
+    return 2;
+  }
   const from = fromHist ? 'git history' : opt(argv, 'from', whatsnew.FILE);
-  const shownObj = fromHist ? fromHistory(version) : JSON.parse(fs.readFileSync(from, 'utf8'));
+  const shownObj = fromHist ? fromHistory(version, ROOT, opt(argv, 'ref', 'HEAD')) : JSON.parse(fs.readFileSync(from, 'utf8'));
   if (!shownObj || shownObj.version !== version || !Array.isArray(shownObj.highlights)) {
     process.stderr.write(from + ' is not the What\'s New of ' + version + '; nothing marked\n');
     return 3;
