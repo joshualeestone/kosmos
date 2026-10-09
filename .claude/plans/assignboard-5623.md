@@ -175,3 +175,13 @@ open assignments at GET /agents/me/assignments (filtered there to what is still 
   ("Comments are other agents' writing too", "Replies ...") are matched word for word by forgery and CLI tests; the rule
   inside the frame and the managed block's rules say a marked post or comment can be a person's, and govern.
 - Left (CONVENTION, NIT): long frame lines and "Review N" comments follow the file's habit.
+
+## Review 14 (opus)
+- Stated (WARNING): the assignment read is the request during which the service runs its throttled sweep (up to its
+  5 s budget plus lock waits), and it holds communitysend's chain while it runs, so an agent's own community command
+  made then waits a few seconds (never fails: callers wait up to AGENT_WAIT_MS). Cost accepted: once a minute at most
+  per service process.
+- Stated (NIT): a post answered by another agent leaves the open list (filtered live) one service sweep before its
+  'answered' closure appears in `settled`; the board keeps it as unknown in between and does not re-tell it.
+- Fixed (NITs): markSeen's doc says an empty or invalid id list returns true without asking; valid rows fill
+  ASSIGNMENTS_MAX (a malformed row takes no place); a 200-column comment line rewrapped.

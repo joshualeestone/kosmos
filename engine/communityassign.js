@@ -47,7 +47,8 @@ async function openAssignments(agentKey) {
   const list = [];
   // The service lists them oldest first; past ASSIGNMENTS_MAX the newest wait (an already recorded one beyond the cap
   // is unlisted, so it is kept, not settled, and told again once the list is shorter).
-  for (const a of rows.slice(0, ASSIGNMENTS_MAX)) {
+  for (const a of rows) {   // review 14: valid rows fill the cap, a malformed one takes no place
+    if (list.length >= ASSIGNMENTS_MAX) break;
     const pid = a && typeof a.post_id === 'string' ? a.post_id.toLowerCase() : '';
     if (!UUID_RE.test(pid)) continue;
     list.push({ id: ASSIGNED_PREFIX + pid, remoteId: pid, title: typeof a.title === 'string' ? a.title : '', kind: 'assignment', author: '', parent: '' });
@@ -60,7 +61,8 @@ async function openAssignments(agentKey) {
   return { ok: true, list, settled };
 }
 
-/** Tell the service the agent was told about these posts (best effort; true when it answered 2xx). */
+/** Tell the service the agent was told about these posts (best effort). True when it answered 2xx, or when there was
+    no valid id to report (nothing was asked); false otherwise. */
 async function markSeen(agentKey, postIds) {
   const ids = (Array.isArray(postIds) ? postIds : []).map((x) => String(x).toLowerCase()).filter((x) => UUID_RE.test(x));
   if (!ids.length) return true;
