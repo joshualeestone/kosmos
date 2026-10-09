@@ -1024,3 +1024,27 @@ test('with this Mac\'s clock up to an hour off the coordinator\'s around Monday,
     assert.equal(far.ok, false); assert.equal(far.newPeriod, true);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('a token in a file name with an invisible character inside it is still caught (secretmask reads through them)', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const name = TOKEN.slice(0, 10) + '\u200b' + TOKEN.slice(10) + '.md';
+    fs.writeFileSync(path.join(w.root, 'agents', 'a', name), 'x');
+    const r = await take(k, w.root, st);
+    assert.equal(r.ok, true, r.because);
+    const m = bf.openManifest(k.member.sk, k.dev.publicKey, k.ctx, st.manifests[0].bytes);
+    const json = JSON.stringify(m);
+    assert.ok(!json.includes(TOKEN.slice(10)), 'no part after the invisible character reached the manifest');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('an index lock is measured against the CONTEXT period\'s manifest lock when the context is a neighbouring period', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    // Local clock just past Monday (W42); the context is W41 (within the skew). A W41 lock is enough for a W41 manifest.
+    const local = Date.parse('2026-10-12T00:20:00Z');
+    const idx = new Map([['a'.repeat(64), { key: `o1/acct1/1/${PERIOD}/k1`, lockedUntilMs: LOCK, memberKeyId: snap.memberKeyIdOf(k.member.pk) }]]);
+    const r = await take(k, w.root, st, { input: { index: idx, bucket: 'bucket/' }, deps: { now: () => local } });
+    assert.notEqual(r.staleIndex, true, `a usable index was called stale: ${r.because}`);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
