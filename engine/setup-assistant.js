@@ -46,6 +46,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const store = require('./store');
 const accounts = require('./accounts');
 const create = require('./create');
@@ -887,7 +888,7 @@ function launchPathDirs(agentDir, deps = {}) {
   const said = [...new Set(unsafe)];
   const UNSAFE_SHOWN = 40;
   if (said.length > UNSAFE_SHOWN) said.splice(UNSAFE_SHOWN, said.length - UNSAFE_SHOWN, `(and ${said.length - UNSAFE_SHOWN} more)`);
-  return { dirs, aliases, files, linkNames, unsafe: said };
+  return { dirs, aliases, files, linkNames, unsafe: said, paneKnown: typeof pane === 'string' && pane.split(path.delimiter).some((d) => path.isAbsolute(d)) };   // review 8: an empty PATH is not a launch's inputs
 }
 /* The agent-independent half of launchPathDirs: every candidate folder in order, as { real, shown, written }, and what
    cannot be covered whatever the agent (an empty or relative pane entry, an unlistable folder, the scan cap). */
@@ -1071,6 +1072,123 @@ function scanLaunch({ pane, ownPath, max, fixed, ownProgs, fileList, configDirs,
   // Review 21: whether a file's folder is or holds a shared one, for the pattern-name fallback above.
   return { cands: kept, unsafe, files: files.map((f) => Object.assign({}, f, RULE_SYNTAX.test(path.basename(f.real)) ? { folderShared: holds(path.dirname(f.real)) } : {}, f.prog ? { inTemp: inTemp(path.dirname(f.real)) } : {})) };
 }
+/* #5663: the launch-rule record, and the sandbox layer's ceiling. */
+const LAUNCH_RECORD_FILE = 'kosmos-launch-rules.json';
+/* MEASURED (claude -p with a sandbox on, 2026-10-09): Claude Code puts the Edit and Read deny rules into the sandbox profile
+   too, not only sandbox.filesystem (a shell write to an Edit-denied file was refused), and two limits then stop EVERY
+   sandboxed command:
+   - sandbox-exec refuses a profile past 65,535 bytes of compiled data. The compiled size follows the paths' distinct
+     prefixes (paths sharing a long prefix cost little), not their raw bytes: every set that ran had at most 34,216
+     distinct prefix characters (4,312 paths built from this machine's PATH had 33,636), every set that failed had at
+     least 51,816 (which compiled to 65,766 bytes).
+   - the profile is passed on a command line: 248,670 raw path bytes failed with E2BIG, 223,734 ran.
+   The ceilings below sit under both with a margin; past either, the guard may still run, but Kosmos can no longer say
+   it will. */
+// FITTED to the measured sets above with a margin, not derived from how the profile is compiled (review 8).
+const SANDBOX_DENY_PREFIX_MAX = 40 * 1024;
+const SANDBOX_DENY_RAW_MAX = 160 * 1024;
+// A rule's path, for the rule shapes this guard writes (a path with a pattern character is never written, #4491 review 14).
+// Review 13: the wrapper is stripped here and the path read back by rulePath, the one inverse of ruleAbs.
+// With a home, the person's '~/' spelling is read too (the size count); the guard itself writes only '//'.
+function ruleTarget(r, platform = process.platform, home = null) {
+  const m = /^(?:Edit|Read)\((\/\/|~\/)(.*?)(?:\/\*\*)?\)$/.exec(String(r));
+  if (!m) return null;
+  if (m[1] === '//') return rulePath(m[2], platform);
+  return home ? path.join(home, m[2]) : null;
+}
+/* The paths THIS AGENT'S settings file sends to the profile, counted per clause as the profile is likely built (review 5).
+   Review 11: the person's user-level settings files (~/.claude, ~/.claude-<label>) also reach it and are not counted
+   here (which one an agent reads is its account's; the open card for it is #5668). Rule targets are the guard's '//abs' spelling
+   and the person's '~/' one (against home); a person's other spellings (a relative or a match-anywhere pattern) are not counted, so the count
+   can be low for them (review 15). The read clause (denyRead
+   and the Read rule targets) and the write clause (denyWrite and the Edit rule targets), each path once within its
+   clause, so a path in both is paid for twice. Per clause: their raw length, and their distinct prefixes (sorted, each
+   path adds what it does not share with the one before it). Every measured set was one clause, so this counting is at
+   least what was measured, never less. */
+function sandboxDenySize(fsb, deny, home, platform = process.platform) {
+  const rules = (deny || []).map(String);
+  const at = home || kosmosHome();
+  const targets = (kind) => rules.filter((r) => r.startsWith(kind + '(')).map((r) => ruleTarget(r, platform, at)).filter(Boolean);
+  const clauses = [
+    [...((fsb && fsb.denyRead) || []), ...targets('Read')],
+    [...((fsb && fsb.denyWrite) || []), ...targets('Edit')],
+  ];
+  let count = 0;
+  let raw = 0;
+  let prefixes = 0;
+  for (const clause of clauses) {
+    const paths = [...new Set(clause.map(String))].sort();
+    let prev = '';
+    for (const x of paths) {
+      let i = 0;
+      while (i < x.length && i < prev.length && x[i] === prev[i]) i++;
+      raw += x.length;
+      prefixes += x.length - i;
+      prev = x;
+    }
+    count += paths.length;
+  }
+  return { paths: count, raw, prefixes };
+}
+/* #5663 review 1: a refresh does not always have the launch inputs (the board's own start has no pane PATH), so "not a
+   launch rule now" alone would let one caller prune what another wrote. A recorded entry is pruned only by a refresh
+   that has them (an agent's launch), and only when it is not current AND its path no longer exists (an upgraded tool's
+   removed version folder, or a removed version file in a folder that stays); a path that cannot be read is kept.
+   Review 2: a folder only gone for now (an unmounted volume) is on the launching PATH if the agent runs from it, so it
+   is current and kept. "Gone" is lstat ENOENT: a dangling link still exists, so its rule is kept (the safe direction). */
+/* Review 13: one answer to "is this path there", for both recording (only 'present' is recorded) and pruning (only
+   'gone' is pruned). Any other lstat error (EACCES on a parent, ELOOP) is 'unknown': neither recorded nor pruned. */
+function launchPathState(p) {
+  if (typeof p !== 'string' || !path.isAbsolute(p)) return 'unknown';
+  try { fs.lstatSync(p); return 'present'; } catch (e) { return e && e.code === 'ENOENT' ? 'gone' : 'unknown'; }
+}
+function launchPathGone(p) { return launchPathState(p) === 'gone'; }
+function launchPathPresent(p) { return launchPathState(p) === 'present'; }
+function readLaunchRecord(file) {
+  const none = { deny: [], denyWrite: [] };
+  let buf;
+  try { buf = fs.readFileSync(file); } catch (e) {
+    if (e && e.code === 'ENOENT') return none;   // none yet (a guard from before #5663)
+    /* Review 11: a record that exists and cannot be read is not replaced (that would forget it): nothing is pruned and
+       it is not written this time, and the log says so. */
+    process.stderr.write(`#5663: ${file} could not be read (${(e && e.code) || e}); nothing is pruned and it is left as it is\n`);
+    return { ...none, keep: true };
+  }
+  let j;
+  try { j = JSON.parse(buf.toString('utf8')); } catch { j = undefined; }
+  if (!j || typeof j !== 'object' || Array.isArray(j)) {
+    /* Review 10: a record that does not parse is read as none, which prunes nothing, and the next write replaces it;
+       a dated copy is kept first (as the settings file does, #4491 review 18) so what it named is not lost unseen. */
+    // Review 11: one copy per content, so a record that also cannot be written is not copied again at every refresh.
+    let keep = null;
+    try { keep = fs.readdirSync(path.dirname(file)).filter((f) => f.startsWith(path.basename(file) + '.unreadable-')).map((f) => path.join(path.dirname(file), f)).find((f) => { try { return fs.statSync(f).size === buf.length && fs.readFileSync(f).equals(buf); } catch { return false; } }) || null; } catch { keep = null; }
+    if (!keep) {
+      const at = `${file}.unreadable-${Date.now()}`;
+      try { fs.writeFileSync(at, buf, { mode: 0o600 }); keep = at; } catch (e) {   // the bytes as they were (review 19)
+        // Review 17: no copy, so the record is left as it is (as an unreadable one is), and the log says no copy.
+        process.stderr.write(`#5663: ${file} could not be read, and no copy could be kept (${(e && e.code) || e}); nothing is pruned and it is left as it is\n`);
+        return { ...none, keep: true };
+      }
+    }
+    process.stderr.write(`#5663: ${file} could not be read; kept a copy at ${keep}; nothing is pruned this time\n`);
+    return none;
+  }
+  const strings = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
+  return { deny: strings(j.deny), denyWrite: strings(j.denyWrite) };
+}
+function writeLaunchRecord(file, rec) {
+  try {
+    const text = JSON.stringify(rec, null, 2) + '\n';
+    let old = null;
+    try { old = fs.readFileSync(file, 'utf8'); } catch { /* none yet */ }
+    if (old === text) return true;
+    const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.new`;   // review 6: two refreshes in one process
+    fs.writeFileSync(tmp, text, { mode: 0o600 });
+    try { fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* gone */ } throw e; }
+    return true;
+  } catch { return false; }
+}
+
 /*
  * #4491: the deny rules and sandbox filesystem paths for a TOKEN-ONLY agent (one listed in
  * sendertoken.tokenOnlyFile). Unlike the guide, a token-only agent is a normal working agent, so its
@@ -1188,7 +1306,15 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     return false;
   });
   safeDeny.push(...launchRules);
-  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites, undoDirs, tokenDirs, undoSwitches, launchDirs: launch.dirs, launchFiles: launch.files || [], launchUnsafe };
+  /* #5663: the record of the launch rules this guard wrote at launches, so a launch can prune the ones whose paths are
+     gone (deny lists only grew before: every upgrade added versioned paths for good). It sits in the agent's .claude
+     folder, which the sandbox denies WRITES to, and the file tools are denied it here, so the agent cannot rewrite
+     what gets pruned (reading it is harmless). */
+  const launchRecord = path.join(settingsDir, LAUNCH_RECORD_FILE);
+  const recordRule = `Edit(${ruleAbs(launchRecord)})`;
+  if (!ruleHasPatternChar(recordRule)) safeDeny.push(recordRule);
+  else tokenRuleDropped = true;   // #5663 review 4: its own self-protection, so not whole, as reviews 16 and 17 rule
+  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites, undoDirs, tokenDirs, undoSwitches, launchDirs: launch.dirs, launchFiles: launch.files || [], launchUnsafe, launchRules, launchRecord, launchKnown: deps.atLaunch === true && !!launch.paneKnown };   // review 14: a launch says so (refreshTokenOnlyGuards({ only })); an inherited env var never makes one
 }
 
 /*
@@ -1217,7 +1343,8 @@ function tokenOnlySettingsRules(dir, deps = {}) {
  * supervisor script, or drop a LaunchAgent that runs at next login, and a hardlink of the token outside
  * the denied path is a further residual. Root-owned MANAGED settings (an admin step, parked on the card)
  * stop it editing this guard away, nothing more. refreshTokenOnlyGuards warns when they are absent.
- * { ok: true } | { ok: false, because }. Never throws.
+ * { ok: true } | { ok: false, because }, either with `warning` when the deny paths pass the measured sandbox ceiling
+ * (#5663: the guard is still whole; the agent's shell may not run). Never throws.
  */
 function guardTokenOnlyFolder(dir, agentName, deps = {}) {
   try {
@@ -1260,7 +1387,32 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     // Review 16: off macOS no sandbox block is written: said at create time as well as at board start.
     if ((deps.platform || process.platform) !== 'darwin' && !deps.atLaunch) process.stderr.write('#4491 note: off macOS ' + agentName + ' gets permission rules only (its shell is not sandboxed)\n');
     const perms = cur.permissions && typeof cur.permissions === 'object' && !Array.isArray(cur.permissions) ? cur.permissions : {};
-    const had = Array.isArray(perms.deny) ? perms.deny.filter((r) => typeof r === 'string') : [];
+    /* #5663: at a launch, a recorded launch rule that is not current and whose path is gone is dropped (an upgraded tool's
+       old versioned path); every other rule merges as before. A rule the person wrote that is the SAME string as a
+       dropped one goes with it (review 6): it names a path that no longer exists. */
+    const plat = deps.platform || process.platform;
+    // Review 18: only a launch uses the record (to prune and to write it), so only a launch reads it.
+    const prev = rules.launchKnown ? readLaunchRecord(rules.launchRecord) : { deny: [], denyWrite: [], keep: true };
+    const launchDenyNow = new Set(rules.launchRules || []);
+    const launchWritesNow = [...new Set([...(rules.launchDirs || []), ...(rules.launchFiles || [])])];
+    const launchWritesNowSet = new Set(launchWritesNow);
+    const stale = new Set(rules.launchKnown ? prev.deny.filter((r) => !launchDenyNow.has(r) && launchPathGone(ruleTarget(r, plat))) : []);
+    const staleWrites = new Set(rules.launchKnown ? prev.denyWrite.filter((x) => !launchWritesNowSet.has(x) && launchPathGone(x)) : []);
+    /* The record is a union: what was recorded and not pruned, and what THIS LAUNCH wrote. Review 7: only a launch adds to
+       it. A board start builds its launch rules from its own inputs (its PATH, its XDG_CONFIG_HOME), which a launch need
+       not share, and some name a path that is absent on purpose (what is later made there would run); recorded, the
+       next launch would see it as not current and gone, and prune it. So a launch prunes only what a launch wrote.
+       It is read and written without a lock, so two refreshes at once can lose an entry; that entry is then never pruned
+       (kept, not dropped). */
+    /* Review 9: and only a path that EXISTS now is recorded. The pane PATH is the tmux server's global PATH, which is not
+       stable between launches, so a folder denied while absent on purpose (what is later made there would run) could
+       leave one launch's PATH, be pruned, and be planted during that session. Never recorded, it is never pruned; a
+       removed version existed when it was recorded, so the upgrade case is unchanged. */
+    const recDeny = [...new Set([...prev.deny.filter((r) => !stale.has(r)), ...(rules.launchKnown ? [...launchDenyNow].filter((r) => launchPathPresent(ruleTarget(r, plat))) : [])])];
+    const recWrites = [...new Set([...prev.denyWrite.filter((x) => !staleWrites.has(x)), ...(rules.launchKnown ? launchWritesNow.filter(launchPathPresent) : [])])];
+    const had = Array.isArray(perms.deny) ? perms.deny.filter((r) => typeof r === 'string' && !stale.has(r)) : [];
+    // Review 12: what a launch prunes is said (count only), so a dropped rule never goes unseen.
+    if (stale.size || staleWrites.size) process.stderr.write(`#5663: ${agentName}: pruned ${stale.size} file-tool and ${staleWrites.size} sandbox launch rule(s) whose paths are gone\n`);
     const deny = [...new Set([...had, ...rules.deny])];
     /* Review 24: permissions.additionalDirectories widens where the sandboxed shell may write, as allowWrite does, so
        it goes too (Kosmos never writes it for an agent) and the board log says so. */
@@ -1272,7 +1424,7 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
       const net = sb.network && typeof sb.network === 'object' && !Array.isArray(sb.network) ? sb.network : {};
       const fsb = sb.filesystem && typeof sb.filesystem === 'object' && !Array.isArray(sb.filesystem) ? sb.filesystem : {};
       const dr = Array.isArray(fsb.denyRead) ? fsb.denyRead.filter((x) => typeof x === 'string') : [];
-      const dw = Array.isArray(fsb.denyWrite) ? fsb.denyWrite.filter((x) => typeof x === 'string') : [];
+      const dw = Array.isArray(fsb.denyWrite) ? fsb.denyWrite.filter((x) => typeof x === 'string' && !staleWrites.has(x)) : [];
       // Canonicalize the paths: Seatbelt matches resolved paths, so a symlinked data dir or
       // /var -> /private/var would otherwise slip a denyRead/denyWrite (the guide realOr's its own
       // folder for the same reason). The token files and the home settings files often do not exist
@@ -1313,11 +1465,27 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
       fs.writeFileSync(tmp, text, 'utf8');
       try { fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* gone */ } throw e; }   // review 24
     }
+    // #5663: what this refresh wrote for launch coverage, for the next refresh to replace. A record that cannot be
+    // written leaves this refresh's rules in place (nothing is lost; the next refresh only cannot prune them): said.
+    // Review 7: written before the local-settings clean, so a throw there cannot leave settings.json's rules unrecorded.
+    // Review 15: only a launch writes it (only a launch changes it), so a board start cannot write back an older read
+    // over a concurrent launch's entries.
+    if (rules.launchKnown && !prev.keep && !writeLaunchRecord(rules.launchRecord, { deny: recDeny, denyWrite: recWrites })) process.stderr.write(`#5663: ${rules.launchRecord} could not be written; old launch rules will not be pruned until it can\n`);
     cleanLocalSettings(path.join(settingsDir, 'settings.local.json'));
     // #5516 review 1: the guard is written in full first; a PATH entry it could not cover only makes it NOT WHOLE (said),
     // never a reason to write nothing.
-    if (rules.launchUnsafe && rules.launchUnsafe.length) return { ok: false, because: 'the PATH this agent starts with has an entry Kosmos could not cover (' + rules.launchUnsafe.join(', ') + '); the rest of the guard is in place' };
-    return { ok: true };
+    /* #5663: the sandbox profile has size limits (SANDBOX_DENY_PREFIX_MAX). Past them the guard is still whole (the token
+       is denied), but the agent's shell may not run, so it is said as a warning, never a refusal: the limits are fitted
+       to measurements (review 4), and a refusal would stop an agent being created on an estimate. It is said beside
+       an uncovered PATH entry, not instead of it. Its readers are the logs (stderr: the board's log at board start and
+       creation, the supervisor's at a launch); no caller carries `warning` further today (reviews 5 and 6). */
+    const sz = (deps.platform || process.platform) === 'darwin' ? sandboxDenySize(next.sandbox.filesystem, next.permissions.deny, deps.home, deps.platform || process.platform) : null;
+    const warning = sz && (sz.prefixes > SANDBOX_DENY_PREFIX_MAX || sz.raw > SANDBOX_DENY_RAW_MAX)
+      ? `its ${sz.paths} denied path entries across the read and write clauses (${sz.prefixes} distinct characters, ${sz.raw} in all) are past what Kosmos can say the sandbox will take (${SANDBOX_DENY_PREFIX_MAX} and ${SANDBOX_DENY_RAW_MAX}); the guard is written but may stop the agent's shell`
+      : null;
+    if (warning) process.stderr.write(`#5663: ${agentName}: ${warning}\n`);
+    if (rules.launchUnsafe && rules.launchUnsafe.length) return { ok: false, because: 'the PATH this agent starts with has an entry Kosmos could not cover (' + rules.launchUnsafe.join(', ') + '); the rest of the guard is in place', ...(warning ? { warning } : {}) };
+    return warning ? { ok: true, warning } : { ok: true };
   } catch (err) {
     return { ok: false, because: String((err && err.message) || err) };
   }
@@ -1936,4 +2104,7 @@ module.exports = {
   markSetupAssistantSeeded,
   defaultHasConnectedAccount,
   seedSetupAssistant,
+  SANDBOX_DENY_PREFIX_MAX,
+  SANDBOX_DENY_RAW_MAX,
+  sandboxDenySize,
 };
