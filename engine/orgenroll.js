@@ -825,7 +825,28 @@ async function refreshNow(opts) {
   // #5532: the salt belongs to the company its print was pinned for; a different company on the answer drops it (review 11).
   if (before && before.computerSalt && before.world === world && before.org && before.org.id === org.id) { rec.computerSalt = before.computerSalt; if (before.printPinned === true) rec.printPinned = true; }
   try { writeEnrollment(rec, opts); } catch { /* keep the old record; the next refresh tries again */ }
-  return { ok: true, enrolled: true, member: true, ...rec };
+  const policy = applyPolicy(d.policy, opts);
+  return { ok: true, enrolled: true, member: true, ...rec, ...(policy ? { policy } : {}) };
+}
+
+/* #5534 (E0.5): the coordinator serves the company's policy, signed, on this enrolled computer's status answer (null when
+   the company has saved none). It is written where engine/orgpolicy.js reads it and applied there, which verifies it
+   AGAIN against the pinned coordinator key and refuses a forged, tampered, expired or older one, keeping the last good
+   one in force. { version, refused } or null when the answer carried no policy. Never throws: a policy that cannot be
+   saved or applied leaves the enrollment as it is, and the next refresh (on start and daily) tries again. */
+function applyPolicy(token, opts) {
+  if (typeof token !== 'string' || !token || token.length > 64 * 1024) return null;
+  const orgpolicy = (opts && opts.orgpolicy) || require('./orgpolicy');
+  try {
+    const file = orgpolicy.BUNDLE();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = file + '.' + process.pid + '.tmp';
+    try { fs.writeFileSync(tmp, token, { mode: 0o600 }); fs.renameSync(tmp, file); } finally { fs.rmSync(tmp, { force: true }); }
+    const r = orgpolicy.refresh();
+    return { version: r.applied ? r.applied.version : null, refused: r.refused || null };
+  } catch (e) {
+    return { version: null, refused: 'the policy could not be saved: ' + ((e && e.message) || e) };
+  }
 }
 
 module.exports = {
