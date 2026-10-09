@@ -54,7 +54,7 @@ const PATH_KEYS = ['file_path', 'notebook_path', 'path'];
 function label(v) {
   if (typeof v !== 'string' || !v) return null;
   const s = [...v].slice(0, LABEL_MAX).join('');
-  return /[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]/.test(s) ? null : s;
+  return /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufe00-\ufe0f\ufeff]|\udb40[\udc00-\udc7f]/.test(s) ? null : s;
 }
 
 /* The text of a tool result: a string, or the text blocks of a list. */
@@ -74,7 +74,7 @@ function targetClass(tool, input, ctx) {
   for (const k of PATH_KEYS) if (input && typeof input[k] === 'string' && input[k]) paths.push(input[k]);
   if (tool === 'Bash' && input && typeof input.command === 'string') {
     /* Every path in the command, not only the first (review 3: `/bin/cat <board file>` read as the binary's 'system'). */
-    for (const m of input.command.slice(0, 4096).matchAll(/(?:^|[\s'"=])((?:~|\/)[^\s'";|&<>)]*)/g)) {
+    for (const m of input.command.slice(0, 4096).matchAll(/(?:^|[\s'"=])((?:~|\/|\.\.?\/)[^\s'";|&<>)]*)/g)) {   // ./ and ../ too (review 4)
       paths.push(m[1]);
       if (paths.length >= 64) break;
     }
@@ -104,7 +104,7 @@ function pathClass(p0, ctx) {
   }
   if ((ctx.otherAgentDirs || []).some(under)) return 'other-agent';
   if (under(home)) return 'home';
-  return p.startsWith(path.sep) ? 'system' : 'other';
+  return 'system';   // resolved, so always absolute
 }
 
 /* A refused call's rule, or null when it is not one the company placed. */
@@ -152,13 +152,14 @@ function scanText(text, calls, ctx) {
 }
 
 /* New complete lines of one transcript since `offset`: { text, next } (next is the offset after the last newline). */
-function readFrom(file, offset) {
+function readFrom(file, offset, max) {
+  const cap = Number.isFinite(max) && max > 0 ? Math.min(max, READ_MAX) : READ_MAX;
   let fd;
   try {
     fd = fs.openSync(file, 'r');
     const size = fs.fstatSync(fd).size;
     const from = offset > size ? 0 : offset;   // a rewritten file starts again
-    const len = Math.min(size - from, READ_MAX);
+    const len = Math.min(size - from, cap);
     if (len <= 0) return { text: '', next: from };
     const buf = Buffer.alloc(len);
     fs.readSync(fd, buf, 0, len, from);
@@ -166,7 +167,7 @@ function readFrom(file, offset) {
     /* A window with no newline: wait for the line to finish, unless the window is full (a line over READ_MAX, such as
        a large tool result). Then skip past it (review 1): its tail is read next as an unparseable line and ignored,
        and the file never wedges on it. */
-    if (nl < 0) return { text: '', next: len === READ_MAX ? from + len : from };
+    if (nl < 0) return { text: '', next: len === READ_MAX ? from + len : from };   // a short budget waits for a later tick
     return { text: buf.subarray(0, nl).toString('utf8'), next: from + nl + 1 };
   } catch { return null; } finally { if (fd !== undefined) try { fs.closeSync(fd); } catch { /* closed */ } }
 }
@@ -208,8 +209,12 @@ function defaultSources() {
     agents: () => {
       let raw;
       try { raw = fs.readFileSync(sendertoken.tokenOnlyFile(), 'utf8'); } catch (e) { return e && e.code === 'ENOENT' ? [] : null; }
-      try { const j = JSON.parse(raw); if (!j || !Array.isArray(j.agents)) return null; } catch { return null; }
-      return sendertoken.tokenOnlyList();
+      /* The one read's own parse (review 4: a second read could catch a later write half-done), filtered as
+         sendertoken.tokenOnlyList filters. */
+      let j;
+      try { j = JSON.parse(raw); } catch { return null; }
+      if (!j || !Array.isArray(j.agents)) return null;
+      return j.agents.filter((a) => typeof a === 'string' && a);
     },
     dirOf: (name) => { try { return create.workerDir(name); } catch { return null; } },
     transcripts: async (dir) => {
@@ -281,7 +286,7 @@ async function tick(opts) {
           off = 0;
         }
         if (budget <= 0) continue;   // this tick has read enough (the read is synchronous); the rest next tick
-        const r = readFrom(file, off);
+        const r = readFrom(file, off, budget);
         if (!r) continue;
         budget -= r.next - off;
         st.offsets[file] = r.next;
@@ -298,7 +303,9 @@ async function tick(opts) {
       }
     }
     /* A transcript that is gone keeps no offset (review 1: the state file would grow, and each tick opens every one). */
-    for (const f of Object.keys(st.offsets)) if (!seen.has(f)) { delete st.offsets[f]; CALLS.delete(f); }
+    /* Dropped only when the file is really gone (review 4: a listing that failed for a moment returned none, and the
+       next tick re-read every active session from its start). */
+    for (const f of Object.keys(st.offsets)) if (!seen.has(f) && !fs.existsSync(f)) { delete st.offsets[f]; CALLS.delete(f); }
     if (st.pending.length > PENDING_MAX) st.pending = st.pending.slice(-PENDING_MAX);
     st.pending = st.pending.filter((e) => e.at * 1000 >= now - SEND_PAST_MS);
     if (!writeState(root, st)) return { sent: 0, because: 'this Kosmos cannot record what it has read' };
@@ -338,9 +345,12 @@ async function tick(opts) {
       /* The company's words changed (409 org_consent_changed): stop, as the rollup does, until they are accepted here. */
       const why = String((r && r.because) || '');
       if (/\borg_consent_changed\b/.test(why)) {
-        try { await oe.consentWithdrawn(eo, rec.consentHash); } catch { /* the next tick asks again */ }
+        let changed = false;
+        try { changed = await oe.consentWithdrawn(eo, rec.consentHash); } catch { changed = false; }
         const w = readState(root);
-        w.withdrawn = true;
+        /* Only a withdrawal that was recorded starts the next acceptance clean (review 4: a failed write would otherwise
+           reset the state, and its wait, on the very next tick). */
+        if (changed) w.withdrawn = true;
         w.failAt = now;   // review 3: no signed request every five minutes if the record could not be changed
         writeState(root, w);
         return { sent: 0, because: 'the company\'s words changed; nothing more is sent until they are accepted here' };

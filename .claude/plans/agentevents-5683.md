@@ -40,7 +40,7 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - A line over the 4 MB read window wedged its file: now skipped (its tail reads as one unparseable line). Test, P5.
 - A call and its result in different ticks lost the tool (a sandbox refusal was missed): tool uses kept in memory per
   file across ticks (bounded; lost on a restart, then classified from the denial text). Tick-level test, P6.
-- No upper bound on an event's time (one skewed row cost its batch): events over 5 min ahead are not queued, and a
+- No upper bound on an event's time (the coordinator skips such an event and counts it): events over 5 min ahead are not queued, and a
   queued event is dropped an hour before the coordinator's 7-day limit. Test, P8.
 - Consent: a 409 org_consent_changed stops the sends (orgenroll.consentWithdrawn), not_enrolled/not_member refresh,
   as the rollup. The state is keyed on the accepted consent hash too: words accepted again start clean and send
@@ -49,10 +49,11 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   <agentDir>/.claude/ is agent-config. Test, P7.
 - No readable enrollment time sends nothing (it failed open). Test, P10.
 - A subagent's transcript references its parent session. Test, P11.
-- Every transcript is read from its start the first time (then filtered by time), so a refusal between the enrollment
-  and the first tick is not lost; offsets of transcripts that are gone are dropped.
+- Every transcript is read from its start the first time (then filtered by time); offsets of transcripts that are gone
+  are dropped. (Superseded by review 2: an agent counts from the first tick that saw it listed.)
 - The computer print is sent as the rollup sends it (the coordinator now checks it, relay review 1).
-- The label check is written with escapes (no raw bidi character in the source) and refuses zero-width characters.
+- The label check is written with escapes (no raw bidi character in the source; the test's one fixed in review 4) and
+  refuses zero-width characters.
 
 ## Review 2 (opus), all fixed unless stated
 - An agent made token-only after joining had its older refusals (the PERSON's own rules) sent: each agent's first
@@ -85,3 +86,16 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   P21. The consent path also sets the 30-minute wait.
 - A recently written transcript holding old lines exercises the time filter itself (the mtime skip could hide it).
   Test, P22. A non-finite first-sighting time fails closed.
+
+## Review 4 (opus), all fixed unless stated
+- A withdrawal whose record write failed reset the state (and its wait) on the next tick, so it sent every tick: the
+  withdrawn flag is set only when consentWithdrawn recorded the change. Test.
+- A relative traversal in a Bash command (../../Library/Kosmos) read as 'other': ./ and ../ paths are classed too.
+  Test. A resolved path outside every known folder is 'system'.
+- The torn-read fix read the list twice (a write between could still wipe first sightings): one read, one parse.
+- An offset is dropped only when its file is gone (a listing failing for a moment no longer re-reads every session).
+  Test. The read budget is a real cap (each read takes at most what is left).
+- The one-hour margin before 7 days is tested; labels refuse the invisible characters the relay now refuses (relay
+  review 4). Test.
+- Stated: a refused tool not in the action table (an MCP tool, Task) is reported as 'run'; PENDING_MAX trimming is
+  untested.
