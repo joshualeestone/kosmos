@@ -1116,3 +1116,20 @@ test('a hard-linked tree is skipped in the walk, so it cannot count toward the f
     assert.equal(l.skipped.filter((x) => /more than one name/.test(x.why)).length, 60);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('a run whose own clock crosses Monday never asks for a manifest grant, even inside the hour of skew tolerance', async () => {
+  const w = workKosmos(), k = keys();
+  try {
+    for (const after of ['2026-10-12T00:00:05Z', '2026-10-12T00:30:00Z', '2026-10-12T01:30:00Z']) {
+      const st = store();
+      const real = st.uploadChunks;
+      let stored = false;
+      const r = await take(k, w.root, st, { deps: {
+        now: () => (stored ? Date.parse(after) : NOW),
+        uploadChunks: async (d, b) => { const res = await real(d, b); for (const n of res.lockedUntil.keys()) res.lockedUntil.set(n, Date.parse('2026-11-18T00:15:00Z')); stored = true; return res; },
+      } });
+      assert.equal(r.ok, false, after); assert.equal(r.newPeriod, true, after);
+      assert.equal(st.manifests.length, 0, `${after}: a manifest grant was asked for across the boundary`);
+    }
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});

@@ -495,7 +495,7 @@ async function snapshotInner(input, deps, added, state, fail) {
       if (!pending.has(name)) { badKey = badKey || 'for a chunk this run did not ask to store'; continue; }
       if (usedKeys.has(key)) { badKey = badKey || 'repeats a key already named'; continue; }
       const kp = keyProblem(key, ctx) || (owner && ownerOf(key) !== owner ? `under account path ${ownerOf(key)}, not ${owner}` : null);
-      if (kp && onlyPeriodDiffers(key, ctx)) { wrongPeriod.push(periodOfKey(key)); continue; }
+      if (kp && onlyPeriodDiffers(key, ctx) && (!owner || ownerOf(key) === owner)) { wrongPeriod.push(periodOfKey(key)); continue; }
       if (kp) { badKey = badKey || kp; continue; }
       if (!Number.isSafeInteger(lockOf(name))) { noLock = true; continue; }
       // A lock shorter than this snapshot's manifest will get: the manifest could never name it.
@@ -524,18 +524,18 @@ async function snapshotInner(input, deps, added, state, fail) {
   for (const f of listed.files) {
     // Over the cap at walk time: its reserve is a skip entry only, so it is never read (one that shrank before
     // the read was stored past its reserve).
-    if (f.size > maxFile) { skip({ path: f.path, why: `larger than ${Math.round(maxFile / 1024 / 1024)} MB, too large to scan` }); reserve -= ub(f); continue; }
+    if (f.size > maxFile) { skip({ path: f.path, why: `larger than ${Math.round(maxFile / 1024 / 1024)} MB, too large to scan` }); continue; }
     await pause();
     const got = readListed(fs, rootReal, f, maxFile);
-    if (!got.buf) { skip({ path: f.path, why: got.why }); reserve -= ub(f); continue; }
+    if (!got.buf) { skip({ path: f.path, why: got.why }); continue; }
     // Grown since the walk: its reserve was sized from the walk's size, and it is being written to.
-    if (got.buf.length > f.size) { skip({ path: f.path, why: 'it grew while the snapshot was taken' }); reserve -= ub(f); continue; }
+    if (got.buf.length > f.size) { skip({ path: f.path, why: 'it grew while the snapshot was taken' }); continue; }
     const d = scanFile(f.path, got.buf);
-    if (d.action !== 'store') { skip({ path: f.path, why: d.why || 'not stored' }); reserve -= ub(f); continue; }
+    if (d.action !== 'store') { skip({ path: f.path, why: d.why || 'not stored' }); continue; }
     const data = d.data;
     // The reserve assumed at most twice the file's size; a copy past that would break the bound, so it is not stored.
     // (The +1 adds no chunk to upperBound's floor(2 * size / CDC.min) + 1: 2 * size + 1 is odd and CDC.min is even.)
-    if (data.length > 2 * f.size + 1) { skip({ path: f.path, why: 'its redacted copy is over twice its size' }); reserve -= ub(f); continue; }
+    if (data.length > 2 * f.size + 1) { skip({ path: f.path, why: 'its redacted copy is over twice its size' }); continue; }
     if (d.redacted && d.redacted.length) { redacted.push({ path: f.path, kinds: d.redacted }); estimate += entryBytes(redacted[redacted.length - 1]); }
     const names = [];
     for (const piece of chunkBuffer(data)) {
@@ -559,13 +559,12 @@ async function snapshotInner(input, deps, added, state, fail) {
     }
     const entry = { path: f.path, size: data.length, sha256: crypto.createHash('sha256').update(data).digest('hex'), chunks: names };
     estimate += entryBytes(entry);
-    reserve -= ub(f);
+   
     files.push(entry);
   }
-  // A backstop only: by construction (see the check before the walk) it cannot fire.
-  if (estimate > budget) return fail(tooLargeWhy(), { tooLarge: true });
   const stop = await flush();
   if (stop) return stop;
+  // A backstop only: by construction (the check before the walk; reserve is read only there) it cannot fire.
   if (estimate > budget) return fail(tooLargeWhy(), { tooLarge: true });
 
   // Every chunk a file names, with its key and lock end, for the manifest uploader's checks.
@@ -586,8 +585,11 @@ async function snapshotInner(input, deps, added, state, fail) {
   // chunks may not outlast. The run starts again in the new period, with its context and naming key.
   const tEnd = now();
   if (!usable(tEnd)) return fail('this computer\'s clock gave no usable time');   // fails closed, as at the start
-  // Near a Monday the local clock cannot tell; the manifest key is checked after the grant either way.
-  if (!periodsNear(tEnd).has(ctx.period)) return fail(`a period boundary passed during the snapshot (now ${periodOf(tEnd)}): start again in the new period`, { newPeriod: true });
+  // This Mac's own clock saw a boundary pass during the run (it read ctx.period at the start, another now): no grant,
+  // whatever the skew tolerance would allow (review 37). A context accepted as a neighbour at the start is judged by
+  // the tolerance; the manifest key is checked after the grant either way.
+  const crossed = periodOf(t) === ctx.period && periodOf(tEnd) !== ctx.period;
+  if (crossed || !periodsNear(tEnd).has(ctx.period)) return fail(`a period boundary passed during the snapshot (now ${periodOf(tEnd)}): start again in the new period`, { newPeriod: true });
   // Cannot throw on this content: file and redacted paths passed pathProblem, skipped ones are walk paths, every other value is a fixed sentence, a number,
   // hex or a key of plain segments, and the context and keys were checked before anything was read. If it ever did,
   // takeSnapshot's catch returns `added` intact.
@@ -598,7 +600,7 @@ async function snapshotInner(input, deps, added, state, fail) {
     // manifest lock, so in practice Monday passed since (a FRESH reading says so; the one above cannot). Else
     // it is the index's (staleIndex, only when there is one).
     const tNow = now();
-    const passed = m && m.outlastsChunks && usable(tNow) && periodOf(tNow) !== ctx.period;
+    const passed = m && m.outlastsChunks && usable(tNow) && periodOf(tNow) !== periodOf(t);   // a boundary since the start
     // otherBucket: the coordinator now grants to another bucket. With an index, drop it; without one, this
     // run's chunks are in the abandoned bucket, so none is handed back to be kept as an index.
     // With or without an index, every chunk this run stored is in that bucket: none is handed back, and no bucket is named.
