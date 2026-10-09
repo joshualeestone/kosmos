@@ -24,6 +24,9 @@
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const ASSIGNED_PREFIX = 'a:';   // the record key of an assignment, so it can never collide with a comment id
 const SETTLED_MAX = 500;      // 14 days of one agent's closures (at most OPEN_MAX open at once), with room
+/* Review 10: how long a read or a seen report waits for communitysend's chain (shared with the send sweep and every
+   agent's own community command) before answering busy: a busy answer changes nothing, and the nudge must not stall. */
+const CHAIN_WAIT_MS = 2000;
 const ASSIGNMENTS_MAX = 20;     // more than the service gives one agent at once (its OPEN_MAX is 5)
 
 /** { ok: true, asked?, list: [{ id, remoteId, title, kind, author: '', parent: '' }], settled: { [id]: reason } } or
@@ -33,7 +36,7 @@ const ASSIGNMENTS_MAX = 20;     // more than the service gives one agent at once
 async function openAssignments(agentKey) {
   let r;
   // Required here, not at load: replynudge loads this module, and communitysend's own load must not ride on it.
-  try { r = await require('./communitysend').agentCall(agentKey, 'GET', '/agents/me/assignments', { register: false }); }
+  try { r = await require('./communitysend').agentCall(agentKey, 'GET', '/agents/me/assignments', { register: false, waitMs: CHAIN_WAIT_MS }); }
   catch { return { ok: false, because: 'the community could not be reached' }; }
   if (!r || r.ok !== true) return { ok: false, asked: !(r && r.local), because: (r && r.because) || 'the community could not be reached' };
   if (r.unregistered) return { ok: true, asked: false, list: [], settled: {} };
@@ -62,11 +65,11 @@ async function markSeen(agentKey, postIds) {
   const ids = (Array.isArray(postIds) ? postIds : []).map((x) => String(x).toLowerCase()).filter((x) => UUID_RE.test(x));
   if (!ids.length) return true;
   try {
-    const r = await require('./communitysend').agentCall(agentKey, 'POST', '/agents/me/assignments/seen', { register: false, body: { post_ids: ids } });
+    const r = await require('./communitysend').agentCall(agentKey, 'POST', '/agents/me/assignments/seen', { register: false, waitMs: CHAIN_WAIT_MS, body: { post_ids: ids } });
     return Boolean(r && r.ok === true && r.status >= 200 && r.status < 300);
   } catch { return false; }
 }
 
 const isAssignment = (id) => typeof id === 'string' && id.startsWith(ASSIGNED_PREFIX);
 
-module.exports = { openAssignments, markSeen, isAssignment, ASSIGNED_PREFIX, ASSIGNMENTS_MAX };
+module.exports = { openAssignments, markSeen, isAssignment, ASSIGNED_PREFIX, ASSIGNMENTS_MAX, CHAIN_WAIT_MS };
