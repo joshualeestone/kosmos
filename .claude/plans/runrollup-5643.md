@@ -65,3 +65,4 @@ That repeating agents write the same note, with no number in it, when nothing ch
 - **Round 4 (sonnet):** 0 blockers.
   - W fixed: two dropRunStreak call sites had no test that could fail (the clear itself, and a task closed by its last part). Both are now tested directly.
   - NITs fixed: the comment reflowed, and the plan's wording matched to what ships.
+- **Round 5 (opus):** nothing above NIT, CONVERGED. NITs taken: the CSS comment, a rule line under an open rollup's summary, and a test header.
