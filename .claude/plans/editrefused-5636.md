@@ -28,3 +28,4 @@ is registered again by the next sweep, and the post is settled and resent).
   - W fixed: the no-key arm said the edit could never happen, but sendPost's ensureRegistered (and any community call) registers a new key, the post is settled and resent, and then edits work. Dropped; the test now expects "next send" with no key.
   - C recorded on the card: withdraw's no-key refusal has the same flaw in reverse (it refuses a post that may still be resent under a new key). It predates this branch; a separate change.
   - N2 taken: an unreadable keys file is a retry (tested). N1 (a stuck retirement) and N3 (rec.agent vs who) need nothing.
+- **Round 2 (sonnet):** nothing above NIT. Converged. Taken: the comment names only the sweep as what registers a new key. Left: a key held by a taken `registering` mark also gets "after its next send", which can be an hour or more away (the sentence predates this branch and is not made false by it).
