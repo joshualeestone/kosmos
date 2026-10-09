@@ -763,6 +763,8 @@ async function leaveNow(opts, retry) {
     if (back && !back.computerSalt && pf0 && back.org && pf0.orgId === back.org.id) { back.computerSalt = pf0.salt; if (pf0.pinned === true) back.printPinned = true; }
     let kept = false;
     if (back) { try { writeEnrollment(back, opts); kept = true; } catch { /* below */ } }
+    // #5534 review 2: still enrolled, so the company's policy (cleared with the record above) comes back from this answer.
+    if (kept && back.org) applyPolicy(d.policy, opts, back.org.id);
     setLeavePending(!kept, opts, back, undo, hashBefore);
     // Told "stopped" (or "not reporting") earlier: say once that it reports again, in words for what was refused (reviews 27, 31).
     if (kept && retry) setLeaveRefused((back.org && back.org.name) || 'your company', opts, undo ? 'undo' : 'leave');
@@ -831,6 +833,12 @@ async function refreshNow(opts) {
   try { writeEnrollment(rec, opts); } catch { saved = false; /* keep the old record; the next refresh tries again */ }
   // Review 1: a policy only once the enrollment it belongs to is on record here, or a later stop would never clear it.
   const policy = saved ? applyPolicy(d.policy, opts, org.id) : null;
+  /* Review 2: a policy is not kept past what the company serves. An answer saying none (policy: null, the company has
+     no policy) or a different company than the record's with none of its own: the old one no longer applies. An answer
+     from an older coordinator without the field changes nothing. */
+  if (saved && !policy && (('policy' in d && d.policy === null) || (before && before.org && before.org.id !== org.id))) {
+    try { require('./orgpolicy').clear(); } catch { /* best effort */ }
+  }
   return { ok: true, enrolled: true, member: true, ...rec, ...(policy ? { policy } : {}) };
 }
 

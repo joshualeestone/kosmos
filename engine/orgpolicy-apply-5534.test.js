@@ -119,3 +119,14 @@ test('#5534 review 1: a policy naming another company than the answer is not sav
   assert.equal(fs.existsSync(orgpolicy.BUNDLE()), false, 'another company\'s bundle was saved');
   assert.equal(create.policyAllows('openai', null).ok !== false, true);
 });
+
+test('#5534 review 2: a company that stops serving a policy (null) clears it; an answer without the field keeps it', async () => {
+  reset();
+  const root = tmp('aw-polapply-world-');
+  await org.refresh({ root, remote: coordinatorServing(root, sign(bundle())) });
+  assert.equal(create.policyAllows('openai', null).ok, false, 'premise: in force');
+  await org.refresh({ root, remote: coordinatorServing(root, undefined) });   // an older coordinator: no field at all
+  assert.equal(create.policyAllows('openai', null).ok, false, 'CONTROL: an answer without the field dropped the policy');
+  await org.refresh({ root, remote: coordinatorServing(root, null) });
+  assert.equal(create.policyAllows('openai', null).ok !== false, true, 'a policy the company no longer serves stayed in force');
+});
