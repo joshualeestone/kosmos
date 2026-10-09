@@ -4041,7 +4041,14 @@ test('kosmos#5628 review 5: a reinstall recognised by the company setup is switc
   assert.equal((await remote.companyComplete('ann')).ok, true);
   remote.setOn(false);   // the reinstall's settings reset; its identity survived
   assert.equal(remote.read().on, false, 'CONTROL: switched off before the second finish');
+  // Review 7: not approved in the browser: only "already set up"; the email is not rewritten and nothing switches on.
+  assert.equal((await remote.companyStart('bob@acme.test')).ok, true);
+  const unapproved = await remote.companyComplete('ann');
+  assert.equal(unapproved.alreadySetUp, true);
+  assert.equal(remote.read().email, 'ann@acme.test', 'an unproven address was recorded');
+  assert.equal(remote.read().on, false, 'an unapproved setup switched Kosmos+ on');
   assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
+  assert.equal((await remote.companyStatus()).ready, true);   // approved
   const again = await remote.companyComplete('ann');
   assert.equal(again.alreadySetUp, true, JSON.stringify(again));
   assert.equal(remote.read().on, true, 'a recognised reinstall was left switched off');

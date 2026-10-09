@@ -1466,10 +1466,14 @@ async function companyComplete(name, acceptTerms, second) {
   if (typeof name === 'string') name = name.trim().toLowerCase();
   // Review 1: a reinstall already set up at this name is recognised here too (#1010), the setup then not needed.
   if (alreadySetUpAs(name, false)) {
+    if (companySetup === c) companySetup = null;
+    // Review 7: only a setup the person APPROVED in the browser (they signed in as this email) may record the email and
+    // switch on; otherwise this is only "already set up", exactly as the code path says it, and changes nothing.
     // Review 5: set up means switched on here too (a reinstall whose settings reset has `on` false), then up.
-    companySetup = null;
-    write({ email: c.email }, { repair: true });
-    turnOnAfterSignin();
+    if (c.approved) {
+      write({ email: c.email }, { repair: true });
+      turnOnAfterSignin();
+    }
     return alreadySetUpAs(name);
   }
   if (typeof name !== 'string' || !NAME_RULE.test(name)) {
@@ -1484,11 +1488,13 @@ async function companyComplete(name, acceptTerms, second) {
   const offAt = offEpoch;   // review 6: an Off pressed while this runs stands (#3827, as the in-app register)
   const result = await runSetupComplete(args, c.secret + '\n', name);
   // Review 6: the server refused it as finished or expired: nothing more can come of this setup, so start again.
-  if (!result.ok && /expired|not finished|start again/i.test(String(result.because || '')) && companySetup === c) companySetup = null;
+  // Review 7: only the server's own two sentences for a grant that cannot be spent (not every "start again": a wait for
+  // too many second-step codes leaves the grant good).
+  if (!result.ok && /company sign-in (is not finished|has expired)/i.test(String(result.because || '')) && companySetup === c) companySetup = null;
   // Review 4: as the in-app sign-in's register (#3827): set up means switched on, or the managed Mac is enrolled and
   // unreachable until someone finds the switch.
   if (result.ok) {
-    companySetup = null;
+    if (companySetup === c) companySetup = null;   // review 7: never a newer setup
     write({ email: c.email }, { repair: true });
     if (offEpoch === offAt) turnOnAfterSignin();
   }
