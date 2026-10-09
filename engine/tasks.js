@@ -222,18 +222,21 @@ function treeOf(p) {
  * #5678 (user feedback 10-09: two builders on the same work): who owns a task through its parents. A task nobody is on
  * directly, under an open task somebody holds an open part of, belongs to that holder: the nearest such ancestor wins.
  * Returns { who: [names], from: <ancestor's number> }, or null (the task has its own holders, or no owned open ancestor).
- * `tree` is treeOf(p) (built once by the caller). A loop in the parent links stops the walk (each number is seen once).
+ * `tree` is treeOf(p) (built once by the caller); `members` (a Set of the project's agents) drops holders who left. A
+ * loop in the parent links stops the walk (each number is seen once). This is what the task list SHOWS; the Assigner
+ * decides by the whole tree (treeHolders), so a held child also keeps its unheld parent from a second builder.
  */
-function ownerIn(tree, task) {
+function ownerIn(tree, task, members) {
   if (!tree || !task || openHolders(task).length) return null;
+  // Review 1: only the project's own agents hold anything (#5034), when the caller passes them.
+  const mine = (who) => (members instanceof Set ? who.filter((w) => members.has(w)) : who);
   const seen = new Set([task.number]);
   let up = tree.up(task);
   while (up !== null && !seen.has(up)) {
     seen.add(up);
     const a = tree.byNum.get(up);
-    if (!a) return null;
     if (!progressOf(a).closed) {
-      const who = openHolders(a);
+      const who = mine(openHolders(a));
       if (who.length) return { who, from: a.number };
     }
     up = tree.up(a);
@@ -243,6 +246,41 @@ function ownerIn(tree, task) {
 /* The names on a task's OPEN parts: who is on it now (whoOf also names holders of finished parts). */
 function openHolders(task) {
   return [...new Set(partsOf(task).filter((x) => x && x.who && !x.closedAt).map((x) => x.who))];
+}
+
+/**
+ * #5678 review 1: the TREE a task belongs to (a parent and everything under it), named by its top task's number. A
+ * loop in the parent links (no top) is named by the lowest number on the loop, so every task on it agrees.
+ */
+function rootIn(tree, task) {
+  const path = [task.number];
+  const seen = new Set(path);
+  let up = tree.up(task);
+  while (up !== null) {
+    if (seen.has(up)) return Math.min(...path.slice(path.indexOf(up)));
+    seen.add(up);
+    path.push(up);
+    up = tree.up(tree.byNum.get(up));
+  }
+  return path[path.length - 1];
+}
+/**
+ * #5678 review 1: who holds each tree of project `p`: tree (rootIn) -> the set of the project's own agents holding an
+ * open part of an open task in it. A holder no longer on the project holds nothing here (#5034's membership rule), so
+ * work left by someone who left is not stuck.
+ */
+function treeHolders(p, tree) {
+  const members = new Set(Array.isArray(p && p.agents) ? p.agents : []);
+  const out = new Map();
+  for (const t of (p && p.tasks) || []) {
+    if (!t || typeof t.number !== 'number' || progressOf(t).closed) continue;
+    const who = openHolders(t).filter((w) => members.has(w));
+    if (!who.length) continue;
+    const r = rootIn(tree, t);
+    if (!out.has(r)) out.set(r, new Set());
+    for (const w of who) out.get(r).add(w);
+  }
+  return out;
 }
 
 /** The tasks directly under task `n` on project record `p`, in number order. */
@@ -1452,7 +1490,7 @@ function allTasks(everyProject) {
         subtasks: tree.progress(t && t.number),
         /* #5678: a task nobody is on directly, under an open task somebody is on, shows that owner (and the task it
            comes through), so a second agent sees whose work it is before starting. Absent otherwise. */
-        ...(() => { const o = ownerIn(tree, t); return o ? { ownerNames: o.who, ownerFrom: o.from } : {}; })(),
+        ...(() => { const o = ownerIn(tree, t, new Set(Array.isArray(p.agents) ? p.agents : [])); return o ? { ownerNames: o.who, ownerFrom: o.from } : {}; })(),
       }));
     }
   }
@@ -1745,7 +1783,7 @@ function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null,
 }
 
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
-  taskState, waitingOnPerson, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, setParent, tasksEverCreated, tasksTabShown, claimWho,
+  taskState, waitingOnPerson, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, setRepeat, setReviewer, reviewerProblem, recordRun };

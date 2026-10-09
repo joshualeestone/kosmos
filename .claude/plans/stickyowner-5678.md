@@ -12,10 +12,12 @@ both CLIs.
 
 ## Decisions (reversible)
 
-- Ownership is the nearest OPEN ancestor with an OPEN part held (tasks.ownerIn). A finished parent owns nothing; a
-  subtask with its own holder is its holder's (no owner line). Closed parts do not hold.
-- The Assigner skips such a task rather than giving it to the owner: the owner holds open work (the parent), so the
-  Assigner, which only feeds idle agents, would never pick them; the owner takes the subtask, or a person gives it out.
+- The Assigner treats a task TREE (a parent and everything under it, tasks.rootIn) as one builder's work (review 1):
+  if any of the project's agents holds an open part of an open task in it (tasks.treeHolders), nobody else is given any
+  task in it, and the holder may be (when it reads free: a built or on-hold parent, between runs). Within one pass, a
+  tree given to one agent is not given to another (`taken` carries the tree and the agent). A holder no longer on the
+  project holds nothing (#5034). A finished task holds nothing, whatever its parts say.
+- The task list SHOWS the nearest open held ancestor (tasks.ownerIn, members only) on a task nobody is on directly.
 - Shown where an agent looks before starting (`kosmos task list`, from the /api/tasks rows' new ownerNames/ownerFrom).
   The page already shows the parent's holder and the child's "under task N" breadcrumb; an owner line on the page is
   a design call for Mona, noted on the card, not built here.
@@ -36,4 +38,9 @@ both CLIs.
 
 ## Review log
 
-(filled in per round)
+- **Round 1 (opus):** 1 blocker, 3 warnings, NITs.
+  - BLOCKER fixed: one pass gave an unheld parent to one idle agent and its subtask to another (ownership read only from stored records; the test even pinned it). `taken` now carries the tree and its agent; a step test with two idle agents asserts one gets the tree (CONTROL: two separate tasks go to both). Red by mutation.
+  - W2 fixed: the owner was shut out of its own subtasks (on-hold or built parents, between runs), and a holder who left the project kept a tree stuck. The holder may be given its tree; only members hold.
+  - W3 fixed: a held CHILD did not keep its unheld parent from a second builder (nothing checked descendants). The whole tree is one unit now.
+  - W4 fixed: the finished-parent cases could not fail (legacy `who` + closedAt closes the part too); now a closed task with a part still open (red by mutation).
+  - NITs taken: owner names folded to one line in both CLIs. Left: failover's write-time race (a person gives the parent out between read and write); the dead `if (!a)` removed; webhook wording beside an owner line is mixed but not unsafe.

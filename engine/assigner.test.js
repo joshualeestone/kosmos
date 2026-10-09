@@ -706,21 +706,48 @@ test('#5456 goalProject: a lone scheduled task does not stop the goal ask, and i
     'CONTROL: the same task without its rule (ordinary open work) stops the ask');
 });
 
-/* #5678 (user feedback 10-09): once a builder holds a parent task, its subtasks are that builder's work: the Assigner
-   must not hand one to a second builder. */
-test('#5678 pick: a subtask under an open task somebody is on is not handed to a second builder; CONTROLS for each case', () => {
-  const proj = (list) => [{ id: 'p5678', agents: ['idle5678', 'builderA'], tasks: list }];
+/* #5678 (user feedback 10-09): a task tree (a parent and everything under it) is one builder's work: once somebody on
+   the project holds any open part of it, nobody else is given any of it; the holder may be given more of it. */
+test('#5678 pick: nobody else is given a task from a tree somebody holds; the holder may be; CONTROLS', () => {
+  const proj = (list, agents = ['idle5678', 'builderA']) => [{ id: 'p5678', agents, tasks: list }];
   const parentHeld = { number: 1, sentence: 'Parent', who: 'builderA' };
   const child = { number: 2, sentence: 'Child', parent: 1 };
   const grand = { number: 3, sentence: 'Grandchild', parent: 2 };
   assert.equal(a.pick('idle5678', proj([parentHeld, child]), new Set()), null, 'a subtask of a held parent was handed to a second builder');
   assert.equal(a.pick('idle5678', proj([parentHeld, child, grand]), new Set()), null, 'a grandchild of a held task was handed out');
-  // CONTROL: with nobody on the parent, the subtask is a candidate (the parent itself comes first, by number).
-  const free = a.pick('idle5678', proj([{ number: 1, sentence: 'Parent' }, child]), new Set(['p5678#1']));
-  assert.ok(free && free.n === 2, 'CONTROL: a subtask of an unheld parent was not handed out: ' + JSON.stringify(free));
-  // CONTROL: a finished parent owns nothing any more.
-  const done = a.pick('idle5678', proj([{ number: 1, sentence: 'Parent', who: 'builderA', closedAt: '2026-10-09T00:00:00Z' }, child]), new Set());
+  // Review 1 (W3): a HELD child keeps its unheld parent from a second builder too.
+  assert.equal(a.pick('idle5678', proj([{ number: 1, sentence: 'Parent' }, { number: 2, sentence: 'Held child', parent: 1, who: 'builderA' }]), new Set()), null,
+    'the parent of a held subtask was handed to a second builder');
+  // Review 1 (W2): the holder itself may be given more of its own tree (built, on hold, between runs: it reads free).
+  const own = a.pick('builderA', proj([{ ...parentHeld, builtAt: '2026-10-09T00:00:00Z', builtWho: ['builderA'] }, child]), new Set());
+  assert.ok(own && own.n === 2, 'the holder was shut out of its own subtask: ' + JSON.stringify(own));
+  // Review 1 (W2): a holder no longer on the project holds nothing here.
+  const left = a.pick('idle5678', proj([{ number: 1, sentence: 'Parent', who: 'gone' }, child], ['idle5678']), new Set());
+  assert.ok(left && left.n === 2, 'work held by an agent who left the project stays stuck: ' + JSON.stringify(left));
+  // CONTROL: nobody on the tree, the subtask is a candidate (the parent comes first by number; with it taken by this agent, the child).
+  const free = a.pick('idle5678', proj([{ number: 1, sentence: 'Parent' }, child]), new Set(['p5678#1', 'p5678#tree#1#idle5678']));
+  assert.ok(free && free.n === 2, 'CONTROL: a subtask of an unheld tree was not handed to the agent already given its parent: ' + JSON.stringify(free));
+  // Review 1 (W4): a finished parent owns nothing, even with a part still open on it.
+  const done = a.pick('idle5678', proj([{ number: 1, sentence: 'Parent', closedAt: '2026-10-09T00:00:00Z', parts: [{ id: 1, who: 'builderA' }] }, child]), new Set());
   assert.ok(done && done.n === 2, 'CONTROL: a subtask of a finished parent was not handed out: ' + JSON.stringify(done));
-  // A loop in the parent links cannot hang the walk.
   assert.ok(a.pick('idle5678', proj([{ number: 5, sentence: 'Loop A', parent: 6 }, { number: 6, sentence: 'Loop B', parent: 5 }]), new Set()), 'a loop in the parent links stopped the pick');
+});
+
+/* #5678 review 1 (the BLOCKER): one pass must not give a parent to one idle builder and its subtask to another. */
+test('#5678 step: two idle agents and an unheld parent with a subtask: the tree goes to one of them, never both', () => {
+  const w = world([{ name: 'tree1' }, { name: 'tree2' }]);
+  try {
+    const top = addTask(w.pid, 'Tree parent');
+    addTask(w.pid, 'Tree child', { parent: top.number });
+    const out = afterIdle(w).toAssign.filter((x) => x.projectId === w.pid);
+    assert.equal(out.length, 1, 'the parent and its subtask went to two builders in one pass: ' + JSON.stringify(out.map((x) => [x.session, x.n])));
+    assert.equal(out[0].treeKey, undefined, 'the internal tree key leaked into the assignment');
+    // CONTROL: two unrelated tasks do go to both idle agents in one pass.
+    const w2 = world([{ name: 'flat1' }, { name: 'flat2' }]);
+    try {
+      addTask(w2.pid, 'Flat one');
+      addTask(w2.pid, 'Flat two');
+      assert.equal(afterIdle(w2).toAssign.filter((x) => x.projectId === w2.pid).length, 2, 'CONTROL: two separate tasks were not both handed out');
+    } finally { w2.restore(); }
+  } finally { w.restore(); }
 });

@@ -590,7 +590,7 @@ test('#5678 ownerIn: nearest open held ancestor; none for a task with its own ho
     { number: 3, sentence: 'Grandchild', parent: 2 },
     { number: 4, sentence: 'Own holder', parent: 1, who: 'builderB' },
     { number: 5, sentence: 'Under a finished parent', parent: 6 },
-    { number: 6, sentence: 'Finished', who: 'builderC', closedAt: '2026-10-09T00:00:00Z' },
+    { number: 6, sentence: 'Finished', closedAt: '2026-10-09T00:00:00Z', parts: [{ id: 1, who: 'builderC' }] },   // review 1: a part still open
     { number: 7, sentence: 'No parent' },
   ] };
   const tasksMod = require('./tasks');
@@ -601,4 +601,19 @@ test('#5678 ownerIn: nearest open held ancestor; none for a task with its own ho
   assert.equal(tasksMod.ownerIn(tree, by(4)), null, 'a task with its own holder');
   assert.equal(tasksMod.ownerIn(tree, by(5)), null, 'a finished parent owns nothing');
   assert.equal(tasksMod.ownerIn(tree, by(7)), null, 'no parent');
+});
+
+test('#5678 rootIn and treeHolders: a tree is named by its top; holders are the project\'s own agents on open work', () => {
+  const tasksMod = require('./tasks');
+  const p = { agents: ['a', 'b'], tasks: [
+    { number: 1, sentence: 'Top' }, { number: 2, sentence: 'Mid', parent: 1, who: 'a' }, { number: 3, sentence: 'Leaf', parent: 2 },
+    { number: 4, sentence: 'Other', who: 'gone' }, { number: 5, sentence: 'Loop A', parent: 6 }, { number: 6, sentence: 'Loop B', parent: 5 },
+  ] };
+  const tree = tasksMod.treeOf(p);
+  const by = (n) => p.tasks.find((t) => t.number === n);
+  assert.deepEqual([1, 2, 3].map((n) => tasksMod.rootIn(tree, by(n))), [1, 1, 1]);
+  assert.deepEqual([5, 6].map((n) => tasksMod.rootIn(tree, by(n))), [5, 5], 'a loop is named by its lowest number from either side');
+  const h = tasksMod.treeHolders(p, tree);
+  assert.deepEqual([...(h.get(1) || [])], ['a']);
+  assert.equal(h.has(4), false, 'a holder not on the project holds nothing');
 });

@@ -751,7 +751,7 @@ async function taskList(ctx, args) {
   for (const x of tasks) {
     const who = (x.whoNames && x.whoNames.length) ? ' (' + x.whoNames.join(', ') + ')'
       /* #5678, as install/kosmos: nobody on it directly, but an open task above it is somebody's: theirs. */
-      : (Array.isArray(x.ownerNames) && x.ownerNames.length ? ' (owner: ' + x.ownerNames.join(', ') + ', through task ' + x.ownerFrom + ')' : '');
+      : (Array.isArray(x.ownerNames) && x.ownerNames.length ? ' (owner: ' + x.ownerNames.map((n) => String(n).replace(/\s+/g, ' ').trim()).join(', ') + ', through task ' + x.ownerFrom + ')' : '');
     const up = x.parent ? ' (under task ' + x.parent + ')' : '';
     const kids = (x.subtasks && x.subtasks.total) ? ' [' + x.subtasks.done + '/' + x.subtasks.total + ' subtasks done]' : '';
     /* #1307: every task on ONE line (a newline in its words would print a line of its own), and a
