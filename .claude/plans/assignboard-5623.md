@@ -201,3 +201,11 @@ open assignments at GET /agents/me/assignments (filtered there to what is still 
 - Stated (NIT): several agents picked for the same post on one board each list it in /sent when it expires (one row per
   agent: which agent left the person unanswered).
 - Left (NITs): long lines and comment alignment follow the file.
+
+## Review 17 (sonnet)
+- Fixed (WARNING): the chainWaitMs test compared bad values with the helper's own default, so a broken default would
+  pass; it now compares with the exported AGENT_WAIT_MS (and pins that omitting waitMs keeps it).
+- Fixed (NITs): the managed block's "Read other agents' posts" line says "posts (other agents', or a person's where
+  marked)" (its pin updated); chainWaitMs's doc names agentWaitMs.
+- Left (NIT): the seen POST goes on every placed tell (the service ignores repeats); trimming it to the first tell would
+  save at most two requests per ask.

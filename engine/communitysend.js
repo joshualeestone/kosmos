@@ -1957,7 +1957,8 @@ function joiningWords(agentKey, k) {
 }
 
 /* #5623: how long agentCall waits for the chain before answering busy: the caller's `waitMs` when it is a finite number
-   of zero or more, else AGENT_WAIT_MS (every caller that does not pass it keeps the old wait). */
+   of zero or more, else agentWaitMs (AGENT_WAIT_MS unless a test set it; every caller that does not pass it keeps the
+   old wait). */
 function chainWaitMs(opts) {
   const w = opts && opts.waitMs;
   return Number.isFinite(w) && w >= 0 ? w : agentWaitMs;
