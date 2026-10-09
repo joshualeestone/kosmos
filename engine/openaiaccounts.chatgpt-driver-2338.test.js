@@ -23,6 +23,7 @@ const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-chatgpt-driver-233
 process.env.AGENT_WORKFORCE_HOME = SANDBOX;
 
 const openai = require('./openaiaccounts');
+const { eventually } = require('../test-support/eventually');
 
 // A ChatGPT id_token whose middle segment (base64url) carries the email.
 function idToken(email) {
@@ -55,15 +56,14 @@ exit 0
 fs.chmodSync(MOCK, 0o755);
 process.env.FAKE_ID_TOKEN = ID_TOKEN;
 
-// Poll chatgptLoginStatus until predicate(status) or a timeout.
+// #5727: poll chatgptLoginStatus via the shared eventually() helper, which scales its
+// deadline by KOSMOS_TEST_TIME_SCALE so this does not false-red on a contended box. At
+// scale 1 (CI / unloaded) this polls identically to the hand-rolled loop it replaces.
 async function waitFor(sessionId, pred, ms = 4000) {
-  const start = Date.now();
-  for (;;) {
-    const s = openai.chatgptLoginStatus(sessionId);
-    if (pred(s)) return s;
-    if (Date.now() - start > ms) throw new Error(`timeout; last state=${s.state} error=${s.error}`);
-    await new Promise((r) => setTimeout(r, 20));
-  }
+  return eventually(() => openai.chatgptLoginStatus(sessionId), pred, {
+    timeoutMs: ms,
+    describe: (s) => `last state=${s.state} error=${s.error}`,
+  });
 }
 
 test('start spawns codex login and, on a clean exit with a chatgpt auth.json, reaches connected with the account', async () => {
