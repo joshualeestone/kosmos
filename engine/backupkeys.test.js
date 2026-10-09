@@ -78,7 +78,9 @@ test('a member-key wrap never opens as a naming key, nor the reverse (the magic 
   // and both kinds share one HPKE info.
   const swapped = Buffer.concat([Buffer.from('KBN1'), mw.subarray(4)]);
   assert.strictEqual(keys.unwrapNamingKey(member.sk, swapped, nctx, keys.namingKeyId(member.sk)), null);
-  const nw = keys.wrapNamingKey(keys.newNamingKey(), member.pk, nctx);
+  // The member's OWN private key wrapped as a "naming key", magic swapped to KBK1, opened as a member key with the
+  // member's public key: the secret derives correctly, so ONLY the associated data can refuse it.
+  const nw = keys.wrapNamingKey(member.sk, member.pk, nctx);
   assert.strictEqual(keys.unwrapMemberKey(member.sk, Buffer.concat([Buffer.from('KBK1'), nw.subarray(4)]), mctx, member.pk), null);
   // CONTROL: the member-key wrap to its own public key does open as a member key.
   assert.ok(keys.unwrapMemberKey(member.sk, mw, mctx, member.pk));

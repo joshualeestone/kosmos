@@ -13,7 +13,8 @@
  *
  * Wraps:  member key  KBK1 | enc(32) | ct(32 + 16)
  *         naming key  KBN1 | enc(32) | ct(32 + 16)      both with HPKE info "kosmos-backup v1 key-wrap"
- * Distinct magic AND a context line that names its kind: a member-key wrap can never open as a naming key.
+ * The associated data names the kind (and the naming key's adds a period), so a member-key wrap can never open as a
+ * naming key; the magic only routes a wrap to the right opener (a fast reject), it is not authenticated.
  *
  * Wraps are NOT authenticated (HPKE base mode): anyone with a recipient's public key can make one that opens. So
  * every unwrap is anchored to a value from an AUTHENTICATED source, never from key storage or a record kept beside
@@ -60,7 +61,7 @@ const KEY_LEN = 32, ENC_LEN = 32;
 // in the associated data (tested with the magic swapped); never select behaviour on the magic alone.
 const MEMBER_MAGIC = Buffer.from('KBK1');   // Kosmos Backup Key: a wrapped member private key, format 1
 const NAMING_MAGIC = Buffer.from('KBN1');   // Kosmos Backup Naming key, wrapped, format 1
-// One HPKE info for both kinds: what separates them is the magic and the kind line in the associated data.
+// One HPKE info for both kinds: what separates them is the kind line in the associated data, not the magic.
 const INFO = Buffer.from(`kosmos-backup v${FORMAT} key-wrap`);
 const MEMBER_FIELDS = ['org', 'member', 'epoch'];
 const NAMING_FIELDS = ['org', 'member', 'epoch', 'period'];
