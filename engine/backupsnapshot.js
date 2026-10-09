@@ -56,6 +56,9 @@ const MONDAY_EPOCH = Date.UTC(1970, 0, 5);   // the first Monday 00:00 UTC after
 const CHUNK_NAME_LEN = 64;
 // The longest object key the walker accepts (the coordinator's are about 140: two ids, epoch, period, two 32-hex ids).
 const MAX_KEY_LEN = 256;
+// The bounds backupupload.uploadManifest puts on a chunk's lock end (its LOCK_MAX_MS, plus an hour), checked here up front.
+const LOCK_FLOOR_MS = Date.UTC(2020, 0, 1), LOCK_MAX_MS = 39 * 86400 * 1000;
+const ownerOf = (key) => key.split('/').slice(0, 2).join('/');
 
 /** The coordinator's period label for a time: the ISO week of the Monday 00:00 UTC that starts it, "2026-W41". */
 function periodOf(ms) {
@@ -78,7 +81,8 @@ function periodOfKey(key) {
    under another period was named with another naming key: a manifest naming it would not restore. */
 function keyProblem(key, ctx) {
   const parts = typeof key === 'string' ? key.split('/') : [];
-  if (parts.length !== 5 || parts.some((x) => !x)) return 'not a coordinator object key';
+  // Plain segments only (review 7): the manifest budget charges a key at its byte length, which JSON keeps only for these.
+  if (parts.length !== 5 || parts.some((x) => !/^[A-Za-z0-9._:-]+$/.test(x))) return 'not a coordinator object key';
   if (parts[0] !== ctx.org) return `under org ${parts[0]}, not ${ctx.org}`;
   if (parts[2] !== ctx.epoch) return `under key epoch ${parts[2]}, not ${ctx.epoch}`;
   if (parts[3] !== ctx.period) return `in period ${parts[3]}, not ${ctx.period}`;
@@ -224,7 +228,8 @@ async function takeSnapshot(input, deps) {
   try {
     return await snapshotInner(input || {}, deps || {}, added, state, fail);
   } catch (err) {
-    return fail(`the snapshot failed: ${(err && err.message) || err}`);
+    // A fixed sentence and the error's code, never its message: an fs error carries absolute paths (review 7).
+    return fail(`the snapshot failed unexpectedly${err && err.code ? ` (${err.code})` : ''}`);
   }
 }
 
@@ -251,7 +256,8 @@ async function snapshotInner(input, deps, added, state, fail) {
     if (typeof input.bucket !== 'string' || !input.bucket) return fail('an index of earlier chunks needs the bucket they are stored under', { staleIndex: true });
     for (const [name, e] of index) {
       const why = typeof name !== 'string' || !/^[0-9a-f]{64}$/.test(name) || !e ? 'malformed'
-        : keyProblem(e.key, ctx) || (Number.isSafeInteger(e.lockedUntilMs) ? null : 'no lock end');
+        : keyProblem(e.key, ctx)
+          || (!Number.isSafeInteger(e.lockedUntilMs) || e.lockedUntilMs < LOCK_FLOOR_MS || e.lockedUntilMs > now() + LOCK_MAX_MS + 3600 * 1000 ? 'a lock end no grant could set' : null);
       if (why) return fail(`the index holds an entry this snapshot cannot name (${why})`, { staleIndex: true });
     }
     state.bucket = input.bucket;
@@ -260,6 +266,11 @@ async function snapshotInner(input, deps, added, state, fail) {
   // index key, would point two names at one object; on a versioned bucket restore could only open one of them).
   const usedKeys = new Set([...index.values()].map((e) => e.key));
   if (usedKeys.size !== index.size) return fail('the index names one key for two chunks', { staleIndex: true });
+  // One <org>/<account> for every chunk the manifest names, as uploadManifest requires (review 7): the index's, or the
+  // first grant's.
+  const owners = new Set([...usedKeys].map(ownerOf));
+  if (owners.size > 1) return fail('the index names chunks under more than one account', { staleIndex: true });
+  let owner = owners.size ? [...owners][0] : null;
 
   let rootReal;
   try { rootReal = fs.realpathSync(root); } catch { return fail('the work Kosmos folder could not be read'); }
@@ -314,13 +325,14 @@ async function snapshotInner(input, deps, added, state, fail) {
     for (const [name, key] of stored) {
       if (!pending.has(name)) { badKey = badKey || 'for a chunk this run did not ask to store'; continue; }
       if (usedKeys.has(key)) { badKey = badKey || 'repeats a key already named'; continue; }
-      const kp = keyProblem(key, ctx);
+      const kp = keyProblem(key, ctx) || (owner && ownerOf(key) !== owner ? `under account path ${ownerOf(key)}, not ${owner}` : null);
       if (kp && kp.startsWith('in period')) { wrongPeriod.push(periodOfKey(key)); continue; }
       if (kp) { badKey = badKey || kp; continue; }
       if (!Number.isSafeInteger(lockOf(name))) { noLock = true; continue; }
       if (Buffer.byteLength(key) > MAX_KEY_LEN) { badKey = badKey || `longer than ${MAX_KEY_LEN} characters`; continue; }
       added.set(name, { key, lockedUntilMs: lockOf(name) });
       usedKeys.add(key);
+      owner = owner || ownerOf(key);
       objects[name] = key;
       estimate += Buffer.byteLength(key) - MAX_KEY_LEN;   // charged at MAX_KEY_LEN when it was sealed (only pending names reach here)
     }
@@ -335,6 +347,9 @@ async function snapshotInner(input, deps, added, state, fail) {
   };
 
   for (const f of listed.files) {
+    // Over the cap at walk time: its reserve is a skip entry only, so it is never read (review 7: one that shrank before
+    // the read was stored past its reserve).
+    if (f.size > maxFile) { skip({ path: f.path, why: `larger than ${Math.round(maxFile / 1024 / 1024)} MB, too large to scan` }); reserve -= ub(f); continue; }
     const got = readListed(fs, rootReal, f, maxFile);
     if (!got.buf) { skip({ path: f.path, why: got.why }); reserve -= ub(f); continue; }
     // Grown since the walk: its reserve was sized from the walk's size, and it is being written to (review 6).
