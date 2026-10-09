@@ -2992,9 +2992,8 @@ function appendLocked(projectId, agent, entry, bornAt) {
     // write must not leave a half-written file that parses as no messages and
     // silently loses the lot. Per-process temp name, so two windows saving at
     // once cannot rename each other's half-written file into place.
-    const tmp = `${file}.${process.pid}.new`;
-    fs.writeFileSync(tmp, JSON.stringify(record, null, 2));
-    fs.renameSync(tmp, file);
+    // #5434 slice 18: store.saveFlushed (flushed before the rename, the folder after on POSIX; a unique temp), so a crash cannot leave the thread at full length but zero-filled (#5431), which parses as no messages.
+    store.saveFlushed(file, JSON.stringify(record, null, 2));
   } catch {
     /**
      * ⚠️ OUR SENTENCE, NOT THE ERRNO. Forwarding `err.message` put
@@ -3251,9 +3250,7 @@ function markDmSeen(agent, now) {
   const cur = dmSeenRead() || {};
   cur[name] = new Date(Number.isFinite(now) ? now : Date.now()).toISOString();
   fs.mkdirSync(path.dirname(DM_SEEN), { recursive: true });
-  const tmp = DM_SEEN + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(cur, null, 2) + '\n');
-  fs.renameSync(tmp, DM_SEEN);
+  store.saveFlushed(DM_SEEN, JSON.stringify(cur, null, 2) + '\n');   // #5434 slice 18: flushed before the rename
   return cur[name];
 }
 
@@ -3425,9 +3422,7 @@ function reactDirect(agent, at, emoji) {
       messages[hits[0]] = { ...m, reactions: next };
       const record = { ...thread, messages };
       try {
-        const tmp = `${file}.${process.pid}.new`;
-        fs.writeFileSync(tmp, JSON.stringify(record, null, 2));
-        fs.renameSync(tmp, file);
+        store.saveFlushed(file, JSON.stringify(record, null, 2));   // #5434 slice 18: flushed before the rename
       } catch {
         return { ok: false, because: 'we could not write this reaction down on this computer' };
       }
@@ -3517,9 +3512,7 @@ function markDmReactionsTold(agent, named) {
         return { ...m, reactionsTold: next };
       });
       if (!changed) return true;
-      const tmp = `${file}.${process.pid}.new`;
-      fs.writeFileSync(tmp, JSON.stringify({ ...thread, messages }, null, 2));
-      fs.renameSync(tmp, file);
+      store.saveFlushed(file, JSON.stringify({ ...thread, messages }, null, 2));   // #5434 slice 18: flushed before the rename
       return true;
     });
     return !!(held && held.ok);
