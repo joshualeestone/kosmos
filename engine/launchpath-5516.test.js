@@ -644,3 +644,24 @@ test('#5516 review 17: a file link on a program\'s chain held in a temp folder i
   assert.ok(!r3.linkNames.includes(path.join(dir, 'out', 'f')), 'a spelling inside the agent folder became a rule: ' + JSON.stringify(r3.linkNames));
   assert.ok(r3.files.includes(path.join(realOr(outside), 'f')), 'CONTROL: the file itself is denied');
 });
+
+test('#5516 review 18: one pass keeps a separate scan for a different PATH; a spelling with a dot name is never a rule', () => {
+  const cache = new Map();
+  const a = binDir('key-a');
+  const b = binDir('key-b');
+  fs.writeFileSync(path.join(path.dirname(a), 'key-prog'), '#!/bin/sh\n', { mode: 0o755 });
+  fs.symlinkSync(path.join(path.dirname(a), 'key-prog'), path.join(b, 'prog'));
+  const ra = setup.launchPathDirs(agentDir('lp-key'), { ...PIN, panePath: a, ownPath: '', launchCache: cache });
+  const rb = setup.launchPathDirs(agentDir('lp-key'), { ...PIN, panePath: b, ownPath: '', launchCache: cache });
+  assert.equal(cache.size, 2, 'a different PATH reused another PATH\'s scan');
+  assert.ok(rb.dirs.includes(realOr(b)) && !ra.dirs.includes(realOr(b)), JSON.stringify({ ra, rb }));
+  assert.ok(rb.files.includes(path.join(realOr(path.dirname(a)), 'key-prog')), JSON.stringify(rb.files));
+  // A program link whose target is written with a "." name: the dotted spelling never becomes a rule.
+  const pd = binDir('dot-alias-path');
+  const target = binDir('dot-alias-real');
+  fs.writeFileSync(path.join(target, 'tool'), '#!/bin/sh\n', { mode: 0o755 });
+  fs.symlinkSync(path.dirname(target) + '/./dot-alias-real/tool', path.join(pd, 'tool'));   // as text, with "./"
+  const r = setup.launchPathDirs(agentDir('lp-dotalias'), { ...PIN, panePath: pd, ownPath: '' });
+  assert.ok(r.files.includes(path.join(realOr(target), 'tool')), JSON.stringify(r.files));
+  assert.ok(!r.linkNames.some((l) => l.split(path.sep).includes('.')), 'a dotted spelling became a rule: ' + JSON.stringify(r.linkNames));
+});

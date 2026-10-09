@@ -250,3 +250,13 @@ rest of the guard is still written.
     folder dropped as shared or the agent's own get no file rule (the guard is not whole there anyway); a dangling
     target later made as a folder would be denied whole (rare, over-denial only); a folder link in an ancestor inside a
     temp folder (not a production layout).
+- Round 18 (sonnet): 0 BLOCKER, 3 WARNING, 2 NIT.
+  - DECIDED, residual (now named in the header): both layers match by path, so a hard link to a user-owned program
+    under another name (in the agent folder) is not covered, as #4491 already says of the token. Closing it means file
+    ownership or mode changes, outside this card. Rules are written in the disk's own letter case (as #4491's are).
+  - FIXED: tests that a different PATH in the same pass gets its own scan (the cache key), and that a spelling with a
+    "." name never becomes a rule. Each fails under its mutation. NOT CHANGED: the one-Map-per-pass line in the refresh
+    is performance only (a regression rescans; nothing is under-denied), and the copy of the unsafe list is harmless.
+  - MEASURED, not a defect: a PATH handed in through the launch-secrets door would come after the cleaned PATH, but the
+    door accepts only names on the engine's token-door allowlist (supervisor, before add_launch_secret), and PATH is not
+    one.

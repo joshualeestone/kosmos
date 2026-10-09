@@ -724,7 +724,9 @@ function ruleHasPatternChar(rule, sep = path.sep) {
    NOT covered (the plan records why): code a covered program loads from beside it, interpreters and callees named
    inside scripts, what shell startup adds to PATH, a link held in an ancestor of the agent folder (such as /var in /),
    replacing an ancestor of a covered folder, and, as a later part of #5516: programs named in Claude's own config
-   files (MCP servers, hooks, plugins, the status line) and the code in shell startup files.
+   files (MCP servers, hooks, plugins, the status line) and the code in shell startup files. Both layers match by
+   PATH, so a hard link to a user-owned program made under another name is not covered either (as #4491 says of the
+   token); and a rule is written in the disk's own letter case.
    Returned in `unsafe` (the guard then says it is not whole): an empty or relative pane entry; a folder that is the
    agent's own, inside it or above it; a program or link folder that resolves there; a folder that could not be listed;
    a folder past the scan cap; a link chain too long or unreadable; a launch input whose place could not be worked
