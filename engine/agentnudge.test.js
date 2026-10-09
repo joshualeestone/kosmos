@@ -507,6 +507,14 @@ test('#4787: a due repeating task is nudged with its due run and the record verb
   assert.equal(g.dueWords, tr.whenWords(tr.latestAtOrBefore(gap.repeat, tr.dueSlot(gap), Date.now())), 'after a gap the line names an old run, not the latest');
   assert.notEqual(g.dueWords, tr.whenWords(tr.dueSlot(gap)), 'CONTROL: the oldest unrun slot reads differently');
   assert.match(nudge.nudgeText(g), /\), and earlier ones, has not been reported/);
+  // Review 2: exactly one slot outstanding (the previous hour's run was reported): no "and earlier ones".
+  const top = new Date(now); top.setMinutes(0, 0, 0);
+  const one = { number: 8, sentence: 'One due', who: 'ag', repeat: { every: 'hour', minute: 0 }, repeatSetAt: longAgo, createdAt: longAgo,
+    lastRunAt: new Date(top.getTime() - 3600 * 1000 + 60 * 1000).toISOString() };
+  const o = nudge.openParts('ag', proj(one))[0];
+  assert.ok(o && o.dueWords, 'fixture: the current hour is due');
+  assert.equal(o.dueEarlier, undefined, 'one outstanding run was called several');
+  assert.doesNotMatch(nudge.nudgeText(o), /earlier ones/, 'one outstanding run said "and earlier ones"');
   // Review 1: no usable project id: placeholders, never a command missing its arguments.
   assert.match(nudge.nudgeText(Object.assign({}, due[0], { projectId: '..' })), /kosmos task ran <project-id> <task-number> \(add --unchanged/);
   // Review 1: a repeating task with no slot to name (a run stamped in the future) is open work with the plain line.
