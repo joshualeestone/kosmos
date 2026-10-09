@@ -93,7 +93,15 @@ test('#5434: all twelve writers save flushed, with no hand-made temp renamed', (
     // Any rename at all, except the two documented MOVES (review 1): instructionadds' unreadable-file aside and the
     // community store's corrupt-file quarantine.
     const count = (needle) => src.split(needle).length - 1;
-    const moves = count('renameSync(file(), aside)') + count('renameSync(file, `${file}.corrupt-');
-    assert.equal(count('renameSync(') - moves, 0, f + ': still renames by hand');
+    // review 2: exact counts per file, not a subtraction: the two documented MOVES live in one file each.
+    const MOVES = { 'instructionadds.js': 'renameSync(file(), aside)', 'communitystore.js': 'renameSync(file, `${file}.corrupt-' };
+    const move = MOVES[f];
+    assert.equal(count('renameSync('), move ? 1 : 0, f + ': renames by hand');
+    if (move) assert.equal(count(move), 1, f + ': its documented move is not the one rename');
+    // review 2: the owner-only records must stay on writeSecret at their exact mode, never saveFlushed.
+    if (['instructionadds.js', 'agentpermission.js', 'restartnote.js', 'roomhold.js', 'orgrollup.js', 'communitystore.js'].includes(f)) {
+      assert.match(src, /writeSecret\([^;]*(?:0o600|FILE_MODE)/, f + ': an owner-only record must save through writeSecret at its exact mode');
+      assert.doesNotMatch(src, /saveFlushed\(/, f + ': an owner-only record saved through saveFlushed would keep a loose mode');
+    }
   }
 });
