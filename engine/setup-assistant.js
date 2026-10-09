@@ -2216,6 +2216,8 @@ function mergeSetting(stored, patch) {
 }
 
 module.exports = {
+  /* #5683: the token roots the guard denies, so engine/agentevents.js classes a refusal at them as the board's files. */
+  tokenOnlyTokenRoots, kosmosHome,
   ruleAbs,   // #4752 follow-up: exported so the Windows form is pinned from any host
   rulePath,
   rulePaths,

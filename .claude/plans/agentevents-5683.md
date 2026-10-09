@@ -194,3 +194,13 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
   (a loss until the clock catches up, never a leak); Glob/Grep with an absolute pattern and no path class 'other'
   (whether Claude Code checks the pattern is unmeasured); two token-only agents colliding with each other attribute to
   whichever is read first (both under the company's rules).
+
+## Review 13 (sonnet), all fixed unless stated
+- board-files was only this store, narrower than what the guard denies: it is every root the guard denies
+  (setup-assistant.tokenOnlyTokenRoots, now exported: this store, the legacy roots, the default world's base, every
+  named world's store) and the installed app. agent-config adds the agent's CLAUDE.md, .mcp.json and AGENTS.md and
+  the account's Claude config folders (status.configRoots). Best effort: a lookup that throws narrows the classes,
+  never the reading. Test.
+- Stated (NITs): `world` is the enrollment's own id (not re-checked here; the coordinator skips a malformed one);
+  capped and skipped answers count as sent (logged); a busy local macRequest answer waits the 30 minutes as a failure
+  does; the timing test is a wall-clock bound (100 ms against a measured 3.7 s regression).

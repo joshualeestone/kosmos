@@ -177,10 +177,15 @@ function pathClass(p0, ctx) {
     const dir = fold(dir0); const q = fold(p);
     return q === dir || q.startsWith(dir.endsWith(path.sep) ? dir : dir + path.sep);
   };
-  if (under(ctx.boardRoot)) return 'board-files';
+  /* The board's files are every root the guard denies (review 13: its token roots, other worlds' stores, the legacy
+     roots) and the installed app itself, not only this store. */
+  if (under(ctx.boardRoot) || (ctx.boardRoots || []).some(under)) return 'board-files';
+  if ((ctx.configRoots || []).some(under)) return 'agent-config';   // the account's Claude config folders (review 13)
   if (under(ctx.agentDir)) {
     const rest = path.relative(fold(ctx.agentDir), fold(p)).split(path.sep);   // folded too (review 9)
-    return rest[0] === fold('.claude') ? 'agent-config' : 'other';
+    /* The agent's own config: its .claude folder and the instruction and tool files Claude Code reads from its folder
+       (review 13). */
+    return [fold('.claude'), fold('CLAUDE.md'), fold('.mcp.json'), fold('AGENTS.md')].includes(rest[0]) ? 'agent-config' : 'other';
   }
   if ((ctx.otherAgentDirs || []).some(under)) return 'other-agent';
   if (under(home)) return 'home';
@@ -300,6 +305,14 @@ function defaultSources() {
     /* Every agent this Kosmos knows (token-only or not), or null when that cannot be read (review 10). */
     everyAgent: () => { try { const r = require('./register').survey(); return r && r.ok ? r.agents.map((a) => a.name) : null; } catch { return null; } },
     transcriptDirsOf: (dir) => receipt._transcriptDirs(dir),
+    /* Review 13: what the guard denies beyond this store, and the account's Claude config folders. Best effort: a
+       lookup that throws only narrows the classes (never the reading). */
+    boardRoots: () => {
+      const out = [path.resolve(__dirname, '..')];   // the installed app
+      try { const sa = require('./setup-assistant'); out.push(...sa.tokenOnlyTokenRoots(require('./store').ROOT, sa.kosmosHome())); } catch { /* narrower classes */ }
+      return out;
+    },
+    configRoots: () => { try { return require('./status').configRoots(); } catch { return []; } },
     transcripts: async (dir) => {
       const files = [];
       for (const d of receipt._transcriptDirs(dir)) files.push(...await receipt._transcriptsIn(d));
@@ -384,6 +397,8 @@ async function tick(opts) {
     for (const n of names) if (!Number.isFinite(st.listed[n])) st.listed[n] = now;
     for (const n of Object.keys(st.listed)) if (!names.includes(n)) delete st.listed[n];   // off the list: starts again
     let budget = TICK_READ_MAX;
+    const boardRoots = typeof src.boardRoots === 'function' ? src.boardRoots() : [];
+    const configRoots = typeof src.configRoots === 'function' ? src.configRoots() : [];
     /* The agent read first rotates each tick (review 5): a large backlog cannot starve the others' files of the
        budget tick after tick (it delays a refusal, never loses one). */
     const order = [...dirs];
@@ -421,7 +436,7 @@ async function tick(opts) {
         st.offsets[file] = r.next;
         if (!r.text) continue;
         const calls = CALLS.get(file) || new Map();
-        const ctx = { agent, session: sessionOf(file), boardRoot: root, agentDir: dir,
+        const ctx = { agent, session: sessionOf(file), boardRoot: root, boardRoots, configRoots, agentDir: dir,
           otherAgentDirs: allDirs.filter((d) => d !== dir), home: o.home, now };
         for (const e of scanText(r.text, calls, ctx)) {
           if (e.at < fromS || e.at > Math.floor(now / 1000) + AHEAD_S) continue;
