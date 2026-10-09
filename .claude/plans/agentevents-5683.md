@@ -182,3 +182,15 @@ Josh 2026-10-09 08:38 (the card), 08:41 (the company owns work content: an event
 - A joined short option (tar -C/dir, -I/path) is a path. Test.
 - Stated: a quoted word with a slash and no space (application/json, s/a/b/) is taken as a path; it classes 'other',
   the lowest rank, so it cannot raise a class.
+
+## Review 12 (opus), all fixed unless stated
+- When a transcript-folder collision cleared (the other agent deleted), the shared folder's past was read from byte 0
+  and the other agent's refusals went out as this one's: the collided agents are recorded, and one whose collision just
+  cleared counts from that tick (its files start at their end). Test.
+- The collision check was optional (a missing source read as "no clash"): both sources are required; without them
+  nothing is read. Test.
+- Stated: create.workerDir never returns null for a refused name (it returns a placeholder path), so the review-11
+  "cannot be resolved" arm fires only for a dirOf that throws; a clock set back holds failAt/listed in the future
+  (a loss until the clock catches up, never a leak); Glob/Grep with an absolute pattern and no path class 'other'
+  (whether Claude Code checks the pattern is unmeasured); two token-only agents colliding with each other attribute to
+  whichever is read first (both under the company's rules).

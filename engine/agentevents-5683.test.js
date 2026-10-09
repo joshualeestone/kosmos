@@ -109,6 +109,8 @@ function setup(t) {
   const read = [];
   const sources = (agents) => ({
     agents: () => agents || ['Scout'],
+    everyAgent: () => agents || ['Scout'],
+    transcriptDirsOf: (d) => ['/p' + d],
     dirOf: (n) => '/Users/ann/work/workers/' + n.toLowerCase(),
     transcripts: async (dir) => { read.push(dir); return dir.endsWith('/scout') ? [file] : []; },
   });
@@ -314,7 +316,7 @@ test('#5683 r2: an agent made token-only after joining sends nothing from before
   /* Rex is not token-only yet: a refusal by the person's own rule. */
   const rexFile = path.join(path.dirname(s.file), 'rex-1.jsonl');
   fs.writeFileSync(rexFile, use('own', 'Bash', { command: 'x' }) + '\n' + result('own', DENIED('x'), true) + '\n');
-  const src = (agents) => ({ agents: () => agents, dirOf: (n) => '/w/' + n, transcripts: async (d) => (d === '/w/Rex' ? [rexFile] : []) });
+  const src = (agents) => ({ agents: () => agents, everyAgent: () => agents, transcriptDirsOf: (d) => ['/p' + d], dirOf: (n) => '/w/' + n, transcripts: async (d) => (d === '/w/Rex' ? [rexFile] : []) });
   await ae.tick({ root: s.root, remote: c, sources: src([]), now: Date.now() });
   await new Promise((r) => setTimeout(r, 1100));
   await ae.tick({ root: s.root, remote: c, sources: src(['Rex']), now: Date.now() });   // now listed
@@ -336,7 +338,7 @@ test('#5683 r2: an old session is skipped without being read', async (t) => {
   fs.writeFileSync(old, use('o1', 'Bash', { command: 'x' }) + '\n' + result('o1', DENIED('x'), true));
   const past = new Date(Date.now() - 3 * 86400e3);
   fs.utimesSync(old, past, past);
-  const src = { agents: () => ['Scout'], dirOf: () => '/w/scout', transcripts: async () => [old] };
+  const src = { agents: () => ['Scout'], everyAgent: () => ['Scout'], transcriptDirsOf: (d) => ['/p' + d], dirOf: () => '/w/scout', transcripts: async () => [old] };
   await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });
   const st = JSON.parse(fs.readFileSync(path.join(s.root, 'agent-events.json'), 'utf8'));
   assert.equal(st.offsets[old], fs.statSync(old).size, 'an old session was not skipped to its end');
@@ -448,7 +450,7 @@ test('#5683 r3: a recently written transcript holding old lines sends none of th
   const fresh = path.join(path.dirname(s.file), 'recent-old-lines.jsonl');
   const old = Date.now() - 3600e3;
   fs.writeFileSync(fresh, use('ol', 'Bash', { command: 'x' }, old) + '\n' + result('ol', DENIED('x'), true, old) + '\n');   // mtime: now
-  const src = { agents: () => ['Scout'], dirOf: () => '/w/scout', transcripts: async () => [fresh] };
+  const src = { agents: () => ['Scout'], everyAgent: () => ['Scout'], transcriptDirsOf: (d) => ['/p' + d], dirOf: () => '/w/scout', transcripts: async () => [fresh] };
   await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });
   assert.equal(c.sent.some((x) => x.route === ae.ROUTE), false, 'an hour-old refusal in a fresh file was sent');
 });
@@ -578,7 +580,7 @@ test('#5683 r8: on a Mac the board files are found whatever the case', { skip: p
 test('#5683 r8: the agent read first rotates each tick', async (t) => {
   const { s, c } = await enrolled(t);
   const order = [];
-  const src = { agents: () => ['A', 'B'], dirOf: (n) => '/w/' + n, transcripts: async (d) => { order.push(d); return []; } };
+  const src = { agents: () => ['A', 'B'], everyAgent: () => ['A', 'B'], transcriptDirsOf: (d) => ['/p' + d], dirOf: (n) => '/w/' + n, transcripts: async (d) => { order.push(d); return []; } };
   await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });
   await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });
   /* Relative, not absolute (review 10: the starting turn is module-wide, so it depends on earlier tests). */
@@ -670,5 +672,30 @@ test('#5683 r11: an agent whose folder cannot be resolved stops the collision ch
   const r = await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });
   assert.deepEqual(read, []);
   assert.match(r.because, /could not be resolved/);
+});
+
+/* ---- review 12 ---- */
+
+test('#5683 r12: when a collision clears, nothing from the shared folder\'s past is sent', async (t) => {
+  const { s, c } = await enrolled(t);
+  const shared = path.join(path.dirname(s.file), 'shared.jsonl');
+  fs.writeFileSync(shared, '');
+  let every = ['orch.main', 'orch-main'];
+  const src = { agents: () => ['orch.main'], everyAgent: () => every, dirOf: (n) => '/w/' + n,
+    transcriptDirsOf: (d) => ['/p/' + d.replace(/[^A-Za-z0-9/]/g, '-')], transcripts: async () => [shared] };
+  await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });   // collides: not read
+  await new Promise((r) => setTimeout(r, 1100));
+  append(shared, use('theirs', 'Bash', { command: 'x' }), result('theirs', DENIED('x'), true));   // orch-main's own rule
+  await new Promise((r) => setTimeout(r, 1100));
+  every = ['orch.main'];   // orch-main deleted: the collision clears
+  await ae.tick({ root: s.root, remote: c, sources: src, now: Date.now() });
+  assert.equal(c.sent.some((x) => x.route === ae.ROUTE), false, "the other agent's refusal was sent once the collision cleared");
+});
+
+test('#5683 r12: sources without the agent-list check send nothing', async (t) => {
+  const { s, c } = await enrolled(t);
+  const partial = { agents: () => ['Scout'], dirOf: () => '/w/scout', transcripts: async () => [] };
+  const r = await ae.tick({ root: s.root, remote: c, sources: partial, now: Date.now() });
+  assert.match(r.because, /cannot be checked/);
 });
 
