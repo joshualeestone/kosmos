@@ -14,16 +14,20 @@
 const SOON_WAIT_MS = 4000;
 let soonWaitMs = SOON_WAIT_MS;   // a test shortens it (setSoonWaitMs)
 const KEEP_MS = 3 * 60 * 1000;
+/* Review 3: an answer handed out is kept this long for the same question, so a response lost on the way (the very
+   failure this exists for) is not lost with it: asking again within it gets the same answer. */
+const RESEND_MS = 30 * 1000;
 const MAX_JOBS = 200;
 
 const jobs = new Map();   // key -> { promise, done, value, doneAt }
 
 function sweep(now) {
-  for (const [k, j] of jobs) if (j.done && now - j.doneAt > KEEP_MS) jobs.delete(k);
+  for (const [k, j] of jobs) if (j.done && (now - j.doneAt > KEEP_MS || (j.handedAt && now - j.handedAt > RESEND_MS))) jobs.delete(k);
   /* Review 2: a read that never settles (none should: every service call has its own timeout) is dropped after
      KEEP_MS too, so its question is not answered "still reading" until the board restarts. */
   for (const [k, j] of jobs) if (!j.done && now - j.startedAt > KEEP_MS) jobs.delete(k);
-  /* A board serving many agents never holds an unbounded set: the oldest finished go first. */
+  /* A board serving many agents never holds an unbounded set: finished answers go first, in the order their reads
+     started (review 3). Running reads are bounded by KEEP_MS above. */
   if (jobs.size > MAX_JOBS) {
     for (const [k, j] of jobs) { if (jobs.size <= MAX_JOBS) break; if (j.done) jobs.delete(k); }
   }
@@ -46,7 +50,8 @@ function ask(key, run, waitMs = soonWaitMs, now = Date.now()) {
   }
   const take = () => {
     if (!job.done) return { done: false };
-    if (jobs.get(key) === job) jobs.delete(key);   // handed out once: the next ask reads afresh
+    /* Handed out: kept RESEND_MS more for the same question (review 3), then the next ask reads afresh. */
+    if (!job.handedAt) job.handedAt = Date.now();
     return { done: true, value: job.value };
   };
   if (job.done) return Promise.resolve(take());
@@ -55,4 +60,4 @@ function ask(key, run, waitMs = soonWaitMs, now = Date.now()) {
   return Promise.race([job.promise, late]).then(() => { clearTimeout(timer); return take(); });
 }
 
-module.exports = { ask, SOON_WAIT_MS, KEEP_MS, MAX_JOBS, setSoonWaitMs: (ms) => { soonWaitMs = ms; }, _reset: () => jobs.clear(), _size: () => jobs.size };
+module.exports = { ask, SOON_WAIT_MS, KEEP_MS, RESEND_MS, MAX_JOBS, setSoonWaitMs: (ms) => { soonWaitMs = ms; }, _reset: () => jobs.clear(), _size: () => jobs.size };

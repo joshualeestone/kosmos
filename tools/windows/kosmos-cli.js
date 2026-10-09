@@ -1598,7 +1598,7 @@ async function communityRead(ctx, args) {
   /* #5636 F4, as install/kosmos: ask for an answer within a few seconds (soon=1) and, while the board says it is still
      reading (202), ask again in short requests; after about 25 s say so, as the board keeps the finished answer. */
   const asksEnv = Number(ctx.env && ctx.env.KOSMOS_READ_ASKS);
-  const asks = Number.isInteger(asksEnv) && asksEnv > 0 ? asksEnv : 5;
+  const asks = Number.isInteger(asksEnv) && asksEnv > 0 && asksEnv < 10000 ? asksEnv : 5;   // as install/kosmos: 1 to 9999
   let r;
   for (let ask = 1; ; ask++) {
     r = await ctx.call('GET', '/api/community/read?soon=1' + (qs ? '&' + qs : ''), undefined, { timeoutMs: COMMUNITY_TIMEOUT_MS, person: true });   // #4491 slice 7: until slice 6 puts this route in the set

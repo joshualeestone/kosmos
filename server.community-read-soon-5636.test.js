@@ -83,11 +83,14 @@ test('#5636 F4: CONTROL, without soon=1 the same slow read waits and answers 200
   assert.match((await r.json()).text, /by writer in general/);
 });
 
-test('#5636 F4: soon=1 on a quick read answers 200 at once, and nothing is kept', async () => {
+test('#5636 F4: soon=1 on a quick read answers 200 at once, and a re-ask soon after gets the same answer', async () => {
   slowService(1);
   const r = await readAs(sendertoken.mint('Reader').token, '?soon=1&channel=general');
   assert.equal(r.status, 200);
-  assert.equal(readjobs._size(), 0, 'a delivered answer was kept');
+  // Review 3: a lost response can be asked for again: the same answer within RESEND_MS, without reading again.
+  const again = await readAs(sendertoken.mint('Reader').token, '?soon=1&channel=general');
+  assert.equal(again.status, 200);
+  assert.equal(fetched, 1, 'a re-ask within RESEND_MS read the service again');
 });
 
 // ── Windows: tools/windows/kosmos-cli.js ────────────────────────────────────

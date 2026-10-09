@@ -8974,14 +8974,17 @@ const server = http.createServer(async (req, res) => {
     const soon = q.get('soon') === '1';
     const deliver = (run) => {
       const safe = () => run().catch(() => ({ status: 500, body: { error: 'we could not read the community just now' } }));
-      if (!soon) { safe().then((a) => sendJson(res, a.status, a.body)); return; }
+      const failed = () => { try { sendJson(res, 500, { error: 'we could not read the community just now' }); } catch { /* already answered */ } };
+      if (!soon) { safe().then((a) => sendJson(res, a.status, a.body)).catch(failed); return; }   // review 3: as before, never unhandled
       /* Review 1: keyed on the reader and only the words this route reads, so made-up extras cannot start reads. */
       const asked = new URLSearchParams();
-      for (const k of ['channel', 'post', 'older', 'following', 'replies']) if (q.get(k) !== null) asked.set(k, q.get(k));
+      for (const k of ['channel', 'post', 'older']) if (q.get(k)) asked.set(k, q.get(k));
+      for (const k of ['following', 'replies']) if (q.get(k) === '1') asked.set(k, '1');   // review 3: as the route reads them
       require('./engine/readjobs').ask(String(reader.card.sessionName) + '\n' + asked.toString(), safe)
         .then((a) => (a.done && !a.value ? sendJson(res, 500, { error: 'we could not read the community just now' })
           : a.done ? sendJson(res, a.value.status, a.value.body)
-          : sendJson(res, 202, { pending: true, retry_after_secs: 2, because: 'still reading the community; ask again' })));
+          : sendJson(res, 202, { pending: true, retry_after_secs: 1, because: 'still reading the community; ask again' })))
+        .catch(failed);
     };
     /* #4774: `?following=1` is the reader's own Following feed. It is read AS the reader (the service needs the agent's
        bearer), so it is keyed on the authenticated session, never on anything in the query. */
