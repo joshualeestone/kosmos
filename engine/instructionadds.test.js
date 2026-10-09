@@ -36,6 +36,20 @@ test.beforeEach(fresh);
 
 const ADD = 'When a lead goes quiet for two days, write to them once. Do not chase twice; tell me instead.';
 
+
+/* #5434 slice 20: the instruction-adds record now saves through securewrite.writeSecret, whose temp is the unique
+   `<file>.kosmos-...tmp`, so a directory planted at the old `<file>.tmp` no longer blocks the write. This refuses the
+   save's own temp-name shape at open instead (EISDIR, as the planted directory gave); reading the record still works. */
+function blockAddsWrite() {
+  const prefix = adds.FILE + '.kosmos-';
+  const realOpen = fs.openSync;
+  fs.openSync = (q, ...rest) => {
+    if (String(q).startsWith(prefix)) { const e = new Error('EISDIR: illegal operation on a directory'); e.code = 'EISDIR'; throw e; }
+    return realOpen.call(fs, q, ...rest);
+  };
+  return () => { fs.openSync = realOpen; };
+}
+
 test('the store lives under the sandboxed data root', () => {
   assert.ok(adds.FILE.startsWith(DATA), `${adds.FILE} not under ${DATA}`);
 });
@@ -147,9 +161,9 @@ test('rebase review (#5297): Kosmos appending its own block after the addition n
 test('rebase review (#5297): an unrecorded apply, then a Kosmos block appended, then Apply again: added once, not twice', () => {
   makeAgent('sally');
   adds.propose('sally', ADD, 'Ops lead');
-  fs.mkdirSync(adds.FILE + '.tmp', { recursive: true });
+  const unblock = blockAddsWrite();   // #5434 slice 20: the record's save cannot create its temp
   let r;
-  try { r = adds.apply('sally'); } finally { fs.rmSync(adds.FILE + '.tmp', { recursive: true, force: true }); }
+  try { r = adds.apply('sally'); } finally { unblock(); }
   assert.equal(r.code, 'unrecorded', 'fixture: the record did not fail');
   const BLOCK = '\n<!-- kosmos:community -->\nCommunity rules here.\n<!-- /kosmos:community -->\n';
   instructions.write('sally', fileText('sally') + BLOCK, instructions.read('sally').version, undefined, { who: 'kosmos', because: 'community refresh' });
@@ -212,9 +226,9 @@ test('review 2: an empty store, or {}, is just empty (not unreadable)', () => {
 test('review 3: an apply whose record fails is finished by pressing Apply again, never added twice (idempotent)', () => {
   makeAgent('sally');
   adds.propose('sally', ADD, 'Ops lead');
-  fs.mkdirSync(adds.FILE + '.tmp', { recursive: true });   // the store's temp path is a folder, so its write fails
+  const unblock = blockAddsWrite();   // #5434 slice 20: the record's save cannot create its temp
   let r;
-  try { r = adds.apply('sally'); } finally { fs.rmSync(adds.FILE + '.tmp', { recursive: true, force: true }); }
+  try { r = adds.apply('sally'); } finally { unblock(); }
   assert.equal(r.ok, false); assert.equal(r.code, 'unrecorded');
   assert.match(r.because, /in the instructions, but Kosmos could not record it/);
   assert.equal(adds.pending('sally').text, ADD, 'the waiting addition was lost');
@@ -243,8 +257,8 @@ test('review 3: an undo whose record fails still reads as undone (from the file)
   makeAgent('sally');
   adds.propose('sally', ADD, 'Ops lead');
   adds.apply('sally');
-  fs.mkdirSync(adds.FILE + '.tmp', { recursive: true });
-  try { assert.equal(adds.undo('sally').ok, true); } finally { fs.rmSync(adds.FILE + '.tmp', { recursive: true, force: true }); }
+  const unblock = blockAddsWrite();   // #5434 slice 20: the record's save cannot create its temp
+  try { assert.equal(adds.undo('sally').ok, true); } finally { unblock(); }
   assert.equal(fileText('sally'), BASE);
   const last = adds.state('sally').last;
   assert.equal(last.undone, true, 'the page would say the addition is still there');
@@ -346,9 +360,9 @@ test('review 7: an unrecorded apply, then the community block taken out, then Ap
   makeAgent('sally');
   kosmosWrites('sally', projects.spliceBlock(fileText('sally'), 'Community rules here.', projects.COMMUNITY_START, projects.COMMUNITY_END));
   adds.propose('sally', ADD, 'Ops lead');
-  fs.mkdirSync(adds.FILE + '.tmp', { recursive: true });
+  const unblock = blockAddsWrite();   // #5434 slice 20: the record's save cannot create its temp
   let r;
-  try { r = adds.apply('sally'); } finally { fs.rmSync(adds.FILE + '.tmp', { recursive: true, force: true }); }
+  try { r = adds.apply('sally'); } finally { unblock(); }
   assert.equal(r.code, 'unrecorded', 'fixture: the record did not fail');
   kosmosWrites('sally', projects.removeBlock(fileText('sally'), projects.COMMUNITY_START, projects.COMMUNITY_END));
   assert.equal(adds.apply('sally').ok, true);
@@ -391,9 +405,9 @@ test('review 7: "short" is judged on what Undo would write: a short file that ha
 
 /* Review 8 (sonnet, blind). */
 function unrecordedApply(name) {
-  fs.mkdirSync(adds.FILE + '.tmp', { recursive: true });
+  const unblock = blockAddsWrite();   // #5434 slice 20: the record's save cannot create its temp
   let r;
-  try { r = adds.apply(name); } finally { fs.rmSync(adds.FILE + '.tmp', { recursive: true, force: true }); }
+  try { r = adds.apply(name); } finally { unblock(); }
   assert.equal(r.code, 'unrecorded', 'fixture: the record did not fail');
 }
 test('review 8: an unrecorded apply, then the addition typed onto by hand, then Apply again: refused, nothing added or recorded', () => {
@@ -460,9 +474,9 @@ test('review 9: an Undo whose record fails after Kosmos refreshed its block read
   adds.propose('sally', ADD, 'Ops lead');
   adds.apply('sally');
   kosmosWrites('sally', projects.spliceBlock(fileText('sally'), 'Community rules here.', projects.COMMUNITY_START, projects.COMMUNITY_END));
-  fs.mkdirSync(adds.FILE + '.tmp', { recursive: true });
+  const unblock = blockAddsWrite();   // #5434 slice 20: the record's save cannot create its temp
   let r;
-  try { r = adds.undo('sally'); } finally { fs.rmSync(adds.FILE + '.tmp', { recursive: true, force: true }); }
+  try { r = adds.undo('sally'); } finally { unblock(); }
   assert.equal(r.ok, true, 'fixture: the undo itself failed');
   assert.ok(!fileText('sally').includes('## Added on'), 'fixture: the addition is still there');
   const last = adds.state('sally').last;

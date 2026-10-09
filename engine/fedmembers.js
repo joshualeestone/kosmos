@@ -49,9 +49,7 @@ function unreadable(msg) { const e = new Error(msg); e.code = 'UNREADABLE'; retu
 function writeAll(all) {
   if (!lastReadOk && fs.existsSync(file())) throw unreadable('we will not overwrite the invites record while we cannot read it');
   fs.mkdirSync(store.ROOT, { recursive: true });
-  const tmp = file() + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(all, null, 2));
-  fs.renameSync(tmp, file());
+  store.saveFlushed(file(), JSON.stringify(all, null, 2));   // #5434 slice 20: flushed before the rename (a unique temp; the folder after on POSIX)
 }
 const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 

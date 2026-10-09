@@ -473,18 +473,13 @@ function writeRecord(key, rawName, clean, reportedAt) {
   // recordPath() while the code that actually reads and writes used something
   // else. One derivation, one place to get it wrong.
   const dest = recordPath(rawName);
-  const tmp = `${dest}.${process.pid}.tmp`;
   try {
     // Inside the try: mkdir has its own errno, and it carries the absolute
     // store path. Leaving it outside meant the comment below about never
     // surfacing a raw errno was false for the most likely failure of the two.
     ensure(DIR);
-    fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
-    fs.renameSync(tmp, dest);
+    store.saveFlushed(dest, JSON.stringify(next, null, 2));   // #5434 slice 20: flushed before the rename (a unique temp; the folder after on POSIX); a failed save removes its own temp
   } catch {
-    // Any failure between the write and the rename otherwise leaves the temp
-    // file behind forever, accumulating one per failed attempt.
-    try { fs.rmSync(tmp, { force: true }); } catch { /* nothing more to do */ }
     // Never surface the raw errno: it carries the absolute store path, and the
     // house rule for this catch is to say what to do rather than name an
     // exception.

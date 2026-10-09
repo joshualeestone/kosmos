@@ -73,10 +73,7 @@ function recOf(all, k) { return all !== UNREADABLE && all !== BUSY && Object.pro
 function writeAll(all) {
   const f = file();
   fs.mkdirSync(path.dirname(f), { recursive: true });
-  const tmp = f + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(all) + '\n', { mode: 0o600 });
-  try { fs.chmodSync(tmp, 0o600); } catch { /* best effort: a filesystem without modes */ }
-  fs.renameSync(tmp, f);
+  require('./securewrite').writeSecret(f, JSON.stringify(all) + '\n', 0o600, { atomicOnly: true });   // #5434 slice 20: flushed before the rename (a unique temp; the folder after on POSIX); exact 0600
 }
 
 function keyFor(agent) { return instructions.registryKey(agent); }
