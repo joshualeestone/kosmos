@@ -268,8 +268,8 @@ async function pull(dir, opts) {
     try { rec = JSON.parse(text); }
     catch { skipped += 1; continue; }
     if (!rec || typeof rec !== 'object' || typeof rec.body !== 'string') { skipped += 1; continue; }
+    const dest = path.join(target, fileName(rec));
     try {
-      const dest = path.join(target, fileName(rec));
       /* #5434 slice 24: flushed before the rename (a crash cannot leave a pulled report zero-filled, #5431). The temp
          is securewrite's own unique `wx` name, removed on failure, so a concurrent pull's temp is never touched (what
          the old "only a .tmp this call wrote" rule protected). ownTempsOnly: `dir` can be any folder the caller names,
@@ -277,7 +277,8 @@ async function pull(dir, opts) {
       require('./securewrite').writeSecret(dest, toMarkdown(rec), null, { atomicOnly: true, ownTempsOnly: true, umaskDefault: true });
       written += 1;
     } catch (e) {
-      skipped += 1; unwritten += 1; lastWriteError = String((e && e.message) || e);
+      // The code and the report's own name, not the raw message, which now names securewrite's long temp path (review 1).
+      skipped += 1; unwritten += 1; lastWriteError = ((e && e.code) || 'error') + ' saving ' + path.basename(dest);
     }
   }
   const total = Array.isArray(blobs) ? blobs.length : 0;

@@ -534,8 +534,8 @@ test('#3906: reports read fine but not saved here are said as a local write fail
     list: async () => [{ url: 'https://s.private.blob.vercel-storage.com/w.json' }],
     get: async () => JSON.stringify(REC('inst-w', '2026-09-26', 'w')),
   });
-  const r = await fp.pull(dir, { token: 'tok' });
-  unblock();
+  let r;
+  try { r = await fp.pull(dir, { token: 'tok' }); } finally { unblock(); }   // review 1: restored even if pull throws
   assert.equal(r.ok, false);
   assert.match(r.because, new RegExp('1 report could not be saved in ' + dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' \\(last error: '));
   assert.doesNotMatch(r.because, /malformed/, 'a local write failure must not be blamed on the record');
@@ -551,8 +551,8 @@ test('#3906: a partial pull says how many reports could not be saved here, with 
     list: async () => Object.keys(recs).map((k) => ({ url: 'https://s.private.blob.vercel-storage.com/' + k })),
     get: async (u) => JSON.stringify(recs[u.split('/').pop()]),
   });
-  const r = await fp.pull(dir, { token: 'tok' });
-  unblock();
+  let r;
+  try { r = await fp.pull(dir, { token: 'tok' }); } finally { unblock(); }   // review 1: restored even if pull throws
   assert.equal(r.ok, true);
   assert.equal(r.written, 1);
   assert.equal(r.unwritten, 1);
@@ -574,8 +574,8 @@ test('#3906: unreadable, unsaved and malformed together are each counted once', 
       return '{not json';
     },
   });
-  const r = await fp.pull(dir, { token: 'tok' });
-  unblock();
+  let r;
+  try { r = await fp.pull(dir, { token: 'tok' }); } finally { unblock(); }   // review 1: restored even if pull throws
   assert.equal(r.ok, false);
   assert.match(r.because, /none was pulled: 1 report could not be read \(last error: blob GET HTTP 500\); 1 report could not be saved in .* \(last error: .*\); 1 report malformed \(not a valid report, or no url\)\./);
   assert.deepEqual([r.unreadable, r.unwritten, r.malformed, r.skipped], [1, 1, 1, 3]);
@@ -603,8 +603,8 @@ test('#3906: the public-store note is a fact about the listing: it follows fromP
   const rec = REC('inst-pu', '2026-09-26', 'pu');
   const unblock = blockReportWrite(dir, fp.fileName(rec));   // #5434 slice 24: the report's save cannot create its temp
   fp.setTransport({ list: async () => [{ url: 'https://abc.public.blob.vercel-storage.com/feedback/pu.json' }], get: async () => JSON.stringify(rec) });
-  const failed = await fp.pull(dir, { token: 'tok' });
-  unblock();
+  let failed;
+  try { failed = await fp.pull(dir, { token: 'tok' }); } finally { unblock(); }   // review 1: restored even if pull throws
   assert.equal(failed.ok, false);
   assert.match(failed.because, /PUBLIC blob store\. That is expected until/);
   fp.setTransport({ list: async () => [{ url: 'https://abc.public.blob.vercel-storage.com/feedback/c.json' }], get: async () => JSON.stringify(REC('inst-pc', '2026-09-26', 'pc')) });
@@ -625,7 +625,7 @@ test('#3906: a save whose rename fails removes the .tmp it wrote', async () => {
   assert.equal(r.ok, false);
   assert.equal(r.unwritten, 1);
   // #5434 slice 24: the save's temp is securewrite's `<file>.kosmos-...tmp` now; none may be left.
-  assert.deepEqual(fs.readdirSync(dir).filter((n) => n.startsWith(path.basename(dest) + '.kosmos-')), [], 'the temp this pull wrote was left behind');
+  assert.deepEqual(fs.readdirSync(dir), [path.basename(dest)], 'something this pull wrote was left behind (old or new temp name)');
 });
 
 test('#5434 slice 24: a pulled report is flushed before the rename makes it the file', async () => {
