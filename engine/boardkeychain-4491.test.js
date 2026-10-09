@@ -335,7 +335,8 @@ test('WARNING 4: creation names the runner to the guard and still refuses when i
   const at = CREATE.indexOf("step('kept the board token out of its reach'");
   assert.ok(at > 0, 'the guard step is gone from createAgent');
   const stepSrc = CREATE.slice(at, CREATE.indexOf('\n  });', at));   // the step's own close (its body has `{ runner });`)
-  assert.match(stepSrc, /guardTokenOnlyFolder\(workerDir\(name\), name, \{ runner \}\)/, 'the runner is not passed, so every agent reads as unnamed');
+  // #5668: further named options may follow the runner (the account creation is on); the runner must be passed.
+  assert.match(stepSrc, /guardTokenOnlyFolder\(workerDir\(name\), name, \{ runner(, [^}]*)? \}\)/, 'the runner is not passed, so every agent reads as unnamed');
   assert.match(stepSrc, /if \(!guarded\.ok\) throw new Error/, 'a failed guard no longer refuses the creation');
   assert.match(CREATE.slice(0, at), /const runner = providerRunner\(provider\);/, 'runner is not the recorded provider runner');
   const SERVER = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');

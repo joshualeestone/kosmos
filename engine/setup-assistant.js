@@ -1096,10 +1096,10 @@ function ruleTarget(r, platform = process.platform, home = null) {
   if (m[1] === '//') return rulePath(m[2], platform);
   return home ? path.join(home, m[2]) : null;
 }
-/* The paths THIS AGENT'S settings file sends to the profile, counted per clause as the profile is likely built (review 5).
-   Review 11: the person's user-level settings files (~/.claude, ~/.claude-<label>) also reach it and are not counted
-   here (which one an agent reads is its account's; the open card for it is #5668). Rule targets are the guard's '//abs' spelling
-   and the person's '~/' one (against home); a person's other spellings (a relative or a match-anywhere pattern) are not counted, so the count
+/* The paths the given settings lists send to the profile, counted per clause as the profile is likely built (review 5).
+   #5668: its caller passes the agent's settings.json merged with the other files that reach the same profile (the
+   account's settings.json, the agent folder's settings.local.json, the managed settings file). Rule targets are the
+   guard's '//abs' spelling and the person's '~/' one (against home); a person's other spellings (a relative or a match-anywhere pattern) are not counted, so the count
    can be low for them (review 15). The read clause (denyRead
    and the Read rule targets) and the write clause (denyWrite and the Edit rule targets), each path once within its
    clause, so a path in both is paid for twice. Per clause: their raw length, and their distinct prefixes (sorted, each
@@ -1227,6 +1227,7 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   // read-denied (Claude Code's Edit rule covers every file-writing tool), and in the sandbox denyWrite below (the
   // registry's own path there; its temp and lock names by the permission-layer .* glob only).
   const listFile = require('./sendertoken').tokenOnlyFile();
+  const guardRecord = guardStateDir(deps);
   // #4491 re-review (independent): the gate's list of worlds comes from the worlds registry, so the
   // registry (and its temp and lock names) is write-denied too, and every world's store gets a glob, so a world
   // added after this was written is covered as well. The `*` mid-path is the guide's rule shape (#4752, measured
@@ -1270,6 +1271,9 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     ...tokenPaths.map((p) => `Edit(${ruleAbs(p)})`),
     ...tokenTmps.map((p) => `Edit(${ruleAbs(p)}.*)`),
     `Edit(${ruleAbs(listFile)})`,
+    // #5668 review 1: the records the agents' pages read, so an agent cannot hide its notice. Like its siblings here, a data
+    // root with a pattern character drops this rule, and the guard then says it is not whole.
+    `Edit(${ruleAbs(guardRecord)}/**)`,
     ...worldRules,
     ...editTargets.map((t) => `Edit(${ruleAbs(t.f)})`),
   ];
@@ -1314,9 +1318,126 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const recordRule = `Edit(${ruleAbs(launchRecord)})`;
   if (!ruleHasPatternChar(recordRule)) safeDeny.push(recordRule);
   else tokenRuleDropped = true;   // #5663 review 4: its own self-protection, so not whole, as reviews 16 and 17 rule
-  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, worldWrites, undoDirs, tokenDirs, undoSwitches, launchDirs: launch.dirs, launchFiles: launch.files || [], launchUnsafe, launchRules, launchRecord, launchKnown: deps.atLaunch === true && !!launch.paneKnown };   // review 14: a launch says so (refreshTokenOnlyGuards({ only })); an inherited env var never makes one
+  return { deny: safeDeny, tokenRuleDropped, rootsMissed, settingsDir, tokenPaths, tokenTmps, settingsFiles, listFile, guardRecord, worldWrites, undoDirs, tokenDirs, undoSwitches, launchDirs: launch.dirs, launchFiles: launch.files || [], launchUnsafe, launchRules, launchRecord, launchKnown: deps.atLaunch === true && !!launch.paneKnown };   // review 14: a launch says so (refreshTokenOnlyGuards({ only })); an inherited env var never makes one
 }
 
+/* #5668: the last guard run per agent, so the board can say on the agent's page when a token-only agent's guard is not
+   whole or past the sandbox size. Written by each launch through the supervisor (a separate process) and by creation;
+   a board start writes only an agent with no line yet (see guardTokenOnlyFolder). Read by the board, never recomputed
+   per request (a run scans the PATH). One file
+   per agent in one folder (review 2): a run writes only its own agent's file, so two runs at once (the board and a
+   launch) cannot write an older copy over each other's line. */
+const GUARD_STATE_DIR = 'token-only-guard';
+/* The not-whole reason that depends on the PATH the run measured (a launch's pane PATH, or the board's own). Named once,
+   where it is said and where a board start tells it apart (review 9). */
+const LAUNCH_PATH_REASON = 'the PATH this agent starts with has an entry Kosmos could not cover';
+function guardStateDir(deps = {}) { return path.join(deps.dataRoot || store.ROOT, GUARD_STATE_DIR); }
+function guardStateFileFor(agentName, deps) { return path.join(guardStateDir(deps), encodeURIComponent(agentName) + '.json'); }
+// The one test of a usable line (review 8), for the board's read and for the board start's replace alike.
+function guardLineOf(text) {
+  try { const j = JSON.parse(text); return j && typeof j === 'object' && !Array.isArray(j) && typeof j.ok === 'boolean' ? j : null; } catch { return null; }
+}
+function readableGuardLine(file) {
+  try { return guardLineOf(fs.readFileSync(file, 'utf8')) !== null; } catch { return false; }
+}
+function readGuardState(deps = {}) {
+  const out = {};
+  let names;
+  try { names = fs.readdirSync(guardStateDir(deps)); } catch { return out; }
+  for (const f of names) {
+    if (!f.endsWith('.json')) continue;
+    let name;
+    try { name = decodeURIComponent(f.slice(0, -5)); } catch { continue; }
+    try {
+      const j = guardLineOf(fs.readFileSync(path.join(guardStateDir(deps), f), 'utf8'));
+      if (j) out[name] = j;
+    } catch { /* unreadable: as if never recorded */ }
+  }
+  return out;
+}
+function forgetGuardState(agentName, deps = {}) {
+  try { fs.unlinkSync(guardStateFileFor(agentName, deps)); } catch { /* none */ }
+}
+function pruneGuardState(keepNames, deps = {}) {
+  const keep = new Set(keepNames);
+  let files;
+  try { files = fs.readdirSync(guardStateDir(deps)); } catch { return; }
+  for (const f of files) {
+    if (!f.endsWith('.json')) continue;
+    let name = null;
+    try { name = decodeURIComponent(f.slice(0, -5)); } catch { name = null; }
+    // Review 3: by the folder's own listing, so a malformed file for an agent no longer listed goes too.
+    if (name === null || !keep.has(name)) { try { fs.unlinkSync(path.join(guardStateDir(deps), f)); } catch { /* gone */ } }
+  }
+  // Review 5: a temp file left by a writer that died before its rename, once it is clearly not in use.
+  for (const f of files) {
+    if (!f.endsWith('.new')) continue;
+    const at = path.join(guardStateDir(deps), f);
+    try { if (Date.now() - fs.statSync(at).mtimeMs > 60 * 1000) fs.unlinkSync(at); } catch { /* gone */ }
+  }
+}
+function recordGuardState(agentName, r, deps = {}) {
+  if (typeof agentName !== 'string' || !agentName) return;   // review 5: no name, no line
+  try {
+    const dir = guardStateDir(deps);
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const file = guardStateFileFor(agentName, deps);
+    const line = { ok: !!(r && r.ok), ...(r && r.because ? { because: String(r.because) } : {}), ...(r && r.warning ? { warning: String(r.warning) } : {}), at: new Date().toISOString() };
+    const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.new`;
+    fs.writeFileSync(tmp, JSON.stringify(line, null, 2) + '\n', { mode: 0o600 });
+    try {
+      if (deps.exclusive) {
+        /* Only when there is no line, and atomically (review 5): a hard link of the whole temp file either lands or
+           fails with EEXIST, so a line another run wrote first is kept and no half-written file is left. A line that
+           cannot be read (cut off by a crash) is replaced, or it would hide every later board start's reading. */
+        try { fs.linkSync(tmp, file); } catch (e) {
+          if (e && e.code !== 'EEXIST') {
+            /* No hard links on this filesystem (review 7): a plain rename, but only where there is no line. Residual (review
+               8): a launch renaming in between that check and this rename is written over; the same microsecond window as
+               below, and only where the filesystem refuses hard links (APFS does not). */
+            if (!fs.existsSync(file) || !readableGuardLine(file)) fs.renameSync(tmp, file);   // none, or unreadable (review 9)
+          } else {
+            /* Unreadable: remove it and link again, still exclusive (review 6). Only that agent's file is read, and it is
+               removed only if it is still the same file (review 7: a launch's line renamed in since is a new inode and
+               stays). Residual: a launch renaming in between that check and the removal; a window of microseconds that
+               needs a cut-off line to start with. */
+            let seen = null;
+            try { seen = fs.statSync(file).ino; } catch { seen = null; }
+            if (seen !== null && !readableGuardLine(file)) {
+              try { if (fs.statSync(file).ino === seen) fs.unlinkSync(file); } catch { /* gone */ }
+              try { fs.linkSync(tmp, file); } catch (e2) { if (!(e2 && e2.code === 'EEXIST')) throw e2; }
+            }
+          }
+        }
+      } else fs.renameSync(tmp, file);
+    } finally { try { fs.unlinkSync(tmp); } catch { /* renamed, or gone */ } }
+  } catch (e) { process.stderr.write(`#5668: the guard state for ${agentName} could not be recorded (${(e && e.code) || e})\n`); }
+}
+/* #5668 (Pete's step 3): the user-level settings file the agent's ACCOUNT reads also reaches its sandbox profile, so its
+   deny lists join the size count. The account's config home is the one the caller names (creation passes the account
+   it is creating the agent on: its launch job is not written yet), else the one the agent's launch job names
+   (create.readJob), else the default account's file (trust.defaultAgentSettings, the one derivation of it). Claude Code
+   reads one user-level file, settings.json (review 1). Read only; the person's file is never edited. */
+function settingsLists(files) {
+  const out = { deny: [], denyRead: [], denyWrite: [] };
+  const strings = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
+  for (const f of files) {
+    let j;
+    try { j = JSON.parse(fs.readFileSync(f, 'utf8')); } catch { continue; }
+    const perms = j && j.permissions && typeof j.permissions === 'object' ? j.permissions : {};
+    const fsb = j && j.sandbox && j.sandbox.filesystem && typeof j.sandbox.filesystem === 'object' ? j.sandbox.filesystem : {};
+    out.deny.push(...strings(perms.deny));
+    out.denyRead.push(...strings(fsb.denyRead));
+    out.denyWrite.push(...strings(fsb.denyWrite));
+  }
+  return out;
+}
+function accountSettingsFile(agentName, deps = {}) {
+  let dir = deps.accountConfigDir;
+  if (dir === undefined) { try { const job = create.readJob(agentName); dir = job && job.configDir; } catch { dir = null; } }
+  if (dir) return path.join(dir, 'settings.json');
+  return require('./trust').defaultAgentSettings();
+}
 /*
  * #4491: write a token-only agent's <folder>/.claude/settings.json so a sandboxed shell in it cannot
  * read board.token and cannot turn its own guard off, while its normal work (its own data folder, the
@@ -1345,8 +1466,25 @@ function tokenOnlySettingsRules(dir, deps = {}) {
  * stop it editing this guard away, nothing more. refreshTokenOnlyGuards warns when they are absent.
  * { ok: true } | { ok: false, because }, either with `warning` when the deny paths pass the measured sandbox ceiling
  * (#5663: the guard is still whole; the agent's shell may not run). Never throws.
+ * #5668: every run's result is recorded per agent (recordGuardState) for the agent's page.
  */
 function guardTokenOnlyFolder(dir, agentName, deps = {}) {
+  const r = guardTokenOnlyFolderNow(dir, agentName, deps);
+  /* Review 3: a board-start run measures the board's own PATH, not the one the agent was launched with, so it records
+     only an agent with no line yet (created exclusively, review 4: a launch's line that lands first is never written
+     over); a launch and creation always record. Review 4, decided: a launch's line stays until the next launch even if
+     a board start now reads better, because the running agent keeps its launch PATH and Claude Code built its sandbox
+     profile at that launch, so the launch's reading IS what the running agent has. Unmeasured (review 5): whether
+     Claude Code reloads the file-tool rules mid-session; if it does, a board-start fix to that layer is live before the
+     page stops saying "not complete". */
+  /* Review 9: but a board start that finds the guard itself not whole for a reason that is not about the PATH (the file
+     could not be written, a rule could not be carried) records it over a readable line: the board start rewrote the
+     agent's settings file just now, and keeping an older "ok" would read as guarded. */
+  const boardFoundBroken = !!deps.boardStart && r && r.ok === false && !String(r.because || '').startsWith(LAUNCH_PATH_REASON);
+  recordGuardState(agentName, r, { ...deps, exclusive: !!deps.boardStart && !boardFoundBroken });
+  return r;
+}
+function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
   try {
     if (!dir || !agentName) return { ok: false, because: 'no folder' };
     // #4491 review WARNING 1: this guard is a Claude Code settings file. Codex runs with its approvals and
@@ -1432,7 +1570,7 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
       // which would leave a symlinked parent un-followed. The agent's own .claude was just mkdir'd, so
       // realOr resolves it directly.
       const denyReadPaths = [...rules.tokenPaths.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf)];
-      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile), ...rules.worldWrites.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf), ...(rules.undoSwitches || []).map(realOrLeaf), ...(rules.launchDirs || []), ...(rules.launchFiles || [])];
+      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.tokenPaths.map(realOrLeaf), realOrLeaf(rules.listFile), realOrLeaf(rules.guardRecord), ...rules.worldWrites.map(realOrLeaf), ...(rules.undoDirs || []).map(realOrLeaf), ...(rules.tokenDirs || []).map(realOrLeaf), ...(rules.undoSwitches || []).map(realOrLeaf), ...(rules.launchDirs || []), ...(rules.launchFiles || [])];
       // NEVER add an allowWrite for the Kosmos store, the worlds base or the home here (the independent re-review): the
       // shell's write scope is what covers a world created mid-session until the agent's next start, so a fix
       // for 'the sandbox limits normal work' must widen it somewhere else, never to those.
@@ -1477,14 +1615,23 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
     /* #5663: the sandbox profile has size limits (SANDBOX_DENY_PREFIX_MAX). Past them the guard is still whole (the token
        is denied), but the agent's shell may not run, so it is said as a warning, never a refusal: the limits are fitted
        to measurements (review 4), and a refusal would stop an agent being created on an estimate. It is said beside
-       an uncovered PATH entry, not instead of it. Its readers are the logs (stderr: the board's log at board start and
-       creation, the supervisor's at a launch); no caller carries `warning` further today (reviews 5 and 6). */
-    const sz = (deps.platform || process.platform) === 'darwin' ? sandboxDenySize(next.sandbox.filesystem, next.permissions.deny, deps.home, deps.platform || process.platform) : null;
+       an uncovered PATH entry, not instead of it. It is written to the logs (stderr) and recorded for the agent's page
+       (#5668, recordGuardState). */
+    let sz = null;
+    if ((deps.platform || process.platform) === 'darwin') {
+      /* #5668: the account's own file, and the agent folder's settings.local.json (cleanLocalSettings keeps its denies,
+         review 1), reach the same profile. */
+      // Review 7: and the root-owned managed settings file, when an admin installed it (it merges into the same profile).
+      const managed = deps.managedSettingsPath !== undefined ? deps.managedSettingsPath : MANAGED_SETTINGS_PATH;
+      const acct = settingsLists([accountSettingsFile(agentName, deps), path.join(rules.settingsDir, 'settings.local.json'), ...(managed ? [managed] : [])]);
+      const fsbNow = next.sandbox.filesystem;
+      sz = sandboxDenySize({ denyRead: [...(fsbNow.denyRead || []), ...acct.denyRead], denyWrite: [...(fsbNow.denyWrite || []), ...acct.denyWrite] }, [...next.permissions.deny, ...acct.deny], deps.home, deps.platform || process.platform);
+    }
     const warning = sz && (sz.prefixes > SANDBOX_DENY_PREFIX_MAX || sz.raw > SANDBOX_DENY_RAW_MAX)
       ? `its ${sz.paths} denied path entries across the read and write clauses (${sz.prefixes} distinct characters, ${sz.raw} in all) are past what Kosmos can say the sandbox will take (${SANDBOX_DENY_PREFIX_MAX} and ${SANDBOX_DENY_RAW_MAX}); the guard is written but may stop the agent's shell`
       : null;
     if (warning) process.stderr.write(`#5663: ${agentName}: ${warning}\n`);
-    if (rules.launchUnsafe && rules.launchUnsafe.length) return { ok: false, because: 'the PATH this agent starts with has an entry Kosmos could not cover (' + rules.launchUnsafe.join(', ') + '); the rest of the guard is in place', ...(warning ? { warning } : {}) };
+    if (rules.launchUnsafe && rules.launchUnsafe.length) return { ok: false, because: LAUNCH_PATH_REASON + ' (' + rules.launchUnsafe.join(', ') + '); the rest of the guard is in place', ...(warning ? { warning } : {}) };
     return warning ? { ok: true, warning } : { ok: true };
   } catch (err) {
     return { ok: false, because: String((err && err.message) || err) };
@@ -1552,7 +1699,9 @@ function refreshTokenOnlyGuards(deps = {}) {
   let names;
   try { names = require('./sendertoken').tokenOnlyList(); } catch { return out; }   // the roster's own reader (#4491)
   // Review 22: the supervisor guards ONE listed agent at its launch (a name listed after board start), not them all.
-  if (deps.only) { names = names.filter((n) => n === deps.only); deps = { ...deps, atLaunch: true }; }   // review 23: notes said at board start, not each launch
+  // Review 23: notes said at board start, not each launch.
+  if (deps.only) { names = names.filter((n) => n === deps.only); deps = { ...deps, atLaunch: true }; }
+  else deps = { ...deps, boardStart: true };   // #5668 review 3: its record does not replace a launch's
   if (!(deps.launchCache instanceof Map)) deps = { ...deps, launchCache: new Map() };   // #5516: one PATH scan per pass
   const toDir = deps.workerDir || create.workerDir;
   for (const name of names) {
@@ -1563,9 +1712,15 @@ function refreshTokenOnlyGuards(deps = {}) {
     /* Review 11: never CREATE a folder for a listed name. A name can be listed before its agent is made, or stay
        listed after removal; guarding would make <name>/.claude, and an existing folder refuses creating that name. */
     const exists = dir ? (() => { try { return fs.statSync(dir).isDirectory(); } catch { return false; } })() : false;
+    if (!exists) forgetGuardState(name, deps);   // #5668 review 2: no folder, so no stale line for it on its page
     const g = exists ? guardTokenOnlyFolder(dir, name, { ...deps, runner }) : { ok: false, because: 'no agent folder yet' };
     if (g.ok) out.guarded.push(name); else out.unguarded.push({ name, because: g.because });
   }
+  // #5668 review 1: at board start (the whole list), lines for agents no longer listed leave the record. The list is read
+  // again here (review 3), so an agent listed during this pass keeps the line its launch just wrote.
+  // An empty list (none listed, or a list that could not be read) prunes nothing (review 4): the route shows only listed
+  // agents anyway, and one bad read must not wipe every agent's line.
+  if (!deps.only) { try { const now = require('./sendertoken').tokenOnlyList(); if (now.length) pruneGuardState(now, deps); } catch { /* best effort */ } }
   /* Review 21: the person's own user settings (~/.claude, ~/.claude-<label>) also reach a token-only agent. They are
      the person's, so the guard never edits them; it says when one holds a key that weakens the sandbox. Board start
      only, not at each launch (review 22). */
@@ -2104,6 +2259,8 @@ module.exports = {
   markSetupAssistantSeeded,
   defaultHasConnectedAccount,
   seedSetupAssistant,
+  readGuardState,
+  GUARD_STATE_DIR,
   SANDBOX_DENY_PREFIX_MAX,
   SANDBOX_DENY_RAW_MAX,
   sandboxDenySize,

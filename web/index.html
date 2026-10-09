@@ -7147,6 +7147,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .rxn-ref:hover, .rxn-ref:focus-visible, .rxn-copy:hover, .rxn-copy:focus-visible { color: var(--k-ink); border-color: var(--gold-bright); }
 .rxn-ref:focus-visible, .rxn-copy:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 #d-linklost { color: var(--label-2); }   /* #5333: a state that means "your messages will not be answered", not helper text */
+#d-tokenguard { color: var(--label-2); }   /* #5668: the agent's token protection is not complete, or its shell may not run */
 .msg-menu { position: fixed; z-index: 40; min-width: 200px; padding: 4px; border: 1px solid var(--k-rule); border-radius: 8px;
             background: var(--k-surface); box-shadow: 0 8px 24px rgba(20,22,26,.16); }
 .msg-menu[hidden] { display: none; }
@@ -12444,6 +12445,9 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #5333 round 9: the restart's follow-up ("Restarted. Waking them...", or where the handoff is) lands here, OUTSIDE
            #d-linklost, which hides the moment the restart works. Cleared on every open, as d-restart-msg is. -->
       <div class="fmsg" id="d-linklost-msg" role="status" aria-live="polite"></div>
+      <!-- #5668: a token-only agent whose last guard run was not whole (with the reason), or whose denied paths are past
+           what the sandbox is known to take (its commands may stop running). Shown only then; a guarded agent shows nothing. -->
+      <p class="fhint detail-tokenguard" id="d-tokenguard" hidden></p>
       <!-- 🛑 THE "ASSIGNED TO" ROW IS GONE (Josh, 2026-08-22), and what went with
            it is worth knowing before anybody brings it back. It listed the
            projects this agent is on, read from the agent's end, and it carried a
@@ -38784,6 +38788,26 @@ function paintDetailState(card) {
       const b = document.getElementById('d-linklost-restart');
       if (b && b.dataset.restartAgent !== a.sessionName) b.dataset.restartAgent = a.sessionName;
     }
+  }
+  /* #5668: the token-only guard's last run (card.tokenGuard, from the record every run writes). Written only when it
+     changes (this runs every poll). The words are built here, not in a helper, because page tests lift this function. */
+  const tg = document.getElementById('d-tokenguard');
+  if (tg) {
+    // Absent for most agents (only a listed one with a record carries it), so asked with `in`, never read blind.
+    const g = card && 'tokenGuard' in card && card.tokenGuard && typeof card.tokenGuard === 'object' ? card.tokenGuard : null;
+    const parts = [];
+    if (g && g.state === 'notWhole') {
+      parts.push(a.name + ' is set to keep the board token out of its reach, but that protection is not complete'
+        + (g.because ? ': ' + g.because + (/[.!?]$/.test(g.because) ? '' : '.') : '.'));
+    }
+    if (g && g.warning) {
+      parts.push((g.state === 'notWhole' ? 'Also, its' : a.name + '\u2019s protection is in place, but its')
+        + ' list of blocked paths is longer than the sandbox is known to handle, so its commands may stop running.');
+    }
+    const words = parts.join(' ');
+    const on = words !== '';
+    if (tg.hidden === on) tg.hidden = !on;
+    if (on && tg.textContent !== words) tg.textContent = words;
   }
   const copy = stateCopyOf(a);
   /* ⚠️ The card's own derivations, not a copy of them: `cardStOf` decides the
