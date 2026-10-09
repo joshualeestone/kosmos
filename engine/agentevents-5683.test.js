@@ -546,3 +546,17 @@ test('#5683 r6: two long agent names that share their first 128 characters stay 
   assert.ok([...a].length <= 128);
 });
 
+/* ---- review 7 ---- */
+
+test('#5683 r7: a bare relative path in Bash (.claude/settings.json) is the agent\'s own settings', () => {
+  assert.equal(ae.targetClass('Bash', { command: 'cat .claude/settings.json' }, ctx()), 'agent-config');
+  assert.equal(ae.targetClass('Bash', { command: 'sed -i s/a/b/ .claude/settings.local.json' }, ctx()), 'agent-config');
+  assert.equal(ae.targetClass('Bash', { command: 'git fetch https://example.com/x' }, ctx()), 'other', 'a URL was taken as a path');
+});
+
+test('#5683 r7: a blank or filler-only agent name is not sent (as the coordinator refuses it)', () => {
+  assert.equal(ae.label('   '), null);
+  assert.equal(ae.label('\u3164'), null);
+  assert.equal(ae.label('Sc\u034fout'), null);
+});
+
