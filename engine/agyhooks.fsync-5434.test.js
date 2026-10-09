@@ -4,7 +4,7 @@
  * own folder, for an agent Kosmos found) through securewrite.writeSecret, so the bytes are flushed to disk BEFORE
  * the rename makes them the file (#5431). It keeps its mode, refuses a save whose every atomic attempt fails and
  * leaves the file as it was, never writes through a link planted at the temp name, and reaps only its own dead
- * temps. The arms are slice 9's (engine/personfsync-5434.test.js), for this writer.
+ * temps.
  *
  *   node --test engine/agyhooks.fsync-5434.test.js
  */
