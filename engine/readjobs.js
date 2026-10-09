@@ -38,7 +38,7 @@ function sweep(now) {
  * { done: true, value } (the read's answer, handed out once) or { done: false } (still reading; ask again).
  * `run` must resolve, never reject: a failed read is an answer too.
  */
-function ask(key, run, waitMs = soonWaitMs, now = Date.now()) {
+function ask(key, run, waitMs = soonWaitMs, now = Date.now(), { resend = () => false } = {}) {
   sweep(now);
   let job = jobs.get(key);
   if (!job) {
@@ -50,8 +50,12 @@ function ask(key, run, waitMs = soonWaitMs, now = Date.now()) {
   }
   const take = () => {
     if (!job.done) return { done: false };
-    /* Handed out: kept RESEND_MS more for the same question (review 3), then the next ask reads afresh. */
-    if (!job.handedAt) job.handedAt = Date.now();
+    /* Handed out. Review 4: kept RESEND_MS more only when the caller says this answer is worth asking for again (a
+       read that marked what it showed, answered well); anything else, a failure above all, is read afresh next time. */
+    let again = false;
+    try { again = resend(job.value) === true; } catch { again = false; }
+    if (!again) { if (jobs.get(key) === job) jobs.delete(key); }
+    else if (!job.handedAt) job.handedAt = Date.now();
     return { done: true, value: job.value };
   };
   if (job.done) return Promise.resolve(take());
