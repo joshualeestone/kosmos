@@ -6507,7 +6507,7 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tkact + .tkact { border-top: 1px solid var(--k-rule); }
 .tkact time { flex: 0 0 auto; min-width: 96px; color: var(--label-2); font-size: .8rem; }
 .tkact .tkact-what { flex: 1; min-width: 0; }
-/* kosmos#5643: a run of runs that found nothing new is one row; pressing it shows each. */
+/* kosmos#5643: a run of runs that found nothing new or repeated their note is one row; pressing it shows each. */
 .tkact-roll { border-top: 1px solid var(--k-rule); }
 .tkact-roll:first-child { border-top: 0; }
 .tkact-roll > summary { cursor: pointer; list-style: none; }
@@ -6518,6 +6518,7 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tkact-roll[open] > summary .tkact-what::before { content: '\25BE\00A0'; content: '\25BE\00A0' / ''; }
 .tkact-roll > summary .tkact-what { color: var(--label-2); }
 .tkact-roll .tkact-rows { padding-left: 18px; }
+.tkact-roll[open] .tkact-rows { border-top: 1px solid var(--k-rule); }
 .tkact-roll + .tkact { border-top: 1px solid var(--k-rule); }
 /* #5153 slice 3: Profile's Recent work rows: the task's sentence over a muted line. */
 .dwork-list { display: flex; flex-direction: column; }
