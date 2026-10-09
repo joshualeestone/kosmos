@@ -104,7 +104,7 @@ function save({ name, does, know } = {}) {
   };
   fs.mkdirSync(path.dirname(FILE), { recursive: true });
   // #5434 slice 17: store.saveFlushed (securewrite: flushed before the rename, the folder after on POSIX; a unique temp; the existing mode kept), so a crash cannot leave it at full length but zero-filled (#5431).
-  require('./store').saveFlushed(FILE, JSON.stringify(record, null, 2) + '\n');
+  store.saveFlushed(FILE, JSON.stringify(record, null, 2) + '\n');
   return record;
 }
 
