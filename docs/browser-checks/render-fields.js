@@ -139,11 +139,14 @@ const KNOWN_NATIVE_SLIDERS = ['d-swarm-max', 'd-swarm-cap', 'create-swarm-max', 
    for real (chromium only) and pins the fields' fill and text colour and that the secondary
    button has a solid stroke; it does NOT measure the fields' border or the button's stroke
    AGAINST the card. That gap is kosmos#3841, not this change. */
+/* #5628: the company sign-in's two fields (the computer's name, the second-step code) and its two secondary buttons
+   (Sign in with your company, Text me again) sit on the same navy card, so they are skipped here by name too. What
+   covers the fields there: render-plus-signin-3478 counts them and measures their fill, text and border on the card. */
 /* #5531: the company join code (#plus-org-code) is the panel's always-dark field too (the wizard's style, on the same navy
    card), so it is skipped here by name for the same reason. What covers it on its real ground: render-plus-blue-1615 pins
    its dark fill (a control), and render-plus-signin-3478 pins its fill and text colour with the wizard's. */
-const PLUS_WIZARD_FIELDS = new Set(['#plus-signin-email', '#plus-si-code-in', '#plus-si-second-in', '#plus-si-phone', '#plus-si-secret', '#plus-si-enrol-code', '#plus-si-name', '#plus-org-code']);   // field loop keys carry '#'
-const PLUS_WIZARD_BUTTONS = new Set(['plus-si-enrol-sms']);   // the button loop compares BARE ids
+const PLUS_WIZARD_FIELDS = new Set(['#plus-signin-email', '#plus-si-code-in', '#plus-si-second-in', '#plus-si-phone', '#plus-si-secret', '#plus-si-enrol-code', '#plus-si-name', '#plus-org-code', '#plus-si-company-name', '#plus-si-company-second']);   // field loop keys carry '#'
+const PLUS_WIZARD_BUTTONS = new Set(['plus-si-enrol-sms', 'plus-signin-company', 'plus-si-company-resend']);   // the button loop compares BARE ids
 const FIELDS = 'input:not([type=button]):not([type=file]):not([type=checkbox]):not([type=radio]):not([type=submit]), textarea, select';
 /* ⚠️ BUTTONS TOO, and their absence was a hole shaped exactly like the defect
    this branch shipped: `#cstep-made`'s buttons sat at 1.05:1 against their own
