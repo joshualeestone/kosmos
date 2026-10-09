@@ -1103,3 +1103,13 @@ test('#5532 review 31: a Kosmos with a consent hash but no words kept here (join
   const r = await org.reviewHere({ root: a, remote });
   assert.equal(r.ok, true, 'a Kosmos with no words kept here was refused Review as "already reports": ' + JSON.stringify(r));
 });
+
+test('#5685: a reviewer invite is offered with its role, and a role the coordinator does not define is still refused', async (t) => {
+  const { a } = sandbox(t);
+  const as = (role) => ({ macRequest: async () => ({ ok: true, data: { org: ORG, role, consent: CONSENT } }) });
+  const r = await org.preview('ACME-JOIN-1234', { root: a, remote: as('reviewer') });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.role, 'reviewer');
+  const bad = await org.preview('ACME-JOIN-1234', { root: a, remote: as('auditor') });
+  assert.equal(bad.ok, false, 'an unknown role was offered');
+});
