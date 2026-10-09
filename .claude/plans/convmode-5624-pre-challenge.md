@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: convmode-5624
-diff_hash: 79378c3e8e8b62b8098d433a23836d4d1f0512fe461588154ea6b386274f66c2
-validation: passed (rebased on origin/main; render-convmode-5624.js all arms PASS, each arm added after round 0 RED on the version without its fix; web.* + wiring + guards 2533/2533; both browser-check gates pass; the 14 composer surface checks PASS after round 7)
+diff_hash: c69788a53069c8a5b3d2cedcf8ec4c4c45d470a576870ef580b4ecadebd59442
+validation: re-validated after a rebase onto main (one README index conflict with main's render-orgenroll-5531 row, resolved to main's row plus this branch's render-convmode-5624 row): full node suite 17655 tests, 0 fail; both browser-check gates pass; render-convmode-5624 all passed. Earlier: passed (rebased on origin/main; render-convmode-5624.js all arms PASS, each arm added after round 0 RED on the version without its fix; web.* + wiring + guards 2533/2533; both browser-check gates pass; the 14 composer surface checks PASS after round 7)
 subdir_audit: passed
-timestamp: 2026-10-09T02:24:52Z
+timestamp: 2026-10-09T09:48:24Z
 iterations: 8
 converged: true
 ---
