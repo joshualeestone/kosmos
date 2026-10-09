@@ -150,3 +150,27 @@ test('#5434: removing a picture also takes a dead writer\'s copy of it beside th
   assert.equal(fs.existsSync(live), true, 'a live writer\'s temp was taken');
   fs.unlinkSync(live);
 });
+
+test('#5434: a keep that fails part way (after its temp exists) leaves no temp and the picture as it was', () => {
+  store.saveAvatar('hal', 'image/png', PNG);
+  const realOpen = fs.openSync;
+  const realWrite = fs.writeSync;
+  const keepFds = new Set();
+  let failed = 0;
+  fs.openSync = (f, flags, ...rest) => {
+    const fd = realOpen.call(fs, f, flags, ...rest);
+    if (flags === 'wx' && String(f).includes(path.sep + 'avatar-originals' + path.sep)) keepFds.add(fd);
+    return fd;
+  };
+  fs.writeSync = (fd, ...rest) => {
+    if (keepFds.has(fd)) { failed += 1; throw Object.assign(new Error('disk full'), { code: 'ENOSPC' }); }
+    return realWrite.call(fs, fd, ...rest);
+  };
+  try { assert.throws(() => store.keepAvatarOriginal('hal'), /disk full/); }
+  finally { fs.openSync = realOpen; fs.writeSync = realWrite; }
+  assert.ok(failed > 0, 'the planted failure never fired after a temp existed, so this arm tested nothing');
+  const dir = path.join(path.dirname(path.dirname(store.avatarPath('hal'))), 'avatar-originals');
+  const left = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith('.tmp')) : [];
+  assert.deepEqual(left, [], 'a keep that failed part way left its temp');
+  assert.deepEqual(fs.readFileSync(store.avatarPath('hal')), PNG, 'the picture changed');
+});

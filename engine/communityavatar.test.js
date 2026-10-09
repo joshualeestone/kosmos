@@ -639,6 +639,8 @@ test('#5302 saveRefitAvatar: a stale version writes nothing; otherwise the origi
   finally { fs.openSync = realOpen; }
   assert.ok(keepFailed > 0, 'the planted keep failure never fired, so this arm tested nothing');
   assert.ok(fs.readFileSync(store.avatarPath('kos')).equals(GIF), 'a failed keep still overwrote the picture');
+  // (the failure above is at the temp's open, so no temp exists here; a keep failing AFTER its temp exists is
+  // covered in engine/store.fsync-5434.test.js)
   assert.ok(!fs.readdirSync(dir).some((f) => f.endsWith('.tmp')), 'a failed copy left a temporary file');
   // Removing the picture takes its originals.
   store.removeAvatar('kos');
