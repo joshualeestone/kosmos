@@ -46,6 +46,7 @@ test('unwrapMemberKey refuses a wrap whose key does not derive to the expected p
   assert.strictEqual(keys.unwrapMemberKey(r.sk, w, mctx, other.pk), null, 'another member key');
   assert.strictEqual(keys.unwrapMemberKey(r.sk, w, mctx), null, 'no expected key');
   assert.strictEqual(keys.unwrapMemberKey(r.sk, w, mctx, member.pk.subarray(0, 31)), null, 'a short expected key');
+  assert.strictEqual(keys.unwrapMemberKey(r.sk, w, mctx, Buffer.concat([member.pk, Buffer.alloc(1)])), null, 'a 33-byte expected key');
 });
 
 test('a naming key wrapped to the member public key opens with the member private key, only for its period', () => {
@@ -60,6 +61,7 @@ test('a naming key wrapped to the member public key opens with the member privat
     assert.strictEqual(keys.unwrapNamingKey(member.sk, w, Object.assign({}, nctx, { [k]: nctx[k] + 'x' }), keys.namingKeyId(nk)), null, k);
   }
   assert.strictEqual(keys.unwrapNamingKey(keys.newMemberKey().sk, w, nctx, keys.namingKeyId(nk)), null, 'another member key');
+  assert.strictEqual(keys.unwrapNamingKey(member.sk.subarray(0, 31), w, nctx, keys.namingKeyId(nk)), null, 'a 31-byte member key');
   // The id is REQUIRED and must be this key's: another key's id, no id, or a malformed one refuses.
   assert.strictEqual(keys.unwrapNamingKey(member.sk, w, nctx, keys.namingKeyId(keys.newNamingKey())), null, 'another id');
   assert.strictEqual(keys.unwrapNamingKey(member.sk, w, nctx), null, 'no id');
@@ -206,4 +208,21 @@ test('a context value is read once: a getter that passes the check and then turn
   const b = keys.memberContextBytes(ctx);
   assert.strictEqual(b.toString(), 'kosmos-backup v1 member-key\norg=org1\nmember=acct1\nepoch=1');
   assert.strictEqual(n, 1);
+});
+
+test('a known-answer naming-key wrap (fixed member key, naming key and ephemeral) opens with its id', () => {
+  const h = (x) => Buffer.from(x, 'hex');
+  // Made with hpke's vector seams: member from DeriveKeyPair(32 x 0x01), naming key 32 x 0x04, ephemeral ikmE 32 x
+  // 0x05, info "kosmos-backup v1 key-wrap", context org1 / acct1 / 1 / 2026-W41.
+  const wrap = h('4b424e31402802aae25501861e6da002ef9f3e105b9296c3e3c90c92e600ec9a0ff5265789d8b6d076caa861e7dbc1bd90627266771aedb5117426b14fd1d40384e74e4d4921bc1cbc23bd3c6b608dc1c3353158');
+  const id = '46d91dd82a372c4b406491b36968da1a';
+  const s = require('./hpke').hpkeVectorSeamsForTests();
+  const member = s.deriveKeyPair(Buffer.alloc(32, 1));
+  assert.strictEqual(keys.namingKeyId(Buffer.alloc(32, 4)), id);
+  const got = keys.unwrapNamingKey(member.sk, wrap, nctx, id);
+  assert.ok(got && got.equals(Buffer.alloc(32, 4)));
+  const { sharedSecret, enc } = s.encap(member.pk, Buffer.alloc(32, 5));
+  const ks = s.keySchedule(sharedSecret, Buffer.from('kosmos-backup v1 key-wrap'));
+  const ct = s.aeadSeal(ks.key, s.nonceFor(ks.baseNonce, 0), keys.namingContextBytes(nctx), Buffer.alloc(32, 4));
+  assert.ok(Buffer.concat([Buffer.from('KBN1'), enc, ct]).equals(wrap));
 });
