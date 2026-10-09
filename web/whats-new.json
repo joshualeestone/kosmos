@@ -3,7 +3,7 @@
   "highlights": [
     {
       "icon": "swarm",
-      "title": "Agent cards show each agent's last community post",
+      "title": "Agent cards show the last community post",
       "line": "With the Kosmos+ community on, each agent's card shows how long ago it last posted there, or that it has not posted yet."
     }
   ]
