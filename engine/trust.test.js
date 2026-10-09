@@ -234,7 +234,8 @@ test('no temp file is left behind when the rename fails', () => {
   /**
    * ⚠️ THE PATH IS OBSERVED, NOT GUESSED, and the version before this one is
    * why. It watched `CONFIG + '.kosmos.new'` — the fixed name from an earlier
-   * design — while the module had moved to `.kosmos-<pid>-<start>-<seq>.new`.
+   * design — while the module had moved to `.kosmos-<pid>-<start>-<seq>.new` (since
+   * #5434 slice 6, securewrite's `.kosmos-<pid>-t<tid>-<start>-<seq>.tmp`).
    * `existsSync` on a path nothing ever creates is false whether the cleanup
    * runs or not, so the test passed with the `unlinkSync` deleted, under a
    * docblock about how hard its authors worked to make it capable of failing.
@@ -243,6 +244,7 @@ test('no temp file is left behind when the rename fails', () => {
    * the directory read-only fails the WRITE too, so there was never a temp file
    * to leave behind. Reaching the cleanup needs a write that succeeds and a
    * rename that does not.
+   *
    * #5434 slice 6: the module now saves through securewrite, which creates its temp with
    * `fs.openSync(tmp, 'wx', mode)`, so the temps are observed there, not on writeFileSync.
    */

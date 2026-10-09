@@ -43,8 +43,9 @@
  * `refuseSymlinkTarget` raises ERR_KOSMOS_SYMLINK, a throw source the old in-place writes did not
  * have. The three token-door call sites catch it directly; `sendertoken.writeTokens`
  * does NOT, and relies on `mint` and `retire` catching one level up, which is true at
- * one remove and worth knowing before you check the call site and find nothing. `trust.js` and `create.js`
- * carry older variants of the same pattern and are the precedent for it.
+ * one remove and worth knowing before you check the call site and find nothing. `create.js` carries an
+ * older variant of the same pattern and is the precedent for it (`trust.js` did too, until #5434 slice 6
+ * moved it onto this writer).
  */
 
 const fs = require('node:fs');
