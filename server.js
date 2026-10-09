@@ -2154,12 +2154,12 @@ function sentenceForWhoami(account, model, runner) {
       // #3939: no Kosmos account either; Muse has one sign-in per person on this Mac.
       : runner === 'muse' ? 'it uses the Muse sign-in on this computer'
       : 'we cannot tell which account it runs on') : why));
-  /* #5636 F5 (0.7.33 report: "names the provider, not the model"): Kosmos keeps a Muse agent's model as soon as a turn
-     names it (engine/musefront.js keepModel, mid-turn), and forgets it when the agent's helper starts. The agent reads
-     this about itself, so its one step is to tell its person; a restart helps only if the helper predates that keeping,
-     and the sentence says what it means if a later turn still says so after one, so nobody restarts in a loop. */
+  /* #5636 F5 (0.7.33 report: "names the provider, not the model"): Kosmos reads a Muse agent's model once a turn names
+     it (engine/musefront.js keepModel, read on the board's next pass). It says only what is known: none read yet, and
+     the one step if that persists. No restart advice (review 4): a restart clears the kept model until the next turn,
+     and several causes would not be helped by one, so it could only send the person round in a loop. */
   parts.push(model && model.name ? 'and its model is ' + model.name
-    : runner === 'muse' ? 'and we cannot tell which model it is running: Kosmos keeps a Muse agent\'s model as soon as a turn names it, and none has been kept for this one. Tell your person: a restart from its page in Kosmos may fix it, and if a later turn still says so after that, Kosmos cannot read this agent\'s model'
+    : runner === 'muse' ? 'and we cannot tell which model it is running: Kosmos has not read one for this Muse agent yet (it reads it once a turn names it). If a later turn still says so, tell your person that Kosmos cannot read this agent\'s model'
       : 'and we cannot tell which model it is running');
   return parts.join(', ') + '.';
 }
