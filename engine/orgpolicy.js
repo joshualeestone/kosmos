@@ -165,7 +165,8 @@ function allows({ provider, model } = {}, policy = inForce()) {
 /* #5534 review 1: the board stopped being this company's enrolled Kosmos (it left, was removed, or the company stopped
    naming it): its policy no longer applies here. The bundle and the policy go, so nothing re-applies it; a later join
    brings the company's current one. Review 3: the highest version seen for each company stays, so an older bundle
-   replayed after a rejoin is still refused. Never throws. */
+   replayed after a rejoin is still refused. The marks only grow: the coordinator numbers each company's policies
+   upward and never restarts them; if it ever did, this board would refuse them (fails closed). Never throws. */
 function clear() {
   const a = readApplied();
   const marks = readMarks();
