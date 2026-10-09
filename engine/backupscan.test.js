@@ -90,7 +90,7 @@ test('#5686 review 3: a writer\'s temp copy of a denied file is denied with it, 
     'projects/site/remote/talk.keynote', 'projects/site/remote/imac_keyboard.md', 'projects/site/communitysend-notes.md',
     'projects/site/undo/notes.md', 'notes/undo-saved-ideas.md', 'projects/site/undo/blobs.md', 'notes/mac_keyboard2.md', 'notes/trade-secrets/plan.md', 'notes/trade-secrets/env.md', 'Kosmos/remote/account', 'Kosmos/remote/peers.json',
     'Kosmos/remote/devices.json', 'projects/site/pairing.json', 'Kosmos/remote/old/pairing.json',
-    'acct/.removed-claude-notes/readme.md', 'Kosmos/codex-homes/angel/sessions/2026/10/09/rollout-x.jsonl',
+    'acct/.removed-claude-notes/readme.md', 'agents/a/secrets.new-approach', 'x/2mac_key', 'Kosmos/codex-homes/angel/sessions/2026/10/09/rollout-x.jsonl',
     'Kosmos/codex-homes/angel/config.toml', 'notes/plan.template', 'notes/id_rsa.temperature.md', 'Kosmos/secrets/readme.example', 'projects/site/remote/notes.md.bak', 'w/' + '\u{1F600}'.repeat(130) + '.tmp']) {
     assert.equal(bs.pathDecision(p).include, true, `CONTROL: ${p} is a temp of ordinary work, or not a temp, and is kept`);
   }
