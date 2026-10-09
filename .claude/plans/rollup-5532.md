@@ -384,3 +384,12 @@ PR #5604) with main merged in (#5531, #5556, #5565, #5571 all merged), then wire
   execution like the board's other background sweeps (a test, or a board that never turned it on, sends nothing even
   with an enrolled fixture). Pinned by a source check that the gate comes before the send; the mutation fails.
   Not changed here: main's orgEnrollRefresh (from #5531) has the same shape; noted on #5531 for a follow-up.
+- Review 29: /api/org says WHY a joined Kosmos does not report (reportingWait 'print' when its words are accepted but the
+  rollup waits for the computer's identity), and the page no longer says "not accepted" in that case (O12d; mutation
+  fails). The gate test matches the gate on a line of code, not a comment.
+  DECIDED: an enrollment made before this branch (main's #5531) has a consent hash but no record of the words, so it
+  stops reporting after the upgrade until the words are accepted again. The way back while joined is "Review what your
+  company sees" (#5644). Cost accepted: no real users yet. When #5644 and this branch are both on main, the Review button
+  must not be offered to a Kosmos that only waits for its print (reportingWait 'print'): done at this branch's rebase.
+  NOT CHANGED: project members are not limited to the listed agents (the coordinator's rules, as the test oracle models
+  them, accept a member that is not listed; decided in reviews 7 and 10).

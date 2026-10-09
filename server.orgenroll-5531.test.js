@@ -76,7 +76,7 @@ test('#5531: from the screen, a decline sends nothing and records nothing; a pre
 
 test('#5531: GET /api/org reports this world\'s own record, and only one that names this world', async () => {
   const none = await call('/api/org', { method: 'GET', headers: SCREEN });
-  assert.deepEqual(none.json, { enrolled: false, reporting: false, stoppedFor: null, leaveRefused: null, leaveRefusedUndo: false, org: null, role: null, enrolledAt: null });
+  assert.deepEqual(none.json, { enrolled: false, reporting: false, reportingWait: null, stoppedFor: null, leaveRefused: null, leaveRefusedUndo: false, org: null, role: null, enrolledAt: null });
   const world = oe.worldId();
   fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', world, enrolledAt: '2026-10-07T00:00:00.000Z' }));
   const yes = await call('/api/org', { method: 'GET', headers: SCREEN });
@@ -415,7 +415,9 @@ test('#5532 rollup review 24: start() arms the rollup tick, and the joined view 
   // Review 28: the tick sends only under live execution, checked before anything is read or sent.
   const serverSrc = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   const fn = serverSrc.slice(serverSrc.indexOf('function orgRollupTick()'), serverSrc.indexOf('\n}\n', serverSrc.indexOf('function orgRollupTick()')));
-  const gate = fn.indexOf('if (!liveExecution.liveExecutionAllowed()) return;');
+  // On a line of code, not in a comment (review 29: a commented-out gate must not pass).
+  const gateLine = fn.split('\n').find((l) => /^\s*if \(!liveExecution\.liveExecutionAllowed\(\)\) return;/.test(l));
+  const gate = gateLine ? fn.indexOf(gateLine) : -1;
   assert.ok(gate > 0 && gate < fn.indexOf("require('./engine/orgrollup').tick()"), 'the rollup tick is not gated on live execution before it sends');
   // The route: words remembered, but the rollup's own state says it waits for a print: not "reports".
   const rollup = require('./engine/orgrollup');
@@ -431,9 +433,13 @@ test('#5532 rollup review 24: start() arms the rollup tick, and the joined view 
   remote.macRequest = async () => ({ ok: true, data: { member: true, org: ACME, role: 'member', enrolled: { computer: 'c1', world: oe.worldId(), thisComputer: true } } });
   t.after(() => { remote.macRequest = orig; });
   fs.writeFileSync(stateFile, JSON.stringify({ enrolledAs }));
-  assert.equal((await call('/api/org', { method: 'GET', headers: SCREEN })).json.reporting, true, 'CONTROL: with the words and no wait, it reports');
+  const reportingNow = (await call('/api/org', { method: 'GET', headers: SCREEN })).json;
+  assert.equal(reportingNow.reporting, true, 'CONTROL: with the words and no wait, it reports');
+  assert.equal(reportingNow.reportingWait, null);
   fs.writeFileSync(stateFile, JSON.stringify({ enrolledAs, printWaitAt: Date.now() - 1000 }));
-  assert.equal((await call('/api/org', { method: 'GET', headers: SCREEN })).json.reporting, false, 'the view said it reports while the rollup waited for a print');
+  const waiting = (await call('/api/org', { method: 'GET', headers: SCREEN })).json;
+  assert.equal(waiting.reporting, false, 'the view said it reports while the rollup waited for a print');
+  assert.equal(waiting.reportingWait, 'print', 'the view does not say WHY (review 29): the page would say the words were not accepted');
 });
 
 test('#5531 follow-up: a company\'s stated empty backed-up list reaches the screen through the real preview route', async (t) => {

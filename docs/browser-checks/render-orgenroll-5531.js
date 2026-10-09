@@ -60,7 +60,7 @@ function harness() {
       if (u.endsWith('/api/org') && window.__orgFail) throw new Error('offline');
       if (u.endsWith('/api/org') && window.__orgState) return enc(window.__orgState);
       if (u.endsWith('/api/org')) return enc(window.__refused
-        ? { enrolled: true, reporting: window.__notReporting !== true, stoppedFor: null, leaveRefused: window.__refused, leaveRefusedUndo: window.__refusedUndo === true, org: { name: 'Acme', slug: 'acme' }, role: 'admin', enrolledAt: '2026-10-07T00:00:00.000Z' }
+        ? { enrolled: true, reporting: window.__notReporting !== true && window.__printWait !== true, reportingWait: window.__printWait === true ? 'print' : null, stoppedFor: null, leaveRefused: window.__refused, leaveRefusedUndo: window.__refusedUndo === true, org: { name: 'Acme', slug: 'acme' }, role: 'admin', enrolledAt: '2026-10-07T00:00:00.000Z' }
         : { enrolled: false, stoppedFor: window.__stopped || null, leaveRefused: null, org: null, role: null, enrolledAt: null });
       if (u.endsWith('/api/remote') && !(init && init.method)) return enc({ enrolled: true, on: true });   // a connected computer
       if (u.includes('/api/history')) return enc({ readable: false });   // Settings' history row, in the shape the engine sends when it has none
@@ -199,6 +199,15 @@ const shown = (pg, id) => pg.evaluate((i) => { const el = document.getElementByI
     chk(/sends your company nothing: its words were not accepted on this computer\.$/.test(o12c) && !/reports to it/.test(o12c) && !/until you accept/.test(o12c)
       && /It sends your company nothing/.test(say12c),
       'O12 a Kosmos that may not report is never told it reports, and its joined view says it sends nothing', JSON.stringify({ o12c, say12c }));
+    // O12d (rollup review 29): a Kosmos whose words ARE accepted but whose rollup waits for the computer's identity is
+    // never told its words were not accepted; it is told it reports once that is read. CONTROL: O12c above.
+    await page.evaluate(() => { window.__notReporting = false; window.__printWait = true; PLUS_ORG.at = 0; document.getElementById('plus-org-msg').textContent = 'an earlier line'; plusOrgMaybe(); });
+    await page.waitForFunction(() => /identity/.test(document.getElementById('plus-org-msg').textContent), null, { timeout: 5000 }).catch(() => {});
+    const o12d = await page.evaluate(() => ({ msg: document.getElementById('plus-org-msg').textContent, say: document.getElementById('plus-org-say').textContent }));
+    chk(/It reports to your company once it has read this computer's identity\.$/.test(o12d.msg) && !/not accepted/.test(o12d.msg)
+      && /once it has read this computer's identity/.test(o12d.say) && !/not accepted/.test(o12d.say),
+      'O12 a Kosmos waiting for the computer\'s identity is told it reports once that is read, never that its words were not accepted', JSON.stringify(o12d));
+    await page.evaluate(() => { window.__printWait = false; });
     await page.evaluate(() => { window.__notReporting = false; window.__refused = null; window.__refusedUndo = false; PLUS_ORG.state = { enrolled: false, org: null, role: null }; plusOrgPaint(); });
 
     // O8: the company stopped naming this world. The next /api/org read carries stoppedFor; the block says so.
