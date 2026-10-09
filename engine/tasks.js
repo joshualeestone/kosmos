@@ -786,7 +786,8 @@ function withoutBuilt(t) {
  * task is refused: closing already cleared the mark.
  */
 function setBuilt(projectId, n, { by = null, person = false, note = '', refusePersonMark = false } = {}) {
-  const said = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
+  /* Review 3 (#5705): format characters (zero-width and the like) are not a note, so a note of only those is none. */
+  const said = typeof note === 'string' ? note.replace(/\p{Cf}/gu, '').replace(/\s+/g, ' ').trim() : '';
   if (said.length > BUILT_NOTE_MAX) return { ok: false, because: `keep the note to ${BUILT_NOTE_MAX} characters or fewer` };
   const isPerson = person === true;
   const who = !isPerson && typeof by === 'string' && by.trim() ? by.trim().slice(0, WHO_MAX) : null;
@@ -830,7 +831,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
   if (repeating) return { ok: false, because: 'that task repeats, so it is never built and waiting: record each run with kosmos task ran instead' };
   if (unsaid) {
     return { ok: false, needsNote: true, because: 'this task has ' + (unsaid === 1 ? 'a done-when check' : unsaid + ' done-when checks')
-      + ', so mark it built with a note saying how ' + (unsaid === 1 ? 'it' : 'each') + ' went: kosmos task built ' + projectId + ' ' + n + (unsaid === 1 ? " '1 met.'" : " '1 met. 2 not met: <why>'") };   // review 1: single quotes, which the Mac command's error reader keeps
+      + ', so mark it built with a note saying how ' + (unsaid === 1 ? 'it' : 'each') + ' went (kosmos task built ' + projectId + ' ' + n + (unsaid === 1 ? " '1 met.'" : " '1 met. 2 not met: <why>'") + ')' };   // review 3: in brackets, so a full stop after it is not copied into the command   // review 1: single quotes, which the Mac command's error reader keeps
   }
   if (personMark) return { ok: false, person: true, because: 'the person marked this task built, so only the person can change that mark' };
   if (same) return { ok: true, task: changed, changed: false };

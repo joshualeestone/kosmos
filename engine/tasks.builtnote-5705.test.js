@@ -35,7 +35,7 @@ test('#5705: a bare agent mark on a task with one check is refused, writes nothi
   const out = tasks.setBuilt(id, n, { by: 'rex' });
   assert.equal(out.ok, false);
   assert.equal(out.needsNote, true);
-  assert.equal(out.because, `this task has a done-when check, so mark it built with a note saying how it went: kosmos task built ${id} ${n} '1 met.'`);
+  assert.equal(out.because, `this task has a done-when check, so mark it built with a note saying how it went (kosmos task built ${id} ${n} '1 met.')`);
   assert.equal('builtAt' in stored(id, n), false);
   assert.ok(!taskchat.read(id, n).some((e) => e.kind === 'built'), 'a refused mark wrote a history line');
   assert.equal(tasks.setBuilt(id, n, { by: 'rex', note: '1 met.' }).ok, true);
@@ -47,7 +47,11 @@ test('#5705: the person never needs a note, an unnamed caller does, and an unche
   const a = tasks.create(id, { sentence: 'Checked A', who: 'rex', doneWhen: ['one', 'two'] }).number;
   assert.equal(tasks.setBuilt(id, a, { person: true }).ok, true);
   const b = tasks.create(id, { sentence: 'Checked B', who: 'rex', doneWhen: ['one'] }).number;
-  assert.equal(tasks.setBuilt(id, b, { by: null }).ok, false, 'an unnamed caller is not the person');
+  const unnamed = tasks.setBuilt(id, b, { by: null });
+  assert.equal(unnamed.ok, false, 'an unnamed caller is not the person');
+  assert.equal(unnamed.needsNote, true, 'refused for the note, not some other reason');
+  // Review 3: a note of only zero-width characters is no note.
+  assert.equal(tasks.setBuilt(id, b, { by: 'rex', note: '\u200b\u2060' }).needsNote, true);
   const c = tasks.create(id, { sentence: 'No checks', who: 'rex' }).number;
   assert.equal(tasks.setBuilt(id, c, { by: 'rex' }).ok, true, 'CONTROL: no checks, no note needed');
 });
@@ -58,4 +62,14 @@ test('#5705: re-marking an already-built checked task bare is refused too, and t
   assert.equal(tasks.setBuilt(id, n, { by: 'rex', note: '1 met.' }).ok, true);
   assert.equal(tasks.setBuilt(id, n, { by: 'rex' }).ok, false);
   assert.equal(stored(id, n).builtNote, '1 met.');
+});
+
+test('#5705 review 3: on a checked task the person already marked, an agent hears the person-mark answer, not the note one', () => {
+  const id = project();
+  const n = tasks.create(id, { sentence: 'Checked, person marked', who: 'rex', doneWhen: ['it works'] }).number;
+  assert.equal(tasks.setBuilt(id, n, { person: true }).ok, true);
+  const out = tasks.setBuilt(id, n, { by: 'rex', refusePersonMark: true });
+  assert.equal(out.ok, false);
+  assert.equal(out.person, true, JSON.stringify(out));
+  assert.notEqual(out.needsNote, true);
 });

@@ -4378,7 +4378,7 @@ cmd_task() {
       say "      --part <part-number>                                     which part, when the task has several"
       say "  kosmos task close <project-id> <task-number>                  close one (number is from list)"
       say "  kosmos task message <project-id> <task-number> \"<what to say>\"  say something in a task's conversation"
-      say "  kosmos task built <project-id> <task-number> [\"what is left\"]  mark it built, waiting to be released or checked"
+      say "  kosmos task built <project-id> <task-number> [\"note\"]  mark it built; with checks, the note says how each went"
       say "      --clear                                                  take the built mark off"
       say "  kosmos task done-when <project-id> <task-number> \"<check>\" [\"<check>\" [\"<check>\"]]  say what finished means for it"
       say "      --clear                                                  take its checks off"
@@ -4475,12 +4475,12 @@ cmd_task() {
       # Review 1: `message p 3 --` leaves no words once the -- is dropped; that is the usage error, not an empty send.
       [ -n "${KOSMOS_TEXT_ARGS[*]+${KOSMOS_TEXT_ARGS[*]}}" ] || { say "Usage: kosmos task message <project-id> <task-number> \"<what to say>\""; exit 2; } ;;
     built)
-      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task built <project-id> <task-number> [\"what is left\"]   (or --clear to take the mark off)"; exit 2; }
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task built <project-id> <task-number> [\"note\"]   (a note on how each check went, if it has checks; or --clear to take the mark off)"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
       local _c _cpast=0   # kosmos#4889: --clear is built's one option; any other --word is refused
       for _c in "${@:3}"; do
         if [ "$_cpast" = 1 ]; then break; fi
-        case "$_c" in --) _cpast=1 ;; --clear) ;; --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task built" "Usage: kosmos task built <project-id> <task-number> [\"what is left\"]   (or --clear to take the mark off)" "$_c" ;; esac
+        case "$_c" in --) _cpast=1 ;; --clear) ;; --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task built" "Usage: kosmos task built <project-id> <task-number> [\"note\"]   (a note on how each check went, if it has checks; or --clear to take the mark off)" "$_c" ;; esac
       done ;;
     assign)
       # #4914: <project> <task-number> <agent|me|nobody> [--part <n>], checked before the board as --parent is.
