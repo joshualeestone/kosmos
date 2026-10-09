@@ -1163,3 +1163,82 @@ test('a name masked on its own still has its split windows checked: a second tok
     assert.ok(!json.includes(TOKEN) && !json.includes(other.slice(4)), 'neither token, nor the split one, reaches the manifest');
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+/* #5686: several named roots. A world's work is not under one folder (the default world keeps data, agents and
+   projects in three places), so a snapshot can take [{ name, path, exclude? }] and store each root's files under its name. */
+function threeRoots() {
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kbroots-')));
+  const roots = { data: path.join(base, 'AppSupport', 'Kosmos'), workers: path.join(base, 'work', 'workers'), projects: path.join(base, 'Kosmos', 'Projects') };
+  const files = {
+    data: { 'chats/direct..a.json': '{"m":["hi"]}\n', 'messages.jsonl': '{"room":"r","text":"hello"}\n' },
+    workers: { 'a/notes.md': 'agent notes\n', 'a/.env': 'SECRET=1\n', 'a/deps/x.js': 'dependency\n' },
+    projects: { 'site/index.html': '<p>site</p>\n' },
+  };
+  for (const [r, fl] of Object.entries(files)) {
+    for (const [rel, body] of Object.entries(fl)) { fs.mkdirSync(path.dirname(path.join(roots[r], rel)), { recursive: true }); fs.writeFileSync(path.join(roots[r], rel), body); }
+  }
+  return { base, roots, files };
+}
+const takeRoots = (k, roots, st, deps = {}) => snap.takeSnapshot({ roots, memberPk: k.member.pk, namingKey: k.nk, namingKeyId: k.nkId, deviceKey: k.dev.privateKey, ctx: k.ctx },
+  Object.assign({ now: () => NOW, uploadChunks: st.uploadChunks, uploadManifest: st.uploadManifest }, deps));
+
+test('#5686: three named roots round-trip under their names; each root keeps its own deny-list and exclude', async () => {
+  const w = threeRoots(), k = keys(), st = store();
+  try {
+    const r = await takeRoots(k, [{ name: 'data', path: w.roots.data }, { name: 'workers', path: w.roots.workers, exclude: ['a/deps'] }, { name: 'projects', path: w.roots.projects }], st);
+    assert.equal(r.ok, true, r.because);
+    const { opened, r: rr, sink } = await restoreFrom(k, st, st.manifests[0].bytes);
+    assert.equal(rr.failed.length, 0);
+    assert.deepEqual([...sink.committed.keys()].sort(), ['data/chats/direct..a.json', 'data/messages.jsonl', 'projects/site/index.html', 'workers/a/notes.md']);
+    for (const [root, fl] of Object.entries(w.files)) {
+      for (const [rel, body] of Object.entries(fl)) if (sink.committed.has(`${root}/${rel}`)) assert.equal(sink.committed.get(`${root}/${rel}`).toString(), body, `${root}/${rel}`);
+    }
+    const why = Object.fromEntries(opened.skipped.map((x) => [x.path, x.why]));
+    assert.equal(why['workers/a/.env'], 'environment file', 'the deny-list runs inside every root, and the skip names the root');
+    assert.match(why['workers/a/deps'], /settings/, 'an exclude is the root\'s own, relative to it');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('#5686: roots that cannot be used are refused before anything is read or uploaded', async () => {
+  const w = threeRoots(), k = keys();
+  try {
+    const cases = [
+      [[{ name: 'data', path: w.roots.data }, { name: 'data', path: w.roots.workers }], /repeats or contains/],
+      [[{ name: 'sessions', path: w.roots.data }, { name: 'sessions/claude', path: w.roots.workers }], /repeats or contains/],
+      [[{ name: 'Data', path: w.roots.data }], /lowercase/],
+      [[{ name: '../x', path: w.roots.data }], /lowercase/],
+      [[{ name: 'data', path: 'relative/path' }], /absolute/],
+      [[{ name: 'data', path: path.join(w.base, 'missing') }], /could not be read/],
+      // A root inside another, by real path: its files would be stored twice.
+      [[{ name: 'all', path: w.base }, { name: 'data', path: w.roots.data }], /inside the root all/],
+      [[], /1 to 64/],
+    ];
+    for (const [roots, want] of cases) {
+      const st = store();
+      const r = await takeRoots(k, roots, st);
+      assert.equal(r.ok, false, JSON.stringify(roots.map((x) => x.name)));
+      assert.match(r.because, want);
+      assert.equal(st.batches.length + st.manifests.length, 0, 'nothing uploaded');
+    }
+    const st = store();
+    const both = await snap.takeSnapshot({ root: w.roots.data, roots: [{ name: 'data', path: w.roots.data }], memberPk: k.member.pk, namingKey: k.nk, namingKeyId: k.nkId, deviceKey: k.dev.privateKey, ctx: k.ctx },
+      { now: () => NOW, uploadChunks: st.uploadChunks, uploadManifest: st.uploadManifest });
+    assert.match(both.because, /not both/);
+    // CONTROL: the same roots, correctly named and not nested, are accepted.
+    const ok = await takeRoots(k, [{ name: 'data', path: w.roots.data }, { name: 'sessions-claude', path: w.roots.workers }], store());
+    assert.equal(ok.ok, true, ok.because);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('#5686: a file is read from its own root (a same-named file in another root is never read in its place)', async () => {
+  const w = threeRoots(), k = keys(), st = store();
+  try {
+    fs.writeFileSync(path.join(w.roots.data, 'same.txt'), 'from data\n');
+    fs.writeFileSync(path.join(w.roots.workers, 'same.txt'), 'from workers\n');
+    const r = await takeRoots(k, [{ name: 'data', path: w.roots.data }, { name: 'workers', path: w.roots.workers }], st);
+    assert.equal(r.ok, true, r.because);
+    const { sink } = await restoreFrom(k, st, st.manifests[0].bytes);
+    assert.equal(sink.committed.get('data/same.txt').toString(), 'from data\n');
+    assert.equal(sink.committed.get('workers/same.txt').toString(), 'from workers\n');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
