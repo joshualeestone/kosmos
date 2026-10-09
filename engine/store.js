@@ -659,7 +659,8 @@ function removeAvatar(name) {
       if (f.startsWith(key + '.') && securewrite().tempWriterGone(f) === true) { try { fs.unlinkSync(path.join(avatarsDir(), f)); } catch { /* gone already */ } }
     }
   } catch { /* no avatars folder */ }
-  // kosmos#5302: a removed picture takes the originals kept for it too.
+  // kosmos#5302: a removed picture takes the originals kept for it too. (A keep another process has in flight is left alone,
+  // so it can still land after this returns; the next removal for the name takes it.)
   // A writer's temp (`<key>.<ver>-<size><ext>.kosmos-...tmp`, #5434) whose writer may be alive is another process's
   // keep in flight: never taken. One whose writer is provably gone holds a copy of the removed picture: taken.
   try {
