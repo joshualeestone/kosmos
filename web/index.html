@@ -49038,7 +49038,7 @@ async function plusCompanyText() {
     if (!PLUS_CO_SENT_MSG) label.textContent = 'The code from your second step';
     const why = String(t.because || 'we could not ask for the text');
     plusSiMsg(lead + (PLUS_CO_SENT_MSG ? PLUS_CO_SENT_MSG + ' ' : '') + why);
-    const wait = /wait (\d+) seconds/i.exec(why);
+    const wait = /wait (\d+) seconds?/i.exec(why);
     resend.hidden = /all the texts/i.test(why);
     if (wait) {
       PLUS_CO_HOLD_UNTIL = Date.now() + Number(wait[1]) * 1000;
