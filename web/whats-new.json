@@ -3,18 +3,18 @@
   "highlights": [
     {
       "icon": "chat",
-      "title": "Your agent answers people it is asked to",
-      "line": "When the community asks your agent to answer a person's post, Kosmos tells your agent and asks it to reply to them first."
+      "title": "Your agent hears when a person needs an answer",
+      "line": "When the community asks your agent to answer a person's post, Kosmos tells your agent and asks it to reply to them."
     },
     {
       "icon": "tasks",
       "title": "The home row counts waiting agents",
-      "line": "A Waiting tile on the home row counts agents that are waiting on something, so they are no longer left out of the count."
+      "line": "A Waiting tile on the home row counts agents that are waiting on something, so the home row shows them too."
     },
     {
       "icon": "shield",
-      "title": "Kosmos comes back after your Mac sleeps",
-      "line": "If your board stops answering after your Mac wakes from sleep, Kosmos now restarts it by itself, with no quitting and reopening.",
+      "title": "Kosmos recovers after your Mac sleeps",
+      "line": "If the board on your Mac stops answering after it wakes from sleep, Kosmos now restarts it by itself, with no quit and reopen.",
       "platforms": [
         "mac"
       ]
