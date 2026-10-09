@@ -217,6 +217,10 @@ function quietExcused(summary, member, tasks, nowMs, allProjects) {
    and the state stays 'stale'. */
 function idleNoted(summary, member, readReport, nowMs) {
   if (!summary || summary.state !== 'stale') return summary;
+  /* #5636/#5635 F2 (0.7.33 report: "the flag does not use the idle or rate-limited states"): a member the board reads as
+     rate limited now cannot work, so its line says that instead of reading as overdue. The board's own state, said as
+     what it is now; when it began is not known, so no time is claimed. */
+  if (member && member.present && member.tied && member.state === 'rate_limited') return { ...summary, limitedNow: true };
   if (!member || !member.present || !member.tied || member.state !== 'idle') return summary;
   let rep = null;
   try { rep = readReport(member.sessionName); } catch { rep = null; }
@@ -392,8 +396,17 @@ function renderList(payload) {
 const SUMMARY_WORDS = {
   current: (s) => 'current (' + one(s.file) + ', ' + ago(s.ageMinutes) + ')',
   /* #5635 F2: a stale summary of a member idle now says so, so idle reads differently from overdue (idleNoted). */
-  stale: (s) => 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + one(s.file) + ', ' + ago(s.ageMinutes)
-    + (Number.isFinite(s.idleMinutes) ? (s.idleReported ? (s.idleKind === 'started' ? '; last reported starting ' : '; last reported idle ') : s.idleKind === 'started' ? '; idle since this session started ' : '; idle since ') + ago(s.idleMinutes) : '') + ')',
+  stale: (s) => {
+    /* 0.7.33 report F2: an idle or rate-limited member's line leads with what it is doing now, not with "older than the
+       rhythm", which read as overdue. A working member's line is unchanged. */
+    if (s.limitedNow) return 'last written ' + ago(s.ageMinutes) + ' (' + one(s.file) + '); rate limited now, so it cannot work until the limit lifts';
+    if (Number.isFinite(s.idleMinutes) && !s.idleReported) {
+      return (s.idleKind === 'started' ? 'last written before this session started (' : 'last written before it went idle (') + one(s.file) + ', ' + ago(s.ageMinutes)
+        + (s.idleKind === 'started' ? '; started ' + ago(s.idleMinutes) + ' and idle since then)' : '; idle since ' + ago(s.idleMinutes) + ')');
+    }
+    return 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + one(s.file) + ', ' + ago(s.ageMinutes)
+      + (Number.isFinite(s.idleMinutes) ? (s.idleKind === 'started' ? '; last reported starting ' : '; last reported idle ') + ago(s.idleMinutes) : '') + ')';
+  },
   // #4581 N10: the rhythm is while working; this one was current when the member went idle.
   idle: (s) => s.idleKind === 'started'
     ? 'current when this session started (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; started ' + ago(s.idleMinutes) + ' and idle since then)'
