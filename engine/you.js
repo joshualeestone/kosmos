@@ -103,9 +103,8 @@ function save({ name, does, know } = {}) {
     savedAt: new Date().toISOString(),
   };
   fs.mkdirSync(path.dirname(FILE), { recursive: true });
-  const tmp = FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(record, null, 2) + '\n');
-  fs.renameSync(tmp, FILE);
+  // #5434 slice 17: store.saveFlushed (securewrite: flushed before the rename, the folder after on POSIX; a unique temp; the existing mode kept), so a crash cannot leave it at full length but zero-filled (#5431).
+  require('./store').saveFlushed(FILE, JSON.stringify(record, null, 2) + '\n');
   return record;
 }
 

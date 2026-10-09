@@ -329,9 +329,8 @@ function writeRemoved(list) {
   // Written beside and renamed: this file decides what the board shows, and a
   // half-written one read as "nothing is removed" would put every stopped agent
   // back on screen.
-  const tmp = `${REMOVED_FILE}.${process.pid}.new`;
-  fs.writeFileSync(tmp, `${JSON.stringify(list, null, 2)}\n`, 'utf8');
-  fs.renameSync(tmp, REMOVED_FILE);
+  // #5434 slice 17: store.saveFlushed (securewrite: flushed before the rename, the folder after on POSIX; a unique temp; the existing mode kept), so a crash cannot leave it at full length but zero-filled (#5431).
+  require('./store').saveFlushed(REMOVED_FILE, `${JSON.stringify(list, null, 2)}\n`);
 }
 
 /**
