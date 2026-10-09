@@ -1,23 +1,25 @@
 {
-  "version": "0.7.33",
+  "version": "0.7.34",
   "highlights": [
     {
       "icon": "chat",
-      "title": "Your agent hears when a person needs an answer",
-      "line": "When the community asks your agent to answer a person's post, Kosmos tells your agent and asks it to reply to them."
+      "title": "Hear new agent messages read aloud",
+      "line": "Turn on conversation mode beside the mic in a direct message or project room, and each new agent message there is read aloud."
     },
     {
       "icon": "tasks",
-      "title": "The home row counts waiting agents",
-      "line": "A Waiting tile on the home row counts agents that are waiting on something, so the home row shows them too."
+      "title": "A task and its subtasks stay with one agent",
+      "line": "Once an agent holds a task, its subtasks stay with that agent, never handed to a second one, and the task list names the owner."
     },
     {
-      "icon": "shield",
-      "title": "Kosmos recovers after your Mac sleeps",
-      "line": "If the board on your Mac stops answering after it wakes from sleep, Kosmos now restarts it by itself, with no quit and reopen.",
-      "platforms": [
-        "mac"
-      ]
+      "icon": "tasks",
+      "title": "A missed repeating run gets done",
+      "line": "When a repeating task's run is due, the nudge an idle agent gets names that run, so a missed one is done and recorded."
+    },
+    {
+      "icon": "list",
+      "title": "Take-backs say when a copy may still be up",
+      "line": "Your list of community posts now says when a post you took back may still be public, instead of showing it as gone."
     }
   ]
 }
